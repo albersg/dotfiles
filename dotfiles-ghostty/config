@@ -33,7 +33,7 @@ gtk-tabs-location = hidden
 # │                                  SHADER                                      │
 # └──────────────────────────────────────────────────────────────────────────────┘
 
-custom-shader = shaders/cursor_smear_gentleman.glsl
+custom-shader = shaders/cursor_smear_dotfiles.glsl
 
 
 # ┌──────────────────────────────────────────────────────────────────────────────┐
