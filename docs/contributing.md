@@ -25,8 +25,8 @@ Guide for contributors and developers working on Gentleman.Dots.
 ```bash
 git clone https://github.com/Gentleman-Programming/Gentleman.Dots.git
 cd Gentleman.Dots/installer
-go build -o gentleman-dots ./cmd/gentleman-installer
-./gentleman-dots
+go build -o dotfiles ./cmd/gentleman-installer
+./dotfiles
 ```
 
 ### Run Tests
@@ -187,7 +187,7 @@ gh release create v{VERSION} \
 # Get SHA256 for each binary
 shasum -a 256 installer/gentleman-installer-*
 
-# Update homebrew-tap/Formula/gentleman-dots.rb with new version and hashes
+# Update homebrew-tap/Formula/dotfiles.rb with new version and hashes
 # Commit to both repos
 ```
 

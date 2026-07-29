@@ -1,5 +1,5 @@
 ---
-name: gentleman-installer
+name: dotfiles
 description: >
   Installation step patterns for Gentleman.Dots TUI installer.
   Trigger: When editing installer.go, adding installation steps, or modifying the installation flow.
@@ -262,10 +262,10 @@ SendLog(stepID, "✓ Step completed")      // Success
 ## Commands
 
 ```bash
-cd installer && go build ./cmd/gentleman-installer           # Build
-./gentleman-installer --help                                  # Show help
-./gentleman-installer --non-interactive --shell=fish         # Non-interactive
-GENTLEMAN_VERBOSE=1 ./gentleman-installer --non-interactive  # Verbose logs
+cd installer && go build ./cmd/dotfiles           # Build
+./dotfiles --help                                  # Show help
+./dotfiles --non-interactive --shell=fish         # Non-interactive
+DOTFILES_VERBOSE=1 ./dotfiles --non-interactive  # Verbose logs
 ```
 
 ---

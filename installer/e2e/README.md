@@ -71,7 +71,7 @@ End-to-end tests that verify the installer works across different Linux environm
 |----------|-------------|
 | `RUN_FULL_E2E=1` | Run installation tests (Ubuntu only) |
 | `RUN_BACKUP_TESTS=1` | Run backup system tests |
-| `GENTLEMAN_VERBOSE=1` | Enable verbose output |
+| `DOTFILES_VERBOSE=1` | Enable verbose output |
 
 ## Adding New Tests
 

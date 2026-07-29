@@ -67,8 +67,8 @@ RUN useradd -m -s /bin/bash testuser && \
     echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Copy installer binary
-COPY gentleman-installer-linux-amd64 /usr/local/bin/gentleman-dots
-RUN chmod +x /usr/local/bin/gentleman-dots
+COPY gentleman-installer-linux-amd64 /usr/local/bin/dotfiles
+RUN chmod +x /usr/local/bin/dotfiles
 
 # Copy test script
 COPY e2e/e2e_test.sh /home/testuser/e2e_test.sh
@@ -89,7 +89,7 @@ E2E tests use `--non-interactive` flag:
 test_fish_tmux_nvim() {
     log_test "Install: Fish + Tmux + Nvim"
 
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=fish --wm=tmux --nvim --backup=false 2>&1; then
 
         # Verify fish config exists
@@ -164,7 +164,7 @@ test_zsh_zellij() {
     log_test "Install: Zsh + Zellij (no nvim)"
 
     # Run installation
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=zsh --wm=zellij --backup=false 2>&1; then
 
         # Verify .zshrc exists
@@ -216,7 +216,7 @@ test_backup_creation() {
     cleanup_test_env
     setup_fake_configs
 
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=fish --wm=tmux --backup=true 2>&1; then
 
         backup_count=$(ls -d "$HOME/.gentleman-backup-"* 2>/dev/null | wc -l)

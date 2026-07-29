@@ -31,26 +31,26 @@ The Gentleman.Dots TUI Installer is a modern, interactive terminal application b
 ### Option 1: Homebrew (Recommended)
 
 ```bash
-brew install Gentleman-Programming/tap/gentleman-dots
-gentleman-dots
+brew install Gentleman-Programming/tap/dotfiles
+dotfiles
 ```
 
 ### Option 2: Download Pre-built Binary
 
 | Platform | Command |
 |----------|---------|
-| macOS Apple Silicon | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-darwin-arm64 -o gentleman-dots && chmod +x gentleman-dots && ./gentleman-dots` |
-| macOS Intel | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-darwin-amd64 -o gentleman-dots && chmod +x gentleman-dots && ./gentleman-dots` |
-| Linux x86_64 | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-linux-amd64 -o gentleman-dots && chmod +x gentleman-dots && ./gentleman-dots` |
-| Linux ARM64 | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-linux-arm64 -o gentleman-dots && chmod +x gentleman-dots && ./gentleman-dots` |
+| macOS Apple Silicon | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Intel | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux x86_64 | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux ARM64 | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
 
 ### Option 3: Build from Source
 
 ```bash
 git clone https://github.com/Gentleman-Programming/Gentleman.Dots.git
 cd Gentleman.Dots/installer
-go build -o gentleman-dots ./cmd/gentleman-installer
-./gentleman-dots
+go build -o dotfiles ./cmd/gentleman-installer
+./dotfiles
 ```
 
 ## Screens & Navigation
@@ -95,7 +95,7 @@ From the main menu you can access:
 ### Basic Flags
 
 ```bash
-gentleman.dots [flags]
+dotfiles [flags]
 ```
 
 | Flag | Shorthand | Description |
@@ -111,7 +111,7 @@ gentleman.dots [flags]
 For CI/CD or scripted installations:
 
 ```bash
-gentleman.dots --non-interactive --shell=<shell> [options]
+dotfiles --non-interactive --shell=<shell> [options]
 ```
 
 | Flag | Values | Description |
@@ -127,19 +127,19 @@ gentleman.dots --non-interactive --shell=<shell> [options]
 
 ```bash
 # Interactive TUI (default)
-gentleman.dots
+dotfiles
 
 # Non-interactive with Fish + Herdr + Neovim
-gentleman.dots --non-interactive --shell=fish --wm=herdr --nvim
+dotfiles --non-interactive --shell=fish --wm=herdr --nvim
 
 # Test mode with Zsh + Tmux (no terminal, no nvim)
-gentleman.dots --test --non-interactive --shell=zsh --wm=tmux
+dotfiles --test --non-interactive --shell=zsh --wm=tmux
 
 # Dry run to preview changes
-gentleman.dots --dry-run
+dotfiles --dry-run
 
 # Verbose output (shows all command logs)
-GENTLEMAN_VERBOSE=1 gentleman.dots --non-interactive --shell=fish --nvim
+DOTFILES_VERBOSE=1 dotfiles --non-interactive --shell=fish --nvim
 ```
 
 ## Backup & Restore
