@@ -922,8 +922,8 @@ def fzfnvim [] {
  use ~/.cache/starship/init.nu
  use ~/.config/bash-env.nu
 
-let MULTIPLEXER = "tmux" 
-let MULTIPLEXER_ENV_PREFIX = "TMUX"
+let MULTIPLEXER = "herdr"
+let MULTIPLEXER_ENV_PREFIX = "HERDR_ENV"
 
 def start_multiplexer [] {
   let active_env = ($env | columns)
@@ -931,5 +931,8 @@ def start_multiplexer [] {
     run-external $MULTIPLEXER
   }
 }
+
+$env.PATH = ($env.PATH | prepend "/home/alberto/.npm-global/bin")
+$env.PATH = ($env.PATH | prepend "/home/alberto/.local/share/pi-node/node-v22.23.1-linux-x64/bin")
 
 start_multiplexer

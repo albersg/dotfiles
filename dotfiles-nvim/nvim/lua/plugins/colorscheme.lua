@@ -43,12 +43,11 @@ return {
       },
     },
     {
-      "dotfiles-Programming/dotfiles-kanagawa-blur",
-      name = "dotfiles-kanagawa-blur",
+      "Gentleman-Programming/gentleman-kanagawa-blur",
+      name = "gentleman-kanagawa-blur",
       priority = 1000,
     },
     {
-      -- External plugin (third-party, not related to this project)
       "Alan-TheGentleman/oldworld.nvim",
       lazy = false,
       priority = 1000,
@@ -107,7 +106,7 @@ return {
     {
       "LazyVim/LazyVim",
       opts = {
-        colorscheme = "dotfiles-kanagawa-blur",
+        colorscheme = "gentleman-kanagawa-blur",
       },
     },
   },

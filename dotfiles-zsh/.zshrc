@@ -1,11 +1,9 @@
+export ZSH="$HOME/.oh-my-zsh"
+
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
-# Initialization code that may require console input (password prompts, [y/n]
-# confirmations, etc.) must go above this block; everything else may go below.
 if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
-
-export ZSH="$HOME/.oh-my-zsh"
 
 # Detect Termux
 IS_TERMUX=0
@@ -55,38 +53,71 @@ if [[ $IS_TERMUX -eq 0 ]]; then
     # Only eval brew shellenv if brew is installed
     if [[ -n "$BREW_BIN" && -f "$BREW_BIN/brew" ]]; then
         eval "$($BREW_BIN/brew shellenv)"
+
+        # Keep standard Zsh autoload functions aligned with the installed brew Zsh.
+        BREW_ZSH_FUNCTIONS="$($BREW_BIN/brew --prefix zsh)/share/zsh/functions"
+        if [[ -d "$BREW_ZSH_FUNCTIONS" ]]; then
+            typeset -U fpath
+            fpath=("$BREW_ZSH_FUNCTIONS" $fpath)
+        fi
     fi
 fi
 
-# Zsh plugins - different paths for Termux vs Homebrew
+# Use the user-managed Node runtime consistently.  This must run after
+# Homebrew's shell environment so `node` and `npm` do not fall back to the
+# system packages.  Codex is installed through npm's user-global prefix.
+if [[ $IS_TERMUX -eq 0 ]]; then
+    export PATH="$HOME/.npm-global/bin:$PATH"
+    export NVM_DIR="$HOME/.nvm"
+    if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        source "$NVM_DIR/nvm.sh"
+        nvm use --silent 22.23.1
+    fi
+fi
+
+# Zsh built-ins required by Oh My Zsh and completion plugins.
+zmodload zsh/zutil
+zmodload zsh/complist
+autoload -Uz add-zsh-hook add-zle-hook-widget bashcompinit colors compinit is-at-least zmathfunc zrecompile
+
+# Oh My Zsh must initialize before third-party plugins.
+plugins=(
+  command-not-found
+)
+source "$ZSH/oh-my-zsh.sh"
+
+# Third-party plugins: syntax highlighting must be loaded last.
 if [[ $IS_TERMUX -eq 1 ]]; then
     # Termux - plugins installed via pkg
     [[ -f "$PREFIX/share/zsh-autocomplete/zsh-autocomplete.plugin.zsh" ]] && source "$PREFIX/share/zsh-autocomplete/zsh-autocomplete.plugin.zsh"
-    [[ -f "$PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] && source "$PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
     [[ -f "$PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] && source "$PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
     # Powerlevel10k on Termux - may need manual install
     [[ -f "$PREFIX/share/powerlevel10k/powerlevel10k.zsh-theme" ]] && source "$PREFIX/share/powerlevel10k/powerlevel10k.zsh-theme"
+    [[ -f "$PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] && source "$PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 else
-    source_if_exists() {
-        [[ -f "$1" ]] && source "$1"
+    source_first_existing() {
+        local plugin_path
+        for plugin_path in "$@"; do
+            if [[ -f "$plugin_path" ]]; then
+                source "$plugin_path"
+                return
+            fi
+        done
     }
 
-    if [[ -n "$BREW_BIN" && -d "$(dirname $BREW_BIN)/share" ]]; then
-        BREW_SHARE="$(dirname $BREW_BIN)/share"
-        source_if_exists "$BREW_SHARE/zsh-autocomplete/zsh-autocomplete.plugin.zsh"
-        source_if_exists "$BREW_SHARE/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-        source_if_exists "$BREW_SHARE/zsh-autosuggestions/zsh-autosuggestions.zsh"
-        source_if_exists "$BREW_SHARE/powerlevel10k/powerlevel10k.zsh-theme"
-    fi
+    BREW_SHARE="${BREW_BIN:+$(dirname "$BREW_BIN")/share}"
 
-    # Native Linux package layouts (Arch/Fedora/Debian vary by package).
-    source_if_exists "/usr/share/zsh/plugins/zsh-autocomplete/zsh-autocomplete.plugin.zsh"
-    source_if_exists "/usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-    source_if_exists "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-    source_if_exists "/usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
-    source_if_exists "/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
-    source_if_exists "/usr/share/zsh-theme-powerlevel10k/powerlevel10k.zsh-theme"
-    source_if_exists "/usr/share/powerlevel10k/powerlevel10k.zsh-theme"
+    # Prefer Homebrew, then fall back to native Linux package layouts.
+    # zsh-autocomplete is intentionally disabled because it adds input lag.
+    source_first_existing "$BREW_SHARE/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+        "/usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+        "/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+    source_first_existing "$BREW_SHARE/powerlevel10k/powerlevel10k.zsh-theme" \
+        "/usr/share/zsh-theme-powerlevel10k/powerlevel10k.zsh-theme" \
+        "/usr/share/powerlevel10k/powerlevel10k.zsh-theme"
+    source_first_existing "$BREW_SHARE/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" \
+        "/usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" \
+        "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 fi
 
 export PROJECT_PATHS="/home/alanbuscaglia/work"
@@ -94,10 +125,8 @@ export FZF_DEFAULT_COMMAND="fd --hidden --strip-cwd-prefix --exclude .git"
 export FZF_DEFAULT_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_ALT_COMMAND="fd --type=d --hidden --strip-cwd-prefix --exlude .git"
 
-WM_VAR="/$TMUX"
-# change with ZELLIJ
-WM_CMD="tmux"
-# change with zellij
+WM_VAR="$HERDR_ENV"
+WM_CMD="herdr"
 
 function start_if_needed() {
     if [[ $- == *i* ]] && command -v "$WM_CMD" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then
@@ -108,13 +137,6 @@ function start_if_needed() {
 # alias
 alias fzfbat='fzf --preview="bat --theme=gruvbox-dark --color=always {}"'
 alias fzfnvim='nvim $(fzf --preview="bat --theme=gruvbox-dark --color=always {}")'
-
-#plugins
-plugins=(
-  command-not-found
-)
-
-source $ZSH/oh-my-zsh.sh
 
 export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
 zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
@@ -128,3 +150,11 @@ eval "$(atuin init zsh)"
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 start_if_needed
+export PATH="$PATH:/mnt/c/Program Files/Microsoft VS Code/bin"
+
+code() {
+  local distro="${WSL_DISTRO_NAME}"
+  local path="$(pwd)"
+  "/mnt/c/Program Files/Microsoft VS Code/bin/code" \
+    --folder-uri "vscode-remote://wsl+${distro}${path}"
+}

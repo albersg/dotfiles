@@ -58,7 +58,7 @@ return {
         hsl_color = {
           pattern = "hsl%(%d+,? %d+,? %d+%)", -- Pattern to match HSL color values
           group = function(_, match)
-            local utils = require("config.dotfiles.utils")
+            local utils = require("config.gentleman.utils")
             local h, s, l = match:match("hsl%((%d+),? (%d+),? (%d+)%)")
             h, s, l = tonumber(h), tonumber(s), tonumber(l)
             local hex_color = utils.hslToHex(h, s, l)

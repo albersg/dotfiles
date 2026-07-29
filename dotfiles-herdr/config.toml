@@ -1,4 +1,5 @@
-# herdr configuration managed by dotfiles.
+onboarding = false
+# herdr configuration managed by Gentleman.Dots.
 # This file is copied into ~/.config/herdr/config.toml during installation.
 
 [theme]
@@ -6,6 +7,7 @@
 # Ghostty bright-black selected rows or Kanagawa's warm/yellow label text.
 name = "one-dark"
 
+auto_switch = false
 [theme.custom]
 panel_bg = "#06080f"
 # Match Pi's Gentle theme, with a muted cyan for Herdr chrome.
@@ -18,6 +20,8 @@ yellow = "#DEBA87"
 [ui]
 accent = "#6FA0AF"
 
+show_agent_labels_on_pane_borders = true
+agent_panel_sort = "spaces"
 [keys]
 # Match tmux/Zellij-style prefix muscle memory.
 prefix = "ctrl+a"
@@ -31,3 +35,6 @@ next_agent = "prefix+alt+j"
 # Use Ctrl after the prefix: Alt+number is owned by skhd/yabai spaces,
 # and Shift+number did not reach Herdr reliably in the current terminal setup.
 focus_agent = "prefix+ctrl+1..9"
+
+[ui.toast]
+delivery = "herdr"

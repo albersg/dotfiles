@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+
+# Copyright 2021 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This is an example goreleaser.yaml file with some sane defaults.
+# Make sure to check the documentation at http://goreleaser.com
+
+version: 2
+before:
+  hooks:
+    - go mod download
+builds:
+- id: kubectx
+  main: ./cmd/kubectx
+  binary: kubectx
+  env:
+  - CGO_ENABLED=0
+  goos:
+    - linux
+    - darwin
+    - windows
+  goarch:
+    - amd64
+    - arm
+    - arm64
+    - ppc64le
+    - s390x
+  goarm: [6, 7]
+- id: kubens
+  main: ./cmd/kubens
+  binary: kubens
+  env:
+  - CGO_ENABLED=0
+  goos:
+    - linux
+    - darwin
+    - windows
+  goarch:
+    - amd64
+    - arm
+    - arm64
+    - ppc64le
+    - s390x
+  goarm: [6, 7]
+archives:
+- id: kubectx-archive
+  name_template: |-
+    kubectx_{{ .Tag }}_{{ .Os }}_
+    {{- with .Arch -}}
+      {{- if (eq . "386") -}}i386
+      {{- else if (eq . "amd64") -}}x86_64
+      {{- else -}}{{- . -}}
+      {{- end -}} 
+    {{ end }}
+    {{- with .Arm -}}
+      {{- if (eq . "6") -}}hf
+      {{- else -}}v{{- . -}}
+      {{- end -}}
+    {{- end -}}
+  builds:
+    - kubectx
+  format_overrides:
+    - goos: windows
+      format: zip
+  files: ["LICENSE"]
+- id: kubens-archive
+  name_template: |-
+    kubens_{{ .Tag }}_{{ .Os }}_
+    {{- with .Arch -}}
+      {{- if (eq . "386") -}}i386
+      {{- else if (eq . "amd64") -}}x86_64
+      {{- else -}}{{- . -}}
+      {{- end -}}
+    {{ end }}
+    {{- with .Arm -}}
+      {{- if (eq . "6") -}}hf
+      {{- else -}}v{{- . -}}
+      {{- end -}}
+    {{- end -}}
+  builds:
+    - kubens
+  format_overrides:
+    - goos: windows
+      format: zip
+  files: ["LICENSE"]
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+release:
+  extra_files:
+    - glob: ./kubens
+    - glob: ./kubectx
+snapcrafts:
+  - id: kubectx
+    name: kubectx
+    summary: 'kubectx + kubens: Power tools for kubectl'
+    description: |
+      kubectx is a tool to switch between contexts (clusters) on kubectl faster.
+      kubens is a tool to switch between Kubernetes namespaces (and configure them for kubectl) easily.
+    grade: stable
+    confinement: classic
+    base: core20
+    apps:
+      kubectx:
+        command: kubectx
+        completer: completion/kubectx.bash
+      kubens:
+        command: kubens
+        completer: completion/kubens.bash
