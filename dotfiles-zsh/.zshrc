@@ -150,11 +150,17 @@ eval "$(atuin init zsh)"
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 start_if_needed
-export PATH="$PATH:/mnt/c/Program Files/Microsoft VS Code/bin"
+# WSL-specific: VS Code integration from Windows host
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  CODE_BIN="/mnt/c/Program Files/Microsoft VS Code/bin"
+  if [[ -d "$CODE_BIN" ]]; then
+    export PATH="$PATH:$CODE_BIN"
+  fi
 
-code() {
-  local distro="${WSL_DISTRO_NAME}"
-  local path="$(pwd)"
-  "/mnt/c/Program Files/Microsoft VS Code/bin/code" \
-    --folder-uri "vscode-remote://wsl+${distro}${path}"
-}
+  code() {
+    local distro="${WSL_DISTRO_NAME}"
+    local path="$(pwd)"
+    "${CODE_BIN}/code" \
+      --folder-uri "vscode-remote://wsl+${distro}${path}"
+  }
+fi

@@ -1,5 +1,5 @@
 onboarding = false
-# herdr configuration managed by Gentleman.Dots.
+# herdr configuration managed by dotfiles.
 # This file is copied into ~/.config/herdr/config.toml during installation.
 
 [theme]
@@ -10,7 +10,7 @@ name = "one-dark"
 auto_switch = false
 [theme.custom]
 panel_bg = "#06080f"
-# Match Pi's Gentle theme, with a muted cyan for Herdr chrome.
+# Match the dotfiles palette, with a muted cyan for Herdr chrome.
 accent = "#6FA0AF"
 green = "#B7CC85"
 blue = "#6FA0AF"
