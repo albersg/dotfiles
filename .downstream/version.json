@@ -1,6 +1,6 @@
 {
   "upstream": {
-    "repo": "Gentleman-Programming/Gentleman.Dots",
+    "repo": "dotfiles-Programming/dotfiles",
     "latest_tag": "v2.12.2",
     "latest_sha": "02584500de6378ff5f54d252dc28fce8424b088a",
     "last_sync": "2026-07-29"

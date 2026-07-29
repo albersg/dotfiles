@@ -1,4 +1,4 @@
-[?25l[?2004h]2;Gentleman.Dots Installer                                                                               [K
+[?25l[?2004h]2;dotfiles Installer                                                                               [K
   🎮 Lesson Mode: horizontal                                                   [K
                                                                                [K
   Exercise 1 of 19                                                             [K
@@ -8,7 +8,7 @@
                                                                                [K
   📝 Code:                                                                     [K
   ────────────────────────────────────────────────────────────                 [K
-   1 │ const userName = 'gentleman';                                           [K
+   1 │ const userName = 'dotfiles';                                           [K
   ────────────────────────────────────────────────────────────                 [K
                                                                                [K
   ⌨️  Your answer:                                                             [K

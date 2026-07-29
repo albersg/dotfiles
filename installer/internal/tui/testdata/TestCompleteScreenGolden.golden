@@ -1,4 +1,4 @@
-[?25l[?2004h]2;Gentleman.Dots Installer                                            [K
+[?25l[?2004h]2;dotfiles Installer                                            [K
   ✨ Installation Complete! ✨              [K
                                             [K
   Summary                                   [K
@@ -7,7 +7,7 @@
     • Terminal: ghostty                     [K
     • Shell: fish                           [K
     • Window Manager: tmux                  [K
-    • Editor: Neovim with Gentleman config  [K
+    • Editor: Neovim with dotfiles config  [K
                                             [K
   Next Step                                 [K
                                             [K

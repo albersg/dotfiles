@@ -1,6 +1,6 @@
 # Docker Testing
 
-Test the Gentleman.Dots installer in an isolated Ubuntu environment without affecting your system.
+Test the dotfiles installer in an isolated Ubuntu environment without affecting your system.
 
 ## Table of Contents
 
@@ -16,10 +16,10 @@ Test the Gentleman.Dots installer in an isolated Ubuntu environment without affe
 
 ```bash
 # Build the image
-docker build -f Dockerfile.test -t gentleman-test .
+docker build -f Dockerfile.test -t dotfiles-test .
 
 # Run the installer
-docker run -it --rm gentleman-test
+docker run -it --rm dotfiles-test
 ```
 
 ## Container Environment
@@ -30,7 +30,7 @@ docker run -it --rm gentleman-test
 | Username | `testuser` |
 | Password | `test` |
 | Sudo | Passwordless (NOPASSWD) |
-| Installer Path | `/usr/local/bin/gentleman.dots` |
+| Installer Path | `/usr/local/bin/dotfiles` |
 
 > **Note**: The user has passwordless sudo, so you won't need the password for most operations.
 
@@ -43,14 +43,14 @@ If you've already built the image and want to test a newer version:
 **Option 1: Rebuild from scratch (recommended)**
 
 ```bash
-docker build -f Dockerfile.test -t gentleman-test --no-cache .
-docker run -it --rm gentleman-test
+docker build -f Dockerfile.test -t dotfiles-test --no-cache .
+docker run -it --rm dotfiles-test
 ```
 
 **Option 2: Update inside running container**
 
 ```bash
-docker run -it --rm gentleman-test bash
+docker run -it --rm dotfiles-test bash
 ```
 
 Then inside the container:
@@ -58,8 +58,8 @@ Then inside the container:
 ```bash
 cd /app/installer
 git pull origin main
-go build -o /usr/local/bin/gentleman.dots ./cmd/gentleman-installer
-gentleman.dots
+go build -o /usr/local/bin/dotfiles ./cmd/dotfiles-installer
+dotfiles
 ```
 
 ### Test Specific Version
@@ -67,25 +67,25 @@ gentleman.dots
 ```bash
 # Checkout a specific tag before building
 git checkout v2.4.2
-docker build -f Dockerfile.test -t gentleman-test .
-docker run -it --rm gentleman-test
+docker build -f Dockerfile.test -t dotfiles-test .
+docker run -it --rm dotfiles-test
 ```
 
 ### Interactive Debugging
 
 ```bash
 # Start bash instead of the installer
-docker run -it --rm gentleman-test bash
+docker run -it --rm dotfiles-test bash
 
 # Then run the installer manually
-gentleman.dots
+dotfiles
 ```
 
 ## Clean Up
 
 ```bash
 # Remove the image
-docker rmi gentleman-test
+docker rmi dotfiles-test
 
 # Remove all unused Docker resources
 docker system prune

@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║                          GENTLEMAN DOTS - WEZTERM                            ║
+-- ║                          DOTFILES - WEZTERM                            ║
 -- ║                           Optimized for Neovim                               ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -46,7 +46,7 @@ config.cursor_blink_ease_out = "Constant"
 
 -- Terminal & Colors
 -- WSL doesn't have wezterm terminfo, so we use xterm-256color there
--- See: https://github.com/Gentleman-Programming/Gentleman.Dots/issues/117
+-- See: https://github.com/dotfiles-Programming/dotfiles/issues/117
 if wezterm.target_triple:find("windows") then
   config.term = "xterm-256color"
 else
@@ -73,7 +73,7 @@ config.send_composed_key_when_left_alt_is_pressed = false
 config.send_composed_key_when_right_alt_is_pressed = false
 
 -- ┌──────────────────────────────────────────────────────────────────────────────┐
--- │                           GENTLEMAN THEME                                    │
+-- │                           DOTFILES THEME                                    │
 -- └──────────────────────────────────────────────────────────────────────────────┘
 
 config.colors = {

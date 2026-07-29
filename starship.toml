@@ -19,7 +19,7 @@ $time\
 
 add_newline = true
 command_timeout = 3600000
-palette = "gentleman"
+palette = "dotfiles"
 
 [fill]
 symbol = ' '
@@ -52,7 +52,7 @@ base = "#1e1e2e"
 mantle = "#181825"
 crust = "#11111b"
 
-[palettes.gentleman]
+[palettes.dotfiles]
 text = "#F3F6F9"
 red = "#CB7C94"
 green = "#B7CC85"

@@ -50,13 +50,13 @@ After merging upstream changes, re-apply the branding overlay:
 # Re-apply branding to changed Go files
 # (This is automated in CI — manual only for conflict resolution)
 find installer/ -name '*.go' -newer .downstream/version.json -exec sed -i \
-  -e 's/GENTLEMAN_DRY_RUN/DOTFILES_DRY_RUN/g' \
-  -e 's/GENTLEMAN_VERBOSE/DOTFILES_VERBOSE/g' \
+  -e 's/DOTFILES_DRY_RUN/DOTFILES_DRY_RUN/g' \
+  -e 's/DOTFILES_VERBOSE/DOTFILES_VERBOSE/g' \
   ... {} +
 
 # Verify
 cd installer && go build ./cmd/dotfiles && go vet ./...
-rg Gentleman --count installer/  # Should be 0 (or imports only)
+rg dotfiles --count installer/  # Should be 0 (or imports only)
 ```
 
 ## Conflict Resolution Guidelines
@@ -72,6 +72,6 @@ rg Gentleman --count installer/  # Should be 0 (or imports only)
 - [ ] `git diff upstream-main` shows expected changes (branding only)
 - [ ] `cd installer && go build ./cmd/dotfiles` succeeds
 - [ ] `cd installer && go vet ./...` passes
-- [ ] `rg Gentleman --count installer/` matches expectations
+- [ ] `rg dotfiles --count installer/` matches expectations
 - [ ] Branding audit in CI passes
 - [ ] `.downstream/version.json` updated with new sha and tag

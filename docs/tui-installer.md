@@ -1,6 +1,6 @@
 # TUI Installer
 
-The Gentleman.Dots TUI Installer is a modern, interactive terminal application built with Go and [Bubbletea](https://github.com/charmbracelet/bubbletea) that guides you through the complete setup of your development environment.
+The dotfiles TUI Installer is a modern, interactive terminal application built with Go and [Bubbletea](https://github.com/charmbracelet/bubbletea) that guides you through the complete setup of your development environment.
 
 ## Table of Contents
 
@@ -31,7 +31,7 @@ The Gentleman.Dots TUI Installer is a modern, interactive terminal application b
 ### Option 1: Homebrew (Recommended)
 
 ```bash
-brew install Gentleman-Programming/tap/dotfiles
+brew install dotfiles-Programming/tap/dotfiles
 dotfiles
 ```
 
@@ -39,17 +39,17 @@ dotfiles
 
 | Platform | Command |
 |----------|---------|
-| macOS Apple Silicon | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| macOS Intel | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| Linux x86_64 | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| Linux ARM64 | `curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Apple Silicon | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Intel | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux x86_64 | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux ARM64 | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
 
 ### Option 3: Build from Source
 
 ```bash
-git clone https://github.com/Gentleman-Programming/Gentleman.Dots.git
-cd Gentleman.Dots/installer
-go build -o dotfiles ./cmd/gentleman-installer
+git clone https://github.com/dotfiles-Programming/dotfiles.git
+cd dotfiles/installer
+go build -o dotfiles ./cmd/dotfiles-installer
 ./dotfiles
 ```
 
@@ -168,7 +168,7 @@ The installer automatically detects existing configurations for:
 Backups are stored in your home directory with a timestamp:
 
 ```
-~/.gentleman-backup-YYYY-MM-DD-HHMMSS/
+~/.dotfiles-backup-YYYY-MM-DD-HHMMSS/
 ```
 
 Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongside single-file configs like `~/.zshrc`.
@@ -240,7 +240,7 @@ The installer includes educational content to help you understand each tool:
 Backups must be in your home directory with the format:
 
 ```
-~/.gentleman-backup-*
+~/.dotfiles-backup-*
 ```
 
 ### Font Not Displaying Correctly
@@ -308,7 +308,7 @@ go test ./internal/tui/... -update
 ```
 installer/
 ├── cmd/
-│   └── gentleman-installer/
+│   └── dotfiles-installer/
 │       └── main.go              # Entry point with CLI parsing
 ├── internal/
 │   ├── system/
@@ -321,7 +321,7 @@ installer/
 │       ├── installer.go         # Installation steps
 │       ├── interactive.go       # TUI mode logic
 │       ├── non_interactive.go   # CLI mode logic
-│       ├── styles.go            # Gentleman theme colors
+│       ├── styles.go            # dotfiles theme colors
 │       ├── tools_info.go        # Tool descriptions
 │       ├── keymaps_*.go         # Keymap definitions
 │       └── trainer/             # Vim Trainer RPG system

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/Gentleman.Dots/installer/internal/tui/trainer"
+	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 )

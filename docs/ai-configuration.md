@@ -2,7 +2,7 @@
 
 This configuration includes several AI assistants integrated with Neovim. By default, **Claude Code is enabled** as the primary AI assistant.
 
-> **Note:** AI tool configurations (persona, skills, themes, MCP servers) are now managed by [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai). This document covers the **Neovim AI plugins** and CLI tool installation only.
+> **Note:** AI tool configurations (persona, skills, themes, MCP servers) are now managed by [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai). This document covers the **Neovim AI plugins** and CLI tool installation only.
 
 ## Table of Contents
 
@@ -55,7 +55,7 @@ nvim ~/.config/nvim/lua/plugins/disabled.lua
 
 ## Required CLI Tools
 
-These CLI tools are automatically installed by the Gentleman.Dots installer:
+These CLI tools are automatically installed by the dotfiles installer:
 
 | Tool | Installation Command |
 |------|---------------------|
@@ -65,18 +65,18 @@ These CLI tools are automatically installed by the Gentleman.Dots installer:
 
 > Some services require API keys. Check each plugin's documentation for details.
 
-For AI tool **configuration** (persona, skills, themes, MCP servers), use [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai):
+For AI tool **configuration** (persona, skills, themes, MCP servers), use [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai):
 
 ```bash
-brew install Gentleman-Programming/tap/gentle-ai
-gentle-ai
+brew install dotfiles-Programming/tap/dotfiles-ai
+dotfiles-ai
 ```
 
 ## Recommended by Use Case
 
 | Use Case | Recommended Plugin |
 |----------|-------------------|
-| Full Gentleman experience | **Claude Code.nvim** (default) |
+| Full dotfiles experience | **Claude Code.nvim** (default) |
 | OpenCode CLI in terminal | **OpenCode.nvim** |
 | GitHub Copilot users | **CopilotChat.nvim** |
 | Multi-provider flexibility | **CodeCompanion.nvim** |

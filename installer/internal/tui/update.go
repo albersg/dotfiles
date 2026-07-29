@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/Gentleman.Dots/installer/internal/system"
-	"github.com/Gentleman-Programming/Gentleman.Dots/installer/internal/tui/trainer"
+	"github.com/albersg/dotfiles/installer/internal/system"
+	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

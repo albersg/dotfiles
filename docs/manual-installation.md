@@ -1,6 +1,6 @@
 # Manual Installation Guide
 
-This guide walks you through manually setting up your development environment with Gentleman.Dots. Use this if you prefer full control over each step or if the automatic installer doesn't work for your setup.
+This guide walks you through manually setting up your development environment with dotfiles. Use this if you prefer full control over each step or if the automatic installer doesn't work for your setup.
 
 ## Table of Contents
 
@@ -31,8 +31,8 @@ This guide walks you through manually setting up your development environment wi
 **Clone the repository first!**
 
 ```bash
-git clone git@github.com:Gentleman-Programming/Gentleman.Dots.git
-cd Gentleman.Dots
+git clone git@github.com:dotfiles-Programming/dotfiles.git
+cd dotfiles
 ```
 
 ---
@@ -131,7 +131,7 @@ If WezTerm doesn't pick up the config:
 
 ```powershell
 mkdir $HOME\.config\kitty -Force
-Copy-Item -Path GentlemanKitty\kitty.conf -Destination $HOME\.config\kitty\kitty.conf
+Copy-Item -Path dotfiles-kitty\kitty.conf -Destination $HOME\.config\kitty\kitty.conf
 ```
 
 ### 7. Install Chocolatey and win32yank
@@ -155,7 +155,7 @@ choco install win32yank
 
 ## Unsupported Native Windows Tooling
 
-> **Unsupported path:** Windows-via-WSL is the supported Gentleman.Dots path. The notes below capture a native Windows tooling setup for users who want Windows-side tools, but this path is not covered by the installer, maintained as a supported workflow, or validated by Docker E2E tests.
+> **Unsupported path:** Windows-via-WSL is the supported dotfiles path. The notes below capture a native Windows tooling setup for users who want Windows-side tools, but this path is not covered by the installer, maintained as a supported workflow, or validated by Docker E2E tests.
 
 Use this section as reference material only. If something breaks on native Windows, prefer the supported WSL setup above instead of opening installer bugs for this path.
 
@@ -183,12 +183,12 @@ Copy-Item ".\alacritty.toml" "$env:APPDATA\alacritty\alacritty.toml" -Force
 Copy-Item ".\.wezterm.lua" "$HOME\.wezterm.lua" -Force
 
 New-Item -ItemType Directory "$env:LOCALAPPDATA\nvim" -Force
-Copy-Item ".\GentlemanNvim\nvim\*" "$env:LOCALAPPDATA\nvim" -Recurse -Force
+Copy-Item ".\dotfiles-nvim\nvim\*" "$env:LOCALAPPDATA\nvim" -Recurse -Force
 
 New-Item -ItemType Directory "$env:APPDATA\nushell" -Force
-Copy-Item ".\GentlemanNushell\config.nu" "$env:APPDATA\nushell\config.nu" -Force
-Copy-Item ".\GentlemanNushell\env.nu" "$env:APPDATA\nushell\env.nu" -Force
-Copy-Item ".\GentlemanNushell\.zoxide.nu" "$env:APPDATA\nushell\.zoxide.nu" -Force
+Copy-Item ".\dotfiles-nushell\config.nu" "$env:APPDATA\nushell\config.nu" -Force
+Copy-Item ".\dotfiles-nushell\env.nu" "$env:APPDATA\nushell\env.nu" -Force
+Copy-Item ".\dotfiles-nushell\.zoxide.nu" "$env:APPDATA\nushell\.zoxide.nu" -Force
 
 New-Item -ItemType Directory "$HOME\.config" -Force
 Copy-Item ".\starship.toml" "$HOME\.config\starship.toml" -Force
@@ -324,7 +324,7 @@ pacman -S ghostty
 brew install --cask ghostty
 
 # All platforms - copy config
-mkdir -p ~/.config/ghostty && cp -r GentlemanGhostty/* ~/.config/ghostty
+mkdir -p ~/.config/ghostty && cp -r dotfiles-ghostty/* ~/.config/ghostty
 ```
 
 #### Kitty
@@ -334,7 +334,7 @@ mkdir -p ~/.config/ghostty && cp -r GentlemanGhostty/* ~/.config/ghostty
 brew install --cask kitty
 
 # Copy config
-mkdir -p ~/.config/kitty && cp GentlemanKitty/kitty.conf ~/.config/kitty/
+mkdir -p ~/.config/kitty && cp dotfiles-kitty/kitty.conf ~/.config/kitty/
 ```
 
 **Note:** Reload Kitty config with `Ctrl+Shift+,` (Linux) or `Cmd+Shift+,` (macOS)
@@ -356,7 +356,7 @@ cp -rf starship.toml ~/.config/
 
 ```bash
 mkdir -p ~/.config/nushell
-cp -rf GentlemanNushell/* ~/.config/nushell/
+cp -rf dotfiles-nushell/* ~/.config/nushell/
 ```
 
 **macOS:**
@@ -365,10 +365,10 @@ cp -rf GentlemanNushell/* ~/.config/nushell/
 mkdir -p ~/Library/Application\ Support/nushell
 
 # Update brew path from Linux to macOS
-# Edit GentlemanNushell/env.nu and replace:
+# Edit dotfiles-nushell/env.nu and replace:
 #   /home/linuxbrew/.linuxbrew/bin  →  /opt/homebrew/bin
 
-cp -rf GentlemanNushell/* ~/Library/Application\ Support/nushell/
+cp -rf dotfiles-nushell/* ~/Library/Application\ Support/nushell/
 ```
 
 #### Fish + Starship
@@ -379,7 +379,7 @@ mkdir -p ~/.cache/starship
 mkdir -p ~/.cache/carapace
 mkdir -p ~/.local/share/atuin
 cp -rf starship.toml ~/.config/
-cp -rf GentlemanFish/fish ~/.config
+cp -rf dotfiles-fish/fish ~/.config
 ```
 
 #### Zsh + Powerlevel10k
@@ -389,9 +389,9 @@ brew install zsh carapace zoxide atuin fzf
 brew install zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete
 mkdir -p ~/.cache/carapace
 mkdir -p ~/.local/share/atuin
-cp -rf GentlemanZsh/.zshrc ~/
-cp -rf GentlemanZsh/.p10k.zsh ~/
-cp -rf GentlemanZsh/.oh-my-zsh ~/
+cp -rf dotfiles-zsh/.zshrc ~/
+cp -rf dotfiles-zsh/.p10k.zsh ~/
+cp -rf dotfiles-zsh/.oh-my-zsh ~/
 brew install powerlevel10k
 ```
 
@@ -403,8 +403,8 @@ brew install powerlevel10k
 brew install tmux
 git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 mkdir -p ~/.tmux/plugins
-cp -r GentlemanTmux/plugins/* ~/.tmux/plugins/
-cp GentlemanTmux/tmux.conf ~/.tmux.conf
+cp -r dotfiles-tmux/plugins/* ~/.tmux/plugins/
+cp dotfiles-tmux/tmux.conf ~/.tmux.conf
 tmux new-session -d -s plugin-installation 'source ~/.tmux.conf; tmux run-shell ~/.tmux/plugins/tpm/bin/install_plugins'
 tmux kill-session -t plugin-installation
 ```
@@ -414,7 +414,7 @@ tmux kill-session -t plugin-installation
 ```bash
 cargo install zellij
 mkdir -p ~/.config/zellij
-cp -r GentlemanZellij/zellij/* ~/.config/zellij/
+cp -r dotfiles-zellij/zellij/* ~/.config/zellij/
 ```
 
 #### Herdr
@@ -442,7 +442,7 @@ If you chose Zellij or Herdr instead of Tmux, update your shell configuration:
 ```bash
 brew install nvim node npm git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter
 mkdir -p ~/.config/nvim
-cp -r GentlemanNvim/nvim/* ~/.config/nvim/
+cp -r dotfiles-nvim/nvim/* ~/.config/nvim/
 ```
 
 **Configure Obsidian path (optional):**
@@ -513,7 +513,7 @@ end
 If you encounter other problems:
 
 1. Consult the official documentation of the specific tool
-2. Open an issue on [GitHub](https://github.com/Gentleman-Programming/Gentleman.Dots/issues)
+2. Open an issue on [GitHub](https://github.com/dotfiles-Programming/dotfiles/issues)
 
 ---
 

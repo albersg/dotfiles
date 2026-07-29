@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Gentleman-Programming/Gentleman.Dots/installer/internal/system"
+	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
 type packageCommandCall struct {

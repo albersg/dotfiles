@@ -94,7 +94,7 @@ test_binary_runs() {
 
 test_version() {
     log_test "Binary shows version"
-    if ./dotfiles --version 2>&1 | grep -qi "gentleman"; then
+    if ./dotfiles --version 2>&1 | grep -qi "dotfiles"; then
         log_pass "Version displays correctly"
     else
         log_fail "Version not displayed"

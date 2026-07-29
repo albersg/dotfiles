@@ -48,5 +48,5 @@ Instead, report it privately:
 
 ## Reporting Upstream Vulnerabilities
 
-For vulnerabilities in Gentleman.Dots (upstream), report to:
-https://github.com/Gentleman-Programming/Gentleman.Dots/security
+For vulnerabilities in dotfiles (upstream), report to:
+https://github.com/dotfiles-Programming/dotfiles/security

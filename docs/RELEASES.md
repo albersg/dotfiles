@@ -21,7 +21,7 @@ git pull origin main
 
 # Verify everything passes
 cd installer && go build ./cmd/dotfiles && go vet ./... && go test ./...
-rg Gentleman --count installer/  # Should match expectations
+rg dotfiles --count installer/  # Should match expectations
 
 # Update version
 # Edit .downstream/version.json: bump downstream.version

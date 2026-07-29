@@ -1,6 +1,6 @@
 # Tools Reference
 
-Detailed overview of all tools configured by Gentleman.Dots.
+Detailed overview of all tools configured by dotfiles.
 
 ## Terminal Emulators
 

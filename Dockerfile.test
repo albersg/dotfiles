@@ -30,7 +30,7 @@ WORKDIR /app
 COPY installer/ ./installer/
 
 # Build the installer
-RUN cd installer && go build -o /usr/local/bin/gentleman.dots ./cmd/gentleman-installer
+RUN cd installer && go build -o /usr/local/bin/dotfiles ./cmd/dotfiles-installer
 
 # Switch to test user
 USER testuser
@@ -40,4 +40,4 @@ WORKDIR /home/testuser
 ENV HOME=/home/testuser
 ENV TERM=xterm-256color
 
-CMD ["/usr/local/bin/gentleman.dots"]
+CMD ["/usr/local/bin/dotfiles"]

@@ -64407,11 +64407,8 @@ gentlefolk
 gentlefolk's/13
 gentlefolks/13
 gentlefolks's/13
-gentleman
-gentleman's
-gentlemanliness/245
-gentlemanliness's/45
-gentlemanly
+dotfiles
+dotfiles's
 gentlemen
 gentlemen's/245
 gentleness
@@ -162778,7 +162775,6 @@ ungenial/4
 ungenialness/4
 ungenialness's/4
 ungentle
-ungentlemanly/1345
 ungifted/4
 ungiftedness/4
 ungiftedness's/4

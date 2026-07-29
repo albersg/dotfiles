@@ -21,7 +21,7 @@
 
 ## Contexto del Proyecto
 
-Juego de entrenamiento de Vim estilo RPG integrado al TUI installer de Gentleman.Dots. Construido con **Go + Bubbletea** (Charmbracelet).
+Juego de entrenamiento de Vim estilo RPG integrado al TUI installer de dotfiles. Construido con **Go + Bubbletea** (Charmbracelet).
 
 **Ubicación**: `installer/` | **Nueva opción de menú**: "🎮 Vim Mastery Trainer"
 
@@ -29,7 +29,7 @@ Juego de entrenamiento de Vim estilo RPG integrado al TUI installer de Gentleman
 
 ```text
 installer/
-├── cmd/gentleman-installer/main.go
+├── cmd/dotfiles-installer/main.go
 ├── internal/
 │   ├── system/          # Detección OS, ejecución comandos
 │   └── tui/
@@ -302,13 +302,13 @@ Antes:              Macro: qa0i"<Esc>A",<Esc>jq      Después de @a@@:
 │   CÓDIGO:                                                       │
 │   ┌───────────────────────────────────────────────────────────┐│
 │   │ 1  const config = {                                      ││
-│   │ 2    name: "█gentleman",                                 ││
+│   │ 2    name: "█dotfiles",                                 ││
 │   │ 3    theme: "dark"                                       ││
 │   │ 4  };                                                    ││
 │   └───────────────────────────────────────────────────────────┘│
 │                                                                 │
 │   MISIÓN: Cambiá el contenido entre las comillas por "pro"     │
-│           (el cursor está en la 'g' de gentleman)              │
+│           (el cursor está en la 'g' de dotfiles)              │
 │                                                                 │
 │                         ⏱️  5.2s                                │
 ├─────────────────────────────────────────────────────────────────┤
@@ -499,7 +499,7 @@ type ModuleProgress struct {
 
 ### Archivo de Stats
 
-Guardar en `~/.config/gentleman-trainer/stats.json`
+Guardar en `~/.config/dotfiles-trainer/stats.json`
 
 ```json
 {
@@ -601,9 +601,9 @@ Ejecutar desde `installer/`:
 
 | Comando | Descripción |
 |---------|-------------|
-| `go build -o gentleman.dots ./cmd/gentleman-installer` | Build del binario |
+| `go build -o dotfiles ./cmd/dotfiles-installer` | Build del binario |
 | `go test ./...` | Ejecutar todos los tests |
-| `./gentleman.dots` | Ejecutar el installer |
+| `./dotfiles` | Ejecutar el installer |
 | `go test ./internal/tui/trainer/... -v` | Tests específicos del trainer |
 
 ---

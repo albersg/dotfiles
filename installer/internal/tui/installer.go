@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Gentleman-Programming/Gentleman.Dots/installer/internal/system"
+	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
 // StepError provides context about which step failed and why
@@ -1171,7 +1171,7 @@ func stepInstallNvim(m *Model) error {
 		system.RunWithLogs(`curl -fsSL https://claude.ai/install.sh | bash`, nil, func(line string) {
 			SendLog(stepID, line)
 		})
-		// AI tool configs are managed by gentle-ai (https://github.com/gentleman-programming/gentle-ai)
+		// AI tool configs are managed by dotfiles-ai (https://github.com/dotfiles-programming/dotfiles-ai)
 	} else {
 		SendLog(stepID, "Skipping Claude Code (not supported on Termux)")
 	}
@@ -1183,7 +1183,7 @@ func stepInstallNvim(m *Model) error {
 		system.RunWithLogs(`curl -fsSL https://opencode.ai/install | bash`, nil, func(line string) {
 			SendLog(stepID, line)
 		})
-		// AI tool configs are managed by gentle-ai (https://github.com/gentleman-programming/gentle-ai)
+		// AI tool configs are managed by dotfiles-ai (https://github.com/dotfiles-programming/dotfiles-ai)
 	} else {
 		SendLog(stepID, "Skipping OpenCode (not supported on Termux)")
 	}

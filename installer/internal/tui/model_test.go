@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/Gentleman.Dots/installer/internal/system"
+	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
 func TestNewModel(t *testing.T) {

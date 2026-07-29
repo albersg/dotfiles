@@ -29,7 +29,7 @@ cd installer && go build ./cmd/dotfiles
 - Trainer improvements
 - General bug fixes
 
-Before starting work, check if the change would benefit upstream. If yes, consider contributing to [Gentleman.Dots](https://github.com/Gentleman-Programming/Gentleman.Dots) first, then sync back.
+Before starting work, check if the change would benefit upstream. If yes, consider contributing to [dotfiles](https://github.com/dotfiles-Programming/dotfiles) first, then sync back.
 
 ## Pull Request Checklist
 
@@ -37,7 +37,7 @@ Before starting work, check if the change would benefit upstream. If yes, consid
 - [ ] Changes include tests where applicable
 - [ ] `cd installer && go build ./cmd/dotfiles && go vet ./...` passes
 - [ ] Documentation updated if behavior changed
-- [ ] Branding audit passes (no residual `Gentleman` outside attribution)
+- [ ] Branding audit passes (no residual `dotfiles` outside attribution)
 - [ ] Conventional commit format
 
 ## Code Style

@@ -71,7 +71,7 @@ print_logo() {
 }
 
 image_status() {
-    if docker images -q "gentleman-test-$1" 2>/dev/null | grep -q .; then
+    if docker images -q "dotfiles-test-$1" 2>/dev/null | grep -q .; then
         echo "${GREEN}●${NC}"
     else
         echo "${RED}○${NC}"
@@ -109,10 +109,10 @@ build_image() {
     # shellcheck disable=SC2086
     docker build $platform_flag \
         -f "$dockerfile" \
-        -t "gentleman-test-${name}${tag_suffix}" \
+        -t "dotfiles-test-${name}${tag_suffix}" \
         . 2>&1
 
-    echo "${GREEN}✓ Built gentleman-test-${name}${tag_suffix}${NC}"
+    echo "${GREEN}✓ Built dotfiles-test-${name}${tag_suffix}${NC}"
 }
 
 run_image() {
@@ -127,7 +127,7 @@ run_image() {
         platform_flag="--platform linux/$platform"
     fi
 
-    image_tag="gentleman-test-${name}${tag_suffix}"
+    image_tag="dotfiles-test-${name}${tag_suffix}"
 
     if ! docker images -q "$image_tag" 2>/dev/null | grep -q .; then
         build_image "$name" "$platform"
@@ -164,7 +164,7 @@ shell_image() {
         platform_flag="--platform linux/$platform"
     fi
 
-    image_tag="gentleman-test-${name}${tag_suffix}"
+    image_tag="dotfiles-test-${name}${tag_suffix}"
 
     if ! docker images -q "$image_tag" 2>/dev/null | grep -q .; then
         build_image "$name" "$platform"
@@ -180,10 +180,10 @@ shell_image() {
 
 reset_image() {
     name="$1"
-    echo "${YELLOW}→ Removing gentleman-test-$name...${NC}"
-    docker rmi -f "gentleman-test-$name" 2>/dev/null || true
-    docker rmi -f "gentleman-test-$name-arm64" 2>/dev/null || true
-    docker rmi -f "gentleman-test-$name-amd64" 2>/dev/null || true
+    echo "${YELLOW}→ Removing dotfiles-test-$name...${NC}"
+    docker rmi -f "dotfiles-test-$name" 2>/dev/null || true
+    docker rmi -f "dotfiles-test-$name-arm64" 2>/dev/null || true
+    docker rmi -f "dotfiles-test-$name-amd64" 2>/dev/null || true
     echo "${GREEN}✓ Removed${NC}"
 }
 
@@ -438,10 +438,10 @@ menu_status() {
         # Check for platform-specific images too
         arm_status=""
         amd_status=""
-        if docker images -q "gentleman-test-$img-arm64" 2>/dev/null | grep -q .; then
+        if docker images -q "dotfiles-test-$img-arm64" 2>/dev/null | grep -q .; then
             arm_status=" ${GREEN}arm64${NC}"
         fi
-        if docker images -q "gentleman-test-$img-amd64" 2>/dev/null | grep -q .; then
+        if docker images -q "dotfiles-test-$img-amd64" 2>/dev/null | grep -q .; then
             amd_status=" ${GREEN}amd64${NC}"
         fi
 

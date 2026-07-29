@@ -69,11 +69,11 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
-      - name: Check for residual Gentleman branding
+      - name: Check for residual dotfiles branding
         run: |
-          echo "Checking for residual 'Gentleman' or 'gentleman' strings..."
+          echo "Checking for residual 'dotfiles' or 'dotfiles' strings..."
           echo "Excluding: NOTICE, docs/adr/, docs/ATTRIBUTION.md, .downstream/, LICENSE"
-          matches=$(rg -l 'Gentleman|gentleman' \
+          matches=$(rg -l 'dotfiles|dotfiles' \
             --glob '!NOTICE' \
             --glob '!docs/adr/*' \
             --glob '!docs/ATTRIBUTION.md' \
@@ -88,11 +88,11 @@ jobs:
             installer/ 2>/dev/null || true)
 
           if [ -n "$matches" ]; then
-            echo "ERROR: Residual Gentleman branding found in:"
+            echo "ERROR: Residual dotfiles branding found in:"
             echo "$matches"
             echo ""
             echo "Detailed matches:"
-            rg -n 'Gentleman|gentleman' \
+            rg -n 'dotfiles|dotfiles' \
               --glob '!NOTICE' \
               --glob '!docs/adr/*' \
               --glob '!docs/ATTRIBUTION.md' \

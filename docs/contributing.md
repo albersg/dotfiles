@@ -1,6 +1,6 @@
-# Contributing to Gentleman.Dots
+# Contributing to dotfiles
 
-Guide for contributors and developers working on Gentleman.Dots.
+Guide for contributors and developers working on dotfiles.
 
 ## Table of Contents
 
@@ -23,9 +23,9 @@ Guide for contributors and developers working on Gentleman.Dots.
 ### Build from Source
 
 ```bash
-git clone https://github.com/Gentleman-Programming/Gentleman.Dots.git
-cd Gentleman.Dots/installer
-go build -o dotfiles ./cmd/gentleman-installer
+git clone https://github.com/dotfiles-Programming/dotfiles.git
+cd dotfiles/installer
+go build -o dotfiles ./cmd/dotfiles-installer
 ./dotfiles
 ```
 
@@ -39,9 +39,9 @@ go test ./... -v
 ## Project Structure
 
 ```
-Gentleman.Dots/
+dotfiles/
 ├── installer/                    # Go TUI installer
-│   ├── cmd/gentleman-installer/  # Entry point
+│   ├── cmd/dotfiles-installer/  # Entry point
 │   ├── internal/
 │   │   ├── system/               # OS detection, command execution
 │   │   └── tui/                  # Bubbletea screens, views, installer
@@ -49,12 +49,12 @@ Gentleman.Dots/
 ├── skills/                       # Repository-specific AI skills
 │   ├── setup.sh                  # Sync script for AI assistants
 │   └── */SKILL.md                # Individual skills
-├── GentlemanNvim/                # Neovim configuration
-├── GentlemanFish/                # Fish shell config
-├── GentlemanZsh/                 # Zsh config
-├── GentlemanNushell/             # Nushell config
-├── GentlemanTmux/                # Tmux config
-├── GentlemanZellij/              # Zellij config
+├── dotfiles-nvim/                # Neovim configuration
+├── dotfiles-fish/                # Fish shell config
+├── dotfiles-zsh/                 # Zsh config
+├── dotfiles-nushell/             # Nushell config
+├── dotfiles-tmux/                # Tmux config
+├── dotfiles-zellij/              # Zellij config
 ├── herdr/                        # Herdr config
 ├── docs/                         # Documentation
 └── AGENTS.md                     # Single source of truth for AI skills
@@ -84,7 +84,7 @@ The repository uses a skills system to provide context to AI assistants (Claude,
 ./skills/setup.sh --codex       # CODEX.md
 ```
 
-> **Note:** User-facing AI tool configs (skills, persona, themes) are now managed by [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai).
+> **Note:** User-facing AI tool configs (skills, persona, themes) are now managed by [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai).
 
 ### Skill Types
 
@@ -159,10 +159,10 @@ Tests must be POSIX-compliant (no bashisms).
 
 ```bash
 cd installer
-GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o gentleman-installer-darwin-amd64 ./cmd/gentleman-installer
-GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o gentleman-installer-darwin-arm64 ./cmd/gentleman-installer
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o gentleman-installer-linux-amd64 ./cmd/gentleman-installer
-GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o gentleman-installer-linux-arm64 ./cmd/gentleman-installer
+GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dotfiles-installer-darwin-amd64 ./cmd/dotfiles-installer
+GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dotfiles-installer-darwin-arm64 ./cmd/dotfiles-installer
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dotfiles-installer-linux-amd64 ./cmd/dotfiles-installer
+GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dotfiles-installer-linux-arm64 ./cmd/dotfiles-installer
 ```
 
 ### 2. Create Tag and Release
@@ -172,10 +172,10 @@ git tag v{VERSION}
 git push origin v{VERSION}
 
 gh release create v{VERSION} \
-  installer/gentleman-installer-darwin-amd64 \
-  installer/gentleman-installer-darwin-arm64 \
-  installer/gentleman-installer-linux-amd64 \
-  installer/gentleman-installer-linux-arm64 \
+  installer/dotfiles-installer-darwin-amd64 \
+  installer/dotfiles-installer-darwin-arm64 \
+  installer/dotfiles-installer-linux-amd64 \
+  installer/dotfiles-installer-linux-arm64 \
   --title "v{VERSION}" \
   --notes "## Changes
 - Feature/fix description"
@@ -185,7 +185,7 @@ gh release create v{VERSION} \
 
 ```bash
 # Get SHA256 for each binary
-shasum -a 256 installer/gentleman-installer-*
+shasum -a 256 installer/dotfiles-installer-*
 
 # Update homebrew-tap/Formula/dotfiles.rb with new version and hashes
 # Commit to both repos

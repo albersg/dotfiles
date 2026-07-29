@@ -205,7 +205,7 @@ show_menu() {
     echo "  ${CYAN}0)${NC} Exit"
     echo ""
     echo "  ${YELLOW}Note:${NC} AI tool configs (Claude Code, OpenCode) are now managed by"
-    echo "  gentle-ai: https://github.com/Gentleman-Programming/gentle-ai"
+    echo "  dotfiles-ai: https://github.com/dotfiles-Programming/dotfiles-ai"
     echo ""
     printf "Enter choice [0-5]: "
 }
@@ -271,7 +271,7 @@ Options:
   --help        Show this help message
 
 Note: AI tool configs (Claude Code, OpenCode) are now managed by
-  gentle-ai: https://github.com/Gentleman-Programming/gentle-ai
+  dotfiles-ai: https://github.com/dotfiles-Programming/dotfiles-ai
 
 Examples:
   ./skills/setup.sh              # Interactive menu

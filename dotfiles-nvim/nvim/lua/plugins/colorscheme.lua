@@ -43,8 +43,8 @@ return {
       },
     },
     {
-      "Gentleman-Programming/gentleman-kanagawa-blur",
-      name = "gentleman-kanagawa-blur",
+      "dotfiles-Programming/dotfiles-kanagawa-blur",
+      name = "dotfiles-kanagawa-blur",
       priority = 1000,
     },
     {
@@ -106,7 +106,7 @@ return {
     {
       "LazyVim/LazyVim",
       opts = {
-        colorscheme = "gentleman-kanagawa-blur",
+        colorscheme = "dotfiles-kanagawa-blur",
       },
     },
   },

@@ -50,7 +50,7 @@ test_binary_runs() {
 
 test_version() {
     log_test "Binary shows version"
-    if dotfiles --version 2>&1 | grep -q "gentleman"; then
+    if dotfiles --version 2>&1 | grep -q "dotfiles"; then
         log_pass "Version displays correctly"
     else
         log_fail "Version not displayed"
@@ -449,7 +449,7 @@ cleanup_test_env() {
     rm -rf "$HOME/.config/zellij" 2>/dev/null || true
     rm -f "$HOME/.zshrc" 2>/dev/null || true
     rm -f "$HOME/.tmux.conf" 2>/dev/null || true
-    rm -rf "$HOME/.gentleman-backup-"* 2>/dev/null || true
+    rm -rf "$HOME/.dotfiles-backup-"* 2>/dev/null || true
 }
 
 # Test: Existing configs are detected
@@ -498,13 +498,13 @@ test_backup_creation() {
         --shell=fish --wm=tmux --backup=true 2>&1; then
         
         # Check if backup directory was created
-        backup_count=$(ls -d "$HOME/.gentleman-backup-"* 2>/dev/null | wc -l)
+        backup_count=$(ls -d "$HOME/.dotfiles-backup-"* 2>/dev/null | wc -l)
         
         if [ "$backup_count" -gt 0 ]; then
             log_pass "Backup directory created"
             
             # Get the backup directory
-            backup_dir=$(ls -d "$HOME/.gentleman-backup-"* 2>/dev/null | head -1)
+            backup_dir=$(ls -d "$HOME/.dotfiles-backup-"* 2>/dev/null | head -1)
             
             # Check if files were backed up
             if [ -d "$backup_dir" ]; then
@@ -527,14 +527,14 @@ test_backup_creation() {
 test_backup_naming() {
     log_test "Backup directory naming format"
     
-    # Check existing backups match pattern: .gentleman-backup-YYYY-MM-DD-HHMMSS
-    backup_dirs=$(ls -d "$HOME/.gentleman-backup-"* 2>/dev/null || echo "")
+    # Check existing backups match pattern: .dotfiles-backup-YYYY-MM-DD-HHMMSS
+    backup_dirs=$(ls -d "$HOME/.dotfiles-backup-"* 2>/dev/null || echo "")
     
     if [ -n "$backup_dirs" ]; then
         for dir in $backup_dirs; do
             basename=$(basename "$dir")
-            # Check if format matches .gentleman-backup-YYYY-MM-DD-HHMMSS
-            if echo "$basename" | grep -qE '^\.gentleman-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}$'; then
+            # Check if format matches .dotfiles-backup-YYYY-MM-DD-HHMMSS
+            if echo "$basename" | grep -qE '^\.dotfiles-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}$'; then
                 log_pass "Backup naming format correct: $basename"
             else
                 log_fail "Backup naming format incorrect: $basename"
@@ -553,12 +553,12 @@ test_backup_restore() {
     setup_fake_configs
     
     # First, create a backup
-    mkdir -p "$HOME/.gentleman-backup-test-restore"
+    mkdir -p "$HOME/.dotfiles-backup-test-restore"
     
     # Copy files to backup manually for this test
-    mkdir -p "$HOME/.gentleman-backup-test-restore/nvim"
-    echo "-- Original nvim config from backup" > "$HOME/.gentleman-backup-test-restore/nvim/init.lua"
-    echo "-- This should be restored" >> "$HOME/.gentleman-backup-test-restore/nvim/init.lua"
+    mkdir -p "$HOME/.dotfiles-backup-test-restore/nvim"
+    echo "-- Original nvim config from backup" > "$HOME/.dotfiles-backup-test-restore/nvim/init.lua"
+    echo "-- This should be restored" >> "$HOME/.dotfiles-backup-test-restore/nvim/init.lua"
     
     # Store original content for comparison
     original_content="-- Original nvim config from backup"
@@ -575,7 +575,7 @@ test_backup_restore() {
     fi
     
     # Now restore from backup manually (simulating restore function)
-    if cp "$HOME/.gentleman-backup-test-restore/nvim/init.lua" "$HOME/.config/nvim/init.lua"; then
+    if cp "$HOME/.dotfiles-backup-test-restore/nvim/init.lua" "$HOME/.config/nvim/init.lua"; then
         # Verify restore worked
         if grep -q "Original nvim config from backup" "$HOME/.config/nvim/init.lua"; then
             log_pass "Backup restore successful"
@@ -587,7 +587,7 @@ test_backup_restore() {
     fi
     
     # Cleanup test backup
-    rm -rf "$HOME/.gentleman-backup-test-restore"
+    rm -rf "$HOME/.dotfiles-backup-test-restore"
 }
 
 # Test: Multiple backups can coexist
@@ -595,17 +595,17 @@ test_multiple_backups() {
     log_test "Multiple backups can coexist"
     
     # Create multiple fake backups with different timestamps
-    mkdir -p "$HOME/.gentleman-backup-2024-01-15-120000"
-    echo "backup1" > "$HOME/.gentleman-backup-2024-01-15-120000/test"
+    mkdir -p "$HOME/.dotfiles-backup-2024-01-15-120000"
+    echo "backup1" > "$HOME/.dotfiles-backup-2024-01-15-120000/test"
     
-    mkdir -p "$HOME/.gentleman-backup-2024-01-16-130000"
-    echo "backup2" > "$HOME/.gentleman-backup-2024-01-16-130000/test"
+    mkdir -p "$HOME/.dotfiles-backup-2024-01-16-130000"
+    echo "backup2" > "$HOME/.dotfiles-backup-2024-01-16-130000/test"
     
-    mkdir -p "$HOME/.gentleman-backup-2024-01-17-140000"
-    echo "backup3" > "$HOME/.gentleman-backup-2024-01-17-140000/test"
+    mkdir -p "$HOME/.dotfiles-backup-2024-01-17-140000"
+    echo "backup3" > "$HOME/.dotfiles-backup-2024-01-17-140000/test"
     
     # Count backups
-    backup_count=$(ls -d "$HOME/.gentleman-backup-"* 2>/dev/null | wc -l)
+    backup_count=$(ls -d "$HOME/.dotfiles-backup-"* 2>/dev/null | wc -l)
     
     if [ "$backup_count" -ge 3 ]; then
         log_pass "Multiple backups coexist ($backup_count found)"
@@ -614,9 +614,9 @@ test_multiple_backups() {
     fi
     
     # Cleanup test backups
-    rm -rf "$HOME/.gentleman-backup-2024-01-15-120000"
-    rm -rf "$HOME/.gentleman-backup-2024-01-16-130000"
-    rm -rf "$HOME/.gentleman-backup-2024-01-17-140000"
+    rm -rf "$HOME/.dotfiles-backup-2024-01-15-120000"
+    rm -rf "$HOME/.dotfiles-backup-2024-01-16-130000"
+    rm -rf "$HOME/.dotfiles-backup-2024-01-17-140000"
 }
 
 # Test: Backup deletion works
@@ -624,7 +624,7 @@ test_backup_deletion() {
     log_test "Backup deletion"
     
     # Create a test backup
-    test_backup="$HOME/.gentleman-backup-delete-test"
+    test_backup="$HOME/.dotfiles-backup-delete-test"
     mkdir -p "$test_backup"
     echo "test" > "$test_backup/testfile"
     
@@ -653,14 +653,14 @@ test_install_no_backup() {
     setup_fake_configs
     
     # Count existing backups before
-    before_count=$(ls -d "$HOME/.gentleman-backup-"* 2>/dev/null | wc -l)
+    before_count=$(ls -d "$HOME/.dotfiles-backup-"* 2>/dev/null | wc -l)
     
     # Run installer with backup=false
     if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=zsh --wm=none --backup=false 2>&1; then
         
         # Count backups after
-        after_count=$(ls -d "$HOME/.gentleman-backup-"* 2>/dev/null | wc -l)
+        after_count=$(ls -d "$HOME/.dotfiles-backup-"* 2>/dev/null | wc -l)
         
         if [ "$after_count" -eq "$before_count" ]; then
             log_pass "No new backup created when backup=false"
@@ -684,7 +684,7 @@ test_backup_contents() {
         --shell=fish --wm=tmux --nvim --backup=true 2>&1; then
         
         # Find the backup
-        backup_dir=$(ls -dt "$HOME/.gentleman-backup-"* 2>/dev/null | head -1)
+        backup_dir=$(ls -dt "$HOME/.dotfiles-backup-"* 2>/dev/null | head -1)
         
         if [ -d "$backup_dir" ]; then
             # List what's in the backup

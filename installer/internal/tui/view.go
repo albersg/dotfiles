@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Gentleman-Programming/Gentleman.Dots/installer/internal/tui/trainer"
+	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	"github.com/charmbracelet/lipgloss"
 )
 

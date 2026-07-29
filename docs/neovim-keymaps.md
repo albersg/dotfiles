@@ -1,6 +1,6 @@
 # Neovim Keymaps Reference
 
-Complete reference of all keybindings configured in Gentleman.Dots Neovim setup. The leader key is `<Space>`.
+Complete reference of all keybindings configured in dotfiles Neovim setup. The leader key is `<Space>`.
 
 > **Tip:** Press `<leader>?` in Neovim to see context-aware keybindings, or `<leader>sk` to search all keymaps.
 

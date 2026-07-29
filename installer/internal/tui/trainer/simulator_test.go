@@ -382,7 +382,7 @@ func TestSimulateMotions_SemicolonRepeatTill(t *testing.T) {
 
 func TestSimulateMotions_BackWordFromEquals(t *testing.T) {
 	// This is the specific case from the user testing
-	code := []string{"const userName = 'gentleman';"}
+	code := []string{"const userName = 'dotfiles';"}
 	start := Position{Line: 0, Col: 15} // at '='
 
 	result := SimulateMotions(start, code, "b")
@@ -394,7 +394,7 @@ func TestSimulateMotions_BackWordFromEquals(t *testing.T) {
 }
 
 func TestSimulateMotions_BackWordMultiple(t *testing.T) {
-	code := []string{"const userName = 'gentleman';"}
+	code := []string{"const userName = 'dotfiles';"}
 	start := Position{Line: 0, Col: 17} // at ' (quote)
 
 	// First b: from ' (col 17) -> skip space -> land on = (col 15)
@@ -408,7 +408,7 @@ func TestSimulateMotions_BackWordMultiple(t *testing.T) {
 }
 
 func TestSimulateMotions_BackWordStopsAtPunctuation(t *testing.T) {
-	code := []string{"const userName = 'gentleman';"}
+	code := []string{"const userName = 'dotfiles';"}
 	start := Position{Line: 0, Col: 17} // at ' (quote)
 
 	// b from ' should land on = (punctuation treated as word)

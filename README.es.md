@@ -1,6 +1,6 @@
 # dotfiles
 
-> 🤖 **NUEVO**: La capa de desarrollo con IA ahora tiene su propio instalador — [**AI Gentle Stack (gentle-ai)**](https://github.com/Gentleman-Programming/gentle-ai). Configura Claude Code, OpenCode, Gemini CLI, Cursor y VS Code Copilot con memoria persistente, workflow SDD, skills y la personalidad Gentleman. Instalá dotfiles primero, después ejecutá `gentle-ai` para la capa de IA.
+> 🤖 **NUEVO**: La capa de desarrollo con IA ahora tiene su propio instalador — [**AI Gentle Stack (dotfiles-ai)**](https://github.com/dotfiles-Programming/dotfiles-ai). Configura Claude Code, OpenCode, Gemini CLI, Cursor y VS Code Copilot con memoria persistente, workflow SDD, skills y la personalidad dotfiles. Instalá dotfiles primero, después ejecutá `dotfiles-ai` para la capa de IA.
 
 📄 Leer en: [English](README.md) | **Español**
 
@@ -38,7 +38,7 @@ Una configuración completa de entorno de desarrollo que incluye:
 - **Shells**: Fish, Zsh, Nushell
 - **Multiplexores de terminal**: Tmux, Zellij, Herdr
 - **Emuladores de terminal**: Alacritty, WezTerm, Kitty, Ghostty
-- **Herramientas CLI de IA**: Instaladores de Claude Code y OpenCode CLI (configs gestionadas por [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai))
+- **Herramientas CLI de IA**: Instaladores de Claude Code y OpenCode CLI (configs gestionadas por [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai))
 
 ---
 
@@ -103,11 +103,11 @@ El TUI te deja elegir **Tmux**, **Zellij**, **Herdr** o **None** como multiplexo
 
 dotfiles configura tu **entorno de desarrollo** (editor, shells, terminales). Para la **capa de desarrollo con IA** (agentes, memoria, skills, workflow), usá el proyecto complementario:
 
-### [AI Gentle Stack (gentle-ai)](https://github.com/Gentleman-Programming/gentle-ai)
+### [AI Gentle Stack (dotfiles-ai)](https://github.com/dotfiles-Programming/dotfiles-ai)
 
 ```bash
-brew install Gentleman-Programming/tap/gentle-ai
-gentle-ai
+brew install dotfiles-Programming/tap/dotfiles-ai
+dotfiles-ai
 ```
 
 Configura tus agentes de IA con todo lo que necesitan:
@@ -118,7 +118,7 @@ Configura tus agentes de IA con todo lo que necesitan:
 | **SDD Workflow** | Spec-Driven Development con sub-agentes orquestados |
 | **Skills** | 24 librerías de patrones (React 19, Next.js 15, TypeScript, Tailwind 4, etc.) |
 | **Context7** | Documentación actualizada de librerías vía MCP |
-| **Persona** | Estilo de enseñanza Gentleman para las respuestas de IA |
+| **Persona** | Estilo de enseñanza dotfiles para las respuestas de IA |
 | **Permisos** | Defaults de seguridad para todos los agentes |
 
 ### Agentes soportados
@@ -136,13 +136,13 @@ Configura tus agentes de IA con todo lo que necesitan:
 
 ### Qué vive dónde
 
-| | Este repo (dotfiles) | gentle-ai |
+| | Este repo (dotfiles) | dotfiles-ai |
 |--|---------------------------|-----------|
 | **Propósito** | Entorno de desarrollo (editores, shells, terminales) | Capa de desarrollo con IA (agentes, memoria, skills) |
 | **Instala** | Neovim, Fish/Zsh/Nushell, Tmux/Zellij/Herdr, Ghostty | Configura Claude Code, OpenCode, Gemini CLI, Cursor, VS Code Copilot |
 | **Configs IA** | Solo CLI tools (Claude Code, OpenCode) | Config completa: persona, skills, temas, MCP |
 
-Instalá dotfiles primero para tu entorno de desarrollo, después `gentle-ai` para la capa de IA.
+Instalá dotfiles primero para tu entorno de desarrollo, después `dotfiles-ai` para la capa de IA.
 
 ---
 
@@ -177,7 +177,7 @@ Podés iniciarlo desde el menú principal: **Vim Mastery Trainer**
 | [Especificación del entrenador Vim](docs/vim-trainer-spec.md) | Detalles técnicos del entrenador                                               |
 | [Testing con Docker](docs/docker-testing.md)                  | Tests E2E con contenedores                                                     |
 | [Contribuir](docs/contributing.md)                            | Setup de desarrollo, sistema de skills y releases                              |
-| [AI Gentle Stack](https://github.com/Gentleman-Programming/gentle-ai) | Instalador de capa IA — Engram, SDD, Skills, Persona (repo separado) |
+| [AI Gentle Stack](https://github.com/dotfiles-Programming/dotfiles-ai) | Instalador de capa IA — Engram, SDD, Skills, Persona (repo separado) |
 
 ---
 
@@ -207,7 +207,7 @@ Contiene configuraciones de vanguardia que luego pasan a `main` cuando se estabi
 
 - **Issues**: [GitHub Issues](https://github.com/albersg/dotfiles/issues)
 
-> Esta es una distribución downstream de [Gentleman.Dots](https://github.com/Gentleman-Programming/Gentleman.Dots). Consultá [UPSTREAM.md](UPSTREAM.md) para enlaces de la comunidad upstream y atribución.
+> Esta es una distribución downstream de [dotfiles](https://github.com/dotfiles-Programming/dotfiles). Consultá [UPSTREAM.md](UPSTREAM.md) para enlaces de la comunidad upstream y atribución.
 
 ---
 

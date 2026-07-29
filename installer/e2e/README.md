@@ -1,4 +1,4 @@
-# E2E Tests for Gentleman.Dots Installer
+# E2E Tests for dotfiles Installer
 
 End-to-end tests that verify the installer works across different Linux environments using Docker.
 

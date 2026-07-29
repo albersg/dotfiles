@@ -41,7 +41,7 @@ dotfiles-herdr/
 
 ## Branding Audit
 
-The CI pipeline includes a branding audit that fails if any residual "Gentleman" string is found outside of:
+The CI pipeline includes a branding audit that fails if any residual "dotfiles" string is found outside of:
 
 - `NOTICE` — attribution statement
 - `docs/ATTRIBUTION.md` — attribution
@@ -51,7 +51,7 @@ The CI pipeline includes a branding audit that fails if any residual "Gentleman"
 Run manually:
 
 ```bash
-rg Gentleman --count --glob '!NOTICE' --glob '!docs/adr/*' \
+rg dotfiles --count --glob '!NOTICE' --glob '!docs/adr/*' \
   --glob '!docs/ATTRIBUTION.md' --glob '!.downstream/*'
 # Should return 0 matches
 ```
@@ -67,6 +67,6 @@ If you need to change the branding further:
 
 ## Don't Change
 
-- Go module path (`github.com/Gentleman-Programming/Gentleman.Dots/installer`) — deferred rename
+- Go module path (`github.com/dotfiles-Programming/dotfiles/installer`) — deferred rename
 - `LICENSE` — upstream MIT license preserved
-- `gentle-ai` references — separate project, use upstream URL
+- `dotfiles-ai` references — separate project, use upstream URL

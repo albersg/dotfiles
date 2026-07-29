@@ -207,7 +207,7 @@ test_skill_references_are_correct() {
     assert_file_contains "$REPO_ROOT/AGENTS.md" "skills/dotfiles-bubbletea/SKILL.md"
     assert_file_contains "$REPO_ROOT/AGENTS.md" "skills/dotfiles-trainer/SKILL.md"
 
-    # User skills are now managed by gentle-ai (no longer in this repo)
+    # User skills are now managed by dotfiles-ai (no longer in this repo)
 }
 
 # ============================================================================
@@ -225,8 +225,8 @@ test_repo_skills_exist() {
     done
 }
 
-## User skills (react-19, typescript, etc.) are now managed by gentle-ai
-## https://github.com/Gentleman-Programming/gentle-ai
+## User skills (react-19, typescript, etc.) are now managed by dotfiles-ai
+## https://github.com/dotfiles-Programming/dotfiles-ai
 
 # ============================================================================
 # Idempotency Tests

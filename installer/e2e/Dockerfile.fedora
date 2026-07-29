@@ -29,11 +29,11 @@ USER testuser
 WORKDIR /home/testuser
 
 # Copy the binary and test script (build context is e2e/)
-COPY --chown=testuser:testuser gentleman-installer-linux-amd64 /usr/local/bin/gentleman-dots
+COPY --chown=testuser:testuser dotfiles-installer-linux-amd64 /usr/local/bin/dotfiles
 COPY --chown=testuser:testuser e2e_test.sh /home/testuser/e2e_test.sh
 
 USER root
-RUN chmod +x /usr/local/bin/gentleman-dots /home/testuser/e2e_test.sh
+RUN chmod +x /usr/local/bin/dotfiles /home/testuser/e2e_test.sh
 USER testuser
 
 # Run the full E2E test suite

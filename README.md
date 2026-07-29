@@ -1,6 +1,6 @@
 # dotfiles
 
-> 🤖 **NEW**: The AI development layer now lives in its own installer — [**AI Gentle Stack (gentle-ai)**](https://github.com/Gentleman-Programming/gentle-ai). It configures Claude Code, OpenCode, Gemini CLI, Cursor, and VS Code Copilot with persistent memory, SDD workflow, skills, and the Gentleman persona. Install dotfiles first, then run `gentle-ai` for the AI layer.
+> 🤖 **NEW**: The AI development layer now lives in its own installer — [**AI Gentle Stack (dotfiles-ai)**](https://github.com/dotfiles-Programming/dotfiles-ai). It configures Claude Code, OpenCode, Gemini CLI, Cursor, and VS Code Copilot with persistent memory, SDD workflow, skills, and the dotfiles persona. Install dotfiles first, then run `dotfiles-ai` for the AI layer.
 
 📄 Read this in: **English** | [Español](README.es.md)
 
@@ -38,7 +38,7 @@ A complete development environment configuration including:
 - **Shells**: Fish, Zsh, Nushell
 - **Terminal Multiplexers**: Tmux, Zellij, Herdr
 - **Terminal Emulators**: Alacritty, WezTerm, Kitty, Ghostty
-- **AI CLI Tools**: Claude Code and OpenCode CLI installers (configs managed by [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai))
+- **AI CLI Tools**: Claude Code and OpenCode CLI installers (configs managed by [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai))
 
 ## Quick Start
 
@@ -101,11 +101,11 @@ During multiplexer selection, choose **Tmux**, **Zellij**, **Herdr**, or **None*
 
 dotfiles handles your **dev environment** (editor, shells, terminals). For the **AI development layer** (agents, memory, skills, workflow), use the companion project:
 
-### [AI Gentle Stack (gentle-ai)](https://github.com/Gentleman-Programming/gentle-ai)
+### [AI Gentle Stack (dotfiles-ai)](https://github.com/dotfiles-Programming/dotfiles-ai)
 
 ```bash
-brew install Gentleman-Programming/tap/gentle-ai
-gentle-ai
+brew install dotfiles-Programming/tap/dotfiles-ai
+dotfiles-ai
 ```
 
 It configures your AI coding agents with everything they need:
@@ -116,7 +116,7 @@ It configures your AI coding agents with everything they need:
 | **SDD Workflow** | Spec-Driven Development with orchestrated sub-agents |
 | **Skills** | 24 coding pattern libraries (React 19, Next.js 15, TypeScript, Tailwind 4, etc.) |
 | **Context7** | Up-to-date library documentation via MCP |
-| **Persona** | Gentleman teaching style for AI responses |
+| **Persona** | dotfiles teaching style for AI responses |
 | **Permissions** | Security-first defaults for all agents |
 
 ### Supported Agents
@@ -134,13 +134,13 @@ It configures your AI coding agents with everything they need:
 
 ### What lives where
 
-| | This repo (dotfiles) | gentle-ai |
+| | This repo (dotfiles) | dotfiles-ai |
 |--|---------------------------|-----------|
 | **Purpose** | Dev environment (editors, shells, terminals) | AI development layer (agents, memory, skills) |
 | **Installs** | Neovim, Fish/Zsh/Nushell, Tmux/Zellij/Herdr, Ghostty | Configures Claude Code, OpenCode, Gemini CLI, Cursor, VS Code Copilot |
 | **AI configs** | CLI tools only (Claude Code, OpenCode) | Full config: persona, skills, themes, MCP |
 
-Install dotfiles first for your dev environment, then `gentle-ai` for the AI layer on top.
+Install dotfiles first for your dev environment, then `dotfiles-ai` for the AI layer on top.
 
 ---
 
@@ -172,7 +172,7 @@ Launch it from the main menu: **Vim Mastery Trainer**
 | [Manual Installation](docs/manual-installation.md) | Step-by-step manual setup for all platforms |
 | [Neovim Keymaps](docs/neovim-keymaps.md) | Complete reference of all keybindings |
 | [AI Configuration](docs/ai-configuration.md) | Claude Code, OpenCode, Copilot, and other AI assistants |
-| [AI Gentle Stack](https://github.com/Gentleman-Programming/gentle-ai) | AI layer installer — Engram, SDD, Skills, Persona (separate repo) |
+| [AI Gentle Stack](https://github.com/dotfiles-Programming/dotfiles-ai) | AI layer installer — Engram, SDD, Skills, Persona (separate repo) |
 | [Vim Trainer Spec](docs/vim-trainer-spec.md) | Technical specification for the Vim Mastery Trainer |
 | [Docker Testing](docs/docker-testing.md) | E2E testing with Docker containers |
 | [Contributing](docs/contributing.md) | Development setup, skills system, E2E tests, release process |
@@ -205,7 +205,7 @@ This branch contains cutting-edge configurations that eventually make their way 
 
 - **Issues**: [GitHub Issues](https://github.com/albersg/dotfiles/issues)
 
-> This is a downstream distribution of [Gentleman.Dots](https://github.com/Gentleman-Programming/Gentleman.Dots). See [UPSTREAM.md](UPSTREAM.md) for upstream community links and attribution.
+> This is a downstream distribution of [dotfiles](https://github.com/dotfiles-Programming/dotfiles). See [UPSTREAM.md](UPSTREAM.md) for upstream community links and attribution.
 
 ---
 

@@ -69,10 +69,10 @@ RUN mkdir -p /home/testuser/.config
 
 # Copy test script and binary (build context is e2e/)
 COPY --chown=testuser:testuser e2e_test_termux.sh /home/testuser/e2e_test.sh
-COPY --chown=testuser:testuser gentleman-installer-linux-amd64 /home/testuser/gentleman-dots
+COPY --chown=testuser:testuser dotfiles-installer-linux-amd64 /home/testuser/dotfiles
 
 USER root
-RUN chmod +x /home/testuser/e2e_test.sh /home/testuser/gentleman-dots
+RUN chmod +x /home/testuser/e2e_test.sh /home/testuser/dotfiles
 USER testuser
 
 # Set Termux environment variables for detection

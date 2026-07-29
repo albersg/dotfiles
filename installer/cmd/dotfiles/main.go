@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Gentleman-Programming/Gentleman.Dots/installer/internal/tui"
+	"github.com/albersg/dotfiles/installer/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
