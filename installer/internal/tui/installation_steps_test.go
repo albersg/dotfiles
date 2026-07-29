@@ -479,6 +479,7 @@ func TestNavigationToEachScreen(t *testing.T) {
 
 	t.Run("OS select mac -> terminal select", func(t *testing.T) {
 		m := NewModel()
+		m.SystemInfo.IsWSL = false // Test standard (non-WSL) flow
 		m.Screen = ScreenOSSelect
 		m.Cursor = 0 // macOS
 
@@ -493,6 +494,7 @@ func TestNavigationToEachScreen(t *testing.T) {
 
 	t.Run("OS select linux -> terminal select", func(t *testing.T) {
 		m := NewModel()
+		m.SystemInfo.IsWSL = false // Test standard (non-WSL) flow
 		m.Screen = ScreenOSSelect
 		m.Cursor = 1 // Linux
 

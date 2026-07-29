@@ -34,7 +34,8 @@ func TestFullInstallationFlow(t *testing.T) {
 			t.Fatalf("Expected ScreenOSSelect, got %v", m.Screen)
 		}
 
-		// Select macOS (cursor at 0)
+		// Select macOS (cursor at 0) — override WSL for standard flow test
+		m.SystemInfo.IsWSL = false
 		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
 

@@ -150,8 +150,59 @@ eval "$(atuin init zsh)"
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 start_if_needed
-# WSL-specific: VS Code integration from Windows host
+
+# ─── WSL2 cross-platform support ──────────────────────────────────────────────
 if grep -qi microsoft /proc/version 2>/dev/null; then
+  # --- WSL detection ----------------------------------------------------------
+  IS_WSL=1
+  WSL_INTEROP="/run/WSL"
+  WSL_DISTRO="${WSL_DISTRO_NAME:-unknown}"
+
+  # --- WSLg DISPLAY (auto-set by WSLg, but guard for headless scenarios) -----
+  if [[ -z "$DISPLAY" ]] && [[ -f "$WSL_INTEROP/interop" ]]; then
+    export DISPLAY=":0"
+  fi
+  if [[ -z "$WAYLAND_DISPLAY" ]] && [[ -f "$WSL_INTEROP/interop" ]]; then
+    export WAYLAND_DISPLAY="wayland-0"
+  fi
+
+  # --- BROWSER: prefer wslview (from wslu package), fallback chain -----------
+  if command -v wslview &>/dev/null; then
+    export BROWSER="wslview"
+  elif command -v powershell.exe &>/dev/null; then
+    export BROWSER="powershell.exe -Command Start-Process"
+  elif [[ -f "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" ]]; then
+    export BROWSER='"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"'
+  elif [[ -f "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" ]]; then
+    export BROWSER='"/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"'
+  fi
+
+  # --- Docker Desktop integration (common WSL setup) -------------------------
+  if [[ -S "/var/run/docker.sock" ]] && command -v docker &>/dev/null; then
+    export DOCKER_HOST="unix:///var/run/docker.sock"
+  fi
+
+  # --- Clipboard integration via clip.exe (available by default in WSL) ------
+  if command -v clip.exe &>/dev/null; then
+    alias clip="clip.exe"
+  fi
+  if command -v powershell.exe &>/dev/null; then
+    alias pbcopy="powershell.exe -Command 'Set-Clipboard -Value ([System.Console]::In.ReadToEnd())'"
+    alias pbpaste="powershell.exe -Command 'Get-Clipboard'"
+  fi
+
+  # --- Convenience aliases ---------------------------------------------------
+  alias explorer="explorer.exe . 2>/dev/null &!"
+  alias xdg-open="wslview"
+  alias open="wslview"
+
+  # --- Windows path shortcuts -------------------------------------------------
+  WIN_HOME="$(wslpath "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r\n')" 2>/dev/null)"
+  export WIN_HOME="${WIN_HOME:-/mnt/c/Users/$(whoami)}"
+  alias winhome="cd \"$WIN_HOME\""
+  alias downloads="cd \"$WIN_HOME/Downloads\""
+
+  # --- VS Code integration from Windows host ----------------------------------
   CODE_BIN="/mnt/c/Program Files/Microsoft VS Code/bin"
   if [[ -d "$CODE_BIN" ]]; then
     export PATH="$PATH:$CODE_BIN"

@@ -143,7 +143,7 @@ func (m Model) renderWelcome() string {
 
 	// System info
 	info := fmt.Sprintf("Detected: %s", m.SystemInfo.OSName)
-	if m.SystemInfo.IsWSL {
+	if m.SystemInfo.IsWSL && m.SystemInfo.OSName != "WSL" {
 		info += " (WSL)"
 	}
 	if m.SystemInfo.HasBrew {
@@ -240,11 +240,26 @@ func (m Model) renderStepProgress() string {
 	case ScreenFontSelect:
 		currentIdx = 2
 	case ScreenShellSelect:
-		currentIdx = 3
+		// WSL and Termux skip terminal + font: Shell is step 2
+		if m.SystemInfo.IsWSL || m.SystemInfo.IsTermux {
+			currentIdx = 2
+		} else {
+			currentIdx = 3
+		}
 	case ScreenWMSelect:
-		currentIdx = 4
+		// WSL and Termux skip terminal + font: WM is step 3
+		if m.SystemInfo.IsWSL || m.SystemInfo.IsTermux {
+			currentIdx = 3
+		} else {
+			currentIdx = 4
+		}
 	case ScreenNvimSelect:
-		currentIdx = 5
+		// WSL and Termux skip terminal + font: Nvim is step 4
+		if m.SystemInfo.IsWSL || m.SystemInfo.IsTermux {
+			currentIdx = 4
+		} else {
+			currentIdx = 5
+		}
 	}
 
 	var parts []string

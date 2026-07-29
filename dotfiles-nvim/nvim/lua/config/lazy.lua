@@ -22,6 +22,51 @@ end
 vim.opt.rtp:prepend(vim.env.LAZY or lazypath)
 
 -- Fix copy and paste in WSL (Windows Subsystem for Linux)
+-- WSL2: Neovim needs a Windows-side clipboard tool
+-- win32yank.exe is the recommended tool (faster than clip.exe)
+-- Install: winget install win32yank (or download from GitHub releases)
+local function is_wsl()
+  local version = vim.fn.readfile("/proc/version")
+  if type(version) == "table" and #version > 0 then
+    return version[1]:lower():match("microsoft") ~= nil
+  end
+  return false
+end
+
+if is_wsl() then
+  -- Check for win32yank.exe first (recommended clipboard tool for WSL)
+  if vim.fn.executable("win32yank.exe") == 1 then
+    vim.g.clipboard = {
+      name = "win32yank-wsl",
+      copy = {
+        ["+"] = "win32yank.exe -i --crlf",
+        ["*"] = "win32yank.exe -i --crlf",
+      },
+      paste = {
+        ["+"] = "win32yank.exe -o --lf",
+        ["*"] = "win32yank.exe -o --lf",
+      },
+      cache_enabled = 0,
+    }
+  elseif vim.fn.executable("clip.exe") == 1 then
+    -- Fallback: clip.exe is available by default in WSL
+    -- Note: clip.exe only supports copying, not pasting
+    -- For paste support, install win32yank.exe
+    vim.g.clipboard = {
+      name = "WSL-clip",
+      copy = {
+        ["+"] = "clip.exe",
+        ["*"] = "clip.exe",
+      },
+      paste = {
+        ["+"] = "powershell.exe -c 'Get-Clipboard'",
+        ["*"] = "powershell.exe -c 'Get-Clipboard'",
+      },
+      cache_enabled = 0,
+    }
+  end
+end
+
 vim.opt.clipboard = "unnamedplus" -- Use the system clipboard for all operations
 
 -- Setup lazy.nvim with the specified configuration

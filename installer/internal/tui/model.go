@@ -468,13 +468,13 @@ func (m Model) GetScreenDescription() string {
 	switch m.Screen {
 	case ScreenOSSelect:
 		detected := m.SystemInfo.OSName
-		if m.SystemInfo.IsWSL {
+		if m.SystemInfo.IsWSL && m.SystemInfo.OSName != "WSL" {
 			detected += " (WSL)"
 		}
 		return "Detected: " + detected
 	case ScreenTerminalSelect:
 		if m.SystemInfo.IsWSL {
-			return "Note: Terminal emulators should be installed on Windows for WSL"
+			return "WSL detected: terminal emulators should be installed on Windows.\nThe installer will skip terminal setup — use Windows Terminal or your preferred Windows terminal."
 		}
 		return "Select your preferred terminal emulator"
 	case ScreenFontSelect:
@@ -545,6 +545,7 @@ func (m *Model) SetupInstallSteps() {
 
 	// Homebrew (interactive - first install needs password)
 	// Skip Termux and native package manager Linux distributions.
+	// WSL systems use Homebrew (Debian-based approach).
 	if !m.SystemInfo.HasBrew && !m.SystemInfo.IsTermux && m.SystemInfo.OS != system.OSArch && m.SystemInfo.OS != system.OSFedora {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "homebrew",

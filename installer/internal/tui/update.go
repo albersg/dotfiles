@@ -550,7 +550,8 @@ func (m Model) goBackInstallStep() (tea.Model, tea.Cmd) {
 
 	case ScreenShellSelect:
 		// Termux: go back to OS selection (skipped terminal and font)
-		if m.SystemInfo.IsTermux {
+		// WSL: go back to OS selection (skipped terminal and font)
+		if m.SystemInfo.IsTermux || m.SystemInfo.IsWSL {
 			m.Screen = ScreenOSSelect
 		} else if m.Choices.Terminal == "none" {
 			// If we skipped font selection (terminal = none), go back to terminal
@@ -638,9 +639,14 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 		}
 		// Termux: skip Terminal selection (you're already in a terminal!)
 		// But allow font installation (Termux supports custom fonts)
+		// WSL: skip Terminal selection (terminal emulators run on Windows host)
 		if m.Choices.OS == "termux" {
 			m.Choices.Terminal = "none"
 			m.Choices.InstallFont = true // Install Nerd Font for Termux
+			m.Screen = ScreenShellSelect
+		} else if m.SystemInfo.IsWSL {
+			m.Choices.Terminal = "none"
+			m.Choices.InstallFont = false // Fonts should be installed on Windows host
 			m.Screen = ScreenShellSelect
 		} else {
 			m.Screen = ScreenTerminalSelect

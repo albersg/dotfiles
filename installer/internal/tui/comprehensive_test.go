@@ -780,6 +780,7 @@ func TestMainMenuExit(t *testing.T) {
 
 func TestOSSelectMac(t *testing.T) {
 	m := NewModel()
+	m.SystemInfo.IsWSL = false // Not testing WSL-specific flow
 	m.Screen = ScreenOSSelect
 	m.Cursor = 0 // macOS
 

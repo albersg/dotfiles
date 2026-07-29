@@ -16,7 +16,7 @@ func TestOSTypes(t *testing.T) {
 	})
 
 	t.Run("all OS types should be distinct", func(t *testing.T) {
-		osTypes := []OSType{OSMac, OSLinux, OSArch, OSDebian, OSFedora, OSTermux, OSUnknown}
+		osTypes := []OSType{OSMac, OSLinux, OSArch, OSDebian, OSFedora, OSWSL, OSTermux, OSUnknown}
 		seen := make(map[OSType]bool)
 		for _, ot := range osTypes {
 			if seen[ot] {
@@ -56,7 +56,7 @@ func TestDetect(t *testing.T) {
 				t.Errorf("Expected OSName to be 'macOS', got '%s'", info.OSName)
 			}
 		case "linux":
-			validNames := []string{"Linux", "Arch Linux", "Debian/Ubuntu", "Fedora/RHEL", "Termux"}
+			validNames := []string{"Linux", "Arch Linux", "Debian/Ubuntu", "Fedora/RHEL", "WSL", "Termux"}
 			found := false
 			for _, name := range validNames {
 				if info.OSName == name {
@@ -66,6 +66,14 @@ func TestDetect(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("Unexpected OSName for Linux: '%s'", info.OSName)
+			}
+		}
+	})
+
+	t.Run("WSLVersion should be set when not on WSL", func(t *testing.T) {
+		if !info.IsWSL {
+			if info.WSLVersion != 0 {
+				t.Errorf("WSLVersion should be 0 on non-WSL, got %d", info.WSLVersion)
 			}
 		}
 	})
@@ -121,6 +129,26 @@ func TestCheckWSL(t *testing.T) {
 			}
 		}()
 		_ = checkWSL()
+	})
+}
+
+func TestDetectWSLVersion(t *testing.T) {
+	t.Run("should not panic", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("detectWSLVersion panicked: %v", r)
+			}
+		}()
+		version := detectWSLVersion()
+		// Should return 0, 1, or 2
+		if version < 0 || version > 2 {
+			t.Errorf("Unexpected WSL version: %d (expected 0-2)", version)
+		}
+	})
+
+	t.Run("should return valid value", func(t *testing.T) {
+		version := detectWSLVersion()
+		t.Logf("Detected WSL version: %d", version)
 	})
 }
 

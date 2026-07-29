@@ -75,7 +75,7 @@ func buildStepsForChoices(m *Model) []InstallStep {
 	steps = append(steps, InstallStep{ID: "clone", Name: "Clone dotfiles repository"})
 
 	// Homebrew (for Mac and Debian/Ubuntu Linux - NOT Fedora/Arch which use native package managers)
-	if m.SystemInfo.OS == system.OSMac || m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux {
+	if m.SystemInfo.OS == system.OSMac || m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux || m.SystemInfo.OS == system.OSWSL {
 		steps = append(steps, InstallStep{ID: "homebrew", Name: "Install/Update Homebrew"})
 	}
 

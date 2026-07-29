@@ -257,11 +257,19 @@ func stepInstallDeps(m *Model) error {
 			"Failed to update apt package list",
 			result.Error)
 	}
-	result = system.RunSudo("apt-get install -y build-essential curl file git unzip fontconfig procps", nil)
+	// Base deps + wslu on WSL (provides wslview, wslpath, etc.)
+	wslPkgs := ""
+	if m.SystemInfo.IsWSL {
+		wslPkgs = " wslu"
+	}
+	result = system.RunSudo(fmt.Sprintf("apt-get install -y build-essential curl file git unzip fontconfig procps%s", wslPkgs), nil)
 	if result.Error != nil {
 		return wrapStepError("deps", "Install Dependencies",
 			"Failed to install base dependencies on Debian/Ubuntu",
 			result.Error)
+	}
+	if m.SystemInfo.IsWSL {
+		SendLog(stepID, "✓ WSL utilities (wslu) installed for clipboard/browser integration")
 	}
 	return nil
 }

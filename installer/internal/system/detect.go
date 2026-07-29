@@ -13,24 +13,26 @@ const (
 	OSMac OSType = iota
 	OSLinux
 	OSArch
-	OSDebian  // Debian-based (Debian, Ubuntu, etc.)
-	OSFedora  // Fedora/RHEL-based (Fedora, CentOS, RHEL, etc.)
-	OSTermux  // Termux on Android
+	OSDebian    // Debian-based (Debian, Ubuntu, etc.)
+	OSFedora    // Fedora/RHEL-based (Fedora, CentOS, RHEL, etc.)
+	OSTermux    // Termux on Android
+	OSWSL       // WSL (Windows Subsystem for Linux)
 	OSUnknown
 )
 
 type SystemInfo struct {
-	OS        OSType
-	OSName    string
-	IsWSL     bool
-	IsARM     bool
-	IsTermux  bool
-	HomeDir   string
-	HasBrew   bool
-	HasPkg    bool // Termux package manager
-	HasXcode  bool
-	UserShell string
-	Prefix    string // Termux $PREFIX or empty for other systems
+	OS         OSType
+	OSName     string
+	IsWSL      bool
+	WSLVersion int // 0=none, 1=WSL1, 2=WSL2
+	IsARM      bool
+	IsTermux   bool
+	HomeDir    string
+	HasBrew    bool
+	HasPkg     bool // Termux package manager
+	HasXcode   bool
+	UserShell  string
+	Prefix     string // Termux $PREFIX or empty for other systems
 }
 
 func Detect() *SystemInfo {
@@ -62,6 +64,12 @@ func Detect() *SystemInfo {
 		info.OS = OSLinux
 		info.OSName = "Linux"
 		info.IsWSL = checkWSL()
+		if info.IsWSL {
+			info.OS = OSWSL
+			info.OSName = "WSL"
+			info.WSLVersion = detectWSLVersion()
+			break // Skip distro checks — WSL is the primary OS type
+		}
 
 		if isArchLinux() {
 			info.OS = OSArch
@@ -87,7 +95,35 @@ func checkWSL() bool {
 		return false
 	}
 	content := strings.ToLower(string(data))
-	return strings.Contains(content, "microsoft") || strings.Contains(content, "wsl")
+	if strings.Contains(content, "microsoft") || strings.Contains(content, "wsl") {
+		return true
+	}
+	// Secondary check: WSL_DISTRO_NAME env var is set by WSL init
+	if os.Getenv("WSL_DISTRO_NAME") != "" {
+		return true
+	}
+	return false
+}
+
+// detectWSLVersion detects WSL 1 or 2 from /proc/sys/kernel/osrelease
+// WSL2 uses a kernel version >= 5.x (actually 5.10+)
+func detectWSLVersion() int {
+	data, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	if err != nil {
+		// Can't detect, assume WSL2 (current default)
+		return 2
+	}
+	content := strings.TrimSpace(string(data))
+	// WSL2 reports kernel like "5.10.16.3-microsoft-standard-WSL2"
+	if strings.Contains(strings.ToLower(content), "wsl2") {
+		return 2
+	}
+	// WSL1: older kernel, typically 4.x without WSL2 marker
+	if strings.Contains(strings.ToLower(content), "microsoft") {
+		return 1
+	}
+	// Fallback: assume WSL2 if we got here (WSL1 is rare now)
+	return 2
 }
 
 func isArchLinux() bool {

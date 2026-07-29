@@ -145,8 +145,12 @@ echo "Press Enter to continue..."
 read dummy
 `
 	} else {
-		// Debian/Ubuntu
-		script = `#!/bin/sh
+		// Debian/Ubuntu (WSL or native)
+		depPkgs := "build-essential curl file git unzip fontconfig procps"
+		if m.SystemInfo.IsWSL {
+			depPkgs += " wslu"
+		}
+		script = fmt.Sprintf(`#!/bin/sh
 set -e
 echo ""
 echo "🔄 Updating apt package list..."
@@ -155,13 +159,13 @@ echo ""
 sudo apt-get update
 echo ""
 echo "📦 Installing base dependencies..."
-sudo apt-get install -y build-essential curl file git unzip fontconfig procps
+sudo apt-get install -y %s
 echo ""
 echo "✅ Dependencies installed successfully!"
 echo ""
 echo "Press Enter to continue..."
 read dummy
-`
+`, depPkgs)
 	}
 
 	return script, nil
