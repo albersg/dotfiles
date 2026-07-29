@@ -196,7 +196,7 @@ test_generated_files_contain_agents_content() {
     $SETUP_SCRIPT --claude >/dev/null 2>&1
 
     # Check AGENTS.md content is present
-    assert_file_contains "$REPO_ROOT/CLAUDE.md" "Gentleman.Dots AI Agent Skills"
+    assert_file_contains "$REPO_ROOT/CLAUDE.md" "dotfiles AI Agent Skills"
     assert_file_contains "$REPO_ROOT/CLAUDE.md" "Auto-invoke Skills"
 }
 
@@ -204,8 +204,8 @@ test_skill_references_are_correct() {
     log_test "Skill references point to correct locations"
 
     # Repository skills should be in skills/
-    assert_file_contains "$REPO_ROOT/AGENTS.md" "skills/gentleman-bubbletea/SKILL.md"
-    assert_file_contains "$REPO_ROOT/AGENTS.md" "skills/gentleman-trainer/SKILL.md"
+    assert_file_contains "$REPO_ROOT/AGENTS.md" "skills/dotfiles-bubbletea/SKILL.md"
+    assert_file_contains "$REPO_ROOT/AGENTS.md" "skills/dotfiles-trainer/SKILL.md"
 
     # User skills are now managed by gentle-ai (no longer in this repo)
 }
@@ -217,8 +217,8 @@ test_skill_references_are_correct() {
 test_repo_skills_exist() {
     log_test "Repository skills exist in skills/"
 
-    local skills=("gentleman-bubbletea" "gentleman-trainer" "gentleman-installer"
-                  "gentleman-e2e" "gentleman-system" "go-testing")
+    local skills=("dotfiles-bubbletea" "dotfiles-trainer" "dotfiles-installer"
+                  "dotfiles-e2e" "dotfiles-system" "go-testing")
 
     for skill in "${skills[@]}"; do
         assert_file_exists "$REPO_ROOT/skills/$skill/SKILL.md"
@@ -268,7 +268,7 @@ test_invalid_flag_shows_error() {
 
 echo ""
 echo "════════════════════════════════════════"
-echo "  Gentleman.Dots setup.sh Tests"
+echo "  dotfiles setup.sh Tests"
 echo "════════════════════════════════════════"
 echo ""
 

@@ -1,4 +1,4 @@
-# herdr configuration managed by Gentleman.Dots.
+# herdr configuration managed by dotfiles.
 # This file is copied into ~/.config/herdr/config.toml during installation.
 
 [theme]

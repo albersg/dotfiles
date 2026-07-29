@@ -217,7 +217,7 @@ cd -
 echo "✓ Alacritty built and installed from source"`
 		}
 		configCmd = fmt.Sprintf(`mkdir -p "%s/.config/alacritty"
-cp "Gentleman.Dots/alacritty.toml" "%s/.config/alacritty/alacritty.toml"`, homeDir, homeDir)
+cp "dotfiles/alacritty.toml" "%s/.config/alacritty/alacritty.toml"`, homeDir, homeDir)
 
 	case "wezterm":
 		if system.CommandExists("wezterm") {
@@ -232,7 +232,7 @@ sudo dnf install -y wezterm`
 			return "", nil
 		}
 		configCmd = fmt.Sprintf(`mkdir -p "%s/.config/wezterm"
-cp "Gentleman.Dots/.wezterm.lua" "%s/.config/wezterm/wezterm.lua"`, homeDir, homeDir)
+cp "dotfiles/.wezterm.lua" "%s/.config/wezterm/wezterm.lua"`, homeDir, homeDir)
 
 	case "ghostty":
 		if system.CommandExists("ghostty") {
@@ -247,7 +247,7 @@ sudo dnf install -y ghostty`
 			installCmd = `curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh | bash`
 		}
 		configCmd = fmt.Sprintf(`mkdir -p "%s/.config/ghostty"
-cp -r Gentleman.Dots/GentlemanGhostty/* "%s/.config/ghostty/"`, homeDir, homeDir)
+cp -r dotfiles/dotfiles-ghostty/* "%s/.config/ghostty/"`, homeDir, homeDir)
 
 	default:
 		return "", nil
@@ -372,13 +372,13 @@ echo ""
 BASHRC="$HOME/.bashrc"
 
 # Check if already configured
-if grep -q "# Gentleman.Dots shell auto-start" "$BASHRC" 2>/dev/null; then
+if grep -q "# dotfiles shell auto-start" "$BASHRC" 2>/dev/null; then
     echo "Shell auto-start already configured in ~/.bashrc"
 else
     echo "" >> "$BASHRC"
-    echo "# Gentleman.Dots shell auto-start" >> "$BASHRC"
-    echo "if [ -x \"$SHELL_PATH\" ] && [ -z \"\$GENTLEMANDOTS_SHELL_STARTED\" ]; then" >> "$BASHRC"
-    echo "    export GENTLEMANDOTS_SHELL_STARTED=1" >> "$BASHRC"
+    echo "# dotfiles shell auto-start" >> "$BASHRC"
+    echo "if [ -x \"$SHELL_PATH\" ] && [ -z \"\$DOTFILES_SHELL_STARTED\" ]; then" >> "$BASHRC"
+    echo "    export DOTFILES_SHELL_STARTED=1" >> "$BASHRC"
     echo "    exec $SHELL_PATH" >> "$BASHRC"
     echo "fi" >> "$BASHRC"
     echo "✅ Added shell auto-start to ~/.bashrc"
@@ -398,7 +398,7 @@ read dummy
 // createTempScriptCommand creates a temporary bash script and returns a command to execute it
 func createTempScriptCommand(script string) (*exec.Cmd, error) {
 	// Create temp file
-	tmpFile, err := os.CreateTemp("", "gentleman-install-*.sh")
+	tmpFile, err := os.CreateTemp("", "dotfiles-install-*.sh")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp script: %w", err)
 	}

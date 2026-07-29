@@ -63,20 +63,20 @@ func TestRun(t *testing.T) {
 	t.Run("should handle environment variables", func(t *testing.T) {
 		// Use sh -c to ensure variable expansion works across all shells
 		result := Run(`sh -c 'echo "$TEST_VAR"'`, &ExecOptions{
-			Env: []string{"TEST_VAR=gentleman"},
+			Env: []string{"TEST_VAR=dotfiles"},
 		})
 		if result.Error != nil {
 			t.Errorf("Unexpected error: %v", result.Error)
 		}
-		if !strings.Contains(result.Output, "gentleman") {
-			t.Errorf("Expected output to contain 'gentleman', got '%s'", result.Output)
+		if !strings.Contains(result.Output, "dotfiles") {
+			t.Errorf("Expected output to contain 'dotfiles', got '%s'", result.Output)
 		}
 	})
 }
 
 func TestEnsureDir(t *testing.T) {
 	t.Run("should create directory if not exists", func(t *testing.T) {
-		testDir := filepath.Join(os.TempDir(), "gentleman-test-dir")
+		testDir := filepath.Join(os.TempDir(), "dotfiles-test-dir")
 		defer os.RemoveAll(testDir)
 
 		err := EnsureDir(testDir)
@@ -94,7 +94,7 @@ func TestEnsureDir(t *testing.T) {
 	})
 
 	t.Run("should not error if directory exists", func(t *testing.T) {
-		testDir := filepath.Join(os.TempDir(), "gentleman-test-existing")
+		testDir := filepath.Join(os.TempDir(), "dotfiles-test-existing")
 		os.MkdirAll(testDir, 0755)
 		defer os.RemoveAll(testDir)
 
@@ -105,8 +105,8 @@ func TestEnsureDir(t *testing.T) {
 	})
 
 	t.Run("should create nested directories", func(t *testing.T) {
-		testDir := filepath.Join(os.TempDir(), "gentleman-test", "nested", "deep")
-		defer os.RemoveAll(filepath.Join(os.TempDir(), "gentleman-test"))
+		testDir := filepath.Join(os.TempDir(), "dotfiles-test", "nested", "deep")
+		defer os.RemoveAll(filepath.Join(os.TempDir(), "dotfiles-test"))
 
 		err := EnsureDir(testDir)
 		if err != nil {
@@ -126,13 +126,13 @@ func TestEnsureDir(t *testing.T) {
 func TestCopyFile(t *testing.T) {
 	t.Run("should copy file contents", func(t *testing.T) {
 		// Create source file
-		srcDir := filepath.Join(os.TempDir(), "gentleman-copy-test")
+		srcDir := filepath.Join(os.TempDir(), "dotfiles-copy-test")
 		os.MkdirAll(srcDir, 0755)
 		defer os.RemoveAll(srcDir)
 
 		srcFile := filepath.Join(srcDir, "source.txt")
 		dstFile := filepath.Join(srcDir, "dest.txt")
-		content := "Hello, Gentleman!"
+		content := "Hello, dotfiles!"
 
 		err := os.WriteFile(srcFile, []byte(content), 0644)
 		if err != nil {
@@ -288,8 +288,8 @@ func TestGetBackupDir(t *testing.T) {
 	t.Run("should return path with timestamp", func(t *testing.T) {
 		dir := GetBackupDir()
 
-		if !strings.Contains(dir, ".gentleman-backup-") {
-			t.Errorf("Backup dir should contain '.gentleman-backup-', got: %s", dir)
+		if !strings.Contains(dir, ".dotfiles-backup-") {
+			t.Errorf("Backup dir should contain '.dotfiles-backup-', got: %s", dir)
 		}
 
 		home := os.Getenv("HOME")
@@ -322,7 +322,7 @@ func TestListBackups(t *testing.T) {
 	t.Run("BackupInfo should have required fields", func(t *testing.T) {
 		// Create a temporary backup directory
 		home := os.Getenv("HOME")
-		testBackupDir := filepath.Join(home, ".gentleman-backup-test-123456")
+		testBackupDir := filepath.Join(home, ".dotfiles-backup-test-123456")
 		os.MkdirAll(testBackupDir, 0755)
 		defer os.RemoveAll(testBackupDir)
 
@@ -358,7 +358,7 @@ func TestCreateBackup(t *testing.T) {
 	t.Run("should create backup directory", func(t *testing.T) {
 		// Create a temporary config to backup
 		home := os.Getenv("HOME")
-		testConfigDir := filepath.Join(home, ".config", "gentleman-test-backup")
+		testConfigDir := filepath.Join(home, ".config", "dotfiles-test-backup")
 		os.MkdirAll(testConfigDir, 0755)
 		testFile := filepath.Join(testConfigDir, "config.txt")
 		os.WriteFile(testFile, []byte("test config"), 0644)
@@ -390,8 +390,8 @@ func TestCreateBackup(t *testing.T) {
 				t.Errorf("Backup dir should start with HOME: %s", backupDir)
 			}
 
-			if !strings.Contains(backupDir, ".gentleman-backup-") {
-				t.Errorf("Backup dir should contain '.gentleman-backup-': %s", backupDir)
+			if !strings.Contains(backupDir, ".dotfiles-backup-") {
+				t.Errorf("Backup dir should contain '.dotfiles-backup-': %s", backupDir)
 			}
 		}
 	})
@@ -408,7 +408,7 @@ func TestCreateBackup(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(realOhMyZsh, "themes"), 0o755); err != nil {
 			t.Fatalf("Failed to create oh-my-zsh directory: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(realOhMyZsh, "themes", "gentleman.zsh-theme"), []byte("theme"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(realOhMyZsh, "themes", "dotfiles.zsh-theme"), []byte("theme"), 0o644); err != nil {
 			t.Fatalf("Failed to create oh-my-zsh file: %v", err)
 		}
 		if err := os.Symlink(realOhMyZsh, filepath.Join(home, ".oh-my-zsh")); err != nil {
@@ -424,7 +424,7 @@ func TestCreateBackup(t *testing.T) {
 		}
 		defer os.RemoveAll(backupDir)
 
-		if _, err := os.Stat(filepath.Join(backupDir, "oh-my-zsh", "themes", "gentleman.zsh-theme")); err != nil {
+		if _, err := os.Stat(filepath.Join(backupDir, "oh-my-zsh", "themes", "dotfiles.zsh-theme")); err != nil {
 			t.Fatalf("Expected backed up oh-my-zsh theme file: %v", err)
 		}
 		data, err := os.ReadFile(filepath.Join(backupDir, "zsh"))
@@ -477,7 +477,7 @@ func TestRestoreBackup(t *testing.T) {
 	t.Run("should restore files from backup", func(t *testing.T) {
 		// This is a complex integration test - we'll just verify it doesn't panic
 		home := os.Getenv("HOME")
-		testBackupDir := filepath.Join(home, ".gentleman-backup-restore-test")
+		testBackupDir := filepath.Join(home, ".dotfiles-backup-restore-test")
 		os.MkdirAll(testBackupDir, 0755)
 		defer os.RemoveAll(testBackupDir)
 
@@ -496,11 +496,11 @@ func TestRestoreBackup(t *testing.T) {
 		}
 		defer os.Setenv("HOME", originalHome)
 
-		backupDir := filepath.Join(home, ".gentleman-backup-restore-test")
+		backupDir := filepath.Join(home, ".dotfiles-backup-restore-test")
 		if err := os.MkdirAll(filepath.Join(backupDir, "oh-my-zsh", "themes"), 0o755); err != nil {
 			t.Fatalf("Failed to create backup directory tree: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(backupDir, "oh-my-zsh", "themes", "gentleman.zsh-theme"), []byte("restored-theme"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(backupDir, "oh-my-zsh", "themes", "dotfiles.zsh-theme"), []byte("restored-theme"), 0o644); err != nil {
 			t.Fatalf("Failed to create backed up theme file: %v", err)
 		}
 		if err := os.WriteFile(filepath.Join(backupDir, "zsh"), []byte("restored-zshrc"), 0o644); err != nil {
@@ -519,7 +519,7 @@ func TestRestoreBackup(t *testing.T) {
 			t.Fatalf("Unexpected error restoring backup: %v", err)
 		}
 
-		themeData, err := os.ReadFile(filepath.Join(home, ".oh-my-zsh", "themes", "gentleman.zsh-theme"))
+		themeData, err := os.ReadFile(filepath.Join(home, ".oh-my-zsh", "themes", "dotfiles.zsh-theme"))
 		if err != nil {
 			t.Fatalf("Failed to read restored theme: %v", err)
 		}
@@ -541,7 +541,7 @@ func TestDeleteBackup(t *testing.T) {
 	t.Run("should delete backup directory", func(t *testing.T) {
 		// Create a temporary backup directory
 		home := os.Getenv("HOME")
-		testBackupDir := filepath.Join(home, ".gentleman-backup-delete-test")
+		testBackupDir := filepath.Join(home, ".dotfiles-backup-delete-test")
 		os.MkdirAll(testBackupDir, 0755)
 		os.WriteFile(filepath.Join(testBackupDir, "test"), []byte("test"), 0644)
 
@@ -594,7 +594,7 @@ func TestBackupE2EFlow(t *testing.T) {
 	home := os.Getenv("HOME")
 
 	// Create temp test directory structure
-	testConfigDir := filepath.Join(home, ".config", "gentleman-e2e-test")
+	testConfigDir := filepath.Join(home, ".config", "dotfiles-e2e-test")
 	defer os.RemoveAll(testConfigDir)
 
 	t.Run("complete backup and restore cycle", func(t *testing.T) {
@@ -617,7 +617,7 @@ func TestBackupE2EFlow(t *testing.T) {
 		}
 
 		// 3. Create backup directory manually (simulating CreateBackup)
-		backupDir := filepath.Join(home, ".gentleman-backup-e2e-test-flow")
+		backupDir := filepath.Join(home, ".dotfiles-backup-e2e-test-flow")
 		defer os.RemoveAll(backupDir)
 		os.MkdirAll(backupDir, 0755)
 
@@ -657,9 +657,9 @@ func TestBackupE2EFlow(t *testing.T) {
 	t.Run("backup directory naming follows timestamp format", func(t *testing.T) {
 		dir := GetBackupDir()
 
-		// Should contain .gentleman-backup- prefix
-		if !strings.Contains(dir, ".gentleman-backup-") {
-			t.Errorf("Backup dir should contain '.gentleman-backup-': %s", dir)
+		// Should contain .dotfiles-backup- prefix
+		if !strings.Contains(dir, ".dotfiles-backup-") {
+			t.Errorf("Backup dir should contain '.dotfiles-backup-': %s", dir)
 		}
 
 		// Should contain timestamp in format YYYY-MM-DD-HHMMSS
@@ -727,7 +727,7 @@ func TestDetectExistingConfigsWithRealFiles(t *testing.T) {
 // TestBackupPreservesFilePermissions verifies file permissions are maintained
 func TestBackupPreservesContent(t *testing.T) {
 	home := os.Getenv("HOME")
-	testDir := filepath.Join(home, ".config", "gentleman-perm-test")
+	testDir := filepath.Join(home, ".config", "dotfiles-perm-test")
 	defer os.RemoveAll(testDir)
 
 	t.Run("preserves file content during copy", func(t *testing.T) {

@@ -218,7 +218,7 @@ func SetNonInteractiveMode(enabled bool) {
 func SendLog(stepID string, log string) {
 	if nonInteractiveMode {
 		// In non-interactive mode, print to stdout if verbose
-		if os.Getenv("GENTLEMAN_VERBOSE") == "1" {
+		if os.Getenv("DOTFILES_VERBOSE") == "1" {
 			fmt.Printf("    %s\n", log)
 		}
 		return
@@ -372,7 +372,7 @@ func (m Model) GetCurrentOptions() []string {
 func (m Model) GetScreenTitle() string {
 	switch m.Screen {
 	case ScreenWelcome:
-		return "Welcome to Gentleman.Dots Installer"
+		return "Welcome to dotfiles Installer"
 	case ScreenMainMenu:
 		return "Main Menu"
 	case ScreenOSSelect:
@@ -484,7 +484,7 @@ func (m Model) GetScreenDescription() string {
 	case ScreenWMSelect:
 		return "Terminal multiplexer for managing sessions"
 	case ScreenNvimSelect:
-		return "Includes LSP, TreeSitter, and Gentleman config"
+		return "Includes LSP, TreeSitter, and dotfiles config"
 	case ScreenGhosttyWarning:
 		return "Ghostty installation may fail on Ubuntu/Debian.\nThe installer script only supports certain versions."
 	default:
@@ -539,7 +539,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "clone",
 		Name:        "Clone Repository",
-		Description: "Downloading Gentleman.Dots",
+		Description: "Downloading dotfiles",
 		Status:      StatusPending,
 	})
 

@@ -363,7 +363,7 @@ type BackupInfo struct {
 	Files     []string
 }
 
-// ConfigPaths returns all config paths that Gentleman.Dots will modify
+// ConfigPaths returns all config paths that dotfiles will modify
 func ConfigPaths() map[string]string {
 	home := os.Getenv("HOME")
 	return map[string]string{
@@ -399,7 +399,7 @@ func DetectExistingConfigs() []string {
 func GetBackupDir() string {
 	home := os.Getenv("HOME")
 	timestamp := time.Now().Format("2006-01-02-150405")
-	return home + "/.gentleman-backup-" + timestamp
+	return home + "/.dotfiles-backup-" + timestamp
 }
 
 // ListBackups returns all existing backups
@@ -413,7 +413,7 @@ func ListBackups() []BackupInfo {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".gentleman-backup-") {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".dotfiles-backup-") {
 			backupPath := home + "/" + entry.Name()
 			info, err := entry.Info()
 			if err != nil {

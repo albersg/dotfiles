@@ -1,5 +1,5 @@
 #!/bin/sh
-# Interactive Docker test runner for Gentleman.Dots installer
+# Interactive Docker test runner for dotfiles installer
 # 
 # Usage:
 #   ./docker-test.sh              # Interactive mode
@@ -82,7 +82,7 @@ image_status() {
 build_binary() {
     echo "${BLUE}→ Building Linux AMD64 binary...${NC}"
     cd "$INSTALLER_DIR"
-    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$SCRIPT_DIR/gentleman-installer-linux-amd64" ./cmd/gentleman-installer
+    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$SCRIPT_DIR/dotfiles-installer-linux-amd64" ./cmd/dotfiles-installer
     echo "${GREEN}✓ Binary built${NC}"
 }
 
@@ -99,7 +99,7 @@ build_image() {
     fi
 
     # Ensure binary exists
-    if [ ! -f "$SCRIPT_DIR/gentleman-installer-linux-amd64" ]; then
+    if [ ! -f "$SCRIPT_DIR/dotfiles-installer-linux-amd64" ]; then
         build_binary
     fi
 
@@ -191,7 +191,7 @@ reset_image() {
 run_e2e_all() {
     target="${1:-all}"
     
-    print_header "Gentleman.Dots E2E Test Suite"
+    print_header "dotfiles E2E Test Suite"
     
     # Build binary first
     build_binary

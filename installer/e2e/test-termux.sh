@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALLER_DIR="$(dirname "$SCRIPT_DIR")"
 
 PLATFORM="${1:-arm64}"
-IMAGE_NAME="gentleman-termux-test"
+IMAGE_NAME="dotfiles-termux-test"
 
 echo "══════════════════════════════════════════════════════════"
 echo "  Testing Termux compatibility (platform: linux/$PLATFORM)"

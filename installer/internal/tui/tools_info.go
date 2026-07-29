@@ -560,7 +560,7 @@ func GetNvimKeymaps() []KeymapCategory {
 		},
 		{
 			Name:        "Custom Keymaps",
-			Description: "Gentleman.Dots custom keybindings",
+			Description: "dotfiles custom keybindings",
 			Keymaps: []Keymap{
 				{Keys: "<C-b>", Description: "Delete to end of word (insert)", Mode: "i"},
 				{Keys: "<C-c>", Description: "Escape from any mode", Mode: "i,n,v"},
@@ -595,8 +595,8 @@ func GetNvimKeymaps() []KeymapCategory {
 // GetNvimInfo returns info about Neovim and its features
 func GetNvimInfo() ToolInfo {
 	return ToolInfo{
-		Name:        "Neovim + LazyVim + Gentleman Config",
-		Description: "Hyperextensible Vim-based text editor with LazyVim distribution and Gentleman customizations",
+		Name:        "Neovim + LazyVim + dotfiles Config",
+		Description: "Hyperextensible Vim-based text editor with LazyVim distribution and dotfiles customizations",
 		Pros: []string{
 			"Blazing fast startup (~50ms)",
 			"LazyVim: Pre-configured, sane defaults",

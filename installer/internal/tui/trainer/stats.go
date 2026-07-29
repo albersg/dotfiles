@@ -66,7 +66,7 @@ func getConfigDir() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(homeDir, ".config", "gentleman-trainer")
+	return filepath.Join(homeDir, ".config", "dotfiles-trainer")
 }
 
 // LoadStats loads user stats from file

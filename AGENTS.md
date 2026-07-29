@@ -1,4 +1,4 @@
-# Gentleman.Dots AI Agent Skills
+# dotfiles AI Agent Skills
 
 > **Single Source of Truth** - This file is the master for all AI assistants.
 > Run `./skills/setup.sh` to sync to Claude, Gemini, Copilot, and Codex formats.
@@ -13,15 +13,15 @@ For manual loading, read the SKILL.md file directly.
 
 ## Available Skills
 
-### Gentleman.Dots Specific (Repository Skills)
+### dotfiles Specific (Repository Skills)
 
 | Skill | Description | File |
 |-------|-------------|------|
-| `gentleman-bubbletea` | Bubbletea TUI patterns, Model-Update-View, screen navigation | [SKILL.md](skills/gentleman-bubbletea/SKILL.md) |
-| `gentleman-trainer` | Vim Trainer RPG system, exercises, progression, boss fights | [SKILL.md](skills/gentleman-trainer/SKILL.md) |
-| `gentleman-installer` | Installation steps, interactive/non-interactive modes | [SKILL.md](skills/gentleman-installer/SKILL.md) |
-| `gentleman-e2e` | Docker-based E2E testing, multi-platform validation | [SKILL.md](skills/gentleman-e2e/SKILL.md) |
-| `gentleman-system` | OS detection, command execution, cross-platform support | [SKILL.md](skills/gentleman-system/SKILL.md) |
+| `dotfiles-bubbletea` | Bubbletea TUI patterns, Model-Update-View, screen navigation | [SKILL.md](skills/dotfiles-bubbletea/SKILL.md) |
+| `dotfiles-trainer` | Vim Trainer RPG system, exercises, progression, boss fights | [SKILL.md](skills/dotfiles-trainer/SKILL.md) |
+| `dotfiles-installer` | Installation steps, interactive/non-interactive modes | [SKILL.md](skills/dotfiles-installer/SKILL.md) |
+| `dotfiles-e2e` | Docker-based E2E testing, multi-platform validation | [SKILL.md](skills/dotfiles-e2e/SKILL.md) |
+| `dotfiles-system` | OS detection, command execution, cross-platform support | [SKILL.md](skills/dotfiles-system/SKILL.md) |
 | `go-testing` | Go testing patterns, table-driven tests, Bubbletea testing | [SKILL.md](skills/go-testing/SKILL.md) |
 
 > **Note:** User-facing AI skills (React 19, TypeScript, SDD workflow, etc.) are now managed by [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai).
@@ -32,18 +32,18 @@ When performing these actions, **ALWAYS** invoke the corresponding skill FIRST:
 
 | Action | Invoke First | Why |
 |--------|--------------|-----|
-| Adding new TUI screen | `gentleman-bubbletea` | Screen constants, Model state, Update handlers |
-| Creating Vim exercises | `gentleman-trainer` | Exercise structure, module registration, validation |
-| Adding installation step | `gentleman-installer` | Step registration, OS handling, error wrapping |
-| Writing E2E tests | `gentleman-e2e` | Test structure, Docker patterns, verification |
-| Adding OS support | `gentleman-system` | Detection priority, command execution patterns |
+| Adding new TUI screen | `dotfiles-bubbletea` | Screen constants, Model state, Update handlers |
+| Creating Vim exercises | `dotfiles-trainer` | Exercise structure, module registration, validation |
+| Adding installation step | `dotfiles-installer` | Step registration, OS handling, error wrapping |
+| Writing E2E tests | `dotfiles-e2e` | Test structure, Docker patterns, verification |
+| Adding OS support | `dotfiles-system` | Detection priority, command execution patterns |
 | Writing Go tests | `go-testing` | Table-driven tests, teatest patterns |
 | Creating new skill | `skill-creator` | Skill structure, naming, frontmatter |
 
 ## How Skills Work
 
 1. **Auto-detection**: Claude Code reads CLAUDE.md which contains skill triggers
-2. **Context matching**: When editing Go/TUI code, gentleman-bubbletea loads
+2. **Context matching**: When editing Go/TUI code, dotfiles-bubbletea loads
 3. **Pattern application**: AI follows the exact patterns from the skill
 4. **First-time-correct**: No trial and error - skills provide exact conventions
 
@@ -52,8 +52,8 @@ When performing these actions, **ALWAYS** invoke the corresponding skill FIRST:
 ```
 skills/                              # Repository-specific skills
 ├── setup.sh                         # Sync script
-├── gentleman-bubbletea/SKILL.md     # TUI patterns
-├── gentleman-trainer/SKILL.md       # Vim trainer
+├── dotfiles-bubbletea/SKILL.md     # TUI patterns
+├── dotfiles-trainer/SKILL.md       # Vim trainer
 └── ...
 ```
 
@@ -65,12 +65,12 @@ skills/                              # Repository-specific skills
 1. Read the `skill-creator` skill first
 2. Create skill directory under `skills/`
 3. Add SKILL.md following the template
-4. Register in this file under "Gentleman.Dots Specific"
+4. Register in this file under "dotfiles Specific"
 5. Run `./skills/setup.sh --all` to regenerate
 
 ## Project Overview
 
-**Gentleman.Dots** is a dotfiles manager + TUI installer with:
+**dotfiles** is a dotfiles manager + TUI installer with:
 - Go TUI using Bubbletea framework
 - RPG-style Vim Trainer
 - Multi-platform support (macOS, Linux, Termux)

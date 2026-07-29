@@ -34,7 +34,7 @@ const logo = `
         ██████████                      ██████████            
 `
 
-const gentlemanText = `
+const dotfilesText = `
  ██████╗ ███████╗███╗   ██╗████████╗██╗     ███████╗███╗   ███╗ █████╗ ███╗   ██╗
 ██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██║     ██╔════╝████╗ ████║██╔══██╗████╗  ██║
 ██║  ███╗█████╗  ██╔██╗ ██║   ██║   ██║     █████╗  ██╔████╔██║███████║██╔██╗ ██║
@@ -138,7 +138,7 @@ func (m Model) renderWelcome() string {
 	// Logo
 	s.WriteString(LogoStyle.Render(logo))
 	s.WriteString("\n")
-	s.WriteString(TitleStyle.Render(gentlemanText))
+	s.WriteString(TitleStyle.Render(dotfilesText))
 	s.WriteString("\n\n")
 
 	// System info
@@ -165,7 +165,7 @@ func (m Model) renderMainMenu() string {
 	var s strings.Builder
 
 	// Title
-	s.WriteString(TitleStyle.Render("🎩 Gentleman.Dots"))
+	s.WriteString(TitleStyle.Render("🎩 dotfiles"))
 	s.WriteString("\n")
 	s.WriteString(MutedStyle.Render("What would you like to do?"))
 	s.WriteString("\n\n")
@@ -1014,7 +1014,7 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 func (m Model) renderInstalling() string {
 	var s strings.Builder
 
-	s.WriteString(TitleStyle.Render("🚀 Installing Gentleman.Dots"))
+	s.WriteString(TitleStyle.Render("🚀 Installing dotfiles"))
 	s.WriteString("\n\n")
 
 	// Progress steps
@@ -1085,7 +1085,7 @@ func (m Model) renderComplete() string {
 		items = append(items, "Font: Iosevka Term Nerd Font")
 	}
 	if m.Choices.InstallNvim {
-		items = append(items, "Editor: Neovim with Gentleman config")
+		items = append(items, "Editor: Neovim with dotfiles config")
 	}
 
 	for _, item := range items {

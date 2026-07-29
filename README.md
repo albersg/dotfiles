@@ -1,6 +1,6 @@
-# Gentleman.Dots
+# dotfiles
 
-> 🤖 **NEW**: The AI development layer now lives in its own installer — [**AI Gentle Stack (gentle-ai)**](https://github.com/Gentleman-Programming/gentle-ai). It configures Claude Code, OpenCode, Gemini CLI, Cursor, and VS Code Copilot with persistent memory, SDD workflow, skills, and the Gentleman persona. Install Gentleman.Dots first, then run `gentle-ai` for the AI layer.
+> 🤖 **NEW**: The AI development layer now lives in its own installer — [**AI Gentle Stack (gentle-ai)**](https://github.com/Gentleman-Programming/gentle-ai). It configures Claude Code, OpenCode, Gemini CLI, Cursor, and VS Code Copilot with persistent memory, SDD workflow, skills, and the Gentleman persona. Install dotfiles first, then run `gentle-ai` for the AI layer.
 
 📄 Read this in: **English** | [Español](README.es.md)
 
@@ -45,28 +45,28 @@ A complete development environment configuration including:
 ### Option 1: Homebrew (Recommended)
 
 ```bash
-brew install Gentleman-Programming/tap/gentleman-dots
-gentleman-dots
+brew install albersg/tap/dotfiles
+dotfiles
 ```
 
 ### Option 2: Direct Download
 
 ```bash
 # macOS Apple Silicon
-curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-darwin-arm64 -o gentleman.dots
+curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-darwin-arm64 -o dotfiles
 
 # macOS Intel
-curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-darwin-amd64 -o gentleman.dots
+curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-darwin-amd64 -o dotfiles
 
 # Linux x86_64
-curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-linux-amd64 -o gentleman.dots
+curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-linux-amd64 -o dotfiles
 
 # Linux ARM64 (Raspberry Pi, etc.)
-curl -fsSL https://github.com/Gentleman-Programming/Gentleman.Dots/releases/latest/download/gentleman-installer-linux-arm64 -o gentleman.dots
+curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-linux-arm64 -o dotfiles
 
 # Then run
-chmod +x gentleman.dots
-./gentleman.dots
+chmod +x dotfiles
+./dotfiles
 ```
 
 ### Option 3: Termux (Android)
@@ -99,7 +99,7 @@ During multiplexer selection, choose **Tmux**, **Zellij**, **Herdr**, or **None*
 
 ## 🤖 AI Development Layer
 
-Gentleman.Dots handles your **dev environment** (editor, shells, terminals). For the **AI development layer** (agents, memory, skills, workflow), use the companion project:
+dotfiles handles your **dev environment** (editor, shells, terminals). For the **AI development layer** (agents, memory, skills, workflow), use the companion project:
 
 ### [AI Gentle Stack (gentle-ai)](https://github.com/Gentleman-Programming/gentle-ai)
 
@@ -134,13 +134,13 @@ It configures your AI coding agents with everything they need:
 
 ### What lives where
 
-| | This repo (Gentleman.Dots) | gentle-ai |
+| | This repo (dotfiles) | gentle-ai |
 |--|---------------------------|-----------|
 | **Purpose** | Dev environment (editors, shells, terminals) | AI development layer (agents, memory, skills) |
 | **Installs** | Neovim, Fish/Zsh/Nushell, Tmux/Zellij/Herdr, Ghostty | Configures Claude Code, OpenCode, Gemini CLI, Cursor, VS Code Copilot |
 | **AI configs** | CLI tools only (Claude Code, OpenCode) | Full config: persona, skills, themes, MCP |
 
-Install Gentleman.Dots first for your dev environment, then `gentle-ai` for the AI layer on top.
+Install dotfiles first for your dev environment, then `gentle-ai` for the AI layer on top.
 
 ---
 
@@ -195,7 +195,7 @@ Launch it from the main menu: **Vim Mastery Trainer**
 
 Want the latest experimental features from my daily workflow (macOS only)?
 
-Check out the [`nix-migration` branch](https://github.com/Gentleman-Programming/Gentleman.Dots/tree/nix-migration).
+Check out the [`nix-migration` branch](https://https://github.com/albersg/dotfiles/tree/nix-migration).
 
 This branch contains cutting-edge configurations that eventually make their way to `main` once stable.
 
@@ -203,10 +203,9 @@ This branch contains cutting-edge configurations that eventually make their way 
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/Gentleman-Programming/Gentleman.Dots/issues)
-- **Discord**: [Gentleman Programming Community](https://discord.gg/gentleman-programming)
-- **YouTube**: [@GentlemanProgramming](https://youtube.com/@GentlemanProgramming)
-- **Twitch**: [GentlemanProgramming](https://twitch.tv/GentlemanProgramming)
+- **Issues**: [GitHub Issues](https://github.com/albersg/dotfiles/issues)
+
+> This is a downstream distribution of [Gentleman.Dots](https://github.com/Gentleman-Programming/Gentleman.Dots). See [UPSTREAM.md](UPSTREAM.md) for upstream community links and attribution.
 
 ---
 
@@ -220,6 +219,6 @@ MIT License - feel free to use, modify, and share.
 
 ## Contributors
 
-Thanks to everyone who has contributed to Gentleman.Dots!
+Thanks to everyone who has contributed to dotfiles!
 
-[![Contributors](https://contrib.rocks/image?repo=Gentleman-Programming/Gentleman.Dots)](https://github.com/Gentleman-Programming/Gentleman.Dots/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=albersg/dotfiles)](https://github.com/albersg/dotfiles/graphs/contributors)

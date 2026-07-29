@@ -52,7 +52,7 @@ type (
 // Init implements tea.Model
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		tea.SetWindowTitle("Gentleman.Dots Installer"),
+		tea.SetWindowTitle("dotfiles Installer"),
 		tickCmd(),
 		loadBackupsCmd(),
 	)

@@ -3,7 +3,7 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	// Colors - Gentleman Theme (from opencode theme)
+	// Colors - dotfiles Theme (from opencode theme)
 	// Base colors
 	Background        = lipgloss.Color("#06080f")
 	BackgroundPanel   = lipgloss.Color("#06080f")

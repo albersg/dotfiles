@@ -54,7 +54,7 @@ func main() {
 	flags := parseFlags()
 
 	if flags.version {
-		fmt.Printf("gentleman.dots v%s\n", Version)
+		fmt.Printf("dotfiles v%s\n", Version)
 		os.Exit(0)
 	}
 
@@ -68,7 +68,7 @@ func main() {
 	}
 
 	if flags.dryRun {
-		os.Setenv("GENTLEMAN_DRY_RUN", "1")
+		os.Setenv("DOTFILES_DRY_RUN", "1")
 		fmt.Println("🧪 Dry-run mode: No actual installations will be performed")
 	}
 
@@ -140,7 +140,7 @@ func runNonInteractive(flags *cliFlags) error {
 		CreateBackup: flags.backup,
 	}
 
-	fmt.Println("🚀 Gentleman.Dots Non-Interactive Installer")
+	fmt.Println("🚀 dotfiles Non-Interactive Installer")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("  Terminal:    %s\n", choices.Terminal)
 	fmt.Printf("  Shell:       %s\n", choices.Shell)
@@ -157,7 +157,7 @@ func runNonInteractive(flags *cliFlags) error {
 
 func setupTestMode() {
 	// Create a temporary test directory
-	testDir := filepath.Join(os.TempDir(), "gentleman-dots-test")
+	testDir := filepath.Join(os.TempDir(), "dotfiles-test")
 	testHome := filepath.Join(testDir, "home")
 	testConfig := filepath.Join(testHome, ".config")
 
@@ -166,7 +166,7 @@ func setupTestMode() {
 
 	// Override HOME to use test directory
 	os.Setenv("HOME", testHome)
-	os.Setenv("GENTLEMAN_TEST_MODE", "1")
+	os.Setenv("DOTFILES_TEST_MODE", "1")
 
 	fmt.Printf("🧪 Test mode enabled!\n")
 	fmt.Printf("   Test HOME: %s\n", testHome)
@@ -178,16 +178,16 @@ func setupTestMode() {
 }
 
 func printHelp() {
-	fmt.Println(`gentleman.dots - TUI installer for Gentleman.Dots terminal environment
+	fmt.Println(`dotfiles - TUI installer for dotfiles terminal environment
 
 Usage:
-  gentleman.dots [flags]
+  dotfiles [flags]
 
 Interactive Mode (default):
-  Just run 'gentleman.dots' to start the TUI installer.
+  Just run 'dotfiles' to start the TUI installer.
 
 Non-Interactive Mode:
-  gentleman.dots --non-interactive --shell=<shell> [options]
+  dotfiles --non-interactive --shell=<shell> [options]
 
 Flags:
   -h, --help           Show this help message
@@ -206,16 +206,16 @@ Non-Interactive Options:
 
 Examples:
   # Interactive TUI
-  gentleman.dots
+  dotfiles
 
   # Non-interactive with Fish + Herdr + Neovim
-  gentleman.dots --non-interactive --shell=fish --wm=herdr --nvim
+  dotfiles --non-interactive --shell=fish --wm=herdr --nvim
 
   # Test mode with Zsh + Tmux (no terminal, no nvim)
-  gentleman.dots --test --non-interactive --shell=zsh --wm=tmux
+  dotfiles --test --non-interactive --shell=zsh --wm=tmux
 
   # Verbose output (shows all command logs)
-  GENTLEMAN_VERBOSE=1 gentleman.dots --non-interactive --shell=fish --nvim
+  DOTFILES_VERBOSE=1 dotfiles --non-interactive --shell=fish --nvim
 
 Navigation (TUI mode):
   ↑/k, ↓/j        Navigate up/down
@@ -224,5 +224,5 @@ Navigation (TUI mode):
   q               Quit
   d               Toggle details (during installation)
 
-For more info: https://github.com/Gentleman-Programming/Gentleman.Dots`)
+For more info: https://github.com/albersg/dotfiles`)
 }

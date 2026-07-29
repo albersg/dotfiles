@@ -106,20 +106,20 @@ func stepCloneRepo(m *Model) error {
 	stepID := "clone"
 
 	// Check if already exists
-	if _, err := os.Stat("Gentleman.Dots"); err == nil {
-		SendLog(stepID, "Removing existing Gentleman.Dots directory...")
-		result := system.RunWithLogs("rm -rf Gentleman.Dots", nil, func(line string) {
+	if _, err := os.Stat("dotfiles"); err == nil {
+		SendLog(stepID, "Removing existing dotfiles directory...")
+		result := system.RunWithLogs("rm -rf dotfiles", nil, func(line string) {
 			SendLog(stepID, line)
 		})
 		if result.Error != nil {
 			return wrapStepError("clone", "Clone Repository",
-				"Failed to remove existing Gentleman.Dots directory",
+				"Failed to remove existing dotfiles directory",
 				result.Error)
 		}
 	}
 
 	SendLog(stepID, "Cloning repository from GitHub...")
-	result := system.RunWithLogs("git clone --progress https://github.com/Gentleman-Programming/Gentleman.Dots.git Gentleman.Dots", nil, func(line string) {
+	result := system.RunWithLogs("git clone --progress https://github.com/albersg/dotfiles.git dotfiles", nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
@@ -129,10 +129,10 @@ func stepCloneRepo(m *Model) error {
 	}
 
 	// Verify clone was successful
-	if _, err := os.Stat("Gentleman.Dots"); os.IsNotExist(err) {
+	if _, err := os.Stat("dotfiles"); os.IsNotExist(err) {
 		return wrapStepError("clone", "Clone Repository",
 			"Repository was cloned but directory not found",
-			fmt.Errorf("Gentleman.Dots directory does not exist after clone"))
+			fmt.Errorf("dotfiles directory does not exist after clone"))
 	}
 
 	SendLog(stepID, "✓ Repository cloned successfully")
@@ -283,7 +283,7 @@ func stepInstallXcode(m *Model) error {
 func stepInstallTerminal(m *Model) error {
 	terminal := m.Choices.Terminal
 	homeDir := os.Getenv("HOME")
-	repoDir := "Gentleman.Dots"
+	repoDir := "dotfiles"
 	stepID := "terminal"
 
 	switch terminal {
@@ -461,7 +461,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Kitty config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "GentlemanKitty"), filepath.Join(homeDir, ".config", "kitty")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-kitty"), filepath.Join(homeDir, ".config", "kitty")); err != nil {
 			return wrapStepError("terminal", "Install Kitty",
 				"Failed to copy Kitty configuration",
 				err)
@@ -505,7 +505,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Ghostty config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "GentlemanGhostty"), filepath.Join(homeDir, ".config", "ghostty")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-ghostty"), filepath.Join(homeDir, ".config", "ghostty")); err != nil {
 			return wrapStepError("terminal", "Install Ghostty",
 				"Failed to copy Ghostty configuration",
 				err)
@@ -700,7 +700,7 @@ func installHerdrBinary(m *Model, stepID string) error {
 
 func stepInstallShell(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "Gentleman.Dots"
+	repoDir := "dotfiles"
 	shell := m.Choices.Shell
 	stepID := "shell"
 
@@ -734,7 +734,7 @@ func stepInstallShell(m *Model) error {
 				"Failed to copy starship configuration",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "GentlemanFish", "fish"), filepath.Join(homeDir, ".config", "fish")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-fish", "fish"), filepath.Join(homeDir, ".config", "fish")); err != nil {
 			return wrapStepError("shell", "Install Fish",
 				"Failed to copy Fish configuration",
 				err)
@@ -784,7 +784,7 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Zsh configuration...")
-		if err := system.CopyFile(filepath.Join(repoDir, "GentlemanZsh/.zshrc"), filepath.Join(homeDir, ".zshrc")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.zshrc"), filepath.Join(homeDir, ".zshrc")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .zshrc configuration",
 				err)
@@ -796,12 +796,12 @@ func stepInstallShell(m *Model) error {
 				"Failed to configure .zshrc for window manager",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "GentlemanZsh/.p10k.zsh"), filepath.Join(homeDir, ".p10k.zsh")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.p10k.zsh"), filepath.Join(homeDir, ".p10k.zsh")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy Powerlevel10k configuration",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "GentlemanZsh", ".oh-my-zsh"), filepath.Join(homeDir, ".oh-my-zsh")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-zsh", ".oh-my-zsh"), filepath.Join(homeDir, ".oh-my-zsh")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy Oh-My-Zsh directory",
 				err)
@@ -867,7 +867,7 @@ func stepInstallShell(m *Model) error {
 				"Failed to create Nushell config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "GentlemanNushell"), nuDir); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-nushell"), nuDir); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy Nushell configuration",
 				err)
@@ -902,7 +902,7 @@ func stepInstallShell(m *Model) error {
 
 func stepInstallWM(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "Gentleman.Dots"
+	repoDir := "dotfiles"
 	wm := m.Choices.WindowMgr
 	stepID := "wm"
 
@@ -948,12 +948,12 @@ func stepInstallWM(m *Model) error {
 				"Failed to create .tmux directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "GentlemanTmux", "plugins"), filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-tmux", "plugins"), filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
 			return wrapStepError("wm", "Install Tmux",
 				"Failed to copy Tmux plugins",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "GentlemanTmux/tmux.conf"), filepath.Join(homeDir, ".tmux.conf")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-tmux/tmux.conf"), filepath.Join(homeDir, ".tmux.conf")); err != nil {
 			return wrapStepError("wm", "Install Tmux",
 				"Failed to copy tmux.conf",
 				err)
@@ -995,7 +995,7 @@ func stepInstallWM(m *Model) error {
 			content, err := os.ReadFile(tmuxConfPath)
 			if err == nil {
 				shellConfig := fmt.Sprintf("set -g default-command \"%s\"\nset -g default-shell \"%s\"", shellFullPath, shellFullPath)
-				newContent := strings.Replace(string(content), "# GENTLEMAN_DEFAULT_SHELL", shellConfig, 1)
+				newContent := strings.Replace(string(content), "# DOTFILES_DEFAULT_SHELL", shellConfig, 1)
 				os.WriteFile(tmuxConfPath, []byte(newContent), 0644)
 			}
 		}
@@ -1035,7 +1035,7 @@ func stepInstallWM(m *Model) error {
 				"Failed to create Zellij config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "GentlemanZellij", "zellij"), zellijDir); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-zellij", "zellij"), zellijDir); err != nil {
 			return wrapStepError("wm", "Install Zellij",
 				"Failed to copy Zellij configuration",
 				err)
@@ -1057,7 +1057,7 @@ func stepInstallWM(m *Model) error {
 			// Append default_shell config to zellij config.kdl
 			f, err := os.OpenFile(zellijConfPath, os.O_APPEND|os.O_WRONLY, 0644)
 			if err == nil {
-				f.WriteString(fmt.Sprintf("\n// Default shell (configured by Gentleman.Dots)\ndefault_shell \"%s\"\n", shellPath))
+				f.WriteString(fmt.Sprintf("\n// Default shell (configured by dotfiles)\ndefault_shell \"%s\"\n", shellPath))
 				f.Close()
 			}
 		}
@@ -1100,7 +1100,7 @@ func stepInstallWM(m *Model) error {
 
 func stepInstallNvim(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "Gentleman.Dots"
+	repoDir := "dotfiles"
 	stepID := "nvim"
 
 	// Obsidian path
@@ -1157,7 +1157,7 @@ func stepInstallNvim(m *Model) error {
 			err)
 	}
 	// Copy nvim config directory
-	srcNvim := filepath.Join(repoDir, "GentlemanNvim", "nvim")
+	srcNvim := filepath.Join(repoDir, "dotfiles-nvim", "nvim")
 	if err := system.CopyDir(srcNvim, nvimDir); err != nil {
 		return wrapStepError("nvim", "Install Neovim",
 			"Failed to copy Neovim configuration",
@@ -1188,7 +1188,7 @@ func stepInstallNvim(m *Model) error {
 		SendLog(stepID, "Skipping OpenCode (not supported on Termux)")
 	}
 
-	SendLog(stepID, "✓ Neovim configured with Gentleman setup")
+	SendLog(stepID, "✓ Neovim configured with dotfiles setup")
 	return nil
 }
 
@@ -1196,7 +1196,7 @@ func stepCleanup(m *Model) error {
 	stepID := "cleanup"
 	SendLog(stepID, "Removing temporary files...")
 	// Only remove the cloned repo - no sudo needed
-	result := system.Run("rm -rf Gentleman.Dots", nil)
+	result := system.Run("rm -rf dotfiles", nil)
 	if result.Error != nil {
 		// Non-critical error, just log it
 		SendLog(stepID, "Warning: Could not remove temporary directory")
@@ -1247,16 +1247,16 @@ func stepSetDefaultShell(m *Model) error {
 		}
 
 		// Check if already configured
-		if strings.Contains(existingContent, "# Gentleman.Dots shell auto-start") {
+		if strings.Contains(existingContent, "# dotfiles shell auto-start") {
 			SendLog(stepID, "Shell auto-start already configured in ~/.bashrc")
 			return nil
 		}
 
 		// Append auto-start configuration
 		autoStartConfig := fmt.Sprintf(`
-# Gentleman.Dots shell auto-start
-if [ -x "%s" ] && [ -z "$GENTLEMANDOTS_SHELL_STARTED" ]; then
-    export GENTLEMANDOTS_SHELL_STARTED=1
+# dotfiles shell auto-start
+if [ -x "%s" ] && [ -z "$DOTFILES_SHELL_STARTED" ]; then
+    export DOTFILES_SHELL_STARTED=1
     exec %s
 fi
 `, shellPathStr, shellPathStr)

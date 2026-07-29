@@ -93,7 +93,7 @@ jobs:
         run: go test ./...
 
       - name: Build installer
-        run: go build ./cmd/gentleman-installer
+        run: go build ./cmd/dotfiles
 
       - name: Run non-interactive help smoke test
-        run: ./gentleman-installer --help
+        run: ./dotfiles --help

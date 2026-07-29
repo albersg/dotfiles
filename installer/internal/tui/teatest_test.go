@@ -539,8 +539,8 @@ func TestRestoreBackupScreenE2E(t *testing.T) {
 		m.Height = 24
 		m.Screen = ScreenRestoreBackup
 		m.AvailableBackups = []system.BackupInfo{
-			{Path: "/home/user/.gentleman-backup-2024-01-15-120000", Files: []string{"nvim", "fish"}},
-			{Path: "/home/user/.gentleman-backup-2024-01-16-130000", Files: []string{"zsh", "tmux"}},
+			{Path: "/home/user/.dotfiles-backup-2024-01-15-120000", Files: []string{"nvim", "fish"}},
+			{Path: "/home/user/.dotfiles-backup-2024-01-16-130000", Files: []string{"zsh", "tmux"}},
 		}
 
 		tm := teatest.NewTestModel(t, m,
@@ -566,7 +566,7 @@ func TestRestoreBackupScreenE2E(t *testing.T) {
 		m.Height = 24
 		m.Screen = ScreenRestoreBackup
 		m.AvailableBackups = []system.BackupInfo{
-			{Path: "/home/user/.gentleman-backup-test", Files: []string{"nvim"}},
+			{Path: "/home/user/.dotfiles-backup-test", Files: []string{"nvim"}},
 		}
 
 		tm := teatest.NewTestModel(t, m,
@@ -600,7 +600,7 @@ func TestRestoreConfirmScreenE2E(t *testing.T) {
 		m.Height = 24
 		m.Screen = ScreenRestoreConfirm
 		m.AvailableBackups = []system.BackupInfo{
-			{Path: "/home/user/.gentleman-backup-test", Files: []string{"nvim", "fish", "zsh"}},
+			{Path: "/home/user/.dotfiles-backup-test", Files: []string{"nvim", "fish", "zsh"}},
 		}
 		m.SelectedBackup = 0
 
@@ -630,7 +630,7 @@ func TestRestoreConfirmScreenE2E(t *testing.T) {
 		m.Height = 24
 		m.Screen = ScreenRestoreConfirm
 		m.AvailableBackups = []system.BackupInfo{
-			{Path: "/home/user/.gentleman-backup-test", Files: []string{"nvim"}},
+			{Path: "/home/user/.dotfiles-backup-test", Files: []string{"nvim"}},
 		}
 		m.SelectedBackup = 0
 
@@ -659,7 +659,7 @@ func TestMainMenuWithRestoreOption(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenMainMenu
 		m.AvailableBackups = []system.BackupInfo{
-			{Path: "/home/user/.gentleman-backup-test", Files: []string{"nvim"}},
+			{Path: "/home/user/.dotfiles-backup-test", Files: []string{"nvim"}},
 		}
 
 		options := m.GetCurrentOptions()

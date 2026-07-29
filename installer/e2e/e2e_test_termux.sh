@@ -1,5 +1,5 @@
 #!/bin/sh
-# E2E Test Script for Gentleman.Dots Installer - TERMUX
+# E2E Test Script for dotfiles Installer - TERMUX
 # Tests Termux-specific behavior and pkg package manager
 #
 # Usage: Called by Dockerfile.termux, not directly
@@ -85,7 +85,7 @@ test_pkg_help() {
 
 test_binary_runs() {
     log_test "Binary executes with --help"
-    if ./gentleman-dots --help > /dev/null 2>&1; then
+    if ./dotfiles --help > /dev/null 2>&1; then
         log_pass "Binary executes correctly"
     else
         log_fail "Binary failed to execute"
@@ -94,7 +94,7 @@ test_binary_runs() {
 
 test_version() {
     log_test "Binary shows version"
-    if ./gentleman-dots --version 2>&1 | grep -qi "gentleman"; then
+    if ./dotfiles --version 2>&1 | grep -qi "gentleman"; then
         log_pass "Version displays correctly"
     else
         log_fail "Version not displayed"
@@ -103,7 +103,7 @@ test_version() {
 
 test_non_interactive_flag() {
     log_test "Non-interactive flag exists"
-    if ./gentleman-dots --help 2>&1 | grep -q "non-interactive"; then
+    if ./dotfiles --help 2>&1 | grep -q "non-interactive"; then
         log_pass "Non-interactive mode available"
     else
         log_fail "Non-interactive mode not found"
@@ -118,7 +118,7 @@ test_termux_detection() {
     log_test "Installer detects Termux environment"
     
     # Run with verbose to check detection
-    OUTPUT=$(./gentleman-dots --version 2>&1 || true)
+    OUTPUT=$(./dotfiles --version 2>&1 || true)
     log_info "Version output: $OUTPUT"
     
     # The binary should detect Termux via TERMUX_VERSION env var
@@ -138,7 +138,7 @@ test_termux_zsh_install() {
     mkdir -p "$HOME/.config"
     
     # Run installation (no --test in Docker, container is disposable)
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=zsh --wm=tmux --backup=false 2>&1; then
         
         # On Termux, shell change goes to .bashrc, not chsh
@@ -171,7 +171,7 @@ test_termux_fish_zellij_install() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.bashrc" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=fish --wm=zellij --backup=false 2>&1; then
         
         log_pass "Fish + Zellij installation completed"
@@ -225,7 +225,7 @@ test_termux_zsh_tmux_install() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=zsh --wm=tmux --backup=false 2>&1; then
         
         log_pass "Zsh + Tmux installation completed"
@@ -270,7 +270,7 @@ test_termux_font_install() {
     rm -rf "$HOME/.termux" 2>/dev/null || true
     
     # Run installation with nvim (which triggers font install)
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=fish --wm=tmux --nvim --backup=false 2>&1; then
         
         # Check if .termux directory was created
@@ -330,7 +330,7 @@ test_termux_etc_shells() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$PREFIX/etc/shells" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=fish --wm=tmux --backup=false 2>&1; then
         
         # Check if $PREFIX/etc/shells was created
@@ -358,7 +358,7 @@ test_termux_fish_tmux_default_shell() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=fish --wm=tmux --backup=false 2>&1; then
         
         log_pass "Fish + Tmux installation completed"
@@ -387,7 +387,7 @@ test_termux_zsh_zellij_default_shell() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=zsh --wm=zellij --backup=false 2>&1; then
         
         log_pass "Zsh + Zellij installation completed"
@@ -416,7 +416,7 @@ test_termux_nushell_tmux_default_shell() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=nushell --wm=tmux --backup=false 2>&1; then
         
         log_pass "Nushell + Tmux installation completed"
@@ -445,7 +445,7 @@ test_termux_nushell_zellij_default_shell() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 ./gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 ./dotfiles --non-interactive \
         --shell=nushell --wm=zellij --backup=false 2>&1; then
         
         log_pass "Nushell + Zellij installation completed"

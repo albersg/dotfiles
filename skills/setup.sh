@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Gentleman.Dots AI Skills Setup Script
+# dotfiles AI Skills Setup Script
 # ============================================================================
 # This script synchronizes AGENTS.md to tool-specific instruction files.
 # AGENTS.md is the single source of truth - edits propagate to all tools.
@@ -189,7 +189,7 @@ generate_all() {
 # ============================================================================
 
 show_menu() {
-    log_header "Gentleman.Dots AI Skills Setup"
+    log_header "dotfiles AI Skills Setup"
 
     echo "This script synchronizes AGENTS.md to tool-specific formats."
     echo "AGENTS.md is the single source of truth for all AI assistants."
@@ -258,7 +258,7 @@ interactive_menu() {
 
 show_help() {
     cat << EOF
-Gentleman.Dots AI Skills Setup
+dotfiles AI Skills Setup
 
 Usage: ./skills/setup.sh [OPTIONS]
 

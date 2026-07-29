@@ -165,8 +165,8 @@ func TestStepCloneRepository(t *testing.T) {
 
 		err := stepCloneRepo(&m)
 
-		// Check if Gentleman.Dots directory exists
-		if _, statErr := os.Stat(filepath.Join(tmpDir, "Gentleman.Dots")); os.IsNotExist(statErr) {
+		// Check if dotfiles directory exists
+		if _, statErr := os.Stat(filepath.Join(tmpDir, "dotfiles")); os.IsNotExist(statErr) {
 			if err == nil {
 				t.Error("Clone reported success but directory doesn't exist")
 			}
@@ -788,7 +788,7 @@ func TestStepBackupConfigs(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(realOhMyZsh, "themes"), 0o755); err != nil {
 			t.Fatalf("Failed to create real oh-my-zsh directory: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(realOhMyZsh, "themes", "gentleman.zsh-theme"), []byte("theme"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(realOhMyZsh, "themes", "dotfiles.zsh-theme"), []byte("theme"), 0o644); err != nil {
 			t.Fatalf("Failed to create real oh-my-zsh file: %v", err)
 		}
 		if err := os.Symlink(realOhMyZsh, filepath.Join(home, ".oh-my-zsh")); err != nil {
@@ -810,7 +810,7 @@ func TestStepBackupConfigs(t *testing.T) {
 		}
 		defer os.RemoveAll(m.BackupDir)
 
-		if _, err := os.Stat(filepath.Join(m.BackupDir, "oh-my-zsh", "themes", "gentleman.zsh-theme")); err != nil {
+		if _, err := os.Stat(filepath.Join(m.BackupDir, "oh-my-zsh", "themes", "dotfiles.zsh-theme")); err != nil {
 			t.Fatalf("Expected oh-my-zsh backup to exist: %v", err)
 		}
 	})

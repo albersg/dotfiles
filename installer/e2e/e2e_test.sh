@@ -1,5 +1,5 @@
 #!/bin/sh
-# E2E Test Script for Gentleman.Dots Installer
+# E2E Test Script for dotfiles Installer
 # Runs REAL installation tests in Docker containers
 #
 # Usage: Called by Dockerfiles, not directly
@@ -41,7 +41,7 @@ log_section() {
 
 test_binary_runs() {
     log_test "Binary executes with --help"
-    if gentleman-dots --help > /dev/null 2>&1; then
+    if dotfiles --help > /dev/null 2>&1; then
         log_pass "Binary executes correctly"
     else
         log_fail "Binary failed to execute"
@@ -50,7 +50,7 @@ test_binary_runs() {
 
 test_version() {
     log_test "Binary shows version"
-    if gentleman-dots --version 2>&1 | grep -q "gentleman"; then
+    if dotfiles --version 2>&1 | grep -q "gentleman"; then
         log_pass "Version displays correctly"
     else
         log_fail "Version not displayed"
@@ -59,7 +59,7 @@ test_version() {
 
 test_non_interactive_flag() {
     log_test "Non-interactive flag exists"
-    if gentleman-dots --help 2>&1 | grep -q "non-interactive"; then
+    if dotfiles --help 2>&1 | grep -q "non-interactive"; then
         log_pass "Non-interactive mode available"
     else
         log_fail "Non-interactive mode not found"
@@ -75,7 +75,7 @@ test_zsh_zellij() {
     log_test "Install: Zsh + Zellij (no nvim)"
     
     # Run installation (no --test in Docker, container is disposable)
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=zsh --wm=zellij --backup=false 2>&1; then
         
         # Verify .zshrc exists
@@ -123,7 +123,7 @@ test_fish_tmux_nvim() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=fish --wm=tmux --nvim --backup=false 2>&1; then
         
         # Verify fish config exists
@@ -178,7 +178,7 @@ test_nushell_no_wm() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=nushell --wm=none --backup=false 2>&1; then
         
         # Verify nushell config exists
@@ -208,7 +208,7 @@ test_zsh_tmux() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=zsh --wm=tmux --backup=false 2>&1; then
         
         # Verify .zshrc exists
@@ -243,7 +243,7 @@ test_fish_zellij() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=fish --wm=zellij --backup=false 2>&1; then
         
         # Verify fish config exists
@@ -278,7 +278,7 @@ test_nushell_tmux() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=nushell --wm=tmux --backup=false 2>&1; then
         
         # Verify nushell config exists
@@ -313,7 +313,7 @@ test_nushell_zellij() {
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=nushell --wm=zellij --backup=false 2>&1; then
         
         # Verify nushell config exists
@@ -494,7 +494,7 @@ test_backup_creation() {
     setup_fake_configs
     
     # Run installer with backup=true
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=fish --wm=tmux --backup=true 2>&1; then
         
         # Check if backup directory was created
@@ -656,7 +656,7 @@ test_install_no_backup() {
     before_count=$(ls -d "$HOME/.gentleman-backup-"* 2>/dev/null | wc -l)
     
     # Run installer with backup=false
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=zsh --wm=none --backup=false 2>&1; then
         
         # Count backups after
@@ -680,7 +680,7 @@ test_backup_contents() {
     setup_fake_configs
     
     # Run installer with backup
-    if GENTLEMAN_VERBOSE=1 gentleman-dots --non-interactive \
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
         --shell=fish --wm=tmux --nvim --backup=true 2>&1; then
         
         # Find the backup
@@ -719,7 +719,7 @@ test_backup_contents() {
 # RUN TESTS
 # ============================================
 
-log_section "Gentleman.Dots E2E Tests"
+log_section "dotfiles E2E Tests"
 
 # Basic tests first
 log_section "Basic Tests"

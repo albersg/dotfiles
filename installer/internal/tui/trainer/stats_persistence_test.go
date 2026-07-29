@@ -242,7 +242,7 @@ func TestGetStatsPath_ReturnsValidPath(t *testing.T) {
 	if path == "" {
 		t.Error("GetStatsPath should return non-empty path")
 	}
-	// Should contain "gentleman-trainer"
+	// Should contain "dotfiles-trainer"
 	if !filepath.IsAbs(path) {
 		// When using test config path, it might not be absolute
 		// but in production it should be
