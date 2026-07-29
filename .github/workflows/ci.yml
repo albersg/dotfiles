@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-validate:
+    name: Go Validation
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: installer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: installer/go.mod
+          cache-dependency-path: installer/go.sum
+
+      - name: gofmt check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Files not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./... -skip Golden -count=1
+
+  shell-validate:
+    name: Shell Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        run: |
+          find . -name '*.sh' -type f \
+            ! -path './dotfiles-zsh/.oh-my-zsh/*' \
+            ! -path './.git/*' \
+            -exec shellcheck --severity=warning {} +
+
+  branding-audit:
+    name: Branding Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Check for residual Gentleman branding
+        run: |
+          echo "Checking for residual 'Gentleman' or 'gentleman' strings..."
+          echo "Excluding: NOTICE, docs/adr/, docs/ATTRIBUTION.md, .downstream/, LICENSE"
+          matches=$(rg -l 'Gentleman|gentleman' \
+            --glob '!NOTICE' \
+            --glob '!docs/adr/*' \
+            --glob '!docs/ATTRIBUTION.md' \
+            --glob '!.downstream/*' \
+            --glob '!LICENSE' \
+            --glob '!.git/*' \
+            --glob '!THIRD_PARTY_NOTICES.md' \
+            --glob '!UPSTREAM.md' \
+            --glob '!docs/UPSTREAM-SYNC.md' \
+            --glob '!docs/audits/*' \
+            --glob '!docs/BRANDING.md' \
+            installer/ 2>/dev/null || true)
+
+          if [ -n "$matches" ]; then
+            echo "ERROR: Residual Gentleman branding found in:"
+            echo "$matches"
+            echo ""
+            echo "Detailed matches:"
+            rg -n 'Gentleman|gentleman' \
+              --glob '!NOTICE' \
+              --glob '!docs/adr/*' \
+              --glob '!docs/ATTRIBUTION.md' \
+              --glob '!.downstream/*' \
+              --glob '!LICENSE' \
+              --glob '!.git/*' \
+              --glob '!THIRD_PARTY_NOTICES.md' \
+              --glob '!UPSTREAM.md' \
+              --glob '!docs/UPSTREAM-SYNC.md' \
+              --glob '!docs/audits/*' \
+              --glob '!docs/BRANDING.md' \
+              installer/ 2>/dev/null || true
+            exit 1
+          fi
+          echo "Branding audit passed"
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [go-validate, branding-audit]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: installer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: installer/go.mod
+          cache-dependency-path: installer/go.sum
+
+      - name: Build
+        run: go build -o dotfiles ./cmd/dotfiles
+
+      - name: Smoke test
+        run: ./dotfiles --help

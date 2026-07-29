@@ -1,0 +1,13 @@
+# Full profile: everything
+name: full
+description: Complete development environment. All shells, terminals, multiplexers, and trainer.
+extends: [base, platform]
+
+tools:
+  shells: [zsh, fish, nushell]
+  terminals: [kitty, ghostty, alacritty, wezterm]
+  multiplexers: [tmux, zellij, herdr]
+  editor: nvim
+  fonts: true
+  prompt: starship
+  trainer: true

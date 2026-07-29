@@ -1,0 +1,13 @@
+# Minimal profile: shell + editor only
+name: minimal
+description: Shell and editor only. Fastest setup.
+extends: [base]
+
+tools:
+  shells: [zsh]
+  terminals: []
+  multiplexers: []
+  editor: nvim
+  fonts: false
+  prompt: starship
+  trainer: false

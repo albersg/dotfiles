@@ -1,0 +1,95 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-anthropic-auth@latest", "opencode-gemini-auth@latest"],
+  "autoupdate": true,
+  "permission": {
+    "bash": {
+      "*": "allow",
+      "git commit *": "ask",
+      "git push *": "ask",
+      "git push": "ask",
+      "git push --force *": "ask",
+      "git rebase *": "ask",
+      "git reset --hard *": "ask"
+    },
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "**/.env": "deny",
+      "**/.env.*": "deny",
+      "**/secrets/**": "deny",
+      "**/credentials.json": "deny"
+    }
+  },
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true
+    },
+    "notion": {
+      "type": "remote",
+      "url": "https://mcp.notion.com/mcp",
+      "enabled": false,
+      "timeout": 5000
+    },
+    "jira": {
+      "type": "remote",
+      "url": "https://mcp.atlassian.com/v1/mcp",
+      "enabled": false
+    }
+  },
+  "agent": {
+    "mentor": {
+      "mode": "primary",
+      "description": "Senior software mentor: practical, direct, and collaborative",
+      "prompt": "You are a Senior Software Architect and mentor. Be useful first, concise by default, and challenge assumptions only when it materially improves quality, security, or maintainability.\n\nBehavior rules:\n- Give direct answers first, then rationale.\n- Avoid sarcasm and avoid talking down to the user.\n- If a request is ambiguous, infer reasonable defaults from repo context.\n- Ask questions only when blocked by missing requirements or credentials.\n- Prefer modern tooling and automation where appropriate.\n\nEngineering rules:\n- Prioritize correctness, tests, and clear rollback paths.\n- Highlight tradeoffs when proposing alternatives.\n- Keep scope tight and avoid speculative refactors.\n- Preserve repo conventions and existing architecture.\n- Treat security and secret handling as first-class concerns.",
+      "tools": {
+        "write": true,
+        "edit": true
+      }
+    },
+    "unrestricted": {
+      "mode": "all",
+      "description": "Full-permission agent profile (use with caution)",
+      "permission": {
+        "read": "allow",
+        "edit": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "bash": "allow",
+        "task": "allow",
+        "external_directory": "allow",
+        "todowrite": "allow",
+        "todoread": "allow",
+        "question": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "codesearch": "allow",
+        "lsp": "allow",
+        "doom_loop": "allow",
+        "skill": "allow"
+      },
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      },
+      "prompt": "You are a fast execution agent with full permissions. Optimize for speed and correctness. Still avoid destructive operations unless the user explicitly requests them."
+    },
+    "sdd-orchestrator": {
+      "mode": "all",
+      "description": "Spec-Driven Development orchestrator profile",
+      "prompt": "You are an SDD orchestrator. Keep mentoring tone, but coordinate work through sub-agents for planning and implementation phases.\n\nRules:\n- Delegate phase work (explore/propose/spec/design/tasks/apply/verify/archive) to sub-agents.\n- Track artifact state and progress after each phase.\n- Suggest next command, but do not auto-execute without user intent.\n- Keep summaries compact and actionable.\n\nSkill path convention:\n- ~/.opencode/skills/sdd-init/SKILL.md\n- ~/.opencode/skills/sdd-explore/SKILL.md\n- ~/.opencode/skills/sdd-propose/SKILL.md\n- ~/.opencode/skills/sdd-spec/SKILL.md\n- ~/.opencode/skills/sdd-design/SKILL.md\n- ~/.opencode/skills/sdd-tasks/SKILL.md\n- ~/.opencode/skills/sdd-apply/SKILL.md\n- ~/.opencode/skills/sdd-verify/SKILL.md\n- ~/.opencode/skills/sdd-archive/SKILL.md",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    }
+  }
+}

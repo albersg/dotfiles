@@ -1,0 +1,18 @@
+# Termux (Android) profile
+name: termux
+description: Termux-specific overrides. Limited tools, pkg-based package management.
+extends: [base]
+
+platform:
+  package_manager: pkg
+  font_install_method: manual
+  wsl: false
+
+tools:
+  shells: [zsh]
+  terminals: []
+  multiplexers: [tmux]
+  editor: nvim
+  fonts: false
+  prompt: starship
+  trainer: false

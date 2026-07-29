@@ -1,0 +1,21 @@
+# CI/CD profile — non-interactive, headless
+name: ci
+description: CI/CD environment. Minimal tools, non-interactive mode only.
+extends: []
+
+platform:
+  package_manager: none
+  font_install_method: none
+
+tools:
+  shells: []
+  terminals: []
+  multiplexers: []
+  editor: nvim
+  fonts: false
+  prompt: none
+  trainer: false
+
+ci:
+  non_interactive: true
+  test_mode: true

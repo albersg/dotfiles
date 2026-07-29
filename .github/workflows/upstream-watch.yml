@@ -1,0 +1,170 @@
+name: Upstream Watch
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  check-upstream:
+    name: Check for new upstream releases
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.check.outputs.new_tag }}
+      current_sha: ${{ steps.check.outputs.current_sha }}
+      upstream_sha: ${{ steps.check.outputs.upstream_sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream tags
+        run: |
+          git remote add upstream https://github.com/Gentleman-Programming/Gentleman.Dots.git || true
+          git fetch upstream --tags
+
+      - name: Read current version
+        id: current
+        run: |
+          CURRENT_SHA=$(jq -r '.upstream.latest_sha' .downstream/version.json)
+          CURRENT_TAG=$(jq -r '.upstream.latest_tag' .downstream/version.json)
+          echo "current_sha=$CURRENT_SHA" >> "$GITHUB_OUTPUT"
+          echo "current_tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check for new releases
+        id: check
+        run: |
+          LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          UPSTREAM_SHA=$(git rev-list -n 1 "$LATEST_TAG" 2>/dev/null || echo "")
+
+          echo "Latest upstream tag: $LATEST_TAG"
+          echo "Current tracked SHA: ${{ steps.current.outputs.current_sha }}"
+
+          if [ -z "$UPSTREAM_SHA" ]; then
+            echo "No upstream tags found"
+            echo "new_tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+
+          if [ "$UPSTREAM_SHA" != "${{ steps.current.outputs.current_sha }}" ]; then
+            echo "New upstream version detected!"
+            echo "new_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "Already up to date"
+            echo "new_tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+  create-integration-pr:
+    name: Create integration PR
+    runs-on: ubuntu-latest
+    needs: check-upstream
+    if: needs.check-upstream.outputs.new_tag != ''
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/Gentleman-Programming/Gentleman.Dots.git || true
+          git fetch upstream --tags
+          git fetch upstream main:upstream-main --force
+
+      - name: Update upstream-main
+        run: |
+          git push origin upstream-main --force
+
+      - name: Create integration branch
+        id: branch
+        run: |
+          TAG="${{ needs.check-upstream.outputs.new_tag }}"
+          BRANCH="integration/upstream-${TAG}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          git checkout -b "$BRANCH"
+
+          # Try merge
+          if git merge "upstream/${TAG}" --no-ff -m "merge: sync upstream ${TAG}" 2>&1; then
+            echo "merge_status=clean" >> "$GITHUB_OUTPUT"
+            git push -u origin "$BRANCH"
+          else
+            echo "merge_status=conflict" >> "$GITHUB_OUTPUT"
+            # Abort merge, create the branch with just the sync metadata
+            git merge --abort
+          fi
+
+      - name: Create conflict issue
+        if: steps.branch.outputs.merge_status == 'conflict'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ needs.check-upstream.outputs.new_tag }}';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⚠️ Upstream sync conflict: ${tag}`,
+              body: `Upstream tag \`${tag}\` has conflicts when merging into downstream.
+
+              ## What happened
+              The automated upstream-watch workflow detected a new release (\`${tag}\`) but the merge into \`main\` produced conflicts.
+
+              ## Resolution steps
+              1. \`git fetch upstream --tags\`
+              2. \`git checkout -b integration/upstream-${tag} main\`
+              3. \`git merge upstream/${tag} --no-ff\`
+              4. Resolve conflicts following [docs/UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md)
+              5. Push and open a PR
+
+              ## Upstream changes
+              See: https://github.com/Gentleman-Programming/Gentleman.Dots/releases/tag/${tag}
+              `,
+              labels: ['upstream-sync', 'conflict']
+            });
+
+      - name: Create PR
+        if: steps.branch.outputs.merge_status == 'clean'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ needs.check-upstream.outputs.new_tag }}';
+            const branch = '${{ steps.branch.outputs.branch }}';
+
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `merge: sync upstream ${tag}`,
+              head: branch,
+              base: 'main',
+              body: `Automated sync from upstream tag \`${tag}\`.
+
+              ## Changes
+              See upstream release: https://github.com/Gentleman-Programming/Gentleman.Dots/releases/tag/${tag}
+
+              ## Checklist
+              - [ ] Re-apply branding overlay (see [docs/UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md))
+              - [ ] \`cd installer && go build ./cmd/dotfiles && go vet ./...\`
+              - [ ] Branding audit passes
+              - [ ] Update \`.downstream/version.json\`
+              `,
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.data.number,
+              labels: ['upstream-sync']
+            });

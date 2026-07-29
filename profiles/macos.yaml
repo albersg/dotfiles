@@ -1,0 +1,12 @@
+# macOS-specific overrides
+name: macos
+description: macOS-specific tool selections and package manager settings.
+extends: []
+
+platform:
+  package_manager: homebrew
+  font_install_method: brew
+
+tools:
+  terminals: [kitty, ghostty]
+  multiplexers: [tmux, zellij]

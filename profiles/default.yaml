@@ -1,0 +1,13 @@
+# Default profile: shell + editor + terminal + multiplexer
+name: default
+description: Standard development environment. Recommended for most users.
+extends: [base, platform]
+
+tools:
+  shells: [zsh]
+  terminals: [kitty]
+  multiplexers: [tmux]
+  editor: nvim
+  fonts: true
+  prompt: starship
+  trainer: true

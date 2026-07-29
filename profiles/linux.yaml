@@ -1,0 +1,12 @@
+# Linux-specific overrides
+name: linux
+description: Linux-specific tool selections and package manager settings.
+extends: []
+
+platform:
+  package_manager: auto
+  font_install_method: manual
+
+tools:
+  terminals: [kitty, alacritty, wezterm]
+  multiplexers: [tmux, zellij]
