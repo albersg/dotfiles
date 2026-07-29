@@ -3,10 +3,10 @@
                                                         [K
   Step 1: Select Your Operating System                  [K
                                                         [K
-  Detected: macOS                                       [K
+  Detected: Debian/Ubuntu (WSL)                         [K
                                                         [K
-    ▸ macOS (detected)                                  [K
-        Linux                                           [K
+    ▸ macOS                                             [K
+        Linux (detected)                                [K
         Termux                                          [K
                                                         [K
                                                         [K
