@@ -78,6 +78,18 @@ skills/                              # Repository-specific skills
 
 See [README.md](README.md) for full documentation.
 
+### Downstream Context
+
+This is a **downstream distribution** of [Gentleman.Dots v2.12.2](https://github.com/Gentleman-Programming/Gentleman.Dots). Key rules for agents:
+
+- **Go module path**: Keep `github.com/Gentleman-Programming/Gentleman.Dots/installer` — do not change it (ADR 0002)
+- **Branding**: Always use `dotfiles` (binary), `DOTFILES_*` (env vars), `albersg/dotfiles` (repo URLs)
+- **Upstream sync**: `upstream-main` branch is a mirror of upstream/main — never modify directly
+- **Attribution**: Do not remove or alter attribution to Gentleman.Dots in NOTICE, LICENSE, or docs/ATTRIBUTION.md
+- **gentle-ai**: References to `gentle-ai` point to `Gentleman-Programming/gentle-ai` (separate project) — do not rebrand these
+
+See [DOWNSTREAM.md](DOWNSTREAM.md) and [docs/BRANDING.md](docs/BRANDING.md) for full details.
+
 ---
 
 ## Spec-Driven Development (SDD) Orchestrator

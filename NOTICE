@@ -1,0 +1,28 @@
+# NOTICE
+
+This project, **dotfiles** (albersg/dotfiles), is a downstream distribution derived from [Gentleman.Dots](https://github.com/Gentleman-Programming/Gentleman.Dots), created and maintained by Gentleman Programming.
+
+This is an **unofficial** downstream distribution and is **not endorsed by or affiliated with** the upstream maintainers.
+
+## Modifications
+
+The following modifications have been applied to the upstream codebase:
+
+1. **Branding**: All references to "Gentleman.Dots", "gentleman-dots", "GENTLEMAN_*", and related branding have been changed to "dotfiles", "DOTFILES_*", etc. See [DOWNSTREAM.md](DOWNSTREAM.md) for full details.
+2. **Binary name**: The installer binary is named `dotfiles` (not `gentleman-dots` or `gentleman.dots`).
+3. **Package directories**: All `Gentleman*` directories renamed to `dotfiles-*`.
+4. **Clone URL**: Defaults to `https://github.com/albersg/dotfiles.git`.
+5. **Homebrew tap**: Changed from `Gentleman-Programming/tap` to `albersg/tap`.
+6. **Documentation**: README, AGENTS.md updated for downstream identity; new docs added in `docs/`.
+
+## Upstream License
+
+The original Gentleman.Dots is licensed under the MIT License. The full text of the upstream license is preserved in the [LICENSE](LICENSE) file.
+
+## Source
+
+- **Upstream repository**: https://github.com/Gentleman-Programming/Gentleman.Dots
+- **Upstream tag**: v2.12.2
+- **Downstream repository**: https://github.com/albersg/dotfiles
+
+For third-party licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
