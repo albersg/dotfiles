@@ -69,42 +69,58 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
-      - name: Check for residual dotfiles branding
+      - name: Check for residual upstream branding
         run: |
-          echo "Checking for residual 'dotfiles' or 'dotfiles' strings..."
-          echo "Excluding: NOTICE, docs/adr/, docs/ATTRIBUTION.md, .downstream/, LICENSE"
-          matches=$(rg -l 'dotfiles|dotfiles' \
+          echo "Checking for residual 'gentleman' or 'GENTLEMAN' strings..."
+          echo "Excluding: NOTICE, docs/adr/, docs/ATTRIBUTION.md, CHANGELOG.md, DOWNSTREAM.md, UPSTREAM.md, LICENSE, THIRD_PARTY_NOTICES.md, go.sum, docs/audits/*, dotfiles-nvim plugins with external URLs, dotfiles-nvim lazy-lock/spell, .gitignore old binary entries, upstream-watch workflow"
+          matches=$(rg -l -i 'gentleman' \
             --glob '!NOTICE' \
             --glob '!docs/adr/*' \
             --glob '!docs/ATTRIBUTION.md' \
-            --glob '!.downstream/*' \
+            --glob '!CHANGELOG.md' \
+            --glob '!DOWNSTREAM.md' \
+            --glob '!UPSTREAM.md' \
             --glob '!LICENSE' \
             --glob '!.git/*' \
             --glob '!THIRD_PARTY_NOTICES.md' \
-            --glob '!UPSTREAM.md' \
             --glob '!docs/UPSTREAM-SYNC.md' \
             --glob '!docs/audits/*' \
             --glob '!docs/BRANDING.md' \
-            installer/ 2>/dev/null || true)
+            --glob '!go.sum' \
+            --glob '!dotfiles-nvim/nvim/lua/plugins/colorscheme.lua' \
+            --glob '!dotfiles-nvim/nvim/lua/plugins/veil.lua' \
+            --glob '!dotfiles-nvim/nvim/lazy-lock.json' \
+            --glob '!dotfiles-nvim/nvim/spell/*' \
+            --glob '!.github/workflows/upstream-watch.yml' \
+            --glob '!.gitignore' \
+            . 2>/dev/null || true)
 
           if [ -n "$matches" ]; then
-            echo "ERROR: Residual dotfiles branding found in:"
+            echo "ERROR: Residual upstream branding found in:"
             echo "$matches"
             echo ""
             echo "Detailed matches:"
-            rg -n 'dotfiles|dotfiles' \
+            rg -n -i 'gentleman' \
               --glob '!NOTICE' \
               --glob '!docs/adr/*' \
               --glob '!docs/ATTRIBUTION.md' \
-              --glob '!.downstream/*' \
+              --glob '!CHANGELOG.md' \
+              --glob '!DOWNSTREAM.md' \
+              --glob '!UPSTREAM.md' \
               --glob '!LICENSE' \
               --glob '!.git/*' \
               --glob '!THIRD_PARTY_NOTICES.md' \
-              --glob '!UPSTREAM.md' \
               --glob '!docs/UPSTREAM-SYNC.md' \
               --glob '!docs/audits/*' \
               --glob '!docs/BRANDING.md' \
-              installer/ 2>/dev/null || true
+              --glob '!go.sum' \
+              --glob '!dotfiles-nvim/nvim/lua/plugins/colorscheme.lua' \
+              --glob '!dotfiles-nvim/nvim/lua/plugins/veil.lua' \
+              --glob '!dotfiles-nvim/nvim/lazy-lock.json' \
+              --glob '!dotfiles-nvim/nvim/spell/*' \
+              --glob '!.github/workflows/upstream-watch.yml' \
+              --glob '!.gitignore' \
+              . 2>/dev/null || true
             exit 1
           fi
           echo "Branding audit passed"

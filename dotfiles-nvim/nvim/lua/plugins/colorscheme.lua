@@ -48,6 +48,7 @@ return {
       priority = 1000,
     },
     {
+      -- External plugin (third-party, not related to this project)
       "Alan-TheGentleman/oldworld.nvim",
       lazy = false,
       priority = 1000,
