@@ -135,6 +135,9 @@ type Model struct {
 	AvailableBackups []system.BackupInfo // Available backups for restore
 	SelectedBackup   int                 // Selected backup index
 	BackupDir        string              // Last backup directory created
+	// Repository checkout created by the clone step
+	WorkDir string // Private temporary directory owned by this run (empty until clone)
+	RepoDir string // Repository checkout inside WorkDir (empty until clone)
 	// Vim Trainer mode
 	TrainerStats       *trainer.UserStats   // User's training stats
 	TrainerGameState   *trainer.GameState   // Current game session state

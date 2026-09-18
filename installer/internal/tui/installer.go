@@ -102,41 +102,57 @@ func stepBackupConfigs(m *Model) error {
 	return nil
 }
 
+// dotfilesRepoURL is the repository the installer clones at run time.
+const dotfilesRepoURL = "https://github.com/albersg/dotfiles.git"
+
 func stepCloneRepo(m *Model) error {
 	stepID := "clone"
 
-	// Check if already exists
-	if _, err := os.Stat("dotfiles"); err == nil {
-		SendLog(stepID, "Removing existing dotfiles directory...")
-		result := system.RunWithLogs("rm -rf dotfiles", nil, func(line string) {
-			SendLog(stepID, line)
-		})
-		if result.Error != nil {
-			return wrapStepError("clone", "Clone Repository",
-				"Failed to remove existing dotfiles directory",
-				result.Error)
-		}
+	// Clone into a directory owned by this run. The previous implementation used
+	// the cwd-relative name "dotfiles", so running the installer from a directory
+	// that already contained an unrelated "dotfiles" folder removed it with
+	// `rm -rf dotfiles` before cloning.
+	workDir, err := os.MkdirTemp("", "dotfiles-install-")
+	if err != nil {
+		return wrapStepError("clone", "Clone Repository",
+			"Failed to create a temporary installation directory",
+			err)
 	}
+	repoDir := filepath.Join(workDir, "dotfiles")
 
-	SendLog(stepID, "Cloning repository from GitHub...")
-	result := system.RunWithLogs("git clone --progress https://github.com/albersg/dotfiles.git dotfiles", nil, func(line string) {
+	SendLog(stepID, fmt.Sprintf("Cloning repository into %s...", repoDir))
+	result := system.RunWithLogs(fmt.Sprintf("git clone --progress %s %q", dotfilesRepoURL, repoDir), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
+		os.RemoveAll(workDir)
 		return wrapStepError("clone", "Clone Repository",
 			"Failed to clone the repository. Check your internet connection and git installation.",
 			result.Error)
 	}
 
-	// Verify clone was successful
-	if _, err := os.Stat("dotfiles"); os.IsNotExist(err) {
+	// A clone can exit zero and still leave nothing usable behind (interrupted
+	// transfer, missing git). Verify the checkout before any step reads from it.
+	if !system.DirExists(filepath.Join(repoDir, ".git")) {
+		os.RemoveAll(workDir)
 		return wrapStepError("clone", "Clone Repository",
-			"Repository was cloned but directory not found",
-			fmt.Errorf("dotfiles directory does not exist after clone"))
+			"Repository was cloned but is not a git checkout",
+			fmt.Errorf("%s does not contain a .git directory", repoDir))
 	}
 
+	m.WorkDir = workDir
+	m.RepoDir = repoDir
 	SendLog(stepID, "✓ Repository cloned successfully")
 	return nil
+}
+
+// repoDir returns the checkout created by the clone step. Steps fail loudly
+// instead of silently falling back to a guessed, cwd-relative path.
+func (m *Model) repoDir() (string, error) {
+	if m.RepoDir == "" {
+		return "", fmt.Errorf("the repository has not been cloned in this run")
+	}
+	return m.RepoDir, nil
 }
 
 func stepInstallHomebrew(m *Model) error {
@@ -715,9 +731,15 @@ func installHerdrBinary(m *Model, stepID string) error {
 
 func stepInstallShell(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "dotfiles"
 	shell := m.Choices.Shell
 	stepID := "shell"
+
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return wrapStepError(stepID, "Install Shell",
+			"Failed to locate the cloned repository",
+			err)
+	}
 
 	// Common dependencies
 	SendLog(stepID, "Creating required directories...")
@@ -922,9 +944,15 @@ func stepInstallShell(m *Model) error {
 
 func stepInstallWM(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "dotfiles"
 	wm := m.Choices.WindowMgr
 	stepID := "wm"
+
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return wrapStepError(stepID, "Install Window Manager",
+			"Failed to locate the cloned repository",
+			err)
+	}
 
 	switch wm {
 	case "tmux":
@@ -1128,8 +1156,14 @@ func stepInstallWM(m *Model) error {
 
 func stepInstallNvim(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "dotfiles"
 	stepID := "nvim"
+
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return wrapStepError(stepID, "Install Neovim",
+			"Failed to locate the cloned repository",
+			err)
+	}
 
 	// Obsidian path
 	SendLog(stepID, "Creating Obsidian directories...")
@@ -1222,14 +1256,26 @@ func stepInstallNvim(m *Model) error {
 
 func stepCleanup(m *Model) error {
 	stepID := "cleanup"
-	SendLog(stepID, "Removing temporary files...")
-	// Only remove the cloned repo - no sudo needed
-	result := system.Run("rm -rf dotfiles", nil)
-	if result.Error != nil {
+	if m.WorkDir == "" {
+		SendLog(stepID, "Nothing to clean up")
+		return nil
+	}
+
+	// Only remove the directory this run created, and only when the checkout is
+	// actually inside it. Never derive the target from the current directory.
+	if !strings.HasPrefix(m.RepoDir, m.WorkDir+string(os.PathSeparator)) {
+		SendLog(stepID, fmt.Sprintf("Warning: refusing to remove %s", m.WorkDir))
+		return nil
+	}
+
+	SendLog(stepID, fmt.Sprintf("Removing temporary checkout at %s...", m.WorkDir))
+	if err := os.RemoveAll(m.WorkDir); err != nil {
 		// Non-critical error, just log it
 		SendLog(stepID, "Warning: Could not remove temporary directory")
 		return nil
 	}
+	m.WorkDir = ""
+	m.RepoDir = ""
 	SendLog(stepID, "✓ Cleanup complete")
 	return nil
 }
