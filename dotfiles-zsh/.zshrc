@@ -452,6 +452,102 @@ serve() {
     python3 -m http.server "$port" --bind 127.0.0.1
 }
 
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+# A file encrypted with SOPS keeps its keys readable and only its values
+# encrypted, so it can live in a repository and still show which keys exist and
+# which one changed. The key is a single age file rather than a GPG keyring,
+# which avoids the agent and pinentry dance that is fragile under WSL.
+#
+# Create the key once:
+#
+#   mkdir -p ~/.config/sops/age && age-keygen -o ~/.config/sops/age/keys.txt
+#
+# Then put the public key it prints into a .sops.yaml in each project:
+#
+#   creation_rules:
+#     - path_regex: .*\.env$
+#       age: <public key>
+#
+# An age key has no recovery path. Lose that file and every encrypted value is
+# gone for good, so back it up somewhere that is not this machine.
+typeset -g DOTFILES_SOPS_FILE=secrets.env
+export SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+
+# Every secrets helper starts here, so a missing tool or key is reported once,
+# with the command that fixes it, instead of failing somewhere further down.
+_dotfiles_secrets_ready() {
+    if ! command -v sops >/dev/null 2>&1; then
+        print -u2 'secrets: sops is not installed'
+        return 1
+    fi
+    if [[ ! -f $SOPS_AGE_KEY_FILE ]]; then
+        print -u2 "secrets: no age key at $SOPS_AGE_KEY_FILE"
+        print -u2 "  create one with: mkdir -p ${SOPS_AGE_KEY_FILE:h} && age-keygen -o $SOPS_AGE_KEY_FILE"
+        return 1
+    fi
+    return 0
+}
+
+# env-edit [file]: edit an encrypted file. SOPS decrypts into the editor and
+# re-encrypts on save, so the plaintext never lands on disk.
+env-edit() {
+    _dotfiles_secrets_ready || return 1
+    local file=${1:-$DOTFILES_SOPS_FILE}
+    if [[ ! -f $file ]]; then
+        print -u2 "secrets: no such file: $file"
+        return 1
+    fi
+    sops "$file"
+}
+
+# env-load [file] [.env]: decrypt into a local file for tools that insist on
+# reading one. It refuses unless the destination is already ignored by git,
+# because writing plaintext secrets into a repository is the mistake this whole
+# arrangement exists to prevent.
+env-load() {
+    _dotfiles_secrets_ready || return 1
+    local src=${1:-$DOTFILES_SOPS_FILE} dst=${2:-.env}
+    if [[ ! -f $src ]]; then
+        print -u2 "secrets: no such file: $src"
+        return 1
+    fi
+    # Refuse unless git already ignores the destination. Writing a plaintext
+    # secret into a repository is the mistake this arrangement exists to avoid,
+    # and creating a fresh .env that git would happily track is the same mistake
+    # with a different name, so the check runs whether or not the file exists.
+    # Outside a work tree there is nothing to leak into, so it is allowed.
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ! git check-ignore -q -- "$dst" 2>/dev/null; then
+        print -u2 "secrets: git does not ignore $dst, so the plaintext would be tracked"
+        print -u2 "  add it to .gitignore, or to a global exclude, and try again"
+        return 1
+    fi
+    if [[ -e $dst ]] && [[ ! -w $dst ]]; then
+        print -u2 "secrets: cannot write $dst"
+        return 1
+    fi
+    if ! sops -d "$src" >|"$dst"; then
+        rm -f "$dst"
+        print -u2 "secrets: could not decrypt $src"
+        return 1
+    fi
+    print "secrets: wrote $dst"
+}
+
+# env-export [file]: print export lines for the current shell, for an .envrc:
+#
+#   eval "$(env-export secrets.env)"
+#
+# Nothing is written to disk this way, which is the option to prefer.
+env-export() {
+    _dotfiles_secrets_ready || return 1
+    local src=${1:-$DOTFILES_SOPS_FILE}
+    if [[ ! -f $src ]]; then
+        print -u2 "secrets: no such file: $src"
+        return 1
+    fi
+    sops -d --output-type dotenv "$src" 2>/dev/null | sed 's/^/export /'
+}
+
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
