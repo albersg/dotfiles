@@ -239,6 +239,219 @@ eval "$(atuin init zsh)"
 # --- direnv: per-directory env vars (works with mise) ---
 eval "$(direnv hook zsh)"
 
+# ─── Shell automation ────────────────────────────────────────────────────────
+# Functions that remove repeated manual work. Each checks for the tools it needs
+# and names the one that is missing, rather than failing with a bare error.
+
+# extract <archive>: unpack almost any archive format.
+extract() {
+    if [[ $# -eq 0 ]]; then
+        print -u2 'usage: extract <archive>'
+        return 1
+    fi
+    local file=$1
+    if [[ ! -f "$file" ]]; then
+        print -u2 "extract: no such file: $file"
+        return 1
+    fi
+
+    # Each format is paired with the tool it needs, so a missing dependency is
+    # reported by name instead of surfacing as a bare "command not found".
+    local need
+    case $file in
+        *.tar.gz|*.tgz)   need=tar;     set -- tar -xzf "$file" ;;
+        *.tar.bz2|*.tbz2) need=tar;     set -- tar -xjf "$file" ;;
+        *.tar.xz|*.txz)   need=tar;     set -- tar -xJf "$file" ;;
+        *.tar.zst)        need=tar;     set -- tar --zstd -xf "$file" ;;
+        *.tar)            need=tar;     set -- tar -xf "$file" ;;
+        *.zip)            need=unzip;   set -- unzip -q "$file" ;;
+        *.7z)             need=7z;      set -- 7z x "$file" ;;
+        *.rar)            need=unrar;   set -- unrar x "$file" ;;
+        *.gz)             need=gunzip;  set -- gunzip -kf "$file" ;;
+        *.bz2)            need=bunzip2; set -- bunzip2 -kf "$file" ;;
+        *.xz)             need=unxz;    set -- unxz -kf "$file" ;;
+        *.zst)            need=zstd;    set -- zstd -df "$file" ;;
+        *) print -u2 "extract: unsupported format: $file"; return 1 ;;
+    esac
+
+    if ! command -v "${need}" >/dev/null 2>&1; then
+        print -u2 "extract: needs ${need}, which is not installed"
+        return 1
+    fi
+    "$@"
+}
+
+# compress <archive> <path>...: build an archive, format taken from the target
+# extension. The single-file formats refuse a directory rather than producing an
+# archive that cannot be unpacked back.
+compress() {
+    if [[ $# -lt 2 ]]; then
+        print -u2 'usage: compress <archive> <path> [path...]'
+        print -u2 '       targets: .tar.gz .tar.bz2 .tar.xz .tar.zst .zip .7z .gz .bz2 .xz .zst'
+        return 1
+    fi
+    local archive=$1
+    shift
+
+    if ! command -v tar >/dev/null 2>&1 && [[ $archive == *.tar.* || $archive == *.tgz ]]; then
+        print -u2 'compress: needs tar, which is not installed'
+        return 1
+    fi
+
+    local need
+    case $archive in
+        *.tar.gz|*.tgz) need=tar;  set -- tar -czf "$archive" "$@" ;;
+        *.tar.bz2)      need=tar;  set -- tar -cjf "$archive" "$@" ;;
+        *.tar.xz)       need=tar;  set -- tar -cJf "$archive" "$@" ;;
+        *.tar.zst)      need=tar;  set -- tar --zstd -cf "$archive" "$@" ;;
+        *.zip)          need=zip;  set -- zip -qr "$archive" "$@" ;;
+        *.7z)           need=7z;   set -- 7z a -bso0 -bsp0 "$archive" "$@" ;;
+        *.gz|*.bz2|*.xz|*.zst)
+            if [[ $# -ne 1 ]]; then
+                print -u2 "compress: $archive holds one file; use a .tar.* or .zip target for several"
+                return 1
+            fi
+            local src=$1
+            if [[ -d $src ]]; then
+                print -u2 "compress: $archive holds one file; use a .tar.* or .zip target for a directory"
+                return 1
+            fi
+            if [[ ! -f $src ]]; then
+                print -u2 "compress: no such file: $src"
+                return 1
+            fi
+            case $archive in
+                *.gz)  need=gzip  ;;
+                *.bz2) need=bzip2 ;;
+                *.xz)  need=xz    ;;
+                *.zst) need=zstd  ;;
+            esac
+            if ! command -v "${need}" >/dev/null 2>&1; then
+                print -u2 "compress: needs ${need}, which is not installed"
+                return 1
+            fi
+            # The redirection creates the target before the compressor runs, so a
+            # failure would otherwise leave an empty archive behind and still
+            # report success.
+            case $archive in
+                *.gz)  gzip  -c  "$src" >|"$archive" ;;
+                *.bz2) bzip2 -c  "$src" >|"$archive" ;;
+                *.xz)  xz    -c  "$src" >|"$archive" ;;
+                *.zst) zstd  -qc "$src" >|"$archive" ;;
+            esac || { rm -f "$archive"; print -u2 "compress: failed to create $archive"; return 1 }
+            print "created $archive"
+            return 0
+            ;;
+        *) print -u2 "compress: unsupported format: $archive"; return 1 ;;
+    esac
+
+    if ! command -v "${need}" >/dev/null 2>&1; then
+        print -u2 "compress: needs ${need}, which is not installed"
+        return 1
+    fi
+    if "$@"; then
+        print "created $archive"
+    else
+        rm -f "$archive"
+        print -u2 "compress: failed to create $archive"
+        return 1
+    fi
+}
+
+# Activate a project's virtual environment on cd, and leave it on the way out.
+# Only an environment this hook activated is ever deactivated, so one the user
+# activated by hand is never touched, and moving around inside a project does not
+# re-activate or re-announce anything.
+typeset -g _DOTFILES_VENV=
+_dotfiles_activate_venv() {
+    # Search the current directory and, when inside a repository, its ancestors up
+    # to the repository root only. Walking all the way to / would activate a stray
+    # venv sitting in /tmp or in $HOME for every directory underneath it, which is
+    # how a scratch environment ends up capturing unrelated projects. The .git
+    # test costs one stat and no subprocess, which matters on every cd.
+    local -a search=("$PWD")
+    local dir=$PWD candidate found=
+    while [[ $dir != / && $dir != $HOME ]]; do
+        dir=${dir:h}
+        search+=("$dir")
+        [[ -e "$dir/.git" ]] && break
+    done
+    [[ -e "${search[-1]}/.git" ]] || search=("$PWD")
+
+    for dir in "$search[@]"; do
+        for candidate in .venv venv .env; do
+            if [[ -f "$dir/$candidate/bin/activate" ]]; then
+                found="$dir/$candidate"
+                break 2
+            fi
+        done
+    done
+
+    [[ $found == $_DOTFILES_VENV ]] && return 0
+
+    if [[ -n $_DOTFILES_VENV ]]; then
+        if [[ -n ${VIRTUAL_ENV:-} && $VIRTUAL_ENV == $_DOTFILES_VENV ]]; then
+            deactivate 2>/dev/null
+        fi
+        _DOTFILES_VENV=
+    fi
+
+    if [[ -n $found ]]; then
+        source "$found/bin/activate"
+        _DOTFILES_VENV=$found
+        print "venv: ${found:t}"
+    fi
+}
+add-zsh-hook chpwd _dotfiles_activate_venv
+
+# Announce a project's available tasks when entering it. Silent when the project
+# declares none, and skippable with DOTFILES_NO_TASKS=1.
+_dotfiles_show_tasks() {
+    [[ -n ${DOTFILES_NO_TASKS:-} ]] && return 0
+    [[ $PWD == $HOME ]] && return 0
+
+    if [[ -f justfile || -f Justfile ]]; then
+        command -v just >/dev/null 2>&1 && just --list 2>/dev/null | head -20
+    elif [[ -f Makefile || -f makefile ]]; then
+        # List declared targets without executing anything: the awk pass only
+        # reads lines shaped like a target rule, so a Makefile that runs work at
+        # parse time stays untouched.
+        awk -F: '/^[a-zA-Z0-9_.-]+:([^=]|$)/ { print "  make " $1 }' Makefile 2>/dev/null | sort -u | head -20
+    fi
+
+    if [[ -f package.json ]] && command -v jq >/dev/null 2>&1; then
+        jq -r '.scripts // {} | keys[]' package.json 2>/dev/null | head -20 | sed 's/^/  npm run /'
+    fi
+
+    if [[ -f Taskfile.yml || -f Taskfile.yaml ]] && command -v task >/dev/null 2>&1; then
+        task --list 2>/dev/null | head -20
+    fi
+}
+add-zsh-hook chpwd _dotfiles_show_tasks
+
+# serve [port]: static file server for the current directory, defaulting to 8000.
+serve() {
+    local port=${1:-8000}
+    if [[ ! $port == <-> ]]; then
+        print -u2 "serve: port must be a whole number, got '$port'"
+        return 1
+    fi
+    if (( port < 1 || port > 65535 )); then
+        print -u2 "serve: port must be between 1 and 65535, got $port"
+        return 1
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        print -u2 'serve: needs python3, which is not installed'
+        return 1
+    fi
+    if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$port "; then
+        print -u2 "serve: port $port is already in use"
+        return 1
+    fi
+    print "serving $PWD on http://localhost:$port  (Ctrl-C to stop)"
+    python3 -m http.server "$port" --bind 127.0.0.1
+}
+
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
