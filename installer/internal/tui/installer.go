@@ -676,14 +676,27 @@ var (
 	runOhMyZshInstaller   = system.RunWithLogs
 )
 
-// ohMyZshInstallerURL is the official Oh My Zsh installer.
-const ohMyZshInstallerURL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
+// ohMyZshInstallerURL is the official Oh My Zsh installer, pinned to the exact
+// revision this repository ships and the local machine runs. An unpinned master
+// URL would execute whatever upstream publishes next, which the previous
+// repository-committed snapshot never did.
+const (
+	ohMyZshInstallerURL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/0ee67f042872d1dfab74270c31867771ca35aef4/tools/install.sh"
+	ohMyZshInstallerRef = "0ee67f042872d1dfab74270c31867771ca35aef4"
+)
 
-// shouldInstallOhMyZsh reports whether Oh My Zsh is missing. PathExists follows
-// symlinks on purpose, so a symlinked ~/.oh-my-zsh counts as installed and is
-// left alone.
+// ohMyZshEntrypoint is the file .zshrc sources. Its presence is what tells a
+// complete installation apart from a directory an interrupted run left behind.
+const ohMyZshEntrypoint = "oh-my-zsh.sh"
+
+// shouldInstallOhMyZsh reports whether the installation is missing or incomplete.
+//
+// Checking the directory alone was not enough: the installer creates it early,
+// so a download or clone that fails afterwards leaves a directory that every
+// later run would report as installed and would never repair. PathExists follows
+// symlinks on purpose, so a symlinked ~/.oh-my-zsh counts as present.
 func shouldInstallOhMyZsh(dir string) bool {
-	return !system.PathExists(dir)
+	return !system.PathExists(filepath.Join(dir, ohMyZshEntrypoint))
 }
 
 // installOhMyZsh downloads the official installer and runs it against dir.
@@ -719,13 +732,24 @@ func installOhMyZsh(dir, stepID string) error {
 	// login shell and KEEP_ZSHRC from overwriting the .zshrc copied above.
 	if result := runOhMyZshInstaller(
 		fmt.Sprintf("env ZSH=%q RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh %q", dir, installerPath), nil, logLine); result.Error != nil {
+		removePartialOhMyZsh(dir)
 		return fmt.Errorf("could not run the Oh My Zsh installer: %w", result.Error)
 	}
 
-	if !system.DirExists(dir) {
-		return fmt.Errorf("the installer completed but %s does not exist", dir)
+	if !system.PathExists(filepath.Join(dir, ohMyZshEntrypoint)) {
+		removePartialOhMyZsh(dir)
+		return fmt.Errorf("the installer completed but %s does not exist", filepath.Join(dir, ohMyZshEntrypoint))
 	}
 	return nil
+}
+
+// removePartialOhMyZsh deletes a directory an interrupted install left behind.
+// Without it the guard would read that directory as a finished installation and
+// no later run could ever repair the shell.
+func removePartialOhMyZsh(dir string) {
+	if system.PathExists(dir) {
+		_ = os.RemoveAll(dir)
+	}
 }
 
 func installPlatformPackages(m *Model, stepID string, packages platformPackages, onLog func(string)) *system.ExecResult {
@@ -737,7 +761,12 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 	// dnf aborts the whole transaction on a single unknown name, and Fedora has no
 	// carapace or starship in its default repositories, so the shell install used
 	// to fail there while the packages it could provide were never installed.
-	// --skip-unavailable is dnf's own answer to this and installs the rest.
+	// --skip-unavailable is dnf's own answer and installs the rest.
+	//
+	// Trade-off, noted after review: the command now succeeds even when it skips
+	// packages, so runNativeWithBrewFallback only fires on a genuine dnf failure.
+	// On Fedora with Homebrew installed, carapace and starship therefore have to
+	// be installed from Homebrew by hand.
 	case m.SystemInfo.OS == system.OSFedora && packages.Fedora != "":
 		return runNativeWithBrewFallback("dnf install -y --skip-unavailable "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	case (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew && packages.Debian != "":
@@ -908,6 +937,11 @@ func stepInstallShell(m *Model) error {
 			// drive the aliases and the fzf integration, delta drives .gitconfig,
 			// fnm owns Node, direnv hooks directory environments, and jq/gh/xh/trip
 			// back the documented helper aliases.
+			//
+			// kubectx is here because the vendored custom/ plugins used to be the only
+			// source of its zsh plugin. It is verified on Homebrew, Debian and Arch;
+			// Fedora is left without it because the name could not be verified there
+			// and an unknown name used to abort the whole dnf transaction.
 			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
 			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta",
 			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",

@@ -479,7 +479,6 @@ func ListBackups() []BackupInfo {
 	return backups
 }
 
-// CreateBackup creates a backup of existing configs
 // CreateBackup copies the requested configurations into a new backup directory.
 // It returns the backup path and the entries it could not copy because they are
 // not regular files; those are skipped rather than fatal, because a live socket

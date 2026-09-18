@@ -200,8 +200,13 @@ func withZshMocks(t *testing.T, home string) *[]packageCommandCall {
 		// The download writes to a temporary file; only the second command
 		// installs anything.
 		if !strings.Contains(command, " -o ") {
-			if err := os.MkdirAll(filepath.Join(home, ".oh-my-zsh"), 0o755); err != nil {
+			omzDir := filepath.Join(home, ".oh-my-zsh")
+			if err := os.MkdirAll(omzDir, 0o755); err != nil {
 				t.Fatalf("mock installer could not create the directory: %v", err)
+			}
+			// The step verifies the entry point .zshrc sources, not the directory.
+			if err := os.WriteFile(filepath.Join(omzDir, ohMyZshEntrypoint), []byte("# mock\n"), 0o644); err != nil {
+				t.Fatalf("mock installer could not create the entry point: %v", err)
 			}
 		}
 		return &system.ExecResult{Command: command}
@@ -229,9 +234,12 @@ func TestShouldInstallOhMyZsh(t *testing.T) {
 		}
 	})
 
-	t.Run("real directory is left alone", func(t *testing.T) {
+	t.Run("a complete installation is left alone", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), ".oh-my-zsh")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ohMyZshEntrypoint), []byte("# omz\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if shouldInstallOhMyZsh(dir) {
@@ -239,10 +247,25 @@ func TestShouldInstallOhMyZsh(t *testing.T) {
 		}
 	})
 
+	t.Run("a directory without the entry point is an interrupted install", func(t *testing.T) {
+		// The installer creates the directory early, so a failed clone leaves one
+		// behind. Treating it as installed made the failure unrecoverable.
+		dir := filepath.Join(t.TempDir(), ".oh-my-zsh")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if !shouldInstallOhMyZsh(dir) {
+			t.Error("a partial ~/.oh-my-zsh must be reinstalled")
+		}
+	})
+
 	t.Run("symlinked directory counts as installed", func(t *testing.T) {
 		home := t.TempDir()
 		real := filepath.Join(home, "ohmyzsh-real")
 		if err := os.MkdirAll(real, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(real, ohMyZshEntrypoint), []byte("# omz\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		link := filepath.Join(home, ".oh-my-zsh")
