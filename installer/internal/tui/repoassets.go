@@ -28,6 +28,10 @@ const (
 	repoAssetNvim        = "dotfiles-nvim/nvim"
 	repoAssetWSLConfig   = "dotfiles-wsl/.wslconfig"
 	repoAssetWSLConf     = "dotfiles-wsl/wsl.conf"
+	repoAssetGitconfig   = ".gitconfig"
+	// Includes the personal identity, because .gitconfig includes it through
+	// includeIf and a missing file would leave that block pointing at nothing.
+	repoAssetGitconfigPersonal = "gitconfig-personal"
 )
 
 // repoAssets enumerates repoAsset* constants so the existence test covers every
@@ -51,6 +55,8 @@ var repoAssets = []string{
 	repoAssetNvim,
 	repoAssetWSLConfig,
 	repoAssetWSLConf,
+	repoAssetGitconfig,
+	repoAssetGitconfigPersonal,
 }
 
 // optionalRepoAssets are sources the installer tolerates missing. They are kept

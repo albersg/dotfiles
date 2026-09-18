@@ -957,6 +957,24 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Zsh configuration...")
+		// Git's configuration is installed here rather than in a step of its own
+		// because it belongs with the shell: delta and fzf, both installed by this
+		// step, are what .gitconfig actually calls, and .gitconfig is a loose home
+		// dotfile in the same family as .zshenv below. It is listed in ConfigPaths
+		// so the backup step protects the existing file before this overwrites it.
+		SendLog(stepID, "Copying Git configuration...")
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetGitconfig), filepath.Join(homeDir, ".gitconfig")); err != nil {
+			return wrapStepError("shell", "Install Zsh",
+				"Failed to copy .gitconfig",
+				err)
+		}
+		// The personal identity is included by .gitconfig through includeIf, so an
+		// installation without this file would leave that block pointing at nothing.
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetGitconfigPersonal), filepath.Join(homeDir, ".gitconfig-personal")); err != nil {
+			return wrapStepError("shell", "Install Zsh",
+				"Failed to copy .gitconfig-personal",
+				err)
+		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshEnv), filepath.Join(homeDir, ".zshenv")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .zshenv configuration",

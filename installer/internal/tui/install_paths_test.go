@@ -397,3 +397,42 @@ func TestDryRunSkipsEveryStep(t *testing.T) {
 		t.Errorf("dry run wrote into HOME: %v", entries)
 	}
 }
+
+// TestStepInstallShellInstallsGitConfig covers the two files the installer copies
+// from the repository root. Both are copied verbatim, so equality is asserted
+// rather than the prefix check the .zshrc case needs: a truncated or partial copy
+// would still satisfy a prefix comparison.
+func TestStepInstallShellInstallsGitConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	withZshMocks(t, home)
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSMac, HasBrew: true}
+	m.Choices = UserChoices{OS: "mac", Shell: "zsh", WindowMgr: "herdr"}
+	m.RepoDir = repoRoot(t)
+
+	if err := stepInstallShell(&m); err != nil {
+		t.Fatalf("zsh step failed: %v", err)
+	}
+
+	for _, tc := range []struct {
+		asset string
+		dst   string
+	}{
+		{repoAssetGitconfig, ".gitconfig"},
+		{repoAssetGitconfigPersonal, ".gitconfig-personal"},
+	} {
+		got, err := os.ReadFile(filepath.Join(home, tc.dst))
+		if err != nil {
+			t.Fatalf("%s was not installed: %v", tc.dst, err)
+		}
+		want, err := os.ReadFile(filepath.Join(m.RepoDir, tc.asset))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("%s does not match %s in the repository", tc.dst, tc.asset)
+		}
+	}
+}
