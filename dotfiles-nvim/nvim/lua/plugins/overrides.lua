@@ -7,8 +7,11 @@ return {
     -- URL: https://github.com/folke/trouble.nvim
     -- Description: A pretty list for showing diagnostics, references, telescope results, quickfix and location lists.
     "folke/trouble.nvim",
-    -- Options to be merged with the parent specification
-    opts = { use_diagnostic_signs = true }, -- Use diagnostic signs for trouble.nvim
+    -- NOTE: trouble.nvim removed its `use_diagnostic_signs` option; signs are now
+    -- derived from `vim.diagnostic.config().signs` automatically. The previous
+    -- `opts = { use_diagnostic_signs = true }` was a dead key (stored but never
+    -- read), so it has been removed.
+    opts = {},
   },
 
   -- Add symbols-outline.nvim plugin

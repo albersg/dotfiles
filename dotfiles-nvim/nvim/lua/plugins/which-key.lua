@@ -27,5 +27,10 @@ return {
       "<leader>o",
       group = "Obsidian",
     },
+    {
+      -- Define a group for CodeGraph impact commands
+      "<leader>i",
+      group = "Impact (codegraph)",
+    },
   },
 }

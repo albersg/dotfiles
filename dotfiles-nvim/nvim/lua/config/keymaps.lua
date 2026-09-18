@@ -161,3 +161,11 @@ function SaveFile()
     vim.notify("Error: " .. err, vim.log.levels.ERROR) -- Show the error message if it fails
   end
 end
+
+----- CODEGRAPH (impact / affected / callers / callees) -----
+-- Registers the <leader>i* keymaps defined in lua/config/codegraph.lua.
+require("config.codegraph").setup()
+
+----- SAFE PLUGIN UPDATE -----
+-- Registers the user command :NzUpdatePlugins (scripts/safe-update.sh).
+require("config.update").setup()
