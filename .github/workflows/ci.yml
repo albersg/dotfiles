@@ -72,7 +72,7 @@ jobs:
       - name: Check for residual upstream branding
         run: |
           echo "Checking for residual 'gentleman' or 'GENTLEMAN' strings..."
-          echo "Excluding: NOTICE, docs/adr/, docs/ATTRIBUTION.md, CHANGELOG.md, DOWNSTREAM.md, UPSTREAM.md, LICENSE, THIRD_PARTY_NOTICES.md, go.sum, docs/audits/*, dotfiles-nvim plugins with external URLs, dotfiles-nvim lazy-lock/spell, .gitignore old binary entries, upstream-watch workflow"
+          echo "Excluding only attribution and traceability records (NOTICE, LICENSE, docs/adr/, docs/ATTRIBUTION.md, THIRD_PARTY_NOTICES.md, DOWNSTREAM.md, UPSTREAM.md, CHANGELOG.md, docs/UPSTREAM-SYNC.md, docs/BRANDING.md, docs/audits/*), the upstream watcher, go.sum, .gitignore, and the en_US spell dictionary."
           matches=$(rg -l -i 'gentleman' \
             --glob '!NOTICE' \
             --glob '!docs/adr/*' \
@@ -87,9 +87,6 @@ jobs:
             --glob '!docs/audits/*' \
             --glob '!docs/BRANDING.md' \
             --glob '!go.sum' \
-            --glob '!dotfiles-nvim/nvim/lua/plugins/colorscheme.lua' \
-            --glob '!dotfiles-nvim/nvim/lua/plugins/veil.lua' \
-            --glob '!dotfiles-nvim/nvim/lazy-lock.json' \
             --glob '!dotfiles-nvim/nvim/spell/*' \
             --glob '!.github/workflows/upstream-watch.yml' \
             --glob '!.gitignore' \
@@ -114,9 +111,6 @@ jobs:
               --glob '!docs/audits/*' \
               --glob '!docs/BRANDING.md' \
               --glob '!go.sum' \
-              --glob '!dotfiles-nvim/nvim/lua/plugins/colorscheme.lua' \
-              --glob '!dotfiles-nvim/nvim/lua/plugins/veil.lua' \
-              --glob '!dotfiles-nvim/nvim/lazy-lock.json' \
               --glob '!dotfiles-nvim/nvim/spell/*' \
               --glob '!.github/workflows/upstream-watch.yml' \
               --glob '!.gitignore' \
