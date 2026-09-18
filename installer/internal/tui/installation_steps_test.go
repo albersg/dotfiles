@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
@@ -154,7 +155,9 @@ func TestStepCloneRepository(t *testing.T) {
 		t.Skip("Skipping clone test in short mode")
 	}
 
-	t.Run("clone creates directory", func(t *testing.T) {
+	t.Run("clone creates a private checkout that cleanup removes", func(t *testing.T) {
+		// The clone must not depend on the current working directory, and cleanup
+		// must only ever remove the directory this run created.
 		tmpDir := t.TempDir()
 		originalWd, _ := os.Getwd()
 		defer os.Chdir(originalWd)
@@ -163,13 +166,33 @@ func TestStepCloneRepository(t *testing.T) {
 		m := NewModel()
 		m.Choices = UserChoices{OS: "mac", Shell: "fish"}
 
-		err := stepCloneRepo(&m)
+		if err := stepCloneRepo(&m); err != nil {
+			t.Skipf("clone unavailable in this environment: %v", err)
+		}
+		defer stepCleanup(&m)
 
-		// Check if dotfiles directory exists
-		if _, statErr := os.Stat(filepath.Join(tmpDir, "dotfiles")); os.IsNotExist(statErr) {
-			if err == nil {
-				t.Error("Clone reported success but directory doesn't exist")
-			}
+		if m.RepoDir == "" || m.WorkDir == "" {
+			t.Fatalf("clone did not record its directories: WorkDir=%q RepoDir=%q", m.WorkDir, m.RepoDir)
+		}
+		if !strings.HasPrefix(m.RepoDir, m.WorkDir+string(os.PathSeparator)) {
+			t.Errorf("RepoDir %q is not inside WorkDir %q", m.RepoDir, m.WorkDir)
+		}
+		if !strings.HasPrefix(m.WorkDir, tmpDir) && !strings.HasPrefix(m.WorkDir, os.TempDir()) {
+			t.Errorf("WorkDir %q is not a private temporary directory", m.WorkDir)
+		}
+		if _, statErr := os.Stat(filepath.Join(m.RepoDir, ".git")); statErr != nil {
+			t.Errorf("clone did not produce a git checkout: %v", statErr)
+		}
+
+		workDir := m.WorkDir
+		if err := stepCleanup(&m); err != nil {
+			t.Fatalf("cleanup failed: %v", err)
+		}
+		if _, statErr := os.Stat(workDir); !os.IsNotExist(statErr) {
+			t.Errorf("cleanup left %s behind: %v", workDir, statErr)
+		}
+		if m.RepoDir != "" || m.WorkDir != "" {
+			t.Errorf("cleanup did not clear the recorded directories")
 		}
 	})
 }

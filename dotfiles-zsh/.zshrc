@@ -28,11 +28,6 @@ if [[ $- == *i* ]]; then
 fi
 
 export LS_COLORS="di=38;5;67:ow=48;5;60:ex=38;5;132:ln=38;5;144:*.tar=38;5;180:*.zip=38;5;180:*.jpg=38;5;175:*.png=38;5;175:*.mp3=38;5;175:*.wav=38;5;175:*.txt=38;5;223:*.sh=38;5;132"
-if [[ "$(uname)" == "Darwin" ]]; then
-  alias ls='ls --color=auto'
-else
-  alias ls='gls --color=auto'
-fi
 
 # Homebrew setup (skip on Termux)
 if [[ $IS_TERMUX -eq 0 ]]; then
@@ -63,16 +58,45 @@ if [[ $IS_TERMUX -eq 0 ]]; then
     fi
 fi
 
-# Use the user-managed Node runtime consistently.  This must run after
-# Homebrew's shell environment so `node` and `npm` do not fall back to the
-# system packages.  Codex is installed through npm's user-global prefix.
-if [[ $IS_TERMUX -eq 0 ]]; then
-    export PATH="$HOME/.npm-global/bin:$PATH"
-    export NVM_DIR="$HOME/.nvm"
-    if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-        source "$NVM_DIR/nvm.sh"
-        nvm use --silent 22.23.1
+# Use fnm as the single Node version manager.  This must run after
+# Homebrew's shell environment so fnm resolves from the managed brew path.
+# The npm global prefix is deliberately independent from the Node install:
+# all global CLIs live in ~/.npm-global, while fnm owns Node itself.
+if [[ $IS_TERMUX -eq 0 ]] && command -v fnm >/dev/null 2>&1; then
+    unset NVM_DIR
+    export FNM_DIR="$HOME/.local/share/fnm"
+
+    # Corepack is no longer bundled with Node 25+, and enabling it through fnm
+    # makes `fnm install` fail on those versions with "Can't enable corepack".
+    # Enable it per installation (`corepack enable`) when a project needs it;
+    # the shims already present in the current install keep working.
+    export FNM_COREPACK_ENABLED=false
+
+    # Remove inherited nvm entries before fnm creates its multishell path.
+    # `path` is zsh's array-backed form of PATH.
+    typeset -U path
+    path=("${(@)path:#$HOME/.nvm/versions/node/*/bin}")
+    # `n` ships an unmanaged Node build; it must never shadow fnm.
+    path=("${(@)path:#$HOME/.n/bin}")
+
+    eval "$(fnm env --use-on-cd --shell zsh)"
+
+    # Start on the `default` alias, unless the current directory declares its
+    # own version (same condition the use-on-cd hook evaluates).
+    if [[ ! -f .node-version && ! -f .nvmrc && ! -f package.json ]]; then
+        fnm use default --silent-if-unchanged >/dev/null
     fi
+
+    export NPM_CONFIG_PREFIX="$HOME/.npm-global"
+    path=("$HOME/.npm-global/bin" $path)
+    typeset -U path
+fi
+
+# Use the system CA bundle for Node-based tooling. Linux distributions ship it
+# at this path; macOS and Termux do not, so the export is guarded.
+if [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
+    export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--use-openssl-ca"
+    export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
 fi
 
 # Zsh built-ins required by Oh My Zsh and completion plugins.
@@ -120,10 +144,10 @@ else
         "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 fi
 
-export PROJECT_PATHS="/home/alanbuscaglia/work"
+export PROJECT_PATHS="$HOME/work"
 export FZF_DEFAULT_COMMAND="fd --hidden --strip-cwd-prefix --exclude .git"
-export FZF_DEFAULT_T_COMMAND="$FZF_DEFAULT_COMMAND"
-export FZF_ALT_COMMAND="fd --type=d --hidden --strip-cwd-prefix --exlude .git"
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+export FZF_ALT_COMMAND="fd --type=d --hidden --strip-cwd-prefix --exclude .git"
 
 WM_VAR="$HERDR_ENV"
 WM_CMD="herdr"
@@ -138,6 +162,26 @@ function start_if_needed() {
 alias fzfbat='fzf --preview="bat --theme=gruvbox-dark --color=always {}"'
 alias fzfnvim='nvim $(fzf --preview="bat --theme=gruvbox-dark --color=always {}")'
 
+# --- Modern Unix replacements (transparent: cat→bat, ls→eza, grep→rg) ---
+alias cat='bat --paging=never'
+alias ls='eza --icons --group-directories-first'
+alias ll='eza -l --icons --git --group-directories-first'
+alias la='eza -la --icons --git --group-directories-first'
+alias tree='eza --tree --icons --level=3'
+alias grep='rg --no-heading'
+
+# --- Network tools ---
+# `trip` (trippy) is only aliased when it is actually resolvable, so the alias
+# never breaks shells on hosts where it is not installed.
+if command -v trip >/dev/null 2>&1; then
+    alias traceroute='sudo trip'
+    alias tracert='sudo trip'
+fi
+alias http='xh'              # xh > curl for APIs
+
+# bat theme (use the one that matches your terminal palette)
+export BAT_THEME="gruvbox-dark"
+
 export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
 zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
 source <(carapace _carapace)
@@ -145,6 +189,9 @@ source <(carapace _carapace)
 eval "$(fzf --zsh)"
 eval "$(zoxide init zsh)"
 eval "$(atuin init zsh)"
+
+# --- direnv: per-directory env vars (works with mise) ---
+eval "$(direnv hook zsh)"
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
@@ -155,16 +202,23 @@ start_if_needed
 if grep -qi microsoft /proc/version 2>/dev/null; then
   # --- WSL detection ----------------------------------------------------------
   IS_WSL=1
-  WSL_INTEROP="/run/WSL"
+  # Keep WSL_INTEROP untouched: WSL sets it to the current interop socket.
+  # Use a separate variable for the runtime directory instead.
+  WSL_RUNTIME_DIR="/run/WSL"
+  # Recover shells started from an older session that incorrectly exported the
+  # runtime directory instead of a socket; WSL will select the interop socket.
+  if [[ -n "${WSL_INTEROP:-}" && -d "$WSL_INTEROP" ]]; then
+    unset WSL_INTEROP
+  fi
   WSL_DISTRO="${WSL_DISTRO_NAME:-unknown}"
 
   # --- WSLg DISPLAY (auto-set by WSLg, but guard for headless scenarios) -----
-  if [[ -z "$DISPLAY" ]] && [[ -f "$WSL_INTEROP/interop" ]]; then
-    export DISPLAY=":0"
-  fi
-  if [[ -z "$WAYLAND_DISPLAY" ]] && [[ -f "$WSL_INTEROP/interop" ]]; then
-    export WAYLAND_DISPLAY="wayland-0"
-  fi
+   if [[ -z "$DISPLAY" ]] && [[ -f "$WSL_RUNTIME_DIR/interop" ]]; then
+     export DISPLAY=":0"
+   fi
+   if [[ -z "$WAYLAND_DISPLAY" ]] && [[ -f "$WSL_RUNTIME_DIR/interop" ]]; then
+     export WAYLAND_DISPLAY="wayland-0"
+   fi
 
   # --- BROWSER: prefer wslview (from wslu package), fallback chain -----------
   if command -v wslview &>/dev/null; then
@@ -205,13 +259,22 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
   # --- VS Code integration from Windows host ----------------------------------
   CODE_BIN="/mnt/c/Program Files/Microsoft VS Code/bin"
   if [[ -d "$CODE_BIN" ]]; then
-    export PATH="$PATH:$CODE_BIN"
+    # Prefer the official launcher and remove only duplicate Code-bin entries.
+    path=("$CODE_BIN" "${(@)path:#$CODE_BIN}")
   fi
 
-  code() {
-    local distro="${WSL_DISTRO_NAME}"
-    local path="$(pwd)"
-    "${CODE_BIN}/code" \
-      --folder-uri "vscode-remote://wsl+${distro}${path}"
-  }
+  # --- WSLg (Wayland) runtime directory ---------------------------------------
+  # Only meaningful inside WSL with WSLg available, never on a bare Linux host.
+  if [[ -d "/mnt/wslg/runtime-dir" ]]; then
+    export XDG_RUNTIME_DIR="/mnt/wslg/runtime-dir"
+    export WAYLAND_DISPLAY="wayland-0"
+  fi
+
+  # Some launchers start the shell without WSL_DISTRO_NAME; the kernel release
+  # string is the reliable fallback.
+  if [[ -z "${WSL_DISTRO_NAME:-}" && "$(uname -r)" == *microsoft* ]]; then
+    export WSL_DISTRO_NAME="${WSL_DISTRO:-Debian}"
+  fi
 fi
+
+export PATH="$HOME/go/bin:$PATH"

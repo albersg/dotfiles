@@ -48,12 +48,20 @@ func RunNonInteractive(choices UserChoices) error {
 			fmt.Printf("    ❌ FAILED: %v\n", err)
 			return fmt.Errorf("step '%s' failed: %w", step.Name, err)
 		}
+		if dryRun() {
+			fmt.Printf("    • skipped (dry run)\n")
+			continue
+		}
 		fmt.Printf("    ✓ Done\n")
 	}
 
 	fmt.Println()
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("✅ Installation complete!")
+	if dryRun() {
+		fmt.Println("🧪 Dry run complete: nothing was installed.")
+	} else {
+		fmt.Println("✅ Installation complete!")
+	}
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	return nil
@@ -105,6 +113,11 @@ func buildStepsForChoices(m *Model) []InstallStep {
 	// Neovim
 	if m.Choices.InstallNvim {
 		steps = append(steps, InstallStep{ID: "nvim", Name: "Install Neovim configuration"})
+	}
+
+	// WSL configuration (Windows host + in-distribution settings)
+	if m.SystemInfo.IsWSL {
+		steps = append(steps, InstallStep{ID: "wslconfig", Name: "Configure WSL"})
 	}
 
 	// Set shell as default

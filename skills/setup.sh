@@ -68,7 +68,8 @@ find_agents_files() {
 # Generate CLAUDE.md from AGENTS.md
 generate_claude() {
     local agents_file="$1"
-    local dir=$(dirname "$agents_file")
+    local dir
+    dir=$(dirname "$agents_file")
     local claude_file="$dir/CLAUDE.md"
 
     log_info "Generating CLAUDE.md from $agents_file"
@@ -91,7 +92,8 @@ EOF
 # Generate GEMINI.md from AGENTS.md
 generate_gemini() {
     local agents_file="$1"
-    local dir=$(dirname "$agents_file")
+    local dir
+    dir=$(dirname "$agents_file")
     local gemini_file="$dir/GEMINI.md"
 
     log_info "Generating GEMINI.md from $agents_file"
@@ -112,7 +114,8 @@ EOF
 # Generate .github/copilot-instructions.md from AGENTS.md
 generate_copilot() {
     local agents_file="$1"
-    local dir=$(dirname "$agents_file")
+    local dir
+    dir=$(dirname "$agents_file")
     local copilot_dir="$dir/.github"
     local copilot_file="$copilot_dir/copilot-instructions.md"
 
@@ -136,7 +139,8 @@ EOF
 # Generate CODEX.md from AGENTS.md
 generate_codex() {
     local agents_file="$1"
-    local dir=$(dirname "$agents_file")
+    local dir
+    dir=$(dirname "$agents_file")
     local codex_file="$dir/CODEX.md"
 
     log_info "Generating CODEX.md from $agents_file"
@@ -168,7 +172,8 @@ generate_all_for_file() {
 generate_all() {
     log_header "Generating All Formats"
 
-    local agents_files=$(find_agents_files)
+    local agents_files
+    agents_files=$(find_agents_files)
 
     if [ -z "$agents_files" ]; then
         log_error "No AGENTS.md files found in repository"
@@ -205,7 +210,6 @@ show_menu() {
     echo "  ${CYAN}0)${NC} Exit"
     echo ""
     echo "  ${YELLOW}Note:${NC} AI tool configs (Claude Code, OpenCode) are now managed by"
-    echo "  dotfiles-ai: https://github.com/dotfiles-Programming/dotfiles-ai"
     echo ""
     printf "Enter choice [0-5]: "
 }
@@ -271,7 +275,6 @@ Options:
   --help        Show this help message
 
 Note: AI tool configs (Claude Code, OpenCode) are now managed by
-  dotfiles-ai: https://github.com/dotfiles-Programming/dotfiles-ai
 
 Examples:
   ./skills/setup.sh              # Interactive menu

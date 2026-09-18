@@ -20,15 +20,19 @@ return {
     enabled = false,
   },
   {
+    "zbirenbaum/copilot.lua",
+    enabled = false,
+  },
+  {
+    "jonroosevelt/gemini-cli.nvim",
+    enabled = false,
+  },
+  {
     "NickvanDyke/opencode.nvim",
     enabled = false,
   },
   {
     "olimorris/codecompanion.nvim",
-    enabled = false,
-  },
-  {
-    "tris203/precognition.nvim",
     enabled = false,
   },
 
@@ -41,6 +45,17 @@ return {
     -- URL: https://github.com/greggh/claude-code.nvim
     -- Description: Neovim integration for Claude Code AI assistant
     "coder/claudecode.nvim",
-    enabled = true,
+    enabled = false,
+  },
+  {
+    "tris203/precognition.nvim",
+    enabled = false,
+  },
+  {
+    "folke/noice.nvim",
+    enabled = false,
+    -- The installed Noice/NUI combination raises repeated is_window_valid errors.
+    -- Keep NUI enabled for unrelated UI plugins while Noice remains disabled.
+
   },
 }

@@ -43,17 +43,6 @@ return {
       },
     },
     {
-      "Gentleman-Programming/gentleman-kanagawa-blur",
-      name = "gentleman-kanagawa-blur",
-      priority = 1000,
-    },
-    {
-      "Alan-TheGentleman/oldworld.nvim",
-      lazy = false,
-      priority = 1000,
-      opts = {},
-    },
-    {
       "rebelot/kanagawa.nvim",
       priority = 1000,
       lazy = true,
@@ -106,7 +95,7 @@ return {
     {
       "LazyVim/LazyVim",
       opts = {
-        colorscheme = "gentleman-kanagawa-blur",
+        colorscheme = "kanagawa",
       },
     },
   },

@@ -5,7 +5,7 @@ description: >
   Trigger: When editing Go files in installer/internal/tui/, working on TUI screens, or adding new UI features.
 license: Apache-2.0
 metadata:
-  author: dotfiles-programming
+  author: albersg
   version: "1.0"
 ---
 
@@ -234,7 +234,7 @@ case newFeatureLoadedMsg:
 ## Commands
 
 ```bash
-cd installer && go build ./cmd/dotfiles-installer  # Build installer
+cd installer && go build ./cmd/dotfiles  # Build installer
 cd installer && go test ./internal/tui/...          # Run TUI tests
 cd installer && go test -run TestNewFeature         # Run specific test
 ```

@@ -58,26 +58,13 @@ return {
         hsl_color = {
           pattern = "hsl%(%d+,? %d+,? %d+%)", -- Pattern to match HSL color values
           group = function(_, match)
-            local utils = require("config.gentleman.utils")
+            local utils = require("config.dotfiles.utils")
             local h, s, l = match:match("hsl%((%d+),? (%d+),? (%d+)%)")
             h, s, l = tonumber(h), tonumber(s), tonumber(l)
             local hex_color = utils.hslToHex(h, s, l)
             return MiniHipatterns.compute_hex_color_group(hex_color, "bg")
           end,
         },
-      },
-    },
-  },
-  {
-    -- Plugin: git.nvim
-    -- URL: https://github.com/dinhhuy258/git.nvim
-    -- Description: Provides Git integration for Neovim.
-    "dinhhuy258/git.nvim",
-    event = "BufReadPre", -- Load the plugin before reading a buffer
-    opts = {
-      keymaps = {
-        blame = "<Leader>gb", -- Keybinding to open blame window
-        browse = "<Leader>go", -- Keybinding to open file/folder in git repository
       },
     },
   },

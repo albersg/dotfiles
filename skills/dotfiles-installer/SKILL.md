@@ -5,7 +5,7 @@ description: >
   Trigger: When editing installer.go, adding installation steps, or modifying the installation flow.
 license: Apache-2.0
 metadata:
-  author: dotfiles-programming
+  author: albersg
   version: "1.0"
 ---
 

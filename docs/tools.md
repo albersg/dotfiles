@@ -38,3 +38,31 @@ Detailed overview of all tools configured by dotfiles.
 | Tool | Description |
 |------|-------------|
 | **Starship** | Cross-shell prompt with Git integration |
+| **Powerlevel10k** | Zsh prompt theme used by the shipped `.zshrc` |
+
+## Shell Tooling
+
+The zsh configuration starts these tools directly, so the shell step installs
+them next to the shell itself.
+
+| Tool | Used for |
+|------|----------|
+| **eza** | `ls`, `ll`, `la` and `tree` aliases |
+| **bat** | `cat` alias, fzf previews, `BAT_THEME` |
+| **ripgrep** | `grep` alias and fzf's default search |
+| **fd** | `FZF_DEFAULT_COMMAND` and the fzf directory jump |
+| **fzf** | `Ctrl+R` history, `Alt+C`, `eval "$(fzf --zsh)"` |
+| **fnm** | Owns the Node runtime; npm globals live in `~/.npm-global` |
+| **direnv** | Per-directory environments (`direnv hook zsh`) |
+| **jq** | JSON in shell helpers and scripts |
+| **gh** | GitHub CLI, and the credential helper configured in `.gitconfig` |
+| **git-delta** | `core.pager` and `interactive.diffFilter` in `.gitconfig` |
+| **xh** | `http` alias |
+| **trippy** | `traceroute` and `tracert` aliases (only aliased when present) |
+| **zoxide** | `z` directory jumping |
+| **atuin** | Shell history |
+| **carapace** | Completion bridge for zsh, fish and bash |
+
+Homebrew is the complete source for this list. Debian stable does not package
+starship, fnm, eza, git-delta or xh, so a Debian host without Homebrew gets the
+subset available in `apt` and the `.zshrc` guards degrade gracefully.

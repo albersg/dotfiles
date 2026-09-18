@@ -44,8 +44,25 @@ func wrapStepError(stepID, stepName, description string, cause error) error {
 	}
 }
 
+// dryRun reports whether this run was started with --dry-run. The flag used to
+// be advertised in --help but never read, so a "dry run" performed a real
+// installation.
+func dryRun() bool {
+	switch os.Getenv("DOTFILES_DRY_RUN") {
+	case "", "0", "false":
+		return false
+	default:
+		return true
+	}
+}
+
 // executeStep runs the actual installation for a step
 func executeStep(stepID string, m *Model) error {
+	if dryRun() {
+		SendLog(stepID, fmt.Sprintf("DRY RUN: skipping step %q", stepID))
+		return nil
+	}
+
 	switch stepID {
 	case "backup":
 		return stepBackupConfigs(m)
@@ -67,6 +84,8 @@ func executeStep(stepID string, m *Model) error {
 		return stepInstallWM(m)
 	case "nvim":
 		return stepInstallNvim(m)
+	case "wslconfig":
+		return stepInstallWSLConfig(m)
 	case "cleanup":
 		return stepCleanup(m)
 	case "setshell":
@@ -102,41 +121,57 @@ func stepBackupConfigs(m *Model) error {
 	return nil
 }
 
+// dotfilesRepoURL is the repository the installer clones at run time.
+const dotfilesRepoURL = "https://github.com/albersg/dotfiles.git"
+
 func stepCloneRepo(m *Model) error {
 	stepID := "clone"
 
-	// Check if already exists
-	if _, err := os.Stat("dotfiles"); err == nil {
-		SendLog(stepID, "Removing existing dotfiles directory...")
-		result := system.RunWithLogs("rm -rf dotfiles", nil, func(line string) {
-			SendLog(stepID, line)
-		})
-		if result.Error != nil {
-			return wrapStepError("clone", "Clone Repository",
-				"Failed to remove existing dotfiles directory",
-				result.Error)
-		}
+	// Clone into a directory owned by this run. The previous implementation used
+	// the cwd-relative name "dotfiles", so running the installer from a directory
+	// that already contained an unrelated "dotfiles" folder removed it with
+	// `rm -rf dotfiles` before cloning.
+	workDir, err := os.MkdirTemp("", "dotfiles-install-")
+	if err != nil {
+		return wrapStepError("clone", "Clone Repository",
+			"Failed to create a temporary installation directory",
+			err)
 	}
+	repoDir := filepath.Join(workDir, "dotfiles")
 
-	SendLog(stepID, "Cloning repository from GitHub...")
-	result := system.RunWithLogs("git clone --progress https://github.com/albersg/dotfiles.git dotfiles", nil, func(line string) {
+	SendLog(stepID, fmt.Sprintf("Cloning repository into %s...", repoDir))
+	result := system.RunWithLogs(fmt.Sprintf("git clone --progress %s %q", dotfilesRepoURL, repoDir), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
+		os.RemoveAll(workDir)
 		return wrapStepError("clone", "Clone Repository",
 			"Failed to clone the repository. Check your internet connection and git installation.",
 			result.Error)
 	}
 
-	// Verify clone was successful
-	if _, err := os.Stat("dotfiles"); os.IsNotExist(err) {
+	// A clone can exit zero and still leave nothing usable behind (interrupted
+	// transfer, missing git). Verify the checkout before any step reads from it.
+	if !system.DirExists(filepath.Join(repoDir, ".git")) {
+		os.RemoveAll(workDir)
 		return wrapStepError("clone", "Clone Repository",
-			"Repository was cloned but directory not found",
-			fmt.Errorf("dotfiles directory does not exist after clone"))
+			"Repository was cloned but is not a git checkout",
+			fmt.Errorf("%s does not contain a .git directory", repoDir))
 	}
 
+	m.WorkDir = workDir
+	m.RepoDir = repoDir
 	SendLog(stepID, "✓ Repository cloned successfully")
 	return nil
+}
+
+// repoDir returns the checkout created by the clone step. Steps fail loudly
+// instead of silently falling back to a guessed, cwd-relative path.
+func (m *Model) repoDir() (string, error) {
+	if m.RepoDir == "" {
+		return "", fmt.Errorf("the repository has not been cloned in this run")
+	}
+	return m.RepoDir, nil
 }
 
 func stepInstallHomebrew(m *Model) error {
@@ -148,8 +183,9 @@ func stepInstallHomebrew(m *Model) error {
 		return nil
 	}
 
-	if system.CommandExists("brew") {
+	if system.BrewInstalled() {
 		SendLog(stepID, "Homebrew already installed, skipping...")
+		m.SystemInfo.HasBrew = true
 		return nil
 	}
 
@@ -161,6 +197,17 @@ func stepInstallHomebrew(m *Model) error {
 		return wrapStepError("homebrew", "Install Homebrew",
 			"Failed to install Homebrew package manager. Check your internet connection.",
 			result.Error)
+	}
+
+	// Tell the rest of the run that Homebrew exists. SystemInfo is detected once
+	// at startup, and the install script only exports brew into its own child
+	// shell, so without this refresh every later step keeps using the native
+	// package manager and ignores the Homebrew it just installed.
+	if system.BrewInstalled() {
+		m.SystemInfo.HasBrew = true
+		SendLog(stepID, fmt.Sprintf("✓ Homebrew installed at %s", system.GetBrewPrefix()))
+	} else {
+		SendLog(stepID, "Warning: Homebrew binary not found after installation")
 	}
 
 	// Add to PATH
@@ -397,7 +444,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Alacritty config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "alacritty.toml"), filepath.Join(homeDir, ".config/alacritty/alacritty.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetAlacritty), filepath.Join(homeDir, ".config/alacritty/alacritty.toml")); err != nil {
 			return wrapStepError("terminal", "Install Alacritty",
 				"Failed to copy Alacritty configuration",
 				err)
@@ -442,7 +489,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create WezTerm config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, ".wezterm.lua"), filepath.Join(homeDir, ".config/wezterm/wezterm.lua")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetWezterm), filepath.Join(homeDir, ".config/wezterm/wezterm.lua")); err != nil {
 			return wrapStepError("terminal", "Install WezTerm",
 				"Failed to copy WezTerm configuration",
 				err)
@@ -469,7 +516,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Kitty config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-kitty"), filepath.Join(homeDir, ".config", "kitty")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetKitty), filepath.Join(homeDir, ".config", "kitty")); err != nil {
 			return wrapStepError("terminal", "Install Kitty",
 				"Failed to copy Kitty configuration",
 				err)
@@ -513,7 +560,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Ghostty config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-ghostty"), filepath.Join(homeDir, ".config", "ghostty")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetGhostty), filepath.Join(homeDir, ".config", "ghostty")); err != nil {
 			return wrapStepError("terminal", "Install Ghostty",
 				"Failed to copy Ghostty configuration",
 				err)
@@ -629,7 +676,7 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 	case m.SystemInfo.OS == system.OSFedora && packages.Fedora != "":
 		return runNativeWithBrewFallback("dnf install -y "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	case (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew && packages.Debian != "":
-		return runSudoWithLogs("apt-get install -y "+packages.Debian, nil, onLog)
+		return runNativeWithBrewFallback("apt-get install -y "+packages.Debian, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	default:
 		if m.SystemInfo.HasBrew && packages.Brew != "" {
 			return runBrewWithLogs("install "+packages.Brew, nil, onLog)
@@ -648,6 +695,13 @@ func runNativeWithBrewFallback(nativeCommand string, brewPackages string, hasBre
 
 	return runBrewWithLogs("install "+brewPackages, nil, onLog)
 }
+
+// Herdr release used by the fallback download. Keep the repository and the tag
+// in sync with the asset checksums below.
+const (
+	herdrRepo    = "herdrdev/herdr"
+	herdrVersion = "v0.9.1"
+)
 
 func installHerdrBinary(m *Model, stepID string) error {
 	if system.CommandExists("herdr") {
@@ -669,10 +723,10 @@ func installHerdrBinary(m *Model, stepID string) error {
 	switch runtime.GOARCH {
 	case "amd64":
 		assetArch = "x86_64"
-		expectedSHA256 = "b965acaffc2c22f54b6e6c64af7cf8e98a3f4ac2622630a0599c67a4b9d8a654"
+		expectedSHA256 = "2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7"
 	case "arm64":
 		assetArch = "aarch64"
-		expectedSHA256 = "3d757ac30c631e79dc45038c3ecc6423fe13a89f9cffa0f415aedd2c27f1576c"
+		expectedSHA256 = "f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e"
 	default:
 		return fmt.Errorf("unsupported Herdr architecture: %s", runtime.GOARCH)
 	}
@@ -683,7 +737,7 @@ func installHerdrBinary(m *Model, stepID string) error {
 		return err
 	}
 
-	url := fmt.Sprintf("https://github.com/ogulcancelik/herdr/releases/download/v0.7.1/herdr-linux-%s", assetArch)
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/herdr-linux-%s", herdrRepo, herdrVersion, assetArch)
 	dest := filepath.Join(binDir, "herdr")
 	SendLog(stepID, "Downloading Herdr release binary...")
 	result := system.RunWithLogs(fmt.Sprintf("curl -fsSL %q -o %q", url, dest), nil, func(line string) {
@@ -708,9 +762,15 @@ func installHerdrBinary(m *Model, stepID string) error {
 
 func stepInstallShell(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "dotfiles"
 	shell := m.Choices.Shell
 	stepID := "shell"
+
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return wrapStepError(stepID, "Install Shell",
+			"Failed to locate the cloned repository",
+			err)
+	}
 
 	// Common dependencies
 	SendLog(stepID, "Creating required directories...")
@@ -737,12 +797,12 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Fish configuration...")
-		if err := system.CopyFile(filepath.Join(repoDir, "starship.toml"), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetStarship), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
 			return wrapStepError("shell", "Install Fish",
 				"Failed to copy starship configuration",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-fish", "fish"), filepath.Join(homeDir, ".config", "fish")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetFish), filepath.Join(homeDir, ".config", "fish")); err != nil {
 			return wrapStepError("shell", "Install Fish",
 				"Failed to copy Fish configuration",
 				err)
@@ -779,10 +839,16 @@ func stepInstallShell(m *Model) error {
 		SendLog(stepID, "Installing Zsh and plugins...")
 		result := installPlatformPackages(m, stepID, platformPackages{
 			Termux: "zsh starship zoxide",
-			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k",
-			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k",
-			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship",
-			Debian: "zsh zoxide starship zsh-autosuggestions zsh-syntax-highlighting",
+			// The zsh configuration depends on these at shell start: eza/bat/rg/fd/fzf
+			// drive the aliases and the fzf integration, delta drives .gitconfig,
+			// fnm owns Node, direnv hooks directory environments, and jq/gh/xh/trip
+			// back the documented helper aliases.
+			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
+			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k eza bat fd ripgrep fzf direnv jq github-cli git-delta",
+			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
+			// Debian stable does not package starship, fnm, eza, delta or xh; those
+			// come from Homebrew, which this installer puts in place for Debian hosts.
+			Debian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting direnv jq gh bat fd-find ripgrep fzf",
 		}, func(line string) {
 			SendLog(stepID, line)
 		})
@@ -792,7 +858,12 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Zsh configuration...")
-		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.zshrc"), filepath.Join(homeDir, ".zshrc")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshEnv), filepath.Join(homeDir, ".zshenv")); err != nil {
+			return wrapStepError("shell", "Install Zsh",
+				"Failed to copy .zshenv configuration",
+				err)
+		}
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshrc), filepath.Join(homeDir, ".zshrc")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .zshrc configuration",
 				err)
@@ -804,12 +875,12 @@ func stepInstallShell(m *Model) error {
 				"Failed to configure .zshrc for window manager",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.p10k.zsh"), filepath.Join(homeDir, ".p10k.zsh")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetP10k), filepath.Join(homeDir, ".p10k.zsh")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy Powerlevel10k configuration",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-zsh", ".oh-my-zsh"), filepath.Join(homeDir, ".oh-my-zsh")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetOhMyZsh), filepath.Join(homeDir, ".oh-my-zsh")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy Oh-My-Zsh directory",
 				err)
@@ -848,17 +919,17 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Nushell configuration...")
-		if err := system.CopyFile(filepath.Join(repoDir, "starship.toml"), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetStarship), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy starship configuration",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "bash-env-json"), filepath.Join(homeDir, ".config/bash-env-json")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetBashEnvJSON), filepath.Join(homeDir, ".config/bash-env-json")); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy bash-env-json",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "bash-env.nu"), filepath.Join(homeDir, ".config/bash-env.nu")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetBashEnvNu), filepath.Join(homeDir, ".config/bash-env.nu")); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy bash-env.nu",
 				err)
@@ -875,7 +946,7 @@ func stepInstallShell(m *Model) error {
 				"Failed to create Nushell config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-nushell"), nuDir); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetNushell), nuDir); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy Nushell configuration",
 				err)
@@ -910,9 +981,15 @@ func stepInstallShell(m *Model) error {
 
 func stepInstallWM(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "dotfiles"
 	wm := m.Choices.WindowMgr
 	stepID := "wm"
+
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return wrapStepError(stepID, "Install Window Manager",
+			"Failed to locate the cloned repository",
+			err)
+	}
 
 	switch wm {
 	case "tmux":
@@ -956,12 +1033,20 @@ func stepInstallWM(m *Model) error {
 				"Failed to create .tmux directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-tmux", "plugins"), filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
-			return wrapStepError("wm", "Install Tmux",
-				"Failed to copy Tmux plugins",
-				err)
+		// The plugin seed is optional: tmux.conf declares every plugin through TPM
+		// and the install_plugins run below downloads them. Copy only when the
+		// repository actually ships a seed, instead of failing the whole step.
+		pluginsSrc := filepath.Join(repoDir, repoAssetTmuxPlugins)
+		if system.DirExists(pluginsSrc) {
+			if err := system.CopyDir(pluginsSrc, filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
+				return wrapStepError("wm", "Install Tmux",
+					"Failed to copy Tmux plugins",
+					err)
+			}
+		} else {
+			SendLog(stepID, "No seeded Tmux plugins in the repository; TPM will install them")
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-tmux/tmux.conf"), filepath.Join(homeDir, ".tmux.conf")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetTmuxConf), filepath.Join(homeDir, ".tmux.conf")); err != nil {
 			return wrapStepError("wm", "Install Tmux",
 				"Failed to copy tmux.conf",
 				err)
@@ -1043,7 +1128,7 @@ func stepInstallWM(m *Model) error {
 				"Failed to create Zellij config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-zellij", "zellij"), zellijDir); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetZellij), zellijDir); err != nil {
 			return wrapStepError("wm", "Install Zellij",
 				"Failed to copy Zellij configuration",
 				err)
@@ -1090,7 +1175,7 @@ func stepInstallWM(m *Model) error {
 				"Failed to create Herdr config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "herdr", "config.toml"), filepath.Join(herdrDir, "config.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetHerdrConfig), filepath.Join(herdrDir, "config.toml")); err != nil {
 			return wrapStepError("wm", "Install Herdr",
 				"Failed to copy Herdr configuration",
 				err)
@@ -1108,8 +1193,14 @@ func stepInstallWM(m *Model) error {
 
 func stepInstallNvim(m *Model) error {
 	homeDir := os.Getenv("HOME")
-	repoDir := "dotfiles"
 	stepID := "nvim"
+
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return wrapStepError(stepID, "Install Neovim",
+			"Failed to locate the cloned repository",
+			err)
+	}
 
 	// Obsidian path
 	SendLog(stepID, "Creating Obsidian directories...")
@@ -1165,7 +1256,7 @@ func stepInstallNvim(m *Model) error {
 			err)
 	}
 	// Copy nvim config directory
-	srcNvim := filepath.Join(repoDir, "dotfiles-nvim", "nvim")
+	srcNvim := filepath.Join(repoDir, repoAssetNvim)
 	if err := system.CopyDir(srcNvim, nvimDir); err != nil {
 		return wrapStepError("nvim", "Install Neovim",
 			"Failed to copy Neovim configuration",
@@ -1179,7 +1270,6 @@ func stepInstallNvim(m *Model) error {
 		system.RunWithLogs(`curl -fsSL https://claude.ai/install.sh | bash`, nil, func(line string) {
 			SendLog(stepID, line)
 		})
-		// AI tool configs are managed by dotfiles-ai (https://github.com/dotfiles-programming/dotfiles-ai)
 	} else {
 		SendLog(stepID, "Skipping Claude Code (not supported on Termux)")
 	}
@@ -1191,7 +1281,6 @@ func stepInstallNvim(m *Model) error {
 		system.RunWithLogs(`curl -fsSL https://opencode.ai/install | bash`, nil, func(line string) {
 			SendLog(stepID, line)
 		})
-		// AI tool configs are managed by dotfiles-ai (https://github.com/dotfiles-programming/dotfiles-ai)
 	} else {
 		SendLog(stepID, "Skipping OpenCode (not supported on Termux)")
 	}
@@ -1202,14 +1291,26 @@ func stepInstallNvim(m *Model) error {
 
 func stepCleanup(m *Model) error {
 	stepID := "cleanup"
-	SendLog(stepID, "Removing temporary files...")
-	// Only remove the cloned repo - no sudo needed
-	result := system.Run("rm -rf dotfiles", nil)
-	if result.Error != nil {
+	if m.WorkDir == "" {
+		SendLog(stepID, "Nothing to clean up")
+		return nil
+	}
+
+	// Only remove the directory this run created, and only when the checkout is
+	// actually inside it. Never derive the target from the current directory.
+	if !strings.HasPrefix(m.RepoDir, m.WorkDir+string(os.PathSeparator)) {
+		SendLog(stepID, fmt.Sprintf("Warning: refusing to remove %s", m.WorkDir))
+		return nil
+	}
+
+	SendLog(stepID, fmt.Sprintf("Removing temporary checkout at %s...", m.WorkDir))
+	if err := os.RemoveAll(m.WorkDir); err != nil {
 		// Non-critical error, just log it
 		SendLog(stepID, "Warning: Could not remove temporary directory")
 		return nil
 	}
+	m.WorkDir = ""
+	m.RepoDir = ""
 	SendLog(stepID, "✓ Cleanup complete")
 	return nil
 }

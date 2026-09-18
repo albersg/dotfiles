@@ -29,7 +29,7 @@ cd installer && go build ./cmd/dotfiles
 - Trainer improvements
 - General bug fixes
 
-Before starting work, check if the change would benefit upstream. If yes, consider contributing to [dotfiles](https://github.com/dotfiles-Programming/dotfiles) first, then sync back.
+Before starting work, check if the change would benefit upstream. If yes, consider contributing to [dotfiles](https://github.com/albersg/dotfiles) first, then sync back.
 
 ## Pull Request Checklist
 

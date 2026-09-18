@@ -165,7 +165,7 @@ func (m Model) renderMainMenu() string {
 	var s strings.Builder
 
 	// Title
-	s.WriteString(TitleStyle.Render("🎩 dotfiles"))
+	s.WriteString(TitleStyle.Render("🧰 dotfiles"))
 	s.WriteString("\n")
 	s.WriteString(MutedStyle.Render("What would you like to do?"))
 	s.WriteString("\n\n")

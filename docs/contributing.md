@@ -23,9 +23,9 @@ Guide for contributors and developers working on dotfiles.
 ### Build from Source
 
 ```bash
-git clone https://github.com/dotfiles-Programming/dotfiles.git
+git clone https://github.com/albersg/dotfiles.git
 cd dotfiles/installer
-go build -o dotfiles ./cmd/dotfiles-installer
+go build -o dotfiles ./cmd/dotfiles
 ./dotfiles
 ```
 
@@ -41,7 +41,7 @@ go test ./... -v
 ```
 dotfiles/
 ├── installer/                    # Go TUI installer
-│   ├── cmd/dotfiles-installer/  # Entry point
+│   ├── cmd/dotfiles/  # Entry point
 │   ├── internal/
 │   │   ├── system/               # OS detection, command execution
 │   │   └── tui/                  # Bubbletea screens, views, installer
@@ -83,8 +83,6 @@ The repository uses a skills system to provide context to AI assistants (Claude,
 ./skills/setup.sh --copilot     # .github/copilot-instructions.md
 ./skills/setup.sh --codex       # CODEX.md
 ```
-
-> **Note:** User-facing AI tool configs (skills, persona, themes) are now managed by [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai).
 
 ### Skill Types
 
@@ -159,10 +157,10 @@ Tests must be POSIX-compliant (no bashisms).
 
 ```bash
 cd installer
-GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dotfiles-installer-darwin-amd64 ./cmd/dotfiles-installer
-GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dotfiles-installer-darwin-arm64 ./cmd/dotfiles-installer
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dotfiles-installer-linux-amd64 ./cmd/dotfiles-installer
-GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dotfiles-installer-linux-arm64 ./cmd/dotfiles-installer
+GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dotfiles-installer-darwin-amd64 ./cmd/dotfiles
+GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dotfiles-installer-darwin-arm64 ./cmd/dotfiles
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dotfiles-installer-linux-amd64 ./cmd/dotfiles
+GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dotfiles-installer-linux-arm64 ./cmd/dotfiles
 ```
 
 ### 2. Create Tag and Release

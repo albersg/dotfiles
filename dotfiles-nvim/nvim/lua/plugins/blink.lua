@@ -1,36 +1,33 @@
 return {
-  "saghen/blink.cmp",
-  lazy = true,
-  dependencies = { "saghen/blink.compat" },
-  opts = {
-    sources = {
-      default = { "avante_commands", "avante_mentions", "avante_files" },
-      compat = {
-        "avante_commands",
-        "avante_mentions",
-        "avante_files",
-      },
-      -- LSP score_offset is typically 60
-      providers = {
-        avante_commands = {
-          name = "avante_commands",
-          module = "blink.compat.source",
-          score_offset = 90,
-          opts = {},
-        },
-        avante_files = {
-          name = "avante_files",
-          module = "blink.compat.source",
-          score_offset = 100,
-          opts = {},
-        },
-        avante_mentions = {
-          name = "avante_mentions",
-          module = "blink.compat.source",
-          score_offset = 1000,
-          opts = {},
-        },
-      },
-    },
+  {
+    "saghen/blink.cmp",
+    opts = function(_, opts)
+      local avante_sources = {
+        avante_commands = true,
+        avante_files = true,
+        avante_mentions = true,
+      }
+      local sources = opts.sources or {}
+
+      local function remove_avante_sources(source_list)
+        if type(source_list) ~= "table" then
+          return source_list
+        end
+
+        return vim.tbl_filter(function(source)
+          return not avante_sources[source]
+        end, source_list)
+      end
+
+      sources.default = remove_avante_sources(sources.default)
+      sources.compat = remove_avante_sources(sources.compat)
+      if sources.providers then
+        for source in pairs(avante_sources) do
+          sources.providers[source] = nil
+        end
+      end
+
+      opts.sources = sources
+    end,
   },
 }

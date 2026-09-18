@@ -21,6 +21,23 @@ func skipIfTermux(t *testing.T) {
 	}
 }
 
+// goldenSystemInfo pins the detected platform for snapshots. The rendered screens
+// embed the detected OS and the Homebrew status, so an unpinned model produced
+// snapshots that only matched the machine that generated them and failed on
+// every CI runner.
+func goldenSystemInfo() *system.SystemInfo {
+	return &system.SystemInfo{
+		OS:        system.OSLinux,
+		OSName:    "Linux",
+		IsWSL:     false,
+		IsTermux:  false,
+		HasBrew:   false,
+		HasXcode:  false,
+		HomeDir:   "/home/testuser",
+		UserShell: "zsh",
+	}
+}
+
 // Helper to read all bytes from io.Reader
 func readAll(t *testing.T, r io.Reader) []byte {
 	t.Helper()
@@ -35,6 +52,7 @@ func readAll(t *testing.T, r io.Reader) []byte {
 func TestWelcomeScreenGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
+	m.SystemInfo = goldenSystemInfo()
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenWelcome
@@ -78,6 +96,7 @@ func TestMainMenuGolden(t *testing.T) {
 func TestOSSelectGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
+	m.SystemInfo = goldenSystemInfo()
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenOSSelect

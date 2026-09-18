@@ -356,6 +356,12 @@ func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0755)
 }
 
+// DirExists reports whether path exists and is a directory.
+func DirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 // BackupInfo contains information about a backup
 type BackupInfo struct {
 	Path      string

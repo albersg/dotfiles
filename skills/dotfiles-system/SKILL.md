@@ -5,7 +5,7 @@ description: >
   Trigger: When editing files in installer/internal/system/, adding OS support, or modifying command execution.
 license: Apache-2.0
 metadata:
-  author: dotfiles-programming
+  author: albersg
   version: "1.0"
 ---
 

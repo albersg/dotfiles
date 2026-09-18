@@ -29,7 +29,7 @@ Juego de entrenamiento de Vim estilo RPG integrado al TUI installer de dotfiles.
 
 ```text
 installer/
-├── cmd/dotfiles-installer/main.go
+├── cmd/dotfiles/main.go
 ├── internal/
 │   ├── system/          # Detección OS, ejecución comandos
 │   └── tui/
@@ -601,7 +601,7 @@ Ejecutar desde `installer/`:
 
 | Comando | Descripción |
 |---------|-------------|
-| `go build -o dotfiles ./cmd/dotfiles-installer` | Build del binario |
+| `go build -o dotfiles ./cmd/dotfiles` | Build del binario |
 | `go test ./...` | Ejecutar todos los tests |
 | `./dotfiles` | Ejecutar el installer |
 | `go test ./internal/tui/trainer/... -v` | Tests específicos del trainer |

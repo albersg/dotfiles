@@ -24,8 +24,6 @@ For manual loading, read the SKILL.md file directly.
 | `dotfiles-system` | OS detection, command execution, cross-platform support | [SKILL.md](skills/dotfiles-system/SKILL.md) |
 | `go-testing` | Go testing patterns, table-driven tests, Bubbletea testing | [SKILL.md](skills/go-testing/SKILL.md) |
 
-> **Note:** User-facing AI skills (React 19, TypeScript, SDD workflow, etc.) are now managed by [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai).
-
 ## Auto-invoke Skills
 
 When performing these actions, **ALWAYS** invoke the corresponding skill FIRST:
@@ -57,8 +55,6 @@ skills/                              # Repository-specific skills
 └── ...
 ```
 
-> User-installable skills (React 19, TypeScript, SDD, etc.) are now managed by [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai).
-
 ## Contributing
 
 ### Adding a Repository Skill (for this codebase)
@@ -80,13 +76,12 @@ See [README.md](README.md) for full documentation.
 
 ### Downstream Context
 
-This is a **downstream distribution** of [dotfiles v2.12.2](https://github.com/dotfiles-Programming/dotfiles). Key rules for agents:
+This is a **downstream distribution** built from its upstream base v2.12.2 (see [UPSTREAM.md](UPSTREAM.md)). Key rules for agents:
 
-- **Go module path**: Keep `github.com/dotfiles-Programming/dotfiles/installer` — do not change it (ADR 0002)
+- **Go module path**: `github.com/albersg/dotfiles/installer` (ADR 0002)
 - **Branding**: Always use `dotfiles` (binary), `DOTFILES_*` (env vars), `albersg/dotfiles` (repo URLs)
 - **Upstream sync**: `upstream-main` branch is a mirror of upstream/main — never modify directly
 - **Attribution**: Do not remove or alter attribution to dotfiles in NOTICE, LICENSE, or docs/ATTRIBUTION.md
-- **dotfiles-ai**: References to `dotfiles-ai` point to `dotfiles-Programming/dotfiles-ai` (separate project) — do not rebrand these
 
 See [DOWNSTREAM.md](DOWNSTREAM.md) and [docs/BRANDING.md](docs/BRANDING.md) for full details.
 
@@ -228,4 +223,4 @@ If SDD state is missing (for example after context compaction), recover from bac
 
 ### Multi-Agent Mode
 
-This repository ships with a **single-agent** OpenCode configuration by default. For **multi-agent mode** (dedicated sub-agent per SDD phase with individual model routing), see the [dotfiles-ai installer](https://github.com/dotfiles-programming/dotfiles-ai) which supports both modes.
+This repository ships with a **single-agent** OpenCode configuration by default.

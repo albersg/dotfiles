@@ -1,5 +1,10 @@
 -- This file contains the configuration for the nvim-dap plugin in Neovim.
 
+local function get_args()
+  local args = vim.fn.input("Arguments: ")
+  return vim.split(args, "%s+", { trimempty = true })
+end
+
 return {
   {
     -- Plugin: nvim-dap
@@ -51,7 +56,11 @@ return {
       {
         "<leader>da",
         function()
-          require("dap").continue({ before = get_args })
+          require("dap").continue({
+              before = function(config)
+                config.args = get_args()
+              end,
+            })
         end,
         desc = "Run with Args",
       },
@@ -168,16 +177,14 @@ return {
         )
       end
 
-      -- Setup DAP configuration using VsCode launch.json file
+      -- Setup DAP configuration using VsCode launch.json file.
+      -- `dap.ext.vscode.load_launchjs()` is deprecated: launch.json files are now
+      -- read automatically on demand, so we no longer call it. We still override
+      -- `json_decode` so JSONC launch.json files (with comments) keep working.
       local vscode = require("dap.ext.vscode")
       local json = require("plenary.json")
       vscode.json_decode = function(str)
         return vim.json.decode(json.json_strip_comments(str))
-      end
-
-      -- Load launch configurations from .vscode/launch.json if it exists
-      if vim.fn.filereadable(".vscode/launch.json") then
-        vscode.load_launchjs()
       end
 
       -- Function to load environment variables

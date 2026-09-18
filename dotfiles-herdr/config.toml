@@ -5,23 +5,16 @@ onboarding = false
 [theme]
 # Use a built-in dark theme with neutral foregrounds so Herdr does not inherit
 # Ghostty bright-black selected rows or Kanagawa's warm/yellow label text.
-name = "one-dark"
+name = "vesper"
 
 auto_switch = false
-[theme.custom]
-panel_bg = "#06080f"
-# Match the dotfiles palette, with a muted cyan for Herdr chrome.
-accent = "#6FA0AF"
-green = "#B7CC85"
-blue = "#6FA0AF"
-red = "#CB7C94"
-yellow = "#DEBA87"
-
 [ui]
+
 accent = "#6FA0AF"
 
 show_agent_labels_on_pane_borders = true
 agent_panel_sort = "spaces"
+status_indicators = "symbols"
 [keys]
 # Match tmux/Zellij-style prefix muscle memory.
 prefix = "ctrl+a"
@@ -37,4 +30,5 @@ next_agent = "prefix+alt+j"
 focus_agent = "prefix+ctrl+1..9"
 
 [ui.toast]
-delivery = "herdr"
+delivery = "system"
+

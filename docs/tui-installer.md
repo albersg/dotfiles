@@ -31,7 +31,7 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 ### Option 1: Homebrew (Recommended)
 
 ```bash
-brew install dotfiles-Programming/tap/dotfiles
+brew install albersg/tap/dotfiles
 dotfiles
 ```
 
@@ -39,17 +39,17 @@ dotfiles
 
 | Platform | Command |
 |----------|---------|
-| macOS Apple Silicon | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| macOS Intel | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| Linux x86_64 | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| Linux ARM64 | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Apple Silicon | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Intel | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux x86_64 | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux ARM64 | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
 
 ### Option 3: Build from Source
 
 ```bash
-git clone https://github.com/dotfiles-Programming/dotfiles.git
+git clone https://github.com/albersg/dotfiles.git
 cd dotfiles/installer
-go build -o dotfiles ./cmd/dotfiles-installer
+go build -o dotfiles ./cmd/dotfiles
 ./dotfiles
 ```
 
@@ -75,8 +75,10 @@ From the main menu you can access:
 4. **Shell**: Choose Nushell, Fish, Zsh, or None
 5. **Window Manager**: Select Tmux, Zellij, Herdr, or None
 6. **Neovim**: Configure LazyVim with LSP and AI assistants
-7. **Backup Confirmation**: Option to backup existing configs before overwriting
-8. **Installation**: Watch real-time progress
+7. **WSL Configuration** (WSL hosts only): installs `.wslconfig` into the Windows
+   user profile and `/etc/wsl.conf` inside the distribution
+8. **Backup Confirmation**: Option to backup existing configs before overwriting
+9. **Installation**: Watch real-time progress
 
 ### Keyboard Shortcuts
 
@@ -135,7 +137,7 @@ dotfiles --non-interactive --shell=fish --wm=herdr --nvim
 # Test mode with Zsh + Tmux (no terminal, no nvim)
 dotfiles --test --non-interactive --shell=zsh --wm=tmux
 
-# Dry run to preview changes
+# Dry run to preview changes (installs nothing)
 dotfiles --dry-run
 
 # Verbose output (shows all command logs)

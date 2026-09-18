@@ -82,7 +82,7 @@ image_status() {
 build_binary() {
     echo "${BLUE}→ Building Linux AMD64 binary...${NC}"
     cd "$INSTALLER_DIR"
-    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$SCRIPT_DIR/dotfiles-installer-linux-amd64" ./cmd/dotfiles-installer
+    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$SCRIPT_DIR/dotfiles-installer-linux-amd64" ./cmd/dotfiles
     echo "${GREEN}✓ Binary built${NC}"
 }
 
@@ -143,7 +143,7 @@ run_image() {
     else
         docker run --rm $platform_flag "$image_tag"
     fi
-    local docker_exit=$?
+    docker_exit=$?
 
     if [ "$interactive" = "true" ]; then
         echo ""

@@ -114,7 +114,9 @@ function M.hslToRgb(h, s, l)
 end
 
 function M.hexToHSL(hex)
-  local hsluv = require("solarized-osaka.hsluv")
+  -- NOTE: `require("solarized-osaka.hsluv")` was removed: the result was never
+  -- used and the `solarized-osaka` plugin is not installed, so the line only
+  -- made this function error at runtime.
   local rgb = M.hex_to_rgb(hex)
   local h, s, l = M.rgbToHsl(rgb[1], rgb[2], rgb[3])
 

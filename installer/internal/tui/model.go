@@ -135,6 +135,9 @@ type Model struct {
 	AvailableBackups []system.BackupInfo // Available backups for restore
 	SelectedBackup   int                 // Selected backup index
 	BackupDir        string              // Last backup directory created
+	// Repository checkout created by the clone step
+	WorkDir string // Private temporary directory owned by this run (empty until clone)
+	RepoDir string // Repository checkout inside WorkDir (empty until clone)
 	// Vim Trainer mode
 	TrainerStats       *trainer.UserStats   // User's training stats
 	TrainerGameState   *trainer.GameState   // Current game session state
@@ -602,6 +605,18 @@ func (m *Model) SetupInstallSteps() {
 			Name:        "Install Neovim",
 			Description: "Editor with config",
 			Status:      StatusPending,
+		})
+	}
+
+	// WSL configuration (Windows host + in-distribution settings). The files are
+	// only read when the WSL VM restarts, so this runs late in the sequence.
+	if m.SystemInfo.IsWSL {
+		m.Steps = append(m.Steps, InstallStep{
+			ID:          "wslconfig",
+			Name:        "Configure WSL",
+			Description: ".wslconfig and /etc/wsl.conf",
+			Status:      StatusPending,
+			Interactive: true, // /etc/wsl.conf needs sudo
 		})
 	}
 
