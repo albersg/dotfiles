@@ -444,7 +444,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Alacritty config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "alacritty.toml"), filepath.Join(homeDir, ".config/alacritty/alacritty.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetAlacritty), filepath.Join(homeDir, ".config/alacritty/alacritty.toml")); err != nil {
 			return wrapStepError("terminal", "Install Alacritty",
 				"Failed to copy Alacritty configuration",
 				err)
@@ -489,7 +489,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create WezTerm config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, ".wezterm.lua"), filepath.Join(homeDir, ".config/wezterm/wezterm.lua")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetWezterm), filepath.Join(homeDir, ".config/wezterm/wezterm.lua")); err != nil {
 			return wrapStepError("terminal", "Install WezTerm",
 				"Failed to copy WezTerm configuration",
 				err)
@@ -516,7 +516,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Kitty config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-kitty"), filepath.Join(homeDir, ".config", "kitty")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetKitty), filepath.Join(homeDir, ".config", "kitty")); err != nil {
 			return wrapStepError("terminal", "Install Kitty",
 				"Failed to copy Kitty configuration",
 				err)
@@ -560,7 +560,7 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Ghostty config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-ghostty"), filepath.Join(homeDir, ".config", "ghostty")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetGhostty), filepath.Join(homeDir, ".config", "ghostty")); err != nil {
 			return wrapStepError("terminal", "Install Ghostty",
 				"Failed to copy Ghostty configuration",
 				err)
@@ -797,12 +797,12 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Fish configuration...")
-		if err := system.CopyFile(filepath.Join(repoDir, "starship.toml"), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetStarship), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
 			return wrapStepError("shell", "Install Fish",
 				"Failed to copy starship configuration",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-fish", "fish"), filepath.Join(homeDir, ".config", "fish")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetFish), filepath.Join(homeDir, ".config", "fish")); err != nil {
 			return wrapStepError("shell", "Install Fish",
 				"Failed to copy Fish configuration",
 				err)
@@ -858,12 +858,12 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Zsh configuration...")
-		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.zshenv"), filepath.Join(homeDir, ".zshenv")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshEnv), filepath.Join(homeDir, ".zshenv")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .zshenv configuration",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.zshrc"), filepath.Join(homeDir, ".zshrc")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshrc), filepath.Join(homeDir, ".zshrc")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .zshrc configuration",
 				err)
@@ -875,12 +875,12 @@ func stepInstallShell(m *Model) error {
 				"Failed to configure .zshrc for window manager",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.p10k.zsh"), filepath.Join(homeDir, ".p10k.zsh")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetP10k), filepath.Join(homeDir, ".p10k.zsh")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy Powerlevel10k configuration",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-zsh", ".oh-my-zsh"), filepath.Join(homeDir, ".oh-my-zsh")); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetOhMyZsh), filepath.Join(homeDir, ".oh-my-zsh")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy Oh-My-Zsh directory",
 				err)
@@ -919,17 +919,17 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Nushell configuration...")
-		if err := system.CopyFile(filepath.Join(repoDir, "starship.toml"), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetStarship), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy starship configuration",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "bash-env-json"), filepath.Join(homeDir, ".config/bash-env-json")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetBashEnvJSON), filepath.Join(homeDir, ".config/bash-env-json")); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy bash-env-json",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "bash-env.nu"), filepath.Join(homeDir, ".config/bash-env.nu")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetBashEnvNu), filepath.Join(homeDir, ".config/bash-env.nu")); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy bash-env.nu",
 				err)
@@ -946,7 +946,7 @@ func stepInstallShell(m *Model) error {
 				"Failed to create Nushell config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-nushell"), nuDir); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetNushell), nuDir); err != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to copy Nushell configuration",
 				err)
@@ -1036,7 +1036,7 @@ func stepInstallWM(m *Model) error {
 		// The plugin seed is optional: tmux.conf declares every plugin through TPM
 		// and the install_plugins run below downloads them. Copy only when the
 		// repository actually ships a seed, instead of failing the whole step.
-		pluginsSrc := filepath.Join(repoDir, "dotfiles-tmux", "plugins")
+		pluginsSrc := filepath.Join(repoDir, repoAssetTmuxPlugins)
 		if system.DirExists(pluginsSrc) {
 			if err := system.CopyDir(pluginsSrc, filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
 				return wrapStepError("wm", "Install Tmux",
@@ -1046,7 +1046,7 @@ func stepInstallWM(m *Model) error {
 		} else {
 			SendLog(stepID, "No seeded Tmux plugins in the repository; TPM will install them")
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-tmux/tmux.conf"), filepath.Join(homeDir, ".tmux.conf")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetTmuxConf), filepath.Join(homeDir, ".tmux.conf")); err != nil {
 			return wrapStepError("wm", "Install Tmux",
 				"Failed to copy tmux.conf",
 				err)
@@ -1128,7 +1128,7 @@ func stepInstallWM(m *Model) error {
 				"Failed to create Zellij config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-zellij", "zellij"), zellijDir); err != nil {
+		if err := system.CopyDir(filepath.Join(repoDir, repoAssetZellij), zellijDir); err != nil {
 			return wrapStepError("wm", "Install Zellij",
 				"Failed to copy Zellij configuration",
 				err)
@@ -1175,7 +1175,7 @@ func stepInstallWM(m *Model) error {
 				"Failed to create Herdr config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-herdr", "config.toml"), filepath.Join(herdrDir, "config.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetHerdrConfig), filepath.Join(herdrDir, "config.toml")); err != nil {
 			return wrapStepError("wm", "Install Herdr",
 				"Failed to copy Herdr configuration",
 				err)
@@ -1256,7 +1256,7 @@ func stepInstallNvim(m *Model) error {
 			err)
 	}
 	// Copy nvim config directory
-	srcNvim := filepath.Join(repoDir, "dotfiles-nvim", "nvim")
+	srcNvim := filepath.Join(repoDir, repoAssetNvim)
 	if err := system.CopyDir(srcNvim, nvimDir); err != nil {
 		return wrapStepError("nvim", "Install Neovim",
 			"Failed to copy Neovim configuration",

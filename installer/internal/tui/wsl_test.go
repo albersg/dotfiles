@@ -16,15 +16,17 @@ func newWSLLayout(t *testing.T) (repoDir, winHome, wslConf string) {
 	t.Helper()
 
 	repoDir = t.TempDir()
-	artifacts := filepath.Join(repoDir, wslRepoDir)
-	if err := os.MkdirAll(artifacts, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(artifacts, ".wslconfig"), []byte("[wsl2]\nmemory=6GB\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(artifacts, "wsl.conf"), []byte("[boot]\nsystemd=true\n"), 0o644); err != nil {
-		t.Fatal(err)
+	for asset, content := range map[string]string{
+		repoAssetWSLConfig: "[wsl2]\nmemory=6GB\n",
+		repoAssetWSLConf:   "[boot]\nsystemd=true\n",
+	} {
+		path := filepath.Join(repoDir, asset)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	winHome = filepath.Join(t.TempDir(), "winhome")
@@ -132,7 +134,7 @@ func TestStepInstallWSLConfigBacksUpExistingFiles(t *testing.T) {
 
 func TestStepInstallWSLConfigFailsWhenArtifactIsMissing(t *testing.T) {
 	repoDir, _, _ := newWSLLayout(t)
-	if err := os.Remove(filepath.Join(repoDir, wslRepoDir, ".wslconfig")); err != nil {
+	if err := os.Remove(filepath.Join(repoDir, repoAssetWSLConfig)); err != nil {
 		t.Fatal(err)
 	}
 	m := wslModel(repoDir, true)

@@ -15,9 +15,6 @@ const (
 	// wslStepID is the installation step that applies the WSL artifacts.
 	wslStepID = "wslconfig"
 
-	// wslRepoDir is the repository directory holding the WSL artifacts.
-	wslRepoDir = "dotfiles-wsl"
-
 	// envWSLWindowsHome overrides the Windows profile lookup. It exists for
 	// tests and for setups where the Windows drive is mounted somewhere other
 	// than /mnt/c.
@@ -48,10 +45,8 @@ func stepInstallWSLConfig(m *Model) error {
 			"Failed to locate the cloned repository", err)
 	}
 
-	srcDir := filepath.Join(repoDir, wslRepoDir)
-
 	// .wslconfig is a Windows file: it belongs in the Windows user profile.
-	wslconfigSrc := filepath.Join(srcDir, ".wslconfig")
+	wslconfigSrc := filepath.Join(repoDir, repoAssetWSLConfig)
 	profileDir, err := windowsUserProfile()
 	if err != nil {
 		return wrapStepError(wslStepID, "Configure WSL",
@@ -69,7 +64,7 @@ func stepInstallWSLConfig(m *Model) error {
 	if confDst == "" {
 		confDst = defaultWSLConfPath
 	}
-	if err := applyArtifact(filepath.Join(srcDir, "wsl.conf"), confDst, wslStepID); err != nil {
+	if err := applyArtifact(filepath.Join(repoDir, repoAssetWSLConf), confDst, wslStepID); err != nil {
 		return wrapStepError(wslStepID, "Configure WSL",
 			"Failed to install /etc/wsl.conf", err)
 	}
