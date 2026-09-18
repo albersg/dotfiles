@@ -49,7 +49,7 @@ dotfiles
 ```bash
 git clone https://github.com/albersg/dotfiles.git
 cd dotfiles/installer
-go build -o dotfiles ./cmd/dotfiles-installer
+go build -o dotfiles ./cmd/dotfiles
 ./dotfiles
 ```
 

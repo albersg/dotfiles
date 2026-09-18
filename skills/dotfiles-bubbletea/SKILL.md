@@ -234,7 +234,7 @@ case newFeatureLoadedMsg:
 ## Commands
 
 ```bash
-cd installer && go build ./cmd/dotfiles-installer  # Build installer
+cd installer && go build ./cmd/dotfiles  # Build installer
 cd installer && go test ./internal/tui/...          # Run TUI tests
 cd installer && go test -run TestNewFeature         # Run specific test
 ```
