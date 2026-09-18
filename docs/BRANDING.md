@@ -47,13 +47,13 @@ The CI pipeline includes a branding audit that fails if the upstream distributio
 - `docs/ATTRIBUTION.md` — attribution
 - `docs/adr/` — references to upstream in ADRs
 - `.downstream/version.json` — upstream metadata
-- `Brewfile` — installed tools whose only distribution channel is a third-party tap
+- `Brewfile` — installed tools published by a third party
 
-The `Brewfile` exclusion is a dependency, not an attribution. Two of the CLI tools
-on this machine are published only through a tap owned by the upstream project,
-so the file has to name that tap and its formula paths verbatim. Those lines are
-canonical package identifiers that `brew bundle` resolves; there is no other way
-to declare them. Everything else in this repository names no upstream project.
+The `Brewfile` exclusion is a dependency, not an attribution. One CLI tool on
+this machine is published by the upstream project and is installed from its Go
+module path, so the file has to name that module verbatim; there is no other way
+to declare it. No tap and no formula of that project is declared any more.
+Everything else in this repository names no upstream project.
 
 Run manually:
 

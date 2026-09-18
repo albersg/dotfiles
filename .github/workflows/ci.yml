@@ -73,7 +73,7 @@ jobs:
         run: |
           echo "Checking for residual 'gentleman' or 'GENTLEMAN' strings..."
           echo "Excluding only attribution and traceability records (NOTICE, LICENSE, docs/adr/, docs/ATTRIBUTION.md, THIRD_PARTY_NOTICES.md, DOWNSTREAM.md, UPSTREAM.md, CHANGELOG.md, docs/UPSTREAM-SYNC.md, docs/BRANDING.md, docs/audits/*), the upstream watcher, go.sum, .gitignore, the en_US spell dictionary, and Brewfile."
-          echo "Brewfile is excluded because it records installed CLI tools whose only distribution channel is a third-party tap; those lines are canonical package identifiers, not branding."
+          echo "Brewfile is excluded because it records installed CLI tools published by a third party; those Go module paths are canonical package identifiers, not branding."
           matches=$(rg -l -i 'gentleman' \
             --glob '!NOTICE' \
             --glob '!docs/adr/*' \

@@ -13,6 +13,9 @@
 #
 #   brew bundle dump --force --file=Brewfile
 #
+# That command records the machine as it is, not this list. It reinstates the
+# tools deliberately left out, so re-curate before committing the result.
+#
 # brew bundle is idempotent: anything the installer already installed is left
 # untouched, so entries appearing in both places are harmless and are kept here
 # on purpose, to make this file a complete description of the machine.
@@ -80,17 +83,10 @@ brew "herdr"
 brew "calcurse"
 brew "spotify_player" if OS.linux?
 
-# --- CLI tools published only through a third-party tap ----------------------
-# Neither of these is in homebrew/core and neither is published anywhere else, so
-# both taps have to be declared by canonical name. That is a dependency, not
-# branding: this repository attributes nothing to those projects.
-tap "anomalyco/tap"
-brew "anomalyco/tap/opencode"
-tap "gentleman-programming/tap"
-brew "gentleman-programming/tap/engram"
-brew "gentleman-programming/tap/gga"
-
 # --- Language toolchains -----------------------------------------------------
+# The Go entries below are third-party module paths, and a module path is the
+# only way to name them: they are not in homebrew/core and not on npm. That is a
+# dependency, not branding; this repository attributes nothing to that project.
 go "github.com/gentleman-programming/gentle-ai/v3/cmd/gentle-ai"
 go "github.com/gentleman-programming/gentle-ai/cmd/gentle-ai"
 npm "@google/gemini-cli"
