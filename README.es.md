@@ -164,7 +164,7 @@ Contiene configuraciones de vanguardia que luego pasan a `main` cuando se estabi
 
 Licencia MIT — libre de usar, modificar y compartir.
 
-**¡Feliz coding!** 🎩
+**¡Feliz coding!** 🧰
 
 ---
 

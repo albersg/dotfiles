@@ -162,7 +162,7 @@ This branch contains cutting-edge configurations that eventually make their way 
 
 MIT License - feel free to use, modify, and share.
 
-**Happy coding!** 🎩
+**Happy coding!** 🧰
 
 ---
 
