@@ -105,7 +105,7 @@ func TestStepInstallWMTmuxToleratesMissingPluginSeed(t *testing.T) {
 func TestStepInstallShellZshInstallsZshenvAndZshrc(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	calls := withPackageCommandMocks(t, nil)
+	calls := withZshMocks(t, home)
 
 	m := NewModel()
 	m.SystemInfo = &system.SystemInfo{OS: system.OSMac, HasBrew: true}
@@ -146,21 +146,68 @@ func TestStepInstallShellZshInstallsZshenvAndZshrc(t *testing.T) {
 	}
 
 	// Pin the command shape. Termux does not run commands through a shell, it
-	// splits and execs them, so a leading `VAR=value` assignment becomes the
-	// program name and fails with ENOENT. `env` is a real program everywhere.
+	// splits and execs them, so two things break there: a leading `VAR=value`
+	// assignment becomes the program name, and `sh -c "$(curl ...)"` reaches sh
+	// unexpanded and tries to execute the downloaded script as a command.
+	assertOhMyZshCommandsAreShellIndependent(t, calls)
+}
+
+// assertOhMyZshCommandsAreShellIndependent checks that every command the step
+// runs starts with a real program and never relies on an outer shell.
+func assertOhMyZshCommandsAreShellIndependent(t *testing.T, calls *[]packageCommandCall) {
+	t.Helper()
+
+	var commands []string
 	for _, call := range *calls {
-		if call.runner != "oh-my-zsh" {
-			continue
-		}
-		if !strings.HasPrefix(call.command, "env ") {
-			t.Errorf("the Oh My Zsh command must start with a real program, got %q", call.command)
-		}
-		for _, want := range []string{"ZSH=", "RUNZSH=no", "CHSH=no", "KEEP_ZSHRC=yes", "sh -c"} {
-			if !strings.Contains(call.command, want) {
-				t.Errorf("the Oh My Zsh command is missing %q: %q", want, call.command)
-			}
+		if call.runner == "oh-my-zsh" {
+			commands = append(commands, call.command)
 		}
 	}
+	if len(commands) != 2 {
+		t.Fatalf("expected a download and a run command, got %v", commands)
+	}
+
+	for _, command := range commands {
+		firstToken := strings.Fields(command)[0]
+		if strings.Contains(firstToken, "=") {
+			t.Errorf("command starts with an assignment, which Termux would exec: %q", command)
+		}
+		if strings.Contains(command, "$(") {
+			t.Errorf("command needs an outer shell to expand a substitution: %q", command)
+		}
+	}
+
+	if !strings.Contains(commands[0], "curl ") || !strings.Contains(commands[0], "-o ") {
+		t.Errorf("the first command must download the installer: %q", commands[0])
+	}
+	for _, want := range []string{"env ", "ZSH=", "RUNZSH=no", "CHSH=no", "KEEP_ZSHRC=yes", "sh "} {
+		if !strings.Contains(commands[1], want) {
+			t.Errorf("the run command is missing %q: %q", want, commands[1])
+		}
+	}
+}
+
+// withZshMocks extends the package mocks so the Oh My Zsh installer behaves like
+// the real one: it records its calls and creates the installation directory that
+// the step verifies afterwards.
+func withZshMocks(t *testing.T, home string) *[]packageCommandCall {
+	t.Helper()
+
+	calls := withPackageCommandMocks(t, nil)
+
+	runOhMyZshInstaller = func(command string, opts *system.ExecOptions, onLog system.LogCallback) *system.ExecResult {
+		*calls = append(*calls, packageCommandCall{runner: "oh-my-zsh", command: command})
+		// The download writes to a temporary file; only the second command
+		// installs anything.
+		if !strings.Contains(command, " -o ") {
+			if err := os.MkdirAll(filepath.Join(home, ".oh-my-zsh"), 0o755); err != nil {
+				t.Fatalf("mock installer could not create the directory: %v", err)
+			}
+		}
+		return &system.ExecResult{Command: command}
+	}
+
+	return calls
 }
 
 func callsContain(calls *[]packageCommandCall, runner string) bool {
@@ -225,7 +272,7 @@ func TestShouldInstallOhMyZsh(t *testing.T) {
 func TestStepInstallShellNeverTouchesAnExistingOhMyZsh(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	calls := withPackageCommandMocks(t, nil)
+	calls := withZshMocks(t, home)
 
 	omz := filepath.Join(home, ".oh-my-zsh")
 	if err := os.MkdirAll(filepath.Join(omz, "themes"), 0o755); err != nil {

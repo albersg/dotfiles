@@ -686,6 +686,48 @@ func shouldInstallOhMyZsh(dir string) bool {
 	return !system.PathExists(dir)
 }
 
+// installOhMyZsh downloads the official installer and runs it against dir.
+//
+// It is deliberately two commands instead of the usual
+// `sh -c "$(curl -fsSL ...)"`. That idiom needs an outer shell to expand the
+// substitution; Termux does not use one because Go's fork/exec through a shell
+// misbehaves on Android, so the substitution reached `sh -c` literally, which
+// then tried to execute the first word of the downloaded script as a command:
+//
+//	sh: #!/bin/sh: not found
+//
+// Two plain commands also give a clear error for the download and for the run.
+func installOhMyZsh(dir, stepID string) error {
+	installer, err := os.CreateTemp("", "oh-my-zsh-install-*.sh")
+	if err != nil {
+		return fmt.Errorf("could not create a temporary file for the installer: %w", err)
+	}
+	installerPath := installer.Name()
+	if err := installer.Close(); err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(installerPath) }()
+
+	logLine := func(line string) { SendLog(stepID, line) }
+
+	if result := runOhMyZshInstaller(
+		fmt.Sprintf("curl -fsSL -o %q %q", installerPath, ohMyZshInstallerURL), nil, logLine); result.Error != nil {
+		return fmt.Errorf("could not download the Oh My Zsh installer: %w", result.Error)
+	}
+
+	// RUNZSH keeps the installer from starting a shell, CHSH from changing the
+	// login shell and KEEP_ZSHRC from overwriting the .zshrc copied above.
+	if result := runOhMyZshInstaller(
+		fmt.Sprintf("env ZSH=%q RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh %q", dir, installerPath), nil, logLine); result.Error != nil {
+		return fmt.Errorf("could not run the Oh My Zsh installer: %w", result.Error)
+	}
+
+	if !system.DirExists(dir) {
+		return fmt.Errorf("the installer completed but %s does not exist", dir)
+	}
+	return nil
+}
+
 func installPlatformPackages(m *Model, stepID string, packages platformPackages, onLog func(string)) *system.ExecResult {
 	switch {
 	case m.SystemInfo.IsTermux:
@@ -910,18 +952,10 @@ func stepInstallShell(m *Model) error {
 		ohMyZshDir := filepath.Join(homeDir, ".oh-my-zsh")
 		if shouldInstallOhMyZsh(ohMyZshDir) {
 			SendLog(stepID, "Installing Oh My Zsh...")
-			// `env` rather than a bare `VAR=value` prefix: on Termux the command is not
-			// run through a shell, it is split and exec'd directly, so a leading
-			// assignment becomes the program name and fails with ENOENT.
-			result := runOhMyZshInstaller(fmt.Sprintf(
-				`env ZSH=%q RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL %s)"`,
-				ohMyZshDir, ohMyZshInstallerURL), nil, func(line string) {
-				SendLog(stepID, line)
-			})
-			if result.Error != nil {
+			if err := installOhMyZsh(ohMyZshDir, stepID); err != nil {
 				return wrapStepError("shell", "Install Zsh",
 					"Failed to install Oh My Zsh",
-					result.Error)
+					err)
 			}
 		} else {
 			SendLog(stepID, "Oh My Zsh already installed, leaving it untouched")
