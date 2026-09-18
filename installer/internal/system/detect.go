@@ -13,10 +13,10 @@ const (
 	OSMac OSType = iota
 	OSLinux
 	OSArch
-	OSDebian    // Debian-based (Debian, Ubuntu, etc.)
-	OSFedora    // Fedora/RHEL-based (Fedora, CentOS, RHEL, etc.)
-	OSTermux    // Termux on Android
-	OSWSL       // WSL (Windows Subsystem for Linux)
+	OSDebian // Debian-based (Debian, Ubuntu, etc.)
+	OSFedora // Fedora/RHEL-based (Fedora, CentOS, RHEL, etc.)
+	OSTermux // Termux on Android
+	OSWSL    // WSL (Windows Subsystem for Linux)
 	OSUnknown
 )
 
