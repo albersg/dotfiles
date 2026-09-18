@@ -649,6 +649,13 @@ func runNativeWithBrewFallback(nativeCommand string, brewPackages string, hasBre
 	return runBrewWithLogs("install "+brewPackages, nil, onLog)
 }
 
+// Herdr release used by the fallback download. Keep the repository and the tag
+// in sync with the asset checksums below.
+const (
+	herdrRepo    = "herdrdev/herdr"
+	herdrVersion = "v0.9.1"
+)
+
 func installHerdrBinary(m *Model, stepID string) error {
 	if system.CommandExists("herdr") {
 		SendLog(stepID, "Herdr already installed")
@@ -669,10 +676,10 @@ func installHerdrBinary(m *Model, stepID string) error {
 	switch runtime.GOARCH {
 	case "amd64":
 		assetArch = "x86_64"
-		expectedSHA256 = "b965acaffc2c22f54b6e6c64af7cf8e98a3f4ac2622630a0599c67a4b9d8a654"
+		expectedSHA256 = "2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7"
 	case "arm64":
 		assetArch = "aarch64"
-		expectedSHA256 = "3d757ac30c631e79dc45038c3ecc6423fe13a89f9cffa0f415aedd2c27f1576c"
+		expectedSHA256 = "f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e"
 	default:
 		return fmt.Errorf("unsupported Herdr architecture: %s", runtime.GOARCH)
 	}
@@ -683,7 +690,7 @@ func installHerdrBinary(m *Model, stepID string) error {
 		return err
 	}
 
-	url := fmt.Sprintf("https://github.com/ogulcancelik/herdr/releases/download/v0.7.1/herdr-linux-%s", assetArch)
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/herdr-linux-%s", herdrRepo, herdrVersion, assetArch)
 	dest := filepath.Join(binDir, "herdr")
 	SendLog(stepID, "Downloading Herdr release binary...")
 	result := system.RunWithLogs(fmt.Sprintf("curl -fsSL %q -o %q", url, dest), nil, func(line string) {
@@ -1090,7 +1097,7 @@ func stepInstallWM(m *Model) error {
 				"Failed to create Herdr config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, "herdr", "config.toml"), filepath.Join(herdrDir, "config.toml")); err != nil {
+		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-herdr", "config.toml"), filepath.Join(herdrDir, "config.toml")); err != nil {
 			return wrapStepError("wm", "Install Herdr",
 				"Failed to copy Herdr configuration",
 				err)
