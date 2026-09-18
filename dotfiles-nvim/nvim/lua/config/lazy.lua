@@ -41,6 +41,10 @@ require("lazy").setup({
     -- Debgugging plugins
     { import = "lazyvim.plugins.extras.dap.core" },
 
+    -- Testing plugins. The extra brings neotest in and wires it to the debugging
+    -- setup above; the adapters live in plugins/testing.lua.
+    { import = "lazyvim.plugins.extras.test.core" },
+
     -- Formatting plugins
     { import = "lazyvim.plugins.extras.lang.typescript.biome" },
     { import = "lazyvim.plugins.extras.formatting.prettier" },
