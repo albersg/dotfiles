@@ -1300,6 +1300,32 @@ func stepInstallWM(m *Model) error {
 	return nil
 }
 
+// clipboardProvidersFor reports which packages Neovim needs for
+// clipboard=unnamedplus on this platform, and whether it needs any at all.
+//
+// macOS needs none, because Neovim uses pbcopy and pbpaste there. Termux has
+// neither package and uses the termux-api clipboard instead. Everything else
+// gets both: the installer cannot know whether the session offers Wayland or
+// X11, and under WSL either may be the one that works.
+func clipboardProvidersFor(info *system.SystemInfo) (packages string, needed bool) {
+	if info == nil || info.OS == system.OSMac || info.IsTermux {
+		return "", false
+	}
+	return "xclip wl-clipboard", true
+}
+
+// clipboardPlatformPackages names the providers for every package manager that
+// needs them. All four use the same two package names, so they are filled from
+// one string: leaving a field empty would silently skip that platform.
+func clipboardPlatformPackages(providers string) platformPackages {
+	return platformPackages{
+		Brew:   providers,
+		Arch:   providers,
+		Fedora: providers,
+		Debian: providers,
+	}
+}
+
 func stepInstallNvim(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	stepID := "nvim"
@@ -1354,6 +1380,24 @@ func stepInstallNvim(m *Model) error {
 		return wrapStepError("nvim", "Install Neovim",
 			"Failed to install Neovim and dependencies",
 			result.Error)
+	}
+
+	// Neovim runs with clipboard=unnamedplus, so it needs a provider from the
+	// system. Without one every yank stays inside Neovim, never reaches the
+	// desktop clipboard, and the editor reports nothing at all.
+	if providers, needed := clipboardProvidersFor(m.SystemInfo); needed {
+		SendLog(stepID, "Installing clipboard providers for Neovim...")
+		clipboard := installPlatformPackages(m, stepID, clipboardPlatformPackages(providers), func(line string) {
+			SendLog(stepID, line)
+		})
+		if clipboard.Error != nil {
+			// Deliberately not fatal. Neovim itself is installed and usable, only
+			// the clipboard integration is missing, and a distribution that names
+			// the packages differently should not abort a finished installation.
+			SendLog(stepID, "Could not install xclip and wl-clipboard, so yanks will stay inside Neovim: "+clipboard.Error.Error())
+		} else {
+			SendLog(stepID, "✓ Clipboard providers installed")
+		}
 	}
 
 	// Copy config

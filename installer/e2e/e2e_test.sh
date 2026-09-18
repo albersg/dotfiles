@@ -407,6 +407,21 @@ test_nvim_configured() {
     else
         log_fail "Neovim not installed"
     fi
+
+    # Neovim is configured with clipboard=unnamedplus, so it needs a provider from
+    # the system. Without one, yanking inside Neovim silently never reaches the
+    # clipboard, which is why a missing provider is asserted rather than assumed.
+    if command -v xclip >/dev/null 2>&1; then
+        log_pass "Clipboard provider xclip is installed"
+    else
+        log_fail "Clipboard provider xclip is missing, so Neovim cannot reach the clipboard"
+    fi
+
+    if command -v wl-copy >/dev/null 2>&1; then
+        log_pass "Clipboard provider wl-clipboard is installed"
+    else
+        log_fail "Clipboard provider wl-clipboard is missing, so Neovim cannot reach the clipboard"
+    fi
 }
 
 # ============================================
