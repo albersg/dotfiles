@@ -72,7 +72,8 @@ jobs:
       - name: Check for residual upstream branding
         run: |
           echo "Checking for residual 'gentleman' or 'GENTLEMAN' strings..."
-          echo "Excluding only attribution and traceability records (NOTICE, LICENSE, docs/adr/, docs/ATTRIBUTION.md, THIRD_PARTY_NOTICES.md, DOWNSTREAM.md, UPSTREAM.md, CHANGELOG.md, docs/UPSTREAM-SYNC.md, docs/BRANDING.md, docs/audits/*), the upstream watcher, go.sum, .gitignore, and the en_US spell dictionary."
+          echo "Excluding only attribution and traceability records (NOTICE, LICENSE, docs/adr/, docs/ATTRIBUTION.md, THIRD_PARTY_NOTICES.md, DOWNSTREAM.md, UPSTREAM.md, CHANGELOG.md, docs/UPSTREAM-SYNC.md, docs/BRANDING.md, docs/audits/*), the upstream watcher, go.sum, .gitignore, the en_US spell dictionary, and Brewfile."
+          echo "Brewfile is excluded because it records installed CLI tools whose only distribution channel is a third-party tap; those lines are canonical package identifiers, not branding."
           matches=$(rg -l -i 'gentleman' \
             --glob '!NOTICE' \
             --glob '!docs/adr/*' \
@@ -87,6 +88,7 @@ jobs:
             --glob '!docs/audits/*' \
             --glob '!docs/BRANDING.md' \
             --glob '!go.sum' \
+            --glob '!Brewfile' \
             --glob '!dotfiles-nvim/nvim/spell/*' \
             --glob '!.github/workflows/upstream-watch.yml' \
             --glob '!.gitignore' \
@@ -111,6 +113,7 @@ jobs:
               --glob '!docs/audits/*' \
               --glob '!docs/BRANDING.md' \
               --glob '!go.sum' \
+              --glob '!Brewfile' \
               --glob '!dotfiles-nvim/nvim/spell/*' \
               --glob '!.github/workflows/upstream-watch.yml' \
               --glob '!.gitignore' \
