@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,6 +28,26 @@ const (
 
 	// defaultWSLConfPath is where WSL reads the per-distribution settings.
 	defaultWSLConfPath = "/etc/wsl.conf"
+
+	// defaultBinfmtDir is where the kernel exposes its binary format handlers.
+	defaultBinfmtDir = "/proc/sys/fs/binfmt_misc"
+
+	// envBinfmtDir overrides the binfmt directory, so the interop check can be
+	// exercised against a fixture. It exists for tests only.
+	envBinfmtDir = "DOTFILES_BINFMT_DIR"
+
+	// win32yankVersion is the release the clipboard bridge is pinned to.
+	win32yankVersion = "v0.1.1"
+
+	// win32yankArchive is the only asset that release offers; there is no ARM64
+	// build, so an ARM64 Windows host runs this one through emulation.
+	win32yankArchive = "https://github.com/equalsraf/win32yank/releases/download/" +
+		win32yankVersion + "/win32yank-x64.zip"
+
+	// win32yankSHA256 pins the archive. The installer downloads it and then
+	// executes what it contains, so the checksum is checked before anything is
+	// unpacked.
+	win32yankSHA256 = "247c9a05b94387a884b49d3db13f806b1677dfc38020f955f719be6902260cd6"
 )
 
 // stepInstallWSLConfig copies the WSL artifacts shipped in dotfiles-wsl into the
@@ -73,9 +95,110 @@ func stepInstallWSLConfig(m *Model) error {
 	}
 	SendLog(wslStepID, fmt.Sprintf("✓ wsl.conf installed at %s", confDst))
 
+	// Deliberately not fatal, for the same reason the xclip and wl-clipboard
+	// providers are not: the editor works without a clipboard bridge, and a
+	// download that fails should not fail an otherwise completed WSL setup.
+	if !peInteropHealthy() {
+		SendLog(wslStepID, "Skipping win32yank: this distribution cannot execute Windows binaries stored on the Linux filesystem, so the bridge would install into a path that cannot run. Neovim will keep using wl-clipboard. See the binfmt note in this step's source.")
+	} else if err := installWin32Yank(wslStepID); err != nil {
+		SendLog(wslStepID, "Could not install win32yank, so Neovim will not reach the Windows clipboard: "+err.Error())
+	} else {
+		SendLog(wslStepID, "✓ Windows clipboard bridge ready")
+	}
+
 	// Both files are only read when the WSL VM starts.
 	SendLog(wslStepID, "Run `wsl --shutdown` on Windows and reopen the terminal to apply the changes")
 	return nil
+}
+
+// peInteropHealthy reports whether WSL can execute a Windows binary that lives on
+// the Linux filesystem, which is what a win32yank.exe in ~/.local/bin has to be.
+//
+// WSL dispatches PE files to /init through a binfmt_misc entry named WSLInterop.
+// Installing another binfmt manager removes that entry, which several packages
+// do, and WSL then re-registers it as WSLInterop-late with fewer flags. The late
+// form still runs Windows binaries kept under /mnt/c, so it looks healthy, but a
+// PE file placed on the Linux filesystem fails with EINVAL. That is the state of
+// the machine this was written for: cmd.exe under /mnt/c runs, the same binary
+// copied to /tmp fails with "Invalid argument", and win32yank.exe fails the same
+// way.
+//
+// Repairing it means re-registering the canonical entry as root, which is a
+// kernel-level change this installer has no verified way to make, so the bridge
+// is skipped and reported instead of installed and silently dead.
+func peInteropHealthy() bool {
+	dir := os.Getenv(envBinfmtDir)
+	if dir == "" {
+		dir = defaultBinfmtDir
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "WSLInterop"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "enabled")
+}
+
+// installWin32Yank installs the bridge from the distribution's clipboard to the
+// Windows one.
+//
+// Neovim detects WSL and, when win32yank.exe is on PATH, uses it to reach the
+// Windows clipboard. That is more dependable than WSLg's Wayland clipboard, which
+// exists only while WSLg is running and disappears along with its runtime
+// directory: the same missing-paths failure that broke fnm on every new pane
+// earlier. It is also what makes copying work when there is no Wayland display at
+// all, which is the normal case over SSH or with WSLg disabled.
+func installWin32Yank(stepID string) error {
+	if system.CommandExists("win32yank.exe") {
+		SendLog(stepID, "win32yank already installed")
+		return nil
+	}
+
+	binDir := filepath.Join(os.Getenv("HOME"), ".local", "bin")
+	if err := system.EnsureDir(binDir); err != nil {
+		return err
+	}
+
+	workDir, err := os.MkdirTemp("", "win32yank")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(workDir)
+
+	archive := filepath.Join(workDir, "win32yank.zip")
+	SendLog(stepID, "Downloading win32yank for the Windows clipboard...")
+	download := system.RunWithLogs(fmt.Sprintf("curl -fsSL %q -o %q", win32yankArchive, archive), nil, func(line string) {
+		SendLog(stepID, line)
+	})
+	if download.Error != nil {
+		return download.Error
+	}
+
+	data, err := os.ReadFile(archive)
+	if err != nil {
+		return err
+	}
+	actual := sha256.Sum256(data)
+	if hex.EncodeToString(actual[:]) != win32yankSHA256 {
+		return fmt.Errorf("win32yank checksum mismatch for %s", win32yankArchive)
+	}
+
+	// The archive also carries a licence and a readme. Only the executable is
+	// wanted, and it is moved rather than copied so the temporary directory can be
+	// discarded whole.
+	extract := system.RunWithLogs(fmt.Sprintf("unzip -o -q %q -d %q", archive, workDir), nil, func(line string) {
+		SendLog(stepID, line)
+	})
+	if extract.Error != nil {
+		return extract.Error
+	}
+
+	dest := filepath.Join(binDir, "win32yank.exe")
+	if err := os.Rename(filepath.Join(workDir, "win32yank.exe"), dest); err != nil {
+		return err
+	}
+	// A Windows executable launched through WSL interop still needs the
+	// executable bit on the Linux side.
+	return os.Chmod(dest, 0755)
 }
 
 // windowsUserProfile resolves the Windows %USERPROFILE% directory as a path

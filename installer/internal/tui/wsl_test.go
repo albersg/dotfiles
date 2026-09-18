@@ -250,3 +250,42 @@ func TestApplyArtifactWritesWhenTheBackupFails(t *testing.T) {
 		t.Errorf("destination = %q, want %q", got, "new")
 	}
 }
+
+// TestPeInteropHealthy pins the check that decides whether the Windows clipboard
+// bridge can work at all. It reads the binfmt entry WSL registers for PE files,
+// because a win32yank.exe in ~/.local/bin lives on the Linux filesystem and is
+// useless unless that entry is present and enabled.
+func TestPeInteropHealthy(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		write   bool
+		want    bool
+	}{
+		{name: "canonical entry enabled", content: "enabled\ninterpreter /init\nflags: PF\n", write: true, want: true},
+		{name: "entry present but disabled", content: "disabled\ninterpreter /init\n", write: true, want: false},
+		{
+			// What this machine actually has: only WSLInterop-late exists, so the
+			// canonical entry is missing. Windows binaries under /mnt/c still run,
+			// which is why the failure is easy to miss.
+			name: "entry missing, replaced by WSLInterop-late",
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.write {
+				if err := os.WriteFile(filepath.Join(dir, "WSLInterop"), []byte(tc.content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv(envBinfmtDir, dir)
+
+			if got := peInteropHealthy(); got != tc.want {
+				t.Errorf("peInteropHealthy() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
