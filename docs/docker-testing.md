@@ -58,7 +58,7 @@ Then inside the container:
 ```bash
 cd /app/installer
 git pull origin main
-go build -o /usr/local/bin/dotfiles ./cmd/dotfiles-installer
+go build -o /usr/local/bin/dotfiles ./cmd/dotfiles
 dotfiles
 ```
 

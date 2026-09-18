@@ -19,10 +19,15 @@ RUN useradd -m -s /bin/bash testuser && \
     usermod -aG sudo testuser && \
     echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Install Go for building (detect arch)
+# Install Go for building (detect arch). The version is taken from go.mod so the
+# image cannot drift behind the toolchain the module requires.
+COPY installer/go.mod ./installer/go.mod
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "arm64" ]; then GO_ARCH="arm64"; else GO_ARCH="amd64"; fi && \
-    curl -sL "https://go.dev/dl/go1.23.4.linux-${GO_ARCH}.tar.gz" | tar -C /usr/local -xzf -
+    GO_VERSION=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' installer/go.mod) && \
+    test -n "$GO_VERSION" && \
+    echo "Installing Go ${GO_VERSION} (${GO_ARCH})" && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" | tar -C /usr/local -xzf -
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Copy installer source
@@ -30,7 +35,7 @@ WORKDIR /app
 COPY installer/ ./installer/
 
 # Build the installer
-RUN cd installer && go build -o /usr/local/bin/dotfiles ./cmd/dotfiles-installer
+RUN cd installer && go build -o /usr/local/bin/dotfiles ./cmd/dotfiles
 
 # Switch to test user
 USER testuser
