@@ -37,7 +37,7 @@ return {
     optional = true,
     opts = function(_, opts)
       local linter = require("lint").linters["markdownlint-cli2"]
-      if linter and not linter._gentleman_hide_md013 then
+      if linter and not linter._dotfiles_hide_md013 then
         local parser = linter.parser
         linter.parser = function(...)
           local diagnostics = parser(...)
@@ -47,7 +47,7 @@ return {
             return not code:match("^MD013") and not message:match("MD013/line%-length")
           end, diagnostics)
         end
-        linter._gentleman_hide_md013 = true
+        linter._dotfiles_hide_md013 = true
       end
 
       opts.linters_by_ft = opts.linters_by_ft or {}
