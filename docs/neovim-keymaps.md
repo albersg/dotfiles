@@ -100,7 +100,7 @@ Edit your filesystem like a buffer.
 |------|-------------|------|
 | `-` | Open Oil (parent dir) | n |
 | `<leader>E` | Open Oil (floating) | n |
-| `<leader>-` | Open Oil in current file's directory | n |
+| `<leader>-` | Open Oil in the current file's directory (overrides LazyVim's Split Below) | n |
 | `g?` | Show help | n |
 | `<CR>` | Select file/directory | n |
 | `<C-s>` | Open in vertical split | n |
@@ -233,17 +233,24 @@ Git operations from within Neovim.
 
 | Keys | Description | Mode |
 |------|-------------|------|
-| `<leader>gb` | Git Blame (show who changed line) | n |
-| `<leader>go` | Open file/folder in git repo | n |
-| `<leader>gB` | Git Browse | n |
-| `<leader>gc` | Git Commits | n |
-| `<leader>gd` | Git Diff (hunks) | n |
-| `<leader>gf` | Git File History (current) | n |
+| `<leader>gb` | Git log line picker (Snacks) | n |
+| `<leader>gB` | Inline blame line (Snacks) | n |
+| `<leader>gw` | Blame window (git.nvim, floating) | n |
+| `<leader>go` | mini.diff overlay | n |
+| `<leader>gO` | Browse the file in the git repo (git.nvim) | n |
+| `<leader>gd` | Diffview, working tree | n |
+| `<leader>gD` | Diffview, repository history | n |
+| `<leader>gv` | Diffview, current file history | n |
 | `<leader>gg` | Open Lazygit | n |
 | `<leader>gl` | Git Log | n |
 | `<leader>gL` | Git Log (line) | n |
 | `<leader>gs` | Git Status | n |
 | `<leader>gS` | Git Stash | n |
+
+> Blame is on `<leader>gw`, not on `<leader>gb`: `git.nvim` set global maps during
+> `BufReadPre` with its defaults and raced LazyVim's own keymaps, so the effective
+> owner depended on event order. `plugins/git-diff.lua` turns those defaults off
+> and records the final allocation, verified at runtime.
 
 ### Hunk Navigation (Gitsigns)
 
@@ -259,35 +266,31 @@ Git operations from within Neovim.
 
 ---
 
-## AI Assistants (Copilot + OpenCode)
+## AI Assistants
 
-AI-powered coding assistance.
+Every conventional AI plugin in this configuration is disabled. The decision is
+recorded in `lua/config/lazy.lua` ("AI integrations are intentionally disabled in
+this configuration") and enforced by name in `lua/plugins/disabled.lua`:
 
-### Copilot
+`claudecode.nvim`, `opencode.nvim`, `avante.nvim`, `codecompanion.nvim`,
+`CopilotChat.nvim`, `copilot.lua`, `gemini-cli.nvim`.
+
+Their configuration files are still present under `lua/plugins/` and still
+maintained, and `lazy-lock.json` still locks several of them, so those plugins
+are pinned even though they never load. The Copilot and OpenCode keymaps that
+this document used to list therefore do not exist.
+
+The one assistant that is active is the `pi` floating chat, from
+`lua/plugins/pi-teacher.lua`:
 
 | Keys | Description | Mode |
 |------|-------------|------|
-| `<Tab>` | Accept Copilot suggestion | i |
-| `<C-]>` | Dismiss Copilot suggestion | i |
-| `<M-]>` | Next Copilot suggestion | i |
-| `<M-[>` | Previous Copilot suggestion | i |
+| `<leader>a` | Open the `pi` chat | n |
 
-### OpenCode
-
-| Keys | Description | Mode |
-|------|-------------|------|
-| `<leader>aa` | Toggle OpenCode | n |
-| `<leader>as` | OpenCode select | n,x |
-| `<leader>ai` | OpenCode ask | n,x |
-| `<leader>aI` | OpenCode ask with context | n,x |
-| `<leader>ab` | OpenCode ask about buffer | n,x |
-| `<leader>ap` | OpenCode prompt | n,x |
-| `<leader>ape` | OpenCode explain | n,x |
-| `<leader>apf` | OpenCode fix | n,x |
-| `<leader>apd` | OpenCode diagnose | n,x |
-| `<leader>apr` | OpenCode review | n,x |
-| `<leader>apt` | OpenCode test | n,x |
-| `<leader>apo` | OpenCode optimize | n,x |
+Re-enabling one of the disabled plugins is not a one-line change. Several of them
+claim `<leader>a` and its children, while `pi-teacher` already binds `<leader>a`
+as a direct action rather than as a group, so the first plugin you re-enable
+collides with it. See [AI Configuration](ai-configuration.md).
 
 ---
 
@@ -363,7 +366,7 @@ Window navigation and management.
 | `<leader>w` | Windows menu (which-key) | n |
 | `<leader>wd` | Delete Window | n |
 | `<leader>wm` | Maximize Window | n |
-| `<leader>-` | Split Below / Open Oil (current file dir) | n |
+| `<leader>-` | Open Oil (current file dir), overriding LazyVim's Split Below | n |
 | `<leader>\|` | Split Right | n |
 | `<C-Up>` | Increase Height | n |
 | `<C-Down>` | Decrease Height | n |
