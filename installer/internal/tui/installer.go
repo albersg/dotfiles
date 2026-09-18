@@ -111,12 +111,20 @@ func stepBackupConfigs(m *Model) error {
 		SendLog(stepID, fmt.Sprintf("  → %s", config))
 	}
 
-	backupDir, err := system.CreateBackup(configKeys)
+	backupDir, skipped, err := system.CreateBackup(configKeys)
 	if err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 
 	m.BackupDir = backupDir
+	// Runtime state such as a live Unix socket cannot be copied. Say so instead
+	// of leaving the user with a backup that is quietly incomplete.
+	if len(skipped) > 0 {
+		SendLog(stepID, fmt.Sprintf("Skipped %d entry(ies) that are not regular files:", len(skipped)))
+		for _, path := range skipped {
+			SendLog(stepID, fmt.Sprintf("  ⤫ %s", path))
+		}
+	}
 	SendLog(stepID, fmt.Sprintf("✓ Backup created at: %s", backupDir))
 	return nil
 }

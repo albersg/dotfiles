@@ -3,6 +3,7 @@ package system
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -282,6 +283,12 @@ func RunPkgInstall(packages string, opts *ExecOptions, logFunc func(string)) *Ex
 	return RunWithLogs("pkg install -y "+packages, opts, logFunc)
 }
 
+// ErrNotRegularFile reports a source that is neither a regular file nor a
+// directory: a Unix socket, a FIFO or a device node. Reading one either fails
+// outright (a socket returns ENXIO) or never terminates (a FIFO with no writer),
+// so callers have to decide what to do instead of attempting the copy.
+var ErrNotRegularFile = errors.New("source is not a regular file")
+
 // CopyFile copies a file from src to dst
 func CopyFile(src, dst string) error {
 	info, err := os.Stat(src)
@@ -290,6 +297,9 @@ func CopyFile(src, dst string) error {
 	}
 	if info.IsDir() {
 		return fmt.Errorf("copy file %s: source is a directory", src)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("copy file %s: %w", src, ErrNotRegularFile)
 	}
 
 	input, err := os.ReadFile(src)
@@ -302,30 +312,43 @@ func CopyFile(src, dst string) error {
 	return os.WriteFile(dst, input, 0644)
 }
 
-// CopyDir recursively copies a directory using native Go (shell-independent)
+// CopyDir recursively copies a directory using native Go (shell-independent).
+// Entries that are not regular files are skipped; use CopyDirReport when the
+// caller needs to know which ones.
 func CopyDir(src, dst string) error {
+	_, err := CopyDirReport(src, dst)
+	return err
+}
+
+// CopyDirReport behaves like CopyDir and additionally returns the source paths
+// it skipped because they cannot be copied. A directory being backed up is not
+// guaranteed to contain only regular files: runtime state such as
+// ~/.config/herdr/herdr.sock lives beside real configuration, and failing the
+// whole copy over a socket would abort the installation before it starts.
+func CopyDirReport(src, dst string) (skipped []string, err error) {
 	// Clean paths - remove trailing /* or /. if present
 	src = strings.TrimSuffix(strings.TrimSuffix(src, "/*"), "/.")
 	walkRoot, err := filepath.EvalSymlinks(src)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return err
+			return nil, err
 		}
 		walkRoot = src
 	}
 
 	rootInfo, err := os.Stat(walkRoot)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !rootInfo.IsDir() {
-		return fmt.Errorf("copy dir %s: source is not a directory", src)
+		return nil, fmt.Errorf("copy dir %s: source is not a directory", src)
 	}
 	if err := os.MkdirAll(dst, rootInfo.Mode()); err != nil {
-		return err
+		return nil, err
 	}
 
-	return filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
+	skipped = []string{}
+	err = filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -346,9 +369,14 @@ func CopyDir(src, dst string) error {
 			return os.MkdirAll(dstPath, resolvedInfo.Mode())
 		}
 
-		// Copy file
+		if !resolvedInfo.Mode().IsRegular() {
+			skipped = append(skipped, path)
+			return nil
+		}
+
 		return CopyFile(path, dstPath)
 	})
+	return skipped, err
 }
 
 // EnsureDir creates a directory if it doesn't exist
@@ -445,10 +473,15 @@ func ListBackups() []BackupInfo {
 }
 
 // CreateBackup creates a backup of existing configs
-func CreateBackup(configs []string) (string, error) {
+// CreateBackup copies the requested configurations into a new backup directory.
+// It returns the backup path and the entries it could not copy because they are
+// not regular files; those are skipped rather than fatal, because a live socket
+// such as ~/.config/herdr/herdr.sock lives beside real configuration and would
+// otherwise abort the whole installation.
+func CreateBackup(configs []string) (string, []string, error) {
 	backupDir := GetBackupDir()
 	if err := EnsureDir(backupDir); err != nil {
-		return "", fmt.Errorf("failed to create backup directory: %w", err)
+		return "", nil, fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
 	cleanupOnFailure := true
@@ -459,6 +492,7 @@ func CreateBackup(configs []string) (string, error) {
 	}()
 
 	configPaths := ConfigPaths()
+	skipped := []string{}
 
 	for _, configKey := range configs {
 		// Extract key from "key: path" format if present
@@ -483,19 +517,21 @@ func CreateBackup(configs []string) (string, error) {
 
 		if info.IsDir() {
 			// Copy directory
-			if err := CopyDir(srcPath, dstPath); err != nil {
-				return backupDir, fmt.Errorf("failed to backup %s: %w", key, err)
+			dirSkipped, err := CopyDirReport(srcPath, dstPath)
+			skipped = append(skipped, dirSkipped...)
+			if err != nil {
+				return backupDir, skipped, fmt.Errorf("failed to backup %s: %w", key, err)
 			}
 		} else {
 			// Copy file
 			if err := CopyFile(srcPath, dstPath); err != nil {
-				return backupDir, fmt.Errorf("failed to backup %s: %w", key, err)
+				return backupDir, skipped, fmt.Errorf("failed to backup %s: %w", key, err)
 			}
 		}
 	}
 
 	cleanupOnFailure = false
-	return backupDir, nil
+	return backupDir, skipped, nil
 }
 
 // RestoreBackup restores configs from a backup directory
