@@ -22,6 +22,13 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+# strip_ansi removes SGR colour sequences (reads stdin, writes stdout). The tests
+# inside the container print their own colour codes, so any attempt to parse
+# their output has to strip them first.
+strip_ansi() {
+    sed "s/$(printf '\033')\[[0-9;]*m//g"
+}
+
 # Image configurations
 IMAGES="alpine debian ubuntu fedora termux"
 
@@ -216,15 +223,28 @@ run_e2e_all() {
         
         # Capture output to extract failure details
         test_output_file=$(mktemp)
-        if run_image "$img" "" "false" 2>&1 | tee "$test_output_file"; then
+
+        # Never pipe into tee here. `run_image ... | tee file` tests the exit
+        # status of tee, so every failing container was reported as a pass and
+        # the failure branch below was unreachable. Buffering the output keeps
+        # the container's own status; the live stream is lost, which is a fair
+        # price for a verdict that is actually honest. The `|| status=$?` form
+        # also keeps `set -e` from aborting the whole run on the first failure.
+        run_status=0
+        run_image "$img" "" "false" > "$test_output_file" 2>&1 || run_status=$?
+        cat "$test_output_file"
+
+        if [ "$run_status" -eq 0 ]; then
             echo "${GREEN}✓ $img tests passed${NC}"
             PASSED=$((PASSED + 1))
             PASSED_IMAGES="$PASSED_IMAGES $img"
         else
-            echo "${RED}✗ $img tests failed${NC}"
+            echo "${RED}✗ $img tests failed (exit ${run_status})${NC}"
             FAILED=$((FAILED + 1))
-            # Extract failed test names from output
-            failed_tests=$(grep -E "^\[FAIL\]" "$test_output_file" | sed 's/\[FAIL\] //' | tr '\n' '; ' | sed 's/; $//')
+            # Extract failed test names from output. The colour codes are
+            # stripped first, otherwise this anchored match never fires and the
+            # summary always said "unknown failure".
+            failed_tests=$(strip_ansi < "$test_output_file" | grep -E "^\[FAIL\]" | sed 's/\[FAIL\] //' | tr '\n' '; ' | sed 's/; $//')
             if [ -n "$failed_tests" ]; then
                 FAILED_IMAGES="$FAILED_IMAGES|$img:$failed_tests"
             else
