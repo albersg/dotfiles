@@ -8,11 +8,15 @@ FROM alpine:latest
 ENV HOME=/home/testuser
 
 # Install base tools
+# zsh is included even though the fake pkg never installs anything: a real Termux
+# running these dotfiles does have zsh, and the Oh My Zsh installer refuses to run
+# without it, which made this job test an environment that cannot exist.
 RUN apk add --no-cache \
     git \
     curl \
     ca-certificates \
     bash \
+    zsh \
     && rm -rf /var/cache/apk/*
 
 # Create Termux-like directory structure
