@@ -48,10 +48,11 @@ Default: `no`
 ### `show-group`
 
 ```zsh
-zstyle ':omz:plugins:eza' 'show-group' yes|no
+zstyle ':omz:plugins:eza' 'show-group' yes|no|smart
 ```
 
 If `yes` (default), always add `-g` flag to show the group ownership.
+If `smart`, adds the `--smart-group` flag to only show the group if it has a different name from the owner.
 
 Default: `yes`
 
@@ -64,6 +65,29 @@ zstyle ':omz:plugins:eza' 'icons' yes|no
 If `yes`, sets the `--icons` option of `eza`, adding icons for files and folders.
 
 Default: `no`
+
+### `color-scale`
+
+```zsh
+zstyle ':omz:plugins:eza' 'color-scale' all|age|size
+```
+
+Highlight levels of field(s) distinctly. Use comma(,) separated list of `all`, `age`, `size`
+
+Default: `none`
+
+### `color-scale-mode`
+
+```zsh
+zstyle ':omz:plugins:eza' 'color-scale-mode' gradient|fixed
+```
+
+Choose the mode for highlighting:
+
+- `gradient` (default) -- gradient coloring
+- `fixed` -- fixed coloring
+
+Default: `gradient`
 
 ### `size-prefix`
 

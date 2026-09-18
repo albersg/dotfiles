@@ -17,12 +17,13 @@ function title {
   : ${2=$1}
 
   case "$TERM" in
-    cygwin|xterm*|putty*|rxvt*|konsole*|ansi|mlterm*|alacritty*|st*|foot*|contour*)
+    cygwin|xterm*|putty*|rxvt*|konsole*|ansi|mlterm*|alacritty*|st*|foot*|contour*|wezterm*)
       print -Pn "\e]2;${2:q}\a" # set window name
       print -Pn "\e]1;${1:q}\a" # set tab name
       ;;
     screen*|tmux*)
-      print -Pn "\ek${1:q}\e\\" # set screen hardstatus
+      print -Pn "\e]2;${2:q}\e\\" # set tmux pane title
+      print -Pn "\ek${1:q}\e\\" # set screen hardstatus/tmux window name if `allow-rename` is on
       ;;
     *)
       if [[ "$TERM_PROGRAM" == "iTerm.app" ]]; then
@@ -31,7 +32,12 @@ function title {
       else
         # Try to use terminfo to set the title if the feature is available
         if (( ${+terminfo[fsl]} && ${+terminfo[tsl]} )); then
-          print -Pn "${terminfo[tsl]}$1${terminfo[fsl]}"
+          # Emit the capabilities with echoti so terminfo does its own parameter
+          # substitution: some terminals (vt320) take a column argument, and
+          # running prompt expansion over the capability string mangles it.
+          echoti tsl 0
+          print -Pn "$1"
+          echoti fsl
         fi
       fi
       ;;
@@ -47,13 +53,13 @@ fi
 
 # Runs before showing the prompt
 function omz_termsupport_precmd {
-  [[ "${DISABLE_AUTO_TITLE:-}" != true ]] || return
+  [[ "${DISABLE_AUTO_TITLE:-}" != true ]] || return 0
   title "$ZSH_THEME_TERM_TAB_TITLE_IDLE" "$ZSH_THEME_TERM_TITLE_IDLE"
 }
 
 # Runs before executing the command
 function omz_termsupport_preexec {
-  [[ "${DISABLE_AUTO_TITLE:-}" != true ]] || return
+  [[ "${DISABLE_AUTO_TITLE:-}" != true ]] || return 0
 
   emulate -L zsh
   setopt extended_glob
@@ -145,6 +151,7 @@ esac
 # Identifies the directory using a file: URI scheme, including
 # the host name to disambiguate local vs. remote paths.
 function omz_termsupport_cwd {
+  setopt localoptions unset
   # Percent-encode the host and path names.
   local URL_HOST URL_PATH
   URL_HOST="$(omz_urlencode -P $HOST)" || return 1

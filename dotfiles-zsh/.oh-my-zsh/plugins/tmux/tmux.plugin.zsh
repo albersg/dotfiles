@@ -15,6 +15,8 @@ fi
 : ${ZSH_TMUX_AUTOQUIT:=$ZSH_TMUX_AUTOSTART}
 # Automatically name the new session based on the basename of PWD
 : ${ZSH_TMUX_AUTONAME_SESSION:=false}
+# Automatically pick up tmux environments
+: ${ZSH_TMUX_AUTOREFRESH:=false}
 # Set term to screen or screen-256color based on current terminal support
 : ${ZSH_TMUX_DETACHED:=false}
 # Set detached mode
@@ -79,13 +81,14 @@ alias tmuxconf='$EDITOR $ZSH_TMUX_CONFIG'
 
 _build_tmux_alias "ta" "attach" "-t"
 _build_tmux_alias "tad" "attach -d" "-t"
+_build_tmux_alias "to" "new-session -A" "-s"
 _build_tmux_alias "ts" "new-session" "-s"
 _build_tmux_alias "tkss" "kill-session" "-t"
 
 unfunction _build_tmux_alias
 
-# Determine if the terminal supports 256 colors
-if [[ $terminfo[colors] == 256 ]]; then
+# Determine if the terminal supports at least 256 colors
+if (( ${+terminfo[colors]} )) && [[ $terminfo[colors] -ge 256 ]]; then
   export ZSH_TMUX_TERM=$ZSH_TMUX_FIXTERM_WITH_256COLOR
 else
   export ZSH_TMUX_TERM=$ZSH_TMUX_FIXTERM_WITHOUT_256COLOR
@@ -158,6 +161,15 @@ function _zsh_tmux_plugin_run() {
   fi
 }
 
+# Refresh tmux environment variables.
+function _zsh_tmux_plugin_preexec()
+{
+  local -a tmux_cmd
+  tmux_cmd=(command tmux)
+
+  eval "$($tmux_cmd show-environment -s)"
+}
+
 # Use the completions for tmux for our function
 compdef _tmux _zsh_tmux_plugin_run
 # Alias tmux to our wrapper function.
@@ -171,16 +183,25 @@ function _tmux_directory_session() {
   # human friendly unique session name for this directory
   local session_name="${dir}-${md5:0:6}"
   # create or attach to the session
-  tmux new -As "$session_name"
+  local -a tmux_cmd
+  tmux_cmd=(command tmux)
+  [[ "$ZSH_TMUX_UNICODE" == "true" ]] && tmux_cmd+=(-u)
+  $tmux_cmd new -As "$session_name"
 }
 
 alias tds=_tmux_directory_session
 
 # Autostart if not already in tmux and enabled.
-if [[ -z "$TMUX" && "$ZSH_TMUX_AUTOSTART" == "true" && -z "$INSIDE_EMACS" && -z "$EMACS" && -z "$VIM" && -z "$INTELLIJ_ENVIRONMENT_READER" ]]; then
+if [[ -z "$TMUX" && "$ZSH_TMUX_AUTOSTART" == "true" && -z "$INSIDE_EMACS" && -z "$EMACS" && -z "$VIM" && -z "$INTELLIJ_ENVIRONMENT_READER" && -z "$ZED_TERM" ]]; then
   # Actually don't autostart if we already did and multiple autostarts are disabled.
   if [[ "$ZSH_TMUX_AUTOSTART_ONCE" == "false" || "$ZSH_TMUX_AUTOSTARTED" != "true" ]]; then
     export ZSH_TMUX_AUTOSTARTED=true
     _zsh_tmux_plugin_run
   fi
+fi
+
+# Automatically refresh tmux environments if tmux is running.
+if [[ -n "$TMUX" && "$ZSH_TMUX_AUTOREFRESH" == "true" ]] && tmux ls >/dev/null 2>/dev/null; then
+  autoload -U add-zsh-hook
+  add-zsh-hook preexec _zsh_tmux_plugin_preexec
 fi

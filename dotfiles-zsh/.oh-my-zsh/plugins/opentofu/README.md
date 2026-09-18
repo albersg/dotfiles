@@ -19,7 +19,7 @@ plugins=(... opentofu)
 |--------|------------------------------|
 | `tt`   | `tofu`                       |
 | `tta`  | `tofu apply`                 |
-| `ttaa` | `tofu apply -auto-approve`   |
+| `tta!` | `tofu apply -auto-approve`   |
 | `ttc`  | `tofu console`               |
 | `ttd`  | `tofu destroy`               |
 | `ttd!` | `tofu destroy -auto-approve` |
@@ -40,7 +40,7 @@ plugins=(... opentofu)
 
 - `tofu_prompt_info`: shows the current workspace when in an OpenTofu project directory.
 
-- `tofu_version_prompt_info`: shows the current version of the `tofu` commmand.
+- `tofu_version_prompt_info`: shows the current version of the `tofu` command.
 
 To use them, add them to a `PROMPT` variable in your theme or `.zshrc` file:
 
