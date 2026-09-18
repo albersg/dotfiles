@@ -58,6 +58,24 @@ if [[ $IS_TERMUX -eq 0 ]]; then
     fi
 fi
 
+# fnm creates its per-shell multishell directory under XDG_RUNTIME_DIR, so that
+# variable has to point at a directory that exists before fnm runs below. A shell
+# started by a long-lived parent inherits the parent's value: a multiplexer
+# server keeps whichever runtime directory it was started with, and /run/user/N
+# disappears whenever the systemd user session restarts. fnm then fails on every
+# new pane with "Can't create the multishell directory", so repair it here rather
+# than two hundred lines later.
+if [[ -n "${XDG_RUNTIME_DIR:-}" && ! -d "$XDG_RUNTIME_DIR" ]]; then
+    unset XDG_RUNTIME_DIR
+fi
+if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+    if [[ -d "/mnt/wslg/runtime-dir" ]]; then
+        export XDG_RUNTIME_DIR="/mnt/wslg/runtime-dir"
+    elif [[ -d "/run/user/$(id -u)" ]]; then
+        export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    fi
+fi
+
 # Use fnm as the single Node version manager.  This must run after
 # Homebrew's shell environment so fnm resolves from the managed brew path.
 # The npm global prefix is deliberately independent from the Node install:
@@ -263,10 +281,11 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
     path=("$CODE_BIN" "${(@)path:#$CODE_BIN}")
   fi
 
-  # --- WSLg (Wayland) runtime directory ---------------------------------------
+  # --- WSLg (Wayland) display -------------------------------------------------
   # Only meaningful inside WSL with WSLg available, never on a bare Linux host.
+  # XDG_RUNTIME_DIR is settled near the top of this file, before fnm needs it;
+  # here only the display is set.
   if [[ -d "/mnt/wslg/runtime-dir" ]]; then
-    export XDG_RUNTIME_DIR="/mnt/wslg/runtime-dir"
     export WAYLAND_DISPLAY="wayland-0"
   fi
 
