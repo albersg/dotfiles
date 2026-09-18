@@ -67,6 +67,5 @@ If you need to change the branding further:
 
 ## Don't Change
 
-- Go module path (`github.com/dotfiles-Programming/dotfiles/installer`) — deferred rename
+- Go module path (`github.com/albersg/dotfiles/installer`)
 - `LICENSE` — upstream MIT license preserved
-- `dotfiles-ai` references — separate project, use upstream URL

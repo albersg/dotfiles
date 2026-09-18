@@ -23,7 +23,7 @@ Guide for contributors and developers working on dotfiles.
 ### Build from Source
 
 ```bash
-git clone https://github.com/dotfiles-Programming/dotfiles.git
+git clone https://github.com/albersg/dotfiles.git
 cd dotfiles/installer
 go build -o dotfiles ./cmd/dotfiles-installer
 ./dotfiles
@@ -83,8 +83,6 @@ The repository uses a skills system to provide context to AI assistants (Claude,
 ./skills/setup.sh --copilot     # .github/copilot-instructions.md
 ./skills/setup.sh --codex       # CODEX.md
 ```
-
-> **Note:** User-facing AI tool configs (skills, persona, themes) are now managed by [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai).
 
 ### Skill Types
 

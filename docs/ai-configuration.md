@@ -2,8 +2,6 @@
 
 This configuration includes several AI assistants integrated with Neovim. By default, **Claude Code is enabled** as the primary AI assistant.
 
-> **Note:** AI tool configurations (persona, skills, themes, MCP servers) are now managed by [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai). This document covers the **Neovim AI plugins** and CLI tool installation only.
-
 ## Table of Contents
 
 - [Available AI Assistants](#available-ai-assistants)
@@ -64,13 +62,6 @@ These CLI tools are automatically installed by the dotfiles installer:
 | Gemini CLI | `brew install gemini-cli` |
 
 > Some services require API keys. Check each plugin's documentation for details.
-
-For AI tool **configuration** (persona, skills, themes, MCP servers), use [dotfiles-ai](https://github.com/dotfiles-Programming/dotfiles-ai):
-
-```bash
-brew install dotfiles-Programming/tap/dotfiles-ai
-dotfiles-ai
-```
 
 ## Recommended by Use Case
 

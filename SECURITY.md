@@ -49,4 +49,4 @@ Instead, report it privately:
 ## Reporting Upstream Vulnerabilities
 
 For vulnerabilities in dotfiles (upstream), report to:
-https://github.com/dotfiles-Programming/dotfiles/security
+https://github.com/albersg/dotfiles/security

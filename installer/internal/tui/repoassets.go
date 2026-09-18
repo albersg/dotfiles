@@ -5,9 +5,9 @@ package tui
 // Every path here is resolved against the checkout created by the clone step.
 // Renaming a directory in the repository therefore breaks the install silently
 // unless this table is updated too, which is what happened when the upstream
-// `herdr/` and `GentlemanTmux/` directories were renamed during the downstream
-// rebrand while the installer kept the old paths. TestRepoAssetsExist fails
-// whenever an entry stops existing in the repository.
+// Herdr and Tmux directories were renamed during the downstream rebrand while
+// the installer kept the old paths. TestRepoAssetsExist fails whenever an entry
+// stops existing in the repository.
 const (
 	repoAssetAlacritty   = "alacritty.toml"
 	repoAssetWezterm     = ".wezterm.lua"

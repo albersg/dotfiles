@@ -31,7 +31,7 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 ### Option 1: Homebrew (Recommended)
 
 ```bash
-brew install dotfiles-Programming/tap/dotfiles
+brew install albersg/tap/dotfiles
 dotfiles
 ```
 
@@ -39,15 +39,15 @@ dotfiles
 
 | Platform | Command |
 |----------|---------|
-| macOS Apple Silicon | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| macOS Intel | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| Linux x86_64 | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| Linux ARM64 | `curl -fsSL https://github.com/dotfiles-Programming/dotfiles/releases/latest/download/dotfiles-installer-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Apple Silicon | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Intel | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux x86_64 | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux ARM64 | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
 
 ### Option 3: Build from Source
 
 ```bash
-git clone https://github.com/dotfiles-Programming/dotfiles.git
+git clone https://github.com/albersg/dotfiles.git
 cd dotfiles/installer
 go build -o dotfiles ./cmd/dotfiles-installer
 ./dotfiles

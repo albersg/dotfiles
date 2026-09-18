@@ -32,7 +32,7 @@ This guide walks you through manually setting up your development environment wi
 **Clone the repository first!**
 
 ```bash
-git clone git@github.com:dotfiles-Programming/dotfiles.git
+git clone git@github.com:albersg/dotfiles.git
 cd dotfiles
 ```
 
@@ -543,7 +543,7 @@ end
 If you encounter other problems:
 
 1. Consult the official documentation of the specific tool
-2. Open an issue on [GitHub](https://github.com/dotfiles-Programming/dotfiles/issues)
+2. Open an issue on [GitHub](https://github.com/albersg/dotfiles/issues)
 
 ---
 

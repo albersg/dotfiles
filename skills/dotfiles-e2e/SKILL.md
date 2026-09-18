@@ -5,7 +5,7 @@ description: >
   Trigger: When editing files in installer/e2e/, writing E2E tests, or adding platform support.
 license: Apache-2.0
 metadata:
-  author: dotfiles-programming
+  author: albersg
   version: "1.0"
 ---
 

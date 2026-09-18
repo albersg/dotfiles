@@ -5,7 +5,7 @@ description: >
   Trigger: When editing files in installer/internal/tui/trainer/, adding exercises, modules, or game mechanics.
 license: Apache-2.0
 metadata:
-  author: dotfiles-programming
+  author: albersg
   version: "1.0"
 ---
 

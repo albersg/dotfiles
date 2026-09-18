@@ -23,7 +23,7 @@ NC='\033[0m'
 
 # Temp directory for tests
 TEST_DIR=$(mktemp -d)
-trap "rm -rf $TEST_DIR" EXIT
+trap 'rm -rf "$TEST_DIR"' EXIT
 
 # ============================================================================
 # Test Helpers
@@ -207,7 +207,6 @@ test_skill_references_are_correct() {
     assert_file_contains "$REPO_ROOT/AGENTS.md" "skills/dotfiles-bubbletea/SKILL.md"
     assert_file_contains "$REPO_ROOT/AGENTS.md" "skills/dotfiles-trainer/SKILL.md"
 
-    # User skills are now managed by dotfiles-ai (no longer in this repo)
 }
 
 # ============================================================================
@@ -225,8 +224,6 @@ test_repo_skills_exist() {
     done
 }
 
-## User skills (react-19, typescript, etc.) are now managed by dotfiles-ai
-## https://github.com/dotfiles-Programming/dotfiles-ai
 
 # ============================================================================
 # Idempotency Tests
@@ -236,10 +233,12 @@ test_multiple_runs_are_idempotent() {
     log_test "Multiple runs produce same result"
 
     $SETUP_SCRIPT --claude >/dev/null 2>&1
-    local first_hash=$(md5 -q "$REPO_ROOT/CLAUDE.md" 2>/dev/null || md5sum "$REPO_ROOT/CLAUDE.md" | cut -d' ' -f1)
+    local first_hash
+    first_hash=$(md5 -q "$REPO_ROOT/CLAUDE.md" 2>/dev/null || md5sum "$REPO_ROOT/CLAUDE.md" | cut -d' ' -f1)
 
     $SETUP_SCRIPT --claude >/dev/null 2>&1
-    local second_hash=$(md5 -q "$REPO_ROOT/CLAUDE.md" 2>/dev/null || md5sum "$REPO_ROOT/CLAUDE.md" | cut -d' ' -f1)
+    local second_hash
+    second_hash=$(md5 -q "$REPO_ROOT/CLAUDE.md" 2>/dev/null || md5sum "$REPO_ROOT/CLAUDE.md" | cut -d' ' -f1)
 
     if [ "$first_hash" = "$second_hash" ]; then
         log_pass "Multiple runs are idempotent"
