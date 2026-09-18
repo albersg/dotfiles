@@ -143,7 +143,7 @@ run_image() {
     else
         docker run --rm $platform_flag "$image_tag"
     fi
-    local docker_exit=$?
+    docker_exit=$?
 
     if [ "$interactive" = "true" ]; then
         echo ""

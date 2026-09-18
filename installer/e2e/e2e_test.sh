@@ -559,10 +559,7 @@ test_backup_restore() {
     mkdir -p "$HOME/.dotfiles-backup-test-restore/nvim"
     echo "-- Original nvim config from backup" > "$HOME/.dotfiles-backup-test-restore/nvim/init.lua"
     echo "-- This should be restored" >> "$HOME/.dotfiles-backup-test-restore/nvim/init.lua"
-    
-    # Store original content for comparison
-    original_content="-- Original nvim config from backup"
-    
+
     # Now modify the current config (simulate overwrite by installer)
     echo "-- New config after install" > "$HOME/.config/nvim/init.lua"
     
