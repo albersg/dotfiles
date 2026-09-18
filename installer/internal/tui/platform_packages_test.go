@@ -19,6 +19,7 @@ func withPackageCommandMocks(t *testing.T, sudoErr error) *[]packageCommandCall 
 	originalPkg := runPkgInstallWithLogs
 	originalSudo := runSudoWithLogs
 	originalBrew := runBrewWithLogs
+	originalOhMyZsh := runOhMyZshInstaller
 
 	calls := []packageCommandCall{}
 
@@ -34,11 +35,18 @@ func withPackageCommandMocks(t *testing.T, sudoErr error) *[]packageCommandCall 
 		calls = append(calls, packageCommandCall{runner: "brew", command: args})
 		return &system.ExecResult{Command: args}
 	}
+	// Oh My Zsh is installed by shelling out to its official installer; the
+	// tests must never reach the network.
+	runOhMyZshInstaller = func(command string, opts *system.ExecOptions, onLog system.LogCallback) *system.ExecResult {
+		calls = append(calls, packageCommandCall{runner: "oh-my-zsh", command: command})
+		return &system.ExecResult{Command: command}
+	}
 
 	t.Cleanup(func() {
 		runPkgInstallWithLogs = originalPkg
 		runSudoWithLogs = originalSudo
 		runBrewWithLogs = originalBrew
+		runOhMyZshInstaller = originalOhMyZsh
 	})
 
 	return &calls
@@ -58,7 +66,7 @@ func TestInstallPlatformPackagesFedoraFallsBackToBrewWhenNativeFails(t *testing.
 	}
 
 	expected := []packageCommandCall{
-		{runner: "sudo", command: "dnf install -y fish carapace zoxide atuin starship"},
+		{runner: "sudo", command: "dnf install -y --skip-unavailable fish carapace zoxide atuin starship"},
 		{runner: "brew", command: "install fish carapace zoxide atuin starship"},
 	}
 	if !reflect.DeepEqual(*calls, expected) {

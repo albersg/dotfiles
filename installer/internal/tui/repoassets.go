@@ -18,7 +18,6 @@ const (
 	repoAssetZshEnv      = "dotfiles-zsh/.zshenv"
 	repoAssetZshrc       = "dotfiles-zsh/.zshrc"
 	repoAssetP10k        = "dotfiles-zsh/.p10k.zsh"
-	repoAssetOhMyZsh     = "dotfiles-zsh/.oh-my-zsh"
 	repoAssetBashEnvJSON = "bash-env-json"
 	repoAssetBashEnvNu   = "bash-env.nu"
 	repoAssetNushell     = "dotfiles-nushell"
@@ -43,7 +42,6 @@ var repoAssets = []string{
 	repoAssetZshEnv,
 	repoAssetZshrc,
 	repoAssetP10k,
-	repoAssetOhMyZsh,
 	repoAssetBashEnvJSON,
 	repoAssetBashEnvNu,
 	repoAssetNushell,

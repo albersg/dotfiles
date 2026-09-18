@@ -111,12 +111,20 @@ func stepBackupConfigs(m *Model) error {
 		SendLog(stepID, fmt.Sprintf("  → %s", config))
 	}
 
-	backupDir, err := system.CreateBackup(configKeys)
+	backupDir, skipped, err := system.CreateBackup(configKeys)
 	if err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 
 	m.BackupDir = backupDir
+	// Runtime state such as a live Unix socket cannot be copied. Say so instead
+	// of leaving the user with a backup that is quietly incomplete.
+	if len(skipped) > 0 {
+		SendLog(stepID, fmt.Sprintf("Skipped %d entry(ies) that are not regular files:", len(skipped)))
+		for _, path := range skipped {
+			SendLog(stepID, fmt.Sprintf("  ⤫ %s", path))
+		}
+	}
 	SendLog(stepID, fmt.Sprintf("✓ Backup created at: %s", backupDir))
 	return nil
 }
@@ -665,7 +673,84 @@ var (
 	runPkgInstallWithLogs = system.RunPkgInstall
 	runSudoWithLogs       = system.RunSudoWithLogs
 	runBrewWithLogs       = system.RunBrewWithLogs
+	runOhMyZshInstaller   = system.RunWithLogs
 )
+
+// ohMyZshInstallerURL is the official Oh My Zsh installer, pinned to the exact
+// revision this repository ships and the local machine runs. An unpinned master
+// URL would execute whatever upstream publishes next, which the previous
+// repository-committed snapshot never did.
+const (
+	ohMyZshInstallerURL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/0ee67f042872d1dfab74270c31867771ca35aef4/tools/install.sh"
+	ohMyZshInstallerRef = "0ee67f042872d1dfab74270c31867771ca35aef4"
+)
+
+// ohMyZshEntrypoint is the file .zshrc sources. Its presence is what tells a
+// complete installation apart from a directory an interrupted run left behind.
+const ohMyZshEntrypoint = "oh-my-zsh.sh"
+
+// shouldInstallOhMyZsh reports whether the installation is missing or incomplete.
+//
+// Checking the directory alone was not enough: the installer creates it early,
+// so a download or clone that fails afterwards leaves a directory that every
+// later run would report as installed and would never repair. PathExists follows
+// symlinks on purpose, so a symlinked ~/.oh-my-zsh counts as present.
+func shouldInstallOhMyZsh(dir string) bool {
+	return !system.PathExists(filepath.Join(dir, ohMyZshEntrypoint))
+}
+
+// installOhMyZsh downloads the official installer and runs it against dir.
+//
+// It is deliberately two commands instead of the usual
+// `sh -c "$(curl -fsSL ...)"`. That idiom needs an outer shell to expand the
+// substitution; Termux does not use one because Go's fork/exec through a shell
+// misbehaves on Android, so the substitution reached `sh -c` literally, which
+// then tried to execute the first word of the downloaded script as a command:
+//
+//	sh: #!/bin/sh: not found
+//
+// Two plain commands also give a clear error for the download and for the run.
+func installOhMyZsh(dir, stepID string) error {
+	installer, err := os.CreateTemp("", "oh-my-zsh-install-*.sh")
+	if err != nil {
+		return fmt.Errorf("could not create a temporary file for the installer: %w", err)
+	}
+	installerPath := installer.Name()
+	if err := installer.Close(); err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(installerPath) }()
+
+	logLine := func(line string) { SendLog(stepID, line) }
+
+	if result := runOhMyZshInstaller(
+		fmt.Sprintf("curl -fsSL -o %q %q", installerPath, ohMyZshInstallerURL), nil, logLine); result.Error != nil {
+		return fmt.Errorf("could not download the Oh My Zsh installer: %w", result.Error)
+	}
+
+	// RUNZSH keeps the installer from starting a shell, CHSH from changing the
+	// login shell and KEEP_ZSHRC from overwriting the .zshrc copied above.
+	if result := runOhMyZshInstaller(
+		fmt.Sprintf("env ZSH=%q RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh %q", dir, installerPath), nil, logLine); result.Error != nil {
+		removePartialOhMyZsh(dir)
+		return fmt.Errorf("could not run the Oh My Zsh installer: %w", result.Error)
+	}
+
+	if !system.PathExists(filepath.Join(dir, ohMyZshEntrypoint)) {
+		removePartialOhMyZsh(dir)
+		return fmt.Errorf("the installer completed but %s does not exist", filepath.Join(dir, ohMyZshEntrypoint))
+	}
+	return nil
+}
+
+// removePartialOhMyZsh deletes a directory an interrupted install left behind.
+// Without it the guard would read that directory as a finished installation and
+// no later run could ever repair the shell.
+func removePartialOhMyZsh(dir string) {
+	if system.PathExists(dir) {
+		_ = os.RemoveAll(dir)
+	}
+}
 
 func installPlatformPackages(m *Model, stepID string, packages platformPackages, onLog func(string)) *system.ExecResult {
 	switch {
@@ -673,8 +758,17 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 		return runPkgInstallWithLogs(packages.Termux, nil, onLog)
 	case m.SystemInfo.OS == system.OSArch && packages.Arch != "":
 		return runNativeWithBrewFallback("pacman -S --needed --noconfirm "+packages.Arch, packages.Brew, m.SystemInfo.HasBrew, onLog)
+	// dnf aborts the whole transaction on a single unknown name, and Fedora has no
+	// carapace or starship in its default repositories, so the shell install used
+	// to fail there while the packages it could provide were never installed.
+	// --skip-unavailable is dnf's own answer and installs the rest.
+	//
+	// Trade-off, noted after review: the command now succeeds even when it skips
+	// packages, so runNativeWithBrewFallback only fires on a genuine dnf failure.
+	// On Fedora with Homebrew installed, carapace and starship therefore have to
+	// be installed from Homebrew by hand.
 	case m.SystemInfo.OS == system.OSFedora && packages.Fedora != "":
-		return runNativeWithBrewFallback("dnf install -y "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
+		return runNativeWithBrewFallback("dnf install -y --skip-unavailable "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	case (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew && packages.Debian != "":
 		return runNativeWithBrewFallback("apt-get install -y "+packages.Debian, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	default:
@@ -843,12 +937,17 @@ func stepInstallShell(m *Model) error {
 			// drive the aliases and the fzf integration, delta drives .gitconfig,
 			// fnm owns Node, direnv hooks directory environments, and jq/gh/xh/trip
 			// back the documented helper aliases.
-			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
-			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k eza bat fd ripgrep fzf direnv jq github-cli git-delta",
+			//
+			// kubectx is here because the vendored custom/ plugins used to be the only
+			// source of its zsh plugin. It is verified on Homebrew, Debian and Arch;
+			// Fedora is left without it because the name could not be verified there
+			// and an unknown name used to abort the whole dnf transaction.
+			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
+			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta",
 			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
 			// Debian stable does not package starship, fnm, eza, delta or xh; those
 			// come from Homebrew, which this installer puts in place for Debian hosts.
-			Debian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting direnv jq gh bat fd-find ripgrep fzf",
+			Debian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting kubectx direnv jq gh bat fd-find ripgrep fzf",
 		}, func(line string) {
 			SendLog(stepID, line)
 		})
@@ -880,10 +979,20 @@ func stepInstallShell(m *Model) error {
 				"Failed to copy Powerlevel10k configuration",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, repoAssetOhMyZsh), filepath.Join(homeDir, ".oh-my-zsh")); err != nil {
-			return wrapStepError("shell", "Install Zsh",
-				"Failed to copy Oh-My-Zsh directory",
-				err)
+		// Oh My Zsh manages its own checkout. Writing a vendored copy over an
+		// existing clone dirties its tracked files, and `omz update` then fails on
+		// the autostash pop, so the official installer runs only when nothing is
+		// installed yet and an existing installation is never written into.
+		ohMyZshDir := filepath.Join(homeDir, ".oh-my-zsh")
+		if shouldInstallOhMyZsh(ohMyZshDir) {
+			SendLog(stepID, "Installing Oh My Zsh...")
+			if err := installOhMyZsh(ohMyZshDir, stepID); err != nil {
+				return wrapStepError("shell", "Install Zsh",
+					"Failed to install Oh My Zsh",
+					err)
+			}
+		} else {
+			SendLog(stepID, "Oh My Zsh already installed, leaving it untouched")
 		}
 		// Termux: Add zsh to $PREFIX/etc/shells so tmux doesn't complain
 		if m.SystemInfo.IsTermux {

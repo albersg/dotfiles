@@ -105,7 +105,7 @@ func TestStepInstallWMTmuxToleratesMissingPluginSeed(t *testing.T) {
 func TestStepInstallShellZshInstallsZshenvAndZshrc(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	withPackageCommandMocks(t, nil)
+	calls := withZshMocks(t, home)
 
 	m := NewModel()
 	m.SystemInfo = &system.SystemInfo{OS: system.OSMac, HasBrew: true}
@@ -139,8 +139,191 @@ func TestStepInstallShellZshInstallsZshenvAndZshrc(t *testing.T) {
 		}
 	}
 
-	if !system.DirExists(filepath.Join(home, ".oh-my-zsh")) {
-		t.Error("vendored oh-my-zsh was not installed")
+	// Oh My Zsh is delegated to its own installer, never vendored: a fresh HOME
+	// has nothing there, so the official installer must have been invoked.
+	if !callsContain(calls, "oh-my-zsh") {
+		t.Error("the official Oh My Zsh installer was not invoked on a fresh HOME")
+	}
+
+	// Pin the command shape. Termux does not run commands through a shell, it
+	// splits and execs them, so two things break there: a leading `VAR=value`
+	// assignment becomes the program name, and `sh -c "$(curl ...)"` reaches sh
+	// unexpanded and tries to execute the downloaded script as a command.
+	assertOhMyZshCommandsAreShellIndependent(t, calls)
+}
+
+// assertOhMyZshCommandsAreShellIndependent checks that every command the step
+// runs starts with a real program and never relies on an outer shell.
+func assertOhMyZshCommandsAreShellIndependent(t *testing.T, calls *[]packageCommandCall) {
+	t.Helper()
+
+	var commands []string
+	for _, call := range *calls {
+		if call.runner == "oh-my-zsh" {
+			commands = append(commands, call.command)
+		}
+	}
+	if len(commands) != 2 {
+		t.Fatalf("expected a download and a run command, got %v", commands)
+	}
+
+	for _, command := range commands {
+		firstToken := strings.Fields(command)[0]
+		if strings.Contains(firstToken, "=") {
+			t.Errorf("command starts with an assignment, which Termux would exec: %q", command)
+		}
+		if strings.Contains(command, "$(") {
+			t.Errorf("command needs an outer shell to expand a substitution: %q", command)
+		}
+	}
+
+	if !strings.Contains(commands[0], "curl ") || !strings.Contains(commands[0], "-o ") {
+		t.Errorf("the first command must download the installer: %q", commands[0])
+	}
+	for _, want := range []string{"env ", "ZSH=", "RUNZSH=no", "CHSH=no", "KEEP_ZSHRC=yes", "sh "} {
+		if !strings.Contains(commands[1], want) {
+			t.Errorf("the run command is missing %q: %q", want, commands[1])
+		}
+	}
+}
+
+// withZshMocks extends the package mocks so the Oh My Zsh installer behaves like
+// the real one: it records its calls and creates the installation directory that
+// the step verifies afterwards.
+func withZshMocks(t *testing.T, home string) *[]packageCommandCall {
+	t.Helper()
+
+	calls := withPackageCommandMocks(t, nil)
+
+	runOhMyZshInstaller = func(command string, opts *system.ExecOptions, onLog system.LogCallback) *system.ExecResult {
+		*calls = append(*calls, packageCommandCall{runner: "oh-my-zsh", command: command})
+		// The download writes to a temporary file; only the second command
+		// installs anything.
+		if !strings.Contains(command, " -o ") {
+			omzDir := filepath.Join(home, ".oh-my-zsh")
+			if err := os.MkdirAll(omzDir, 0o755); err != nil {
+				t.Fatalf("mock installer could not create the directory: %v", err)
+			}
+			// The step verifies the entry point .zshrc sources, not the directory.
+			if err := os.WriteFile(filepath.Join(omzDir, ohMyZshEntrypoint), []byte("# mock\n"), 0o644); err != nil {
+				t.Fatalf("mock installer could not create the entry point: %v", err)
+			}
+		}
+		return &system.ExecResult{Command: command}
+	}
+
+	return calls
+}
+
+func callsContain(calls *[]packageCommandCall, runner string) bool {
+	for _, call := range *calls {
+		if call.runner == runner {
+			return true
+		}
+	}
+	return false
+}
+
+// TestShouldInstallOhMyZsh covers the guard: only a missing installation is
+// installed. A real directory and a symlinked one both count as present, which
+// is what stops the installer from overwriting a clone that manages itself.
+func TestShouldInstallOhMyZsh(t *testing.T) {
+	t.Run("missing directory wants an install", func(t *testing.T) {
+		if !shouldInstallOhMyZsh(filepath.Join(t.TempDir(), ".oh-my-zsh")) {
+			t.Error("a missing ~/.oh-my-zsh must be installed")
+		}
+	})
+
+	t.Run("a complete installation is left alone", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), ".oh-my-zsh")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ohMyZshEntrypoint), []byte("# omz\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if shouldInstallOhMyZsh(dir) {
+			t.Error("an existing ~/.oh-my-zsh must not be reinstalled")
+		}
+	})
+
+	t.Run("a directory without the entry point is an interrupted install", func(t *testing.T) {
+		// The installer creates the directory early, so a failed clone leaves one
+		// behind. Treating it as installed made the failure unrecoverable.
+		dir := filepath.Join(t.TempDir(), ".oh-my-zsh")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if !shouldInstallOhMyZsh(dir) {
+			t.Error("a partial ~/.oh-my-zsh must be reinstalled")
+		}
+	})
+
+	t.Run("symlinked directory counts as installed", func(t *testing.T) {
+		home := t.TempDir()
+		real := filepath.Join(home, "ohmyzsh-real")
+		if err := os.MkdirAll(real, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(real, ohMyZshEntrypoint), []byte("# omz\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(home, ".oh-my-zsh")
+		if err := os.Symlink(real, link); err != nil {
+			t.Skipf("symlinks are not available here: %v", err)
+		}
+		if shouldInstallOhMyZsh(link) {
+			t.Error("a symlinked ~/.oh-my-zsh must not be reinstalled")
+		}
+	})
+
+	t.Run("broken symlink is not an install", func(t *testing.T) {
+		home := t.TempDir()
+		link := filepath.Join(home, ".oh-my-zsh")
+		if err := os.Symlink(filepath.Join(home, "missing"), link); err != nil {
+			t.Skipf("symlinks are not available here: %v", err)
+		}
+		if !shouldInstallOhMyZsh(link) {
+			t.Error("a broken symlink is not a working installation")
+		}
+	})
+}
+
+// TestStepInstallShellNeverTouchesAnExistingOhMyZsh pins the reason the vendored
+// tree was removed: writing into a real clone dirties its tracked files and
+// breaks `omz update`.
+func TestStepInstallShellNeverTouchesAnExistingOhMyZsh(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	calls := withZshMocks(t, home)
+
+	omz := filepath.Join(home, ".oh-my-zsh")
+	if err := os.MkdirAll(filepath.Join(omz, "themes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(omz, "oh-my-zsh.sh")
+	if err := os.WriteFile(marker, []byte("# user clone\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSMac, HasBrew: true}
+	m.Choices = UserChoices{OS: "mac", Shell: "zsh", WindowMgr: "herdr"}
+	m.RepoDir = repoRoot(t)
+
+	if err := stepInstallShell(&m); err != nil {
+		t.Fatalf("zsh step failed: %v", err)
+	}
+
+	if callsContain(calls, "oh-my-zsh") {
+		t.Error("an existing ~/.oh-my-zsh must not be reinstalled")
+	}
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("the existing installation was removed: %v", err)
+	}
+	if string(got) != "# user clone\n" {
+		t.Errorf("the existing installation was overwritten: %q", got)
 	}
 }
 

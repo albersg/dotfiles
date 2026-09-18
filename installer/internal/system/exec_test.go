@@ -1,9 +1,12 @@
 package system
 
 import (
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -366,7 +369,7 @@ func TestCreateBackup(t *testing.T) {
 
 		// We can't easily test CreateBackup without mocking ConfigPaths
 		// So we'll just test that it returns a valid path
-		backupDir, err := CreateBackup([]string{})
+		backupDir, _, err := CreateBackup([]string{})
 		if err != nil {
 			// Expected - no configs to backup
 			t.Log("CreateBackup with empty list succeeded or failed as expected")
@@ -380,7 +383,7 @@ func TestCreateBackup(t *testing.T) {
 
 	t.Run("should return valid backup path format", func(t *testing.T) {
 		// Even with no configs, it should create the backup directory
-		backupDir, _ := CreateBackup([]string{"nonexistent"})
+		backupDir, _, _ := CreateBackup([]string{"nonexistent"})
 
 		if backupDir != "" {
 			defer os.RemoveAll(backupDir)
@@ -418,7 +421,7 @@ func TestCreateBackup(t *testing.T) {
 			t.Fatalf("Failed to create .zshrc: %v", err)
 		}
 
-		backupDir, err := CreateBackup([]string{"oh-my-zsh: " + filepath.Join(home, ".oh-my-zsh"), "zsh: " + filepath.Join(home, ".zshrc")})
+		backupDir, _, err := CreateBackup([]string{"oh-my-zsh: " + filepath.Join(home, ".oh-my-zsh"), "zsh: " + filepath.Join(home, ".zshrc")})
 		if err != nil {
 			t.Fatalf("Unexpected error creating backup: %v", err)
 		}
@@ -453,7 +456,7 @@ func TestCreateBackupRemovesPartialBackupOnFailure(t *testing.T) {
 		t.Skipf("Symlinks not supported in this environment: %v", err)
 	}
 
-	backupDir, err := CreateBackup([]string{"nvim"})
+	backupDir, _, err := CreateBackup([]string{"nvim"})
 	if err == nil {
 		defer os.RemoveAll(backupDir)
 		t.Fatal("Expected backup to fail for broken symlink")
@@ -924,4 +927,107 @@ func TestRunWithLogs(t *testing.T) {
 			t.Errorf("Expected exit code 42, got %d", result.ExitCode)
 		}
 	})
+}
+
+// shortTempDir returns a temporary directory short enough to hold a Unix
+// socket. sun_path is limited to 104 bytes on macOS and 108 on Linux, and
+// t.TempDir() embeds both the full test name and, on macOS runners, a long
+// TMPDIR, which together overflow it and make bind fail with EINVAL.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "df")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// listenOn creates a live Unix socket at path. It is the runtime state that a
+// real ~/.config/herdr directory holds next to its configuration.
+func listenOn(t *testing.T, path string) {
+	t.Helper()
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("could not create a Unix socket at %s: %v", path, err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+}
+
+func TestCopyFileRejectsNonRegularSource(t *testing.T) {
+	dir := shortTempDir(t)
+	sock := filepath.Join(dir, "herdr.sock")
+	listenOn(t, sock)
+
+	err := CopyFile(sock, filepath.Join(dir, "copy"))
+	if !errors.Is(err, ErrNotRegularFile) {
+		t.Fatalf("CopyFile on a socket = %v, want ErrNotRegularFile", err)
+	}
+}
+
+func TestCopyDirReportSkipsNonRegularFiles(t *testing.T) {
+	src := shortTempDir(t)
+	dst := filepath.Join(t.TempDir(), "copy")
+
+	if err := os.WriteFile(filepath.Join(src, "config.toml"), []byte("theme"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	listenOn(t, filepath.Join(src, "herdr.sock"))
+	if err := syscall.Mkfifo(filepath.Join(src, "pipe"), 0o600); err != nil {
+		t.Skipf("FIFOs are not available here: %v", err)
+	}
+
+	skipped, err := CopyDirReport(src, dst)
+	if err != nil {
+		t.Fatalf("a directory holding non-regular files must still copy: %v", err)
+	}
+
+	names := map[string]bool{}
+	for _, path := range skipped {
+		names[filepath.Base(path)] = true
+	}
+	for _, want := range []string{"herdr.sock", "pipe"} {
+		if !names[want] {
+			t.Errorf("expected %s among the skipped entries, got %v", want, skipped)
+		}
+	}
+
+	// The regular file beside them must still land in the copy.
+	copied, err := os.ReadFile(filepath.Join(dst, "config.toml"))
+	if err != nil {
+		t.Fatalf("the regular file was not copied: %v", err)
+	}
+	if string(copied) != "theme" {
+		t.Errorf("copied content = %q, want %q", copied, "theme")
+	}
+}
+
+// TestCreateBackupSkipsSockets pins the failure that aborted the whole
+// installation at its first step: ~/.config/herdr contains live sockets beside
+// the configuration, and reading a socket returns ENXIO.
+func TestCreateBackupSkipsSockets(t *testing.T) {
+	home := shortTempDir(t)
+	t.Setenv("HOME", home)
+
+	herdrDir := filepath.Join(home, ".config", "herdr")
+	if err := os.MkdirAll(herdrDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(herdrDir, "config.toml"), []byte("theme"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	listenOn(t, filepath.Join(herdrDir, "herdr.sock"))
+
+	backupDir, skipped, err := CreateBackup([]string{"herdr"})
+	if err != nil {
+		t.Fatalf("a live socket must not abort the backup: %v", err)
+	}
+	defer os.RemoveAll(backupDir)
+
+	if len(skipped) != 1 || filepath.Base(skipped[0]) != "herdr.sock" {
+		t.Errorf("skipped = %v, want exactly the socket", skipped)
+	}
+	if _, err := os.Stat(filepath.Join(backupDir, "herdr", "config.toml")); err != nil {
+		t.Errorf("the configuration beside the socket must still be backed up: %v", err)
+	}
 }
