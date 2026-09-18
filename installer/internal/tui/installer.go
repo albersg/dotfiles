@@ -799,6 +799,11 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Zsh configuration...")
+		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.zshenv"), filepath.Join(homeDir, ".zshenv")); err != nil {
+			return wrapStepError("shell", "Install Zsh",
+				"Failed to copy .zshenv configuration",
+				err)
+		}
 		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-zsh/.zshrc"), filepath.Join(homeDir, ".zshrc")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .zshrc configuration",
@@ -963,10 +968,18 @@ func stepInstallWM(m *Model) error {
 				"Failed to create .tmux directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, "dotfiles-tmux", "plugins"), filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
-			return wrapStepError("wm", "Install Tmux",
-				"Failed to copy Tmux plugins",
-				err)
+		// The plugin seed is optional: tmux.conf declares every plugin through TPM
+		// and the install_plugins run below downloads them. Copy only when the
+		// repository actually ships a seed, instead of failing the whole step.
+		pluginsSrc := filepath.Join(repoDir, "dotfiles-tmux", "plugins")
+		if system.DirExists(pluginsSrc) {
+			if err := system.CopyDir(pluginsSrc, filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
+				return wrapStepError("wm", "Install Tmux",
+					"Failed to copy Tmux plugins",
+					err)
+			}
+		} else {
+			SendLog(stepID, "No seeded Tmux plugins in the repository; TPM will install them")
 		}
 		if err := system.CopyFile(filepath.Join(repoDir, "dotfiles-tmux/tmux.conf"), filepath.Join(homeDir, ".tmux.conf")); err != nil {
 			return wrapStepError("wm", "Install Tmux",
