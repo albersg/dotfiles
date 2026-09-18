@@ -205,7 +205,32 @@ export BAT_THEME="gruvbox-dark"
 
 export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
 zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
-source <(carapace _carapace)
+
+# carapace regenerates roughly 24 KB of completion registrations on every shell
+# start, and that generation alone measures about 250 ms here, more than
+# everything else in this file combined outside the completion system. The output
+# depends only on the carapace binary and is byte-identical across runs, so
+# generate it once and reuse it until the binary itself changes. Without this,
+# every new pane pays the cost again.
+if command -v carapace >/dev/null 2>&1; then
+    CARAPACE_INIT="${XDG_CACHE_HOME:-$HOME/.cache}/carapace/init.zsh"
+    if [[ ! -s "$CARAPACE_INIT" || "$commands[carapace]" -nt "$CARAPACE_INIT" ]]; then
+        mkdir -p "${CARAPACE_INIT:h}"
+        # Write beside the cache and move only a successful, non-empty result
+        # into place, so an interrupted generation cannot poison the cache.
+        if carapace _carapace >|"${CARAPACE_INIT}.tmp" 2>/dev/null && [[ -s "${CARAPACE_INIT}.tmp" ]]; then
+            mv "${CARAPACE_INIT}.tmp" "$CARAPACE_INIT"
+        else
+            rm -f "${CARAPACE_INIT}.tmp"
+        fi
+    fi
+    # Fall back to generating in place if the cache could not be produced.
+    if [[ -s "$CARAPACE_INIT" ]]; then
+        source "$CARAPACE_INIT"
+    else
+        source <(carapace _carapace)
+    fi
+fi
 
 eval "$(fzf --zsh)"
 eval "$(zoxide init zsh)"
