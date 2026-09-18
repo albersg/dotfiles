@@ -673,7 +673,18 @@ var (
 	runPkgInstallWithLogs = system.RunPkgInstall
 	runSudoWithLogs       = system.RunSudoWithLogs
 	runBrewWithLogs       = system.RunBrewWithLogs
+	runOhMyZshInstaller   = system.RunWithLogs
 )
+
+// ohMyZshInstallerURL is the official Oh My Zsh installer.
+const ohMyZshInstallerURL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
+
+// shouldInstallOhMyZsh reports whether Oh My Zsh is missing. PathExists follows
+// symlinks on purpose, so a symlinked ~/.oh-my-zsh counts as installed and is
+// left alone.
+func shouldInstallOhMyZsh(dir string) bool {
+	return !system.PathExists(dir)
+}
 
 func installPlatformPackages(m *Model, stepID string, packages platformPackages, onLog func(string)) *system.ExecResult {
 	switch {
@@ -851,12 +862,12 @@ func stepInstallShell(m *Model) error {
 			// drive the aliases and the fzf integration, delta drives .gitconfig,
 			// fnm owns Node, direnv hooks directory environments, and jq/gh/xh/trip
 			// back the documented helper aliases.
-			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
-			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k eza bat fd ripgrep fzf direnv jq github-cli git-delta",
+			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
+			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta",
 			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
 			// Debian stable does not package starship, fnm, eza, delta or xh; those
 			// come from Homebrew, which this installer puts in place for Debian hosts.
-			Debian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting direnv jq gh bat fd-find ripgrep fzf",
+			Debian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting kubectx direnv jq gh bat fd-find ripgrep fzf",
 		}, func(line string) {
 			SendLog(stepID, line)
 		})
@@ -888,10 +899,25 @@ func stepInstallShell(m *Model) error {
 				"Failed to copy Powerlevel10k configuration",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, repoAssetOhMyZsh), filepath.Join(homeDir, ".oh-my-zsh")); err != nil {
-			return wrapStepError("shell", "Install Zsh",
-				"Failed to copy Oh-My-Zsh directory",
-				err)
+		// Oh My Zsh manages its own checkout. Writing a vendored copy over an
+		// existing clone dirties its tracked files, and `omz update` then fails on
+		// the autostash pop, so the official installer runs only when nothing is
+		// installed yet and an existing installation is never written into.
+		ohMyZshDir := filepath.Join(homeDir, ".oh-my-zsh")
+		if shouldInstallOhMyZsh(ohMyZshDir) {
+			SendLog(stepID, "Installing Oh My Zsh...")
+			result := runOhMyZshInstaller(fmt.Sprintf(
+				`ZSH=%q RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL %s)"`,
+				ohMyZshDir, ohMyZshInstallerURL), nil, func(line string) {
+				SendLog(stepID, line)
+			})
+			if result.Error != nil {
+				return wrapStepError("shell", "Install Zsh",
+					"Failed to install Oh My Zsh",
+					result.Error)
+			}
+		} else {
+			SendLog(stepID, "Oh My Zsh already installed, leaving it untouched")
 		}
 		// Termux: Add zsh to $PREFIX/etc/shells so tmux doesn't complain
 		if m.SystemInfo.IsTermux {

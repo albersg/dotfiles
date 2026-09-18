@@ -105,7 +105,7 @@ func TestStepInstallWMTmuxToleratesMissingPluginSeed(t *testing.T) {
 func TestStepInstallShellZshInstallsZshenvAndZshrc(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	withPackageCommandMocks(t, nil)
+	calls := withPackageCommandMocks(t, nil)
 
 	m := NewModel()
 	m.SystemInfo = &system.SystemInfo{OS: system.OSMac, HasBrew: true}
@@ -139,8 +139,104 @@ func TestStepInstallShellZshInstallsZshenvAndZshrc(t *testing.T) {
 		}
 	}
 
-	if !system.DirExists(filepath.Join(home, ".oh-my-zsh")) {
-		t.Error("vendored oh-my-zsh was not installed")
+	// Oh My Zsh is delegated to its own installer, never vendored: a fresh HOME
+	// has nothing there, so the official installer must have been invoked.
+	if !callsContain(calls, "oh-my-zsh") {
+		t.Error("the official Oh My Zsh installer was not invoked on a fresh HOME")
+	}
+}
+
+func callsContain(calls *[]packageCommandCall, runner string) bool {
+	for _, call := range *calls {
+		if call.runner == runner {
+			return true
+		}
+	}
+	return false
+}
+
+// TestShouldInstallOhMyZsh covers the guard: only a missing installation is
+// installed. A real directory and a symlinked one both count as present, which
+// is what stops the installer from overwriting a clone that manages itself.
+func TestShouldInstallOhMyZsh(t *testing.T) {
+	t.Run("missing directory wants an install", func(t *testing.T) {
+		if !shouldInstallOhMyZsh(filepath.Join(t.TempDir(), ".oh-my-zsh")) {
+			t.Error("a missing ~/.oh-my-zsh must be installed")
+		}
+	})
+
+	t.Run("real directory is left alone", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), ".oh-my-zsh")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if shouldInstallOhMyZsh(dir) {
+			t.Error("an existing ~/.oh-my-zsh must not be reinstalled")
+		}
+	})
+
+	t.Run("symlinked directory counts as installed", func(t *testing.T) {
+		home := t.TempDir()
+		real := filepath.Join(home, "ohmyzsh-real")
+		if err := os.MkdirAll(real, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(home, ".oh-my-zsh")
+		if err := os.Symlink(real, link); err != nil {
+			t.Skipf("symlinks are not available here: %v", err)
+		}
+		if shouldInstallOhMyZsh(link) {
+			t.Error("a symlinked ~/.oh-my-zsh must not be reinstalled")
+		}
+	})
+
+	t.Run("broken symlink is not an install", func(t *testing.T) {
+		home := t.TempDir()
+		link := filepath.Join(home, ".oh-my-zsh")
+		if err := os.Symlink(filepath.Join(home, "missing"), link); err != nil {
+			t.Skipf("symlinks are not available here: %v", err)
+		}
+		if !shouldInstallOhMyZsh(link) {
+			t.Error("a broken symlink is not a working installation")
+		}
+	})
+}
+
+// TestStepInstallShellNeverTouchesAnExistingOhMyZsh pins the reason the vendored
+// tree was removed: writing into a real clone dirties its tracked files and
+// breaks `omz update`.
+func TestStepInstallShellNeverTouchesAnExistingOhMyZsh(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	calls := withPackageCommandMocks(t, nil)
+
+	omz := filepath.Join(home, ".oh-my-zsh")
+	if err := os.MkdirAll(filepath.Join(omz, "themes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(omz, "oh-my-zsh.sh")
+	if err := os.WriteFile(marker, []byte("# user clone\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSMac, HasBrew: true}
+	m.Choices = UserChoices{OS: "mac", Shell: "zsh", WindowMgr: "herdr"}
+	m.RepoDir = repoRoot(t)
+
+	if err := stepInstallShell(&m); err != nil {
+		t.Fatalf("zsh step failed: %v", err)
+	}
+
+	if callsContain(calls, "oh-my-zsh") {
+		t.Error("an existing ~/.oh-my-zsh must not be reinstalled")
+	}
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("the existing installation was removed: %v", err)
+	}
+	if string(got) != "# user clone\n" {
+		t.Errorf("the existing installation was overwritten: %q", got)
 	}
 }
 

@@ -421,7 +421,11 @@ mkdir -p ~/.cache/carapace
 mkdir -p ~/.local/share/atuin
 cp -rf dotfiles-zsh/.zshrc ~/
 cp -rf dotfiles-zsh/.p10k.zsh ~/
-cp -rf dotfiles-zsh/.oh-my-zsh ~/
+# Oh My Zsh manages its own checkout. Only install it when it is missing, and
+# never copy a snapshot over an existing clone: that dirties its tracked files
+# and breaks `omz update` on the autostash pop.
+[ -d ~/.oh-my-zsh ] || ZSH=~/.oh-my-zsh RUNZSH=no CHSH=no KEEP_ZSHRC=yes \
+  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 brew install powerlevel10k
 ```
 

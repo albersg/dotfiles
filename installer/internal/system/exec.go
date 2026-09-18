@@ -379,6 +379,13 @@ func CopyDirReport(src, dst string) (skipped []string, err error) {
 	return skipped, err
 }
 
+// PathExists reports whether path exists, following symlinks. A symlinked
+// ~/.oh-my-zsh counts as an installation.
+func PathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // EnsureDir creates a directory if it doesn't exist
 func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0755)
