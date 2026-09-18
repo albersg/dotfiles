@@ -13,6 +13,7 @@ This guide walks you through manually setting up your development environment wi
   - [Install a Terminal Emulator](#5-install-a-terminal-emulator)
   - [Configure Terminal Emulator](#6-configure-terminal-emulator)
   - [Install Chocolatey and win32yank](#7-install-chocolatey-and-win32yank)
+  - [Apply the WSL configuration](#8-apply-the-wsl-configuration)
 - [Unsupported Native Windows Tooling](#unsupported-native-windows-tooling)
 - [Linux, Arch Linux, macOS, and WSL](#linux-arch-linux-macos-and-wsl)
   - [Install Dependencies](#1-install-dependencies)
@@ -150,6 +151,35 @@ iwr https://community.chocolatey.org/install.ps1 -UseBasicParsing | iex
 ```powershell
 choco install win32yank
 ```
+
+### 8. Apply the WSL configuration
+
+The repository ships two WSL artifacts in `dotfiles-wsl/`:
+
+| File | Destination | Applies to |
+|------|-------------|------------|
+| `.wslconfig` | `%USERPROFILE%\.wslconfig` on Windows | Every WSL 2 distribution |
+| `wsl.conf` | `/etc/wsl.conf` inside the distribution | That distribution only |
+
+The TUI installer applies both when it detects WSL. To do it by hand:
+
+```bash
+# Windows-side VM settings (memory, processors, swap, networking)
+cp dotfiles-wsl/.wslconfig "$(wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' | tr -d '\r')")/.wslconfig"
+
+# Distribution-side settings (systemd, automount, interop)
+sudo install -m 0644 dotfiles-wsl/wsl.conf /etc/wsl.conf
+```
+
+Both files are only read when the WSL VM boots, so apply them with:
+
+```powershell
+wsl --shutdown
+```
+
+Then reopen your terminal. `dotfiles-wsl/.wslconfig` carries machine-specific
+limits (memory, processors); adjust them to your host before applying it
+somewhere else.
 
 ---
 

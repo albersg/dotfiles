@@ -608,6 +608,18 @@ func (m *Model) SetupInstallSteps() {
 		})
 	}
 
+	// WSL configuration (Windows host + in-distribution settings). The files are
+	// only read when the WSL VM restarts, so this runs late in the sequence.
+	if m.SystemInfo.IsWSL {
+		m.Steps = append(m.Steps, InstallStep{
+			ID:          "wslconfig",
+			Name:        "Configure WSL",
+			Description: ".wslconfig and /etc/wsl.conf",
+			Status:      StatusPending,
+			Interactive: true, // /etc/wsl.conf needs sudo
+		})
+	}
+
 	// Set default shell (interactive - chsh needs password)
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "setshell",

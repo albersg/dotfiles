@@ -84,6 +84,8 @@ func executeStep(stepID string, m *Model) error {
 		return stepInstallWM(m)
 	case "nvim":
 		return stepInstallNvim(m)
+	case "wslconfig":
+		return stepInstallWSLConfig(m)
 	case "cleanup":
 		return stepCleanup(m)
 	case "setshell":

@@ -1,0 +1,32 @@
+# Settings apply across all Linux distros running on WSL 2
+[wsl2]
+
+# Limita la RAM de la VM WSL. Host: 15.6 GB (bajado de 8GB a 6GB el 2026-09-16:
+# el host se quedaba con ~1.1 GB libres y vmmemWSL en ~7 GB)
+memory=6GB
+
+# Nucleos logicos para la VM. Host: 10 cores / 12 hilos (antes: 4)
+processors=8
+
+# Espacio de swap de la VM
+swap=4GB
+
+# IGNORADO cuando networkingMode=mirrored (redundante, se deja por claridad)
+localhostForwarding=true
+
+# Red espejo de Windows (requiere Win11 22H2+)
+networkingMode=mirrored
+
+dnsTunneling=true
+
+# Funciones experimentales: ESTA es la seccion correcta para estas dos claves
+[experimental]
+
+# gradual = reclama cache poco a poco (suave). Alternativas: disabled | dropCache
+# dropCache es el valor por defecto y puede causar tirones; gradual es mas estable
+autoMemoryReclaim=gradual
+
+# Solo afecta a VHD NUEVOS. Para el Debian actual hace falta:
+#   wsl --shutdown
+#   wsl --manage Debian --set-sparse true
+sparseVhd=true

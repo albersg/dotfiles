@@ -75,8 +75,10 @@ From the main menu you can access:
 4. **Shell**: Choose Nushell, Fish, Zsh, or None
 5. **Window Manager**: Select Tmux, Zellij, Herdr, or None
 6. **Neovim**: Configure LazyVim with LSP and AI assistants
-7. **Backup Confirmation**: Option to backup existing configs before overwriting
-8. **Installation**: Watch real-time progress
+7. **WSL Configuration** (WSL hosts only): installs `.wslconfig` into the Windows
+   user profile and `/etc/wsl.conf` inside the distribution
+8. **Backup Confirmation**: Option to backup existing configs before overwriting
+9. **Installation**: Watch real-time progress
 
 ### Keyboard Shortcuts
 
@@ -135,7 +137,7 @@ dotfiles --non-interactive --shell=fish --wm=herdr --nvim
 # Test mode with Zsh + Tmux (no terminal, no nvim)
 dotfiles --test --non-interactive --shell=zsh --wm=tmux
 
-# Dry run to preview changes
+# Dry run to preview changes (installs nothing)
 dotfiles --dry-run
 
 # Verbose output (shows all command logs)
