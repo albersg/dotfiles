@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,5 +199,54 @@ func TestWSLStepIsScheduledOnlyOnWSL(t *testing.T) {
 				t.Errorf("wslconfig step scheduled = %v, want %v", found, tc.want)
 			}
 		})
+	}
+}
+
+func TestStepInstallWSLConfigSkipsWindowsSideWhenProfileUnavailable(t *testing.T) {
+	repoDir, _, wslConf := newWSLLayout(t)
+	// Without the override and without cmd.exe interop there is no Windows
+	// profile to write to. The in-distribution half of the step must still run.
+	t.Setenv(envWSLWindowsHome, "")
+
+	m := wslModel(repoDir, true)
+	if err := stepInstallWSLConfig(&m); err != nil {
+		t.Fatalf("a missing Windows profile must not fail the step: %v", err)
+	}
+	if _, err := os.Stat(wslConf); err != nil {
+		t.Errorf("wsl.conf was not installed: %v", err)
+	}
+}
+
+func TestApplyArtifactWritesWhenTheBackupFails(t *testing.T) {
+	withPackageCommandMocks(t, errors.New("sudo refused"))
+
+	dir := t.TempDir()
+	dst := filepath.Join(dir, ".wslconfig")
+	if err := os.WriteFile(dst, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Make the backup destination unwritable so copyArtifact fails.
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory permissions are not enforced")
+	}
+
+	src := filepath.Join(t.TempDir(), ".wslconfig")
+	if err := os.WriteFile(src, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := applyArtifact(src, dst, wslStepID); err != nil {
+		t.Fatalf("a failed backup must not abort the write: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Errorf("destination = %q, want %q", got, "new")
 	}
 }

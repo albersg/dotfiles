@@ -232,6 +232,10 @@ _dotenv_read_limited() {
   local -i max_size=10485760 total=0 read_size=0 fd read_status
 
   zmodload zsh/system || return 1
+  # Open only regular files. A named pipe with no writer attached blocks this
+  # open, and dotenv runs from a chpwd hook, so a stray FIFO would freeze the
+  # interactive shell instead of failing.
+  [[ -f "$filename" ]] || return 1
   exec {fd}<"$filename" || return 1
 
   while true; do

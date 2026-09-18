@@ -45,19 +45,22 @@ func stepInstallWSLConfig(m *Model) error {
 			"Failed to locate the cloned repository", err)
 	}
 
-	// .wslconfig is a Windows file: it belongs in the Windows user profile.
+	// .wslconfig is a Windows file: it belongs in the Windows user profile. The
+	// lookup can legitimately fail (interop disabled, unusual mount layout) and
+	// that must not stop the in-distribution half of this step.
 	wslconfigSrc := filepath.Join(repoDir, repoAssetWSLConfig)
-	profileDir, err := windowsUserProfile()
-	if err != nil {
-		return wrapStepError(wslStepID, "Configure WSL",
-			"Could not locate the Windows user profile for .wslconfig. Set "+
-				envWSLWindowsHome+" to override the lookup.", err)
+	profileDir, profileErr := windowsUserProfile()
+	if profileErr != nil {
+		SendLog(wslStepID, fmt.Sprintf(
+			"Skipping .wslconfig: %v. Set %s to override the lookup.", profileErr, envWSLWindowsHome))
+	} else {
+		destination := filepath.Join(profileDir, ".wslconfig")
+		if err := applyArtifact(wslconfigSrc, destination, wslStepID); err != nil {
+			return wrapStepError(wslStepID, "Configure WSL",
+				"Failed to install .wslconfig into the Windows user profile", err)
+		}
+		SendLog(wslStepID, fmt.Sprintf("✓ .wslconfig installed at %s", destination))
 	}
-	if err := applyArtifact(wslconfigSrc, filepath.Join(profileDir, ".wslconfig"), wslStepID); err != nil {
-		return wrapStepError(wslStepID, "Configure WSL",
-			"Failed to install .wslconfig into the Windows user profile", err)
-	}
-	SendLog(wslStepID, fmt.Sprintf("✓ .wslconfig installed at %s", filepath.Join(profileDir, ".wslconfig")))
 
 	// wsl.conf is read from inside the distribution and needs root to replace.
 	confDst := os.Getenv(envWSLConfPath)
@@ -147,9 +150,13 @@ func applyArtifact(src, dst, stepID string) error {
 	if _, err := os.Stat(dst); err == nil {
 		backup := fmt.Sprintf("%s.bak-dotfiles-%s", dst, time.Now().Format("20060102-150405"))
 		if err := copyArtifact(dst, backup, stepID); err != nil {
-			return fmt.Errorf("backing up %s: %w", dst, err)
+			// A destination that is readable but not yet writable (a root-owned
+			// /etc/wsl.conf, for instance) is precisely what the escalating write
+			// below is for, so a failed backup warns instead of aborting.
+			SendLog(stepID, fmt.Sprintf("Warning: could not back up %s: %v", dst, err))
+		} else {
+			SendLog(stepID, fmt.Sprintf("Previous %s backed up to %s", filepath.Base(dst), backup))
 		}
-		SendLog(stepID, fmt.Sprintf("Previous %s backed up to %s", filepath.Base(dst), backup))
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err == nil {
@@ -161,19 +168,24 @@ func applyArtifact(src, dst, stepID string) error {
 	return writeWithSudo(data, dst, stepID)
 }
 
-// copyArtifact copies dst to backup, escalating to sudo when needed.
-func copyArtifact(dst, backup, stepID string) error {
-	data, err := os.ReadFile(dst)
-	if err != nil {
-		if os.IsPermission(err) {
-			result := system.RunSudoWithLogs(fmt.Sprintf("cp -a %q %q", dst, backup), nil, func(line string) {
-				SendLog(stepID, line)
-			})
-			return result.Error
+// copyArtifact copies dst to backup, escalating to sudo when the direct copy is
+// not permitted. The escalation covers both an unreadable source and a
+// destination directory this user cannot write to.
+func copyArtifact(dst, backup, stepID string) (err error) {
+	data, readErr := os.ReadFile(dst)
+	switch {
+	case readErr == nil:
+		if writeErr := os.WriteFile(backup, data, 0o644); writeErr == nil {
+			return nil
 		}
-		return err
+	case !os.IsPermission(readErr):
+		return readErr
 	}
-	return os.WriteFile(backup, data, 0o644)
+
+	result := runSudoWithLogs(fmt.Sprintf("cp -a %q %q", dst, backup), nil, func(line string) {
+		SendLog(stepID, line)
+	})
+	return result.Error
 }
 
 // writeWithSudo installs the artifact through a temporary file using sudo.
@@ -192,7 +204,7 @@ func writeWithSudo(data []byte, dst, stepID string) error {
 		return err
 	}
 
-	result := system.RunSudoWithLogs(fmt.Sprintf("install -m 0644 %q %q", tmp.Name(), dst), nil, func(line string) {
+	result := runSudoWithLogs(fmt.Sprintf("install -m 0644 %q %q", tmp.Name(), dst), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
