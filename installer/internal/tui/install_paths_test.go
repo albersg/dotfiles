@@ -144,6 +144,23 @@ func TestStepInstallShellZshInstallsZshenvAndZshrc(t *testing.T) {
 	if !callsContain(calls, "oh-my-zsh") {
 		t.Error("the official Oh My Zsh installer was not invoked on a fresh HOME")
 	}
+
+	// Pin the command shape. Termux does not run commands through a shell, it
+	// splits and execs them, so a leading `VAR=value` assignment becomes the
+	// program name and fails with ENOENT. `env` is a real program everywhere.
+	for _, call := range *calls {
+		if call.runner != "oh-my-zsh" {
+			continue
+		}
+		if !strings.HasPrefix(call.command, "env ") {
+			t.Errorf("the Oh My Zsh command must start with a real program, got %q", call.command)
+		}
+		for _, want := range []string{"ZSH=", "RUNZSH=no", "CHSH=no", "KEEP_ZSHRC=yes", "sh -c"} {
+			if !strings.Contains(call.command, want) {
+				t.Errorf("the Oh My Zsh command is missing %q: %q", want, call.command)
+			}
+		}
+	}
 }
 
 func callsContain(calls *[]packageCommandCall, runner string) bool {

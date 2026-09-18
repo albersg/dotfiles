@@ -910,8 +910,11 @@ func stepInstallShell(m *Model) error {
 		ohMyZshDir := filepath.Join(homeDir, ".oh-my-zsh")
 		if shouldInstallOhMyZsh(ohMyZshDir) {
 			SendLog(stepID, "Installing Oh My Zsh...")
+			// `env` rather than a bare `VAR=value` prefix: on Termux the command is not
+			// run through a shell, it is split and exec'd directly, so a leading
+			// assignment becomes the program name and fails with ENOENT.
 			result := runOhMyZshInstaller(fmt.Sprintf(
-				`ZSH=%q RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL %s)"`,
+				`env ZSH=%q RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL %s)"`,
 				ohMyZshDir, ohMyZshInstallerURL), nil, func(line string) {
 				SendLog(stepID, line)
 			})
