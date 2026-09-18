@@ -751,7 +751,7 @@ func PatchZshForWM(zshrcPath string, wm string, installNvim bool) error {
 		if inStartIfNeeded {
 			if wm != "none" {
 				if strings.Contains(trimmed, "[[ $- == *i* ]]") && strings.Contains(trimmed, "WM_VAR") {
-					newLines = append(newLines, `    if [[ $- == *i* ]] && command -v "$WM_CMD" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then`)
+					newLines = append(newLines, `    if [[ $- == *i* ]] && command -v "${WM_CMD[1]}" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then`)
 				} else {
 					newLines = append(newLines, line)
 				}
@@ -772,15 +772,15 @@ func PatchZshForWM(zshrcPath string, wm string, installNvim bool) error {
 			}
 			continue
 		}
-		if trimmed == `WM_CMD="tmux"` || trimmed == `WM_CMD="zellij"` || trimmed == `WM_CMD="herdr"` {
-			switch wm {
-			case "tmux":
-				newLines = append(newLines, `WM_CMD="tmux"`)
-			case "zellij":
-				newLines = append(newLines, `WM_CMD="zellij"`)
-			case "herdr":
-				newLines = append(newLines, `WM_CMD="herdr"`)
+		if isZshWMCommandLine(trimmed) {
+			if commandLine := zshWMCommandLine(wm); commandLine != "" {
+				newLines = append(newLines, commandLine)
 			}
+			continue
+		}
+		// The array scaffolding belongs to the multiplexer block, so a "none"
+		// choice strips it just like WM_VAR and the WM_CMD assignment.
+		if wm == "none" && (trimmed == "typeset -a WM_CMD" || strings.HasPrefix(trimmed, "# WM_CMD array:")) {
 			continue
 		}
 		if trimmed == "# change with ZELLIJ" || trimmed == "# change with zellij" || trimmed == "# change with HERDR" || trimmed == "# change with herdr" {
@@ -794,6 +794,36 @@ func PatchZshForWM(zshrcPath string, wm string, installNvim bool) error {
 	}
 
 	return os.WriteFile(zshrcPath, []byte(strings.Join(newLines, "\n")), 0644)
+}
+
+// zshWMCommandLine returns the WM_CMD assignment line for the selected
+// multiplexer. zsh does not word-split an unquoted parameter, so the start
+// command is stored as an array and expanded with `exec "${WM_CMD[@]}"`.
+// herdr has no attach equivalent, so it stays a bare binary name.
+func zshWMCommandLine(wm string) string {
+	switch wm {
+	case "tmux":
+		return `WM_CMD=(tmux new-session -A -s main)`
+	case "zellij":
+		return `WM_CMD=(zellij attach -c main)`
+	case "herdr":
+		return `WM_CMD=(herdr)`
+	default:
+		return ""
+	}
+}
+
+// isZshWMCommandLine reports whether a line is a WM_CMD assignment the patcher
+// owns: the current array form plus the legacy scalar form that existing
+// installations still use.
+func isZshWMCommandLine(trimmed string) bool {
+	switch trimmed {
+	case `WM_CMD="tmux"`, `WM_CMD="zellij"`, `WM_CMD="herdr"`,
+		`WM_CMD=(tmux new-session -A -s main)`, `WM_CMD=(zellij attach -c main)`, `WM_CMD=(herdr)`:
+		return true
+	default:
+		return false
+	}
 }
 
 // PatchFishForWM modifies config.fish based on window manager choice.

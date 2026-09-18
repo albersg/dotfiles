@@ -168,11 +168,14 @@ export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_ALT_COMMAND="fd --type=d --hidden --strip-cwd-prefix --exclude .git"
 
 WM_VAR="$HERDR_ENV"
-WM_CMD="herdr"
+
+# WM_CMD array: zsh does not word-split an unquoted parameter, so a multi-word command must be launched as "${WM_CMD[@]}".
+typeset -a WM_CMD
+WM_CMD=(herdr)
 
 function start_if_needed() {
-    if [[ $- == *i* ]] && command -v "$WM_CMD" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then
-        exec $WM_CMD
+    if [[ $- == *i* ]] && command -v "${WM_CMD[1]}" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then
+        exec "${WM_CMD[@]}"
     fi
 }
 

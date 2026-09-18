@@ -355,11 +355,15 @@ func TestPatchZshForWMHandlesTheShippedZshrc(t *testing.T) {
 			if got := strings.Contains(string(patched), `WM_VAR="`); got != wantWMVar {
 				t.Errorf("WM_VAR present = %v, want %v", got, wantWMVar)
 			}
-			if got := strings.Contains(string(patched), `WM_CMD="`); got != wantWMVar {
+			if got := strings.Contains(string(patched), `WM_CMD=(`); got != wantWMVar {
 				t.Errorf("WM_CMD present = %v, want %v", got, wantWMVar)
 			}
 
-			expects := map[string]string{"tmux": `WM_CMD="tmux"`, "zellij": `WM_CMD="zellij"`, "herdr": `WM_CMD="herdr"`}
+			expects := map[string]string{
+				"tmux":   `WM_CMD=(tmux new-session -A -s main)`,
+				"zellij": `WM_CMD=(zellij attach -c main)`,
+				"herdr":  `WM_CMD=(herdr)`,
+			}
 			if expect, ok := expects[wm]; ok && !strings.Contains(string(patched), expect) {
 				t.Errorf("patched .zshrc is missing %s", expect)
 			}
