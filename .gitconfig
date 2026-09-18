@@ -1,6 +1,16 @@
 [user]
 	email = alberto.sanchezgomez@telefonica.com
 	name = ALBERTO SANCHEZ GOMEZ
+
+# The identity above is the default: it applies everywhere, including personal
+# repositories that fall outside the trees listed below. These blocks override
+# the address only inside those trees, and git applies the last matching block,
+# so the order matters if the trees ever overlap. includeIf does nothing at all
+# when the directory is absent, so a machine without it is unaffected.
+[includeIf "gitdir:~/my-things/"]
+	path = ~/.gitconfig-personal
+[includeIf "gitdir:~/work/"]
+	path = ~/.gitconfig-personal
 [submodule]
 	recurse = true
 [push]

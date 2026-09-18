@@ -1,0 +1,4 @@
+# Personal identity, included only inside the trees declared by the includeIf
+# blocks in ~/.gitconfig. Everything else keeps the corporate address.
+[user]
+	email = sangomez.alberto@gmail.com
