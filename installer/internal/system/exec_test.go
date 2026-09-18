@@ -929,6 +929,20 @@ func TestRunWithLogs(t *testing.T) {
 	})
 }
 
+// shortTempDir returns a temporary directory short enough to hold a Unix
+// socket. sun_path is limited to 104 bytes on macOS and 108 on Linux, and
+// t.TempDir() embeds both the full test name and, on macOS runners, a long
+// TMPDIR, which together overflow it and make bind fail with EINVAL.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "df")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // listenOn creates a live Unix socket at path. It is the runtime state that a
 // real ~/.config/herdr directory holds next to its configuration.
 func listenOn(t *testing.T, path string) {
@@ -941,7 +955,7 @@ func listenOn(t *testing.T, path string) {
 }
 
 func TestCopyFileRejectsNonRegularSource(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTempDir(t)
 	sock := filepath.Join(dir, "herdr.sock")
 	listenOn(t, sock)
 
@@ -952,7 +966,7 @@ func TestCopyFileRejectsNonRegularSource(t *testing.T) {
 }
 
 func TestCopyDirReportSkipsNonRegularFiles(t *testing.T) {
-	src := t.TempDir()
+	src := shortTempDir(t)
 	dst := filepath.Join(t.TempDir(), "copy")
 
 	if err := os.WriteFile(filepath.Join(src, "config.toml"), []byte("theme"), 0o644); err != nil {
@@ -992,7 +1006,7 @@ func TestCopyDirReportSkipsNonRegularFiles(t *testing.T) {
 // installation at its first step: ~/.config/herdr contains live sockets beside
 // the configuration, and reading a socket returns ENXIO.
 func TestCreateBackupSkipsSockets(t *testing.T) {
-	home := t.TempDir()
+	home := shortTempDir(t)
 	t.Setenv("HOME", home)
 
 	herdrDir := filepath.Join(home, ".config", "herdr")

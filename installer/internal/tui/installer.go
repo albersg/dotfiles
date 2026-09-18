@@ -692,8 +692,12 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 		return runPkgInstallWithLogs(packages.Termux, nil, onLog)
 	case m.SystemInfo.OS == system.OSArch && packages.Arch != "":
 		return runNativeWithBrewFallback("pacman -S --needed --noconfirm "+packages.Arch, packages.Brew, m.SystemInfo.HasBrew, onLog)
+	// dnf aborts the whole transaction on a single unknown name, and Fedora has no
+	// carapace or starship in its default repositories, so the shell install used
+	// to fail there while the packages it could provide were never installed.
+	// --skip-unavailable is dnf's own answer to this and installs the rest.
 	case m.SystemInfo.OS == system.OSFedora && packages.Fedora != "":
-		return runNativeWithBrewFallback("dnf install -y "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
+		return runNativeWithBrewFallback("dnf install -y --skip-unavailable "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	case (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew && packages.Debian != "":
 		return runNativeWithBrewFallback("apt-get install -y "+packages.Debian, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	default:

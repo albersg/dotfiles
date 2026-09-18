@@ -89,7 +89,11 @@ image_status() {
 build_binary() {
     echo "${BLUE}→ Building Linux AMD64 binary...${NC}"
     cd "$INSTALLER_DIR"
-    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$SCRIPT_DIR/dotfiles-installer-linux-amd64" ./cmd/dotfiles
+    # CGO_ENABLED=0 matches the release build and produces a static binary.
+    # Without it the test binary links against the build host's glibc and cannot
+    # execute in the musl and Bionic containers (Alpine, Termux), so those jobs
+    # tested a binary no user ever receives and failed to run it at all.
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$SCRIPT_DIR/dotfiles-installer-linux-amd64" ./cmd/dotfiles
     echo "${GREEN}✓ Binary built${NC}"
 }
 
