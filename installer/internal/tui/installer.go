@@ -44,8 +44,25 @@ func wrapStepError(stepID, stepName, description string, cause error) error {
 	}
 }
 
+// dryRun reports whether this run was started with --dry-run. The flag used to
+// be advertised in --help but never read, so a "dry run" performed a real
+// installation.
+func dryRun() bool {
+	switch os.Getenv("DOTFILES_DRY_RUN") {
+	case "", "0", "false":
+		return false
+	default:
+		return true
+	}
+}
+
 // executeStep runs the actual installation for a step
 func executeStep(stepID string, m *Model) error {
+	if dryRun() {
+		SendLog(stepID, fmt.Sprintf("DRY RUN: skipping step %q", stepID))
+		return nil
+	}
+
 	switch stepID {
 	case "backup":
 		return stepBackupConfigs(m)

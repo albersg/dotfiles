@@ -48,12 +48,20 @@ func RunNonInteractive(choices UserChoices) error {
 			fmt.Printf("    ❌ FAILED: %v\n", err)
 			return fmt.Errorf("step '%s' failed: %w", step.Name, err)
 		}
+		if dryRun() {
+			fmt.Printf("    • skipped (dry run)\n")
+			continue
+		}
 		fmt.Printf("    ✓ Done\n")
 	}
 
 	fmt.Println()
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("✅ Installation complete!")
+	if dryRun() {
+		fmt.Println("🧪 Dry run complete: nothing was installed.")
+	} else {
+		fmt.Println("✅ Installation complete!")
+	}
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	return nil
