@@ -183,8 +183,9 @@ func stepInstallHomebrew(m *Model) error {
 		return nil
 	}
 
-	if system.CommandExists("brew") {
+	if system.BrewInstalled() {
 		SendLog(stepID, "Homebrew already installed, skipping...")
+		m.SystemInfo.HasBrew = true
 		return nil
 	}
 
@@ -196,6 +197,17 @@ func stepInstallHomebrew(m *Model) error {
 		return wrapStepError("homebrew", "Install Homebrew",
 			"Failed to install Homebrew package manager. Check your internet connection.",
 			result.Error)
+	}
+
+	// Tell the rest of the run that Homebrew exists. SystemInfo is detected once
+	// at startup, and the install script only exports brew into its own child
+	// shell, so without this refresh every later step keeps using the native
+	// package manager and ignores the Homebrew it just installed.
+	if system.BrewInstalled() {
+		m.SystemInfo.HasBrew = true
+		SendLog(stepID, fmt.Sprintf("✓ Homebrew installed at %s", system.GetBrewPrefix()))
+	} else {
+		SendLog(stepID, "Warning: Homebrew binary not found after installation")
 	}
 
 	// Add to PATH
@@ -664,7 +676,7 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 	case m.SystemInfo.OS == system.OSFedora && packages.Fedora != "":
 		return runNativeWithBrewFallback("dnf install -y "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	case (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew && packages.Debian != "":
-		return runSudoWithLogs("apt-get install -y "+packages.Debian, nil, onLog)
+		return runNativeWithBrewFallback("apt-get install -y "+packages.Debian, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	default:
 		if m.SystemInfo.HasBrew && packages.Brew != "" {
 			return runBrewWithLogs("install "+packages.Brew, nil, onLog)
@@ -827,10 +839,16 @@ func stepInstallShell(m *Model) error {
 		SendLog(stepID, "Installing Zsh and plugins...")
 		result := installPlatformPackages(m, stepID, platformPackages{
 			Termux: "zsh starship zoxide",
-			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k",
-			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k",
-			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship",
-			Debian: "zsh zoxide starship zsh-autosuggestions zsh-syntax-highlighting",
+			// The zsh configuration depends on these at shell start: eza/bat/rg/fd/fzf
+			// drive the aliases and the fzf integration, delta drives .gitconfig,
+			// fnm owns Node, direnv hooks directory environments, and jq/gh/xh/trip
+			// back the documented helper aliases.
+			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
+			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k eza bat fd ripgrep fzf direnv jq github-cli git-delta",
+			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
+			// Debian stable does not package starship, fnm, eza, delta or xh; those
+			// come from Homebrew, which this installer puts in place for Debian hosts.
+			Debian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting direnv jq gh bat fd-find ripgrep fzf",
 		}, func(line string) {
 			SendLog(stepID, line)
 		})

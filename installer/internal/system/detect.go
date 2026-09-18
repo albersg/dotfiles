@@ -3,6 +3,7 @@ package system
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -173,8 +174,27 @@ func checkPkg() bool {
 }
 
 func checkBrew() bool {
-	_, err := exec.LookPath("brew")
-	return err == nil
+	return BrewInstalled()
+}
+
+// BrewInstalled reports whether Homebrew is available.
+//
+// It checks PATH first and then the well-known installation prefixes. The
+// prefix check matters right after the installer installs Homebrew itself: the
+// install script's `brew shellenv` runs in a child process, so the parent PATH
+// is never refreshed and LookPath alone would keep reporting false for the rest
+// of the run.
+func BrewInstalled() bool {
+	if _, err := exec.LookPath("brew"); err == nil {
+		return true
+	}
+
+	brewPrefix := os.Getenv("HOMEBREW_PREFIX")
+	if brewPrefix == "" {
+		brewPrefix = GetBrewPrefix()
+	}
+	info, err := os.Stat(filepath.Join(brewPrefix, "bin", "brew"))
+	return err == nil && !info.IsDir()
 }
 
 func checkXcode() bool {
