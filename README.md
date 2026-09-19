@@ -10,7 +10,6 @@
 - [Vim Mastery Trainer](#-vim-mastery-trainer)
 - [Documentation](#documentation)
 - [Tools Overview](#tools-overview)
-- [Bleeding Edge](#bleeding-edge)
 - [Support](#support)
 
 ---
@@ -68,7 +67,7 @@ chmod +x dotfiles
 
 ### Option 3: Termux (Android)
 
-Termux requires building locally. See the [Termux Installation Guide](docs/manual-installation.md#termux) for full instructions.
+Termux requires building locally: Android has no Homebrew and there is no published binary for it. The installer recognises Termux, installs its packages with `pkg` instead of a package manager that is not there, and writes the Nerd Font to `~/.termux/font.ttf` rather than a desktop font directory. Clone the repository, build the installer with Go, and run it from the checkout. Termux is the least exercised of the three platforms and has no step-by-step guide yet.
 
 The TUI guides you through selecting your preferred tools and handles all the configuration automatically.
 
@@ -137,16 +136,6 @@ Launch it from the main menu: **Vim Mastery Trainer**
 - **Prompt**: Starship
 
 > See [Tools Reference](docs/tools.md) for detailed descriptions of each tool.
-
----
-
-## Bleeding Edge
-
-Want the latest experimental features from my daily workflow (macOS only)?
-
-Check out the [`nix-migration` branch](https://https://github.com/albersg/dotfiles/tree/nix-migration).
-
-This branch contains cutting-edge configurations that eventually make their way to `main` once stable.
 
 ---
 
