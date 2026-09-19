@@ -57,11 +57,38 @@ The `.github/workflows/release.yml` workflow triggers on tag push and:
 
 ### 5. Homebrew Update
 
-After publishing, the release triggers a PR to `albersg/homebrew-tap` with:
-- Updated formula with new binary URLs and SHA256 hashes
-- Version bump
+Nothing automates this step. No workflow touches the tap, so the formula is updated
+by hand, and it exists in two places that have to stay in step:
 
-Verify the formula and merge the PR.
+- `homebrew-tap/Formula/dotfiles.rb` in this repository, which is the source of truth
+  and the copy the branding audit and code review can see.
+- `albersg/homebrew-tap`, the repository Homebrew actually reads, which must be public
+  for `brew install albersg/tap/dotfiles` to work without credentials.
+
+Download the checksums the release generated:
+
+```bash
+gh release download v<version> --pattern SHA256SUMS --dir /tmp
+cat /tmp/SHA256SUMS
+```
+
+The file lists each asset with the path it had inside the build job, so the four
+hashes have to be matched by asset name, not by line order. Write the version and
+the four hashes into `homebrew-tap/Formula/dotfiles.rb`, copy the file into the tap
+repository, and commit both. The placeholders that ship with a new formula
+(`PLACEHOLDER_*_SHA256`) are not valid hashes, so a formula that still carries one
+installs nothing.
+
+Verify end to end, which also confirms the hashes match the published assets:
+
+```bash
+brew uninstall dotfiles 2>/dev/null
+brew install albersg/tap/dotfiles
+dotfiles --version
+```
+
+The formula's own `test` block runs `dotfiles --help`, so a `brew install` that
+succeeds has already exercised the binary.
 
 ## Release Checklist
 
