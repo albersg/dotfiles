@@ -22,7 +22,13 @@
 [delta]
 	navigate = true
 [merge]
-	conflictstyle = zdiff3
+	# diff3 rather than zdiff3 on purpose. zdiff3 needs git 2.35 or newer, and an
+	# older git does not merely ignore the unknown value: it aborts, so every
+	# git command fails, including the clone inside the Oh My Zsh installer.
+	# Ubuntu 22.04 LTS ships git 2.34, which makes this a supported platform that
+	# the installer would otherwise break outright. Both styles show the common
+	# ancestor; zdiff3 only compacts the result.
+	conflictstyle = diff3
 [credential "https://github.com"]
 	helper = 
 	helper = !gh auth git-credential
