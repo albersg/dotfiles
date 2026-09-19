@@ -7,22 +7,22 @@ class Dotfiles < Formula
   on_macos do
     on_arm do
       url "https://github.com/albersg/dotfiles/releases/download/v#{version}/dotfiles-darwin-arm64"
-      sha256 "PLACEHOLDER_ARM64_SHA256"
+      sha256 "3d198f0785712bc9deaa43557fdd86485f30600142b522e82e41ee120a10aebd"
     end
     on_intel do
       url "https://github.com/albersg/dotfiles/releases/download/v#{version}/dotfiles-darwin-amd64"
-      sha256 "PLACEHOLDER_AMD64_SHA256"
+      sha256 "f646ce6b58239cebc47d62db46093432a705a41a88c1b4cb3fe88d4010319cef"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/albersg/dotfiles/releases/download/v#{version}/dotfiles-linux-arm64"
-      sha256 "PLACEHOLDER_LINUX_ARM64_SHA256"
+      sha256 "2a70ae02e8b2a1a957d879c5d6733398528ede96bd6d1e0ccac331b2466dc8ab"
     end
     on_intel do
       url "https://github.com/albersg/dotfiles/releases/download/v#{version}/dotfiles-linux-amd64"
-      sha256 "PLACEHOLDER_LINUX_AMD64_SHA256"
+      sha256 "cb4ee490fe6acb11c202e894dfb0c5f9fa027e7ae105b9bf2b0fd134f4881736"
     end
   end
 
