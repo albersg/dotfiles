@@ -296,8 +296,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```bash
 mkdir -p ~/.local/share/fonts
 # Download latest version from https://github.com/ryanoasis/nerd-fonts/releases
-wget -O ~/.local/share/fonts/Iosevka.zip https://github.com/ryanoasis/nerd-fonts/releases/latest/download/IosevkaTerm.zip
-unzip ~/.local/share/fonts/Iosevka.zip -d ~/.local/share/fonts/
+# The archive lands in a scratch directory inside the font directory, never the
+# font directory itself, and is removed once the fonts are extracted
+font_scratch=$(mktemp -d ~/.local/share/fonts/.iosevka-term-XXXXXX)
+wget -O "$font_scratch/IosevkaTerm.zip" https://github.com/ryanoasis/nerd-fonts/releases/latest/download/IosevkaTerm.zip
+unzip "$font_scratch/IosevkaTerm.zip" -d ~/.local/share/fonts/
+rm -rf "$font_scratch"
 fc-cache -fv
 ```
 
