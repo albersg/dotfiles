@@ -170,6 +170,10 @@ func (m Model) renderWelcome() string {
 	if m.SystemInfo.HasBrew {
 		info += " | Homebrew ✓"
 	}
+	// The splash carries the build version because it is the first thing a bug
+	// report needs, and this is where a user sees it without knowing that a
+	// --version flag exists.
+	info += " | " + VersionLabel()
 	s.WriteString(InfoStyle.Render(info))
 	s.WriteString("\n\n")
 
