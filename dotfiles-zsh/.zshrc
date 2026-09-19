@@ -274,6 +274,18 @@ if [[ $IS_TERMUX -eq 0 ]] && command -v fnm >/dev/null 2>&1; then
 
     eval "$(fnm env --use-on-cd --shell zsh)"
 
+    # fnm prepends a fresh multishell directory for every shell it runs in, and
+    # one directory per level of nesting survives in PATH, because `typeset -U
+    # path` collapses exact duplicates and these are not duplicates: each carries
+    # its own pid. Two had accumulated by the time this was written, and a
+    # long-lived multiplexer server that spawns shells would keep adding them.
+    # Drop every other shell's directory and put only this one back, which is the
+    # position fnm just gave it.
+    if [[ -n $FNM_MULTISHELL_PATH ]]; then
+        path=("${(@)path:#*/fnm_multishells/*}")
+        path=("$FNM_MULTISHELL_PATH/bin" $path)
+    fi
+
     # Start on the `default` alias, unless the current directory declares its
     # own version (same condition the use-on-cd hook evaluates).
     if [[ ! -f .node-version && ! -f .nvmrc && ! -f package.json ]]; then
