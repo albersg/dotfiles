@@ -79,6 +79,90 @@ func TestDetect(t *testing.T) {
 	})
 }
 
+// TestClassifyLinuxKeepsDistributionUnderWSL pins the fix that stopped WSL from
+// being modelled as an OS: the distribution underneath stays visible through OS
+// while IsWSL keeps driving the WSL-specific steps, and an unrecognised WSL
+// distribution still degrades to OSWSL rather than claiming to be a distro.
+func TestClassifyLinuxKeepsDistributionUnderWSL(t *testing.T) {
+	const wslKernel = "Linux version 5.15.90.1-microsoft-standard-WSL2 (gcc version 11.2.0) #1 SMP"
+
+	t.Run("microsoft kernel reports WSL and the Debian-like distribution", func(t *testing.T) {
+		t.Setenv("WSL_DISTRO_NAME", "")
+
+		info := &SystemInfo{}
+		classifyLinux(info, wslKernel, 2, distroSignals{debian: true})
+
+		if !info.IsWSL {
+			t.Fatal("IsWSL must stay true on a WSL kernel")
+		}
+		if info.OS != OSDebian {
+			t.Errorf("OS = %v, want OSDebian", info.OS)
+		}
+		if info.OSName != "Debian/Ubuntu" {
+			t.Errorf("OSName = %q, want %q", info.OSName, "Debian/Ubuntu")
+		}
+		if info.WSLVersion != 2 {
+			t.Errorf("WSLVersion = %d, want 2", info.WSLVersion)
+		}
+	})
+
+	t.Run("unrecognised WSL distribution falls back to OSWSL", func(t *testing.T) {
+		t.Setenv("WSL_DISTRO_NAME", "")
+
+		info := &SystemInfo{}
+		classifyLinux(info, wslKernel, 2, distroSignals{})
+
+		if !info.IsWSL {
+			t.Fatal("IsWSL must stay true on a WSL kernel")
+		}
+		if info.OS != OSWSL {
+			t.Errorf("OS = %v, want OSWSL for an unknown WSL distribution", info.OS)
+		}
+		if info.OSName != "WSL" {
+			t.Errorf("OSName = %q, want %q", info.OSName, "WSL")
+		}
+	})
+
+	t.Run("non-WSL kernel is unchanged for every platform", func(t *testing.T) {
+		t.Setenv("WSL_DISTRO_NAME", "")
+
+		const plainKernel = "Linux version 6.8.0-45-generic (buildd@lcy02-amd64-013) #45-Ubuntu SMP"
+
+		cases := []struct {
+			name     string
+			signals  distroSignals
+			wantOS   OSType
+			wantName string
+		}{
+			{"arch", distroSignals{arch: true}, OSArch, "Arch Linux"},
+			{"fedora", distroSignals{fedora: true}, OSFedora, "Fedora/RHEL"},
+			{"debian", distroSignals{debian: true}, OSDebian, "Debian/Ubuntu"},
+			{"plain linux", distroSignals{}, OSLinux, "Linux"},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				info := &SystemInfo{}
+				// A WSL version is passed to prove it is ignored off WSL.
+				classifyLinux(info, plainKernel, 2, tc.signals)
+
+				if info.IsWSL {
+					t.Error("IsWSL must be false on a non-WSL kernel")
+				}
+				if info.WSLVersion != 0 {
+					t.Errorf("WSLVersion = %d, want 0 on non-WSL", info.WSLVersion)
+				}
+				if info.OS != tc.wantOS {
+					t.Errorf("OS = %v, want %v", info.OS, tc.wantOS)
+				}
+				if info.OSName != tc.wantName {
+					t.Errorf("OSName = %q, want %q", info.OSName, tc.wantName)
+				}
+			})
+		}
+	})
+}
+
 func TestCommandExists(t *testing.T) {
 	t.Run("should find common commands", func(t *testing.T) {
 		// These should exist on any unix system

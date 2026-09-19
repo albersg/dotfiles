@@ -258,8 +258,107 @@ func stepInstallHomebrew(m *Model) error {
 	return nil
 }
 
+// envSkipDeps lets a run proceed without the dependency step. It exists for
+// environments where sudo cannot prompt for a password (containers, CI, the
+// non-interactive installer) and the base packages are already present or are
+// installed another way. The failure below names it, so a run that cannot
+// install dependencies has a documented way forward instead of a raw sudo
+// error.
+const envSkipDeps = "DOTFILES_SKIP_DEPS"
+
+// skipDeps reports whether the dependency step was explicitly skipped.
+func skipDeps() bool {
+	switch os.Getenv(envSkipDeps) {
+	case "", "0", "false":
+		return false
+	default:
+		return true
+	}
+}
+
+// baseDependencies names the tools every later step relies on, per package
+// manager. Homebrew is listed separately because it is preferred whenever it is
+// present, matching installPlatformPackages.
+func baseDependencies() platformPackages {
+	return platformPackages{
+		Brew:   "curl file git wget unzip fontconfig",
+		Arch:   "base-devel curl file git wget unzip fontconfig",
+		Fedora: "@development-tools curl file git wget unzip fontconfig",
+		Debian: "build-essential curl file git unzip fontconfig procps",
+	}
+}
+
+// usesApt mirrors the Debian branch of installPlatformPackages: apt runs only
+// for a Debian-like host without Homebrew.
+func usesApt(m *Model) bool {
+	return (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew
+}
+
+// dependencyManualCommands returns the root-only commands the user can run by
+// hand when sudo cannot prompt. It mirrors the dispatch of the dependency
+// install so the guidance cannot drift from what would actually run.
+func dependencyManualCommands(m *Model, deps platformPackages) string {
+	switch {
+	case m.SystemInfo.OS == system.OSArch:
+		return "sudo pacman -S --needed --noconfirm " + deps.Arch
+	case m.SystemInfo.OS == system.OSFedora:
+		return "sudo dnf install -y --skip-unavailable " + deps.Fedora
+	case usesApt(m):
+		return "sudo apt-get update\nsudo apt-get install -y " + deps.Debian
+	default:
+		return "brew install " + deps.Brew
+	}
+}
+
+// sudoPasswordUnavailable reports whether a failed command failed because sudo
+// could not obtain a password. The non-interactive installer and container runs
+// have no TTY to prompt on, so sudo refuses instead of running the command.
+func sudoPasswordUnavailable(result *system.ExecResult) bool {
+	if result == nil || result.Error == nil {
+		return false
+	}
+	message := strings.ToLower(result.Stderr)
+	if message == "" {
+		message = strings.ToLower(result.Error.Error())
+	}
+	for _, marker := range []string{
+		"a password is required",
+		"no tty present",
+		"a terminal is required",
+		"askpass",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// dependencyInstallError turns a failed dependency command into a visible
+// failure. When sudo could not prompt for a password it names the commands to
+// run and how to skip the step, instead of surfacing the raw sudo error. Every
+// other failure keeps the step visible as a failure.
+func dependencyInstallError(m *Model, deps platformPackages, result *system.ExecResult) error {
+	if sudoPasswordUnavailable(result) {
+		return wrapStepError("deps", "Install Dependencies",
+			fmt.Sprintf("Installing dependencies needs root, and sudo could not ask for a password in this run.\n"+
+				"Run these commands in a terminal, then run the installer again:\n\n%s\n\n"+
+				"To skip installing dependencies instead, set %s=1 and run the installer again.",
+				dependencyManualCommands(m, deps), envSkipDeps),
+			nil)
+	}
+	return wrapStepError("deps", "Install Dependencies",
+		"Failed to install base dependencies",
+		result.Error)
+}
+
 func stepInstallDeps(m *Model) error {
 	stepID := "deps"
+
+	if skipDeps() {
+		SendLog(stepID, fmt.Sprintf("Skipping dependency installation (%s is set)", envSkipDeps))
+		return nil
+	}
 
 	// Termux: use pkg (no sudo needed)
 	// Check both SystemInfo and Choices.OS for redundancy
@@ -293,54 +392,36 @@ func stepInstallDeps(m *Model) error {
 		return nil
 	}
 
-	// Arch Linux
-	if m.SystemInfo.OS == system.OSArch {
-		result := system.RunSudo("pacman -Syu --noconfirm", nil)
-		if result.Error != nil {
-			return wrapStepError("deps", "Install Dependencies",
-				"Failed to update Arch Linux packages",
-				result.Error)
-		}
-		result = system.RunSudo("pacman -S --needed --noconfirm base-devel curl file git wget unzip fontconfig", nil)
-		if result.Error != nil {
-			return wrapStepError("deps", "Install Dependencies",
-				"Failed to install base dependencies on Arch Linux",
-				result.Error)
-		}
-		return nil
+	// Everything below uses the same package-manager preference as the shell
+	// installs: Homebrew when it is present, the distribution's native manager
+	// otherwise. The distribution is read from OS, which detection now fills in
+	// on WSL too, so Fedora-on-WSL runs dnf and Arch-on-WSL runs pacman.
+	deps := baseDependencies()
+	if m.SystemInfo.IsWSL {
+		// wslu provides wslview/wslpath integration on Debian-like WSL.
+		deps.Debian += " wslu"
 	}
 
-	// Fedora/RHEL
-	if m.SystemInfo.OS == system.OSFedora {
-		result := system.RunSudo("dnf check-update || true", nil) // dnf check-update returns 100 if updates available
-		result = system.RunSudo("dnf install -y @development-tools curl file git wget unzip fontconfig", nil)
+	// apt needs its index refreshed before it can install. Only apt does, and
+	// only when Homebrew is not taking over the install, exactly as
+	// installPlatformPackages decides.
+	if usesApt(m) {
+		result := runSudoWithLogs("apt-get update", nil, func(line string) {
+			SendLog(stepID, line)
+		})
 		if result.Error != nil {
-			return wrapStepError("deps", "Install Dependencies",
-				"Failed to install base dependencies on Fedora/RHEL",
-				result.Error)
+			return dependencyInstallError(m, deps, result)
 		}
-		return nil
 	}
 
-	// Debian/Ubuntu
-	result := system.RunSudo("apt-get update", nil)
+	result := installPlatformPackages(m, stepID, deps, func(line string) {
+		SendLog(stepID, line)
+	})
 	if result.Error != nil {
-		return wrapStepError("deps", "Install Dependencies",
-			"Failed to update apt package list",
-			result.Error)
+		return dependencyInstallError(m, deps, result)
 	}
-	// Base deps + wslu on WSL (provides wslview, wslpath, etc.)
-	wslPkgs := ""
-	if m.SystemInfo.IsWSL {
-		wslPkgs = " wslu"
-	}
-	result = system.RunSudo(fmt.Sprintf("apt-get install -y build-essential curl file git unzip fontconfig procps%s", wslPkgs), nil)
-	if result.Error != nil {
-		return wrapStepError("deps", "Install Dependencies",
-			"Failed to install base dependencies on Debian/Ubuntu",
-			result.Error)
-	}
-	if m.SystemInfo.IsWSL {
+
+	if m.SystemInfo.IsWSL && !m.SystemInfo.HasBrew {
 		SendLog(stepID, "✓ WSL utilities (wslu) installed for clipboard/browser integration")
 	}
 	return nil

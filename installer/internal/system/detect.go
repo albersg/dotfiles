@@ -62,26 +62,7 @@ func Detect() *SystemInfo {
 		info.OSName = "macOS"
 		info.HasXcode = checkXcode()
 	case "linux":
-		info.OS = OSLinux
-		info.OSName = "Linux"
-		info.IsWSL = checkWSL()
-		if info.IsWSL {
-			info.OS = OSWSL
-			info.OSName = "WSL"
-			info.WSLVersion = detectWSLVersion()
-			break // Skip distro checks — WSL is the primary OS type
-		}
-
-		if isArchLinux() {
-			info.OS = OSArch
-			info.OSName = "Arch Linux"
-		} else if isFedora() {
-			info.OS = OSFedora
-			info.OSName = "Fedora/RHEL"
-		} else if isDebian() {
-			info.OS = OSDebian
-			info.OSName = "Debian/Ubuntu"
-		}
+		classifyLinux(info, readKernelVersion(), detectWSLVersion(), detectDistroSignals())
 	}
 
 	info.HasBrew = checkBrew()
@@ -90,13 +71,90 @@ func Detect() *SystemInfo {
 	return info
 }
 
+// classifyLinux fills in the OS fields for a Linux host.
+//
+// WSL is a hosting environment, not a distribution: underneath it there is
+// always a real distribution. Modelling it as an OS made every dispatch that
+// reads OS blind on WSL, so detection identifies the distribution on WSL too,
+// keeps IsWSL set, and uses OSWSL only when no distribution is recognised. An
+// unknown WSL environment therefore degrades exactly as it did before instead of
+// newly claiming to be a distribution.
+//
+// kernelVersion, wslVersion and signals are parameters rather than direct reads
+// of /proc and /etc so the WSL/distribution interaction can be exercised in a
+// test with a fixed kernel string. Detect passes the real values.
+func classifyLinux(info *SystemInfo, kernelVersion string, wslVersion int, signals distroSignals) {
+	info.IsWSL = isWSLKernel(kernelVersion) || os.Getenv("WSL_DISTRO_NAME") != ""
+	if info.IsWSL {
+		info.WSLVersion = wslVersion
+	}
+
+	if distroOS, distroName := signals.osType(); distroOS != OSUnknown {
+		info.OS = distroOS
+		info.OSName = distroName
+	} else if info.IsWSL {
+		info.OS = OSWSL
+		info.OSName = "WSL"
+	} else {
+		info.OS = OSLinux
+		info.OSName = "Linux"
+	}
+}
+
+// readKernelVersion returns the contents of /proc/version, or an empty string
+// when it cannot be read (non-Linux hosts, restricted /proc).
+func readKernelVersion() string {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// isWSLKernel reports whether a /proc/version string identifies a WSL kernel.
+func isWSLKernel(kernelVersion string) bool {
+	content := strings.ToLower(kernelVersion)
+	return strings.Contains(content, "microsoft") || strings.Contains(content, "wsl")
+}
+
+// distroSignals records which distribution families are present on the host. It
+// is a value rather than three direct file checks so detection can be tested
+// without depending on the host's /etc/*-release files.
+type distroSignals struct {
+	arch   bool
+	fedora bool
+	debian bool
+}
+
+func detectDistroSignals() distroSignals {
+	return distroSignals{
+		arch:   isArchLinux(),
+		fedora: isFedora(),
+		debian: isDebian(),
+	}
+}
+
+// osType maps the signals to the OSType and display name, in the same order the
+// original detection used.
+func (s distroSignals) osType() (OSType, string) {
+	switch {
+	case s.arch:
+		return OSArch, "Arch Linux"
+	case s.fedora:
+		return OSFedora, "Fedora/RHEL"
+	case s.debian:
+		return OSDebian, "Debian/Ubuntu"
+	default:
+		return OSUnknown, ""
+	}
+}
+
 func checkWSL() bool {
 	data, err := os.ReadFile("/proc/version")
 	if err != nil {
 		return false
 	}
-	content := strings.ToLower(string(data))
-	if strings.Contains(content, "microsoft") || strings.Contains(content, "wsl") {
+	if isWSLKernel(string(data)) {
 		return true
 	}
 	// Secondary check: WSL_DISTRO_NAME env var is set by WSL init
