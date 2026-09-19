@@ -246,6 +246,7 @@ return {
           { section = "startup" },
         },
         preset = {
+          -- stylua: ignore start
           header = [[
               ▒              
             ░░ ░░            
@@ -263,6 +264,7 @@ return {
             ░███░            
               ▒              
 ]],
+          -- stylua: ignore end
           -- stylua: ignore
           ---@type snacks.dashboard.Item[]
           keys = {
