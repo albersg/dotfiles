@@ -377,14 +377,36 @@ function start_if_needed() {
 alias fzfbat='fzf --preview="bat --color=always {}"'
 alias fzfnvim='nvim $(fzf --preview="bat --color=always {}")'
 
-# --- Modern Unix replacements (transparent: cat→bat, ls→eza, grep→rg) ---
-alias cat='bat --paging=never --style=plain'
+# --- Modern Unix replacements (cat→bat, ls→eza) ---
+# `cat` keeps the syntax highlighting for plain invocations and hands everything
+# else to the real binary. bat is not a drop-in replacement: it has no -v or -T,
+# and `cat -v` is exactly the kind of invocation that turns up in a copied
+# recipe, where it used to fail with "unexpected argument". Testing the
+# arguments, rather than the tool, keeps the highlight where it helps and keeps
+# the flags working where they belong. A function rather than an alias, so it is
+# never inherited by a script.
+function cat() {
+    local arg
+    for arg in "$@"; do
+        if [[ $arg == -* ]]; then
+            command cat "$@"
+            return
+        fi
+    done
+    bat --paging=never --style=plain -- "$@"
+}
+
+# `grep` is deliberately NOT aliased to ripgrep. They are not interchangeable: in
+# ripgrep -r means replace, so `grep -r pattern .` in the interactive shell became
+# a replace command, and -E, --include and -A/-B do not mean the same thing on
+# both. An alias is not exported, so no script was ever affected; the damage was
+# that a command copied from the terminal into a script ran somewhere else with
+# different semantics. `rg` is short enough to type on purpose.
 alias ls='eza --icons --group-directories-first'
 alias ll='eza -l --icons --git --group-directories-first --time-style=long-iso --header'
 alias la='eza -la --icons --git --group-directories-first --time-style=long-iso --header'
 alias lt='eza --tree --icons --group-directories-first --level=2'
 alias tree='eza --tree --icons --group-directories-first --level=3'
-alias grep='rg --no-heading'
 
 # --- Network tools ---
 # `trip` (trippy) is only aliased when it is actually resolvable, so the alias
