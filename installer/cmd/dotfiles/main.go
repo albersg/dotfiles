@@ -51,10 +51,14 @@ func parseFlags() *cliFlags {
 }
 
 func main() {
+	// Hand the linker-injected build version to the TUI before anything can
+	// render or print, so the splash and the --version flag agree.
+	tui.Version = Version
+
 	flags := parseFlags()
 
 	if flags.version {
-		fmt.Printf("dotfiles v%s\n", Version)
+		fmt.Println("dotfiles " + tui.VersionLabel())
 		os.Exit(0)
 	}
 

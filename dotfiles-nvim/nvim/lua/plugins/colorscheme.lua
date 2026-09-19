@@ -82,6 +82,9 @@ return {
               TelescopeNormal = { bg = "none" },
               TelescopeBorder = { bg = "none" },
               LspInfoBorder = { bg = "none" },
+              -- Palette blue (#7fb4ca) shared with the terminal palette and the
+              -- zsh prompt's directory; this group paints the dashboard emblem.
+              SnacksDashboardHeader = { fg = "#7fb4ca" },
             }
           end,
           theme = "wave", -- Load "wave" theme
