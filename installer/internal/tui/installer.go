@@ -968,9 +968,16 @@ func stepInstallShell(m *Model) error {
 				"Failed to copy .gitconfig",
 				err)
 		}
-		// The personal identity is included by .gitconfig through includeIf, so an
-		// installation without this file would leave that block pointing at nothing.
-		if err := system.CopyFile(filepath.Join(repoDir, repoAssetGitconfigPersonal), filepath.Join(homeDir, ".gitconfig-personal")); err != nil {
+		// The personal identity is optional by design: a machine may simply not
+		// want one, and .gitconfig's includeIf does nothing when the file is
+		// absent. It is also the file most likely to be missing from an older
+		// checkout, because the installer clones the repository's default branch
+		// while the binary can come from a branch that already ships this file.
+		// TestRepoAssetsExist is what guarantees the repository contains it.
+		personalSrc := filepath.Join(repoDir, repoAssetGitconfigPersonal)
+		if _, err := os.Stat(personalSrc); err != nil {
+			SendLog(stepID, "Skipping .gitconfig-personal: not present in this checkout")
+		} else if err := system.CopyFile(personalSrc, filepath.Join(homeDir, ".gitconfig-personal")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .gitconfig-personal",
 				err)
