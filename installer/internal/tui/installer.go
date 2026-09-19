@@ -132,6 +132,16 @@ func stepBackupConfigs(m *Model) error {
 // dotfilesRepoURL is the repository the installer clones at run time.
 const dotfilesRepoURL = "https://github.com/albersg/dotfiles.git"
 
+// envDotfilesRepoRef selects the revision to clone, defaulting to the
+// repository's default branch.
+//
+// It exists because the container end-to-end tests build a binary from the
+// revision under test and then let it clone the default branch, so the installer
+// ran against a repository that did not contain the very files it was written to
+// deploy. That mismatch failed those tests twice for two different reasons
+// before this override existed.
+const envDotfilesRepoRef = "DOTFILES_REPO_REF"
+
 func stepCloneRepo(m *Model) error {
 	stepID := "clone"
 
@@ -148,7 +158,14 @@ func stepCloneRepo(m *Model) error {
 	repoDir := filepath.Join(workDir, "dotfiles")
 
 	SendLog(stepID, fmt.Sprintf("Cloning repository into %s...", repoDir))
-	result := system.RunWithLogs(fmt.Sprintf("git clone --progress %s %q", dotfilesRepoURL, repoDir), nil, func(line string) {
+	// --branch accepts a branch or a tag, and an empty value keeps the default
+	// branch, so an ordinary installation is unaffected.
+	branch := ""
+	if ref := os.Getenv(envDotfilesRepoRef); ref != "" {
+		branch = fmt.Sprintf(" --branch %q", ref)
+		SendLog(stepID, fmt.Sprintf("Using revision %s", ref))
+	}
+	result := system.RunWithLogs(fmt.Sprintf("git clone --progress%s %s %q", branch, dotfilesRepoURL, repoDir), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
