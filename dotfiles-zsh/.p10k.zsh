@@ -1703,70 +1703,121 @@
 
   # If p10k is already loaded, reload configuration.
   #
-  # Sakura Theme
   # This works even with POWERLEVEL9K_DISABLE_HOT_RELOAD=true.
-  # typeset -g COLOR_BACKGROUND="#181616"    # Dark background
-  # typeset -g COLOR_FOREGROUND="#dcd7ba"    # Light text
-  # typeset -g COLOR_BLACK="#090618"         # ANSI Black
-  # typeset -g COLOR_RED="#c34043"           # ANSI Red
-  # typeset -g COLOR_GREEN="#76946a"         # ANSI Green
-  # typeset -g COLOR_YELLOW="#c0a36e"        # ANSI Yellow
-  # typeset -g COLOR_BLUE="#7e9cd8"          # ANSI Blue
-  # typeset -g COLOR_MAGENTA="#957fb8"       # ANSI Magenta
-  # typeset -g COLOR_CYAN="#6a9589"          # ANSI Cyan
-  # typeset -g COLOR_WHITE="#c8c093"         # ANSI White
   #
-  # typeset -g COLOR_BRIGHT_BLACK="#727169"  # Bright Black
-  # typeset -g COLOR_BRIGHT_RED="#e82424"    # Bright Red
-  # typeset -g COLOR_BRIGHT_GREEN="#98bb6c"  # Bright Green
-  # typeset -g COLOR_BRIGHT_YELLOW="#e6c384" # Bright Yellow
-  # typeset -g COLOR_BRIGHT_BLUE="#7fb4ca"   # Bright Blue
-  # typeset -g COLOR_BRIGHT_MAGENTA="#938aa9" # Bright Magenta
-  # typeset -g COLOR_BRIGHT_CYAN="#7aa89f"   # Bright Cyan
-  # typeset -g COLOR_BRIGHT_WHITE="#dcd7ba"  # Bright White
- 
-  # kanagawa Theme
-  typeset -g COLOR_BACKGROUND="#1f1f28"    # bl: dark background
-  typeset -g COLOR_FOREGROUND="#dcd7ba"    # na: main text
+  # ── Palette ────────────────────────────────────────────────────────────────
+  # Every colour below comes from the palette declared once in
+  # dotfiles-zsh/.zshrc, which is what keeps the prompt from drifting away from
+  # the listings and the line editor, which read the same values. The fallbacks
+  # keep this file working when it is sourced on its own, without .zshrc.
+  #
+  # The block this replaces carried Kanagawa's palette (background #1f1f28,
+  # red #c34043, green #76946a, blue #7e9cd8) while the terminal emulators
+  # define different values, so the prompt and the terminal disagreed.
+  typeset -g PALETTE_BASE=${PALETTE_BASE:-"#06080f"}
+  typeset -g PALETTE_SURFACE=${PALETTE_SURFACE:-"#263356"}
+  typeset -g PALETTE_TEXT=${PALETTE_TEXT:-"#f3f6f9"}
+  typeset -g PALETTE_MUTED=${PALETTE_MUTED:-"#8a8fa3"}
+  typeset -g PALETTE_RED=${PALETTE_RED:-"#cb7c94"}
+  typeset -g PALETTE_GREEN=${PALETTE_GREEN:-"#b7cc85"}
+  typeset -g PALETTE_YELLOW=${PALETTE_YELLOW:-"#ffe066"}
+  typeset -g PALETTE_BLUE=${PALETTE_BLUE:-"#7fb4ca"}
+  typeset -g PALETTE_MAGENTA=${PALETTE_MAGENTA:-"#ff8dd7"}
+  typeset -g PALETTE_CYAN=${PALETTE_CYAN:-"#7aa89f"}
 
-  # --- ANSI colors ---
-  typeset -g COLOR_BLACK="#090618"         # bl: dark background
-  typeset -g COLOR_RED="#c34043"           # ia: intense red
-  typeset -g COLOR_GREEN="#76946a"         # va: soft green
-  typeset -g COLOR_YELLOW="#c0a36e"        # ca: beige
-  typeset -g COLOR_BLUE="#7e9cd8"          # va: light blue
-  typeset -g COLOR_MAGENTA="#957fb8"       # ca: lavender
-  typeset -g COLOR_CYAN="#6a9589"          # va: teal
-  typeset -g COLOR_WHITE="#c8c093"         # na: light gray
+  # No background of its own. The block above painted #1f1f28 behind the prompt
+  # while the terminal paints #06080f, so the prompt showed a lighter band the
+  # width of the screen. Leaving it empty lets the terminal's own background
+  # show through, which cannot mismatch by construction.
+  typeset -g POWERLEVEL9K_BACKGROUND=
+  typeset -g POWERLEVEL9K_FOREGROUND=$PALETTE_TEXT
 
-  # --- Bright ANSI colors ---
-  typeset -g COLOR_BRIGHT_BLACK="#727169"  # nb: medium gray
-  typeset -g COLOR_BRIGHT_RED="#e82424"    # ia: bright red
-  typeset -g COLOR_BRIGHT_GREEN="#98bb6c"  # va: bright green
-  typeset -g COLOR_BRIGHT_YELLOW="#e6c384" # ca: bright beige
-  typeset -g COLOR_BRIGHT_BLUE="#7fb4ca"   # va: bright blue
-  typeset -g COLOR_BRIGHT_MAGENTA="#938aa9" # ca: bright lavender
-  typeset -g COLOR_BRIGHT_CYAN="#7aa89f"   # va: bright teal
-  typeset -g COLOR_BRIGHT_WHITE="#dcd7ba"  # na: bright white
+  # The frame around the prompt. The corners stay readable, while the long
+  # horizontal rule that fills the space between the left and the right prompt
+  # is deliberately quiet: it separates the prompt from the command output
+  # without pulling the eye. POWERLEVEL9K_SHOW_RULER stays false; if it is
+  # turned on, its rule already uses the same value.
+  typeset -g POWERLEVEL9K_MULTILINE_FIRST_PROMPT_PREFIX="%F{$PALETTE_MUTED}╭─"
+  typeset -g POWERLEVEL9K_MULTILINE_NEWLINE_PROMPT_PREFIX="%F{$PALETTE_MUTED}├─"
+  typeset -g POWERLEVEL9K_MULTILINE_LAST_PROMPT_PREFIX="%F{$PALETTE_MUTED}╰─"
+  typeset -g POWERLEVEL9K_MULTILINE_FIRST_PROMPT_GAP_FOREGROUND=$PALETTE_SURFACE
+  typeset -g POWERLEVEL9K_RULER_FOREGROUND=$PALETTE_SURFACE
 
-  # Color assignment for Powerlevel10k
-  typeset -g POWERLEVEL9K_BACKGROUND=$COLOR_BACKGROUND
-  typeset -g POWERLEVEL9K_FOREGROUND=$COLOR_FOREGROUND
+  # os_icon and prompt_char
+  typeset -g POWERLEVEL9K_OS_ICON_FOREGROUND=$PALETTE_BLUE
+  typeset -g POWERLEVEL9K_PROMPT_CHAR_OK_{VIINS,VICMD,VIVIS,VIOWR}_FOREGROUND=$PALETTE_GREEN
+  typeset -g POWERLEVEL9K_PROMPT_CHAR_ERROR_{VIINS,VICMD,VIVIS,VIOWR}_FOREGROUND=$PALETTE_RED
 
-  # Directory
-  typeset -g POWERLEVEL9K_DIR_FOREGROUND=$COLOR_BLUE
-  typeset -g POWERLEVEL9K_DIR_ANCHOR_FOREGROUND=$COLOR_CYAN
+  # Directory. The current directory carries the accent, the shortened leading
+  # path recedes into muted, and a directory the user cannot write is a signal,
+  # so it is the only directory colour off the blue axis.
+  typeset -g POWERLEVEL9K_DIR_FOREGROUND=$PALETTE_BLUE
+  typeset -g POWERLEVEL9K_DIR_SHORTENED_FOREGROUND=$PALETTE_MUTED
+  typeset -g POWERLEVEL9K_DIR_ANCHOR_FOREGROUND=$PALETTE_CYAN
+  typeset -g POWERLEVEL9K_DIR_NOT_WRITABLE_FOREGROUND=$PALETTE_RED
+  typeset -g POWERLEVEL9K_DIR_NOT_WRITABLE_SHORTENED_FOREGROUND=$PALETTE_RED
+  typeset -g POWERLEVEL9K_DIR_NOT_WRITABLE_ANCHOR_FOREGROUND=$PALETTE_RED
 
-  # Git / VCS
-  typeset -g POWERLEVEL9K_VCS_MODIFIED_FOREGROUND=$COLOR_YELLOW
-  typeset -g POWERLEVEL9K_VCS_CLEAN_FOREGROUND=$COLOR_GREEN
-  typeset -g POWERLEVEL9K_VCS_CONFLICTED_FOREGROUND=$COLOR_RED
+  # Version control. Clean, modified and conflicted keep the meanings they had,
+  # except that untracked moves off green, where it was indistinguishable from
+  # clean.
+  typeset -g POWERLEVEL9K_VCS_CLEAN_FOREGROUND=$PALETTE_GREEN
+  typeset -g POWERLEVEL9K_VCS_UNTRACKED_FOREGROUND=$PALETTE_YELLOW
+  typeset -g POWERLEVEL9K_VCS_MODIFIED_FOREGROUND=$PALETTE_YELLOW
+  typeset -g POWERLEVEL9K_VCS_CONFLICTED_FOREGROUND=$PALETTE_RED
 
-  # Other elements
-  typeset -g POWERLEVEL9K_COMMAND_EXECUTION_TIME_FOREGROUND=$COLOR_MAGENTA
-  typeset -g POWERLEVEL9K_STATUS_OK_FOREGROUND=$COLOR_GREEN
-  typeset -g POWERLEVEL9K_STATUS_ERROR_FOREGROUND=$COLOR_RED
-  typeset -g POWERLEVEL9K_TIME_FOREGROUND=$COLOR_CYAN
+  # Status of the last command
+  typeset -g POWERLEVEL9K_STATUS_OK_FOREGROUND=$PALETTE_GREEN
+  typeset -g POWERLEVEL9K_STATUS_OK_PIPE_FOREGROUND=$PALETTE_GREEN
+  typeset -g POWERLEVEL9K_STATUS_ERROR_FOREGROUND=$PALETTE_RED
+  typeset -g POWERLEVEL9K_STATUS_ERROR_SIGNAL_FOREGROUND=$PALETTE_RED
+  typeset -g POWERLEVEL9K_STATUS_ERROR_PIPE_FOREGROUND=$PALETTE_RED
+
+  # The remaining single-purpose segments, each keeping the role it already had.
+  typeset -g POWERLEVEL9K_COMMAND_EXECUTION_TIME_FOREGROUND=$PALETTE_MAGENTA
+  typeset -g POWERLEVEL9K_BACKGROUND_JOBS_FOREGROUND=$PALETTE_YELLOW
+  typeset -g POWERLEVEL9K_DIRENV_FOREGROUND=$PALETTE_YELLOW
+  typeset -g POWERLEVEL9K_NORDVPN_FOREGROUND=$PALETTE_YELLOW
+  typeset -g POWERLEVEL9K_CONTEXT_ROOT_FOREGROUND=$PALETTE_RED
+  typeset -g POWERLEVEL9K_CONTEXT_FOREGROUND=$PALETTE_MUTED
+  # The generated section above never names these two, because powerlevel10k
+  # declares them itself, so they would keep a colour-cube index and appear the
+  # moment the shell runs on a remote host. Both take the same value as the
+  # local context, since only root is worth a different colour.
+  typeset -g POWERLEVEL9K_CONTEXT_REMOTE_FOREGROUND=$PALETTE_MUTED
+  typeset -g POWERLEVEL9K_CONTEXT_REMOTE_SUDO_FOREGROUND=$PALETTE_MUTED
+  typeset -g POWERLEVEL9K_TIME_FOREGROUND=$PALETTE_CYAN
+  typeset -g POWERLEVEL9K_TIMEWARRIOR_FOREGROUND=$PALETTE_CYAN
+  typeset -g POWERLEVEL9K_TASKWARRIOR_FOREGROUND=$PALETTE_CYAN
+  typeset -g POWERLEVEL9K_TODO_FOREGROUND=$PALETTE_MUTED
+  typeset -g POWERLEVEL9K_PER_DIRECTORY_HISTORY_LOCAL_FOREGROUND=$PALETTE_MUTED
+  typeset -g POWERLEVEL9K_PER_DIRECTORY_HISTORY_GLOBAL_FOREGROUND=$PALETTE_MUTED
+
+  # Two families of segment where every member means the same thing, so each
+  # family takes one colour. They are matched by name instead of listed one by
+  # one, because each family has variants this file does not enumerate and the
+  # family colour has to reach all of them. The match runs over the parameters
+  # that exist at this point, after the generated section above has declared
+  # them. The alternation includes the bare family name as well as the suffixed
+  # forms: the generated base value is a live fallback for members the file does
+  # not list.
+  #
+  #   Managed environments: a language runtime, a package manager, or a shell
+  #   wrapper. Cyan, the same colour the directory anchor uses.
+  #   Cloud and cluster identity: this shell is pointed at something that is not
+  #   this machine, which is worth a colour that is hard to miss.
+  #
+  # The loop variable is deliberately not named _p9k_*: powerlevel10k owns that
+  # namespace.
+  for _dotfiles_var in ${(k)parameters}; do
+    [[ $_dotfiles_var == POWERLEVEL9K_(ASDF|ASDF_*|ANACONDA|CHEZMOI_SHELL|FVM|GOENV|HASKELL_STACK|JENV|LF|LUAENV|MIDNIGHT_COMMANDER|NIX_SHELL|NNN|NODEENV|NODENV|NVM|PERLBREW|PHPENV|PLENV|PYENV|RANGER|RBENV|RVM|SCALAENV|TOOLBOX|VIM_SHELL|VIRTUALENV|XPLR)_FOREGROUND ]] || continue
+    typeset -g "$_dotfiles_var=$PALETTE_CYAN"
+  done
+  for _dotfiles_var in ${(k)parameters}; do
+    [[ $_dotfiles_var == POWERLEVEL9K_(AWS|AWS_*|AZURE|AZURE_*|GCLOUD|GCLOUD_*|GOOGLE_APP_CRED|GOOGLE_APP_CRED_*|KUBECONTEXT|KUBECONTEXT_*|TERRAFORM|TERRAFORM_*)_FOREGROUND ]] || continue
+    typeset -g "$_dotfiles_var=$PALETTE_MAGENTA"
+  done
+  unset _dotfiles_var
 
   (( ! $+functions[p10k] )) || p10k reload
 }

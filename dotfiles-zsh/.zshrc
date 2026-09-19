@@ -27,7 +27,182 @@ if [[ $- == *i* ]]; then
     # Commands to run in interactive sessions can go here
 fi
 
-export LS_COLORS="di=38;5;67:ow=48;5;60:ex=38;5;132:ln=38;5;144:*.tar=38;5;180:*.zip=38;5;180:*.jpg=38;5;175:*.png=38;5;175:*.mp3=38;5;175:*.wav=38;5;175:*.txt=38;5;223:*.sh=38;5;132"
+# ─── Palette ─────────────────────────────────────────────────────────────────
+# One palette, defined once. The terminal emulators set the same values
+# (dotfiles-ghostty, dotfiles-kitty, alacritty.toml), so everything painted
+# inside them resolves to the same colours instead of each tool falling back to
+# its own defaults.
+#
+#   base     #06080f   background
+#   surface  #263356   selection, de-emphasised punctuation
+#   text     #f3f6f9   foreground
+#   muted    #8a8fa3   comments, hints, autosuggestions
+#   red      #cb7c94   errors, archives, orphan links
+#   green    #b7cc85   success, commands, executables
+#   yellow   #ffe066   warnings, strings, documents
+#   blue     #7fb4ca   accent: directories, headers
+#   magenta  #ff8dd7   constants, images, devices
+#   cyan     #7aa89f   operators, symlinks, media
+#
+# Every entry is declared twice because the consumers disagree on the format:
+# the prompt and the line editor take hex, while LS_COLORS and EZA_COLORS take
+# an SGR sequence. Zsh expands both at file-read time, so the indirection costs
+# nothing at startup, and having one list is what stops the two forms drifting.
+#
+# The 24-bit form is not a style preference. The index form this file used
+# before (38;5;67, 38;5;132, 38;5;144) addresses entries 16-255 of the
+# terminal's colour cube, which a custom theme never redefines, so those values
+# rendered as unrelated hues on any machine using this configuration.
+typeset -g PALETTE_BASE="#06080f"       PALETTE_BASE_SGR="38;2;6;8;15"
+typeset -g PALETTE_SURFACE="#263356"    PALETTE_SURFACE_SGR="38;2;38;51;86"
+typeset -g PALETTE_TEXT="#f3f6f9"       PALETTE_TEXT_SGR="38;2;243;246;249"
+typeset -g PALETTE_MUTED="#8a8fa3"      PALETTE_MUTED_SGR="38;2;138;143;163"
+typeset -g PALETTE_RED="#cb7c94"        PALETTE_RED_SGR="38;2;203;124;148"
+typeset -g PALETTE_GREEN="#b7cc85"      PALETTE_GREEN_SGR="38;2;183;204;133"
+typeset -g PALETTE_YELLOW="#ffe066"     PALETTE_YELLOW_SGR="38;2;255;224;102"
+typeset -g PALETTE_BLUE="#7fb4ca"       PALETTE_BLUE_SGR="38;2;127;180;202"
+typeset -g PALETTE_MAGENTA="#ff8dd7"    PALETTE_MAGENTA_SGR="38;2;255;141;215"
+typeset -g PALETTE_CYAN="#7aa89f"       PALETTE_CYAN_SGR="38;2;122;168;159"
+# The only value that needs the background form rather than the foreground one.
+typeset -g PALETTE_SURFACE_BG_SGR="48;2;38;51;86"
+# A bare escape, so the strings that need a literal sequence can be built from
+# the palette instead of repeating its digits.
+typeset -g PALETTE_ESC=$'\e'
+
+# --- File listings: GNU ls reads LS_COLORS, eza reads it as its base layer ----
+export LS_COLORS="rs=0:\
+di=${PALETTE_BLUE_SGR}:\
+ln=${PALETTE_CYAN_SGR}:\
+mh=${PALETTE_MUTED_SGR}:\
+pi=${PALETTE_YELLOW_SGR}:so=${PALETTE_YELLOW_SGR}:do=${PALETTE_YELLOW_SGR}:\
+bd=${PALETTE_MAGENTA_SGR}:cd=${PALETTE_MAGENTA_SGR}:\
+or=${PALETTE_RED_SGR};1:mi=${PALETTE_RED_SGR};1:ca=${PALETTE_RED_SGR}:\
+su=${PALETTE_RED_SGR};${PALETTE_SURFACE_BG_SGR}:sg=${PALETTE_RED_SGR};${PALETTE_SURFACE_BG_SGR}:\
+tw=${PALETTE_GREEN_SGR};${PALETTE_SURFACE_BG_SGR}:ow=${PALETTE_GREEN_SGR};${PALETTE_SURFACE_BG_SGR}:\
+st=${PALETTE_BLUE_SGR};${PALETTE_SURFACE_BG_SGR}:\
+ex=${PALETTE_GREEN_SGR}:\
+*.tar=${PALETTE_RED_SGR}:*.tgz=${PALETTE_RED_SGR}:*.tbz2=${PALETTE_RED_SGR}:*.txz=${PALETTE_RED_SGR}:*.zst=${PALETTE_RED_SGR}:\
+*.zip=${PALETTE_RED_SGR}:*.7z=${PALETTE_RED_SGR}:*.rar=${PALETTE_RED_SGR}:\
+*.gz=${PALETTE_RED_SGR}:*.bz2=${PALETTE_RED_SGR}:*.xz=${PALETTE_RED_SGR}:\
+*.png=${PALETTE_MAGENTA_SGR}:*.jpg=${PALETTE_MAGENTA_SGR}:*.jpeg=${PALETTE_MAGENTA_SGR}:*.gif=${PALETTE_MAGENTA_SGR}:*.webp=${PALETTE_MAGENTA_SGR}:*.svg=${PALETTE_MAGENTA_SGR}:*.ico=${PALETTE_MAGENTA_SGR}:\
+*.mp4=${PALETTE_MAGENTA_SGR}:*.mkv=${PALETTE_MAGENTA_SGR}:*.mov=${PALETTE_MAGENTA_SGR}:*.webm=${PALETTE_MAGENTA_SGR}:\
+*.mp3=${PALETTE_CYAN_SGR}:*.flac=${PALETTE_CYAN_SGR}:*.wav=${PALETTE_CYAN_SGR}:*.ogg=${PALETTE_CYAN_SGR}:*.m4a=${PALETTE_CYAN_SGR}:\
+*.pdf=${PALETTE_YELLOW_SGR}:*.md=${PALETTE_YELLOW_SGR}:*.txt=${PALETTE_YELLOW_SGR}:*.rst=${PALETTE_YELLOW_SGR}:\
+*.sh=${PALETTE_GREEN_SGR}:*.bash=${PALETTE_GREEN_SGR}:*.zsh=${PALETTE_GREEN_SGR}:*.fish=${PALETTE_GREEN_SGR}:\
+*.py=${PALETTE_GREEN_SGR}:*.go=${PALETTE_GREEN_SGR}:*.rs=${PALETTE_GREEN_SGR}:*.js=${PALETTE_GREEN_SGR}:*.ts=${PALETTE_GREEN_SGR}:\
+*.json=${PALETTE_GREEN_SGR}:*.yaml=${PALETTE_GREEN_SGR}:*.yml=${PALETTE_GREEN_SGR}:*.toml=${PALETTE_GREEN_SGR}:\
+*.db=${PALETTE_BLUE_SGR}:*.sqlite=${PALETTE_BLUE_SGR}:*.sql=${PALETTE_BLUE_SGR}:\
+*.log=${PALETTE_MUTED_SGR}:*.lock=${PALETTE_MUTED_SGR}"
+
+# --- eza metadata ------------------------------------------------------------
+# eza paints permissions, owner, size and date from its own defaults (bold
+# yellow, red, green, blue) which fight with the file names and with every other
+# tool in the terminal. Metadata is de-emphasised here and colour is left to
+# carry meaning: the names, the git state, and the security bits in the
+# permission column.
+export EZA_COLORS="\
+oc=${PALETTE_MUTED_SGR}:\
+ur=${PALETTE_MUTED_SGR}:uw=${PALETTE_MUTED_SGR}:ux=${PALETTE_MUTED_SGR}:ue=${PALETTE_MUTED_SGR}:\
+gr=${PALETTE_MUTED_SGR}:gw=${PALETTE_MUTED_SGR}:gx=${PALETTE_MUTED_SGR}:\
+tr=${PALETTE_MUTED_SGR}:tw=${PALETTE_MUTED_SGR}:tx=${PALETTE_MUTED_SGR}:\
+su=${PALETTE_YELLOW_SGR};1:sf=${PALETTE_YELLOW_SGR};1:xa=${PALETTE_MAGENTA_SGR}:\
+sn=${PALETTE_CYAN_SGR}:nb=${PALETTE_CYAN_SGR}:nk=${PALETTE_CYAN_SGR}:nm=${PALETTE_CYAN_SGR}:ng=${PALETTE_CYAN_SGR}:nt=${PALETTE_CYAN_SGR}:\
+sb=${PALETTE_MUTED_SGR}:ub=${PALETTE_MUTED_SGR}:uk=${PALETTE_MUTED_SGR}:um=${PALETTE_MUTED_SGR}:ug=${PALETTE_MUTED_SGR}:ut=${PALETTE_MUTED_SGR}:\
+df=${PALETTE_MUTED_SGR}:ds=${PALETTE_MUTED_SGR}:lc=${PALETTE_MUTED_SGR}:lm=${PALETTE_MUTED_SGR}:\
+uu=${PALETTE_BLUE_SGR}:un=${PALETTE_MUTED_SGR}:uR=${PALETTE_RED_SGR}:\
+gu=${PALETTE_BLUE_SGR}:gn=${PALETTE_MUTED_SGR}:gR=${PALETTE_RED_SGR}:\
+xx=${PALETTE_SURFACE_SGR}:\
+da=${PALETTE_MUTED_SGR}:in=${PALETTE_MUTED_SGR}:bl=${PALETTE_MUTED_SGR}:\
+hd=${PALETTE_BLUE_SGR};1:lp=${PALETTE_CYAN_SGR}:cc=${PALETTE_RED_SGR}:bO=${PALETTE_RED_SGR};4:\
+sp=${PALETTE_MAGENTA_SGR}:mp=${PALETTE_MAGENTA_SGR}:\
+im=${PALETTE_MAGENTA_SGR}:vi=${PALETTE_MAGENTA_SGR}:mu=${PALETTE_CYAN_SGR}:lo=${PALETTE_CYAN_SGR}:\
+cr=${PALETTE_YELLOW_SGR}:do=${PALETTE_YELLOW_SGR}:co=${PALETTE_RED_SGR}:tm=${PALETTE_MUTED_SGR}:cm=${PALETTE_MUTED_SGR}:\
+ga=${PALETTE_GREEN_SGR}:gm=${PALETTE_YELLOW_SGR}:gd=${PALETTE_RED_SGR}:gv=${PALETTE_MAGENTA_SGR}:\
+gt=${PALETTE_YELLOW_SGR}:gi=${PALETTE_MUTED_SGR}:gc=${PALETTE_RED_SGR};1:\
+Gm=${PALETTE_BLUE_SGR};1:Go=${PALETTE_CYAN_SGR}:Gc=${PALETTE_GREEN_SGR}:Gd=${PALETTE_YELLOW_SGR}"
+
+# Icons need a space to breathe next to the name.
+export EZA_ICON_SPACING=2
+
+# --- bat --------------------------------------------------------------------
+# gruvbox is a warm, retro palette sitting inside a cool-dark terminal, which is
+# the single most visible clash in the previous configuration. Of the themes bat
+# ships, Catppuccin Mocha is the closest to this palette, and it paints no
+# background of its own, so the terminal's own background shows through instead
+# of a panel with a different black behind it.
+export BAT_THEME="Catppuccin Mocha"
+
+# --- zsh-autosuggestions ------------------------------------------------------
+# The default highlight is `fg=8`, the terminal's bright black, which on this
+# palette is very close to invisible. Muted is the palette's own secondary text.
+# The buffer limit is a latency guard rather than a look: past a couple of dozen
+# characters the suggestion cannot keep up with typing, so it is not computed.
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=${PALETTE_MUTED}"
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
+
+# --- zsh-syntax-highlighting --------------------------------------------------
+# The plugin fills in a default only for keys that are still unset, so setting
+# them before it loads further down this file is what makes them stick. The
+# associative array has to be declared first, or the first assignment would turn
+# it into an ordinary indexed array and the keys would stop matching.
+typeset -gA ZSH_HIGHLIGHT_STYLES
+ZSH_HIGHLIGHT_STYLES[default]="fg=${PALETTE_TEXT}"
+ZSH_HIGHLIGHT_STYLES[unknown-token]="fg=${PALETTE_RED},bold"
+ZSH_HIGHLIGHT_STYLES[reserved-word]="fg=${PALETTE_MAGENTA}"
+ZSH_HIGHLIGHT_STYLES[builtin]="fg=${PALETTE_BLUE}"
+ZSH_HIGHLIGHT_STYLES[function]="fg=${PALETTE_BLUE}"
+ZSH_HIGHLIGHT_STYLES[alias]="fg=${PALETTE_BLUE}"
+ZSH_HIGHLIGHT_STYLES[suffix-alias]="fg=${PALETTE_BLUE},underline"
+ZSH_HIGHLIGHT_STYLES[global-alias]="fg=${PALETTE_BLUE}"
+ZSH_HIGHLIGHT_STYLES[command]="fg=${PALETTE_GREEN}"
+ZSH_HIGHLIGHT_STYLES[precommand]="fg=${PALETTE_GREEN},underline"
+ZSH_HIGHLIGHT_STYLES[autodirectory]="fg=${PALETTE_BLUE},underline"
+ZSH_HIGHLIGHT_STYLES[hashed-command]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[arg0]="fg=${PALETTE_TEXT}"
+ZSH_HIGHLIGHT_STYLES[path]="fg=${PALETTE_TEXT}"
+ZSH_HIGHLIGHT_STYLES[path_pathseparator]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[path_prefix]="fg=${PALETTE_TEXT}"
+ZSH_HIGHLIGHT_STYLES[path_prefix_pathseparator]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[globbing]="fg=${PALETTE_MAGENTA}"
+ZSH_HIGHLIGHT_STYLES[history-expansion]="fg=${PALETTE_MAGENTA}"
+ZSH_HIGHLIGHT_STYLES[comment]="fg=${PALETTE_MUTED}"
+ZSH_HIGHLIGHT_STYLES[assign]="fg=${PALETTE_TEXT}"
+ZSH_HIGHLIGHT_STYLES[redirection]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[named-fd]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[numeric-fd]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[single-quoted-argument]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[single-quoted-argument-unclosed]="fg=${PALETTE_RED},bold"
+ZSH_HIGHLIGHT_STYLES[double-quoted-argument]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[double-quoted-argument-unclosed]="fg=${PALETTE_RED},bold"
+ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument-unclosed]="fg=${PALETTE_RED},bold"
+ZSH_HIGHLIGHT_STYLES[rc-quote]="fg=${PALETTE_MAGENTA}"
+ZSH_HIGHLIGHT_STYLES[dollar-double-quoted-argument]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[back-double-quoted-argument]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[back-dollar-quoted-argument]="fg=${PALETTE_CYAN}"
+ZSH_HIGHLIGHT_STYLES[back-quoted-argument]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[back-quoted-argument-unclosed]="fg=${PALETTE_RED},bold"
+ZSH_HIGHLIGHT_STYLES[command-substitution]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[command-substitution-unquoted]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[process-substitution]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[arithmetic-expansion]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[single-square-bracket]="fg=${PALETTE_MAGENTA}"
+ZSH_HIGHLIGHT_STYLES[bracket-level-1]="fg=${PALETTE_BLUE}"
+ZSH_HIGHLIGHT_STYLES[bracket-level-2]="fg=${PALETTE_GREEN}"
+ZSH_HIGHLIGHT_STYLES[bracket-level-3]="fg=${PALETTE_YELLOW}"
+ZSH_HIGHLIGHT_STYLES[bracket-error]="fg=${PALETTE_RED},bold"
+ZSH_HIGHLIGHT_STYLES[cursor-matchingbracket]=standout
+ZSH_HIGHLIGHT_STYLES[numeric-constant]="fg=${PALETTE_MAGENTA}"
+ZSH_HIGHLIGHT_STYLES[else]="fg=${PALETTE_RED}"
+
+# `brackets` marks the pair around the cursor and `cursor` highlights the
+# character under it; both are cheap and neither repaints the whole line.
+typeset -ga ZSH_HIGHLIGHT_HIGHLIGHTERS
+ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets cursor)
+# A guard for very long lines: past this length the highlighter gives up, which
+# is what keeps a large paste from stalling the line editor.
+ZSH_HIGHLIGHT_MAXLENGTH=500
 
 # Homebrew setup (skip on Termux)
 if [[ $IS_TERMUX -eq 0 ]]; then
@@ -165,7 +340,26 @@ fi
 export PROJECT_PATHS="$HOME/work"
 export FZF_DEFAULT_COMMAND="fd --hidden --strip-cwd-prefix --exclude .git"
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
-export FZF_ALT_COMMAND="fd --type=d --hidden --strip-cwd-prefix --exclude .git"
+# fzf draws its own UI and defaults to sixteen fixed colours that follow no
+# theme, which made the picker look like a different application sitting inside
+# the terminal. These are the palette values above.
+export FZF_DEFAULT_OPTS="--color=fg:${PALETTE_TEXT},bg:${PALETTE_BASE},hl:${PALETTE_YELLOW} \
+--color=fg+:${PALETTE_TEXT},bg+:${PALETTE_SURFACE},hl+:${PALETTE_YELLOW} \
+--color=info:${PALETTE_BLUE},prompt:${PALETTE_CYAN},pointer:${PALETTE_MAGENTA} \
+--color=marker:${PALETTE_GREEN},spinner:${PALETTE_YELLOW},header:${PALETTE_MUTED} \
+--color=border:${PALETTE_MUTED},label:${PALETTE_BLUE},query:${PALETTE_TEXT} \
+--border=rounded --layout=reverse --info=inline-right"
+# Ctrl+T and Alt+C otherwise open an empty list. The preview is the reason to
+# reach for a fuzzy finder instead of typing the path.
+export FZF_CTRL_T_OPTS="--preview 'bat --style=numbers --color=always --line-range=:300 {}' --preview-window 'right:55%:wrap'"
+# The variable name matters: fzf reads FZF_ALT_C_COMMAND. The previous
+# FZF_ALT_COMMAND was never read, so Alt+C fell back to FZF_DEFAULT_COMMAND and
+# listed files where only directories were expected.
+export FZF_ALT_C_COMMAND="fd --type=d --hidden --strip-cwd-prefix --exclude .git"
+export FZF_ALT_C_OPTS="--preview 'eza --tree --icons --group-directories-first --level=2 --color=always {}' --preview-window 'right:55%'"
+# fzf also drives the `**<Tab>` completion trigger, which renders with the same
+# hard-coded defaults otherwise.
+export FZF_COMPLETION_OPTS="--border=rounded --layout=reverse"
 
 WM_VAR="$HERDR_ENV"
 
@@ -180,15 +374,16 @@ function start_if_needed() {
 }
 
 # alias
-alias fzfbat='fzf --preview="bat --theme=gruvbox-dark --color=always {}"'
-alias fzfnvim='nvim $(fzf --preview="bat --theme=gruvbox-dark --color=always {}")'
+alias fzfbat='fzf --preview="bat --color=always {}"'
+alias fzfnvim='nvim $(fzf --preview="bat --color=always {}")'
 
 # --- Modern Unix replacements (transparent: cat→bat, ls→eza, grep→rg) ---
-alias cat='bat --paging=never'
+alias cat='bat --paging=never --style=plain'
 alias ls='eza --icons --group-directories-first'
-alias ll='eza -l --icons --git --group-directories-first'
-alias la='eza -la --icons --git --group-directories-first'
-alias tree='eza --tree --icons --level=3'
+alias ll='eza -l --icons --git --group-directories-first --time-style=long-iso --header'
+alias la='eza -la --icons --git --group-directories-first --time-style=long-iso --header'
+alias lt='eza --tree --icons --group-directories-first --level=2'
+alias tree='eza --tree --icons --group-directories-first --level=3'
 alias grep='rg --no-heading'
 
 # --- Network tools ---
@@ -200,11 +395,16 @@ if command -v trip >/dev/null 2>&1; then
 fi
 alias http='xh'              # xh > curl for APIs
 
-# bat theme (use the one that matches your terminal palette)
-export BAT_THEME="gruvbox-dark"
+# bat's theme is set with the palette near the top of this file.
 
 export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
-zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
+# Completion listings. The group heading uses the palette instead of a hard-coded
+# ANSI grey, and the entries reuse the same LS_COLORS the listings print with, so
+# the menu does not switch to a second colour scheme.
+zstyle ':completion:*:descriptions' format "${PALETTE_ESC}[1;${PALETTE_BLUE_SGR}m%d${PALETTE_ESC}[0m"
+zstyle ':completion:*' format "${PALETTE_ESC}[${PALETTE_MUTED_SGR}mCompleting %d${PALETTE_ESC}[0m"
+zstyle ':completion:*' group-name ''
+zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
 
 # carapace regenerates roughly 24 KB of completion registrations on every shell
 # start, and that generation alone measures about 250 ms here, more than
