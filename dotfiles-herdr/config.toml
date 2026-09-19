@@ -3,14 +3,29 @@ onboarding = false
 # This file is copied into ~/.config/herdr/config.toml during installation.
 
 [theme]
-# Use a built-in dark theme with neutral foregrounds so Herdr does not inherit
+# A built-in dark theme with neutral foregrounds, so Herdr does not inherit
 # Ghostty bright-black selected rows or Kanagawa's warm/yellow label text.
 name = "vesper"
 
 auto_switch = false
-[ui]
 
-accent = "#6FA0AF"
+# Token overrides on top of that theme, so the chrome Herdr draws agrees with the
+# terminal palette (dotfiles-ghostty, dotfiles-kitty, alacritty.toml) and with
+# the zsh prompt, which all read the same values from dotfiles-zsh/.zshrc.
+[theme.custom]
+# "reset" is the terminal's own background. Without it Herdr paints its own
+# near-black behind every pane, which is a second black sitting next to the
+# terminal's.
+panel_bg = "reset"
+# The value the terminal uses for a text selection, so selecting inside a pane
+# and selecting inside the terminal look like the same operation.
+selection_bg = "#263356"
+
+[ui]
+# Herdr's accent for highlights, borders and navigation UI. #7fb4ca is the
+# palette blue, the one the zsh prompt already uses for the directory, replacing
+# #6FA0AF, which came from no palette in this repository.
+accent = "#7fb4ca"
 
 show_agent_labels_on_pane_borders = true
 agent_panel_sort = "spaces"
