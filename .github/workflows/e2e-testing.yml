@@ -78,6 +78,8 @@ jobs:
           cache-dependency-path: installer/go.sum
 
       - name: Run Termux Docker E2E
+        env:
+          DOTFILES_REPO_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || '' }}
         run: ./installer/e2e/docker-test.sh e2e termux
 
   macos-smoke:
