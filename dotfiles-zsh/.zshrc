@@ -125,12 +125,21 @@ Gm=${PALETTE_BLUE_SGR};1:Go=${PALETTE_CYAN_SGR}:Gc=${PALETTE_GREEN_SGR}:Gd=${PAL
 export EZA_ICON_SPACING=2
 
 # --- bat --------------------------------------------------------------------
-# gruvbox is a warm, retro palette sitting inside a cool-dark terminal, which is
-# the single most visible clash in the previous configuration. Of the themes bat
-# ships, Catppuccin Mocha is the closest to this palette, and it paints no
-# background of its own, so the terminal's own background shows through instead
-# of a panel with a different black behind it.
-export BAT_THEME="Catppuccin Mocha"
+# The theme is generated from the palette above and shipped with these dotfiles,
+# because none of the themes bat ships can match a custom palette: each was drawn
+# for its own background and its own accent colours, so any of them puts colours
+# on screen that the terminal never defines.
+#
+# A theme has to be built into bat's cache before it can be selected, and it is the
+# installer that copies the file and runs `bat cache --build`. On a machine where
+# that has not happened yet, naming it would make every bat invocation print
+# "Unknown theme" and fall back anyway, so the closest shipped theme is used until
+# the file is present.
+if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/bat/themes/dotfiles.tmTheme" ]]; then
+    export BAT_THEME="dotfiles"
+else
+    export BAT_THEME="Catppuccin Mocha"
+fi
 
 # --- zsh-autosuggestions ------------------------------------------------------
 # The default highlight is `fg=8`, the terminal's bright black, which on this

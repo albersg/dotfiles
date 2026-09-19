@@ -422,6 +422,7 @@ func ConfigPaths() map[string]string {
 		"kitty":     home + "/.config/kitty",
 		"ghostty":   home + "/.config/ghostty",
 		"starship":  home + "/.config/starship.toml",
+		"bat":       home + "/.config/bat",
 		// Overwritten by the shell step, which copies the repository's version, so
 		// it has to be backed up like every other config the installer replaces.
 		"gitconfig": home + "/.gitconfig",
