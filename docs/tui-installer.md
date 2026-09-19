@@ -39,10 +39,10 @@ dotfiles
 
 | Platform | Command |
 |----------|---------|
-| macOS Apple Silicon | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| macOS Intel | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| Linux x86_64 | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
-| Linux ARM64 | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-installer-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Apple Silicon | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-darwin-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| macOS Intel | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-darwin-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux x86_64 | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-linux-amd64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
+| Linux ARM64 | `curl -fsSL https://github.com/albersg/dotfiles/releases/latest/download/dotfiles-linux-arm64 -o dotfiles && chmod +x dotfiles && ./dotfiles` |
 
 ### Option 3: Build from Source
 
@@ -225,7 +225,7 @@ The installer includes educational content to help you understand each tool:
 | **Linux** | Ubuntu 20.04+, Debian, Fedora/RHEL, Arch |
 | **Termux** | Android terminal emulator |
 | **Homebrew** | Will be installed if missing (macOS/Linux, except Fedora) |
-| **Git** | For cloning the repository |
+| **Git and curl** | Git for cloning the repository; curl for downloading packages and installers |
 | **Internet** | For downloading packages |
 
 ## Troubleshooting
@@ -310,7 +310,7 @@ go test ./internal/tui/... -update
 ```
 installer/
 ├── cmd/
-│   └── dotfiles-installer/
+│   └── dotfiles/
 │       └── main.go              # Entry point with CLI parsing
 ├── internal/
 │   ├── system/
