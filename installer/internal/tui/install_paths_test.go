@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -434,5 +435,120 @@ func TestStepInstallShellInstallsGitConfig(t *testing.T) {
 		if string(got) != string(want) {
 			t.Errorf("%s does not match %s in the repository", tc.dst, tc.asset)
 		}
+	}
+}
+
+// TestInstallConfigDirReportsRemovedPaths pins the reporting requirement: a
+// pruned file has to be visible in the install log instead of disappearing
+// silently.
+func TestInstallConfigDirReportsRemovedPaths(t *testing.T) {
+	t.Setenv("DOTFILES_VERBOSE", "1")
+	SetNonInteractiveMode(true)
+	t.Cleanup(func() { SetNonInteractiveMode(false) })
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = oldStdout })
+
+	src := t.TempDir()
+	dst := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "init.lua"), []byte("init"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dst, "lua", "plugins", "veil.lua")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("dead"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installConfigDir("nvim", src, dst); err != nil {
+		t.Fatalf("installConfigDir failed: %v", err)
+	}
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), stale) {
+		t.Errorf("the removed path was not reported in the install log: %q", out)
+	}
+}
+
+// TestStepInstallNvimPrunesLeftoversAndKeepsUserState covers issue #13 through
+// the step: a file the repository no longer ships is removed from
+// ~/.config/nvim, while lazy-lock.json, which lazy.nvim owns, survives.
+//
+// The fixture ships its own lazy-lock.json on purpose, so the test proves the
+// user's content wins rather than the file merely being copied from the source.
+func TestStepInstallNvimPrunesLeftoversAndKeepsUserState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	withPackageCommandMocks(t, nil)
+
+	repo := t.TempDir()
+	nvimSrc := filepath.Join(repo, repoAssetNvim)
+	if err := os.MkdirAll(filepath.Join(nvimSrc, "lua", "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(nvimSrc, "init.lua"):                     "init",
+		filepath.Join(nvimSrc, "lua", "plugins", "editor.lua"): "editor",
+		filepath.Join(nvimSrc, "lazy-lock.json"):               `{"repo":"pinned"}`,
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	nvimDir := filepath.Join(home, ".config", "nvim")
+	staleFile := filepath.Join(nvimDir, "lua", "plugins", "veil.lua")
+	staleDirFile := filepath.Join(nvimDir, "lua", "config", "gentleman", "utils.lua")
+	lock := filepath.Join(nvimDir, "lazy-lock.json")
+	for path, content := range map[string]string{
+		staleFile:    "-- removed upstream\n",
+		staleDirFile: "-- removed upstream\n",
+		lock:         `{"user":true}`,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := NewModel()
+	// Termux keeps the optional Claude and OpenCode installers, which shell out to
+	// the network, out of this test; the directory copy is platform-independent.
+	m.SystemInfo = &system.SystemInfo{IsTermux: true}
+	m.Choices = UserChoices{OS: "termux", InstallNvim: true}
+	m.RepoDir = repo
+
+	if err := stepInstallNvim(&m); err != nil {
+		t.Fatalf("nvim step failed: %v", err)
+	}
+
+	for _, path := range []string{staleFile, staleDirFile} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("a path the repository no longer ships must be removed: %s: %v", path, err)
+		}
+	}
+	got, err := os.ReadFile(lock)
+	if err != nil {
+		t.Fatalf("lazy-lock.json must survive the install: %v", err)
+	}
+	if string(got) != `{"user":true}` {
+		t.Errorf("lazy-lock.json content = %q, want the user's state", got)
+	}
+	if _, err := os.Stat(filepath.Join(nvimDir, "init.lua")); err != nil {
+		t.Errorf("the repository Neovim config was not installed: %v", err)
 	}
 }

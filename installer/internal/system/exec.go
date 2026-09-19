@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -315,6 +317,9 @@ func CopyFile(src, dst string) error {
 // CopyDir recursively copies a directory using native Go (shell-independent).
 // Entries that are not regular files are skipped; use CopyDirReport when the
 // caller needs to know which ones.
+//
+// CopyDir merges into dst: a path that exists only in dst is left in place. Use
+// CopyDirPruned to install a configuration directory so it ends up matching src.
 func CopyDir(src, dst string) error {
 	_, err := CopyDirReport(src, dst)
 	return err
@@ -326,28 +331,69 @@ func CopyDir(src, dst string) error {
 // ~/.config/herdr/herdr.sock lives beside real configuration, and failing the
 // whole copy over a socket would abort the installation before it starts.
 func CopyDirReport(src, dst string) (skipped []string, err error) {
+	_, skipped, err = copyDirTree(src, dst, false, nil)
+	return skipped, err
+}
+
+// CopyDirPruned installs src into dst so that dst ends up matching src: a
+// destination path that the source no longer ships is removed. Without this a
+// file the repository dropped stays on disk forever and keeps being loaded
+// beside the differently named file that replaced it.
+//
+// Deletion boundary. Pruning only ever removes paths inside dst, the directory
+// this call was asked to install, and it never follows a path outside it. The
+// caller therefore has to pass a directory the installer owns; this function
+// cannot tell an owned configuration tree from the user's home. The removal
+// itself is the same one RestoreBackup already relies on: delete the destination
+// entry, then write the source over it.
+//
+// User-owned state. Destination-relative paths named in keep are treated as
+// user-owned: an existing one is neither overwritten nor removed, and a missing
+// one is still installed from the source. A configuration directory can hold
+// runtime state that only the tool or the user writes, such as lazy.nvim's
+// lazy-lock.json; its content legitimately differs from the repository copy, and
+// a newer checkout that ships a different one (or none at all) must not clobber
+// or delete the user's. Entries that are not regular files are skipped, exactly
+// as in CopyDirReport.
+func CopyDirPruned(src, dst string, keep ...string) (removed []string, err error) {
+	removed, _, err = copyDirTree(src, dst, true, keep)
+	return removed, err
+}
+
+// copyDirTree is the single walk behind CopyDir, CopyDirReport and CopyDirPruned.
+// It copies every regular file in src into dst, except a destination-relative
+// keep path that already exists in dst. When prune is set it then removes dst
+// paths the source does not contain, except the keep paths, and returns them in
+// removed in lexical order.
+func copyDirTree(src, dst string, prune bool, keep []string) (removed, skipped []string, err error) {
 	// Clean paths - remove trailing /* or /. if present
 	src = strings.TrimSuffix(strings.TrimSuffix(src, "/*"), "/.")
 	walkRoot, err := filepath.EvalSymlinks(src)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, err
+			return nil, nil, err
 		}
 		walkRoot = src
 	}
 
 	rootInfo, err := os.Stat(walkRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !rootInfo.IsDir() {
-		return nil, fmt.Errorf("copy dir %s: source is not a directory", src)
+		return nil, nil, fmt.Errorf("copy dir %s: source is not a directory", src)
 	}
 	if err := os.MkdirAll(dst, rootInfo.Mode()); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	keepSet := make(map[string]bool, len(keep))
+	for _, path := range keep {
+		keepSet[filepath.Clean(path)] = true
 	}
 
 	skipped = []string{}
+	present := map[string]bool{".": true}
 	err = filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -363,6 +409,7 @@ func CopyDirReport(src, dst string) (skipped []string, err error) {
 		if err != nil {
 			return err
 		}
+		present[relPath] = true
 		dstPath := filepath.Join(dst, relPath)
 
 		if resolvedInfo.IsDir() {
@@ -374,9 +421,62 @@ func CopyDirReport(src, dst string) (skipped []string, err error) {
 			return nil
 		}
 
+		// A user-owned entry that is already present is left exactly as the user
+		// left it; only a missing one is installed from the source.
+		if keepSet[filepath.Clean(relPath)] {
+			if _, err := os.Lstat(dstPath); err == nil {
+				return nil
+			}
+		}
+
 		return CopyFile(path, dstPath)
 	})
-	return skipped, err
+	if err != nil || !prune {
+		return removed, skipped, err
+	}
+
+	removed = []string{}
+	var staleDirs []string
+	err = filepath.Walk(dst, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(dst, path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." || present[relPath] || keepSet[filepath.Clean(relPath)] {
+			return nil
+		}
+		if info.IsDir() {
+			// Remove the files first so each pruned file is reported, then drop
+			// the directory once it is empty.
+			staleDirs = append(staleDirs, path)
+			return nil
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		removed = append(removed, path)
+		return nil
+	})
+	if err != nil {
+		return removed, skipped, err
+	}
+
+	// Deepest first so a parent can be removed after its children. A stale
+	// directory that still holds user-owned state fails with ENOTEMPTY, which is
+	// the intended outcome and not an error.
+	sort.Slice(staleDirs, func(i, j int) bool {
+		return strings.Count(staleDirs[i], string(os.PathSeparator)) >
+			strings.Count(staleDirs[j], string(os.PathSeparator))
+	})
+	for _, dir := range staleDirs {
+		if err := os.Remove(dir); err != nil && !os.IsNotExist(err) && !errors.Is(err, syscall.ENOTEMPTY) {
+			return removed, skipped, err
+		}
+	}
+	return removed, skipped, nil
 }
 
 // PathExists reports whether path exists, following symlinks. A symlinked

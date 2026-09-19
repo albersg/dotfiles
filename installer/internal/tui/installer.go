@@ -1498,6 +1498,32 @@ func clipboardPlatformPackages(providers string) platformPackages {
 	}
 }
 
+// nvimUserOwnedEntries are destination-relative paths inside ~/.config/nvim
+// that belong to the user and to lazy.nvim rather than to the repository.
+// lazy-lock.json is rewritten on the machine whenever plugins are updated, so
+// its content legitimately differs from the repository copy and the installer
+// must neither overwrite nor delete it when it is already present.
+var nvimUserOwnedEntries = []string{"lazy-lock.json"}
+
+// installConfigDir copies a configuration directory into place and reports every
+// path the repository no longer ships that had to be removed, so a pruned file
+// is visible in the install log instead of disappearing silently. keep names
+// destination-relative paths that are user-owned runtime state.
+func installConfigDir(stepID, src, dst string, keep ...string) error {
+	removed, err := system.CopyDirPruned(src, dst, keep...)
+	if err != nil {
+		return err
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	SendLog(stepID, fmt.Sprintf("Removed %d path(s) the repository no longer ships:", len(removed)))
+	for _, path := range removed {
+		SendLog(stepID, fmt.Sprintf("  ✗ %s", path))
+	}
+	return nil
+}
+
 func stepInstallNvim(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	stepID := "nvim"
@@ -1580,9 +1606,11 @@ func stepInstallNvim(m *Model) error {
 			"Failed to create Neovim config directory",
 			err)
 	}
-	// Copy nvim config directory
+	// Copy nvim config directory. The destination must end up matching the
+	// checkout: a file the repository dropped used to survive forever and keep
+	// being loaded beside the file that replaced it (issue #13).
 	srcNvim := filepath.Join(repoDir, repoAssetNvim)
-	if err := system.CopyDir(srcNvim, nvimDir); err != nil {
+	if err := installConfigDir(stepID, srcNvim, nvimDir, nvimUserOwnedEntries...); err != nil {
 		return wrapStepError("nvim", "Install Neovim",
 			"Failed to copy Neovim configuration",
 			err)
