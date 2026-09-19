@@ -19,34 +19,42 @@ func formatControlChars(input string) string {
 }
 
 const logo = `
-                    ░░░░░░      ░░░░░░                        
-                  ░░░░░░░░░░  ░░░░░░░░░░                      
-                ░░░░░░░░░░░░░░░░░░░░░░░░░░                    
-              ░░░░░░░░░░▒▒▒▒░░▒▒▒▒░░░░░░░░░░                  
-  ░░░░      ░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░        ░░░░    
-▒▒░░      ░░░░░░▒▒▒▒▒▒▒▒▒▒██▒▒██▒▒▒▒▒▒▒▒▒▒░░░░░░        ▒▒░░  
-▒▒░░    ░░░░░░░░▒▒▒▒▒▒▒▒▒▒████▒▒████▒▒▒▒▒▒▒▒▒▒░░░░░░░░  ▒▒░░  
-▒▒▒▒░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒██████▒▒██████▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░▒▒▒▒
-██▒▒▒▒▒▒▒▒▒▒▒▒▒▒██▒▒▒▒██████▓▓██▒▒██████▒▒▓▓██▒▒▒▒▒▒▒▒▒▒▒▒▒▒██
-████▒▒▒▒▒▒████▒▒▒▒██████████  ██████████▒▒▒▒████▒▒▒▒▒▒▒▒██    
-  ████████████████████████      ████████████████████████      
-    ██████████████████              ██████████████████        
-        ██████████                      ██████████            
+              ▒              
+            ░░ ░░            
+          ░░  █  ░░          
+        ░░    █    ░░        
+      ░░    ▓███▓    ░░      
+    ░░     ▓█████▓     ░░    
+  ░░       ▓█████▓       ░░  
+▒░        ▓███████▓        ░▒
+  ░░      ▓███████▓      ░░  
+    ░▒█████████████████▒░    
+      ░░      ▓      ░░      
+        ░░    ▓    ░░        
+          ░░  ▓  ░░          
+            ░███░            
+              ▒              
+`
+
+const compactLogo = `
+        ░        
+      ░░█░░      
+    ░░▓███▓░░    
+  ░░  ▓███▓  ░░  
+░░   ▓█████▓   ░░
+  ░░█████████░░  
+    ░░  ▓  ░░    
+      ░░▓░░      
+       ███       
 `
 
 const dotfilesText = `
- ██████╗ ███████╗███╗   ██╗████████╗██╗     ███████╗███╗   ███╗ █████╗ ███╗   ██╗
-██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██║     ██╔════╝████╗ ████║██╔══██╗████╗  ██║
-██║  ███╗█████╗  ██╔██╗ ██║   ██║   ██║     █████╗  ██╔████╔██║███████║██╔██╗ ██║
-██║   ██║██╔══╝  ██║╚██╗██║   ██║   ██║     ██╔══╝  ██║╚██╔╝██║██╔══██║██║╚██╗██║
-╚██████╔╝███████╗██║ ╚████║   ██║   ███████╗███████╗██║ ╚═╝ ██║██║  ██║██║ ╚████║
- ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝
-                        ██████╗  ██████╗ ████████╗███████╗
-                        ██╔══██╗██╔═══██╗╚══██╔══╝██╔════╝
-                        ██║  ██║██║   ██║   ██║   ███████╗
-                        ██║  ██║██║   ██║   ██║   ╚════██║
-                        ██████╔╝╚██████╔╝   ██║   ███████║
-                        ╚═════╝  ╚═════╝    ╚═╝   ╚══════╝
+██████╗   ██████╗  ████████╗ ███████╗ ██╗ ██╗      ███████╗ ███████╗
+██╔══██╗ ██╔═══██╗ ╚══██╔══╝ ██╔════╝ ██║ ██║      ██╔════╝ ██╔════╝
+██║  ██║ ██║   ██║    ██║    █████╗   ██║ ██║      █████╗   ███████╗
+██║  ██║ ██║   ██║    ██║    ██╔══╝   ██║ ██║      ██╔══╝   ╚════██║
+██████╔╝ ╚██████╔╝    ██║    ██║      ██║ ███████╗ ███████╗ ███████║
+╚═════╝   ╚═════╝     ╚═╝    ╚═╝      ╚═╝ ╚══════╝ ╚══════╝ ╚══════╝
 `
 
 // View implements tea.Model
@@ -132,13 +140,26 @@ func (m Model) View() string {
 	return paddedStyle.Render(s.String())
 }
 
+// The full welcome lockup is 33 lines: emblem, wordmark and three text lines.
+// CenterBoth places content taller than the frame by overflowing it, which
+// clips the top of the emblem, so a terminal shorter than the lockup gets the
+// version without the wordmark instead. The wordmark is the part that is
+// dropped because it repeats what the emblem already says.
+const welcomeFullLockupHeight = 34
+
 func (m Model) renderWelcome() string {
 	var s strings.Builder
 
 	// Logo
-	s.WriteString(LogoStyle.Render(logo))
-	s.WriteString("\n")
-	s.WriteString(TitleStyle.Render(dotfilesText))
+	if m.Height >= welcomeFullLockupHeight {
+		s.WriteString(LogoStyle.Render(logo))
+		s.WriteString("\n")
+		s.WriteString(TitleStyle.Render(dotfilesText))
+	} else {
+		s.WriteString(LogoStyle.Render(compactLogo))
+		s.WriteString("\n")
+		s.WriteString(TitleStyle.Render("dotfiles"))
+	}
 	s.WriteString("\n\n")
 
 	// System info
