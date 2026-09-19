@@ -307,6 +307,14 @@ fi
 # Zsh built-ins required by Oh My Zsh and completion plugins.
 zmodload zsh/zutil
 zmodload zsh/complist
+# Extra completion definitions on fpath, before the completion system is
+# initialised below. compinit only sees the directories that are on fpath at the
+# moment it runs, so this cannot move further down the file.
+if [[ -n "$BREW_BIN" && -d "$(dirname "$BREW_BIN")/share/zsh-completions" ]]; then
+    typeset -U fpath
+    fpath=("$(dirname "$BREW_BIN")/share/zsh-completions" $fpath)
+fi
+
 autoload -Uz add-zsh-hook add-zle-hook-widget bashcompinit colors compinit is-at-least zmathfunc zrecompile
 
 # Oh My Zsh must initialize before third-party plugins.
@@ -440,6 +448,12 @@ zstyle ':completion:*' format "${PALETTE_ESC}[${PALETTE_MUTED_SGR}mCompleting %d
 zstyle ':completion:*' group-name ''
 zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
 
+# fzf-tab hands the completion list to fzf. The completion menu has to be turned
+# off, or zsh draws its own menu in the same keystroke that opens fzf's.
+zstyle ':completion:*' menu no
+zstyle ':fzf-tab:*' fzf-flags --height=60%
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza --tree --icons --group-directories-first --level=2 --color=always $realpath'
+
 # carapace regenerates roughly 24 KB of completion registrations on every shell
 # start, and that generation alone measures about 250 ms here, more than
 # everything else in this file combined outside the completion system. The output
@@ -467,6 +481,16 @@ if command -v carapace >/dev/null 2>&1; then
 fi
 
 eval "$(fzf --zsh)"
+
+# fzf-tab replaces the completion menu with fzf, and it is sourced here on
+# purpose: fzf's own shell integration, one line above, binds Tab to
+# fzf-completion, so loading fzf-tab earlier would leave it overwritten and
+# installed but never used. fzf keeps the bindings it owns, Ctrl+T and Alt+C; this
+# only takes Tab. Homebrew installs the plugin under `opt` rather than `share`,
+# and there is no distribution package to fall back to.
+if [[ -n "$BREW_SHARE" && -f "${BREW_SHARE:h}/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh" ]]; then
+    source "${BREW_SHARE:h}/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh"
+fi
 eval "$(zoxide init zsh)"
 eval "$(atuin init zsh)"
 
