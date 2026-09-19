@@ -58,6 +58,7 @@
     nodenv                  # node.js version from nodenv (https://github.com/nodenv/nodenv)
     nvm                     # node.js version from nvm (https://github.com/nvm-sh/nvm)
     nodeenv                 # node.js environment (https://github.com/ekalinin/nodeenv)
+    fnm_node                # active node version, read from the fnm path (see below)
     # node_version          # node.js version
     # go_version            # go version (https://golang.org)
     # rust_version          # rustc version (https://www.rust-lang.org)
@@ -103,9 +104,14 @@
     todo                    # todo items (https://github.com/todotxt/todo.txt-cli)
     timewarrior             # timewarrior tracking status (https://timewarrior.net/)
     taskwarrior             # taskwarrior task count (https://taskwarrior.org/)
-    per_directory_history   # Oh My Zsh per-directory-history local/global indicator
+    # per_directory_history # removed: it only renders when Oh My Zsh's
+    #                         per-directory-history plugin is loaded, and this
+    #                         configuration loads only command-not-found, so the
+    #                         segment never appeared. Add that plugin to
+    #                         `plugins=` in .zshrc to bring it back, rather than
+    #                         leaving a segment that cannot work.
     # cpu_arch              # CPU architecture
-    # time                    # current time
+    time                    # current time; the format is set near the bottom
     # =========================[ Line #2 ]=========================
     newline
     # ip                    # ip address and bandwidth usage for a specified network interface
@@ -1631,8 +1637,8 @@
   ####################################[ time: current time ]####################################
   # Current time color.
   typeset -g POWERLEVEL9K_TIME_FOREGROUND=66
-  # Format for the current time: 09:51:02. See `man 3 strftime`.
-  typeset -g POWERLEVEL9K_TIME_FORMAT='%D{%H:%M:%S}'
+  # Format for the current time: 09:51. See `man 3 strftime`.
+  typeset -g POWERLEVEL9K_TIME_FORMAT='%D{%H:%M}'
   # If set to true, time will update when you hit enter. This way prompts for the past
   # commands will contain the start times of their commands as opposed to the default
   # behavior where they contain the end times of their preceding commands.
@@ -1818,6 +1824,26 @@
     typeset -g "$_dotfiles_var=$PALETTE_MAGENTA"
   done
   unset _dotfiles_var
+
+  # ── User-defined segments ──────────────────────────────────────────────────
+  # `fnm_node` shows the Node version fnm currently has active. It reads the
+  # symlink fnm already put on PATH and lets zsh resolve the chain with its own
+  # :A modifier, which measured 0.0455 ms per prompt. Powerlevel10k's own
+  # node_version segment runs `node --version` instead, which measured 6.1 ms,
+  # and its nvm segment cannot fire here because this configuration unsets
+  # NVM_DIR and uses fnm as the single Node manager. The segment prints nothing
+  # when the resolved path is not an fnm one, so a system Node leaves no trace.
+  function prompt_fnm_node() {
+    local resolved=${commands[node]:A}
+    [[ $resolved == */node-versions/* ]] || return 0
+    p10k segment -f "$PALETTE_BLUE" -i $'\ue718' -t "${${resolved%%/installation/*}:t}"
+  }
+
+  # The instant prompt replays the p10k segment calls it recorded from the first
+  # prompt, and a segment with no instant_prompt_* function is left out of it.
+  function instant_prompt_fnm_node() {
+    prompt_fnm_node
+  }
 
   (( ! $+functions[p10k] )) || p10k reload
 }

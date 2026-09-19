@@ -274,6 +274,18 @@ if [[ $IS_TERMUX -eq 0 ]] && command -v fnm >/dev/null 2>&1; then
 
     eval "$(fnm env --use-on-cd --shell zsh)"
 
+    # fnm prepends a fresh multishell directory for every shell it runs in, and
+    # one directory per level of nesting survives in PATH, because `typeset -U
+    # path` collapses exact duplicates and these are not duplicates: each carries
+    # its own pid. Two had accumulated by the time this was written, and a
+    # long-lived multiplexer server that spawns shells would keep adding them.
+    # Drop every other shell's directory and put only this one back, which is the
+    # position fnm just gave it.
+    if [[ -n $FNM_MULTISHELL_PATH ]]; then
+        path=("${(@)path:#*/fnm_multishells/*}")
+        path=("$FNM_MULTISHELL_PATH/bin" $path)
+    fi
+
     # Start on the `default` alias, unless the current directory declares its
     # own version (same condition the use-on-cd hook evaluates).
     if [[ ! -f .node-version && ! -f .nvmrc && ! -f package.json ]]; then
@@ -295,6 +307,14 @@ fi
 # Zsh built-ins required by Oh My Zsh and completion plugins.
 zmodload zsh/zutil
 zmodload zsh/complist
+# Extra completion definitions on fpath, before the completion system is
+# initialised below. compinit only sees the directories that are on fpath at the
+# moment it runs, so this cannot move further down the file.
+if [[ -n "$BREW_BIN" && -d "$(dirname "$BREW_BIN")/share/zsh-completions" ]]; then
+    typeset -U fpath
+    fpath=("$(dirname "$BREW_BIN")/share/zsh-completions" $fpath)
+fi
+
 autoload -Uz add-zsh-hook add-zle-hook-widget bashcompinit colors compinit is-at-least zmathfunc zrecompile
 
 # Oh My Zsh must initialize before third-party plugins.
@@ -377,14 +397,36 @@ function start_if_needed() {
 alias fzfbat='fzf --preview="bat --color=always {}"'
 alias fzfnvim='nvim $(fzf --preview="bat --color=always {}")'
 
-# --- Modern Unix replacements (transparent: cat→bat, ls→eza, grep→rg) ---
-alias cat='bat --paging=never --style=plain'
+# --- Modern Unix replacements (cat→bat, ls→eza) ---
+# `cat` keeps the syntax highlighting for plain invocations and hands everything
+# else to the real binary. bat is not a drop-in replacement: it has no -v or -T,
+# and `cat -v` is exactly the kind of invocation that turns up in a copied
+# recipe, where it used to fail with "unexpected argument". Testing the
+# arguments, rather than the tool, keeps the highlight where it helps and keeps
+# the flags working where they belong. A function rather than an alias, so it is
+# never inherited by a script.
+function cat() {
+    local arg
+    for arg in "$@"; do
+        if [[ $arg == -* ]]; then
+            command cat "$@"
+            return
+        fi
+    done
+    bat --paging=never --style=plain -- "$@"
+}
+
+# `grep` is deliberately NOT aliased to ripgrep. They are not interchangeable: in
+# ripgrep -r means replace, so `grep -r pattern .` in the interactive shell became
+# a replace command, and -E, --include and -A/-B do not mean the same thing on
+# both. An alias is not exported, so no script was ever affected; the damage was
+# that a command copied from the terminal into a script ran somewhere else with
+# different semantics. `rg` is short enough to type on purpose.
 alias ls='eza --icons --group-directories-first'
 alias ll='eza -l --icons --git --group-directories-first --time-style=long-iso --header'
 alias la='eza -la --icons --git --group-directories-first --time-style=long-iso --header'
 alias lt='eza --tree --icons --group-directories-first --level=2'
 alias tree='eza --tree --icons --group-directories-first --level=3'
-alias grep='rg --no-heading'
 
 # --- Network tools ---
 # `trip` (trippy) is only aliased when it is actually resolvable, so the alias
@@ -405,6 +447,12 @@ zstyle ':completion:*:descriptions' format "${PALETTE_ESC}[1;${PALETTE_BLUE_SGR}
 zstyle ':completion:*' format "${PALETTE_ESC}[${PALETTE_MUTED_SGR}mCompleting %d${PALETTE_ESC}[0m"
 zstyle ':completion:*' group-name ''
 zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
+
+# fzf-tab hands the completion list to fzf. The completion menu has to be turned
+# off, or zsh draws its own menu in the same keystroke that opens fzf's.
+zstyle ':completion:*' menu no
+zstyle ':fzf-tab:*' fzf-flags --height=60%
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza --tree --icons --group-directories-first --level=2 --color=always $realpath'
 
 # carapace regenerates roughly 24 KB of completion registrations on every shell
 # start, and that generation alone measures about 250 ms here, more than
@@ -433,6 +481,16 @@ if command -v carapace >/dev/null 2>&1; then
 fi
 
 eval "$(fzf --zsh)"
+
+# fzf-tab replaces the completion menu with fzf, and it is sourced here on
+# purpose: fzf's own shell integration, one line above, binds Tab to
+# fzf-completion, so loading fzf-tab earlier would leave it overwritten and
+# installed but never used. fzf keeps the bindings it owns, Ctrl+T and Alt+C; this
+# only takes Tab. Homebrew installs the plugin under `opt` rather than `share`,
+# and there is no distribution package to fall back to.
+if [[ -n "$BREW_SHARE" && -f "${BREW_SHARE:h}/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh" ]]; then
+    source "${BREW_SHARE:h}/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh"
+fi
 eval "$(zoxide init zsh)"
 eval "$(atuin init zsh)"
 

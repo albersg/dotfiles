@@ -959,7 +959,12 @@ func stepInstallShell(m *Model) error {
 			// source of its zsh plugin. It is verified on Homebrew, Debian and Arch;
 			// Fedora is left without it because the name could not be verified there
 			// and an unknown name used to abort the whole dnf transaction.
-			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
+			//
+			// zsh-completions and fzf-tab are declared for Homebrew only. fzf-tab is a
+			// Homebrew formula with no distribution package, and the Debian name for
+			// zsh-completions could not be verified on the machine this was written on;
+			// an unverified name in a distribution list aborts the transaction.
+			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
 			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta",
 			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
 			// Debian stable does not package starship, fnm, eza, delta or xh; those
