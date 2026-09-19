@@ -40,6 +40,15 @@ Una configuración completa de entorno de desarrollo que incluye:
 
 ## Inicio rápido
 
+### Requisitos
+
+| Requisito | Detalles |
+|-------------|---------|
+| **Sistema operativo** | macOS 10.15+; Linux (Ubuntu 20.04+, Debian, Fedora/RHEL, Arch); WSL2; o Termux |
+| **Git y curl** | El instalador clona este repositorio mientras se ejecuta |
+| **Internet** | Para clonar el repositorio y descargar paquetes |
+| **Homebrew** | Se instala automáticamente cuando falta, en macOS y Linux, excepto en Fedora y Termux |
+
 ### Opción 1: Homebrew (Recomendado)
 
 ```bash
@@ -67,6 +76,10 @@ chmod +x dotfiles
 ./dotfiles
 ```
 
+El archivo descargado no se coloca en el `PATH`, por lo que se ejecuta como `./dotfiles`
+desde el directorio donde se descargó, y cada versión publicada incluye además un archivo
+`SHA256SUMS` para verificar la descarga.
+
 ### Opción 3: Termux (Android)
 
 Termux requiere compilar localmente: Android no tiene Homebrew y no hay un binario publicado para él. El instalador reconoce Termux, instala sus paquetes con `pkg` en lugar de un gestor de paquetes que no existe allí, y escribe la Nerd Font en `~/.termux/font.ttf` en vez de un directorio de fuentes de escritorio. Hay que clonar el repositorio, compilar el instalador con Go y ejecutarlo desde el checkout. Termux es la plataforma menos ejercitada de las tres y todavía no tiene una guía paso a paso.
@@ -78,6 +91,44 @@ El TUI te deja elegir **Tmux**, **Zellij**, **Herdr** o **None** como multiplexo
 > **Usuarios de Tmux:** Después de la instalación, abrí tmux y presioná `prefix + I` (I mayúscula) para instalar los plugins con TPM. Esto asegura que el tema y los plugins carguen correctamente.
 
 > **Usuarios de Windows:** Primero tenés que configurar WSL. Consultá la [Guía de instalación manual](docs/manual-installation.md#windows-wsl).
+
+### Qué hace la instalación
+
+El instalador es un TUI interactivo. Detecta el sistema y las herramientas que ya están
+presentes, pregunta qué shell, terminal, multiplexor y editor se desean, y luego instala
+los paquetes y escribe la configuración.
+
+Antes de reemplazar cualquier cosa, copia la configuración que ya está en su lugar a
+`~/.dotfiles-backup-<timestamp>/`. Esas copias de seguridad son copias simples de los
+archivos previos, así que devolverlas es copiar. Consultar [Procedimientos de rollback](docs/ROLLBACK.md).
+
+### Probarlo sin cambiar nada
+
+```bash
+dotfiles --dry-run    # informa qué se instalaría, sin cambiar nada
+dotfiles -t           # se ejecuta contra un HOME desechable, sin tocar el real
+```
+
+### Instalación no interactiva
+
+```bash
+dotfiles --non-interactive --shell=zsh --wm=herdr --nvim
+```
+
+`--shell` es obligatorio y acepta `fish`, `zsh` o `nushell`. `--terminal` acepta
+`alacritty`, `wezterm`, `kitty`, `ghostty` o `none`. `--wm` acepta `tmux`, `zellij`,
+`herdr` o `none`. `--nvim` y `--font` son opcionales. `dotfiles --help` lista el resto,
+incluidos `--backup=false` y la variable de entorno `DOTFILES_VERBOSE=1`.
+
+### Después de instalar
+
+Hay que abrir un shell nuevo. El instalador escribe la configuración del shell elegido,
+pero no puede recargar el shell desde el que se ejecutó.
+
+Para actualizar más adelante, hay que instalar el instalador más reciente y ejecutarlo de
+nuevo: `brew upgrade dotfiles` en la vía de Homebrew, o descargar el binario actual en
+caso contrario. Una ejecución posterior vuelve a clonar este repositorio, así que toma
+las configuraciones actuales.
 
 ---
 
@@ -121,6 +172,7 @@ Podés iniciarlo desde el menú principal: **Vim Mastery Trainer**
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | [Guía del instalador TUI](docs/tui-installer.md)              | Funciones interactivas, navegación, backup y restore                           |
 | [Instalación manual](docs/manual-installation.md)             | Configuración paso a paso para todas las plataformas                           |
+| [Procedimientos de rollback](docs/ROLLBACK.md)                | Restaurar configuraciones desde un backup y deshacer una instalación           |
 | [Keymaps de Neovim](docs/neovim-keymaps.md)                   | Referencia completa de atajos                                                  |
 | [Configuración de IA](docs/ai-configuration.md)               | Claude Code, OpenCode, Copilot y más                                           |
 | [Especificación del entrenador Vim](docs/vim-trainer-spec.md) | Detalles técnicos del entrenador                                               |

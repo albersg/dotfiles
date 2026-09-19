@@ -38,6 +38,15 @@ A complete development environment configuration including:
 
 ## Quick Start
 
+### Requirements
+
+| Requirement | Details |
+|-------------|---------|
+| **Operating system** | macOS 10.15+; Linux (Ubuntu 20.04+, Debian, Fedora/RHEL, Arch); WSL2; or Termux |
+| **Git and curl** | The installer clones this repository while it runs |
+| **Internet** | To clone the repository and download packages |
+| **Homebrew** | Installed automatically when missing, on macOS and Linux, except on Fedora and Termux |
+
 ### Option 1: Homebrew (Recommended)
 
 ```bash
@@ -65,6 +74,10 @@ chmod +x dotfiles
 ./dotfiles
 ```
 
+The downloaded file is not placed on your `PATH`, so it is run as `./dotfiles` from
+wherever it was downloaded, and each release also publishes a `SHA256SUMS` asset to
+check the download against.
+
 ### Option 3: Termux (Android)
 
 Termux requires building locally: Android has no Homebrew and there is no published binary for it. The installer recognises Termux, installs its packages with `pkg` instead of a package manager that is not there, and writes the Nerd Font to `~/.termux/font.ttf` rather than a desktop font directory. Clone the repository, build the installer with Go, and run it from the checkout. Termux is the least exercised of the three platforms and has no step-by-step guide yet.
@@ -76,6 +89,43 @@ During multiplexer selection, choose **Tmux**, **Zellij**, **Herdr**, or **None*
 > **Tmux users:** After installation, open tmux and press `prefix + I` (capital I) to install plugins via TPM. This ensures the theme and all plugins load correctly.
 
 > **Windows users:** You must set up WSL first. See the [Manual Installation Guide](docs/manual-installation.md#windows-wsl).
+
+### What installing does
+
+The installer is an interactive TUI. It detects your system and the tools you already
+have, asks which shell, terminal, multiplexer and editor you want, then installs the
+packages and writes the configuration.
+
+Before replacing anything, it copies the configuration already in place into
+`~/.dotfiles-backup-<timestamp>/`. Those backups are plain copies of your previous
+files, so putting them back is a copy. See [Rollback Procedures](docs/ROLLBACK.md).
+
+### Try it without changing anything
+
+```bash
+dotfiles --dry-run    # report what would be installed, change nothing
+dotfiles -t           # run against a throwaway HOME, leaving yours untouched
+```
+
+### Non-interactive installation
+
+```bash
+dotfiles --non-interactive --shell=zsh --wm=herdr --nvim
+```
+
+`--shell` is required and takes `fish`, `zsh` or `nushell`. `--terminal` takes
+`alacritty`, `wezterm`, `kitty`, `ghostty` or `none`. `--wm` takes `tmux`, `zellij`,
+`herdr` or `none`. `--nvim` and `--font` are opt-in. `dotfiles --help` lists the rest,
+including `--backup=false` and the `DOTFILES_VERBOSE=1` environment variable.
+
+### After installing
+
+Open a new shell. The installer writes configuration for the shell you chose but cannot
+reload the shell you ran it from.
+
+To update later, install the newer installer and run it again: `brew upgrade dotfiles`
+on the Homebrew path, or download the current binary otherwise. A later run clones this
+repository again, so it picks up the current configurations.
 
 ---
 
@@ -119,6 +169,7 @@ Launch it from the main menu: **Vim Mastery Trainer**
 |----------|-------------|
 | [TUI Installer Guide](docs/tui-installer.md) | Interactive installer features, navigation, backup/restore |
 | [Manual Installation](docs/manual-installation.md) | Step-by-step manual setup for all platforms |
+| [Rollback Procedures](docs/ROLLBACK.md) | Restore configurations from a backup and undo an installation |
 | [Neovim Keymaps](docs/neovim-keymaps.md) | Complete reference of all keybindings |
 | [AI Configuration](docs/ai-configuration.md) | Claude Code, OpenCode, Copilot, and other AI assistants |
 | [Vim Trainer Spec](docs/vim-trainer-spec.md) | Technical specification for the Vim Mastery Trainer |
