@@ -677,6 +677,15 @@ func stepInstallTerminal(m *Model) error {
 	return nil
 }
 
+// The Linux font step downloads the Nerd Fonts release archive and extracts it.
+// The release URL is pinned, and the archive is fetched into a scratch directory
+// the step owns instead of into the font directory: see stepInstallFont.
+const (
+	iosevkaTermArchiveURL  = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/IosevkaTerm.zip"
+	iosevkaTermArchiveName = "IosevkaTerm.zip"
+	fontScratchDirPrefix   = ".iosevka-term-"
+)
+
 func stepInstallFont(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	stepID := "font"
@@ -731,8 +740,31 @@ func stepInstallFont(m *Model) error {
 			err)
 	}
 
+	// The archive used to be downloaded into fontDir itself and never removed, so
+	// a 347 MB zip stayed in a directory fontconfig scans. It is fetched into a
+	// scratch directory this step owns instead: inside fontDir, so the download
+	// lands on the same filesystem rather than in a memory-backed /tmp, but never
+	// the font directory itself, and removing that directory covers the failure
+	// paths too. Doing this also keeps the cleanup away from every other file in
+	// ~/.local/share/fonts, which belongs to the user.
+	scratchDir, err := os.MkdirTemp(fontDir, fontScratchDirPrefix)
+	if err != nil {
+		return wrapStepError("font", "Install Iosevka Nerd Font",
+			"Failed to create a temporary directory for the font archive",
+			err)
+	}
+	defer func() {
+		// A cleanup that fails is reported but never turns the step's own outcome
+		// into a different one: the fonts are installed either way.
+		if err := os.RemoveAll(scratchDir); err != nil {
+			SendLog(stepID, fmt.Sprintf("Warning: could not remove the downloaded font archive: %v", err))
+		}
+	}()
+
+	archivePath := filepath.Join(scratchDir, iosevkaTermArchiveName)
+
 	SendLog(stepID, "Downloading Iosevka Term Nerd Font...")
-	result := system.RunWithLogs(fmt.Sprintf("curl -fsSL -o %s/IosevkaTerm.zip https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/IosevkaTerm.zip", fontDir), nil, func(line string) {
+	result := system.RunWithLogs(fmt.Sprintf("curl -fsSL -o %s %s", archivePath, iosevkaTermArchiveURL), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
@@ -742,7 +774,7 @@ func stepInstallFont(m *Model) error {
 	}
 
 	SendLog(stepID, "Extracting font archive...")
-	result = system.RunWithLogs(fmt.Sprintf("unzip -o %s/IosevkaTerm.zip -d %s/", fontDir, fontDir), nil, func(line string) {
+	result = system.RunWithLogs(fmt.Sprintf("unzip -o %s -d %s/", archivePath, fontDir), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
