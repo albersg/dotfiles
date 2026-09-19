@@ -168,11 +168,14 @@ export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_ALT_COMMAND="fd --type=d --hidden --strip-cwd-prefix --exclude .git"
 
 WM_VAR="$HERDR_ENV"
-WM_CMD="herdr"
+
+# WM_CMD array: zsh does not word-split an unquoted parameter, so a multi-word command must be launched as "${WM_CMD[@]}".
+typeset -a WM_CMD
+WM_CMD=(herdr)
 
 function start_if_needed() {
-    if [[ $- == *i* ]] && command -v "$WM_CMD" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then
-        exec $WM_CMD
+    if [[ $- == *i* ]] && command -v "${WM_CMD[1]}" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then
+        exec "${WM_CMD[@]}"
     fi
 }
 
@@ -202,7 +205,32 @@ export BAT_THEME="gruvbox-dark"
 
 export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
 zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
-source <(carapace _carapace)
+
+# carapace regenerates roughly 24 KB of completion registrations on every shell
+# start, and that generation alone measures about 250 ms here, more than
+# everything else in this file combined outside the completion system. The output
+# depends only on the carapace binary and is byte-identical across runs, so
+# generate it once and reuse it until the binary itself changes. Without this,
+# every new pane pays the cost again.
+if command -v carapace >/dev/null 2>&1; then
+    CARAPACE_INIT="${XDG_CACHE_HOME:-$HOME/.cache}/carapace/init.zsh"
+    if [[ ! -s "$CARAPACE_INIT" || "$commands[carapace]" -nt "$CARAPACE_INIT" ]]; then
+        mkdir -p "${CARAPACE_INIT:h}"
+        # Write beside the cache and move only a successful, non-empty result
+        # into place, so an interrupted generation cannot poison the cache.
+        if carapace _carapace >|"${CARAPACE_INIT}.tmp" 2>/dev/null && [[ -s "${CARAPACE_INIT}.tmp" ]]; then
+            mv "${CARAPACE_INIT}.tmp" "$CARAPACE_INIT"
+        else
+            rm -f "${CARAPACE_INIT}.tmp"
+        fi
+    fi
+    # Fall back to generating in place if the cache could not be produced.
+    if [[ -s "$CARAPACE_INIT" ]]; then
+        source "$CARAPACE_INIT"
+    else
+        source <(carapace _carapace)
+    fi
+fi
 
 eval "$(fzf --zsh)"
 eval "$(zoxide init zsh)"
@@ -210,6 +238,315 @@ eval "$(atuin init zsh)"
 
 # --- direnv: per-directory env vars (works with mise) ---
 eval "$(direnv hook zsh)"
+
+# ─── Shell automation ────────────────────────────────────────────────────────
+# Functions that remove repeated manual work. Each checks for the tools it needs
+# and names the one that is missing, rather than failing with a bare error.
+
+# extract <archive>: unpack almost any archive format.
+extract() {
+    if [[ $# -eq 0 ]]; then
+        print -u2 'usage: extract <archive>'
+        return 1
+    fi
+    local file=$1
+    if [[ ! -f "$file" ]]; then
+        print -u2 "extract: no such file: $file"
+        return 1
+    fi
+
+    # Each format is paired with the tool it needs, so a missing dependency is
+    # reported by name instead of surfacing as a bare "command not found".
+    local need
+    case $file in
+        *.tar.gz|*.tgz)   need=tar;     set -- tar -xzf "$file" ;;
+        *.tar.bz2|*.tbz2) need=tar;     set -- tar -xjf "$file" ;;
+        *.tar.xz|*.txz)   need=tar;     set -- tar -xJf "$file" ;;
+        *.tar.zst)        need=tar;     set -- tar --zstd -xf "$file" ;;
+        *.tar)            need=tar;     set -- tar -xf "$file" ;;
+        *.zip)            need=unzip;   set -- unzip -q "$file" ;;
+        *.7z)             need=7z;      set -- 7z x "$file" ;;
+        *.rar)            need=unrar;   set -- unrar x "$file" ;;
+        *.gz)             need=gunzip;  set -- gunzip -kf "$file" ;;
+        *.bz2)            need=bunzip2; set -- bunzip2 -kf "$file" ;;
+        *.xz)             need=unxz;    set -- unxz -kf "$file" ;;
+        *.zst)            need=zstd;    set -- zstd -df "$file" ;;
+        *) print -u2 "extract: unsupported format: $file"; return 1 ;;
+    esac
+
+    if ! command -v "${need}" >/dev/null 2>&1; then
+        print -u2 "extract: needs ${need}, which is not installed"
+        return 1
+    fi
+    "$@"
+}
+
+# compress <archive> <path>...: build an archive, format taken from the target
+# extension. The single-file formats refuse a directory rather than producing an
+# archive that cannot be unpacked back.
+compress() {
+    if [[ $# -lt 2 ]]; then
+        print -u2 'usage: compress <archive> <path> [path...]'
+        print -u2 '       targets: .tar.gz .tar.bz2 .tar.xz .tar.zst .zip .7z .gz .bz2 .xz .zst'
+        return 1
+    fi
+    local archive=$1
+    shift
+
+    if ! command -v tar >/dev/null 2>&1 && [[ $archive == *.tar.* || $archive == *.tgz ]]; then
+        print -u2 'compress: needs tar, which is not installed'
+        return 1
+    fi
+
+    local need
+    case $archive in
+        *.tar.gz|*.tgz) need=tar;  set -- tar -czf "$archive" "$@" ;;
+        *.tar.bz2)      need=tar;  set -- tar -cjf "$archive" "$@" ;;
+        *.tar.xz)       need=tar;  set -- tar -cJf "$archive" "$@" ;;
+        *.tar.zst)      need=tar;  set -- tar --zstd -cf "$archive" "$@" ;;
+        *.zip)          need=zip;  set -- zip -qr "$archive" "$@" ;;
+        *.7z)           need=7z;   set -- 7z a -bso0 -bsp0 "$archive" "$@" ;;
+        *.gz|*.bz2|*.xz|*.zst)
+            if [[ $# -ne 1 ]]; then
+                print -u2 "compress: $archive holds one file; use a .tar.* or .zip target for several"
+                return 1
+            fi
+            local src=$1
+            if [[ -d $src ]]; then
+                print -u2 "compress: $archive holds one file; use a .tar.* or .zip target for a directory"
+                return 1
+            fi
+            if [[ ! -f $src ]]; then
+                print -u2 "compress: no such file: $src"
+                return 1
+            fi
+            case $archive in
+                *.gz)  need=gzip  ;;
+                *.bz2) need=bzip2 ;;
+                *.xz)  need=xz    ;;
+                *.zst) need=zstd  ;;
+            esac
+            if ! command -v "${need}" >/dev/null 2>&1; then
+                print -u2 "compress: needs ${need}, which is not installed"
+                return 1
+            fi
+            # The redirection creates the target before the compressor runs, so a
+            # failure would otherwise leave an empty archive behind and still
+            # report success.
+            case $archive in
+                *.gz)  gzip  -c  "$src" >|"$archive" ;;
+                *.bz2) bzip2 -c  "$src" >|"$archive" ;;
+                *.xz)  xz    -c  "$src" >|"$archive" ;;
+                *.zst) zstd  -qc "$src" >|"$archive" ;;
+            esac || { rm -f "$archive"; print -u2 "compress: failed to create $archive"; return 1 }
+            print "created $archive"
+            return 0
+            ;;
+        *) print -u2 "compress: unsupported format: $archive"; return 1 ;;
+    esac
+
+    if ! command -v "${need}" >/dev/null 2>&1; then
+        print -u2 "compress: needs ${need}, which is not installed"
+        return 1
+    fi
+    if "$@"; then
+        print "created $archive"
+    else
+        rm -f "$archive"
+        print -u2 "compress: failed to create $archive"
+        return 1
+    fi
+}
+
+# Activate a project's virtual environment on cd, and leave it on the way out.
+# Only an environment this hook activated is ever deactivated, so one the user
+# activated by hand is never touched, and moving around inside a project does not
+# re-activate or re-announce anything.
+typeset -g _DOTFILES_VENV=
+_dotfiles_activate_venv() {
+    # Search the current directory and, when inside a repository, its ancestors up
+    # to the repository root only. Walking all the way to / would activate a stray
+    # venv sitting in /tmp or in $HOME for every directory underneath it, which is
+    # how a scratch environment ends up capturing unrelated projects. The .git
+    # test costs one stat and no subprocess, which matters on every cd.
+    local -a search=("$PWD")
+    local dir=$PWD candidate found=
+    while [[ $dir != / && $dir != $HOME ]]; do
+        dir=${dir:h}
+        search+=("$dir")
+        [[ -e "$dir/.git" ]] && break
+    done
+    [[ -e "${search[-1]}/.git" ]] || search=("$PWD")
+
+    for dir in "$search[@]"; do
+        for candidate in .venv venv .env; do
+            if [[ -f "$dir/$candidate/bin/activate" ]]; then
+                found="$dir/$candidate"
+                break 2
+            fi
+        done
+    done
+
+    [[ $found == $_DOTFILES_VENV ]] && return 0
+
+    if [[ -n $_DOTFILES_VENV ]]; then
+        if [[ -n ${VIRTUAL_ENV:-} && $VIRTUAL_ENV == $_DOTFILES_VENV ]]; then
+            deactivate 2>/dev/null
+        fi
+        _DOTFILES_VENV=
+    fi
+
+    if [[ -n $found ]]; then
+        source "$found/bin/activate"
+        _DOTFILES_VENV=$found
+        print "venv: ${found:t}"
+    fi
+}
+add-zsh-hook chpwd _dotfiles_activate_venv
+
+# Announce a project's available tasks when entering it. Silent when the project
+# declares none, and skippable with DOTFILES_NO_TASKS=1.
+_dotfiles_show_tasks() {
+    [[ -n ${DOTFILES_NO_TASKS:-} ]] && return 0
+    [[ $PWD == $HOME ]] && return 0
+
+    if [[ -f justfile || -f Justfile ]]; then
+        command -v just >/dev/null 2>&1 && just --list 2>/dev/null | head -20
+    elif [[ -f Makefile || -f makefile ]]; then
+        # List declared targets without executing anything: the awk pass only
+        # reads lines shaped like a target rule, so a Makefile that runs work at
+        # parse time stays untouched.
+        awk -F: '/^[a-zA-Z0-9_.-]+:([^=]|$)/ { print "  make " $1 }' Makefile 2>/dev/null | sort -u | head -20
+    fi
+
+    if [[ -f package.json ]] && command -v jq >/dev/null 2>&1; then
+        jq -r '.scripts // {} | keys[]' package.json 2>/dev/null | head -20 | sed 's/^/  npm run /'
+    fi
+
+    if [[ -f Taskfile.yml || -f Taskfile.yaml ]] && command -v task >/dev/null 2>&1; then
+        task --list 2>/dev/null | head -20
+    fi
+}
+add-zsh-hook chpwd _dotfiles_show_tasks
+
+# serve [port]: static file server for the current directory, defaulting to 8000.
+serve() {
+    local port=${1:-8000}
+    if [[ ! $port == <-> ]]; then
+        print -u2 "serve: port must be a whole number, got '$port'"
+        return 1
+    fi
+    if (( port < 1 || port > 65535 )); then
+        print -u2 "serve: port must be between 1 and 65535, got $port"
+        return 1
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        print -u2 'serve: needs python3, which is not installed'
+        return 1
+    fi
+    if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$port "; then
+        print -u2 "serve: port $port is already in use"
+        return 1
+    fi
+    print "serving $PWD on http://localhost:$port  (Ctrl-C to stop)"
+    python3 -m http.server "$port" --bind 127.0.0.1
+}
+
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+# A file encrypted with SOPS keeps its keys readable and only its values
+# encrypted, so it can live in a repository and still show which keys exist and
+# which one changed. The key is a single age file rather than a GPG keyring,
+# which avoids the agent and pinentry dance that is fragile under WSL.
+#
+# Create the key once:
+#
+#   mkdir -p ~/.config/sops/age && age-keygen -o ~/.config/sops/age/keys.txt
+#
+# Then put the public key it prints into a .sops.yaml in each project:
+#
+#   creation_rules:
+#     - path_regex: .*\.env$
+#       age: <public key>
+#
+# An age key has no recovery path. Lose that file and every encrypted value is
+# gone for good, so back it up somewhere that is not this machine.
+typeset -g DOTFILES_SOPS_FILE=secrets.env
+export SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+
+# Every secrets helper starts here, so a missing tool or key is reported once,
+# with the command that fixes it, instead of failing somewhere further down.
+_dotfiles_secrets_ready() {
+    if ! command -v sops >/dev/null 2>&1; then
+        print -u2 'secrets: sops is not installed'
+        return 1
+    fi
+    if [[ ! -f $SOPS_AGE_KEY_FILE ]]; then
+        print -u2 "secrets: no age key at $SOPS_AGE_KEY_FILE"
+        print -u2 "  create one with: mkdir -p ${SOPS_AGE_KEY_FILE:h} && age-keygen -o $SOPS_AGE_KEY_FILE"
+        return 1
+    fi
+    return 0
+}
+
+# env-edit [file]: edit an encrypted file. SOPS decrypts into the editor and
+# re-encrypts on save, so the plaintext never lands on disk.
+env-edit() {
+    _dotfiles_secrets_ready || return 1
+    local file=${1:-$DOTFILES_SOPS_FILE}
+    if [[ ! -f $file ]]; then
+        print -u2 "secrets: no such file: $file"
+        return 1
+    fi
+    sops "$file"
+}
+
+# env-load [file] [.env]: decrypt into a local file for tools that insist on
+# reading one. It refuses unless the destination is already ignored by git,
+# because writing plaintext secrets into a repository is the mistake this whole
+# arrangement exists to prevent.
+env-load() {
+    _dotfiles_secrets_ready || return 1
+    local src=${1:-$DOTFILES_SOPS_FILE} dst=${2:-.env}
+    if [[ ! -f $src ]]; then
+        print -u2 "secrets: no such file: $src"
+        return 1
+    fi
+    # Refuse unless git already ignores the destination. Writing a plaintext
+    # secret into a repository is the mistake this arrangement exists to avoid,
+    # and creating a fresh .env that git would happily track is the same mistake
+    # with a different name, so the check runs whether or not the file exists.
+    # Outside a work tree there is nothing to leak into, so it is allowed.
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ! git check-ignore -q -- "$dst" 2>/dev/null; then
+        print -u2 "secrets: git does not ignore $dst, so the plaintext would be tracked"
+        print -u2 "  add it to .gitignore, or to a global exclude, and try again"
+        return 1
+    fi
+    if [[ -e $dst ]] && [[ ! -w $dst ]]; then
+        print -u2 "secrets: cannot write $dst"
+        return 1
+    fi
+    if ! sops -d "$src" >|"$dst"; then
+        rm -f "$dst"
+        print -u2 "secrets: could not decrypt $src"
+        return 1
+    fi
+    print "secrets: wrote $dst"
+}
+
+# env-export [file]: print export lines for the current shell, for an .envrc:
+#
+#   eval "$(env-export secrets.env)"
+#
+# Nothing is written to disk this way, which is the option to prefer.
+env-export() {
+    _dotfiles_secrets_ready || return 1
+    local src=${1:-$DOTFILES_SOPS_FILE}
+    if [[ ! -f $src ]]; then
+        print -u2 "secrets: no such file: $src"
+        return 1
+    fi
+    sops -d --output-type dotenv "$src" 2>/dev/null | sed 's/^/export /'
+}
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh

@@ -132,6 +132,16 @@ func stepBackupConfigs(m *Model) error {
 // dotfilesRepoURL is the repository the installer clones at run time.
 const dotfilesRepoURL = "https://github.com/albersg/dotfiles.git"
 
+// envDotfilesRepoRef selects the revision to clone, defaulting to the
+// repository's default branch.
+//
+// It exists because the container end-to-end tests build a binary from the
+// revision under test and then let it clone the default branch, so the installer
+// ran against a repository that did not contain the very files it was written to
+// deploy. That mismatch failed those tests twice for two different reasons
+// before this override existed.
+const envDotfilesRepoRef = "DOTFILES_REPO_REF"
+
 func stepCloneRepo(m *Model) error {
 	stepID := "clone"
 
@@ -148,7 +158,14 @@ func stepCloneRepo(m *Model) error {
 	repoDir := filepath.Join(workDir, "dotfiles")
 
 	SendLog(stepID, fmt.Sprintf("Cloning repository into %s...", repoDir))
-	result := system.RunWithLogs(fmt.Sprintf("git clone --progress %s %q", dotfilesRepoURL, repoDir), nil, func(line string) {
+	// --branch accepts a branch or a tag, and an empty value keeps the default
+	// branch, so an ordinary installation is unaffected.
+	branch := ""
+	if ref := os.Getenv(envDotfilesRepoRef); ref != "" {
+		branch = fmt.Sprintf(" --branch %q", ref)
+		SendLog(stepID, fmt.Sprintf("Using revision %s", ref))
+	}
+	result := system.RunWithLogs(fmt.Sprintf("git clone --progress%s %s %q", branch, dotfilesRepoURL, repoDir), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
@@ -957,6 +974,31 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Zsh configuration...")
+		// Git's configuration is installed here rather than in a step of its own
+		// because it belongs with the shell: delta and fzf, both installed by this
+		// step, are what .gitconfig actually calls, and .gitconfig is a loose home
+		// dotfile in the same family as .zshenv below. It is listed in ConfigPaths
+		// so the backup step protects the existing file before this overwrites it.
+		SendLog(stepID, "Copying Git configuration...")
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetGitconfig), filepath.Join(homeDir, ".gitconfig")); err != nil {
+			return wrapStepError("shell", "Install Zsh",
+				"Failed to copy .gitconfig",
+				err)
+		}
+		// The personal identity is optional by design: a machine may simply not
+		// want one, and .gitconfig's includeIf does nothing when the file is
+		// absent. It is also the file most likely to be missing from an older
+		// checkout, because the installer clones the repository's default branch
+		// while the binary can come from a branch that already ships this file.
+		// TestRepoAssetsExist is what guarantees the repository contains it.
+		personalSrc := filepath.Join(repoDir, repoAssetGitconfigPersonal)
+		if _, err := os.Stat(personalSrc); err != nil {
+			SendLog(stepID, "Skipping .gitconfig-personal: not present in this checkout")
+		} else if err := system.CopyFile(personalSrc, filepath.Join(homeDir, ".gitconfig-personal")); err != nil {
+			return wrapStepError("shell", "Install Zsh",
+				"Failed to copy .gitconfig-personal",
+				err)
+		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshEnv), filepath.Join(homeDir, ".zshenv")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .zshenv configuration",

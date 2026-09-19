@@ -7,23 +7,23 @@ import (
 	"testing"
 )
 
-func TestPatchZshForWM(t *testing.T) {
-	// Sample .zshrc content similar to the real one
-	zshrcContent := `# Enable Powerlevel10k instant prompt.
+// zshrcFixture mirrors the multiplexer block shipped in dotfiles-zsh/.zshrc,
+// so the patcher is exercised against the real shape it must rewrite.
+const zshrcFixture = `# Enable Powerlevel10k instant prompt.
 if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
 export ZSH="$HOME/.oh-my-zsh"
 
-WM_VAR="/$TMUX"
-# change with ZELLIJ
-WM_CMD="tmux"
-# change with zellij
+WM_VAR="$HERDR_ENV"
+# WM_CMD array: zsh does not word-split an unquoted parameter, so a multi-word command must be launched as "${WM_CMD[@]}".
+typeset -a WM_CMD
+WM_CMD=(herdr)
 
 function start_if_needed() {
-    if [[ $- == *i* ]] && [[ -z "${WM_VAR#/}" ]] && [[ -t 1 ]]; then
-        exec $WM_CMD
+    if [[ $- == *i* ]] && command -v "${WM_CMD[1]}" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -t 1 ]]; then
+        exec "${WM_CMD[@]}"
     fi
 }
 
@@ -35,17 +35,31 @@ eval "$(zoxide init zsh)"
 start_if_needed
 `
 
+// zshWMCommandLineOf returns the single WM_CMD assignment line of a patched
+// .zshrc, so tests can assert the exact line instead of a loose substring.
+func zshWMCommandLineOf(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(line, "WM_CMD=") {
+			return line
+		}
+	}
+	return ""
+}
+
+func TestPatchZshForWM(t *testing.T) {
 	tests := []struct {
 		name           string
 		wm             string
 		installNvim    bool
+		wantWMCommand  string
 		wantContain    []string
 		wantNotContain []string
 	}{
 		{
-			name:        "WM none should remove all WM-related lines",
-			wm:          "none",
-			installNvim: true,
+			name:          "WM none should remove all WM-related lines",
+			wm:            "none",
+			installNvim:   true,
+			wantWMCommand: "",
 			wantContain: []string{
 				"eval \"$(zoxide init zsh)\"",
 				"alias fzfbat",
@@ -53,9 +67,11 @@ start_if_needed
 			wantNotContain: []string{
 				"WM_VAR",
 				"WM_CMD",
+				"typeset -a WM_CMD",
+				"# WM_CMD array:",
 				"start_if_needed",
 				"function start_if_needed",
-				"exec $WM_CMD",
+				`exec "${WM_CMD[@]}"`,
 			},
 		},
 		{
@@ -73,46 +89,54 @@ start_if_needed
 			},
 		},
 		{
-			name:        "WM zellij should replace tmux with zellij",
-			wm:          "zellij",
-			installNvim: true,
+			name:          "WM zellij should attach to the main session",
+			wm:            "zellij",
+			installNvim:   true,
+			wantWMCommand: `WM_CMD=(zellij attach -c main)`,
 			wantContain: []string{
-				"WM_VAR=\"$ZELLIJ\"",
-				"WM_CMD=\"zellij\"",
+				`WM_VAR="$ZELLIJ"`,
+				`command -v "${WM_CMD[1]}"`,
 				"start_if_needed",
+				"typeset -a WM_CMD",
 			},
 			wantNotContain: []string{
-				"WM_VAR=\"/$TMUX\"",
-				"WM_CMD=\"tmux\"",
+				`WM_VAR="/$TMUX"`,
+				`WM_CMD=(tmux new-session -A -s main)`,
+				`WM_CMD=(herdr)`,
 				"# change with ZELLIJ",
 			},
 		},
 		{
-			name:        "WM herdr should replace tmux with herdr",
-			wm:          "herdr",
-			installNvim: true,
+			name:          "WM herdr should keep the bare binary name",
+			wm:            "herdr",
+			installNvim:   true,
+			wantWMCommand: `WM_CMD=(herdr)`,
 			wantContain: []string{
-				"WM_VAR=\"$HERDR_ENV\"",
-				"WM_CMD=\"herdr\"",
-				"command -v \"$WM_CMD\"",
+				`WM_VAR="$HERDR_ENV"`,
+				`command -v "${WM_CMD[1]}"`,
 				"start_if_needed",
 			},
 			wantNotContain: []string{
-				"WM_VAR=\"/$TMUX\"",
-				"WM_CMD=\"tmux\"",
+				`WM_VAR="/$TMUX"`,
+				`WM_CMD=(tmux new-session -A -s main)`,
+				`WM_CMD=(zellij attach -c main)`,
 				"# change with ZELLIJ",
 			},
 		},
 		{
-			name:        "WM tmux should keep original content",
-			wm:          "tmux",
-			installNvim: true,
+			name:          "WM tmux should attach to the main session",
+			wm:            "tmux",
+			installNvim:   true,
+			wantWMCommand: `WM_CMD=(tmux new-session -A -s main)`,
 			wantContain: []string{
-				"WM_VAR=\"/$TMUX\"",
-				"WM_CMD=\"tmux\"",
+				`WM_VAR="/$TMUX"`,
+				`command -v "${WM_CMD[1]}"`,
 				"start_if_needed",
 			},
-			wantNotContain: []string{},
+			wantNotContain: []string{
+				`WM_CMD=(herdr)`,
+				`WM_CMD=(zellij attach -c main)`,
+			},
 		},
 	}
 
@@ -122,7 +146,7 @@ start_if_needed
 			tmpDir := t.TempDir()
 			zshrcPath := filepath.Join(tmpDir, ".zshrc")
 
-			if err := os.WriteFile(zshrcPath, []byte(zshrcContent), 0644); err != nil {
+			if err := os.WriteFile(zshrcPath, []byte(zshrcFixture), 0644); err != nil {
 				t.Fatalf("Failed to write temp file: %v", err)
 			}
 
@@ -138,6 +162,10 @@ start_if_needed
 			}
 			content := string(result)
 
+			if got := zshWMCommandLineOf(content); got != tt.wantWMCommand {
+				t.Errorf("WM_CMD line = %q, want %q.\nContent:\n%s", got, tt.wantWMCommand, content)
+			}
+
 			// Check expected content
 			for _, want := range tt.wantContain {
 				if !strings.Contains(content, want) {
@@ -150,6 +178,89 @@ start_if_needed
 				if strings.Contains(content, notWant) {
 					t.Errorf("Expected content NOT to contain %q, but it did.\nContent:\n%s", notWant, content)
 				}
+			}
+		})
+	}
+}
+
+// TestPatchZshForWMIsIdempotent pins the property the installer relies on:
+// re-patching an already-patched .zshrc must not change it again.
+func TestPatchZshForWMIsIdempotent(t *testing.T) {
+	for _, wm := range []string{"tmux", "zellij", "herdr", "none"} {
+		t.Run(wm, func(t *testing.T) {
+			zshrcPath := filepath.Join(t.TempDir(), ".zshrc")
+			if err := os.WriteFile(zshrcPath, []byte(zshrcFixture), 0644); err != nil {
+				t.Fatalf("Failed to write temp file: %v", err)
+			}
+
+			if err := PatchZshForWM(zshrcPath, wm, true); err != nil {
+				t.Fatalf("first PatchZshForWM failed: %v", err)
+			}
+			first, err := os.ReadFile(zshrcPath)
+			if err != nil {
+				t.Fatalf("Failed to read patched file: %v", err)
+			}
+
+			if err := PatchZshForWM(zshrcPath, wm, true); err != nil {
+				t.Fatalf("second PatchZshForWM failed: %v", err)
+			}
+			second, err := os.ReadFile(zshrcPath)
+			if err != nil {
+				t.Fatalf("Failed to read re-patched file: %v", err)
+			}
+
+			if string(first) != string(second) {
+				t.Errorf("second patch changed the file.\nfirst:\n%s\nsecond:\n%s", first, second)
+			}
+		})
+	}
+}
+
+// TestPatchZshForWMUpgradesLegacyCommandForms covers existing installations,
+// whose .zshrc still holds the scalar WM_CMD="..." assignment.
+func TestPatchZshForWMUpgradesLegacyCommandForms(t *testing.T) {
+	legacy := `WM_VAR="/$TMUX"
+WM_CMD="tmux"
+
+function start_if_needed() {
+    if [[ $- == *i* ]] && command -v "$WM_CMD" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -t 1 ]]; then
+        exec $WM_CMD
+    fi
+}
+
+start_if_needed
+`
+
+	expects := map[string]string{
+		"tmux":   `WM_CMD=(tmux new-session -A -s main)`,
+		"zellij": `WM_CMD=(zellij attach -c main)`,
+		"herdr":  `WM_CMD=(herdr)`,
+	}
+
+	for wm, expect := range expects {
+		t.Run(wm, func(t *testing.T) {
+			zshrcPath := filepath.Join(t.TempDir(), ".zshrc")
+			if err := os.WriteFile(zshrcPath, []byte(legacy), 0644); err != nil {
+				t.Fatalf("Failed to write temp file: %v", err)
+			}
+
+			if err := PatchZshForWM(zshrcPath, wm, true); err != nil {
+				t.Fatalf("PatchZshForWM failed: %v", err)
+			}
+			result, err := os.ReadFile(zshrcPath)
+			if err != nil {
+				t.Fatalf("Failed to read patched file: %v", err)
+			}
+			content := string(result)
+
+			if got := zshWMCommandLineOf(content); got != expect {
+				t.Errorf("WM_CMD line = %q, want %q.\nContent:\n%s", got, expect, content)
+			}
+			if strings.Contains(content, `WM_CMD="`) {
+				t.Errorf("legacy scalar WM_CMD survived:\n%s", content)
+			}
+			if !strings.Contains(content, `command -v "${WM_CMD[1]}"`) {
+				t.Errorf("guard still checks the whole array instead of the binary:\n%s", content)
 			}
 		})
 	}

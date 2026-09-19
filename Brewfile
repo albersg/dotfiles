@@ -72,6 +72,14 @@ brew "coreutils"
 brew "gcc"
 brew "curl"
 
+# --- Secrets -------------------------------------------------------------------
+# SOPS encrypts only the values of a file and age holds the key, so an encrypted
+# .env stays readable as a list of keys and can be committed. Chosen over pass and
+# a GPG keyring because the shell helpers call it on every project directory and
+# GPG needs an agent and a pinentry prompt, which is fragile under WSL.
+brew "sops"
+brew "age"
+
 # --- Containers and Kubernetes -----------------------------------------------
 brew "lazydocker"
 brew "k9s"

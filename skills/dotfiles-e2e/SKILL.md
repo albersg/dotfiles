@@ -182,8 +182,10 @@ test_zsh_zellij() {
             log_fail ".zshrc missing ZELLIJ config"
         fi
 
-        # Verify NO tmux in .zshrc
-        if grep -q 'WM_CMD="tmux"' "$HOME/.zshrc"; then
+        # Verify NO tmux in .zshrc. The command is a zsh array, so the pattern
+        # has to match the array form: the old WM_CMD="tmux" scalar no longer
+        # appears in any form, which made this check pass vacuously.
+        if grep -q 'WM_CMD=(tmux' "$HOME/.zshrc"; then
             log_fail ".zshrc still has tmux (should be zellij)"
         else
             log_pass ".zshrc correctly has no tmux"

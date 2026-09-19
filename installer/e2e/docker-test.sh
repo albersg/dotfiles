@@ -148,11 +148,20 @@ run_image() {
         print_header "Running: $name"
     fi
 
+    # Pass the revision under test into the container, so the installer clones
+    # the code being tested instead of the default branch. Without this the
+    # binary came from the pull request and the repository content from main,
+    # which fails as soon as a pull request adds or changes a deployed file.
+    ref_flag=""
+    if [ -n "${DOTFILES_REPO_REF:-}" ]; then
+        ref_flag="-e DOTFILES_REPO_REF=$DOTFILES_REPO_REF"
+    fi
+
     # shellcheck disable=SC2086
     if [ "$interactive" = "true" ]; then
-        docker run --rm -it $platform_flag "$image_tag"
+        docker run --rm -it $platform_flag $ref_flag "$image_tag"
     else
-        docker run --rm $platform_flag "$image_tag"
+        docker run --rm $platform_flag $ref_flag "$image_tag"
     fi
     docker_exit=$?
 

@@ -355,11 +355,15 @@ func TestPatchZshForWMHandlesTheShippedZshrc(t *testing.T) {
 			if got := strings.Contains(string(patched), `WM_VAR="`); got != wantWMVar {
 				t.Errorf("WM_VAR present = %v, want %v", got, wantWMVar)
 			}
-			if got := strings.Contains(string(patched), `WM_CMD="`); got != wantWMVar {
+			if got := strings.Contains(string(patched), `WM_CMD=(`); got != wantWMVar {
 				t.Errorf("WM_CMD present = %v, want %v", got, wantWMVar)
 			}
 
-			expects := map[string]string{"tmux": `WM_CMD="tmux"`, "zellij": `WM_CMD="zellij"`, "herdr": `WM_CMD="herdr"`}
+			expects := map[string]string{
+				"tmux":   `WM_CMD=(tmux new-session -A -s main)`,
+				"zellij": `WM_CMD=(zellij attach -c main)`,
+				"herdr":  `WM_CMD=(herdr)`,
+			}
 			if expect, ok := expects[wm]; ok && !strings.Contains(string(patched), expect) {
 				t.Errorf("patched .zshrc is missing %s", expect)
 			}
@@ -391,5 +395,44 @@ func TestDryRunSkipsEveryStep(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("dry run wrote into HOME: %v", entries)
+	}
+}
+
+// TestStepInstallShellInstallsGitConfig covers the two files the installer copies
+// from the repository root. Both are copied verbatim, so equality is asserted
+// rather than the prefix check the .zshrc case needs: a truncated or partial copy
+// would still satisfy a prefix comparison.
+func TestStepInstallShellInstallsGitConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	withZshMocks(t, home)
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSMac, HasBrew: true}
+	m.Choices = UserChoices{OS: "mac", Shell: "zsh", WindowMgr: "herdr"}
+	m.RepoDir = repoRoot(t)
+
+	if err := stepInstallShell(&m); err != nil {
+		t.Fatalf("zsh step failed: %v", err)
+	}
+
+	for _, tc := range []struct {
+		asset string
+		dst   string
+	}{
+		{repoAssetGitconfig, ".gitconfig"},
+		{repoAssetGitconfigPersonal, ".gitconfig-personal"},
+	} {
+		got, err := os.ReadFile(filepath.Join(home, tc.dst))
+		if err != nil {
+			t.Fatalf("%s was not installed: %v", tc.dst, err)
+		}
+		want, err := os.ReadFile(filepath.Join(m.RepoDir, tc.asset))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("%s does not match %s in the repository", tc.dst, tc.asset)
+		}
 	}
 }

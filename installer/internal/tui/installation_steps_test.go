@@ -202,7 +202,7 @@ func TestStepInstallShellZsh(t *testing.T) {
 	t.Run("zsh step patches config based on WM choice - none", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		// Create mock .zshrc
+		// Create mock .zshrc (legacy scalar WM_CMD, as an existing install has it)
 		zshrc := `WM_VAR="/$TMUX"
 WM_CMD="tmux"
 function start_if_needed() {
@@ -238,10 +238,11 @@ start_if_needed`
 	t.Run("zsh step patches config based on WM choice - zellij", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		zshrc := `WM_VAR="/$TMUX"
-WM_CMD="tmux"
+		zshrc := `WM_VAR="$HERDR_ENV"
+typeset -a WM_CMD
+WM_CMD=(herdr)
 function start_if_needed() {
-    exec $WM_CMD
+    exec "${WM_CMD[@]}"
 }
 start_if_needed`
 
@@ -259,8 +260,8 @@ start_if_needed`
 		if !contains(contentStr, "ZELLIJ") {
 			t.Error("Should contain ZELLIJ when WM=zellij")
 		}
-		if !contains(contentStr, `WM_CMD="zellij"`) {
-			t.Error("Should have WM_CMD=zellij")
+		if !contains(contentStr, `WM_CMD=(zellij attach -c main)`) {
+			t.Error("Should have WM_CMD=(zellij attach -c main)")
 		}
 	})
 
@@ -268,7 +269,8 @@ start_if_needed`
 		tmpDir := t.TempDir()
 
 		zshrc := `WM_VAR="/$TMUX"
-WM_CMD="tmux"
+typeset -a WM_CMD
+WM_CMD=(tmux new-session -A -s main)
 start_if_needed`
 
 		zshrcPath := filepath.Join(tmpDir, ".zshrc")
@@ -285,8 +287,8 @@ start_if_needed`
 		if !contains(contentStr, "TMUX") {
 			t.Error("Should keep TMUX when WM=tmux")
 		}
-		if !contains(contentStr, `WM_CMD="tmux"`) {
-			t.Error("Should keep WM_CMD=tmux")
+		if !contains(contentStr, `WM_CMD=(tmux new-session -A -s main)`) {
+			t.Error("Should keep WM_CMD=(tmux new-session -A -s main)")
 		}
 	})
 }

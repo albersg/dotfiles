@@ -53,6 +53,13 @@ jobs:
           cache-dependency-path: installer/go.sum
 
       - name: Run Docker E2E
+        env:
+          # The revision under test, so the installer inside the container clones
+          # the code being tested rather than the default branch. It is empty for
+          # a push and for a pull request from a fork, because a fork's branch
+          # does not exist in this repository and the clone would fail; those runs
+          # keep testing the default branch, which is the old behaviour.
+          DOTFILES_REPO_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || '' }}
         run: ./installer/e2e/docker-test.sh e2e ${{ matrix.image }}
 
   termux-e2e:
