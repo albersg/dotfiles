@@ -1021,6 +1021,40 @@ func stepInstallShell(m *Model) error {
 				"Failed to copy Powerlevel10k configuration",
 				err)
 		}
+		// The theme ships in the repository rather than being fetched at install
+		// time because it has to match the palette the terminal emulators declare,
+		// and no published theme does: the closest one only looked like it. It is
+		// copied before the cache rebuild below, which is what makes bat find it.
+		batConfigDir := filepath.Join(homeDir, ".config", "bat")
+		batThemesDir := filepath.Join(batConfigDir, "themes")
+		if err := os.MkdirAll(batThemesDir, 0o755); err != nil {
+			return wrapStepError("shell", "Install Zsh",
+				"Failed to create the bat themes directory",
+				err)
+		}
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetBatTheme), filepath.Join(batThemesDir, "dotfiles.tmTheme")); err != nil {
+			return wrapStepError("shell", "Install Zsh",
+				"Failed to copy the bat theme",
+				err)
+		}
+		// bat reads a theme from its cache, not from the themes directory, so the
+		// cache has to be rebuilt for the copy above to have any effect. The rebuild
+		// is best-effort on purpose: bat comes from the platform package lists, but
+		// not on every platform, and a missing or failing bat must not fail the
+		// whole shell step. BAT_CONFIG_DIR is set explicitly so the build reads the
+		// directory the theme was just written into instead of resolving whatever
+		// XDG_CONFIG_HOME the ambient environment happens to carry.
+		if !system.CommandExists("bat") {
+			SendLog(stepID, "bat not found in PATH, skipping the theme cache rebuild")
+		} else if result := system.RunWithLogs("bat cache --build", &system.ExecOptions{
+			Env: []string{"BAT_CONFIG_DIR=" + batConfigDir},
+		}, func(line string) {
+			SendLog(stepID, line)
+		}); result.Error != nil {
+			SendLog(stepID, fmt.Sprintf("Warning: could not rebuild the bat cache: %v", result.Error))
+		} else {
+			SendLog(stepID, "✓ bat theme installed")
+		}
 		// Oh My Zsh manages its own checkout. Writing a vendored copy over an
 		// existing clone dirties its tracked files, and `omz update` then fails on
 		// the autostash pop, so the official installer runs only when nothing is

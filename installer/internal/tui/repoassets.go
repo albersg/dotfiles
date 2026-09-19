@@ -18,6 +18,7 @@ const (
 	repoAssetZshEnv      = "dotfiles-zsh/.zshenv"
 	repoAssetZshrc       = "dotfiles-zsh/.zshrc"
 	repoAssetP10k        = "dotfiles-zsh/.p10k.zsh"
+	repoAssetBatTheme    = "dotfiles-bat/themes/dotfiles.tmTheme"
 	repoAssetBashEnvJSON = "bash-env-json"
 	repoAssetBashEnvNu   = "bash-env.nu"
 	repoAssetNushell     = "dotfiles-nushell"
@@ -46,6 +47,7 @@ var repoAssets = []string{
 	repoAssetZshEnv,
 	repoAssetZshrc,
 	repoAssetP10k,
+	repoAssetBatTheme,
 	repoAssetBashEnvJSON,
 	repoAssetBashEnvNu,
 	repoAssetNushell,
