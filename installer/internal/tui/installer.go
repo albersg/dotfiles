@@ -199,6 +199,11 @@ func (m *Model) repoDir() (string, error) {
 	return m.RepoDir, nil
 }
 
+// homebrewInstallerURL is the upstream install script the step downloads. It is
+// fetched to a file before it is run instead of through `bash -c "$(curl ...)"`:
+// see stepInstallHomebrew.
+const homebrewInstallerURL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+
 func stepInstallHomebrew(m *Model) error {
 	stepID := "homebrew"
 
@@ -215,12 +220,41 @@ func stepInstallHomebrew(m *Model) error {
 	}
 
 	SendLog(stepID, "Installing Homebrew package manager...")
-	result := system.RunWithLogs(`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`, nil, func(line string) {
-		SendLog(stepID, line)
-	})
-	if result.Error != nil {
+
+	// The installer is downloaded and then run as two commands. The old
+	// `/bin/bash -c "$(curl -fsSL ...)"` ran curl inside a command substitution,
+	// where a failed download expands to the empty string: the shell it was
+	// handed ran nothing and still exited 0. A 403 from
+	// raw.githubusercontent.com therefore reached the caller as a successful
+	// installation. Downloading to a file keeps curl's own exit status, which is
+	// the failure this step has to see. The file lives in a temporary directory
+	// this step owns and is removed on every path out.
+	installer, err := os.CreateTemp("", "homebrew-install-*.sh")
+	if err != nil {
 		return wrapStepError("homebrew", "Install Homebrew",
-			"Failed to install Homebrew package manager. Check your internet connection.",
+			"Failed to create a temporary file for the Homebrew install script",
+			err)
+	}
+	installerPath := installer.Name()
+	if err := installer.Close(); err != nil {
+		return wrapStepError("homebrew", "Install Homebrew",
+			"Failed to create a temporary file for the Homebrew install script",
+			err)
+	}
+	defer func() { _ = os.Remove(installerPath) }()
+
+	logLine := func(line string) { SendLog(stepID, line) }
+
+	if result := system.RunWithLogs(
+		fmt.Sprintf("curl -fsSL -o %q %s", installerPath, homebrewInstallerURL), nil, logLine); result.Error != nil {
+		return wrapStepError("homebrew", "Install Homebrew",
+			"Failed to download the Homebrew install script. Check your internet connection and whether raw.githubusercontent.com is reachable; a proxy or firewall can return an HTTP error there.",
+			result.Error)
+	}
+
+	if result := system.RunWithLogs(fmt.Sprintf("/bin/bash %q", installerPath), nil, logLine); result.Error != nil {
+		return wrapStepError("homebrew", "Install Homebrew",
+			"Failed to run the Homebrew install script",
 			result.Error)
 	}
 
@@ -228,12 +262,20 @@ func stepInstallHomebrew(m *Model) error {
 	// at startup, and the install script only exports brew into its own child
 	// shell, so without this refresh every later step keeps using the native
 	// package manager and ignores the Homebrew it just installed.
-	if system.BrewInstalled() {
-		m.SystemInfo.HasBrew = true
-		SendLog(stepID, fmt.Sprintf("✓ Homebrew installed at %s", system.GetBrewPrefix()))
-	} else {
-		SendLog(stepID, "Warning: Homebrew binary not found after installation")
+	//
+	// The refresh is also the step's success test. The script can exit 0 having
+	// installed nothing, and that is exactly what the empty-download idiom above
+	// produced, so a missing brew is reported as the failure it is instead of
+	// being logged as a warning under a "✓ installed successfully" line. The
+	// message names the download because that is the cause this guard exists to
+	// catch.
+	if !system.BrewInstalled() {
+		return wrapStepError("homebrew", "Install Homebrew",
+			"Homebrew is still missing after the install script ran. The download or the script itself most likely failed; check your internet connection and whether raw.githubusercontent.com is reachable, then run the installer again.",
+			fmt.Errorf("brew not found at %s after the install script completed", system.GetBrewPrefix()))
 	}
+	m.SystemInfo.HasBrew = true
+	SendLog(stepID, fmt.Sprintf("✓ Homebrew installed at %s", system.GetBrewPrefix()))
 
 	// Add to PATH
 	homeDir := os.Getenv("HOME")
