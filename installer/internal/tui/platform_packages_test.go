@@ -66,7 +66,7 @@ func TestInstallPlatformPackagesFedoraFallsBackToBrewWhenNativeFails(t *testing.
 	}
 
 	expected := []packageCommandCall{
-		{runner: "sudo", command: "dnf install -y --skip-unavailable fish carapace zoxide atuin starship"},
+		{runner: "sudo", command: "dnf install -y fish carapace zoxide atuin starship"},
 		{runner: "brew", command: "install fish carapace zoxide atuin starship"},
 	}
 	if !reflect.DeepEqual(*calls, expected) {

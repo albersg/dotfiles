@@ -343,6 +343,35 @@ func usesPacman(m *Model) bool {
 	return m.SystemInfo.OS == system.OSArch
 }
 
+// usesDnf mirrors the Fedora branch of installPlatformPackages: dnf runs on a
+// Fedora host whether or not Homebrew is present, so the Fedora package lists
+// are the ones the install reaches and the ones the Fedora filter protects.
+func usesDnf(m *Model) bool {
+	return m.SystemInfo.OS == system.OSFedora
+}
+
+// componentPresentAfterInstall reports whether a component is on the machine
+// once an install attempt has finished. The install result is authoritative for
+// failure: a route that returned an error did not install it. On success the
+// component is looked up on PATH and in the Homebrew prefix, because Homebrew
+// writes its binaries into its own prefix and this process's PATH does not
+// necessarily contain it moments after a successful install. A PATH-only lookup
+// would report a component that was installed moments earlier as missing.
+func componentPresentAfterInstall(result *system.ExecResult, command string) bool {
+	if result != nil && result.Error != nil {
+		return false
+	}
+	if system.CommandExists(command) {
+		return true
+	}
+	prefix := os.Getenv("HOMEBREW_PREFIX")
+	if prefix == "" {
+		prefix = system.GetBrewPrefix()
+	}
+	info, err := os.Stat(filepath.Join(prefix, "bin", command))
+	return err == nil && !info.IsDir()
+}
+
 // dependencyManualCommands returns the root-only commands the user can run by
 // hand when sudo cannot prompt. It mirrors the dispatch of the dependency
 // install so the guidance cannot drift from what would actually run.
@@ -351,7 +380,7 @@ func dependencyManualCommands(m *Model, deps platformPackages) string {
 	case m.SystemInfo.OS == system.OSArch:
 		return "sudo pacman -S --needed --noconfirm " + deps.Arch
 	case m.SystemInfo.OS == system.OSFedora:
-		return "sudo dnf install -y --skip-unavailable " + deps.Fedora
+		return "sudo dnf install -y " + deps.Fedora
 	case usesApt(m):
 		return "sudo apt-get update\nsudo apt-get install -y " + deps.Debian
 	default:
@@ -853,6 +882,13 @@ type platformPackages struct {
 	// actually runs. The Debian gap is returned separately by the constructors,
 	// which predate this field.
 	archUnavailable []string
+
+	// fedoraUnavailable names the packages the Fedora list had to drop because
+	// the distribution's own repositories do not carry them. It travels beside
+	// the filtered list so the caller can report the gap for dnf, the manager
+	// that actually runs on a Fedora host. It exists for the same reason as
+	// archUnavailable beside the constructors' separate Debian return.
+	fedoraUnavailable []string
 }
 
 var (
@@ -962,6 +998,67 @@ func logArchUnavailable(stepID string, unavailable []string) {
 	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
 }
 
+// fedoraUnavailable names the packages this installer requests on other
+// platforms but that Fedora does not carry in its own repositories.
+//
+// dnf aborts the whole transaction when a single requested name is unknown,
+// exactly as apt and pacman do, so a name listed in a Fedora package set but
+// missing from the distribution takes every package beside it down as well and
+// leaves the shell or window manager that did exist uninstalled. Every name the
+// Fedora columns request was checked against fedora:latest, the image the E2E
+// target builds from, with `dnf install --assumeno`. That check resolves
+// virtual provides and groups the same way the real install command does, so
+// wget (provided by wget2-wget) and npm (provided by nodejs-npm) count as
+// present instead of being dropped by a bare name comparison. The names below
+// are the only ones that did not resolve; a name that did not resolve is left
+// out of every Fedora list and reported to the user instead.
+//
+// The check is version-specific, and this note is the Fedora counterpart of the
+// Debian one: nushell is absent from Fedora 40 but present in Fedora 44, so it
+// is deliberately not listed here. Holding the names the target image actually
+// reaches keeps a release that does not carry one failing dnf loudly, exactly
+// as it would for apt or pacman.
+//
+// zellij is a component the user can select, and it is the one name below the
+// step must fail on. carapace (the completions fish, zsh and nushell source),
+// starship (the prompt those shells start) and lazygit (the Neovim git UI) are
+// companions the configuration reads when present, so they are a logged notice.
+// All four are available from Homebrew and from each tool's upstream installer.
+var fedoraUnavailable = map[string]bool{
+	"carapace": true,
+	"starship": true,
+	"zellij":   true,
+	"lazygit":  true,
+}
+
+// fedoraPackages joins wanted into a package list dnf can install, dropping the
+// names Fedora does not carry. It returns the dropped names separately so the
+// caller can tell the user where to get them instead.
+func fedoraPackages(wanted ...string) (installable string, unavailable []string) {
+	kept := make([]string, 0, len(wanted))
+	for _, name := range wanted {
+		if fedoraUnavailable[name] {
+			unavailable = append(unavailable, name)
+			continue
+		}
+		kept = append(kept, name)
+	}
+	return strings.Join(kept, " "), unavailable
+}
+
+// logFedoraUnavailable tells the user which requested tools the Fedora
+// repositories do not provide, so a skipped tool is never mistaken for an
+// installed one.
+func logFedoraUnavailable(stepID string, unavailable []string) {
+	if len(unavailable) == 0 {
+		return
+	}
+	SendLog(stepID, fmt.Sprintf(
+		"Not available in the Fedora repositories, so not installed: %s.",
+		strings.Join(unavailable, ", ")))
+	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
+}
+
 // ohMyZshInstallerURL is the official Oh My Zsh installer, pinned to the exact
 // revision this repository ships and the local machine runs. An unpinned master
 // URL would execute whatever upstream publishes next, which the previous
@@ -1044,17 +1141,17 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 		return runPkgInstallWithLogs(packages.Termux, nil, onLog)
 	case m.SystemInfo.OS == system.OSArch && packages.Arch != "":
 		return runNativeWithBrewFallback("pacman -S --needed --noconfirm "+packages.Arch, packages.Brew, m.SystemInfo.HasBrew, onLog)
-	// dnf aborts the whole transaction on a single unknown name, and Fedora has no
-	// carapace or starship in its default repositories, so the shell install used
-	// to fail there while the packages it could provide were never installed.
-	// --skip-unavailable is dnf's own answer and installs the rest.
+	// dnf aborts the whole transaction on a single unknown name, exactly as apt
+	// and pacman do, so the Fedora lists are filtered by fedoraPackages before
+	// they reach this command and the names Fedora does not carry never arrive.
 	//
-	// Trade-off, noted after review: the command now succeeds even when it skips
-	// packages, so runNativeWithBrewFallback only fires on a genuine dnf failure.
-	// On Fedora with Homebrew installed, carapace and starship therefore have to
-	// be installed from Homebrew by hand.
+	// dnf's own answer to that abort, --skip-unavailable, is deliberately not
+	// used. With the filter in place it no longer buys the install its coverage,
+	// and keeping it would let a name the filter does not know about be dropped
+	// without a word, which is the defect this change removes. A name that is
+	// genuinely absent now fails the command loudly instead of disappearing.
 	case m.SystemInfo.OS == system.OSFedora && packages.Fedora != "":
-		return runNativeWithBrewFallback("dnf install -y --skip-unavailable "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
+		return runNativeWithBrewFallback("dnf install -y "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	case (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew && packages.Debian != "":
 		return runNativeWithBrewFallback("apt-get install -y "+packages.Debian, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	default:
@@ -1143,23 +1240,27 @@ func installHerdrBinary(m *Model, stepID string) error {
 // shellPlatformPackages returns the packages each package manager needs for the
 // requested shell and the tools its configuration reads at start.
 //
-// The Debian entry is built with debianPackages and the Arch entry with
-// archPackages, so a name the distribution does not carry never reaches apt or
-// pacman and cannot abort the whole transaction. The second return value names
-// the omitted Debian packages and the archUnavailable field names the omitted
-// Arch ones, so the caller can report them for the manager that actually runs.
+// The Debian entry is built with debianPackages, the Arch entry with
+// archPackages and the Fedora entry with fedoraPackages, so a name the
+// distribution does not carry never reaches apt, pacman or dnf and cannot abort
+// the whole transaction. The second return value names the omitted Debian
+// packages, and the archUnavailable and fedoraUnavailable fields name the
+// omitted Arch and Fedora ones, so the caller can report them for the manager
+// that actually runs.
 func shellPlatformPackages(shell string) (platformPackages, []string) {
 	switch shell {
 	case "fish":
 		debian, unavailable := debianPackages("fish", "zoxide", "starship")
 		arch, archGaps := archPackages("fish", "carapace", "zoxide", "atuin", "starship")
+		fedora, fedoraGaps := fedoraPackages("fish", "carapace", "zoxide", "atuin", "starship")
 		return platformPackages{
-			Termux:          "fish starship zoxide",
-			Brew:            "fish carapace zoxide atuin starship",
-			Arch:            arch,
-			Fedora:          "fish carapace zoxide atuin starship",
-			Debian:          debian,
-			archUnavailable: archGaps,
+			Termux:            "fish starship zoxide",
+			Brew:              "fish carapace zoxide atuin starship",
+			Arch:              arch,
+			Fedora:            fedora,
+			Debian:            debian,
+			archUnavailable:   archGaps,
+			fedoraUnavailable: fedoraGaps,
 		}, unavailable
 	case "zsh":
 		// The zsh configuration depends on these at shell start: eza/bat/rg/fd/fzf
@@ -1180,26 +1281,34 @@ func shellPlatformPackages(shell string) (platformPackages, []string) {
 			"zsh-theme-powerlevel10k", "kubectx", "eza", "bat", "fd",
 			"ripgrep", "fzf", "direnv", "jq", "github-cli", "git-delta",
 		)
+		fedora, fedoraGaps := fedoraPackages(
+			"zsh", "carapace", "zoxide", "atuin", "zsh-autosuggestions",
+			"zsh-syntax-highlighting", "starship", "eza", "bat", "fd-find",
+			"ripgrep", "fzf", "direnv", "jq", "gh", "git-delta",
+		)
 		return platformPackages{
 			Termux: "zsh starship zoxide",
 			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
 			Arch:   arch,
-			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
+			Fedora: fedora,
 			// Debian stable does not package starship, fnm, eza, delta or xh; those
 			// come from Homebrew, which this installer puts in place for Debian hosts.
-			Debian:          debian,
-			archUnavailable: archGaps,
+			Debian:            debian,
+			archUnavailable:   archGaps,
+			fedoraUnavailable: fedoraGaps,
 		}, unavailable
 	case "nushell":
 		debian, unavailable := debianPackages("nushell", "zoxide", "jq", "bash", "starship")
 		arch, archGaps := archPackages("nushell", "carapace", "zoxide", "atuin", "jq", "bash", "starship")
+		fedora, fedoraGaps := fedoraPackages("nushell", "carapace", "zoxide", "atuin", "jq", "bash", "starship")
 		return platformPackages{
-			Termux:          "nushell starship zoxide jq",
-			Brew:            "nushell carapace zoxide atuin jq bash starship",
-			Arch:            arch,
-			Fedora:          "nushell carapace zoxide atuin jq bash starship",
-			Debian:          debian,
-			archUnavailable: archGaps,
+			Termux:            "nushell starship zoxide jq",
+			Brew:              "nushell carapace zoxide atuin jq bash starship",
+			Arch:              arch,
+			Fedora:            fedora,
+			Debian:            debian,
+			archUnavailable:   archGaps,
+			fedoraUnavailable: fedoraGaps,
 		}, unavailable
 	}
 	return platformPackages{}, nil
@@ -1212,6 +1321,37 @@ func shellPackageName(shell string) string {
 		return "nushell"
 	}
 	return shell
+}
+
+// shellCommandName maps the installer's shell choice to the command a user
+// runs, which is what a presence check has to look for. The nushell package
+// provides the nu binary.
+func shellCommandName(shell string) string {
+	if shell == "nushell" {
+		return "nu"
+	}
+	return shell
+}
+
+// fedoraMissingSelectedShell is the selected-component rule for the shell,
+// applied after the install instead of before it. A shell the Fedora filter
+// dropped is still missing only when it is absent once dnf and the Homebrew
+// fallback have both been attempted; dnf can report success while the filtered
+// shell was never in its command, so the install result alone does not settle
+// it and the shell itself has to be looked for. A nil return means the step may
+// continue.
+func fedoraMissingSelectedShell(m *Model, stepID, shell string, result *system.ExecResult) error {
+	if !usesDnf(m) || !fedoraUnavailable[shellPackageName(shell)] {
+		return nil
+	}
+	if componentPresentAfterInstall(result, shellCommandName(shell)) {
+		return nil
+	}
+	return wrapStepError(stepID, "Install Shell",
+		fmt.Sprintf("%s is not available in this distribution's own package repositories, so it was not installed. "+
+			"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
+			shell, shellPackageName(shell)),
+		nil)
 }
 
 func stepInstallShell(m *Model) error {
@@ -1267,12 +1407,28 @@ func stepInstallShell(m *Model) error {
 		}
 	}
 
+	// Fedora reaches dnf whether or not Homebrew is present, and nushell is
+	// absent from Fedora 40 while Fedora 44 carries it, so the filter holds the
+	// names the target image actually lacks. Every shell this installer can
+	// select is present there, which makes this the same companion-versus-
+	// selected rule the Debian and Arch branches apply: the companions are a
+	// logged note. The selected-component guard is not applied here because it
+	// would fire before the install: dnf can succeed while a shell the filter
+	// dropped was never in its command, so the guard is applied after the
+	// install below, once dnf and the Homebrew fallback have both run.
+	if usesDnf(m) {
+		logFedoraUnavailable(stepID, packages.fedoraUnavailable)
+	}
+
 	switch shell {
 	case "fish":
 		SendLog(stepID, "Installing Fish shell and plugins...")
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if err := fedoraMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if result.Error != nil {
 			return wrapStepError("shell", "Install Fish",
 				"Failed to install Fish shell and dependencies",
@@ -1322,6 +1478,9 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if err := fedoraMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if result.Error != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to install Zsh and plugins",
@@ -1456,6 +1615,9 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if err := fedoraMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if result.Error != nil {
 			return wrapStepError("shell", "Install Nushell",
 				"Failed to install Nushell and dependencies",
@@ -1523,21 +1685,23 @@ func stepInstallShell(m *Model) error {
 }
 
 // zellijPlatformPackages returns the packages for the Zellij window manager.
-// Debian/Ubuntu does not carry zellij at all, so its Debian entry is empty and
-// the caller reports the omission instead of handing apt a name it would reject
-// and fail the whole transaction on. Arch carries zellij, so its entry is
-// unchanged, but it still goes through archPackages so a future edit cannot
-// slip an unknown name past the filter.
+// Debian/Ubuntu does not carry zellij at all and Fedora does not either, so
+// those entries are empty and the caller reports the omission instead of
+// handing apt or dnf a name it would reject and fail the whole transaction on.
+// Arch carries zellij, so its entry is unchanged, but it still goes through
+// archPackages so a future edit cannot slip an unknown name past the filter.
 func zellijPlatformPackages() (platformPackages, []string) {
 	debian, unavailable := debianPackages("zellij")
 	arch, archGaps := archPackages("zellij")
+	fedora, fedoraGaps := fedoraPackages("zellij")
 	return platformPackages{
-		Termux:          "zellij",
-		Brew:            "zellij",
-		Arch:            arch,
-		Fedora:          "zellij",
-		Debian:          debian,
-		archUnavailable: archGaps,
+		Termux:            "zellij",
+		Brew:              "zellij",
+		Arch:              arch,
+		Fedora:            fedora,
+		Debian:            debian,
+		archUnavailable:   archGaps,
+		fedoraUnavailable: fedoraGaps,
 	}, unavailable
 }
 
@@ -1686,9 +1850,24 @@ func stepInstallWM(m *Model) error {
 						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
 					nil)
 			}
+			// Fedora does not carry zellij. The selected-component rule is applied
+			// after the install rather than before it: zellij is only reported
+			// missing once every available route has been attempted, so a Fedora
+			// host whose Homebrew can provide it is not told it cannot be
+			// installed. dnf is not asked for it (the Fedora list is empty), so
+			// installPlatformPackages goes to its default branch and Homebrew is the
+			// only route; the presence check below confirms the result, looking in
+			// the Homebrew prefix as well as PATH.
 			result := installPlatformPackages(m, stepID, packages, func(line string) {
 				SendLog(stepID, line)
 			})
+			if usesDnf(m) && len(packages.fedoraUnavailable) > 0 && !componentPresentAfterInstall(result, "zellij") {
+				logFedoraUnavailable(stepID, packages.fedoraUnavailable)
+				return wrapStepError(stepID, "Install Zellij",
+					"Zellij is not available in this distribution's own package repositories, so it was not installed. "+
+						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
+					nil)
+			}
 			if result.Error != nil {
 				return wrapStepError("wm", "Install Zellij",
 					"Failed to install Zellij",
@@ -1822,8 +2001,9 @@ func installConfigDir(stepID, src, dst string, keep ...string) error {
 
 // nvimPlatformPackages returns the packages the Neovim step installs. The
 // Debian entry drops lazygit and tree-sitter-cli, which its repositories do not
-// carry and apt cannot skip, and the Arch entry goes through archPackages for
-// the same reason even though every name it asks for exists there today.
+// carry and apt cannot skip, and the Fedora entry drops lazygit, which Fedora
+// does not carry for the same reason. The Arch entry goes through archPackages
+// for the same reason even though every name it asks for exists there today.
 func nvimPlatformPackages() (platformPackages, []string) {
 	debian, unavailable := debianPackages(
 		"neovim", "git", "gcc", "fzf", "fd-find", "ripgrep", "coreutils",
@@ -1833,13 +2013,18 @@ func nvimPlatformPackages() (platformPackages, []string) {
 		"neovim", "git", "gcc", "fzf", "fd", "ripgrep", "coreutils",
 		"bat", "curl", "lazygit", "tree-sitter",
 	)
+	fedora, fedoraGaps := fedoraPackages(
+		"neovim", "git", "gcc", "fzf", "fd-find", "ripgrep", "coreutils",
+		"bat", "curl", "lazygit", "tree-sitter-cli",
+	)
 	return platformPackages{
-		Termux:          "neovim git clang fzf fd ripgrep bat curl lazygit",
-		Brew:            "nvim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
-		Arch:            arch,
-		Fedora:          "neovim git gcc fzf fd-find ripgrep coreutils bat curl lazygit tree-sitter-cli",
-		Debian:          debian,
-		archUnavailable: archGaps,
+		Termux:            "neovim git clang fzf fd ripgrep bat curl lazygit",
+		Brew:              "nvim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
+		Arch:              arch,
+		Fedora:            fedora,
+		Debian:            debian,
+		archUnavailable:   archGaps,
+		fedoraUnavailable: fedoraGaps,
 	}, unavailable
 }
 
@@ -1887,6 +2072,9 @@ func stepInstallNvim(m *Model) error {
 	packages, unavailable := nvimPlatformPackages()
 	if usesApt(m) {
 		logDebianUnavailable(stepID, unavailable)
+	}
+	if usesDnf(m) {
+		logFedoraUnavailable(stepID, packages.fedoraUnavailable)
 	}
 	result := installPlatformPackages(m, stepID, packages, func(line string) {
 		SendLog(stepID, line)

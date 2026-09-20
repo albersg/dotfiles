@@ -135,7 +135,7 @@ func TestClipboardProvidersAreInstalledPerPlatform(t *testing.T) {
 			name: "Fedora uses dnf",
 			info: &system.SystemInfo{OS: system.OSFedora, HasBrew: false},
 			expected: []packageCommandCall{
-				{runner: "sudo", command: "dnf install -y --skip-unavailable xclip wl-clipboard"},
+				{runner: "sudo", command: "dnf install -y xclip wl-clipboard"},
 			},
 		},
 		{

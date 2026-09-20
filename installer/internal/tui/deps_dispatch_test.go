@@ -99,7 +99,7 @@ func TestStepInstallDepsResolvesWSLDistribution(t *testing.T) {
 		{
 			name: "fedora",
 			os:   system.OSFedora,
-			want: packageCommandCall{runner: "sudo", command: "dnf install -y --skip-unavailable @development-tools curl file git wget unzip fontconfig"},
+			want: packageCommandCall{runner: "sudo", command: "dnf install -y @development-tools curl file git wget unzip fontconfig"},
 		},
 		{
 			name: "arch",
