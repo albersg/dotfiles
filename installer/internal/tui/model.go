@@ -56,6 +56,10 @@ const (
 	ScreenTrainerBoss       // Boss fight
 	ScreenTrainerResult     // Result after exercise
 	ScreenTrainerBossResult // Result after boss fight
+	// Herdr keymap screens. Appended at the end to keep the numeric values of
+	// the existing screens stable.
+	ScreenKeymapsHerdr    // Herdr keymaps
+	ScreenKeymapsHerdrCat // Herdr keymap category
 )
 
 // InstallStep represents a single installation step
@@ -126,6 +130,9 @@ type Model struct {
 	GhosttyKeymapCategories []KeymapCategory
 	GhosttySelectedCategory int
 	GhosttyKeymapScroll     int
+	HerdrKeymapCategories   []KeymapCategory
+	HerdrSelectedCategory   int
+	HerdrKeymapScroll       int
 	// LazyVim mode
 	LazyVimTopics        []LazyVimTopic
 	SelectedLazyVimTopic int
@@ -177,6 +184,9 @@ func NewModel() Model {
 		GhosttyKeymapCategories: GetGhosttyKeymaps(),
 		GhosttySelectedCategory: 0,
 		GhosttyKeymapScroll:     0,
+		HerdrKeymapCategories:   GetHerdrKeymaps(),
+		HerdrSelectedCategory:   0,
+		HerdrKeymapScroll:       0,
 		LazyVimTopics:           GetLazyVimTopics(),
 		SelectedLazyVimTopic:    0,
 		LazyVimScroll:           0,
@@ -257,7 +267,7 @@ func (m Model) GetCurrentOptions() []string {
 		opts = append(opts, "❌ Exit")
 		return opts
 	case ScreenKeymapsMenu:
-		return []string{"Neovim", "Tmux", "Zellij", "Ghostty", "─────────────", "← Back"}
+		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", "─────────────", "← Back"}
 	case ScreenOSSelect:
 		macLabel := "macOS"
 		linuxLabel := "Linux"
@@ -359,6 +369,14 @@ func (m Model) GetCurrentOptions() []string {
 		categories[len(m.GhosttyKeymapCategories)] = "─────────────"
 		categories[len(m.GhosttyKeymapCategories)+1] = "← Back"
 		return categories
+	case ScreenKeymapsHerdr:
+		categories := make([]string, len(m.HerdrKeymapCategories)+2)
+		for i, cat := range m.HerdrKeymapCategories {
+			categories[i] = cat.Name
+		}
+		categories[len(m.HerdrKeymapCategories)] = "─────────────"
+		categories[len(m.HerdrKeymapCategories)+1] = "← Back"
+		return categories
 	case ScreenLearnLazyVim:
 		titles := GetLazyVimTopicTitles()
 		result := make([]string, len(titles)+2)
@@ -442,6 +460,13 @@ func (m Model) GetScreenTitle() string {
 			return "⌨️  " + m.GhosttyKeymapCategories[m.GhosttySelectedCategory].Name
 		}
 		return "⌨️  Ghostty Keymaps"
+	case ScreenKeymapsHerdr:
+		return "⌨️  Herdr Keymaps"
+	case ScreenKeymapsHerdrCat:
+		if m.HerdrSelectedCategory < len(m.HerdrKeymapCategories) {
+			return "⌨️  " + m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
+		}
+		return "⌨️  Herdr Keymaps"
 	case ScreenLearnLazyVim:
 		return "📖 LazyVim Guide"
 	case ScreenLazyVimTopic:

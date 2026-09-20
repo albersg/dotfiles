@@ -110,6 +110,47 @@ check_wm_default_shell() {
 }
 
 # ============================================
+# PLATFORM - which terminals this platform supports
+# ============================================
+
+# E2E_TERMINALS is every --terminal value in the option space the planning
+# matrix walks.
+E2E_TERMINALS="alacritty wezterm kitty ghostty none"
+
+# platform_terminals prints the --terminal values this platform supports.
+platform_terminals() {
+    for terminal in $E2E_TERMINALS; do
+        if terminal_supported_on_platform "$terminal"; then
+            printf '%s\n' "$terminal"
+        fi
+    done
+}
+
+# terminal_supported_on_platform reports whether --terminal=<value> is a value
+# the installer honours here. It mirrors the rule the Go code applies
+# (internal/tui/installer.go, supportedTerminals): kitty has a Homebrew cask on
+# macOS and no installation route at all on the platforms this suite runs on, so
+# asking for it anywhere else is refused rather than planned.
+#
+# The mirror is checked, not trusted: test_terminal_axis probes the binary for
+# every value and fails when the binary disagrees with this rule in either
+# direction, so the matrix cannot quietly expect a combination the installer
+# would refuse, or accept one it would reject.
+terminal_supported_on_platform() {
+    case "$1" in
+        alacritty|wezterm|ghostty|none)
+            return 0
+            ;;
+        kitty)
+            [ "$(uname -s)" = "Darwin" ]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# ============================================
 # BASIC TESTS - Binary functionality
 # ============================================
 
@@ -485,6 +526,196 @@ test_nvim_configured() {
 }
 
 # ============================================
+# OPTION COVERAGE - terminal axis, font, Herdr, planning matrix
+# ============================================
+
+# Test: the terminal axis. Every --terminal value is either planned with the step
+# it names, or refused on the platform that does not support it, with the values
+# that platform does support named in the refusal and no step list planned.
+#
+# This is the focused case for the terminal axis; the matrix below walks the
+# whole option space. It is also what checks the platform rule the matrix uses:
+# if the binary accepted kitty off macOS, or refused a value this script
+# believes is supported, the disagreement is reported here by name.
+test_terminal_axis() {
+    log_test "Terminal axis: every --terminal value is planned or refused"
+
+    for terminal in $E2E_TERMINALS; do
+        flags="--shell=fish --terminal=$terminal --backup=false"
+        if out=$(dotfiles --non-interactive --dry-run $flags 2>&1); then
+            rc=0
+        else
+            rc=$?
+        fi
+
+        if terminal_supported_on_platform "$terminal"; then
+            if [ "$rc" -ne 0 ]; then
+                log_fail "terminal=$terminal: expected a plan, got exit $rc: $out"
+                continue
+            fi
+            if [ "$terminal" = "none" ]; then
+                if printf '%s\n' "$out" | grep -qE 'Install .* terminal'; then
+                    log_fail "terminal=none planned a terminal step: $out"
+                else
+                    log_pass "terminal=none plans no terminal step"
+                fi
+            elif printf '%s\n' "$out" | grep -qF "Install $terminal terminal"; then
+                log_pass "terminal=$terminal plans its installation step"
+            else
+                log_fail "terminal=$terminal was accepted but its step is missing from the plan: $out"
+            fi
+            continue
+        fi
+
+        # Not supported here: the CLI has to refuse before it plans anything.
+        if [ "$rc" -eq 0 ]; then
+            log_fail "terminal=$terminal is not supported on $(uname -s) but was accepted"
+            continue
+        fi
+        if printf '%s\n' "$out" | grep -q "installation steps"; then
+            log_fail "terminal=$terminal was refused but a step list was still planned: $out"
+            continue
+        fi
+        missing=""
+        for supported in $(platform_terminals); do
+            if ! printf '%s\n' "$out" | grep -qF "$supported"; then
+                missing="$missing $supported"
+            fi
+        done
+        if [ -n "$missing" ]; then
+            log_fail "terminal=$terminal: refusal does not name supported values:$missing -- got: $out"
+            continue
+        fi
+        log_pass "terminal=$terminal is refused on $(uname -s), naming the supported values"
+    done
+}
+
+# Test: --font is honoured, and the Nerd Font step is only planned when the flag
+# was asked for. The negative control matters: without it, a plan that always
+# contained the step would make the first check pass for the wrong reason.
+test_font_option() {
+    log_test "--font plans the Nerd Font step"
+
+    if out=$(dotfiles --non-interactive --dry-run --shell=fish --wm=none --font --backup=false 2>&1); then
+        if printf '%s\n' "$out" | grep -qF "Install Nerd Font"; then
+            log_pass "--font plans the Nerd Font step"
+        else
+            log_fail "--font was accepted but the Nerd Font step is missing from the plan: $out"
+        fi
+    else
+        log_fail "--font failed to plan: $out"
+    fi
+
+    if out=$(dotfiles --non-interactive --dry-run --shell=fish --wm=none --backup=false 2>&1); then
+        if printf '%s\n' "$out" | grep -qF "Install Nerd Font"; then
+            log_fail "the Nerd Font step is planned without --font: $out"
+        else
+            log_pass "no Nerd Font step without --font"
+        fi
+    else
+        log_fail "planning without --font failed: $out"
+    fi
+}
+
+# Test: --wm=herdr is honoured. Herdr had no coverage at all: every invocation
+# in this suite asked for tmux, zellij or none. The negative control keeps the
+# check from passing on a plan that always contains the step.
+test_herdr_wm() {
+    log_test "--wm=herdr plans the Herdr step"
+
+    if out=$(dotfiles --non-interactive --dry-run --shell=fish --terminal=none --wm=herdr --backup=false 2>&1); then
+        if printf '%s\n' "$out" | grep -qF "Install herdr"; then
+            log_pass "--wm=herdr plans the Herdr step"
+        else
+            log_fail "--wm=herdr was accepted but its step is missing from the plan: $out"
+        fi
+    else
+        log_fail "--wm=herdr failed to plan: $out"
+    fi
+
+    if out=$(dotfiles --non-interactive --dry-run --shell=fish --terminal=none --wm=none --backup=false 2>&1); then
+        if printf '%s\n' "$out" | grep -qF "Install herdr"; then
+            log_fail "the Herdr step is planned for --wm=none: $out"
+        else
+            log_pass "no Herdr step for --wm=none"
+        fi
+    else
+        log_fail "planning for --wm=none failed: $out"
+    fi
+}
+
+# Test: the dry-run planning matrix over the whole option space.
+#
+# 3 shells x 5 terminals x 4 window managers x 2 nvim x 2 font = 240
+# combinations. Every step returns early under --dry-run (dryRun() guards
+# executeStep), so the matrix costs seconds and installs nothing. Per
+# combination it asserts an exit code, a non-empty step list and no error text.
+#
+# Combinations whose terminal this platform does not support are expected to be
+# refused by the validation the CLI runs before it plans anything: the matrix
+# reflects the decision WU-A made (#16) instead of assuming every combination is
+# legal, and every failure names its combination.
+test_dry_run_matrix() {
+    log_test "Dry-run planning matrix over the option space (240 combinations)"
+
+    matrix_total=0
+    matrix_failures=0
+
+    for shell in fish zsh nushell; do
+        for terminal in $E2E_TERMINALS; do
+            for wm in tmux zellij herdr none; do
+                for nvim in 0 1; do
+                    for font in 0 1; do
+                        matrix_total=$((matrix_total + 1))
+
+                        flags="--shell=$shell --terminal=$terminal --wm=$wm --backup=false"
+                        if [ "$nvim" = "1" ]; then
+                            flags="$flags --nvim"
+                        fi
+                        if [ "$font" = "1" ]; then
+                            flags="$flags --font"
+                        fi
+
+                        if out=$(dotfiles --non-interactive --dry-run $flags 2>&1); then
+                            rc=0
+                        else
+                            rc=$?
+                        fi
+
+                        if terminal_supported_on_platform "$terminal"; then
+                            if [ "$rc" -ne 0 ]; then
+                                matrix_failures=$((matrix_failures + 1))
+                                log_fail "matrix: $flags expected a plan, exit $rc: $out"
+                            elif ! printf '%s\n' "$out" | grep -qE 'Running [1-9][0-9]* installation steps'; then
+                                matrix_failures=$((matrix_failures + 1))
+                                log_fail "matrix: $flags planned no steps: $out"
+                            elif printf '%s\n' "$out" | grep -qiE 'error|failed'; then
+                                matrix_failures=$((matrix_failures + 1))
+                                log_fail "matrix: $flags printed an error while planning: $out"
+                            fi
+                        else
+                            if [ "$rc" -eq 0 ]; then
+                                matrix_failures=$((matrix_failures + 1))
+                                log_fail "matrix: $flags must be refused on $(uname -s), but it was accepted"
+                            elif printf '%s\n' "$out" | grep -q "installation steps"; then
+                                matrix_failures=$((matrix_failures + 1))
+                                log_fail "matrix: $flags was refused but still planned steps: $out"
+                            fi
+                        fi
+                    done
+                done
+            done
+        done
+    done
+
+    if [ "$matrix_failures" -eq 0 ]; then
+        log_pass "matrix: all $matrix_total combinations planned or were refused as expected"
+    else
+        log_fail "matrix: $matrix_failures of $matrix_total combinations failed; each failing combination is named above"
+    fi
+}
+
+# ============================================
 # BACKUP SYSTEM TESTS
 # ============================================
 
@@ -798,6 +1029,14 @@ log_section "Basic Tests"
 test_binary_runs
 test_version
 test_non_interactive_flag
+
+# Option coverage. Planning only, so it runs on every platform, including the
+# basic (non-RUN_FULL_E2E) images, and installs nothing.
+log_section "Option Coverage (dry run)"
+test_terminal_axis
+test_font_option
+test_herdr_wm
+test_dry_run_matrix
 
 # Backup tests (can run in basic mode)
 if [ "$RUN_BACKUP_TESTS" = "1" ] || [ "$RUN_FULL_E2E" = "1" ]; then

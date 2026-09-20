@@ -303,6 +303,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenKeymapsGhosttyCat:
 		return m.handleGhosttyKeymapCategoryKeys(key)
 
+	case ScreenKeymapsHerdr:
+		return m.handleHerdrKeymapsMenuKeys(key)
+
+	case ScreenKeymapsHerdrCat:
+		return m.handleHerdrKeymapCategoryKeys(key)
+
 	case ScreenLearnLazyVim:
 		return m.handleLazyVimMenuKeys(key)
 
@@ -382,6 +388,9 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenKeymapsGhosttyCat:
 		m.Screen = ScreenKeymapsGhostty
 		m.GhosttyKeymapScroll = 0
+	case ScreenKeymapsHerdrCat:
+		m.Screen = ScreenKeymapsHerdr
+		m.HerdrKeymapScroll = 0
 	case ScreenLazyVimTopic:
 		m.Screen = ScreenLearnLazyVim
 		m.LazyVimScroll = 0
@@ -392,7 +401,7 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenKeymaps:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
-	case ScreenKeymapsTmux, ScreenKeymapsZellij, ScreenKeymapsGhostty:
+	case ScreenKeymapsTmux, ScreenKeymapsZellij, ScreenKeymapsGhostty, ScreenKeymapsHerdr:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
 	case ScreenKeymapsMenu, ScreenLearnLazyVim:
@@ -844,7 +853,7 @@ func (m Model) handleKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleToolKeymapsMenuKeys handles the tool selection menu (Neovim, Tmux, Zellij, Ghostty)
+// handleToolKeymapsMenuKeys handles the tool selection menu (Neovim, Tmux, Zellij, Herdr, Ghostty)
 func (m Model) handleToolKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -885,7 +894,10 @@ func (m Model) handleToolKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 		case 2: // Zellij
 			m.Screen = ScreenKeymapsZellij
 			m.Cursor = 0
-		case 3: // Ghostty
+		case 3: // Herdr
+			m.Screen = ScreenKeymapsHerdr
+			m.Cursor = 0
+		case 4: // Ghostty
 			m.Screen = ScreenKeymapsGhostty
 			m.Cursor = 0
 		}
@@ -1099,6 +1111,76 @@ func (m Model) handleGhosttyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) 
 	case "enter", " ", "q", "esc":
 		m.Screen = ScreenKeymapsGhostty
 		m.GhosttyKeymapScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleHerdrKeymapsMenuKeys handles Herdr keymap category selection
+func (m Model) handleHerdrKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], "───") && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], "───") && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "enter", " ":
+		selected := options[m.Cursor]
+		if strings.Contains(selected, "Back") {
+			m.Screen = ScreenKeymapsMenu
+			m.Cursor = 0
+			return m, nil
+		}
+		if strings.HasPrefix(selected, "───") {
+			return m, nil
+		}
+
+		// Select category and show keymaps
+		m.HerdrSelectedCategory = m.Cursor
+		m.Screen = ScreenKeymapsHerdrCat
+		m.HerdrKeymapScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleHerdrKeymapCategoryKeys handles scrolling in Herdr keymap category view
+func (m Model) handleHerdrKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
+	category := m.HerdrKeymapCategories[m.HerdrSelectedCategory]
+
+	visibleItems := m.Height - 9
+	if visibleItems < 5 {
+		visibleItems = 5
+	}
+
+	maxScroll := len(category.Keymaps) - visibleItems
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	switch key {
+	case "up", "k":
+		if m.HerdrKeymapScroll > 0 {
+			m.HerdrKeymapScroll--
+		}
+	case "down", "j":
+		if m.HerdrKeymapScroll < maxScroll {
+			m.HerdrKeymapScroll++
+		}
+	case "enter", " ", "q", "esc":
+		m.Screen = ScreenKeymapsHerdr
+		m.HerdrKeymapScroll = 0
 	}
 
 	return m, nil

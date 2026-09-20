@@ -98,6 +98,10 @@ func (m Model) View() string {
 		s.WriteString(m.renderGhosttyKeymapsMenu())
 	case ScreenKeymapsGhosttyCat:
 		s.WriteString(m.renderGhosttyKeymapCategory())
+	case ScreenKeymapsHerdr:
+		s.WriteString(m.renderHerdrKeymapsMenu())
+	case ScreenKeymapsHerdrCat:
+		s.WriteString(m.renderHerdrKeymapCategory())
 	case ScreenLearnLazyVim:
 		s.WriteString(m.renderLazyVimMenu())
 	case ScreenLazyVimTopic:
@@ -896,6 +900,103 @@ func (m Model) renderGhosttyKeymapCategory() string {
 
 	// Keymaps with scrolling
 	start := m.GhosttyKeymapScroll
+	end := start + visibleItems
+	if end > len(category.Keymaps) {
+		end = len(category.Keymaps)
+		start = end - visibleItems
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	for i := start; i < end; i++ {
+		km := category.Keymaps[i]
+		s.WriteString(KeyStyle.Render(km.Keys))
+		s.WriteString(MutedStyle.Render(fmt.Sprintf(" %-6s ", km.Mode)))
+		s.WriteString(InfoStyle.Render(km.Description))
+		s.WriteString("\n")
+	}
+
+	// Scroll indicator
+	if len(category.Keymaps) > visibleItems {
+		s.WriteString("\n")
+		scrollInfo := fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(category.Keymaps))
+		s.WriteString(MutedStyle.Render(scrollInfo))
+	}
+
+	s.WriteString("\n\n")
+	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/Esc/q] back"))
+
+	return s.String()
+}
+
+// renderHerdrKeymapsMenu renders the Herdr keymap categories menu
+func (m Model) renderHerdrKeymapsMenu() string {
+	var s strings.Builder
+
+	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
+	s.WriteString("\n")
+	s.WriteString(MutedStyle.Render("Herdr is mouse-first; keyboard is optional. Select a category"))
+	s.WriteString("\n\n")
+
+	// Menu
+	options := m.GetCurrentOptions()
+	for i, opt := range options {
+		if strings.HasPrefix(opt, "───") {
+			s.WriteString(MutedStyle.Render(opt))
+			s.WriteString("\n")
+			continue
+		}
+
+		cursor := "  "
+		style := UnselectedStyle
+		if i == m.Cursor {
+			cursor = "▸ "
+			style = SelectedStyle
+		}
+		s.WriteString(style.Render(cursor + opt))
+		s.WriteString("\n")
+	}
+
+	s.WriteString("\n")
+	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc/q] back"))
+
+	return s.String()
+}
+
+// renderHerdrKeymapCategory renders a specific Herdr keymap category
+func (m Model) renderHerdrKeymapCategory() string {
+	var s strings.Builder
+
+	if m.HerdrSelectedCategory >= len(m.HerdrKeymapCategories) {
+		return ErrorStyle.Render("Category not found")
+	}
+
+	category := m.HerdrKeymapCategories[m.HerdrSelectedCategory]
+
+	s.WriteString(TitleStyle.Render(category.Name))
+	s.WriteString("\n")
+	s.WriteString(MutedStyle.Render(category.Description))
+	s.WriteString("\n\n")
+
+	// Table header
+	header := fmt.Sprintf("%-20s %-6s %s", "Keys", "Mode", "Description")
+	s.WriteString(SubtitleStyle.Render(header))
+	s.WriteString("\n")
+	s.WriteString(MutedStyle.Render(strings.Repeat("─", 60)))
+	s.WriteString("\n")
+
+	// Calculate visible items
+	visibleItems := m.Height - 9
+	if visibleItems < 5 {
+		visibleItems = 5
+	}
+	if visibleItems > len(category.Keymaps) {
+		visibleItems = len(category.Keymaps)
+	}
+
+	// Keymaps with scrolling
+	start := m.HerdrKeymapScroll
 	end := start + visibleItems
 	if end > len(category.Keymaps) {
 		end = len(category.Keymaps)
