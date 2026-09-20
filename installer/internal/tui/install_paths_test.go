@@ -510,7 +510,7 @@ func TestStepInstallNvimPrunesLeftoversAndKeepsUserState(t *testing.T) {
 
 	nvimDir := filepath.Join(home, ".config", "nvim")
 	staleFile := filepath.Join(nvimDir, "lua", "plugins", "veil.lua")
-	staleDirFile := filepath.Join(nvimDir, "lua", "config", "gentleman", "utils.lua")
+	staleDirFile := filepath.Join(nvimDir, "lua", "config", "legacy", "utils.lua")
 	lock := filepath.Join(nvimDir, "lazy-lock.json")
 	for path, content := range map[string]string{
 		staleFile:    "-- removed upstream\n",

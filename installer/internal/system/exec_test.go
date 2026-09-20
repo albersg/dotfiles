@@ -1088,7 +1088,7 @@ func TestCopyDirPrunedMakesDestinationMatchSource(t *testing.T) {
 	// issue, and a whole subdirectory the source dropped.
 	staleRoot := filepath.Join(dst, "stale-root.lua")
 	stalePlugin := filepath.Join(dst, "lua", "plugins", "veil.lua")
-	staleDirFile := filepath.Join(dst, "lua", "config", "gentleman", "utils.lua")
+	staleDirFile := filepath.Join(dst, "lua", "config", "legacy", "utils.lua")
 	writeTestFile(t, staleRoot, "dead")
 	writeTestFile(t, stalePlugin, "dead")
 	writeTestFile(t, staleDirFile, "dead")
