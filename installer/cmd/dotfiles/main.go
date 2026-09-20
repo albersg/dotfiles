@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/albersg/dotfiles/installer/internal/tui"
@@ -39,7 +40,7 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.test, "t", false, "Run in test mode (shorthand)")
 	flag.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed without doing it")
 	flag.BoolVar(&flags.nonInteractive, "non-interactive", false, "Run without TUI, use CLI flags")
-	flag.StringVar(&flags.terminal, "terminal", "", "Terminal: alacritty, wezterm, kitty, ghostty, none")
+	flag.StringVar(&flags.terminal, "terminal", "", "Terminal: "+strings.Join(tui.SupportedTerminals(runtime.GOOS), ", "))
 	flag.StringVar(&flags.shell, "shell", "", "Shell: fish, zsh, nushell")
 	flag.StringVar(&flags.windowMgr, "wm", "", "Window manager: tmux, zellij, herdr, none")
 	flag.BoolVar(&flags.nvim, "nvim", false, "Install Neovim configuration")
@@ -112,12 +113,18 @@ func runNonInteractive(flags *cliFlags) error {
 	wm := strings.ToLower(flags.windowMgr)
 
 	// Validate values
-	validTerminals := map[string]bool{"alacritty": true, "wezterm": true, "kitty": true, "ghostty": true, "none": true, "": true}
 	validShells := map[string]bool{"fish": true, "zsh": true, "nushell": true}
 	validWMs := map[string]bool{"tmux": true, "zellij": true, "herdr": true, "none": true, "": true}
 
-	if !validTerminals[terminal] {
-		return fmt.Errorf("invalid terminal: %s (valid: alacritty, wezterm, kitty, ghostty, none)", terminal)
+	if terminal == "" {
+		terminal = "none"
+	}
+
+	// The terminal axis is the one that depends on the platform: kitty is only
+	// installable on macOS, so asking for it here is refused before anything is
+	// planned, with the values this tool does support named in the error.
+	if err := tui.ValidateTerminal(terminal, runtime.GOOS); err != nil {
+		return err
 	}
 	if !validShells[shell] {
 		return fmt.Errorf("invalid shell: %s (valid: fish, zsh, nushell)", shell)
@@ -126,10 +133,7 @@ func runNonInteractive(flags *cliFlags) error {
 		return fmt.Errorf("invalid window manager: %s (valid: tmux, zellij, herdr, none)", wm)
 	}
 
-	// Default empty values to "none"
-	if terminal == "" {
-		terminal = "none"
-	}
+	// Default an empty window manager to "none"
 	if wm == "" {
 		wm = "none"
 	}
@@ -202,7 +206,8 @@ Flags:
 
 Non-Interactive Options:
   --shell=<shell>      Shell to install (required): fish, zsh, nushell
-  --terminal=<term>    Terminal: alacritty, wezterm, kitty, ghostty, none
+  --terminal=<term>    Terminal: alacritty, wezterm, ghostty, none
+                       (kitty is available on macOS only)
   --wm=<wm>            Window manager: tmux, zellij, herdr, none
   --nvim               Install Neovim configuration
   --font               Install Nerd Font

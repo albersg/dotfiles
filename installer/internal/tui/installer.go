@@ -521,6 +521,86 @@ func stepInstallXcode(m *Model) error {
 	return nil
 }
 
+// supportedTerminals lists, in the order the help text shows them, the
+// --terminal values this installer will honour on a platform. Only one value
+// varies: kitty has a Homebrew cask on macOS and no installation route at all
+// on the platforms this installer otherwise supports.
+//
+// This is the single source of truth for that rule. The --terminal flag
+// description, the CLI validator and stepInstallTerminal all read it, so the
+// value the tool refuses and the values it names as supported cannot drift
+// apart. "none" is listed because the CLI accepts it, not because it is a
+// terminal that gets installed.
+func supportedTerminals(onMac bool) []string {
+	if onMac {
+		return []string{"alacritty", "wezterm", "kitty", "ghostty", "none"}
+	}
+	return []string{"alacritty", "wezterm", "ghostty", "none"}
+}
+
+// SupportedTerminals returns the --terminal values this installer honours on
+// the platform named by goos (a runtime.GOOS value).
+func SupportedTerminals(goos string) []string {
+	return supportedTerminals(goos == "darwin")
+}
+
+// terminalSupported reports whether --terminal=<terminal> is a value this
+// installer will install on the given platform.
+func terminalSupported(onMac bool, terminal string) bool {
+	for _, supported := range supportedTerminals(onMac) {
+		if terminal == supported {
+			return true
+		}
+	}
+	return false
+}
+
+// unsupportedTerminalError is the refusal for a --terminal value this installer
+// will not honour on a platform. It names the values it does support there, so
+// the caller is told what to ask for instead of only what was rejected.
+func unsupportedTerminalError(onMac bool, terminal string) error {
+	return fmt.Errorf("invalid terminal: %s (valid: %s)", terminal, strings.Join(supportedTerminals(onMac), ", "))
+}
+
+// ValidateTerminal reports whether --terminal=<terminal> is honoured on the
+// platform named by goos. The CLI refuses an unsupported value here, before
+// anything is planned or touched, so an input this tool will not honour never
+// reaches an installation step.
+func ValidateTerminal(terminal, goos string) error {
+	onMac := goos == "darwin"
+	if terminalSupported(onMac, terminal) {
+		return nil
+	}
+	return unsupportedTerminalError(onMac, terminal)
+}
+
+// kittyAction is what the kitty branch of stepInstallTerminal does once the
+// platform and the result of the presence check are known.
+type kittyAction int
+
+const (
+	// kittyRefuse means this platform has no route this installer will take.
+	kittyRefuse kittyAction = iota
+	// kittyInstall means the binary was verified absent and macOS is honoured.
+	kittyInstall
+	// kittyPresent means the binary was verified present.
+	kittyPresent
+)
+
+// kittyActionFor decides what the kitty branch does for a platform and for the
+// result of the presence check. The only way to reach the "already installed"
+// report is present == true, which is what it used to get wrong: the old branch
+// fell through to that report on Linux, for a binary it had never looked for.
+func kittyActionFor(onMac, present bool) kittyAction {
+	if !terminalSupported(onMac, "kitty") {
+		return kittyRefuse
+	}
+	if present {
+		return kittyPresent
+	}
+	return kittyInstall
+}
+
 func stepInstallTerminal(m *Model) error {
 	terminal := m.Choices.Terminal
 	homeDir := os.Getenv("HOME")
@@ -683,7 +763,18 @@ func stepInstallTerminal(m *Model) error {
 		SendLog(stepID, "✓ WezTerm configured")
 
 	case "kitty":
-		if !system.CommandExists("kitty") && m.SystemInfo.OS == system.OSMac {
+		onMac := m.SystemInfo.OS == system.OSMac
+		// Only macOS has a kitty route this installer takes, and the "already
+		// installed" report is only reachable once CommandExists verified the
+		// binary. The old branch installed only on macOS and ran its else branch
+		// everywhere else, so on Linux it reported "Kitty already installed"
+		// about a binary it had never checked for.
+		switch kittyActionFor(onMac, system.CommandExists("kitty")) {
+		case kittyRefuse:
+			return wrapStepError("terminal", "Install Kitty",
+				"Kitty is only installable on macOS",
+				unsupportedTerminalError(onMac, terminal))
+		case kittyInstall:
 			SendLog(stepID, "Installing Kitty...")
 			result := system.RunBrewWithLogs("install --cask kitty", nil, func(line string) {
 				SendLog(stepID, line)
@@ -693,7 +784,7 @@ func stepInstallTerminal(m *Model) error {
 					"Failed to install Kitty terminal emulator",
 					result.Error)
 			}
-		} else {
+		case kittyPresent:
 			SendLog(stepID, "Kitty already installed")
 		}
 		SendLog(stepID, "Copying Kitty configuration...")
