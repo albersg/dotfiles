@@ -139,8 +139,8 @@ func TestClipboardProvidersAreInstalledPerPlatform(t *testing.T) {
 			},
 		},
 		{
-			// WSL installs through Homebrew by design: detection skips the
-			// distribution checks and the Homebrew step always runs there.
+			// WSL with no recognised distribution stays OSWSL. With Homebrew
+			// present the default branch installs through it.
 			name: "WSL uses Homebrew",
 			info: &system.SystemInfo{OS: system.OSWSL, IsWSL: true, HasBrew: true},
 			expected: []packageCommandCall{

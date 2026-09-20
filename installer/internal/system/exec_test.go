@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -1029,5 +1030,177 @@ func TestCreateBackupSkipsSockets(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(backupDir, "herdr", "config.toml")); err != nil {
 		t.Errorf("the configuration beside the socket must still be backed up: %v", err)
+	}
+}
+
+// writeTestFile creates path and any missing parent directories.
+func writeTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// testTreeFiles returns every regular file under root keyed by its slash-separated
+// path relative to root, so two trees can be compared by content.
+func testTreeFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(rel)] = string(content)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// TestCopyDirPrunedMakesDestinationMatchSource covers issue #13: merging left a
+// file the repository dropped on disk forever, and a stale file kept being loaded
+// beside its replacement.
+func TestCopyDirPrunedMakesDestinationMatchSource(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	writeTestFile(t, filepath.Join(src, "init.lua"), "init")
+	writeTestFile(t, filepath.Join(src, "lua", "plugins", "editor.lua"), "editor")
+	writeTestFile(t, filepath.Join(src, "lua", "config", "dotfiles", "utils.lua"), "utils")
+
+	// A stale file beside the source files, the exact upstream leftover from the
+	// issue, and a whole subdirectory the source dropped.
+	staleRoot := filepath.Join(dst, "stale-root.lua")
+	stalePlugin := filepath.Join(dst, "lua", "plugins", "veil.lua")
+	staleDirFile := filepath.Join(dst, "lua", "config", "legacy", "utils.lua")
+	writeTestFile(t, staleRoot, "dead")
+	writeTestFile(t, stalePlugin, "dead")
+	writeTestFile(t, staleDirFile, "dead")
+
+	removed, err := CopyDirPruned(src, dst)
+	if err != nil {
+		t.Fatalf("CopyDirPruned failed: %v", err)
+	}
+
+	want := map[string]bool{staleRoot: true, stalePlugin: true, staleDirFile: true}
+	got := map[string]bool{}
+	for _, path := range removed {
+		got[path] = true
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("removed = %v, want %v", removed, want)
+	}
+
+	if from, to := testTreeFiles(t, src), testTreeFiles(t, dst); !reflect.DeepEqual(from, to) {
+		t.Errorf("destination does not match source:\n  destination=%v\n  source=%v", to, from)
+	}
+}
+
+// TestCopyDirPrunedKeepsUserOwnedEntries pins the boundary: lazy.nvim rewrites
+// lazy-lock.json on the machine, so the repository not shipping it (or shipping a
+// different one) must not make the installer delete or clobber the user's file.
+func TestCopyDirPrunedKeepsUserOwnedEntries(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	writeTestFile(t, filepath.Join(src, "init.lua"), "init")
+	// The source ships a pinned lock, but the user's machine has moved on.
+	writeTestFile(t, filepath.Join(src, "lazy-lock.json"), `{"repo":"pinned"}`)
+	lock := filepath.Join(dst, "lazy-lock.json")
+	writeTestFile(t, lock, `{"user":true}`)
+	writeTestFile(t, filepath.Join(dst, "stale.lua"), "dead")
+
+	removed, err := CopyDirPruned(src, dst, "lazy-lock.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || filepath.Base(removed[0]) != "stale.lua" {
+		t.Errorf("removed = %v, want exactly stale.lua", removed)
+	}
+
+	got, err := os.ReadFile(lock)
+	if err != nil {
+		t.Fatalf("the user-owned lazy-lock.json was removed: %v", err)
+	}
+	if string(got) != `{"user":true}` {
+		t.Errorf("lazy-lock.json = %q, want the user's content, not the repository copy", got)
+	}
+}
+
+// TestCopyDirPrunedInstallsMissingUserOwnedEntry keeps the other half of the
+// rule: a fresh machine still gets the repository's default lock file, because
+// only an existing user-owned entry is preserved.
+func TestCopyDirPrunedInstallsMissingUserOwnedEntry(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	writeTestFile(t, filepath.Join(src, "lazy-lock.json"), `{"repo":"pinned"}`)
+
+	if _, err := CopyDirPruned(src, dst, "lazy-lock.json"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "lazy-lock.json"))
+	if err != nil {
+		t.Fatalf("a fresh install must still receive the repository's lock: %v", err)
+	}
+	if string(got) != `{"repo":"pinned"}` {
+		t.Errorf("lazy-lock.json = %q, want the repository copy", got)
+	}
+}
+
+// TestCopyDirPrunedNeverTouchesPathsOutsideDestination pins the deletion
+// boundary: pruning is confined to the directory it was asked to install.
+func TestCopyDirPrunedNeverTouchesPathsOutsideDestination(t *testing.T) {
+	home := t.TempDir()
+	src := filepath.Join(home, "checkout", "nvim")
+	dst := filepath.Join(home, ".config", "nvim")
+	writeTestFile(t, filepath.Join(src, "init.lua"), "init")
+	writeTestFile(t, filepath.Join(dst, "stale.lua"), "dead")
+
+	outside := filepath.Join(home, ".config", "other", "user.lua")
+	above := filepath.Join(home, ".config", "keep.toml")
+	writeTestFile(t, outside, "mine")
+	writeTestFile(t, above, "mine")
+
+	if _, err := CopyDirPruned(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{outside, above} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("pruning reached outside the destination: %s: %v", path, err)
+		}
+	}
+}
+
+// TestCopyDirStillMerges guards the backup path: CreateBackup and RestoreBackup
+// rely on CopyDir's merge semantics, so only CopyDirPruned may delete.
+func TestCopyDirStillMerges(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	writeTestFile(t, filepath.Join(src, "config.toml"), "theme")
+	kept := filepath.Join(dst, "only-in-destination.toml")
+	writeTestFile(t, kept, "keep me")
+
+	if err := CopyDir(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("CopyDir must keep merging, not prune: %v", err)
 	}
 }
