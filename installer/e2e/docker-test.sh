@@ -117,11 +117,20 @@ build_image() {
     echo "${BLUE}→ Building ${name}${tag_suffix}...${NC}"
 
     cd "$SCRIPT_DIR"
+    # Check the build status here. `set -e` cannot do it: run_e2e_all calls
+    # run_image inside an `||` list to capture its status, and that disables
+    # `set -e` for the whole of the call, build_image included. The failed build
+    # therefore ran on to the success line below, which reported an image that
+    # was never built, and the E2E run counted the infrastructure failure as an
+    # "unknown failure" product test failure.
     # shellcheck disable=SC2086
-    docker build $platform_flag \
+    if ! docker build $platform_flag \
         -f "$dockerfile" \
         -t "dotfiles-test-${name}${tag_suffix}" \
-        . 2>&1
+        . 2>&1; then
+        echo "${RED}✗ Could not build dotfiles-test-${name}${tag_suffix}${NC}"
+        exit 1
+    fi
 
     echo "${GREEN}✓ Built dotfiles-test-${name}${tag_suffix}${NC}"
 }
@@ -234,6 +243,15 @@ run_e2e_all() {
         echo "${CYAN}════════════════════════════════════════${NC}"
         echo ""
         
+        # Build before capturing the output below. build_image ends the script
+        # when the image cannot be built, and inside the capture that exit would
+        # take the only explanation with it, leaving the log with a bare,
+        # unexplained failure. run_image then finds the image built and does not
+        # build it again.
+        if ! docker images -q "dotfiles-test-${img}" 2>/dev/null | grep -q .; then
+            build_image "$img" ""
+        fi
+
         # Capture output to extract failure details
         test_output_file=$(mktemp)
 

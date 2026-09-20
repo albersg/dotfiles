@@ -36,6 +36,80 @@ log_section() {
 }
 
 # ============================================
+# PLATFORM - which window manager this run exercises
+# ============================================
+
+# E2E_WM is the window manager this platform's run asks the installer for.
+#
+# Fedora has no route to zellij: the Fedora repositories do not carry it (the
+# installer verified that with `dnf install --assumeno`, which is why zellij is
+# absent from every Fedora package list in internal/tui/installer.go) and this
+# image installs no Homebrew, which is the only other route the installer
+# offers. The installer therefore fails the step instead of reporting an install
+# that never happened, so asking Fedora for zellij fails the run by design.
+# Fedora does carry tmux, so the Fedora run selects tmux; every other platform
+# keeps zellij.
+#
+# Detection mirrors internal/system/detect.go, whose isFedora() stats
+# /etc/fedora-release.
+E2E_WM="zellij"
+if [ -f /etc/fedora-release ]; then
+    E2E_WM="tmux"
+fi
+
+# E2E_WM_OTHER is the window manager this run does not select, so the shell
+# configuration can be checked for it: WM_CMD holds one window manager, and a
+# leftover from another choice means the patch never ran.
+if [ "$E2E_WM" = "tmux" ]; then
+    E2E_WM_OTHER="zellij"
+else
+    E2E_WM_OTHER="tmux"
+fi
+
+# E2E_REQUESTED_WMS lists every window manager this suite asks the installer to
+# install on this platform. test_wm_installed asserts these and only these: a
+# window manager that was requested and is absent is a failure, while one this
+# suite never requested is expected to be absent (on Fedora, zellij has no route
+# at all).
+if [ "$E2E_WM" = "zellij" ]; then
+    E2E_REQUESTED_WMS="tmux zellij"
+else
+    E2E_REQUESTED_WMS="tmux"
+fi
+
+# wm_config_file prints the configuration file the exercised window manager
+# writes its default shell into.
+wm_config_file() {
+    if [ "$E2E_WM" = "tmux" ]; then
+        printf '%s\n' "$HOME/.tmux.conf"
+    else
+        printf '%s\n' "$HOME/.config/zellij/config.kdl"
+    fi
+}
+
+# check_wm_default_shell <shell> asserts that the exercised window manager has a
+# configuration file and that the file names <shell> as its default shell. tmux
+# writes `default-shell` into .tmux.conf and zellij writes `default_shell` into
+# config.kdl, so the pattern covers either separator.
+check_wm_default_shell() {
+    expected_shell="$1"
+    wm_config=$(wm_config_file)
+
+    if [ ! -f "$wm_config" ]; then
+        log_fail "$E2E_WM config not found at $wm_config"
+        return
+    fi
+
+    log_pass "$E2E_WM config exists"
+
+    if grep -q "default.shell.*$expected_shell" "$wm_config"; then
+        log_pass "$E2E_WM config has $expected_shell as its default shell"
+    else
+        log_fail "$E2E_WM config is missing $expected_shell as its default shell"
+    fi
+}
+
+# ============================================
 # BASIC TESTS - Binary functionality
 # ============================================
 
@@ -70,13 +144,13 @@ test_non_interactive_flag() {
 # INSTALLATION TESTS - Real E2E
 # ============================================
 
-# Test: Zsh + Zellij (no nvim, no terminal)
-test_zsh_zellij() {
-    log_test "Install: Zsh + Zellij (no nvim)"
+# Test: Zsh + the window manager this platform exercises (no nvim, no terminal)
+test_zsh_wm() {
+    log_test "Install: Zsh + $E2E_WM (no nvim)"
     
     # Run installation (no --test in Docker, container is disposable)
     if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
-        --shell=zsh --wm=zellij --backup=false 2>&1; then
+        --shell=zsh --wm="$E2E_WM" --backup=false 2>&1; then
         
         # Verify .zshrc exists
         if [ -f "$HOME/.zshrc" ]; then
@@ -86,32 +160,28 @@ test_zsh_zellij() {
             return
         fi
         
-        # Verify Zellij config in .zshrc (not tmux!)
-        if grep -q "ZELLIJ" "$HOME/.zshrc"; then
-            log_pass ".zshrc contains ZELLIJ config"
+        # Verify .zshrc launches the window manager this run selected. The
+        # command is a zsh array, so the pattern has to match the array form:
+        # the old WM_CMD="tmux" scalar no longer appears in any form. Grepping
+        # for the ZELLIJ variable, which is what this test used to do, was
+        # vacuous: the shipped .zshrc guards on `-z "$ZELLIJ"` whatever the
+        # choice, so that grep passed even when the window manager had never
+        # been installed or configured.
+        if grep -q "WM_CMD=($E2E_WM" "$HOME/.zshrc"; then
+            log_pass ".zshrc launches $E2E_WM"
         else
-            log_fail ".zshrc missing ZELLIJ config"
+            log_fail ".zshrc does not launch $E2E_WM"
         fi
         
-        # Verify NO tmux in .zshrc. The command is a zsh array, so the pattern
-        # has to match the array form: the old WM_CMD="tmux" scalar no longer
-        # appears in any form, which made this check pass vacuously.
-        if grep -q 'WM_CMD=(tmux' "$HOME/.zshrc"; then
-            log_fail ".zshrc still has tmux (should be zellij)"
+        # And it must not launch the window manager this run did not select.
+        if grep -q "WM_CMD=($E2E_WM_OTHER" "$HOME/.zshrc"; then
+            log_fail ".zshrc still launches $E2E_WM_OTHER (expected $E2E_WM)"
         else
-            log_pass ".zshrc correctly has no tmux"
+            log_pass ".zshrc correctly does not launch $E2E_WM_OTHER"
         fi
         
-        # Verify Zellij config has default_shell set to zsh
-        if [ -f "$HOME/.config/zellij/config.kdl" ]; then
-            if grep -q 'default_shell "zsh"' "$HOME/.config/zellij/config.kdl"; then
-                log_pass "Zellij config has default_shell set to zsh"
-            else
-                log_fail "Zellij config missing default_shell zsh"
-            fi
-        else
-            log_fail "Zellij config.kdl not found"
-        fi
+        # Verify the window manager config has zsh as its default shell
+        check_wm_default_shell zsh
     else
         log_fail "Installation failed"
     fi
@@ -237,16 +307,16 @@ test_zsh_tmux() {
     fi
 }
 
-# Test: Fish + Zellij (verify default_shell)
-test_fish_zellij() {
-    log_test "Install: Fish + Zellij (verify default_shell)"
+# Test: Fish + the window manager this platform exercises (verify default_shell)
+test_fish_wm() {
+    log_test "Install: Fish + $E2E_WM (verify default shell)"
     
     # Clean previous test
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
     if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
-        --shell=fish --wm=zellij --backup=false 2>&1; then
+        --shell=fish --wm="$E2E_WM" --backup=false 2>&1; then
         
         # Verify fish config exists
         if [ -f "$HOME/.config/fish/config.fish" ]; then
@@ -256,17 +326,8 @@ test_fish_zellij() {
             return
         fi
         
-        # Verify Zellij config has default_shell set to fish
-        if [ -f "$HOME/.config/zellij/config.kdl" ]; then
-            log_pass "Zellij config exists"
-            if grep -q 'default_shell "fish"' "$HOME/.config/zellij/config.kdl"; then
-                log_pass "Zellij config has default_shell set to fish"
-            else
-                log_fail "Zellij config missing default_shell fish"
-            fi
-        else
-            log_fail "Zellij config.kdl not found"
-        fi
+        # Verify the window manager config has fish as its default shell
+        check_wm_default_shell fish
     else
         log_fail "Installation failed"
     fi
@@ -307,16 +368,16 @@ test_nushell_tmux() {
     fi
 }
 
-# Test: Nushell + Zellij (verify default_shell)
-test_nushell_zellij() {
-    log_test "Install: Nushell + Zellij (verify default_shell)"
+# Test: Nushell + the window manager this platform exercises (verify default_shell)
+test_nushell_wm() {
+    log_test "Install: Nushell + $E2E_WM (verify default shell)"
     
     # Clean previous test
     rm -rf "$HOME/.config" "$HOME/.zshrc" "$HOME/.tmux.conf" 2>/dev/null || true
     mkdir -p "$HOME/.config"
     
     if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
-        --shell=nushell --wm=zellij --backup=false 2>&1; then
+        --shell=nushell --wm="$E2E_WM" --backup=false 2>&1; then
         
         # Verify nushell config exists
         if [ -d "$HOME/.config/nushell" ]; then
@@ -326,17 +387,8 @@ test_nushell_zellij() {
             return
         fi
         
-        # Verify Zellij config has default_shell set to nu
-        if [ -f "$HOME/.config/zellij/config.kdl" ]; then
-            log_pass "Zellij config exists"
-            if grep -q 'default_shell "nu"' "$HOME/.config/zellij/config.kdl"; then
-                log_pass "Zellij config has default_shell set to nu"
-            else
-                log_fail "Zellij config missing default_shell nu"
-            fi
-        else
-            log_fail "Zellij config.kdl not found"
-        fi
+        # Verify the window manager config has nu as its default shell
+        check_wm_default_shell nu
     else
         log_fail "Installation failed"
     fi
@@ -379,13 +431,19 @@ test_wm_installed() {
         export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
     fi
     
-    if command -v tmux >/dev/null 2>&1; then
-        log_pass "Tmux is installed"
-    fi
-    
-    if command -v zellij >/dev/null 2>&1; then
-        log_pass "Zellij is installed"
-    fi
+    # Assert every window manager this suite asked the installer to install. The
+    # previous version only called log_pass when it found one and did nothing
+    # when it did not, so a window manager that was requested and never
+    # installed produced no verdict at all and the run was counted as a pass.
+    # That is how the Fedora job stayed green while zellij had no route to
+    # install there.
+    for wm in $E2E_REQUESTED_WMS; do
+        if command -v "$wm" >/dev/null 2>&1; then
+            log_pass "$wm is installed"
+        else
+            log_fail "$wm was requested by this suite but is not installed"
+        fi
+    done
 }
 
 # Test: Nvim is installed and configured
@@ -760,15 +818,15 @@ fi
 # Installation tests (only if we have the full environment)
 if [ "$RUN_FULL_E2E" = "1" ]; then
     log_section "Installation Tests"
-    test_zsh_zellij
+    test_zsh_wm
     test_fish_tmux_nvim
     test_nushell_no_wm
     
     log_section "Shell + WM Default Shell Tests"
     test_zsh_tmux
-    test_fish_zellij
+    test_fish_wm
     test_nushell_tmux
-    test_nushell_zellij
+    test_nushell_wm
     
     log_section "Verification Tests"
     test_shell_functional

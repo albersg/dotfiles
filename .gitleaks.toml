@@ -1,0 +1,56 @@
+# Gitleaks configuration.
+#
+# Why this file exists: `Secret Scanning` (ci.yml) scans the full history when
+# the workflow is dispatched manually and only the pull request's own commits for
+# a pull request, so the manual dispatch reported eleven findings that the diff
+# scan never saw. Each one was inspected and is a false positive: vendored
+# oh-my-zsh example material, and Vim trainer exercise text.
+#
+# This file does not weaken the scan. `[extend] useDefault = true` keeps the
+# complete default ruleset, and every entry below is a path anchored at both
+# ends, so the allowlist silences exactly the paths justified next to it. An
+# empty `paths` list restores the previous behaviour.
+#
+# Paths are the only mechanism that reaches these: the three trainer files are
+# still in the tree, but the GentlemanZsh/ paths were removed in a later commit
+# and exist only in history, so an allowlist written against the secret values
+# could not cover them.
+#
+# Verified with gitleaks 8.30.1: `gitleaks git --log-opts=HEAD` reports the eleven
+# findings below before this file is applied, and none after it.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Verified false positives: vendored oh-my-zsh example material and Vim trainer exercise text. Each path is justified in the comment above it."
+
+paths = [
+    # Vim trainer exercise text. The trainer shows this line as the material the
+    # user practises on, so the sample key is the exercise itself:
+    # `const API_KEY = 'abc123xyz789';`.
+    '''^installer/internal/tui/trainer/exercises_macros\.go$''',
+    # The same trainer material in a different exercise, showing
+    # `apiKey = 'sk-abc123xyz';`.
+    '''^installer/internal/tui/trainer/exercises_textobjects\.go$''',
+    # The trainer's test fixture for those two exercises. Gitleaks reports this
+    # one path twice, once for each exercise string.
+    '''^installer/internal/tui/trainer/exercises_visual_test\.go$''',
+
+    # Vendored oh-my-zsh dotenv plugin README. It documents the plugin with
+    # example variables in two code blocks, which is why the same two values are
+    # reported four times. They are the README's examples, not this repository's
+    # credentials.
+    '''^GentlemanZsh/\.oh-my-zsh/plugins/dotenv/README\.md$''',
+
+    # Vendored oh-my-zsh genpass word lists. genpass-apple and genpass-monkey are
+    # the dictionaries the plugin samples passwords from, so the example password
+    # in their usage comment is generator material, not a credential.
+    '''^GentlemanZsh/\.oh-my-zsh/plugins/genpass/genpass-apple$''',
+    '''^GentlemanZsh/\.oh-my-zsh/plugins/genpass/genpass-monkey$''',
+
+    # Vendored oh-my-zsh macos plugin. Its own help text says "it should look
+    # like this (but with your own values)" immediately above the placeholder
+    # CLIENT_ID and CLIENT_SECRET lines.
+    '''^GentlemanZsh/\.oh-my-zsh/plugins/macos/spotify$''',
+]

@@ -52,7 +52,17 @@ func withPackageCommandMocks(t *testing.T, sudoErr error) *[]packageCommandCall 
 	return &calls
 }
 
-func TestInstallPlatformPackagesFedoraFallsBackToBrewWhenNativeFails(t *testing.T) {
+// TestInstallPlatformPackagesFedoraUsesBrewWhenPresent replaces the previous
+// TestInstallPlatformPackagesFedoraFallsBackToBrewWhenNativeFails. That test
+// asserted dnf ran first even on a Fedora host with Homebrew, with brew only
+// reached when dnf failed. That is the behaviour the maintainer calls wrong:
+// with Homebrew present installPlatformPackages must take the default branch
+// and install the unfiltered Brew list, so a component the Fedora repositories
+// do not carry is installed instead of being left to a step that would fail.
+// The injected dnf failure is kept so a stray dnf call is still visible. The
+// native-failure fallback itself stays covered on Arch, where
+// runNativeWithBrewFallback is still the route.
+func TestInstallPlatformPackagesFedoraUsesBrewWhenPresent(t *testing.T) {
 	calls := withPackageCommandMocks(t, errors.New("dnf failed"))
 
 	m := &Model{SystemInfo: &system.SystemInfo{OS: system.OSFedora, HasBrew: true}}
@@ -62,11 +72,10 @@ func TestInstallPlatformPackagesFedoraFallsBackToBrewWhenNativeFails(t *testing.
 	}, nil)
 
 	if result.Error != nil {
-		t.Fatalf("expected brew fallback to succeed, got error: %v", result.Error)
+		t.Fatalf("expected brew install to succeed, got error: %v", result.Error)
 	}
 
 	expected := []packageCommandCall{
-		{runner: "sudo", command: "dnf install -y --skip-unavailable fish carapace zoxide atuin starship"},
 		{runner: "brew", command: "install fish carapace zoxide atuin starship"},
 	}
 	if !reflect.DeepEqual(*calls, expected) {
