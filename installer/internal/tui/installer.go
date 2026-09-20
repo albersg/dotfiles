@@ -806,6 +806,57 @@ var (
 	runOhMyZshInstaller   = system.RunWithLogs
 )
 
+// debianUnavailable names the packages this installer requests on other
+// platforms but that Debian and Ubuntu do not carry in their own repositories.
+//
+// apt aborts the whole transaction when a single requested name is unknown, so
+// a name listed in a Debian package set but missing from the distribution takes
+// every package beside it down as well. The names below were verified against
+// ubuntu:22.04, the image the installer's own E2E target runs, with
+// `apt-cache policy`; a name that was not there is left out of every Debian
+// list and reported to the user instead. apt is only reached when Homebrew is
+// absent, so the Homebrew path already covers these tools where it works.
+//
+// The omission is version-specific: kubectx and tree-sitter-cli appear in
+// Ubuntu 24.04 (and tree-sitter-cli again in 25.04) but not in 24.10, and
+// starship only appears in 25.04. The list has to hold what the oldest
+// supported release carries, because apt fails as a unit.
+var debianUnavailable = map[string]bool{
+	"starship":        true,
+	"kubectx":         true,
+	"nushell":         true,
+	"zellij":          true,
+	"lazygit":         true,
+	"tree-sitter-cli": true,
+}
+
+// debianPackages joins wanted into a package list apt can install, dropping the
+// names Debian/Ubuntu does not carry. It returns the dropped names separately so
+// the caller can tell the user where to get them instead.
+func debianPackages(wanted ...string) (installable string, unavailable []string) {
+	kept := make([]string, 0, len(wanted))
+	for _, name := range wanted {
+		if debianUnavailable[name] {
+			unavailable = append(unavailable, name)
+			continue
+		}
+		kept = append(kept, name)
+	}
+	return strings.Join(kept, " "), unavailable
+}
+
+// logDebianUnavailable tells the user which requested tools the distribution
+// does not provide, so a skipped tool is never mistaken for an installed one.
+func logDebianUnavailable(stepID string, unavailable []string) {
+	if len(unavailable) == 0 {
+		return
+	}
+	SendLog(stepID, fmt.Sprintf(
+		"Not available in the Debian/Ubuntu repositories, so not installed: %s.",
+		strings.Join(unavailable, ", ")))
+	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
+}
+
 // ohMyZshInstallerURL is the official Oh My Zsh installer, pinned to the exact
 // revision this repository ships and the local machine runs. An unpinned master
 // URL would execute whatever upstream publishes next, which the previous
@@ -984,6 +1035,67 @@ func installHerdrBinary(m *Model, stepID string) error {
 	return os.Chmod(dest, 0755)
 }
 
+// shellPlatformPackages returns the packages each package manager needs for the
+// requested shell and the tools its configuration reads at start.
+//
+// The Debian entry is built with debianPackages, so a name the distribution
+// does not carry never reaches apt and cannot abort the whole transaction. The
+// second return value names the omitted packages so the caller can report them.
+func shellPlatformPackages(shell string) (platformPackages, []string) {
+	switch shell {
+	case "fish":
+		debian, unavailable := debianPackages("fish", "zoxide", "starship")
+		return platformPackages{
+			Termux: "fish starship zoxide",
+			Brew:   "fish carapace zoxide atuin starship",
+			Arch:   "fish carapace zoxide atuin starship",
+			Fedora: "fish carapace zoxide atuin starship",
+			Debian: debian,
+		}, unavailable
+	case "zsh":
+		// The zsh configuration depends on these at shell start: eza/bat/rg/fd/fzf
+		// drive the aliases and the fzf integration, delta drives .gitconfig,
+		// fnm owns Node, direnv hooks directory environments, and jq/gh/xh/trip
+		// back the documented helper aliases. kubectx is only in the Homebrew and
+		// Arch lists: the Debian/Ubuntu repositories do not carry it, and apt
+		// cannot skip it the way dnf can. zsh-completions and fzf-tab are
+		// Homebrew-only names, and fnm, eza, delta and xh are not in the Debian
+		// repositories either.
+		debian, unavailable := debianPackages(
+			"zsh", "zoxide", "zsh-autosuggestions", "zsh-syntax-highlighting",
+			"kubectx", "direnv", "jq", "gh", "bat", "fd-find", "ripgrep", "fzf",
+		)
+		return platformPackages{
+			Termux: "zsh starship zoxide",
+			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
+			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta",
+			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
+			// Debian stable does not package starship, fnm, eza, delta or xh; those
+			// come from Homebrew, which this installer puts in place for Debian hosts.
+			Debian: debian,
+		}, unavailable
+	case "nushell":
+		debian, unavailable := debianPackages("nushell", "zoxide", "jq", "bash", "starship")
+		return platformPackages{
+			Termux: "nushell starship zoxide jq",
+			Brew:   "nushell carapace zoxide atuin jq bash starship",
+			Arch:   "nushell carapace zoxide atuin jq bash starship",
+			Fedora: "nushell carapace zoxide atuin jq bash starship",
+			Debian: debian,
+		}, unavailable
+	}
+	return platformPackages{}, nil
+}
+
+// shellPackageName maps the installer's shell choice to the package that
+// provides the shell binary itself, rather than a plugin beside it.
+func shellPackageName(shell string) string {
+	if shell == "nushell" {
+		return "nushell"
+	}
+	return shell
+}
+
 func stepInstallShell(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	shell := m.Choices.Shell
@@ -996,6 +1108,8 @@ func stepInstallShell(m *Model) error {
 			err)
 	}
 
+	packages, unavailable := shellPlatformPackages(shell)
+
 	// Common dependencies
 	SendLog(stepID, "Creating required directories...")
 	system.EnsureDir(filepath.Join(homeDir, ".config"))
@@ -1003,16 +1117,26 @@ func stepInstallShell(m *Model) error {
 	system.EnsureDir(filepath.Join(homeDir, ".cache/carapace"))
 	system.EnsureDir(filepath.Join(homeDir, ".local/share/atuin"))
 
+	// On a Debian-like host without Homebrew, apt is the only route and it cannot
+	// install the names its repositories do not carry. Say which ones are being
+	// skipped so a missing tool is never mistaken for an installed one, and fail
+	// outright when the shell the user explicitly selected is the missing one:
+	// a companion package can be a logged note, the requested shell cannot.
+	if usesApt(m) {
+		logDebianUnavailable(stepID, unavailable)
+		if debianUnavailable[shellPackageName(shell)] {
+			return wrapStepError(stepID, "Install Shell",
+				fmt.Sprintf("%s is not available in this distribution's own package repositories, so it was not installed. "+
+					"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
+					shell, shellPackageName(shell)),
+				nil)
+		}
+	}
+
 	switch shell {
 	case "fish":
 		SendLog(stepID, "Installing Fish shell and plugins...")
-		result := installPlatformPackages(m, stepID, platformPackages{
-			Termux: "fish starship zoxide",
-			Brew:   "fish carapace zoxide atuin starship",
-			Arch:   "fish carapace zoxide atuin starship",
-			Fedora: "fish carapace zoxide atuin starship",
-			Debian: "fish zoxide starship",
-		}, func(line string) {
+		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
 		if result.Error != nil {
@@ -1061,29 +1185,7 @@ func stepInstallShell(m *Model) error {
 
 	case "zsh":
 		SendLog(stepID, "Installing Zsh and plugins...")
-		result := installPlatformPackages(m, stepID, platformPackages{
-			Termux: "zsh starship zoxide",
-			// The zsh configuration depends on these at shell start: eza/bat/rg/fd/fzf
-			// drive the aliases and the fzf integration, delta drives .gitconfig,
-			// fnm owns Node, direnv hooks directory environments, and jq/gh/xh/trip
-			// back the documented helper aliases.
-			//
-			// kubectx is here because the vendored custom/ plugins used to be the only
-			// source of its zsh plugin. It is verified on Homebrew, Debian and Arch;
-			// Fedora is left without it because the name could not be verified there
-			// and an unknown name used to abort the whole dnf transaction.
-			//
-			// zsh-completions and fzf-tab are declared for Homebrew only. fzf-tab is a
-			// Homebrew formula with no distribution package, and the Debian name for
-			// zsh-completions could not be verified on the machine this was written on;
-			// an unverified name in a distribution list aborts the transaction.
-			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
-			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta",
-			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
-			// Debian stable does not package starship, fnm, eza, delta or xh; those
-			// come from Homebrew, which this installer puts in place for Debian hosts.
-			Debian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting kubectx direnv jq gh bat fd-find ripgrep fzf",
-		}, func(line string) {
+		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
 		if result.Error != nil {
@@ -1217,13 +1319,7 @@ func stepInstallShell(m *Model) error {
 
 	case "nushell":
 		SendLog(stepID, "Installing Nushell and dependencies...")
-		result := installPlatformPackages(m, stepID, platformPackages{
-			Termux: "nushell starship zoxide jq",
-			Brew:   "nushell carapace zoxide atuin jq bash starship",
-			Arch:   "nushell carapace zoxide atuin jq bash starship",
-			Fedora: "nushell carapace zoxide atuin jq bash starship",
-			Debian: "nushell zoxide jq bash starship",
-		}, func(line string) {
+		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
 		if result.Error != nil {
@@ -1290,6 +1386,21 @@ func stepInstallShell(m *Model) error {
 	}
 
 	return nil
+}
+
+// zellijPlatformPackages returns the packages for the Zellij window manager.
+// Debian/Ubuntu does not carry zellij at all, so its Debian entry is empty and
+// the caller reports the omission instead of handing apt a name it would reject
+// and fail the whole transaction on.
+func zellijPlatformPackages() (platformPackages, []string) {
+	debian, unavailable := debianPackages("zellij")
+	return platformPackages{
+		Termux: "zellij",
+		Brew:   "zellij",
+		Arch:   "zellij",
+		Fedora: "zellij",
+		Debian: debian,
+	}, unavailable
 }
 
 func stepInstallWM(m *Model) error {
@@ -1416,13 +1527,18 @@ func stepInstallWM(m *Model) error {
 	case "zellij":
 		if !system.CommandExists("zellij") {
 			SendLog(stepID, "Installing Zellij...")
-			result := installPlatformPackages(m, stepID, platformPackages{
-				Termux: "zellij",
-				Brew:   "zellij",
-				Arch:   "zellij",
-				Fedora: "zellij",
-				Debian: "zellij",
-			}, func(line string) {
+			packages, unavailable := zellijPlatformPackages()
+			// Zellij is the window manager the user explicitly asked for, not a
+			// companion package, so a distribution that cannot install it has to
+			// fail the step rather than report a success that never happened.
+			if usesApt(m) && len(unavailable) > 0 {
+				logDebianUnavailable(stepID, unavailable)
+				return wrapStepError(stepID, "Install Zellij",
+					"Zellij is not available in this distribution's own package repositories, so it was not installed. "+
+						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
+					nil)
+			}
+			result := installPlatformPackages(m, stepID, packages, func(line string) {
 				SendLog(stepID, line)
 			})
 			if result.Error != nil {
@@ -1556,6 +1672,23 @@ func installConfigDir(stepID, src, dst string, keep ...string) error {
 	return nil
 }
 
+// nvimPlatformPackages returns the packages the Neovim step installs. Only the
+// Debian entry is filtered: lazygit and tree-sitter-cli are not in the
+// distribution's repositories there, and apt cannot skip a missing name.
+func nvimPlatformPackages() (platformPackages, []string) {
+	debian, unavailable := debianPackages(
+		"neovim", "git", "gcc", "fzf", "fd-find", "ripgrep", "coreutils",
+		"bat", "curl", "lazygit", "tree-sitter-cli",
+	)
+	return platformPackages{
+		Termux: "neovim git clang fzf fd ripgrep bat curl lazygit",
+		Brew:   "nvim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
+		Arch:   "neovim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
+		Fedora: "neovim git gcc fzf fd-find ripgrep coreutils bat curl lazygit tree-sitter-cli",
+		Debian: debian,
+	}, unavailable
+}
+
 func stepInstallNvim(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	stepID := "nvim"
@@ -1597,13 +1730,11 @@ func stepInstallNvim(m *Model) error {
 	// Install dependencies
 	SendLog(stepID, "Installing Neovim and dependencies...")
 	// Termux package names differ from desktop Linux package managers.
-	result := installPlatformPackages(m, stepID, platformPackages{
-		Termux: "neovim git clang fzf fd ripgrep bat curl lazygit",
-		Brew:   "nvim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
-		Arch:   "neovim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
-		Fedora: "neovim git gcc fzf fd-find ripgrep coreutils bat curl lazygit tree-sitter-cli",
-		Debian: "neovim git gcc fzf fd-find ripgrep coreutils bat curl lazygit tree-sitter-cli",
-	}, func(line string) {
+	packages, unavailable := nvimPlatformPackages()
+	if usesApt(m) {
+		logDebianUnavailable(stepID, unavailable)
+	}
+	result := installPlatformPackages(m, stepID, packages, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
