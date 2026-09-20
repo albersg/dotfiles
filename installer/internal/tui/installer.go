@@ -294,6 +294,13 @@ func usesApt(m *Model) bool {
 	return (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew
 }
 
+// usesPacman mirrors the Arch branch of installPlatformPackages: pacman runs on
+// an Arch host whether or not Homebrew is present, so the Arch package lists are
+// the ones the install reaches and the ones the Arch filter has to protect.
+func usesPacman(m *Model) bool {
+	return m.SystemInfo.OS == system.OSArch
+}
+
 // dependencyManualCommands returns the root-only commands the user can run by
 // hand when sudo cannot prompt. It mirrors the dispatch of the dependency
 // install so the guidance cannot drift from what would actually run.
@@ -797,6 +804,13 @@ type platformPackages struct {
 	Arch   string
 	Fedora string
 	Debian string
+
+	// archUnavailable names the packages the Arch list had to drop because the
+	// official repositories do not carry them. It travels beside the filtered
+	// list so the caller can report the gap for the package manager that
+	// actually runs. The Debian gap is returned separately by the constructors,
+	// which predate this field.
+	archUnavailable []string
 }
 
 var (
@@ -853,6 +867,55 @@ func logDebianUnavailable(stepID string, unavailable []string) {
 	}
 	SendLog(stepID, fmt.Sprintf(
 		"Not available in the Debian/Ubuntu repositories, so not installed: %s.",
+		strings.Join(unavailable, ", ")))
+	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
+}
+
+// archUnavailable names the packages this installer requests on other platforms
+// but that Arch does not carry in its official repositories.
+//
+// pacman aborts the whole transaction when a single requested name is unknown,
+// exactly as apt does, so a name listed in an Arch package set but missing from
+// the distribution takes every package beside it down as well. Every name the
+// Arch columns request was verified against archlinux:latest with `pacman -Sy`
+// followed by `pacman -Si`; the names below were the only ones not found. A
+// name that was not found is left out of every Arch list and reported to the
+// user instead. pacman is reached whenever the host is Arch, with or without
+// Homebrew, so the Homebrew fallback does not cover these tools by itself.
+//
+// Both names are companion packages the configuration reads at shell start, not
+// components the user selects: carapace provides the completions fish, zsh and
+// nushell source, and zsh-theme-powerlevel10k is the prompt theme .zshrc
+// sources. Both are available from Homebrew as carapace and powerlevel10k and
+// from the AUR, so the report names a route that exists.
+var archUnavailable = map[string]bool{
+	"carapace":                true,
+	"zsh-theme-powerlevel10k": true,
+}
+
+// archPackages joins wanted into a package list pacman can install, dropping
+// the names Arch does not carry. It returns the dropped names separately so the
+// caller can tell the user where to get them instead.
+func archPackages(wanted ...string) (installable string, unavailable []string) {
+	kept := make([]string, 0, len(wanted))
+	for _, name := range wanted {
+		if archUnavailable[name] {
+			unavailable = append(unavailable, name)
+			continue
+		}
+		kept = append(kept, name)
+	}
+	return strings.Join(kept, " "), unavailable
+}
+
+// logArchUnavailable tells the user which requested tools the Arch repositories
+// do not provide, so a skipped tool is never mistaken for an installed one.
+func logArchUnavailable(stepID string, unavailable []string) {
+	if len(unavailable) == 0 {
+		return
+	}
+	SendLog(stepID, fmt.Sprintf(
+		"Not available in the Arch repositories, so not installed: %s.",
 		strings.Join(unavailable, ", ")))
 	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
 }
@@ -1038,19 +1101,23 @@ func installHerdrBinary(m *Model, stepID string) error {
 // shellPlatformPackages returns the packages each package manager needs for the
 // requested shell and the tools its configuration reads at start.
 //
-// The Debian entry is built with debianPackages, so a name the distribution
-// does not carry never reaches apt and cannot abort the whole transaction. The
-// second return value names the omitted packages so the caller can report them.
+// The Debian entry is built with debianPackages and the Arch entry with
+// archPackages, so a name the distribution does not carry never reaches apt or
+// pacman and cannot abort the whole transaction. The second return value names
+// the omitted Debian packages and the archUnavailable field names the omitted
+// Arch ones, so the caller can report them for the manager that actually runs.
 func shellPlatformPackages(shell string) (platformPackages, []string) {
 	switch shell {
 	case "fish":
 		debian, unavailable := debianPackages("fish", "zoxide", "starship")
+		arch, archGaps := archPackages("fish", "carapace", "zoxide", "atuin", "starship")
 		return platformPackages{
-			Termux: "fish starship zoxide",
-			Brew:   "fish carapace zoxide atuin starship",
-			Arch:   "fish carapace zoxide atuin starship",
-			Fedora: "fish carapace zoxide atuin starship",
-			Debian: debian,
+			Termux:          "fish starship zoxide",
+			Brew:            "fish carapace zoxide atuin starship",
+			Arch:            arch,
+			Fedora:          "fish carapace zoxide atuin starship",
+			Debian:          debian,
+			archUnavailable: archGaps,
 		}, unavailable
 	case "zsh":
 		// The zsh configuration depends on these at shell start: eza/bat/rg/fd/fzf
@@ -1065,23 +1132,32 @@ func shellPlatformPackages(shell string) (platformPackages, []string) {
 			"zsh", "zoxide", "zsh-autosuggestions", "zsh-syntax-highlighting",
 			"kubectx", "direnv", "jq", "gh", "bat", "fd-find", "ripgrep", "fzf",
 		)
+		arch, archGaps := archPackages(
+			"zsh", "carapace", "zoxide", "atuin", "zsh-autosuggestions",
+			"zsh-syntax-highlighting", "zsh-autocomplete",
+			"zsh-theme-powerlevel10k", "kubectx", "eza", "bat", "fd",
+			"ripgrep", "fzf", "direnv", "jq", "github-cli", "git-delta",
+		)
 		return platformPackages{
 			Termux: "zsh starship zoxide",
 			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
-			Arch:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete zsh-theme-powerlevel10k kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta",
+			Arch:   arch,
 			Fedora: "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting starship eza bat fd-find ripgrep fzf direnv jq gh git-delta",
 			// Debian stable does not package starship, fnm, eza, delta or xh; those
 			// come from Homebrew, which this installer puts in place for Debian hosts.
-			Debian: debian,
+			Debian:          debian,
+			archUnavailable: archGaps,
 		}, unavailable
 	case "nushell":
 		debian, unavailable := debianPackages("nushell", "zoxide", "jq", "bash", "starship")
+		arch, archGaps := archPackages("nushell", "carapace", "zoxide", "atuin", "jq", "bash", "starship")
 		return platformPackages{
-			Termux: "nushell starship zoxide jq",
-			Brew:   "nushell carapace zoxide atuin jq bash starship",
-			Arch:   "nushell carapace zoxide atuin jq bash starship",
-			Fedora: "nushell carapace zoxide atuin jq bash starship",
-			Debian: debian,
+			Termux:          "nushell starship zoxide jq",
+			Brew:            "nushell carapace zoxide atuin jq bash starship",
+			Arch:            arch,
+			Fedora:          "nushell carapace zoxide atuin jq bash starship",
+			Debian:          debian,
+			archUnavailable: archGaps,
 		}, unavailable
 	}
 	return platformPackages{}, nil
@@ -1125,6 +1201,22 @@ func stepInstallShell(m *Model) error {
 	if usesApt(m) {
 		logDebianUnavailable(stepID, unavailable)
 		if debianUnavailable[shellPackageName(shell)] {
+			return wrapStepError(stepID, "Install Shell",
+				fmt.Sprintf("%s is not available in this distribution's own package repositories, so it was not installed. "+
+					"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
+					shell, shellPackageName(shell)),
+				nil)
+		}
+	}
+
+	// Arch reaches pacman whether or not Homebrew is present, and every shell
+	// this installer can select is in the official repositories, so this is the
+	// same companion-versus-selected rule applied rather than implied: the
+	// companions below are a logged note, and the guard only fires if a future
+	// edit makes a selectable shell one of the missing names.
+	if usesPacman(m) {
+		logArchUnavailable(stepID, packages.archUnavailable)
+		if archUnavailable[shellPackageName(shell)] {
 			return wrapStepError(stepID, "Install Shell",
 				fmt.Sprintf("%s is not available in this distribution's own package repositories, so it was not installed. "+
 					"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
@@ -1391,15 +1483,19 @@ func stepInstallShell(m *Model) error {
 // zellijPlatformPackages returns the packages for the Zellij window manager.
 // Debian/Ubuntu does not carry zellij at all, so its Debian entry is empty and
 // the caller reports the omission instead of handing apt a name it would reject
-// and fail the whole transaction on.
+// and fail the whole transaction on. Arch carries zellij, so its entry is
+// unchanged, but it still goes through archPackages so a future edit cannot
+// slip an unknown name past the filter.
 func zellijPlatformPackages() (platformPackages, []string) {
 	debian, unavailable := debianPackages("zellij")
+	arch, archGaps := archPackages("zellij")
 	return platformPackages{
-		Termux: "zellij",
-		Brew:   "zellij",
-		Arch:   "zellij",
-		Fedora: "zellij",
-		Debian: debian,
+		Termux:          "zellij",
+		Brew:            "zellij",
+		Arch:            arch,
+		Fedora:          "zellij",
+		Debian:          debian,
+		archUnavailable: archGaps,
 	}, unavailable
 }
 
@@ -1533,6 +1629,16 @@ func stepInstallWM(m *Model) error {
 			// fail the step rather than report a success that never happened.
 			if usesApt(m) && len(unavailable) > 0 {
 				logDebianUnavailable(stepID, unavailable)
+				return wrapStepError(stepID, "Install Zellij",
+					"Zellij is not available in this distribution's own package repositories, so it was not installed. "+
+						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
+					nil)
+			}
+			// Arch carries zellij, so this guard is inert today; it is the same
+			// selected-component rule the Debian branch applies, kept so a future
+			// edit cannot make the step report a success it never achieved.
+			if usesPacman(m) && len(packages.archUnavailable) > 0 {
+				logArchUnavailable(stepID, packages.archUnavailable)
 				return wrapStepError(stepID, "Install Zellij",
 					"Zellij is not available in this distribution's own package repositories, so it was not installed. "+
 						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
@@ -1672,20 +1778,26 @@ func installConfigDir(stepID, src, dst string, keep ...string) error {
 	return nil
 }
 
-// nvimPlatformPackages returns the packages the Neovim step installs. Only the
-// Debian entry is filtered: lazygit and tree-sitter-cli are not in the
-// distribution's repositories there, and apt cannot skip a missing name.
+// nvimPlatformPackages returns the packages the Neovim step installs. The
+// Debian entry drops lazygit and tree-sitter-cli, which its repositories do not
+// carry and apt cannot skip, and the Arch entry goes through archPackages for
+// the same reason even though every name it asks for exists there today.
 func nvimPlatformPackages() (platformPackages, []string) {
 	debian, unavailable := debianPackages(
 		"neovim", "git", "gcc", "fzf", "fd-find", "ripgrep", "coreutils",
 		"bat", "curl", "lazygit", "tree-sitter-cli",
 	)
+	arch, archGaps := archPackages(
+		"neovim", "git", "gcc", "fzf", "fd", "ripgrep", "coreutils",
+		"bat", "curl", "lazygit", "tree-sitter",
+	)
 	return platformPackages{
-		Termux: "neovim git clang fzf fd ripgrep bat curl lazygit",
-		Brew:   "nvim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
-		Arch:   "neovim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
-		Fedora: "neovim git gcc fzf fd-find ripgrep coreutils bat curl lazygit tree-sitter-cli",
-		Debian: debian,
+		Termux:          "neovim git clang fzf fd ripgrep bat curl lazygit",
+		Brew:            "nvim git gcc fzf fd ripgrep coreutils bat curl lazygit tree-sitter",
+		Arch:            arch,
+		Fedora:          "neovim git gcc fzf fd-find ripgrep coreutils bat curl lazygit tree-sitter-cli",
+		Debian:          debian,
+		archUnavailable: archGaps,
 	}, unavailable
 }
 
