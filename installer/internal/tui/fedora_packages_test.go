@@ -171,6 +171,12 @@ func TestStepInstallShellReportsFedoraUnavailableCompanions(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// The notice is now reported after the attempt and only for components that
+	// are still absent, so the presence check has to see a host without carapace
+	// or starship. A private PATH and Homebrew prefix keep a developer machine's
+	// own installations from hiding the gap this test describes.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOMEBREW_PREFIX", t.TempDir())
 	readLog := captureStepStdout(t)
 	calls := withZshMocks(t, home)
 
@@ -204,6 +210,115 @@ func TestStepInstallShellReportsFedoraUnavailableCompanions(t *testing.T) {
 		if strings.Contains(" "+dnf+" ", " "+removed+" ") {
 			t.Errorf("dnf was still asked for the unavailable %s: %q", removed, dnf)
 		}
+	}
+}
+
+// TestStepInstallShellFedoraNoticeNamesOnlyStillMissingCompanions pins the
+// notice's new subject: what is still missing after the attempt, not what the
+// filter dropped before it. carapace is placed on PATH, so it is present on the
+// host even though the Fedora filter dropped it, while starship is absent. The
+// notice must name starship and must not name carapace.
+func TestStepInstallShellFedoraNoticeNamesOnlyStillMissingCompanions(t *testing.T) {
+	t.Setenv("DOTFILES_VERBOSE", "1")
+	SetNonInteractiveMode(true)
+	t.Cleanup(func() { SetNonInteractiveMode(false) })
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir)
+	// A private Homebrew prefix keeps a host-installed starship from satisfying
+	// the check, so the gap the notice reports is the one this test controls.
+	t.Setenv("HOMEBREW_PREFIX", t.TempDir())
+	if err := os.WriteFile(filepath.Join(binDir, "carapace"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("could not place carapace on PATH: %v", err)
+	}
+
+	readLog := captureStepStdout(t)
+	withZshMocks(t, home)
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSFedora, HasBrew: false}
+	m.Choices = UserChoices{OS: "linux", Shell: "zsh", WindowMgr: "none"}
+	m.RepoDir = repoRoot(t)
+
+	if err := stepInstallShell(&m); err != nil {
+		t.Fatalf("a shell the distribution carries must still install cleanly: %v", err)
+	}
+
+	log := readLog()
+	noticeLine := ""
+	for _, line := range strings.Split(log, "\n") {
+		if strings.Contains(line, "Not available in the Fedora repositories") {
+			noticeLine = line
+		}
+	}
+	if noticeLine == "" {
+		t.Fatalf("the Fedora notice was not logged:\n%s", log)
+	}
+	t.Logf("notice: %s", noticeLine)
+	if !strings.Contains(noticeLine, "starship") {
+		t.Errorf("the notice must name starship, which is still missing: %q", noticeLine)
+	}
+	if strings.Contains(noticeLine, "carapace") {
+		t.Errorf("the notice names carapace even though it is present on the host: %q", noticeLine)
+	}
+}
+
+// TestStepInstallShellFedoraWithHomebrewInstallsThroughBrew is the positive
+// direction of the route correction for the shell. With Homebrew present the
+// Fedora lists are not sent to dnf at all: the default branch installs the
+// unfiltered Brew list, so the companions Fedora does not carry are installed
+// rather than reported missing.
+func TestStepInstallShellFedoraWithHomebrewInstallsThroughBrew(t *testing.T) {
+	t.Setenv("DOTFILES_VERBOSE", "1")
+	SetNonInteractiveMode(true)
+	t.Cleanup(func() { SetNonInteractiveMode(false) })
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	prefix := t.TempDir()
+	t.Setenv("HOMEBREW_PREFIX", prefix)
+
+	readLog := captureStepStdout(t)
+	calls := withZshMocks(t, home)
+	runBrewWithLogs = func(args string, opts *system.ExecOptions, onLog system.LogCallback) *system.ExecResult {
+		*calls = append(*calls, packageCommandCall{runner: "brew", command: args})
+		if err := os.MkdirAll(filepath.Join(prefix, "bin"), 0o755); err != nil {
+			t.Fatalf("mock brew could not create the Homebrew prefix: %v", err)
+		}
+		for _, name := range []string{"zsh", "carapace", "starship"} {
+			if err := os.WriteFile(filepath.Join(prefix, "bin", name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatalf("mock brew could not create %s: %v", name, err)
+			}
+		}
+		return &system.ExecResult{Command: args}
+	}
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSFedora, HasBrew: true}
+	m.Choices = UserChoices{OS: "linux", Shell: "zsh", WindowMgr: "none"}
+	m.RepoDir = repoRoot(t)
+
+	if err := stepInstallShell(&m); err != nil {
+		t.Fatalf("a Fedora host with Homebrew must install the shell through it: %v\n%s", err, readLog())
+	}
+
+	installed := false
+	for _, call := range *calls {
+		if call.runner == "sudo" {
+			t.Errorf("dnf must not run when Homebrew is present: %#v", call)
+		}
+		if call.runner == "brew" && strings.Contains(call.command, "carapace") {
+			installed = true
+		}
+	}
+	if !installed {
+		t.Errorf("the unfiltered Brew list was not installed: %#v", *calls)
+	}
+	if log := readLog(); strings.Contains(log, "Not available in the Fedora repositories") {
+		t.Errorf("a Fedora host with Homebrew must not be told the components are unavailable:\n%s", log)
 	}
 }
 
@@ -365,6 +480,7 @@ func TestStepInstallWMFailsWhenZellijIsUnavailableOnFedora(t *testing.T) {
 	if !errors.As(err, &stepErr) || stepErr.StepID != "wm" {
 		t.Fatalf("the failure is not reported as a wm step failure: %v", err)
 	}
+	t.Logf("failure: %v", err)
 
 	log := readLog()
 	for _, want := range []string{

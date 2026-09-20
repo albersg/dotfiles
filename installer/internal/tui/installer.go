@@ -343,11 +343,13 @@ func usesPacman(m *Model) bool {
 	return m.SystemInfo.OS == system.OSArch
 }
 
-// usesDnf mirrors the Fedora branch of installPlatformPackages: dnf runs on a
-// Fedora host whether or not Homebrew is present, so the Fedora package lists
-// are the ones the install reaches and the ones the Fedora filter protects.
+// usesDnf mirrors the Fedora branch of installPlatformPackages: dnf runs only
+// for a Fedora host without Homebrew, because Homebrew takes over the install
+// whenever it is present, exactly as it does for Debian. The Fedora package
+// lists are the ones the dnf route reaches and the ones the Fedora filter
+// protects; with Homebrew present the unfiltered Brew list is reached instead.
 func usesDnf(m *Model) bool {
-	return m.SystemInfo.OS == system.OSFedora
+	return m.SystemInfo.OS == system.OSFedora && !m.SystemInfo.HasBrew
 }
 
 // componentPresentAfterInstall reports whether a component is on the machine
@@ -379,7 +381,7 @@ func dependencyManualCommands(m *Model, deps platformPackages) string {
 	switch {
 	case m.SystemInfo.OS == system.OSArch:
 		return "sudo pacman -S --needed --noconfirm " + deps.Arch
-	case m.SystemInfo.OS == system.OSFedora:
+	case usesDnf(m):
 		return "sudo dnf install -y " + deps.Fedora
 	case usesApt(m):
 		return "sudo apt-get update\nsudo apt-get install -y " + deps.Debian
@@ -1059,6 +1061,26 @@ func logFedoraUnavailable(stepID string, unavailable []string) {
 	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
 }
 
+// logFedoraStillMissing reports the Fedora-filtered packages that are still
+// absent once an install attempt has finished. The notice has to describe the
+// gap that remains, not the names the filter dropped before anything ran: a
+// component the available route installed, or one the host already had, is not
+// missing and must not be named. The filtered list is only consulted when the
+// dnf route is the one that ran, so a Fedora host whose Homebrew installed the
+// components is never told they are unavailable.
+func logFedoraStillMissing(stepID string, result *system.ExecResult, unavailable []string) {
+	if len(unavailable) == 0 {
+		return
+	}
+	missing := make([]string, 0, len(unavailable))
+	for _, name := range unavailable {
+		if !componentPresentAfterInstall(result, name) {
+			missing = append(missing, name)
+		}
+	}
+	logFedoraUnavailable(stepID, missing)
+}
+
 // ohMyZshInstallerURL is the official Oh My Zsh installer, pinned to the exact
 // revision this repository ships and the local machine runs. An unpinned master
 // URL would execute whatever upstream publishes next, which the previous
@@ -1150,7 +1172,12 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 	// and keeping it would let a name the filter does not know about be dropped
 	// without a word, which is the defect this change removes. A name that is
 	// genuinely absent now fails the command loudly instead of disappearing.
-	case m.SystemInfo.OS == system.OSFedora && packages.Fedora != "":
+	//
+	// dnf runs only when Homebrew is absent. With Homebrew present the switch
+	// falls through to the default branch and the unfiltered Brew list installs
+	// everything, so a component the Fedora repositories do not carry is still
+	// installed instead of being left to a step that would fail.
+	case usesDnf(m) && packages.Fedora != "":
 		return runNativeWithBrewFallback("dnf install -y "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	case (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew && packages.Debian != "":
 		return runNativeWithBrewFallback("apt-get install -y "+packages.Debian, packages.Brew, m.SystemInfo.HasBrew, onLog)
@@ -1407,25 +1434,25 @@ func stepInstallShell(m *Model) error {
 		}
 	}
 
-	// Fedora reaches dnf whether or not Homebrew is present, and nushell is
-	// absent from Fedora 40 while Fedora 44 carries it, so the filter holds the
-	// names the target image actually lacks. Every shell this installer can
-	// select is present there, which makes this the same companion-versus-
-	// selected rule the Debian and Arch branches apply: the companions are a
-	// logged note. The selected-component guard is not applied here because it
-	// would fire before the install: dnf can succeed while a shell the filter
-	// dropped was never in its command, so the guard is applied after the
-	// install below, once dnf and the Homebrew fallback have both run.
-	if usesDnf(m) {
-		logFedoraUnavailable(stepID, packages.fedoraUnavailable)
-	}
-
+	// Fedora reaches dnf only when Homebrew is absent, and nushell is absent
+	// from Fedora 40 while Fedora 44 carries it, so the filter holds the names
+	// the target image actually lacks. Every shell this installer can select is
+	// present there, which makes this the same companion-versus-selected rule the
+	// Debian and Arch branches apply: the companions are a logged note. The
+	// selected-component guard is not applied before the install: dnf can succeed
+	// while a shell the filter dropped was never in its command, so the guard is
+	// applied after the install below, once the route that ran has finished. The
+	// companion notice is logged after that same attempt, so it names only what
+	// is still missing rather than what the filter dropped.
 	switch shell {
 	case "fish":
 		SendLog(stepID, "Installing Fish shell and plugins...")
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesDnf(m) {
+			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
+		}
 		if err := fedoraMissingSelectedShell(m, stepID, shell, result); err != nil {
 			return err
 		}
@@ -1478,6 +1505,9 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesDnf(m) {
+			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
+		}
 		if err := fedoraMissingSelectedShell(m, stepID, shell, result); err != nil {
 			return err
 		}
@@ -1615,6 +1645,9 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesDnf(m) {
+			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
+		}
 		if err := fedoraMissingSelectedShell(m, stepID, shell, result); err != nil {
 			return err
 		}
@@ -2073,12 +2106,12 @@ func stepInstallNvim(m *Model) error {
 	if usesApt(m) {
 		logDebianUnavailable(stepID, unavailable)
 	}
-	if usesDnf(m) {
-		logFedoraUnavailable(stepID, packages.fedoraUnavailable)
-	}
 	result := installPlatformPackages(m, stepID, packages, func(line string) {
 		SendLog(stepID, line)
 	})
+	if usesDnf(m) {
+		logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
+	}
 	if result.Error != nil {
 		return wrapStepError("nvim", "Install Neovim",
 			"Failed to install Neovim and dependencies",
