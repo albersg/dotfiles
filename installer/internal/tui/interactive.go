@@ -48,21 +48,30 @@ func runInteractiveStep(stepID string, m *Model) tea.Cmd {
 	}
 }
 
+// interactiveScriptBuilders is the dispatch table for interactive steps. Each
+// entry turns a step ID into the shell script tea.ExecProcess runs.
+//
+// It is a map rather than a switch so the flag-versus-dispatch invariant test
+// can enumerate the cases instead of restating them: a step that
+// SetupInstallSteps marks Interactive and a builder that this table does not
+// know is the contradiction behind issue #28, and enumerating the table is what
+// lets a test close it for every step rather than for the one that broke.
+var interactiveScriptBuilders = map[string]func(*Model) (string, error){
+	"homebrew":  getHomebrewScript,
+	"deps":      getDepsScript,
+	"terminal":  getTerminalScript,
+	"setshell":  getSetShellScript,
+	"wslconfig": getWSLConfigScript,
+}
+
 // getInteractiveScript returns the bash script for interactive steps only
 // Interactive steps are those that NEED user input (sudo password, chsh, etc)
 func getInteractiveScript(stepID string, m *Model) (string, error) {
-	switch stepID {
-	case "homebrew":
-		return getHomebrewScript(m)
-	case "deps":
-		return getDepsScript(m)
-	case "terminal":
-		return getTerminalScript(m)
-	case "setshell":
-		return getSetShellScript(m)
-	default:
+	build, ok := interactiveScriptBuilders[stepID]
+	if !ok {
 		return "", fmt.Errorf("unknown interactive step: %s", stepID)
 	}
+	return build(m)
 }
 
 // getHomebrewScript returns script to install Homebrew (needs password on first install)
@@ -210,14 +219,12 @@ cp "dotfiles/alacritty.toml" "%s/.config/alacritty/alacritty.toml"`, homeDir, ho
 	case "wezterm":
 		if system.CommandExists("wezterm") {
 			installCmd = `echo "✓ WezTerm already installed"`
-		} else if m.SystemInfo.OS == system.OSArch {
-			installCmd = `sudo pacman -S --noconfirm wezterm`
-		} else if m.SystemInfo.OS == system.OSFedora {
-			installCmd = `sudo dnf copr enable -y wezfurlong/wezterm-nightly
-sudo dnf install -y wezterm`
 		} else {
-			// Debian uses brew, not interactive
-			return "", nil
+			// The install lines come from the same table stepInstallTerminal
+			// executes, so the interactive path cannot be an empty script while
+			// the non-interactive path installs. On Debian/Ubuntu and WSL that
+			// table is the Homebrew tap and formula.
+			installCmd = strings.Join(weztermInstallCommands(m.SystemInfo), "\n")
 		}
 		configCmd = fmt.Sprintf(`mkdir -p "%s/.config/wezterm"
 cp "dotfiles/.wezterm.lua" "%s/.config/wezterm/wezterm.lua"`, homeDir, homeDir)
@@ -255,7 +262,7 @@ echo ""
 echo "✅ %s configured!"
 echo ""
 echo "Press Enter to continue..."
-read dummy
+read -r _
 `, terminal, installCmd, terminal, configCmd, terminal)
 
 	return script, nil
@@ -381,6 +388,146 @@ read dummy
 `, shellCmd, shellCmd)
 
 	return script, nil
+}
+
+// getWSLConfigScript returns the interactive script for the WSL step. It is the
+// TUI counterpart of stepInstallWSLConfig and shares that step's decisions: the
+// checkout, the resolved Windows profile, the wsl.conf destination and the
+// repository asset names all come from the same helpers the step uses, so the
+// two cannot disagree about what to install or where.
+//
+// The script only exists because /etc/wsl.conf is root-owned and sudo has to be
+// able to prompt, which needs the terminal the TUI suspends with
+// tea.ExecProcess. It reproduces what the step installs, and the win32yank
+// bridge keeps the same pinned URL, checksum and interop-health decision.
+func getWSLConfigScript(m *Model) (string, error) {
+	if !m.SystemInfo.IsWSL {
+		return "", nil
+	}
+
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return "", err
+	}
+
+	confDst := os.Getenv(envWSLConfPath)
+	if confDst == "" {
+		confDst = defaultWSLConfPath
+	}
+
+	var script strings.Builder
+	script.WriteString("#!/bin/sh\n")
+	script.WriteString("set -e\n\n")
+	fmt.Fprintf(&script, "WSL_CONFIG_SRC=%s\n", shellSingleQuote(filepath.Join(repoDir, repoAssetWSLConfig)))
+	fmt.Fprintf(&script, "WSL_CONF_SRC=%s\n", shellSingleQuote(filepath.Join(repoDir, repoAssetWSLConf)))
+	fmt.Fprintf(&script, "WSL_CONF_DST=%s\n", shellSingleQuote(confDst))
+
+	profileDir, profileErr := windowsUserProfile()
+	if profileErr != nil {
+		// The lookup can legitimately fail (interop disabled, unusual mount
+		// layout) and that must not stop the in-distribution half, exactly as in
+		// stepInstallWSLConfig.
+		script.WriteString("WINDOWS_PROFILE=''\n")
+		fmt.Fprintf(&script, "echo %s\n", shellSingleQuote(fmt.Sprintf(
+			"Skipping .wslconfig: %v. Set %s to override the lookup.", profileErr, envWSLWindowsHome)))
+	} else {
+		fmt.Fprintf(&script, "WINDOWS_PROFILE=%s\n", shellSingleQuote(profileDir))
+	}
+
+	script.WriteString(`
+STAMP=$(date +%Y%m%d-%H%M%S)
+
+# install_artifact mirrors applyArtifact: back up an existing destination, write
+# directly when this user may, and escalate to sudo only when the plain write is
+# refused, so an unprivileged temporary destination never prompts for a password.
+install_artifact() {
+	src=$1
+	dst=$2
+	if [ ! -f "$src" ]; then
+		echo "reading $src: no such file" >&2
+		return 1
+	fi
+	if [ -e "$dst" ]; then
+		backup="$dst.bak-dotfiles-$STAMP"
+		if cp -a "$dst" "$backup" 2>/dev/null; then
+			echo "Previous $(basename "$dst") backed up to $backup"
+		elif sudo cp -a "$dst" "$backup" 2>/dev/null; then
+			echo "Previous $(basename "$dst") backed up to $backup"
+		else
+			echo "Warning: could not back up $dst" >&2
+		fi
+	fi
+	mkdir -p "$(dirname "$dst")" 2>/dev/null || true
+	if cp "$src" "$dst" 2>/dev/null && chmod 0644 "$dst" 2>/dev/null; then
+		return 0
+	fi
+	tmp=$(mktemp)
+	cp "$src" "$tmp"
+	chmod 0644 "$tmp"
+	sudo install -m 0644 "$tmp" "$dst"
+	rm -f "$tmp"
+}
+
+if [ -n "$WINDOWS_PROFILE" ]; then
+	install_artifact "$WSL_CONFIG_SRC" "$WINDOWS_PROFILE/.wslconfig"
+	echo ".wslconfig installed at $WINDOWS_PROFILE/.wslconfig"
+else
+	echo "Skipping .wslconfig: no Windows profile was found"
+fi
+
+install_artifact "$WSL_CONF_SRC" "$WSL_CONF_DST"
+echo "wsl.conf installed at $WSL_CONF_DST"
+`)
+
+	// The clipboard bridge is deliberately not fatal, for the same reason the Go
+	// step does not fail on it: the editor works without it.
+	interopOK := "0"
+	if peInteropHealthy() {
+		interopOK = "1"
+	}
+	fmt.Fprintf(&script, "\nPE_INTEROP_OK=%s\n", interopOK)
+	script.WriteString(`
+if [ "$PE_INTEROP_OK" = "0" ]; then
+	echo "Skipping win32yank: this distribution cannot execute Windows binaries stored on the Linux filesystem, so the bridge would install into a path that cannot run. Neovim will keep using wl-clipboard."
+elif command -v win32yank.exe >/dev/null 2>&1; then
+	echo "win32yank already installed"
+else
+	mkdir -p "$HOME/.local/bin" || true
+	WY_ARCHIVE=$(mktemp)
+	if curl -fsSL `)
+	fmt.Fprintf(&script, "%s", shellSingleQuote(win32yankArchive))
+	script.WriteString(` -o "$WY_ARCHIVE"; then
+		WY_ACTUAL=$(sha256sum "$WY_ARCHIVE" 2>/dev/null | awk '{print $1}')
+		if [ "$WY_ACTUAL" != `)
+	fmt.Fprintf(&script, "%s", shellSingleQuote(win32yankSHA256))
+	script.WriteString(` ]; then
+			echo "win32yank checksum mismatch" >&2
+		else
+			WY_DIR=$(mktemp -d)
+			if unzip -o -q "$WY_ARCHIVE" -d "$WY_DIR" && [ -f "$WY_DIR/win32yank.exe" ] && mv "$WY_DIR/win32yank.exe" "$HOME/.local/bin/win32yank.exe" && chmod 0755 "$HOME/.local/bin/win32yank.exe"; then
+				echo "Windows clipboard bridge ready"
+			else
+				echo "Could not install win32yank, so Neovim will not reach the Windows clipboard" >&2
+			fi
+			rm -rf "$WY_DIR"
+		fi
+	else
+		echo "Could not install win32yank, so Neovim will not reach the Windows clipboard" >&2
+	fi
+	rm -f "$WY_ARCHIVE"
+fi
+
+echo "Run wsl --shutdown on Windows and reopen the terminal to apply the changes"
+`)
+
+	return script.String(), nil
+}
+
+// shellSingleQuote renders s as a single-quoted POSIX shell literal, so a path
+// with spaces or shell metacharacters cannot escape the assignment it is
+// embedded in.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // createTempScriptCommand creates a temporary bash script and returns a command to execute it
