@@ -4,6 +4,40 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.2.3] — 2026-09-21
+
+Two defects on the interactive path, and the assertions that stop the sequence they belonged to.
+This is the release where **the TUI installs on WSL**: v0.2.2 fixed the step loop, and the run still
+died one step later.
+
+### Fixed
+
+- **A step the interactive dispatch table did not know.** Every TUI run on WSL died at the WSL step
+  before that step did anything: `failed to get script for wslconfig: unknown interactive step:
+  wslconfig`. The step is flagged `Interactive` because `/etc/wsl.conf` needs sudo, but the table
+  that flag routes into had no case for it, so neither `.wslconfig` nor `/etc/wsl.conf` was ever
+  written. It had carried that flag since it was introduced, so the TUI had never been able to run
+  it.
+- **A step that reported itself done having installed nothing.** The interactive terminal step
+  returned an empty script for WezTerm on Debian, Ubuntu and WSL, on the stated grounds that
+  "Debian uses brew, not interactive", while the non-interactive step installs it through
+  Homebrew. Both paths now render from one shared helper, so they agree by construction rather
+  than by a comment.
+
+### Added
+
+- **Three assertions where there used to be prose.** A step marked interactive with nowhere to
+  dispatch to, a step scheduled for the non-interactive run that the executor does not know, and a
+  scheduler and an executor that must agree about the set of steps: all three are now checked in
+  both directions. Three defects in a row on this path each revealed the next because those
+  agreements were comments rather than tests. That is the part meant to stop the sequence.
+
+### Changed
+
+- The Go WezTerm path now aborts when Fedora's `dnf copr enable` fails instead of ignoring it, and
+  the Debian tap runs through the Homebrew prefix with its error checked. The interactive path
+  already used `set -e`, so this aligns the two.
+
 ## [v0.2.2] — 2026-09-21
 
 A patch release for one defect, and it is urgent rather than routine: **v0.2.1's TUI could not

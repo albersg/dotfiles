@@ -6,7 +6,7 @@
     "last_sync": "2026-07-29"
   },
   "downstream": {
-    "version": "0.2.2",
+    "version": "0.2.3",
     "brand": "dotfiles",
     "owner": "albersg",
     "repo": "albersg/dotfiles"
