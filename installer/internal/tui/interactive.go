@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	tea "github.com/charmbracelet/bubbletea"
@@ -105,70 +107,52 @@ eval "$(%s/bin/brew shellenv)"
 	return script, nil
 }
 
-// getDepsScript returns script to install dependencies on Linux (needs sudo)
+// getDepsScript returns the interactive script for the dependency step. It is
+// the TUI counterpart of stepInstallDeps and shares its decisions rather than
+// re-deriving them: depsForInstall picks and filters the package names,
+// planPlatformInstall picks the manager and the command, and this function only
+// wraps that in the shell script tea.ExecProcess runs. Nothing about which
+// packages or which manager is decided here.
 func getDepsScript(m *Model) (string, error) {
-	var script string
+	deps, debianGaps := depsForInstall(m)
+	plan := planPlatformInstall(m, deps)
 
-	if m.SystemInfo.OS == system.OSArch {
-		script = `#!/bin/sh
-set -e
-echo ""
-echo "🔄 Updating Arch Linux packages..."
-echo "   (You may be prompted for your password)"
-echo ""
-sudo pacman -Syu --noconfirm
-echo ""
-echo "📦 Installing base dependencies..."
-sudo pacman -S --needed --noconfirm base-devel curl file git wget unzip fontconfig
-echo ""
-echo "✅ Dependencies installed successfully!"
-echo ""
-echo "Press Enter to continue..."
-read dummy
-`
-	} else if m.SystemInfo.OS == system.OSFedora {
-		// Fedora/RHEL
-		script = `#!/bin/sh
-set -e
-echo ""
-echo "🔄 Checking for Fedora/RHEL updates..."
-echo "   (You may be prompted for your password)"
-echo ""
-sudo dnf check-update || true
-echo ""
-echo "📦 Installing base dependencies..."
-sudo dnf install -y @development-tools curl file git wget unzip fontconfig
-echo ""
-echo "✅ Dependencies installed successfully!"
-echo ""
-echo "Press Enter to continue..."
-read dummy
-`
-	} else {
-		// Debian/Ubuntu (WSL or native)
-		depPkgs := "build-essential curl file git unzip fontconfig procps"
-		if m.SystemInfo.IsWSL {
-			depPkgs += " wslu"
+	var script strings.Builder
+	script.WriteString("#!/bin/sh\nset -e\necho \"\"\n")
+	script.WriteString("echo \"🔄 Installing base dependencies...\"\n")
+	script.WriteString("echo \"   (You may be prompted for your password)\"\n")
+	script.WriteString("echo \"\"\n")
+
+	// The notice and the index refresh come from the plan, exactly as they do in
+	// stepInstallDeps: they belong to the apt route, so a script that installs
+	// through Homebrew neither names a Debian gap nor refreshes an index it will
+	// not use.
+	if plan.Manager == "apt-get" {
+		for _, line := range debianUnavailableMessage(debianGaps) {
+			fmt.Fprintf(&script, "echo %q\n", line)
 		}
-		script = fmt.Sprintf(`#!/bin/sh
-set -e
-echo ""
-echo "🔄 Updating apt package list..."
-echo "   (You may be prompted for your password)"
-echo ""
-sudo apt-get update
-echo ""
-echo "📦 Installing base dependencies..."
-sudo apt-get install -y %s
-echo ""
-echo "✅ Dependencies installed successfully!"
-echo ""
-echo "Press Enter to continue..."
-read dummy
-`, depPkgs)
+	}
+	if plan.Update != "" {
+		fmt.Fprintf(&script, "sudo %s\n", plan.Update)
 	}
 
-	return script, nil
+	switch plan.Manager {
+	case "pkg":
+		fmt.Fprintf(&script, "pkg install -y %s\n", plan.Packages)
+	case "pacman", "dnf", "apt-get":
+		fmt.Fprintf(&script, "%s\n", plan.sudoCommand())
+	case "brew":
+		// Run Homebrew through its prefix, exactly as runBrewWithLogs does, so the
+		// script does not depend on brew being on the PATH this shell was started
+		// with.
+		fmt.Fprintf(&script, "%q install %s\n", filepath.Join(system.GetBrewPrefix(), "bin", "brew"), plan.Packages)
+	default:
+		return "", fmt.Errorf("no package manager available for this platform")
+	}
+
+	script.WriteString("echo \"\"\necho \"✅ Dependencies installed successfully!\"\necho \"\"\n")
+	script.WriteString("echo \"Press Enter to continue...\"\nread -r _\n")
+	return script.String(), nil
 }
 
 // getTerminalScript returns script to install terminal on Linux (needs sudo)

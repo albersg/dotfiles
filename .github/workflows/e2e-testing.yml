@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [ubuntu, debian, fedora, alpine]
+        image: [ubuntu, debian, fedora, arch, alpine]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -295,10 +295,14 @@ if [[ $IS_TERMUX -eq 0 ]] && command -v fnm >/dev/null 2>&1; then
         path=("$FNM_MULTISHELL_PATH/bin" $path)
     fi
 
-    # Start on the `default` alias, unless the current directory declares its
-    # own version (same condition the use-on-cd hook evaluates).
-    if [[ ! -f .node-version && ! -f .nvmrc && ! -f package.json ]]; then
-        fnm use default --silent-if-unchanged >/dev/null
+    # Start on the `default` alias when it exists, unless the current directory
+    # declares its own version (the same condition the use-on-cd hook evaluates).
+    # The alias is created by the installer when it puts fnm in place; a machine
+    # that manages its own Node, or that never created the alias, must not print
+    # an fnm error before every prompt, so the alias is checked first and fnm's
+    # stderr is discarded as well.
+    if [[ ! -f .node-version && ! -f .nvmrc && ! -f package.json && -e "$FNM_DIR/aliases/default" ]]; then
+        fnm use default --silent-if-unchanged >/dev/null 2>&1
     fi
 
     export NPM_CONFIG_PREFIX="$HOME/.npm-global"

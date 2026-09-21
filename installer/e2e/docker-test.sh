@@ -30,7 +30,7 @@ strip_ansi() {
 }
 
 # Image configurations
-IMAGES="alpine debian ubuntu fedora termux"
+IMAGES="alpine debian ubuntu fedora arch termux"
 
 get_dockerfile() {
     case "$1" in
@@ -38,6 +38,7 @@ get_dockerfile() {
         debian) echo "Dockerfile.debian" ;;
         ubuntu) echo "Dockerfile.ubuntu" ;;
         fedora) echo "Dockerfile.fedora" ;;
+        arch) echo "Dockerfile.arch" ;;
         termux) echo "Dockerfile.termux" ;;
     esac
 }
@@ -48,6 +49,7 @@ get_description() {
         debian) echo "Debian (sh, no bash)" ;;
         ubuntu) echo "Ubuntu (bash, full e2e + backup tests)" ;;
         fedora) echo "Fedora (dnf package manager)" ;;
+        arch) echo "Arch (pacman package manager)" ;;
         termux) echo "Termux-like (simulated pkg)" ;;
     esac
 }
@@ -93,7 +95,18 @@ build_binary() {
     # Without it the test binary links against the build host's glibc and cannot
     # execute in the musl and Bionic containers (Alpine, Termux), so those jobs
     # tested a binary no user ever receives and failed to run it at all.
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$SCRIPT_DIR/dotfiles-installer-linux-amd64" ./cmd/dotfiles
+    #
+    # Check the build status here for the same reason build_image does. A caller
+    # that reaches this function from an `||` list has `set -e` disabled for the
+    # whole call, so a failed `go build` would fall through to the success line
+    # below and report a binary that was never produced. No caller in this script
+    # reaches it in that context today, but the next one must not inherit the
+    # trap, so the guard is stated where the command runs rather than left to the
+    # caller's shell flags.
+    if ! CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$SCRIPT_DIR/dotfiles-installer-linux-amd64" ./cmd/dotfiles; then
+        echo "${RED}✗ Could not build dotfiles-installer-linux-amd64${NC}"
+        exit 1
+    fi
     echo "${GREEN}✓ Binary built${NC}"
 }
 
@@ -359,7 +372,8 @@ select_image() {
         2) SELECTED_IMAGE="debian" ;;
         3) SELECTED_IMAGE="ubuntu" ;;
         4) SELECTED_IMAGE="fedora" ;;
-        5) SELECTED_IMAGE="termux" ;;
+        5) SELECTED_IMAGE="arch" ;;
+        6) SELECTED_IMAGE="termux" ;;
         0|"") SELECTED_IMAGE="" ;;
         *) SELECTED_IMAGE="" ;;
     esac
@@ -549,7 +563,7 @@ usage() {
     echo "  reset <image>   Reset specific image"
     echo "  status          Show image status"
     echo ""
-    echo "Images: alpine, debian, ubuntu, fedora, termux"
+    echo "Images: alpine, debian, ubuntu, fedora, arch, termux"
     echo "Platforms: arm64, amd64 (optional)"
     echo ""
     echo "Examples:"

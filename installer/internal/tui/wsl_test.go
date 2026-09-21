@@ -156,6 +156,91 @@ func TestStepInstallWSLConfigFailsWithoutACheckout(t *testing.T) {
 	}
 }
 
+// TestWindowsUserProfileFallsBackWithoutInterop pins issue #22: the fallback
+// route must not run cmd.exe again. PATH is emptied so the interop route cannot
+// resolve anything, and the profile is found by reading the mounted users
+// directory, exactly as it must be on a host with no WSLInterop binfmt entry.
+func TestWindowsUserProfileFallsBackWithoutInterop(t *testing.T) {
+	users := t.TempDir()
+	profile := filepath.Join(users, "alber")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(envWSLWindowsHome, "")
+	t.Setenv(envWSLUsersDir, users)
+	t.Setenv("PATH", "") // no cmd.exe, no wslpath
+	t.Setenv("USER", "alber")
+
+	got, err := windowsUserProfile()
+	if err != nil {
+		t.Fatalf("the interop-free fallback must resolve the profile: %v", err)
+	}
+	if got != profile {
+		t.Errorf("profile = %q, want %q", got, profile)
+	}
+}
+
+// TestWindowsProfileFromMountManyCandidates covers the machine with more than
+// one user directory: the account named after the Linux user wins, and when
+// none matches the lookup is refused instead of guessing a profile to write to.
+func TestWindowsProfileFromMountManyCandidates(t *testing.T) {
+	users := t.TempDir()
+	for _, name := range []string{"alber", "public", "jdoe"} {
+		if err := os.MkdirAll(filepath.Join(users, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Setenv(envWSLUsersDir, users)
+	t.Setenv(envWSLWindowsHome, "")
+	t.Setenv("PATH", "")
+
+	t.Run("the Linux user wins", func(t *testing.T) {
+		t.Setenv("USER", "alber")
+		got, err := windowsProfileFromMount()
+		if err != nil {
+			t.Fatalf("a matching account must resolve: %v", err)
+		}
+		if filepath.Base(got) != "alber" {
+			t.Errorf("profile = %q, want the alber directory", got)
+		}
+	})
+
+	t.Run("no match is refused", func(t *testing.T) {
+		t.Setenv("USER", "someone-else")
+		t.Setenv("USERNAME", "")
+		_, err := windowsProfileFromMount()
+		if err == nil {
+			t.Fatal("an ambiguous mount must not resolve to an arbitrary profile")
+		}
+		for _, want := range []string{"alber", "jdoe", envWSLWindowsHome} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal should mention %q: %v", want, err)
+			}
+		}
+		if strings.Contains(err.Error(), "public") {
+			t.Errorf("a Windows system directory is not a user candidate: %v", err)
+		}
+	})
+}
+
+// TestWindowsUserProfileNoCandidates checks the empty mount: no profile is
+// invented, and the override is named as the way out.
+func TestWindowsUserProfileNoCandidates(t *testing.T) {
+	t.Setenv(envWSLWindowsHome, "")
+	t.Setenv(envWSLUsersDir, t.TempDir())
+	t.Setenv("PATH", "")
+
+	_, err := windowsUserProfile()
+	if err == nil {
+		t.Fatal("an empty users mount must not resolve a profile")
+	}
+	if !strings.Contains(err.Error(), envWSLWindowsHome) {
+		t.Errorf("the error should name the override: %v", err)
+	}
+}
+
 func TestWindowsUserProfileHonoursOverride(t *testing.T) {
 	winHome := t.TempDir()
 	t.Setenv(envWSLWindowsHome, winHome)
@@ -207,6 +292,10 @@ func TestStepInstallWSLConfigSkipsWindowsSideWhenProfileUnavailable(t *testing.T
 	// Without the override and without cmd.exe interop there is no Windows
 	// profile to write to. The in-distribution half of the step must still run.
 	t.Setenv(envWSLWindowsHome, "")
+	// Keep the lookup hermetic: no interop on PATH, and a users mount that does
+	// not exist, so the test can never write to the host's real profile.
+	t.Setenv("PATH", "")
+	t.Setenv(envWSLUsersDir, filepath.Join(t.TempDir(), "no-users"))
 
 	m := wslModel(repoDir, true)
 	if err := stepInstallWSLConfig(&m); err != nil {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 
@@ -39,14 +40,49 @@ func RunNonInteractive(choices UserChoices) error {
 
 	fmt.Printf("📋 Running %d installation steps...\n\n", len(steps))
 
-	// Execute each step
+	failures := runInstallSteps(steps, model, executeStep)
+
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	switch {
+	case len(failures) > 0:
+		// The run finished what it could and cleaned up after itself, but it is
+		// not a success: a step that failed is reported and the exit status is
+		// non-zero so a script or CI run cannot mistake it for one.
+		fmt.Printf("⚠️  Installation finished with %d failed step(s):\n", len(failures))
+		for _, failure := range failures {
+			fmt.Printf("   - %v\n", failure)
+		}
+	case dryRun():
+		fmt.Println("🧪 Dry run complete: nothing was installed.")
+	default:
+		fmt.Println("✅ Installation complete!")
+	}
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	if len(failures) > 0 {
+		return errors.Join(failures...)
+	}
+	return nil
+}
+
+// runInstallSteps executes the planned steps in order. A failed step is recorded
+// and reported, but it does not stop the run: every later step that can still do
+// its work is attempted, the default-shell step is never skipped because an
+// earlier root-only step failed, and cleanup always gets its turn so a temporary
+// checkout is not left behind. One error is returned per failed step, in order,
+// and the caller reports them together when the run ends.
+func runInstallSteps(steps []InstallStep, model *Model, execute func(stepID string, m *Model) error) []error {
+	var failures []error
+
 	for i, step := range steps {
 		fmt.Printf("[%d/%d] %s...\n", i+1, len(steps), step.Name)
 
-		err := executeStep(step.ID, model)
+		err := execute(step.ID, model)
 		if err != nil {
 			fmt.Printf("    ❌ FAILED: %v\n", err)
-			return fmt.Errorf("step '%s' failed: %w", step.Name, err)
+			failures = append(failures, fmt.Errorf("step '%s' failed: %w", step.Name, err))
+			continue
 		}
 		if dryRun() {
 			fmt.Printf("    • skipped (dry run)\n")
@@ -55,16 +91,7 @@ func RunNonInteractive(choices UserChoices) error {
 		fmt.Printf("    ✓ Done\n")
 	}
 
-	fmt.Println()
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	if dryRun() {
-		fmt.Println("🧪 Dry run complete: nothing was installed.")
-	} else {
-		fmt.Println("✅ Installation complete!")
-	}
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	return nil
+	return failures
 }
 
 // buildStepsForChoices creates the list of steps based on user choices

@@ -17,7 +17,10 @@
 # could not cover them.
 #
 # Verified with gitleaks 8.30.1: `gitleaks git --log-opts=HEAD` reports the eleven
-# findings below before this file is applied, and none after it.
+# findings below before this file is applied, and none after it. A local-only
+# branch, review/reduced-code, carries the same vendored oh-my-zsh files under a
+# dotfiles-zsh/ prefix, so a scan over every ref reports those paths too; they are
+# listed at the end of the allowlist for the same reason.
 
 [extend]
 useDefault = true
@@ -53,4 +56,16 @@ paths = [
     # like this (but with your own values)" immediately above the placeholder
     # CLIENT_ID and CLIENT_SECRET lines.
     '''^GentlemanZsh/\.oh-my-zsh/plugins/macos/spotify$''',
+
+    # The same vendored oh-my-zsh material, under the local-only
+    # review/reduced-code branch, where the checkout lives under dotfiles-zsh/
+    # instead of GentlemanZsh/. The branch is not on the CI-visible surface; these
+    # entries exist so a contributor scanning every ref locally does not chase
+    # findings that are already accounted for. The four kinds of example material
+    # are the same: the dotenv README's example variables, the genpass word
+    # lists, and the macos plugin's placeholder CLIENT_ID/CLIENT_SECRET.
+    '''^dotfiles-zsh/\.oh-my-zsh/plugins/dotenv/README\.md$''',
+    '''^dotfiles-zsh/\.oh-my-zsh/plugins/genpass/genpass-apple$''',
+    '''^dotfiles-zsh/\.oh-my-zsh/plugins/genpass/genpass-monkey$''',
+    '''^dotfiles-zsh/\.oh-my-zsh/plugins/macos/spotify$''',
 ]

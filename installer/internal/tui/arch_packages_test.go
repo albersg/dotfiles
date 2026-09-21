@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -159,6 +161,13 @@ func TestStepInstallShellReportsArchUnavailableCompanions(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// The notice is now reported after the attempt and only for components that
+	// are still absent, so the presence check has to see a host without carapace
+	// or zsh-theme-powerlevel10k. A private PATH and Homebrew prefix keep a
+	// developer machine's own installations from hiding the gap this test
+	// describes.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOMEBREW_PREFIX", t.TempDir())
 	readLog := captureStepStdout(t)
 	calls := withZshMocks(t, home)
 
@@ -198,9 +207,10 @@ func TestStepInstallShellReportsArchUnavailableCompanions(t *testing.T) {
 // TestStepInstallShellFailsWhenSelectedShellIsUnavailableOnArch proves the
 // selected-component guard is wired. The Arch repositories carry every shell
 // this installer can select, so the guard is inert on a real Arch host; making
-// fish temporarily unavailable is what exercises it. If a later edit introduces
-// an unavailable selectable shell, the step must fail instead of reporting an
-// install it never performed.
+// fish temporarily unavailable is what exercises it. The guard fires after the
+// install has been attempted: pacman runs for the packages the filter kept, and
+// the step must still fail because the selected shell itself is absent, instead
+// of reporting an install it never performed.
 func TestStepInstallShellFailsWhenSelectedShellIsUnavailableOnArch(t *testing.T) {
 	archUnavailable["fish"] = true
 	t.Cleanup(func() { delete(archUnavailable, "fish") })
@@ -211,6 +221,11 @@ func TestStepInstallShellFailsWhenSelectedShellIsUnavailableOnArch(t *testing.T)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// An empty PATH and a private Homebrew prefix keep a host-installed fish from
+	// satisfying the presence check: the shell has to be genuinely absent for the
+	// failure this test describes.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOMEBREW_PREFIX", t.TempDir())
 	readLog := captureStepStdout(t)
 	calls := withPackageCommandMocks(t, nil)
 
@@ -240,8 +255,19 @@ func TestStepInstallShellFailsWhenSelectedShellIsUnavailableOnArch(t *testing.T)
 		}
 	}
 
-	if len(*calls) != 0 {
-		t.Errorf("no package install should run for a shell the distribution cannot provide, got %#v", *calls)
+	// The guard is checked after the install attempt, so the packages the filter
+	// kept are still handed to pacman before the missing shell is reported.
+	pacman := pacmanInstallCommand(calls)
+	if pacman == "" {
+		t.Fatal("the fish step must attempt the filtered pacman install before failing")
+	}
+	if strings.Contains(" "+pacman+" ", " fish ") {
+		t.Errorf("pacman was asked for the unavailable fish: %q", pacman)
+	}
+	for _, call := range *calls {
+		if call.runner == "brew" {
+			t.Errorf("no Homebrew route is available on this host, got %#v", call)
+		}
 	}
 }
 
@@ -250,10 +276,6 @@ func TestStepInstallShellFailsWhenSelectedShellIsUnavailableOnArch(t *testing.T)
 // zellij, so the map is edited for the duration of the test to prove the guard
 // is wired rather than to claim a real Arch host is missing it.
 func TestStepInstallWMFailsWhenZellijIsUnavailableOnArch(t *testing.T) {
-	if system.CommandExists("zellij") {
-		t.Skip("zellij is installed on this host, so the step would take the already-installed path")
-	}
-
 	archUnavailable["zellij"] = true
 	t.Cleanup(func() { delete(archUnavailable, "zellij") })
 
@@ -263,6 +285,10 @@ func TestStepInstallWMFailsWhenZellijIsUnavailableOnArch(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// A controlled PATH and Homebrew prefix make zellij genuinely absent, so the
+	// step reaches the failure instead of a host-installed copy.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOMEBREW_PREFIX", t.TempDir())
 	readLog := captureStepStdout(t)
 	calls := withPackageCommandMocks(t, nil)
 
@@ -294,5 +320,122 @@ func TestStepInstallWMFailsWhenZellijIsUnavailableOnArch(t *testing.T) {
 
 	if len(*calls) != 0 {
 		t.Errorf("no package install should run for zellij, got %#v", *calls)
+	}
+}
+
+// TestStepInstallShellArchWithHomebrewInstallsThroughBrew is the positive
+// direction of the route correction for the shell. With Homebrew present the
+// Arch lists are not sent to pacman at all: the default branch installs the
+// unfiltered Brew list, so the companions Arch does not carry are installed
+// rather than reported missing.
+func TestStepInstallShellArchWithHomebrewInstallsThroughBrew(t *testing.T) {
+	t.Setenv("DOTFILES_VERBOSE", "1")
+	SetNonInteractiveMode(true)
+	t.Cleanup(func() { SetNonInteractiveMode(false) })
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	prefix := t.TempDir()
+	t.Setenv("HOMEBREW_PREFIX", prefix)
+
+	readLog := captureStepStdout(t)
+	calls := withZshMocks(t, home)
+	runBrewWithLogs = func(args string, opts *system.ExecOptions, onLog system.LogCallback) *system.ExecResult {
+		*calls = append(*calls, packageCommandCall{runner: "brew", command: args})
+		if err := os.MkdirAll(filepath.Join(prefix, "bin"), 0o755); err != nil {
+			t.Fatalf("mock brew could not create the Homebrew prefix: %v", err)
+		}
+		for _, name := range []string{"zsh", "carapace", "zsh-theme-powerlevel10k"} {
+			if err := os.WriteFile(filepath.Join(prefix, "bin", name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatalf("mock brew could not create %s: %v", name, err)
+			}
+		}
+		return &system.ExecResult{Command: args}
+	}
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSArch, HasBrew: true}
+	m.Choices = UserChoices{OS: "linux", Shell: "zsh", WindowMgr: "none"}
+	m.RepoDir = repoRoot(t)
+
+	if err := stepInstallShell(&m); err != nil {
+		t.Fatalf("an Arch host with Homebrew must install the shell through it: %v\n%s", err, readLog())
+	}
+
+	installed := false
+	for _, call := range *calls {
+		if call.runner == "sudo" {
+			t.Errorf("pacman must not run when Homebrew is present: %#v", call)
+		}
+		if call.runner == "brew" && strings.Contains(call.command, "carapace") {
+			installed = true
+		}
+	}
+	if !installed {
+		t.Errorf("the unfiltered Brew list was not installed: %#v", *calls)
+	}
+	if log := readLog(); strings.Contains(log, "Not available in the Arch repositories") {
+		t.Errorf("an Arch host with Homebrew must not be told the components are unavailable:\n%s", log)
+	}
+}
+
+// TestStepInstallWMInstallsZellijThroughHomebrewOnArch is the positive direction
+// of the selected-component rule. Arch carries zellij, but the same guard fires
+// when a future edit makes it unavailable, and an Arch host whose Homebrew can
+// provide it must install it instead of failing. The mocked brew install writes
+// the binary into the Homebrew prefix, which is where the real one lands and
+// which this process's PATH does not contain, so the test also pins that a
+// component installed moments earlier is not reported missing.
+func TestStepInstallWMInstallsZellijThroughHomebrewOnArch(t *testing.T) {
+	archUnavailable["zellij"] = true
+	t.Cleanup(func() { delete(archUnavailable, "zellij") })
+
+	t.Setenv("DOTFILES_VERBOSE", "1")
+	SetNonInteractiveMode(true)
+	t.Cleanup(func() { SetNonInteractiveMode(false) })
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	prefix := t.TempDir()
+	t.Setenv("HOMEBREW_PREFIX", prefix)
+
+	readLog := captureStepStdout(t)
+	calls := withPackageCommandMocks(t, nil)
+	runBrewWithLogs = func(args string, opts *system.ExecOptions, onLog system.LogCallback) *system.ExecResult {
+		*calls = append(*calls, packageCommandCall{runner: "brew", command: args})
+		if err := os.MkdirAll(filepath.Join(prefix, "bin"), 0o755); err != nil {
+			t.Fatalf("mock brew could not create the Homebrew prefix: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(prefix, "bin", "zellij"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatalf("mock brew could not create the zellij binary: %v", err)
+		}
+		return &system.ExecResult{Command: args}
+	}
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSArch, HasBrew: true}
+	m.Choices = UserChoices{OS: "linux", Shell: "zsh", WindowMgr: "zellij"}
+	m.RepoDir = repoRoot(t)
+
+	if err := stepInstallWM(&m); err != nil {
+		t.Fatalf("an Arch host with Homebrew must install zellij rather than fail: %v\n%s", err, readLog())
+	}
+
+	installed := false
+	for _, call := range *calls {
+		if call.runner == "sudo" {
+			t.Errorf("zellij must not be attempted through pacman when the Arch list is filtered: %#v", call)
+		}
+		if call.runner == "brew" && strings.Contains(call.command, "zellij") {
+			installed = true
+		}
+	}
+	if !installed {
+		t.Errorf("zellij was not installed through Homebrew: %#v", *calls)
+	}
+	if log := readLog(); strings.Contains(log, "Not available in the Arch repositories") {
+		t.Errorf("an Arch host with Homebrew must not be told zellij is unavailable:\n%s", log)
 	}
 }

@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
@@ -320,7 +322,7 @@ func skipDeps() bool {
 
 // baseDependencies names the tools every later step relies on, per package
 // manager. Homebrew is listed separately because it is preferred whenever it is
-// present, matching installPlatformPackages.
+// present, matching planPlatformInstall.
 func baseDependencies() platformPackages {
 	return platformPackages{
 		Brew:   "curl file git wget unzip fontconfig",
@@ -330,20 +332,57 @@ func baseDependencies() platformPackages {
 	}
 }
 
-// usesApt mirrors the Debian branch of installPlatformPackages: apt runs only
-// for a Debian-like host without Homebrew.
+// depsForInstall returns the base dependency package set for a host, with the
+// WSL-only wslu package added and every distribution column passed through the
+// availability filter. It is the single source of truth for the dependency step:
+// stepInstallDeps executes the result and getDepsScript renders it, so a name the
+// distribution does not carry cannot reach apt, pacman or dnf on either path
+// while the other path keeps it.
+func depsForInstall(m *Model) (platformPackages, []string) {
+	deps := baseDependencies()
+	if m.SystemInfo.IsWSL {
+		// wslu provides wslview/wslpath integration on Debian-like WSL. Debian 12
+		// does not carry it, so it travels through the filter below and is
+		// reported rather than aborting the whole apt transaction.
+		deps.Debian += " wslu"
+	}
+	return filterPlatformPackages(deps)
+}
+
+// filterPlatformPackages runs every distribution column through its
+// availability filter, dropping the names the distribution does not carry and
+// reporting the Debian ones separately, exactly as the shell, window-manager and
+// Neovim constructors do.
+func filterPlatformPackages(packages platformPackages) (platformPackages, []string) {
+	debian, debianGaps := debianPackages(strings.Fields(packages.Debian)...)
+	arch, archGaps := archPackages(strings.Fields(packages.Arch)...)
+	fedora, fedoraGaps := fedoraPackages(strings.Fields(packages.Fedora)...)
+
+	packages.Debian = debian
+	packages.Arch = arch
+	packages.Fedora = fedora
+	packages.archUnavailable = archGaps
+	packages.fedoraUnavailable = fedoraGaps
+	return packages, debianGaps
+}
+
+// usesApt mirrors the Debian branch of planPlatformInstall: apt runs only for a
+// Debian-like host without Homebrew.
 func usesApt(m *Model) bool {
 	return (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew
 }
 
-// usesPacman mirrors the Arch branch of installPlatformPackages: pacman runs on
-// an Arch host whether or not Homebrew is present, so the Arch package lists are
-// the ones the install reaches and the ones the Arch filter has to protect.
+// usesPacman mirrors the Arch branch of planPlatformInstall: pacman runs
+// only for an Arch host without Homebrew, because Homebrew takes over the
+// install whenever it is present, exactly as it does for Debian and Fedora. The
+// Arch package lists are the ones the pacman route reaches and the ones the Arch
+// filter protects; with Homebrew present the unfiltered Brew list is reached
+// instead.
 func usesPacman(m *Model) bool {
-	return m.SystemInfo.OS == system.OSArch
+	return m.SystemInfo.OS == system.OSArch && !m.SystemInfo.HasBrew
 }
 
-// usesDnf mirrors the Fedora branch of installPlatformPackages: dnf runs only
+// usesDnf mirrors the Fedora branch of planPlatformInstall: dnf runs only
 // for a Fedora host without Homebrew, because Homebrew takes over the install
 // whenever it is present, exactly as it does for Debian. The Fedora package
 // lists are the ones the dnf route reaches and the ones the Fedora filter
@@ -379,7 +418,7 @@ func componentPresentAfterInstall(result *system.ExecResult, command string) boo
 // install so the guidance cannot drift from what would actually run.
 func dependencyManualCommands(m *Model, deps platformPackages) string {
 	switch {
-	case m.SystemInfo.OS == system.OSArch:
+	case usesPacman(m):
 		return "sudo pacman -S --needed --noconfirm " + deps.Arch
 	case usesDnf(m):
 		return "sudo dnf install -y " + deps.Fedora
@@ -472,21 +511,20 @@ func stepInstallDeps(m *Model) error {
 		return nil
 	}
 
-	// Everything below uses the same package-manager preference as the shell
-	// installs: Homebrew when it is present, the distribution's native manager
-	// otherwise. The distribution is read from OS, which detection now fills in
-	// on WSL too, so Fedora-on-WSL runs dnf and Arch-on-WSL runs pacman.
-	deps := baseDependencies()
-	if m.SystemInfo.IsWSL {
-		// wslu provides wslview/wslpath integration on Debian-like WSL.
-		deps.Debian += " wslu"
-	}
+	// Everything below uses the same package selection and package-manager
+	// preference as the interactive script: depsForInstall picks and filters the
+	// names, planPlatformInstall picks the manager and the index refresh, and both
+	// paths render the same decision. The distribution is read from OS, which
+	// detection fills in on WSL too, so Fedora-on-WSL runs dnf and Arch-on-WSL
+	// runs pacman.
+	deps, debianGaps := depsForInstall(m)
+	plan := planPlatformInstall(m, deps)
 
-	// apt needs its index refreshed before it can install. Only apt does, and
-	// only when Homebrew is not taking over the install, exactly as
-	// installPlatformPackages decides.
-	if usesApt(m) {
-		result := runSudoWithLogs("apt-get update", nil, func(line string) {
+	if plan.Manager == "apt-get" {
+		logDebianUnavailable(stepID, debianGaps)
+	}
+	if plan.Update != "" {
+		result := runSudoWithLogs(plan.Update, nil, func(line string) {
 			SendLog(stepID, line)
 		})
 		if result.Error != nil {
@@ -494,14 +532,16 @@ func stepInstallDeps(m *Model) error {
 		}
 	}
 
-	result := installPlatformPackages(m, stepID, deps, func(line string) {
+	result := runPlatformInstall(m, plan, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
 		return dependencyInstallError(m, deps, result)
 	}
 
-	if m.SystemInfo.IsWSL && !m.SystemInfo.HasBrew {
+	// wslu is only reported as installed when it was actually in the command. On
+	// Debian the filter drops it, so claiming it was installed would be false.
+	if m.SystemInfo.IsWSL && !m.SystemInfo.HasBrew && !slices.Contains(debianGaps, "wslu") {
 		SendLog(stepID, "✓ WSL utilities (wslu) installed for clipboard/browser integration")
 	}
 	return nil
@@ -989,7 +1029,12 @@ var (
 	runSudoWithLogs       = system.RunSudoWithLogs
 	runBrewWithLogs       = system.RunBrewWithLogs
 	runOhMyZshInstaller   = system.RunWithLogs
+	runFnmWithLogs        = system.RunWithLogs
 )
+
+// fnmPath resolves the fnm executable. It is a variable so a test can exercise
+// the alias setup without a real fnm installation.
+var fnmPath = fnmBinaryPath
 
 // debianUnavailable names the packages this installer requests on other
 // platforms but that Debian and Ubuntu do not carry in their own repositories.
@@ -1006,6 +1051,12 @@ var (
 // Ubuntu 24.04 (and tree-sitter-cli again in 25.04) but not in 24.10, and
 // starship only appears in 25.04. The list has to hold what the oldest
 // supported release carries, because apt fails as a unit.
+//
+// wslu is listed for the same reason even though Ubuntu carries it: Debian 12,
+// the release this was reported on, does not, and the installer cannot tell the
+// two apart at the package-manager level. apt aborts the whole transaction on
+// the unknown name, which used to take the base dependencies down with it, so
+// wslu is dropped and reported instead.
 var debianUnavailable = map[string]bool{
 	"starship":        true,
 	"kubectx":         true,
@@ -1013,6 +1064,7 @@ var debianUnavailable = map[string]bool{
 	"zellij":          true,
 	"lazygit":         true,
 	"tree-sitter-cli": true,
+	"wslu":            true,
 }
 
 // debianPackages joins wanted into a package list apt can install, dropping the
@@ -1033,13 +1085,24 @@ func debianPackages(wanted ...string) (installable string, unavailable []string)
 // logDebianUnavailable tells the user which requested tools the distribution
 // does not provide, so a skipped tool is never mistaken for an installed one.
 func logDebianUnavailable(stepID string, unavailable []string) {
-	if len(unavailable) == 0 {
-		return
+	for _, line := range debianUnavailableMessage(unavailable) {
+		SendLog(stepID, line)
 	}
-	SendLog(stepID, fmt.Sprintf(
-		"Not available in the Debian/Ubuntu repositories, so not installed: %s.",
-		strings.Join(unavailable, ", ")))
-	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
+}
+
+// debianUnavailableMessage returns the lines that name the requested packages
+// the Debian/Ubuntu repositories do not carry and where to get them. The
+// executed step logs them and the interactive script echoes them, so both paths
+// give the same account of a package the filter dropped.
+func debianUnavailableMessage(unavailable []string) []string {
+	if len(unavailable) == 0 {
+		return nil
+	}
+	return []string{
+		fmt.Sprintf("Not available in the Debian/Ubuntu repositories, so not installed: %s.",
+			strings.Join(unavailable, ", ")),
+		"Install them with Homebrew (brew install) or from each tool's own upstream installer.",
+	}
 }
 
 // archUnavailable names the packages this installer requests on other platforms
@@ -1089,6 +1152,26 @@ func logArchUnavailable(stepID string, unavailable []string) {
 		"Not available in the Arch repositories, so not installed: %s.",
 		strings.Join(unavailable, ", ")))
 	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
+}
+
+// logArchStillMissing reports the Arch-filtered packages that are still absent
+// once an install attempt has finished. The notice has to describe the gap that
+// remains, not the names the filter dropped before anything ran: a component the
+// available route installed, or one the host already had, is not missing and
+// must not be named. The filtered list is only consulted when the pacman route
+// is the one that ran, so an Arch host whose Homebrew installed the components
+// is never told they are unavailable.
+func logArchStillMissing(stepID string, result *system.ExecResult, unavailable []string) {
+	if len(unavailable) == 0 {
+		return
+	}
+	missing := make([]string, 0, len(unavailable))
+	for _, name := range unavailable {
+		if !componentPresentAfterInstall(result, name) {
+			missing = append(missing, name)
+		}
+	}
+	logArchUnavailable(stepID, missing)
 }
 
 // fedoraUnavailable names the packages this installer requests on other
@@ -1248,12 +1331,35 @@ func removePartialOhMyZsh(dir string) {
 	}
 }
 
-func installPlatformPackages(m *Model, stepID string, packages platformPackages, onLog func(string)) *system.ExecResult {
+// platformInstallPlan is the single decision of which package manager a package
+// set installs through and with which names. installPlatformPackages executes it
+// and getDepsScript renders it as a shell script, so the executing and
+// interactive paths read the same value and cannot disagree about the manager or
+// the packages.
+type platformInstallPlan struct {
+	// Manager is "pkg", "pacman", "dnf", "apt-get" or "brew"; empty when no
+	// package manager is available for the host.
+	Manager string
+	// Update is an index refresh run before Packages; empty when the manager does
+	// not need one. It is part of the plan so the executed step and the
+	// interactive script cannot disagree about whether it runs.
+	Update string
+	// Packages is the list handed to that manager.
+	Packages string
+	// HomebrewPackages is the Homebrew list tried when a native command fails and
+	// Homebrew is present; empty when there is no fallback.
+	HomebrewPackages string
+}
+
+// planPlatformInstall decides the package manager and the command for a package
+// set. It is deliberately pure: a caller either executes the plan or renders it,
+// so the decision itself has exactly one implementation.
+func planPlatformInstall(m *Model, packages platformPackages) platformInstallPlan {
 	switch {
 	case m.SystemInfo.IsTermux:
-		return runPkgInstallWithLogs(packages.Termux, nil, onLog)
-	case m.SystemInfo.OS == system.OSArch && packages.Arch != "":
-		return runNativeWithBrewFallback("pacman -S --needed --noconfirm "+packages.Arch, packages.Brew, m.SystemInfo.HasBrew, onLog)
+		return platformInstallPlan{Manager: "pkg", Packages: packages.Termux}
+	case usesPacman(m) && packages.Arch != "":
+		return platformInstallPlan{Manager: "pacman", Packages: packages.Arch, HomebrewPackages: packages.Brew}
 	// dnf aborts the whole transaction on a single unknown name, exactly as apt
 	// and pacman do, so the Fedora lists are filtered by fedoraPackages before
 	// they reach this command and the names Fedora does not carry never arrive.
@@ -1269,13 +1375,58 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 	// everything, so a component the Fedora repositories do not carry is still
 	// installed instead of being left to a step that would fail.
 	case usesDnf(m) && packages.Fedora != "":
-		return runNativeWithBrewFallback("dnf install -y "+packages.Fedora, packages.Brew, m.SystemInfo.HasBrew, onLog)
-	case (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew && packages.Debian != "":
-		return runNativeWithBrewFallback("apt-get install -y "+packages.Debian, packages.Brew, m.SystemInfo.HasBrew, onLog)
+		return platformInstallPlan{Manager: "dnf", Packages: packages.Fedora, HomebrewPackages: packages.Brew}
+	case usesApt(m) && packages.Debian != "":
+		// apt is the only manager here that needs its index refreshed first; the
+		// non-interactive step never did one for pacman or dnf, so the shared plan
+		// gives them none and the TUI stops doing a full `pacman -Syu` the other
+		// path never ran.
+		return platformInstallPlan{Manager: "apt-get", Update: "apt-get update", Packages: packages.Debian, HomebrewPackages: packages.Brew}
+	case m.SystemInfo.HasBrew && packages.Brew != "":
+		return platformInstallPlan{Manager: "brew", Packages: packages.Brew}
+	}
+	return platformInstallPlan{}
+}
+
+// nativeCommand returns the command the native managers run through sudo.
+func (p platformInstallPlan) nativeCommand() string {
+	switch p.Manager {
+	case "pacman":
+		return "pacman -S --needed --noconfirm " + p.Packages
+	case "dnf":
+		return "dnf install -y " + p.Packages
+	case "apt-get":
+		return "apt-get install -y " + p.Packages
+	}
+	return ""
+}
+
+// sudoCommand returns the full command line a rendered script runs through sudo
+// for a native manager.
+func (p platformInstallPlan) sudoCommand() string {
+	if command := p.nativeCommand(); command != "" {
+		return "sudo " + command
+	}
+	return ""
+}
+
+func installPlatformPackages(m *Model, stepID string, packages platformPackages, onLog func(string)) *system.ExecResult {
+	return runPlatformInstall(m, planPlatformInstall(m, packages), onLog)
+}
+
+// runPlatformInstall executes a plan through the same runners the dependency and
+// component steps have always used. The host queries the native branches depend
+// on are made here from the plan, so a rendered script cannot drift from what
+// would actually run.
+func runPlatformInstall(m *Model, plan platformInstallPlan, onLog func(string)) *system.ExecResult {
+	switch plan.Manager {
+	case "pkg":
+		return runPkgInstallWithLogs(plan.Packages, nil, onLog)
+	case "pacman", "dnf", "apt-get":
+		return runNativeWithBrewFallback(plan.nativeCommand(), plan.HomebrewPackages, m.SystemInfo.HasBrew, onLog)
+	case "brew":
+		return runBrewWithLogs("install "+plan.Packages, nil, onLog)
 	default:
-		if m.SystemInfo.HasBrew && packages.Brew != "" {
-			return runBrewWithLogs("install "+packages.Brew, nil, onLog)
-		}
 		return &system.ExecResult{
 			Error: fmt.Errorf("no package manager available for this platform"),
 		}
@@ -1451,6 +1602,27 @@ func shellCommandName(shell string) string {
 	return shell
 }
 
+// archMissingSelectedShell is the selected-component rule for the shell, applied
+// after the install instead of before it. A shell the Arch filter dropped is
+// still missing only when it is absent once pacman and the Homebrew fallback
+// have both been attempted; pacman can report success while the filtered shell
+// was never in its command, so the install result alone does not settle it and
+// the shell itself has to be looked for. A nil return means the step may
+// continue.
+func archMissingSelectedShell(m *Model, stepID, shell string, result *system.ExecResult) error {
+	if !usesPacman(m) || !archUnavailable[shellPackageName(shell)] {
+		return nil
+	}
+	if componentPresentAfterInstall(result, shellCommandName(shell)) {
+		return nil
+	}
+	return wrapStepError(stepID, "Install Shell",
+		fmt.Sprintf("%s is not available in this distribution's own package repositories, so it was not installed. "+
+			"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
+			shell, shellPackageName(shell)),
+		nil)
+}
+
 // fedoraMissingSelectedShell is the selected-component rule for the shell,
 // applied after the install instead of before it. A shell the Fedora filter
 // dropped is still missing only when it is absent once dnf and the Homebrew
@@ -1470,6 +1642,71 @@ func fedoraMissingSelectedShell(m *Model, stepID, shell string, result *system.E
 			"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
 			shell, shellPackageName(shell)),
 		nil)
+}
+
+// fnmAliasesDir returns the directory fnm stores its aliases in. It matches the
+// FNM_DIR the shipped .zshrc exports, so the alias the installer creates is the
+// one the configuration reads. Keeping the two in one function is what stops
+// them from drifting apart.
+func fnmAliasesDir(home string) string {
+	return filepath.Join(home, ".local", "share", "fnm", "aliases")
+}
+
+// fnmBinaryPath returns the fnm executable, looking on PATH first and in the
+// Homebrew prefix after. The installer installs fnm through Homebrew in this
+// same run, so Homebrew's bin directory is not necessarily on this process's
+// PATH yet when the alias is created.
+func fnmBinaryPath() string {
+	if path, err := exec.LookPath("fnm"); err == nil {
+		return path
+	}
+	candidate := filepath.Join(system.GetBrewPrefix(), "bin", "fnm")
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate
+	}
+	return ""
+}
+
+// ensureFnmDefaultAlias makes the `default` alias the shipped .zshrc starts on
+// exist once this run installs fnm. The alias is created rather than assumed so
+// the configuration is never left in a state it cannot satisfy.
+//
+// It is best-effort and idempotent: an alias that already exists, a missing fnm
+// and a failed download all leave the machine as they were, and the .zshrc is
+// written to stay quiet in those cases. The call site only reaches it when fnm
+// was not already on the machine, so a user's own fnm setup is never changed.
+func ensureFnmDefaultAlias(stepID string) {
+	fnm := fnmPath()
+	if fnm == "" {
+		return
+	}
+
+	home := os.Getenv("HOME")
+	if system.PathExists(filepath.Join(fnmAliasesDir(home), "default")) {
+		SendLog(stepID, "fnm already has a `default` alias")
+		return
+	}
+
+	fnmDir := filepath.Join(home, ".local", "share", "fnm")
+	env := &system.ExecOptions{Env: []string{
+		"FNM_DIR=" + fnmDir,
+		"FNM_COREPACK_ENABLED=false",
+	}}
+	onLog := func(line string) { SendLog(stepID, line) }
+
+	// --lts installs the latest LTS and records it under the `lts-latest` alias,
+	// which the next command points `default` at. `fnm default` is a shorthand
+	// for `fnm alias <version> default`.
+	SendLog(stepID, "Installing a Node version through fnm for the `default` alias...")
+	if result := runFnmWithLogs(fmt.Sprintf("%q install --lts", fnm), env, onLog); result.Error != nil {
+		SendLog(stepID, "Warning: could not install a Node version through fnm, so the `default` alias was not created: "+result.Error.Error())
+		return
+	}
+	if result := runFnmWithLogs(fmt.Sprintf("%q default lts-latest", fnm), env, onLog); result.Error != nil {
+		SendLog(stepID, "Warning: could not point the fnm `default` alias at the installed Node: "+result.Error.Error())
+		return
+	}
+	SendLog(stepID, "✓ fnm `default` alias ready")
 }
 
 func stepInstallShell(m *Model) error {
@@ -1509,22 +1746,6 @@ func stepInstallShell(m *Model) error {
 		}
 	}
 
-	// Arch reaches pacman whether or not Homebrew is present, and every shell
-	// this installer can select is in the official repositories, so this is the
-	// same companion-versus-selected rule applied rather than implied: the
-	// companions below are a logged note, and the guard only fires if a future
-	// edit makes a selectable shell one of the missing names.
-	if usesPacman(m) {
-		logArchUnavailable(stepID, packages.archUnavailable)
-		if archUnavailable[shellPackageName(shell)] {
-			return wrapStepError(stepID, "Install Shell",
-				fmt.Sprintf("%s is not available in this distribution's own package repositories, so it was not installed. "+
-					"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
-					shell, shellPackageName(shell)),
-				nil)
-		}
-	}
-
 	// Fedora reaches dnf only when Homebrew is absent, and nushell is absent
 	// from Fedora 40 while Fedora 44 carries it, so the filter holds the names
 	// the target image actually lacks. Every shell this installer can select is
@@ -1541,6 +1762,12 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesPacman(m) {
+			logArchStillMissing(stepID, result, packages.archUnavailable)
+		}
+		if err := archMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if usesDnf(m) {
 			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
 		}
@@ -1592,10 +1819,21 @@ func stepInstallShell(m *Model) error {
 		SendLog(stepID, "✓ Fish shell configured")
 
 	case "zsh":
+		// fnm is installed by this step's package list. Remember whether it was
+		// already on the machine, so the `default` alias the shipped .zshrc reads
+		// is only created for the fnm this run installed and the user's own fnm is
+		// left untouched.
+		fnmWasPresent := fnmPath() != ""
 		SendLog(stepID, "Installing Zsh and plugins...")
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesPacman(m) {
+			logArchStillMissing(stepID, result, packages.archUnavailable)
+		}
+		if err := archMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if usesDnf(m) {
 			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
 		}
@@ -1606,6 +1844,9 @@ func stepInstallShell(m *Model) error {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to install Zsh and plugins",
 				result.Error)
+		}
+		if !fnmWasPresent {
+			ensureFnmDefaultAlias(stepID)
 		}
 		SendLog(stepID, "Copying Zsh configuration...")
 		// Git's configuration is installed here rather than in a step of its own
@@ -1736,6 +1977,12 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesPacman(m) {
+			logArchStillMissing(stepID, result, packages.archUnavailable)
+		}
+		if err := archMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if usesDnf(m) {
 			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
 		}
@@ -1964,27 +2211,26 @@ func stepInstallWM(m *Model) error {
 						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
 					nil)
 			}
-			// Arch carries zellij, so this guard is inert today; it is the same
-			// selected-component rule the Debian branch applies, kept so a future
-			// edit cannot make the step report a success it never achieved.
-			if usesPacman(m) && len(packages.archUnavailable) > 0 {
+			// Neither Arch nor Fedora carries zellij on every host: Fedora does not
+			// carry it at all, and Arch carries it but the guard is kept for a
+			// future edit that drops it. The selected-component rule is applied after
+			// the install rather than before it: zellij is only reported missing
+			// once every available route has been attempted, so a host whose
+			// Homebrew can provide it is not told it cannot be installed. When the
+			// distribution's own list is empty or filtered, installPlatformPackages
+			// goes to its default branch and Homebrew is the only route; the
+			// presence check below confirms the result, looking in the Homebrew
+			// prefix as well as PATH.
+			result := installPlatformPackages(m, stepID, packages, func(line string) {
+				SendLog(stepID, line)
+			})
+			if usesPacman(m) && len(packages.archUnavailable) > 0 && !componentPresentAfterInstall(result, "zellij") {
 				logArchUnavailable(stepID, packages.archUnavailable)
 				return wrapStepError(stepID, "Install Zellij",
 					"Zellij is not available in this distribution's own package repositories, so it was not installed. "+
 						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
 					nil)
 			}
-			// Fedora does not carry zellij. The selected-component rule is applied
-			// after the install rather than before it: zellij is only reported
-			// missing once every available route has been attempted, so a Fedora
-			// host whose Homebrew can provide it is not told it cannot be
-			// installed. dnf is not asked for it (the Fedora list is empty), so
-			// installPlatformPackages goes to its default branch and Homebrew is the
-			// only route; the presence check below confirms the result, looking in
-			// the Homebrew prefix as well as PATH.
-			result := installPlatformPackages(m, stepID, packages, func(line string) {
-				SendLog(stepID, line)
-			})
 			if usesDnf(m) && len(packages.fedoraUnavailable) > 0 && !componentPresentAfterInstall(result, "zellij") {
 				logFedoraUnavailable(stepID, packages.fedoraUnavailable)
 				return wrapStepError(stepID, "Install Zellij",
