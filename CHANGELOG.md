@@ -4,6 +4,39 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.2.2] — 2026-09-21
+
+A patch release for one defect, and it is urgent rather than routine: **v0.2.1's TUI could not
+complete an installation at all.**
+
+### Fixed
+
+- **The TUI carries what each step records to the next one.** `runNextStep` had a value receiver,
+  so the pointer it handed to the step pointed into a throwaway copy: the clone step recorded its
+  working directory and checkout path there while `Update` returned its own model, which never
+  received them. The clone logged `✓ Repository cloned successfully` and then every step after it
+  failed with `the repository has not been cloned in this run`; cleanup lost the same fields, so
+  the checkout was left behind as well.
+
+  The reported cause was right about the mechanism and incomplete about the fix, which is worth
+  recording: changing the receiver to a pointer **does not repair it**, because `Update` returns its
+  model by value and that copy is taken before the asynchronous `tea.Cmd` runs. The recorded state
+  now travels back through the step-completion message and is applied where the model is kept.
+
+### Added
+
+- **A test that drives the TUI's own step loop**, asserting that what one step records is visible
+  to the next. This is the second defect in a row on the TUI path, after the dependency script
+  fixed in v0.2.1, and both survived for the same reason: the E2E suite only runs
+  `--non-interactive`, so nothing had ever exercised the TUI's step sequence. The new test failed
+  with the exact symptom above before the fix, which is what makes it evidence rather than
+  decoration.
+
+### Notes
+
+- If you installed v0.2.1 and the TUI stopped after the clone, this release is the fix. `brew
+  upgrade dotfiles` is enough.
+
 ## [v0.2.1] — 2026-09-21
 
 Four defects reported against v0.2.0, all of them on WSL, plus the coverage that was missing for the
