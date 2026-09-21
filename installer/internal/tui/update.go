@@ -23,6 +23,9 @@ type (
 	stepCompleteMsg struct {
 		stepID string
 		err    error
+		// recorded is the state the step left for the steps after it. The step
+		// loop always fills it; it is nil for a message built by hand.
+		recorded *stepRecordedState
 	}
 
 	// stepProgressMsg updates progress of current step
@@ -48,6 +51,39 @@ type (
 		err    error
 	}
 )
+
+// stepRecordedState is the state one installation step records for the steps
+// that run after it. The clone step's checkout is the one that matters: every
+// later step reads it through repoDir(), and cleanup is what removes it.
+//
+// A step runs inside a tea.Cmd, after Update has already returned the model it
+// keeps, so a step cannot write to that model directly. It runs against a copy
+// and hands what it recorded back in stepCompleteMsg, and Update copies these
+// fields into the model it returns. Only these fields travel that way: every
+// other Model field belongs to the UI, which keeps changing while the step runs
+// and must not be rolled back to the step's snapshot. A step that starts
+// recording new state must add the field here.
+type stepRecordedState struct {
+	WorkDir   string
+	RepoDir   string
+	BackupDir string
+}
+
+// recordedState takes the state a step recorded off the model it ran against.
+func (m Model) recordedState() stepRecordedState {
+	return stepRecordedState{
+		WorkDir:   m.WorkDir,
+		RepoDir:   m.RepoDir,
+		BackupDir: m.BackupDir,
+	}
+}
+
+// applyTo copies the recorded state into the model the TUI keeps.
+func (r stepRecordedState) applyTo(m *Model) {
+	m.WorkDir = r.WorkDir
+	m.RepoDir = r.RepoDir
+	m.BackupDir = r.BackupDir
+}
 
 // Init implements tea.Model
 func (m Model) Init() tea.Cmd {
@@ -112,6 +148,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case stepCompleteMsg:
+		// A step runs after Update has returned its model, so the state it
+		// recorded arrives with the message instead of being written through.
+		// Carry it into the model this handler returns before the bookkeeping
+		// below, so a later step sees it and cleanup can find the checkout.
+		if msg.recorded != nil {
+			msg.recorded.applyTo(&m)
+		}
 		// Mark step as complete
 		for i := range m.Steps {
 			if m.Steps[i].ID == msg.stepID {
@@ -1399,8 +1442,19 @@ func (m Model) handleRestoreConfirmKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// runNextStep starts the next installation step
-func (m Model) runNextStep() tea.Cmd {
+// stepExecutor runs one installation step against the model the step loop owns.
+// It is a variable so a test can drive the TUI's own step loop end to end
+// without cloning from the network or installing anything.
+var stepExecutor = executeStep
+
+// runNextStep starts the next installation step.
+//
+// The receiver is a pointer because a step records state its successors need:
+// the clone step records the checkout every later step reads and cleanup
+// removes, and BackupDir is recorded by the backup step. With a value receiver
+// executeStep received a pointer into a copy that was thrown away, so none of
+// that state reached the model Update kept.
+func (m *Model) runNextStep() tea.Cmd {
 	if m.CurrentStep >= len(m.Steps) {
 		return func() tea.Msg {
 			return installCompleteMsg{totalTime: 0}
@@ -1412,13 +1466,18 @@ func (m Model) runNextStep() tea.Cmd {
 
 	// Check if this step needs interactive input (sudo, chsh, etc)
 	if step.Interactive {
-		return runInteractiveStep(step.ID, &m)
+		return runInteractiveStep(step.ID, m)
 	}
 
+	// The step runs in a tea.Cmd, after Update has returned the model it keeps.
+	// Run it against a copy and hand back what it recorded; Update applies that
+	// to the model it returns.
+	stepModel := *m
 	return func() tea.Msg {
 		// Execute the step
-		err := executeStep(step.ID, &m)
-		return stepCompleteMsg{stepID: step.ID, err: err}
+		err := stepExecutor(step.ID, &stepModel)
+		recorded := stepModel.recordedState()
+		return stepCompleteMsg{stepID: step.ID, err: err, recorded: &recorded}
 	}
 }
 
