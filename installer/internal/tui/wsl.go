@@ -26,6 +26,15 @@ const (
 	// exists for tests and for distributions that keep the file elsewhere.
 	envWSLConfPath = "DOTFILES_WSL_CONF_PATH"
 
+	// envWSLUsersDir overrides the Windows users mount the interop-free profile
+	// lookup scans. It exists for tests and for a Windows drive mounted somewhere
+	// other than /mnt/c.
+	envWSLUsersDir = "DOTFILES_WSL_USERS_DIR"
+
+	// defaultWindowsUsersMount is where WSL mounts the Windows user profiles by
+	// default.
+	defaultWindowsUsersMount = "/mnt/c/Users"
+
 	// defaultWSLConfPath is where WSL reads the per-distribution settings.
 	defaultWSLConfPath = "/etc/wsl.conf"
 
@@ -212,22 +221,92 @@ func windowsUserProfile() (string, error) {
 		return override, nil
 	}
 
-	// Preferred route: ask cmd.exe and translate the Windows path with wslpath.
+	// Preferred route, when interop works: ask cmd.exe for %USERPROFILE% and
+	// translate the Windows path with wslpath. This is the only route that
+	// resolves a Windows drive mounted somewhere unusual, so it is tried first.
 	if userProfile := windowsEnvVar("USERPROFILE"); userProfile != "" {
 		if translated := wslPathUnix(userProfile); translated != "" && system.DirExists(translated) {
 			return translated, nil
 		}
 	}
 
-	// Fallback: the conventional mount point plus the Windows user name.
-	if userName := windowsEnvVar("USERNAME"); userName != "" {
-		candidate := filepath.Join("/mnt/c/Users", userName)
-		if system.DirExists(candidate) {
+	// Fallback that never invokes interop. It exists for the host whose
+	// WSLInterop binfmt entry is missing: cmd.exe cannot run there, so the route
+	// above fails for the same reason the fallback is needed, and the .wslconfig
+	// half of the step would be skipped on exactly those machines.
+	return windowsProfileFromMount()
+}
+
+// windowsProfileFromMount resolves the Windows user profile by reading the
+// mounted users directory. It never runs cmd.exe or wslpath, so it works on a
+// distribution whose WSLInterop binfmt entry is missing.
+//
+// A single candidate directory is used directly. With several, the one named
+// after the Linux user wins, because WSL creates the Linux account from the
+// Windows one by default and the names normally match. If none matches, the
+// lookup is ambiguous and is refused with the candidates named, so an arbitrary
+// profile is never written to; DOTFILES_WSL_WINDOWS_HOME chooses one explicitly.
+func windowsProfileFromMount() (string, error) {
+	usersDir := os.Getenv(envWSLUsersDir)
+	if usersDir == "" {
+		usersDir = defaultWindowsUsersMount
+	}
+
+	entries, err := os.ReadDir(usersDir)
+	if err != nil {
+		return "", fmt.Errorf("could not read %s: %w; set %s to override the lookup", usersDir, err, envWSLWindowsHome)
+	}
+
+	var candidates []string
+	for _, entry := range entries {
+		if !entry.IsDir() || windowsSystemUserDir(entry.Name()) {
+			continue
+		}
+		candidates = append(candidates, filepath.Join(usersDir, entry.Name()))
+	}
+
+	switch len(candidates) {
+	case 0:
+		return "", fmt.Errorf("no Windows user profile found under %s; set %s to override the lookup", usersDir, envWSLWindowsHome)
+	case 1:
+		return candidates[0], nil
+	}
+
+	for _, candidate := range candidates {
+		if windowsUserMatches(candidate, os.Getenv("USER")) || windowsUserMatches(candidate, os.Getenv("USERNAME")) {
 			return candidate, nil
 		}
 	}
 
-	return "", fmt.Errorf("could not resolve the Windows user profile")
+	return "", fmt.Errorf("several Windows user profiles found under %s (%s); set %s to choose one",
+		usersDir, strings.Join(baseNames(candidates), ", "), envWSLWindowsHome)
+}
+
+// windowsSystemUserDir reports whether a directory under the Windows users
+// mount belongs to Windows rather than to a person. Writing .wslconfig into one
+// of these would either fail or configure the wrong account.
+func windowsSystemUserDir(name string) bool {
+	switch strings.ToLower(name) {
+	case "public", "default", "default user", "all users", "defaultapppool":
+		return true
+	}
+	return false
+}
+
+// windowsUserMatches reports whether the profile directory is named after the
+// current Linux (or Windows) account.
+func windowsUserMatches(candidate, name string) bool {
+	return name != "" && strings.EqualFold(filepath.Base(candidate), name)
+}
+
+// baseNames returns the final path element of each path, for a message that
+// names the candidates without repeating the whole mount path in front of each.
+func baseNames(paths []string) []string {
+	names := make([]string, 0, len(paths))
+	for _, path := range paths {
+		names = append(names, filepath.Base(path))
+	}
+	return names
 }
 
 // windowsEnvVar reads a Windows environment variable through cmd.exe and strips
