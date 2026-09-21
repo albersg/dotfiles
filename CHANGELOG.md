@@ -4,6 +4,75 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.2.0] — 2026-09-20
+
+The installer now installs on the platforms it claims to support, and stops reporting success for
+work it did not do.
+
+### Added
+
+- **Herdr in the Keymaps Reference.** Herdr was offered by the multiplexer selector, accepted by the
+  CLI, documented on the Learn screen and installed — but it was the one tool with no reference
+  entry. Every binding comes from `herdr --default-config` on herdr 0.9.1, cross-checked against the
+  versioned keyboard page; the two entries the config does not print are marked as such. Because
+  Herdr documents itself as mouse-native, the reference leads with a pointer category rather than
+  presenting keyboard bindings alone.
+- **The E2E suite exercises the terminal axis, the font option and `--wm=herdr`**, and walks the
+  whole option space under `--dry-run`. Two of the five option axes had no automated coverage at
+  all, which is why defects in them were invisible to CI.
+
+### Changed
+
+- **WSL keeps the distribution underneath it.** It was modelled as an operating system rather than
+  a hosting environment, so detection stopped before identifying the distribution and every
+  dispatch that reads the OS was blind on WSL. Package installation works there now, and the E2E
+  suite can finally validate the installer on a WSL2 host.
+
+### Fixed
+
+- **The installer installs on WSL without Homebrew**, instead of failing every shell and
+  window-manager install with `no package manager available for this platform`.
+- **Package names the distribution does not carry no longer abort the whole transaction.** It was
+  enough for one unknown name to take down `apt`, `pacman` or `dnf` and with it the shells that did
+  exist — `zsh` and `fish` failed to install because `kubectx` or `starship` were in the same
+  command. Every name in the Debian, Arch and Fedora columns was checked against a real
+  distribution, and the ones that are absent are filtered and reported rather than silently
+  skipped.
+- **A selected shell or window manager the distribution cannot install fails with a message
+  naming the routes**, instead of reporting success for a component that was never installed.
+- **`--terminal=kitty` off macOS is refused** with the values that platform does support. It used
+  to install nothing and log `Kitty already installed` on a machine where Kitty was not installed.
+- **Installing a configuration now prunes what the repository no longer ships.** Directories were
+  merged and never pruned, so a file a newer version dropped stayed on disk forever, and when it
+  had been replaced by a differently named one both loaded at once.
+- **The font step no longer leaves its 347 MB archive** in `~/.local/share/fonts`, a directory
+  `fontconfig` scans. The manual installation guide taught the same leftover and no longer does.
+- **The Homebrew step no longer reports an installation that did not happen.** The download ran
+  inside a command substitution, so a failed download expanded to an empty string, the shell it was
+  handed ran nothing and still exited 0, and the run went on to log `✓ Homebrew installed
+  successfully`. Its own log had already printed `Warning: Homebrew binary not found`.
+- **A failed image build fails the E2E harness** instead of being counted as a product test
+  failure. `set -e` could not catch it: the failing call sat inside an `||` list, which disables
+  `set -e` for the whole call.
+- **The E2E asserts the window manager it asks for.** A missing one produced no verdict at all and
+  the run was counted as a pass, which is how the Fedora job stayed green while Fedora had no route
+  to install the multiplexer it was asked for.
+- **`docs/ROLLBACK.md` documented rollback commands that do not exist**, including `dotfiles
+  restore --latest` and a recipe built on a tag that was never created. It now documents the path
+  that works.
+- **The manual installation guide's font instructions** no longer download an archive into the
+  font directory, and the TUI installer guide's download commands use the asset names that are
+  actually published.
+
+### Documentation
+
+- The READMEs state what installing requires and what it does, including that everything replaced is
+  copied to `~/.dotfiles-backup-<timestamp>/` first, and how to try it without consequences.
+- The release procedure documents the Homebrew step that actually happens: it is manual, the formula
+  lives in two places, and the tap must be public for `brew` to clone it.
+- A `.gitleaks.toml` records eleven verified false positives from vendored oh-my-zsh examples and the
+  Vim trainer's exercise text, so a full-history secret scan is clean.
+
 ## [v0.1.0] — 2026-09-19
 
 First release of the downstream distribution.
