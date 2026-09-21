@@ -4,6 +4,56 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.2.1] — 2026-09-21
+
+Four defects reported against v0.2.0, all of them on WSL, plus the coverage that was missing for the
+Arch package path.
+
+### Fixed
+
+- **A failed step no longer abandons the run.** A failure writing the root-owned `/etc/wsl.conf`
+  returned from the run immediately, so `set default shell` and `cleanup` never executed, the
+  default shell was never attempted, and the temporary checkout was left behind in `/tmp`. The
+  steps now run as a group that collects failures, finishes what it can, cleans up, and still
+  exits non-zero naming what failed.
+- **The Windows profile is resolved without the interop that just failed.** The fallback in
+  `windowsUserProfile` read the Windows user name by running `cmd.exe` again, so both routes died
+  together and `.wslconfig` was skipped on exactly the machines the fallback existed for. It now
+  reads the mount and never runs interop, and on an ambiguous machine it lists the candidates and
+  names `DOTFILES_WSL_WINDOWS_HOME` instead of writing into a stranger's profile.
+- **The installed shell stopped printing an error on every prompt.** The `.zshrc` runs
+  `fnm use default` on every shell, but nothing created that alias, so the configuration was
+  installed in a state it could not satisfy: `error: Requested version default is not currently
+  installed` before every prompt and, with Herdr, in every new pane. The prompt now requires the
+  alias and discards fnm's stderr, and the installer creates the alias **only for an fnm it
+  installed itself** — an fnm that was already there belongs to its user and is left alone.
+- **The TUI's dependency step now shares the tested path's decisions.** This is a correction to
+  the previous release's claim as much as a code fix. `getDepsScript` was a second implementation
+  of the dependency step: a raw `sudo apt-get` script that never consulted the Homebrew preference
+  and never went through the availability filter. On WSL Debian it asked `apt` for `wslu`, which
+  Debian does not carry, and `apt` aborts the whole transaction on one unknown name, so the TUI
+  stopped at step 2. v0.2.0's entry says that class of failure was eliminated; it was eliminated on
+  the path that had been tested, and this was the other one. Both paths now build from the same
+  package set and the same dispatch, and what differs between them is only where the plan is sent —
+  executed, or rendered into the script the TUI runs so `sudo` can prompt on a TTY.
+
+### Changed
+
+- The TUI dependency step no longer runs `pacman -Syu` on Arch or `dnf check-update` on Fedora: the
+  tested non-interactive path never did, and the two now agree.
+
+### Added
+
+- **The Arch package path is covered by CI.** `docker-test.sh` had five images and none of them was
+  Arch, so that path had been verified by hand exactly once. The new image uses a real `archlinux`
+  base and a real `pacman` — no simulated package manager, because an image that fakes its package
+  manager is how an E2E job stops proving anything.
+
+### Notes
+
+- `wslu` is now dropped for Debian and Ubuntu alike, because the installer cannot tell them apart;
+  the run says so and points at Homebrew or the tool's own installer.
+
 ## [v0.2.0] — 2026-09-20
 
 The installer now installs on the platforms it claims to support, and stops reporting success for
