@@ -336,11 +336,14 @@ func usesApt(m *Model) bool {
 	return (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && !m.SystemInfo.HasBrew
 }
 
-// usesPacman mirrors the Arch branch of installPlatformPackages: pacman runs on
-// an Arch host whether or not Homebrew is present, so the Arch package lists are
-// the ones the install reaches and the ones the Arch filter has to protect.
+// usesPacman mirrors the Arch branch of installPlatformPackages: pacman runs
+// only for an Arch host without Homebrew, because Homebrew takes over the
+// install whenever it is present, exactly as it does for Debian and Fedora. The
+// Arch package lists are the ones the pacman route reaches and the ones the Arch
+// filter protects; with Homebrew present the unfiltered Brew list is reached
+// instead.
 func usesPacman(m *Model) bool {
-	return m.SystemInfo.OS == system.OSArch
+	return m.SystemInfo.OS == system.OSArch && !m.SystemInfo.HasBrew
 }
 
 // usesDnf mirrors the Fedora branch of installPlatformPackages: dnf runs only
@@ -379,7 +382,7 @@ func componentPresentAfterInstall(result *system.ExecResult, command string) boo
 // install so the guidance cannot drift from what would actually run.
 func dependencyManualCommands(m *Model, deps platformPackages) string {
 	switch {
-	case m.SystemInfo.OS == system.OSArch:
+	case usesPacman(m):
 		return "sudo pacman -S --needed --noconfirm " + deps.Arch
 	case usesDnf(m):
 		return "sudo dnf install -y " + deps.Fedora
@@ -1091,6 +1094,26 @@ func logArchUnavailable(stepID string, unavailable []string) {
 	SendLog(stepID, "Install them with Homebrew (brew install) or from each tool's own upstream installer.")
 }
 
+// logArchStillMissing reports the Arch-filtered packages that are still absent
+// once an install attempt has finished. The notice has to describe the gap that
+// remains, not the names the filter dropped before anything ran: a component the
+// available route installed, or one the host already had, is not missing and
+// must not be named. The filtered list is only consulted when the pacman route
+// is the one that ran, so an Arch host whose Homebrew installed the components
+// is never told they are unavailable.
+func logArchStillMissing(stepID string, result *system.ExecResult, unavailable []string) {
+	if len(unavailable) == 0 {
+		return
+	}
+	missing := make([]string, 0, len(unavailable))
+	for _, name := range unavailable {
+		if !componentPresentAfterInstall(result, name) {
+			missing = append(missing, name)
+		}
+	}
+	logArchUnavailable(stepID, missing)
+}
+
 // fedoraUnavailable names the packages this installer requests on other
 // platforms but that Fedora does not carry in its own repositories.
 //
@@ -1252,7 +1275,7 @@ func installPlatformPackages(m *Model, stepID string, packages platformPackages,
 	switch {
 	case m.SystemInfo.IsTermux:
 		return runPkgInstallWithLogs(packages.Termux, nil, onLog)
-	case m.SystemInfo.OS == system.OSArch && packages.Arch != "":
+	case usesPacman(m) && packages.Arch != "":
 		return runNativeWithBrewFallback("pacman -S --needed --noconfirm "+packages.Arch, packages.Brew, m.SystemInfo.HasBrew, onLog)
 	// dnf aborts the whole transaction on a single unknown name, exactly as apt
 	// and pacman do, so the Fedora lists are filtered by fedoraPackages before
@@ -1451,6 +1474,27 @@ func shellCommandName(shell string) string {
 	return shell
 }
 
+// archMissingSelectedShell is the selected-component rule for the shell, applied
+// after the install instead of before it. A shell the Arch filter dropped is
+// still missing only when it is absent once pacman and the Homebrew fallback
+// have both been attempted; pacman can report success while the filtered shell
+// was never in its command, so the install result alone does not settle it and
+// the shell itself has to be looked for. A nil return means the step may
+// continue.
+func archMissingSelectedShell(m *Model, stepID, shell string, result *system.ExecResult) error {
+	if !usesPacman(m) || !archUnavailable[shellPackageName(shell)] {
+		return nil
+	}
+	if componentPresentAfterInstall(result, shellCommandName(shell)) {
+		return nil
+	}
+	return wrapStepError(stepID, "Install Shell",
+		fmt.Sprintf("%s is not available in this distribution's own package repositories, so it was not installed. "+
+			"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
+			shell, shellPackageName(shell)),
+		nil)
+}
+
 // fedoraMissingSelectedShell is the selected-component rule for the shell,
 // applied after the install instead of before it. A shell the Fedora filter
 // dropped is still missing only when it is absent once dnf and the Homebrew
@@ -1509,22 +1553,6 @@ func stepInstallShell(m *Model) error {
 		}
 	}
 
-	// Arch reaches pacman whether or not Homebrew is present, and every shell
-	// this installer can select is in the official repositories, so this is the
-	// same companion-versus-selected rule applied rather than implied: the
-	// companions below are a logged note, and the guard only fires if a future
-	// edit makes a selectable shell one of the missing names.
-	if usesPacman(m) {
-		logArchUnavailable(stepID, packages.archUnavailable)
-		if archUnavailable[shellPackageName(shell)] {
-			return wrapStepError(stepID, "Install Shell",
-				fmt.Sprintf("%s is not available in this distribution's own package repositories, so it was not installed. "+
-					"Install it with Homebrew (brew install %s) or from its upstream installer, then run the installer again.",
-					shell, shellPackageName(shell)),
-				nil)
-		}
-	}
-
 	// Fedora reaches dnf only when Homebrew is absent, and nushell is absent
 	// from Fedora 40 while Fedora 44 carries it, so the filter holds the names
 	// the target image actually lacks. Every shell this installer can select is
@@ -1541,6 +1569,12 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesPacman(m) {
+			logArchStillMissing(stepID, result, packages.archUnavailable)
+		}
+		if err := archMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if usesDnf(m) {
 			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
 		}
@@ -1596,6 +1630,12 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesPacman(m) {
+			logArchStillMissing(stepID, result, packages.archUnavailable)
+		}
+		if err := archMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if usesDnf(m) {
 			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
 		}
@@ -1736,6 +1776,12 @@ func stepInstallShell(m *Model) error {
 		result := installPlatformPackages(m, stepID, packages, func(line string) {
 			SendLog(stepID, line)
 		})
+		if usesPacman(m) {
+			logArchStillMissing(stepID, result, packages.archUnavailable)
+		}
+		if err := archMissingSelectedShell(m, stepID, shell, result); err != nil {
+			return err
+		}
 		if usesDnf(m) {
 			logFedoraStillMissing(stepID, result, packages.fedoraUnavailable)
 		}
@@ -1964,27 +2010,26 @@ func stepInstallWM(m *Model) error {
 						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
 					nil)
 			}
-			// Arch carries zellij, so this guard is inert today; it is the same
-			// selected-component rule the Debian branch applies, kept so a future
-			// edit cannot make the step report a success it never achieved.
-			if usesPacman(m) && len(packages.archUnavailable) > 0 {
+			// Neither Arch nor Fedora carries zellij on every host: Fedora does not
+			// carry it at all, and Arch carries it but the guard is kept for a
+			// future edit that drops it. The selected-component rule is applied after
+			// the install rather than before it: zellij is only reported missing
+			// once every available route has been attempted, so a host whose
+			// Homebrew can provide it is not told it cannot be installed. When the
+			// distribution's own list is empty or filtered, installPlatformPackages
+			// goes to its default branch and Homebrew is the only route; the
+			// presence check below confirms the result, looking in the Homebrew
+			// prefix as well as PATH.
+			result := installPlatformPackages(m, stepID, packages, func(line string) {
+				SendLog(stepID, line)
+			})
+			if usesPacman(m) && len(packages.archUnavailable) > 0 && !componentPresentAfterInstall(result, "zellij") {
 				logArchUnavailable(stepID, packages.archUnavailable)
 				return wrapStepError(stepID, "Install Zellij",
 					"Zellij is not available in this distribution's own package repositories, so it was not installed. "+
 						"Install it with Homebrew (brew install zellij) or from https://zellij.dev, then run the installer again.",
 					nil)
 			}
-			// Fedora does not carry zellij. The selected-component rule is applied
-			// after the install rather than before it: zellij is only reported
-			// missing once every available route has been attempted, so a Fedora
-			// host whose Homebrew can provide it is not told it cannot be
-			// installed. dnf is not asked for it (the Fedora list is empty), so
-			// installPlatformPackages goes to its default branch and Homebrew is the
-			// only route; the presence check below confirms the result, looking in
-			// the Homebrew prefix as well as PATH.
-			result := installPlatformPackages(m, stepID, packages, func(line string) {
-				SendLog(stepID, line)
-			})
 			if usesDnf(m) && len(packages.fedoraUnavailable) > 0 && !componentPresentAfterInstall(result, "zellij") {
 				logFedoraUnavailable(stepID, packages.fedoraUnavailable)
 				return wrapStepError(stepID, "Install Zellij",

@@ -60,8 +60,8 @@ func withPackageCommandMocks(t *testing.T, sudoErr error) *[]packageCommandCall 
 // and install the unfiltered Brew list, so a component the Fedora repositories
 // do not carry is installed instead of being left to a step that would fail.
 // The injected dnf failure is kept so a stray dnf call is still visible. The
-// native-failure fallback itself stays covered on Arch, where
-// runNativeWithBrewFallback is still the route.
+// native-failure fallback itself is covered directly by
+// TestRunNativeWithBrewFallbackUsesBrewWhenNativeFails.
 func TestInstallPlatformPackagesFedoraUsesBrewWhenPresent(t *testing.T) {
 	calls := withPackageCommandMocks(t, errors.New("dnf failed"))
 
@@ -125,7 +125,17 @@ func TestInstallPlatformPackagesDebianWithoutBrewUsesApt(t *testing.T) {
 	}
 }
 
-func TestInstallPlatformPackagesArchFallsBackToBrewWhenNativeFails(t *testing.T) {
+// TestInstallPlatformPackagesArchUsesBrewWhenPresent replaces the previous
+// TestInstallPlatformPackagesArchFallsBackToBrewWhenNativeFails. That test
+// asserted pacman ran first even on an Arch host with Homebrew, with brew only
+// reached when pacman failed. That is the same shape the Fedora correction
+// identified as wrong: with Homebrew present installPlatformPackages must take
+// the default branch and install the unfiltered Brew list, so a component the
+// Arch repositories do not carry is installed instead of being left to a step
+// that would fail. The injected pacman failure is kept so a stray pacman call
+// is still visible. The native-failure fallback itself is covered directly by
+// TestRunNativeWithBrewFallbackUsesBrewWhenNativeFails.
+func TestInstallPlatformPackagesArchUsesBrewWhenPresent(t *testing.T) {
 	calls := withPackageCommandMocks(t, errors.New("pacman failed"))
 
 	m := &Model{SystemInfo: &system.SystemInfo{OS: system.OSArch, HasBrew: true}}
@@ -135,12 +145,53 @@ func TestInstallPlatformPackagesArchFallsBackToBrewWhenNativeFails(t *testing.T)
 	}, nil)
 
 	if result.Error != nil {
-		t.Fatalf("expected brew fallback to succeed, got error: %v", result.Error)
+		t.Fatalf("expected brew install to succeed, got error: %v", result.Error)
 	}
 
 	expected := []packageCommandCall{
-		{runner: "sudo", command: "pacman -S --needed --noconfirm fish carapace zoxide atuin starship"},
 		{runner: "brew", command: "install fish carapace zoxide atuin starship"},
+	}
+	if !reflect.DeepEqual(*calls, expected) {
+		t.Fatalf("calls = %#v, want %#v", *calls, expected)
+	}
+}
+
+// TestRunNativeWithBrewFallbackUsesBrewWhenNativeFails keeps the native-failure
+// fallback under test now that every installPlatformPackages branch that reaches
+// it is Homebrew-aware: the branch is only entered without Homebrew, so the
+// fallback can no longer fire through installPlatformPackages, but it remains
+// the one place a failed native command is retried through Homebrew. Both
+// directions are pinned here: a failed native command falls back, and the next
+// test proves a successful one does not.
+func TestRunNativeWithBrewFallbackUsesBrewWhenNativeFails(t *testing.T) {
+	calls := withPackageCommandMocks(t, errors.New("pacman failed"))
+
+	result := runNativeWithBrewFallback("pacman -S --needed --noconfirm fish", "fish carapace", true, nil)
+	if result.Error != nil {
+		t.Fatalf("expected the brew fallback to succeed, got error: %v", result.Error)
+	}
+
+	expected := []packageCommandCall{
+		{runner: "sudo", command: "pacman -S --needed --noconfirm fish"},
+		{runner: "brew", command: "install fish carapace"},
+	}
+	if !reflect.DeepEqual(*calls, expected) {
+		t.Fatalf("calls = %#v, want %#v", *calls, expected)
+	}
+}
+
+// TestRunNativeWithBrewFallbackSkipsBrewWhenNativeSucceeds pins the other half:
+// with nothing to retry, Homebrew is never reached.
+func TestRunNativeWithBrewFallbackSkipsBrewWhenNativeSucceeds(t *testing.T) {
+	calls := withPackageCommandMocks(t, nil)
+
+	result := runNativeWithBrewFallback("pacman -S --needed --noconfirm fish", "fish carapace", true, nil)
+	if result.Error != nil {
+		t.Fatalf("expected the native command to succeed, got error: %v", result.Error)
+	}
+
+	expected := []packageCommandCall{
+		{runner: "sudo", command: "pacman -S --needed --noconfirm fish"},
 	}
 	if !reflect.DeepEqual(*calls, expected) {
 		t.Fatalf("calls = %#v, want %#v", *calls, expected)
