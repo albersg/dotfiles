@@ -1,0 +1,52 @@
+# Dockerfile for FULL E2E testing on Arch Linux
+# This runs actual installation tests with verification including backup tests
+FROM archlinux:latest
+
+ENV RUN_FULL_E2E=1
+ENV RUN_BACKUP_TESTS=1
+ENV HOME=/home/testuser
+
+# Install base dependencies + shells for setshell testing.
+#
+# Every package below is the name the Arch official repositories carry, and each
+# one is needed before the installer has installed anything: git and curl clone
+# the repository and fetch the Oh My Zsh installer and the Nerd Font archive,
+# ca-certificates lets those HTTPS fetches verify the server, sudo runs the
+# package steps as the test user, base-devel is the build toolchain the
+# dependency, Neovim and Zellij steps expect, procps-ng provides the process
+# tools, file identifies the downloaded artefacts, unzip extracts the font
+# archive, fontconfig provides fc-cache, and fish and zsh are the shells the
+# suite asks the installer to configure. pacman -Syu is the full upgrade Arch
+# recommends before installing so the image cannot end up in a partial-upgrade
+# state, and -Scc trims the package cache the download leaves behind.
+RUN pacman -Syu --noconfirm --needed \
+    base-devel \
+    curl \
+    git \
+    ca-certificates \
+    sudo \
+    procps-ng \
+    file \
+    unzip \
+    fontconfig \
+    fish \
+    zsh \
+    && pacman -Scc --noconfirm
+
+# Create test user with passwordless sudo
+RUN useradd -m -s /bin/bash testuser && \
+    echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+USER testuser
+WORKDIR /home/testuser
+
+# Copy the binary and test script (build context is e2e/)
+COPY --chown=testuser:testuser dotfiles-installer-linux-amd64 /usr/local/bin/dotfiles
+COPY --chown=testuser:testuser e2e_test.sh /home/testuser/e2e_test.sh
+
+USER root
+RUN chmod +x /usr/local/bin/dotfiles /home/testuser/e2e_test.sh
+USER testuser
+
+# Run the full E2E test suite
+CMD ["/bin/bash", "/home/testuser/e2e_test.sh"]
