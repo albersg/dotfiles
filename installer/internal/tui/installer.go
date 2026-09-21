@@ -58,6 +58,31 @@ func dryRun() bool {
 	}
 }
 
+// stepExecutors is the dispatch table for the non-interactive executor. Each
+// entry runs one step against the model the run owns.
+//
+// It is a map rather than a switch so the scheduled-steps-versus-executor
+// invariant test can enumerate the cases instead of restating them: a step that
+// buildStepsForChoices or SetupInstallSteps schedules and this table does not
+// know is a step that reports itself done having done nothing, the defect class
+// behind the last two fixes on this path. The switch this replaces could not be
+// enumerated, so nothing could close that agreement for more than one step.
+var stepExecutors = map[string]func(*Model) error{
+	"backup":    stepBackupConfigs,
+	"clone":     stepCloneRepo,
+	"homebrew":  stepInstallHomebrew,
+	"deps":      stepInstallDeps,
+	"xcode":     stepInstallXcode,
+	"terminal":  stepInstallTerminal,
+	"font":      stepInstallFont,
+	"shell":     stepInstallShell,
+	"wm":        stepInstallWM,
+	"nvim":      stepInstallNvim,
+	"wslconfig": stepInstallWSLConfig,
+	"cleanup":   stepCleanup,
+	"setshell":  stepSetDefaultShell,
+}
+
 // executeStep runs the actual installation for a step
 func executeStep(stepID string, m *Model) error {
 	if dryRun() {
@@ -65,36 +90,11 @@ func executeStep(stepID string, m *Model) error {
 		return nil
 	}
 
-	switch stepID {
-	case "backup":
-		return stepBackupConfigs(m)
-	case "clone":
-		return stepCloneRepo(m)
-	case "homebrew":
-		return stepInstallHomebrew(m)
-	case "deps":
-		return stepInstallDeps(m)
-	case "xcode":
-		return stepInstallXcode(m)
-	case "terminal":
-		return stepInstallTerminal(m)
-	case "font":
-		return stepInstallFont(m)
-	case "shell":
-		return stepInstallShell(m)
-	case "wm":
-		return stepInstallWM(m)
-	case "nvim":
-		return stepInstallNvim(m)
-	case "wslconfig":
-		return stepInstallWSLConfig(m)
-	case "cleanup":
-		return stepCleanup(m)
-	case "setshell":
-		return stepSetDefaultShell(m)
-	default:
+	execute, ok := stepExecutors[stepID]
+	if !ok {
 		return fmt.Errorf("unknown step: %s", stepID)
 	}
+	return execute(m)
 }
 
 func stepBackupConfigs(m *Model) error {
@@ -641,6 +641,38 @@ func kittyActionFor(onMac, present bool) kittyAction {
 	return kittyInstall
 }
 
+// weztermInstallCommands returns the shell command lines that install WezTerm
+// on a host, in order. It is the single source of truth for the WezTerm route:
+// stepInstallTerminal runs each line through the log-streaming runner and
+// getTerminalScript renders the same lines into the interactive script, so the
+// two paths cannot disagree about how WezTerm is installed. That disagreement is
+// exactly what the interactive step got wrong for Debian/Ubuntu and WSL, where
+// it returned an empty script while the non-interactive step installed through
+// Homebrew.
+//
+// The Debian/Ubuntu and WSL route is a Homebrew formula, so the tap precedes the
+// install, and both lines spell out the Homebrew prefix so a brew the current
+// PATH does not carry is still reached.
+func weztermInstallCommands(si *system.SystemInfo) []string {
+	brew := filepath.Join(system.GetBrewPrefix(), "bin", "brew")
+	switch si.OS {
+	case system.OSArch:
+		return []string{"sudo pacman -S --noconfirm wezterm"}
+	case system.OSFedora:
+		return []string{
+			"sudo dnf copr enable -y wezfurlong/wezterm-nightly",
+			"sudo dnf install -y wezterm",
+		}
+	case system.OSMac:
+		return []string{brew + " install --cask wezterm"}
+	default:
+		return []string{
+			brew + " tap wez/wezterm-linuxbrew",
+			brew + " install wezterm",
+		}
+	}
+}
+
 func stepInstallTerminal(m *Model) error {
 	terminal := m.Choices.Terminal
 	homeDir := os.Getenv("HOME")
@@ -761,27 +793,15 @@ func stepInstallTerminal(m *Model) error {
 		if !system.CommandExists("wezterm") {
 			SendLog(stepID, "Installing WezTerm...")
 			var result *system.ExecResult
-			if m.SystemInfo.OS == system.OSArch {
-				result = system.RunSudoWithLogs("pacman -S --noconfirm wezterm", nil, func(line string) {
+			for _, command := range weztermInstallCommands(m.SystemInfo) {
+				result = system.RunWithLogs(command, nil, func(line string) {
 					SendLog(stepID, line)
 				})
-			} else if m.SystemInfo.OS == system.OSFedora {
-				// Fedora: enable COPR and install
-				system.RunSudo("dnf copr enable -y wezfurlong/wezterm-nightly", nil)
-				result = system.RunSudoWithLogs("dnf install -y wezterm", nil, func(line string) {
-					SendLog(stepID, line)
-				})
-			} else if m.SystemInfo.OS == system.OSMac {
-				result = system.RunBrewWithLogs("install --cask wezterm", nil, func(line string) {
-					SendLog(stepID, line)
-				})
-			} else {
-				system.Run("brew tap wez/wezterm-linuxbrew", nil)
-				result = system.RunBrewWithLogs("install wezterm", nil, func(line string) {
-					SendLog(stepID, line)
-				})
+				if result.Error != nil {
+					break
+				}
 			}
-			if result.Error != nil {
+			if result != nil && result.Error != nil {
 				return wrapStepError("terminal", "Install WezTerm",
 					"Failed to install WezTerm terminal emulator",
 					result.Error)
