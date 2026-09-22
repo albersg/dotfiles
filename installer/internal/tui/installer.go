@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -78,6 +79,7 @@ var stepExecutors = map[string]func(*Model) error{
 	"shell":     stepInstallShell,
 	"wm":        stepInstallWM,
 	"nvim":      stepInstallNvim,
+	"toolset":   stepInstallToolset,
 	"wslconfig": stepInstallWSLConfig,
 	"cleanup":   stepCleanup,
 	"setshell":  stepSetDefaultShell,
@@ -313,6 +315,24 @@ const envSkipDeps = "DOTFILES_SKIP_DEPS"
 // skipDeps reports whether the dependency step was explicitly skipped.
 func skipDeps() bool {
 	switch os.Getenv(envSkipDeps) {
+	case "", "0", "false":
+		return false
+	default:
+		return true
+	}
+}
+
+// envSkipToolset lets a run proceed without the toolset step. It exists for
+// containers, CI and anyone who does not want the declared machine toolset
+// installed: the step provisions roughly sixty entries from the Brewfile, which
+// is more than those environments need and, in a container, more time than the
+// run is worth. The step reports the skip so it is never mistaken for a silent
+// failure.
+const envSkipToolset = "DOTFILES_SKIP_TOOLSET"
+
+// skipToolset reports whether the toolset step was explicitly skipped.
+func skipToolset() bool {
+	switch os.Getenv(envSkipToolset) {
 	case "", "0", "false":
 		return false
 	default:
@@ -1559,25 +1579,29 @@ func shellPlatformPackages(shell string) (platformPackages, []string) {
 		// Arch lists: the Debian/Ubuntu repositories do not carry it, and apt
 		// cannot skip it the way dnf can. zsh-completions and fzf-tab are
 		// Homebrew-only names, and fnm, eza, delta and xh are not in the Debian
-		// repositories either.
+		// repositories either. btop backs the `top` alias. It is absent from the
+		// Termux list because termux-main does not package it and the Termux route
+		// passes every name to pkg install with no availability filter, so one
+		// unknown name would abort the whole transaction.
 		debian, unavailable := debianPackages(
 			"zsh", "zoxide", "zsh-autosuggestions", "zsh-syntax-highlighting",
 			"kubectx", "direnv", "jq", "gh", "bat", "fd-find", "ripgrep", "fzf",
+			"btop",
 		)
 		arch, archGaps := archPackages(
 			"zsh", "carapace", "zoxide", "atuin", "zsh-autosuggestions",
 			"zsh-syntax-highlighting", "zsh-autocomplete",
 			"zsh-theme-powerlevel10k", "kubectx", "eza", "bat", "fd",
-			"ripgrep", "fzf", "direnv", "jq", "github-cli", "git-delta",
+			"ripgrep", "fzf", "direnv", "jq", "github-cli", "git-delta", "btop",
 		)
 		fedora, fedoraGaps := fedoraPackages(
 			"zsh", "carapace", "zoxide", "atuin", "zsh-autosuggestions",
 			"zsh-syntax-highlighting", "starship", "eza", "bat", "fd-find",
-			"ripgrep", "fzf", "direnv", "jq", "gh", "git-delta",
+			"ripgrep", "fzf", "direnv", "jq", "gh", "git-delta", "btop",
 		)
 		return platformPackages{
 			Termux: "zsh starship zoxide",
-			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
+			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy btop",
 			Arch:   arch,
 			Fedora: fedora,
 			// Debian stable does not package starship, fnm, eza, delta or xh; those
@@ -2691,5 +2715,168 @@ fi
 
 	SendLog(stepID, fmt.Sprintf("✓ Default shell set to %s", shell))
 	SendLog(stepID, "Log out and log back in for changes to take effect")
+	return nil
+}
+
+// droppableBrewfileEntry matches the directives the toolset step deliberately
+// does not install.
+var droppableBrewfileEntry = regexp.MustCompile(`^(vscode|winget)[ \t]+"`)
+
+// filterBrewfile returns the part of a Brewfile the toolset step installs,
+// together with the number of lines it dropped per directive.
+//
+// The vscode and winget sections are out of scope on purpose. Installing Windows
+// desktop applications (Chrome, Office, Teams, a JDK) as a side effect of a
+// dotfiles install is out of proportion, and the vscode extensions need the
+// `code` CLI, which is absent on the servers this installer also runs on. Both
+// sections stay in the Brewfile for whoever applies it by hand on a workstation,
+// and the step reports how many lines it dropped instead of hiding the omission.
+//
+// Everything else is kept byte for byte, in order, including comments, blank
+// lines and the inline `if OS.linux?` guard. The Brewfile stays the single
+// source of truth: there is no second list in Go to drift from it, so a tool
+// added to the file is provisioned without a code change.
+func filterBrewfile(content string) (string, map[string]int) {
+	dropped := map[string]int{}
+	var kept strings.Builder
+
+	for _, line := range strings.SplitAfter(content, "\n") {
+		// SplitAfter keeps the newline attached, so a kept line is written back
+		// exactly as it was read and a dropped line disappears with it.
+		match := droppableBrewfileEntry.FindStringSubmatch(strings.TrimSpace(line))
+		if match != nil {
+			dropped[match[1]]++
+			continue
+		}
+		kept.WriteString(line)
+	}
+
+	return kept.String(), dropped
+}
+
+// brewfileEntryLine matches a Brewfile directive line: a lowercase directive
+// name, whitespace and the quoted entry name, for example `brew "btop"`.
+// Comment and blank lines do not match.
+var brewfileEntryLine = regexp.MustCompile(`^[a-z]+[ \t]+"`)
+
+// countBrewfileEntries counts the installable lines in an already filtered
+// Brewfile, so the step can report the scale of the install and skip a file that
+// declares nothing to install.
+func countBrewfileEntries(content string) int {
+	count := 0
+	for _, line := range strings.Split(content, "\n") {
+		if brewfileEntryLine.MatchString(strings.TrimSpace(line)) {
+			count++
+		}
+	}
+	return count
+}
+
+// describeDroppedBrewfileDirectives renders the dropped counts in a stable
+// order, so two runs over the same Brewfile log the same line.
+func describeDroppedBrewfileDirectives(dropped map[string]int) string {
+	names := make([]string, 0, len(dropped))
+	for name := range dropped {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s (%d lines)", name, dropped[name]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// stepInstallToolset provisions the machine toolset the repository declares in
+// its Brewfile, on top of what the shell step installs for the configuration to
+// work at shell start. It reads the Brewfile from the checkout the clone step
+// created, filters out the sections this step does not install, and hands the
+// result to `brew bundle`.
+//
+// The step is best-effort by design: a missing Brewfile, an entry that no longer
+// exists upstream or a network failure is logged and the installation continues.
+// The one failure it reports is a missing checkout, because a run that has no
+// checkout has already failed at the clone step and a silent skip there would
+// hide that.
+func stepInstallToolset(m *Model) error {
+	stepID := "toolset"
+
+	if skipToolset() {
+		SendLog(stepID, fmt.Sprintf("Skipping the toolset by request (%s is set)", envSkipToolset))
+		return nil
+	}
+
+	if m.SystemInfo.IsTermux {
+		SendLog(stepID, "Skipping the toolset: Homebrew is not available on Termux")
+		return nil
+	}
+
+	if !system.BrewInstalled() {
+		SendLog(stepID, "Skipping the toolset: Homebrew is not installed")
+		return nil
+	}
+
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return wrapStepError("toolset", "Install Toolset",
+			"Failed to read the Brewfile toolset",
+			err)
+	}
+
+	brewfilePath := filepath.Join(repoDir, repoAssetBrewfile)
+	content, err := os.ReadFile(brewfilePath)
+	if err != nil {
+		SendLog(stepID, fmt.Sprintf("Skipping the toolset: cannot read %s (%v)", brewfilePath, err))
+		return nil
+	}
+
+	filtered, dropped := filterBrewfile(string(content))
+	entries := countBrewfileEntries(filtered)
+	if entries == 0 {
+		SendLog(stepID, fmt.Sprintf("Skipping the toolset: %s declares no installable entries", brewfilePath))
+		return nil
+	}
+
+	SendLog(stepID, fmt.Sprintf("Installing %d entries declared in %s...", entries, brewfilePath))
+	if len(dropped) > 0 {
+		SendLog(stepID, fmt.Sprintf("Out of scope, dropped from this run: %s", describeDroppedBrewfileDirectives(dropped)))
+	}
+
+	// brew bundle needs a file, and the Brewfile lives inside the checkout the
+	// cleanup step removes, so the filtered copy is written to a temporary file
+	// this step owns and removes on every path out.
+	tmp, err := os.CreateTemp("", "dotfiles-brewfile-*")
+	if err != nil {
+		SendLog(stepID, "Skipping the toolset: cannot create a temporary Brewfile: "+err.Error())
+		return nil
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := tmp.WriteString(filtered); err != nil {
+		_ = tmp.Close()
+		SendLog(stepID, "Skipping the toolset: cannot write the temporary Brewfile: "+err.Error())
+		return nil
+	}
+	if err := tmp.Close(); err != nil {
+		SendLog(stepID, "Skipping the toolset: cannot write the temporary Brewfile: "+err.Error())
+		return nil
+	}
+
+	// HOMEBREW_BUNDLE_NO_UPGRADE keeps brew bundle to installing what is missing.
+	// Without it `brew bundle install` upgrades every already-installed formula,
+	// which an installer must never do to a machine it is only setting up.
+	result := runBrewWithLogs(
+		fmt.Sprintf("bundle install --file=%q", tmpPath),
+		&system.ExecOptions{Env: []string{"HOMEBREW_BUNDLE_NO_UPGRADE=1"}},
+		func(line string) { SendLog(stepID, line) },
+	)
+	if result.Error != nil {
+		SendLog(stepID, fmt.Sprintf("Some Brewfile entries could not be installed; the installation continues: %v", result.Error))
+		return nil
+	}
+
+	SendLog(stepID, "✓ Toolset installed")
 	return nil
 }

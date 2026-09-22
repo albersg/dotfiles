@@ -526,7 +526,7 @@ func TestInstallStepsSetup(t *testing.T) {
 			},
 			sysInfo:       &system.SystemInfo{OS: system.OSMac, HasBrew: true, HasXcode: true},
 			existConfigs:  []string{},
-			expectedSteps: []string{"clone", "shell", "setshell", "cleanup"},
+			expectedSteps: []string{"clone", "shell", "toolset", "setshell", "cleanup"},
 		},
 		{
 			name: "full mac install with backup",
@@ -541,7 +541,7 @@ func TestInstallStepsSetup(t *testing.T) {
 			},
 			sysInfo:       &system.SystemInfo{OS: system.OSMac, HasBrew: true, HasXcode: true},
 			existConfigs:  []string{"nvim: /test"},
-			expectedSteps: []string{"backup", "clone", "terminal", "font", "shell", "wm", "nvim", "setshell", "cleanup"},
+			expectedSteps: []string{"backup", "clone", "terminal", "font", "shell", "wm", "nvim", "toolset", "setshell", "cleanup"},
 		},
 		{
 			name: "linux install without brew",
@@ -556,7 +556,7 @@ func TestInstallStepsSetup(t *testing.T) {
 			},
 			sysInfo:       &system.SystemInfo{OS: system.OSLinux, HasBrew: false},
 			existConfigs:  []string{},
-			expectedSteps: []string{"deps", "clone", "homebrew", "terminal", "font", "shell", "wm", "nvim", "setshell", "cleanup"},
+			expectedSteps: []string{"deps", "clone", "homebrew", "terminal", "font", "shell", "wm", "nvim", "toolset", "setshell", "cleanup"},
 		},
 	}
 

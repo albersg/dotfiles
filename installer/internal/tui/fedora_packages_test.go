@@ -60,7 +60,7 @@ func TestFedoraShellListsOmitNamesTheDistributionDoesNotCarry(t *testing.T) {
 		{
 			name:       "zsh",
 			shell:      "zsh",
-			wantFedora: "zsh zoxide atuin zsh-autosuggestions zsh-syntax-highlighting eza bat fd-find ripgrep fzf direnv jq gh git-delta",
+			wantFedora: "zsh zoxide atuin zsh-autosuggestions zsh-syntax-highlighting eza bat fd-find ripgrep fzf direnv jq gh git-delta btop",
 			wantGone:   []string{"carapace", "starship"},
 		},
 		{

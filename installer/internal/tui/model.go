@@ -633,6 +633,17 @@ func (m *Model) SetupInstallSteps() {
 		})
 	}
 
+	// Toolset runs after the shell step because the Brewfile's npm entries need
+	// the Node runtime fnm provides, and after the Homebrew step because it needs
+	// brew. It is best-effort and never fails the run, so it stays
+	// non-interactive: brew bundle runs unattended.
+	m.Steps = append(m.Steps, InstallStep{
+		ID:          "toolset",
+		Name:        "Install Toolset",
+		Description: "Tools declared in the Brewfile",
+		Status:      StatusPending,
+	})
+
 	// WSL configuration (Windows host + in-distribution settings). The files are
 	// only read when the WSL VM restarts, so this runs late in the sequence.
 	if m.SystemInfo.IsWSL {
