@@ -1559,25 +1559,29 @@ func shellPlatformPackages(shell string) (platformPackages, []string) {
 		// Arch lists: the Debian/Ubuntu repositories do not carry it, and apt
 		// cannot skip it the way dnf can. zsh-completions and fzf-tab are
 		// Homebrew-only names, and fnm, eza, delta and xh are not in the Debian
-		// repositories either.
+		// repositories either. btop backs the `top` alias. It is absent from the
+		// Termux list because termux-main does not package it and the Termux route
+		// passes every name to pkg install with no availability filter, so one
+		// unknown name would abort the whole transaction.
 		debian, unavailable := debianPackages(
 			"zsh", "zoxide", "zsh-autosuggestions", "zsh-syntax-highlighting",
 			"kubectx", "direnv", "jq", "gh", "bat", "fd-find", "ripgrep", "fzf",
+			"btop",
 		)
 		arch, archGaps := archPackages(
 			"zsh", "carapace", "zoxide", "atuin", "zsh-autosuggestions",
 			"zsh-syntax-highlighting", "zsh-autocomplete",
 			"zsh-theme-powerlevel10k", "kubectx", "eza", "bat", "fd",
-			"ripgrep", "fzf", "direnv", "jq", "github-cli", "git-delta",
+			"ripgrep", "fzf", "direnv", "jq", "github-cli", "git-delta", "btop",
 		)
 		fedora, fedoraGaps := fedoraPackages(
 			"zsh", "carapace", "zoxide", "atuin", "zsh-autosuggestions",
 			"zsh-syntax-highlighting", "starship", "eza", "bat", "fd-find",
-			"ripgrep", "fzf", "direnv", "jq", "gh", "git-delta",
+			"ripgrep", "fzf", "direnv", "jq", "gh", "git-delta", "btop",
 		)
 		return platformPackages{
 			Termux: "zsh starship zoxide",
-			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy",
+			Brew:   "zsh carapace zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-completions fzf-tab zsh-autocomplete powerlevel10k kubectx eza bat fd ripgrep fzf fnm direnv jq gh git-delta xh trippy btop",
 			Arch:   arch,
 			Fedora: fedora,
 			// Debian stable does not package starship, fnm, eza, delta or xh; those

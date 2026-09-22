@@ -56,7 +56,7 @@ func TestArchShellListsOmitNamesTheDistributionDoesNotCarry(t *testing.T) {
 		{
 			name:     "zsh",
 			shell:    "zsh",
-			wantArch: "zsh zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta",
+			wantArch: "zsh zoxide atuin zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete kubectx eza bat fd ripgrep fzf direnv jq github-cli git-delta btop",
 			wantGone: []string{"carapace", "zsh-theme-powerlevel10k"},
 		},
 		{

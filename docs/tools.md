@@ -59,6 +59,7 @@ them next to the shell itself.
 | **git-delta** | `core.pager` and `interactive.diffFilter` in `.gitconfig` |
 | **xh** | `http` alias |
 | **trippy** | `traceroute` and `tracert` aliases (only aliased when present) |
+| **btop** | `top` alias (only aliased when present) |
 | **zoxide** | `z` directory jumping |
 | **atuin** | Shell history |
 | **carapace** | Completion bridge for zsh, fish and bash |
