@@ -142,6 +142,10 @@ func buildStepsForChoices(m *Model) []InstallStep {
 		steps = append(steps, InstallStep{ID: "nvim", Name: "Install Neovim configuration"})
 	}
 
+	// Toolset (after the shell step, whose fnm provides the Node runtime the
+	// Brewfile's npm entries need; best-effort, so it never fails the run)
+	steps = append(steps, InstallStep{ID: "toolset", Name: "Install toolset"})
+
 	// WSL configuration (Windows host + in-distribution settings)
 	if m.SystemInfo.IsWSL {
 		steps = append(steps, InstallStep{ID: "wslconfig", Name: "Configure WSL"})
