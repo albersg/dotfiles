@@ -4,6 +4,46 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.3.0] — 2026-09-22
+
+This is the release where **the installer stops ignoring the `Brewfile`**. The repository has
+declared the machine's toolset in that file since it was adopted, and no step ever read it, so a
+fresh install produced a machine carrying only what the shipped configuration needs at shell start.
+Installing the dotfiles and then finding `btop` absent was the visible symptom: the `Brewfile` names
+62 installable entries and the installer provisioned none of them.
+
+### Added
+
+- **A step that provisions the toolset the `Brewfile` declares.** It reads the file from the
+  checkout the clone step already creates and hands a filtered copy to `brew bundle`, so the
+  `Brewfile` stays the single source of truth: a tool added to it is provisioned without a change to
+  the installer, and 62 package names are not duplicated into Go. `brew bundle` supports every
+  directive the file uses.
+- **`btop` in the zsh shell step**, with a guarded `alias top='btop'` in the zsh configuration. The
+  alias is defined only where `btop` is present, so it stays inert on a host with neither Homebrew
+  nor `btop`, which is the shape `trippy` already used.
+
+### Changed
+
+- **The `vscode` and `winget` sections are deliberately excluded** from what the step installs.
+  Installing Windows desktop applications — Chrome, Office, Teams, a JDK — as a side effect of a
+  dotfiles install is out of proportion, and the `vscode` extensions need the `code` CLI, which is
+  absent on the servers this also runs on. The step logs how many lines it dropped from each section
+  instead of hiding the omission, and both sections stay in the `Brewfile` for anyone who applies it
+  by hand on a workstation.
+- **`brew bundle` runs with `HOMEBREW_BUNDLE_NO_UPGRADE=1`.** `brew bundle install` upgrades by
+  default, which an installer must not do: the step installs what is missing and leaves the rest.
+
+### Notes
+
+- **The step is best-effort.** An entry that cannot be installed, and a `Brewfile` that is missing
+  or unreadable, are logged and the run continues. The one exception is a missing checkout, which
+  reports a failure: a run with no checkout has already failed at the clone step, and a silent skip
+  there would hide it.
+- Termux and any host without a usable Homebrew skip the step, and `DOTFILES_SKIP_TOOLSET=1` skips
+  it explicitly. The E2E script sets it, because `brew bundle` would otherwise install roughly sixty
+  formulae in every container and blow the job runtime.
+
 ## [v0.2.3] — 2026-09-21
 
 Two defects on the interactive path, and the assertions that stop the sequence they belonged to.
