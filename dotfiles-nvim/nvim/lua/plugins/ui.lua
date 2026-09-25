@@ -82,20 +82,74 @@ return {
     "nvim-lualine/lualine.nvim",
     event = "VeryLazy", -- Load this plugin on the 'VeryLazy' event
     requires = { "nvim-tree/nvim-web-devicons", opt = true }, -- Optional dependency for icons
-    opts = {
-      options = {
-        theme = "kanagawa", -- Match the configured colorscheme
-        icons_enabled = true, -- Enable icons in the statusline
-      },
-      sections = {
-        lualine_a = {
-          {
-            "mode", -- Display the current mode
-            icon = "󱗞", -- Set the icon for the mode
-          },
+    opts = function(_, opts)
+      opts.options.theme = "kanagawa" -- Match the configured colorscheme
+      opts.options.icons_enabled = true -- Enable icons in the statusline
+
+      opts.sections.lualine_a = {
+        {
+          "mode", -- Display the current mode
+          fmt = function(str)
+            -- One icon per mode: the glyph describes the real editor state.
+            local icons = {
+              -- Base: the three real editor cursors
+              ["NORMAL"] = "󰇀", -- md-cursor_default
+              ["INSERT"] = "󰗧", -- md-cursor_text
+              ["VISUAL"] = "󰒉", -- md-selection
+              -- Selection variants: expansion axes
+              ["V-LINE"] = "󰡏", -- md-arrow_expand_vertical
+              ["S-LINE"] = "󰡏", -- md-arrow_expand_vertical
+              ["V-BLOCK"] = "󰁌", -- md-arrow_expand_all
+              ["S-BLOCK"] = "󰁌", -- md-arrow_expand_all
+              ["SELECT"] = "󱊁", -- md-select_multiple
+              -- Substitution
+              ["REPLACE"] = "󰓡", -- md-swap_horizontal
+              ["V-REPLACE"] = "󰛔", -- md-find_replace
+              -- Prompt and machine modes
+              ["COMMAND"] = "󰆍", -- md-console
+              ["EX"] = "󰯂", -- md-script_text
+              ["SHELL"] = "󱆃", -- md-bash
+              ["TERMINAL"] = "󰞷", -- md-console_line
+              -- Transient states
+              ["O-PENDING"] = "󰔟", -- md-timer_sand
+              ["MORE"] = "󰇘", -- md-dots_horizontal
+              ["CONFIRM"] = "󰘥", -- md-help_circle_outline
+            }
+            return (icons[str] or "?") .. " " .. str
+          end,
         },
-      },
-      extensions = {
+      }
+
+      -- Search counter: which match of the current / or ? search we are on.
+      table.insert(opts.sections.lualine_x, {
+        function()
+          if vim.v.hlsearch == 0 then
+            return ""
+          end
+          local sc = vim.fn.searchcount({ maxcount = 99, recompute = true })
+          if type(sc) ~= "table" or (sc.total or 0) == 0 then
+            return ""
+          end
+          return string.format("[%d/%d]", sc.current, sc.total)
+        end,
+        cond = function()
+          return vim.v.hlsearch == 1
+        end,
+      })
+
+      -- Language server progress: an indexing server would otherwise be invisible.
+      table.insert(opts.sections.lualine_x, {
+        function()
+          return vim.lsp.status()
+        end,
+        cond = function()
+          return vim.lsp.status() ~= ""
+        end,
+      })
+
+      -- Extensions replace the default list on purpose: quickfix, oil and
+      -- codecompanion get their own sections.
+      opts.extensions = {
         "quickfix",
         {
           filetypes = { "oil" },
@@ -150,8 +204,10 @@ return {
             lualine_z = {},
           },
         },
-      },
-    },
+      }
+
+      return opts
+    end,
   },
 
   -- Plugin: incline.nvim
