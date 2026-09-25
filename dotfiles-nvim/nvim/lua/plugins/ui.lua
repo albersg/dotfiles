@@ -303,20 +303,23 @@ return {
         },
         preset = {
           -- stylua: ignore start
+          -- The two leading blank rows keep the emblem clear of the top edge on a
+          -- short window: snacks centres the whole block, so without them the
+          -- emblem sits flush against the top and reads as cramped.
           header = [[
-              ▒              
-            ░░ ░░            
-          ░░  █  ░░          
-        ░░    █    ░░        
-      ░░    ▓███▓    ░░      
-    ░░     ▓█████▓     ░░    
-  ░░       ▓█████▓       ░░  
-▒░        ▓███████▓        ░▒
-  ░░      ▓███████▓      ░░  
-    ░▒█████████████████▒░    
-      ░░      ▓      ░░      
-        ░░    ▓    ░░        
-          ░░  ▓  ░░          
+
+
+     ░▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░     
+    ▒███████████████████▒    
+  ▒███████████████████████▒  
+ ▒▓▓▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▓▓▒ 
+ ░▓██ ▒███████████████▒ ██▓░ 
+   ▒██░▒█████████████▒░██▒   
+     ▓█░░███████████░░█▓     
+      ▒█░░█████████░░█▒      
+        ▓▒░███████░▒▓        
+         ░▒ ▓███▓ ▒░         
+           ░▓███▓░           
             ░███░            
               ▒              
 ]],

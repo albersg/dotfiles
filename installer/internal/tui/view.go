@@ -19,33 +19,31 @@ func formatControlChars(input string) string {
 }
 
 const logo = `
-              ▒              
-            ░░ ░░            
-          ░░  █  ░░          
-        ░░    █    ░░        
-      ░░    ▓███▓    ░░      
-    ░░     ▓█████▓     ░░    
-  ░░       ▓█████▓       ░░  
-▒░        ▓███████▓        ░▒
-  ░░      ▓███████▓      ░░  
-    ░▒█████████████████▒░    
-      ░░      ▓      ░░      
-        ░░    ▓    ░░        
-          ░░  ▓  ░░          
+     ░▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░     
+    ▒███████████████████▒    
+  ▒███████████████████████▒  
+ ▒▓▓▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▓▓▒ 
+ ░▓██ ▒███████████████▒ ██▓░ 
+   ▒██░▒█████████████▒░██▒   
+     ▓█░░███████████░░█▓     
+      ▒█░░█████████░░█▒      
+        ▓▒░███████░▒▓        
+         ░▒ ▓███▓ ▒░         
+           ░▓███▓░           
             ░███░            
               ▒              
 `
 
 const compactLogo = `
-        ░        
-      ░░█░░      
-    ░░▓███▓░░    
-  ░░  ▓███▓  ░░  
-░░   ▓█████▓   ░░
-  ░░█████████░░  
-    ░░  ▓  ░░    
-      ░░▓░░      
-       ███       
+   ░▓▓▓▓▓▓▓▓▓▓▓░   
+ ░▓█████████████▓░ 
+ ▓▓░▓▓▓▓▓▓▓▓▓▓▓░▓▓ 
+ ░▓░░█████████░░▓░ 
+   ▒▒░███████░▒▒   
+    ░▒ ▓███▓ ▒░    
+      ░ ▓█▓ ░      
+        ▓█▓        
+         ▒         
 `
 
 const dotfilesText = `
@@ -144,12 +142,17 @@ func (m Model) View() string {
 	return paddedStyle.Render(s.String())
 }
 
-// The full welcome lockup is 33 lines: emblem, wordmark and three text lines.
+// The full welcome lockup is 30 lines: emblem, wordmark and three text lines.
 // CenterBoth places content taller than the frame by overflowing it, which
 // clips the top of the emblem, so a terminal shorter than the lockup gets the
 // version without the wordmark instead. The wordmark is the part that is
 // dropped because it repeats what the emblem already says.
-const welcomeFullLockupHeight = 34
+// 32 is the smallest frame that holds the 30-line lockup plus the splash's
+// one-row top padding: at 30 or 31 the last line falls outside the frame and
+// CenterBoth clips the top of the emblem. Measured, not estimated:
+// TestWelcomeLockupFitsWhenFullEmblemIsChosen renders both branches and fails
+// if this constant stops matching the art.
+const welcomeFullLockupHeight = 32
 
 func (m Model) renderWelcome() string {
 	var s strings.Builder
