@@ -220,6 +220,17 @@ func (e *editor) applyMutation(cmd byte, count int, rest string) (int, bool) {
 		if len(rest) == 0 || rest[0] != cmd {
 			return 0, false
 		}
+		// A counted linewise operator starting on the last line is a complete
+		// no-op in nvim: it abandons the command rather than clamping the count
+		// to the single line under the cursor, so the buffer, the cursor, the
+		// unnamed register and the undo history are all left untouched. The keys
+		// are still consumed and the answer stays recognized. A count of one is
+		// the ordinary single-line command and never reaches this guard.
+		// TestSimulateEditing_CountedLinewiseOnLastLineIsNoOp records the exact
+		// nvim reference, settings and observations.
+		if count > 1 && e.cursor.Line == len(e.buffer)-1 {
+			return 1, true
+		}
 		switch cmd {
 		case 'd':
 			e.deleteLines(count)

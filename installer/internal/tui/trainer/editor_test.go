@@ -1449,3 +1449,191 @@ func TestSimulateEditing_CountedDeleteToEndIsRefused(t *testing.T) {
 		},
 	})
 }
+
+// TestSimulateEditing_CountedLinewiseOnLastLineIsNoOp encodes an nvim
+// behaviour that is easy to get wrong and that this engine got wrong: a counted
+// linewise operator is a COMPLETE no-op when the cursor starts on the last
+// line of the buffer. nvim abandons the whole command instead of clamping the
+// count to the single line under the cursor, and it does so for dd, yy, >> and
+// << alike, leaving the buffer, the cursor, the unnamed register and the undo
+// history untouched.
+//
+// Every row was read from nvimShiftReference (nvim --clean --headless,
+// shiftwidth=2 expandtab tabstop=2 startofline), one fresh process per case,
+// the buffer loaded from a file and the keys run with :normal!. The rows record
+// nvim's resulting buffer and cursor verbatim. The control rows are the other
+// half of the rule: one line further from the end, or with a count of one, nvim
+// still applies the operator, and a count larger than the remaining lines
+// clamps to the lines that remain rather than becoming a no-op.
+//
+// The starting column matters: the no-op leaves the cursor exactly where it
+// was, so a case that starts at column 2 stays at column 2 and is not pulled to
+// the first non-blank the way an applied >> or dd is.
+func TestSimulateEditing_CountedLinewiseOnLastLineIsNoOp(t *testing.T) {
+	runEditingCases(t, []editingCase{
+		{
+			name: "2dd on the last line of a two-line buffer is a no-op",
+			code: []string{"a", "b"}, start: Position{Line: 1, Col: 0}, input: "2dd",
+			wantBuffer: []string{"a", "b"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2dd on the last line of a three-line buffer is a no-op",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "2dd",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "3dd on the last line is a no-op even though the count exceeds the buffer",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "3dd",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "9dd on the last line is a no-op",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "9dd",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2dd on a one-line buffer is a no-op",
+			code: []string{"a"}, start: Position{Line: 0, Col: 0}, input: "2dd",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2dd on the last line leaves the cursor at its starting column",
+			code: []string{"a", "b", "gamma"}, start: Position{Line: 2, Col: 2}, input: "2dd",
+			wantBuffer: []string{"a", "b", "gamma"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2dd on an empty last line is a no-op",
+			code: []string{"a", ""}, start: Position{Line: 1, Col: 0}, input: "2dd",
+			wantBuffer: []string{"a", ""},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2yy on the last line is a no-op",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "2yy",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a no-op 2yy leaves nothing for p to put",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "2yyp",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2>> on the last line is a no-op",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "2>>",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2<< on the last line is a no-op",
+			code: []string{"  a", "  b", "  c"}, start: Position{Line: 2, Col: 2}, input: "2<<",
+			wantBuffer: []string{"  a", "  b", "  c"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "9>> on the last line is a no-op",
+			code: []string{"  a", "  b", "  c"}, start: Position{Line: 2, Col: 2}, input: "9>>",
+			wantBuffer: []string{"  a", "  b", "  c"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "9<< on the last line is a no-op",
+			code: []string{"  a", "  b", "  c"}, start: Position{Line: 2, Col: 2}, input: "9<<",
+			wantBuffer: []string{"  a", "  b", "  c"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a no-op shift keeps a column before the first non-blank",
+			code: []string{"alpha", "beta", "  gamma"}, start: Position{Line: 2, Col: 0}, input: "2>>",
+			wantBuffer: []string{"alpha", "beta", "  gamma"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a no-op delete leaves nothing to undo",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "9ddu",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a no-op shift leaves nothing to undo",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "2>>u",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a no-op yank leaves nothing to undo",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "2yyu",
+			wantBuffer: []string{"a", "b", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		// Control rows: one line further from the end the operator still
+		// applies, and a count past the end clamps to the lines that remain.
+		{
+			name: "2dd one line from the end deletes the remaining two lines",
+			code: []string{"a", "b", "c"}, start: Position{Line: 1, Col: 0}, input: "2dd",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2dd from the first line deletes the first two lines",
+			code: []string{"a", "b", "c"}, start: Position{Line: 0, Col: 0}, input: "2dd",
+			wantBuffer: []string{"c"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "3dd one line from the end clamps to the two remaining lines",
+			code: []string{"a", "b", "c"}, start: Position{Line: 1, Col: 0}, input: "3dd",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "9dd two lines from the end clamps to the two remaining lines",
+			code: []string{"a", "b", "c", "d"}, start: Position{Line: 2, Col: 0}, input: "9dd",
+			wantBuffer: []string{"a", "b"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2>> one line from the end shifts the remaining two lines",
+			code: []string{"a", "b", "c"}, start: Position{Line: 1, Col: 0}, input: "2>>",
+			wantBuffer: []string{"a", "  b", "  c"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "9>> one line from the end shifts the remaining two lines",
+			code: []string{"  a", "  b", "  c"}, start: Position{Line: 1, Col: 2}, input: "9>>",
+			wantBuffer: []string{"  a", "    b", "    c"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "9>> from the first line shifts every line",
+			code: []string{"  a", "  b", "  c"}, start: Position{Line: 0, Col: 2}, input: "9>>",
+			wantBuffer: []string{"    a", "    b", "    c"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2<< one line from the end outdents the remaining two lines",
+			code: []string{"  a", "  b", "  c"}, start: Position{Line: 1, Col: 2}, input: "2<<",
+			wantBuffer: []string{"  a", "b", "c"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "2yy one line from the end still fills the register",
+			code: []string{"a", "b", "c"}, start: Position{Line: 1, Col: 0}, input: "2yyp",
+			wantBuffer: []string{"a", "b", "b", "c", "c"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a count of one on the last line still deletes it",
+			code: []string{"a", "b", "c"}, start: Position{Line: 2, Col: 0}, input: "dd",
+			wantBuffer: []string{"a", "b"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
