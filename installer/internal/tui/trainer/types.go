@@ -96,8 +96,11 @@ type ModuleProgress struct {
 	PracticeCorrect  int
 
 	// Boss
-	BossDefeated  bool
-	BossBestTime  time.Duration
+	BossDefeated bool
+	BossBestTime time.Duration
+	// BossAttempts counts boss steps answered, so a lost fight is recorded too.
+	// It is owned by the GameState answer recorders and must not be incremented
+	// by the UI or by RecordBossVictory.
 	BossAttempts  int
 	BossLivesLeft int // Lives remaining on best run
 
@@ -148,6 +151,18 @@ var moduleUnlockOrder = []ModuleID{
 	ModuleSubstitution,
 	ModuleRegex,
 	ModuleMacros,
+}
+
+// NextModule returns the module that follows the given one in the unlock
+// order, and whether such a module exists. The final module has no successor,
+// so callers can tell whether defeating a boss unlocks anything.
+func NextModule(module ModuleID) (ModuleID, bool) {
+	for i, m := range moduleUnlockOrder {
+		if m == module && i+1 < len(moduleUnlockOrder) {
+			return moduleUnlockOrder[i+1], true
+		}
+	}
+	return "", false
 }
 
 // IsModuleUnlocked checks if a module is unlocked

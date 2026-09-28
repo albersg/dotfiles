@@ -1754,25 +1754,18 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Get current boss step
 		boss := m.TrainerGameState.CurrentBoss
-		if m.TrainerGameState.BossStep >= len(boss.Steps) {
-			// Boss complete!
-			m.TrainerGameState.RecordBossVictory()
-			m.TrainerLastCorrect = true
-			m.TrainerMessage = "🏆 VICTORY! You defeated " + boss.Name + "!"
-			m.Screen = ScreenTrainerBossResult
-			return m, nil
-		}
-
-		step := boss.Steps[m.TrainerGameState.BossStep]
-		isCorrect := trainer.ValidateAnswer(&step.Exercise, m.TrainerInput)
-		isOptimal := trainer.IsOptimalAnswer(&step.Exercise, m.TrainerInput)
+		// Keep the session exercise pointing at the step being answered, so the
+		// shared answer recorders score the right challenge.
+		m.TrainerGameState.CurrentExercise = &boss.Steps[m.TrainerGameState.BossStep].Exercise
+		isCorrect := trainer.ValidateAnswer(m.TrainerGameState.CurrentExercise, m.TrainerInput)
+		isOptimal := trainer.IsOptimalAnswer(m.TrainerGameState.CurrentExercise, m.TrainerInput)
 
 		if isCorrect {
-			// Move to next step
-			m.TrainerGameState.BossStep++
+			// The shared recorder owns streak, score and boss attempt accounting.
+			m.TrainerGameState.RecordCorrectAnswer(10.0, isOptimal)
 			m.TrainerInput = ""
+			m.TrainerGameState.BossStep++
 
 			if m.TrainerGameState.BossStep >= len(boss.Steps) {
 				// Boss defeated!
@@ -1784,16 +1777,17 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 				if isOptimal {
 					m.TrainerMessage = "✨ Perfect! Next challenge..."
 				} else {
-					m.TrainerMessage = "✓ Good! (Optimal: " + step.Exercise.Optimal + ") Next..."
+					m.TrainerMessage = "✓ Good! (Optimal: " + boss.Steps[m.TrainerGameState.BossStep].Exercise.Optimal + ") Next..."
 				}
 			}
 		} else {
-			// Lose a life - SHOW THE CORRECT SOLUTION
-			m.TrainerGameState.BossLives--
+			// The shared recorder owns the life cost, the attempt and the reset
+			// streak. SHOW THE CORRECT SOLUTION.
+			m.TrainerGameState.RecordIncorrectAnswer()
 			m.TrainerInput = ""
 
 			// Format the solution hint
-			solutionHint := trainer.FormatSolutionsHint(&step.Exercise)
+			solutionHint := trainer.FormatSolutionsHint(m.TrainerGameState.CurrentExercise)
 
 			if m.TrainerGameState.BossLives <= 0 {
 				// Game over - show final solution

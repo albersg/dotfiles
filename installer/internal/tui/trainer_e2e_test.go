@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -728,6 +729,114 @@ func TestTrainerPracticeSubmissionCountsOnce(t *testing.T) {
 		}
 		if exStats.TotalWrong != 1 {
 			t.Errorf("exercise %s TotalWrong = %d after one incorrect submission, want 1", exercise.ID, exStats.TotalWrong)
+		}
+	})
+}
+
+// =============================================================================
+// BOSS BOOKKEEPING REGRESSION
+// =============================================================================
+
+// TestTrainerBossAnswerAccounting is the regression test for the boss path doing
+// its own bookkeeping. handleTrainerBossKeys decremented BossLives directly and
+// never called RecordCorrectAnswer/RecordIncorrectAnswer, so a boss step
+// contributed no streak, no score and no attempt, and the boss branch inside
+// GameState.RecordIncorrectAnswer was dead. The assertions drive the real UI
+// handler, because that is where the bypass lived.
+func TestTrainerBossAnswerAccounting(t *testing.T) {
+	t.Run("a correct boss step moves streak and score", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+
+		step := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep]
+		m.TrainerInput = step.Exercise.Optimal
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+
+		if m.TrainerGameState.CurrentStreak != 1 {
+			t.Errorf("CurrentStreak = %d after a correct boss step, want 1", m.TrainerGameState.CurrentStreak)
+		}
+		if m.TrainerGameState.SessionScore <= 0 {
+			t.Errorf("SessionScore = %d after a correct boss step, want > 0", m.TrainerGameState.SessionScore)
+		}
+		if m.TrainerStats.TotalScore <= 0 {
+			t.Errorf("TotalScore = %d after a correct boss step, want > 0", m.TrainerStats.TotalScore)
+		}
+		if m.TrainerGameState.BossLives != 3 {
+			t.Errorf("BossLives = %d after a correct boss step, want 3", m.TrainerGameState.BossLives)
+		}
+	})
+
+	t.Run("a lost boss spends the lives and records each attempt", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+		progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+		lives := m.TrainerGameState.BossLives
+		const wrong = "ZZZZZZ"
+
+		for i := 0; i < lives; i++ {
+			if m.Screen != ScreenTrainerBoss {
+				t.Fatalf("screen = %v after %d wrong answers, want %v", m.Screen, i, ScreenTrainerBoss)
+			}
+			step := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep]
+			if trainer.ValidateAnswer(&step.Exercise, wrong) {
+				t.Fatalf("test setup: %q validated against %s", wrong, step.Exercise.ID)
+			}
+			m.TrainerInput = wrong
+			result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			m = result.(Model)
+		}
+
+		if m.TrainerLastCorrect {
+			t.Error("TrainerLastCorrect is true after losing the fight")
+		}
+		if m.Screen != ScreenTrainerBossResult {
+			t.Fatalf("screen = %v after losing the fight, want %v", m.Screen, ScreenTrainerBossResult)
+		}
+		if m.TrainerGameState.BossLives != 0 {
+			t.Errorf("BossLives = %d after losing the fight, want 0", m.TrainerGameState.BossLives)
+		}
+		if progress.BossAttempts != lives {
+			t.Errorf("BossAttempts = %d after %d failed steps, want %d", progress.BossAttempts, lives, lives)
+		}
+		if m.TrainerGameState.IsBossDefeated {
+			t.Error("IsBossDefeated is true after losing the fight; it must mean the player won")
+		}
+	})
+}
+
+// TestTrainerBossResultUnlockClaim covers the victory screen's unlock message.
+// renderTrainerBossResult printed "Next module unlocked!" unconditionally, so
+// the final boss claimed a module that does not exist.
+func TestTrainerBossResultUnlockClaim(t *testing.T) {
+	newVictoryModel := func(t *testing.T, module trainer.ModuleID) Model {
+		t.Helper()
+		t.Setenv("HOME", t.TempDir())
+
+		m := NewModel()
+		m.Screen = ScreenTrainerBossResult
+		m.TrainerStats = trainer.NewUserStats()
+		m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+		m.TrainerGameState.StartBoss(module)
+		m.TrainerGameState.RecordBossVictory()
+		m.TrainerLastCorrect = true
+		return m
+	}
+
+	t.Run("the final module does not claim an unlock", func(t *testing.T) {
+		m := newVictoryModel(t, trainer.ModuleMacros)
+
+		out := m.renderTrainerBossResult()
+		if strings.Contains(out, "unlocked") {
+			t.Errorf("final boss result claims an unlock:\n%s", out)
+		}
+	})
+
+	t.Run("a non-final module still claims the unlock", func(t *testing.T) {
+		m := newVictoryModel(t, trainer.ModuleHorizontal)
+
+		out := m.renderTrainerBossResult()
+		if !strings.Contains(out, "unlocked") {
+			t.Errorf("non-final boss result lost its unlock message:\n%s", out)
 		}
 	})
 }
