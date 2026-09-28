@@ -463,10 +463,21 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		}
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
-	case ScreenTrainerLesson, ScreenTrainerPractice, ScreenTrainerBoss:
-		// Return to trainer menu (stats saved in handlers)
+	case ScreenTrainerLesson, ScreenTrainerPractice:
+		// Esc is handled here before the screen-specific handlers run, so this
+		// path owns the save for the exercise screens.
+		if m.TrainerStats != nil {
+			trainer.SaveStats(m.TrainerStats)
+		}
 		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = ""
+	case ScreenTrainerBoss:
+		// Save the run and report the abandoned fight instead of leaving silently.
+		if m.TrainerStats != nil {
+			trainer.SaveStats(m.TrainerStats)
+		}
+		m.Screen = ScreenTrainerMenu
+		m.TrainerMessage = "Boss fight abandoned!"
 	case ScreenTrainerResult, ScreenTrainerBossResult:
 		// Return to trainer menu
 		if m.TrainerStats != nil {
@@ -1615,7 +1626,7 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.TrainerMessage = "Complete lessons + 80% practice accuracy to fight boss!"
 			}
 		}
-	case "esc", "q":
+	case "q":
 		// Save stats and go back to main menu
 		if m.TrainerStats != nil {
 			trainer.SaveStats(m.TrainerStats)
@@ -1641,15 +1652,6 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
-	case "esc":
-		// Exit to menu, save progress
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
-		m.Screen = ScreenTrainerMenu
-		m.TrainerMessage = ""
-		return m, nil
-
 	case "backspace":
 		// Remove last character from input
 		if len(m.TrainerInput) > 0 {
@@ -1745,15 +1747,6 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
-	case "esc":
-		// Forfeit boss fight
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
-		m.Screen = ScreenTrainerMenu
-		m.TrainerMessage = "Boss fight abandoned!"
-		return m, nil
-
 	case "backspace":
 		if len(m.TrainerInput) > 0 {
 			m.TrainerInput = m.TrainerInput[:len(m.TrainerInput)-1]
@@ -1889,7 +1882,7 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenTrainerMenu
 		}
 
-	case "esc", "q":
+	case "q":
 		// Return to menu
 		if m.TrainerStats != nil {
 			trainer.SaveStats(m.TrainerStats)
@@ -1903,7 +1896,7 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 // handleTrainerBossResultKeys handles the result screen after a boss fight
 func (m Model) handleTrainerBossResultKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "enter", " ", "esc", "q":
+	case "enter", " ", "q":
 		// Return to menu
 		if m.TrainerStats != nil {
 			trainer.SaveStats(m.TrainerStats)

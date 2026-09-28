@@ -884,3 +884,93 @@ func TestTrainerSpaceKeyRouting(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// ESCAPE ROUTING REGRESSION
+// =============================================================================
+
+// TestTrainerEscapePersistsLessonProgress is the regression test for lost lesson
+// progress. Esc is intercepted by the global handler in handleEscape before any
+// screen-specific trainer handler runs, so the exercise screens never saved the
+// session they were leaving. The assertions drive the real global handler
+// through Model.Update, because that is where the interception, and the defect,
+// lives.
+func TestTrainerEscapePersistsLessonProgress(t *testing.T) {
+	m := newTrainerLessonModel(t)
+
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("no exercise loaded")
+	}
+
+	// Answer the first exercise so the session has progress worth keeping.
+	m.TrainerInput = exercise.Optimal
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+
+	// Continue to the next exercise so Esc is pressed on the lesson screen
+	// itself; the result screen already saved on its own esc path.
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	if m.Screen != ScreenTrainerLesson {
+		t.Fatalf("screen after continuing = %v, want %v", m.Screen, ScreenTrainerLesson)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(Model)
+
+	if m.Screen != ScreenTrainerMenu {
+		t.Fatalf("screen after esc = %v, want %v", m.Screen, ScreenTrainerMenu)
+	}
+
+	loaded := trainer.LoadStats()
+	if loaded == nil {
+		t.Fatal("stats file is missing after leaving a lesson with esc; the earned progress was lost")
+	}
+	progress := loaded.GetModuleProgress(trainer.ModuleHorizontal)
+	if progress.LessonsCompleted < 1 {
+		t.Errorf("LessonsCompleted = %d after answering one lesson exercise and leaving with esc, want >= 1", progress.LessonsCompleted)
+	}
+}
+
+// TestTrainerEscapePersistsPracticeProgress covers the practice screen. The
+// practice handler saves on every answer, but any stats still in memory must
+// survive leaving the screen with esc, using the same save path.
+func TestTrainerEscapePersistsPracticeProgress(t *testing.T) {
+	m, _ := newPracticeSubmissionModel(t)
+
+	m.TrainerStats.TotalScore = 42
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(Model)
+
+	if m.Screen != ScreenTrainerMenu {
+		t.Fatalf("screen after esc = %v, want %v", m.Screen, ScreenTrainerMenu)
+	}
+	loaded := trainer.LoadStats()
+	if loaded == nil {
+		t.Fatal("stats file is missing after leaving practice with esc")
+	}
+	if loaded.TotalScore != 42 {
+		t.Errorf("TotalScore = %d after leaving practice with esc, want 42", loaded.TotalScore)
+	}
+}
+
+// TestTrainerEscapeAbandonsBossVisibly covers the boss screen. Esc must persist
+// the run and report the abandon instead of leaving silently.
+func TestTrainerEscapeAbandonsBossVisibly(t *testing.T) {
+	m := newTrainerBossModel(t)
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(Model)
+
+	if m.Screen != ScreenTrainerMenu {
+		t.Fatalf("screen after esc = %v, want %v", m.Screen, ScreenTrainerMenu)
+	}
+	if m.TrainerMessage != "Boss fight abandoned!" {
+		t.Errorf("TrainerMessage after esc = %q, want %q", m.TrainerMessage, "Boss fight abandoned!")
+	}
+	if trainer.LoadStats() == nil {
+		t.Error("stats file is missing after abandoning a boss with esc")
+	}
+}
