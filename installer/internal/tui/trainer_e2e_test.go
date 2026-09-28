@@ -1267,6 +1267,48 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 		}
 	})
 
+	t.Run("ctrl+v reaches the engine as a blockwise visual selection", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = ""
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlV})
+				m = result.(Model)
+
+				// The control byte the engine parses, not the key's name and not a
+				// printable "v".
+				if want := "\x16"; m.TrainerInput != want {
+					t.Errorf("TrainerInput = %q after ctrl+v, want %q", m.TrainerInput, want)
+				}
+
+				// The answer field spells it out instead of rendering a raw control
+				// character, exactly as it does for the other modelled keys.
+				if !strings.Contains(m.trainerAnswer(), "<C-v>") {
+					t.Errorf("trainerAnswer() = %q, want it to show <C-v>", m.trainerAnswer())
+				}
+
+				// The engine parses exactly what the interface inserted: the answer
+				// opens a blockwise selection rather than staying in normal mode.
+				exercise := m.TrainerGameState.CurrentExercise
+				if exercise == nil {
+					t.Fatal("no exercise loaded")
+				}
+				if got := trainer.SimulateEditing(exercise.Code, exercise.CursorPos, m.TrainerInput); got.Mode != trainer.ModeVisualBlock {
+					t.Errorf("SimulateEditing(%q).Mode = %v, want %v", m.TrainerInput, got.Mode, trainer.ModeVisualBlock)
+				}
+			})
+		}
+	})
+
 	t.Run("modelled control keys still insert their control character", func(t *testing.T) {
 		controlKeys := []struct {
 			name string
@@ -1281,6 +1323,10 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 			// such motion, so before the shared accepted set learned it the redo
 			// lesson was unanswerable.
 			{"ctrl+r", tea.KeyCtrlR, "\x12"},
+			// Ctrl-v is the byte the editing engine reads as a blockwise visual
+			// selection. It was ignored before, which left the columnwise lesson
+			// unanswerable.
+			{"ctrl+v", tea.KeyCtrlV, "\x16"},
 		}
 		cases := []struct {
 			name  string
@@ -1378,6 +1424,9 @@ func TestTrainerExerciseHelpNamesTheEscapeToken(t *testing.T) {
 			view := m.View()
 			if !strings.Contains(view, "[Ctrl-e] type "+trainer.EscToken) {
 				t.Errorf("exercise help does not document ctrl+e typing %s:\n%s", trainer.EscToken, view)
+			}
+			if !strings.Contains(view, "[Ctrl-v] block") {
+				t.Errorf("exercise help does not document ctrl+v opening a blockwise selection:\n%s", view)
 			}
 			if !strings.Contains(view, "[Esc] ") {
 				t.Errorf("exercise help lost the Esc key:\n%s", view)

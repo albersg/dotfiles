@@ -18,6 +18,7 @@ func formatControlChars(input string) string {
 	result = strings.ReplaceAll(result, "\x06", "<C-f>")
 	result = strings.ReplaceAll(result, "\x02", "<C-b>")
 	result = strings.ReplaceAll(result, "\x12", "<C-r>")
+	result = strings.ReplaceAll(result, "\x16", "<C-v>")
 	return result
 }
 
@@ -1342,10 +1343,11 @@ const (
 // fragment, joined through the same helpNotation as every other screen, so the
 // menu, the lesson, the practice and the boss legends cannot drift apart on the
 // keys they promise: Ctrl-e types the token an insert answer needs to leave
-// insert mode, Esc is the trainer's own exit key, Backspace is an input edit the
-// engine never sees, and PgUp/PgDn scroll the code window. The scroll keys are
-// key names rather than printable characters, so they cannot collide with
-// typing, with the hint key, with submit or with back.
+// insert mode, Ctrl-v types the byte that opens a blockwise visual selection,
+// Esc is the trainer's own exit key, Backspace is an input edit the engine never
+// sees, and PgUp/PgDn scroll the code window. The scroll keys are key names
+// rather than printable characters, so they cannot collide with typing, with
+// the hint key, with submit or with back.
 const (
 	trainerAnswerLabel = "⌨️ Your answer: "
 
@@ -1362,6 +1364,7 @@ const (
 	trainerHelpScroll      = "[PgUp/PgDn] scroll"
 	trainerHelpDelete      = "[Backspace] delete"
 	trainerHelpEscToken    = "[Ctrl-e] type " + trainer.EscToken
+	trainerHelpBlockVisual = "[Ctrl-v] block"
 	trainerHelpQuit        = "[Esc] quit"
 	trainerHelpForfeit     = "[Esc] forfeit"
 )
@@ -2062,7 +2065,7 @@ func (m Model) renderTrainerExercise(mode string) string {
 	rows = append(rows,
 		"",
 		trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpHint, trainerHelpScroll),
-		trainerHelpLine(trainerHelpDelete, trainerHelpEscToken, trainerHelpQuit),
+		trainerHelpLine(trainerHelpDelete, trainerHelpEscToken, trainerHelpBlockVisual, trainerHelpQuit),
 	)
 
 	return strings.Join(rows, "\n")
@@ -2228,7 +2231,7 @@ func (m Model) renderTrainerBoss() string {
 		rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
 		rows = append(rows, "",
 			trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpEscToken),
-			trainerHelpLine(trainerHelpScroll, trainerHelpForfeit))
+			trainerHelpLine(trainerHelpScroll, trainerHelpForfeit, trainerHelpBlockVisual))
 		return strings.Join(rows, "\n")
 	}
 
@@ -2251,7 +2254,7 @@ func (m Model) renderTrainerBoss() string {
 	rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
 	rows = append(rows, "",
 		trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpEscToken),
-		trainerHelpLine(trainerHelpScroll, trainerHelpForfeit))
+		trainerHelpLine(trainerHelpScroll, trainerHelpForfeit, trainerHelpBlockVisual))
 
 	return strings.Join(rows, "\n")
 }

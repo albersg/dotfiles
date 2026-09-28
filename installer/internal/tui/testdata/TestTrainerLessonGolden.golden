@@ -15,4 +15,4 @@
                                                                                 
                                                                                 
   Type command • [Enter] submit • [Tab] hint • [PgUp/PgDn] scroll               
-  [Backspace] delete • [Ctrl-e] type <Esc> • [Esc] quit                         [17A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  [Backspace] delete • [Ctrl-e] type <Esc> • [Ctrl-v] block • [Esc] quit        [17A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

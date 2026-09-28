@@ -17,6 +17,7 @@ type editingCase struct {
 	wantBuffer []string
 	wantCursor Position
 	wantMode   Mode
+	wantSel    Selection
 	wantRec    bool
 }
 
@@ -34,6 +35,9 @@ func runEditingCases(t *testing.T, cases []editingCase) {
 			}
 			if got.Mode != tc.wantMode {
 				t.Errorf("Mode = %v, want %v", got.Mode, tc.wantMode)
+			}
+			if !reflect.DeepEqual(got.Selection, tc.wantSel) {
+				t.Errorf("Selection = %+v, want %+v", got.Selection, tc.wantSel)
 			}
 			if got.Recognized != tc.wantRec {
 				t.Errorf("Recognized = %v, want %v", got.Recognized, tc.wantRec)
@@ -3263,6 +3267,435 @@ func TestSimulateEditing_OperatorMotionPercent(t *testing.T) {
 			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 4}, input: "d2%",
 			wantBuffer: []string{"call(a, b)"},
 			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: false,
+		},
+	})
+}
+
+// Visual mode is specified against a reference, not reasoned about:
+// nvim --clean --headless with `set shiftwidth=2 expandtab tabstop=2
+// startofline`, a fresh process per case, and the buffer loaded from a file.
+// The blockwise cases were typed key by key because a block selection is a live
+// mode: which columns it covers when the lines have different lengths, what
+// happens when it reaches past the end of a short line, where the cursor lands
+// after each operation, whether I skips a line it cannot reach, whether A pads
+// a short line, and the top-to-bottom order the insert applies to were all read
+// from that reference. The observation each case encodes is named in its own
+// comment.
+const blockVisual = string(blockVisualKey)
+
+// blockVisualBuffer is the fixture with three different line lengths used by the
+// blockwise specifications: long, short, medium. The short middle line is what
+// makes the column and padding rules observable.
+func blockVisualBuffer() []string {
+	return []string{"abcdef", "ab", "abcd"}
+}
+
+func TestSimulateEditing_VisualLineSelectsWholeLines(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "V enters linewise visual and keeps the cursor",
+			code: base, start: Position{Line: 1, Col: 2}, input: "V",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeVisualLine,
+			wantSel: Selection{StartLine: 1, StartCol: 0, EndLine: 1, EndCol: 5, Active: true},
+			wantRec: true,
+		},
+		{
+			name: "V then j extends to the next whole line",
+			code: base, start: Position{Line: 1, Col: 2}, input: "Vj",
+			wantBuffer: base,
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeVisualLine,
+			wantSel: Selection{StartLine: 1, StartCol: 0, EndLine: 2, EndCol: 4, Active: true},
+			wantRec: true,
+		},
+		{
+			name: "V then k extends up and the selection is normalised",
+			code: base, start: Position{Line: 2, Col: 3}, input: "Vk",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeVisualLine,
+			wantSel: Selection{StartLine: 1, StartCol: 0, EndLine: 2, EndCol: 4, Active: true},
+			wantRec: true,
+		},
+		{
+			name: "the escape token leaves visual line mode in normal mode",
+			code: base, start: Position{Line: 1, Col: 2}, input: "V" + EscToken,
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal,
+			wantSel: Selection{}, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_VisualLineOperations pins the linewise operators. The
+// reference is the pty run of nvim with the settings above: Vjd and Vjx delete
+// the selected lines and land on the first non-blank of the line that takes
+// their place, Vjy leaves the cursor at the first line of the selection, Vj>
+// and Vj< shift the whole lines, and Vjc replaces them with the first line's
+// indentation plus the typed text.
+func TestSimulateEditing_VisualLineOperations(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "Vjd deletes the selected lines",
+			code: base, start: Position{Line: 1, Col: 2}, input: "Vjd",
+			wantBuffer: []string{"alpha", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "Vjd from the first line deletes down",
+			code: base, start: Position{Line: 0, Col: 0}, input: "Vjd",
+			wantBuffer: []string{"gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "Vjx is the same delete",
+			code: base, start: Position{Line: 1, Col: 2}, input: "Vjx",
+			wantBuffer: []string{"alpha", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "Vjy yanks the lines and leaves the cursor on the first of them",
+			code: base, start: Position{Line: 1, Col: 2}, input: "Vjy",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "Vj> shifts the selected lines right",
+			code: base, start: Position{Line: 1, Col: 2}, input: "Vj>",
+			wantBuffer: []string{"alpha", "    beta", "  gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "Vj< shifts the selected lines left",
+			code: base, start: Position{Line: 1, Col: 2}, input: "Vj<",
+			wantBuffer: []string{"alpha", "beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "Vjc replaces the lines with the first line's indentation plus typed text",
+			code: base, start: Position{Line: 1, Col: 2}, input: "VjcX" + EscToken,
+			wantBuffer: []string{"alpha", "  X", "delta"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "Vc changes the single selected line",
+			code: base, start: Position{Line: 1, Col: 2}, input: "VcX" + EscToken,
+			wantBuffer: []string{"alpha", "  X", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+func TestSimulateEditing_VisualBlockSelectsColumns(t *testing.T) {
+	base := blockVisualBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "Ctrl-v enters blockwise visual on the cursor's cell",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual,
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeVisualBlock,
+			wantSel: Selection{StartLine: 0, StartCol: 2, EndLine: 0, EndCol: 2, Active: true},
+			wantRec: true,
+		},
+		{
+			name: "j extends the block and the cursor rests one past a short line",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "j",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeVisualBlock,
+			wantSel: Selection{StartLine: 0, StartCol: 2, EndLine: 1, EndCol: 2, Active: true},
+			wantRec: true,
+		},
+		{
+			name: "jjl extends the block down and right",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jjl",
+			wantBuffer: base,
+			wantCursor: Position{Line: 2, Col: 3}, wantMode: ModeVisualBlock,
+			wantSel: Selection{StartLine: 0, StartCol: 2, EndLine: 2, EndCol: 3, Active: true},
+			wantRec: true,
+		},
+		{
+			// nvim observation: with the cursor on the last rune, l moves one
+			// column past it, and the block covers that virtual column.
+			name: "l reaches one column past the last rune",
+			code: []string{"ab"}, start: Position{Line: 0, Col: 1}, input: blockVisual + "l",
+			wantBuffer: []string{"ab"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeVisualBlock,
+			wantSel: Selection{StartLine: 0, StartCol: 1, EndLine: 0, EndCol: 2, Active: true},
+			wantRec: true,
+		},
+		{
+			name: "the escape token leaves blockwise visual in normal mode",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "j" + EscToken,
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal,
+			wantSel: Selection{}, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_VisualBlockDeleteAndYank pins the block mutations. The
+// reference is the same pty run: the block covers the columns between the anchor
+// and the cursor, a line too short to reach the block's left edge contributes
+// nothing, and the cursor lands on the block's left edge of the first line,
+// clamped into that line.
+func TestSimulateEditing_VisualBlockDeleteAndYank(t *testing.T) {
+	base := blockVisualBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			// nvim: "gg0ll<C-v>jd" left abdef/ab/abcd at line 1, col 3.
+			name: "j then d deletes the single column on the lines it reaches",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jd",
+			wantBuffer: []string{"abdef", "ab", "abcd"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0ll<C-v>jjld" left abef/ab/ab. The l on the short middle
+			// line does not move, so the block is one column on that row.
+			name: "the block covers the columns the cursor actually reached",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jjl" + "d",
+			wantBuffer: []string{"abef", "ab", "ab"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0lll<C-v>jjd" left abcef/ab/abc.
+			name: "a short line contributes nothing to a block that starts past it",
+			code: base, start: Position{Line: 0, Col: 3}, input: blockVisual + "jjd",
+			wantBuffer: []string{"abcef", "ab", "abc"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "x is the same delete as d",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jl" + "x",
+			wantBuffer: []string{"abdef", "ab", "abcd"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0ll<C-v>jly" left the buffer alone and put the cursor on
+			// the block's top-left corner.
+			name: "y leaves the buffer alone and lands on the top-left corner",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jl" + "y",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0ll<C-v>jjd" on ["  ab","a",""] left b/""/"" at 1,1.
+			// The empty last line clamps the cursor to column 0, so the block
+			// spans columns 0..2 and the delete starts at column 0.
+			name: "an empty line clamps the cursor and widens the block",
+			code: []string{"  ab", "a", ""}, start: Position{Line: 0, Col: 2}, input: blockVisual + "jjd",
+			wantBuffer: []string{"b", "", ""},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "ggjjll<C-v>kd" left abcdef/ab/abd at 2,2. The delete lands
+			// on column 2 but "ab" is only two runes long, so it clamps to 2,2.
+			name: "the cursor clamps into the first line after a delete",
+			code: base, start: Position{Line: 2, Col: 2}, input: blockVisual + "kd",
+			wantBuffer: []string{"abcdef", "ab", "abd"},
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_VisualBlockInsert is the point of block mode and the part
+// the reference run settles. I inserts at the block's left edge on every line it
+// can reach and skips a line that is too short to reach it; A appends after the
+// block's right edge on every line and pads a short line with spaces; c deletes
+// the block and then inserts at its left edge. All three land the cursor on the
+// block's left edge of the first line. The values are the ones the pty run of
+// nvim with the settings above printed, repeated twice per case.
+func TestSimulateEditing_VisualBlockInsert(t *testing.T) {
+	base := blockVisualBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			// nvim: "gg0ll<C-v>jIX<Esc>" abXcdef/abX/abcd at line 1, col 3.
+			name: "I inserts at the left edge on every line",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jI" + "X" + EscToken,
+			wantBuffer: []string{"abXcdef", "abX", "abcd"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0lll<C-v>jjIX<Esc>" abcXdef/ab/abcXd. The middle line is
+			// shorter than the block's left edge, so I leaves it alone rather
+			// than padding it.
+			name: "I skips a line too short to reach the left edge",
+			code: base, start: Position{Line: 0, Col: 3}, input: blockVisual + "jjI" + "X" + EscToken,
+			wantBuffer: []string{"abcXdef", "ab", "abcXd"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0ll<C-v>jlAX<Esc>" abcXdef/ab X/abcd.
+			name: "A appends after the block's right edge on every line",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jlA" + "X" + EscToken,
+			wantBuffer: []string{"abcXdef", "ab X", "abcd"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0lll<C-v>jjAX<Esc>" abcdXef/ab  X/abcdX. The short middle
+			// line is padded with spaces so the appended text lines up.
+			name: "A pads a short line instead of skipping it",
+			code: base, start: Position{Line: 0, Col: 3}, input: blockVisual + "jjA" + "X" + EscToken,
+			wantBuffer: []string{"abcdXef", "ab  X", "abcdX"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "A with nothing typed leaves the buffer alone",
+			code: base, start: Position{Line: 0, Col: 3}, input: blockVisual + "jjA" + EscToken,
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0ll<C-v>jlcX<Esc>" abXdef/abX/abcd.
+			name: "c deletes the block and inserts at its left edge",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jlc" + "X" + EscToken,
+			wantBuffer: []string{"abXdef", "abX", "abcd"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "ggjjll<C-v>kIX<Esc>" abcdef/abX/abXcd at 2,3. The anchor is
+			// below the cursor here, so the top row is the cursor's line and the
+			// typed text is written from the top down.
+			name: "I works when the selection was extended upwards",
+			code: base, start: Position{Line: 2, Col: 2}, input: blockVisual + "kI" + "X" + EscToken,
+			wantBuffer: []string{"abcdef", "abX", "abXcd"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0lll<C-v>jjcX<Esc>" abcXef/ab/abcX.
+			name: "c skips the short line after deleting the block",
+			code: base, start: Position{Line: 0, Col: 3}, input: blockVisual + "jjc" + "X" + EscToken,
+			wantBuffer: []string{"abcXef", "ab", "abcX"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "c with nothing typed only deletes the block",
+			code: base, start: Position{Line: 0, Col: 3}, input: blockVisual + "jjc" + EscToken,
+			wantBuffer: []string{"abcef", "ab", "abc"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_VisualBlockYankThenPut verifies the block yank by the only
+// thing that can: putting it back. The block register is blockwise, so p and P
+// insert each row's cell at the cursor's column on that row, padding a short
+// line to reach it. The reference is the pty run: "gg0ll<C-v>jlyp" produced
+// abccdef/ab , "$p" produced abcdefc/ab    , and "$P" produced abcdecf/ab   .
+func TestSimulateEditing_VisualBlockYankThenPut(t *testing.T) {
+	base := blockVisualBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "p puts the block after the cursor, padding a short line",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jl" + "y" + "p",
+			wantBuffer: []string{"abccdef", "ab ", "abcd"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "p at the end of the line puts after the last rune",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jl" + "y$p",
+			wantBuffer: []string{"abcdefc", "ab    ", "abcd"},
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "P puts the block before the cursor",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jl" + "y$P",
+			wantBuffer: []string{"abcdecf", "ab   ", "abcd"},
+			wantCursor: Position{Line: 0, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim: "gg0lll<C-v>jy$p" on ["abcdef","ab"] left abcdefcd/ab    .
+			// The second row's cell is empty, but the put still pads it to the
+			// insertion column so the block's shape survives.
+			name: "an empty cell still pads its line",
+			code: []string{"abcdef", "ab"}, start: Position{Line: 0, Col: 3}, input: blockVisual + "jy$p",
+			wantBuffer: []string{"abcdefcd", "ab    "},
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_VisualModeRefusals pins what the engine deliberately does
+// not model, so it is refused rather than applied with the wrong meaning. A
+// count in front of a visual operator scales a motion in Vim; a blockwise $ does
+// not move to the end of the current line but extends the block to the longest
+// line of the selection; and a blockwise > shifts lines, which is a different
+// operation from the linewise shift this engine models. Each is recognized as
+// unrecognized input, never applied as something else.
+func TestSimulateEditing_VisualModeRefusals(t *testing.T) {
+	base := blockVisualBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "a counted V is refused",
+			code: base, start: Position{Line: 0, Col: 2}, input: "2V",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			// The count is in front of the operator, not in front of a motion:
+			// 2jd is a valid Vim answer (move down and delete), while 2d scales a
+			// motion this engine does not model.
+			name: "a counted block delete is refused",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "2d",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeVisualBlock,
+			wantSel: Selection{StartLine: 0, StartCol: 2, EndLine: 0, EndCol: 2, Active: true}, wantRec: false,
+		},
+		{
+			name: "blockwise $ is refused rather than read as end-of-line",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "j$d",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeVisualBlock,
+			wantSel: Selection{StartLine: 0, StartCol: 2, EndLine: 1, EndCol: 2, Active: true}, wantRec: false,
+		},
+		{
+			name: "blockwise > is refused",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "j>",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeVisualBlock,
+			wantSel: Selection{StartLine: 0, StartCol: 2, EndLine: 1, EndCol: 2, Active: true}, wantRec: false,
+		},
+	})
+}
+
+// TestSimulateEditing_VisualOperationsUndoAsOneStep triangulates the visual
+// operators against the undo model: each is one normal-mode command, so one u
+// restores the buffer it found. A blockwise insert is one session block, so a
+// single u takes back the text written on every row.
+func TestSimulateEditing_VisualOperationsUndoAsOneStep(t *testing.T) {
+	base := blockVisualBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "undoing a linewise visual delete restores the lines",
+			code: base, start: Position{Line: 0, Col: 2}, input: "Vjdu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undoing a linewise visual shift restores the indentation",
+			code: base, start: Position{Line: 0, Col: 2}, input: "Vj>u",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undoing a blockwise delete restores the block",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jdu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undoing a blockwise insert restores every row in one step",
+			code: base, start: Position{Line: 0, Col: 2}, input: blockVisual + "jI" + "XY" + EscToken + "u",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
 		},
 	})
 }

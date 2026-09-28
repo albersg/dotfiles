@@ -1753,19 +1753,20 @@ func (m Model) clearTrainerProfile() (tea.Model, tea.Cmd) {
 // trainerControlChars maps the control key names the trainer accepts as answer
 // input to the bytes the engine parses for them. It mirrors the control keys
 // handled by trainer.SimulateMotionsWithSelection (\x04, \x15, \x06 and \x02)
-// plus trainer.SimulateEditing's redo (\x12); a ctrl+ combination absent here has
-// no meaning in either engine, so both exercise handlers ignore it instead of
-// typing its literal name into the answer. ctrl+e is the one value that is not a
-// control character: it types trainer.EscToken, because Esc is the trainer's
-// global exit key and an insert answer that has to leave insert mode cannot be
-// spelled any other way. This is the single accepted set shared by the
-// lesson/practice and boss handlers.
+// plus trainer.SimulateEditing's redo (\x12) and blockwise visual (\x16); a
+// ctrl+ combination absent here has no meaning in either engine, so both
+// exercise handlers ignore it instead of typing its literal name into the
+// answer. ctrl+e is the one value that is not a control character: it types
+// trainer.EscToken, because Esc is the trainer's global exit key and an insert
+// answer that has to leave insert mode cannot be spelled any other way. This is
+// the single accepted set shared by the lesson/practice and boss handlers.
 var trainerControlChars = map[string]string{
 	"ctrl+d": "\x04",
 	"ctrl+u": "\x15",
 	"ctrl+f": "\x06",
 	"ctrl+b": "\x02",
 	"ctrl+r": "\x12",
+	"ctrl+v": "\x16",
 	"ctrl+e": trainer.EscToken,
 }
 

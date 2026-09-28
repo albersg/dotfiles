@@ -15,10 +15,18 @@ import (
 // disagree about it.
 const EscToken = "<Esc>"
 
+// blockVisualKey is the byte the trainer types for Ctrl-v, the key that opens a
+// blockwise visual selection. It is the control character nvim reads, and it is
+// the counterpart of the redo key's \x12: the interface inserts the byte and
+// the engine parses it as the command, so the two cannot disagree about it.
+const blockVisualKey byte = '\x16'
+
 // Mode is the editing mode the engine is in after an answer. ModeNormal and
-// ModeInsert are reachable from the commands this engine understands; the
-// remaining constants exist so the visual commands of a following task can be
-// added without changing the shape of EditingResult.
+// ModeInsert are reachable from the commands this engine understands, and so are
+// ModeVisualLine and ModeVisualBlock: V and Ctrl-v open them, a motion extends
+// them and a linewise or blockwise operator closes them. ModeVisual, the
+// character-wise selection v opens, is declared so the type has the shape Vim's
+// modes do, but it is not reachable yet.
 type Mode int
 
 const (
@@ -43,12 +51,14 @@ const (
 // the next typed rune would occupy, which may sit one past the last rune of its
 // line. That is the same position nvim reports as col('.')-1 while insert mode
 // is still open, and it is what makes an answer that never leaves insert mode
-// comparable at all.
+// comparable at all. In a visual mode it is the moving end of the selection,
+// which may also sit one rune past the last rune of its line.
 type EditingResult struct {
-	Buffer     []string // the buffer after the answer
-	Cursor     Position // the cursor after the answer, in runes
-	Mode       Mode     // the mode after the answer
-	Recognized bool     // false when the answer contains something the engine cannot parse
+	Buffer     []string  // the buffer after the answer
+	Cursor     Position  // the cursor after the answer, in runes
+	Mode       Mode      // the mode after the answer
+	Selection  Selection // the visual selection the answer left open, when Mode is a visual one
+	Recognized bool      // false when the answer contains something the engine cannot parse
 }
 
 // shiftWidth is one shift for >> and <<, in columns. The trainer's exercises
@@ -68,7 +78,11 @@ const tabStop = 2
 type editingRegister struct {
 	lines    []string
 	linewise bool
-	set      bool
+	// blockwise marks a register filled by a blockwise visual yank or delete.
+	// lines then holds one cell per selected row rather than whole lines or a
+	// single line, because p and P have to reproduce the block's shape.
+	blockwise bool
+	set       bool
 }
 
 // editorRegisters is the register file an answer can reach: the unnamed
@@ -106,6 +120,19 @@ type editorSnapshot struct {
 	insertSession bool
 }
 
+// blockInsert is the open blockwise insert session: the rows the typed text is
+// replayed onto when the session ends, the column it is inserted at, the
+// block's left edge (where the cursor lands) and the first row's length before
+// typing started, so the typed text can be read back off the first row. nvim
+// applies the text to every row, top to bottom, and that order is what makes the
+// first row's copy the one the cursor was typed into.
+type blockInsert struct {
+	rows     []int
+	col      int
+	left     int
+	startLen int
+}
+
 // editor is the mutable editing state for a single SimulateEditing call.
 type editor struct {
 	buffer []string
@@ -136,6 +163,16 @@ type editor struct {
 	// deletion an undo performs to the mark as well, and this engine does not
 	// model that.
 	marks map[byte]Position
+	// visualAnchor is where the open visual selection started: the cursor when V
+	// or Ctrl-v was pressed. It is only meaningful while mode is a visual one.
+	visualAnchor Position
+	// visualWant is the column a vertical visual motion returns to, Vim's
+	// curswant. A vertical motion puts the cursor at min(visualWant, line length)
+	// so a block can reach one column past a short line, and a horizontal motion
+	// resets it to where it landed.
+	visualWant int
+	// blockInsert is the open blockwise insert session, and nil otherwise.
+	blockInsert *blockInsert
 }
 
 // SimulateEditing runs input against a mutable copy of code starting at start
@@ -186,7 +223,7 @@ func (e *editor) clampCursor() {
 	}
 
 	last := utf8.RuneCountInString(e.buffer[e.cursor.Line]) - 1
-	if e.mode == ModeInsert {
+	if e.mode == ModeInsert || e.visual() {
 		last++
 	}
 	if last < 0 {
@@ -206,7 +243,10 @@ func (e *editor) clampCursor() {
 // parser, so an answer may reposition the cursor before it mutates, and a motion
 // ahead of a mutation acts on the line the motion reached rather than a second,
 // divergent motion implementation. Inside an insert session the only commands
-// are the escape token, which closes the session, and a printable rune.
+// are the escape token, which closes the session, and a printable rune. A visual
+// mode is entered with V or Ctrl-v and left by an operator over the selection or
+// by the escape token; a motion in between extends the selection instead of
+// moving the cursor alone.
 //
 // A motion changes only the cursor, so it never records an undo snapshot; the
 // one-snapshot-per-command rule still holds because only a buffer change
@@ -242,9 +282,31 @@ func (e *editor) execute(input string) bool {
 		// The trainer's escape token is not a Vim command, so it is consumed here
 		// in normal mode as a no-op and the answer stays recognized; a count in
 		// front of it is abandoned with it, which is what an Esc does to a pending
-		// count in nvim.
+		// count in nvim. In a visual mode it leaves the selection, which is what
+		// Esc does there, and leaves the cursor where it was.
 		if strings.HasPrefix(input[afterCount:], EscToken) {
+			if e.visual() {
+				e.mode = ModeNormal
+			}
 			i = afterCount + len(EscToken)
+			continue
+		}
+
+		// In a visual mode an operator acts on the selection and a motion extends
+		// it, so the normal-mode dispatch below is skipped entirely.
+		if e.visual() {
+			if afterCount < len(input) {
+				if consumed, ok := e.applyVisualOperator(ref, count, input[afterCount:]); ok {
+					i = afterCount + consumed
+					continue
+				}
+			}
+			pos, consumed, ok := e.visualMotion(input[i:])
+			if consumed == 0 || !ok {
+				return false
+			}
+			e.cursor = Position{Line: pos.Line, Col: pos.Col}
+			i += consumed
 			continue
 		}
 
@@ -259,6 +321,17 @@ func (e *editor) execute(input string) bool {
 
 		if afterCount < len(input) {
 			cmd := input[afterCount]
+			// V and Ctrl-v open a visual selection. A counted entry would select a
+			// count of lines in nvim, which this engine does not model, so it is
+			// refused like a counted D rather than opening a one-line selection.
+			if cmd == 'V' || cmd == blockVisualKey {
+				if count > 1 {
+					return false
+				}
+				e.enterVisual(cmd)
+				i = afterCount + 1
+				continue
+			}
 			// An insert entry is one key with no second key and no buffer change of
 			// its own, but Vim's [count]i and [count]o repeat the inserted text
 			// count times, which this engine does not model, so a counted entry is
@@ -592,6 +665,13 @@ func (e *editor) insertRune(r rune) {
 // buffer as it found it - "i<Esc>" with nothing typed - commits nothing, so it
 // neither adds an undo step nor clears the redo stack, which is what nvim does.
 func (e *editor) leaveInsert() {
+	// A blockwise insert replays its typed text onto every row it selected, so
+	// it closes through its own path rather than the ordinary one.
+	if e.blockInsert != nil {
+		e.finishBlockInsert()
+		return
+	}
+
 	if e.autoIndentSet && e.cursor.Col == e.autoIndent {
 		e.buffer[e.cursor.Line] = ""
 		e.cursor.Col = 0
@@ -774,6 +854,10 @@ func (e *editor) put(ref registerRef, count int, before bool) {
 	if !reg.set || len(reg.lines) == 0 {
 		return
 	}
+	if reg.blockwise {
+		e.putBlock(reg.lines, before)
+		return
+	}
 	if !reg.linewise {
 		e.putChars(reg.lines[0], count, before)
 		return
@@ -797,6 +881,35 @@ func (e *editor) put(ref registerRef, count int, before bool) {
 
 	cursor := Position{Line: insertAt, Col: startOfLineColumn(buffer[insertAt])}
 	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
+}
+
+// putBlock implements p (before false) and P (before true) for a blockwise
+// register. Each cell is inserted at the cursor's column on its own row - after
+// it for p, before it for P - and a row shorter than that column is padded with
+// spaces so the block keeps its shape. The cursor lands on the insertion column
+// of the first row, which is where nvim leaves it. [count] is not modelled for a
+// blockwise put; the block is put once.
+func (e *editor) putBlock(cells []string, before bool) {
+	at := e.cursor.Col
+	if !before {
+		at++
+	}
+	if at < 0 {
+		at = 0
+	}
+
+	next := copyLines(e.buffer)
+	start := e.cursor.Line
+	for i, cell := range cells {
+		line := start + i
+		for line >= len(next) {
+			next = append(next, "")
+		}
+		next[line] = padAndInsert(next[line], at, cell)
+	}
+
+	cursor := Position{Line: start, Col: clampColumn(next[start], at)}
+	e.commit(next, cursor, !sameLines(e.buffer, next), false)
 }
 
 // putChars implements a character-wise p and P: p inserts the text after the
@@ -1234,6 +1347,407 @@ func (e *editor) applyCharwiseOperator(cmd byte, ref registerRef, line, startCol
 	return true
 }
 
+// visual reports whether a visual selection is open.
+func (e *editor) visual() bool {
+	return e.mode == ModeVisualLine || e.mode == ModeVisualBlock
+}
+
+// enterVisual opens the visual selection cmd names at the cursor. The cursor
+// becomes the anchor and the curswant, so the first vertical motion returns to
+// the column the selection started from.
+func (e *editor) enterVisual(cmd byte) {
+	if cmd == blockVisualKey {
+		e.mode = ModeVisualBlock
+	} else {
+		e.mode = ModeVisualLine
+	}
+	e.visualAnchor = e.cursor
+	e.visualWant = e.cursor.Col
+}
+
+// visualLines is the line range the open selection covers, normalised so the
+// first is the upper line.
+func (e *editor) visualLines() (int, int) {
+	first, last := e.visualAnchor.Line, e.cursor.Line
+	if first > last {
+		first, last = last, first
+	}
+	if first < 0 {
+		first = 0
+	}
+	if last >= len(e.buffer) {
+		last = len(e.buffer) - 1
+	}
+	return first, last
+}
+
+// visualCols is the column range the open block selection covers, normalised so
+// the first is the left edge.
+func (e *editor) visualCols() (int, int) {
+	left, right := e.visualAnchor.Col, e.cursor.Col
+	if left > right {
+		left, right = right, left
+	}
+	if left < 0 {
+		left = 0
+	}
+	return left, right
+}
+
+// visualMotion applies one motion to the cursor inside a visual mode and reports
+// how many bytes it consumed. The shared parser supplies the motion vocabulary
+// and its landing; this corrects the two columns the parser cannot know about
+// because it models a normal-mode cursor that stops on the last rune. A vertical
+// motion returns to the curswant clamped to the destination line's length, so a
+// block can reach one column past a short line; l may reach one column past the
+// last rune; and every other motion resets the curswant to where it landed. A
+// blockwise $ is refused: in nvim it does not move to the end of the current
+// line but extends the block to the longest line it covers, which this cursor
+// model cannot represent.
+func (e *editor) visualMotion(rest string) (SimulatedPosition, int, bool) {
+	key, count, _ := motionKey(rest)
+	if e.mode == ModeVisualBlock && key == '$' {
+		return e.motionPosition(), 0, false
+	}
+
+	before := e.cursor
+	pos, consumed, ok := parseMotion(rest, e.motionPosition(), e.buffer, &e.find)
+	if consumed == 0 || !ok {
+		return pos, consumed, false
+	}
+	if pos.Line < 0 || pos.Line >= len(e.buffer) {
+		return pos, consumed, true
+	}
+
+	length := utf8.RuneCountInString(e.buffer[pos.Line])
+	switch {
+	case (key == 'j' || key == 'k') && pos.Line != before.Line:
+		pos.Col = min(e.visualWant, length)
+	case key == 'l':
+		pos.Col = min(before.Col+count, length)
+		e.visualWant = pos.Col
+	default:
+		e.visualWant = pos.Col
+	}
+	return pos, consumed, true
+}
+
+// applyVisualOperator applies one operator to the open visual selection and
+// reports how many bytes of rest it consumed. Every operator exits the visual
+// mode, so a judged answer ends in normal mode - or in an insert session, for c,
+// I and A, until the escape token closes it.
+func (e *editor) applyVisualOperator(ref registerRef, count int, rest string) (int, bool) {
+	if len(rest) == 0 {
+		return 0, false
+	}
+	cmd := rest[0]
+
+	// V and Ctrl-v switch the selection to their kind, and pressing the key of
+	// the kind that is already open leaves the selection, exactly as nvim does.
+	if cmd == 'V' {
+		if e.mode == ModeVisualLine {
+			e.mode = ModeNormal
+		} else {
+			e.mode = ModeVisualLine
+		}
+		return 1, true
+	}
+	if cmd == blockVisualKey {
+		if e.mode == ModeVisualBlock {
+			e.mode = ModeNormal
+		} else {
+			e.mode = ModeVisualBlock
+		}
+		return 1, true
+	}
+
+	// A count in front of a visual operator scales the motion inside the
+	// selection in nvim, which this engine does not model, so it is refused
+	// rather than applied once.
+	if count > 1 {
+		return 0, false
+	}
+
+	first, last := e.visualLines()
+
+	switch cmd {
+	case 'd', 'x':
+		if e.mode == ModeVisualLine {
+			e.deleteVisualLines(ref, first, last)
+		} else {
+			e.deleteVisualBlock(ref, first, last)
+		}
+		return 1, true
+	case 'y':
+		if e.mode == ModeVisualLine {
+			e.yankVisualLines(ref, first, last)
+		} else {
+			e.yankVisualBlock(ref, first, last)
+		}
+		return 1, true
+	case '>', '<':
+		// A linewise shift is the operation this engine models; a blockwise
+		// shift shifts the lines rather than the block's columns, and is refused
+		// rather than applied as its linewise twin.
+		if e.mode != ModeVisualLine {
+			return 0, false
+		}
+		e.shiftLineRange(first, last, cmd == '>')
+		e.mode = ModeNormal
+		return 1, true
+	case 'c':
+		if e.mode == ModeVisualLine {
+			e.changeVisualLines(ref, first, last)
+		} else {
+			e.changeVisualBlock(ref, first, last)
+		}
+		return 1, true
+	case 'I':
+		if e.mode != ModeVisualBlock {
+			return 0, false
+		}
+		e.insertVisualBlock(first, last, false)
+		return 1, true
+	case 'A':
+		if e.mode != ModeVisualBlock {
+			return 0, false
+		}
+		e.insertVisualBlock(first, last, true)
+		return 1, true
+	}
+	return 0, false
+}
+
+// deleteVisualLines implements the linewise d and x. It fills the register with
+// the selected whole lines and lands the cursor on the first non-blank of the
+// line that takes their place, exactly as dd does for the same range.
+func (e *editor) deleteVisualLines(ref registerRef, first, last int) {
+	e.storeRegister(ref, linewiseRegister(e.buffer[first:last+1]), false)
+	e.marksDeletedLines(first, last-first+1)
+
+	remaining := make([]string, 0, len(e.buffer)-(last-first+1))
+	remaining = append(remaining, e.buffer[:first]...)
+	remaining = append(remaining, e.buffer[last+1:]...)
+	if len(remaining) == 0 {
+		remaining = []string{""}
+	}
+
+	cursor := Position{Line: first}
+	if cursor.Line >= len(remaining) {
+		cursor.Line = len(remaining) - 1
+	}
+	cursor.Col = startOfLineColumn(remaining[cursor.Line])
+	e.commit(remaining, cursor, !sameLines(e.buffer, remaining), last == first)
+	e.mode = ModeNormal
+}
+
+// yankVisualLines implements the linewise y. nvim leaves the cursor on the first
+// line of the selection, at its first column, which the reference run printed as
+// column 0 for every V...y case.
+func (e *editor) yankVisualLines(ref registerRef, first, last int) {
+	e.storeRegister(ref, linewiseRegister(e.buffer[first:last+1]), true)
+	e.cursor = Position{Line: first, Col: 0}
+	e.mode = ModeNormal
+}
+
+// changeVisualLines implements the linewise c: the selected lines go to the
+// register and a single line holding the first line's indentation takes their
+// place, with an insert session open at its first non-blank. nvim does the same
+// (VcX<Esc> on "  one"/"    two" leaves "  X"), and the whole change is one undo
+// block through beginInsert's session snapshot.
+func (e *editor) changeVisualLines(ref registerRef, first, last int) {
+	e.storeRegister(ref, linewiseRegister(e.buffer[first:last+1]), false)
+	e.marksDeletedLines(first, last-first+1)
+
+	indent := strings.Repeat(" ", indentColumns(e.buffer[first]))
+	next := make([]string, 0, len(e.buffer)-(last-first)+1)
+	next = append(next, e.buffer[:first]...)
+	next = append(next, indent)
+	next = append(next, e.buffer[last+1:]...)
+
+	at := Position{Line: first, Col: firstNonBlankOrEndColumn(indent)}
+	session := Position{Line: first, Col: startOfLineColumn(e.buffer[first])}
+	e.beginInsert(next, at, session)
+}
+
+// deleteVisualBlock implements the blockwise d and x. The block covers the
+// columns between the anchor and the cursor on every line between them; a line
+// too short to reach the block's left edge is left alone, and a line that ends
+// inside the block gives up only what it has. The deleted cells are stored as a
+// blockwise register, and the cursor lands on the block's left edge of the first
+// line, clamped into that line.
+func (e *editor) deleteVisualBlock(ref registerRef, first, last int) {
+	left, right := e.visualCols()
+	cells := make([]string, 0, last-first+1)
+	next := copyLines(e.buffer)
+	for line := first; line <= last; line++ {
+		cell, kept := cutBlockCell([]rune(next[line]), left, right)
+		cells = append(cells, cell)
+		next[line] = kept
+	}
+	e.storeRegister(ref, blockwiseRegister(cells), false)
+	cursor := Position{Line: first, Col: clampColumn(next[first], left)}
+	e.commit(next, cursor, !sameLines(e.buffer, next), false)
+	e.mode = ModeNormal
+}
+
+// yankVisualBlock implements the blockwise y. It stores one cell per selected
+// row and leaves the cursor on the block's top-left corner.
+func (e *editor) yankVisualBlock(ref registerRef, first, last int) {
+	left, right := e.visualCols()
+	cells := make([]string, 0, last-first+1)
+	for line := first; line <= last; line++ {
+		cell, _ := cutBlockCell([]rune(e.buffer[line]), left, right)
+		cells = append(cells, cell)
+	}
+	e.storeRegister(ref, blockwiseRegister(cells), true)
+	e.cursor = Position{Line: first, Col: clampColumn(e.buffer[first], left)}
+	e.mode = ModeNormal
+}
+
+// changeVisualBlock implements the blockwise c as the block delete followed by
+// the block insert at its left edge, which is what nvim does.
+func (e *editor) changeVisualBlock(ref registerRef, first, last int) {
+	left, right := e.visualCols()
+	cells := make([]string, 0, last-first+1)
+	next := copyLines(e.buffer)
+	for line := first; line <= last; line++ {
+		cell, kept := cutBlockCell([]rune(next[line]), left, right)
+		cells = append(cells, cell)
+		next[line] = kept
+	}
+	e.storeRegister(ref, blockwiseRegister(cells), false)
+	e.startBlockInsert(next, first, last, left, left, false)
+}
+
+// insertVisualBlock implements the blockwise I (append false) and A (append
+// true). I inserts at the block's left edge; A appends one column after its
+// right edge. The typed text is replayed onto every row when the session ends.
+func (e *editor) insertVisualBlock(first, last int, append bool) {
+	left, right := e.visualCols()
+	col := left
+	if append {
+		col = right + 1
+	}
+	e.startBlockInsert(copyLines(e.buffer), first, last, col, left, append)
+}
+
+// startBlockInsert opens the insert session a blockwise I, A or c needs. rows
+// are the lines the typed text will be replayed onto, top to bottom: every line
+// of the block for A, and only the lines long enough to reach col for I and c,
+// because nvim leaves a line shorter than the insert column alone rather than
+// padding it. The first row is padded to col so the first typed rune lands at
+// the right column; nvim pads only that row on entry (A<Esc> on a short line
+// leaves the first line padded and the later lines untouched).
+func (e *editor) startBlockInsert(buffer []string, first, last, col, left int, appendMode bool) {
+	rows := make([]int, 0, last-first+1)
+	for line := first; line <= last; line++ {
+		if !appendMode && utf8.RuneCountInString(buffer[line]) < col {
+			continue
+		}
+		rows = append(rows, line)
+	}
+
+	// The first line always qualifies: it holds the anchor or the cursor, whose
+	// column is at least the block's left edge, and I and c insert at that edge.
+	firstRow := rows[0]
+	if length := utf8.RuneCountInString(buffer[firstRow]); length < col {
+		buffer[firstRow] += strings.Repeat(" ", col-length)
+	}
+
+	e.beginInsert(buffer, Position{Line: firstRow, Col: col}, Position{Line: firstRow, Col: col})
+	e.blockInsert = &blockInsert{
+		rows:     rows,
+		col:      col,
+		left:     left,
+		startLen: utf8.RuneCountInString(buffer[firstRow]),
+	}
+}
+
+// finishBlockInsert closes a blockwise insert session. The text typed into the
+// first row is read back off it and inserted at the session's column on every
+// other row, top to bottom, padding a short row with spaces so the block keeps
+// its shape; the whole session is one undo block, and the cursor lands where
+// nvim leaves it: the block's left edge when text was typed, and one column back
+// from the insertion point when it was not.
+func (e *editor) finishBlockInsert() {
+	session := e.blockInsert
+	e.blockInsert = nil
+	first := session.rows[0]
+
+	line := []rune(e.buffer[first])
+	typed := len(line) - session.startLen
+	text := ""
+	if typed > 0 && session.col <= len(line) {
+		text = string(line[session.col : session.col+typed])
+	}
+	if text != "" {
+		for _, row := range session.rows[1:] {
+			e.buffer[row] = padAndInsert(e.buffer[row], session.col, text)
+		}
+	}
+
+	if start := e.insertStart; start != nil && !sameLines(start.buffer, e.buffer) {
+		e.undo = append(e.undo, *start)
+		e.redo = nil
+	}
+	e.insertStart = nil
+	e.autoIndentSet = false
+	e.mode = ModeNormal
+
+	if text == "" {
+		col := session.col - 1
+		if col < 0 {
+			col = 0
+		}
+		e.cursor = Position{Line: first, Col: clampColumn(e.buffer[first], col)}
+		return
+	}
+	e.cursor = Position{Line: first, Col: clampColumn(e.buffer[first], session.left)}
+}
+
+// cutBlockCell removes the runes in columns left..right from runes and returns
+// them as the block's cell for that row together with the remaining line. A line
+// shorter than left contributes nothing, and a line that ends inside the block
+// contributes only what it has.
+func cutBlockCell(runes []rune, left, right int) (string, string) {
+	if left >= len(runes) {
+		return "", string(runes)
+	}
+	end := right
+	if end >= len(runes) {
+		end = len(runes) - 1
+	}
+	cell := string(runes[left : end+1])
+	kept := make([]rune, 0, len(runes)-(end-left+1))
+	kept = append(kept, runes[:left]...)
+	kept = append(kept, runes[end+1:]...)
+	return cell, string(kept)
+}
+
+// padAndInsert inserts text into line at column col, padding the line with
+// spaces first when it is shorter than col. It is the operation a blockwise A, a
+// blockwise put and the replay of a blockwise insert all need: the block's rows
+// line up because every short row is padded to the insertion column.
+func padAndInsert(line string, col int, text string) string {
+	runes := []rune(line)
+	if len(runes) < col {
+		runes = append(runes, []rune(strings.Repeat(" ", col-len(runes)))...)
+	}
+	inserted := []rune(text)
+	next := make([]rune, 0, len(runes)+len(inserted))
+	next = append(next, runes[:col]...)
+	next = append(next, inserted...)
+	next = append(next, runes[col:]...)
+	return string(next)
+}
+
+// blockwiseRegister builds a blockwise register from the cells of a block, one
+// per selected row.
+func blockwiseRegister(cells []string) editingRegister {
+	return editingRegister{lines: copyLines(cells), blockwise: true, set: true}
+}
+
 // lessPosition reports whether a comes before b in buffer order.
 func lessPosition(a, b Position) bool {
 	if a.Line != b.Line {
@@ -1402,8 +1916,31 @@ func (e *editor) result(recognized bool) EditingResult {
 		Buffer:     copyLines(e.buffer),
 		Cursor:     e.cursor,
 		Mode:       e.mode,
+		Selection:  e.currentSelection(),
 		Recognized: recognized,
 	}
+}
+
+// currentSelection is the visual selection the engine is showing, or the zero
+// Selection in normal and insert modes. It is what the screen draws while a
+// visual answer is being typed, and it is not part of the buffer judge: the
+// judge compares the mode, so a visual answer that applies no operator still
+// differs from a normal one.
+func (e *editor) currentSelection() Selection {
+	switch e.mode {
+	case ModeVisualLine:
+		first, last := e.visualLines()
+		endCol := 0
+		if runes := []rune(e.buffer[last]); len(runes) > 0 {
+			endCol = len(runes) - 1
+		}
+		return Selection{StartLine: first, StartCol: 0, EndLine: last, EndCol: endCol, Active: true}
+	case ModeVisualBlock:
+		first, last := e.visualLines()
+		left, right := e.visualCols()
+		return Selection{StartLine: first, StartCol: left, EndLine: last, EndCol: right, Active: true}
+	}
+	return Selection{}
 }
 
 // copyLines returns a copy so a result or snapshot can never be mutated by a
