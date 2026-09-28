@@ -38,6 +38,28 @@ func goldenSystemInfo() *system.SystemInfo {
 	}
 }
 
+// isolateGoldenTest pins the inputs a golden test would otherwise inherit from
+// the machine it runs on, so a snapshot matches on every host.
+//
+// HOME is the input that actually broke. NewModel's Init runs
+// system.ListBackups, which scans $HOME for .dotfiles-backup-* directories, and
+// GetCurrentOptions appends "🔄 Restore from Backup" to the main menu when it
+// finds at least one. Commit 249aa30 refreshed the main menu golden on a
+// machine that had such a backup, so the snapshot recorded a seventh entry; the
+// macOS CI job, the only job that runs the goldens because the Linux job passes
+// -skip Golden, renders six entries and failed on it. Pointing HOME at an empty
+// t.TempDir() makes the scan find nothing on any machine.
+//
+// SystemInfo is pinned through goldenSystemInfo for the same reason: screens
+// that render the detected platform must not be snapshotted from the OS that
+// happened to run them. Tests that assert a specific platform still assign
+// m.SystemInfo after calling this.
+func isolateGoldenTest(t *testing.T, m *Model) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	m.SystemInfo = goldenSystemInfo()
+}
+
 // Helper to read all bytes from io.Reader
 func readAll(t *testing.T, r io.Reader) []byte {
 	t.Helper()
@@ -52,6 +74,7 @@ func readAll(t *testing.T, r io.Reader) []byte {
 func TestWelcomeScreenGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.SystemInfo = goldenSystemInfo()
 	m.Width = 80
 	m.Height = 24
@@ -76,6 +99,7 @@ func TestWelcomeScreenGolden(t *testing.T) {
 func TestMainMenuGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenMainMenu
@@ -96,6 +120,7 @@ func TestMainMenuGolden(t *testing.T) {
 func TestOSSelectGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.SystemInfo = goldenSystemInfo()
 	m.Width = 80
 	m.Height = 24
@@ -270,6 +295,7 @@ func TestLearnToolsE2E(t *testing.T) {
 func TestBackupScreenGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenBackupConfirm
@@ -291,6 +317,7 @@ func TestBackupScreenGolden(t *testing.T) {
 func TestErrorScreenGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenError
@@ -312,6 +339,7 @@ func TestErrorScreenGolden(t *testing.T) {
 func TestCompleteScreenGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenComplete
