@@ -10,6 +10,11 @@ import (
 	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
+// renderedTestWSLConfig is what testWSLConfigTemplate renders to for the host
+// capacities newWSLLayout pins: 8192 MiB and 4 logical CPUs plan to 4096 MB of
+// memory, 4 processors (all of them) and 1024 MB of swap (a quarter of memory).
+const renderedTestWSLConfig = "[wsl2]\nmemory=4096MB\nprocessors=4\nswap=1024MB\nnetworkingMode=mirrored\n"
+
 // newWSLLayout builds a throwaway repository checkout plus the two destinations
 // the WSL step writes to, so the step can be exercised without touching the
 // real Windows profile or /etc/wsl.conf.
@@ -18,7 +23,7 @@ func newWSLLayout(t *testing.T) (repoDir, winHome, wslConf string) {
 
 	repoDir = t.TempDir()
 	for asset, content := range map[string]string{
-		repoAssetWSLConfig: "[wsl2]\nmemory=6GB\n",
+		repoAssetWSLConfig: testWSLConfigTemplate,
 		repoAssetWSLConf:   "[boot]\nsystemd=true\n",
 	} {
 		path := filepath.Join(repoDir, asset)
@@ -38,6 +43,11 @@ func newWSLLayout(t *testing.T) (repoDir, winHome, wslConf string) {
 
 	t.Setenv(envWSLWindowsHome, winHome)
 	t.Setenv(envWSLConfPath, wslConf)
+	// Pin the host capacities so every render in the WSL tests is deterministic
+	// and independent of the machine running them. Both overrides must be
+	// positive for the detector to skip its Windows query.
+	t.Setenv(envWSLHostMemoryMB, "8192")
+	t.Setenv(envWSLHostCPUs, "4")
 	return repoDir, winHome, wslConf
 }
 
@@ -73,7 +83,7 @@ func TestStepInstallWSLConfigInstallsBothArtifacts(t *testing.T) {
 		path string
 		want string
 	}{
-		{".wslconfig", filepath.Join(winHome, ".wslconfig"), "[wsl2]\nmemory=6GB\n"},
+		{".wslconfig", filepath.Join(winHome, ".wslconfig"), renderedTestWSLConfig},
 		{"wsl.conf", wslConf, "[boot]\nsystemd=true\n"},
 	} {
 		got, err := os.ReadFile(tc.path)

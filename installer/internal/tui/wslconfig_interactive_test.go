@@ -20,7 +20,29 @@ func generateWSLConfigScript(t *testing.T, m *Model) string {
 	if script == "" {
 		t.Fatalf("the interactive WSL step produced no script")
 	}
+
+	// The script copies from a temporary file Go writes and deletes during the
+	// run. Keep the test tidy when it inspects the script without running it.
+	src := wslConfigSourceFromScript(t, script)
+	t.Cleanup(func() { _ = os.Remove(src) })
 	return script
+}
+
+// wslConfigSourceFromScript returns the rendered .wslconfig path the generated
+// script copies from. Those bytes are the whole point of the rendered install:
+// they are what the non-interactive step writes too.
+func wslConfigSourceFromScript(t *testing.T, script string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(script, "\n") {
+		value, ok := strings.CutPrefix(line, "WSL_CONFIG_SRC=")
+		if !ok {
+			continue
+		}
+		return strings.Trim(value, "'")
+	}
+	t.Fatal("the generated script does not set WSL_CONFIG_SRC")
+	return ""
 }
 
 // runShell writes script to a file and runs it through sh. Both the syntax
@@ -84,7 +106,7 @@ func TestWSLConfigInteractiveScriptInstallsBothArtifacts(t *testing.T) {
 		path string
 		want string
 	}{
-		{".wslconfig", filepath.Join(winHome, ".wslconfig"), "[wsl2]\nmemory=6GB\n"},
+		{".wslconfig", filepath.Join(winHome, ".wslconfig"), renderedTestWSLConfig},
 		{"wsl.conf", wslConf, "[boot]\nsystemd=true\n"},
 	} {
 		got, err := os.ReadFile(tc.path)
@@ -215,8 +237,8 @@ func TestWSLConfigInteractiveScriptSkipsWindowsSideWhenProfileUnavailable(t *tes
 }
 
 // TestWSLConfigInteractiveScriptFailsWhenArtifactIsMissing mirrors the step's
-// failure contract: a missing checked-in artifact is an error, not a step that
-// reports success having written nothing.
+// failure contract: a missing or unrenderable template is reported, not turned
+// into a script that would install nothing.
 func TestWSLConfigInteractiveScriptFailsWhenArtifactIsMissing(t *testing.T) {
 	t.Setenv(envBinfmtDir, t.TempDir())
 	repoDir, _, _ := newWSLLayout(t)
@@ -225,9 +247,54 @@ func TestWSLConfigInteractiveScriptFailsWhenArtifactIsMissing(t *testing.T) {
 	}
 
 	m := wslModel(repoDir, true)
-	script := generateWSLConfigScript(t, &m)
-	if _, err := runShell(t, script); err == nil {
-		t.Fatal("the script must fail when the repository artifact is missing")
+	if _, err := getInteractiveScript(wslStepID, &m); err == nil {
+		t.Fatal("a missing template must be reported instead of installing nothing")
+	}
+}
+
+// TestWSLConfigRoutesRenderIdenticalContent pins the two routes against one
+// overridden host: the bytes the step installs and the bytes the generated
+// script is pointed at must come from the same render. It inspects the script's
+// source file rather than its installed output, so the content is checked even
+// before the shell runs.
+func TestWSLConfigRoutesRenderIdenticalContent(t *testing.T) {
+	t.Setenv(envBinfmtDir, t.TempDir())
+
+	stepRepo, stepWinHome, _ := newWSLLayout(t)
+	// Pin one deterministic host for both routes, after the fixture so the plan
+	// does not depend on the machine running the test: 16 GiB and 8 CPUs become
+	// 8192 MB, 8 processors and 2048 MB of swap.
+	t.Setenv(envWSLHostMemoryMB, "16384")
+	t.Setenv(envWSLHostCPUs, "8")
+
+	stepModel := wslModel(stepRepo, true)
+	if err := stepInstallWSLConfig(&stepModel); err != nil {
+		t.Fatalf("stepInstallWSLConfig failed: %v", err)
+	}
+	installed, err := os.ReadFile(filepath.Join(stepWinHome, ".wslconfig"))
+	if err != nil {
+		t.Fatalf("the step did not install .wslconfig: %v", err)
+	}
+
+	scriptRepo, _, _ := newWSLLayout(t)
+	t.Setenv(envWSLHostMemoryMB, "16384")
+	t.Setenv(envWSLHostCPUs, "8")
+
+	scriptModel := wslModel(scriptRepo, true)
+	script := generateWSLConfigScript(t, &scriptModel)
+	rendered, err := os.ReadFile(wslConfigSourceFromScript(t, script))
+	if err != nil {
+		t.Fatalf("reading the rendered config the script copies from: %v", err)
+	}
+
+	if string(installed) != string(rendered) {
+		t.Errorf("the step and the interactive script do not install the same bytes:\nstep:   %q\nscript: %q",
+			installed, rendered)
+	}
+	for _, want := range []string{"memory=8192MB", "processors=8", "swap=2048MB"} {
+		if !strings.Contains(string(installed), want) {
+			t.Errorf("both routes should render %q for the overridden host, got:\n%s", want, installed)
+		}
 	}
 }
 

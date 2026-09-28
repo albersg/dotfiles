@@ -400,12 +400,29 @@ read dummy
 // able to prompt, which needs the terminal the TUI suspends with
 // tea.ExecProcess. It reproduces what the step installs, and the win32yank
 // bridge keeps the same pinned URL, checksum and interop-health decision.
+//
+// .wslconfig is rendered in Go by the same helper the step uses, and the script
+// copies those rendered bytes from a temporary file it deletes afterwards, so
+// both routes install identical content.
 func getWSLConfigScript(m *Model) (string, error) {
 	if !m.SystemInfo.IsWSL {
 		return "", nil
 	}
 
 	repoDir, err := m.repoDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Render the same bytes the non-interactive step installs and point the
+	// script at a temporary copy. The template itself is never handed to the
+	// shell: only rendered content, and only through a file the script deletes
+	// after copying it.
+	rendered, _, _, err := renderedRepoWSLConfig(repoDir)
+	if err != nil {
+		return "", fmt.Errorf("rendering .wslconfig for this host: %w", err)
+	}
+	configSrc, err := writeRenderedWSLConfig(rendered)
 	if err != nil {
 		return "", err
 	}
@@ -418,7 +435,7 @@ func getWSLConfigScript(m *Model) (string, error) {
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\n")
 	script.WriteString("set -e\n\n")
-	fmt.Fprintf(&script, "WSL_CONFIG_SRC=%s\n", shellSingleQuote(filepath.Join(repoDir, repoAssetWSLConfig)))
+	fmt.Fprintf(&script, "WSL_CONFIG_SRC=%s\n", shellSingleQuote(configSrc))
 	fmt.Fprintf(&script, "WSL_CONF_SRC=%s\n", shellSingleQuote(filepath.Join(repoDir, repoAssetWSLConf)))
 	fmt.Fprintf(&script, "WSL_CONF_DST=%s\n", shellSingleQuote(confDst))
 
@@ -474,6 +491,8 @@ if [ -n "$WINDOWS_PROFILE" ]; then
 else
 	echo "Skipping .wslconfig: no Windows profile was found"
 fi
+# The rendered .wslconfig came from a temporary file Go created for this run.
+rm -f "$WSL_CONFIG_SRC"
 
 install_artifact "$WSL_CONF_SRC" "$WSL_CONF_DST"
 echo "wsl.conf installed at $WSL_CONF_DST"
@@ -521,6 +540,28 @@ echo "Run wsl --shutdown on Windows and reopen the terminal to apply the changes
 `)
 
 	return script.String(), nil
+}
+
+// writeRenderedWSLConfig writes the rendered .wslconfig to a private temporary
+// file the generated script copies from. The checkout template is never handed
+// to the shell, so the script can only ever install rendered content.
+func writeRenderedWSLConfig(rendered []byte) (string, error) {
+	tmp, err := os.CreateTemp("", "dotfiles-wslconfig-*.conf")
+	if err != nil {
+		return "", err
+	}
+
+	path := tmp.Name()
+	if _, err := tmp.Write(rendered); err != nil {
+		tmp.Close()
+		os.Remove(path)
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(path)
+		return "", err
+	}
+	return path, nil
 }
 
 // shellSingleQuote renders s as a single-quoted POSIX shell literal, so a path

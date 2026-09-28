@@ -1,6 +1,11 @@
 package tui
 
-import "github.com/albersg/dotfiles/installer/internal/system"
+import (
+	"bytes"
+	"text/template"
+
+	"github.com/albersg/dotfiles/installer/internal/system"
+)
 
 // WSLResources is the machine-derived part of a rendered .wslconfig.
 //
@@ -100,4 +105,25 @@ func planSwapMB(memoryMB int) int {
 func roundDownToMemoryStep(bytes uint64) uint64 {
 	step := uint64(wslMemoryStepMB) * bytesPerMiB
 	return bytes / step * step
+}
+
+// RenderWSLConfig renders the shipped .wslconfig template for one host plan.
+//
+// It is pure: the same template text and the same plan always produce the same
+// bytes, which is what lets the step and the interactive script be checked
+// against each other. A template that does not parse, or one that fails while
+// executing against the plan, is returned as an error instead of a partially
+// written file: a truncated .wslconfig would still be read by WSL.
+func RenderWSLConfig(templateText string, res WSLResources) ([]byte, error) {
+	tmpl, err := template.New("wslconfig").Parse(templateText)
+	if err != nil {
+		return nil, err
+	}
+
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, res); err != nil {
+		return nil, err
+	}
+
+	return rendered.Bytes(), nil
 }

@@ -1,0 +1,37 @@
+# Settings apply across all Linux distros running on WSL 2
+[wsl2]
+
+# Memory limit for the WSL 2 VM: half of the Windows host's total RAM, read
+# through WSL interop and rounded down to 512 MB. When this key is absent, WSL
+# applies its own proportional default instead.
+{{if .MemoryMB}}memory={{.MemoryMB}}MB
+{{end}}
+# Logical processors for the WSL 2 VM: every logical CPU the Windows host
+# reports. When this key is absent, WSL applies its own proportional default
+# instead.
+{{if .Processors}}processors={{.Processors}}
+{{end}}
+# Swap space for the WSL 2 VM: a quarter of the memory limit above, rounded down
+# to 512 MB. When this key is absent, WSL applies its own proportional default
+# instead.
+{{if .SwapMB}}swap={{.SwapMB}}MB
+{{end}}
+# IGNORED while networkingMode=mirrored (redundant, kept for clarity)
+localhostForwarding=true
+
+# Mirrors the Windows network stack (requires Windows 11 22H2 or newer)
+networkingMode=mirrored
+
+dnsTunneling=true
+
+# Experimental features: this is the correct section for these two keys
+[experimental]
+
+# gradual reclaims the cache little by little (smooth). Alternatives: disabled | dropCache
+# dropCache is the default and can cause stutter; gradual is more stable
+autoMemoryReclaim=gradual
+
+# Only affects NEW VHDs. For an existing distribution run, on Windows:
+#   wsl --shutdown
+#   wsl --manage <distro> --set-sparse true
+sparseVhd=true

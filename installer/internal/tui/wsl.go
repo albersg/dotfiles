@@ -59,11 +59,14 @@ const (
 	win32yankSHA256 = "247c9a05b94387a884b49d3db13f806b1677dfc38020f955f719be6902260cd6"
 )
 
-// stepInstallWSLConfig copies the WSL artifacts shipped in dotfiles-wsl into the
-// two places WSL actually reads: the Windows user profile for .wslconfig, and
-// /etc/wsl.conf inside the running distribution.
+// stepInstallWSLConfig installs the WSL artifacts shipped in dotfiles-wsl into
+// the two places WSL actually reads: the Windows user profile for .wslconfig,
+// and /etc/wsl.conf inside the running distribution.
 //
-// The step is a no-op outside WSL, so it is safe to call unconditionally.
+// The .wslconfig template is rendered for the Windows host this installer runs
+// on, so the machine-derived keys match the real capacities instead of the
+// values of whichever machine the file was authored on. The step is a no-op
+// outside WSL, so it is safe to call unconditionally.
 func stepInstallWSLConfig(m *Model) error {
 	if !m.SystemInfo.IsWSL {
 		SendLog(wslStepID, "Not running under WSL; nothing to configure")
@@ -76,17 +79,26 @@ func stepInstallWSLConfig(m *Model) error {
 			"Failed to locate the cloned repository", err)
 	}
 
+	// The machine-derived keys come from the Windows host. The template is
+	// rendered once here, and the interactive route is handed the same bytes, so
+	// the two routes cannot disagree about the file they install.
+	rendered, host, plan, err := renderedRepoWSLConfig(repoDir)
+	if err != nil {
+		return wrapStepError(wslStepID, "Configure WSL",
+			"Failed to render .wslconfig for this host", err)
+	}
+	logWSLResourcePlan(host, plan)
+
 	// .wslconfig is a Windows file: it belongs in the Windows user profile. The
 	// lookup can legitimately fail (interop disabled, unusual mount layout) and
 	// that must not stop the in-distribution half of this step.
-	wslconfigSrc := filepath.Join(repoDir, repoAssetWSLConfig)
 	profileDir, profileErr := windowsUserProfile()
 	if profileErr != nil {
 		SendLog(wslStepID, fmt.Sprintf(
 			"Skipping .wslconfig: %v. Set %s to override the lookup.", profileErr, envWSLWindowsHome))
 	} else {
 		destination := filepath.Join(profileDir, ".wslconfig")
-		if err := applyArtifact(wslconfigSrc, destination, wslStepID); err != nil {
+		if err := applyArtifactContent(rendered, destination, wslStepID); err != nil {
 			return wrapStepError(wslStepID, "Configure WSL",
 				"Failed to install .wslconfig into the Windows user profile", err)
 		}
@@ -118,6 +130,57 @@ func stepInstallWSLConfig(m *Model) error {
 	// Both files are only read when the WSL VM starts.
 	SendLog(wslStepID, "Run `wsl --shutdown` on Windows and reopen the terminal to apply the changes")
 	return nil
+}
+
+// renderedRepoWSLConfig reads the shipped template, detects the Windows host and
+// renders the machine-derived keys for it.
+//
+// The host and the plan are returned alongside the bytes so the caller can
+// report where the values came from. Both installation routes render through
+// this one function, so the step and the interactive script cannot disagree
+// about the content they install.
+func renderedRepoWSLConfig(repoDir string) ([]byte, system.HostResources, WSLResources, error) {
+	templateText, err := os.ReadFile(filepath.Join(repoDir, repoAssetWSLConfig))
+	if err != nil {
+		return nil, system.HostResources{}, WSLResources{}, err
+	}
+
+	host := system.DetectHostResources()
+	plan := PlanWSLResources(host)
+
+	rendered, err := RenderWSLConfig(string(templateText), plan)
+	if err != nil {
+		return nil, host, plan, err
+	}
+	return rendered, host, plan, nil
+}
+
+// logWSLResourcePlan reports the machine-derived part of the rendered
+// .wslconfig: the host capacities it was computed from, the three planned
+// values, and whether they came from host detection or from the
+// omit-everything fallback, so a user can audit what the installer chose for
+// this machine.
+func logWSLResourcePlan(host system.HostResources, plan WSLResources) {
+	if host.MemoryBytes == 0 && host.LogicalCPUs == 0 {
+		SendLog(wslStepID, "Windows host capacities could not be read; omitting memory, processors and swap so WSL applies its own proportional defaults")
+	} else {
+		SendLog(wslStepID, fmt.Sprintf("Detected Windows host capacities: %d MiB RAM, %d logical CPUs",
+			host.MemoryBytes/bytesPerMiB, host.LogicalCPUs))
+	}
+
+	SendLog(wslStepID, fmt.Sprintf("Derived .wslconfig values: memory=%s, processors=%s, swap=%s",
+		wslResourceLabel(plan.MemoryMB, "MB"),
+		wslResourceLabel(plan.Processors, ""),
+		wslResourceLabel(plan.SwapMB, "MB")))
+}
+
+// wslResourceLabel renders one planned value, naming an omitted key as such
+// instead of printing a zero that would read as a real limit.
+func wslResourceLabel(value int, unit string) string {
+	if value <= 0 {
+		return "omitted"
+	}
+	return fmt.Sprintf("%d%s", value, unit)
 }
 
 // peInteropHealthy reports whether WSL can execute a Windows binary that lives on
@@ -340,15 +403,24 @@ func wslPathUnix(windowsPath string) string {
 }
 
 // applyArtifact copies src over dst, backing up an existing destination first.
-// It writes directly when the current user owns the destination and escalates
-// to sudo only when the plain write is rejected, so an unprivileged temporary
-// destination (used in tests) never triggers a password prompt.
+// It reads the file and delegates to applyArtifactContent, so a pre-rendered
+// artifact (the .wslconfig the step renders at install time) takes exactly the
+// same path as a file copied straight from the checkout.
 func applyArtifact(src, dst, stepID string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", src, err)
 	}
 
+	return applyArtifactContent(data, dst, stepID)
+}
+
+// applyArtifactContent installs data over dst, backing up an existing
+// destination first. It writes directly when the current user owns the
+// destination and escalates to sudo only when the plain write is rejected, so
+// an unprivileged temporary destination (used in tests) never triggers a
+// password prompt.
+func applyArtifactContent(data []byte, dst, stepID string) error {
 	if _, err := os.Stat(dst); err == nil {
 		backup := fmt.Sprintf("%s.bak-dotfiles-%s", dst, time.Now().Format("20060102-150405"))
 		if err := copyArtifact(dst, backup, stepID); err != nil {

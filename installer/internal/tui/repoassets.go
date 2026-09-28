@@ -27,7 +27,7 @@ const (
 	repoAssetZellij      = "dotfiles-zellij/zellij"
 	repoAssetHerdrConfig = "dotfiles-herdr/config.toml"
 	repoAssetNvim        = "dotfiles-nvim/nvim"
-	repoAssetWSLConfig   = "dotfiles-wsl/.wslconfig"
+	repoAssetWSLConfig   = "dotfiles-wsl/.wslconfig.tmpl"
 	repoAssetWSLConf     = "dotfiles-wsl/wsl.conf"
 	repoAssetGitconfig   = ".gitconfig"
 	// Includes the personal identity, because .gitconfig includes it through

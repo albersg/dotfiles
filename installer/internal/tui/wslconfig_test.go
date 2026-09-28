@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
@@ -12,6 +15,24 @@ const (
 	testMiB = 1 << 20
 	testGiB = 1 << 30
 )
+
+// The host overrides are the deterministic seam for every WSL render in this
+// package. They are unexported in package system, so the names are repeated
+// here as literals and a change there breaks these tests loudly.
+const (
+	envWSLHostMemoryMB = "DOTFILES_WSL_HOST_MEMORY_MB"
+	envWSLHostCPUs     = "DOTFILES_WSL_HOST_CPUS"
+)
+
+// testWSLConfigTemplate is the checkout fixture the WSL tests install. It has
+// the same shape as the shipped template -- the three machine-derived keys
+// behind template actions, the fixed networking key kept -- but drops the
+// shipped prose so the tests can assert exact rendered bytes instead of prose.
+const testWSLConfigTemplate = "[wsl2]\n" +
+	"{{if .MemoryMB}}memory={{.MemoryMB}}MB\n{{end}}" +
+	"{{if .Processors}}processors={{.Processors}}\n{{end}}" +
+	"{{if .SwapMB}}swap={{.SwapMB}}MB\n{{end}}" +
+	"networkingMode=mirrored\n"
 
 // TestPlanWSLResources pins the WSL proportional policy. Every case states its
 // own arithmetic, because the numbers are the contract: memory is half the host
@@ -116,6 +137,146 @@ func TestPlanWSLResources(t *testing.T) {
 
 			if got != tt.want {
 				t.Errorf("PlanWSLResources(%+v) = %+v, want %+v", tt.host, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRenderWSLConfigForAKnownHost pins the exact rendered bytes for a host
+// supplied through the override seam, so the expectation cannot depend on the
+// machine running the test. 16 GiB and 8 CPUs plan to 8192 MB of memory (half
+// the host, below the 2 GiB reserve clamp), 8 processors and 2048 MB of swap (a
+// quarter of the memory).
+func TestRenderWSLConfigForAKnownHost(t *testing.T) {
+	t.Setenv(envWSLHostMemoryMB, "16384")
+	t.Setenv(envWSLHostCPUs, "8")
+
+	rendered, err := RenderWSLConfig(testWSLConfigTemplate, PlanWSLResources(system.DetectHostResources()))
+	if err != nil {
+		t.Fatalf("RenderWSLConfig failed: %v", err)
+	}
+
+	want := "[wsl2]\nmemory=8192MB\nprocessors=8\nswap=2048MB\nnetworkingMode=mirrored\n"
+	if string(rendered) != want {
+		t.Errorf("rendered .wslconfig =\n%q\nwant\n%q", rendered, want)
+	}
+}
+
+// TestRenderWSLConfigOmitsUnavailableKeys is the fallback contract: when the
+// host cannot be read, the three derived keys disappear entirely and WSL applies
+// its own proportional defaults. The overrides are cleared and PATH is emptied,
+// so the detector can neither read a capacity from the environment nor resolve
+// a Windows binary.
+func TestRenderWSLConfigOmitsUnavailableKeys(t *testing.T) {
+	t.Setenv(envWSLHostMemoryMB, "")
+	t.Setenv(envWSLHostCPUs, "")
+	t.Setenv("PATH", "")
+
+	rendered, err := RenderWSLConfig(testWSLConfigTemplate, PlanWSLResources(system.DetectHostResources()))
+	if err != nil {
+		t.Fatalf("RenderWSLConfig failed: %v", err)
+	}
+
+	want := "[wsl2]\nnetworkingMode=mirrored\n"
+	if string(rendered) != want {
+		t.Errorf("rendered .wslconfig =\n%q\nwant\n%q", rendered, want)
+	}
+	if strings.Contains(string(rendered), "{{") {
+		t.Errorf("a template delimiter leaked into the fallback render: %q", rendered)
+	}
+}
+
+// TestRenderWSLConfigRejectsABadTemplate keeps the failure direction safe: a
+// template the parser or the executor rejects is an error, never a half-written
+// .wslconfig that WSL would read as configuration.
+func TestRenderWSLConfigRejectsABadTemplate(t *testing.T) {
+	t.Run("parse error", func(t *testing.T) {
+		if _, err := RenderWSLConfig("memory={{if .MemoryMB}}", WSLResources{MemoryMB: 2048}); err == nil {
+			t.Fatal("a template the parser rejects must be reported as an error")
+		}
+	})
+
+	t.Run("execution error", func(t *testing.T) {
+		if _, err := RenderWSLConfig("processors={{.MissingField}}", WSLResources{}); err == nil {
+			t.Fatal("a template that references an unknown field must be reported as an error")
+		}
+	})
+}
+
+// TestShippedWSLConfigTemplatePreservesFixedSettings renders the real checkout
+// template for a known host and for the omit-everything fallback. Every fixed
+// key and section must survive both renders, the three derived keys must follow
+// the host, and no template delimiter may leak into the file that reaches the
+// Windows profile.
+func TestShippedWSLConfigTemplatePreservesFixedSettings(t *testing.T) {
+	templateText, err := os.ReadFile(filepath.Join(repoRoot(t), repoAssetWSLConfig))
+	if err != nil {
+		t.Fatalf("reading the shipped WSL template: %v", err)
+	}
+
+	fixed := []string{
+		"[wsl2]",
+		"localhostForwarding=true",
+		"networkingMode=mirrored",
+		"dnsTunneling=true",
+		"[experimental]",
+		"autoMemoryReclaim=gradual",
+		"sparseVhd=true",
+	}
+
+	for _, tc := range []struct {
+		name     string
+		memoryMB string
+		cpus     string
+		want     []string
+		omit     []string
+	}{
+		{
+			name:     "known host",
+			memoryMB: "16384",
+			cpus:     "8",
+			want:     []string{"memory=8192MB", "processors=8", "swap=2048MB"},
+		},
+		{
+			name:     "unknown host",
+			memoryMB: "",
+			cpus:     "",
+			omit:     []string{"memory=", "processors=", "swap="},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envWSLHostMemoryMB, tc.memoryMB)
+			t.Setenv(envWSLHostCPUs, tc.cpus)
+			if tc.memoryMB == "" {
+				t.Setenv("PATH", "")
+			}
+
+			rendered, err := RenderWSLConfig(string(templateText), PlanWSLResources(system.DetectHostResources()))
+			if err != nil {
+				t.Fatalf("rendering the shipped template: %v", err)
+			}
+			got := string(rendered)
+
+			for _, setting := range fixed {
+				if !strings.Contains(got, setting) {
+					t.Errorf("rendered .wslconfig lost the fixed setting %q:\n%s", setting, got)
+				}
+			}
+			for _, key := range tc.want {
+				if !strings.Contains(got, key) {
+					t.Errorf("rendered .wslconfig is missing the derived key %q:\n%s", key, got)
+				}
+			}
+			for _, key := range tc.omit {
+				if strings.Contains(got, key) {
+					t.Errorf("rendered .wslconfig should omit %q when the host is unknown:\n%s", key, got)
+				}
+			}
+			if strings.Contains(got, "{{") {
+				t.Errorf("a template delimiter leaked into the rendered file:\n%s", got)
+			}
+			if strings.Contains(got, "\r") || !strings.HasSuffix(got, "\n") {
+				t.Errorf("rendered .wslconfig must keep LF line endings, got %q", got)
 			}
 		})
 	}
