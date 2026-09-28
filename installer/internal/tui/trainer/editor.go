@@ -128,6 +128,14 @@ type editor struct {
 	// find is the last f/F/t/T target, so ';' and ',' repeat it exactly as
 	// they do in SimulateMotions. The motion parser receives this state.
 	find lastFindCommand
+	// marks is the m{a-z} mark table, keyed by mark name. It holds the cursor
+	// each mark was set at, in the engine's rune coordinates. Marks live here
+	// and not in the motion simulator because they are state that has to
+	// survive between two commands, and the simulator is stateless. Undo and
+	// redo do not touch this table: nvim re-applies the line insertion or
+	// deletion an undo performs to the mark as well, and this engine does not
+	// model that.
+	marks map[byte]Position
 }
 
 // SimulateEditing runs input against a mutable copy of code starting at start
@@ -156,7 +164,7 @@ func newEditor(code []string, start Position) *editor {
 	if len(buffer) == 0 {
 		buffer = []string{""}
 	}
-	e := &editor{buffer: buffer, cursor: start}
+	e := &editor{buffer: buffer, cursor: start, marks: make(map[byte]Position)}
 	e.regs.named = make(map[byte]editingRegister)
 	e.clampCursor()
 	return e
@@ -390,6 +398,36 @@ func (e *editor) applyMutation(cmd byte, ref registerRef, count int, rest string
 		e.undoStep()
 	case '\x12': // Ctrl-r
 		e.redoStep()
+	case 'm':
+		// m{a-z} records the cursor in the mark named by the next byte. A
+		// missing name, or one outside a-z (mA, m1, m'), is a command this
+		// engine does not model, so it is left unrecognized. A count in front
+		// of m is ignored, which is what nvim does with it.
+		if len(rest) == 0 || rest[0] < 'a' || rest[0] > 'z' {
+			return 0, false
+		}
+		e.marks[rest[0]] = e.cursor
+		return 1, true
+	case '`', '\'':
+		// `a jumps to the exact marked position and 'a to the first non-blank
+		// of the marked line, or column 0 when the line has none. A count is
+		// ignored, as nvim ignores it. A mark that was never set, or whose
+		// line was deleted, is consumed as a no-op: nvim reports E20 and
+		// leaves the cursor where it was, and the engine keeps its convention
+		// of a recognized no-op for a recognized command that cannot act. A
+		// name outside a-z is not modeled and stays unrecognized.
+		if len(rest) == 0 || rest[0] < 'a' || rest[0] > 'z' {
+			return 0, false
+		}
+		mark, set := e.marks[rest[0]]
+		if !set || mark.Line < 0 || mark.Line >= len(e.buffer) {
+			return 1, true
+		}
+		if cmd == '\'' {
+			mark.Col, _ = firstNonBlankColumn(e.buffer[mark.Line])
+		}
+		e.cursor = mark
+		return 1, true
 	default:
 		return 0, false
 	}
@@ -450,6 +488,7 @@ func (e *editor) openLine(above bool) {
 	next = append(next, e.buffer[:at]...)
 	next = append(next, indent)
 	next = append(next, e.buffer[at:]...)
+	e.marksInsertedLines(at, 1)
 
 	e.beginInsert(next, Position{Line: at, Col: utf8.RuneCountInString(indent)}, e.cursor)
 	// beginInsert clears the indent of a previous session, so the auto-indent
@@ -561,6 +600,36 @@ func (e *editor) leaveInsert() {
 	}
 }
 
+// marksInsertedLines shifts every mark that sits at or below the first inserted
+// line down by count. nvim attaches a mark to its line, so a line inserted at or
+// above the mark moves it down with the text and a line inserted below it leaves
+// it alone (TestSimulateEditing_Marks records the observations).
+func (e *editor) marksInsertedLines(at, count int) {
+	for name, mark := range e.marks {
+		if mark.Line >= at {
+			mark.Line += count
+			e.marks[name] = mark
+		}
+	}
+}
+
+// marksDeletedLines drops the marks whose line is inside the deleted range and
+// lifts the marks below it by count. A deleted marked line leaves no mark at
+// all, which is why jumping to it is a no-op.
+func (e *editor) marksDeletedLines(at, count int) {
+	for name, mark := range e.marks {
+		switch {
+		case mark.Line < at:
+			// Above the deleted range: unchanged.
+		case mark.Line < at+count:
+			delete(e.marks, name)
+		default:
+			mark.Line -= count
+			e.marks[name] = mark
+		}
+	}
+}
+
 // deleteLines implements [count]dd: it fills the selected register (the unnamed
 // one by default) with the deleted lines as linewise content, removes them, and
 // puts the cursor on the first non-blank of the line that took their place.
@@ -571,6 +640,7 @@ func (e *editor) deleteLines(ref registerRef, count int) {
 		end = len(e.buffer)
 	}
 	e.storeRegister(ref, linewiseRegister(e.buffer[start:end]), false)
+	e.marksDeletedLines(start, end-start)
 
 	remaining := make([]string, 0, len(e.buffer)-(end-start))
 	remaining = append(remaining, e.buffer[:start]...)
@@ -709,6 +779,7 @@ func (e *editor) put(ref registerRef, count int, before bool) {
 	for i := 0; i < count; i++ {
 		block = append(block, reg.lines...)
 	}
+	e.marksInsertedLines(insertAt, len(block))
 
 	buffer := make([]string, 0, len(e.buffer)+len(block))
 	buffer = append(buffer, e.buffer[:insertAt]...)
@@ -849,6 +920,7 @@ func (e *editor) applyLinewiseOperatorMotion(cmd byte, ref registerRef, sel Sele
 	}
 
 	e.storeRegister(ref, linewiseRegister(e.buffer[first:last+1]), false)
+	e.marksDeletedLines(first, last-first+1)
 	remaining := make([]string, 0, len(e.buffer)-(last-first+1))
 	remaining = append(remaining, e.buffer[:first]...)
 	remaining = append(remaining, e.buffer[last+1:]...)

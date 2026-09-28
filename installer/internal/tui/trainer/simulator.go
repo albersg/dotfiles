@@ -273,6 +273,10 @@ func parseMotion(input string, pos SimulatedPosition, code []string, lastFind *l
 		count = count*10 + int(input[i]-'0')
 		i++
 	}
+	// Whether a count was written at all. '%' reads it: a counted % is Vim's
+	// percent-of-file motion, not the bracket jump, and the two disagree for
+	// every count, so the parser has to be able to tell them apart.
+	countGiven := i > 0
 	if count == 0 {
 		count = 1
 	}
@@ -419,6 +423,17 @@ func parseMotion(input string, pos SimulatedPosition, code []string, lastFind *l
 		case '}':
 			// } - move to next paragraph (blank line)
 			pos = moveParagraphForward(pos, code)
+		case '%':
+			// % - match-pair motion: jump to the bracket matching the one under
+			// the cursor. A count makes it the different percent-of-file motion
+			// (nvim: 50% in a five-line file lands on line 3), which this parser
+			// does not model, so a counted % is reported unrecognized rather
+			// than misread as a bracket jump.
+			if countGiven {
+				recognized = false
+			} else {
+				pos = moveToMatchingBracket(pos, code)
+			}
 		case '+':
 			// + - move to first non-blank of next line
 			if pos.Line < len(code)-1 {
@@ -688,6 +703,116 @@ func moveEndOfPrevWord(pos SimulatedPosition, code []string, bigWord bool) Simul
 
 	pos.Col = col
 	return pos
+}
+
+// bracketPair reports the opening and closing byte of the pair ch belongs to.
+// It is the six brackets of nvim's default 'matchpairs' ((:),{:},[:]): < and >
+// are not a pair there, and nvim's % does not move on them.
+func bracketPair(ch byte) (open, close byte, ok bool) {
+	switch ch {
+	case '(', ')':
+		return '(', ')', true
+	case '[', ']':
+		return '[', ']', true
+	case '{', '}':
+		return '{', '}', true
+	}
+	return 0, 0, false
+}
+
+// moveToMatchingBracket implements nvim's %: it jumps to the bracket matching
+// the one under the cursor. A cursor that is not on a bracket scans forward on
+// its own line for the first bracket at or after it and jumps to that bracket's
+// match; a line without one, and a bracket with no match, both leave the cursor
+// where it was. Matching counts only brackets of the same pair, so a [ between a
+// ( and its ) is ignored, and the scan crosses lines in both directions.
+//
+// The observations behind this are recorded on TestSimulateMotions_MatchPairPercent.
+func moveToMatchingBracket(pos SimulatedPosition, code []string) SimulatedPosition {
+	if pos.Line < 0 || pos.Line >= len(code) {
+		return pos
+	}
+	line := code[pos.Line]
+	if pos.Col < 0 || pos.Col >= len(line) {
+		return pos
+	}
+
+	from := pos
+	if _, _, onBracket := bracketPair(line[pos.Col]); !onBracket {
+		found := false
+		for col := pos.Col + 1; col < len(line); col++ {
+			if _, _, ok := bracketPair(line[col]); ok {
+				from = SimulatedPosition{Line: pos.Line, Col: col}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return pos
+		}
+	}
+
+	open, close, _ := bracketPair(code[from.Line][from.Col])
+	if code[from.Line][from.Col] == open {
+		if match, ok := scanBracketsForward(code, from, open, close); ok {
+			return match
+		}
+		return pos
+	}
+	if match, ok := scanBracketsBackward(code, from, open, close); ok {
+		return match
+	}
+	return pos
+}
+
+// scanBracketsForward finds the close that matches the open at from, counting
+// nesting across every line that follows. It reports ok false when the buffer
+// holds no match.
+func scanBracketsForward(code []string, from SimulatedPosition, open, close byte) (SimulatedPosition, bool) {
+	depth := 0
+	for line := from.Line; line < len(code); line++ {
+		col := 0
+		if line == from.Line {
+			col = from.Col + 1
+		}
+		for ; col < len(code[line]); col++ {
+			switch code[line][col] {
+			case open:
+				depth++
+			case close:
+				if depth == 0 {
+					return SimulatedPosition{Line: line, Col: col}, true
+				}
+				depth--
+			}
+		}
+	}
+	return SimulatedPosition{}, false
+}
+
+// scanBracketsBackward is scanBracketsForward in the other direction: it finds
+// the open that matches the close at from, counting nesting back through every
+// earlier line.
+func scanBracketsBackward(code []string, from SimulatedPosition, open, close byte) (SimulatedPosition, bool) {
+	depth := 0
+	for line := from.Line; line >= 0; line-- {
+		col := len(code[line]) - 1
+		if line == from.Line {
+			col = from.Col - 1
+		}
+		for ; col >= 0; col-- {
+			switch code[line][col] {
+			case close:
+				depth++
+			case open:
+				if depth == 0 {
+					return SimulatedPosition{Line: line, Col: col}, true
+				}
+				depth--
+			}
+		}
+	}
+	return SimulatedPosition{}, false
 }
 
 func moveFirstNonBlank(pos SimulatedPosition, code []string) SimulatedPosition {

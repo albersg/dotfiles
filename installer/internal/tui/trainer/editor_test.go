@@ -594,17 +594,20 @@ func TestSimulateEditing_Recognition(t *testing.T) {
 // editing engine needs its own recognizer: the shipped motion recognizer marks
 // every mutating command as unrecognized, so it cannot express the editing
 // engine's answers. Both agree on the shared notion, "the whole input was
-// consumed", which is the only thing callers may rely on.
+// consumed", which is the only thing callers may rely on. A mark belongs to the
+// same list: m{a-z} and the jumps to it only mean something if a table survives
+// between two commands, and the motion simulator is stateless, so the mark
+// commands exist in the editor alone.
 func TestSimulateEditing_RecognitionDiffersFromMotionSimulator(t *testing.T) {
 	code := []string{"alpha", "  beta"}
 
-	for _, input := range []string{"dd", "yy", ">>", "<<", "x", "D", "p", "P", "u", "\x12"} {
+	for _, input := range []string{"dd", "yy", ">>", "<<", "x", "D", "p", "P", "u", "\x12", "ma", "`a", "'a"} {
 		if !SimulateEditing(code, Position{}, input).Recognized {
 			t.Errorf("SimulateEditing(%q).Recognized = false, want true", input)
 		}
 	}
 
-	for _, input := range []string{"x", "p", "P", "u", ">>", "<<", "\x12"} {
+	for _, input := range []string{"x", "p", "P", "u", ">>", "<<", "\x12", "ma", "`a", "'a"} {
 		if IsRecognizedInput(code, input) {
 			t.Errorf("IsRecognizedInput(%q) = true; the motion recognizer has no notion of this command", input)
 		}
@@ -2527,4 +2530,240 @@ func TestBufferJudge_AcceptsEquivalentOperatorAnswers(t *testing.T) {
 	if wrong := ValidateAnswerDetailed(exercise, "x"); wrong.IsCorrect {
 		t.Errorf("ValidateAnswerDetailed(%q).IsCorrect = true, want false", "x")
 	}
+}
+
+// TestSimulateEditing_MatchPairMotion specifies % inside the editing engine. It
+// is the motion simulator's % adopted through the shared motion parser: the same
+// jump, the same recognition, and no buffer change. The reference observations
+// are the ones recorded on TestSimulateMotions_MatchPairPercent (nvim 0.12.5,
+// `nvim --clean --headless -u NONE --cmd 'set shiftwidth=2 expandtab tabstop=2
+// startofline'`, default 'matchpairs'), and the engine must land where the
+// simulator lands for the same keys.
+func TestSimulateEditing_MatchPairMotion(t *testing.T) {
+	base := []string{
+		"func main() {",
+		"  return",
+		"}",
+	}
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "on { jumps to its }",
+			code: base, start: Position{Line: 0, Col: 12}, input: "%",
+			wantBuffer: base,
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "on } jumps back to its {",
+			code: base, start: Position{Line: 2, Col: 0}, input: "%",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 12}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "on ( jumps to its )",
+			code: []string{"if (a) {}"}, start: Position{Line: 0, Col: 3}, input: "%",
+			wantBuffer: []string{"if (a) {}"},
+			wantCursor: Position{Line: 0, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "not on a bracket scans forward on the line",
+			code: []string{"x = foo(a)"}, start: Position{Line: 0, Col: 0}, input: "%",
+			wantBuffer: []string{"x = foo(a)"},
+			wantCursor: Position{Line: 0, Col: 9}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an unmatched bracket is a recognized no-op",
+			code: []string{"if (a {"}, start: Position{Line: 0, Col: 3}, input: "%",
+			wantBuffer: []string{"if (a {"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "no bracket on the line is a recognized no-op",
+			code: []string{"plain text"}, start: Position{Line: 0, Col: 0}, input: "%",
+			wantBuffer: []string{"plain text"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			// nvim's [count]% is the percent-of-file motion, a different
+			// command, so the engine refuses it instead of jumping twice.
+			name: "counted percent is refused",
+			code: base, start: Position{Line: 0, Col: 12}, input: "2%",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 12}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "percent then a mutation acts on the bracket it reached",
+			code: []string{"x = foo(a)"}, start: Position{Line: 0, Col: 0}, input: "%x",
+			wantBuffer: []string{"x = foo(a"},
+			wantCursor: Position{Line: 0, Col: 8}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_Marks specifies the editor's mark commands. Marks need a
+// table that survives between two commands, which is state the stateless motion
+// simulator does not have, so they live only in the editing engine.
+//
+// Reference: nvim 0.12.5, one case per process, the buffer loaded from a file:
+//
+//	nvim --clean --headless -u NONE \
+//	  --cmd 'set shiftwidth=2 expandtab tabstop=2 startofline' <file> \
+//	  -c 'lua ...' -c 'qa!'
+//
+// with the keys under observation run through `:normal!` and the mark read back
+// with nvim_buf_get_mark. Observed there: m{a-z} records the cursor; `a jumps to
+// that exact position and 'a to the first non-blank of the marked line, or
+// column 0 when the line has none; a line inserted at or above the mark shifts
+// it down and a line inserted below it leaves it alone; deleting lines above it
+// lifts it; deleting the marked line itself unsets the mark, and a jump to an
+// unset mark is nvim's E20, which leaves the cursor where it was (the engine
+// keeps its convention of a recognized no-op for a recognized command that
+// cannot act); a count in front of m or of a mark jump is ignored; and same-line
+// character edits do not move the mark's column, so nothing here adjusts one.
+//
+// Undo and redo are not modeled: nvim re-applies the line insertion or deletion
+// an undo performs to the mark as well, which this engine does not do.
+func TestSimulateEditing_Marks(t *testing.T) {
+	base := []string{"alpha", "  bravo", "charlie", "delta"}
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "backtick jumps to the exact marked position",
+			code: base, start: Position{Line: 2, Col: 3}, input: "magg`a",
+			wantBuffer: base,
+			wantCursor: Position{Line: 2, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "backtick keeps the exact column, not the first non-blank",
+			code: base, start: Position{Line: 1, Col: 4}, input: "ma`a",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "single quote jumps to the first non-blank of the marked line",
+			code: base, start: Position{Line: 1, Col: 4}, input: "ma0'a",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "single quote lands at column 0 on a blank marked line",
+			code: []string{"alpha", "   ", "charlie"}, start: Position{Line: 1, Col: 1}, input: "ma'a",
+			wantBuffer: []string{"alpha", "   ", "charlie"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a line inserted above the mark shifts it down",
+			code: base, start: Position{Line: 2, Col: 2}, input: "maggO" + EscToken + "`a",
+			wantBuffer: []string{"", "alpha", "  bravo", "charlie", "delta"},
+			wantCursor: Position{Line: 3, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a line inserted below the mark leaves it alone",
+			code: base, start: Position{Line: 1, Col: 3}, input: "mao" + EscToken + "`a",
+			wantBuffer: []string{"alpha", "  bravo", "", "charlie", "delta"},
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a linewise put above the mark shifts it down",
+			code: base, start: Position{Line: 1, Col: 0}, input: "mayyP`a",
+			wantBuffer: []string{"alpha", "  bravo", "  bravo", "charlie", "delta"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "deleting lines above the mark lifts it",
+			code: base, start: Position{Line: 2, Col: 1}, input: "maggdd`a",
+			wantBuffer: []string{"  bravo", "charlie", "delta"},
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "deleting lines below the mark leaves it alone",
+			code: base, start: Position{Line: 1, Col: 0}, input: "maGdd`a",
+			wantBuffer: []string{"alpha", "  bravo", "charlie"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "deleting the marked line unsets the mark, so the jump does nothing",
+			code: base, start: Position{Line: 1, Col: 0}, input: "madd`a",
+			wantBuffer: []string{"alpha", "charlie", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a linewise operator that spans the marked line unsets it",
+			code: base, start: Position{Line: 1, Col: 0}, input: "madj`a",
+			wantBuffer: []string{"alpha", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an unset mark is a recognized no-op",
+			code: base, start: Position{Line: 2, Col: 2}, input: "`a",
+			wantBuffer: base,
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an insert session keeps the mark where it was",
+			code: base, start: Position{Line: 1, Col: 0}, input: "maiXY" + EscToken + "`a",
+			wantBuffer: []string{"alpha", "XY  bravo", "charlie", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a count in front of a mark command is ignored, as nvim ignores it",
+			code: base, start: Position{Line: 1, Col: 0}, input: "2ma",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a count in front of a mark jump is ignored, as nvim ignores it",
+			code: base, start: Position{Line: 1, Col: 2}, input: "magg2`a",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a mark name outside a-z is not a command",
+			code: base, start: Position{Line: 1, Col: 0}, input: "mA",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "m with no name is not a complete command",
+			code: base, start: Position{Line: 1, Col: 0}, input: "m",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a jump name outside a-z is not a command",
+			code: base, start: Position{Line: 1, Col: 0}, input: "`A",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a counted linewise delete above the mark lifts it by the count",
+			code: base, start: Position{Line: 3, Col: 0}, input: "magg2dd`a",
+			wantBuffer: []string{"charlie", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted linewise put above the mark shifts it by every inserted line",
+			code: base, start: Position{Line: 1, Col: 0}, input: "maggyy2G3P`a",
+			wantBuffer: []string{"alpha", "alpha", "alpha", "alpha", "  bravo", "charlie", "delta"},
+			wantCursor: Position{Line: 4, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "deleting one marked line leaves the other mark alone",
+			code: base, start: Position{Line: 2, Col: 0}, input: "maggmbdd`a",
+			wantBuffer: []string{"  bravo", "charlie", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "single quote lands on the first non-blank after a line was inserted above",
+			code: base, start: Position{Line: 1, Col: 4}, input: "maggO" + EscToken + "'a",
+			wantBuffer: []string{"", "alpha", "  bravo", "charlie", "delta"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a mutation after a mark jump acts at the mark",
+			code: base, start: Position{Line: 2, Col: 2}, input: "magg`ax",
+			wantBuffer: []string{"alpha", "  bravo", "chrlie", "delta"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
 }
