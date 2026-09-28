@@ -158,14 +158,22 @@ The repository ships two WSL artifacts in `dotfiles-wsl/`:
 
 | File | Destination | Applies to |
 |------|-------------|------------|
-| `.wslconfig` | `%USERPROFILE%\.wslconfig` on Windows | Every WSL 2 distribution |
+| `.wslconfig.tmpl` | `%USERPROFILE%\.wslconfig` on Windows | Every WSL 2 distribution |
 | `wsl.conf` | `/etc/wsl.conf` inside the distribution | That distribution only |
 
-The TUI installer applies both when it detects WSL. To do it by hand:
+The TUI installer applies both when it detects WSL, rendering the template for
+the Windows host it is running on. To do it by hand, render it rather than
+copying it: only the installer, or the `sed` below, resolves the Go template
+directives that wrap the three host-derived keys.
 
 ```bash
-# Windows-side VM settings (memory, processors, swap, networking)
-cp dotfiles-wsl/.wslconfig "$(wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' | tr -d '\r')")/.wslconfig"
+# Windows-side VM settings (memory, processors, swap, networking). The three
+# host-derived keys are stripped on purpose: WSL then applies its own
+# proportional defaults, computed by Windows from the real host.
+sed -e '/{{if \.MemoryMB}}/,/{{end}}/d' \
+    -e '/{{if \.Processors}}/,/{{end}}/d' \
+    -e '/{{if \.SwapMB}}/,/{{end}}/d' \
+    dotfiles-wsl/.wslconfig.tmpl > "$(wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' | tr -d '\r')")/.wslconfig"
 
 # Distribution-side settings (systemd, automount, interop)
 sudo install -m 0644 dotfiles-wsl/wsl.conf /etc/wsl.conf
@@ -177,9 +185,35 @@ Both files are only read when the WSL VM boots, so apply them with:
 wsl --shutdown
 ```
 
-Then reopen your terminal. `dotfiles-wsl/.wslconfig` carries machine-specific
-limits (memory, processors); adjust them to your host before applying it
-somewhere else.
+Then reopen your terminal. Leaving out `memory`, `processors` and `swap` is a
+supported configuration rather than a broken one: each of those keys has a
+proportional default that Windows computes from the machine it is running on.
+
+#### Deriving the limits yourself
+
+Writing the values explicitly means computing them from the host, never copying
+them from another machine. That is the defect this template removes: a `memory`
+or `processors` value that fits one laptop can starve Windows or cramp the VM on
+another. The template's three host-derived keys follow WSL's own proportional
+policy:
+
+| Key | Value for this host |
+|-----|---------------------|
+| `memory` | Half the host's physical memory, and never so much that Windows is left below 2 GiB, rounded down to 512 MB. Omitted when the result is below 1 GiB. |
+| `swap` | A quarter of the value you wrote for `memory`, rounded down to 512 MB. |
+| `processors` | Every logical CPU the host reports. |
+
+Read the host capacities on Windows with the same query the installer runs
+through WSL interop:
+
+```powershell
+$cpus = (Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum; $mem = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory; "cpus=$cpus"; "memmb=" + [int64][math]::Floor($mem / 1MB)
+```
+
+If interop is unavailable on the machine where you run the installer, set
+`DOTFILES_WSL_HOST_CPUS` (logical CPUs) and `DOTFILES_WSL_HOST_MEMORY_MB` (MiB)
+to the values you read here; both must be set and valid before they replace the
+query.
 
 ---
 

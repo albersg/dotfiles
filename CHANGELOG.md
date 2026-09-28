@@ -4,6 +4,37 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+The WSL configuration is now derived from the host that receives it. This release removes the last
+artifact that carried one machine's limits into another machine's VM.
+
+### Changed
+
+- **`.wslconfig` is rendered for the host it is installed on instead of shipped as one host's
+  numbers.** The file was checked in holding what a single Windows machine had settled on — 6 GB of
+  memory and 4 GB of swap against a 15.6 GB host, with 8 processors on a 12-thread one — and the
+  manual recipe told the reader to copy it and adjust it by hand. The checkout now ships
+  `dotfiles-wsl/.wslconfig.tmpl`, and the installer reads the Windows host through WSL interop and
+  renders it, so the limits that reach a machine are computed from that machine: memory is half its
+  physical memory, swap is a quarter of that memory, and processors are every logical CPU it reports.
+  Both memory values are rounded down to 512 MB, Windows is always left at least 2 GiB, and a memory
+  plan below 1 GiB is not written at all.
+- **A host that cannot be read omits the limits rather than guessing them.** When interop is disabled
+  or unavailable, `memory`, `processors` and `swap` are left out of the rendered file and WSL applies
+  its own proportional defaults, which Windows computes from the real host. That is a supported
+  configuration and not a broken one, and it is now the instruction the manual recipe leads with.
+- **The install step and the interactive script render the same bytes.** Both routes go through one
+  shared render helper, so the non-interactive step and the shell script a guided run executes can no
+  longer disagree about what `.wslconfig` contains.
+
+### Added
+
+- **`DOTFILES_WSL_HOST_CPUS` and `DOTFILES_WSL_HOST_MEMORY_MB`**, for a machine whose interop is
+  unavailable: setting both to the host's logical CPU count and its memory in MiB replaces the
+  Windows-side query. Both must be present and valid, so a half-configured override falls back to
+  detection instead of planning a limit from one guessed number.
+
 ## [v0.2.3] — 2026-09-21
 
 Two defects on the interactive path, and the assertions that stop the sequence they belonged to.
