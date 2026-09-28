@@ -1452,6 +1452,16 @@ func trainerModuleProgressText(progress *trainer.ModuleProgress, practice traine
 		lessonsCompleted, lessonsTotal, practice.MasteredCount, practice.TotalExercises, boss)
 }
 
+// trainerPracticeAccuracyText renders the selected module's practice accuracy,
+// the percentage the boss unlock threshold is measured against. It is omitted
+// until the module has a recorded attempt, so a fresh module does not claim 0%.
+func trainerPracticeAccuracyText(progress *trainer.ModuleProgress) string {
+	if progress == nil || progress.PracticeAttempts == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Acc %.0f%%", progress.PracticeAccuracy*100)
+}
+
 // trainerWeakExerciseText renders the exercises a module misses most, in the
 // order GetPracticeStatsForModule returns them (most wrong first), with the
 // recorded wrong count. Entries are added while the line fits maxWidth (0 means
@@ -1544,15 +1554,25 @@ func (m Model) renderTrainerMenu() string {
 
 		line := fmt.Sprintf("%s %s %s", status, module.Icon, module.Name)
 
-		// Progress is display-only text attached to the existing entry. Reading
-		// the map directly (instead of GetModuleProgress) keeps a render from
-		// creating module or exercise records in the persisted stats.
+		// Progress is display-only text attached to the existing entry. The
+		// unlock/ready predicates above and this direct map read both look the
+		// recorded progress up without creating records, so rendering the menu
+		// neither manufactures module records nor exercise records in the
+		// persisted stats.
 		var progress *trainer.ModuleProgress
 		var practice trainer.PracticeStats
 		if m.TrainerStats != nil {
 			progress = m.TrainerStats.ModuleProgress[module.ID]
 			practice = trainer.GetPracticeStatsForModule(module.ID, progress)
 			line += "  " + trainerModuleProgressText(progress, practice, isBossDefeated)
+			// The selected module also shows its practice accuracy, the number
+			// the boss unlock threshold is measured against, so the player can
+			// tell how close they are without opening the module.
+			if i == m.TrainerCursor {
+				if accuracy := trainerPracticeAccuracyText(progress); accuracy != "" {
+					line += " " + accuracy
+				}
+			}
 		}
 
 		s.WriteString(style.Render(cursor + line))

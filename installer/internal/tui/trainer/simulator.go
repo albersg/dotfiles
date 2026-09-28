@@ -78,6 +78,24 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 		pos.Line = len(code) - 1
 	}
 
+	// The same malformed exercise can declare a CursorPos.Col past the end of
+	// its line. The backward motions index line[pos.Col] directly (moveWordBackward,
+	// moveEndOfPrevWord) and findChar scans from pos.Col-1, so an out-of-range
+	// column panics on b, B, F, T and ge. Clamping the start column once here
+	// covers every motion instead of one call site at a time, and leaves any
+	// in-range column untouched.
+	line := code[pos.Line]
+	if pos.Col < 0 {
+		pos.Col = 0
+	}
+	if pos.Col >= len(line) {
+		pos.Col = len(line) - 1
+	}
+	// A line with no characters leaves the clamp at -1; the cursor belongs at 0.
+	if pos.Col < 0 {
+		pos.Col = 0
+	}
+
 	lastFind := lastFindCommand{}
 	recognized := true
 

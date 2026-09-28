@@ -53,7 +53,6 @@ type Exercise struct {
     Type         ExerciseType // lesson, practice, boss
     Code         []string     // Lines of code shown
     CursorPos    Position     // Initial cursor
-    CursorTarget *Position    // Target position (movement exercises)
     Mission      string       // What user must do
     Solutions    []string     // ALL valid solutions
     Optimal      string       // Best/shortest solution

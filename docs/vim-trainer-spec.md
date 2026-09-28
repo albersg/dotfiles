@@ -429,7 +429,6 @@ type Exercise struct {
     Type          string     // "lesson", "practice", "boss"
     Code          []string   // Líneas de código a mostrar
     CursorPos     Position   // Dónde está el cursor inicialmente
-    CursorTarget  *Position  // Dónde debe terminar (para movimientos)
     Mission       string     // "Mové el cursor hasta la 'N' de 'Name'"
     Solutions     []string   // ["w", "W", "fe"] - todas las válidas
     Optimal       string     // "w" - la mejor/más corta

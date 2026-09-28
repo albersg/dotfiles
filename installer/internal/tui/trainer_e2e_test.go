@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -1977,11 +1978,99 @@ func TestTrainerMenuShowsModuleProgress(t *testing.T) {
 		"Lessons 7/15",
 		fmt.Sprintf("Mastered 2/%d", len(lessons)),
 		"Boss ✓",
+		"Acc 60%",
 	}
 	for _, w := range want {
 		if !strings.Contains(view, w) {
 			t.Errorf("trainer menu does not show %q:\n%s", w, view)
 		}
+	}
+}
+
+// TestTrainerMenuRenderIsReadOnly pins that merely opening the trainer menu does
+// not manufacture records in the player's profile. The menu asks every module
+// whether its lessons are complete and whether practice and the boss are ready,
+// so the predicates behind those questions must look the progress up without
+// creating an empty MODULE record (the exercise half was made read-only in the
+// previous slice). Measured the way the defect was found: render on a fresh
+// profile, then check both memory and the saved file.
+func TestTrainerMenuRenderIsReadOnly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+
+	// A fresh profile saved before the render is the baseline the post-render
+	// save must match byte for byte: opening the menu may not gain it anything.
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding a fresh profile failed: %v", err)
+	}
+	before := readTrainerStatsFile(t)
+
+	_ = m.View()
+
+	if got := len(m.TrainerStats.ModuleProgress); got != 0 {
+		t.Errorf("rendering the menu created %d module records in memory, want 0", got)
+	}
+	if got := countTrainerExerciseRecords(m.TrainerStats); got != 0 {
+		t.Errorf("rendering the menu created %d exercise records in memory, want 0", got)
+	}
+
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("saving after the render failed: %v", err)
+	}
+	if after := readTrainerStatsFile(t); after != before {
+		t.Errorf("rendering the menu changed the saved profile:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func readTrainerStatsFile(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(trainer.GetStatsPath())
+	if err != nil {
+		t.Fatalf("reading the trainer stats file failed: %v", err)
+	}
+	return string(data)
+}
+
+func countTrainerExerciseRecords(stats *trainer.UserStats) int {
+	count := 0
+	for _, progress := range stats.ModuleProgress {
+		count += len(progress.ExerciseStats)
+	}
+	return count
+}
+
+// TestTrainerMenuFitsEightyColumns pins the menu inside the 80x24 frame it
+// documents. The layout sizes itself from its longest line, so a line over 80
+// columns would wrap on the real terminal and break the screen. The selected
+// module carries its practice accuracy, so the worst case is the longest module
+// name with a three-digit accuracy.
+func TestTrainerMenuFitsEightyColumns(t *testing.T) {
+	cases := []struct {
+		name     string
+		accuracy float64
+	}{
+		{"the seeded sixty percent", 0.60},
+		{"a three-digit accuracy", 1.00},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTrainerProgressModel(t)
+			m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal).PracticeAccuracy = tc.accuracy
+
+			for _, line := range strings.Split(m.View(), "\n") {
+				if got := lipgloss.Width(line); got > 80 {
+					t.Errorf("trainer menu line is %d columns wide, want <= 80: %q", got, line)
+				}
+			}
+		})
 	}
 }
 
