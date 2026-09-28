@@ -111,16 +111,42 @@ Ordered before the remaining engine features on purpose. This is the integration
 the TUI, the judge and the engine must agree. Proving it now, with the mutations and motions that
 already work, is cheaper than discovering a mismatch after insert, registers, `%` and marks are built
 on top of it.
-- [ ] `Exercise` gains the opt-in field, and its zero value keeps the current judge, so the 156
+- [x] `Exercise` gains the opt-in field, and its zero value keeps the current judge, so the 156
       shipped exercises take the path they were written for.
-- [ ] The buffer path in `ValidateAnswerDetailed` compares the resulting buffer text, cursor and mode
+- [x] The buffer path in `ValidateAnswerDetailed` compares the resulting buffer text, cursor and mode
       against the optimal's, and reports a useful mismatch message naming what differed.
-- [ ] `Ctrl-r` can be typed; it is currently ignored, which would make a redo lesson unanswerable.
-- [ ] The result screen shows the resulting buffer, and only for buffer-verified exercises.
-- Tests: a buffer-verified exercise judged correct by result with a different-but-equivalent answer,
-      a wrong answer reporting what differed, and a regression test asserting that no shipped exercise
-      opts in and that a sample of them still validates exactly as before.
-- Route: delegated writer.
+- [x] `Ctrl-r` can be typed; it was ignored, which would have made a redo lesson unanswerable.
+- [x] The result screen shows the resulting buffer, and only for buffer-verified exercises.
+- Check: 959 trainer tests at the time, 2333 module tests; no golden moved; `gofmt` and `go vet` clean.
+- Route: delegated writer, then a differential verification against real nvim.
+- Evidence: RED observed as a build failure against the new API, then green. The equivalence pair is
+  `2Gdd` against `jdd` on a three-line buffer: same buffer, same cursor, and `jdd` is deliberately
+  absent from `Solutions`, so correctness comes from the result rather than from the keys. A rejected
+  answer names what diverged from the compared results, and the message stays byte-identical for every
+  exercise that does not opt in. A guard test asserts that no shipped exercise opts in, which turns
+  the constraint into something the suite enforces. Commit `01dcc07`, plus two fidelity corrections the
+  differential verification forced: `a6ec2a6` and the counted-linewise guard.
+- Known gap, reported rather than hidden: the boss path does not store the validation, so a
+  buffer-verified boss step would be judged correctly and show no buffer. The module slice decides.
+
+## Fidelity notes, with nvim as the reference
+The engine is verified differentially against `nvim --clean --headless` with
+`set shiftwidth=2 expandtab tabstop=2 startofline`, one fresh process per case, and the buffer loaded
+from a file. Both matter: the API joins the first undo block, and scripted input coalesces a whole
+script into one block, so undo granularity cannot be settled any other way.
+- Corrected after the differential run: indentation is a width in columns, so a tab advances to its
+  tabstop and expandtab writes spaces, with truly empty lines skipped and whitespace-only lines
+  shifted; undo of a linewise change lands on the first non-blank, as the mutation itself already
+  did; `[count]D` is refused instead of parsed and ignored; and a counted linewise operator starting
+  on the last line is a no-op for `dd`, `yy`, `>>` and `<<` alike. Indentation and landing cases went
+  from seventeen of thirty-seven matching to all thirty-seven.
+- The last of those was surprising, so it was reproduced before it was implemented, and the table
+  that settles it carries twenty-eight nvim-referenced rows including the controls that must still
+  clamp.
+- Known and deliberately left alone: the motion simulator's `^` and `$` on an all-blank line and its
+  `curswant` with tabs differ from nvim, but that path serves the 156 shipped exercises. Character
+  wise register content arrives with E5. nvim gives a failed command its own undo block while the
+  engine treats a no-op as no undo point, and existing assertions depend on the engine's choice.
 
 ### E4 — Insert mode and the escape token
 - [ ] `i a o O I A` enter insert mode at the right position; typed text is inserted; the escape token
@@ -203,3 +229,8 @@ on top of it.
   because it is the integration risk where the TUI, the judge and the engine must agree, and proving
   it with the mutations and motions that already work is cheaper than discovering a mismatch after
   three more engine features sit on top of it. The escape token moved to the insert task that needs it.
+
+- 2026-09-28: E3 committed as `01dcc07`, corrected twice by the differential verification as
+  `a6ec2a6` and the counted-linewise guard. The verification also proved the motion seam is
+  behaviour-identical to `main` by fuzzing 60,504 cases, and confirmed the opt-in gate, the bypass and
+  the scoring are textually unchanged.
