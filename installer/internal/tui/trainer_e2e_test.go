@@ -634,3 +634,100 @@ func TestPracticeModeE2E(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }
+
+// =============================================================================
+// PRACTICE ACCOUNTING REGRESSION
+// =============================================================================
+
+// newPracticeSubmissionModel builds a model parked on a known practice exercise,
+// so a submission can be driven through the real UI handler.
+func newPracticeSubmissionModel(t *testing.T) (Model, *trainer.Exercise) {
+	t.Helper()
+
+	// Isolate the stats file the handler writes on submit.
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerPractice
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartPractice(trainer.ModuleHorizontal)
+
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	if len(lessons) == 0 {
+		t.Fatal("no horizontal lessons available")
+	}
+	exercise := lessons[0]
+	m.TrainerGameState.SetPracticeExercise(&exercise)
+
+	return m, m.TrainerGameState.CurrentExercise
+}
+
+// TestTrainerPracticeSubmissionCountsOnce is the regression test for the double count.
+// The answer handler called RecordCorrectAnswer/RecordIncorrectAnswer and then
+// RecordPracticeResult for the same submission, so PracticeAttempts and
+// PracticeCorrect advanced twice per answer. The defect lives in the composition
+// of two calls inside the UI handler, so the assertion has to run a real
+// submission through Model.Update.
+func TestTrainerPracticeSubmissionCountsOnce(t *testing.T) {
+	t.Run("correct answer advances the counters once and records mastery", func(t *testing.T) {
+		m, exercise := newPracticeSubmissionModel(t)
+
+		m.TrainerInput = exercise.Optimal
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+
+		progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+		if progress.PracticeAttempts != 1 {
+			t.Errorf("PracticeAttempts = %d after one correct submission, want 1", progress.PracticeAttempts)
+		}
+		if progress.PracticeCorrect != 1 {
+			t.Errorf("PracticeCorrect = %d after one correct submission, want 1", progress.PracticeCorrect)
+		}
+
+		// The per-exercise mastery is why RecordPracticeResult stays the owner;
+		// the fix must not satisfy the counters by dropping mastery.
+		exStats := progress.GetExerciseStats(exercise.ID)
+		if exStats.TotalAttempts != 1 {
+			t.Errorf("exercise %s TotalAttempts = %d after one submission, want 1", exercise.ID, exStats.TotalAttempts)
+		}
+		if exStats.TotalCorrect != 1 {
+			t.Errorf("exercise %s TotalCorrect = %d after one correct submission, want 1", exercise.ID, exStats.TotalCorrect)
+		}
+	})
+
+	t.Run("incorrect answer advances attempts once and no correct", func(t *testing.T) {
+		m, exercise := newPracticeSubmissionModel(t)
+
+		wrong := "ZZZZZZ"
+		if trainer.ValidateAnswer(exercise, wrong) {
+			t.Fatalf("test setup: %q must not validate for exercise %s", wrong, exercise.ID)
+		}
+
+		m.TrainerInput = wrong
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+
+		if m.TrainerLastCorrect {
+			t.Fatal("test setup: the submission was accepted, expected a rejection")
+		}
+
+		progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+		if progress.PracticeAttempts != 1 {
+			t.Errorf("PracticeAttempts = %d after one incorrect submission, want 1", progress.PracticeAttempts)
+		}
+		if progress.PracticeCorrect != 0 {
+			t.Errorf("PracticeCorrect = %d after one incorrect submission, want 0", progress.PracticeCorrect)
+		}
+
+		exStats := progress.GetExerciseStats(exercise.ID)
+		if exStats.TotalAttempts != 1 {
+			t.Errorf("exercise %s TotalAttempts = %d after one submission, want 1", exercise.ID, exStats.TotalAttempts)
+		}
+		if exStats.TotalWrong != 1 {
+			t.Errorf("exercise %s TotalWrong = %d after one incorrect submission, want 1", exercise.ID, exStats.TotalWrong)
+		}
+	})
+}

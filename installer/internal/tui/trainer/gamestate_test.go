@@ -299,12 +299,28 @@ func TestGameState_UpdatePracticeStats(t *testing.T) {
 	state := NewGameState()
 	state.StartPractice(ModuleHorizontal)
 
-	// Record some practice attempts
+	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+
+	// RecordCorrectAnswer/RecordIncorrectAnswer own streaks, score and lesson
+	// progress, not practice accounting. Three answers here must leave the
+	// practice counters untouched.
 	state.RecordCorrectAnswer(3.0, false)
 	state.RecordCorrectAnswer(4.0, true)
 	state.RecordIncorrectAnswer()
 
-	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+	if progress.PracticeAttempts != 0 {
+		t.Errorf("PracticeAttempts should stay 0 when GameState records answers, got %d", progress.PracticeAttempts)
+	}
+	if progress.PracticeCorrect != 0 {
+		t.Errorf("PracticeCorrect should stay 0 when GameState records answers, got %d", progress.PracticeCorrect)
+	}
+
+	// ModuleProgress.RecordPracticeResult is the single owner of the practice
+	// counters, so the same three results land there.
+	exerciseID := state.CurrentExercise.ID
+	progress.RecordPracticeResult(exerciseID, true)
+	progress.RecordPracticeResult(exerciseID, true)
+	progress.RecordPracticeResult(exerciseID, false)
 
 	if progress.PracticeAttempts != 3 {
 		t.Errorf("PracticeAttempts should be 3, got %d", progress.PracticeAttempts)
@@ -318,15 +334,21 @@ func TestGameState_PracticeAccuracyCalculation(t *testing.T) {
 	state := NewGameState()
 	state.StartPractice(ModuleHorizontal)
 
-	// 8 correct, 2 incorrect = 80% accuracy
+	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+	exerciseID := state.CurrentExercise.ID
+
+	// 8 correct, 2 incorrect = 80% accuracy. Each submission is the composition
+	// the UI handler runs: GameState records the streak/score side, and
+	// RecordPracticeResult owns the practice counters.
 	for i := 0; i < 8; i++ {
 		state.RecordCorrectAnswer(3.0, false)
+		progress.RecordPracticeResult(exerciseID, true)
 	}
 	for i := 0; i < 2; i++ {
 		state.RecordIncorrectAnswer()
+		progress.RecordPracticeResult(exerciseID, false)
 	}
 
-	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
 	expectedAccuracy := 0.80
 
 	if progress.PracticeAccuracy < expectedAccuracy-0.01 || progress.PracticeAccuracy > expectedAccuracy+0.01 {

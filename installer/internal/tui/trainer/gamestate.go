@@ -148,14 +148,9 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	g.SessionScore += points
 	g.Stats.TotalScore += points
 
-	// Update practice stats
-	if g.IsPracticeMode {
-		progress := g.Stats.GetModuleProgress(g.CurrentModule)
-		progress.PracticeAttempts++
-		progress.PracticeCorrect++
-		progress.PracticeAccuracy = float64(progress.PracticeCorrect) / float64(progress.PracticeAttempts)
-		progress.LastPracticed = time.Now()
-	}
+	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
+	// the single owner of PracticeAttempts/PracticeCorrect and per-exercise
+	// mastery. Counting it here too double-counted every practice submission.
 
 	// Update lesson progress
 	if g.IsLessonMode {
@@ -172,12 +167,8 @@ func (g *GameState) RecordIncorrectAnswer() {
 	g.Stats.CurrentStreak = 0
 	g.ComboMultiplier = 1
 
-	// Update practice stats
-	if g.IsPracticeMode {
-		progress := g.Stats.GetModuleProgress(g.CurrentModule)
-		progress.PracticeAttempts++
-		progress.PracticeAccuracy = float64(progress.PracticeCorrect) / float64(progress.PracticeAttempts)
-	}
+	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
+	// the single owner of PracticeAttempts/PracticeCorrect.
 
 	// Boss mode: lose a life
 	if g.IsBossMode {
