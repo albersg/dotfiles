@@ -251,32 +251,38 @@ func TestSimulateMotions_ComplexSequence(t *testing.T) {
 	}
 }
 
-func TestIsValidInput_ValidMotions(t *testing.T) {
+func TestIsRecognizedInput_FullyConsumedMotions(t *testing.T) {
+	code := []string{"const value = target;"}
 	validInputs := []string{
 		"w", "W", "e", "E", "b", "B",
 		"0", "^", "$",
-		"f", "F", "t", "T",
+		"fe", "Fe", "te", "Te",
 		"h", "l", "j", "k",
-		"g", "G",
-		"3w", "2f.", "10j",
+		"ge", "gg", "G",
+		"3w", "2fe", "10j",
+		"dw", "de", "d$", "dd", "ciw", "viw", "vaw", "yy", "cc",
 		"",
 	}
 
 	for _, input := range validInputs {
-		if !IsValidInput(input) {
-			t.Errorf("IsValidInput(%q) should be true", input)
+		if !IsRecognizedInput(code, input) {
+			t.Errorf("IsRecognizedInput(%q) should be true", input)
 		}
 	}
 }
 
-func TestIsValidInput_InvalidMotions(t *testing.T) {
+func TestIsRecognizedInput_UnrecognizedOrIncomplete(t *testing.T) {
+	code := []string{"const value = target;"}
 	invalidInputs := []string{
-		"x", "d", "c", "y", "p",
+		"x", "p", "q", "zzz",
+		"d", "c", "y", "v",
+		"f", "F", "t", "T", "g",
+		"3",
 	}
 
 	for _, input := range invalidInputs {
-		if IsValidInput(input) {
-			t.Errorf("IsValidInput(%q) should be false", input)
+		if IsRecognizedInput(code, input) {
+			t.Errorf("IsRecognizedInput(%q) should be false", input)
 		}
 	}
 }

@@ -539,3 +539,96 @@ func TestFormatSolutionsHint_NilExercise(t *testing.T) {
 		t.Errorf("Nil exercise should return empty string, got %q", result)
 	}
 }
+
+// =============================================================================
+// RESULT-BASED VALIDATION
+// =============================================================================
+
+// findLesson locates a shipped lesson by module and ID so these tests exercise
+// the real exercise fixtures instead of hand-built structs.
+func findLesson(t *testing.T, module ModuleID, id string) *Exercise {
+	t.Helper()
+	lessons := GetLessons(module)
+	for i := range lessons {
+		if lessons[i].ID == id {
+			return &lessons[i]
+		}
+	}
+	t.Fatalf("lesson %q not found in module %q", id, module)
+	return nil
+}
+
+// textobjects_001 (optimal "viw") leaves the cursor where it started, so the old
+// position-only check accepted any answer the simulator could not parse.
+func TestValidateAnswer_RejectsUnrecognizedTextObjectAnswer(t *testing.T) {
+	exercise := findLesson(t, ModuleTextObjects, "textobjects_001")
+
+	for _, answer := range []string{"q", "x", "zzz"} {
+		if ValidateAnswer(exercise, answer) {
+			t.Errorf("%s: ValidateAnswer(%q) = true, want false (unrecognized input)", exercise.ID, answer)
+		}
+		if result := ValidateAnswerDetailed(exercise, answer); result.IsCorrect {
+			t.Errorf("%s: ValidateAnswerDetailed(%q).IsCorrect = true, want false", exercise.ID, answer)
+		}
+	}
+}
+
+// changerepeat_015 (optimal "dd") has the same cursor-does-not-move shape.
+func TestValidateAnswer_RejectsUnrecognizedChangeRepeatAnswer(t *testing.T) {
+	exercise := findLesson(t, ModuleChangeRepeat, "changerepeat_015")
+
+	for _, answer := range []string{"q", "x", "zzz"} {
+		if ValidateAnswer(exercise, answer) {
+			t.Errorf("%s: ValidateAnswer(%q) = true, want false (unrecognized input)", exercise.ID, answer)
+		}
+		if result := ValidateAnswerDetailed(exercise, answer); result.IsCorrect {
+			t.Errorf("%s: ValidateAnswerDetailed(%q).IsCorrect = true, want false", exercise.ID, answer)
+		}
+	}
+}
+
+// The positive direction must keep working: the optimal selection answer is
+// correct, and so is a creative answer reaching the same result by other means.
+func TestValidateAnswer_AcceptsOptimalAndCreativeSelectionAnswers(t *testing.T) {
+	optimal := findLesson(t, ModuleTextObjects, "textobjects_001")
+	if !ValidateAnswer(optimal, optimal.Optimal) {
+		t.Errorf("%s: optimal %q should be accepted", optimal.ID, optimal.Optimal)
+	}
+	if result := ValidateAnswerDetailed(optimal, optimal.Optimal); !result.IsCorrect || !result.IsOptimal {
+		t.Errorf("%s: optimal %q should be correct and optimal, got %+v", optimal.ID, optimal.Optimal, result)
+	}
+
+	// changerepeat_001 has optimal "dw" and Solutions {"dw", "de"}.
+	// "d1w" is a genuine alternative that yields the same cursor position and
+	// selection as "dw" but is not in the predefined list.
+	exercise := findLesson(t, ModuleChangeRepeat, "changerepeat_001")
+	alternative := "d1w"
+	if IsInSolutions(exercise, alternative) {
+		t.Fatalf("%s: %q unexpectedly in Solutions %v", exercise.ID, alternative, exercise.Solutions)
+	}
+	if !ValidateAnswer(exercise, alternative) {
+		t.Errorf("%s: creative alternative %q should be accepted (same result as %q)", exercise.ID, alternative, exercise.Optimal)
+	}
+	if result := ValidateAnswerDetailed(exercise, alternative); !result.IsCorrect {
+		t.Errorf("%s: ValidateAnswerDetailed(%q).IsCorrect = false, want true", exercise.ID, alternative)
+	}
+}
+
+// An answer that produces a different selection than the optimal operator must
+// be rejected even when the cursor does not move.
+func TestValidateAnswer_RejectsDifferentSelectionFromOptimal(t *testing.T) {
+	// changerepeat_001 optimal "dw" selects the word plus trailing space; "dh"
+	// selects the single character before the cursor and is not a predefined
+	// solution, yet it leaves the cursor where it started.
+	exercise := findLesson(t, ModuleChangeRepeat, "changerepeat_001")
+	answer := "dh"
+	if IsInSolutions(exercise, answer) {
+		t.Fatalf("%s: %q unexpectedly in Solutions %v", exercise.ID, answer, exercise.Solutions)
+	}
+	if ValidateAnswer(exercise, answer) {
+		t.Errorf("%s: %q must be rejected (different selection than %q)", exercise.ID, answer, exercise.Optimal)
+	}
+	if result := ValidateAnswerDetailed(exercise, answer); result.IsCorrect {
+		t.Errorf("%s: ValidateAnswerDetailed(%q).IsCorrect = true, want false", exercise.ID, answer)
+	}
+}

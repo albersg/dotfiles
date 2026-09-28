@@ -21,9 +21,16 @@ type Selection struct {
 }
 
 // SimulationResult contains the cursor position and optional selection
+// produced by simulating an input.
 type SimulationResult struct {
 	Position  SimulatedPosition
 	Selection Selection
+	// Recognized reports whether every keystroke of the input was consumed by a
+	// recognized Vim command. It is the single notion of "recognized input" in
+	// this package: validation uses it (through IsRecognizedInput) to reject
+	// answers the simulator cannot fully parse, such as unknown keys ("q",
+	// "zzz") or incomplete commands ("d", "f").
+	Recognized bool
 }
 
 // lastFindCommand tracks the last f/F/t/T command for ; and , repeats
@@ -43,15 +50,23 @@ func SimulateMotions(start Position, code []string, input string) SimulatedPosit
 // SimulateMotionsWithSelection simulates vim motions and returns both position and selection
 func SimulateMotionsWithSelection(start Position, code []string, input string) SimulationResult {
 	result := SimulationResult{
-		Position: SimulatedPosition{Line: start.Line, Col: start.Col},
+		Position:   SimulatedPosition{Line: start.Line, Col: start.Col},
+		Recognized: true,
 	}
 
-	if len(code) == 0 || input == "" {
+	if input == "" {
+		return result
+	}
+
+	// Without code there is nothing to simulate or recognize.
+	if len(code) == 0 {
+		result.Recognized = false
 		return result
 	}
 
 	pos := result.Position
 	lastFind := lastFindCommand{}
+	recognized := true
 
 	i := 0
 	for i < len(input) {
@@ -89,7 +104,8 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 					continue
 				}
 			}
-			// Just gu without complete motion
+			// Just gu/gU without a complete motion: not a recognized command
+			recognized = false
 			i += 2
 			continue
 		}
@@ -130,7 +146,8 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 					continue
 				}
 			}
-			// Just an operator without complete motion, skip it
+			// Operator without a complete motion: not a recognized command
+			recognized = false
 			i++
 			continue
 		}
@@ -174,6 +191,8 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 		}
 
 		if i >= len(input) {
+			// A bare count with no command is not a complete command
+			recognized = false
 			break
 		}
 
@@ -196,9 +215,17 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 			// Handle g commands (ge, gE, gg, etc.)
 			secondChar := input[i]
 			i++
+			if secondChar != 'e' && secondChar != 'E' && secondChar != 'g' {
+				recognized = false
+			}
 			// For gg with count (like 3gg), pass count to go to specific line
 			pos = executeGCommand(pos, code, secondChar, count)
 			continue
+		}
+
+		if needsChar && char == 0 {
+			// f/F/t/T require a target character to be a complete command
+			recognized = false
 		}
 
 		// Execute the command count times
@@ -382,6 +409,9 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 					pos.Line = 0
 				}
 				pos.Col = 0
+			default:
+				// Unknown command (e.g. q, x, z): not a recognized command
+				recognized = false
 			}
 		}
 	}
@@ -406,6 +436,7 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 	}
 
 	result.Position = pos
+	result.Recognized = recognized
 	return result
 }
 
@@ -691,32 +722,13 @@ func isWordChar(ch byte, bigWord bool) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || ch == '_'
 }
 
-// IsValidInput checks if the input so far could be a valid vim motion
-func IsValidInput(input string) bool {
-	if input == "" {
-		return true
-	}
-
-	// Valid starting characters for motions
-	validStarts := "wWeEbB0^$fFtThljkgG;,"
-
-	// Check if first non-digit char is valid
-	i := 0
-	for i < len(input) && input[i] >= '0' && input[i] <= '9' {
-		i++
-	}
-
-	if i >= len(input) {
-		// Just digits - could be a count prefix
-		return true
-	}
-
-	firstCmd := input[i]
-	if !strings.ContainsRune(validStarts, rune(firstCmd)) {
-		return false
-	}
-
-	return true
+// IsRecognizedInput reports whether every keystroke of input is consumed by a
+// recognized Vim command. It is the single notion of "recognized input" in this
+// package, and ValidateAnswerDetailed uses it to reject answers the simulator
+// cannot fully parse (for example unknown keys like "q" or incomplete commands
+// like "d").
+func IsRecognizedInput(code []string, input string) bool {
+	return SimulateMotionsWithSelection(Position{}, code, input).Recognized
 }
 
 func max(a, b int) int {
