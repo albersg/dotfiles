@@ -3,11 +3,16 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	// Colors - dotfiles Theme (from opencode theme)
-	// Base colors
-	Background        = lipgloss.Color("#06080f")
-	BackgroundPanel   = lipgloss.Color("#06080f")
-	BackgroundElement = lipgloss.Color("#06080f")
+	// Colors - dotfiles Theme (from opencode theme).
+	//
+	// Only the colours a screen actually renders live here. A constant nothing
+	// references is dead weight in a palette: it reads as an available choice
+	// while no screen can be checked against it.
+
+	// Base color. It is also the colour text takes on top of a filled cursor or
+	// selection block, which is why CursorText names it instead of repeating the
+	// hex: three cursor styles used to spell "#06080f" out.
+	Background = lipgloss.Color("#06080f")
 
 	// Text colors
 	Text      = lipgloss.Color("#F3F6F9")
@@ -25,23 +30,11 @@ var (
 	Info    = lipgloss.Color("#7FB4CA") // Blue
 
 	// Border colors
-	Border       = lipgloss.Color("#313342")
 	BorderActive = lipgloss.Color("#7FB4CA")
-	BorderSubtle = lipgloss.Color("#232A40")
 
 	// Syntax colors (for code display)
-	SyntaxComment     = lipgloss.Color("#8394A3")
-	SyntaxKeyword     = lipgloss.Color("#C99AD6") // Purple
-	SyntaxFunction    = lipgloss.Color("#B99BF2") // Light purple
-	SyntaxVariable    = lipgloss.Color("#F3F6F9")
-	SyntaxString      = lipgloss.Color("#DFBD76") // Gold
-	SyntaxNumber      = lipgloss.Color("#A4DAA7") // Light green
-	SyntaxType        = lipgloss.Color("#8FB8DD") // Light blue
-	SyntaxOperator    = lipgloss.Color("#DEBA87")
-	SyntaxPunctuation = lipgloss.Color("#96A2B0")
-
-	// Markdown colors
-	MarkdownHeading = lipgloss.Color("#B5B2D0") // Lavender
+	SyntaxKeyword = lipgloss.Color("#C99AD6") // Purple
+	SyntaxString  = lipgloss.Color("#DFBD76") // Gold
 
 	// Text styles
 	TitleStyle = lipgloss.NewStyle().
@@ -86,15 +79,6 @@ var (
 			BorderForeground(BorderActive).
 			Padding(1, 2)
 
-	// Progress bar styles
-	ProgressBarFilled = lipgloss.NewStyle().
-				Foreground(Success).
-				Background(Success)
-
-	ProgressBarEmpty = lipgloss.NewStyle().
-				Foreground(Border).
-				Background(Border)
-
 	// Logo style
 	LogoStyle = lipgloss.NewStyle().
 			Foreground(Primary).
@@ -126,10 +110,6 @@ var (
 	CodeStyle = lipgloss.NewStyle().
 			Foreground(SyntaxString)
 
-	// Additional styles for backup screens
-	BackupItemStyle = lipgloss.NewStyle().
-			Foreground(Secondary)
-
 	DangerStyle = lipgloss.NewStyle().
 			Foreground(Error).
 			Bold(true)
@@ -138,22 +118,56 @@ var (
 			Foreground(Accent).
 			Bold(true)
 
+	// CursorText is the text colour used on top of a filled cursor or selection
+	// block: the terminal background, so the block reads as a cut-out. It is a
+	// name for the palette's own base colour rather than a fourth copy of the
+	// hex, which is what the cursor styles used to carry.
+	CursorText = Background
+
 	// Vim Trainer cursor styles
 	StartCursorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#06080f")).
+				Foreground(CursorText).
 				Background(Warning).
 				Bold(true)
 
 	CurrentCursorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#06080f")).
+				Foreground(CursorText).
 				Background(Success).
 				Bold(true)
 
-	// Visual selection style (like Vim's visual mode)
+	// Visual selection style (like Vim's visual mode). Its background is the
+	// palette's own blue: "#7aa2f7" was the one colour outside this theme, and it
+	// read as a stranger next to the accents it sits between.
 	SelectionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#06080f")).
-			Background(lipgloss.Color("#7aa2f7")).
+			Foreground(CursorText).
+			Background(Primary).
 			Bold(false)
+
+	// Vim Trainer menu rows. Every row state -- selected, unselected and locked
+	// -- has to start on the same column, so these styles carry no padding: the
+	// row's own marker column is what separates the rows. The shared menu styles
+	// keep their padding for the installer's own menus.
+	TrainerRowStyle = lipgloss.NewStyle().
+			Foreground(Text)
+
+	TrainerRowSelectedStyle = lipgloss.NewStyle().
+				Foreground(Accent).
+				Bold(true)
+
+	TrainerRowLockedStyle = lipgloss.NewStyle().
+				Foreground(TextMuted)
+
+	// TrainerTitleStyle and TrainerHelpStyle are TitleStyle and HelpStyle without
+	// their margins. The trainer screens budget one terminal row per element, so
+	// the blank line above a legend and below a title is an element of its own
+	// there instead of a margin the row count cannot see.
+	TrainerTitleStyle = lipgloss.NewStyle().
+				Foreground(Primary).
+				Bold(true)
+
+	TrainerHelpStyle = lipgloss.NewStyle().
+				Foreground(TextMuted).
+				Italic(true)
 )
 
 // CenterHorizontally centers text horizontally within a given width

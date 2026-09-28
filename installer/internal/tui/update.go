@@ -1592,7 +1592,7 @@ func (m *Model) expireBossStepOnDeadline() {
 		return
 	}
 
-	livesStr := strings.Repeat("❤️", state.BossLives)
+	livesStr := trainerLivesGlyphs(state.BossLives, state.CurrentBoss.Lives)
 	m.TrainerMessage = "⏰ Time's up! Was: " + solutionHint + " | Lives: " + livesStr
 }
 
@@ -1817,6 +1817,14 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
+	case "pgup", "pgdown":
+		// PgUp and PgDn scroll the code window, which is how a code block longer
+		// than the frame is still readable. They are key names rather than
+		// printable characters, so they cannot collide with typing, with the hint
+		// key, with submit or with back, and neither engine parses them.
+		m.scrollTrainerCode(key == "pgdown")
+		return m, nil
+
 	case "backspace":
 		// Remove the last typed unit from the input.
 		m.TrainerInput = backspaceTrainerInput(m.TrainerInput)
@@ -1904,6 +1912,13 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
+	case "pgup", "pgdown":
+		// PgUp and PgDn scroll the code window, shared with the lesson and
+		// practice screens: a boss step is the longest code the trainer shows, so
+		// it needs the keys most.
+		m.scrollTrainerCode(key == "pgdown")
+		return m, nil
+
 	case "backspace":
 		m.TrainerInput = backspaceTrainerInput(m.TrainerInput)
 		return m, nil
@@ -1958,7 +1973,7 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 				m.Screen = ScreenTrainerBossResult
 			} else {
 				// Still has lives - show solution and remaining lives
-				livesStr := strings.Repeat("❤️", m.TrainerGameState.BossLives)
+				livesStr := trainerLivesGlyphs(m.TrainerGameState.BossLives, boss.Lives)
 				m.TrainerMessage = "✗ Wrong! Was: " + solutionHint + " | Lives: " + livesStr
 			}
 		}

@@ -157,6 +157,13 @@ type Model struct {
 	// result screen. It is nil until an answer is submitted, and only
 	// buffer-verified answers carry a buffer for the result screen to show.
 	TrainerValidation *trainer.ValidationResult
+	// TrainerCodeScroll is the first code row the exercise screen's code window
+	// shows, and TrainerCodeScrollFor names the exercise those rows were chosen
+	// for. The window shows the exercise's entry position until the two agree,
+	// which is how a freshly presented exercise opens on the code row its start
+	// cursor is on without every presentation path having to remember to reset it.
+	TrainerCodeScroll    int
+	TrainerCodeScrollFor string
 	// Leader key mode (like Vim's <space> leader)
 	LeaderMode bool // True when waiting for next key after <space>
 }
@@ -695,4 +702,39 @@ func (m *Model) SetupInstallSteps() {
 		Description: "Removing temporary files",
 		Status:      StatusPending,
 	})
+}
+
+// scrollTrainerCode moves the code window one row, clamped to the code it is
+// shown over. The window starts where the exercise's own cursor is (see
+// trainerCodeAnchor), so the first press of a scroll key starts from there; both
+// bounds come from the same window size the renderer uses, which is why a press
+// at either end does nothing instead of banking presses the player then has to
+// press back.
+func (m *Model) scrollTrainerCode(down bool) {
+	exercise := m.trainerCurrentExercise()
+	if exercise == nil {
+		return
+	}
+	_, codeRows := m.trainerTextBudget(exercise)
+
+	offset := m.TrainerCodeScroll
+	if !m.trainerCodeScrolled(exercise) {
+		offset = trainerCodeAnchor(exercise.CursorPos.Line, codeRows, len(exercise.Code))
+	}
+	if down {
+		offset++
+	} else {
+		offset--
+	}
+
+	m.TrainerCodeScroll = trainerCodeOffset(offset, codeRows, len(exercise.Code))
+	m.TrainerCodeScrollFor = exercise.ID
+}
+
+// trainerCodeScrolled reports whether the player has moved the code window for
+// this exercise. An exercise with no ID never counts as scrolled: there would be
+// nothing to tell one presentation of it from the next, so its window stays at
+// the entry position.
+func (m Model) trainerCodeScrolled(exercise *trainer.Exercise) bool {
+	return exercise.ID != "" && m.TrainerCodeScrollFor == exercise.ID
 }

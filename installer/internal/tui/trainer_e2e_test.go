@@ -618,6 +618,14 @@ func TestTrainerResponsiveE2E(t *testing.T) {
 			if len(out) == 0 {
 				t.Error("Expected some output")
 			}
+
+			// The frame guard renders the whole corpus at the documented 80x24 floor.
+			// The same chrome is reserved at every size, so a shorter terminal gets a
+			// shorter code window rather than a lost bottom: pin that here too, because
+			// this is the test that renders the other sizes.
+			if rows := renderedRowCount(m.View()); rows > sz.height {
+				t.Errorf("%s renders %d rows, want <= %d:\n%s", sz.name, rows, sz.height, m.View())
+			}
 		})
 	}
 }
@@ -2088,8 +2096,10 @@ func newTrainerProgressModel(t *testing.T) Model {
 }
 
 // TestTrainerMenuShowsModuleProgress pins that the menu renders the seeded
-// numbers for each module: lessons completed against total, mastered
-// exercises, and whether the boss is defeated.
+// numbers for each module: lessons completed against total and mastered
+// exercises on the row, the boss state in the row's status word, and the
+// accuracy in the selected module's detail block. The accuracy moved off the row
+// because a row that carries every fact stops fitting 80 columns.
 func TestTrainerMenuShowsModuleProgress(t *testing.T) {
 	m := newTrainerProgressModel(t)
 	view := m.View()
@@ -2098,13 +2108,18 @@ func TestTrainerMenuShowsModuleProgress(t *testing.T) {
 	want := []string{
 		"Lessons 7/15",
 		fmt.Sprintf("Mastered 2/%d", len(lessons)),
-		"Boss ✓",
-		"Acc 60%",
+		"✓ cleared",
+		"     Practice accuracy: 60%",
 	}
 	for _, w := range want {
 		if !strings.Contains(view, w) {
 			t.Errorf("trainer menu does not show %q:\n%s", w, view)
 		}
+	}
+
+	row := trainerMenuRow(t, view, m.TrainerModules[0].Name)
+	if strings.Contains(row, "accuracy") {
+		t.Errorf("the selected module's row still carries its accuracy: %q", row)
 	}
 }
 
@@ -2709,5 +2724,448 @@ func TestTrainerResultNamesWhatDifferedForOptedInExercises(t *testing.T) {
 	}
 	if !strings.Contains(view, "Resulting buffer") {
 		t.Errorf("rejected result screen does not show the produced buffer:\n%s", view)
+	}
+}
+
+// =============================================================================
+// TRAINER FRAME GUARD
+// =============================================================================
+
+// The frame the trainer documents as its floor: the terminal the golden tests
+// render at.
+const (
+	trainerFrameWidth  = 80
+	trainerFrameHeight = 24
+)
+
+// renderedRowCount counts the rows a rendered screen occupies, counted the way a
+// terminal counts them: one row per line, with a trailing newline adding none.
+func renderedRowCount(view string) int {
+	trimmed := strings.TrimRight(view, "\n")
+	if trimmed == "" {
+		return 0
+	}
+	return strings.Count(trimmed, "\n") + 1
+}
+
+// newTrainerFrameModel parks the model on the lesson screen with a live lesson
+// session for module, at the documented 80x24 floor.
+func newTrainerFrameModel(t *testing.T, module trainer.ModuleID) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = trainerFrameWidth
+	m.Height = trainerFrameHeight
+	m.Screen = ScreenTrainerLesson
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartLesson(module)
+	return m
+}
+
+// assertTrainerScreenFits pins a rendered trainer screen inside the 80x24 frame
+// the trainer claims: it is no taller than the terminal, no wider than it, and
+// the code row the exercise starts on is on screen. The start-cursor check is
+// what makes the code window honest: a window that always shows the top of the
+// code hides the cell an exercise with a deep start cursor begins from.
+func assertTrainerScreenFits(t *testing.T, m Model, exercise *trainer.Exercise) {
+	t.Helper()
+
+	view := m.View()
+
+	if rows := renderedRowCount(view); rows > trainerFrameHeight {
+		t.Errorf("%s renders %d rows at %dx%d, want <= %d: the bottom of the screen falls outside the frame\n%s",
+			exercise.ID, rows, trainerFrameWidth, trainerFrameHeight, trainerFrameHeight, view)
+	}
+
+	// A window that cannot show all of the code has to fill the frame. One row
+	// more is the overflow above; one row less means the row budget reserved rows
+	// the screen does not spend, so the code window is being shortchanged.
+	if _, codeRows := m.trainerTextBudget(exercise); len(exercise.Code) >= codeRows {
+		if rows := renderedRowCount(view); rows != trainerFrameHeight {
+			t.Errorf("%s renders %d rows at %dx%d with more code than the window shows, want exactly %d: the code window is not taking the rows the frame has left\n%s",
+				exercise.ID, rows, trainerFrameWidth, trainerFrameHeight, trainerFrameHeight, view)
+		}
+	}
+
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > trainerFrameWidth {
+			t.Errorf("%s renders a line %d columns wide, want <= %d: it is clipped silently at the frame edge: %q",
+				exercise.ID, got, trainerFrameWidth, line)
+		}
+	}
+
+	if line := exercise.CursorPos.Line; line >= 0 && line < len(exercise.Code) {
+		if gutter := fmt.Sprintf("%2d │ ", line+1); !strings.Contains(view, gutter) {
+			t.Errorf("%s does not show the start cursor's code line %d on entry:\n%s", exercise.ID, line+1, view)
+		}
+	}
+}
+
+// TestTrainerScreensFitTheFrame is the canary the golden tests are not.
+// TestAllModulesRenderE2E only asserts that the labels "Mission" and "Code"
+// appear, and both sit at the top of the screen, so it stayed green while the
+// bottom of every exercise screen was cut off: renderTrainerExercise emitted
+// about 22+N rows and renderTrainerBoss about 21+N, where N is the number of
+// code lines, against the 24 rows the trainer claims to support. It renders
+// every lesson and every boss step of every module at 80x24 and fails when a
+// screen does not fit.
+func TestTrainerScreensFitTheFrame(t *testing.T) {
+	rendered := 0
+
+	for _, module := range trainer.GetAllModules() {
+		for _, exercise := range trainer.GetLessons(module.ID) {
+			exercise := exercise
+			rendered++
+			t.Run("lesson/"+exercise.ID, func(t *testing.T) {
+				m := newTrainerFrameModel(t, module.ID)
+				m.TrainerGameState.SetPracticeExercise(&exercise)
+				assertTrainerScreenFits(t, m, &exercise)
+			})
+		}
+
+		boss := trainer.GetBoss(module.ID)
+		if boss == nil {
+			t.Fatalf("module %s has no boss to render", module.ID)
+		}
+		for i := range boss.Steps {
+			step := boss.Steps[i]
+			rendered++
+			t.Run(fmt.Sprintf("%s/boss/%d", step.Exercise.ID, i+1), func(t *testing.T) {
+				m := newTrainerFrameModel(t, module.ID)
+				m.Screen = ScreenTrainerBoss
+				m.TrainerGameState.StartBoss(module.ID)
+				for s := 0; s < i; s++ {
+					m.TrainerGameState.NextBossExercise()
+				}
+				assertTrainerScreenFits(t, m, &step.Exercise)
+			})
+		}
+	}
+
+	if rendered == 0 {
+		t.Fatal("no trainer screens were rendered")
+	}
+	t.Logf("rendered %d trainer screens at %dx%d", rendered, trainerFrameWidth, trainerFrameHeight)
+}
+
+// TestTrainerMenuFitsTheFrameWithItsResetPrompt pins the reason the menu holds
+// two rows of feedback area even when it has nothing to say: the armed reset
+// prompt is a message the menu shows, and the screen has to stay inside the frame
+// with it on screen. The menu used to render 25 rows before the prompt was even
+// added, so its last legend line was already off the bottom of a 24-row frame.
+func TestTrainerMenuFitsTheFrameWithItsResetPrompt(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+
+	view := m.View()
+	if !strings.Contains(view, trainerResetPrompt) {
+		t.Fatalf("the armed reset prompt is not on screen:\n%s", view)
+	}
+	if rows := renderedRowCount(view); rows > trainerFrameHeight {
+		t.Errorf("the menu renders %d rows with its prompt on screen, want <= %d:\n%s", rows, trainerFrameHeight, view)
+	}
+}
+
+// newTrainerLongestExerciseModel parks the model on the longest code the trainer
+// ships: the regex boss's third step, fourteen code lines with its cursor on line
+// ten, which is the screen the frame and scroll guards are about.
+func newTrainerLongestExerciseModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = trainerFrameWidth
+	m.Height = trainerFrameHeight
+	m.Screen = ScreenTrainerBoss
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartBoss(trainer.ModuleRegex)
+	for i := 1; i < 3; i++ {
+		m.TrainerGameState.NextBossExercise()
+	}
+	if got := m.TrainerGameState.CurrentExercise; got == nil || got.ID != "regex_boss_step3" {
+		t.Fatalf("expected regex_boss_step3 on screen, got %+v", got)
+	}
+	return m
+}
+
+// trainerMenuRow returns the first menu line that names the module.
+func trainerMenuRow(t *testing.T, view, moduleName string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, moduleName) {
+			return line
+		}
+	}
+	t.Fatalf("no trainer menu row names %q:\n%s", moduleName, view)
+	return ""
+}
+
+// trainerModuleName returns the display name of a module as the menu shows it.
+func trainerModuleName(m Model, id trainer.ModuleID) string {
+	for _, module := range m.TrainerModules {
+		if module.ID == id {
+			return module.Name
+		}
+	}
+	return string(id)
+}
+
+// TestTrainerModuleStatusNamesEveryState pins that the menu's status column is a
+// glyph plus a word for every rung of the ladder. The emoji this replaced (a
+// lock, crossed swords, a bullseye) was the only thing carrying the state, so a
+// terminal without an emoji font showed a box where the state should be.
+func TestTrainerModuleStatusNamesEveryState(t *testing.T) {
+	cases := []struct {
+		name                     string
+		unlocked, bossDefeated   bool
+		bossReady, practiceReady bool
+		want                     string
+	}{
+		{"locked", false, false, false, false, "✗ locked"},
+		{"lessons still to do", true, false, false, false, "○ lessons"},
+		{"practice unlocked", true, false, false, true, "● practice"},
+		{"boss open", true, false, true, true, "● boss"},
+		{"boss cleared", true, true, false, false, "✓ cleared"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := trainerModuleStatus(tc.unlocked, tc.bossDefeated, tc.bossReady, tc.practiceReady)
+			if got != tc.want {
+				t.Errorf("status = %q, want %q", got, tc.want)
+			}
+			// A word, not just a glyph: that is what survives a 16-colour terminal
+			// and a terminal with no emoji font.
+			if !strings.ContainsAny(got, "abcdefghijklmnopqrstuvwxyz") {
+				t.Errorf("status %q carries no word", got)
+			}
+		})
+	}
+}
+
+// TestTrainerMenuRowsShareOneColumn pins that every row state starts its module
+// name on the same column. SelectedStyle's PaddingLeft used to be added on top
+// of the selected row's marker while a locked row dropped the padding entirely,
+// so the list read as three ragged columns.
+func TestTrainerMenuRowsShareOneColumn(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	column := -1
+	for _, module := range m.TrainerModules {
+		row := trainerMenuRow(t, view, module.Name)
+		at := strings.Index(row, module.Name)
+		if at < 0 {
+			t.Fatalf("menu row for %s does not contain its name: %q", module.ID, row)
+		}
+		if got := lipgloss.Width(row[:at]); column < 0 {
+			column = got
+		} else if got != column {
+			t.Errorf("module %s starts at column %d, want %d: %q", module.ID, got, column, row)
+		}
+	}
+}
+
+// TestTrainerMenuRowsCarryAStatusWord pins the same contract one row at a time:
+// the seeded profile has one cleared, one unlocked and seven locked modules, and
+// each row has to say so in words.
+func TestTrainerMenuRowsCarryAStatusWord(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	want := map[trainer.ModuleID]string{
+		trainer.ModuleHorizontal:  "✓ cleared",
+		trainer.ModuleVertical:    "○ lessons",
+		trainer.ModuleTextObjects: "✗ locked",
+		trainer.ModuleRegisters:   "✗ locked",
+	}
+	for module, status := range want {
+		row := trainerMenuRow(t, view, trainerModuleName(m, module))
+		if !strings.Contains(row, status) {
+			t.Errorf("menu row for %s does not show %q: %q", module, status, row)
+		}
+	}
+
+	// A module that has finished its lessons but not reached the boss accuracy
+	// shows the next gate it can open.
+	lessons := trainer.GetLessons(trainer.ModuleVertical)
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleVertical)
+	progress.LessonsTotal = len(lessons)
+	progress.LessonsCompleted = len(lessons)
+	row := trainerMenuRow(t, m.View(), trainerModuleName(m, trainer.ModuleVertical))
+	if !strings.Contains(row, "● practice") {
+		t.Errorf("menu row for a practice-ready module does not say so: %q", row)
+	}
+}
+
+// TestTrainerCodeWindowScrollsWithPageKeys pins the scroll contract of the code
+// window: it opens on the row the exercise's cursor is on, PgUp and PgDn move it
+// one row and stop at the ends of the code, the keys never reach the answer, and
+// a printable key still does.
+func TestTrainerCodeWindowScrollsWithPageKeys(t *testing.T) {
+	m := newTrainerLongestExerciseModel(t)
+
+	if view := m.View(); !strings.Contains(view, " 11 │ ") || !strings.Contains(view, "rows 5-11 of 14") {
+		t.Fatalf("the entry window does not show the start cursor's row:\n%s", view)
+	}
+
+	m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if view := m.View(); !strings.Contains(view, "rows 6-12 of 14") {
+		t.Errorf("PgDn did not move the window one row:\n%s", view)
+	}
+	if m.TrainerInput != "" {
+		t.Errorf("PgDn reached the answer as %q", m.TrainerInput)
+	}
+
+	m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyPgUp})
+	if view := m.View(); !strings.Contains(view, "rows 5-11 of 14") {
+		t.Errorf("PgUp did not move the window back:\n%s", view)
+	}
+
+	// The window stops at the ends of the code instead of banking presses the
+	// player would then have to press back, and scrolling up reaches the top of
+	// the code rather than being pulled back to the entry row.
+	for i := 0; i < 20; i++ {
+		m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyPgUp})
+	}
+	if view := m.View(); !strings.Contains(view, "rows 1-7 of 14") {
+		t.Errorf("scrolling up did not reach the top of the code:\n%s", view)
+	}
+	for i := 0; i < 30; i++ {
+		m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	}
+	if view := m.View(); !strings.Contains(view, "rows 8-14 of 14") {
+		t.Errorf("scrolling down did not stop at the last window:\n%s", view)
+	}
+
+	m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if m.TrainerInput != "x" {
+		t.Errorf("TrainerInput = %q after typing, want %q: the scroll key took the typing path", m.TrainerInput, "x")
+	}
+}
+
+// TestTrainerBossLivesAreACountAndAGlyph pins that the lives counter is a count
+// first and a glyph run second: the red and black heart emoji it replaces were
+// the only thing saying how many lives were left, and they are two boxes on a
+// terminal with no emoji font.
+func TestTrainerBossLivesAreACountAndAGlyph(t *testing.T) {
+	m := newTrainerBossModel(t)
+
+	if view := m.View(); !strings.Contains(view, "Lives: 3/3 ♥♥♥") {
+		t.Errorf("the boss screen does not show its lives as a count and a glyph run:\n%s", view)
+	}
+
+	m.TrainerGameState.BossLives = 1
+	view := m.View()
+	if !strings.Contains(view, "Lives: 1/3 ♥♡♡") {
+		t.Errorf("the lives glyphs do not follow the count:\n%s", view)
+	}
+	if strings.ContainsAny(view, "❤🖤") {
+		t.Errorf("the boss screen still encodes lives as emoji:\n%s", view)
+	}
+
+	m.TrainerLastCorrect = true
+	m.Screen = ScreenTrainerBossResult
+	if view := m.View(); !strings.Contains(view, "Lives remaining: 1/3 ♥♡♡") {
+		t.Errorf("the boss result screen does not name the remaining lives:\n%s", view)
+	}
+}
+
+// TestTrainerOverlongTextIsCutVisibly pins the width contract the frame used to
+// break silently: an overlong code line is cut with a visible marker instead of
+// being clipped by the frame edge mid-call, and a long explanation is wrapped
+// instead of ending mid-word.
+func TestTrainerOverlongTextIsCutVisibly(t *testing.T) {
+	t.Run("an overlong code line is marked where it was cut", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+		exercise := m.TrainerGameState.CurrentExercise
+		if len(exercise.Code) == 0 || lipgloss.Width(exercise.Code[0]) <= trainerFrameWidth-trainerGutterWidth-4 {
+			t.Fatalf("test setup: %s does not carry a line long enough to cut", exercise.ID)
+		}
+
+		view := m.View()
+		if !strings.Contains(view, cutMarker) {
+			t.Errorf("the cut line carries no marker:\n%s", view)
+		}
+		if strings.Contains(view, exercise.Code[0]) {
+			t.Errorf("the whole overlong line is on screen, so nothing was cut:\n%s", view)
+		}
+	})
+
+	t.Run("a long explanation is wrapped, not clipped", func(t *testing.T) {
+		m := newTrainerResultModel(t)
+		exercise := m.TrainerGameState.CurrentExercise
+		if exercise.Explanation == "" {
+			t.Fatal("test setup: the lesson has no explanation")
+		}
+
+		view := m.View()
+		tail := exercise.Explanation[strings.LastIndex(exercise.Explanation, " ")+1:]
+		if !strings.Contains(view, tail) {
+			t.Errorf("the explanation is cut before %q:\n%s", tail, view)
+		}
+		for _, line := range strings.Split(view, "\n") {
+			if got := lipgloss.Width(line); got > trainerFrameWidth {
+				t.Errorf("result line is %d columns wide, want <= %d: %q", got, trainerFrameWidth, line)
+			}
+		}
+	})
+}
+
+// TestTrainerTextHelpers pins the fitting helpers the trainer screens share: text
+// that does not fit is shortened with the visible marker, wrapping never exceeds
+// the width it was given, and a padded field counts columns rather than bytes.
+func TestTrainerTextHelpers(t *testing.T) {
+	if got := truncate("hello", 10); got != "hello" {
+		t.Errorf("truncate of a fitting string = %q, want it unchanged", got)
+	}
+	if got := truncate("hello world", 5); got != "hell"+cutMarker {
+		t.Errorf("truncate = %q, want %q", got, "hell"+cutMarker)
+	}
+	if got := cutToWidth("hello", 0); got != "" {
+		t.Errorf("cutToWidth with no room = %q, want empty", got)
+	}
+	if got := padRight("♥ ok", 6); got != "♥ ok  " {
+		t.Errorf("padRight = %q, want %q", got, "♥ ok  ")
+	}
+	if got := wrapText("", 10, 2); got != nil {
+		t.Errorf("wrapText of nothing = %#v, want nil", got)
+	}
+
+	cases := []struct {
+		name    string
+		text    string
+		width   int
+		maxRows int
+		want    []string
+	}{
+		{"wraps on spaces", "one two three", 7, 0, []string{"one two", "three"}},
+		{"breaks a word longer than the row", "abcdefgh", 3, 0, []string{"abc", "def", "gh"}},
+		{"counts wide glyphs", "日日", 3, 0, []string{"日", "日"}},
+		{"marks the last row when the text does not fit", "one two three", 7, 1, []string{"one tw" + cutMarker}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := wrapText(tc.text, tc.width, tc.maxRows)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("wrapText(%q, %d, %d) = %#v, want %#v", tc.text, tc.width, tc.maxRows, got, tc.want)
+			}
+			for _, row := range got {
+				if w := lipgloss.Width(row); w > tc.width {
+					t.Errorf("row %q is %d columns wide, want <= %d", row, w, tc.width)
+				}
+			}
+		})
+	}
+
+	if got := trainerLivesGlyphs(1, 3); got != "♥♡♡" {
+		t.Errorf("trainerLivesGlyphs(1, 3) = %q, want %q", got, "♥♡♡")
+	}
+	if got := trainerLivesGlyphs(9, 3); got != "♥♥♥" {
+		t.Errorf("trainerLivesGlyphs(9, 3) = %q, want the total", got)
 	}
 }
