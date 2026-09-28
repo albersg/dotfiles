@@ -9,6 +9,7 @@ import (
 
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
 )
 
@@ -26,6 +27,10 @@ func TestTrainerMenuGolden(t *testing.T) {
 	m.TrainerStats = trainer.NewUserStats()
 	m.TrainerModules = trainer.GetAllModules()
 	m.TrainerCursor = 0
+
+	// Seed real progress so the snapshot proves the numbers render. A snapshot
+	// of an empty profile would match even if every count were broken.
+	seedTrainerMenuProgress(t, &m)
 
 	tm := teatest.NewTestModel(t, m,
 		teatest.WithInitialTermSize(80, 24),
@@ -1902,5 +1907,242 @@ func TestTrainerBossScreenShowsTheStepCountdown(t *testing.T) {
 	view = m.renderTrainerBoss()
 	if want := fmt.Sprintf("⏳ Time left: %ds", limit-2); !strings.Contains(view, want) {
 		t.Errorf("the boss countdown did not follow the clock, want %q:\n%s", want, view)
+	}
+}
+
+// =============================================================================
+// TRAINER MENU PROGRESS
+// =============================================================================
+
+// seedTrainerMenuProgress gives the trainer menu a profile with known progress:
+// Horizontal lessons partly done, two exercises mastered, its boss defeated,
+// and two exercises answered wrong (the first more often than the second, so
+// the weakest list has an order to check).
+func seedTrainerMenuProgress(t *testing.T, m *Model) {
+	t.Helper()
+
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+	progress.LessonsCompleted = 7
+	progress.LessonsTotal = 15
+
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	if len(lessons) < 4 {
+		t.Fatalf("need at least 4 horizontal lessons, got %d", len(lessons))
+	}
+
+	// Master the first two exercises.
+	for i := 0; i < 2; i++ {
+		for j := 0; j < trainer.MasteryThreshold; j++ {
+			progress.RecordPracticeResult(lessons[i].ID, true)
+		}
+	}
+
+	// The third exercise is missed most, the fourth once.
+	for i := 0; i < 3; i++ {
+		progress.RecordPracticeResult(lessons[2].ID, false)
+	}
+	progress.RecordPracticeResult(lessons[3].ID, false)
+
+	m.TrainerStats.BossesDefeated = append(m.TrainerStats.BossesDefeated, trainer.ModuleHorizontal)
+	progress.BossDefeated = true
+}
+
+// newTrainerProgressModel parks the model on the trainer menu with the seeded
+// progress profile above.
+func newTrainerProgressModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+	seedTrainerMenuProgress(t, &m)
+
+	return m
+}
+
+// TestTrainerMenuShowsModuleProgress pins that the menu renders the seeded
+// numbers for each module: lessons completed against total, mastered
+// exercises, and whether the boss is defeated.
+func TestTrainerMenuShowsModuleProgress(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	want := []string{
+		"Lessons 7/15",
+		fmt.Sprintf("Mastered 2/%d", len(lessons)),
+		"Boss ✓",
+	}
+	for _, w := range want {
+		if !strings.Contains(view, w) {
+			t.Errorf("trainer menu does not show %q:\n%s", w, view)
+		}
+	}
+}
+
+// TestTrainerMenuShowsUnopenedModuleLessonTotal pins that a module that has
+// never been opened still shows its real lesson total instead of 0/0, which
+// would contradict the mastery count shown next to it.
+func TestTrainerMenuShowsUnopenedModuleLessonTotal(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	lessons := trainer.GetLessons(trainer.ModuleVertical)
+	if len(lessons) == 0 {
+		t.Fatal("no vertical lessons available")
+	}
+	want := fmt.Sprintf("Lessons 0/%d", len(lessons))
+	if !strings.Contains(view, want) {
+		t.Errorf("unopened module does not show %q:\n%s", want, view)
+	}
+}
+
+// TestTrainerMenuShowsWeakestExercisesInOrder pins that the menu surfaces the
+// exercises answered wrong most often, most-missed first, and labels them.
+func TestTrainerMenuShowsWeakestExercisesInOrder(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	mostMissed := lessons[2].ID
+	lessMissed := lessons[3].ID
+
+	mostIdx := strings.Index(view, mostMissed)
+	lessIdx := strings.Index(view, lessMissed)
+	if mostIdx == -1 || lessIdx == -1 {
+		t.Fatalf("weakest exercises missing from menu (most=%d, less=%d):\n%s", mostIdx, lessIdx, view)
+	}
+	if mostIdx > lessIdx {
+		t.Errorf("weakest exercises out of order: %s should precede %s:\n%s", mostMissed, lessMissed, view)
+	}
+	if !strings.Contains(view, "Weakest:") {
+		t.Errorf("trainer menu does not label the weakest exercises:\n%s", view)
+	}
+}
+
+// TestTrainerWeakExerciseTextStaysWithinWidth pins that the weakest-exercises
+// line never grows past the 80-column terminal's inner width, even with three
+// long identifiers and their wrong counts. The list degrades by dropping the
+// least-missed entries instead of wrapping and breaking the layout.
+func TestTrainerWeakExerciseTextStaysWithinWidth(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	if len(lessons) < 5 {
+		t.Fatalf("need at least 5 horizontal lessons, got %d", len(lessons))
+	}
+
+	// Give a third exercise misses so the list has three entries.
+	progress.RecordPracticeResult(lessons[4].ID, false)
+
+	practice := trainer.GetPracticeStatsForModule(trainer.ModuleHorizontal, progress)
+	if len(practice.WeakestExercises) != 3 {
+		t.Fatalf("expected 3 weak exercises, got %d", len(practice.WeakestExercises))
+	}
+
+	const innerWidth = 80 - 4 // global left/right padding
+	line := trainerWeakExerciseText(progress, practice, innerWidth)
+	if w := lipgloss.Width(line); w > innerWidth {
+		t.Errorf("weakest-exercises line is %d columns wide, want <= %d: %q", w, innerWidth, line)
+	}
+	// The most-missed exercise must survive the degradation.
+	if !strings.Contains(line, lessons[2].ID) {
+		t.Errorf("weakest-exercises line dropped the most-missed exercise: %q", line)
+	}
+}
+
+// TestTrainerMenuEmptyStatsOmitsWeakestList pins that an empty profile renders
+// a sane menu without the weakest-exercises list.
+func TestTrainerMenuEmptyStatsOmitsWeakestList(t *testing.T) {
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+
+	view := m.View()
+	if strings.Contains(view, "Weakest:") {
+		t.Errorf("an empty profile should not render a weakest-exercises list:\n%s", view)
+	}
+	if !strings.Contains(view, "Horizontal Motions") {
+		t.Errorf("empty stats should still render the module list:\n%s", view)
+	}
+}
+
+// TestTrainerMenuUnreadableStatsRendersSaneMenu pins that a nil stats value
+// (what LoadStats returns for a missing or unreadable file) renders the module
+// list instead of panicking or showing junk.
+func TestTrainerMenuUnreadableStatsRendersSaneMenu(t *testing.T) {
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = nil
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+
+	view := m.View()
+	if !strings.Contains(view, "Horizontal Motions") {
+		t.Errorf("nil stats should still render the module list:\n%s", view)
+	}
+	if strings.Contains(view, "Weakest:") {
+		t.Errorf("nil stats should not render a weakest-exercises list:\n%s", view)
+	}
+}
+
+// TestTrainerMenuNavigationUnchanged pins that the progress text is
+// display-only: the number of selectable entries is the same, the cursor still
+// clamps at both ends, and selecting an entry still starts that module.
+func TestTrainerMenuNavigationUnchanged(t *testing.T) {
+	m := newTrainerProgressModel(t)
+
+	if got := len(m.TrainerModules); got != 7 {
+		t.Fatalf("selectable module count changed: got %d, want 7", got)
+	}
+
+	down := func(m Model) Model {
+		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+		return res.(Model)
+	}
+	up := func(m Model) Model {
+		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+		return res.(Model)
+	}
+
+	m = down(m)
+	if m.TrainerCursor != 1 {
+		t.Errorf("j moved the cursor to %d, want 1", m.TrainerCursor)
+	}
+	m = up(m)
+	if m.TrainerCursor != 0 {
+		t.Errorf("k moved the cursor to %d, want 0", m.TrainerCursor)
+	}
+	m = up(m)
+	if m.TrainerCursor != 0 {
+		t.Errorf("k at the top moved the cursor to %d, want 0", m.TrainerCursor)
+	}
+	for i := 0; i < 10; i++ {
+		m = down(m)
+	}
+	if want := len(m.TrainerModules) - 1; m.TrainerCursor != want {
+		t.Errorf("j at the bottom moved the cursor to %d, want %d", m.TrainerCursor, want)
+	}
+
+	// Selecting still starts the lesson for the module under the cursor.
+	m.TrainerCursor = 0
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+	if m.Screen != ScreenTrainerLesson {
+		t.Errorf("selecting Horizontal reached screen %v, want %v", m.Screen, ScreenTrainerLesson)
+	}
+	if m.TrainerGameState == nil || m.TrainerGameState.CurrentModule != trainer.ModuleHorizontal {
+		t.Errorf("selecting index 0 did not start the Horizontal module")
 	}
 }

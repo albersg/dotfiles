@@ -41,6 +41,15 @@ type ExerciseStats struct {
 	LastAttempted    int64 // Unix timestamp
 }
 
+// IsMastered reports whether the exercise counts as mastered. It is the single
+// mastery predicate: weighted practice selection and the trainer menu's mastery
+// count both read it, so the number shown on the menu cannot drift from the
+// number that drives practice. A nil receiver is not mastered, which lets
+// display code query an exercise that has never been recorded.
+func (stats *ExerciseStats) IsMastered() bool {
+	return stats != nil && stats.Mastered
+}
+
 // Exercise represents a single training exercise
 type Exercise struct {
 	ID           string       // "horizontal_001"

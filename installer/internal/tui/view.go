@@ -1432,6 +1432,70 @@ func (m Model) renderRestoreConfirm() string {
 // Trainer Views
 // ============================================================================
 
+// trainerModuleProgressText renders the per-module progress the trainer menu
+// shows: lessons completed against total, mastered exercises, and whether the
+// module's boss is defeated. Mastery comes from GetPracticeStatsForModule,
+// which reads the same ExerciseStats.IsMastered predicate weighted practice
+// selection uses, so the count on screen cannot drift from the practice pool.
+func trainerModuleProgressText(progress *trainer.ModuleProgress, practice trainer.PracticeStats, bossDefeated bool) string {
+	lessonsCompleted, lessonsTotal := 0, 0
+	if progress != nil {
+		lessonsCompleted = progress.LessonsCompleted
+		lessonsTotal = progress.LessonsTotal
+	}
+	// LessonsTotal is only recorded once the module is opened, so a module that
+	// has never been started falls back to the real lesson count instead of
+	// showing 0/0 next to a mastery count that already knows the total.
+	if lessonsTotal == 0 {
+		lessonsTotal = practice.TotalExercises
+	}
+
+	boss := "✗"
+	if bossDefeated {
+		boss = "✓"
+	}
+
+	return fmt.Sprintf("Lessons %d/%d · Mastered %d/%d · Boss %s",
+		lessonsCompleted, lessonsTotal, practice.MasteredCount, practice.TotalExercises, boss)
+}
+
+// trainerWeakExerciseText renders the exercises a module misses most, in the
+// order GetPracticeStatsForModule returns them (most wrong first), with the
+// recorded wrong count. Entries are added while the line fits maxWidth (0 means
+// no limit), so a long list degrades by dropping the least-missed entries
+// instead of wrapping and breaking the layout. It reads the recorded
+// per-exercise stats and adds no bookkeeping of its own; an empty profile
+// yields "", so the menu omits the line instead of showing junk.
+func trainerWeakExerciseText(progress *trainer.ModuleProgress, practice trainer.PracticeStats, maxWidth int) string {
+	if len(practice.WeakestExercises) == 0 {
+		return ""
+	}
+
+	const prefix = "     ⚠️ Weakest: "
+	const separator = " · "
+
+	entries := make([]string, 0, len(practice.WeakestExercises))
+	for _, id := range practice.WeakestExercises {
+		entry := id
+		if progress != nil && progress.ExerciseStats != nil {
+			if exStats := progress.ExerciseStats[id]; exStats != nil && exStats.TotalWrong > 0 {
+				entry = fmt.Sprintf("%s (%d✗)", id, exStats.TotalWrong)
+			}
+		}
+		entries = append(entries, entry)
+	}
+
+	// Keep at least one entry so a single over-long identifier still surfaces.
+	for len(entries) > 1 {
+		if maxWidth <= 0 || lipgloss.Width(prefix+strings.Join(entries, separator)) <= maxWidth {
+			break
+		}
+		entries = entries[:len(entries)-1]
+	}
+
+	return prefix + strings.Join(entries, separator)
+}
+
 func (m Model) renderTrainerMenu() string {
 	var s strings.Builder
 
@@ -1485,37 +1549,31 @@ func (m Model) renderTrainerMenu() string {
 			status = "📖"
 		}
 
-		line := fmt.Sprintf("%s %s %s - %s", status, module.Icon, module.Name, module.Description)
+		line := fmt.Sprintf("%s %s %s", status, module.Icon, module.Name)
+
+		// Progress is display-only text attached to the existing entry. Reading
+		// the map directly (instead of GetModuleProgress) keeps a render from
+		// creating module or exercise records in the persisted stats.
+		var progress *trainer.ModuleProgress
+		var practice trainer.PracticeStats
+		if m.TrainerStats != nil {
+			progress = m.TrainerStats.ModuleProgress[module.ID]
+			practice = trainer.GetPracticeStatsForModule(module.ID, progress)
+			line += "  " + trainerModuleProgressText(progress, practice, isBossDefeated)
+		}
+
 		s.WriteString(style.Render(cursor + line))
 		s.WriteString("\n")
 
-		// Show progress for selected module
-		if i == m.TrainerCursor && isUnlocked && m.TrainerStats != nil {
-			progress := m.TrainerStats.GetModuleProgress(module.ID)
-			var progressLine string
-			if progress.LessonsTotal > 0 {
-				lessonsPercent := float64(progress.LessonsCompleted) / float64(progress.LessonsTotal) * 100
-				progressLine = fmt.Sprintf("     Lessons: %d/%d (%.0f%%)", progress.LessonsCompleted, progress.LessonsTotal, lessonsPercent)
-			} else {
-				progressLine = "     Lessons: 0/0"
-			}
-			if progress.PracticeAttempts > 0 {
-				progressLine += fmt.Sprintf("  |  Practice: %.0f%%", progress.PracticeAccuracy*100)
-			}
-
-			// Show mastery progress for practice mode
-			if isPracticeReady {
-				practiceStats := trainer.GetPracticeStatsForModule(module.ID, progress)
-				if practiceStats.TotalExercises > 0 {
-					progressLine += fmt.Sprintf("  |  Mastered: %d/%d", practiceStats.MasteredCount, practiceStats.TotalExercises)
-					if practiceStats.PracticeComplete {
-						progressLine += " ✅"
-					}
-				}
-			}
-
-			s.WriteString(MutedStyle.Render(progressLine))
+		// The selected module also shows its commands and the exercises it
+		// misses most, both display-only lines attached to the entry.
+		if i == m.TrainerCursor {
+			s.WriteString(MutedStyle.Render("     " + module.Description))
 			s.WriteString("\n")
+			if weak := trainerWeakExerciseText(progress, practice, m.Width-4); weak != "" {
+				s.WriteString(WarningStyle.Render(weak))
+				s.WriteString("\n")
+			}
 		}
 	}
 

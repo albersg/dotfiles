@@ -278,3 +278,30 @@ func TestNextModule_FollowsUnlockOrder(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// EXERCISE STATS MASTERY PREDICATE
+// =============================================================================
+
+// TestExerciseStats_IsMastered pins the single mastery predicate weighted
+// practice selection and the trainer menu both read. A nil record counts as not
+// mastered so display code can query an exercise that was never recorded.
+func TestExerciseStats_IsMastered(t *testing.T) {
+	tests := []struct {
+		name  string
+		stats *ExerciseStats
+		want  bool
+	}{
+		{"nil record is not mastered", nil, false},
+		{"unmastered record is not mastered", &ExerciseStats{Mastered: false}, false},
+		{"mastered record is mastered", &ExerciseStats{Mastered: true}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.stats.IsMastered(); got != tt.want {
+				t.Errorf("IsMastered() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -63,7 +63,7 @@ func (mp *ModuleProgress) RecordPracticeResult(exerciseID string, correct bool) 
 
 // GetPracticeWeight calculates the weight for an exercise (higher = more likely to appear)
 func (stats *ExerciseStats) GetPracticeWeight() int {
-	if stats.Mastered {
+	if stats.IsMastered() {
 		return 0 // Mastered exercises don't appear in practice
 	}
 
@@ -112,7 +112,7 @@ func GetWeightedPracticeExercises(module ModuleID, progress *ModuleProgress) []E
 		stats := progress.GetExerciseStats(lesson.ID)
 		weight := stats.GetPracticeWeight()
 
-		if !stats.Mastered {
+		if !stats.IsMastered() {
 			unmasteredCount++
 		}
 
@@ -210,7 +210,12 @@ type PracticeStats struct {
 	PracticeComplete bool
 }
 
-// GetPracticeStats calculates practice statistics for a module
+// GetPracticeStatsForModule calculates practice statistics for a module.
+//
+// It is read-only: the trainer menu queries it for every module on each render,
+// so it reads the recorded per-exercise stats without creating entries for
+// exercises that were never attempted. Mastery is read through
+// ExerciseStats.IsMastered, the same predicate weighted practice selection uses.
 func GetPracticeStatsForModule(module ModuleID, progress *ModuleProgress) PracticeStats {
 	lessons := GetLessons(module)
 
@@ -231,18 +236,23 @@ func GetPracticeStatsForModule(module ModuleID, progress *ModuleProgress) Practi
 	errorList := make([]exError, 0, len(lessons))
 
 	for _, lesson := range lessons {
-		exStats := progress.GetExerciseStats(lesson.ID)
-		if exStats.Mastered {
+		var exStats *ExerciseStats
+		if progress != nil && progress.ExerciseStats != nil {
+			exStats = progress.ExerciseStats[lesson.ID]
+		}
+		if exStats.IsMastered() {
 			stats.MasteredCount++
 		}
-		if exStats.TotalWrong > 0 {
+		if exStats != nil && exStats.TotalWrong > 0 {
 			errorList = append(errorList, exError{id: lesson.ID, errors: exStats.TotalWrong})
 		}
 	}
 
 	stats.RemainingCount = stats.TotalExercises - stats.MasteredCount
 	stats.PracticeComplete = stats.RemainingCount == 0
-	stats.OverallAccuracy = progress.PracticeAccuracy
+	if progress != nil {
+		stats.OverallAccuracy = progress.PracticeAccuracy
+	}
 
 	// Sort by errors descending
 	sort.Slice(errorList, func(i, j int) bool {
@@ -276,7 +286,7 @@ func (mp *ModuleProgress) IsPracticeComplete(module ModuleID) bool {
 
 	for _, lesson := range lessons {
 		stats := mp.GetExerciseStats(lesson.ID)
-		if !stats.Mastered {
+		if !stats.IsMastered() {
 			return false
 		}
 	}

@@ -453,3 +453,20 @@ func TestIsPracticeComplete_TrueWhenAllMastered(t *testing.T) {
 		t.Error("Should be complete when all mastered")
 	}
 }
+
+// TestGetPracticeStatsForModule_DoesNotCreateEntries pins that querying
+// practice stats is read-only. The trainer menu queries every module on each
+// render, so a query that manufactured empty exercise records would pollute the
+// persisted stats file just by opening the menu.
+func TestGetPracticeStatsForModule_DoesNotCreateEntries(t *testing.T) {
+	mp := &ModuleProgress{}
+
+	stats := GetPracticeStatsForModule(ModuleHorizontal, mp)
+
+	if stats.TotalExercises == 0 {
+		t.Fatal("expected horizontal lessons to be counted")
+	}
+	if len(mp.ExerciseStats) != 0 {
+		t.Errorf("querying practice stats must not create exercise entries, got %d", len(mp.ExerciseStats))
+	}
+}
