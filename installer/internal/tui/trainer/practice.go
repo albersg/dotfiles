@@ -9,11 +9,6 @@ import (
 // MasteryThreshold is the number of consecutive correct answers needed to master an exercise
 const MasteryThreshold = 3
 
-// init seeds the random number generator
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 // GetExerciseStats returns stats for a specific exercise, creating if needed
 func (mp *ModuleProgress) GetExerciseStats(exerciseID string) *ExerciseStats {
 	if mp.ExerciseStats == nil {
@@ -87,63 +82,6 @@ func (stats *ExerciseStats) GetPracticeWeight() int {
 	}
 
 	return weight
-}
-
-// exerciseWeight pairs an exercise with its weight for sorting
-type exerciseWeight struct {
-	Exercise Exercise
-	Weight   int
-}
-
-// GetWeightedPracticeExercises returns exercises ordered by practice need
-// Exercises with more errors appear more frequently
-func GetWeightedPracticeExercises(module ModuleID, progress *ModuleProgress) []Exercise {
-	lessons := GetLessons(module)
-	if len(lessons) == 0 {
-		return []Exercise{}
-	}
-
-	// Calculate weights for each exercise
-	weights := make([]exerciseWeight, 0, len(lessons))
-	totalWeight := 0
-	unmasteredCount := 0
-
-	for _, lesson := range lessons {
-		stats := progress.GetExerciseStats(lesson.ID)
-		weight := stats.GetPracticeWeight()
-
-		if !stats.IsMastered() {
-			unmasteredCount++
-		}
-
-		weights = append(weights, exerciseWeight{
-			Exercise: lesson,
-			Weight:   weight,
-		})
-		totalWeight += weight
-	}
-
-	// If all mastered, return empty (practice complete!)
-	if unmasteredCount == 0 {
-		return []Exercise{}
-	}
-
-	// Sort by weight descending (highest priority first for debugging/transparency)
-	sort.Slice(weights, func(i, j int) bool {
-		return weights[i].Weight > weights[j].Weight
-	})
-
-	// Build result slice with exercises that have weight > 0
-	result := make([]Exercise, 0, unmasteredCount)
-	for _, ew := range weights {
-		if ew.Weight > 0 {
-			ex := ew.Exercise
-			ex.Type = ExercisePractice
-			result = append(result, ex)
-		}
-	}
-
-	return result
 }
 
 // SelectRandomPracticeExercise selects an exercise using weighted random selection

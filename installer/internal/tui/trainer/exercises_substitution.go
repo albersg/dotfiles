@@ -384,28 +384,6 @@ func getSubstitutionLessons() []Exercise {
 	}
 }
 
-// getSubstitutionPractice converts substitution lessons to practice exercises
-func getSubstitutionPractice() []Exercise {
-	lessons := getSubstitutionLessons()
-	practices := make([]Exercise, len(lessons))
-
-	for i, lesson := range lessons {
-		practice := lesson
-		practice.ID = "substitution_p" + lesson.ID[len("substitution_"):]
-		practice.Type = ExercisePractice
-		practice.Hint = ""
-		practice.Explanation = ""
-		practice.TimeoutSecs = lesson.TimeoutSecs - 10
-		if practice.TimeoutSecs < 15 {
-			practice.TimeoutSecs = 15
-		}
-		practice.Points = lesson.Points + 10
-		practices[i] = practice
-	}
-
-	return practices
-}
-
 // getSubstitutionBoss returns the boss challenge for the Substitution module
 func getSubstitutionBoss() *BossExercise {
 	return &BossExercise{

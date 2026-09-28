@@ -52,20 +52,19 @@ func (stats *ExerciseStats) IsMastered() bool {
 
 // Exercise represents a single training exercise
 type Exercise struct {
-	ID           string       // "horizontal_001"
-	Module       ModuleID     // "horizontal", "textobjects", "cgn", etc.
-	Level        int          // 1-10
-	Type         ExerciseType // "lesson", "practice", "boss"
-	Code         []string     // Lines of code to display
-	CursorPos    Position     // Initial cursor position
-	CursorTarget *Position    // Target cursor position (for movement exercises)
-	Mission      string       // "Move cursor to the 'N' in 'Name'"
-	Solutions    []string     // ["w", "W", "fe"] - all valid solutions
-	Optimal      string       // "w" - the best/shortest solution
-	Hint         string       // Hint shown after timeout
-	Explanation  string       // Post-answer explanation
-	TimeoutSecs  int          // Seconds before showing solution
-	Points       int          // Base points for completion
+	ID          string       // "horizontal_001"
+	Module      ModuleID     // "horizontal", "textobjects", "cgn", etc.
+	Level       int          // 1-10
+	Type        ExerciseType // "lesson", "practice", "boss"
+	Code        []string     // Lines of code to display
+	CursorPos   Position     // Initial cursor position
+	Mission     string       // "Move cursor to the 'N' in 'Name'"
+	Solutions   []string     // ["w", "W", "fe"] - all valid solutions
+	Optimal     string       // "w" - the best/shortest solution
+	Hint        string       // Hint shown after timeout
+	Explanation string       // Post-answer explanation
+	TimeoutSecs int          // Seconds before showing solution
+	Points      int          // Base points for completion
 }
 
 // ModuleInfo contains display info for a module

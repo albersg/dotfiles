@@ -15,6 +15,24 @@ type ValidationResult struct {
 	AllSolutions    []string // All predefined valid solutions
 }
 
+// ShouldSkipSimulation reports whether an exercise is validated and rendered
+// without running the Vim simulator:
+//  1. Ex commands (start with : / ?)
+//  2. Substitution module (r, R, s, S, ~, etc. are edit commands)
+//  3. Macros module (q, @, :normal, :g/ are not pure motions)
+//  4. Regex module (/, ?, :vimgrep, etc.)
+//
+// It is the single owner of this predicate: ValidateAnswerDetailed and both
+// render sites in the tui package call it, so the three cannot drift apart.
+func ShouldSkipSimulation(exercise *Exercise) bool {
+	isExCommand := len(exercise.Solutions) > 0 && len(exercise.Solutions[0]) > 0 &&
+		(exercise.Solutions[0][0] == ':' || exercise.Solutions[0][0] == '/' || exercise.Solutions[0][0] == '?')
+	isNonMotionModule := exercise.Module == ModuleSubstitution ||
+		exercise.Module == ModuleMacros ||
+		exercise.Module == ModuleRegex
+	return isExCommand || isNonMotionModule
+}
+
 // ValidateAnswerDetailed performs comprehensive validation using the simulator
 func ValidateAnswerDetailed(exercise *Exercise, answer string) ValidationResult {
 	if exercise == nil {
@@ -46,19 +64,9 @@ func ValidateAnswerDetailed(exercise *Exercise, answer string) ValidationResult 
 	// Check if it's optimal (normalize for comparison)
 	result.IsOptimal = answer == strings.TrimSpace(exercise.Optimal)
 
-	// Detect if this is an exercise that shouldn't use simulator
-	// 1. Ex commands (start with : / ?)
-	// 2. Substitution module (r, R, s, S, ~, etc. are edit commands)
-	// 3. Macros module (q, @, :normal, :g/)
-	// 4. Regex module (/, ?, :vimgrep, etc.)
-	isExCommand := len(exercise.Solutions) > 0 && len(exercise.Solutions[0]) > 0 &&
-		(exercise.Solutions[0][0] == ':' || exercise.Solutions[0][0] == '/' || exercise.Solutions[0][0] == '?')
-	isNonMotionModule := exercise.Module == ModuleSubstitution ||
-		exercise.Module == ModuleMacros ||
-		exercise.Module == ModuleRegex
-	skipSimulation := isExCommand || isNonMotionModule
-
-	if skipSimulation {
+	// Exercises that are not pure motions are not simulated; correctness is
+	// decided by the predefined solutions alone.
+	if ShouldSkipSimulation(exercise) {
 		// For non-motion exercises, correct if it matches any predefined solution
 		result.IsCorrect = result.IsInSolutions
 		result.TargetPosition = exercise.CursorPos
@@ -137,24 +145,6 @@ func IsInSolutions(exercise *Exercise, answer string) bool {
 		}
 	}
 	return false
-}
-
-// GetAlternativeSolutions returns all valid solutions except the one provided
-func GetAlternativeSolutions(exercise *Exercise, usedAnswer string) []string {
-	if exercise == nil {
-		return nil
-	}
-
-	usedAnswer = strings.TrimSpace(usedAnswer)
-	alternatives := make([]string, 0, len(exercise.Solutions))
-
-	for _, sol := range exercise.Solutions {
-		if sol != usedAnswer {
-			alternatives = append(alternatives, sol)
-		}
-	}
-
-	return alternatives
 }
 
 // FormatSolutionsHint returns a formatted string with all solutions

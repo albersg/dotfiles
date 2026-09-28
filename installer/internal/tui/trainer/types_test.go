@@ -130,34 +130,6 @@ func TestExercise_Creation(t *testing.T) {
 	}
 }
 
-func TestExercise_WithCursorTarget(t *testing.T) {
-	target := &Position{Line: 0, Col: 6}
-	exercise := Exercise{
-		ID:           "test",
-		CursorPos:    Position{Line: 0, Col: 0},
-		CursorTarget: target,
-	}
-
-	if exercise.CursorTarget == nil {
-		t.Error("CursorTarget should not be nil")
-	}
-	if exercise.CursorTarget.Col != 6 {
-		t.Errorf("CursorTarget.Col: expected 6, got %d", exercise.CursorTarget.Col)
-	}
-}
-
-func TestExercise_WithoutCursorTarget(t *testing.T) {
-	// Para ejercicios de text objects, no hay target de posición
-	exercise := Exercise{
-		ID:           "textobj_001",
-		CursorTarget: nil,
-	}
-
-	if exercise.CursorTarget != nil {
-		t.Error("CursorTarget should be nil for text object exercises")
-	}
-}
-
 // =============================================================================
 // MODULE INFO
 // =============================================================================

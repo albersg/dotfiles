@@ -65,6 +65,19 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 	}
 
 	pos := result.Position
+
+	// A hand-authored exercise can declare a CursorPos outside its own Code.
+	// Every line mutation below clamps into range, so normalizing the start
+	// here makes the whole simulation safe to index; without it the first
+	// code[pos.Line] read (the dd/cc/yy and D/C patches, or an operator motion
+	// through tryParseOperatorMotion) panics on an out-of-range cursor line.
+	if pos.Line < 0 {
+		pos.Line = 0
+	}
+	if pos.Line >= len(code) {
+		pos.Line = len(code) - 1
+	}
+
 	lastFind := lastFindCommand{}
 	recognized := true
 
@@ -729,13 +742,6 @@ func isWordChar(ch byte, bigWord bool) bool {
 // like "d").
 func IsRecognizedInput(code []string, input string) bool {
 	return SimulateMotionsWithSelection(Position{}, code, input).Recognized
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // tryParseTextObject attempts to parse a text object pattern and returns the selection

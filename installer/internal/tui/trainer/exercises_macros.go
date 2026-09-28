@@ -510,20 +510,6 @@ func getMacrosLessons() []Exercise {
 	}
 }
 
-func getMacrosPractice() []Exercise {
-	lessons := getMacrosLessons()
-	practice := make([]Exercise, len(lessons))
-
-	for i, ex := range lessons {
-		practice[i] = ex
-		practice[i].Type = ExercisePractice
-		practice[i].ID = "macros_p" + ex.ID[len("macros_"):]
-		practice[i].TimeoutSecs = 15 // Shorter timeout for practice
-	}
-
-	return practice
-}
-
 func getMacrosBoss() *BossExercise {
 	return &BossExercise{
 		ID:        "macros_boss",

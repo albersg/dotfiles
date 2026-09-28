@@ -22,28 +22,6 @@ func GetLessons(module ModuleID) []Exercise {
 	}
 }
 
-// GetPracticeExercises returns practice exercises for a module
-func GetPracticeExercises(module ModuleID) []Exercise {
-	switch module {
-	case ModuleHorizontal:
-		return getHorizontalPractice()
-	case ModuleVertical:
-		return getVerticalPractice()
-	case ModuleTextObjects:
-		return getTextObjectsPractice()
-	case ModuleChangeRepeat:
-		return getChangeRepeatPractice()
-	case ModuleSubstitution:
-		return getSubstitutionPractice()
-	case ModuleRegex:
-		return getRegexPractice()
-	case ModuleMacros:
-		return getMacrosPractice()
-	default:
-		return []Exercise{}
-	}
-}
-
 // GetBoss returns the boss fight for a module
 func GetBoss(module ModuleID) *BossExercise {
 	switch module {
@@ -346,54 +324,37 @@ func getHorizontalLessons() []Exercise {
 		},
 		// Lesson 18: T{char} - till backwards
 		{
-			ID:           "horizontal_018",
-			Module:       ModuleHorizontal,
-			Level:        6,
-			Type:         ExerciseLesson,
-			Code:         []string{"const value = 'hello world';"},
-			CursorPos:    Position{Line: 0, Col: 26},
-			CursorTarget: &Position{Line: 0, Col: 15},
-			Mission:      "Move backwards to just AFTER the opening quote using T'",
-			Solutions:    []string{"T'"},
-			Optimal:      "T'",
-			Hint:         "T is like F but stops one character AFTER the target",
-			Explanation:  "T{char} (till backwards) searches backward but lands one character AFTER the target. F' would land ON the quote, T' lands just after it. Perfect for operations like dT' (delete backwards till quote).",
-			TimeoutSecs:  30,
-			Points:       20,
+			ID:          "horizontal_018",
+			Module:      ModuleHorizontal,
+			Level:       6,
+			Type:        ExerciseLesson,
+			Code:        []string{"const value = 'hello world';"},
+			CursorPos:   Position{Line: 0, Col: 26},
+			Mission:     "Move backwards to just AFTER the opening quote using T'",
+			Solutions:   []string{"T'"},
+			Optimal:     "T'",
+			Hint:        "T is like F but stops one character AFTER the target",
+			Explanation: "T{char} (till backwards) searches backward but lands one character AFTER the target. F' would land ON the quote, T' lands just after it. Perfect for operations like dT' (delete backwards till quote).",
+			TimeoutSecs: 30,
+			Points:      20,
 		},
 		// Lesson 19: , - repeat f/F/t/T in opposite direction
 		{
-			ID:           "horizontal_019",
-			Module:       ModuleHorizontal,
-			Level:        6,
-			Type:         ExerciseLesson,
-			Code:         []string{"one.two.three.four.five"},
-			CursorPos:    Position{Line: 0, Col: 0},
-			CursorTarget: &Position{Line: 0, Col: 3},
-			Mission:      "Use f. to jump to a dot, then ; to go forward, then , to go back",
-			Solutions:    []string{"f.;,"},
-			Optimal:      "f.;,",
-			Hint:         ", repeats the last f/F/t/T but in the OPPOSITE direction",
-			Explanation:  ", (comma) is the reverse of ; (semicolon). If you used f. to search forward, , goes backward to the previous dot. It's like having an undo for your character search - incredibly useful for overshooting!",
-			TimeoutSecs:  30,
-			Points:       20,
+			ID:          "horizontal_019",
+			Module:      ModuleHorizontal,
+			Level:       6,
+			Type:        ExerciseLesson,
+			Code:        []string{"one.two.three.four.five"},
+			CursorPos:   Position{Line: 0, Col: 0},
+			Mission:     "Use f. to jump to a dot, then ; to go forward, then , to go back",
+			Solutions:   []string{"f.;,"},
+			Optimal:     "f.;,",
+			Hint:        ", repeats the last f/F/t/T but in the OPPOSITE direction",
+			Explanation: ", (comma) is the reverse of ; (semicolon). If you used f. to search forward, , goes backward to the previous dot. It's like having an undo for your character search - incredibly useful for overshooting!",
+			TimeoutSecs: 30,
+			Points:      20,
 		},
 	}
-}
-
-func getHorizontalPractice() []Exercise {
-	lessons := getHorizontalLessons()
-	practice := make([]Exercise, len(lessons))
-
-	// Convert lessons to practice type
-	for i, ex := range lessons {
-		practice[i] = ex
-		practice[i].Type = ExercisePractice
-		practice[i].ID = "horizontal_p" + ex.ID[len("horizontal_"):]
-		practice[i].TimeoutSecs = 15 // Shorter timeout for practice
-	}
-
-	return practice
 }
 
 func getHorizontalBoss() *BossExercise {
@@ -751,15 +712,14 @@ func getVerticalLessons() []Exercise {
 				"  );",
 				"}",
 			},
-			CursorPos:    Position{Line: 0, Col: 0},
-			CursorTarget: &Position{Line: 3, Col: 0},
-			Mission:      "Jump to the 'return' statement (line 4) using 3j",
-			Solutions:    []string{"3j"},
-			Optimal:      "3j",
-			Hint:         "Count the lines or use relative line numbers if enabled",
-			Explanation:  "In real editing, enable relative line numbers (:set relativenumber) to easily see counts. Then [n]j becomes natural.",
-			TimeoutSecs:  30,
-			Points:       25,
+			CursorPos:   Position{Line: 0, Col: 0},
+			Mission:     "Jump to the 'return' statement (line 4) using 3j",
+			Solutions:   []string{"3j"},
+			Optimal:     "3j",
+			Hint:        "Count the lines or use relative line numbers if enabled",
+			Explanation: "In real editing, enable relative line numbers (:set relativenumber) to easily see counts. Then [n]j becomes natural.",
+			TimeoutSecs: 30,
+			Points:      25,
 		},
 		// Lesson 13: Multiple paragraphs with count
 		{
@@ -1017,20 +977,6 @@ func getVerticalLessons() []Exercise {
 			Points:      25,
 		},
 	}
-}
-
-func getVerticalPractice() []Exercise {
-	lessons := getVerticalLessons()
-	practice := make([]Exercise, len(lessons))
-
-	for i, ex := range lessons {
-		practice[i] = ex
-		practice[i].Type = ExercisePractice
-		practice[i].ID = "vertical_p" + ex.ID[len("vertical_"):]
-		practice[i].TimeoutSecs = 15
-	}
-
-	return practice
 }
 
 func getVerticalBoss() *BossExercise {

@@ -1291,13 +1291,6 @@ func (m Model) renderError() string {
 	return s.String()
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func (m Model) renderBackupConfirm() string {
 	var s strings.Builder
 
@@ -1509,7 +1502,7 @@ func (m Model) renderTrainerMenu() string {
 	if m.TrainerStats != nil {
 		score := fmt.Sprintf("Score: %d", m.TrainerStats.TotalScore)
 		streak := fmt.Sprintf("Streak: %d", m.TrainerStats.CurrentStreak)
-		bosses := fmt.Sprintf("Bosses: %d/7", len(m.TrainerStats.BossesDefeated))
+		bosses := fmt.Sprintf("Bosses: %d/%d", len(m.TrainerStats.BossesDefeated), len(trainer.GetAllModules()))
 		s.WriteString(InfoStyle.Render(fmt.Sprintf("📊 %s  |  🔥 %s  |  👑 %s", score, streak, bosses)))
 		s.WriteString("\n\n")
 	}
@@ -1636,17 +1629,10 @@ func (m Model) renderTrainerExercise(mode string) string {
 	s.WriteString(InfoStyle.Render("   " + exercise.Mission))
 	s.WriteString("\n\n")
 
-	// Detect if this exercise should skip cursor simulation
-	// 1. Ex commands (start with : / ?)
-	// 2. Substitution module (r, R, s, S, ~, etc. are edit commands, not motions)
-	// 3. Macros module (q, @, :normal, :g/ are not pure motions)
-	// 4. Regex module (/, ?, :vimgrep, etc.)
-	isExCommand := len(exercise.Solutions) > 0 && len(exercise.Solutions[0]) > 0 &&
-		(exercise.Solutions[0][0] == ':' || exercise.Solutions[0][0] == '/' || exercise.Solutions[0][0] == '?')
-	isNonMotionModule := exercise.Module == trainer.ModuleSubstitution ||
-		exercise.Module == trainer.ModuleMacros ||
-		exercise.Module == trainer.ModuleRegex
-	skipSimulation := isExCommand || isNonMotionModule
+	// Exercises that are not pure motions are neither simulated nor validated by
+	// the simulator; the shared predicate keeps this render site in step with
+	// ValidateAnswerDetailed.
+	skipSimulation := trainer.ShouldSkipSimulation(exercise)
 
 	// Calculate simulated cursor position and selection based on current input
 	// Only simulate for motion-based exercises
@@ -1959,13 +1945,7 @@ func (m Model) renderTrainerBoss() string {
 		s.WriteString(InfoStyle.Render("   " + exercise.Mission))
 		s.WriteString("\n\n")
 
-		// Detect if this exercise should skip cursor simulation
-		isExCommand := len(exercise.Solutions) > 0 && len(exercise.Solutions[0]) > 0 &&
-			(exercise.Solutions[0][0] == ':' || exercise.Solutions[0][0] == '/' || exercise.Solutions[0][0] == '?')
-		isNonMotionModule := exercise.Module == trainer.ModuleSubstitution ||
-			exercise.Module == trainer.ModuleMacros ||
-			exercise.Module == trainer.ModuleRegex
-		skipSimulation := isExCommand || isNonMotionModule
+		skipSimulation := trainer.ShouldSkipSimulation(exercise)
 
 		// Calculate simulated cursor position and selection based on current input
 		startPos := exercise.CursorPos
@@ -2202,7 +2182,7 @@ func (m Model) renderTrainerBossResult() string {
 	// Stats
 	if m.TrainerStats != nil {
 		s.WriteString("\n\n")
-		s.WriteString(MutedStyle.Render(fmt.Sprintf("Total Score: %d  |  Bosses Defeated: %d/7", m.TrainerStats.TotalScore, len(m.TrainerStats.BossesDefeated))))
+		s.WriteString(MutedStyle.Render(fmt.Sprintf("Total Score: %d  |  Bosses Defeated: %d/%d", m.TrainerStats.TotalScore, len(m.TrainerStats.BossesDefeated), len(trainer.GetAllModules()))))
 	}
 
 	// Help
