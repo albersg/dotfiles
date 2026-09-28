@@ -974,3 +974,122 @@ func TestTrainerEscapeAbandonsBossVisibly(t *testing.T) {
 		t.Error("stats file is missing after abandoning a boss with esc")
 	}
 }
+
+// =============================================================================
+// CONTROL KEY INPUT REGRESSION
+// =============================================================================
+
+// TestTrainerControlKeysReachSimulatorInput is the regression test for literal
+// control key text in the answer. The exercise and boss handlers each declared
+// their own accepted control set that listed ctrl+a, ctrl+e and ctrl+w, but the
+// conversion switch only mapped ctrl+d/u/f/b. Every other accepted combination
+// fell through to the default arm, which appended the raw key name, so pressing
+// ctrl+a typed the six characters "ctrl+a" into the answer. That text can never
+// validate, and since the simulator rejects unrecognized input the submission is
+// lost. The handlers must instead ignore keys the simulator cannot parse, while
+// still inserting the control characters it does model.
+func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
+	t.Run("ctrl+a is ignored on the exercise screens", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"practice", func(t *testing.T) Model {
+				m, _ := newPracticeSubmissionModel(t)
+				return m
+			}},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = ""
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+				m = result.(Model)
+
+				if m.TrainerInput != "" {
+					t.Errorf("TrainerInput = %q after ctrl+a, want empty", m.TrainerInput)
+				}
+			})
+		}
+	})
+
+	t.Run("ctrl+a is ignored in a boss fight", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+		m.TrainerInput = ""
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+		m = result.(Model)
+
+		if m.TrainerInput != "" {
+			t.Errorf("TrainerInput = %q after ctrl+a, want empty", m.TrainerInput)
+		}
+	})
+
+	t.Run("ctrl+e and ctrl+w are ignored too", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			for keyName, keyType := range map[string]tea.KeyType{
+				"ctrl+e": tea.KeyCtrlE,
+				"ctrl+w": tea.KeyCtrlW,
+			} {
+				t.Run(tc.name+"/"+keyName, func(t *testing.T) {
+					m := tc.model(t)
+					m.TrainerInput = ""
+
+					result, _ := m.Update(tea.KeyMsg{Type: keyType})
+					m = result.(Model)
+
+					if m.TrainerInput != "" {
+						t.Errorf("TrainerInput = %q after %s, want empty", m.TrainerInput, keyName)
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("modelled control keys still insert their control character", func(t *testing.T) {
+		controlKeys := []struct {
+			name string
+			key  tea.KeyType
+			want string
+		}{
+			{"ctrl+d", tea.KeyCtrlD, "\x04"},
+			{"ctrl+u", tea.KeyCtrlU, "\x15"},
+			{"ctrl+f", tea.KeyCtrlF, "\x06"},
+			{"ctrl+b", tea.KeyCtrlB, "\x02"},
+		}
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			for _, ck := range controlKeys {
+				t.Run(tc.name+"/"+ck.name, func(t *testing.T) {
+					m := tc.model(t)
+					m.TrainerInput = ""
+
+					result, _ := m.Update(tea.KeyMsg{Type: ck.key})
+					m = result.(Model)
+
+					if m.TrainerInput != ck.want {
+						t.Errorf("TrainerInput = %q after %s, want %q", m.TrainerInput, ck.name, ck.want)
+					}
+				})
+			}
+		}
+	})
+}

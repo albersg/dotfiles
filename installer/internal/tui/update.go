@@ -1638,6 +1638,20 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// trainerControlChars maps the control key names the trainer accepts as answer
+// input to the control character the Vim simulator parses. It mirrors the
+// control keys handled by trainer.SimulateMotionsWithSelection (\x04, \x15,
+// \x06 and \x02); a ctrl+ combination absent here has no meaning the simulator
+// can validate, so both exercise handlers ignore it instead of typing its
+// literal name into the answer. This is the single accepted set shared by the
+// lesson/practice and boss handlers.
+var trainerControlChars = map[string]string{
+	"ctrl+d": "\x04",
+	"ctrl+u": "\x15",
+	"ctrl+f": "\x06",
+	"ctrl+b": "\x02",
+}
+
 // handleTrainerExerciseKeys handles input during lesson/practice exercises
 func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 	if m.TrainerGameState == nil {
@@ -1707,32 +1721,14 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 
 	default:
 		// Add character to input (filter control keys)
-		// Accept single chars and specific ctrl combinations used in Vim
-		validCtrlKeys := map[string]bool{
-			"ctrl+a": true, "ctrl+e": true, "ctrl+w": true,
-			"ctrl+d": true, "ctrl+u": true, "ctrl+f": true, "ctrl+b": true,
-		}
-		if len(key) == 1 || validCtrlKeys[key] {
-			// Handle ctrl combinations - convert to control character
-			if strings.HasPrefix(key, "ctrl+") {
-				// Convert ctrl+X to actual control character for simulator
-				switch key {
-				case "ctrl+d":
-					m.TrainerInput += "\x04"
-				case "ctrl+u":
-					m.TrainerInput += "\x15"
-				case "ctrl+f":
-					m.TrainerInput += "\x06"
-				case "ctrl+b":
-					m.TrainerInput += "\x02"
-				default:
-					m.TrainerInput += key
-				}
-			} else if len(key) == 1 {
-				m.TrainerInput += key
-			}
+		// Accept single printable chars, space, and the control combinations
+		// the simulator can parse. Anything else is ignored.
+		if len(key) == 1 {
+			m.TrainerInput += key
 		} else if key == "space" {
 			m.TrainerInput += " "
+		} else if control, ok := trainerControlChars[key]; ok {
+			m.TrainerInput += control
 		}
 	}
 
@@ -1815,26 +1811,14 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 
 	default:
 		// Add character to input
-		// Accept single chars and specific ctrl combinations used in Vim
-		validCtrlKeys := map[string]bool{
-			"ctrl+d": true, "ctrl+u": true, "ctrl+f": true, "ctrl+b": true,
-		}
+		// Accept single printable chars, space, and the same control
+		// combinations as the exercise handler.
 		if len(key) == 1 {
 			m.TrainerInput += key
 		} else if key == "space" {
 			m.TrainerInput += " "
-		} else if validCtrlKeys[key] {
-			// Convert ctrl+X to actual control character for simulator
-			switch key {
-			case "ctrl+d":
-				m.TrainerInput += "\x04"
-			case "ctrl+u":
-				m.TrainerInput += "\x15"
-			case "ctrl+f":
-				m.TrainerInput += "\x06"
-			case "ctrl+b":
-				m.TrainerInput += "\x02"
-			}
+		} else if control, ok := trainerControlChars[key]; ok {
+			m.TrainerInput += control
 		}
 	}
 
