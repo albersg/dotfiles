@@ -166,6 +166,75 @@ func TestStepInstallWSLConfigFailsWithoutACheckout(t *testing.T) {
 	}
 }
 
+// TestStepInstallWSLConfigFallsBackWhenTheHostIsUnknown is the step-level
+// counterpart of the render fallback: it runs the whole step against the
+// shipped template with host detection disabled and checks the installed file
+// omits the three derived keys rather than failing the step. The render tests
+// cover the omission; this one covers the step's decision to keep going.
+//
+// Detection is disabled exactly as the render-level fallback test does, by
+// clearing both overrides and emptying PATH so no powershell.exe resolves. The
+// profile lookup needs no interop here because the fixture pins
+// DOTFILES_WSL_WINDOWS_HOME, and the win32yank check is kept neutral with an
+// empty binfmt directory, as the interactive tests do: the download path is not
+// what this test is about.
+func TestStepInstallWSLConfigFallsBackWhenTheHostIsUnknown(t *testing.T) {
+	t.Setenv(envBinfmtDir, t.TempDir())
+
+	repoDir, winHome, wslConf := newWSLLayout(t)
+
+	// Exercise the real shipped template's comment blocks rather than the
+	// reduced fixture, so the fallback is checked against what users receive.
+	shipped, err := os.ReadFile(filepath.Join(repoRoot(t), repoAssetWSLConfig))
+	if err != nil {
+		t.Fatalf("reading the shipped WSL template: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, repoAssetWSLConfig), shipped, 0o644); err != nil {
+		t.Fatalf("installing the shipped template into the fixture: %v", err)
+	}
+
+	t.Setenv(envWSLHostMemoryMB, "")
+	t.Setenv(envWSLHostCPUs, "")
+	t.Setenv("PATH", "")
+
+	m := wslModel(repoDir, true)
+	if err := stepInstallWSLConfig(&m); err != nil {
+		t.Fatalf("an unreadable host must not fail the step: %v", err)
+	}
+
+	installed, err := os.ReadFile(filepath.Join(winHome, ".wslconfig"))
+	if err != nil {
+		t.Fatalf("the step did not install .wslconfig: %v", err)
+	}
+	got := string(installed)
+
+	for _, omitted := range []string{"memory=", "processors=", "swap="} {
+		if strings.Contains(got, omitted) {
+			t.Errorf("an unknown host must omit %q from the installed .wslconfig:\n%s", omitted, got)
+		}
+	}
+	for _, fixed := range []string{
+		"[wsl2]",
+		"localhostForwarding=true",
+		"networkingMode=mirrored",
+		"dnsTunneling=true",
+		"[experimental]",
+		"autoMemoryReclaim=gradual",
+		"sparseVhd=true",
+	} {
+		if !strings.Contains(got, fixed) {
+			t.Errorf("the fallback .wslconfig lost the fixed setting %q:\n%s", fixed, got)
+		}
+	}
+	if strings.Contains(got, "{{") {
+		t.Errorf("a template delimiter reached the installed .wslconfig:\n%s", got)
+	}
+
+	if _, err := os.Stat(wslConf); err != nil {
+		t.Errorf("the in-distribution half must still install wsl.conf: %v", err)
+	}
+}
+
 // TestWindowsUserProfileFallsBackWithoutInterop pins issue #22: the fallback
 // route must not run cmd.exe again. PATH is emptied so the interop route cannot
 // resolve anything, and the profile is found by reading the mounted users

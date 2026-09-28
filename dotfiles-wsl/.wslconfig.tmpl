@@ -2,8 +2,9 @@
 [wsl2]
 
 # Memory limit for the WSL 2 VM: half of the Windows host's total RAM, read
-# through WSL interop and rounded down to 512 MB. When this key is absent, WSL
-# applies its own proportional default instead.
+# through WSL interop and rounded down to 512 MB, but never so much that Windows
+# keeps less than 2 GiB; a plan below 1 GiB is omitted entirely. When this key is
+# absent, WSL applies its own proportional default instead.
 {{if .MemoryMB}}memory={{.MemoryMB}}MB
 {{end}}
 # Logical processors for the WSL 2 VM: every logical CPU the Windows host
