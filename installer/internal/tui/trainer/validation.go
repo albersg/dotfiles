@@ -6,7 +6,7 @@ import (
 
 // ValidationResult contains detailed validation information
 type ValidationResult struct {
-	IsCorrect       bool     // Answer reaches the correct position
+	IsCorrect       bool     // Answer produces the same result as the optimal solution
 	IsInSolutions   bool     // Answer is in the predefined solutions list
 	IsOptimal       bool     // Answer is the optimal solution
 	TargetPosition  Position // Where the answer should end up
@@ -17,12 +17,16 @@ type ValidationResult struct {
 
 // ValidateAnswerDetailed performs comprehensive validation using the simulator
 func ValidateAnswerDetailed(exercise *Exercise, answer string) ValidationResult {
+	if exercise == nil {
+		return ValidationResult{}
+	}
+
 	result := ValidationResult{
 		OptimalSolution: exercise.Optimal,
 		AllSolutions:    exercise.Solutions,
 	}
 
-	if exercise == nil || answer == "" {
+	if answer == "" {
 		return result
 	}
 
@@ -62,59 +66,52 @@ func ValidateAnswerDetailed(exercise *Exercise, answer string) ValidationResult 
 		return result
 	}
 
-	// Use simulator to check if answer reaches the correct position
-	// First, find the target position by simulating the optimal solution
-	targetPos := SimulateMotions(exercise.CursorPos, exercise.Code, exercise.Optimal)
-	result.TargetPosition = Position{Line: targetPos.Line, Col: targetPos.Col}
+	// Use the simulator to check the *result* the answer produces, not only the
+	// final cursor position. For operator and text-object solutions the cursor
+	// does not move, so the resulting selection is what distinguishes a real
+	// answer from one the simulator could not parse.
+	optimalResult := SimulateMotionsWithSelection(exercise.CursorPos, exercise.Code, exercise.Optimal)
+	actualResult := SimulateMotionsWithSelection(exercise.CursorPos, exercise.Code, answer)
+	result.TargetPosition = Position{Line: optimalResult.Position.Line, Col: optimalResult.Position.Col}
+	result.ActualPosition = Position{Line: actualResult.Position.Line, Col: actualResult.Position.Col}
 
-	// Now simulate the user's answer
-	actualPos := SimulateMotions(exercise.CursorPos, exercise.Code, answer)
-	result.ActualPosition = Position{Line: actualPos.Line, Col: actualPos.Col}
-
-	// Answer is correct if it reaches the same position as the optimal solution
-	result.IsCorrect = (actualPos.Line == targetPos.Line && actualPos.Col == targetPos.Col)
+	switch {
+	case result.IsInSolutions:
+		// Fast path: predefined solutions are always accepted
+		result.IsCorrect = true
+	case !IsRecognizedInput(exercise.Code, answer):
+		// An answer the simulator cannot fully parse can never be correct
+		result.IsCorrect = false
+	case optimalResult.Selection.Active:
+		// Operator/text-object exercises: position AND selection must match
+		result.IsCorrect = sameSimulatedPosition(actualResult.Position, optimalResult.Position) &&
+			sameSelection(actualResult.Selection, optimalResult.Selection)
+	default:
+		// Pure motion exercises: the final cursor position decides
+		result.IsCorrect = sameSimulatedPosition(actualResult.Position, optimalResult.Position)
+	}
 
 	return result
 }
 
-// ValidateAnswer checks if an answer is valid for an exercise
-// Now uses simulator to accept any answer that reaches the correct position
+// sameSimulatedPosition reports whether two simulated positions are identical.
+func sameSimulatedPosition(a, b SimulatedPosition) bool {
+	return a.Line == b.Line && a.Col == b.Col
+}
+
+// sameSelection reports whether two selections cover the same range.
+func sameSelection(a, b Selection) bool {
+	return a.Active == b.Active &&
+		a.StartLine == b.StartLine &&
+		a.StartCol == b.StartCol &&
+		a.EndLine == b.EndLine &&
+		a.EndCol == b.EndCol
+}
+
+// ValidateAnswer checks if an answer is valid for an exercise.
+// It is the boolean view of ValidateAnswerDetailed, so both always agree.
 func ValidateAnswer(exercise *Exercise, answer string) bool {
-	if exercise == nil {
-		return false
-	}
-
-	answer = strings.TrimSpace(answer)
-	if answer == "" {
-		return false
-	}
-
-	// First check predefined solutions (fast path) - normalize both for comparison
-	for _, sol := range exercise.Solutions {
-		if answer == strings.TrimSpace(sol) {
-			return true
-		}
-	}
-
-	// Detect if this exercise shouldn't use simulator
-	isExCommand := len(exercise.Solutions) > 0 && len(exercise.Solutions[0]) > 0 &&
-		(exercise.Solutions[0][0] == ':' || exercise.Solutions[0][0] == '/' || exercise.Solutions[0][0] == '?')
-	isNonMotionModule := exercise.Module == ModuleSubstitution ||
-		exercise.Module == ModuleMacros ||
-		exercise.Module == ModuleRegex
-	skipSimulation := isExCommand || isNonMotionModule
-
-	if skipSimulation {
-		// For non-motion exercises, only predefined solutions are valid
-		return false
-	}
-
-	// Use simulator to check if answer reaches correct position
-	// This allows creative solutions not in the predefined list
-	targetPos := SimulateMotions(exercise.CursorPos, exercise.Code, exercise.Optimal)
-	actualPos := SimulateMotions(exercise.CursorPos, exercise.Code, answer)
-
-	return actualPos.Line == targetPos.Line && actualPos.Col == targetPos.Col
+	return ValidateAnswerDetailed(exercise, answer).IsCorrect
 }
 
 // IsOptimalAnswer checks if the answer is the optimal solution

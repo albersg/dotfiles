@@ -27,8 +27,12 @@ type GameState struct {
 	SessionScore    int
 
 	// Boss state
-	BossLives      int
-	BossStep       int
+	BossLives int
+	BossStep  int
+	// IsBossDefeated is true once the player has defeated the current boss. It
+	// is set only by RecordBossVictory. Losing a fight is not a defeat of the
+	// boss: an exhausted fight is read from BossLives reaching zero, never from
+	// this field.
 	IsBossDefeated bool
 
 	// Timing
@@ -148,14 +152,9 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	g.SessionScore += points
 	g.Stats.TotalScore += points
 
-	// Update practice stats
-	if g.IsPracticeMode {
-		progress := g.Stats.GetModuleProgress(g.CurrentModule)
-		progress.PracticeAttempts++
-		progress.PracticeCorrect++
-		progress.PracticeAccuracy = float64(progress.PracticeCorrect) / float64(progress.PracticeAttempts)
-		progress.LastPracticed = time.Now()
-	}
+	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
+	// the single owner of PracticeAttempts/PracticeCorrect and per-exercise
+	// mastery. Counting it here too double-counted every practice submission.
 
 	// Update lesson progress
 	if g.IsLessonMode {
@@ -164,6 +163,19 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 			progress.LessonsCompleted = g.ExerciseIndex + 1
 		}
 	}
+
+	// Boss progress
+	if g.IsBossMode {
+		g.recordBossAttempt()
+	}
+}
+
+// recordBossAttempt counts one boss step answered. ModuleProgress.BossAttempts
+// is the single counter for boss attempts, owned by the two answer recorders;
+// the UI and RecordBossVictory must not increment it, or the winning step is
+// counted twice.
+func (g *GameState) recordBossAttempt() {
+	g.Stats.GetModuleProgress(g.CurrentModule).BossAttempts++
 }
 
 // RecordIncorrectAnswer records an incorrect answer
@@ -172,19 +184,15 @@ func (g *GameState) RecordIncorrectAnswer() {
 	g.Stats.CurrentStreak = 0
 	g.ComboMultiplier = 1
 
-	// Update practice stats
-	if g.IsPracticeMode {
-		progress := g.Stats.GetModuleProgress(g.CurrentModule)
-		progress.PracticeAttempts++
-		progress.PracticeAccuracy = float64(progress.PracticeCorrect) / float64(progress.PracticeAttempts)
-	}
+	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
+	// the single owner of PracticeAttempts/PracticeCorrect.
 
-	// Boss mode: lose a life
+	// Boss mode: a lost life is one failed boss step.
 	if g.IsBossMode {
+		g.recordBossAttempt()
 		g.BossLives--
-		if g.BossLives <= 0 {
+		if g.BossLives < 0 {
 			g.BossLives = 0
-			g.IsBossDefeated = true
 		}
 	}
 }
@@ -221,6 +229,9 @@ func (g *GameState) NextExercise() bool {
 
 // RecordBossVictory records defeating a boss
 func (g *GameState) RecordBossVictory() {
+	// The player defeated the boss this session.
+	g.IsBossDefeated = true
+
 	// Add to defeated list if not already
 	alreadyDefeated := false
 	for _, boss := range g.Stats.BossesDefeated {
@@ -233,10 +244,10 @@ func (g *GameState) RecordBossVictory() {
 		g.Stats.BossesDefeated = append(g.Stats.BossesDefeated, g.CurrentModule)
 	}
 
-	// Update module progress
+	// Update module progress. BossAttempts is owned by the answer recorders, so
+	// the victory bonus must not count the winning step again.
 	progress := g.Stats.GetModuleProgress(g.CurrentModule)
 	progress.BossDefeated = true
-	progress.BossAttempts++
 
 	if progress.BossBestTime == 0 || g.TimeElapsed < progress.BossBestTime {
 		progress.BossBestTime = g.TimeElapsed

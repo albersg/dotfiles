@@ -25,7 +25,11 @@ func (mp *ModuleProgress) GetExerciseStats(exerciseID string) *ExerciseStats {
 	return mp.ExerciseStats[exerciseID]
 }
 
-// RecordPracticeResult records the result of a practice attempt
+// RecordPracticeResult records the result of a practice attempt.
+//
+// It is the single owner of ModuleProgress.PracticeAttempts and
+// PracticeCorrect, and of the per-exercise mastery that weighted practice
+// selection reads. Callers must not also count the submission elsewhere.
 func (mp *ModuleProgress) RecordPracticeResult(exerciseID string, correct bool) {
 	stats := mp.GetExerciseStats(exerciseID)
 	stats.TotalAttempts++

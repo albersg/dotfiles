@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -633,4 +634,605 @@ func TestPracticeModeE2E(t *testing.T) {
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+}
+
+// =============================================================================
+// PRACTICE ACCOUNTING REGRESSION
+// =============================================================================
+
+// newPracticeSubmissionModel builds a model parked on a known practice exercise,
+// so a submission can be driven through the real UI handler.
+func newPracticeSubmissionModel(t *testing.T) (Model, *trainer.Exercise) {
+	t.Helper()
+
+	// Isolate the stats file the handler writes on submit.
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerPractice
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartPractice(trainer.ModuleHorizontal)
+
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	if len(lessons) == 0 {
+		t.Fatal("no horizontal lessons available")
+	}
+	exercise := lessons[0]
+	m.TrainerGameState.SetPracticeExercise(&exercise)
+
+	return m, m.TrainerGameState.CurrentExercise
+}
+
+// TestTrainerPracticeSubmissionCountsOnce is the regression test for the double count.
+// The answer handler called RecordCorrectAnswer/RecordIncorrectAnswer and then
+// RecordPracticeResult for the same submission, so PracticeAttempts and
+// PracticeCorrect advanced twice per answer. The defect lives in the composition
+// of two calls inside the UI handler, so the assertion has to run a real
+// submission through Model.Update.
+func TestTrainerPracticeSubmissionCountsOnce(t *testing.T) {
+	t.Run("correct answer advances the counters once and records mastery", func(t *testing.T) {
+		m, exercise := newPracticeSubmissionModel(t)
+
+		m.TrainerInput = exercise.Optimal
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+
+		progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+		if progress.PracticeAttempts != 1 {
+			t.Errorf("PracticeAttempts = %d after one correct submission, want 1", progress.PracticeAttempts)
+		}
+		if progress.PracticeCorrect != 1 {
+			t.Errorf("PracticeCorrect = %d after one correct submission, want 1", progress.PracticeCorrect)
+		}
+
+		// The per-exercise mastery is why RecordPracticeResult stays the owner;
+		// the fix must not satisfy the counters by dropping mastery.
+		exStats := progress.GetExerciseStats(exercise.ID)
+		if exStats.TotalAttempts != 1 {
+			t.Errorf("exercise %s TotalAttempts = %d after one submission, want 1", exercise.ID, exStats.TotalAttempts)
+		}
+		if exStats.TotalCorrect != 1 {
+			t.Errorf("exercise %s TotalCorrect = %d after one correct submission, want 1", exercise.ID, exStats.TotalCorrect)
+		}
+	})
+
+	t.Run("incorrect answer advances attempts once and no correct", func(t *testing.T) {
+		m, exercise := newPracticeSubmissionModel(t)
+
+		wrong := "ZZZZZZ"
+		if trainer.ValidateAnswer(exercise, wrong) {
+			t.Fatalf("test setup: %q must not validate for exercise %s", wrong, exercise.ID)
+		}
+
+		m.TrainerInput = wrong
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+
+		if m.TrainerLastCorrect {
+			t.Fatal("test setup: the submission was accepted, expected a rejection")
+		}
+
+		progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+		if progress.PracticeAttempts != 1 {
+			t.Errorf("PracticeAttempts = %d after one incorrect submission, want 1", progress.PracticeAttempts)
+		}
+		if progress.PracticeCorrect != 0 {
+			t.Errorf("PracticeCorrect = %d after one incorrect submission, want 0", progress.PracticeCorrect)
+		}
+
+		exStats := progress.GetExerciseStats(exercise.ID)
+		if exStats.TotalAttempts != 1 {
+			t.Errorf("exercise %s TotalAttempts = %d after one submission, want 1", exercise.ID, exStats.TotalAttempts)
+		}
+		if exStats.TotalWrong != 1 {
+			t.Errorf("exercise %s TotalWrong = %d after one incorrect submission, want 1", exercise.ID, exStats.TotalWrong)
+		}
+	})
+}
+
+// =============================================================================
+// BOSS BOOKKEEPING REGRESSION
+// =============================================================================
+
+// TestTrainerBossAnswerAccounting is the regression test for the boss path doing
+// its own bookkeeping. handleTrainerBossKeys decremented BossLives directly and
+// never called RecordCorrectAnswer/RecordIncorrectAnswer, so a boss step
+// contributed no streak, no score and no attempt, and the boss branch inside
+// GameState.RecordIncorrectAnswer was dead. The assertions drive the real UI
+// handler, because that is where the bypass lived.
+func TestTrainerBossAnswerAccounting(t *testing.T) {
+	t.Run("a correct boss step moves streak and score", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+
+		step := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep]
+		m.TrainerInput = step.Exercise.Optimal
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+
+		if m.TrainerGameState.CurrentStreak != 1 {
+			t.Errorf("CurrentStreak = %d after a correct boss step, want 1", m.TrainerGameState.CurrentStreak)
+		}
+		if m.TrainerGameState.SessionScore <= 0 {
+			t.Errorf("SessionScore = %d after a correct boss step, want > 0", m.TrainerGameState.SessionScore)
+		}
+		if m.TrainerStats.TotalScore <= 0 {
+			t.Errorf("TotalScore = %d after a correct boss step, want > 0", m.TrainerStats.TotalScore)
+		}
+		if m.TrainerGameState.BossLives != 3 {
+			t.Errorf("BossLives = %d after a correct boss step, want 3", m.TrainerGameState.BossLives)
+		}
+	})
+
+	t.Run("a non-optimal step names the step it judged", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+
+		answered := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep]
+		next := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep+1]
+		if answered.Exercise.Optimal == next.Exercise.Optimal {
+			t.Fatalf("test setup: the first two steps share the optimal %q", answered.Exercise.Optimal)
+		}
+
+		// Reaches the same result as the answered step's own optimal without being
+		// it, so the answer takes the branch that names an optimal solution.
+		m.TrainerInput = "wl"
+		if !trainer.ValidateAnswer(&answered.Exercise, m.TrainerInput) {
+			t.Fatalf("test setup: %q is not accepted for %s", m.TrainerInput, answered.Exercise.ID)
+		}
+		if trainer.IsOptimalAnswer(&answered.Exercise, m.TrainerInput) {
+			t.Fatalf("test setup: %q is the optimal of %s", m.TrainerInput, answered.Exercise.ID)
+		}
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+
+		// BossStep has already advanced when the message is built, so naming the
+		// next step's optimal would spoil the challenge the user has not seen.
+		if !strings.Contains(m.TrainerMessage, answered.Exercise.Optimal) {
+			t.Errorf("message %q does not name the optimal %q of the answered step %s",
+				m.TrainerMessage, answered.Exercise.Optimal, answered.Exercise.ID)
+		}
+		if strings.Contains(m.TrainerMessage, next.Exercise.Optimal) {
+			t.Errorf("message %q names the NEXT step's optimal %q",
+				m.TrainerMessage, next.Exercise.Optimal)
+		}
+	})
+
+	t.Run("a lost boss spends the lives and records each attempt", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+		progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+		lives := m.TrainerGameState.BossLives
+		const wrong = "ZZZZZZ"
+
+		for i := 0; i < lives; i++ {
+			if m.Screen != ScreenTrainerBoss {
+				t.Fatalf("screen = %v after %d wrong answers, want %v", m.Screen, i, ScreenTrainerBoss)
+			}
+			step := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep]
+			if trainer.ValidateAnswer(&step.Exercise, wrong) {
+				t.Fatalf("test setup: %q validated against %s", wrong, step.Exercise.ID)
+			}
+			m.TrainerInput = wrong
+			result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			m = result.(Model)
+		}
+
+		if m.TrainerLastCorrect {
+			t.Error("TrainerLastCorrect is true after losing the fight")
+		}
+		if m.Screen != ScreenTrainerBossResult {
+			t.Fatalf("screen = %v after losing the fight, want %v", m.Screen, ScreenTrainerBossResult)
+		}
+		if m.TrainerGameState.BossLives != 0 {
+			t.Errorf("BossLives = %d after losing the fight, want 0", m.TrainerGameState.BossLives)
+		}
+		if progress.BossAttempts != lives {
+			t.Errorf("BossAttempts = %d after %d failed steps, want %d", progress.BossAttempts, lives, lives)
+		}
+		if m.TrainerGameState.IsBossDefeated {
+			t.Error("IsBossDefeated is true after losing the fight; it must mean the player won")
+		}
+	})
+}
+
+// TestTrainerBossResultUnlockClaim covers the victory screen's unlock message.
+// renderTrainerBossResult printed "Next module unlocked!" unconditionally, so
+// the final boss claimed a module that does not exist.
+func TestTrainerBossResultUnlockClaim(t *testing.T) {
+	newVictoryModel := func(t *testing.T, module trainer.ModuleID) Model {
+		t.Helper()
+		t.Setenv("HOME", t.TempDir())
+
+		m := NewModel()
+		m.Screen = ScreenTrainerBossResult
+		m.TrainerStats = trainer.NewUserStats()
+		m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+		m.TrainerGameState.StartBoss(module)
+		m.TrainerGameState.RecordBossVictory()
+		m.TrainerLastCorrect = true
+		return m
+	}
+
+	t.Run("the final module does not claim an unlock", func(t *testing.T) {
+		m := newVictoryModel(t, trainer.ModuleMacros)
+
+		out := m.renderTrainerBossResult()
+		if strings.Contains(out, "unlocked") {
+			t.Errorf("final boss result claims an unlock:\n%s", out)
+		}
+	})
+
+	t.Run("a non-final module still claims the unlock", func(t *testing.T) {
+		m := newVictoryModel(t, trainer.ModuleHorizontal)
+
+		out := m.renderTrainerBossResult()
+		if !strings.Contains(out, "unlocked") {
+			t.Errorf("non-final boss result lost its unlock message:\n%s", out)
+		}
+	})
+}
+
+// =============================================================================
+// SPACE KEY ROUTING REGRESSION
+// =============================================================================
+
+// newTrainerMenuModel builds a model parked on the trainer module menu.
+func newTrainerMenuModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+	return m
+}
+
+// newTrainerLessonModel builds a model parked on a live lesson exercise screen.
+func newTrainerLessonModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerLesson
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
+	m.TrainerInput = ""
+	return m
+}
+
+// newTrainerResultModel builds a model parked on the exercise result screen
+// with a live lesson session behind it.
+func newTrainerResultModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerResult
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
+	m.TrainerLastCorrect = true
+	m.TrainerMessage = "✨ Perfect!"
+	return m
+}
+
+// newTrainerBossModel builds a model parked on a live boss exercise screen.
+func newTrainerBossModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerBoss
+	m.TrainerStats = trainer.NewUserStats()
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+	progress.LessonsCompleted = 15
+	progress.LessonsTotal = 15
+	progress.PracticeAccuracy = 85.0
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartBoss(trainer.ModuleHorizontal)
+	m.TrainerInput = ""
+	return m
+}
+
+// TestTrainerSpaceKeyRouting is the regression test for the leader-mode clash.
+// The global key handler treated space as the leader-key prefix on every screen
+// except the lesson, practice and boss exercise screens, so on the trainer menu
+// and on the result screens it set LeaderMode instead of reaching
+// handleTrainerMenuKeys / handleTrainerResultKeys / handleTrainerBossResultKeys,
+// whose `case "enter", " "` arms were therefore unreachable for space. The
+// assertions drive the real global handler through Model.Update, because that is
+// where the routing, and the defect, lives.
+func TestTrainerSpaceKeyRouting(t *testing.T) {
+	t.Run("space starts the selected module from the trainer menu", func(t *testing.T) {
+		m := newTrainerMenuModel(t)
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+		m = result.(Model)
+
+		if m.LeaderMode {
+			t.Fatal("space activated leader mode on the trainer menu")
+		}
+		if m.Screen != ScreenTrainerLesson {
+			t.Fatalf("screen after space = %v, want %v", m.Screen, ScreenTrainerLesson)
+		}
+		if m.TrainerGameState == nil || m.TrainerGameState.CurrentExercise == nil {
+			t.Fatal("space did not start a lesson exercise")
+		}
+	})
+
+	t.Run("space advances from the exercise result screen", func(t *testing.T) {
+		m := newTrainerResultModel(t)
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+		m = result.(Model)
+
+		if m.LeaderMode {
+			t.Fatal("space activated leader mode on the trainer result screen")
+		}
+		if m.Screen == ScreenTrainerResult {
+			t.Fatal("space did not continue past the result screen")
+		}
+	})
+
+	t.Run("space returns from the boss result screen", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenTrainerBossResult
+		m.TrainerStats = trainer.NewUserStats()
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+		m = result.(Model)
+
+		if m.LeaderMode {
+			t.Fatal("space activated leader mode on the boss result screen")
+		}
+		if m.Screen != ScreenTrainerMenu {
+			t.Fatalf("screen after space = %v, want %v", m.Screen, ScreenTrainerMenu)
+		}
+	})
+
+	t.Run("space stays ordinary input on the exercise screens", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"practice", func(t *testing.T) Model {
+				m, _ := newPracticeSubmissionModel(t)
+				return m
+			}},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = ""
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+				m = result.(Model)
+
+				if m.LeaderMode {
+					t.Fatal("space activated leader mode on an exercise screen")
+				}
+				if m.TrainerInput != " " {
+					t.Errorf("TrainerInput = %q after space, want %q", m.TrainerInput, " ")
+				}
+			})
+		}
+	})
+}
+
+// =============================================================================
+// ESCAPE ROUTING REGRESSION
+// =============================================================================
+
+// TestTrainerEscapePersistsLessonProgress is the regression test for lost lesson
+// progress. Esc is intercepted by the global handler in handleEscape before any
+// screen-specific trainer handler runs, so the exercise screens never saved the
+// session they were leaving. The assertions drive the real global handler
+// through Model.Update, because that is where the interception, and the defect,
+// lives.
+func TestTrainerEscapePersistsLessonProgress(t *testing.T) {
+	m := newTrainerLessonModel(t)
+
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("no exercise loaded")
+	}
+
+	// Answer the first exercise so the session has progress worth keeping.
+	m.TrainerInput = exercise.Optimal
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+
+	// Continue to the next exercise so Esc is pressed on the lesson screen
+	// itself; the result screen already saved on its own esc path.
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	if m.Screen != ScreenTrainerLesson {
+		t.Fatalf("screen after continuing = %v, want %v", m.Screen, ScreenTrainerLesson)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(Model)
+
+	if m.Screen != ScreenTrainerMenu {
+		t.Fatalf("screen after esc = %v, want %v", m.Screen, ScreenTrainerMenu)
+	}
+
+	loaded := trainer.LoadStats()
+	if loaded == nil {
+		t.Fatal("stats file is missing after leaving a lesson with esc; the earned progress was lost")
+	}
+	progress := loaded.GetModuleProgress(trainer.ModuleHorizontal)
+	if progress.LessonsCompleted < 1 {
+		t.Errorf("LessonsCompleted = %d after answering one lesson exercise and leaving with esc, want >= 1", progress.LessonsCompleted)
+	}
+}
+
+// TestTrainerEscapePersistsPracticeProgress covers the practice screen. The
+// practice handler saves on every answer, but any stats still in memory must
+// survive leaving the screen with esc, using the same save path.
+func TestTrainerEscapePersistsPracticeProgress(t *testing.T) {
+	m, _ := newPracticeSubmissionModel(t)
+
+	m.TrainerStats.TotalScore = 42
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(Model)
+
+	if m.Screen != ScreenTrainerMenu {
+		t.Fatalf("screen after esc = %v, want %v", m.Screen, ScreenTrainerMenu)
+	}
+	loaded := trainer.LoadStats()
+	if loaded == nil {
+		t.Fatal("stats file is missing after leaving practice with esc")
+	}
+	if loaded.TotalScore != 42 {
+		t.Errorf("TotalScore = %d after leaving practice with esc, want 42", loaded.TotalScore)
+	}
+}
+
+// TestTrainerEscapeAbandonsBossVisibly covers the boss screen. Esc must persist
+// the run and report the abandon instead of leaving silently.
+func TestTrainerEscapeAbandonsBossVisibly(t *testing.T) {
+	m := newTrainerBossModel(t)
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(Model)
+
+	if m.Screen != ScreenTrainerMenu {
+		t.Fatalf("screen after esc = %v, want %v", m.Screen, ScreenTrainerMenu)
+	}
+	if m.TrainerMessage != "Boss fight abandoned!" {
+		t.Errorf("TrainerMessage after esc = %q, want %q", m.TrainerMessage, "Boss fight abandoned!")
+	}
+	if trainer.LoadStats() == nil {
+		t.Error("stats file is missing after abandoning a boss with esc")
+	}
+}
+
+// =============================================================================
+// CONTROL KEY INPUT REGRESSION
+// =============================================================================
+
+// TestTrainerControlKeysReachSimulatorInput is the regression test for literal
+// control key text in the answer. The exercise and boss handlers each declared
+// their own accepted control set that listed ctrl+a, ctrl+e and ctrl+w, but the
+// conversion switch only mapped ctrl+d/u/f/b. Every other accepted combination
+// fell through to the default arm, which appended the raw key name, so pressing
+// ctrl+a typed the six characters "ctrl+a" into the answer. That text can never
+// validate, and since the simulator rejects unrecognized input the submission is
+// lost. The handlers must instead ignore keys the simulator cannot parse, while
+// still inserting the control characters it does model.
+func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
+	t.Run("ctrl+a is ignored on the exercise screens", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"practice", func(t *testing.T) Model {
+				m, _ := newPracticeSubmissionModel(t)
+				return m
+			}},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = ""
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+				m = result.(Model)
+
+				if m.TrainerInput != "" {
+					t.Errorf("TrainerInput = %q after ctrl+a, want empty", m.TrainerInput)
+				}
+			})
+		}
+	})
+
+	t.Run("ctrl+a is ignored in a boss fight", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+		m.TrainerInput = ""
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+		m = result.(Model)
+
+		if m.TrainerInput != "" {
+			t.Errorf("TrainerInput = %q after ctrl+a, want empty", m.TrainerInput)
+		}
+	})
+
+	t.Run("ctrl+e and ctrl+w are ignored too", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			for keyName, keyType := range map[string]tea.KeyType{
+				"ctrl+e": tea.KeyCtrlE,
+				"ctrl+w": tea.KeyCtrlW,
+			} {
+				t.Run(tc.name+"/"+keyName, func(t *testing.T) {
+					m := tc.model(t)
+					m.TrainerInput = ""
+
+					result, _ := m.Update(tea.KeyMsg{Type: keyType})
+					m = result.(Model)
+
+					if m.TrainerInput != "" {
+						t.Errorf("TrainerInput = %q after %s, want empty", m.TrainerInput, keyName)
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("modelled control keys still insert their control character", func(t *testing.T) {
+		controlKeys := []struct {
+			name string
+			key  tea.KeyType
+			want string
+		}{
+			{"ctrl+d", tea.KeyCtrlD, "\x04"},
+			{"ctrl+u", tea.KeyCtrlU, "\x15"},
+			{"ctrl+f", tea.KeyCtrlF, "\x06"},
+			{"ctrl+b", tea.KeyCtrlB, "\x02"},
+		}
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			for _, ck := range controlKeys {
+				t.Run(tc.name+"/"+ck.name, func(t *testing.T) {
+					m := tc.model(t)
+					m.TrainerInput = ""
+
+					result, _ := m.Update(tea.KeyMsg{Type: ck.key})
+					m = result.(Model)
+
+					if m.TrainerInput != ck.want {
+						t.Errorf("TrainerInput = %q after %s, want %q", m.TrainerInput, ck.name, ck.want)
+					}
+				})
+			}
+		}
+	})
 }

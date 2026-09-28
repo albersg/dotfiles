@@ -247,3 +247,34 @@ func TestGetAllModules_BossNames(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// MODULE UNLOCK ORDER
+// =============================================================================
+
+func TestNextModule_FollowsUnlockOrder(t *testing.T) {
+	tests := []struct {
+		name   string
+		module ModuleID
+		want   ModuleID
+		ok     bool
+	}{
+		{"horizontal unlocks vertical", ModuleHorizontal, ModuleVertical, true},
+		{"vertical unlocks textobjects", ModuleVertical, ModuleTextObjects, true},
+		{"textobjects unlocks cgn", ModuleTextObjects, ModuleChangeRepeat, true},
+		{"cgn unlocks substitution", ModuleChangeRepeat, ModuleSubstitution, true},
+		{"substitution unlocks regex", ModuleSubstitution, ModuleRegex, true},
+		{"regex unlocks macros", ModuleRegex, ModuleMacros, true},
+		{"macros is the final module", ModuleMacros, "", false},
+		{"unknown module has no successor", ModuleID("nope"), "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := NextModule(tt.module)
+			if ok != tt.ok || got != tt.want {
+				t.Errorf("NextModule(%q) = (%q, %v), want (%q, %v)", tt.module, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}

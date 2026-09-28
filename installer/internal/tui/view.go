@@ -2092,7 +2092,15 @@ func (m Model) renderTrainerBossResult() string {
 		s.WriteString("\n")
 		s.WriteString(SuccessStyle.Render("🎉 +500 bonus points!"))
 		s.WriteString("\n")
-		s.WriteString(SuccessStyle.Render("🔓 Next module unlocked!"))
+		nextModuleExists := false
+		if m.TrainerGameState != nil {
+			_, nextModuleExists = trainer.NextModule(m.TrainerGameState.CurrentModule)
+		}
+		if nextModuleExists {
+			s.WriteString(SuccessStyle.Render("🔓 Next module unlocked!"))
+		} else {
+			s.WriteString(SuccessStyle.Render("👑 No modules left — you have cleared them all!"))
+		}
 	} else {
 		s.WriteString(DangerStyle.Render("💀 DEFEATED 💀"))
 		s.WriteString("\n\n")

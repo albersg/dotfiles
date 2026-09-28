@@ -203,7 +203,7 @@ func TestGameState_RecordIncorrectAnswer_InBossMode(t *testing.T) {
 	}
 }
 
-func TestGameState_RecordIncorrectAnswer_BossDefeatsOnZeroLives(t *testing.T) {
+func TestGameState_RecordIncorrectAnswer_ZeroBossLivesIsDefeatNotVictory(t *testing.T) {
 	state := NewGameState()
 	state.StartBoss(ModuleHorizontal)
 	state.BossLives = 1
@@ -213,8 +213,47 @@ func TestGameState_RecordIncorrectAnswer_BossDefeatsOnZeroLives(t *testing.T) {
 	if state.BossLives != 0 {
 		t.Errorf("BossLives should be 0, got %d", state.BossLives)
 	}
-	if !state.IsBossDefeated {
-		t.Error("IsBossDefeated should be true when lives reach 0")
+	// IsBossDefeated names a victory. Running out of lives is a loss, so the
+	// field must stay false and the loss is read from BossLives reaching zero.
+	if state.IsBossDefeated {
+		t.Error("IsBossDefeated should be false when lives reach 0")
+	}
+}
+
+func TestGameState_RecordIncorrectAnswer_InBossMode_RecordsAttempt(t *testing.T) {
+	state := NewGameState()
+	state.StartBoss(ModuleHorizontal)
+	initialLives := state.BossLives
+
+	state.RecordIncorrectAnswer()
+
+	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+	if progress.BossAttempts != 1 {
+		t.Errorf("BossAttempts = %d after a lost life, want 1", progress.BossAttempts)
+	}
+	if state.BossLives != initialLives-1 {
+		t.Errorf("BossLives should decrease by 1, expected %d, got %d", initialLives-1, state.BossLives)
+	}
+	if state.IsBossDefeated {
+		t.Error("IsBossDefeated should stay false while losing lives")
+	}
+}
+
+func TestGameState_RecordCorrectAnswer_InBossMode_RecordsAttempt(t *testing.T) {
+	state := NewGameState()
+	state.StartBoss(ModuleHorizontal)
+
+	state.RecordCorrectAnswer(3.0, true)
+
+	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+	if progress.BossAttempts != 1 {
+		t.Errorf("BossAttempts = %d after a correct boss step, want 1", progress.BossAttempts)
+	}
+	if state.CurrentStreak != 1 {
+		t.Errorf("CurrentStreak = %d after a correct boss step, want 1", state.CurrentStreak)
+	}
+	if state.SessionScore <= 0 {
+		t.Errorf("SessionScore = %d after a correct boss step, want > 0", state.SessionScore)
 	}
 }
 
@@ -299,12 +338,28 @@ func TestGameState_UpdatePracticeStats(t *testing.T) {
 	state := NewGameState()
 	state.StartPractice(ModuleHorizontal)
 
-	// Record some practice attempts
+	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+
+	// RecordCorrectAnswer/RecordIncorrectAnswer own streaks, score and lesson
+	// progress, not practice accounting. Three answers here must leave the
+	// practice counters untouched.
 	state.RecordCorrectAnswer(3.0, false)
 	state.RecordCorrectAnswer(4.0, true)
 	state.RecordIncorrectAnswer()
 
-	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+	if progress.PracticeAttempts != 0 {
+		t.Errorf("PracticeAttempts should stay 0 when GameState records answers, got %d", progress.PracticeAttempts)
+	}
+	if progress.PracticeCorrect != 0 {
+		t.Errorf("PracticeCorrect should stay 0 when GameState records answers, got %d", progress.PracticeCorrect)
+	}
+
+	// ModuleProgress.RecordPracticeResult is the single owner of the practice
+	// counters, so the same three results land there.
+	exerciseID := state.CurrentExercise.ID
+	progress.RecordPracticeResult(exerciseID, true)
+	progress.RecordPracticeResult(exerciseID, true)
+	progress.RecordPracticeResult(exerciseID, false)
 
 	if progress.PracticeAttempts != 3 {
 		t.Errorf("PracticeAttempts should be 3, got %d", progress.PracticeAttempts)
@@ -318,15 +373,21 @@ func TestGameState_PracticeAccuracyCalculation(t *testing.T) {
 	state := NewGameState()
 	state.StartPractice(ModuleHorizontal)
 
-	// 8 correct, 2 incorrect = 80% accuracy
+	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+	exerciseID := state.CurrentExercise.ID
+
+	// 8 correct, 2 incorrect = 80% accuracy. Each submission is the composition
+	// the UI handler runs: GameState records the streak/score side, and
+	// RecordPracticeResult owns the practice counters.
 	for i := 0; i < 8; i++ {
 		state.RecordCorrectAnswer(3.0, false)
+		progress.RecordPracticeResult(exerciseID, true)
 	}
 	for i := 0; i < 2; i++ {
 		state.RecordIncorrectAnswer()
+		progress.RecordPracticeResult(exerciseID, false)
 	}
 
-	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
 	expectedAccuracy := 0.80
 
 	if progress.PracticeAccuracy < expectedAccuracy-0.01 || progress.PracticeAccuracy > expectedAccuracy+0.01 {
@@ -342,6 +403,9 @@ func TestGameState_RecordBossVictory(t *testing.T) {
 
 	state.RecordBossVictory()
 
+	if !state.IsBossDefeated {
+		t.Error("IsBossDefeated should be true after the player wins the fight")
+	}
 	if !state.Stats.IsBossDefeated(ModuleHorizontal) {
 		t.Error("Boss should be marked as defeated")
 	}
@@ -352,6 +416,21 @@ func TestGameState_RecordBossVictory(t *testing.T) {
 	}
 	if progress.BossBestTime != 25*time.Second {
 		t.Errorf("BossBestTime should be 25s, got %v", progress.BossBestTime)
+	}
+}
+
+func TestGameState_RecordBossVictory_DoesNotDoubleCountAttempts(t *testing.T) {
+	state := NewGameState()
+	state.StartBoss(ModuleHorizontal)
+
+	// The winning step goes through RecordCorrectAnswer, the single owner of
+	// boss attempt accounting, so the victory bonus must not count it again.
+	state.RecordCorrectAnswer(3.0, true)
+	state.RecordBossVictory()
+
+	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+	if progress.BossAttempts != 1 {
+		t.Errorf("BossAttempts = %d after one winning answer, want 1", progress.BossAttempts)
 	}
 }
 

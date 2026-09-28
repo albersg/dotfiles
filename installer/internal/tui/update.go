@@ -276,19 +276,20 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// (Trainer screens use space in commands, Welcome screen uses space to continue)
 	if key == " " {
 		// Screens where space should NOT activate leader mode
-		switch m.Screen {
-		case ScreenWelcome:
+		switch {
+		case m.Screen == ScreenWelcome:
 			// Welcome screen: space continues to main menu
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 			return m, nil
-		case ScreenComplete, ScreenError:
+		case m.Screen == ScreenComplete || m.Screen == ScreenError:
 			// Complete/Error screens: space quits the app
 			m.Quitting = true
 			return m, tea.Quit
-		case ScreenTrainerLesson, ScreenTrainerPractice, ScreenTrainerBoss:
-			// Trainer input screens: space is part of the input, pass through
-			// (handled below in screen-specific handlers)
+		case isTrainerScreen(m.Screen):
+			// Trainer screens own space: the exercise screens append it to the
+			// answer input, and the menu and result screens treat it like enter.
+			// Pass through to the screen-specific handlers below.
 		default:
 			// All other screens: activate leader mode
 			m.LeaderMode = true
@@ -462,10 +463,21 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		}
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
-	case ScreenTrainerLesson, ScreenTrainerPractice, ScreenTrainerBoss:
-		// Return to trainer menu (stats saved in handlers)
+	case ScreenTrainerLesson, ScreenTrainerPractice:
+		// Esc is handled here before the screen-specific handlers run, so this
+		// path owns the save for the exercise screens.
+		if m.TrainerStats != nil {
+			trainer.SaveStats(m.TrainerStats)
+		}
 		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = ""
+	case ScreenTrainerBoss:
+		// Save the run and report the abandoned fight instead of leaving silently.
+		if m.TrainerStats != nil {
+			trainer.SaveStats(m.TrainerStats)
+		}
+		m.Screen = ScreenTrainerMenu
+		m.TrainerMessage = "Boss fight abandoned!"
 	case ScreenTrainerResult, ScreenTrainerBossResult:
 		// Return to trainer menu
 		if m.TrainerStats != nil {
@@ -1485,6 +1497,23 @@ func (m *Model) runNextStep() tea.Cmd {
 // Trainer Handlers
 // ============================================================================
 
+// isTrainerScreen reports whether s is one of the Vim Trainer screens.
+//
+// The trainer owns the space key on all of its screens: a space is ordinary
+// Vim input on the exercise screens, and it selects the highlighted action like
+// enter on the menu and result screens. The global key handler must therefore
+// hand space to the trainer screens instead of turning it into the leader-key
+// prefix.
+func isTrainerScreen(s Screen) bool {
+	switch s {
+	case ScreenTrainerMenu, ScreenTrainerLesson, ScreenTrainerPractice,
+		ScreenTrainerBoss, ScreenTrainerResult, ScreenTrainerBossResult:
+		return true
+	default:
+		return false
+	}
+}
+
 // handleTrainerMenuKeys handles module selection in the trainer
 func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
@@ -1597,7 +1626,7 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.TrainerMessage = "Complete lessons + 80% practice accuracy to fight boss!"
 			}
 		}
-	case "esc", "q":
+	case "q":
 		// Save stats and go back to main menu
 		if m.TrainerStats != nil {
 			trainer.SaveStats(m.TrainerStats)
@@ -1607,6 +1636,20 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// trainerControlChars maps the control key names the trainer accepts as answer
+// input to the control character the Vim simulator parses. It mirrors the
+// control keys handled by trainer.SimulateMotionsWithSelection (\x04, \x15,
+// \x06 and \x02); a ctrl+ combination absent here has no meaning the simulator
+// can validate, so both exercise handlers ignore it instead of typing its
+// literal name into the answer. This is the single accepted set shared by the
+// lesson/practice and boss handlers.
+var trainerControlChars = map[string]string{
+	"ctrl+d": "\x04",
+	"ctrl+u": "\x15",
+	"ctrl+f": "\x06",
+	"ctrl+b": "\x02",
 }
 
 // handleTrainerExerciseKeys handles input during lesson/practice exercises
@@ -1623,15 +1666,6 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
-	case "esc":
-		// Exit to menu, save progress
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
-		m.Screen = ScreenTrainerMenu
-		m.TrainerMessage = ""
-		return m, nil
-
 	case "backspace":
 		// Remove last character from input
 		if len(m.TrainerInput) > 0 {
@@ -1687,32 +1721,14 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 
 	default:
 		// Add character to input (filter control keys)
-		// Accept single chars and specific ctrl combinations used in Vim
-		validCtrlKeys := map[string]bool{
-			"ctrl+a": true, "ctrl+e": true, "ctrl+w": true,
-			"ctrl+d": true, "ctrl+u": true, "ctrl+f": true, "ctrl+b": true,
-		}
-		if len(key) == 1 || validCtrlKeys[key] {
-			// Handle ctrl combinations - convert to control character
-			if strings.HasPrefix(key, "ctrl+") {
-				// Convert ctrl+X to actual control character for simulator
-				switch key {
-				case "ctrl+d":
-					m.TrainerInput += "\x04"
-				case "ctrl+u":
-					m.TrainerInput += "\x15"
-				case "ctrl+f":
-					m.TrainerInput += "\x06"
-				case "ctrl+b":
-					m.TrainerInput += "\x02"
-				default:
-					m.TrainerInput += key
-				}
-			} else if len(key) == 1 {
-				m.TrainerInput += key
-			}
+		// Accept single printable chars, space, and the control combinations
+		// the simulator can parse. Anything else is ignored.
+		if len(key) == 1 {
+			m.TrainerInput += key
 		} else if key == "space" {
 			m.TrainerInput += " "
+		} else if control, ok := trainerControlChars[key]; ok {
+			m.TrainerInput += control
 		}
 	}
 
@@ -1727,15 +1743,6 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
-	case "esc":
-		// Forfeit boss fight
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
-		m.Screen = ScreenTrainerMenu
-		m.TrainerMessage = "Boss fight abandoned!"
-		return m, nil
-
 	case "backspace":
 		if len(m.TrainerInput) > 0 {
 			m.TrainerInput = m.TrainerInput[:len(m.TrainerInput)-1]
@@ -1747,25 +1754,18 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Get current boss step
 		boss := m.TrainerGameState.CurrentBoss
-		if m.TrainerGameState.BossStep >= len(boss.Steps) {
-			// Boss complete!
-			m.TrainerGameState.RecordBossVictory()
-			m.TrainerLastCorrect = true
-			m.TrainerMessage = "🏆 VICTORY! You defeated " + boss.Name + "!"
-			m.Screen = ScreenTrainerBossResult
-			return m, nil
-		}
-
-		step := boss.Steps[m.TrainerGameState.BossStep]
-		isCorrect := trainer.ValidateAnswer(&step.Exercise, m.TrainerInput)
-		isOptimal := trainer.IsOptimalAnswer(&step.Exercise, m.TrainerInput)
+		// Keep the session exercise pointing at the step being answered, so the
+		// shared answer recorders score the right challenge.
+		m.TrainerGameState.CurrentExercise = &boss.Steps[m.TrainerGameState.BossStep].Exercise
+		isCorrect := trainer.ValidateAnswer(m.TrainerGameState.CurrentExercise, m.TrainerInput)
+		isOptimal := trainer.IsOptimalAnswer(m.TrainerGameState.CurrentExercise, m.TrainerInput)
 
 		if isCorrect {
-			// Move to next step
-			m.TrainerGameState.BossStep++
+			// The shared recorder owns streak, score and boss attempt accounting.
+			m.TrainerGameState.RecordCorrectAnswer(10.0, isOptimal)
 			m.TrainerInput = ""
+			m.TrainerGameState.BossStep++
 
 			if m.TrainerGameState.BossStep >= len(boss.Steps) {
 				// Boss defeated!
@@ -1777,16 +1777,18 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 				if isOptimal {
 					m.TrainerMessage = "✨ Perfect! Next challenge..."
 				} else {
-					m.TrainerMessage = "✓ Good! (Optimal: " + step.Exercise.Optimal + ") Next..."
+					// The answered step, not the next one: BossStep has already moved.
+					m.TrainerMessage = "✓ Good! (Optimal: " + m.TrainerGameState.CurrentExercise.Optimal + ") Next..."
 				}
 			}
 		} else {
-			// Lose a life - SHOW THE CORRECT SOLUTION
-			m.TrainerGameState.BossLives--
+			// The shared recorder owns the life cost, the attempt and the reset
+			// streak. SHOW THE CORRECT SOLUTION.
+			m.TrainerGameState.RecordIncorrectAnswer()
 			m.TrainerInput = ""
 
 			// Format the solution hint
-			solutionHint := trainer.FormatSolutionsHint(&step.Exercise)
+			solutionHint := trainer.FormatSolutionsHint(m.TrainerGameState.CurrentExercise)
 
 			if m.TrainerGameState.BossLives <= 0 {
 				// Game over - show final solution
@@ -1804,26 +1806,14 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 
 	default:
 		// Add character to input
-		// Accept single chars and specific ctrl combinations used in Vim
-		validCtrlKeys := map[string]bool{
-			"ctrl+d": true, "ctrl+u": true, "ctrl+f": true, "ctrl+b": true,
-		}
+		// Accept single printable chars, space, and the same control
+		// combinations as the exercise handler.
 		if len(key) == 1 {
 			m.TrainerInput += key
 		} else if key == "space" {
 			m.TrainerInput += " "
-		} else if validCtrlKeys[key] {
-			// Convert ctrl+X to actual control character for simulator
-			switch key {
-			case "ctrl+d":
-				m.TrainerInput += "\x04"
-			case "ctrl+u":
-				m.TrainerInput += "\x15"
-			case "ctrl+f":
-				m.TrainerInput += "\x06"
-			case "ctrl+b":
-				m.TrainerInput += "\x02"
-			}
+		} else if control, ok := trainerControlChars[key]; ok {
+			m.TrainerInput += control
 		}
 	}
 
@@ -1871,7 +1861,7 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenTrainerMenu
 		}
 
-	case "esc", "q":
+	case "q":
 		// Return to menu
 		if m.TrainerStats != nil {
 			trainer.SaveStats(m.TrainerStats)
@@ -1885,7 +1875,7 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 // handleTrainerBossResultKeys handles the result screen after a boss fight
 func (m Model) handleTrainerBossResultKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "enter", " ", "esc", "q":
+	case "enter", " ", "q":
 		// Return to menu
 		if m.TrainerStats != nil {
 			trainer.SaveStats(m.TrainerStats)
