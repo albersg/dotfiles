@@ -1769,18 +1769,38 @@ func (m Model) clearTrainerProfile() (tea.Model, tea.Cmd) {
 }
 
 // trainerControlChars maps the control key names the trainer accepts as answer
-// input to the control character the Vim simulator parses. It mirrors the
-// control keys handled by trainer.SimulateMotionsWithSelection (\x04, \x15,
-// \x06 and \x02) plus trainer.SimulateEditing's redo (\x12); a ctrl+
-// combination absent here has no meaning in either engine, so both exercise
-// handlers ignore it instead of typing its literal name into the answer. This
-// is the single accepted set shared by the lesson/practice and boss handlers.
+// input to the bytes the engine parses for them. It mirrors the control keys
+// handled by trainer.SimulateMotionsWithSelection (\x04, \x15, \x06 and \x02)
+// plus trainer.SimulateEditing's redo (\x12); a ctrl+ combination absent here has
+// no meaning in either engine, so both exercise handlers ignore it instead of
+// typing its literal name into the answer. ctrl+e is the one value that is not a
+// control character: it types trainer.EscToken, because Esc is the trainer's
+// global exit key and an insert answer that has to leave insert mode cannot be
+// spelled any other way. This is the single accepted set shared by the
+// lesson/practice and boss handlers.
 var trainerControlChars = map[string]string{
 	"ctrl+d": "\x04",
 	"ctrl+u": "\x15",
 	"ctrl+f": "\x06",
 	"ctrl+b": "\x02",
 	"ctrl+r": "\x12",
+	"ctrl+e": trainer.EscToken,
+}
+
+// backspaceTrainerInput removes the last unit the player typed from the answer.
+// The escape token went in as one keystroke, so it comes out as one keystroke
+// rather than leaving the half-token "<Es" behind for the engine to reject;
+// anything else loses its last byte. This is interface behaviour, not a Vim
+// command: the engine never sees a backspace, which is why insert mode reports
+// one as unrecognized.
+func backspaceTrainerInput(input string) string {
+	if strings.HasSuffix(input, trainer.EscToken) {
+		return input[:len(input)-len(trainer.EscToken)]
+	}
+	if len(input) == 0 {
+		return input
+	}
+	return input[:len(input)-1]
 }
 
 // handleTrainerExerciseKeys handles input during lesson/practice exercises
@@ -1798,10 +1818,8 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "backspace":
-		// Remove last character from input
-		if len(m.TrainerInput) > 0 {
-			m.TrainerInput = m.TrainerInput[:len(m.TrainerInput)-1]
-		}
+		// Remove the last typed unit from the input.
+		m.TrainerInput = backspaceTrainerInput(m.TrainerInput)
 		return m, nil
 
 	case "enter":
@@ -1887,9 +1905,7 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "backspace":
-		if len(m.TrainerInput) > 0 {
-			m.TrainerInput = m.TrainerInput[:len(m.TrainerInput)-1]
-		}
+		m.TrainerInput = backspaceTrainerInput(m.TrainerInput)
 		return m, nil
 
 	case "enter":

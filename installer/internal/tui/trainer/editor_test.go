@@ -1637,3 +1637,568 @@ func TestSimulateEditing_CountedLinewiseOnLastLineIsNoOp(t *testing.T) {
 		},
 	})
 }
+
+// ===========================================================================
+// INSERT MODE
+// ===========================================================================
+
+// nvimInsertReference names the reference implementation and the exact settings
+// every insert expectation below was read from: nvim v0.12.5 run as
+// "nvim --clean --headless" with "set shiftwidth=2 expandtab tabstop=2
+// startofline", a fresh process per case, the buffer loaded from a file and the
+// keys fed with feedkeys(..., "x"). A fresh process is required because
+// scripted input coalesces undo blocks, which hides how many undos a session
+// costs and where each one lands.
+//
+// 'autoindent' is on in this build (-u NONE reports the same), and that is what
+// makes o and O inherit the current line's indentation. The observations
+// encoded below:
+//
+//   - Insert mode's cursor is the insertion point. col('.')-1 during insert mode
+//     is the index the next typed rune goes at, and typing advances it; at the
+//     end of a line it is one past the last rune.
+//   - i inserts at the cursor, a after it, I at the first non-blank, A at the
+//     end of the line, o on a new line below and O on a new line above with the
+//     cursor at the start of that line.
+//   - I on an all-blank line inserts after the blanks (at the line's length),
+//     not on the last blank.
+//   - o and O inherit the current line's indentation: "\tfoo" becomes two
+//     spaces under 'expandtab' with 'tabstop=2', a whitespace-only line keeps
+//     its blanks and an empty line inherits none.
+//   - Leaving insert mode moves the cursor one column left, unless it is at the
+//     start of the line. No typed character is needed for the move: "i<Esc>"
+//     alone still lands one column left.
+//   - Undo of an insert session restores the buffer and the cursor the session
+//     started from - the insertion point for i/a/I/A, the position the command
+//     was issued from for o/O - clamped into the restored line. That clamp is
+//     why A on "  beta" lands on the last character rather than one past it.
+//   - One session is one undo block and one redo; a session that changed
+//     nothing is neither, and it does not break the redo stack.
+//   - [count]i and [count]o repeat the inserted text count times in Vim ("2iAB"
+//     produces "ABAB"), which this engine does not model, so a counted entry
+//     command is refused rather than applied once.
+//
+// The trainer's Esc key is EscToken: the answer is a flat typed string and Esc
+// is the trainer's global exit key, so every case spells leaving insert mode
+// with the token.
+
+// blankInsertBuffer is the canonical fixture with an empty middle line, so A, I,
+// o and O can be observed on an empty line.
+func blankInsertBuffer() []string {
+	return []string{"alpha", "", "gamma"}
+}
+
+// allBlankInsertBuffer has a line of only blanks, where I has no first
+// non-blank to land on.
+func allBlankInsertBuffer() []string {
+	return []string{"   ", "x"}
+}
+
+// tabIndentInsertBuffer has a tab-indented line, so o and O prove the inherited
+// indentation is measured in columns and written back as spaces.
+func tabIndentInsertBuffer() []string {
+	return []string{"alpha", "\tfoo", "gamma"}
+}
+
+// TestSimulateEditing_InsertEntries specifies where each entry command starts
+// its insert session and where the escape token leaves the cursor, against
+// nvimInsertReference.
+func TestSimulateEditing_InsertEntries(t *testing.T) {
+	base := multiLineBuffer()
+	blank := blankInsertBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "i inserts at the cursor", code: base, start: Position{Line: 0, Col: 1},
+			input:      "iXY" + EscToken,
+			wantBuffer: []string{"aXYlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a inserts after the cursor", code: base, start: Position{Line: 0, Col: 1},
+			input:      "aXY" + EscToken,
+			wantBuffer: []string{"alXYpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "I inserts at the first non-blank", code: base, start: Position{Line: 1, Col: 3},
+			input:      "IXY" + EscToken,
+			wantBuffer: []string{"alpha", "  XYbeta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "I from inside the indentation reaches the same place", code: base, start: Position{Line: 1, Col: 1},
+			input:      "IXY" + EscToken,
+			wantBuffer: []string{"alpha", "  XYbeta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "I on an empty line inserts at column zero", code: blank, start: Position{Line: 1, Col: 0},
+			input:      "IXY" + EscToken,
+			wantBuffer: []string{"alpha", "XY", "gamma"},
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "I on an all-blank line inserts after the blanks", code: allBlankInsertBuffer(), start: Position{Line: 0, Col: 1},
+			input:      "IXY" + EscToken,
+			wantBuffer: []string{"   XY", "x"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "A appends at the end of the line", code: base, start: Position{Line: 0, Col: 1},
+			input:      "AXY" + EscToken,
+			wantBuffer: []string{"alphaXY", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "A on an empty line inserts at column zero", code: blank, start: Position{Line: 1, Col: 0},
+			input:      "AXY" + EscToken,
+			wantBuffer: []string{"alpha", "XY", "gamma"},
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "o opens a line below with the current indentation", code: base, start: Position{Line: 1, Col: 3},
+			input:      "oXY" + EscToken,
+			wantBuffer: []string{"alpha", "  beta", "  XY", "gamma", "delta"},
+			wantCursor: Position{Line: 2, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "o on the last line appends", code: base, start: Position{Line: 3, Col: 0},
+			input:      "oXY" + EscToken,
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta", "XY"},
+			wantCursor: Position{Line: 4, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "o on an empty line leaves that line alone", code: blank, start: Position{Line: 1, Col: 0},
+			input:      "oXY" + EscToken,
+			wantBuffer: []string{"alpha", "", "XY", "gamma"},
+			wantCursor: Position{Line: 2, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "o keeps the blanks of an all-blank line", code: allBlankInsertBuffer(), start: Position{Line: 0, Col: 1},
+			input:      "oXY" + EscToken,
+			wantBuffer: []string{"   ", "   XY", "x"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "o rewrites a tab indent as spaces", code: tabIndentInsertBuffer(), start: Position{Line: 1, Col: 3},
+			input:      "oXY" + EscToken,
+			wantBuffer: []string{"alpha", "\tfoo", "  XY", "gamma"},
+			wantCursor: Position{Line: 2, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "O opens a line above with the current indentation", code: base, start: Position{Line: 1, Col: 3},
+			input:      "OXY" + EscToken,
+			wantBuffer: []string{"alpha", "  XY", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "O on the first line prepends", code: base, start: Position{Line: 0, Col: 0},
+			input:      "OXY" + EscToken,
+			wantBuffer: []string{"XY", "alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "O on an empty line inserts above it", code: blank, start: Position{Line: 1, Col: 0},
+			input:      "OXY" + EscToken,
+			wantBuffer: []string{"alpha", "XY", "", "gamma"},
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_InsertTyping specifies what typing does inside an insert
+// session: a printable rune goes in at the insertion point and advances it, and
+// anything the engine does not model leaves the answer unrecognised instead of
+// silently typing nothing. The rows that stop before the token are the ones that
+// pin the insert cursor, which nvim reports as col('.')-1 while insert mode is
+// still open.
+func TestSimulateEditing_InsertTyping(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "typing advances the insertion point and stays in insert mode",
+			code: base, start: Position{Line: 0, Col: 1}, input: "iXY",
+			wantBuffer: []string{"aXYlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeInsert, wantRec: true,
+		},
+		{
+			name: "A leaves the insertion point one past the last rune",
+			code: base, start: Position{Line: 0, Col: 1}, input: "AZ",
+			wantBuffer: []string{"alphaZ", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeInsert, wantRec: true,
+		},
+		{
+			name: "i inserts before the character under the cursor",
+			code: base, start: Position{Line: 0, Col: 4}, input: "iZ",
+			wantBuffer: []string{"alphZa", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 5}, wantMode: ModeInsert, wantRec: true,
+		},
+		{
+			name: "a space is text in insert mode", code: base, start: Position{Line: 0, Col: 1}, input: "iX Y",
+			wantBuffer: []string{"aX Ylpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeInsert, wantRec: true,
+		},
+		{
+			name: "a digit is text in insert mode, not a count", code: base, start: Position{Line: 0, Col: 1}, input: "i2",
+			wantBuffer: []string{"a2lpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeInsert, wantRec: true,
+		},
+		{
+			name: "digits before the token are still text", code: base, start: Position{Line: 0, Col: 1}, input: "i2x" + EscToken,
+			wantBuffer: []string{"a2xlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		// An unmodelled byte inside insert mode is not swallowed: the answer is
+		// reported unrecognised and the characters typed before it stay applied,
+		// exactly as an unparsable normal-mode command behaves.
+		{
+			name: "a control byte in insert mode is unrecognised", code: base, start: Position{Line: 0, Col: 1}, input: "iX\x04",
+			wantBuffer: []string{"aXlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeInsert, wantRec: false,
+		},
+		{
+			name: "ctrl-r in insert mode is unrecognised, not the redo of normal mode",
+			code: base, start: Position{Line: 0, Col: 1}, input: "iX\x12",
+			wantBuffer: []string{"aXlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeInsert, wantRec: false,
+		},
+		{
+			name: "a newline in insert mode is unrecognised", code: base, start: Position{Line: 0, Col: 1}, input: "iX\n",
+			wantBuffer: []string{"aXlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeInsert, wantRec: false,
+		},
+		{
+			name: "a tab in insert mode is unrecognised", code: base, start: Position{Line: 0, Col: 1}, input: "iX\t",
+			wantBuffer: []string{"aXlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeInsert, wantRec: false,
+		},
+		{
+			name: "backspace in insert mode is unrecognised: the interface owns it",
+			code: base, start: Position{Line: 0, Col: 1}, input: "iX\x7f",
+			wantBuffer: []string{"aXlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeInsert, wantRec: false,
+		},
+	})
+}
+
+// TestSimulateEditing_LeavingInsertMode specifies the escape token's landing
+// against nvimInsertReference: one column left, never past the start of the
+// line, with no typed character required for the move.
+func TestSimulateEditing_LeavingInsertMode(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "i alone still lands one column left", code: base, start: Position{Line: 0, Col: 1},
+			input:      "i" + EscToken,
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "typing at the start of the line leaves the cursor there", code: base, start: Position{Line: 0, Col: 0},
+			input:      "iX" + EscToken,
+			wantBuffer: []string{"Xalpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a alone lands back on the character", code: base, start: Position{Line: 0, Col: 1},
+			input:      "a" + EscToken,
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "A alone stays on the last character", code: base, start: Position{Line: 0, Col: 1},
+			input:      "A" + EscToken,
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "A alone on an empty line stays at column zero", code: blankInsertBuffer(), start: Position{Line: 1, Col: 0},
+			input:      "A" + EscToken,
+			wantBuffer: []string{"alpha", "", "gamma"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "o alone leaves an empty line and the cursor at its start", code: base, start: Position{Line: 1, Col: 3},
+			input:      "o" + EscToken,
+			wantBuffer: []string{"alpha", "  beta", "", "gamma", "delta"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "O alone leaves an empty line above", code: base, start: Position{Line: 1, Col: 3},
+			input:      "O" + EscToken,
+			wantBuffer: []string{"alpha", "", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "o alone on an all-blank line leaves an empty line", code: allBlankInsertBuffer(), start: Position{Line: 0, Col: 1},
+			input:      "o" + EscToken,
+			wantBuffer: []string{"   ", "", "x"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "o alone on a tab-indented line leaves an empty line", code: tabIndentInsertBuffer(), start: Position{Line: 1, Col: 3},
+			input:      "o" + EscToken,
+			wantBuffer: []string{"alpha", "\tfoo", "", "gamma"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a typed space keeps the auto-indent", code: base, start: Position{Line: 1, Col: 3},
+			input:      "o " + EscToken,
+			wantBuffer: []string{"alpha", "  beta", "   ", "gamma", "delta"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_InsertUndoRedo specifies insert undo granularity and the
+// cursor each undo restores, against nvimInsertReference. One session is one
+// undo block however many runes were typed, a session that changed nothing is
+// not a block, and a second u undoes the session before it.
+func TestSimulateEditing_InsertUndoRedo(t *testing.T) {
+	base := multiLineBuffer()
+	blank := blankInsertBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "one u undoes the whole session", code: base, start: Position{Line: 0, Col: 1},
+			input:      "iXY" + EscToken + "u",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a second u has nothing left to undo", code: base, start: Position{Line: 0, Col: 1},
+			input:      "iXY" + EscToken + "uu",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of an a session lands on the insertion point", code: base, start: Position{Line: 0, Col: 1},
+			input:      "aXY" + EscToken + "u",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of an A session clamps to the last character", code: base, start: Position{Line: 1, Col: 3},
+			input:      "AXY" + EscToken + "u",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of an I session lands on the first non-blank", code: base, start: Position{Line: 1, Col: 4},
+			input:      "IXY" + EscToken + "u",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of an I session on an all-blank line lands on the last blank", code: allBlankInsertBuffer(), start: Position{Line: 0, Col: 1},
+			input:      "IX" + EscToken + "u",
+			wantBuffer: []string{"   ", "x"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of an i session on an empty line lands at column zero", code: blank, start: Position{Line: 1, Col: 0},
+			input:      "iX" + EscToken + "u",
+			wantBuffer: []string{"alpha", "", "gamma"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of an o session returns to the line it was issued from", code: base, start: Position{Line: 1, Col: 3},
+			input:      "oXY" + EscToken + "u",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of an O session returns to the line it was issued from", code: base, start: Position{Line: 1, Col: 3},
+			input:      "OXY" + EscToken + "u",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "two sessions are two undo steps", code: base, start: Position{Line: 0, Col: 1},
+			input:      "iXY" + EscToken + "iZ" + EscToken + "u",
+			wantBuffer: []string{"aXYlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "two u undo both sessions", code: base, start: Position{Line: 0, Col: 1},
+			input:      "iXY" + EscToken + "iZ" + EscToken + "uu",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a session that changed nothing is not an undo step", code: base, start: Position{Line: 0, Col: 1},
+			input:      "x" + "i" + EscToken + "u",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a session that changed nothing does not break redo", code: base, start: Position{Line: 0, Col: 1},
+			input:      "x" + "u" + "i" + EscToken + "\x12",
+			wantBuffer: []string{"apha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "redo restores the whole session where the undo left the cursor", code: base, start: Position{Line: 0, Col: 1},
+			input:      "iXY" + EscToken + "u\x12",
+			wantBuffer: []string{"aXYlpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "redo of an o session restores the line", code: base, start: Position{Line: 1, Col: 3},
+			input:      "oXY" + EscToken + "u\x12",
+			wantBuffer: []string{"alpha", "  beta", "  XY", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the undo landing ignores a motion in between", code: base, start: Position{Line: 0, Col: 1},
+			input:      "iXY" + EscToken + "wu",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_EscTokenInNormalModeIsNoOp pins the trainer's one
+// non-Vim rule: the escape token means nothing in normal mode, so it is
+// consumed and the answer stays recognised rather than becoming an error. The
+// count row is Vim's own behaviour, read from nvimInsertReference: an Esc in
+// normal mode abandons a pending count, so 2<Esc>x deletes one character.
+func TestSimulateEditing_EscTokenInNormalModeIsNoOp(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "the token alone changes nothing", code: base, start: Position{Line: 0, Col: 1},
+			input:      EscToken,
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the token after a command is a no-op", code: base, start: Position{Line: 0, Col: 0},
+			input:      "x" + EscToken,
+			wantBuffer: []string{"lpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the token before a command is a no-op", code: base, start: Position{Line: 0, Col: 0},
+			input:      EscToken + "x",
+			wantBuffer: []string{"lpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the token between two commands is a no-op", code: base, start: Position{Line: 0, Col: 0},
+			input:      "x" + EscToken + "x",
+			wantBuffer: []string{"pha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the token abandons a pending count", code: base, start: Position{Line: 0, Col: 0},
+			input:      "2" + EscToken + "x",
+			wantBuffer: []string{"lpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_CountedInsertEntryIsRefused pins the one insert shape the
+// engine refuses instead of modelling. Vim repeats the inserted text [count]
+// times - nvimInsertReference turns "2iAB" into "ABAB" and "2oAB" into two
+// lines - so accepting the count by ignoring it would score an answer Vim never
+// produces. The refused answer is left untouched, like a count on D.
+func TestSimulateEditing_CountedInsertEntryIsRefused(t *testing.T) {
+	base := multiLineBuffer()
+
+	for _, entry := range []string{"iAB", "aAB", "IAB", "AAB", "oAB", "OAB"} {
+		t.Run("2"+entry, func(t *testing.T) {
+			runEditingCases(t, []editingCase{
+				{
+					name: "counted entry is refused", code: base, start: Position{Line: 1, Col: 3},
+					input:      "2" + entry + EscToken,
+					wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+					wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: false,
+				},
+			})
+		})
+	}
+}
+
+// TestBufferJudge_AcceptsEquivalentInsertAnswers proves the buffer judge decides
+// insert answers by the result they leave: A and $a reach the same buffer and
+// cursor by different keys, so both are correct and neither has to be listed in
+// the exercise's Solutions.
+func TestBufferJudge_AcceptsEquivalentInsertAnswers(t *testing.T) {
+	exercise := &Exercise{
+		ID:             "insert_equivalent",
+		Code:           []string{"alpha"},
+		CursorPos:      Position{Line: 0, Col: 1},
+		Optimal:        "AXY" + EscToken,
+		Solutions:      []string{"AXY" + EscToken},
+		BufferVerified: true,
+	}
+
+	target := SimulateEditing(exercise.Code, exercise.CursorPos, exercise.Optimal)
+	if target.Buffer[0] != "alphaXY" || target.Cursor != (Position{Line: 0, Col: 6}) || target.Mode != ModeNormal {
+		t.Fatalf("optimal result = buffer %#v cursor %+v mode %v, want alphaXY at 0:6 in normal mode",
+			target.Buffer, target.Cursor, target.Mode)
+	}
+
+	// A different, unlisted route to the same result.
+	equivalent := "$aXY" + EscToken
+	if IsInSolutions(exercise, equivalent) {
+		t.Fatalf("%q is listed as a solution; the row must prove the judge, not the fast path", equivalent)
+	}
+
+	result := ValidateAnswerDetailed(exercise, equivalent)
+	if !result.IsCorrect {
+		t.Errorf("ValidateAnswerDetailed(%q).IsCorrect = false, want true; mismatch = %q",
+			equivalent, result.MismatchSummary())
+	}
+
+	// An answer that reaches a different result is still rejected.
+	result = ValidateAnswerDetailed(exercise, "$aXY")
+	if result.IsCorrect {
+		t.Errorf("ValidateAnswerDetailed(%q).IsCorrect = true, want false", "$aXY")
+	}
+}
+
+// TestBufferJudge_SeparatesModesForInsertAnswers is the mode clause with a real
+// answer instead of a synthetic result: the answer leaves the same buffer and
+// the same cursor as the optimal but in ModeNormal where the optimal stops in
+// ModeInsert, so the judge must reject it and name the mode.
+func TestBufferJudge_SeparatesModesForInsertAnswers(t *testing.T) {
+	exercise := &Exercise{
+		ID:             "insert_mode_divergence",
+		Code:           []string{"alpha"},
+		CursorPos:      Position{Line: 0, Col: 1},
+		Optimal:        "iX",
+		BufferVerified: true,
+	}
+
+	answer := "iX" + EscToken + "l"
+
+	optimal := SimulateEditing(exercise.Code, exercise.CursorPos, exercise.Optimal)
+	actual := SimulateEditing(exercise.Code, exercise.CursorPos, answer)
+	if optimal.Buffer[0] != actual.Buffer[0] {
+		t.Fatalf("buffers differ: optimal %#v, answer %#v", optimal.Buffer, actual.Buffer)
+	}
+	if optimal.Cursor != actual.Cursor {
+		t.Fatalf("cursors differ: optimal %+v, answer %+v", optimal.Cursor, actual.Cursor)
+	}
+	if optimal.Mode != ModeInsert || actual.Mode != ModeNormal {
+		t.Fatalf("modes = optimal %v, answer %v; want %v and %v", optimal.Mode, actual.Mode, ModeInsert, ModeNormal)
+	}
+
+	result := ValidateAnswerDetailed(exercise, answer)
+	if result.IsCorrect {
+		t.Error("ValidateAnswerDetailed(...).IsCorrect = true, want false")
+	}
+	if result.TargetMode != ModeInsert || result.ActualMode != ModeNormal {
+		t.Errorf("result modes = %v/%v, want %v/%v", result.TargetMode, result.ActualMode, ModeInsert, ModeNormal)
+	}
+	if summary := result.MismatchSummary(); summary != "mode differs" {
+		t.Errorf("MismatchSummary() = %q, want %q", summary, "mode differs")
+	}
+}

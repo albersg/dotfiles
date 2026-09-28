@@ -1152,6 +1152,11 @@ func TestTrainerEscapeAbandonsBossVisibly(t *testing.T) {
 // validate, and since the simulator rejects unrecognized input the submission is
 // lost. The handlers must instead ignore keys the simulator cannot parse, while
 // still inserting the control characters it does model.
+//
+// ctrl+e is the one key whose mapping is not a control character: it types
+// trainer.EscToken, the trainer's stand-in for the Esc key an insert answer has
+// to use. The model still receives the token through TrainerInput, so the
+// interface and the engine cannot disagree about what the token is.
 func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 	t.Run("ctrl+a is ignored on the exercise screens", func(t *testing.T) {
 		cases := []struct {
@@ -1192,7 +1197,7 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 		}
 	})
 
-	t.Run("ctrl+e and ctrl+w are ignored too", func(t *testing.T) {
+	t.Run("ctrl+w is ignored too", func(t *testing.T) {
 		cases := []struct {
 			name  string
 			model func(*testing.T) Model
@@ -1202,22 +1207,53 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 		}
 
 		for _, tc := range cases {
-			for keyName, keyType := range map[string]tea.KeyType{
-				"ctrl+e": tea.KeyCtrlE,
-				"ctrl+w": tea.KeyCtrlW,
-			} {
-				t.Run(tc.name+"/"+keyName, func(t *testing.T) {
-					m := tc.model(t)
-					m.TrainerInput = ""
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = ""
 
-					result, _ := m.Update(tea.KeyMsg{Type: keyType})
-					m = result.(Model)
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+				m = result.(Model)
 
-					if m.TrainerInput != "" {
-						t.Errorf("TrainerInput = %q after %s, want empty", m.TrainerInput, keyName)
-					}
-				})
-			}
+				if m.TrainerInput != "" {
+					t.Errorf("TrainerInput = %q after ctrl+w, want empty", m.TrainerInput)
+				}
+			})
+		}
+	})
+
+	t.Run("ctrl+e types the escape token on every exercise screen", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = "iX"
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+				m = result.(Model)
+
+				// The literal token, not the key's name and not an escape byte.
+				want := "iX" + trainer.EscToken
+				if m.TrainerInput != want {
+					t.Errorf("TrainerInput = %q after ctrl+e, want %q", m.TrainerInput, want)
+				}
+
+				// The engine parses exactly what the interface inserted: the answer
+				// now leaves insert mode instead of staying open.
+				exercise := m.TrainerGameState.CurrentExercise
+				if exercise == nil {
+					t.Fatal("no exercise loaded")
+				}
+				if got := trainer.SimulateEditing(exercise.Code, exercise.CursorPos, m.TrainerInput); got.Mode != trainer.ModeNormal {
+					t.Errorf("SimulateEditing(%q).Mode = %v, want %v", m.TrainerInput, got.Mode, trainer.ModeNormal)
+				}
+			})
 		}
 	})
 
@@ -1260,6 +1296,84 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestTrainerBackspaceDeletesOneTypedUnit pins the answer input's backspace
+// behaviour, which is interface behaviour and not a Vim command: one press
+// removes the last unit the player typed. A unit is one keystroke, so the escape
+// token inserted by a single ctrl+e comes out whole, rather than leaving the
+// half-token "<Es" behind for the engine to reject. The engine never sees a
+// backspace at all, which is why insert mode reports one as unrecognized instead
+// of deleting a rune.
+func TestTrainerBackspaceDeletesOneTypedUnit(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "one typed command", input: "ww", want: "w"},
+		{name: "the whole input", input: "w", want: ""},
+		{name: "empty input stays empty", input: "", want: ""},
+		{name: "the escape token goes as one unit", input: "iX" + trainer.EscToken, want: "iX"},
+		{name: "only the escape token", input: "i" + trainer.EscToken, want: "i"},
+		{name: "a half token is only text", input: "iX<Es", want: "iX<E"},
+		{name: "a token that is not last is untouched", input: "iX" + trainer.EscToken + "aY", want: "iX" + trainer.EscToken + "a"},
+	}
+
+	cases := []struct {
+		name  string
+		model func(*testing.T) Model
+	}{
+		{"lesson", newTrainerLessonModel},
+		{"boss", newTrainerBossModel},
+	}
+
+	for _, tc := range cases {
+		for _, tt := range tests {
+			t.Run(tc.name+"/"+tt.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = tt.input
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+				m = result.(Model)
+
+				if m.TrainerInput != tt.want {
+					t.Errorf("TrainerInput = %q after backspace, want %q", m.TrainerInput, tt.want)
+				}
+			})
+		}
+	}
+}
+
+// TestTrainerExerciseHelpNamesTheEscapeToken is the visual half of the token
+// contract: the exercise screens must tell the player which key types the token
+// the engine parses, and the text they render comes from the engine's own
+// constant so the two cannot drift apart. The help must not present backspace as
+// a Vim command either, because it is an input edit the engine never sees.
+func TestTrainerExerciseHelpNamesTheEscapeToken(t *testing.T) {
+	cases := []struct {
+		name  string
+		model func(*testing.T) Model
+	}{
+		{"lesson", newTrainerLessonModel},
+		{"boss", newTrainerBossModel},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.model(t)
+			m.Width = 80
+			m.Height = 24
+
+			view := m.View()
+			if !strings.Contains(view, "[Ctrl-e] type "+trainer.EscToken) {
+				t.Errorf("exercise help does not document ctrl+e typing %s:\n%s", trainer.EscToken, view)
+			}
+			if !strings.Contains(view, "[Esc] ") {
+				t.Errorf("exercise help lost the Esc key:\n%s", view)
+			}
+		})
+	}
 }
 
 // =============================================================================

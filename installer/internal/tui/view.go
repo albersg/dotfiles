@@ -1800,9 +1800,16 @@ func (m Model) renderTrainerExercise(mode string) string {
 		s.WriteString("\n")
 	}
 
-	// Help
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("Type command • [Enter] submit • [Tab] hint • [Backspace] clear • [Esc] quit"))
+	// Help. Ctrl-e types the token an insert answer needs to leave insert mode;
+	// Esc itself is the trainer's own exit key, and Backspace is an input edit
+	// rather than a Vim command. The two lines go through one HelpStyle call so
+	// its margin supplies the single blank line before the legend, which keeps
+	// the screen exactly as tall as the one-line legend it replaced: the longest
+	// shipped exercise already renders more rows than a 24-row terminal shows,
+	// and one more would push its Mission label out of the frame.
+	s.WriteString(HelpStyle.Render(
+		"Type command • [Enter] submit • [Tab] hint\n" +
+			"[Backspace] delete • [Ctrl-e] type " + trainer.EscToken + " • [Esc] quit"))
 
 	return s.String()
 }
@@ -2113,7 +2120,7 @@ func (m Model) renderTrainerBoss() string {
 
 	// Help
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("Type command • [Enter] submit • [Esc] forfeit"))
+	s.WriteString(HelpStyle.Render("Type command • [Enter] submit • [Ctrl-e] type " + trainer.EscToken + " • [Esc] forfeit"))
 
 	return s.String()
 }
