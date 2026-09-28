@@ -1,6 +1,7 @@
 package trainer
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -564,8 +565,14 @@ func TestSimulateEditing_Recognition(t *testing.T) {
 			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
 		},
 		{
-			name: "an unknown key stops parsing the tail",
+			name: "a mutation followed by a motion is recognized",
 			code: base, start: Position{Line: 0, Col: 0}, input: "ddw",
+			wantBuffer: []string{"  beta"},
+			wantCursor: Position{Line: 0, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an unknown key stops parsing the tail",
+			code: base, start: Position{Line: 0, Col: 0}, input: "ddq",
 			wantBuffer: []string{"  beta"},
 			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: false,
 		},
@@ -683,4 +690,263 @@ func TestSimulateEditing_PreservesExistingEntryPoints(t *testing.T) {
 			t.Errorf("IsRecognizedInput(%q) = true, want false", input)
 		}
 	}
+}
+
+// TestSimulateEditing_MotionsOnMultiLineBuffer specifies the motion vocabulary
+// inside the editing engine. A motion changes only the cursor, so every row
+// asserts the buffer is unchanged.
+func TestSimulateEditing_MotionsOnMultiLineBuffer(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "w moves to the first non-blank of the next line",
+			code: base, start: Position{Line: 0, Col: 0}, input: "w",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "b moves to the start of the word",
+			code: base, start: Position{Line: 2, Col: 4}, input: "b",
+			wantBuffer: base,
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "e moves to the end of the word",
+			code: base, start: Position{Line: 1, Col: 2}, input: "e",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "0 moves to the first column",
+			code: base, start: Position{Line: 1, Col: 4}, input: "0",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "^ moves to the first non-blank column",
+			code: base, start: Position{Line: 1, Col: 0}, input: "^",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "$ moves to the last character of the line",
+			code: base, start: Position{Line: 3, Col: 0}, input: "$",
+			wantBuffer: base,
+			wantCursor: Position{Line: 3, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "gg moves to the first line",
+			code: base, start: Position{Line: 2, Col: 3}, input: "gg",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "G moves to the last line",
+			code: base, start: Position{Line: 0, Col: 0}, input: "G",
+			wantBuffer: base,
+			wantCursor: Position{Line: 3, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "f finds the character under the cursor",
+			code: base, start: Position{Line: 0, Col: 0}, input: "fa",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "t stops before the character",
+			code: base, start: Position{Line: 0, Col: 0}, input: "ta",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a count repeats the motion",
+			code: base, start: Position{Line: 0, Col: 0}, input: "10j",
+			wantBuffer: base,
+			wantCursor: Position{Line: 3, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a motion past the last line clamps there",
+			code: base, start: Position{Line: 0, Col: 0}, input: "99G",
+			wantBuffer: base,
+			wantCursor: Position{Line: 3, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_MotionThenMutation covers the behavior the engine did not
+// have before: a motion repositions the cursor and the mutation that follows
+// acts on the line the motion reached. Each row asserts the exact resulting
+// buffer, so a mutation that was dropped or applied twice fails loudly.
+func TestSimulateEditing_MotionThenMutation(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "jdd deletes the line below the cursor",
+			code: base, start: Position{Line: 0, Col: 0}, input: "jdd",
+			wantBuffer: []string{"alpha", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "3Gdd deletes the third line",
+			code: base, start: Position{Line: 0, Col: 0}, input: "3Gdd",
+			wantBuffer: []string{"alpha", "  beta", "delta"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "Gdd deletes the last line",
+			code: base, start: Position{Line: 0, Col: 0}, input: "Gdd",
+			wantBuffer: []string{"alpha", "  beta", "gamma"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "$D deletes to the end of the line",
+			code: base, start: Position{Line: 0, Col: 0}, input: "$D",
+			wantBuffer: []string{"alph", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "wx deletes the rune the motion lands on",
+			code: base, start: Position{Line: 0, Col: 0}, input: "wx",
+			wantBuffer: []string{"alpha", "  eta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a motion then >> indents the line it reached",
+			code: base, start: Position{Line: 0, Col: 0}, input: "w>>",
+			wantBuffer: []string{"alpha", "    beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "3jdd deletes the line three motions reached",
+			code: base, start: Position{Line: 0, Col: 0}, input: "3jdd",
+			wantBuffer: []string{"alpha", "  beta", "gamma"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a motion past the end still deletes the last line",
+			code: base, start: Position{Line: 0, Col: 0}, input: "10jdd",
+			wantBuffer: []string{"alpha", "  beta", "gamma"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an unknown key after a motion keeps the cursor it reached",
+			code: base, start: Position{Line: 0, Col: 0}, input: "jq",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "an unknown key after a motion and a mutation keeps the deletion",
+			code: base, start: Position{Line: 0, Col: 0}, input: "jddq",
+			wantBuffer: []string{"alpha", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a motion is not its own undo step",
+			code: base, start: Position{Line: 0, Col: 0}, input: "jddu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_MotionsDelegateToMotionSimulator is the delegation
+// invariant: for a motion-only answer the editing engine must land exactly
+// where SimulateMotions lands, from the same start, on the same code. It is
+// what proves the engine routes through the simulator's motion parser instead
+// of growing a second, subtly different motion implementation.
+func TestSimulateEditing_MotionsDelegateToMotionSimulator(t *testing.T) {
+	fixtures := map[string][]string{
+		"func": {
+			"func main() {",
+			"  x := 1",
+			"  return x",
+			"}",
+		},
+		"short":  {"ab", "cd", ""},
+		"spaced": {"ab ", "cd", "ef"},
+	}
+
+	inputs := []string{
+		"w", "W", "b", "B", "e", "E", "0", "^", "$", "gg", "G",
+		"j", "k", "h", "l", "fe", "te", "Fe", "Te", ";", ",",
+		"3w", "2j", "10j", "2G", "{", "}", "H", "M", "L", "_",
+		"wh", "ww", "wl", "fb;", "fb,", "j0",
+	}
+	starts := []Position{{Line: 0, Col: 0}, {Line: 1, Col: 2}, {Line: 2, Col: 0}}
+
+	for name, code := range fixtures {
+		for _, start := range starts {
+			for _, input := range inputs {
+				t.Run(fmt.Sprintf("%s/%s/from-%d-%d", name, input, start.Line, start.Col), func(t *testing.T) {
+					want := SimulateMotions(start, code, input)
+					got := SimulateEditing(code, start, input)
+
+					if !got.Recognized {
+						t.Fatalf("SimulateEditing(%q).Recognized = false, want true", input)
+					}
+					if got.Cursor != (Position{Line: want.Line, Col: want.Col}) {
+						t.Errorf("Cursor = %+v, want %+v (SimulateMotions)", got.Cursor, want)
+					}
+					if !reflect.DeepEqual(got.Buffer, code) {
+						t.Errorf("Buffer = %#v, want the code unchanged", got.Buffer)
+					}
+				})
+			}
+		}
+	}
+}
+
+// TestSimulateEditing_UnrecognizedMotionsStayUnrecognized is the other half of
+// the delegation invariant: a keystroke or token the motion parser rejects must
+// not be smuggled in as a recognized command. Each row asserts the buffer and
+// cursor are untouched and the answer is reported unrecognized.
+func TestSimulateEditing_UnrecognizedMotionsStayUnrecognized(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "an unknown key is unrecognized",
+			code: base, start: Position{Line: 1, Col: 2}, input: "z",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a repeated unknown key is unrecognized",
+			code: base, start: Position{Line: 1, Col: 2}, input: "zz",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "an unknown g command is unrecognized",
+			code: base, start: Position{Line: 1, Col: 2}, input: "gq",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "an incomplete find is unrecognized",
+			code: base, start: Position{Line: 1, Col: 2}, input: "f",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a bare count is unrecognized",
+			code: base, start: Position{Line: 1, Col: 2}, input: "5",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "an unknown key after a valid motion keeps the motion",
+			code: base, start: Position{Line: 0, Col: 0}, input: "jz",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "an unknown key after a count and a motion keeps the motion",
+			code: base, start: Position{Line: 0, Col: 0}, input: "2jz",
+			wantBuffer: base,
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+	})
 }

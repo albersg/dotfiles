@@ -65,6 +65,9 @@ type editor struct {
 	undo   []editorSnapshot
 	redo   []editorSnapshot
 	reg    editingRegister
+	// find is the last f/F/t/T target, so ';' and ',' repeat it exactly as
+	// they do in SimulateMotions. The motion parser receives this state.
+	find lastFindCommand
 }
 
 // SimulateEditing runs input against a mutable copy of code starting at start
@@ -119,74 +122,114 @@ func (e *editor) clampCursor() {
 }
 
 // execute parses input one normal-mode command at a time and returns whether
-// every keystroke was consumed. On the first keystroke it cannot parse it stops
-// and reports false; the mutations performed before that point remain applied,
-// because the caller decides correctness from Recognized, not from the buffer.
+// every keystroke was consumed. A command is either a mutation this engine
+// implements or a motion parsed by the simulator's own motion parser, so an
+// answer may reposition the cursor before it mutates, and a motion ahead of a
+// mutation acts on the line the motion reached rather than a second, divergent
+// motion implementation.
+//
+// A motion changes only the cursor, so it never records an undo snapshot; the
+// one-snapshot-per-command rule still holds because only a buffer change
+// commits. On the first keystroke it cannot parse it stops and reports false;
+// the commands performed before that point remain applied, because the caller
+// decides correctness from Recognized, not from the buffer.
 func (e *editor) execute(input string) bool {
 	i := 0
 	for i < len(input) {
-		count := 0
-		for i < len(input) && input[i] >= '1' && input[i] <= '9' {
-			count = count*10 + int(input[i]-'0')
-			i++
-		}
-		for i < len(input) && input[i] >= '0' && input[i] <= '9' {
-			count = count*10 + int(input[i]-'0')
-			i++
-		}
-		if count == 0 {
-			count = 1
-		}
-		if i >= len(input) {
-			// A bare count is not a complete command.
-			return false
+		// Parse the count once so a mutation and a motion share the same one.
+		// The count never starts with '0': that byte is the first-column
+		// motion, which countPrefix leaves for the motion parser.
+		count, afterCount := countPrefix(input, i)
+
+		if afterCount < len(input) {
+			if consumed, ok := e.applyMutation(input[afterCount], count, input[afterCount+1:]); ok {
+				i = afterCount + 1 + consumed
+				continue
+			}
 		}
 
-		cmd := input[i]
-		i++
-
-		switch cmd {
-		case 'd':
-			if i >= len(input) || input[i] != 'd' {
-				return false
-			}
-			i++
-			e.deleteLines(count)
-		case 'y':
-			if i >= len(input) || input[i] != 'y' {
-				return false
-			}
-			i++
-			e.yankLines(count)
-		case '>':
-			if i >= len(input) || input[i] != '>' {
-				return false
-			}
-			i++
-			e.shiftLines(count, true)
-		case '<':
-			if i >= len(input) || input[i] != '<' {
-				return false
-			}
-			i++
-			e.shiftLines(count, false)
-		case 'x':
-			e.deleteChars(count)
-		case 'D':
-			e.deleteToLineEnd()
-		case 'p':
-			e.put(count, false)
-		case 'P':
-			e.put(count, true)
-		case 'u':
-			e.undoStep()
-		case '\x12': // Ctrl-r
-			e.redoStep()
-		default:
+		// Not a mutation: hand the whole token to the shared motion parser,
+		// count included, so the engine recognizes exactly the motions
+		// SimulateMotions recognizes and lands exactly where it lands. The
+		// cursor is adopted unclamped, exactly as the simulator keeps it until
+		// the simulation ends, so a later motion starts from the same position
+		// the simulator would start from; result clamps once at the end.
+		pos, consumed, ok := parseMotion(input[i:], e.motionPosition(), e.buffer, &e.find)
+		if !ok {
 			return false
 		}
+		e.cursor = Position{Line: pos.Line, Col: pos.Col}
+		i += consumed
 	}
 	return true
+}
+
+// motionPosition is the cursor in the motion simulator's coordinate type.
+func (e *editor) motionPosition() SimulatedPosition {
+	return SimulatedPosition{Line: e.cursor.Line, Col: e.cursor.Col}
+}
+
+// countPrefix parses a normal-mode count prefix at input[from]. Vim counts begin
+// with a non-zero digit, so a leading '0' is not a count and is left for the
+// motion parser; a count with no digits is 1. It returns the count and the index
+// of the first byte after the digits.
+func countPrefix(input string, from int) (int, int) {
+	i := from
+	count := 0
+	for i < len(input) && input[i] >= '1' && input[i] <= '9' {
+		count = count*10 + int(input[i]-'0')
+		i++
+	}
+	if count == 0 {
+		return 1, from
+	}
+	// After the first digit, 0 can be part of the count (e.g. 10j).
+	for i < len(input) && input[i] >= '0' && input[i] <= '9' {
+		count = count*10 + int(input[i]-'0')
+		i++
+	}
+	return count, i
+}
+
+// applyMutation applies the mutation command cmd with its already-parsed count
+// and reports how many bytes of rest the command consumed. ok is false when cmd
+// is not a mutation this engine implements, or when a two-key command such as dd
+// is missing its second key; the caller then offers the input to the motion
+// parser instead. Only the two-key commands (dd, yy, >>, <<) consume a byte of
+// rest.
+func (e *editor) applyMutation(cmd byte, count int, rest string) (int, bool) {
+	switch cmd {
+	case 'd', 'y', '>', '<':
+		if len(rest) == 0 || rest[0] != cmd {
+			return 0, false
+		}
+		switch cmd {
+		case 'd':
+			e.deleteLines(count)
+		case 'y':
+			e.yankLines(count)
+		case '>':
+			e.shiftLines(count, true)
+		case '<':
+			e.shiftLines(count, false)
+		}
+		return 1, true
+	case 'x':
+		e.deleteChars(count)
+	case 'D':
+		e.deleteToLineEnd()
+	case 'p':
+		e.put(count, false)
+	case 'P':
+		e.put(count, true)
+	case 'u':
+		e.undoStep()
+	case '\x12': // Ctrl-r
+		e.redoStep()
+	default:
+		return 0, false
+	}
+	return 0, true
 }
 
 // deleteLines implements [count]dd: it yanks the deleted lines into the
@@ -376,6 +419,10 @@ func (e *editor) commit(buffer []string, cursor Position, changed bool) {
 }
 
 func (e *editor) result(recognized bool) EditingResult {
+	// One clamp at the end, exactly where SimulateMotions clamps: an adopted
+	// motion cursor is kept unclamped while commands run, so a later motion
+	// starts from the same position the simulator would start from.
+	e.clampCursor()
 	return EditingResult{
 		Buffer:     copyLines(e.buffer),
 		Cursor:     e.cursor,

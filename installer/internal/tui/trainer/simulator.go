@@ -199,251 +199,17 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 			continue
 		}
 
-		// Handle '0' as start-of-line command (not count prefix)
-		if input[i] == '0' {
-			pos.Col = 0
-			i++
-			continue
-		}
-
-		// Parse count prefix (e.g., 3w, 2f.) - only 1-9 can start a count
-		count := 0
-		for i < len(input) && input[i] >= '1' && input[i] <= '9' {
-			count = count*10 + int(input[i]-'0')
-			i++
-		}
-		// After first digit, 0 can be part of count (e.g., 10j)
-		for i < len(input) && input[i] >= '0' && input[i] <= '9' {
-			count = count*10 + int(input[i]-'0')
-			i++
-		}
-		if count == 0 {
-			count = 1
-		}
-
-		if i >= len(input) {
-			// A bare count with no command is not a complete command
+		// One motion command: an optional count prefix, the motion key, and any
+		// character argument. parseMotion is the same parser the editing engine
+		// calls, so a motion lands where SimulateMotions lands and the motion
+		// vocabulary has a single owner. consume reports the bytes the motion
+		// owned so the next iteration resumes after it; an unrecognized motion
+		// still reports the bytes it inspected, exactly as the inline parse did.
+		motionPos, consumed, ok := parseMotion(input[i:], pos, code, &lastFind)
+		pos = motionPos
+		i += consumed
+		if !ok {
 			recognized = false
-			break
-		}
-
-		cmd := input[i]
-		i++
-
-		// Handle two-character commands (f, F, t, T, g)
-		var char byte
-		needsChar := cmd == 'f' || cmd == 'F' || cmd == 't' || cmd == 'T'
-		isGCommand := cmd == 'g'
-
-		if needsChar && i < len(input) {
-			char = input[i]
-			i++
-			// Save this as the last find command
-			lastFind.cmd = cmd
-			lastFind.char = char
-			lastFind.hasSearch = true
-		} else if isGCommand && i < len(input) {
-			// Handle g commands (ge, gE, gg, etc.)
-			secondChar := input[i]
-			i++
-			if secondChar != 'e' && secondChar != 'E' && secondChar != 'g' {
-				recognized = false
-			}
-			// For gg with count (like 3gg), pass count to go to specific line
-			pos = executeGCommand(pos, code, secondChar, count)
-			continue
-		}
-
-		if needsChar && char == 0 {
-			// f/F/t/T require a target character to be a complete command
-			recognized = false
-		}
-
-		// Execute the command count times
-		for c := 0; c < count; c++ {
-			switch cmd {
-			case 'w':
-				pos = moveWordForward(pos, code, false)
-			case 'W':
-				pos = moveWordForward(pos, code, true)
-			case 'e':
-				pos = moveEndOfWord(pos, code, false)
-			case 'E':
-				pos = moveEndOfWord(pos, code, true)
-			case 'b':
-				pos = moveWordBackward(pos, code, false)
-			case 'B':
-				pos = moveWordBackward(pos, code, true)
-			case '^':
-				pos = moveFirstNonBlank(pos, code)
-			case '$':
-				if pos.Line < len(code) {
-					if len(code[pos.Line]) > 0 {
-						pos.Col = len(code[pos.Line]) - 1
-					} else {
-						pos.Col = 0
-					}
-				}
-			case 'f':
-				pos = findChar(pos, code, char, true, true)
-			case 'F':
-				pos = findChar(pos, code, char, false, true)
-			case 't':
-				pos = findChar(pos, code, char, true, false)
-			case 'T':
-				pos = findChar(pos, code, char, false, false)
-			case ';':
-				// Repeat last f/F/t/T in the same direction
-				if lastFind.hasSearch {
-					switch lastFind.cmd {
-					case 'f':
-						pos = findChar(pos, code, lastFind.char, true, true)
-					case 'F':
-						pos = findChar(pos, code, lastFind.char, false, true)
-					case 't':
-						pos = findChar(pos, code, lastFind.char, true, false)
-					case 'T':
-						pos = findChar(pos, code, lastFind.char, false, false)
-					}
-				}
-			case ',':
-				// Repeat last f/F/t/T in the OPPOSITE direction
-				if lastFind.hasSearch {
-					switch lastFind.cmd {
-					case 'f':
-						pos = findChar(pos, code, lastFind.char, false, true) // opposite: backward
-					case 'F':
-						pos = findChar(pos, code, lastFind.char, true, true) // opposite: forward
-					case 't':
-						pos = findChar(pos, code, lastFind.char, false, false)
-					case 'T':
-						pos = findChar(pos, code, lastFind.char, true, false)
-					}
-				}
-			case 'h':
-				if pos.Col > 0 {
-					pos.Col--
-				}
-			case 'l':
-				if pos.Line < len(code) && pos.Col < len(code[pos.Line])-1 {
-					pos.Col++
-				}
-			case 'j':
-				if pos.Line < len(code)-1 {
-					pos.Line++
-					if pos.Line < len(code) && pos.Col >= len(code[pos.Line]) {
-						pos.Col = max(0, len(code[pos.Line])-1)
-					}
-				}
-			case 'k':
-				if pos.Line > 0 {
-					pos.Line--
-					if pos.Line < len(code) && pos.Col >= len(code[pos.Line]) {
-						pos.Col = max(0, len(code[pos.Line])-1)
-					}
-				}
-			case 'G':
-				// G - go to last line (or line N if count given)
-				if count > 1 {
-					// [count]G goes to line [count]
-					pos.Line = count - 1
-					if pos.Line >= len(code) {
-						pos.Line = len(code) - 1
-					}
-				} else {
-					pos.Line = len(code) - 1
-				}
-				pos = moveFirstNonBlank(pos, code)
-			case '{':
-				// { - move to previous paragraph (blank line)
-				pos = moveParagraphBackward(pos, code)
-			case '}':
-				// } - move to next paragraph (blank line)
-				pos = moveParagraphForward(pos, code)
-			case '+':
-				// + - move to first non-blank of next line
-				if pos.Line < len(code)-1 {
-					pos.Line++
-					pos = moveFirstNonBlank(pos, code)
-				}
-			case '-':
-				// - - move to first non-blank of previous line
-				if pos.Line > 0 {
-					pos.Line--
-					pos = moveFirstNonBlank(pos, code)
-				}
-			case '_':
-				// _ - move to first non-blank of current line (with count: N-1 lines down)
-				if count > 1 {
-					pos.Line += count - 1
-					if pos.Line >= len(code) {
-						pos.Line = len(code) - 1
-					}
-				}
-				pos = moveFirstNonBlank(pos, code)
-			case 'H':
-				// H - High: go to top of visible screen (simulated as first line)
-				pos.Line = 0
-				pos = moveFirstNonBlank(pos, code)
-			case 'M':
-				// M - Middle: go to middle of visible screen (simulated as middle line)
-				pos.Line = len(code) / 2
-				if pos.Line >= len(code) {
-					pos.Line = len(code) - 1
-				}
-				pos = moveFirstNonBlank(pos, code)
-			case 'L':
-				// L - Low: go to bottom of visible screen (simulated as last line)
-				pos.Line = len(code) - 1
-				pos = moveFirstNonBlank(pos, code)
-			case '\x04':
-				// Ctrl+d - half page down (simulated as ~half the code length, min 5 lines)
-				halfPage := len(code) / 2
-				if halfPage < 5 {
-					halfPage = 5
-				}
-				pos.Line += halfPage
-				if pos.Line >= len(code) {
-					pos.Line = len(code) - 1
-				}
-				pos.Col = 0
-			case '\x15':
-				// Ctrl+u - half page up (simulated as ~half the code length, min 5 lines)
-				halfPage := len(code) / 2
-				if halfPage < 5 {
-					halfPage = 5
-				}
-				pos.Line -= halfPage
-				if pos.Line < 0 {
-					pos.Line = 0
-				}
-				pos.Col = 0
-			case '\x06':
-				// Ctrl+f - full page forward (simulated as full code length, min 10 lines)
-				fullPage := len(code)
-				if fullPage < 10 {
-					fullPage = 10
-				}
-				pos.Line += fullPage
-				if pos.Line >= len(code) {
-					pos.Line = len(code) - 1
-				}
-				pos.Col = 0
-			case '\x02':
-				// Ctrl+b - full page backward (simulated as full code length, min 10 lines)
-				fullPage := len(code)
-				if fullPage < 10 {
-					fullPage = 10
-				}
-				pos.Line -= fullPage
-				if pos.Line < 0 {
-					pos.Line = 0
-				}
-				pos.Col = 0
-			default:
-				// Unknown command (e.g. q, x, z): not a recognized command
-				recognized = false
-			}
 		}
 	}
 
@@ -469,6 +235,277 @@ func SimulateMotionsWithSelection(start Position, code []string, input string) S
 	result.Position = pos
 	result.Recognized = recognized
 	return result
+}
+
+// parseMotion parses one motion command at the start of input -- an optional
+// count prefix, the motion key, and the character argument that f/F/t/T and the
+// second key of a g command need -- and applies it to pos. It returns the
+// resulting position, the number of bytes it consumed, and whether input began
+// with a complete, recognized motion.
+//
+// It is the package's single motion parser. SimulateMotionsWithSelection runs
+// its motion branch through it, and the mutable editing engine calls it so a
+// motion before a mutation repositions the cursor exactly as the motion
+// simulator would. Recognition is reported, not assumed: a bare count, a
+// missing f/F/t/T target, an unknown motion key and an unknown g command all
+// return ok false while still reporting every byte they inspected, so the
+// caller can resume where the parse stopped.
+func parseMotion(input string, pos SimulatedPosition, code []string, lastFind *lastFindCommand) (SimulatedPosition, int, bool) {
+	if input == "" {
+		return pos, 0, false
+	}
+
+	// Handle '0' as start-of-line command (not count prefix)
+	if input[0] == '0' {
+		pos.Col = 0
+		return pos, 1, true
+	}
+
+	// Parse count prefix (e.g., 3w, 2f.) - only 1-9 can start a count
+	i := 0
+	count := 0
+	for i < len(input) && input[i] >= '1' && input[i] <= '9' {
+		count = count*10 + int(input[i]-'0')
+		i++
+	}
+	// After first digit, 0 can be part of count (e.g., 10j)
+	for i < len(input) && input[i] >= '0' && input[i] <= '9' {
+		count = count*10 + int(input[i]-'0')
+		i++
+	}
+	if count == 0 {
+		count = 1
+	}
+
+	if i >= len(input) {
+		// A bare count with no command is not a complete command
+		return pos, i, false
+	}
+
+	cmd := input[i]
+	i++
+
+	recognized := true
+
+	// Handle two-character commands (f, F, t, T, g)
+	var char byte
+	needsChar := cmd == 'f' || cmd == 'F' || cmd == 't' || cmd == 'T'
+	isGCommand := cmd == 'g'
+
+	if needsChar && i < len(input) {
+		char = input[i]
+		i++
+		// Save this as the last find command
+		if lastFind != nil {
+			lastFind.cmd = cmd
+			lastFind.char = char
+			lastFind.hasSearch = true
+		}
+	} else if isGCommand && i < len(input) {
+		// Handle g commands (ge, gE, gg, etc.)
+		secondChar := input[i]
+		i++
+		if secondChar != 'e' && secondChar != 'E' && secondChar != 'g' {
+			recognized = false
+		}
+		// For gg with count (like 3gg), pass count to go to specific line
+		pos = executeGCommand(pos, code, secondChar, count)
+		return pos, i, recognized
+	}
+
+	if needsChar && char == 0 {
+		// f/F/t/T require a target character to be a complete command
+		recognized = false
+	}
+
+	// Execute the command count times
+	for c := 0; c < count; c++ {
+		switch cmd {
+		case 'w':
+			pos = moveWordForward(pos, code, false)
+		case 'W':
+			pos = moveWordForward(pos, code, true)
+		case 'e':
+			pos = moveEndOfWord(pos, code, false)
+		case 'E':
+			pos = moveEndOfWord(pos, code, true)
+		case 'b':
+			pos = moveWordBackward(pos, code, false)
+		case 'B':
+			pos = moveWordBackward(pos, code, true)
+		case '^':
+			pos = moveFirstNonBlank(pos, code)
+		case '$':
+			if pos.Line < len(code) {
+				if len(code[pos.Line]) > 0 {
+					pos.Col = len(code[pos.Line]) - 1
+				} else {
+					pos.Col = 0
+				}
+			}
+		case 'f':
+			pos = findChar(pos, code, char, true, true)
+		case 'F':
+			pos = findChar(pos, code, char, false, true)
+		case 't':
+			pos = findChar(pos, code, char, true, false)
+		case 'T':
+			pos = findChar(pos, code, char, false, false)
+		case ';':
+			// Repeat last f/F/t/T in the same direction
+			if lastFind != nil && lastFind.hasSearch {
+				switch lastFind.cmd {
+				case 'f':
+					pos = findChar(pos, code, lastFind.char, true, true)
+				case 'F':
+					pos = findChar(pos, code, lastFind.char, false, true)
+				case 't':
+					pos = findChar(pos, code, lastFind.char, true, false)
+				case 'T':
+					pos = findChar(pos, code, lastFind.char, false, false)
+				}
+			}
+		case ',':
+			// Repeat last f/F/t/T in the OPPOSITE direction
+			if lastFind != nil && lastFind.hasSearch {
+				switch lastFind.cmd {
+				case 'f':
+					pos = findChar(pos, code, lastFind.char, false, true) // opposite: backward
+				case 'F':
+					pos = findChar(pos, code, lastFind.char, true, true) // opposite: forward
+				case 't':
+					pos = findChar(pos, code, lastFind.char, false, false)
+				case 'T':
+					pos = findChar(pos, code, lastFind.char, true, false)
+				}
+			}
+		case 'h':
+			if pos.Col > 0 {
+				pos.Col--
+			}
+		case 'l':
+			if pos.Line < len(code) && pos.Col < len(code[pos.Line])-1 {
+				pos.Col++
+			}
+		case 'j':
+			if pos.Line < len(code)-1 {
+				pos.Line++
+				if pos.Line < len(code) && pos.Col >= len(code[pos.Line]) {
+					pos.Col = max(0, len(code[pos.Line])-1)
+				}
+			}
+		case 'k':
+			if pos.Line > 0 {
+				pos.Line--
+				if pos.Line < len(code) && pos.Col >= len(code[pos.Line]) {
+					pos.Col = max(0, len(code[pos.Line])-1)
+				}
+			}
+		case 'G':
+			// G - go to last line (or line N if count given)
+			if count > 1 {
+				// [count]G goes to line [count]
+				pos.Line = count - 1
+				if pos.Line >= len(code) {
+					pos.Line = len(code) - 1
+				}
+			} else {
+				pos.Line = len(code) - 1
+			}
+			pos = moveFirstNonBlank(pos, code)
+		case '{':
+			// { - move to previous paragraph (blank line)
+			pos = moveParagraphBackward(pos, code)
+		case '}':
+			// } - move to next paragraph (blank line)
+			pos = moveParagraphForward(pos, code)
+		case '+':
+			// + - move to first non-blank of next line
+			if pos.Line < len(code)-1 {
+				pos.Line++
+				pos = moveFirstNonBlank(pos, code)
+			}
+		case '-':
+			// - - move to first non-blank of previous line
+			if pos.Line > 0 {
+				pos.Line--
+				pos = moveFirstNonBlank(pos, code)
+			}
+		case '_':
+			// _ - move to first non-blank of current line (with count: N-1 lines down)
+			if count > 1 {
+				pos.Line += count - 1
+				if pos.Line >= len(code) {
+					pos.Line = len(code) - 1
+				}
+			}
+			pos = moveFirstNonBlank(pos, code)
+		case 'H':
+			// H - High: go to top of visible screen (simulated as first line)
+			pos.Line = 0
+			pos = moveFirstNonBlank(pos, code)
+		case 'M':
+			// M - Middle: go to middle of visible screen (simulated as middle line)
+			pos.Line = len(code) / 2
+			if pos.Line >= len(code) {
+				pos.Line = len(code) - 1
+			}
+			pos = moveFirstNonBlank(pos, code)
+		case 'L':
+			// L - Low: go to bottom of visible screen (simulated as last line)
+			pos.Line = len(code) - 1
+			pos = moveFirstNonBlank(pos, code)
+		case '\x04':
+			// Ctrl+d - half page down (simulated as ~half the code length, min 5 lines)
+			halfPage := len(code) / 2
+			if halfPage < 5 {
+				halfPage = 5
+			}
+			pos.Line += halfPage
+			if pos.Line >= len(code) {
+				pos.Line = len(code) - 1
+			}
+			pos.Col = 0
+		case '\x15':
+			// Ctrl+u - half page up (simulated as ~half the code length, min 5 lines)
+			halfPage := len(code) / 2
+			if halfPage < 5 {
+				halfPage = 5
+			}
+			pos.Line -= halfPage
+			if pos.Line < 0 {
+				pos.Line = 0
+			}
+			pos.Col = 0
+		case '\x06':
+			// Ctrl+f - full page forward (simulated as full code length, min 10 lines)
+			fullPage := len(code)
+			if fullPage < 10 {
+				fullPage = 10
+			}
+			pos.Line += fullPage
+			if pos.Line >= len(code) {
+				pos.Line = len(code) - 1
+			}
+			pos.Col = 0
+		case '\x02':
+			// Ctrl+b - full page backward (simulated as full code length, min 10 lines)
+			fullPage := len(code)
+			if fullPage < 10 {
+				fullPage = 10
+			}
+			pos.Line -= fullPage
+			if pos.Line < 0 {
+				pos.Line = 0
+			}
+			pos.Col = 0
+		default:
+			// Unknown command (e.g. q, x, z): not a recognized command
+			recognized = false
+		}
+	}
+
+	return pos, i, recognized
 }
 
 func executeGCommand(pos SimulatedPosition, code []string, secondChar byte, count int) SimulatedPosition {
