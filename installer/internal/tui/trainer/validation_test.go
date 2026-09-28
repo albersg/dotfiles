@@ -499,26 +499,6 @@ func TestIsInSolutions(t *testing.T) {
 	}
 }
 
-func TestGetAlternativeSolutions(t *testing.T) {
-	exercise := &Exercise{
-		ID:        "test",
-		Solutions: []string{"w", "W", "fe"},
-	}
-
-	// When user uses 'w', alternatives should be 'W' and 'fe'
-	alts := GetAlternativeSolutions(exercise, "w")
-	if len(alts) != 2 {
-		t.Errorf("Expected 2 alternatives, got %d", len(alts))
-	}
-
-	// Check that 'w' is not in alternatives
-	for _, alt := range alts {
-		if alt == "w" {
-			t.Error("Used answer should not be in alternatives")
-		}
-	}
-}
-
 func TestFormatSolutionsHint(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -657,5 +637,64 @@ func TestValidateAnswer_RejectsDifferentSelectionFromOptimal(t *testing.T) {
 	}
 	if result := ValidateAnswerDetailed(exercise, answer); result.IsCorrect {
 		t.Errorf("%s: ValidateAnswerDetailed(%q).IsCorrect = true, want false", exercise.ID, answer)
+	}
+}
+
+// ShouldSkipSimulation is the single owner of the "do not run the simulator for
+// this exercise" predicate. Validation and both render sites used to spell it
+// out separately, so a change to one could drift from the others silently.
+// These cases pin the behaviour all three call sites relied on.
+func TestShouldSkipSimulation(t *testing.T) {
+	tests := []struct {
+		name     string
+		exercise *Exercise
+		want     bool
+	}{
+		{"ex command colon", &Exercise{Module: ModuleHorizontal, Solutions: []string{":%s/foo/bar/g"}}, true},
+		{"ex command slash", &Exercise{Module: ModuleHorizontal, Solutions: []string{"/foo"}}, true},
+		{"ex command question mark", &Exercise{Module: ModuleHorizontal, Solutions: []string{"?foo"}}, true},
+		{"substitution module", &Exercise{Module: ModuleSubstitution, Solutions: []string{"ciw"}}, true},
+		{"macros module", &Exercise{Module: ModuleMacros, Solutions: []string{"w"}}, true},
+		{"regex module", &Exercise{Module: ModuleRegex, Solutions: []string{"n"}}, true},
+		{"horizontal motion", &Exercise{Module: ModuleHorizontal, Solutions: []string{"w"}}, false},
+		{"vertical motion", &Exercise{Module: ModuleVertical, Solutions: []string{"j"}}, false},
+		{"text objects", &Exercise{Module: ModuleTextObjects, Solutions: []string{"diw"}}, false},
+		{"change and repeat", &Exercise{Module: ModuleChangeRepeat, Solutions: []string{"dd"}}, false},
+		{"no solutions", &Exercise{Module: ModuleHorizontal}, false},
+		{"empty first solution", &Exercise{Module: ModuleHorizontal, Solutions: []string{""}}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ShouldSkipSimulation(tt.exercise); got != tt.want {
+				t.Errorf("ShouldSkipSimulation(%v) = %v, want %v", tt.exercise, got, tt.want)
+			}
+		})
+	}
+}
+
+// When ShouldSkipSimulation says to skip the simulator, validation accepts
+// exactly the predefined solutions: an answer outside the list must be rejected
+// even if the simulator could parse it. This is the behaviour the validation
+// call site relied on before the predicate was extracted.
+func TestValidateAnswerDetailed_SkipSimulationUsesSolutionsOnly(t *testing.T) {
+	exercise := &Exercise{
+		Module:    ModuleSubstitution,
+		Code:      []string{"const foo = 'bar';"},
+		CursorPos: Position{Line: 0, Col: 0},
+		Solutions: []string{":%s/foo/baz/g"},
+		Optimal:   ":%s/foo/baz/g",
+	}
+
+	if !ShouldSkipSimulation(exercise) {
+		t.Fatal("substitution exercise should skip simulation")
+	}
+
+	if result := ValidateAnswerDetailed(exercise, ":%s/foo/baz/g"); !result.IsCorrect {
+		t.Errorf("predefined solution should be correct when simulation is skipped: %+v", result)
+	}
+
+	if result := ValidateAnswerDetailed(exercise, "w"); result.IsCorrect {
+		t.Errorf("answer outside the solutions list must be rejected when simulation is skipped: %+v", result)
 	}
 }

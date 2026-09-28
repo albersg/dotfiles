@@ -1,20 +1,23 @@
-[?25l[?2004h]2;dotfiles Installer                                                                                
-  🎮 Vim Mastery Trainer                                                        
-                                                                                
-  Master Vim motions through progressive challenges                             
-                                                                                
-  📊 Score: 0  |  🔥 Streak: 0  |  👑 Bosses: 0/7                               
-                                                                                
-  Select a Module:                                                              
-                                                                                
-    ▸ 📖 🏃 Horizontal Motions - w, W, e, E, b, B, f, F, t, T, ;, ,, 0, $, ^    
-       Lessons: 0/0                                                             
-    🔒 📐 Vertical Motions - j, k, gg, G, {, }, H, M, L, ctrl+d/u/f/b           
-    🔒 🎯 Text Objects - viw, vaw, vi", va", vi{, diw, daw, ci", di{, yiw, yi"  
-    🔒 🔁 Change & Repeat - d, c, dd, D, C, x, *, #, n, N, gn, cgn, dgn, .      
-    🔒 🔄 Substitution - r, R, s, S, ~, gu, gU, J, :s, :%s, flags (g, c, i)     
-    🔒 🔍 Regex & Vimgrep - /, ?, n, N, *, #, \v, :vimgrep, :copen, :cnext      
-    🔒 🎪 Macros - qa, q, @a, @@, :normal, :g/pattern/                          
-                                                                                
-                                                                                
-  ↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss • [r] reset • [[19A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+[?25l[?2004h]2;dotfiles Installer                                                                               [K
+  🎮 Vim Mastery Trainer                                                       [K
+                                                                               [K
+  Master Vim motions through progressive challenges                            [K
+                                                                               [K
+  📊 Score: 0  |  🔥 Streak: 0  |  👑 Bosses: 1/7                              [K
+                                                                               [K
+  Select a Module:                                                             [K
+                                                                               [K
+    ▸ 👑 🏃 Horizontal Motions  Lessons 7/15 · Mastered 2/19 · Boss ✓ Acc 60%  [K
+       w, W, e, E, b, B, f, F, t, T, ;, ,, 0, $, ^                             [K
+       ⚠️ Weakest: horizontal_003 (3✗) · horizontal_004 (1✗)                   [K
+        📖 📐 Vertical Motions  Lessons 0/22 · Mastered 0/22 · Boss ✗          [K
+    🔒 🎯 Text Objects  Lessons 0/21 · Mastered 0/21 · Boss ✗                  [K
+    🔒 🔁 Change & Repeat  Lessons 0/24 · Mastered 0/24 · Boss ✗               [K
+    🔒 🔄 Substitution  Lessons 0/22 · Mastered 0/22 · Boss ✗                  [K
+    🔒 🔍 Regex & Vimgrep  Lessons 0/24 · Mastered 0/24 · Boss ✗               [K
+    🔒 🎪 Macros  Lessons 0/24 · Mastered 0/24 · Boss ✗                        [K
+                                                                               [K
+                                                                               [K
+  ↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss               [K
+                                                                               [K
+  [r] reset module • [R] reset all • [q/Esc] back                              [K[22A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

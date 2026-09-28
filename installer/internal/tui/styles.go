@@ -154,10 +154,6 @@ var (
 			Foreground(lipgloss.Color("#06080f")).
 			Background(lipgloss.Color("#7aa2f7")).
 			Bold(false)
-
-	// Dimmed code style for parts already passed
-	DimmedCodeStyle = lipgloss.NewStyle().
-			Foreground(TextMuted)
 )
 
 // CenterHorizontally centers text horizontally within a given width

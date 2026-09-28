@@ -190,82 +190,6 @@ func TestGetPracticeWeight_ConsecutiveCorrectReducesWeight(t *testing.T) {
 }
 
 // =============================================================================
-// WEIGHTED PRACTICE EXERCISES
-// =============================================================================
-
-func TestGetWeightedPracticeExercises_ReturnsExercises(t *testing.T) {
-	mp := &ModuleProgress{}
-
-	exercises := GetWeightedPracticeExercises(ModuleHorizontal, mp)
-
-	if len(exercises) == 0 {
-		t.Error("Should return exercises for horizontal module")
-	}
-}
-
-func TestGetWeightedPracticeExercises_ExcludesMastered(t *testing.T) {
-	mp := &ModuleProgress{}
-
-	lessons := GetLessons(ModuleHorizontal)
-	if len(lessons) == 0 {
-		t.Skip("No lessons available")
-	}
-
-	// Master the first exercise
-	mp.RecordPracticeResult(lessons[0].ID, true)
-	mp.RecordPracticeResult(lessons[0].ID, true)
-	mp.RecordPracticeResult(lessons[0].ID, true)
-
-	exercises := GetWeightedPracticeExercises(ModuleHorizontal, mp)
-
-	// Should have one less than total
-	if len(exercises) != len(lessons)-1 {
-		t.Errorf("Should have %d exercises (excluding mastered), got %d", len(lessons)-1, len(exercises))
-	}
-
-	// First exercise should not be in list
-	for _, ex := range exercises {
-		if ex.ID == lessons[0].ID {
-			t.Error("Mastered exercise should not be in practice list")
-		}
-	}
-}
-
-func TestGetWeightedPracticeExercises_EmptyWhenAllMastered(t *testing.T) {
-	mp := &ModuleProgress{}
-
-	lessons := GetLessons(ModuleHorizontal)
-	if len(lessons) == 0 {
-		t.Skip("No lessons available")
-	}
-
-	// Master all exercises
-	for _, lesson := range lessons {
-		mp.RecordPracticeResult(lesson.ID, true)
-		mp.RecordPracticeResult(lesson.ID, true)
-		mp.RecordPracticeResult(lesson.ID, true)
-	}
-
-	exercises := GetWeightedPracticeExercises(ModuleHorizontal, mp)
-
-	if len(exercises) != 0 {
-		t.Errorf("All mastered should return empty list, got %d", len(exercises))
-	}
-}
-
-func TestGetWeightedPracticeExercises_ArePracticeType(t *testing.T) {
-	mp := &ModuleProgress{}
-
-	exercises := GetWeightedPracticeExercises(ModuleHorizontal, mp)
-
-	for _, ex := range exercises {
-		if ex.Type != ExercisePractice {
-			t.Errorf("Exercise should be Practice type, got %s", ex.Type)
-		}
-	}
-}
-
-// =============================================================================
 // SELECT RANDOM PRACTICE EXERCISE
 // =============================================================================
 
@@ -451,5 +375,22 @@ func TestIsPracticeComplete_TrueWhenAllMastered(t *testing.T) {
 
 	if !mp.IsPracticeComplete(ModuleHorizontal) {
 		t.Error("Should be complete when all mastered")
+	}
+}
+
+// TestGetPracticeStatsForModule_DoesNotCreateEntries pins that querying
+// practice stats is read-only. The trainer menu queries every module on each
+// render, so a query that manufactured empty exercise records would pollute the
+// persisted stats file just by opening the menu.
+func TestGetPracticeStatsForModule_DoesNotCreateEntries(t *testing.T) {
+	mp := &ModuleProgress{}
+
+	stats := GetPracticeStatsForModule(ModuleHorizontal, mp)
+
+	if stats.TotalExercises == 0 {
+		t.Fatal("expected horizontal lessons to be counted")
+	}
+	if len(mp.ExerciseStats) != 0 {
+		t.Errorf("querying practice stats must not create exercise entries, got %d", len(mp.ExerciseStats))
 	}
 }

@@ -381,24 +381,6 @@ func getChangeRepeatLessons() []Exercise {
 	}
 }
 
-// getChangeRepeatPractice converts lessons to practice exercises
-func getChangeRepeatPractice() []Exercise {
-	lessons := getChangeRepeatLessons()
-	practices := make([]Exercise, len(lessons))
-
-	for i, lesson := range lessons {
-		practice := lesson
-		practice.Type = ExercisePractice
-		practice.ID = "changerepeat_p" + lesson.ID[len("changerepeat_"):]
-		practice.TimeoutSecs = lesson.TimeoutSecs / 2 // Half time for practice
-		practice.Points = lesson.Points + 5           // Bonus points for practice
-		practice.Hint = ""                            // No hints in practice mode
-		practices[i] = practice
-	}
-
-	return practices
-}
-
 // getChangeRepeatBoss returns the boss fight for the Change & Repeat module
 func getChangeRepeatBoss() *BossExercise {
 	return &BossExercise{

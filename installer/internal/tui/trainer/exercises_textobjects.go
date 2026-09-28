@@ -342,24 +342,6 @@ func getTextObjectsLessons() []Exercise {
 	}
 }
 
-// getTextObjectsPractice converts lessons into practice exercises
-func getTextObjectsPractice() []Exercise {
-	lessons := getTextObjectsLessons()
-	practices := make([]Exercise, len(lessons))
-
-	for i, lesson := range lessons {
-		practice := lesson
-		practice.ID = "textobjects_p" + lesson.ID[len("textobjects_"):]
-		practice.Type = ExercisePractice
-		practice.Hint = ""
-		practice.TimeoutSecs = 20
-		practice.Points = lesson.Points + 10
-		practices[i] = practice
-	}
-
-	return practices
-}
-
 // getTextObjectsBoss returns the boss fight for TextObjects module
 func getTextObjectsBoss() *BossExercise {
 	return &BossExercise{

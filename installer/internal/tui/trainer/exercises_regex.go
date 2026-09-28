@@ -378,24 +378,6 @@ func getRegexLessons() []Exercise {
 	}
 }
 
-// getRegexPractice converts regex lessons to practice exercises
-func getRegexPractice() []Exercise {
-	lessons := getRegexLessons()
-	practices := make([]Exercise, len(lessons))
-
-	for i, lesson := range lessons {
-		practice := lesson
-		practice.Type = ExercisePractice
-		practice.ID = "regex_p" + lesson.ID[6:] // Convert regex_001 to regex_p001
-		practice.TimeoutSecs = lesson.TimeoutSecs - 10
-		practice.Points = lesson.Points + 10
-		practice.Hint = "" // No hints in practice mode
-		practices[i] = practice
-	}
-
-	return practices
-}
-
 // getRegexBoss returns the boss fight for the Regex module
 func getRegexBoss() *BossExercise {
 	return &BossExercise{

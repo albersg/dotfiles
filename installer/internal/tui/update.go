@@ -464,10 +464,12 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 	// Trainer screens
 	case ScreenTrainerMenu:
-		// Save stats and return to main menu
+		// Save stats and return to main menu. Escape also cancels an armed
+		// whole-profile reset, so it can never stay armed behind the menu.
 		if m.TrainerStats != nil {
 			trainer.SaveStats(m.TrainerStats)
 		}
+		m.TrainerMessage = ""
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 	case ScreenTrainerLesson, ScreenTrainerPractice:
@@ -546,6 +548,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.TrainerGameState = nil
 			m.TrainerCursor = 0
 			m.TrainerInput = ""
+			m.TrainerMessage = "" // a fresh menu is never armed
 			m.Screen = ScreenTrainerMenu
 			m.PrevScreen = ScreenMainMenu
 		case strings.Contains(selected, "Restore from Backup") && hasRestoreOption:
@@ -1593,8 +1596,30 @@ func (m *Model) expireBossStepOnDeadline() {
 	m.TrainerMessage = "⏰ Time's up! Was: " + solutionHint + " | Lives: " + livesStr
 }
 
+// trainerResetKey is the trainer menu key that erases the whole profile. It is
+// the shifted form of the per-module [r] reset, so terminal input delivers it as
+// a distinct rune without a modifier chord, and no other menu key uses it.
+const trainerResetKey = "R"
+
+// trainerResetPrompt is shown while a whole-profile reset is armed. The menu
+// treats this prompt as the armed state, so arm-then-confirm needs no extra
+// model field: the first [R] puts the prompt on screen, and only a second [R]
+// clears the profile. Any other key cancels by clearing the prompt.
+const trainerResetPrompt = "⚠️ Press [R] again to erase ALL trainer progress · any other key cancels"
+
 // handleTrainerMenuKeys handles module selection in the trainer
 func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
+	// A whole-profile reset is armed. Only a second [R] clears the profile; every
+	// other key, escape included, cancels and is consumed, so a stray keystroke
+	// cannot half-commit the wipe.
+	if m.TrainerMessage == trainerResetPrompt {
+		if key != trainerResetKey {
+			m.TrainerMessage = ""
+			return m, nil
+		}
+		return m.clearTrainerProfile()
+	}
+
 	switch key {
 	case "up", "k":
 		if m.TrainerCursor > 0 {
@@ -1712,8 +1737,34 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 		}
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
+	case trainerResetKey:
+		// First press: arm the whole-profile reset and say what it wants.
+		m.TrainerMessage = trainerResetPrompt
 	}
 
+	return m, nil
+}
+
+// clearTrainerProfile erases the whole trainer profile and persists the empty
+// one through the same save path the rest of the trainer uses, so the menu and
+// the stats file agree without a restart. It tolerates a missing or unreadable
+// profile (TrainerStats nil), which is what LoadStats returns then.
+func (m Model) clearTrainerProfile() (tea.Model, tea.Cmd) {
+	// Remove any stale file first, then write the canonical empty profile, so a
+	// corrupt stats file cannot survive the reset.
+	if err := trainer.ResetStats(); err != nil {
+		m.TrainerMessage = "⚠️ Could not erase trainer progress: " + err.Error()
+		return m, nil
+	}
+
+	m.TrainerStats = trainer.NewUserStats()
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		m.TrainerMessage = "⚠️ Could not save erased progress: " + err.Error()
+		return m, nil
+	}
+
+	m.TrainerCursor = 0
+	m.TrainerMessage = "🧹 All trainer progress erased. Start fresh!"
 	return m, nil
 }
 

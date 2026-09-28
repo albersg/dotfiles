@@ -1940,3 +1940,67 @@ func TestSimulateMotions_ScrollCombination(t *testing.T) {
 		t.Errorf("Ctrl+u Ctrl+d should return to ~line 10, got %d", result.Line)
 	}
 }
+
+// An exercise whose CursorPos.Line sits past the end of its Code is malformed,
+// but authoring one must not panic the trainer. The simulator indexes
+// code[pos.Line] in its operator paths, so an out-of-range cursor line used to
+// crash the process on inputs such as dd, D or C. The start line is clamped into
+// range instead.
+func TestSimulateMotionsWithSelection_CursorLinePastEndOfCodeDoesNotPanic(t *testing.T) {
+	code := []string{"const foo = 'bar';", "const baz = 'qux';"}
+
+	tests := []struct {
+		name     string
+		line     int
+		input    string
+		wantLine int
+	}{
+		{"dd one line past the end", 2, "dd", 1},
+		{"D one line past the end", 2, "D", 1},
+		{"C one line past the end", 2, "C", 1},
+		{"dd far past the end", 5, "dd", 1},
+		{"dw past the end", 2, "dw", 1},
+		{"dd before the start", -1, "dd", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SimulateMotionsWithSelection(Position{Line: tt.line, Col: 0}, code, tt.input)
+
+			if got.Position.Line != tt.wantLine {
+				t.Errorf("cursor line %d should clamp to %d, got %d", tt.line, tt.wantLine, got.Position.Line)
+			}
+		})
+	}
+}
+
+// An exercise whose CursorPos.Col sits past the end of its own line is the column
+// counterpart of the malformed CursorPos.Line above, and authoring one must not
+// panic the trainer either. The simulator indexes line[pos.Col] directly in its
+// backward motions, so an out-of-range column used to crash the process on inputs
+// such as b, B, F, T and ge. The start column is clamped at the same entry point
+// that clamps the line, so the guard covers every motion instead of one call site
+// at a time.
+func TestSimulateMotionsWithSelection_CursorColumnPastEndOfLineDoesNotPanic(t *testing.T) {
+	code := []string{"const foo = 'bar';"}
+
+	// The inputs verification exercised with an oversized column: the first group
+	// used to panic, the second was already safe. All of them must survive, and the
+	// oversized start must come back inside the line (a motion may still land one
+	// past the last character, as `w` at the end of the only line already did).
+	inputs := []string{"b", "B", "F'", "T'", "ge", "h", "w", "e", "$", "dd", "D", "C"}
+
+	for _, input := range inputs {
+		t.Run(input, func(t *testing.T) {
+			got := SimulateMotionsWithSelection(Position{Line: 0, Col: 999}, code, input)
+
+			if got.Position.Line != 0 {
+				t.Errorf("cursor line = %d after %q, want 0", got.Position.Line, input)
+			}
+			if got.Position.Col < 0 || got.Position.Col > len(code[0]) {
+				t.Errorf("cursor column %d after %q is outside the line (len %d): an oversized start column must clamp into range",
+					got.Position.Col, input, len(code[0]))
+			}
+		})
+	}
+}

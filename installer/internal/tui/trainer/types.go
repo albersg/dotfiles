@@ -41,22 +41,30 @@ type ExerciseStats struct {
 	LastAttempted    int64 // Unix timestamp
 }
 
+// IsMastered reports whether the exercise counts as mastered. It is the single
+// mastery predicate: weighted practice selection and the trainer menu's mastery
+// count both read it, so the number shown on the menu cannot drift from the
+// number that drives practice. A nil receiver is not mastered, which lets
+// display code query an exercise that has never been recorded.
+func (stats *ExerciseStats) IsMastered() bool {
+	return stats != nil && stats.Mastered
+}
+
 // Exercise represents a single training exercise
 type Exercise struct {
-	ID           string       // "horizontal_001"
-	Module       ModuleID     // "horizontal", "textobjects", "cgn", etc.
-	Level        int          // 1-10
-	Type         ExerciseType // "lesson", "practice", "boss"
-	Code         []string     // Lines of code to display
-	CursorPos    Position     // Initial cursor position
-	CursorTarget *Position    // Target cursor position (for movement exercises)
-	Mission      string       // "Move cursor to the 'N' in 'Name'"
-	Solutions    []string     // ["w", "W", "fe"] - all valid solutions
-	Optimal      string       // "w" - the best/shortest solution
-	Hint         string       // Hint shown after timeout
-	Explanation  string       // Post-answer explanation
-	TimeoutSecs  int          // Seconds before showing solution
-	Points       int          // Base points for completion
+	ID          string       // "horizontal_001"
+	Module      ModuleID     // "horizontal", "textobjects", "cgn", etc.
+	Level       int          // 1-10
+	Type        ExerciseType // "lesson", "practice", "boss"
+	Code        []string     // Lines of code to display
+	CursorPos   Position     // Initial cursor position
+	Mission     string       // "Move cursor to the 'N' in 'Name'"
+	Solutions   []string     // ["w", "W", "fe"] - all valid solutions
+	Optimal     string       // "w" - the best/shortest solution
+	Hint        string       // Hint shown after timeout
+	Explanation string       // Post-answer explanation
+	TimeoutSecs int          // Seconds before showing solution
+	Points      int          // Base points for completion
 }
 
 // ModuleInfo contains display info for a module
@@ -151,6 +159,19 @@ func (s *UserStats) GetModuleProgress(module ModuleID) *ModuleProgress {
 	return s.ModuleProgress[module]
 }
 
+// ModuleProgressOrNil returns the recorded progress for a module without
+// creating an entry, or nil when the module has never been opened. The trainer
+// menu asks about every module on each render, so the questions it asks must
+// read progress without manufacturing the empty records a later save would
+// persist; a nil result means the same as an empty record for every question
+// here, because all of the recorded counters start at zero.
+func (s *UserStats) ModuleProgressOrNil(module ModuleID) *ModuleProgress {
+	if s.ModuleProgress == nil {
+		return nil
+	}
+	return s.ModuleProgress[module]
+}
+
 // moduleUnlockOrder defines the order modules are unlocked
 var moduleUnlockOrder = []ModuleID{
 	ModuleHorizontal,
@@ -214,10 +235,12 @@ func (s *UserStats) IsBossDefeated(module ModuleID) bool {
 	return false
 }
 
-// IsLessonsComplete checks if lessons are 100% complete for a module
+// IsLessonsComplete checks if lessons are 100% complete for a module. It is
+// read-only: an unopened module has no recorded progress, which is the same as
+// zero completed lessons out of zero total.
 func (s *UserStats) IsLessonsComplete(module ModuleID) bool {
-	progress := s.GetModuleProgress(module)
-	return progress.LessonsTotal > 0 && progress.LessonsCompleted >= progress.LessonsTotal
+	progress := s.ModuleProgressOrNil(module)
+	return progress != nil && progress.LessonsTotal > 0 && progress.LessonsCompleted >= progress.LessonsTotal
 }
 
 // IsPracticeReady checks if practice mode is unlocked (lessons complete)
@@ -225,13 +248,14 @@ func (s *UserStats) IsPracticeReady(module ModuleID) bool {
 	return s.IsModuleUnlocked(module) && s.IsLessonsComplete(module)
 }
 
-// IsBossReady checks if boss fight is unlocked (80% practice accuracy + minimum attempts)
+// IsBossReady checks if boss fight is unlocked (80% practice accuracy + minimum attempts).
+// It is read-only for the same reason as IsLessonsComplete.
 func (s *UserStats) IsBossReady(module ModuleID) bool {
 	if !s.IsPracticeReady(module) {
 		return false
 	}
-	progress := s.GetModuleProgress(module)
-	return progress.PracticeAccuracy >= 0.80 && progress.PracticeAttempts >= 10
+	progress := s.ModuleProgressOrNil(module)
+	return progress != nil && progress.PracticeAccuracy >= 0.80 && progress.PracticeAttempts >= 10
 }
 
 // GetAllModules returns info for all modules in order

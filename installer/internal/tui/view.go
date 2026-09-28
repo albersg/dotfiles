@@ -1291,13 +1291,6 @@ func (m Model) renderError() string {
 	return s.String()
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func (m Model) renderBackupConfirm() string {
 	var s strings.Builder
 
@@ -1432,6 +1425,80 @@ func (m Model) renderRestoreConfirm() string {
 // Trainer Views
 // ============================================================================
 
+// trainerModuleProgressText renders the per-module progress the trainer menu
+// shows: lessons completed against total, mastered exercises, and whether the
+// module's boss is defeated. Mastery comes from GetPracticeStatsForModule,
+// which reads the same ExerciseStats.IsMastered predicate weighted practice
+// selection uses, so the count on screen cannot drift from the practice pool.
+func trainerModuleProgressText(progress *trainer.ModuleProgress, practice trainer.PracticeStats, bossDefeated bool) string {
+	lessonsCompleted, lessonsTotal := 0, 0
+	if progress != nil {
+		lessonsCompleted = progress.LessonsCompleted
+		lessonsTotal = progress.LessonsTotal
+	}
+	// LessonsTotal is only recorded once the module is opened, so a module that
+	// has never been started falls back to the real lesson count instead of
+	// showing 0/0 next to a mastery count that already knows the total.
+	if lessonsTotal == 0 {
+		lessonsTotal = practice.TotalExercises
+	}
+
+	boss := "✗"
+	if bossDefeated {
+		boss = "✓"
+	}
+
+	return fmt.Sprintf("Lessons %d/%d · Mastered %d/%d · Boss %s",
+		lessonsCompleted, lessonsTotal, practice.MasteredCount, practice.TotalExercises, boss)
+}
+
+// trainerPracticeAccuracyText renders the selected module's practice accuracy,
+// the percentage the boss unlock threshold is measured against. It is omitted
+// until the module has a recorded attempt, so a fresh module does not claim 0%.
+func trainerPracticeAccuracyText(progress *trainer.ModuleProgress) string {
+	if progress == nil || progress.PracticeAttempts == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Acc %.0f%%", progress.PracticeAccuracy*100)
+}
+
+// trainerWeakExerciseText renders the exercises a module misses most, in the
+// order GetPracticeStatsForModule returns them (most wrong first), with the
+// recorded wrong count. Entries are added while the line fits maxWidth (0 means
+// no limit), so a long list degrades by dropping the least-missed entries
+// instead of wrapping and breaking the layout. It reads the recorded
+// per-exercise stats and adds no bookkeeping of its own; an empty profile
+// yields "", so the menu omits the line instead of showing junk.
+func trainerWeakExerciseText(progress *trainer.ModuleProgress, practice trainer.PracticeStats, maxWidth int) string {
+	if len(practice.WeakestExercises) == 0 {
+		return ""
+	}
+
+	const prefix = "     ⚠️ Weakest: "
+	const separator = " · "
+
+	entries := make([]string, 0, len(practice.WeakestExercises))
+	for _, id := range practice.WeakestExercises {
+		entry := id
+		if progress != nil && progress.ExerciseStats != nil {
+			if exStats := progress.ExerciseStats[id]; exStats != nil && exStats.TotalWrong > 0 {
+				entry = fmt.Sprintf("%s (%d✗)", id, exStats.TotalWrong)
+			}
+		}
+		entries = append(entries, entry)
+	}
+
+	// Keep at least one entry so a single over-long identifier still surfaces.
+	for len(entries) > 1 {
+		if maxWidth <= 0 || lipgloss.Width(prefix+strings.Join(entries, separator)) <= maxWidth {
+			break
+		}
+		entries = entries[:len(entries)-1]
+	}
+
+	return prefix + strings.Join(entries, separator)
+}
+
 func (m Model) renderTrainerMenu() string {
 	var s strings.Builder
 
@@ -1445,7 +1512,7 @@ func (m Model) renderTrainerMenu() string {
 	if m.TrainerStats != nil {
 		score := fmt.Sprintf("Score: %d", m.TrainerStats.TotalScore)
 		streak := fmt.Sprintf("Streak: %d", m.TrainerStats.CurrentStreak)
-		bosses := fmt.Sprintf("Bosses: %d/7", len(m.TrainerStats.BossesDefeated))
+		bosses := fmt.Sprintf("Bosses: %d/%d", len(m.TrainerStats.BossesDefeated), len(trainer.GetAllModules()))
 		s.WriteString(InfoStyle.Render(fmt.Sprintf("📊 %s  |  🔥 %s  |  👑 %s", score, streak, bosses)))
 		s.WriteString("\n\n")
 	}
@@ -1485,37 +1552,41 @@ func (m Model) renderTrainerMenu() string {
 			status = "📖"
 		}
 
-		line := fmt.Sprintf("%s %s %s - %s", status, module.Icon, module.Name, module.Description)
+		line := fmt.Sprintf("%s %s %s", status, module.Icon, module.Name)
+
+		// Progress is display-only text attached to the existing entry. The
+		// unlock/ready predicates above and this direct map read both look the
+		// recorded progress up without creating records, so rendering the menu
+		// neither manufactures module records nor exercise records in the
+		// persisted stats.
+		var progress *trainer.ModuleProgress
+		var practice trainer.PracticeStats
+		if m.TrainerStats != nil {
+			progress = m.TrainerStats.ModuleProgress[module.ID]
+			practice = trainer.GetPracticeStatsForModule(module.ID, progress)
+			line += "  " + trainerModuleProgressText(progress, practice, isBossDefeated)
+			// The selected module also shows its practice accuracy, the number
+			// the boss unlock threshold is measured against, so the player can
+			// tell how close they are without opening the module.
+			if i == m.TrainerCursor {
+				if accuracy := trainerPracticeAccuracyText(progress); accuracy != "" {
+					line += " " + accuracy
+				}
+			}
+		}
+
 		s.WriteString(style.Render(cursor + line))
 		s.WriteString("\n")
 
-		// Show progress for selected module
-		if i == m.TrainerCursor && isUnlocked && m.TrainerStats != nil {
-			progress := m.TrainerStats.GetModuleProgress(module.ID)
-			var progressLine string
-			if progress.LessonsTotal > 0 {
-				lessonsPercent := float64(progress.LessonsCompleted) / float64(progress.LessonsTotal) * 100
-				progressLine = fmt.Sprintf("     Lessons: %d/%d (%.0f%%)", progress.LessonsCompleted, progress.LessonsTotal, lessonsPercent)
-			} else {
-				progressLine = "     Lessons: 0/0"
-			}
-			if progress.PracticeAttempts > 0 {
-				progressLine += fmt.Sprintf("  |  Practice: %.0f%%", progress.PracticeAccuracy*100)
-			}
-
-			// Show mastery progress for practice mode
-			if isPracticeReady {
-				practiceStats := trainer.GetPracticeStatsForModule(module.ID, progress)
-				if practiceStats.TotalExercises > 0 {
-					progressLine += fmt.Sprintf("  |  Mastered: %d/%d", practiceStats.MasteredCount, practiceStats.TotalExercises)
-					if practiceStats.PracticeComplete {
-						progressLine += " ✅"
-					}
-				}
-			}
-
-			s.WriteString(MutedStyle.Render(progressLine))
+		// The selected module also shows its commands and the exercises it
+		// misses most, both display-only lines attached to the entry.
+		if i == m.TrainerCursor {
+			s.WriteString(MutedStyle.Render("     " + module.Description))
 			s.WriteString("\n")
+			if weak := trainerWeakExerciseText(progress, practice, m.Width-4); weak != "" {
+				s.WriteString(WarningStyle.Render(weak))
+				s.WriteString("\n")
+			}
 		}
 	}
 
@@ -1528,7 +1599,9 @@ func (m Model) renderTrainerMenu() string {
 
 	// Help
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss • [r] reset • [q/Esc] back"))
+	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss"))
+	s.WriteString("\n")
+	s.WriteString(HelpStyle.Render("[r] reset module • [R] reset all • [q/Esc] back"))
 
 	return s.String()
 }
@@ -1576,17 +1649,10 @@ func (m Model) renderTrainerExercise(mode string) string {
 	s.WriteString(InfoStyle.Render("   " + exercise.Mission))
 	s.WriteString("\n\n")
 
-	// Detect if this exercise should skip cursor simulation
-	// 1. Ex commands (start with : / ?)
-	// 2. Substitution module (r, R, s, S, ~, etc. are edit commands, not motions)
-	// 3. Macros module (q, @, :normal, :g/ are not pure motions)
-	// 4. Regex module (/, ?, :vimgrep, etc.)
-	isExCommand := len(exercise.Solutions) > 0 && len(exercise.Solutions[0]) > 0 &&
-		(exercise.Solutions[0][0] == ':' || exercise.Solutions[0][0] == '/' || exercise.Solutions[0][0] == '?')
-	isNonMotionModule := exercise.Module == trainer.ModuleSubstitution ||
-		exercise.Module == trainer.ModuleMacros ||
-		exercise.Module == trainer.ModuleRegex
-	skipSimulation := isExCommand || isNonMotionModule
+	// Exercises that are not pure motions are neither simulated nor validated by
+	// the simulator; the shared predicate keeps this render site in step with
+	// ValidateAnswerDetailed.
+	skipSimulation := trainer.ShouldSkipSimulation(exercise)
 
 	// Calculate simulated cursor position and selection based on current input
 	// Only simulate for motion-based exercises
@@ -1899,13 +1965,7 @@ func (m Model) renderTrainerBoss() string {
 		s.WriteString(InfoStyle.Render("   " + exercise.Mission))
 		s.WriteString("\n\n")
 
-		// Detect if this exercise should skip cursor simulation
-		isExCommand := len(exercise.Solutions) > 0 && len(exercise.Solutions[0]) > 0 &&
-			(exercise.Solutions[0][0] == ':' || exercise.Solutions[0][0] == '/' || exercise.Solutions[0][0] == '?')
-		isNonMotionModule := exercise.Module == trainer.ModuleSubstitution ||
-			exercise.Module == trainer.ModuleMacros ||
-			exercise.Module == trainer.ModuleRegex
-		skipSimulation := isExCommand || isNonMotionModule
+		skipSimulation := trainer.ShouldSkipSimulation(exercise)
 
 		// Calculate simulated cursor position and selection based on current input
 		startPos := exercise.CursorPos
@@ -2142,7 +2202,7 @@ func (m Model) renderTrainerBossResult() string {
 	// Stats
 	if m.TrainerStats != nil {
 		s.WriteString("\n\n")
-		s.WriteString(MutedStyle.Render(fmt.Sprintf("Total Score: %d  |  Bosses Defeated: %d/7", m.TrainerStats.TotalScore, len(m.TrainerStats.BossesDefeated))))
+		s.WriteString(MutedStyle.Render(fmt.Sprintf("Total Score: %d  |  Bosses Defeated: %d/%d", m.TrainerStats.TotalScore, len(m.TrainerStats.BossesDefeated), len(trainer.GetAllModules()))))
 	}
 
 	// Help

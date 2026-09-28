@@ -9,11 +9,6 @@ import (
 // MasteryThreshold is the number of consecutive correct answers needed to master an exercise
 const MasteryThreshold = 3
 
-// init seeds the random number generator
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 // GetExerciseStats returns stats for a specific exercise, creating if needed
 func (mp *ModuleProgress) GetExerciseStats(exerciseID string) *ExerciseStats {
 	if mp.ExerciseStats == nil {
@@ -63,7 +58,7 @@ func (mp *ModuleProgress) RecordPracticeResult(exerciseID string, correct bool) 
 
 // GetPracticeWeight calculates the weight for an exercise (higher = more likely to appear)
 func (stats *ExerciseStats) GetPracticeWeight() int {
-	if stats.Mastered {
+	if stats.IsMastered() {
 		return 0 // Mastered exercises don't appear in practice
 	}
 
@@ -87,63 +82,6 @@ func (stats *ExerciseStats) GetPracticeWeight() int {
 	}
 
 	return weight
-}
-
-// exerciseWeight pairs an exercise with its weight for sorting
-type exerciseWeight struct {
-	Exercise Exercise
-	Weight   int
-}
-
-// GetWeightedPracticeExercises returns exercises ordered by practice need
-// Exercises with more errors appear more frequently
-func GetWeightedPracticeExercises(module ModuleID, progress *ModuleProgress) []Exercise {
-	lessons := GetLessons(module)
-	if len(lessons) == 0 {
-		return []Exercise{}
-	}
-
-	// Calculate weights for each exercise
-	weights := make([]exerciseWeight, 0, len(lessons))
-	totalWeight := 0
-	unmasteredCount := 0
-
-	for _, lesson := range lessons {
-		stats := progress.GetExerciseStats(lesson.ID)
-		weight := stats.GetPracticeWeight()
-
-		if !stats.Mastered {
-			unmasteredCount++
-		}
-
-		weights = append(weights, exerciseWeight{
-			Exercise: lesson,
-			Weight:   weight,
-		})
-		totalWeight += weight
-	}
-
-	// If all mastered, return empty (practice complete!)
-	if unmasteredCount == 0 {
-		return []Exercise{}
-	}
-
-	// Sort by weight descending (highest priority first for debugging/transparency)
-	sort.Slice(weights, func(i, j int) bool {
-		return weights[i].Weight > weights[j].Weight
-	})
-
-	// Build result slice with exercises that have weight > 0
-	result := make([]Exercise, 0, unmasteredCount)
-	for _, ew := range weights {
-		if ew.Weight > 0 {
-			ex := ew.Exercise
-			ex.Type = ExercisePractice
-			result = append(result, ex)
-		}
-	}
-
-	return result
 }
 
 // SelectRandomPracticeExercise selects an exercise using weighted random selection
@@ -210,7 +148,12 @@ type PracticeStats struct {
 	PracticeComplete bool
 }
 
-// GetPracticeStats calculates practice statistics for a module
+// GetPracticeStatsForModule calculates practice statistics for a module.
+//
+// It is read-only: the trainer menu queries it for every module on each render,
+// so it reads the recorded per-exercise stats without creating entries for
+// exercises that were never attempted. Mastery is read through
+// ExerciseStats.IsMastered, the same predicate weighted practice selection uses.
 func GetPracticeStatsForModule(module ModuleID, progress *ModuleProgress) PracticeStats {
 	lessons := GetLessons(module)
 
@@ -231,18 +174,23 @@ func GetPracticeStatsForModule(module ModuleID, progress *ModuleProgress) Practi
 	errorList := make([]exError, 0, len(lessons))
 
 	for _, lesson := range lessons {
-		exStats := progress.GetExerciseStats(lesson.ID)
-		if exStats.Mastered {
+		var exStats *ExerciseStats
+		if progress != nil && progress.ExerciseStats != nil {
+			exStats = progress.ExerciseStats[lesson.ID]
+		}
+		if exStats.IsMastered() {
 			stats.MasteredCount++
 		}
-		if exStats.TotalWrong > 0 {
+		if exStats != nil && exStats.TotalWrong > 0 {
 			errorList = append(errorList, exError{id: lesson.ID, errors: exStats.TotalWrong})
 		}
 	}
 
 	stats.RemainingCount = stats.TotalExercises - stats.MasteredCount
 	stats.PracticeComplete = stats.RemainingCount == 0
-	stats.OverallAccuracy = progress.PracticeAccuracy
+	if progress != nil {
+		stats.OverallAccuracy = progress.PracticeAccuracy
+	}
 
 	// Sort by errors descending
 	sort.Slice(errorList, func(i, j int) bool {
@@ -276,7 +224,7 @@ func (mp *ModuleProgress) IsPracticeComplete(module ModuleID) bool {
 
 	for _, lesson := range lessons {
 		stats := mp.GetExerciseStats(lesson.ID)
-		if !stats.Mastered {
+		if !stats.IsMastered() {
 			return false
 		}
 	}

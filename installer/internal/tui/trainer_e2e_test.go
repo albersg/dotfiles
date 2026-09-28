@@ -3,12 +3,14 @@ package tui
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
 )
 
@@ -26,6 +28,10 @@ func TestTrainerMenuGolden(t *testing.T) {
 	m.TrainerStats = trainer.NewUserStats()
 	m.TrainerModules = trainer.GetAllModules()
 	m.TrainerCursor = 0
+
+	// Seed real progress so the snapshot proves the numbers render. A snapshot
+	// of an empty profile would match even if every count were broken.
+	seedTrainerMenuProgress(t, &m)
 
 	tm := teatest.NewTestModel(t, m,
 		teatest.WithInitialTermSize(80, 24),
@@ -1902,5 +1908,539 @@ func TestTrainerBossScreenShowsTheStepCountdown(t *testing.T) {
 	view = m.renderTrainerBoss()
 	if want := fmt.Sprintf("⏳ Time left: %ds", limit-2); !strings.Contains(view, want) {
 		t.Errorf("the boss countdown did not follow the clock, want %q:\n%s", want, view)
+	}
+}
+
+// =============================================================================
+// TRAINER MENU PROGRESS
+// =============================================================================
+
+// seedTrainerMenuProgress gives the trainer menu a profile with known progress:
+// Horizontal lessons partly done, two exercises mastered, its boss defeated,
+// and two exercises answered wrong (the first more often than the second, so
+// the weakest list has an order to check).
+func seedTrainerMenuProgress(t *testing.T, m *Model) {
+	t.Helper()
+
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+	progress.LessonsCompleted = 7
+	progress.LessonsTotal = 15
+
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	if len(lessons) < 4 {
+		t.Fatalf("need at least 4 horizontal lessons, got %d", len(lessons))
+	}
+
+	// Master the first two exercises.
+	for i := 0; i < 2; i++ {
+		for j := 0; j < trainer.MasteryThreshold; j++ {
+			progress.RecordPracticeResult(lessons[i].ID, true)
+		}
+	}
+
+	// The third exercise is missed most, the fourth once.
+	for i := 0; i < 3; i++ {
+		progress.RecordPracticeResult(lessons[2].ID, false)
+	}
+	progress.RecordPracticeResult(lessons[3].ID, false)
+
+	m.TrainerStats.BossesDefeated = append(m.TrainerStats.BossesDefeated, trainer.ModuleHorizontal)
+	progress.BossDefeated = true
+}
+
+// newTrainerProgressModel parks the model on the trainer menu with the seeded
+// progress profile above.
+func newTrainerProgressModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+	seedTrainerMenuProgress(t, &m)
+
+	return m
+}
+
+// TestTrainerMenuShowsModuleProgress pins that the menu renders the seeded
+// numbers for each module: lessons completed against total, mastered
+// exercises, and whether the boss is defeated.
+func TestTrainerMenuShowsModuleProgress(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	want := []string{
+		"Lessons 7/15",
+		fmt.Sprintf("Mastered 2/%d", len(lessons)),
+		"Boss ✓",
+		"Acc 60%",
+	}
+	for _, w := range want {
+		if !strings.Contains(view, w) {
+			t.Errorf("trainer menu does not show %q:\n%s", w, view)
+		}
+	}
+}
+
+// TestTrainerMenuRenderIsReadOnly pins that merely opening the trainer menu does
+// not manufacture records in the player's profile. The menu asks every module
+// whether its lessons are complete and whether practice and the boss are ready,
+// so the predicates behind those questions must look the progress up without
+// creating an empty MODULE record (the exercise half was made read-only in the
+// previous slice). Measured the way the defect was found: render on a fresh
+// profile, then check both memory and the saved file.
+func TestTrainerMenuRenderIsReadOnly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+
+	// A fresh profile saved before the render is the baseline the post-render
+	// save must match byte for byte: opening the menu may not gain it anything.
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding a fresh profile failed: %v", err)
+	}
+	before := readTrainerStatsFile(t)
+
+	_ = m.View()
+
+	if got := len(m.TrainerStats.ModuleProgress); got != 0 {
+		t.Errorf("rendering the menu created %d module records in memory, want 0", got)
+	}
+	if got := countTrainerExerciseRecords(m.TrainerStats); got != 0 {
+		t.Errorf("rendering the menu created %d exercise records in memory, want 0", got)
+	}
+
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("saving after the render failed: %v", err)
+	}
+	if after := readTrainerStatsFile(t); after != before {
+		t.Errorf("rendering the menu changed the saved profile:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func readTrainerStatsFile(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(trainer.GetStatsPath())
+	if err != nil {
+		t.Fatalf("reading the trainer stats file failed: %v", err)
+	}
+	return string(data)
+}
+
+func countTrainerExerciseRecords(stats *trainer.UserStats) int {
+	count := 0
+	for _, progress := range stats.ModuleProgress {
+		count += len(progress.ExerciseStats)
+	}
+	return count
+}
+
+// TestTrainerMenuFitsEightyColumns pins the menu inside the 80x24 frame it
+// documents. The layout sizes itself from its longest line, so a line over 80
+// columns would wrap on the real terminal and break the screen. The selected
+// module carries its practice accuracy, so the worst case is the longest module
+// name with a three-digit accuracy.
+func TestTrainerMenuFitsEightyColumns(t *testing.T) {
+	cases := []struct {
+		name     string
+		accuracy float64
+	}{
+		{"the seeded sixty percent", 0.60},
+		{"a three-digit accuracy", 1.00},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTrainerProgressModel(t)
+			m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal).PracticeAccuracy = tc.accuracy
+
+			for _, line := range strings.Split(m.View(), "\n") {
+				if got := lipgloss.Width(line); got > 80 {
+					t.Errorf("trainer menu line is %d columns wide, want <= 80: %q", got, line)
+				}
+			}
+		})
+	}
+}
+
+// TestTrainerMenuShowsUnopenedModuleLessonTotal pins that a module that has
+// never been opened still shows its real lesson total instead of 0/0, which
+// would contradict the mastery count shown next to it.
+func TestTrainerMenuShowsUnopenedModuleLessonTotal(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	lessons := trainer.GetLessons(trainer.ModuleVertical)
+	if len(lessons) == 0 {
+		t.Fatal("no vertical lessons available")
+	}
+	want := fmt.Sprintf("Lessons 0/%d", len(lessons))
+	if !strings.Contains(view, want) {
+		t.Errorf("unopened module does not show %q:\n%s", want, view)
+	}
+}
+
+// TestTrainerMenuShowsWeakestExercisesInOrder pins that the menu surfaces the
+// exercises answered wrong most often, most-missed first, and labels them.
+func TestTrainerMenuShowsWeakestExercisesInOrder(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	mostMissed := lessons[2].ID
+	lessMissed := lessons[3].ID
+
+	mostIdx := strings.Index(view, mostMissed)
+	lessIdx := strings.Index(view, lessMissed)
+	if mostIdx == -1 || lessIdx == -1 {
+		t.Fatalf("weakest exercises missing from menu (most=%d, less=%d):\n%s", mostIdx, lessIdx, view)
+	}
+	if mostIdx > lessIdx {
+		t.Errorf("weakest exercises out of order: %s should precede %s:\n%s", mostMissed, lessMissed, view)
+	}
+	if !strings.Contains(view, "Weakest:") {
+		t.Errorf("trainer menu does not label the weakest exercises:\n%s", view)
+	}
+}
+
+// TestTrainerWeakExerciseTextStaysWithinWidth pins that the weakest-exercises
+// line never grows past the 80-column terminal's inner width, even with three
+// long identifiers and their wrong counts. The list degrades by dropping the
+// least-missed entries instead of wrapping and breaking the layout.
+func TestTrainerWeakExerciseTextStaysWithinWidth(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+	if len(lessons) < 5 {
+		t.Fatalf("need at least 5 horizontal lessons, got %d", len(lessons))
+	}
+
+	// Give a third exercise misses so the list has three entries.
+	progress.RecordPracticeResult(lessons[4].ID, false)
+
+	practice := trainer.GetPracticeStatsForModule(trainer.ModuleHorizontal, progress)
+	if len(practice.WeakestExercises) != 3 {
+		t.Fatalf("expected 3 weak exercises, got %d", len(practice.WeakestExercises))
+	}
+
+	const innerWidth = 80 - 4 // global left/right padding
+	line := trainerWeakExerciseText(progress, practice, innerWidth)
+	if w := lipgloss.Width(line); w > innerWidth {
+		t.Errorf("weakest-exercises line is %d columns wide, want <= %d: %q", w, innerWidth, line)
+	}
+	// The most-missed exercise must survive the degradation.
+	if !strings.Contains(line, lessons[2].ID) {
+		t.Errorf("weakest-exercises line dropped the most-missed exercise: %q", line)
+	}
+}
+
+// TestTrainerMenuEmptyStatsOmitsWeakestList pins that an empty profile renders
+// a sane menu without the weakest-exercises list.
+func TestTrainerMenuEmptyStatsOmitsWeakestList(t *testing.T) {
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+
+	view := m.View()
+	if strings.Contains(view, "Weakest:") {
+		t.Errorf("an empty profile should not render a weakest-exercises list:\n%s", view)
+	}
+	if !strings.Contains(view, "Horizontal Motions") {
+		t.Errorf("empty stats should still render the module list:\n%s", view)
+	}
+}
+
+// TestTrainerMenuUnreadableStatsRendersSaneMenu pins that a nil stats value
+// (what LoadStats returns for a missing or unreadable file) renders the module
+// list instead of panicking or showing junk.
+func TestTrainerMenuUnreadableStatsRendersSaneMenu(t *testing.T) {
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = nil
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+
+	view := m.View()
+	if !strings.Contains(view, "Horizontal Motions") {
+		t.Errorf("nil stats should still render the module list:\n%s", view)
+	}
+	if strings.Contains(view, "Weakest:") {
+		t.Errorf("nil stats should not render a weakest-exercises list:\n%s", view)
+	}
+}
+
+// TestTrainerMenuNavigationUnchanged pins that the progress text is
+// display-only: the number of selectable entries is the same, the cursor still
+// clamps at both ends, and selecting an entry still starts that module.
+func TestTrainerMenuNavigationUnchanged(t *testing.T) {
+	m := newTrainerProgressModel(t)
+
+	if got := len(m.TrainerModules); got != 7 {
+		t.Fatalf("selectable module count changed: got %d, want 7", got)
+	}
+
+	down := func(m Model) Model {
+		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+		return res.(Model)
+	}
+	up := func(m Model) Model {
+		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+		return res.(Model)
+	}
+
+	m = down(m)
+	if m.TrainerCursor != 1 {
+		t.Errorf("j moved the cursor to %d, want 1", m.TrainerCursor)
+	}
+	m = up(m)
+	if m.TrainerCursor != 0 {
+		t.Errorf("k moved the cursor to %d, want 0", m.TrainerCursor)
+	}
+	m = up(m)
+	if m.TrainerCursor != 0 {
+		t.Errorf("k at the top moved the cursor to %d, want 0", m.TrainerCursor)
+	}
+	for i := 0; i < 10; i++ {
+		m = down(m)
+	}
+	if want := len(m.TrainerModules) - 1; m.TrainerCursor != want {
+		t.Errorf("j at the bottom moved the cursor to %d, want %d", m.TrainerCursor, want)
+	}
+
+	// Selecting still starts the lesson for the module under the cursor.
+	m.TrainerCursor = 0
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+	if m.Screen != ScreenTrainerLesson {
+		t.Errorf("selecting Horizontal reached screen %v, want %v", m.Screen, ScreenTrainerLesson)
+	}
+	if m.TrainerGameState == nil || m.TrainerGameState.CurrentModule != trainer.ModuleHorizontal {
+		t.Errorf("selecting index 0 did not start the Horizontal module")
+	}
+}
+
+// =============================================================================
+// WHOLE-PROFILE RESET
+// =============================================================================
+
+// trainerHasProgress reports whether a profile holds anything a whole-profile
+// reset must erase. The seeded menu profile sets none of the top-level counters,
+// so the check also looks at the per-module records and the defeated bosses.
+func trainerHasProgress(stats *trainer.UserStats) bool {
+	if stats == nil {
+		return false
+	}
+	if stats.TotalScore != 0 || stats.CurrentStreak != 0 || stats.BestStreak != 0 {
+		return true
+	}
+	return len(stats.ModuleProgress) != 0 || len(stats.BossesDefeated) != 0
+}
+
+// trainerResetKeyMsg is the key press that arms and confirms the whole-profile
+// reset. Shifted R is a distinct rune from the per-module [r], so bubbletea
+// delivers it without a modifier chord.
+func trainerResetKeyMsg() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}}
+}
+
+// TestTrainerResetAllArmsWithoutClearing pins that a single press of the reset
+// key only arms the reset and says what it is waiting for: the profile, in
+// memory and on disk, must be untouched.
+func TestTrainerResetAllArmsWithoutClearing(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	m.TrainerStats.TotalScore = 250
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding stats failed: %v", err)
+	}
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+
+	if !trainerHasProgress(m.TrainerStats) {
+		t.Fatal("the first reset key press cleared the in-memory profile")
+	}
+	if onDisk := trainer.LoadStats(); !trainerHasProgress(onDisk) {
+		t.Fatal("the first reset key press cleared the profile on disk")
+	}
+	if !strings.Contains(m.TrainerMessage, "[R]") || !strings.Contains(strings.ToLower(m.TrainerMessage), "again") {
+		t.Errorf("armed reset does not say it is waiting for a confirmation: %q", m.TrainerMessage)
+	}
+}
+
+// TestTrainerResetAllConfirmingClearsProfile pins that the second press clears
+// the whole profile: the counters are zero in memory and the stats file on disk
+// holds the erased state, so the menu reflects it without a restart.
+func TestTrainerResetAllConfirmingClearsProfile(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	m.TrainerStats.TotalScore = 250
+	m.TrainerStats.BestStreak = 9
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding stats failed: %v", err)
+	}
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	res, _ = m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+
+	if trainerHasProgress(m.TrainerStats) {
+		t.Errorf("profile still has progress in memory after confirming: %+v", m.TrainerStats)
+	}
+
+	onDisk := trainer.LoadStats()
+	if onDisk == nil {
+		t.Fatal("no stats file after confirming; the cleared state was not persisted")
+	}
+	if trainerHasProgress(onDisk) {
+		t.Errorf("stats file still holds progress after confirming: %+v", onDisk)
+	}
+
+	// The menu must reflect the wipe from the same model, without a restart.
+	view := m.View()
+	if strings.Contains(view, "Bosses: 1/7") {
+		t.Errorf("menu still shows the erased boss count after confirming:\n%s", view)
+	}
+	if !strings.Contains(view, "Bosses: 0/7") {
+		t.Errorf("menu does not show the cleared boss count after confirming:\n%s", view)
+	}
+}
+
+// TestTrainerResetAllCancelKeepsProfile pins that any other key disarms the
+// reset and leaves the profile alone, so a single stray keystroke can neither
+// clear nor half-commit the wipe, and the next reset key press only re-arms.
+func TestTrainerResetAllCancelKeepsProfile(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	m.TrainerStats.TotalScore = 250
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding stats failed: %v", err)
+	}
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = res.(Model)
+
+	if !trainerHasProgress(m.TrainerStats) {
+		t.Error("an unrelated key cleared the in-memory profile")
+	}
+	if onDisk := trainer.LoadStats(); !trainerHasProgress(onDisk) {
+		t.Error("an unrelated key cleared the profile on disk")
+	}
+
+	// Cancelling must disarm: the next reset key press only arms again.
+	res, _ = m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	if !trainerHasProgress(m.TrainerStats) {
+		t.Error("a single reset key press after a cancel cleared the profile; the cancel did not disarm")
+	}
+}
+
+// TestTrainerResetAllEscapeCancels pins that escape disarms the pending reset
+// instead of leaving it armed behind the menu, and never clears the profile.
+func TestTrainerResetAllEscapeCancels(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	m.TrainerStats.TotalScore = 250
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding stats failed: %v", err)
+	}
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = res.(Model)
+
+	if strings.Contains(m.TrainerMessage, "[R]") {
+		t.Errorf("escape left the reset armed: message = %q", m.TrainerMessage)
+	}
+	if onDisk := trainer.LoadStats(); !trainerHasProgress(onDisk) {
+		t.Error("escape cleared the profile on disk")
+	}
+}
+
+// TestTrainerResetAllWithMissingProfile pins that the reset path does not panic
+// when the stats file is missing or unreadable (LoadStats returns nil) and that
+// it still leaves a clean, empty profile behind.
+func TestTrainerResetAllWithMissingProfile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = nil // what LoadStats returns for a missing or corrupt file
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	res, _ = m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+
+	if m.TrainerStats == nil {
+		t.Fatal("confirming with a missing profile left TrainerStats nil")
+	}
+	if trainerHasProgress(m.TrainerStats) {
+		t.Errorf("cleared profile is not empty: %+v", m.TrainerStats)
+	}
+}
+
+// TestTrainerMenuHelpMentionsResetKeys pins that both reset keys are
+// discoverable from the menu's help line.
+func TestTrainerMenuHelpMentionsResetKeys(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	for _, want := range []string{"[r] reset module", "[R] reset all"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("trainer menu help does not mention %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTrainerModuleResetKeyStillScopedToModule pins that the existing [r]
+// shortcut keeps clearing only the selected module's practice data: the module
+// keeps its lessons and boss, and the other modules are untouched.
+func TestTrainerModuleResetKeyStillScopedToModule(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	selected := m.TrainerModules[m.TrainerCursor] // Horizontal
+	other := m.TrainerModules[1]                  // Vertical
+
+	otherProgress := m.TrainerStats.GetModuleProgress(other.ID)
+	otherProgress.BossDefeated = true
+
+	horizontal := m.TrainerStats.ModuleProgress[selected.ID]
+	if len(horizontal.ExerciseStats) == 0 {
+		t.Fatal("seed did not create exercise stats")
+	}
+	lessonsBefore := horizontal.LessonsCompleted
+	bossBefore := horizontal.BossDefeated
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = res.(Model)
+
+	horizontal = m.TrainerStats.ModuleProgress[selected.ID]
+	if len(horizontal.ExerciseStats) != 0 {
+		t.Errorf("module reset left %d exercise records behind", len(horizontal.ExerciseStats))
+	}
+	if horizontal.LessonsCompleted != lessonsBefore || horizontal.BossDefeated != bossBefore {
+		t.Error("module reset changed the selected module's lessons or boss")
+	}
+	if got := m.TrainerStats.ModuleProgress[other.ID]; got == nil || !got.BossDefeated {
+		t.Error("module reset touched another module")
 	}
 }

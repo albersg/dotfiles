@@ -130,34 +130,6 @@ func TestExercise_Creation(t *testing.T) {
 	}
 }
 
-func TestExercise_WithCursorTarget(t *testing.T) {
-	target := &Position{Line: 0, Col: 6}
-	exercise := Exercise{
-		ID:           "test",
-		CursorPos:    Position{Line: 0, Col: 0},
-		CursorTarget: target,
-	}
-
-	if exercise.CursorTarget == nil {
-		t.Error("CursorTarget should not be nil")
-	}
-	if exercise.CursorTarget.Col != 6 {
-		t.Errorf("CursorTarget.Col: expected 6, got %d", exercise.CursorTarget.Col)
-	}
-}
-
-func TestExercise_WithoutCursorTarget(t *testing.T) {
-	// Para ejercicios de text objects, no hay target de posición
-	exercise := Exercise{
-		ID:           "textobj_001",
-		CursorTarget: nil,
-	}
-
-	if exercise.CursorTarget != nil {
-		t.Error("CursorTarget should be nil for text object exercises")
-	}
-}
-
 // =============================================================================
 // MODULE INFO
 // =============================================================================
@@ -274,6 +246,33 @@ func TestNextModule_FollowsUnlockOrder(t *testing.T) {
 			got, ok := NextModule(tt.module)
 			if ok != tt.ok || got != tt.want {
 				t.Errorf("NextModule(%q) = (%q, %v), want (%q, %v)", tt.module, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// EXERCISE STATS MASTERY PREDICATE
+// =============================================================================
+
+// TestExerciseStats_IsMastered pins the single mastery predicate weighted
+// practice selection and the trainer menu both read. A nil record counts as not
+// mastered so display code can query an exercise that was never recorded.
+func TestExerciseStats_IsMastered(t *testing.T) {
+	tests := []struct {
+		name  string
+		stats *ExerciseStats
+		want  bool
+	}{
+		{"nil record is not mastered", nil, false},
+		{"unmastered record is not mastered", &ExerciseStats{Mastered: false}, false},
+		{"mastered record is mastered", &ExerciseStats{Mastered: true}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.stats.IsMastered(); got != tt.want {
+				t.Errorf("IsMastered() = %v, want %v", got, tt.want)
 			}
 		})
 	}

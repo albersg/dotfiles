@@ -155,47 +155,6 @@ func TestGetLessons_UnknownModule_ReturnsEmpty(t *testing.T) {
 }
 
 // =============================================================================
-// GET PRACTICE EXERCISES
-// =============================================================================
-
-func TestGetPracticeExercises_Horizontal_ReturnsExercises(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleHorizontal)
-
-	if len(exercises) == 0 {
-		t.Error("GetPracticeExercises should return exercises")
-	}
-}
-
-func TestGetPracticeExercises_Horizontal_AllPracticeType(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleHorizontal)
-
-	for i, ex := range exercises {
-		if ex.Type != ExercisePractice {
-			t.Errorf("Practice exercise %d: Type should be Practice, got %s", i, ex.Type)
-		}
-	}
-}
-
-func TestGetPracticeExercises_Horizontal_HasMoreThanLessons(t *testing.T) {
-	lessons := GetLessons(ModuleHorizontal)
-	practice := GetPracticeExercises(ModuleHorizontal)
-
-	// Practice should have at least as many exercises as lessons
-	// (or more, since it includes variations)
-	if len(practice) < len(lessons) {
-		t.Errorf("Practice should have at least %d exercises, got %d", len(lessons), len(practice))
-	}
-}
-
-func TestGetPracticeExercises_UnknownModule_ReturnsEmpty(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleID("unknown"))
-
-	if len(exercises) != 0 {
-		t.Errorf("Unknown module should return empty slice, got %d exercises", len(exercises))
-	}
-}
-
-// =============================================================================
 // GET BOSS
 // =============================================================================
 
@@ -429,24 +388,6 @@ func TestGetLessons_Vertical_HasMultiLineCode(t *testing.T) {
 	for i, ex := range lessons {
 		if len(ex.Code) < 2 {
 			t.Errorf("Lesson %d: Vertical exercises should have multi-line code, got %d lines", i, len(ex.Code))
-		}
-	}
-}
-
-func TestGetPracticeExercises_Vertical_ReturnsExercises(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleVertical)
-
-	if len(exercises) == 0 {
-		t.Error("GetPracticeExercises should return exercises for Vertical")
-	}
-}
-
-func TestGetPracticeExercises_Vertical_AllPracticeType(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleVertical)
-
-	for i, ex := range exercises {
-		if ex.Type != ExercisePractice {
-			t.Errorf("Practice exercise %d: Type should be Practice, got %s", i, ex.Type)
 		}
 	}
 }
@@ -803,22 +744,6 @@ func TestGetLessons_Regex_HasCorrectCount(t *testing.T) {
 	}
 }
 
-func TestGetPracticeExercises_Regex_ReturnsExercises(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleRegex)
-	if len(exercises) == 0 {
-		t.Error("GetPracticeExercises should return exercises for Regex")
-	}
-}
-
-func TestGetPracticeExercises_Regex_AllPracticeType(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleRegex)
-	for i, ex := range exercises {
-		if ex.Type != ExercisePractice {
-			t.Errorf("Practice exercise %d: Type should be Practice, got %s", i, ex.Type)
-		}
-	}
-}
-
 func TestGetBoss_Regex_ReturnsBoss(t *testing.T) {
 	boss := GetBoss(ModuleRegex)
 	if boss == nil {
@@ -986,22 +911,6 @@ func TestGetLessons_Macros_HasCorrectCount(t *testing.T) {
 	// After adding :normal and :g commands, should have 24 lessons
 	if len(lessons) < 24 {
 		t.Errorf("Macros module should have at least 24 lessons after adding :normal/:g, got %d", len(lessons))
-	}
-}
-
-func TestGetPracticeExercises_Macros_ReturnsExercises(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleMacros)
-	if len(exercises) == 0 {
-		t.Error("GetPracticeExercises should return exercises for Macros")
-	}
-}
-
-func TestGetPracticeExercises_Macros_AllPracticeType(t *testing.T) {
-	exercises := GetPracticeExercises(ModuleMacros)
-	for i, ex := range exercises {
-		if ex.Type != ExercisePractice {
-			t.Errorf("Practice exercise %d: Type should be Practice, got %s", i, ex.Type)
-		}
 	}
 }
 
