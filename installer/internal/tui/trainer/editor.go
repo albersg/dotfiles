@@ -1,6 +1,9 @@
 package trainer
 
-import "unicode/utf8"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // Mode is the editing mode the engine is in after an answer. Only ModeNormal is
 // reachable from the commands this engine understands today; the remaining
@@ -31,15 +34,14 @@ type EditingResult struct {
 	Recognized bool     // false when the answer contains something the engine cannot parse
 }
 
-// indentUnit is one shift for >> and <<. The trainer's exercises are written
-// with two-space indentation, so the engine models 'shiftwidth=2' with
-// 'expandtab' set: >> inserts two spaces, and << removes up to two columns of
-// leading whitespace (a single leading tab counts as one shift).
-const indentUnit = "  "
+// shiftWidth is one shift for >> and <<, in columns. The trainer's exercises
+// are written with two-space indentation, so the engine models 'shiftwidth=2'.
+const shiftWidth = 2
 
-// indentWidth is the column width of one shift, in bytes; indentUnit is spaces
-// so bytes and runes agree.
-const indentWidth = len(indentUnit)
+// tabStop is the column width of one tab in the indentation model, matching
+// 'tabstop=2'. Indentation is a width in columns rather than a count of
+// characters, so a leading tab is two columns wide wherever a line places it.
+const tabStop = 2
 
 // editingRegister is the unnamed yank/delete register. linewise records whether
 // the content is whole lines (yy, dd) or a character range, because p and P mean
@@ -51,11 +53,17 @@ type editingRegister struct {
 	set      bool
 }
 
-// editorSnapshot is one undo history entry: the buffer and cursor as they were
-// before a normal-mode command changed the buffer.
+// editorSnapshot is one undo history entry: the buffer and the cursor an undo
+// restores, plus the cursor rule of the change it undoes. nvim restores the
+// column the command was issued from, except for a one-line linewise shift or
+// delete, where it stops at the first non-blank of the changed line; cursorFor
+// applies that rule.
 type editorSnapshot struct {
 	buffer []string
 	cursor Position
+	// startOfLine marks a one-line linewise shift or delete, the only change
+	// undo repositions the cursor for.
+	startOfLine bool
 }
 
 // editor is the mutable editing state for a single SimulateEditing call.
@@ -140,6 +148,15 @@ func (e *editor) execute(input string) bool {
 		// The count never starts with '0': that byte is the first-column
 		// motion, which countPrefix leaves for the motion parser.
 		count, afterCount := countPrefix(input, i)
+
+		// Refuse a count on D outright. Vim's [count]D reaches across lines and
+		// is a no-op within a single one, so nothing this engine could compute
+		// from it would be the answer Vim produces; an answer like 2D must be
+		// unrecognised rather than accepted with a wrong buffer. A count of one
+		// is exactly Vim's D (verified against nvim) and is accepted as such.
+		if afterCount < len(input) && input[afterCount] == 'D' && count > 1 {
+			return false
+		}
 
 		if afterCount < len(input) {
 			if consumed, ok := e.applyMutation(input[afterCount], count, input[afterCount+1:]); ok {
@@ -254,9 +271,9 @@ func (e *editor) deleteLines(count int) {
 	if cursor.Line >= len(remaining) {
 		cursor.Line = len(remaining) - 1
 	}
-	cursor.Col = firstNonBlankColumn(remaining[cursor.Line])
+	cursor.Col = startOfLineColumn(remaining[cursor.Line])
 
-	e.commit(remaining, cursor, !sameLines(e.buffer, remaining))
+	e.commit(remaining, cursor, !sameLines(e.buffer, remaining), count == 1)
 }
 
 // yankLines implements [count]yy: it fills the unnamed register with whole
@@ -271,8 +288,10 @@ func (e *editor) yankLines(count int) {
 }
 
 // shiftLines implements [count]>> (indent true) and [count]<< (indent false)
-// on the current line and the lines below it, then leaves the cursor on the
-// first non-blank of the current line.
+// on the current line and the lines below it. An empty line is left alone, but
+// a line that holds only whitespace is shifted, exactly as nvim does. The
+// cursor lands where nvim's startofline landing puts it on the current line:
+// the first non-blank, or the last character of a line that has none.
 func (e *editor) shiftLines(count int, indent bool) {
 	next := copyLines(e.buffer)
 	last := e.cursor.Line + count
@@ -280,15 +299,14 @@ func (e *editor) shiftLines(count int, indent bool) {
 		last = len(next)
 	}
 	for line := e.cursor.Line; line < last; line++ {
-		if indent {
-			next[line] = indentUnit + next[line]
-		} else {
-			next[line] = removeShift(next[line])
+		if next[line] == "" {
+			continue
 		}
+		next[line] = shiftIndent(next[line], indent)
 	}
 
-	cursor := Position{Line: e.cursor.Line, Col: firstNonBlankColumn(next[e.cursor.Line])}
-	e.commit(next, cursor, !sameLines(e.buffer, next))
+	cursor := Position{Line: e.cursor.Line, Col: startOfLineColumn(next[e.cursor.Line])}
+	e.commit(next, cursor, !sameLines(e.buffer, next), count == 1)
 }
 
 // deleteChars implements [count]x: it deletes the runes at and after the cursor
@@ -320,13 +338,14 @@ func (e *editor) deleteChars(count int) {
 		cursor.Col = 0
 	}
 
-	e.commit(buffer, cursor, !sameLines(e.buffer, buffer))
+	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
 }
 
 // deleteToLineEnd implements D: it deletes from the cursor to the end of the
 // current line, leaving the cursor on the last remaining rune. An empty line
-// has nothing to delete, so the command is a no-op there. A count prefix is
-// parsed but ignored; [count]D is out of scope for this engine.
+// has nothing to delete, so the command is a no-op there. A count of one is
+// Vim's D, but a larger count makes [count]D span lines, which this engine does
+// not model: execute refuses those before they reach here.
 func (e *editor) deleteToLineEnd() {
 	runes := []rune(e.buffer[e.cursor.Line])
 	if e.cursor.Col >= len(runes) {
@@ -347,7 +366,7 @@ func (e *editor) deleteToLineEnd() {
 		cursor.Col = 0
 	}
 
-	e.commit(buffer, cursor, !sameLines(e.buffer, buffer))
+	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
 }
 
 // put implements [count]p (before false) and [count]P (before true) for linewise
@@ -376,8 +395,8 @@ func (e *editor) put(count int, before bool) {
 	buffer = append(buffer, block...)
 	buffer = append(buffer, e.buffer[insertAt:]...)
 
-	cursor := Position{Line: insertAt, Col: firstNonBlankColumn(buffer[insertAt])}
-	e.commit(buffer, cursor, !sameLines(e.buffer, buffer))
+	cursor := Position{Line: insertAt, Col: startOfLineColumn(buffer[insertAt])}
+	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
 }
 
 // undoStep implements u: one snapshot per normal-mode command. A command that
@@ -389,9 +408,33 @@ func (e *editor) undoStep() {
 	}
 	snapshot := e.undo[len(e.undo)-1]
 	e.undo = e.undo[:len(e.undo)-1]
-	e.redo = append(e.redo, editorSnapshot{buffer: copyLines(e.buffer), cursor: e.cursor})
+
+	restored := cursorFor(snapshot)
+	// Redo restores the buffer and leaves the cursor where the undo left it,
+	// which is what nvim does, so the redo entry carries the restored cursor
+	// rather than the cursor the command ended on.
+	e.redo = append(e.redo, editorSnapshot{
+		buffer:      copyLines(e.buffer),
+		cursor:      restored,
+		startOfLine: snapshot.startOfLine,
+	})
 	e.buffer = snapshot.buffer
-	e.cursor = snapshot.cursor
+	e.cursor = restored
+}
+
+// cursorFor is the cursor an undo of snapshot leaves behind: the column the
+// command was issued from, except that a one-line linewise shift or delete
+// stops at the first non-blank of the restored line, which is what nvim does
+// and what the mutation itself already does.
+func cursorFor(snapshot editorSnapshot) Position {
+	cursor := snapshot.cursor
+	if !snapshot.startOfLine {
+		return cursor
+	}
+	return Position{
+		Line: cursor.Line,
+		Col:  undoStartOfLineColumn(snapshot.buffer[cursor.Line], cursor.Col),
+	}
 }
 
 // redoStep implements Ctrl-r: it reapplies the most recently undone command.
@@ -401,17 +444,27 @@ func (e *editor) redoStep() {
 	}
 	snapshot := e.redo[len(e.redo)-1]
 	e.redo = e.redo[:len(e.redo)-1]
-	e.undo = append(e.undo, editorSnapshot{buffer: copyLines(e.buffer), cursor: e.cursor})
+	e.undo = append(e.undo, editorSnapshot{
+		buffer:      copyLines(e.buffer),
+		cursor:      e.cursor,
+		startOfLine: snapshot.startOfLine,
+	})
 	e.buffer = snapshot.buffer
 	e.cursor = snapshot.cursor
 }
 
 // commit applies a command's result. changed reports whether the buffer really
 // changed; only a real change records an undo snapshot and clears the redo
-// stack, so no-op commands never become undo points.
-func (e *editor) commit(buffer []string, cursor Position, changed bool) {
+// stack, so no-op commands never become undo points. startOfLine marks a
+// one-line linewise shift or delete, whose undo stops at the first non-blank of
+// the changed line (see cursorFor).
+func (e *editor) commit(buffer []string, cursor Position, changed, startOfLine bool) {
 	if changed {
-		e.undo = append(e.undo, editorSnapshot{buffer: copyLines(e.buffer), cursor: e.cursor})
+		e.undo = append(e.undo, editorSnapshot{
+			buffer:      copyLines(e.buffer),
+			cursor:      e.cursor,
+			startOfLine: startOfLine,
+		})
 		e.redo = nil
 	}
 	e.buffer = buffer
@@ -452,28 +505,71 @@ func sameLines(a, b []string) bool {
 	return true
 }
 
-// firstNonBlankColumn returns the rune column of the first non-blank character,
-// or 0 for a blank or empty line.
-func firstNonBlankColumn(line string) int {
+// firstNonBlankColumn returns the rune column of line's first non-blank
+// character and whether the line has one; a line of only whitespace has none.
+func firstNonBlankColumn(line string) (int, bool) {
 	for i, r := range []rune(line) {
 		if r != ' ' && r != '\t' {
-			return i
+			return i, true
 		}
+	}
+	return 0, false
+}
+
+// startOfLineColumn is where nvim's startofline landing leaves the cursor on a
+// line: the first non-blank, or the last character when the line has none.
+// Every linewise mutation lands here - dd, >>, <<, p and P - so an all-blank
+// line is entered at its last column rather than at column zero.
+func startOfLineColumn(line string) int {
+	if first, ok := firstNonBlankColumn(line); ok {
+		return first
+	}
+	if runes := []rune(line); len(runes) > 0 {
+		return len(runes) - 1
 	}
 	return 0
 }
 
-// removeShift removes up to one shift of leading whitespace: one leading tab,
-// or up to indentWidth leading spaces.
-func removeShift(line string) string {
-	runes := []rune(line)
-	removed := 0
-	for removed < indentWidth && len(runes) > 0 && runes[0] == ' ' {
-		runes = runes[1:]
-		removed++
+// undoStartOfLineColumn is where undoing a one-line linewise shift or delete
+// leaves the cursor: the column the command was issued from, but never past the
+// first non-blank of the changed line. Unlike a mutation's own landing, a line
+// with no non-blank is left exactly where it was.
+func undoStartOfLineColumn(line string, col int) int {
+	if first, ok := firstNonBlankColumn(line); ok && col > first {
+		return first
 	}
-	if removed == 0 && len(runes) > 0 && runes[0] == '\t' {
-		runes = runes[1:]
+	return col
+}
+
+// indentColumns returns the width in columns of line's leading whitespace. A
+// space is one column and a tab advances to the next tabstop, so with
+// 'tabstop=2' the three characters of "\t\ta" are four columns wide.
+func indentColumns(line string) int {
+	columns := 0
+	for _, r := range line {
+		switch r {
+		case ' ':
+			columns++
+		case '\t':
+			columns += tabStop - columns%tabStop
+		default:
+			return columns
+		}
 	}
-	return string(runes)
+	return columns
+}
+
+// shiftIndent rewrites line's leading whitespace one shift to the right
+// (indent true) or to the left. Indentation is measured and offset in columns
+// and written back as spaces, which is what 'expandtab' with 'shiftwidth=2'
+// does: >> turns "\tfoo" into four spaces, and << never removes more than the
+// indentation a line actually has.
+func shiftIndent(line string, indent bool) string {
+	columns := indentColumns(line)
+	if indent {
+		columns += shiftWidth
+	} else if columns -= shiftWidth; columns < 0 {
+		columns = 0
+	}
+	return strings.Repeat(" ", columns) + strings.TrimLeft(line, " \t")
 }

@@ -426,10 +426,15 @@ func TestSimulateEditing_UndoRedo(t *testing.T) {
 			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
 		},
 		{
+			// nvim with "set shiftwidth=2 expandtab tabstop=2 startofline":
+			// dd then u leaves the cursor on the first non-blank of the restored
+			// line (column 3 of "  beta"), and Ctrl-r puts the line back without
+			// moving the cursor, so the redo ends at column 3 rather than at the
+			// column dd itself landed on.
 			name: "dd then u then redo deletes again",
 			code: base, start: Position{Line: 1, Col: 2}, input: "ddu\x12",
 			wantBuffer: []string{"alpha", "gamma", "delta"},
-			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
 		},
 		{
 			name: "right shift then u restores the indentation",
@@ -947,6 +952,500 @@ func TestSimulateEditing_UnrecognizedMotionsStayUnrecognized(t *testing.T) {
 			code: base, start: Position{Line: 0, Col: 0}, input: "2jz",
 			wantBuffer: base,
 			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+	})
+}
+
+// nvimShiftReference names the reference implementation and the exact settings
+// every expectation below was read from: nvim v0.12.5 run as
+// "nvim --clean --headless" with "set shiftwidth=2 expandtab tabstop=2
+// startofline", one command per undo block, on the buffer and start position
+// of each case. The trainer's exercises are written for those settings, which
+// is what makes this the reference rather than a test written beside the
+// engine.
+//
+// Two of nvim's behaviours are part of the model and are easy to get wrong when
+// indentation is treated as a prefix of characters:
+//
+//   - Indentation is a width in columns. A tab advances to the next tabstop, so
+//     with 'tabstop=2' the tab of "\ta" is two columns wide: >> rewrites it as
+//     spaces and << removes two columns of whitespace, never a whole tab.
+//   - An empty line is left alone, but a line holding only whitespace is
+//     shifted. Inside a range nvim skips "", and still indents "   ".
+//
+// Note that this nvim build defaults 'startofline' off while Vim documents it
+// on. The engine models it on, which is also what its own mutations already do:
+// dd lands on the first non-blank.
+const nvimShiftReference = "nvim --clean --headless, shiftwidth=2 expandtab tabstop=2 startofline"
+
+// TestSimulateEditing_ShiftIndentationColumns specifies >> and << against
+// nvimShiftReference. Every single-line case uses a one-line buffer with the
+// cursor in column 1; each range case states its start position in its name.
+func TestSimulateEditing_ShiftIndentationColumns(t *testing.T) {
+	runEditingCases(t, []editingCase{
+		{
+			name: "right shift leaves an empty line empty",
+			code: []string{""}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{""},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift leaves an empty line empty",
+			code: []string{""}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{""},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift indents an unindented line",
+			code: []string{"a"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"  a"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift on an unindented line is a no-op",
+			code: []string{"a"}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift adds one shift to space indentation",
+			code: []string{"  a"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"    a"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift removes one shift of space indentation",
+			code: []string{"  a"}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift rewrites a tab as spaces",
+			code: []string{"\ta"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"    a"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift removes the two columns a tab occupies",
+			code: []string{"\ta"}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift measures spaces and a tab in columns",
+			code: []string{"  \ta"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"      a"},
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift removes two of the four columns of spaces plus tab",
+			code: []string{"  \ta"}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{"  a"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift measures two tabs as four columns",
+			code: []string{"\t\ta"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"      a"},
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift leaves two of the four columns of two tabs",
+			code: []string{"\t\ta"}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{"  a"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift on a single leading space",
+			code: []string{" a"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"   a"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift removes the single leading space",
+			code: []string{" a"}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift on three leading spaces",
+			code: []string{"   a"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"     a"},
+			wantCursor: Position{Line: 0, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift removes exactly one shift of three spaces",
+			code: []string{"   a"}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{" a"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift measures a space and a tab in columns",
+			code: []string{" \ta"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"    a"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift removes the space and tab columns",
+			code: []string{" \ta"}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted right shift skips a blank line in its range",
+			code: []string{"a", "", "b"}, start: Position{Line: 0, Col: 0}, input: "2>>",
+			wantBuffer: []string{"  a", "", "b"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted left shift skips a blank line in its range",
+			code: []string{"  a", "", "  b"}, start: Position{Line: 0, Col: 0}, input: "2<<",
+			wantBuffer: []string{"a", "", "  b"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted right shift skips a blank line inside its range",
+			code: []string{"a", "", "\tb"}, start: Position{Line: 0, Col: 0}, input: "3>>",
+			wantBuffer: []string{"  a", "", "    b"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted right shift from a blank line expands the tab line",
+			code: []string{"a", "", "\tb"}, start: Position{Line: 1, Col: 0}, input: "2>>",
+			wantBuffer: []string{"a", "", "    b"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted left shift skips a blank line before a tab line",
+			code: []string{"a", "  ", "\tb"}, start: Position{Line: 1, Col: 0}, input: "2<<",
+			wantBuffer: []string{"a", "", "b"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted right shift indents a whitespace-only line",
+			code: []string{"a", "   ", "b"}, start: Position{Line: 0, Col: 0}, input: "2>>",
+			wantBuffer: []string{"  a", "     ", "b"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted left shift outdents a whitespace-only line",
+			code: []string{"a", "   ", "b"}, start: Position{Line: 0, Col: 0}, input: "2<<",
+			wantBuffer: []string{"a", " ", "b"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a count past the buffer shifts every remaining line",
+			code: []string{"a", "", "b"}, start: Position{Line: 0, Col: 0}, input: "5>>",
+			wantBuffer: []string{"  a", "", "  b"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the shift cursor does not depend on the starting column",
+			code: []string{"a", "", "\tb"}, start: Position{Line: 0, Col: 2}, input: "2>>",
+			wantBuffer: []string{"  a", "", "\tb"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_StartOfLineLandingOnBlankLines pins the cursor landing
+// shared by every linewise mutation against nvimShiftReference: the first
+// non-blank, or the last character when the line has no non-blank. nvim uses
+// that landing for >>, <<, dd, p and P, so an all-blank line is entered at its
+// last column and an empty line at column zero.
+func TestSimulateEditing_StartOfLineLandingOnBlankLines(t *testing.T) {
+	runEditingCases(t, []editingCase{
+		{
+			name: "right shift on a whitespace-only line ends on its last character",
+			code: []string{"   "}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"     "},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift on a whitespace-only line ignores the starting column",
+			code: []string{"   "}, start: Position{Line: 0, Col: 2}, input: ">>",
+			wantBuffer: []string{"     "},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift on a two-space line ends on its last character",
+			code: []string{"  "}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"    "},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift on a tab-only line ends on its last character",
+			code: []string{"\t"}, start: Position{Line: 0, Col: 0}, input: ">>",
+			wantBuffer: []string{"    "},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "left shift on a whitespace-only line ends on its last character",
+			code: []string{"   "}, start: Position{Line: 0, Col: 0}, input: "<<",
+			wantBuffer: []string{" "},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "right shift on a whitespace-only line below the first line",
+			code: []string{"a", "   ", "b"}, start: Position{Line: 1, Col: 0}, input: ">>",
+			wantBuffer: []string{"a", "     ", "b"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd landing on a whitespace-only line ends on its last character",
+			code: []string{"alpha", "   ", "gamma"}, start: Position{Line: 0, Col: 0}, input: "dd",
+			wantBuffer: []string{"   ", "gamma"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd landing on an empty line lands in column zero",
+			code: []string{"alpha", "", "gamma"}, start: Position{Line: 0, Col: 0}, input: "dd",
+			wantBuffer: []string{"", "gamma"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a put of a whitespace-only line ends on its last character",
+			code: []string{"a", "   ", "b"}, start: Position{Line: 1, Col: 0}, input: "yyp",
+			wantBuffer: []string{"a", "   ", "   ", "b"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_UndoOfLinewiseChangeLandsLikeNVim specifies where u
+// leaves the cursor for the linewise changes, against nvimShiftReference. nvim
+// restores the column the command was issued from, except that a one-line
+// linewise shift or delete stops at the first non-blank of the restored line,
+// and a line with no non-blank is left exactly where it was. A counted linewise
+// change and a linewise put keep the column, and a character-wise change always
+// keeps it. Redo puts the buffer back without moving the cursor, so it keeps
+// the undo landing.
+func TestSimulateEditing_UndoOfLinewiseChangeLandsLikeNVim(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "dd then u stops at the first non-blank of the restored line",
+			code: base, start: Position{Line: 1, Col: 3}, input: "ddu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd then u keeps a column before the first non-blank",
+			code: base, start: Position{Line: 1, Col: 1}, input: "ddu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd then u keeps column zero",
+			code: base, start: Position{Line: 1, Col: 0}, input: "ddu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd then u clamps a column past the first non-blank",
+			code: base, start: Position{Line: 1, Col: 5}, input: "ddu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd then u on the first line stops at its first non-blank",
+			code: base, start: Position{Line: 0, Col: 3}, input: "ddu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd then u on a change on the last line",
+			code: []string{"alpha", "  beta", "gamma", "  delta"}, start: Position{Line: 3, Col: 3}, input: "ddu",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "  delta"},
+			wantCursor: Position{Line: 3, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd then dd then u then u keeps the deepest landing",
+			code: base, start: Position{Line: 1, Col: 3}, input: "dddduu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the first of two undos lands on the shorter line",
+			code: base, start: Position{Line: 1, Col: 3}, input: "ddddu",
+			wantBuffer: []string{"alpha", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted delete keeps the issued column on undo",
+			code: base, start: Position{Line: 1, Col: 3}, input: "2ddu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted delete on the first line keeps the issued column",
+			code: base, start: Position{Line: 0, Col: 3}, input: "2ddu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yy then p then u keeps the issued column",
+			code: base, start: Position{Line: 1, Col: 3}, input: "yypu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yy then P then u keeps the issued column",
+			code: base, start: Position{Line: 1, Col: 3}, input: "yyPu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yy then p then p then u then u keeps the issued column",
+			code: base, start: Position{Line: 1, Col: 3}, input: "yyppuu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd then p then u keeps the column the put was issued from",
+			code: base, start: Position{Line: 1, Col: 3}, input: "ddpu",
+			wantBuffer: []string{"alpha", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dd then P then u keeps the column the put was issued from",
+			code: base, start: Position{Line: 1, Col: 3}, input: "ddPu",
+			wantBuffer: []string{"alpha", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a one-line right shift keeps the same landing on undo",
+			code: base, start: Position{Line: 1, Col: 3}, input: ">>u",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a one-line left shift keeps the same landing on undo",
+			code: base, start: Position{Line: 1, Col: 3}, input: "<<u",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a right shift of an unindented line undoes to column zero",
+			code: base, start: Position{Line: 0, Col: 3}, input: ">>u",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted right shift keeps the issued column on undo",
+			code: base, start: Position{Line: 1, Col: 3}, input: "2>>u",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of a character delete keeps the issued column",
+			code: base, start: Position{Line: 1, Col: 3}, input: "xu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of D keeps the issued column",
+			code: base, start: Position{Line: 1, Col: 3}, input: "Du",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo leaves a restored whitespace-only line where it was",
+			code: []string{"alpha", "   ", "gamma"}, start: Position{Line: 1, Col: 1}, input: "ddu",
+			wantBuffer: []string{"alpha", "   ", "gamma"},
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undo of a whitespace-only first line keeps column zero",
+			code: []string{"alpha", "   ", "gamma"}, start: Position{Line: 0, Col: 2}, input: "ddu",
+			wantBuffer: []string{"alpha", "   ", "gamma"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "redo keeps the cursor where the undo left it",
+			code: base, start: Position{Line: 1, Col: 3}, input: "ddu\x12",
+			wantBuffer: []string{"alpha", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a second undo after a redo keeps the same landing",
+			code: base, start: Position{Line: 1, Col: 3}, input: "ddu\x12u",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_CountedDeleteToEndIsRefused pins the one count the engine
+// refuses instead of modelling. nvim runs [count]D as a linewise delete from
+// the cursor to the end of the line count-1 lines below, which this engine does
+// not implement, and on a single line nvim's 2D is a no-op. Accepting either as
+// a result would score an answer Vim never produces, so the whole answer is
+// unrecognised and the buffer is left untouched. A count of one is exactly
+// Vim's D - verified against nvimShiftReference at every column of one-, two-
+// and three-line buffers - and keeps working.
+func TestSimulateEditing_CountedDeleteToEndIsRefused(t *testing.T) {
+	runEditingCases(t, []editingCase{
+		{
+			name: "a count on D is unrecognised",
+			code: []string{"abcdef"}, start: Position{Line: 0, Col: 0}, input: "2D",
+			wantBuffer: []string{"abcdef"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a counted D leaves the cursor where it started",
+			code: []string{"abcdef"}, start: Position{Line: 0, Col: 1}, input: "2D",
+			wantBuffer: []string{"abcdef"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a counted D across two lines is unrecognised",
+			code: []string{"abc", "def"}, start: Position{Line: 0, Col: 0}, input: "2D",
+			wantBuffer: []string{"abc", "def"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a counted D across three lines is unrecognised",
+			code: []string{"abc", "def", "ghi"}, start: Position{Line: 0, Col: 0}, input: "3D",
+			wantBuffer: []string{"abc", "def", "ghi"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a counted D on a later line is unrecognised",
+			code: []string{"abc", "def", "ghi"}, start: Position{Line: 1, Col: 0}, input: "2D",
+			wantBuffer: []string{"abc", "def", "ghi"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a counted D stops the answer after earlier commands",
+			code: []string{"abcdef"}, start: Position{Line: 0, Col: 0}, input: "x2D",
+			wantBuffer: []string{"bcdef"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a count of one is Vim's D",
+			code: []string{"abcdef"}, start: Position{Line: 0, Col: 0}, input: "1D",
+			wantBuffer: []string{""},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a bare D is unaffected",
+			code: []string{"abcdef"}, start: Position{Line: 0, Col: 0}, input: "D",
+			wantBuffer: []string{""},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a count of one deletes to the end like D",
+			code: []string{"abcdef"}, start: Position{Line: 0, Col: 1}, input: "1D",
+			wantBuffer: []string{"a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a count of one on a later line deletes to the end like D",
+			code: []string{"abc", "def", "ghi"}, start: Position{Line: 1, Col: 1}, input: "1D",
+			wantBuffer: []string{"abc", "d", "ghi"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
 		},
 	})
 }
