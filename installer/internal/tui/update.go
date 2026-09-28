@@ -1683,9 +1683,10 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 		validation := trainer.ValidateAnswerDetailed(exercise, m.TrainerInput)
 
 		if validation.IsCorrect {
-			// Record correct answer - time and optimal flag
-			// Using a fixed time of 10 seconds for now (can add actual timing later)
-			m.TrainerGameState.RecordCorrectAnswer(10.0, validation.IsOptimal)
+			// The game state owns the answer clock: it stamps the moment the
+			// exercise was presented, so the measured time is passed on instead of
+			// a fixed placeholder.
+			m.TrainerGameState.RecordCorrectAnswer(m.TrainerGameState.ElapsedSeconds(), validation.IsOptimal)
 			m.TrainerLastCorrect = true
 
 			if validation.IsOptimal {
@@ -1737,7 +1738,8 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 
 // handleTrainerBossKeys handles input during boss fights
 func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
-	if m.TrainerGameState == nil || m.TrainerGameState.CurrentBoss == nil {
+	if m.TrainerGameState == nil || m.TrainerGameState.CurrentBoss == nil ||
+		m.TrainerGameState.CurrentExercise == nil {
 		m.Screen = ScreenTrainerMenu
 		return m, nil
 	}
@@ -1755,19 +1757,21 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 		}
 
 		boss := m.TrainerGameState.CurrentBoss
-		// Keep the session exercise pointing at the step being answered, so the
-		// shared answer recorders score the right challenge.
-		m.TrainerGameState.CurrentExercise = &boss.Steps[m.TrainerGameState.BossStep].Exercise
-		isCorrect := trainer.ValidateAnswer(m.TrainerGameState.CurrentExercise, m.TrainerInput)
-		isOptimal := trainer.IsOptimalAnswer(m.TrainerGameState.CurrentExercise, m.TrainerInput)
+		// The game state owns which step is on screen and when it was presented,
+		// so answer the exercise it is presenting instead of re-pointing it from
+		// the UI: that mutation was the second place the session exercise was set.
+		answered := m.TrainerGameState.CurrentExercise
+		isCorrect := trainer.ValidateAnswer(answered, m.TrainerInput)
+		isOptimal := trainer.IsOptimalAnswer(answered, m.TrainerInput)
 
 		if isCorrect {
-			// The shared recorder owns streak, score and boss attempt accounting.
-			m.TrainerGameState.RecordCorrectAnswer(10.0, isOptimal)
+			// The shared recorder owns streak, score and boss attempt accounting. It
+			// measures the answer from the step's presentation, so a retry after a
+			// mistake is honestly slower.
+			m.TrainerGameState.RecordCorrectAnswer(m.TrainerGameState.ElapsedSeconds(), isOptimal)
 			m.TrainerInput = ""
-			m.TrainerGameState.BossStep++
 
-			if m.TrainerGameState.BossStep >= len(boss.Steps) {
+			if !m.TrainerGameState.NextBossExercise() {
 				// Boss defeated!
 				m.TrainerGameState.RecordBossVictory()
 				m.TrainerLastCorrect = true
@@ -1777,8 +1781,8 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 				if isOptimal {
 					m.TrainerMessage = "✨ Perfect! Next challenge..."
 				} else {
-					// The answered step, not the next one: BossStep has already moved.
-					m.TrainerMessage = "✓ Good! (Optimal: " + m.TrainerGameState.CurrentExercise.Optimal + ") Next..."
+					// The answered step, not the next one the fight has moved on to.
+					m.TrainerMessage = "✓ Good! (Optimal: " + answered.Optimal + ") Next..."
 				}
 			}
 		} else {
@@ -1788,7 +1792,7 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 			m.TrainerInput = ""
 
 			// Format the solution hint
-			solutionHint := trainer.FormatSolutionsHint(m.TrainerGameState.CurrentExercise)
+			solutionHint := trainer.FormatSolutionsHint(answered)
 
 			if m.TrainerGameState.BossLives <= 0 {
 				// Game over - show final solution

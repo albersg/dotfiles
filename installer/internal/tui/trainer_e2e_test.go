@@ -1236,3 +1236,156 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// ANSWER TIMING REGRESSION
+// =============================================================================
+
+// newTrainerTimedLessonModel builds a live lesson model whose answer clock is a
+// fake the test can advance, so answer timing is exercised without sleeping.
+// SetClock runs before StartLesson because presentation is what the clock is
+// measured from.
+func newTrainerTimedLessonModel(t *testing.T) (Model, *time.Time) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerLesson
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m.TrainerGameState.SetClock(func() time.Time { return now })
+	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
+	m.TrainerInput = ""
+	return m, &now
+}
+
+// newTrainerTimedBossModel is newTrainerTimedLessonModel for a boss fight.
+func newTrainerTimedBossModel(t *testing.T) (Model, *time.Time) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerBoss
+	m.TrainerStats = trainer.NewUserStats()
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+	progress.LessonsCompleted = 15
+	progress.LessonsTotal = 15
+	progress.PracticeAccuracy = 85.0
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m.TrainerGameState.SetClock(func() time.Time { return now })
+	m.TrainerGameState.StartBoss(trainer.ModuleHorizontal)
+	m.TrainerInput = ""
+	return m, &now
+}
+
+// submitNow types answer, advances the fake clock by elapsed and presses enter,
+// reporting the model the handler produced.
+func submitNow(t *testing.T, m Model, now *time.Time, answer string, elapsed time.Duration) Model {
+	t.Helper()
+
+	m.TrainerInput = answer
+	*now = now.Add(elapsed)
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	return result.(Model)
+}
+
+// TestTrainerAnswerTimeReachesScorer pins that the UI hands the time it measured
+// from presentation to the scorer instead of a fixed placeholder. Both cases
+// answer the same exercise optimally, so the scores can only differ if the
+// elapsed time the fake clock reports reaches the score calculation.
+func TestTrainerAnswerTimeReachesScorer(t *testing.T) {
+	fastModel, now := newTrainerTimedLessonModel(t)
+	exercise := fastModel.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("no lesson exercise presented")
+	}
+	fastModel = submitNow(t, fastModel, now, exercise.Optimal, 1500*time.Millisecond)
+
+	slowModel, slowNow := newTrainerTimedLessonModel(t)
+	slowExercise := slowModel.TrainerGameState.CurrentExercise
+	if slowExercise == nil {
+		t.Fatal("no lesson exercise presented")
+	}
+	if slowExercise.ID != exercise.ID {
+		t.Fatalf("test setup: the two runs presented different exercises: %s and %s", exercise.ID, slowExercise.ID)
+	}
+	slowModel = submitNow(t, slowModel, slowNow, slowExercise.Optimal, 2500*time.Millisecond)
+
+	if fastModel.Screen != ScreenTrainerResult || slowModel.Screen != ScreenTrainerResult {
+		t.Fatalf("screens after submitting = %v and %v, want %v", fastModel.Screen, slowModel.Screen, ScreenTrainerResult)
+	}
+
+	wantFast := trainer.CalculatePoints(exercise, 1.5, true, 1)
+	wantSlow := trainer.CalculatePoints(exercise, 2.5, true, 1)
+	if wantFast <= wantSlow {
+		t.Fatalf("test setup: the scorer gives no speed bonus for %s (fast %d, slow %d)", exercise.ID, wantFast, wantSlow)
+	}
+
+	if fastModel.TrainerGameState.SessionScore != wantFast {
+		t.Errorf("SessionScore = %d for a 1.5s answer, want %d: the measured time did not reach the scorer",
+			fastModel.TrainerGameState.SessionScore, wantFast)
+	}
+	if slowModel.TrainerGameState.SessionScore != wantSlow {
+		t.Errorf("SessionScore = %d for a 2.5s answer, want %d: the measured time did not reach the scorer",
+			slowModel.TrainerGameState.SessionScore, wantSlow)
+	}
+}
+
+// TestTrainerBossAnswerTimeReachesScorer covers the second answer path. Boss
+// step exercises carry no TimeoutSecs, so the scorer's speed gate is closed for
+// them by design and the earned points cannot show the measured time; the
+// accumulated TotalTime is the observable that does. It also pins that a wrong
+// boss answer does not restart the clock: the retry is measured from the
+// presentation of the step, so it is honestly slower.
+func TestTrainerBossAnswerTimeReachesScorer(t *testing.T) {
+	t.Run("a boss answer hands the measured time to the recorder", func(t *testing.T) {
+		m, now := newTrainerTimedBossModel(t)
+		exercise := m.TrainerGameState.CurrentExercise
+		if exercise == nil {
+			t.Fatal("no boss exercise presented")
+		}
+		if !trainer.ValidateAnswer(exercise, exercise.Optimal) {
+			t.Fatalf("test setup: the optimal answer %q is rejected for %s", exercise.Optimal, exercise.ID)
+		}
+
+		m = submitNow(t, m, now, exercise.Optimal, 1500*time.Millisecond)
+
+		if m.TrainerStats.TotalTime != 1500*time.Millisecond {
+			t.Errorf("TotalTime = %v after a 1.5s boss answer, want 1.5s: the measured time did not reach the recorder",
+				m.TrainerStats.TotalTime)
+		}
+	})
+
+	t.Run("a wrong boss answer does not restart the clock", func(t *testing.T) {
+		m, now := newTrainerTimedBossModel(t)
+		exercise := m.TrainerGameState.CurrentExercise
+		if exercise == nil {
+			t.Fatal("no boss exercise presented")
+		}
+
+		const wrong = "ZZZZZZ"
+		if trainer.ValidateAnswer(exercise, wrong) {
+			t.Fatalf("test setup: %q validated against %s", wrong, exercise.ID)
+		}
+
+		m = submitNow(t, m, now, wrong, 1500*time.Millisecond)
+		if m.Screen != ScreenTrainerBoss {
+			t.Fatalf("screen after a wrong boss answer = %v, want %v", m.Screen, ScreenTrainerBoss)
+		}
+
+		m = submitNow(t, m, now, exercise.Optimal, 500*time.Millisecond)
+
+		// Two seconds from presentation: the mistaken 1.5s plus the 0.5s retry.
+		// A clock restarted by the wrong answer would have recorded half a second.
+		const want = 2 * time.Second
+		if m.TrainerStats.TotalTime != want {
+			t.Errorf("TotalTime = %v after a wrong answer and a fast retry, want %v: the wrong answer restarted the clock",
+				m.TrainerStats.TotalTime, want)
+		}
+	})
+}

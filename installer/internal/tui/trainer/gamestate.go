@@ -37,6 +37,16 @@ type GameState struct {
 
 	// Timing
 	TimeElapsed time.Duration
+
+	// now is the clock seam for answer timing: time.Now in production, replaced
+	// through SetClock in tests so no test has to sleep to advance time.
+	now func() time.Time
+
+	// exerciseStartedAt is when the current exercise was presented on screen.
+	// presentExercise is its only writer. It is deliberately not reset by a
+	// wrong answer: ElapsedSeconds measures the time to solve the current
+	// exercise, so a retry after a mistake is honestly slower.
+	exerciseStartedAt time.Time
 }
 
 // NewGameState creates a new game state with fresh stats
@@ -44,6 +54,7 @@ func NewGameState() *GameState {
 	return &GameState{
 		Stats:           NewUserStats(),
 		ComboMultiplier: 1,
+		now:             time.Now,
 	}
 }
 
@@ -55,7 +66,47 @@ func NewGameStateWithStats(stats *UserStats) *GameState {
 	return &GameState{
 		Stats:           stats,
 		ComboMultiplier: 1,
+		now:             time.Now,
 	}
+}
+
+// SetClock replaces the clock the state uses to measure answer time. It exists
+// so tests can advance time without sleeping; production uses time.Now. Passing
+// nil restores the default.
+func (g *GameState) SetClock(now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+	g.now = now
+}
+
+// clockNow reads the injected clock, falling back to time.Now for a GameState
+// that was not built through a constructor.
+func (g *GameState) clockNow() time.Time {
+	if g.now == nil {
+		return time.Now()
+	}
+	return g.now()
+}
+
+// presentExercise is the single owner of the answer clock: it makes exercise
+// the current one and starts its timer. Every path that puts an exercise in
+// front of the player routes through it, so the elapsed time the scorer sees is
+// measured from that one moment and the UI keeps no clock of its own.
+func (g *GameState) presentExercise(exercise *Exercise) {
+	g.CurrentExercise = exercise
+	g.exerciseStartedAt = g.clockNow()
+}
+
+// ElapsedSeconds returns how many seconds have passed since the current
+// exercise was presented, measured with the injected clock. An incorrect answer
+// does not restart that measurement, so a retry after a mistake is honestly
+// slower. It returns 0 when no exercise has been presented.
+func (g *GameState) ElapsedSeconds() float64 {
+	if g.exerciseStartedAt.IsZero() {
+		return 0
+	}
+	return g.clockNow().Sub(g.exerciseStartedAt).Seconds()
 }
 
 // StartLesson starts lesson mode for a module
@@ -70,7 +121,7 @@ func (g *GameState) StartLesson(module ModuleID) {
 	g.ComboMultiplier = 1
 
 	if len(g.Exercises) > 0 {
-		g.CurrentExercise = &g.Exercises[0]
+		g.presentExercise(&g.Exercises[0])
 	}
 
 	// Initialize lesson total in stats
@@ -92,12 +143,12 @@ func (g *GameState) StartPractice(module ModuleID) {
 	// Use weighted random selection for intelligent practice
 	progress := g.Stats.GetModuleProgress(module)
 	exercise := SelectRandomPracticeExercise(module, progress)
-	g.CurrentExercise = exercise
+	g.presentExercise(exercise)
 }
 
 // SetPracticeExercise sets a specific exercise for practice mode
 func (g *GameState) SetPracticeExercise(exercise *Exercise) {
-	g.CurrentExercise = exercise
+	g.presentExercise(exercise)
 }
 
 // NextPracticeExercise selects the next random exercise for practice
@@ -115,7 +166,7 @@ func (g *GameState) NextPracticeExercise() bool {
 		return false
 	}
 
-	g.CurrentExercise = exercise
+	g.presentExercise(exercise)
 	return true
 }
 
@@ -134,12 +185,14 @@ func (g *GameState) StartBoss(module ModuleID) {
 	if g.CurrentBoss != nil {
 		g.BossLives = g.CurrentBoss.Lives
 		if len(g.CurrentBoss.Steps) > 0 {
-			g.CurrentExercise = &g.CurrentBoss.Steps[0].Exercise
+			g.presentExercise(&g.CurrentBoss.Steps[0].Exercise)
 		}
 	}
 }
 
-// RecordCorrectAnswer records a correct answer and updates stats
+// RecordCorrectAnswer records a correct answer and updates stats. timeSeconds
+// is the time taken to solve the current exercise, normally the value from
+// ElapsedSeconds.
 func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	g.CurrentStreak++
 	if g.CurrentStreak > g.Stats.BestStreak {
@@ -151,6 +204,13 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	points := CalculatePoints(g.CurrentExercise, timeSeconds, isOptimal, g.ComboMultiplier)
 	g.SessionScore += points
 	g.Stats.TotalScore += points
+
+	// TotalTime is the time spent solving exercises, so it grows only here. An
+	// incorrect answer does not restart the clock (see ElapsedSeconds), so the
+	// solve time recorded here already covers the recovery from any mistake and
+	// adding the wrong answer's time as well would count those seconds twice.
+	g.Stats.TotalTime += time.Duration(timeSeconds * float64(time.Second))
+	g.Stats.LastPlayed = g.clockNow()
 
 	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
 	// the single owner of PracticeAttempts/PracticeCorrect and per-exercise
@@ -184,6 +244,11 @@ func (g *GameState) RecordIncorrectAnswer() {
 	g.Stats.CurrentStreak = 0
 	g.ComboMultiplier = 1
 
+	// LastPlayed marks the last recorded answer, so a wrong one updates it too.
+	// TotalTime stays untouched: the solve time recorded by the later correct
+	// answer already covers the seconds spent on this mistake.
+	g.Stats.LastPlayed = g.clockNow()
+
 	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
 	// the single owner of PracticeAttempts/PracticeCorrect.
 
@@ -200,16 +265,10 @@ func (g *GameState) RecordIncorrectAnswer() {
 // NextExercise advances to the next exercise
 func (g *GameState) NextExercise() bool {
 	if g.IsBossMode {
-		g.BossStep++
 		if g.ComboMultiplier < 4 {
 			g.ComboMultiplier++
 		}
-
-		if g.CurrentBoss == nil || g.BossStep >= len(g.CurrentBoss.Steps) {
-			return false
-		}
-		g.CurrentExercise = &g.CurrentBoss.Steps[g.BossStep].Exercise
-		return true
+		return g.NextBossExercise()
 	}
 
 	g.ExerciseIndex++
@@ -223,7 +282,21 @@ func (g *GameState) NextExercise() bool {
 		return false
 	}
 
-	g.CurrentExercise = &g.Exercises[g.ExerciseIndex]
+	g.presentExercise(&g.Exercises[g.ExerciseIndex])
+	return true
+}
+
+// NextBossExercise advances the boss fight past the step that was just answered
+// and presents the next one, starting its timer. It reports whether another step
+// is now on screen; false means the answered step was the last and the fight is
+// over. It deliberately leaves ComboMultiplier alone: the boss advance never
+// raised it, and this path only makes the answer clock real.
+func (g *GameState) NextBossExercise() bool {
+	g.BossStep++
+	if g.CurrentBoss == nil || g.BossStep >= len(g.CurrentBoss.Steps) {
+		return false
+	}
+	g.presentExercise(&g.CurrentBoss.Steps[g.BossStep].Exercise)
 	return true
 }
 
@@ -280,4 +353,5 @@ func (g *GameState) Reset() {
 	g.IsBossDefeated = false
 
 	g.TimeElapsed = 0
+	g.exerciseStartedAt = time.Time{}
 }

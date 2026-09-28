@@ -182,7 +182,10 @@ func FormatSolutionsHint(exercise *Exercise) string {
 	return exercise.Optimal + " (or " + strings.Join(alternatives, ", ") + ")"
 }
 
-// CalculatePoints calculates points earned for an exercise
+// CalculatePoints calculates points earned for an exercise. timeSeconds is the
+// time taken to answer it, as measured by GameState.ElapsedSeconds, so the
+// under-two-second speed bonus below reflects a real measurement rather than a
+// fixed placeholder.
 func CalculatePoints(exercise *Exercise, timeSeconds float64, isOptimal bool, comboMultiplier int) int {
 	if exercise == nil {
 		return 0

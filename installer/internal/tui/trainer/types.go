@@ -114,13 +114,17 @@ type ModuleProgress struct {
 
 // UserStats contains all user statistics
 type UserStats struct {
-	TotalScore     int
-	CurrentStreak  int
-	BestStreak     int
+	TotalScore    int
+	CurrentStreak int
+	BestStreak    int
+	// TotalTime is the accumulated time spent solving exercises. It is persisted
+	// as whole seconds (totalTimeSeconds), so a save/load round trip keeps the
+	// seconds and drops any sub-second remainder.
 	TotalTime      time.Duration
 	ModuleProgress map[ModuleID]*ModuleProgress
 	BossesDefeated []ModuleID
-	LastPlayed     time.Time
+	// LastPlayed is when an answer was last recorded, correct or not.
+	LastPlayed time.Time
 }
 
 // NewUserStats creates a new UserStats with defaults

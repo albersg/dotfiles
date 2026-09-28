@@ -562,3 +562,186 @@ func TestGameState_NextPracticeExercise_ReturnsFalseWhenAllMastered(t *testing.T
 		t.Error("NextPracticeExercise should return false when all exercises are mastered")
 	}
 }
+
+// =============================================================================
+// GAME STATE - Answer timing
+// =============================================================================
+
+// timedExercise returns an exercise with a known base score and speed gate, so
+// the timing assertions can name exact point values instead of re-deriving the
+// scoring formula.
+func timedExercise() *Exercise {
+	return &Exercise{
+		ID:          "timed",
+		Module:      ModuleHorizontal,
+		Type:        ExercisePractice,
+		Points:      100,
+		TimeoutSecs: 30,
+		Optimal:     "w",
+		Solutions:   []string{"w"},
+	}
+}
+
+// TestGameState_ElapsedAnswerTimeDrivesSpeedBonus pins that the answer clock is
+// real: the points earned come from the time the injected clock reports, so the
+// under-two-second speed multiplier fires for a fast answer and not for a slow
+// one. The score, not the elapsed field, is the assertion.
+func TestGameState_ElapsedAnswerTimeDrivesSpeedBonus(t *testing.T) {
+	tests := []struct {
+		name      string
+		elapsed   time.Duration
+		wantScore int
+	}{
+		{
+			name:      "an answer under two seconds earns the speed bonus",
+			elapsed:   1500 * time.Millisecond,
+			wantScore: 187, // 100 base, +50% optimal, +25% speed: 187.5 truncated
+		},
+		{
+			name:      "an answer at the two second threshold does not",
+			elapsed:   2 * time.Second,
+			wantScore: 150, // 100 base, +50% optimal, no speed bonus
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			state := NewGameState()
+			state.SetClock(func() time.Time { return now })
+			state.SetPracticeExercise(timedExercise())
+
+			now = now.Add(tt.elapsed)
+			state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+			if state.SessionScore != tt.wantScore {
+				t.Errorf("SessionScore = %d for a %v answer, want %d",
+					state.SessionScore, tt.elapsed, tt.wantScore)
+			}
+		})
+	}
+}
+
+// TestGameState_IncorrectAnswerDoesNotRestartClock pins that the measured time
+// is the time to solve the current exercise: a wrong answer leaves the clock
+// running, so a fast correction after a mistake is honestly slower and must not
+// earn the speed bonus.
+func TestGameState_IncorrectAnswerDoesNotRestartClock(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.SetPracticeExercise(timedExercise())
+
+	// A mistake 1.5s in, then a correct answer half a second later: two seconds
+	// from presentation, so the answer is not fast any more.
+	now = now.Add(1500 * time.Millisecond)
+	state.RecordIncorrectAnswer()
+	now = now.Add(500 * time.Millisecond)
+	state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+	// 150 is the optimal-only score. A clock restarted by the wrong answer would
+	// have reported 0.5s and added the 25% speed multiplier instead.
+	if state.SessionScore != 150 {
+		t.Errorf("SessionScore = %d after a wrong answer and a fast correction, want 150: the clock restarted on the wrong answer",
+			state.SessionScore)
+	}
+}
+
+// TestGameState_AdvanceRestartsTheClock triangulates the presentation rule: an
+// advance to the next exercise presents it and starts its timer, so the next
+// answer is measured from the new exercise rather than from the one before it.
+// The assertion is the score of the next exercise's own answer.
+func TestGameState_AdvanceRestartsTheClock(t *testing.T) {
+	tests := []struct {
+		name    string
+		start   func(*GameState)
+		advance func(*GameState) bool
+	}{
+		{
+			name:    "lesson",
+			start:   func(state *GameState) { state.StartLesson(ModuleHorizontal) },
+			advance: func(state *GameState) bool { return state.NextExercise() },
+		},
+		{
+			name:    "practice",
+			start:   func(state *GameState) { state.StartPractice(ModuleHorizontal) },
+			advance: func(state *GameState) bool { return state.NextPracticeExercise() },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			state := NewGameState()
+			state.SetClock(func() time.Time { return now })
+			tt.start(state)
+
+			// Well past the speed threshold before the advance, so an unreset clock
+			// would deny the bonus to the exercise that follows.
+			now = now.Add(10 * time.Second)
+			if !tt.advance(state) {
+				t.Fatal("advance returned false, the test needs a next exercise")
+			}
+			next := state.CurrentExercise
+			if next == nil {
+				t.Fatal("advance did not present the next exercise")
+			}
+
+			now = now.Add(1500 * time.Millisecond)
+			state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+			want := CalculatePoints(next, 1.5, true, 1)
+			if want == CalculatePoints(next, 11.5, true, 1) {
+				t.Fatalf("test setup: %s scores the same fast and slow, the assertion cannot detect a stale clock", next.ID)
+			}
+			if state.SessionScore != want {
+				t.Errorf("SessionScore = %d after answering the exercise the advance presented, want %d: the clock was not restarted by the advance",
+					state.SessionScore, want)
+			}
+		})
+	}
+}
+
+// TestGameState_TotalTimeAccumulatesAndPersists pins that answered exercises
+// feed UserStats.TotalTime and LastPlayed, and that the accumulated total keeps
+// the persisted meaning across a save/load round trip.
+func TestGameState_TotalTimeAccumulatesAndPersists(t *testing.T) {
+	originalPath := statsConfigPath
+	statsConfigPath = t.TempDir()
+	defer func() { statsConfigPath = originalPath }()
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+
+	// Two answered exercises: three seconds, then four.
+	state.SetPracticeExercise(timedExercise())
+	now = now.Add(3 * time.Second)
+	state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+	state.SetPracticeExercise(timedExercise())
+	now = now.Add(4 * time.Second)
+	state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+	if state.Stats.TotalTime != 7*time.Second {
+		t.Errorf("TotalTime = %v after two answers, want 7s", state.Stats.TotalTime)
+	}
+	if !state.Stats.LastPlayed.Equal(now) {
+		t.Errorf("LastPlayed = %v after the second answer, want %v", state.Stats.LastPlayed, now)
+	}
+
+	if err := SaveStats(state.Stats); err != nil {
+		t.Fatalf("SaveStats failed: %v", err)
+	}
+
+	loaded := LoadStats()
+	if loaded == nil {
+		t.Fatal("LoadStats returned nil after SaveStats")
+	}
+	if loaded.TotalTime != 7*time.Second {
+		t.Errorf("TotalTime = %v after a save/load round trip, want 7s", loaded.TotalTime)
+	}
+	if !loaded.LastPlayed.Equal(state.Stats.LastPlayed) {
+		t.Errorf("LastPlayed = %v after a save/load round trip, want %v", loaded.LastPlayed, state.Stats.LastPlayed)
+	}
+}
