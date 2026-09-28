@@ -21,6 +21,120 @@ func formatControlChars(input string) string {
 	return result
 }
 
+// The key hints the installer's screens share. Twelve screens used to spell the
+// same four concepts seven different ways ([Space q], [space+q], [q/Esc],
+// [Esc/q], [Enter/Esc/q], space+d and q=quit), which made the help line the most
+// visible sloppiness in the TUI. One notation and one order is the fix: every
+// key is bracketed, and a screen lists its hints navigation first, then the
+// action, then the way back or out.
+//
+// Only the hints a screen actually honours live here. The installing screen,
+// for instance, does not offer [Space q] because the leader's q is deliberately
+// disabled mid-install, and the tool-info screen does not offer the navigation
+// pair because its cursor moves nothing a reader can see.
+const (
+	helpNavigate = "↑/k up • ↓/j down"
+	helpSelect   = "[Enter] select"
+	helpBack     = "[Esc] back"
+	helpCancel   = "[Esc] cancel"
+	helpQuit     = "[Space q] quit"
+	helpDetails  = "[Space d] details"
+)
+
+// helpLine renders a screen's key hints with the one separator and the one
+// order they share, so a legend is a list of named fragments instead of a
+// hand-typed sentence that drifts from its neighbours.
+func helpLine(hints ...string) string {
+	return HelpStyle.Render(strings.Join(hints, " • "))
+}
+
+// deadEnd renders a screen with nothing to show: what is missing, and the way
+// out of it. The screens used to name the fact and stop ("Category not found",
+// "No backup selected"), which left the reader with no next step.
+func deadEnd(message, action string) string {
+	return ErrorStyle.Render(message) + "\n\n" + HelpStyle.Render(action)
+}
+
+// viewPaddingRows is the one blank row the global padding in View() adds above
+// every screen. A screen that sizes itself to the frame subtracts it, so its own
+// content plus the padding fills the terminal exactly and no more: the welcome
+// screen used to center itself in the full height and then lose its last row to
+// this padding.
+const viewPaddingRows = 1
+
+// contentWidth is the columns a screen can render in: the model width minus the
+// two columns of left and right padding View() applies to every screen.
+func contentWidth(m Model) int {
+	inner := m.Width - 4
+	if inner < 20 {
+		inner = 20
+	}
+	return inner
+}
+
+// listWindow returns the bounds of a window of at most rows entries that keeps
+// selected visible. Lists sized to their frame use it so a long list scrolls
+// instead of running off the bottom of the terminal, and so the entry under the
+// cursor is always one of the rows on screen.
+func listWindow(selected, rows, total int) (start, end int) {
+	if rows < 1 {
+		rows = 1
+	}
+	if total <= rows {
+		return 0, total
+	}
+	start = selected - rows/2
+	if start < 0 {
+		start = 0
+	}
+	if start > total-rows {
+		start = total - rows
+	}
+	return start, start + rows
+}
+
+// menuRows renders a menu's options: one row per choice, the cursor marked with
+// ▸, and a separator rendered as a frame-width rule. Every menu in the TUI goes
+// through it, so the marker, the cursor style and the divider cannot drift from
+// screen to screen, and the divider follows the frame instead of being the
+// fixed 13-glyph string it used to be.
+func (m Model) menuRows(options []string, cursor int) []string {
+	rows := make([]string, 0, len(options))
+	for i, opt := range options {
+		if strings.HasPrefix(opt, menuSeparatorPrefix) {
+			rows = append(rows, rule(contentWidth(m)))
+			continue
+		}
+		marker, style := "  ", UnselectedStyle
+		if i == cursor {
+			marker, style = "▸ ", SelectedStyle
+		}
+		rows = append(rows, style.Render(marker+opt))
+	}
+	return rows
+}
+
+// listRows renders at most rows entries of a list, followed by a note naming the
+// entries the frame could not show, so the note is part of the row budget and a
+// long list degrades out loud instead of running off the bottom of the screen.
+func listRows(entries []string, prefix string, rows, width int, style lipgloss.Style) []string {
+	if rows < 1 {
+		rows = 1
+	}
+	shown := len(entries)
+	if shown > rows {
+		shown = rows - 1
+	}
+	out := make([]string, 0, rows)
+	for _, entry := range entries[:shown] {
+		out = append(out, style.Render(truncate(prefix+entry, width)))
+	}
+	if hidden := len(entries) - shown; hidden > 0 {
+		out = append(out, MutedStyle.Render(fmt.Sprintf("     … and %d more", hidden)))
+	}
+	return out
+}
+
 const logo = `
      ░▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░     
     ▒███████████████████▒    
@@ -134,15 +248,34 @@ func (m Model) View() string {
 		s.WriteString(m.renderTrainerBossResult())
 	}
 
-	// Leader mode indicator
+	// Leader mode takes over the legend slot instead of being appended under it.
+	// Appending the banner to a screen that already fills the frame would put it
+	// past the terminal's last row, where a mode indicator cannot be read; and in
+	// leader mode the screen's own keys are suspended, so its legend is the row
+	// the banner should replace. Its notation matches every other legend: keys in
+	// brackets, one separator, one order.
+	content := s.String()
 	if m.LeaderMode {
-		s.WriteString("\n")
-		s.WriteString(WarningStyle.Render("▶ LEADER MODE - Press: q=quit, d=details"))
+		content = replaceLastLine(content, WarningStyle.Render("▶ Leader mode: [q] quit • [d] details"))
 	}
 
 	// Apply global padding (top: 1, right: 2, bottom: 0, left: 2)
 	paddedStyle := lipgloss.NewStyle().Padding(1, 2, 0, 2)
-	return paddedStyle.Render(s.String())
+	return paddedStyle.Render(content)
+}
+
+// replaceLastLine returns s with its last non-empty line replaced by line. It is
+// how the leader-mode banner takes over a screen's legend without growing the
+// screen past the frame it is drawn in.
+func replaceLastLine(s, line string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if lipgloss.Width(lines[i]) > 0 {
+			lines[i] = line
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // The full welcome lockup is 30 lines: emblem, wordmark and three text lines.
@@ -172,7 +305,16 @@ func (m Model) renderWelcome() string {
 	}
 	s.WriteString("\n\n")
 
-	// System info
+	// Tagline. The detected environment used to sit between the logo and this
+	// line, which put a machine fact in the middle of the pitch; it is a footnote
+	// now, dim and below the help.
+	s.WriteString(SubtitleStyle.Render("Your terminal environment, configured in minutes."))
+	s.WriteString("\n\n")
+	s.WriteString(helpLine("[Enter] start", helpQuit))
+
+	// The detected environment is a footnote because it is what a bug report
+	// needs and what a first-time reader does not: it names the platform, whether
+	// Homebrew is already present, and the build version.
 	info := fmt.Sprintf("Detected: %s", m.SystemInfo.OSName)
 	if m.SystemInfo.IsWSL && m.SystemInfo.OSName != "WSL" {
 		info += " (WSL)"
@@ -180,27 +322,22 @@ func (m Model) renderWelcome() string {
 	if m.SystemInfo.HasBrew {
 		info += " | Homebrew ✓"
 	}
-	// The splash carries the build version because it is the first thing a bug
-	// report needs, and this is where a user sees it without knowing that a
-	// --version flag exists.
 	info += " | " + VersionLabel()
-	s.WriteString(InfoStyle.Render(info))
 	s.WriteString("\n\n")
+	s.WriteString(MutedStyle.Render(truncate(info, contentWidth(m))))
 
-	// Instructions
-	s.WriteString(SubtitleStyle.Render("Your terminal environment, configured in minutes."))
-	s.WriteString("\n\n")
-	s.WriteString(HelpStyle.Render("Press [Enter] to start • [Space q] to quit"))
-
-	// Center both horizontally and vertically
-	return CenterBoth(s.String(), m.Width, m.Height)
+	// Center both horizontally and vertically. The frame is the terminal minus
+	// the one blank row the global padding adds on top, so the last line of a
+	// full-height screen lands on the terminal's last row instead of one past it.
+	return CenterBoth(s.String(), contentWidth(m), m.Height-viewPaddingRows)
 }
 
 func (m Model) renderMainMenu() string {
 	var s strings.Builder
 
-	// Title
-	s.WriteString(TitleStyle.Render("🧰 dotfiles"))
+	// Title. The toolbox emoji that used to open it was the one thing on the
+	// first screen that a terminal without an emoji font drew as a box.
+	s.WriteString(TitleStyle.Render("dotfiles"))
 	s.WriteString("\n")
 	s.WriteString(MutedStyle.Render("What would you like to do?"))
 	s.WriteString("\n\n")
@@ -219,7 +356,7 @@ func (m Model) renderMainMenu() string {
 	}
 
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Space q] quit"))
+	s.WriteString(helpLine(helpNavigate, helpSelect, helpQuit))
 
 	return s.String()
 }
@@ -234,31 +371,25 @@ func (m Model) renderSelection() string {
 	// Title
 	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
 	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(m.GetScreenDescription()))
-	s.WriteString("\n\n")
+
+	// The description can be several sentences (the WSL terminal note is the
+	// longest) and used to be left to the frame edge, which clipped it mid-word.
+	for _, line := range strings.Split(m.GetScreenDescription(), "\n") {
+		for _, row := range wrapText(line, contentWidth(m), 0) {
+			s.WriteString(MutedStyle.Render(row))
+			s.WriteString("\n")
+		}
+	}
+	s.WriteString("\n")
 
 	// Options
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		// Separator line
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
+	for _, row := range m.menuRows(m.GetCurrentOptions(), m.Cursor) {
+		s.WriteString(row)
 		s.WriteString("\n")
 	}
 
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] back"))
+	s.WriteString(helpLine(helpNavigate, helpSelect, helpBack))
 
 	return s.String()
 }
@@ -316,186 +447,85 @@ func (m Model) renderStepProgress() string {
 }
 
 func (m Model) renderLearnTerminals() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Select a terminal to learn more about it"))
-	s.WriteString("\n\n")
-
-	// If viewing a specific tool, show its info
 	if m.ViewingTool != "" {
-		return m.renderToolInfo(GetTerminalInfo(), m.ViewingTool, "terminal")
+		return m.renderToolInfo(GetTerminalInfo(), m.ViewingTool)
 	}
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] back"))
-
-	return s.String()
+	return m.renderLearnMenu("Select a terminal to learn more about it")
 }
 
 func (m Model) renderLearnShells() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Select a shell to learn more about it"))
-	s.WriteString("\n\n")
-
-	// If viewing a specific tool, show its info
 	if m.ViewingTool != "" {
-		return m.renderToolInfo(GetShellInfo(), m.ViewingTool, "shell")
+		return m.renderToolInfo(GetShellInfo(), m.ViewingTool)
 	}
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] back"))
-
-	return s.String()
+	return m.renderLearnMenu("Select a shell to learn more about it")
 }
 
 func (m Model) renderLearnWM() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Select a window manager to learn more about it"))
-	s.WriteString("\n\n")
-
-	// If viewing a specific tool, show its info
 	if m.ViewingTool != "" {
-		return m.renderToolInfo(GetWMInfo(), m.ViewingTool, "wm")
+		return m.renderToolInfo(GetWMInfo(), m.ViewingTool)
 	}
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] back"))
-
-	return s.String()
+	return m.renderLearnMenu("Select a window manager to learn more about it")
 }
 
 func (m Model) renderLearnNvim() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Explore Neovim features and keybindings"))
-	s.WriteString("\n\n")
-
-	// If viewing features, show Nvim info
 	if m.ViewingTool == "features" {
-		info := GetNvimInfo()
-		return m.renderSingleToolInfo(info)
+		return m.renderSingleToolInfo(GetNvimInfo())
 	}
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] back"))
-
-	return s.String()
+	return m.renderLearnMenu("Explore Neovim features and keybindings")
 }
 
-func (m Model) renderToolInfo(tools map[string]ToolInfo, toolKey string, category string) string {
-	var s strings.Builder
+// renderLearnMenu renders one of the learn screens' menus. The four screens
+// differ only in their description and the tool table they look up, so the
+// title, the menu and the legend are shared and cannot drift apart on the keys
+// they promise.
+func (m Model) renderLearnMenu(description string) string {
+	return m.renderMenu(description)
+}
 
+func (m Model) renderToolInfo(tools map[string]ToolInfo, toolKey string) string {
 	info, exists := tools[toolKey]
 	if !exists {
-		s.WriteString(ErrorStyle.Render("Tool not found"))
-		return s.String()
+		return deadEnd("Tool not found", "Press [Esc] to go back.")
 	}
 
 	return m.renderSingleToolInfo(info)
 }
 
+// toolInfoChrome is the fixed rows the tool-info page spends around its two
+// lists: the global top padding, the title, a description of up to two rows, the
+// website, the pros header, the cons header, three blank rows and the legend. The
+// two lists split what the frame leaves, so a tool with an unusual number of
+// entries cannot push the legend off the bottom of the screen.
+const toolInfoChrome = 9
+
 func (m Model) renderSingleToolInfo(info ToolInfo) string {
 	var s strings.Builder
+
+	width := contentWidth(m)
+
+	// The header and the legend are fixed rows; the two lists share what is left.
+	bodyRows := m.Height - viewPaddingRows - toolInfoChrome
+	if bodyRows < 4 {
+		bodyRows = 4
+	}
+	prosRows := bodyRows / 2
+	consRows := bodyRows - prosRows
 
 	// Tool name and description
 	s.WriteString(TitleStyle.Render(info.Name))
 	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(info.Description))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(info.Website))
+	for _, row := range wrapText(info.Description, width, 2) {
+		s.WriteString(MutedStyle.Render(row))
+		s.WriteString("\n")
+	}
+	s.WriteString(MutedStyle.Render(truncate(info.Website, width)))
 	s.WriteString("\n\n")
 
 	// Pros
 	s.WriteString(SuccessStyle.Render("✓ Pros"))
 	s.WriteString("\n")
-	for _, pro := range info.Pros {
-		s.WriteString(InfoStyle.Render("  • " + pro))
+	for _, row := range listRows(info.Pros, "  • ", prosRows, width, InfoStyle) {
+		s.WriteString(row)
 		s.WriteString("\n")
 	}
 
@@ -504,709 +534,476 @@ func (m Model) renderSingleToolInfo(info ToolInfo) string {
 	// Cons
 	s.WriteString(WarningStyle.Render("✗ Cons"))
 	s.WriteString("\n")
-	for _, con := range info.Cons {
-		s.WriteString(MutedStyle.Render("  • " + con))
+	for _, row := range listRows(info.Cons, "  • ", consRows, width, MutedStyle) {
+		s.WriteString(row)
 		s.WriteString("\n")
 	}
 
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] back • [Space q] quit"))
+	s.WriteString(helpLine(helpBack, helpQuit))
+
+	return s.String()
+}
+
+// keymapTableChrome is the rows a keymap table spends on everything that is not
+// a keymap row: the global top padding, the title, the description, the blank
+// under it, the column header, the rule, the blank-and-scroll row under the
+// rows, the blank above the legend and the legend itself.
+const keymapTableChrome = 10
+
+// keymapTableMinRows keeps the table readable when the frame is at its floor.
+const keymapTableMinRows = 3
+
+// keymapTableRows is how many keymap rows the frame leaves. The view and the
+// scroll keys both ask for it, so the keys scroll exactly the rows the screen
+// draws; the five tables used to compute their own window against m.Height-9,
+// which is what let a 15-row window overflow a 24-row frame.
+func keymapTableRows(height int) int {
+	rows := height - keymapTableChrome
+	if rows < keymapTableMinRows {
+		rows = keymapTableMinRows
+	}
+	return rows
+}
+
+// keymapTableColumns derives the three column widths of a keymap table from the
+// frame and the category's own keys: the keys column is the wider of a quarter
+// of the frame and the category's longest key, so a 37-column Herdr binding is
+// shown whole instead of cut; the mode column fits the longest mode name; and
+// the description keeps at least a third of the frame. The five tables used to
+// hard-code %-15s, %-18s, %-20s and the like with no rule between them.
+func keymapTableColumns(width, longestKey int) (keys, mode, description int) {
+	keys = width / 4
+	if keys < longestKey {
+		keys = longestKey
+	}
+	mode = 8
+	maxKeys := width - mode - width/3 - 2
+	if maxKeys < 4 {
+		maxKeys = 4
+	}
+	if keys > maxKeys {
+		keys = maxKeys
+	}
+	description = width - keys - mode - 2
+	if description < 1 {
+		description = 1
+	}
+	return keys, mode, description
+}
+
+// renderKeymapTable renders one keymap category: its title, description, a
+// column header and the rows the frame has room for, scrolled to keep the
+// visible window inside the list. It replaces five copies of the same table that
+// had each picked their own column widths, their own window and their own
+// 60-column rule.
+func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
+	var s strings.Builder
+
+	width := contentWidth(m)
+	longestKey := 0
+	for _, km := range category.Keymaps {
+		if w := lipgloss.Width(km.Keys); w > longestKey {
+			longestKey = w
+		}
+	}
+	keys, mode, description := keymapTableColumns(width, longestKey)
+
+	s.WriteString(TitleStyle.Render(category.Name))
+	s.WriteString("\n")
+	s.WriteString(MutedStyle.Render(truncate(category.Description, width)))
+	s.WriteString("\n\n")
+
+	header := padRight("Keys", keys) + " " + padRight("Mode", mode) + " Description"
+	s.WriteString(SubtitleStyle.Render(truncate(header, width)))
+	s.WriteString("\n")
+	s.WriteString(rule(width))
+	s.WriteString("\n")
+
+	rows := keymapTableRows(m.Height)
+	start, end := listWindow(scroll, rows, len(category.Keymaps))
+	for i := start; i < end; i++ {
+		km := category.Keymaps[i]
+		s.WriteString(KeyStyle.Render(padRight(truncate(km.Keys, keys), keys)))
+		s.WriteString(" ")
+		s.WriteString(MutedStyle.Render(padRight(truncate(km.Mode, mode), mode)))
+		s.WriteString(" ")
+		s.WriteString(InfoStyle.Render(truncate(km.Description, description)))
+		s.WriteString("\n")
+	}
+
+	// The scroll row is held even when the list fits, so a short category and a
+	// long one lay their legend out on the same row and the height is countable.
+	scrollInfo := ""
+	if len(category.Keymaps) > rows {
+		scrollInfo = fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(category.Keymaps))
+	}
+	s.WriteString("\n")
+	s.WriteString(MutedStyle.Render(scrollInfo))
+	s.WriteString("\n")
+	s.WriteString(helpLine(helpNavigate, helpBack))
+
+	return s.String()
+}
+
+// menuChrome is the rows a menu spends on everything that is not an option row:
+// the global top padding, the title, the description, two blank rows, the scroll
+// row and the legend. The option list gets what is left, so a long list of
+// keymap categories cannot push the legend off the bottom of the screen.
+const menuChrome = 7
+
+// renderMenu renders the menus of the keymaps and learn sections. They differ
+// only in their description, so the title, the list and the legend are shared:
+// six copies of the same menu used to spell the legend three different ways. The
+// list is windowed around the cursor, so a section with more categories than the
+// frame has rows scrolls instead of overflowing.
+func (m Model) renderMenu(description string) string {
+	var s strings.Builder
+
+	rows := m.menuRows(m.GetCurrentOptions(), m.Cursor)
+
+	visible := m.Height - viewPaddingRows - menuChrome
+	if visible < 1 {
+		visible = 1
+	}
+	start, end := listWindow(m.Cursor, visible, len(rows))
+
+	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
+	s.WriteString("\n")
+	s.WriteString(MutedStyle.Render(description))
+	s.WriteString("\n\n")
+
+	for _, row := range rows[start:end] {
+		s.WriteString(row)
+		s.WriteString("\n")
+	}
+
+	// The scroll row is held even when the list fits, so a short menu and a long
+	// one lay their legend out on the same row and the height is countable.
+	scrollInfo := ""
+	if len(rows) > visible {
+		scrollInfo = fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(rows))
+	}
+	s.WriteString(MutedStyle.Render(scrollInfo))
+	s.WriteString("\n")
+	s.WriteString(helpLine(helpNavigate, helpSelect, helpBack))
 
 	return s.String()
 }
 
 func (m Model) renderKeymapsMenu() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Select a category to view keybindings"))
-	s.WriteString("\n\n")
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc/q] back"))
-
-	return s.String()
+	return m.renderMenu("Select a category to view keybindings")
 }
 
 func (m Model) renderKeymapCategory() string {
-	var s strings.Builder
-
 	if m.SelectedCategory >= len(m.KeymapCategories) {
-		return ErrorStyle.Render("Category not found")
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
-
-	category := m.KeymapCategories[m.SelectedCategory]
-
-	s.WriteString(TitleStyle.Render(category.Name))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(category.Description))
-	s.WriteString("\n\n")
-
-	// Table header
-	header := fmt.Sprintf("%-15s %-6s %s", "Keys", "Mode", "Description")
-	s.WriteString(SubtitleStyle.Render(header))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(strings.Repeat("─", 60)))
-	s.WriteString("\n")
-
-	// Calculate visible items based on terminal height
-	// Reserve space for: title(1) + description(1) + blank(1) + header(1) + separator(1) + scroll info(2) + help(2) = 9 lines
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5 // Minimum 5 items
-	}
-	if visibleItems > len(category.Keymaps) {
-		visibleItems = len(category.Keymaps)
-	}
-
-	// Keymaps with scrolling
-	start := m.KeymapScroll
-	end := start + visibleItems
-	if end > len(category.Keymaps) {
-		end = len(category.Keymaps)
-		start = end - visibleItems
-		if start < 0 {
-			start = 0
-		}
-	}
-
-	for i := start; i < end; i++ {
-		km := category.Keymaps[i]
-		s.WriteString(KeyStyle.Render(km.Keys))
-		s.WriteString(MutedStyle.Render(fmt.Sprintf(" %-6s ", km.Mode)))
-		s.WriteString(InfoStyle.Render(km.Description))
-		s.WriteString("\n")
-	}
-
-	// Scroll indicator
-	if len(category.Keymaps) > visibleItems {
-		s.WriteString("\n")
-		scrollInfo := fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(category.Keymaps))
-		s.WriteString(MutedStyle.Render(scrollInfo))
-	}
-
-	s.WriteString("\n\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/Esc/q] back"))
-
-	return s.String()
+	return m.renderKeymapTable(m.KeymapCategories[m.SelectedCategory], m.KeymapScroll)
 }
 
-// renderToolKeymapsMenu renders the tool selection menu (Neovim, Tmux, Zellij, Ghostty)
+// renderToolKeymapsMenu renders the tool selection menu (Neovim, Tmux, Zellij, Herdr, Ghostty)
 func (m Model) renderToolKeymapsMenu() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Select a tool to view its keybindings"))
-	s.WriteString("\n\n")
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc/q] back"))
-
-	return s.String()
+	return m.renderMenu("Select a tool to view its keybindings")
 }
 
 // renderTmuxKeymapsMenu renders the Tmux keymap categories menu
 func (m Model) renderTmuxKeymapsMenu() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Select a category to view Tmux keybindings"))
-	s.WriteString("\n\n")
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc/q] back"))
-
-	return s.String()
+	return m.renderMenu("Select a category to view Tmux keybindings")
 }
 
 // renderTmuxKeymapCategory renders a specific Tmux keymap category
 func (m Model) renderTmuxKeymapCategory() string {
-	var s strings.Builder
-
 	if m.TmuxSelectedCategory >= len(m.TmuxKeymapCategories) {
-		return ErrorStyle.Render("Category not found")
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
-
-	category := m.TmuxKeymapCategories[m.TmuxSelectedCategory]
-
-	s.WriteString(TitleStyle.Render(category.Name))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(category.Description))
-	s.WriteString("\n\n")
-
-	// Table header
-	header := fmt.Sprintf("%-20s %-6s %s", "Keys", "Mode", "Description")
-	s.WriteString(SubtitleStyle.Render(header))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(strings.Repeat("─", 60)))
-	s.WriteString("\n")
-
-	// Calculate visible items
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-	if visibleItems > len(category.Keymaps) {
-		visibleItems = len(category.Keymaps)
-	}
-
-	// Keymaps with scrolling
-	start := m.TmuxKeymapScroll
-	end := start + visibleItems
-	if end > len(category.Keymaps) {
-		end = len(category.Keymaps)
-		start = end - visibleItems
-		if start < 0 {
-			start = 0
-		}
-	}
-
-	for i := start; i < end; i++ {
-		km := category.Keymaps[i]
-		s.WriteString(KeyStyle.Render(km.Keys))
-		s.WriteString(MutedStyle.Render(fmt.Sprintf(" %-6s ", km.Mode)))
-		s.WriteString(InfoStyle.Render(km.Description))
-		s.WriteString("\n")
-	}
-
-	// Scroll indicator
-	if len(category.Keymaps) > visibleItems {
-		s.WriteString("\n")
-		scrollInfo := fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(category.Keymaps))
-		s.WriteString(MutedStyle.Render(scrollInfo))
-	}
-
-	s.WriteString("\n\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/Esc/q] back"))
-
-	return s.String()
+	return m.renderKeymapTable(m.TmuxKeymapCategories[m.TmuxSelectedCategory], m.TmuxKeymapScroll)
 }
 
 // renderZellijKeymapsMenu renders the Zellij keymap categories menu
 func (m Model) renderZellijKeymapsMenu() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Select a category to view Zellij keybindings"))
-	s.WriteString("\n\n")
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc/q] back"))
-
-	return s.String()
+	return m.renderMenu("Select a category to view Zellij keybindings")
 }
 
 // renderZellijKeymapCategory renders a specific Zellij keymap category
 func (m Model) renderZellijKeymapCategory() string {
-	var s strings.Builder
-
 	if m.ZellijSelectedCategory >= len(m.ZellijKeymapCategories) {
-		return ErrorStyle.Render("Category not found")
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
-
-	category := m.ZellijKeymapCategories[m.ZellijSelectedCategory]
-
-	s.WriteString(TitleStyle.Render(category.Name))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(category.Description))
-	s.WriteString("\n\n")
-
-	// Table header
-	header := fmt.Sprintf("%-15s %-8s %s", "Keys", "Mode", "Description")
-	s.WriteString(SubtitleStyle.Render(header))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(strings.Repeat("─", 60)))
-	s.WriteString("\n")
-
-	// Calculate visible items
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-	if visibleItems > len(category.Keymaps) {
-		visibleItems = len(category.Keymaps)
-	}
-
-	// Keymaps with scrolling
-	start := m.ZellijKeymapScroll
-	end := start + visibleItems
-	if end > len(category.Keymaps) {
-		end = len(category.Keymaps)
-		start = end - visibleItems
-		if start < 0 {
-			start = 0
-		}
-	}
-
-	for i := start; i < end; i++ {
-		km := category.Keymaps[i]
-		s.WriteString(KeyStyle.Render(km.Keys))
-		s.WriteString(MutedStyle.Render(fmt.Sprintf(" %-8s ", km.Mode)))
-		s.WriteString(InfoStyle.Render(km.Description))
-		s.WriteString("\n")
-	}
-
-	// Scroll indicator
-	if len(category.Keymaps) > visibleItems {
-		s.WriteString("\n")
-		scrollInfo := fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(category.Keymaps))
-		s.WriteString(MutedStyle.Render(scrollInfo))
-	}
-
-	s.WriteString("\n\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/Esc/q] back"))
-
-	return s.String()
+	return m.renderKeymapTable(m.ZellijKeymapCategories[m.ZellijSelectedCategory], m.ZellijKeymapScroll)
 }
 
 // renderGhosttyKeymapsMenu renders the Ghostty keymap categories menu
 func (m Model) renderGhosttyKeymapsMenu() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Select a category to view Ghostty keybindings"))
-	s.WriteString("\n\n")
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc/q] back"))
-
-	return s.String()
+	return m.renderMenu("Select a category to view Ghostty keybindings")
 }
 
 // renderGhosttyKeymapCategory renders a specific Ghostty keymap category
 func (m Model) renderGhosttyKeymapCategory() string {
-	var s strings.Builder
-
 	if m.GhosttySelectedCategory >= len(m.GhosttyKeymapCategories) {
-		return ErrorStyle.Render("Category not found")
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
-
-	category := m.GhosttyKeymapCategories[m.GhosttySelectedCategory]
-
-	s.WriteString(TitleStyle.Render(category.Name))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(category.Description))
-	s.WriteString("\n\n")
-
-	// Table header
-	header := fmt.Sprintf("%-18s %-6s %s", "Keys", "Mode", "Description")
-	s.WriteString(SubtitleStyle.Render(header))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(strings.Repeat("─", 60)))
-	s.WriteString("\n")
-
-	// Calculate visible items
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-	if visibleItems > len(category.Keymaps) {
-		visibleItems = len(category.Keymaps)
-	}
-
-	// Keymaps with scrolling
-	start := m.GhosttyKeymapScroll
-	end := start + visibleItems
-	if end > len(category.Keymaps) {
-		end = len(category.Keymaps)
-		start = end - visibleItems
-		if start < 0 {
-			start = 0
-		}
-	}
-
-	for i := start; i < end; i++ {
-		km := category.Keymaps[i]
-		s.WriteString(KeyStyle.Render(km.Keys))
-		s.WriteString(MutedStyle.Render(fmt.Sprintf(" %-6s ", km.Mode)))
-		s.WriteString(InfoStyle.Render(km.Description))
-		s.WriteString("\n")
-	}
-
-	// Scroll indicator
-	if len(category.Keymaps) > visibleItems {
-		s.WriteString("\n")
-		scrollInfo := fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(category.Keymaps))
-		s.WriteString(MutedStyle.Render(scrollInfo))
-	}
-
-	s.WriteString("\n\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/Esc/q] back"))
-
-	return s.String()
+	return m.renderKeymapTable(m.GhosttyKeymapCategories[m.GhosttySelectedCategory], m.GhosttyKeymapScroll)
 }
 
 // renderHerdrKeymapsMenu renders the Herdr keymap categories menu
 func (m Model) renderHerdrKeymapsMenu() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Herdr is mouse-first; keyboard is optional. Select a category"))
-	s.WriteString("\n\n")
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc/q] back"))
-
-	return s.String()
+	return m.renderMenu("Herdr is mouse-first; keyboard is optional. Select a category")
 }
 
 // renderHerdrKeymapCategory renders a specific Herdr keymap category
 func (m Model) renderHerdrKeymapCategory() string {
-	var s strings.Builder
-
 	if m.HerdrSelectedCategory >= len(m.HerdrKeymapCategories) {
-		return ErrorStyle.Render("Category not found")
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
-
-	category := m.HerdrKeymapCategories[m.HerdrSelectedCategory]
-
-	s.WriteString(TitleStyle.Render(category.Name))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(category.Description))
-	s.WriteString("\n\n")
-
-	// Table header
-	header := fmt.Sprintf("%-20s %-6s %s", "Keys", "Mode", "Description")
-	s.WriteString(SubtitleStyle.Render(header))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render(strings.Repeat("─", 60)))
-	s.WriteString("\n")
-
-	// Calculate visible items
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-	if visibleItems > len(category.Keymaps) {
-		visibleItems = len(category.Keymaps)
-	}
-
-	// Keymaps with scrolling
-	start := m.HerdrKeymapScroll
-	end := start + visibleItems
-	if end > len(category.Keymaps) {
-		end = len(category.Keymaps)
-		start = end - visibleItems
-		if start < 0 {
-			start = 0
-		}
-	}
-
-	for i := start; i < end; i++ {
-		km := category.Keymaps[i]
-		s.WriteString(KeyStyle.Render(km.Keys))
-		s.WriteString(MutedStyle.Render(fmt.Sprintf(" %-6s ", km.Mode)))
-		s.WriteString(InfoStyle.Render(km.Description))
-		s.WriteString("\n")
-	}
-
-	// Scroll indicator
-	if len(category.Keymaps) > visibleItems {
-		s.WriteString("\n")
-		scrollInfo := fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(category.Keymaps))
-		s.WriteString(MutedStyle.Render(scrollInfo))
-	}
-
-	s.WriteString("\n\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/Esc/q] back"))
-
-	return s.String()
+	return m.renderKeymapTable(m.HerdrKeymapCategories[m.HerdrSelectedCategory], m.HerdrKeymapScroll)
 }
 
 func (m Model) renderLazyVimMenu() string {
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Learn how to use and customize LazyVim"))
-	s.WriteString("\n\n")
-
-	// Menu
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		if strings.HasPrefix(opt, "───") {
-			s.WriteString(MutedStyle.Render(opt))
-			s.WriteString("\n")
-			continue
-		}
-
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
-		s.WriteString("\n")
-	}
-
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc/q] back"))
-
-	return s.String()
+	return m.renderMenu("Learn how to use and customize LazyVim")
 }
 
 func (m Model) renderLazyVimTopic() string {
-	var s strings.Builder
-
 	if m.SelectedLazyVimTopic >= len(m.LazyVimTopics) {
-		return ErrorStyle.Render("Topic not found")
+		return deadEnd("Topic not found", "Press [Esc] to return to the guide.")
 	}
 
 	topic := m.LazyVimTopics[m.SelectedLazyVimTopic]
+	width := contentWidth(m)
+
+	var s strings.Builder
 
 	s.WriteString(TitleStyle.Render(topic.Title))
 	s.WriteString("\n")
-	s.WriteString(SubtitleStyle.Render(topic.Description))
+	s.WriteString(SubtitleStyle.Render(truncate(topic.Description, width)))
 	s.WriteString("\n\n")
 
-	// Build all content
+	// Build the content, cut to the frame so a long line is marked instead of
+	// clipped silently at the edge.
 	var allLines []string
-
-	// Content
-	allLines = append(allLines, topic.Content...)
+	for _, line := range topic.Content {
+		allLines = append(allLines, truncate(line, width))
+	}
 	allLines = append(allLines, "") // Empty line
 
-	// Code example
 	if topic.CodeExample != "" {
-		allLines = append(allLines, "📝 Example:")
-		allLines = append(allLines, "")
-		codeLines := strings.Split(topic.CodeExample, "\n")
-		allLines = append(allLines, codeLines...)
+		allLines = append(allLines, "📝 Example:", "")
+		for _, line := range strings.Split(topic.CodeExample, "\n") {
+			allLines = append(allLines, truncate(line, width))
+		}
 		allLines = append(allLines, "") // Empty line
 	}
 
-	// Tips
 	if len(topic.Tips) > 0 {
 		allLines = append(allLines, "💡 Tips:")
 		for _, tip := range topic.Tips {
-			allLines = append(allLines, "  • "+tip)
+			allLines = append(allLines, truncate("  • "+tip, width))
 		}
 	}
 
-	// Calculate view height based on terminal size
-	// Reserve space for: title(1) + description(1) + blank(2) + scroll info(2) + help(2) = 8 lines
-	viewHeight := m.Height - 8
-	if viewHeight < 10 {
-		viewHeight = 10 // Minimum
+	// The content window is the rows the frame leaves, and the scroll row is held
+	// whether or not the topic is longer than the window, so a short topic and a
+	// long one lay their legend out on the same row.
+	viewHeight := m.Height - viewPaddingRows - lazyVimTopicChrome
+	if viewHeight < 1 {
+		viewHeight = 1
 	}
-
-	// Apply scrolling
-	start := m.LazyVimScroll
-	end := start + viewHeight
-	if end > len(allLines) {
-		end = len(allLines)
-	}
-	if start > len(allLines) {
-		start = 0
-	}
+	start, end := listWindow(m.LazyVimScroll, viewHeight, len(allLines))
 
 	for i := start; i < end; i++ {
 		line := allLines[i]
 		// Style code lines differently
-		if strings.HasPrefix(line, "--") || strings.HasPrefix(line, "local") ||
-			strings.HasPrefix(line, "return") || strings.HasPrefix(line, "{") ||
-			strings.HasPrefix(line, "}") || strings.HasPrefix(line, "  ") ||
-			strings.HasPrefix(line, "map(") || strings.HasPrefix(line, "vim.") ||
-			strings.HasPrefix(line, "require") {
+		switch {
+		case strings.HasPrefix(line, "--"), strings.HasPrefix(line, "local"),
+			strings.HasPrefix(line, "return"), strings.HasPrefix(line, "{"),
+			strings.HasPrefix(line, "}"), strings.HasPrefix(line, "  "),
+			strings.HasPrefix(line, "map("), strings.HasPrefix(line, "vim."),
+			strings.HasPrefix(line, "require"):
 			s.WriteString(CodeStyle.Render(line))
-		} else if strings.HasPrefix(line, "📝") || strings.HasPrefix(line, "💡") {
+		case strings.HasPrefix(line, "📝"), strings.HasPrefix(line, "💡"):
 			s.WriteString(SubtitleStyle.Render(line))
-		} else if strings.HasPrefix(line, "  •") {
+		case strings.HasPrefix(line, "  •"):
 			s.WriteString(InfoStyle.Render(line))
-		} else if strings.HasPrefix(line, "•") {
+		case strings.HasPrefix(line, "•"):
 			s.WriteString(MutedStyle.Render(line))
-		} else {
+		default:
 			s.WriteString(InfoStyle.Render(line))
 		}
 		s.WriteString("\n")
 	}
 
-	// Scroll indicator
+	scrollInfo := ""
 	if len(allLines) > viewHeight {
-		s.WriteString("\n")
-		scrollInfo := fmt.Sprintf("Lines %d-%d of %d (↑↓ to scroll, PgUp/PgDn for fast scroll)", start+1, end, len(allLines))
-		s.WriteString(MutedStyle.Render(scrollInfo))
+		scrollInfo = fmt.Sprintf("Lines %d-%d of %d", start+1, end, len(allLines))
 	}
-
-	s.WriteString("\n\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • PgUp/PgDn • [Enter/Esc/q] back"))
+	s.WriteString("\n")
+	s.WriteString(MutedStyle.Render(scrollInfo))
+	s.WriteString("\n")
+	s.WriteString(helpLine(helpNavigate, "[PgUp/PgDn] page", helpBack))
 
 	return s.String()
 }
 
-// Spinner frames for running steps
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+// lazyVimTopicChrome is the rows a topic spends on everything that is not its
+// content: the global top padding, the title, the description, two blank rows,
+// the scroll row and the legend.
+const lazyVimTopicChrome = 8
+
+// Installing screen rows. The bar is the one place the whole run's progress is
+// visible at a glance, and the step rail is windowed so a run with fifteen steps
+// cannot push its bottom off a 24-row terminal.
+const (
+	// installingFrameRows is what the screen spends on rows that are not the step
+	// rail: the global top padding, the title, the blank, the progress bar, the
+	// blank and the legend.
+	installingFrameRows = 6
+	// installingDetailsRows is the whole height of the log box when details are on:
+	// the blank above it, the box's border and padding around three log rows, and
+	// the blank below it.
+	installingDetailsRows = 9
+	// installingDetailsLogLines is how many log rows the box shows. It is the
+	// last few, because the newest output is the useful end of a log.
+	installingDetailsLogLines = 3
+	// installingMinStepRows keeps the rail useful when the log box has taken its
+	// room.
+	installingMinStepRows = 3
+)
+
+// installProgress is the fraction of the run the bar fills: completed and
+// skipped steps count fully, the running step counts the fraction it has
+// reported through InstallStep.Progress, and pending steps count zero. The
+// installer reports no sub-step progress today, so the bar advances per step;
+// a step that starts reporting moves it within the step too, which is why
+// InstallStep.Progress is read here rather than replaced by a step count.
+func (m Model) installProgress() float64 {
+	if len(m.Steps) == 0 {
+		return 1
+	}
+	done := 0.0
+	for _, step := range m.Steps {
+		switch step.Status {
+		case StatusDone, StatusSkipped:
+			done++
+		case StatusRunning:
+			done += step.Progress
+		}
+	}
+	if done > float64(len(m.Steps)) {
+		done = float64(len(m.Steps))
+	}
+	return done / float64(len(m.Steps))
+}
+
+// renderProgressBar draws a bar of width cells filled to progress. The cells are
+// text glyphs (█ and ░) rather than a background colour, so the bar still reads
+// on a 16-colour terminal and in a terminal with no colour at all -- the same
+// reason the step rail's glyphs carry its state.
+func renderProgressBar(width int, progress float64) string {
+	if width < 1 {
+		width = 1
+	}
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 1 {
+		progress = 1
+	}
+	filled := int(math.Round(progress * float64(width)))
+	if filled > width {
+		filled = width
+	}
+	return ProgressBarFilled.Render(strings.Repeat("█", filled)) +
+		ProgressBarEmpty.Render(strings.Repeat("░", width-filled))
+}
+
+// stepGlyph names a step's state with a glyph and a colour. The glyph is what
+// carries the state on a terminal with no colour: ✓ done, ● running, ○ pending,
+// ✗ failed, ⊘ skipped.
+func stepGlyph(step InstallStep) (string, lipgloss.Style) {
+	switch step.Status {
+	case StatusRunning:
+		return "●", WarningStyle
+	case StatusDone:
+		return "✓", SuccessStyle
+	case StatusFailed:
+		return "✗", ErrorStyle
+	case StatusSkipped:
+		return "⊘", MutedStyle
+	default:
+		return "○", MutedStyle
+	}
+}
+
+// installingStepRows is how many rows the step rail may use: the frame minus the
+// screen's own chrome and, when they are on, the log box.
+func (m Model) installingStepRows() int {
+	chrome := installingFrameRows
+	if m.ShowDetails && len(m.LogLines) > 0 {
+		chrome += installingDetailsRows
+	}
+	rows := m.Height - viewPaddingRows - chrome
+	if rows < installingMinStepRows {
+		rows = installingMinStepRows
+	}
+	return rows
+}
 
 func (m Model) renderInstalling() string {
 	var s strings.Builder
 
-	s.WriteString(TitleStyle.Render("🚀 Installing dotfiles"))
+	width := contentWidth(m)
+
+	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
+	s.WriteString("\n")
+
+	// Progress bar. It is sized to the frame and labeled with the percentage, so
+	// the longest thing a user watches says how far along it is.
+	barWidth := width - 8
+	if barWidth < 10 {
+		barWidth = 10
+	}
+	progress := m.installProgress()
+	s.WriteString(renderProgressBar(barWidth, progress))
+	s.WriteString(MutedStyle.Render(fmt.Sprintf(" %3.0f%%", progress*100)))
 	s.WriteString("\n\n")
 
-	// Progress steps
+	// Step rail. Each step is one row and the running step's description is one
+	// more, and the whole rail is windowed around the running step so a long run
+	// keeps the step in progress on screen.
+	rows := make([]string, 0, len(m.Steps)+1)
+	runningIdx := 0
 	for i, step := range m.Steps {
-		var icon string
-		var style lipgloss.Style
-
-		switch step.Status {
-		case StatusPending:
-			icon = "○"
-			style = MutedStyle
-		case StatusRunning:
-			// Animated spinner
-			icon = spinnerFrames[m.SpinnerFrame%len(spinnerFrames)]
-			style = WarningStyle
-		case StatusDone:
-			icon = "✓"
-			style = SuccessStyle
-		case StatusFailed:
-			icon = "✗"
-			style = ErrorStyle
-		case StatusSkipped:
-			icon = "⊘"
-			style = MutedStyle
+		icon, style := stepGlyph(step)
+		if i == m.CurrentStep {
+			runningIdx = len(rows)
 		}
-
-		line := fmt.Sprintf("%s %s", icon, step.Name)
-		s.WriteString(style.Render(line))
-		s.WriteString("\n")
-
-		// Show current step description
-		if i == m.CurrentStep && step.Status == StatusRunning {
-			s.WriteString(MutedStyle.Render("   " + step.Description))
-			s.WriteString("\n")
+		rows = append(rows, style.Render(fmt.Sprintf("%s %s", icon, step.Name)))
+		if i == m.CurrentStep && step.Status == StatusRunning && step.Description != "" {
+			rows = append(rows, MutedStyle.Render("   "+truncate(step.Description, width-4)))
 		}
 	}
 
-	// Log output if details enabled
+	start, end := listWindow(runningIdx, m.installingStepRows(), len(rows))
+	for _, row := range rows[start:end] {
+		s.WriteString(row)
+		s.WriteString("\n")
+	}
+
+	// Log output when details are on. The box is a fixed height and its lines are
+	// cut to the frame, so turning details on cannot push the legend off screen.
 	if m.ShowDetails && len(m.LogLines) > 0 {
 		s.WriteString("\n")
-		s.WriteString(BoxStyle.Render(strings.Join(m.LogLines[max(0, len(m.LogLines)-10):], "\n")))
+		logs := m.LogLines[max(0, len(m.LogLines)-installingDetailsLogLines):]
+		lines := make([]string, 0, len(logs))
+		for _, line := range logs {
+			lines = append(lines, truncate(line, width-4))
+		}
+		s.WriteString(BoxStyle.Render(strings.Join(lines, "\n")))
+		s.WriteString("\n")
 	}
 
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("[space+d] toggle details"))
+	s.WriteString(helpLine(helpDetails))
 
 	return s.String()
 }
@@ -1214,8 +1011,10 @@ func (m Model) renderInstalling() string {
 func (m Model) renderComplete() string {
 	var s strings.Builder
 
-	s.WriteString(SuccessStyle.Render("✨ Installation Complete! ✨"))
-	s.WriteString("\n\n")
+	// The title comes from GetScreenTitle like every other screen; it used to be a
+	// second hard-coded string here, which left the model's own title dead.
+	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
+	s.WriteString("\n")
 
 	// Summary
 	s.WriteString(TitleStyle.Render("Summary"))
@@ -1236,7 +1035,7 @@ func (m Model) renderComplete() string {
 	}
 
 	for _, item := range items {
-		s.WriteString(InfoStyle.Render("  • " + item))
+		s.WriteString(InfoStyle.Render("  • " + truncate(item, contentWidth(m)-4)))
 		s.WriteString("\n")
 	}
 
@@ -1249,14 +1048,14 @@ func (m Model) renderComplete() string {
 
 	s.WriteString("\n")
 	s.WriteString(TitleStyle.Render("Next Step"))
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	s.WriteString(InfoStyle.Render("To use your new shell now, run:"))
 	s.WriteString("\n")
 	s.WriteString(HighlightStyle.Render(fmt.Sprintf("   exec %s", shellCmd)))
 	s.WriteString("\n\n")
 
-	s.WriteString(HelpStyle.Render("Press [Enter] or [q] to exit"))
+	s.WriteString(helpLine("[Enter] exit"))
 
 	return s.String()
 }
@@ -1264,46 +1063,70 @@ func (m Model) renderComplete() string {
 func (m Model) renderError() string {
 	var s strings.Builder
 
-	s.WriteString(ErrorStyle.Render("❌ Installation Failed"))
-	s.WriteString("\n\n")
+	width := contentWidth(m)
+
+	// The title comes from GetScreenTitle like every other screen; it used to be a
+	// second hard-coded string here, which left the model's own title dead.
+	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
+	s.WriteString("\n")
 
 	s.WriteString(MutedStyle.Render("Error:"))
 	s.WriteString("\n")
-	s.WriteString(ErrorStyle.Render(m.ErrorMsg))
-	s.WriteString("\n\n")
+	// The message is wrapped and capped so a long failure cannot run off the
+	// bottom of the screen; the last row ends with the cut marker.
+	for _, row := range wrapText(m.ErrorMsg, width, 4) {
+		s.WriteString(ErrorStyle.Render(row))
+		s.WriteString("\n")
+	}
+	s.WriteString("\n")
 
 	// Show last few log lines for context
 	if len(m.LogLines) > 0 {
 		s.WriteString(MutedStyle.Render("Recent logs:"))
 		s.WriteString("\n")
-		// Show last 5 log lines
+		// Show last 5 log lines, cut to the frame so a long line is marked rather
+		// than clipped at the edge.
 		startIdx := len(m.LogLines) - 5
 		if startIdx < 0 {
 			startIdx = 0
 		}
 		for _, line := range m.LogLines[startIdx:] {
-			s.WriteString(InfoStyle.Render("  " + line))
+			s.WriteString(InfoStyle.Render("  " + truncate(line, width-2)))
 			s.WriteString("\n")
 		}
 		s.WriteString("\n")
 	}
 
-	s.WriteString(HelpStyle.Render("[r] retry • [space+q] quit"))
+	s.WriteString(helpLine("[r] retry", helpQuit))
 
 	return s.String()
 }
 
+// backupConfirmChrome is the rows the backup-confirmation screen spends on
+// everything that is not the config list: the global top padding, the title, the
+// description, three blank rows, the note, the three options and the legend. The
+// list gets what is left, so a machine with every config path present cannot push
+// the options off the bottom of the screen.
+const backupConfirmChrome = 13
+
 func (m Model) renderBackupConfirm() string {
 	var s strings.Builder
+
+	width := contentWidth(m)
 
 	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
 	s.WriteString("\n")
 	s.WriteString(MutedStyle.Render("The following configs will be overwritten:"))
 	s.WriteString("\n\n")
 
-	// List existing configs
-	for _, config := range m.ExistingConfigs {
-		s.WriteString(WarningStyle.Render("  ⚠️  " + config))
+	// The config list is bounded to the frame: a machine with all sixteen config
+	// paths present used to push the options off the bottom of the screen.
+	configRows := m.Height - viewPaddingRows - backupConfirmChrome
+	if configRows < 1 {
+		configRows = 1
+	}
+	for _, row := range listRows(m.ExistingConfigs, "  ⚠️  ", configRows, width, WarningStyle) {
+		s.WriteString(row)
 		s.WriteString("\n")
 	}
 
@@ -1311,92 +1134,117 @@ func (m Model) renderBackupConfirm() string {
 	s.WriteString(InfoStyle.Render("Creating a backup allows you to restore later if needed."))
 	s.WriteString("\n\n")
 
-	// Options
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
+	for _, row := range m.menuRows(m.GetCurrentOptions(), m.Cursor) {
+		s.WriteString(row)
 		s.WriteString("\n")
 	}
 
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] back"))
+	s.WriteString(helpLine(helpNavigate, helpSelect, helpBack))
 
 	return s.String()
 }
 
+// restoreBackupChrome is the rows the restore list spends on everything that is
+// not a backup: the global top padding, the title, the description, three blank
+// rows, the scroll row, the rule, the Back row and the legend.
+const restoreBackupChrome = 10
+
 func (m Model) renderRestoreBackup() string {
 	var s strings.Builder
+
+	width := contentWidth(m)
 
 	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
 	s.WriteString("\n")
 	s.WriteString(MutedStyle.Render("Select a backup to restore or delete"))
 	s.WriteString("\n\n")
 
+	// The list is bounded and follows the cursor, so a long history scrolls
+	// instead of pushing the Back row off the frame.
+	listBudget := m.Height - viewPaddingRows - restoreBackupChrome
+	if listBudget < 1 {
+		listBudget = 1
+	}
+
+	start, end := 0, 0
 	if len(m.AvailableBackups) == 0 {
 		s.WriteString(MutedStyle.Render("No backups found."))
 		s.WriteString("\n")
 	} else {
-		// List backups
-		for i, backup := range m.AvailableBackups {
-			cursor := "  "
-			style := UnselectedStyle
+		start, end = listWindow(m.Cursor, listBudget, len(m.AvailableBackups))
+		for i := start; i < end; i++ {
+			backup := m.AvailableBackups[i]
+			cursor, style := "  ", UnselectedStyle
 			if i == m.Cursor {
-				cursor = "▸ "
-				style = SelectedStyle
+				cursor, style = "▸ ", SelectedStyle
 			}
-
-			// Format: timestamp + item count
 			label := fmt.Sprintf("📁 %s (%d items)", backup.Timestamp.Format("2006-01-02 15:04:05"), len(backup.Files))
-			s.WriteString(style.Render(cursor + label))
+			s.WriteString(style.Render(cursor + truncate(label, width-2)))
 			s.WriteString("\n")
 		}
 	}
 
-	// Separator and Back
-	s.WriteString(MutedStyle.Render("─────────────"))
+	// The scroll row is held even when the list fits, so the Back row and the
+	// legend do not move as the history grows.
+	scrollInfo := ""
+	if len(m.AvailableBackups) > listBudget {
+		scrollInfo = fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(m.AvailableBackups))
+	}
+	s.WriteString(MutedStyle.Render(scrollInfo))
+	s.WriteString("\n")
+
+	// Separator and Back. The separator is the shared frame-width rule, not the
+	// fixed 13-glyph string that disagreed with every other divider.
+	s.WriteString(rule(width))
 	s.WriteString("\n")
 
 	backIdx := len(m.AvailableBackups) + 1
-	cursor := "  "
-	style := UnselectedStyle
+	cursor, style := "  ", UnselectedStyle
 	if m.Cursor == backIdx {
-		cursor = "▸ "
-		style = SelectedStyle
+		cursor, style = "▸ ", SelectedStyle
 	}
 	s.WriteString(style.Render(cursor + "← Back"))
 	s.WriteString("\n")
 
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] back"))
+	s.WriteString(helpLine(helpNavigate, helpSelect, helpBack))
 
 	return s.String()
 }
 
-func (m Model) renderRestoreConfirm() string {
-	var s strings.Builder
+// restoreConfirmChrome is the rows the restore confirmation spends on everything
+// that is not the file list: the global top padding, the title, the description,
+// three blank rows, the Contents header, the warning, the three options and the
+// legend. The list gets what is left.
+const restoreConfirmChrome = 14
 
+func (m Model) renderRestoreConfirm() string {
 	if m.SelectedBackup >= len(m.AvailableBackups) {
-		return ErrorStyle.Render("No backup selected")
+		return deadEnd("No backup selected", "Press [Esc] to go back.")
 	}
 
 	backup := m.AvailableBackups[m.SelectedBackup]
+
+	var s strings.Builder
+
+	width := contentWidth(m)
 
 	s.WriteString(TitleStyle.Render(m.GetScreenTitle()))
 	s.WriteString("\n")
 	s.WriteString(MutedStyle.Render("Backup from: " + backup.Timestamp.Format("2006-01-02 15:04:05")))
 	s.WriteString("\n\n")
 
-	// List files in backup
+	// List files in backup, bounded to the frame so a backup with a long file
+	// list cannot push the options off the bottom of the screen.
 	s.WriteString(SubtitleStyle.Render("Contents:"))
 	s.WriteString("\n")
-	for _, file := range backup.Files {
-		s.WriteString(InfoStyle.Render("  • " + file))
+	fileRows := m.Height - viewPaddingRows - restoreConfirmChrome
+	if fileRows < 1 {
+		fileRows = 1
+	}
+	for _, row := range listRows(backup.Files, "  • ", fileRows, width, InfoStyle) {
+		s.WriteString(row)
 		s.WriteString("\n")
 	}
 
@@ -1404,21 +1252,13 @@ func (m Model) renderRestoreConfirm() string {
 	s.WriteString(WarningStyle.Render("⚠️  Restoring will overwrite your current configs!"))
 	s.WriteString("\n\n")
 
-	// Options
-	options := m.GetCurrentOptions()
-	for i, opt := range options {
-		cursor := "  "
-		style := UnselectedStyle
-		if i == m.Cursor {
-			cursor = "▸ "
-			style = SelectedStyle
-		}
-		s.WriteString(style.Render(cursor + opt))
+	for _, row := range m.menuRows(m.GetCurrentOptions(), m.Cursor) {
+		s.WriteString(row)
 		s.WriteString("\n")
 	}
 
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter] select • [Esc] cancel"))
+	s.WriteString(helpLine(helpNavigate, helpSelect, helpCancel))
 
 	return s.String()
 }
@@ -1508,15 +1348,9 @@ func (m Model) trainerAnswer() string {
 // something was dropped, which the frame edge used to do silently.
 const cutMarker = "…"
 
-// trainerInnerWidth is the columns a trainer screen can render in: the model
-// width minus the two columns of left and right padding View() applies to every
-// screen.
+// trainerInnerWidth is the trainer's name for the width every screen shares.
 func trainerInnerWidth(m Model) int {
-	inner := m.Width - 4
-	if inner < 20 {
-		inner = 20
-	}
-	return inner
+	return contentWidth(m)
 }
 
 // trainerCurrentExercise returns the exercise the exercise or boss screen is
@@ -1528,15 +1362,24 @@ func (m Model) trainerCurrentExercise() *trainer.Exercise {
 	return m.TrainerGameState.CurrentExercise
 }
 
+// ruleText returns the separator a rule is made of, sized to the frame. It is
+// the raw string so a caller that stores a separator in data (the menu options)
+// and a caller that renders one (rule) draw the same rule instead of two
+// separators that disagree: a 13-glyph string used to sit in the menus while the
+// keymap tables hard-coded a 60-glyph rule that overflowed a 60-column terminal.
+func ruleText(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	return strings.Repeat("─", width)
+}
+
 // rule renders the separator a trainer code block is wrapped in. It replaces
 // the 60-column rule the exercise and boss screens each wrote out by hand, so
 // the two cannot drift apart and the rule follows the frame instead of being
 // fixed at a width the frame may not have.
 func rule(width int) string {
-	if width < 1 {
-		width = 1
-	}
-	return MutedStyle.Render(strings.Repeat("─", width))
+	return MutedStyle.Render(ruleText(width))
 }
 
 // cutToWidth returns as much of s as fits in width columns, in whole runes. It
@@ -2125,7 +1968,7 @@ func (m Model) trainerFeedbackRows(style lipgloss.Style) []string {
 func (m Model) renderTrainerExercise(mode string) string {
 	exercise := m.trainerCurrentExercise()
 	if exercise == nil {
-		return ErrorStyle.Render("No exercise loaded")
+		return deadEnd("No exercise loaded", "Press [Esc] to return to the trainer.")
 	}
 
 	inner := trainerInnerWidth(m)
@@ -2308,7 +2151,7 @@ func renderLineWithSelection(line string, startPos trainer.Position, sel trainer
 func (m Model) renderTrainerBoss() string {
 	state := m.TrainerGameState
 	if state == nil || state.CurrentBoss == nil {
-		return ErrorStyle.Render("No boss loaded")
+		return deadEnd("No boss loaded", "Press [Esc] to return to the trainer.")
 	}
 
 	boss := state.CurrentBoss

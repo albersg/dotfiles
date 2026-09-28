@@ -112,8 +112,6 @@ type Model struct {
 	Quitting    bool
 	// Program reference for sending messages during installation
 	Program *tea.Program
-	// Spinner animation
-	SpinnerFrame int
 	// Learn mode
 	ViewingTool string // Current tool being viewed in learn mode
 	// Keymaps mode
@@ -182,7 +180,6 @@ func NewModel() Model {
 		Cursor:                  0,
 		ShowDetails:             false,
 		LogLines:                []string{},
-		SpinnerFrame:            0,
 		KeymapCategories:        GetNvimKeymaps(),
 		SelectedCategory:        0,
 		KeymapScroll:            0,
@@ -261,6 +258,21 @@ func (m *Model) SendLog(stepID string, log string) {
 	SendLog(stepID, log)
 }
 
+// menuSeparatorPrefix is the leading rune of the divider row. The key handlers
+// test the same run of dashes to skip a divider instead of selecting it, and
+// menuRows uses this name so the view's divider and the keys' divider are the
+// same marker.
+const menuSeparatorPrefix = "───"
+
+// menuSeparator is the divider row a menu uses to group its choices. It is a
+// frame-width rule rather than the fixed 13-glyph string it used to be, so the
+// divider fits the terminal it is drawn in and matches every other rule in the
+// TUI. The views detect it by its dashes and it is rendered by rule(), so the
+// data and the renderer cannot disagree on its length.
+func (m Model) menuSeparator() string {
+	return ruleText(contentWidth(m))
+}
+
 // GetCurrentOptions returns the options for the current screen
 func (m Model) GetCurrentOptions() []string {
 	switch m.Screen {
@@ -279,7 +291,7 @@ func (m Model) GetCurrentOptions() []string {
 		opts = append(opts, "❌ Exit")
 		return opts
 	case ScreenKeymapsMenu:
-		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", "─────────────", "← Back"}
+		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", m.menuSeparator(), "← Back"}
 	case ScreenOSSelect:
 		macLabel := "macOS"
 		linuxLabel := "Linux"
@@ -300,20 +312,20 @@ func (m Model) GetCurrentOptions() []string {
 			alacrittyLabel = "Alacritty ⏱️  (builds from source, installs Rust ~5-10 min)"
 		}
 		if m.Choices.OS == "mac" {
-			return []string{alacrittyLabel, "WezTerm", "Kitty", "Ghostty", "None", "─────────────", "ℹ️  Learn about terminals"}
+			return []string{alacrittyLabel, "WezTerm", "Kitty", "Ghostty", "None", m.menuSeparator(), "ℹ️  Learn about terminals"}
 		}
-		return []string{alacrittyLabel, "WezTerm", "Ghostty", "None", "─────────────", "ℹ️  Learn about terminals"}
+		return []string{alacrittyLabel, "WezTerm", "Ghostty", "None", m.menuSeparator(), "ℹ️  Learn about terminals"}
 	case ScreenFontSelect:
 		return []string{"Yes, install Iosevka Term Nerd Font", "No, I already have it"}
 	case ScreenShellSelect:
-		return []string{"Fish", "Zsh", "Nushell", "─────────────", "ℹ️  Learn about shells"}
+		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "ℹ️  Learn about shells"}
 	case ScreenWMSelect:
 		if m.SystemInfo != nil && m.SystemInfo.IsTermux {
-			return []string{"Tmux", "Zellij", "None", "─────────────", "ℹ️  Learn about multiplexers"}
+			return []string{"Tmux", "Zellij", "None", m.menuSeparator(), "ℹ️  Learn about multiplexers"}
 		}
-		return []string{"Tmux", "Zellij", "Herdr", "None", "─────────────", "ℹ️  Learn about multiplexers"}
+		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "ℹ️  Learn about multiplexers"}
 	case ScreenNvimSelect:
-		return []string{"Yes, install Neovim with config", "No, skip Neovim", "─────────────", "ℹ️  Learn about Neovim", "⌨️  View Keymaps", "📖 LazyVim Guide"}
+		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "ℹ️  Learn about Neovim", "⌨️  View Keymaps", "📖 LazyVim Guide"}
 	case ScreenBackupConfirm:
 		return []string{
 			"✅ Install with Backup (recommended)",
@@ -326,7 +338,7 @@ func (m Model) GetCurrentOptions() []string {
 			// Format: timestamp + file count
 			opts[i] = fmt.Sprintf("%s (%d items)", backup.Timestamp.Format("2006-01-02 15:04:05"), len(backup.Files))
 		}
-		opts[len(m.AvailableBackups)] = "─────────────"
+		opts[len(m.AvailableBackups)] = m.menuSeparator()
 		opts[len(m.AvailableBackups)+1] = "← Back"
 		return opts
 	case ScreenRestoreConfirm:
@@ -342,19 +354,19 @@ func (m Model) GetCurrentOptions() []string {
 			"❌ Cancel installation",
 		}
 	case ScreenLearnTerminals:
-		return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", "─────────────", "← Back"}
+		return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", m.menuSeparator(), "← Back"}
 	case ScreenLearnShells:
-		return []string{"Fish", "Zsh", "Nushell", "─────────────", "← Back"}
+		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "← Back"}
 	case ScreenLearnWM:
-		return []string{"Tmux", "Zellij", "Herdr", "─────────────", "← Back"}
+		return []string{"Tmux", "Zellij", "Herdr", m.menuSeparator(), "← Back"}
 	case ScreenLearnNvim:
-		return []string{"View Features", "View Keymaps", "📖 LazyVim Guide", "─────────────", "← Back"}
+		return []string{"View Features", "View Keymaps", "📖 LazyVim Guide", m.menuSeparator(), "← Back"}
 	case ScreenKeymaps:
 		categories := make([]string, len(m.KeymapCategories)+2)
 		for i, cat := range m.KeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.KeymapCategories)] = "─────────────"
+		categories[len(m.KeymapCategories)] = m.menuSeparator()
 		categories[len(m.KeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenKeymapsTmux:
@@ -362,7 +374,7 @@ func (m Model) GetCurrentOptions() []string {
 		for i, cat := range m.TmuxKeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.TmuxKeymapCategories)] = "─────────────"
+		categories[len(m.TmuxKeymapCategories)] = m.menuSeparator()
 		categories[len(m.TmuxKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenKeymapsZellij:
@@ -370,7 +382,7 @@ func (m Model) GetCurrentOptions() []string {
 		for i, cat := range m.ZellijKeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.ZellijKeymapCategories)] = "─────────────"
+		categories[len(m.ZellijKeymapCategories)] = m.menuSeparator()
 		categories[len(m.ZellijKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenKeymapsGhostty:
@@ -378,7 +390,7 @@ func (m Model) GetCurrentOptions() []string {
 		for i, cat := range m.GhosttyKeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.GhosttyKeymapCategories)] = "─────────────"
+		categories[len(m.GhosttyKeymapCategories)] = m.menuSeparator()
 		categories[len(m.GhosttyKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenKeymapsHerdr:
@@ -386,14 +398,14 @@ func (m Model) GetCurrentOptions() []string {
 		for i, cat := range m.HerdrKeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.HerdrKeymapCategories)] = "─────────────"
+		categories[len(m.HerdrKeymapCategories)] = m.menuSeparator()
 		categories[len(m.HerdrKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenLearnLazyVim:
 		titles := GetLazyVimTopicTitles()
 		result := make([]string, len(titles)+2)
 		copy(result, titles)
-		result[len(titles)] = "─────────────"
+		result[len(titles)] = m.menuSeparator()
 		result[len(titles)+1] = "← Back"
 		return result
 	default:
@@ -541,7 +553,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "backup",
 			Name:        "Backup Existing Configs",
-			Description: "Creating backup of your current configuration",
+			Description: "Saves a copy of your current configuration first.",
 			Status:      StatusPending,
 		})
 	}
@@ -554,7 +566,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "deps",
 			Name:        "Install Dependencies",
-			Description: "Base packages",
+			Description: "Installs the base packages your system needs.",
 			Status:      StatusPending,
 			Interactive: true, // Needs sudo
 		})
@@ -562,7 +574,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "deps",
 			Name:        "Install Dependencies",
-			Description: "Base packages (pkg)",
+			Description: "Installs the base packages your system needs.",
 			Status:      StatusPending,
 			Interactive: false, // Termux doesn't need sudo
 		})
@@ -570,7 +582,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "xcode",
 			Name:        "Install Xcode CLI",
-			Description: "Developer tools",
+			Description: "Installs the Apple developer command-line tools.",
 			Status:      StatusPending,
 		})
 	}
@@ -579,7 +591,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "clone",
 		Name:        "Clone Repository",
-		Description: "Downloading dotfiles",
+		Description: "Downloads your dotfiles repository.",
 		Status:      StatusPending,
 	})
 
@@ -590,7 +602,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "homebrew",
 			Name:        "Install Homebrew",
-			Description: "Package manager",
+			Description: "Installs Homebrew, the package manager.",
 			Status:      StatusPending,
 			Interactive: true,
 		})
@@ -601,7 +613,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "terminal",
 			Name:        "Install " + m.Choices.Terminal,
-			Description: "Terminal emulator",
+			Description: "Installs your terminal emulator.",
 			Status:      StatusPending,
 			Interactive: m.Choices.OS == "linux", // Linux needs sudo for pacman/apt
 		})
@@ -612,7 +624,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "font",
 			Name:        "Install Iosevka Nerd Font",
-			Description: "Nerd font with icons",
+			Description: "Installs the Iosevka Nerd Font for icons.",
 			Status:      StatusPending,
 		})
 	}
@@ -621,7 +633,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "shell",
 		Name:        "Install " + m.Choices.Shell,
-		Description: "Shell and plugins",
+		Description: "Installs your shell and its plugins.",
 		Status:      StatusPending,
 	})
 
@@ -630,7 +642,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "wm",
 			Name:        "Install " + m.Choices.WindowMgr,
-			Description: "Terminal multiplexer",
+			Description: "Installs your terminal multiplexer.",
 			Status:      StatusPending,
 		})
 	}
@@ -640,7 +652,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "nvim",
 			Name:        "Install Neovim",
-			Description: "Editor with config",
+			Description: "Installs Neovim with your configuration.",
 			Status:      StatusPending,
 		})
 	}
@@ -652,7 +664,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "toolset",
 		Name:        "Install Toolset",
-		Description: "Tools declared in the Brewfile",
+		Description: "Installs the command-line tools you asked for.",
 		Status:      StatusPending,
 	})
 
@@ -661,7 +673,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "agentskills",
 		Name:        "Install Pi Agent Skills",
-		Description: "Pinned security-audit, archify and officecli skills",
+		Description: "Installs the pinned AI agent skills.",
 		Status:      StatusPending,
 	})
 
@@ -670,7 +682,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "officecli",
 		Name:        "Install OfficeCLI",
-		Description: "Pinned, checksum-verified CLI binary",
+		Description: "Installs the OfficeCLI document tool.",
 		Status:      StatusPending,
 	})
 
@@ -680,7 +692,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "wslconfig",
 			Name:        "Configure WSL",
-			Description: ".wslconfig and /etc/wsl.conf",
+			Description: "Applies the WSL settings on Windows and in this distribution.",
 			Status:      StatusPending,
 			Interactive: true, // /etc/wsl.conf needs sudo
 		})
@@ -690,7 +702,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "setshell",
 		Name:        "Set Default Shell",
-		Description: "Configure default shell",
+		Description: "Sets your shell as the default.",
 		Status:      StatusPending,
 		Interactive: true,
 	})
@@ -699,7 +711,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "cleanup",
 		Name:        "Cleanup",
-		Description: "Removing temporary files",
+		Description: "Removes the temporary files it created.",
 		Status:      StatusPending,
 	})
 }

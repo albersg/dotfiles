@@ -2,13 +2,16 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
 )
 
@@ -807,4 +810,392 @@ func TestBackupFlowE2E(t *testing.T) {
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 	})
+}
+
+// =============================================================================
+// INSTALLER FRAME GUARD
+// =============================================================================
+
+// The installer's own screens claim the same 80x24 floor the trainer documents
+// through trainerFrameWidth and trainerFrameHeight, and for the same reason: a
+// screen taller than its terminal loses its bottom silently, and a golden only
+// sees the top rows. TestTrainerScreensFitTheFrame covered the trainer alone,
+// so this guard renders every other screen at the floor and fails on a screen
+// that does not fit.
+//
+// The width half matters as much as the height: a line wider than the terminal
+// is clipped at the edge with no marker, which is how the keymap tables used to
+// ship a 60-column rule that overflowed a 60-column terminal and left dead
+// space on a 120-column one.
+
+// installerFrameModel parks a model on a screen at the documented 80x24 floor,
+// with HOME pointed at an empty directory so a machine that happens to have
+// backups does not change what the screen renders.
+func installerFrameModel(t *testing.T, screen Screen) Model {
+	t.Helper()
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = trainerFrameWidth
+	m.Height = trainerFrameHeight
+	m.Screen = screen
+	return m
+}
+
+// assertInstallerScreenFits pins one rendered screen inside the floor frame and
+// returns its row and column counts so the guard can name the worst screen it
+// saw. A screen is allowed to be shorter than the frame; what it may not do is
+// be taller or wider, because that is the part the terminal takes away without
+// saying so.
+func assertInstallerScreenFits(t *testing.T, name string, m Model) (rows, cols int) {
+	t.Helper()
+
+	view := m.View()
+	rows = renderedRowCount(view)
+
+	for _, line := range strings.Split(view, "\n") {
+		w := lipgloss.Width(line)
+		if w > cols {
+			cols = w
+		}
+		if w > trainerFrameWidth {
+			t.Errorf("%s renders a line %d columns wide, want <= %d: it is clipped silently at the frame edge: %q",
+				name, w, trainerFrameWidth, line)
+		}
+	}
+
+	if rows > trainerFrameHeight {
+		t.Errorf("%s renders %d rows at %dx%d, want <= %d: the bottom of the screen falls outside the frame",
+			name, rows, trainerFrameWidth, trainerFrameHeight, trainerFrameHeight)
+	}
+
+	return rows, cols
+}
+
+// installerFrameCase builds the model for one guarded screen. Each case is a
+// state the screen reaches in normal use, not a synthetic maximum: the screens
+// with lists get one ordinary list and one long list, because a bounded list is
+// exactly what the frame guard is about.
+func installerFrameCase(t *testing.T, name string) Model {
+	t.Helper()
+
+	base := func(screen Screen) Model { return installerFrameModel(t, screen) }
+	withConfigs := func(screen Screen, configs []string) Model {
+		m := installerFrameModel(t, screen)
+		m.ExistingConfigs = configs
+		return m
+	}
+	withBackups := func(screen Screen, files []string, count int) Model {
+		m := installerFrameModel(t, screen)
+		for i := 0; i < count; i++ {
+			m.AvailableBackups = append(m.AvailableBackups, system.BackupInfo{
+				Path:  fmt.Sprintf("/home/testuser/.dotfiles-backup-2024-01-%02d-120000", i+1),
+				Files: files,
+			})
+		}
+		return m
+	}
+	installing := func(details bool, atEnd bool) Model {
+		m := installerFrameModel(t, ScreenInstalling)
+		m.SystemInfo = &system.SystemInfo{OS: system.OSLinux, OSName: "Linux"}
+		m.Choices = UserChoices{
+			OS: "linux", Terminal: "alacritty", InstallFont: true, Shell: "fish",
+			WindowMgr: "tmux", InstallNvim: true, CreateBackup: true,
+		}
+		m.ExistingConfigs = []string{"nvim: ~/.config/nvim", "fish: ~/.config/fish"}
+		m.SetupInstallSteps()
+
+		running := 2
+		if atEnd {
+			running = len(m.Steps) - 1
+		}
+		for i := 0; i < running; i++ {
+			m.Steps[i].Status = StatusDone
+			m.Steps[i].Progress = 1
+		}
+		m.CurrentStep = running
+		m.Steps[running].Status = StatusRunning
+		m.Steps[running].Progress = 0.5
+
+		m.ShowDetails = details
+		if details {
+			for i := 0; i < 12; i++ {
+				m.LogLines = append(m.LogLines, fmt.Sprintf("log line %d", i+1))
+			}
+		}
+		return m
+	}
+
+	switch name {
+	case "welcome":
+		return base(ScreenWelcome)
+	case "main-menu":
+		return base(ScreenMainMenu)
+	case "main-menu-restore":
+		m := base(ScreenMainMenu)
+		m.AvailableBackups = []system.BackupInfo{{Path: "/home/testuser/.dotfiles-backup-test"}}
+		return m
+	case "os-select":
+		return base(ScreenOSSelect)
+	case "terminal-select":
+		return base(ScreenTerminalSelect)
+	case "terminal-select-wsl":
+		m := base(ScreenTerminalSelect)
+		m.SystemInfo.IsWSL = true
+		m.SystemInfo.OSName = "Debian (WSL)"
+		return m
+	case "font-select":
+		return base(ScreenFontSelect)
+	case "shell-select":
+		return base(ScreenShellSelect)
+	case "wm-select":
+		return base(ScreenWMSelect)
+	case "nvim-select":
+		return base(ScreenNvimSelect)
+	case "ghostty-warning":
+		return base(ScreenGhosttyWarning)
+	case "learn-terminals":
+		return base(ScreenLearnTerminals)
+	case "learn-terminals-info":
+		m := base(ScreenLearnTerminals)
+		m.ViewingTool = "alacritty"
+		return m
+	case "learn-shells":
+		return base(ScreenLearnShells)
+	case "learn-shells-info":
+		m := base(ScreenLearnShells)
+		m.ViewingTool = "nushell"
+		return m
+	case "learn-wm":
+		return base(ScreenLearnWM)
+	case "learn-wm-info":
+		m := base(ScreenLearnWM)
+		m.ViewingTool = "tmux"
+		return m
+	case "learn-nvim":
+		return base(ScreenLearnNvim)
+	case "learn-nvim-features":
+		m := base(ScreenLearnNvim)
+		m.ViewingTool = "features"
+		return m
+	case "keymaps":
+		return base(ScreenKeymaps)
+	case "keymap-category":
+		return base(ScreenKeymapCategory)
+	case "keymaps-menu":
+		return base(ScreenKeymapsMenu)
+	case "keymaps-tmux":
+		return base(ScreenKeymapsTmux)
+	case "keymaps-tmux-category":
+		return base(ScreenKeymapsTmuxCat)
+	case "keymaps-zellij":
+		return base(ScreenKeymapsZellij)
+	case "keymaps-zellij-category":
+		return base(ScreenKeymapsZellijCat)
+	case "keymaps-ghostty":
+		return base(ScreenKeymapsGhostty)
+	case "keymaps-ghostty-category":
+		return base(ScreenKeymapsGhosttyCat)
+	case "keymaps-herdr":
+		return base(ScreenKeymapsHerdr)
+	case "keymaps-herdr-category":
+		return base(ScreenKeymapsHerdrCat)
+	case "keymaps-herdr-long-keys":
+		// The category with a binding wider than a quarter of the frame, so the
+		// guard covers the widened keys column as well as the default one.
+		m := base(ScreenKeymapsHerdrCat)
+		for i, cat := range m.HerdrKeymapCategories {
+			for _, km := range cat.Keymaps {
+				if lipgloss.Width(km.Keys) >= 30 {
+					m.HerdrSelectedCategory = i
+				}
+			}
+		}
+		return m
+	case "lazyvim":
+		return base(ScreenLearnLazyVim)
+	case "lazyvim-topic":
+		return base(ScreenLazyVimTopic)
+	case "backup-confirm":
+		return withConfigs(ScreenBackupConfirm, []string{
+			"nvim: ~/.config/nvim", "fish: ~/.config/fish", "zsh: ~/.zshrc",
+		})
+	case "backup-confirm-many":
+		configs := make([]string, 0, 14)
+		for i := 0; i < 14; i++ {
+			configs = append(configs, fmt.Sprintf("tool%d: ~/.config/tool%d", i, i))
+		}
+		return withConfigs(ScreenBackupConfirm, configs)
+	case "restore-backup":
+		return withBackups(ScreenRestoreBackup, []string{"nvim", "fish"}, 2)
+	case "restore-backup-many":
+		return withBackups(ScreenRestoreBackup, []string{"nvim", "fish"}, 14)
+	case "restore-confirm":
+		m := withBackups(ScreenRestoreConfirm, []string{"nvim", "fish", "zsh"}, 1)
+		m.SelectedBackup = 0
+		return m
+	case "restore-confirm-many-files":
+		files := make([]string, 0, 24)
+		for i := 0; i < 24; i++ {
+			files = append(files, fmt.Sprintf("file-%02d", i))
+		}
+		m := withBackups(ScreenRestoreConfirm, files, 1)
+		m.SelectedBackup = 0
+		return m
+	case "installing":
+		return installing(false, false)
+	case "installing-details":
+		return installing(true, false)
+	case "installing-at-end":
+		return installing(false, true)
+	case "complete":
+		m := base(ScreenComplete)
+		m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
+		return m
+	case "error":
+		m := base(ScreenError)
+		m.ErrorMsg = "failed to install alacritty: the package manager refused the request after a long explanation that does not fit on one line"
+		m.LogLines = []string{"first log line", "second log line", "third log line", "fourth log line", "fifth log line", "sixth log line"}
+		return m
+	default:
+		t.Fatalf("no frame case named %q", name)
+		return Model{}
+	}
+}
+
+// TestInstallerScreensFitTheFrame is the counterpart to
+// TestTrainerScreensFitTheFrame for every screen that is not the trainer. It
+// had no guard, so a screen could exceed the terminal and stay that way: the
+// keymap tables shipped a 60-column rule and a 15-row window against a 24-row
+// frame, the installing screen had no progress bar at all, and two screens
+// hard-coded a title the model was carrying.
+func TestInstallerScreensFitTheFrame(t *testing.T) {
+	names := []string{
+		"welcome",
+		"main-menu", "main-menu-restore",
+		"os-select", "terminal-select", "terminal-select-wsl", "font-select",
+		"shell-select", "wm-select", "nvim-select", "ghostty-warning",
+		"learn-terminals", "learn-terminals-info",
+		"learn-shells", "learn-shells-info",
+		"learn-wm", "learn-wm-info",
+		"learn-nvim", "learn-nvim-features",
+		"keymaps", "keymap-category", "keymaps-menu",
+		"keymaps-tmux", "keymaps-tmux-category",
+		"keymaps-zellij", "keymaps-zellij-category",
+		"keymaps-ghostty", "keymaps-ghostty-category",
+		"keymaps-herdr", "keymaps-herdr-category", "keymaps-herdr-long-keys",
+		"lazyvim", "lazyvim-topic",
+		"backup-confirm", "backup-confirm-many",
+		"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
+		"installing", "installing-details", "installing-at-end",
+		"complete", "error",
+	}
+
+	worstRows, worstCols := 0, 0
+	worstRowScreen, worstColScreen := "", ""
+
+	for _, name := range names {
+		name := name
+		t.Run(name, func(t *testing.T) {
+			m := installerFrameCase(t, name)
+			rows, cols := assertInstallerScreenFits(t, name, m)
+
+			// Leader mode replaces the legend rather than growing the screen, so the
+			// banner has to fit exactly like the legend it stands in for.
+			m.LeaderMode = true
+			leaderRows, leaderCols := assertInstallerScreenFits(t, name+" with the leader banner", m)
+			if leaderRows > rows {
+				rows = leaderRows
+			}
+			if leaderCols > cols {
+				cols = leaderCols
+			}
+
+			if rows > worstRows {
+				worstRows, worstRowScreen = rows, name
+			}
+			if cols > worstCols {
+				worstCols, worstColScreen = cols, name
+			}
+		})
+	}
+
+	t.Logf("rendered %d installer screens at %dx%d; worst height %d rows (%s), worst width %d columns (%s)",
+		len(names), trainerFrameWidth, trainerFrameHeight, worstRows, worstRowScreen, worstCols, worstColScreen)
+}
+
+// TestInstallingScreenShowsProgressAndRail pins the two things the installing
+// screen has to show while it is the longest thing a user watches: a progress
+// bar that fills with the run, and a step rail whose state is a glyph rather
+// than a colour. The bar used to be absent and the rail animated a spinner, so
+// neither the run's progress nor the rail's state was readable without colour.
+func TestInstallingScreenShowsProgressAndRail(t *testing.T) {
+	m := installerFrameCase(t, "installing")
+	view := m.View()
+
+	if !strings.Contains(view, "█") || !strings.Contains(view, "░") {
+		t.Errorf("the installing screen shows no filled/empty progress bar:\n%s", view)
+	}
+	for _, glyph := range []string{"✓", "●", "○"} {
+		if !strings.Contains(view, glyph) {
+			t.Errorf("the installing screen's step rail is missing %q:\n%s", glyph, view)
+		}
+	}
+}
+
+// TestInstallProgressCountsEveryStepState pins the bar's fraction: completed and
+// skipped steps count fully, a running step counts the fraction it reported, and
+// pending steps count zero. A run with no steps reads as complete rather than
+// dividing by zero.
+func TestInstallProgressCountsEveryStepState(t *testing.T) {
+	m := Model{Steps: []InstallStep{
+		{Status: StatusDone},
+		{Status: StatusSkipped},
+		{Status: StatusRunning, Progress: 0.5},
+		{Status: StatusPending},
+	}}
+	if got, want := m.installProgress(), 0.625; got != want {
+		t.Errorf("installProgress = %v, want %v", got, want)
+	}
+
+	if got := (Model{}).installProgress(); got != 1 {
+		t.Errorf("installProgress with no steps = %v, want 1", got)
+	}
+}
+
+// TestLeaderBannerReplacesTheLegend pins the mode indicator's notation and that
+// it does not grow the screen: it takes over the legend row instead of being
+// appended under a screen that already fills the frame, where it would land past
+// the terminal's last row.
+func TestLeaderBannerReplacesTheLegend(t *testing.T) {
+	m := installerFrameModel(t, ScreenKeymapsMenu)
+	m.LeaderMode = true
+	view := m.View()
+
+	if !strings.Contains(view, "Leader mode") {
+		t.Errorf("the leader banner does not name the mode:\n%s", view)
+	}
+	if !strings.Contains(view, "[q] quit") || !strings.Contains(view, "[d] details") {
+		t.Errorf("the leader banner does not use the shared notation:\n%s", view)
+	}
+	if rows := renderedRowCount(view); rows > trainerFrameHeight {
+		t.Errorf("the leader banner grew the screen to %d rows, want <= %d:\n%s", rows, trainerFrameHeight, view)
+	}
+}
+
+// TestKeymapTableColumnsWidenForLongKeys pins the column rule the five tables
+// share: the keys column is wide enough for the category's longest binding, so a
+// 37-column Herdr binding is shown whole, and the description keeps at least a
+// third of the frame.
+func TestKeymapTableColumnsWidenForLongKeys(t *testing.T) {
+	const width = 76
+	keys, mode, description := keymapTableColumns(width, 37)
+	if keys < 37 {
+		t.Errorf("keys column = %d, want >= 37: the longest key is cut", keys)
+	}
+	if got := keys + mode + 2 + description; got != width {
+		t.Errorf("columns total %d, want %d", got, width)
+	}
+	if description < width/3 {
+		t.Errorf("description column = %d, want >= %d", description, width/3)
+	}
 }

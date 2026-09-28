@@ -119,13 +119,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		// Animate spinner during installation
-		if m.Screen == ScreenInstalling {
-			m.SpinnerFrame++
-		}
-		// The same tick that animates the spinner wakes the model on its own, so
-		// the exercise countdown stays live and an idle player's hint is revealed
-		// when its deadline passes without any key press.
+		// The tick wakes the model on its own, so the exercise countdown stays live
+		// and an idle player's hint is revealed when its deadline passes without
+		// any key press.
 		m.revealExerciseHintOnDeadline()
 		// The boss fight has a failure deadline instead of a hint: the same tick
 		// charges the life when a boss step is left unanswered.
@@ -890,11 +886,9 @@ func (m Model) handleKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.KeymapCategories[m.SelectedCategory]
 
-	// Calculate visible items based on terminal height (same as view)
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
+	// The view and the keys ask the same helper for the window size, so the keys
+	// scroll exactly the rows the screen draws.
+	visibleItems := keymapTableRows(m.Height)
 
 	maxScroll := len(category.Keymaps) - visibleItems
 	if maxScroll < 0 {
@@ -1014,10 +1008,7 @@ func (m Model) handleTmuxKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleTmuxKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.TmuxKeymapCategories[m.TmuxSelectedCategory]
 
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
+	visibleItems := keymapTableRows(m.Height)
 
 	maxScroll := len(category.Keymaps) - visibleItems
 	if maxScroll < 0 {
@@ -1084,10 +1075,7 @@ func (m Model) handleZellijKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleZellijKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.ZellijKeymapCategories[m.ZellijSelectedCategory]
 
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
+	visibleItems := keymapTableRows(m.Height)
 
 	maxScroll := len(category.Keymaps) - visibleItems
 	if maxScroll < 0 {
@@ -1154,10 +1142,7 @@ func (m Model) handleGhosttyKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleGhosttyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.GhosttyKeymapCategories[m.GhosttySelectedCategory]
 
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
+	visibleItems := keymapTableRows(m.Height)
 
 	maxScroll := len(category.Keymaps) - visibleItems
 	if maxScroll < 0 {
@@ -1224,10 +1209,7 @@ func (m Model) handleHerdrKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleHerdrKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.HerdrKeymapCategories[m.HerdrSelectedCategory]
 
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
+	visibleItems := keymapTableRows(m.Height)
 
 	maxScroll := len(category.Keymaps) - visibleItems
 	if maxScroll < 0 {

@@ -79,6 +79,17 @@ var (
 			BorderForeground(BorderActive).
 			Padding(1, 2)
 
+	// Progress bar styles. They were deleted as dead surface in the trainer slice
+	// because nothing rendered a bar; the installing screen renders one now, and
+	// it is the one place the whole run's progress is visible. The bar's cells are
+	// glyphs (█ and ░) rather than filled backgrounds, so these styles carry the
+	// colour only and the bar still reads with no colour at all.
+	ProgressBarFilled = lipgloss.NewStyle().
+				Foreground(Success)
+
+	ProgressBarEmpty = lipgloss.NewStyle().
+				Foreground(TextMuted)
+
 	// Logo style
 	LogoStyle = lipgloss.NewStyle().
 			Foreground(Primary).
