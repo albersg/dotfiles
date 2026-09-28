@@ -345,8 +345,9 @@ func countPrefix(input string, from int) (int, int) {
 // and reports how many bytes of rest the command consumed. ok is false when cmd
 // is not a mutation this engine implements, or when a two-key command such as dd
 // is missing its second key; the caller then offers the input to the motion
-// parser instead. Only the two-key commands (dd, yy, >>, <<) consume a byte of
-// rest.
+// parser instead. The two-key linewise commands (dd, yy, >>, <<) consume one
+// byte of rest, and the operator-plus-motion commands report the bytes the
+// motion owned.
 func (e *editor) applyMutation(cmd byte, ref registerRef, count int, rest string) (int, bool) {
 	switch cmd {
 	case 'd', 'y', '>', '<':
@@ -382,6 +383,14 @@ func (e *editor) applyMutation(cmd byte, ref registerRef, count int, rest string
 		// parser does not know leaves the whole command unrecognized.
 		if cmd == 'd' || cmd == 'y' {
 			if consumed, ok := e.applyOperatorMotion(cmd, ref, count, rest); ok {
+				return consumed, true
+			}
+		}
+		// > and < also take a motion. They are always linewise, so their range
+		// is the lines the motion reaches rather than the runes a d or y would
+		// store.
+		if cmd == '>' || cmd == '<' {
+			if consumed, ok := e.applyShiftOperatorMotion(cmd == '>', count, rest); ok {
 				return consumed, true
 			}
 		}
@@ -827,18 +836,46 @@ func (e *editor) putChars(text string, count int, before bool) {
 // applyOperatorMotion applies d or y with a motion or a text object and reports
 // how many bytes of rest the motion consumed. The motion range is delegated:
 // tryParseTextObject and tryParseOperatorMotion are the motion simulator's own
-// range math, so an operator affects exactly the range the motion judge sees. A
-// linewise motion (j, k, G, gg) makes the operator linewise; every other range
-// is character-wise, and a character-wise range that crosses lines is refused
-// because this engine keeps character-wise content on one line. A count before
-// the operator multiplies the motion in Vim, which this engine does not model,
-// so it is refused like a counted D instead of applied once.
+// range math, so an operator affects exactly the range the motion judge sees, and
+// % is taken from the shared motion parser's bracket jump, which the simulator's
+// operator range math does not carry. A linewise motion (j, k, G, gg) makes the
+// operator linewise; every other range is character-wise, and a character-wise
+// range that crosses lines is refused because this engine keeps character-wise
+// content on one line. A count before the operator multiplies the motion in Vim,
+// which this engine does not model, so it is refused like a counted D instead of
+// applied once.
 func (e *editor) applyOperatorMotion(cmd byte, ref registerRef, count int, rest string) (int, bool) {
 	if count > 1 {
 		return 0, false
 	}
 
 	pos := e.motionPosition()
+
+	// % takes the matching bracket as its motion. The simulator's operator
+	// range math does not carry it, so the span comes from the shared motion
+	// parser's own bracket jump: the rune range between the cursor and the
+	// bracket a % would carry the cursor to. A % that reaches no bracket is a
+	// recognized no-op, which is what nvim does with "d%" on a line that holds
+	// none. The span is character-wise, and this engine keeps character-wise
+	// content on one line, so a span that crosses lines is refused rather than
+	// stored as the register holding newlines nvim would fill.
+	if rest[0] == '%' {
+		dest, consumed, ok := parseMotion(rest, pos, e.buffer, &e.find)
+		if consumed == 0 || !ok {
+			return 0, false
+		}
+		if dest == pos {
+			return consumed, true
+		}
+		if dest.Line != pos.Line {
+			return 0, false
+		}
+		startCol, endCol := pos.Col, dest.Col
+		if startCol > endCol {
+			startCol, endCol = endCol, startCol
+		}
+		return consumed, e.applyCharwiseOperator(cmd, ref, pos.Line, startCol, endCol)
+	}
 
 	// A text object stays on one line in the simulator's range math. Vim's
 	// paragraph object is linewise and spans blank lines, so it is refused
@@ -863,6 +900,74 @@ func (e *editor) applyOperatorMotion(cmd byte, ref registerRef, count int, rest 
 	return consumed, e.applyCharwiseOperator(cmd, ref, sel.StartLine, sel.StartCol, sel.EndCol)
 }
 
+// applyShiftOperatorMotion applies > (indent true) or < with a motion and
+// reports how many bytes of rest the motion consumed. The motion decides the
+// range: nvim shifts every line from the cursor's line to the line the motion
+// reached, inclusive, whatever the motion's character-wise nature, and lands the
+// cursor on the first non-blank of the first line of that range, which is nvim's
+// 'startofline' landing. Each line is rewritten by shiftIndent, the model >> and
+// << already use, so a line shifted through a motion is exactly the line >>
+// produces for it, and an empty line inside the range is skipped as >> skips it.
+//
+// A motion nvim treats as failing aborts the whole command before it touches the
+// buffer, leaving it recognized (see operatorMotionAborts). A motion that reaches
+// a legal position without moving the cursor has not failed, so >l at the end of
+// a line, >h in column one and >t( with ( next to the cursor all shift the
+// cursor's line.
+//
+// A count before the operator multiplies the motion's own count in nvim ("2>j"
+// and ">2j" shift the same three lines, and "2>G" from the first line shifts to
+// line 2 rather than to the last line), which this engine does not model, so it
+// is refused exactly as the d and y path refuses "2dw". A count inside the
+// motion is the parser's own and is applied by it.
+func (e *editor) applyShiftOperatorMotion(indent bool, count int, rest string) (int, bool) {
+	if count > 1 {
+		return 0, false
+	}
+
+	pos := e.motionPosition()
+	dest, consumed, ok := parseMotion(rest, pos, e.buffer, &e.find)
+	if consumed == 0 || !ok {
+		return 0, false
+	}
+	if operatorMotionAborts(rest, pos, e.buffer, &e.find) {
+		return consumed, true
+	}
+
+	first, last := pos.Line, dest.Line
+	if first > last {
+		first, last = last, first
+	}
+	if first < 0 {
+		first = 0
+	}
+	if last >= len(e.buffer) {
+		last = len(e.buffer) - 1
+	}
+	e.shiftLineRange(first, last, indent)
+	return consumed, true
+}
+
+// shiftLineRange rewrites the indentation of the lines first..last one shift to
+// the right (indent true) or to the left and lands the cursor where a shift of a
+// range leaves it: the first non-blank, or the last character when the first
+// line has none. An empty line is left alone, but a line holding only whitespace
+// is shifted, exactly as >> does. The undo step is not the one-line linewise case
+// cursorFor repositions for, so undoing a shifted range returns to the column the
+// command was issued from even when the range was a single line.
+func (e *editor) shiftLineRange(first, last int, indent bool) {
+	next := copyLines(e.buffer)
+	for line := first; line <= last; line++ {
+		if next[line] == "" {
+			continue
+		}
+		next[line] = shiftIndent(next[line], indent)
+	}
+
+	cursor := Position{Line: first, Col: startOfLineColumn(next[first])}
+	e.commit(next, cursor, !sameLines(e.buffer, next), false)
+}
+
 // linewiseOperatorMotion reports whether the motion in rest makes an operator
 // linewise, and whether it is one of the one-line motions (j and k) whose
 // failure to move aborts the whole command in nvim. rest may begin with a
@@ -884,6 +989,152 @@ func linewiseOperatorMotion(rest string) (linewise, boundary bool) {
 		return i+1 < len(rest) && rest[i+1] == 'g', false
 	}
 	return false, false
+}
+
+// operatorMotionAborts reports whether the motion in rest fails from pos, the
+// one case in which nvim aborts an operator before it changes anything: the keys
+// are consumed, the buffer, the cursor and the undo history are left as they
+// were, and the answer is still recognized. A motion that reaches a legal
+// position without moving the cursor has not failed, which is why this asks a
+// per-motion question rather than comparing positions.
+//
+// Only the motions nvim can fail are listed, each with the observation that
+// names its failure:
+//
+//   - j and k stop at the buffer's last and first line, so an operator over one
+//     of them is a no-op only when the cursor cannot move at all (">j" on the
+//     last line). A counted j or k that moves part of its count still shifts
+//     (">3j" from the second-to-last line reaches the last).
+//   - f, F, t and T fail when the character they search for is not in the
+//     direction they search, the count included (">2Fc" with a single c before
+//     the cursor aborts). A t or T whose target is the very next character has
+//     found it without moving the cursor, and is not a failure.
+//   - % fails when the cursor is on no bracket and none follows it on its line.
+//   - ; and , fail until a find with a reachable target exists to repeat.
+//
+// Every other motion the parser knows - w, W, e, E, b, B, }, {, $, 0, ^, h, l,
+// G and gg - reaches a legal position even when it cannot move, so an operator
+// over one of them always shifts at least the cursor's line.
+func operatorMotionAborts(rest string, pos SimulatedPosition, code []string, find *lastFindCommand) bool {
+	key, count, char := motionKey(rest)
+	switch key {
+	case 'j':
+		return pos.Line >= len(code)-1
+	case 'k':
+		return pos.Line <= 0
+	case 'f', 'F', 't', 'T':
+		return searchMisses(key, char, count, pos, code)
+	case '%':
+		return moveToMatchingBracket(pos, code) == pos
+	case ';', ',':
+		return repeatFindMisses(key, count, pos, code, find)
+	}
+	return false
+}
+
+// motionKey splits a motion token into its key, its count and the character
+// argument f, F, t and T need. It reads the token the way parseMotion reads it,
+// which is the only thing that matters here: a leading '0' is the start-of-line
+// motion rather than a count, and the byte after the key of an f, F, t or T is
+// its target.
+func motionKey(rest string) (key byte, count int, char byte) {
+	if rest == "" {
+		return 0, 0, 0
+	}
+	if rest[0] == '0' {
+		return '0', 1, 0
+	}
+	i := 0
+	for i < len(rest) && rest[i] >= '1' && rest[i] <= '9' {
+		count = count*10 + int(rest[i]-'0')
+		i++
+	}
+	for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+		count = count*10 + int(rest[i]-'0')
+		i++
+	}
+	if count == 0 {
+		count = 1
+	}
+	if i >= len(rest) {
+		return 0, count, 0
+	}
+	key = rest[i]
+	i++
+	if (key == 'f' || key == 'F' || key == 't' || key == 'T') && i < len(rest) {
+		char = rest[i]
+	}
+	return key, count, char
+}
+
+// searchMisses reports whether an f, F, t or T search for char cannot complete
+// count steps from pos. What decides it is whether the character is there, not
+// where the search lands: a t whose target is the character immediately after
+// the cursor has not moved the cursor but has found its target, and nvim still
+// performs the operator over it.
+func searchMisses(key, char byte, count int, pos SimulatedPosition, code []string) bool {
+	for i := 0; i < count; i++ {
+		col, ok := searchTarget(key, char, pos, code)
+		if !ok {
+			return true
+		}
+		pos.Col = col
+	}
+	return false
+}
+
+// searchTarget returns the column of the next character an f, F, t or T search
+// looks for from pos: forward for f and t, backward for F and T.
+func searchTarget(key, char byte, pos SimulatedPosition, code []string) (int, bool) {
+	if pos.Line < 0 || pos.Line >= len(code) {
+		return 0, false
+	}
+	line := code[pos.Line]
+	switch key {
+	case 'f', 't':
+		for col := pos.Col + 1; col < len(line); col++ {
+			if line[col] == char {
+				return col, true
+			}
+		}
+	case 'F', 'T':
+		for col := pos.Col - 1; col >= 0; col-- {
+			if line[col] == char {
+				return col, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// repeatFindMisses reports whether ; or , fails: it needs a previous find and a
+// target that is still reachable in the direction it repeats. ';' repeats the
+// last find in its own direction and ',' in the opposite one.
+func repeatFindMisses(key byte, count int, pos SimulatedPosition, code []string, find *lastFindCommand) bool {
+	if find == nil || !find.hasSearch {
+		return true
+	}
+	cmd := find.cmd
+	if key == ',' {
+		cmd = oppositeFind(cmd)
+	}
+	return searchMisses(cmd, find.char, count, pos, code)
+}
+
+// oppositeFind is the find key ',' repeats: the same search in the other
+// direction.
+func oppositeFind(cmd byte) byte {
+	switch cmd {
+	case 'f':
+		return 'F'
+	case 'F':
+		return 'f'
+	case 't':
+		return 'T'
+	case 'T':
+		return 't'
+	}
+	return cmd
 }
 
 // applyLinewiseOperatorMotion applies a linewise d or y over the whole lines

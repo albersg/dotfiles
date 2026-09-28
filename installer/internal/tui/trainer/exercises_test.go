@@ -1,6 +1,8 @@
 package trainer
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -1560,5 +1562,248 @@ func TestAllModules_BossesHave3Lives(t *testing.T) {
 		if boss.Lives != 3 {
 			t.Errorf("Module %s boss should have 3 lives, got %d", mod, boss.Lives)
 		}
+	}
+}
+
+// =============================================================================
+// CONTENT HONESTY - THE EXERCISES THAT PROMISED WHAT THE JUDGE COULD NOT CHECK
+// =============================================================================
+
+// honestyBackedExerciseIDs are the exercises the content-honesty pass opted into
+// the buffer judge after giving each a mission that states a result the buffer
+// judge can check. Each one promised a capability in prose (a put, a register
+// round trip) that the motion/selection judge could not verify because it only
+// saw a cursor, a selection or an exact string. The list is explicit so a new
+// opt-in arrives with a matching decision and tests instead of drifting in
+// silently, and TestShippedExercises_OptInOnlyWhereTheMissionStatesABufferResult
+// in types_test.go reads it as the policy for the shipped corpus.
+var honestyBackedExerciseIDs = map[string]bool{
+	"textobjects_020":  true,
+	"textobjects_021":  true,
+	"changerepeat_004": true,
+	"macros_011":       true,
+	"macros_012":       true,
+	"macros_013":       true,
+	"macros_014":       true,
+	"macros_015":       true,
+}
+
+// honestyRewordedExerciseIDs are the exercises whose promised capability is an
+// operation the buffer engine does not model (the c/cc and S change commands, or
+// any ex command). Backing them by result is impossible today, so their mission,
+// hint and explanation were rewritten to claim only the keystrokes the judge
+// actually checks. The map holds, for each, a fragment of the old prose that
+// claimed the unverifiable result; the test below asserts the claim is gone.
+var honestyRewordedExerciseIDs = map[string]string{
+	"changerepeat_009": "Change the entire comment line",
+	"substitution_007": "for replacement",
+	"substitution_008": "preserves indent",
+	"substitution_018": "using :%s",
+	"macros_016":       "comment prefix to current line",
+	"macros_017":       "Add semicolon to end of current line",
+	"macros_018":       "Comment all lines with",
+	"macros_019":       "Add semicolons to lines 2-4",
+	"macros_boss_5":    "Paste from the yank register (\"0)",
+}
+
+// findExerciseByID returns the shipped exercise with the given ID, whether it is
+// a lesson or a boss step, so the honesty tests below run against the real
+// definitions rather than against a copy.
+func findExerciseByID(t *testing.T, id string) Exercise {
+	t.Helper()
+	for _, module := range moduleUnlockOrder {
+		for _, ex := range GetLessons(module) {
+			if ex.ID == id {
+				return ex
+			}
+		}
+		if boss := GetBoss(module); boss != nil {
+			for _, step := range boss.Steps {
+				if step.Exercise.ID == id {
+					return step.Exercise
+				}
+			}
+		}
+	}
+	t.Fatalf("no shipped exercise with ID %q", id)
+	return Exercise{}
+}
+
+// TestBackedExercises_EveryOptimalProducesTheResultItsMissionStates is the
+// completion invariant for every exercise the honesty pass opted in: answering
+// with the Optimal must be judged correct, the engine must recognize it, and the
+// buffer and cursor it leaves must be exactly the result the mission states. The
+// Solutions fast path alone would hide a broken optimal, which is why the engine
+// result is checked directly as well.
+func TestBackedExercises_EveryOptimalProducesTheResultItsMissionStates(t *testing.T) {
+	tests := []struct {
+		id     string
+		buffer []string
+		cursor Position
+	}{
+		{"textobjects_020", []string{"const importantValue = 42;", "const copy = importantValue;"}, Position{Line: 1, Col: 26}},
+		{"textobjects_021", []string{`const url = "https://api.example.com";`, `const copy = "https://api.example.com";`}, Position{Line: 1, Col: 36}},
+		{"changerepeat_004", []string{"const valid = true;", "const alsoValid = false;"}, Position{Line: 1, Col: 0}},
+		{"macros_011", []string{"const importantValue = 'remember_this';", "importantValue", "// Need this value below"}, Position{Line: 1, Col: 13}},
+		{"macros_012", []string{"myFunction", "const result = ();", "myFunction"}, Position{Line: 2, Col: 0}},
+		{"macros_013", []string{"const API_KEY = 'abc123xyz789';", "abc123xyz789", "// Copy the key to share externally"}, Position{Line: 1, Col: 11}},
+		{"macros_014", []string{"external_data", "const value = 'external_data';"}, Position{Line: 1, Col: 27}},
+		{"macros_015", []string{"keep_this", "const target = 'keep_this';"}, Position{Line: 1, Col: 24}},
+	}
+
+	if len(tests) != len(honestyBackedExerciseIDs) {
+		t.Fatalf("the table covers %d exercises but honestyBackedExerciseIDs names %d", len(tests), len(honestyBackedExerciseIDs))
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			ex := findExerciseByID(t, tt.id)
+			if !ex.BufferVerified {
+				t.Fatalf("%s does not opt into the buffer judge", tt.id)
+			}
+
+			result := ValidateAnswerDetailed(&ex, ex.Optimal)
+			if !result.IsCorrect {
+				t.Errorf("optimal %q is rejected; the exercise cannot be finished", ex.Optimal)
+			}
+			if !result.BufferVerified {
+				t.Error("validation did not run the buffer judge")
+			}
+
+			engine := SimulateEditing(ex.Code, ex.CursorPos, ex.Optimal)
+			if !engine.Recognized {
+				t.Errorf("the engine does not recognize the optimal %q; the mission states a result it cannot reproduce", ex.Optimal)
+			}
+			if !reflect.DeepEqual(engine.Buffer, tt.buffer) {
+				t.Errorf("the optimal leaves buffer %q, but the mission states %q", engine.Buffer, tt.buffer)
+			}
+			if engine.Cursor != tt.cursor {
+				t.Errorf("the optimal leaves cursor %+v, but the mission states %+v", engine.Cursor, tt.cursor)
+			}
+			if !reflect.DeepEqual(result.TargetBuffer, engine.Buffer) {
+				t.Errorf("TargetBuffer = %q, the engine produced %q", result.TargetBuffer, engine.Buffer)
+			}
+		})
+	}
+}
+
+// TestBackedExercises_PlausibleWrongAnswersAreRejected pins that each opt-in
+// actually discriminates: every answer below is a believable attempt that does
+// not reach the mission's result, so it must be judged incorrect and named as
+// diverging. The p/P pairs and the missing-register-prefix variants are exactly
+// the mistakes the prose warned about before the result was checkable.
+func TestBackedExercises_PlausibleWrongAnswersAreRejected(t *testing.T) {
+	tests := []struct {
+		id     string
+		answer string
+	}{
+		{"textobjects_020", "yiwj$p"},
+		{"textobjects_021", `yi"jlp`},
+		{"changerepeat_004", "jdd"},
+		{"macros_011", "yiwj\"ap"},
+		{"macros_012", "\"ayyj\"aP"},
+		{"macros_013", "\"+yi'j\"0p"},
+		{"macros_014", "\"+yiwjf'l\"+p"},
+		{"macros_015", "yiwjddf'l\"0p"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			ex := findExerciseByID(t, tt.id)
+			if IsInSolutions(&ex, tt.answer) {
+				t.Fatalf("%q is an authored solution of %s; pick a wrong answer", tt.answer, tt.id)
+			}
+
+			result := ValidateAnswerDetailed(&ex, tt.answer)
+			if result.IsCorrect {
+				t.Errorf("%s accepted the wrong answer %q", tt.id, tt.answer)
+			}
+			if !result.BufferVerified {
+				t.Error("the wrong answer was not judged by the buffer judge")
+			}
+			if result.MismatchSummary() == "" {
+				t.Error("the wrong answer has no mismatch summary to report to the player")
+			}
+		})
+	}
+}
+
+// TestRewordedExercises_ClaimOnlyWhatIsJudged is the other half of the honesty
+// pass. For every exercise whose command the engine cannot run, its mission must
+// no longer claim the unverifiable result, must say the trainer checks the
+// keystrokes, and must not claim a buffer result. The old prose fragment being
+// gone is what pins that the specific promise was withdrawn rather than merely
+// rephrased.
+func TestRewordedExercises_ClaimOnlyWhatIsJudged(t *testing.T) {
+	for id, oldClaim := range honestyRewordedExerciseIDs {
+		t.Run(id, func(t *testing.T) {
+			ex := findExerciseByID(t, id)
+			if ex.BufferVerified {
+				t.Errorf("%s opted into the buffer judge, but its command is not modelled; it cannot be judged by result", id)
+			}
+			if strings.Contains(ex.Mission, oldClaim) {
+				t.Errorf("%s mission still claims the unverifiable result %q: %q", id, oldClaim, ex.Mission)
+			}
+			if !strings.Contains(ex.Mission, "keystrokes") {
+				t.Errorf("%s mission does not say the trainer checks the keystrokes: %q", id, ex.Mission)
+			}
+			if missionClaimsABufferResult(ex.Mission) {
+				t.Errorf("%s mission still claims a buffer result: %q", id, ex.Mission)
+			}
+		})
+	}
+}
+
+// missionMentionsRegisterPutOrNormal reports whether a mission talks about a
+// result that only a buffer or a register could hold: a put, a register, or the
+// :normal ex command. It is the trigger for the guard below, and it is the class
+// of promise the content-honesty pass had to make honest.
+func missionMentionsRegisterPutOrNormal(mission string) bool {
+	m := strings.ToLower(mission)
+	for _, marker := range []string{"register", "paste", "put ", ":normal", ":norm"} {
+		if strings.Contains(m, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// missionClaimsABufferResult reports whether a mission states a buffer outcome.
+// The two buffer-judged modules phrase every such claim as "the buffer must
+// read ..." / "the line must read ...", so the modal "must" is the corpus's
+// result-claim marker, and a reworded mission that claims only keystrokes never
+// contains it.
+func missionClaimsABufferResult(mission string) bool {
+	return strings.Contains(strings.ToLower(mission), "must")
+}
+
+// TestNoMissionPromisesAResultItsJudgeCannotCheck is the guard that keeps the
+// class of dishonesty the content-honesty pass fixed from coming back silently:
+// an exercise whose mission mentions a put, a register or :normal must either
+// opt into the buffer judge or not claim a buffer result. It enumerates every
+// shipped lesson and boss step, so a new exercise cannot slip through.
+func TestNoMissionPromisesAResultItsJudgeCannotCheck(t *testing.T) {
+	for _, module := range moduleUnlockOrder {
+		for _, ex := range GetLessons(module) {
+			checkMissionClaims(t, ex)
+		}
+		if boss := GetBoss(module); boss != nil {
+			for _, step := range boss.Steps {
+				checkMissionClaims(t, step.Exercise)
+			}
+		}
+	}
+}
+
+func checkMissionClaims(t *testing.T, ex Exercise) {
+	t.Helper()
+	if !missionMentionsRegisterPutOrNormal(ex.Mission) {
+		return
+	}
+	if ex.BufferVerified {
+		return
+	}
+	if missionClaimsABufferResult(ex.Mission) {
+		t.Errorf("%s mission mentions a put, a register or :normal and claims a buffer result, but the exercise does not opt into the buffer judge: %q", ex.ID, ex.Mission)
 	}
 }

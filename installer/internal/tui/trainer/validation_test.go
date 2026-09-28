@@ -971,21 +971,24 @@ func TestValidateAnswerDetailed_BufferVerifiedExactMatchWins(t *testing.T) {
 	}
 }
 
-// The judge's documented order is exact match, then the skip-simulation bypass,
-// then the buffer judge. An exercise in a skip-simulation module is therefore
-// decided by its authored solutions even when it opts in, because the buffer
-// engine does not implement that module's commands yet; the opt-in only takes
-// effect on exercises that are simulated at all. ValidationResult.BufferVerified
-// records which judge actually ran, so this precedence is observable rather than
-// implied.
-func TestValidateAnswerDetailed_BufferOptInDoesNotOverrideSkipSimulation(t *testing.T) {
+// The judge's documented order is exact match, then the buffer judge for an
+// exercise that opted in, then the skip-simulation bypass, then the motion path.
+// The buffer judge is deliberately ahead of the bypass: the bypass answers
+// "does the answer match an authored solution?", while the opt-in asks "does the
+// answer produce the optimal's result?", and for an exercise in Substitution,
+// Macros or Regex only the second question can check a result. Running the
+// bypass first made the opt-in a no-op in exactly those modules, which is why
+// the order was corrected. This test pins the new precedence: the buffer judge
+// runs for an opted-in exercise even in a skip-simulation module, and an
+// exercise that did not opt in keeps the authored-solutions-only behaviour.
+func TestValidateAnswerDetailed_BufferJudgeRunsBeforeSkipSimulation(t *testing.T) {
 	exercise := &Exercise{
 		ID:             "buffer_test_003",
 		Module:         ModuleSubstitution,
-		Code:           []string{"  value = 1"},
+		Code:           []string{"one", "two"},
 		CursorPos:      Position{Line: 0, Col: 0},
-		Solutions:      []string{"S"},
-		Optimal:        "S",
+		Solutions:      []string{"jdd"},
+		Optimal:        "jdd",
 		BufferVerified: true,
 	}
 
@@ -993,19 +996,48 @@ func TestValidateAnswerDetailed_BufferOptInDoesNotOverrideSkipSimulation(t *test
 		t.Fatal("a substitution exercise must skip simulation")
 	}
 
-	authored := ValidateAnswerDetailed(exercise, "S")
+	authored := ValidateAnswerDetailed(exercise, "jdd")
 	if !authored.IsCorrect {
 		t.Errorf("authored solution rejected: %+v", authored)
 	}
-	if authored.BufferVerified {
-		t.Error("the buffer judge ran for a skip-simulation exercise")
+	if !authored.BufferVerified {
+		t.Error("the buffer judge did not run for an opted-in skip-simulation exercise; the bypass is still ahead of it")
 	}
-	if authored.TargetBuffer != nil || authored.ActualBuffer != nil {
-		t.Errorf("a skip-simulation result carries buffers: %+v", authored)
+	if want := []string{"one"}; !reflect.DeepEqual(authored.TargetBuffer, want) {
+		t.Errorf("TargetBuffer = %#v, want %#v", authored.TargetBuffer, want)
 	}
 
-	if result := ValidateAnswerDetailed(exercise, "ciw"); result.IsCorrect {
-		t.Errorf("an answer outside the solutions list must still be rejected: %+v", result)
+	// "dd" deletes the first line instead of the second, so it reaches a
+	// different buffer. Under the old precedence the buffer judge never ran and
+	// this answer was rejected only because it is not authored; now it is judged
+	// by the result it leaves, which is the point of the opt-in.
+	wrong := ValidateAnswerDetailed(exercise, "dd")
+	if wrong.IsCorrect {
+		t.Errorf("an answer that reaches a different buffer must be rejected: %+v", wrong)
+	}
+	if !wrong.BufferVerified {
+		t.Error("the wrong answer was not judged by the buffer judge")
+	}
+	if wrong.MismatchSummary() == "" {
+		t.Error("the wrong answer has no mismatch summary to report to the player")
+	}
+
+	// An exercise that does not opt in is unchanged: it is decided by its
+	// authored solutions, and an answer outside the list is rejected without the
+	// buffer judge running.
+	plain := &Exercise{
+		ID:        "buffer_test_004",
+		Module:    ModuleSubstitution,
+		Code:      []string{"one", "two"},
+		CursorPos: Position{Line: 0, Col: 0},
+		Solutions: []string{"jdd"},
+		Optimal:   "jdd",
+	}
+	if result := ValidateAnswerDetailed(plain, "jdd"); !result.IsCorrect {
+		t.Errorf("authored solution rejected without the opt-in: %+v", result)
+	}
+	if result := ValidateAnswerDetailed(plain, "dd"); result.IsCorrect {
+		t.Errorf("an answer outside the solutions list must be rejected without the opt-in: %+v", result)
 	}
 }
 

@@ -316,14 +316,15 @@ func shippedBossSteps() []Exercise {
 }
 
 // Exercise.BufferVerified is the opt-in for the buffer judge. Its zero value
-// must keep the judge an exercise was written against, so only the modules built
-// for the buffer judge opt in: the 156 lessons and 35 boss steps that predate it
-// were authored against the motion/selection judge, and migrating even one of
-// them changes how it is scored. Editing & Undo and Registers & Indentation are
-// the two modules whose entire point is the buffer judge, so every one of their
-// exercises must opt in. The count assertions also prove the enumeration found
-// the real corpus rather than an empty list.
-func TestShippedExercises_DoNotOptInToTheBufferJudge(t *testing.T) {
+// keeps the judge an exercise was written against, so an exercise opts in only
+// when its mission states a result the buffer judge can check. Editing & Undo
+// and Registers & Indentation are built for the buffer judge, so every one of
+// their exercises opts in. The content-honesty pass opted in the buffer-visible
+// exercises named in honestyBackedExerciseIDs (see exercises_test.go) after
+// giving each a mission that states a buffer result; every other exercise keeps
+// the judge it was authored against. The count assertions also prove the
+// enumeration found the real corpus rather than an empty list.
+func TestShippedExercises_OptInOnlyWhereTheMissionStatesABufferResult(t *testing.T) {
 	lessons := shippedLessons()
 	if len(lessons) != 199 {
 		t.Fatalf("enumerated %d shipped lessons, want 199", len(lessons))
@@ -335,12 +336,14 @@ func TestShippedExercises_DoNotOptInToTheBufferJudge(t *testing.T) {
 	}
 
 	for _, exercise := range append(lessons, bossSteps...) {
-		want := exercise.Module == ModuleEditing || exercise.Module == ModuleRegisters
+		want := exercise.Module == ModuleEditing ||
+			exercise.Module == ModuleRegisters ||
+			honestyBackedExerciseIDs[exercise.ID]
 		switch {
 		case want && !exercise.BufferVerified:
-			t.Errorf("buffer-judged exercise %s does not opt into the buffer judge; the module is judged by the buffer it produces", exercise.ID)
+			t.Errorf("buffer-judged exercise %s does not opt into the buffer judge; its mission states a result the buffer judge can check", exercise.ID)
 		case !want && exercise.BufferVerified:
-			t.Errorf("shipped exercise %s opts into the buffer judge; the shipped corpus must keep the judge it was authored against", exercise.ID)
+			t.Errorf("shipped exercise %s opts into the buffer judge without a mission that states a buffer result", exercise.ID)
 		}
 	}
 }

@@ -114,6 +114,18 @@ func ValidateAnswerDetailed(exercise *Exercise, answer string) ValidationResult 
 	// Check if it's optimal (normalize for comparison)
 	result.IsOptimal = answer == strings.TrimSpace(exercise.Optimal)
 
+	// Buffer-verified exercises are judged by the result the answer leaves in
+	// the buffer. The buffer judge comes after the authored-solutions fast path
+	// (which validateViaBuffer keeps as its own first case) and before the
+	// skip-simulation bypass, so an exercise in Substitution, Macros or Regex can
+	// be verified by the result it leaves: the bypass answers a different
+	// question ("does the answer match an authored solution?") and running it
+	// first would hide the buffer judge for exactly the modules whose commands
+	// the engine now models. An exercise that does not opt in is unaffected.
+	if exercise.BufferVerified {
+		return validateViaBuffer(exercise, answer, result)
+	}
+
 	// Exercises that are not pure motions are not simulated; correctness is
 	// decided by the predefined solutions alone.
 	if ShouldSkipSimulation(exercise) {
@@ -122,15 +134,6 @@ func ValidateAnswerDetailed(exercise *Exercise, answer string) ValidationResult 
 		result.TargetPosition = exercise.CursorPos
 		result.ActualPosition = exercise.CursorPos
 		return result
-	}
-
-	// Buffer-verified exercises are judged by the result the answer leaves in
-	// the buffer, so an answer that reaches the same result by different keys is
-	// correct. The bypass above still comes first: an exercise in a
-	// skip-simulation module is decided by its authored solutions even when it
-	// opts in, because the engine does not implement that module's commands yet.
-	if exercise.BufferVerified {
-		return validateViaBuffer(exercise, answer, result)
 	}
 
 	// Use the simulator to check the *result* the answer produces, not only the

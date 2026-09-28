@@ -2767,3 +2767,502 @@ func TestSimulateEditing_Marks(t *testing.T) {
 		},
 	})
 }
+
+// TestSimulateEditing_ShiftOperatorMotion specifies > and < as operators over a
+// motion, against nvimShiftReference. The range is delegated to the shared
+// motion parser, so the operator spans exactly the lines the motion judge
+// reaches, and each line is rewritten by shiftIndent, so a line shifted here is
+// the line >> produces for it.
+//
+// Reference: nvim 0.12.5, "nvim --clean --headless" with `set shiftwidth=2
+// expandtab tabstop=2 startofline`, one fresh process per case, the buffer
+// loaded from a file, the cursor placed with cursor(). The observations the rows
+// below encode are:
+//
+//   - The operator is linewise whatever the motion is. >w shifts the whole
+//     cursor line, and >} shifts every line from the cursor to the line the
+//     paragraph motion reached, skipping any empty line inside the range the
+//     way >> does.
+//   - The cursor lands on the first non-blank of the first line of the range
+//     ('startofline'), which is the line the motion reached when the motion went
+//     upwards and the cursor's own line when it went downwards.
+//   - Undo does not use that landing. A shifted range undoes to the column the
+//     command was issued from, even when the range was a single line: >wu from
+//     column 8 of "func main() {" returns to column 8, while >>u from the same
+//     place stops at the first non-blank, because >> is the one-line linewise
+//     case the existing undo rule names.
+//   - A motion nvim treats as failing aborts the command before it touches the
+//     buffer, so the keys are consumed and the answer stays recognized: >j on
+//     the last line, >k on the first, and >fZ when the line holds no Z are
+//     no-ops. Reaching a legal position without moving the cursor is not a
+//     failure: >l at the end of a line, >h in column one, >0 and >$ and >t(
+//     where ( is the next character all shift the cursor's line. A counted j or
+//     k that moves part of its count still shifts, so >3j from the
+//     second-to-last line shifts to the last.
+//   - A count before the operator is refused, exactly as the d and y path
+//     refuses 2dw: nvim multiplies it into the motion's own count (2>j and >2j
+//     shift the same three lines, and 2>G from the first line is >2G, which
+//     shifts to line 2 rather than to the last line), and this engine does not
+//     model the product. A count on the motion itself is the parser's own, so
+//     >2j shifts the cursor line and the two below it.
+func TestSimulateEditing_ShiftOperatorMotion(t *testing.T) {
+	base := []string{
+		"func main() {",
+		"  if x {",
+		"    y",
+		"  }",
+		"  z",
+		"}",
+	}
+
+	runEditingCases(t, []editingCase{
+		{
+			name: ">j shifts the cursor line and the line below it",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">j",
+			wantBuffer: []string{"  func main() {", "    if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">w shifts the whole cursor line even though w is character-wise",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">w",
+			wantBuffer: []string{"  func main() {", "  if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">G shifts every line down to the last",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">G",
+			wantBuffer: []string{"  func main() {", "    if x {", "      y", "    }", "    z", "  }"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">gg shifts from the first line to the cursor's line",
+			code: base, start: Position{Line: 4, Col: 2}, input: ">gg",
+			wantBuffer: []string{"  func main() {", "    if x {", "      y", "    }", "    z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">} shifts to the last line when the buffer has no blank line",
+			code: base, start: Position{Line: 1, Col: 2}, input: ">}",
+			wantBuffer: []string{"func main() {", "    if x {", "      y", "    }", "    z", "  }"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">} stops at the blank line the paragraph motion reached",
+			code: []string{"func main() {", "  a", "", "  b", "}"}, start: Position{Line: 1, Col: 2}, input: ">}",
+			wantBuffer: []string{"func main() {", "    a", "", "  b", "}"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "<} outdents the line the paragraph motion reached and the cursor line",
+			code: []string{"func main() {", "  a", "", "  b", "}"}, start: Position{Line: 3, Col: 2}, input: "<}",
+			wantBuffer: []string{"func main() {", "  a", "", "b", "}"},
+			wantCursor: Position{Line: 3, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">2j shifts three lines, the cursor line and the two below it",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">2j",
+			wantBuffer: []string{"  func main() {", "    if x {", "      y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted j that only partly moves still shifts to the last line",
+			code: base, start: Position{Line: 4, Col: 2}, input: ">3j",
+			wantBuffer: []string{"func main() {", "  if x {", "    y", "  }", "    z", "  }"},
+			wantCursor: Position{Line: 4, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "<j outdents the cursor line and the line below it",
+			code: base, start: Position{Line: 0, Col: 0}, input: "<j",
+			wantBuffer: []string{"func main() {", "if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "<G outdents every line down to the last",
+			code: base, start: Position{Line: 0, Col: 0}, input: "<G",
+			wantBuffer: []string{"func main() {", "if x {", "  y", "}", "z", "}"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "<gg outdents from the first line to the cursor's line",
+			code: base, start: Position{Line: 4, Col: 2}, input: "<gg",
+			wantBuffer: []string{"func main() {", "if x {", "  y", "}", "z", "}"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">k shifts the line k reached and the cursor line",
+			code: base, start: Position{Line: 2, Col: 2}, input: ">k",
+			wantBuffer: []string{"func main() {", "    if x {", "      y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "<k outdents the line k reached and the cursor line",
+			code: base, start: Position{Line: 2, Col: 6}, input: "<k",
+			wantBuffer: []string{"func main() {", "if x {", "  y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "<2j outdents the cursor line and the two below it",
+			code: base, start: Position{Line: 1, Col: 2}, input: "<2j",
+			wantBuffer: []string{"func main() {", "if x {", "  y", "}", "  z", "}"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">j on the last line is a complete no-op",
+			code: base, start: Position{Line: 5, Col: 0}, input: ">j",
+			wantBuffer: base,
+			wantCursor: Position{Line: 5, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">G on the last line still shifts the line it already reached",
+			code: base, start: Position{Line: 5, Col: 0}, input: ">G",
+			wantBuffer: []string{"func main() {", "  if x {", "    y", "  }", "  z", "  }"},
+			wantCursor: Position{Line: 5, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">gg on the first line still shifts the line it already reached",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">gg",
+			wantBuffer: []string{"  func main() {", "  if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">g is an incomplete g command and is not recognized",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">g",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: ">2 leaves the operator without a motion and is not recognized",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">2",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: ">; with no previous find is a recognized no-op",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">;",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">; aborts when the repeated find's target is gone",
+			code: base, start: Position{Line: 0, Col: 0}, input: "fa>;",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">; shifts the line when the repeated find reaches a target",
+			code: []string{"alpha beta"}, start: Position{Line: 0, Col: 0}, input: "fa>;",
+			wantBuffer: []string{"  alpha beta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">, repeats the find backwards and shifts the line",
+			code: []string{"alpha beta"}, start: Position{Line: 0, Col: 0}, input: "fa>,",
+			wantBuffer: []string{"  alpha beta"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">k on the first line is a complete no-op",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">k",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">j on a two-line buffer shifts both lines",
+			code: []string{"a", "b"}, start: Position{Line: 0, Col: 0}, input: ">j",
+			wantBuffer: []string{"  a", "  b"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">j on a single-line buffer is a no-op",
+			code: []string{"only line"}, start: Position{Line: 0, Col: 0}, input: ">j",
+			wantBuffer: []string{"only line"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">w on a single-line buffer shifts the line",
+			code: []string{"only line"}, start: Position{Line: 0, Col: 0}, input: ">w",
+			wantBuffer: []string{"  only line"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">l at the end of a line still shifts the line",
+			code: base, start: Position{Line: 0, Col: 12}, input: ">l",
+			wantBuffer: []string{"  func main() {", "  if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">h in column one still shifts the line",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">h",
+			wantBuffer: []string{"  func main() {", "  if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">0 shifts the cursor line from a column past the first blank",
+			code: base, start: Position{Line: 1, Col: 6}, input: ">0",
+			wantBuffer: []string{"func main() {", "    if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">$ shifts the cursor line to its end",
+			code: base, start: Position{Line: 1, Col: 6}, input: ">$",
+			wantBuffer: []string{"func main() {", "    if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">fa shifts the cursor line when the target is found",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">fa",
+			wantBuffer: []string{"  func main() {", "  if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">fZ is a no-op when the line holds no Z",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">fZ",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">t( shifts the line when the target is the next character",
+			code: base, start: Position{Line: 0, Col: 3}, input: ">t(",
+			wantBuffer: []string{"  func main() {", "  if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">ju returns to the column the command was issued from",
+			code: base, start: Position{Line: 0, Col: 0}, input: ">ju",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">wu returns to the issued column even though the range was one line",
+			code: base, start: Position{Line: 0, Col: 8}, input: ">wu",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 8}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">>u still stops at the first non-blank of the changed line",
+			code: base, start: Position{Line: 1, Col: 6}, input: ">>u",
+			wantBuffer: base,
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a count before the operator is refused",
+			code: base, start: Position{Line: 0, Col: 0}, input: "2>j",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a count before the operator is refused for G too",
+			code: base, start: Position{Line: 0, Col: 0}, input: "2>G",
+			wantBuffer: base,
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: ">2j shifts a whitespace-only line in its range, as >> does",
+			code: []string{"a", "   ", "b"}, start: Position{Line: 0, Col: 0}, input: ">2j",
+			wantBuffer: []string{"  a", "     ", "  b"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">2j skips an empty line in its range, as >> does",
+			code: []string{"a", "", "b"}, start: Position{Line: 0, Col: 0}, input: ">2j",
+			wantBuffer: []string{"  a", "", "  b"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">j stops before an empty line outside its range",
+			code: []string{"a", "", "b"}, start: Position{Line: 0, Col: 0}, input: ">j",
+			wantBuffer: []string{"  a", "", "b"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">2j on an all-blank first line lands on its last character",
+			code: []string{"   ", "a"}, start: Position{Line: 0, Col: 0}, input: ">2j",
+			wantBuffer: []string{"     ", "  a"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "<2j on an all-blank first line lands on its last character",
+			code: []string{"   ", "a"}, start: Position{Line: 0, Col: 0}, input: "<2j",
+			wantBuffer: []string{" ", "a"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a range shift leaves a mark where it was set",
+			code: base, start: Position{Line: 0, Col: 0}, input: "ma>j`a",
+			wantBuffer: []string{"  func main() {", "    if x {", "    y", "  }", "  z", "}"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a range shift leaves the unnamed register alone",
+			code: []string{"alpha", "beta", "gamma"}, start: Position{Line: 0, Col: 0}, input: "yy>jp",
+			wantBuffer: []string{"  alpha", "alpha", "  beta", "gamma"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestSimulateEditing_OperatorMotionPercent specifies % accepted after an
+// operator. The span runs from the cursor to the bracket the shared motion
+// parser's % reaches, and it is the operator's own kind of range:
+//
+//   - > and < are linewise, so >% shifts every line between the two brackets
+//     however far apart they are and lands on the first non-blank of the first
+//     of them, while its undo returns to the issued column like every other
+//     operator-plus-motion shift.
+//   - d% and y% act on the inclusive character-wise span. A span that stays on
+//     one line is the engine's ordinary character-wise range, so y%p and y%P put
+//     it back under the same rules as the d$ and y$ the engine already stores.
+//   - A % that reaches no bracket is a recognized no-op: nvim leaves the buffer
+//     and the cursor exactly as they were for >%, d% and y%.
+//   - A character-wise span that crosses lines is refused exactly as every other
+//     crossing range is, because the engine keeps character-wise content on one
+//     line. nvim's own result there needs a register holding newlines (d% on the
+//     "call(" of a four-line argument list leaves the text before the opening
+//     bracket, "  call"), which is a register model this engine does not have,
+//     so the answer is reported unrecognized and nothing is applied.
+//   - A counted % is refused on this path as it already is as a bare motion:
+//     nvim's [count]% is percent-of-file, a different command.
+//
+// Reference: nvim 0.12.5, "nvim --clean --headless" with `set shiftwidth=2
+// expandtab tabstop=2 startofline`, one fresh process per case, the buffer
+// loaded from a file, the cursor placed with cursor().
+func TestSimulateEditing_OperatorMotionPercent(t *testing.T) {
+	brackets := []string{
+		"func main() {",
+		"  call(",
+		"    a,",
+		"    b",
+		"  )",
+		"}",
+	}
+	noBracket := []string{"plain text here", "second line"}
+
+	runEditingCases(t, []editingCase{
+		{
+			name: ">% on the opening bracket shifts every line the span covers",
+			code: brackets, start: Position{Line: 1, Col: 6}, input: ">%",
+			wantBuffer: []string{"func main() {", "    call(", "      a,", "      b", "    )", "}"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">% on the closing bracket shifts the same lines and lands on the opening one",
+			code: brackets, start: Position{Line: 4, Col: 2}, input: ">%",
+			wantBuffer: []string{"func main() {", "    call(", "      a,", "      b", "    )", "}"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "<% outdents every line the span covers",
+			code: brackets, start: Position{Line: 1, Col: 6}, input: "<%",
+			wantBuffer: []string{"func main() {", "call(", "  a,", "  b", ")", "}"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "undoing a cross-line >% returns to the issued column",
+			code: brackets, start: Position{Line: 1, Col: 6}, input: ">%u",
+			wantBuffer: brackets,
+			wantCursor: Position{Line: 1, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "d% across lines is refused by the one-line character-wise rule",
+			code: brackets, start: Position{Line: 1, Col: 6}, input: "d%",
+			wantBuffer: brackets,
+			wantCursor: Position{Line: 1, Col: 6}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "y% across lines is refused by the one-line character-wise rule",
+			code: brackets, start: Position{Line: 1, Col: 6}, input: "y%",
+			wantBuffer: brackets,
+			wantCursor: Position{Line: 1, Col: 6}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: ">% on a line with no bracket is a recognized no-op",
+			code: noBracket, start: Position{Line: 0, Col: 6}, input: ">%",
+			wantBuffer: noBracket,
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "d% on a line with no bracket is a recognized no-op",
+			code: noBracket, start: Position{Line: 0, Col: 6}, input: "d%",
+			wantBuffer: noBracket,
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "y% on a line with no bracket is a recognized no-op",
+			code: noBracket, start: Position{Line: 0, Col: 6}, input: "y%",
+			wantBuffer: noBracket,
+			wantCursor: Position{Line: 0, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "d% on the opening bracket deletes the inclusive span",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 4}, input: "d%",
+			wantBuffer: []string{"call"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "d% on the closing bracket deletes the same span",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 9}, input: "d%",
+			wantBuffer: []string{"call"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "d% from before the bracket scans forward and deletes to its match",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 0}, input: "d%",
+			wantBuffer: []string{""},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "y% on the opening bracket leaves the cursor on the bracket",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 4}, input: "y%",
+			wantBuffer: []string{"call(a, b)"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "y% on the closing bracket backs the cursor up to the span's start",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 9}, input: "y%",
+			wantBuffer: []string{"call(a, b)"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "y% then p puts the span after the cursor",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 4}, input: "y%p",
+			wantBuffer: []string{"call((a, b)a, b)"},
+			wantCursor: Position{Line: 0, Col: 10}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "y% then P puts the span before the cursor",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 4}, input: "y%P",
+			wantBuffer: []string{"call(a, b)(a, b)"},
+			wantCursor: Position{Line: 0, Col: 9}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">% on a same-line span shifts the whole line",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 4}, input: ">%",
+			wantBuffer: []string{"  call(a, b)"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">% from a column before the bracket scans forward to it",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 0}, input: ">%",
+			wantBuffer: []string{"  call(a, b)"},
+			wantCursor: Position{Line: 0, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "d% on an unmatched bracket is a recognized no-op",
+			code: []string{"if (a {", "b"}, start: Position{Line: 0, Col: 3}, input: "d%",
+			wantBuffer: []string{"if (a {", "b"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: ">% on an unmatched bracket is a recognized no-op",
+			code: []string{"if (a {", "b"}, start: Position{Line: 0, Col: 3}, input: ">%",
+			wantBuffer: []string{"if (a {", "b"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted percent after an operator is refused",
+			code: []string{"call(a, b)"}, start: Position{Line: 0, Col: 4}, input: "d2%",
+			wantBuffer: []string{"call(a, b)"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: false,
+		},
+	})
+}
