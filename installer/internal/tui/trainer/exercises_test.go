@@ -1208,6 +1208,270 @@ func TestEditingModule_PlausibleWrongAnswersAreRejected(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// REGISTERS & INDENTATION MODULE
+// =============================================================================
+
+func TestGetLessons_Registers_ReturnsExercises(t *testing.T) {
+	lessons := GetLessons(ModuleRegisters)
+	if len(lessons) == 0 {
+		t.Fatal("GetLessons should return exercises for the Registers module")
+	}
+}
+
+func TestGetLessons_Registers_HasMinimum15(t *testing.T) {
+	lessons := GetLessons(ModuleRegisters)
+	if len(lessons) < 15 {
+		t.Errorf("Registers module should have at least 15 lessons, got %d", len(lessons))
+	}
+}
+
+func TestGetLessons_Registers_AllHaveRequiredFields(t *testing.T) {
+	lessons := GetLessons(ModuleRegisters)
+	for i, ex := range lessons {
+		if ex.ID == "" {
+			t.Errorf("Lesson %d: ID is empty", i)
+		}
+		if ex.Module != ModuleRegisters {
+			t.Errorf("Lesson %d: Module should be Registers, got %s", i, ex.Module)
+		}
+		if ex.Type != ExerciseLesson {
+			t.Errorf("Lesson %d: Type should be Lesson, got %s", i, ex.Type)
+		}
+		if len(ex.Code) == 0 {
+			t.Errorf("Lesson %d: Code is empty", i)
+		}
+		if ex.Mission == "" {
+			t.Errorf("Lesson %d: Mission is empty", i)
+		}
+		if len(ex.Solutions) == 0 {
+			t.Errorf("Lesson %d: Solutions is empty", i)
+		}
+		if ex.Optimal == "" {
+			t.Errorf("Lesson %d: Optimal is empty", i)
+		}
+		if ex.Hint == "" {
+			t.Errorf("Lesson %d: Hint is empty", i)
+		}
+		if ex.Explanation == "" {
+			t.Errorf("Lesson %d: Explanation is empty", i)
+		}
+		if ex.TimeoutSecs <= 0 {
+			t.Errorf("Lesson %d: TimeoutSecs should be positive, got %d", i, ex.TimeoutSecs)
+		}
+		if ex.Points <= 0 {
+			t.Errorf("Lesson %d: Points should be positive, got %d", i, ex.Points)
+		}
+	}
+}
+
+func TestGetLessons_Registers_OptimalIsInSolutions(t *testing.T) {
+	for _, ex := range GetLessons(ModuleRegisters) {
+		found := false
+		for _, sol := range ex.Solutions {
+			if sol == ex.Optimal {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Lesson %s: Optimal %q not in Solutions %v", ex.ID, ex.Optimal, ex.Solutions)
+		}
+	}
+}
+
+func TestGetLessons_Registers_UniqueIDs(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, ex := range GetLessons(ModuleRegisters) {
+		if seen[ex.ID] {
+			t.Errorf("Duplicate lesson ID: %s", ex.ID)
+		}
+		seen[ex.ID] = true
+	}
+}
+
+func TestGetLessons_Registers_CoversTheCommandsItTeaches(t *testing.T) {
+	lessons := GetLessons(ModuleRegisters)
+	allSolutions := make(map[string]bool)
+	for _, ex := range lessons {
+		for _, sol := range ex.Solutions {
+			allSolutions[sol] = true
+		}
+	}
+
+	requiredCommands := []string{
+		"yyp",            // yank a line, put it below
+		"yyP",            // yank a line, put it above
+		"yiwP",           // yank a word, put it before the cursor
+		"yiwp",           // yank a word, put it after the cursor
+		"\"ayyj\"ap",     // named register round trip
+		"yyjdd\"0p",      // register 0 survives a delete
+		"ddp",            // delete and put to move a line down
+		"ddP",            // delete and put to move a line up
+		">>",             // indent the current line
+		"<<",             // dedent the current line
+		"2>>",            // counted shift right
+		"2<<",            // counted shift left
+		"3>>",            // counted shift over a range
+		"yjp",            // yank a linewise range
+		"y$P",            // yank a character-wise range
+		"yypA done<Esc>", // yank and insert together
+		"\"ayyjyy\"ap",   // a named register survives another yank
+		"yyjddp",         // the unnamed register follows the last delete
+	}
+
+	for _, cmd := range requiredCommands {
+		matched := false
+		for sol := range allSolutions {
+			if containsSubstring(sol, cmd) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("Registers lessons should cover command %q", cmd)
+		}
+	}
+}
+
+func TestGetBoss_Registers_ReturnsBoss(t *testing.T) {
+	boss := GetBoss(ModuleRegisters)
+	if boss == nil {
+		t.Fatal("GetBoss should return a boss for the Registers module")
+	}
+}
+
+func TestGetBoss_Registers_HasCorrectName(t *testing.T) {
+	boss := GetBoss(ModuleRegisters)
+	if boss == nil || boss.Name != "The Archivist" {
+		t.Errorf("Registers boss name should be 'The Archivist', got %v", boss)
+	}
+}
+
+func TestGetBoss_Registers_Has5Steps(t *testing.T) {
+	boss := GetBoss(ModuleRegisters)
+	if boss == nil || len(boss.Steps) != 5 {
+		t.Errorf("Registers boss should have 5 steps, got %v", boss)
+	}
+}
+
+func TestGetBoss_Registers_StepsHaveTimeLimits(t *testing.T) {
+	boss := GetBoss(ModuleRegisters)
+	if boss == nil {
+		t.Fatal("no registers boss")
+	}
+	for i, step := range boss.Steps {
+		if step.TimeLimit <= 0 {
+			t.Errorf("Boss step %d: TimeLimit should be positive, got %d", i, step.TimeLimit)
+		}
+	}
+}
+
+// =============================================================================
+// REGISTERS & INDENTATION MODULE - BUFFER JUDGE INVARIANTS
+// =============================================================================
+
+// registersExercises returns every exercise of the Registers & Indentation
+// module: its lessons and its boss steps, in order. The invariants below
+// enumerate the real corpus so a lesson added without an optimal answer that
+// validates cannot ship unnoticed: a module whose own optimal does not validate
+// is a module nobody can finish.
+func registersExercises() []Exercise {
+	all := GetLessons(ModuleRegisters)
+	if boss := GetBoss(ModuleRegisters); boss != nil {
+		for _, step := range boss.Steps {
+			all = append(all, step.Exercise)
+		}
+	}
+	return all
+}
+
+// TestRegistersModule_EveryOptimalValidates is the module's completion
+// invariant: answering each lesson and boss step with its own Optimal must be
+// judged correct, and the editing engine must recognize the optimal so the
+// buffer judge can actually reproduce the result the mission states. The
+// Solutions fast path alone would hide a broken optimal, which is why Recognized
+// is checked separately.
+func TestRegistersModule_EveryOptimalValidates(t *testing.T) {
+	exercises := registersExercises()
+	if len(exercises) != 25 {
+		t.Fatalf("enumerated %d registers exercises, want 25 (20 lessons + 5 boss steps)", len(exercises))
+	}
+
+	for _, ex := range exercises {
+		t.Run(ex.ID, func(t *testing.T) {
+			if !ex.BufferVerified {
+				t.Error("exercise does not opt into the buffer judge; the registers module is judged by the buffer it produces")
+			}
+
+			result := ValidateAnswerDetailed(&ex, ex.Optimal)
+			if !result.IsCorrect {
+				t.Errorf("optimal %q is rejected; the module cannot be finished", ex.Optimal)
+			}
+			if !result.BufferVerified {
+				t.Error("validation did not run the buffer judge")
+			}
+
+			engine := SimulateEditing(ex.Code, ex.CursorPos, ex.Optimal)
+			if !engine.Recognized {
+				t.Errorf("the editing engine does not recognize the optimal %q; the mission states a result it cannot reproduce", ex.Optimal)
+			}
+		})
+	}
+}
+
+// TestRegistersModule_PlausibleWrongAnswersAreRejected pins that the buffer
+// judge actually discriminates: each entry below is a believable attempt that
+// does not reach the mission's result, so it must be judged incorrect and named
+// as diverging. The register lessons carry the weight: using the unnamed
+// register where the answer needs 0, forgetting the put or the delete, and
+// shifting one line where the mission asks for a range all leave a different
+// buffer, and the judge names which part diverged.
+func TestRegistersModule_PlausibleWrongAnswersAreRejected(t *testing.T) {
+	byID := make(map[string]Exercise)
+	for _, ex := range registersExercises() {
+		byID[ex.ID] = ex
+	}
+
+	tests := []struct {
+		id     string
+		answer string
+	}{
+		{"registers_001", "yy"},
+		{"registers_005", "dd"},
+		{"registers_007", "\"ayy\"ap"},
+		{"registers_008", "yyjddp"},
+		{"registers_010", "<<"},
+		{"registers_012", ">>"},
+		{"registers_020", "yypA!<Esc>"},
+		{"registers_boss_4", "ddp"},
+		{"registers_boss_5", "\"ayyjyyjdd\"ap"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			ex, ok := byID[tt.id]
+			if !ok {
+				t.Fatalf("no exercise %s", tt.id)
+			}
+			if IsInSolutions(&ex, tt.answer) {
+				t.Fatalf("%q is an authored solution of %s; pick a wrong answer", tt.answer, tt.id)
+			}
+
+			result := ValidateAnswerDetailed(&ex, tt.answer)
+			if result.IsCorrect {
+				t.Errorf("%s accepted the wrong answer %q", tt.id, tt.answer)
+			}
+			if !result.BufferVerified {
+				t.Error("wrong answer was not judged by the buffer judge")
+			}
+			if result.MismatchSummary() == "" {
+				t.Error("wrong answer has no mismatch summary to report to the player")
+			}
+		})
+	}
+}
+
 // Helper function to check if string contains substring
 func containsSubstring(s, substr string) bool {
 	if len(substr) > len(s) {
@@ -1235,6 +1499,7 @@ func TestAllModules_HaveUniqueExerciseIDs(t *testing.T) {
 		ModuleRegex,
 		ModuleMacros,
 		ModuleEditing,
+		ModuleRegisters,
 	}
 
 	allIDs := make(map[string]bool)
@@ -1259,6 +1524,7 @@ func TestAllModules_BossesHave5Steps(t *testing.T) {
 		ModuleRegex,
 		ModuleMacros,
 		ModuleEditing,
+		ModuleRegisters,
 	}
 
 	for _, mod := range modules {
@@ -1283,6 +1549,7 @@ func TestAllModules_BossesHave3Lives(t *testing.T) {
 		ModuleRegex,
 		ModuleMacros,
 		ModuleEditing,
+		ModuleRegisters,
 	}
 
 	for _, mod := range modules {

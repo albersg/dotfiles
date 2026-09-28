@@ -15,6 +15,7 @@ const (
 	ModuleRegex        ModuleID = "regex"
 	ModuleMacros       ModuleID = "macros"
 	ModuleEditing      ModuleID = "editing"
+	ModuleRegisters    ModuleID = "registers"
 )
 
 // ExerciseType defines the type of exercise
@@ -193,6 +194,7 @@ var moduleUnlockOrder = []ModuleID{
 	ModuleRegex,
 	ModuleMacros,
 	ModuleEditing,
+	ModuleRegisters,
 }
 
 // NextModule returns the module that follows the given one in the unlock
@@ -328,6 +330,13 @@ func GetAllModules() []ModuleInfo {
 			Icon:        "📝",
 			Description: "i, a, I, A, o, O, <Esc>, u, Ctrl-r, dd, yy, p, P, >>, <<, x, D, %, marks",
 			BossName:    "The Historian",
+		},
+		{
+			ID:          ModuleRegisters,
+			Name:        "Registers & Indentation",
+			Icon:        "📋",
+			Description: "yy, yiw, y$, yw, yj, p, P, \"a-\"z, \"0, dd, x, D, >>, <<",
+			BossName:    "The Archivist",
 		},
 	}
 }

@@ -1,9 +1,8 @@
-[?25l[?2004h]2;dotfiles Installer                                                                               [K
-  🎮 Vim Mastery Trainer                                                       [K
+[?25l[?2004h]2;dotfiles Installer  🎮 Vim Mastery Trainer                                                       [K
                                                                                [K
   Master Vim motions through progressive challenges                            [K
                                                                                [K
-  📊 Score: 0  |  🔥 Streak: 0  |  👑 Bosses: 1/8                              [K
+  📊 Score: 0  |  🔥 Streak: 0  |  👑 Bosses: 1/9                              [K
                                                                                [K
   Select a Module:                                                             [K
                                                                                [K
@@ -17,6 +16,7 @@
     🔒 🔍 Regex & Vimgrep  Lessons 0/24 · Mastered 0/24 · Boss ✗               [K
     🔒 🎪 Macros  Lessons 0/24 · Mastered 0/24 · Boss ✗                        [K
     🔒 📝 Editing & Undo  Lessons 0/23 · Mastered 0/23 · Boss ✗                [K
+    🔒 📋 Registers & Indentation  Lessons 0/20 · Mastered 0/20 · Boss ✗       [K
                                                                                [K
                                                                                [K
   ↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss               [K

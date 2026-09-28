@@ -19,10 +19,11 @@ func TestModuleID_Constants(t *testing.T) {
 		ModuleRegex,
 		ModuleMacros,
 		ModuleEditing,
+		ModuleRegisters,
 	}
 
-	if len(modules) != 8 {
-		t.Errorf("Expected 8 modules, got %d", len(modules))
+	if len(modules) != 9 {
+		t.Errorf("Expected 9 modules, got %d", len(modules))
 	}
 
 	// Verificar valores únicos
@@ -48,6 +49,7 @@ func TestModuleID_StringValues(t *testing.T) {
 		{ModuleRegex, "regex"},
 		{ModuleMacros, "macros"},
 		{ModuleEditing, "editing"},
+		{ModuleRegisters, "registers"},
 	}
 
 	for _, tt := range tests {
@@ -139,8 +141,8 @@ func TestExercise_Creation(t *testing.T) {
 func TestGetAllModules_ReturnsCorrectCount(t *testing.T) {
 	modules := GetAllModules()
 
-	if len(modules) != 8 {
-		t.Errorf("Expected 8 modules, got %d", len(modules))
+	if len(modules) != 9 {
+		t.Errorf("Expected 9 modules, got %d", len(modules))
 	}
 }
 
@@ -156,6 +158,7 @@ func TestGetAllModules_CorrectOrder(t *testing.T) {
 		ModuleRegex,
 		ModuleMacros,
 		ModuleEditing,
+		ModuleRegisters,
 	}
 
 	for i, expected := range expectedOrder {
@@ -210,6 +213,7 @@ func TestGetAllModules_BossNames(t *testing.T) {
 		ModuleRegex:        "The Pattern Master",
 		ModuleMacros:       "The Automaton",
 		ModuleEditing:      "The Historian",
+		ModuleRegisters:    "The Archivist",
 	}
 
 	for _, mod := range modules {
@@ -242,7 +246,8 @@ func TestNextModule_FollowsUnlockOrder(t *testing.T) {
 		{"substitution unlocks regex", ModuleSubstitution, ModuleRegex, true},
 		{"regex unlocks macros", ModuleRegex, ModuleMacros, true},
 		{"macros unlocks editing", ModuleMacros, ModuleEditing, true},
-		{"editing is the final module", ModuleEditing, "", false},
+		{"editing unlocks registers", ModuleEditing, ModuleRegisters, true},
+		{"registers is the final module", ModuleRegisters, "", false},
 		{"unknown module has no successor", ModuleID("nope"), "", false},
 	}
 
@@ -311,29 +316,29 @@ func shippedBossSteps() []Exercise {
 }
 
 // Exercise.BufferVerified is the opt-in for the buffer judge. Its zero value
-// must keep the judge an exercise was written against, so only the module built
-// for the buffer judge opts in: the 156 lessons and 35 boss steps that predate
-// it were authored against the motion/selection judge, and migrating even one
-// of them changes how it is scored. Editing & Undo is the one module whose
-// entire point is the buffer judge, so every one of its exercises must opt in.
-// The count assertions also prove the enumeration found the real corpus rather
-// than an empty list.
+// must keep the judge an exercise was written against, so only the modules built
+// for the buffer judge opt in: the 156 lessons and 35 boss steps that predate it
+// were authored against the motion/selection judge, and migrating even one of
+// them changes how it is scored. Editing & Undo and Registers & Indentation are
+// the two modules whose entire point is the buffer judge, so every one of their
+// exercises must opt in. The count assertions also prove the enumeration found
+// the real corpus rather than an empty list.
 func TestShippedExercises_DoNotOptInToTheBufferJudge(t *testing.T) {
 	lessons := shippedLessons()
-	if len(lessons) != 179 {
-		t.Fatalf("enumerated %d shipped lessons, want 179", len(lessons))
+	if len(lessons) != 199 {
+		t.Fatalf("enumerated %d shipped lessons, want 199", len(lessons))
 	}
 
 	bossSteps := shippedBossSteps()
-	if len(bossSteps) != 40 {
-		t.Fatalf("enumerated %d shipped boss steps, want 40", len(bossSteps))
+	if len(bossSteps) != 45 {
+		t.Fatalf("enumerated %d shipped boss steps, want 45", len(bossSteps))
 	}
 
 	for _, exercise := range append(lessons, bossSteps...) {
-		want := exercise.Module == ModuleEditing
+		want := exercise.Module == ModuleEditing || exercise.Module == ModuleRegisters
 		switch {
 		case want && !exercise.BufferVerified:
-			t.Errorf("editing exercise %s does not opt into the buffer judge; the module is judged by the buffer it produces", exercise.ID)
+			t.Errorf("buffer-judged exercise %s does not opt into the buffer judge; the module is judged by the buffer it produces", exercise.ID)
 		case !want && exercise.BufferVerified:
 			t.Errorf("shipped exercise %s opts into the buffer judge; the shipped corpus must keep the judge it was authored against", exercise.ID)
 		}
