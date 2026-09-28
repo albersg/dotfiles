@@ -39,13 +39,32 @@ const (
 	helpCancel   = "[Esc] cancel"
 	helpQuit     = "[Space q] quit"
 	helpDetails  = "[Space d] details"
+
+	// helpReturnToMenu is the trainer's boss-result legend. It is one fragment
+	// because the four keys all do the same thing there, and it goes through the
+	// shared notation like every other legend.
+	helpReturnToMenu = "[Enter/Space/Esc/q] return to menu"
 )
 
+// helpNotation joins a screen's key hints with the one separator and the one
+// order the program shares, so a legend is a list of named fragments instead of
+// a hand-typed sentence that drifts from its neighbours. It is the notation
+// itself; helpLine and trainerHelpLine differ only in the style around it.
+func helpNotation(hints ...string) string {
+	return strings.Join(hints, " • ")
+}
+
 // helpLine renders a screen's key hints with the one separator and the one
-// order they share, so a legend is a list of named fragments instead of a
-// hand-typed sentence that drifts from its neighbours.
+// order they share.
 func helpLine(hints ...string) string {
-	return HelpStyle.Render(strings.Join(hints, " • "))
+	return HelpStyle.Render(helpNotation(hints...))
+}
+
+// trainerHelpLine is helpLine without the margin: the trainer budgets one row
+// per element, so it draws the same notation through TrainerHelpStyle, which
+// carries no margin of its own.
+func trainerHelpLine(hints ...string) string {
+	return TrainerHelpStyle.Render(helpNotation(hints...))
 }
 
 // deadEnd renders a screen with nothing to show: what is missing, and the way
@@ -314,17 +333,20 @@ func (m Model) renderWelcome() string {
 
 	// The detected environment is a footnote because it is what a bug report
 	// needs and what a first-time reader does not: it names the platform, whether
-	// Homebrew is already present, and the build version.
-	info := fmt.Sprintf("Detected: %s", m.SystemInfo.OSName)
+	// Homebrew is already present, and the build version. It used to bolt the
+	// three together with pipe separators, which read as three unrelated facts;
+	// it is one sentence now, and the platform leads because it is the fact that
+	// changes how the installer behaves.
+	env := "Running on " + m.SystemInfo.OSName
 	if m.SystemInfo.IsWSL && m.SystemInfo.OSName != "WSL" {
-		info += " (WSL)"
+		env += " under WSL"
 	}
 	if m.SystemInfo.HasBrew {
-		info += " | Homebrew ✓"
+		env += ", with Homebrew already installed"
 	}
-	info += " | " + VersionLabel()
+	env += " (" + VersionLabel() + ")"
 	s.WriteString("\n\n")
-	s.WriteString(MutedStyle.Render(truncate(info, contentWidth(m))))
+	s.WriteString(MutedStyle.Render(truncate(env, contentWidth(m))))
 
 	// Center both horizontally and vertically. The frame is the terminal minus
 	// the one blank row the global padding adds on top, so the last line of a
@@ -1125,7 +1147,7 @@ func (m Model) renderBackupConfirm() string {
 	if configRows < 1 {
 		configRows = 1
 	}
-	for _, row := range listRows(m.ExistingConfigs, "  ⚠️  ", configRows, width, WarningStyle) {
+	for _, row := range listRows(m.ExistingConfigs, "  ⚠️ ", configRows, width, WarningStyle) {
 		s.WriteString(row)
 		s.WriteString("\n")
 	}
@@ -1249,7 +1271,7 @@ func (m Model) renderRestoreConfirm() string {
 	}
 
 	s.WriteString("\n")
-	s.WriteString(WarningStyle.Render("⚠️  Restoring will overwrite your current configs!"))
+	s.WriteString(WarningStyle.Render("⚠️ Restoring will overwrite your current configs!"))
 	s.WriteString("\n\n")
 
 	for _, row := range m.menuRows(m.GetCurrentOptions(), m.Cursor) {
@@ -1316,19 +1338,32 @@ const (
 	trainerFrameRows = 16
 )
 
-// The labels and legends the two exercise screens share. They are one string
-// each so the lesson, practice and boss screens cannot drift apart on the keys
-// they promise: Ctrl-e types the token an insert answer needs to leave insert
-// mode, Esc is the trainer's own exit key, Backspace is an input edit the
+// The labels and hints the trainer screens share. Each hint is one named
+// fragment, joined through the same helpNotation as every other screen, so the
+// menu, the lesson, the practice and the boss legends cannot drift apart on the
+// keys they promise: Ctrl-e types the token an insert answer needs to leave
+// insert mode, Esc is the trainer's own exit key, Backspace is an input edit the
 // engine never sees, and PgUp/PgDn scroll the code window. The scroll keys are
 // key names rather than printable characters, so they cannot collide with
 // typing, with the hint key, with submit or with back.
 const (
-	trainerAnswerLabel     = "⌨️  Your answer: "
-	trainerExerciseHelpOne = "Type command • [Enter] submit • [Tab] hint • [PgUp/PgDn] scroll"
-	trainerExerciseHelpTwo = "[Backspace] delete • [Ctrl-e] type " + trainer.EscToken + " • [Esc] quit"
-	trainerBossHelpOne     = "Type command • [Enter] submit • [Ctrl-e] type " + trainer.EscToken
-	trainerBossHelpTwo     = "[PgUp/PgDn] scroll • [Esc] forfeit"
+	trainerAnswerLabel = "⌨️ Your answer: "
+
+	trainerHelpLesson   = "[Enter/l] lesson"
+	trainerHelpPractice = "[p] practice"
+	trainerHelpBoss     = "[b] boss"
+	trainerHelpReset    = "[r] reset module"
+	trainerHelpResetAll = "[R] reset all"
+	trainerHelpBack     = "[q/Esc] back"
+
+	trainerHelpTypeCommand = "Type command"
+	trainerHelpSubmit      = "[Enter] submit"
+	trainerHelpHint        = "[Tab] hint"
+	trainerHelpScroll      = "[PgUp/PgDn] scroll"
+	trainerHelpDelete      = "[Backspace] delete"
+	trainerHelpEscToken    = "[Ctrl-e] type " + trainer.EscToken
+	trainerHelpQuit        = "[Esc] quit"
+	trainerHelpForfeit     = "[Esc] forfeit"
 )
 
 // trainerAnswer is the typed answer as the screen shows it: control characters
@@ -1721,10 +1756,11 @@ func (m Model) renderTrainerMenu() string {
 		s.WriteString("\n")
 	}
 
-	// Legend, one row per line, so the menu's height is countable.
-	s.WriteString(TrainerHelpStyle.Render("↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss"))
+	// Legend, one row per line through the shared notation, so the menu's height
+	// is countable and its keys read the way every other screen's do.
+	s.WriteString(trainerHelpLine(helpNavigate, trainerHelpLesson, trainerHelpPractice, trainerHelpBoss))
 	s.WriteString("\n")
-	s.WriteString(TrainerHelpStyle.Render("[r] reset module • [R] reset all • [q/Esc] back"))
+	s.WriteString(trainerHelpLine(trainerHelpReset, trainerHelpResetAll, trainerHelpBack))
 
 	return s.String()
 }
@@ -2021,12 +2057,12 @@ func (m Model) renderTrainerExercise(mode string) string {
 	)
 	rows = append(rows, m.trainerFeedbackRows(InfoStyle)...)
 
-	// Help. The two lines go through TrainerHelpStyle, one row each, so the
+	// Help. The two lines go through trainerHelpLine, one row each, so the
 	// screen's height is countable: see trainerFrameRows.
 	rows = append(rows,
 		"",
-		TrainerHelpStyle.Render(trainerExerciseHelpOne),
-		TrainerHelpStyle.Render(trainerExerciseHelpTwo),
+		trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpHint, trainerHelpScroll),
+		trainerHelpLine(trainerHelpDelete, trainerHelpEscToken, trainerHelpQuit),
 	)
 
 	return strings.Join(rows, "\n")
@@ -2179,7 +2215,7 @@ func (m Model) renderTrainerBoss() string {
 	// window: a 14-line boss step scrolls instead of running off the bottom, which
 	// is where its whole second half used to be.
 	rows := []string{
-		DangerStyle.Render("⚔️  BOSS FIGHT: " + boss.Name),
+		DangerStyle.Render("⚔️ BOSS FIGHT: " + boss.Name),
 		lives,
 		countdown,
 		"",
@@ -2190,7 +2226,9 @@ func (m Model) renderTrainerBoss() string {
 	if currentStep >= len(boss.Steps) || exercise == nil {
 		// No step is on screen, so there is no code window to size around.
 		rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
-		rows = append(rows, "", TrainerHelpStyle.Render(trainerBossHelpOne), TrainerHelpStyle.Render(trainerBossHelpTwo))
+		rows = append(rows, "",
+			trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpEscToken),
+			trainerHelpLine(trainerHelpScroll, trainerHelpForfeit))
 		return strings.Join(rows, "\n")
 	}
 
@@ -2211,7 +2249,9 @@ func (m Model) renderTrainerBoss() string {
 		SubtitleStyle.Render(trainerAnswerLabel)+KeyStyle.Render(tailToWidth(m.trainerAnswer(), inner-lipgloss.Width(trainerAnswerLabel))),
 	)
 	rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
-	rows = append(rows, "", TrainerHelpStyle.Render(trainerBossHelpOne), TrainerHelpStyle.Render(trainerBossHelpTwo))
+	rows = append(rows, "",
+		trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpEscToken),
+		trainerHelpLine(trainerHelpScroll, trainerHelpForfeit))
 
 	return strings.Join(rows, "\n")
 }
@@ -2295,7 +2335,7 @@ func (m Model) renderTrainerResult() string {
 
 	// Help
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("[Enter] continue • [Esc] back"))
+	s.WriteString(helpLine("[Enter] continue", helpBack))
 
 	return s.String()
 }
@@ -2351,7 +2391,7 @@ func (m Model) renderTrainerBossResult() string {
 
 	// Help
 	s.WriteString("\n\n")
-	s.WriteString(HelpStyle.Render("[Enter/Space/Esc/q] return to menu"))
+	s.WriteString(helpLine(helpReturnToMenu))
 
 	return s.String()
 }

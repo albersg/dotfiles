@@ -274,13 +274,23 @@ func (m Model) menuSeparator() string {
 }
 
 // GetCurrentOptions returns the options for the current screen
+// alacrittyNeedsBuild reports whether the Linux path installs Alacritty from
+// source, which is the one terminal choice with a cost worth stating beside the
+// menu instead of inside its label. The condition is the one the installer step
+// uses: a Debian-based host, or plain Linux, with Linux chosen as the platform.
+func (m Model) alacrittyNeedsBuild() bool {
+	return m.SystemInfo != nil &&
+		(m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) &&
+		m.Choices.OS == "linux"
+}
+
 func (m Model) GetCurrentOptions() []string {
 	switch m.Screen {
 	case ScreenMainMenu:
 		opts := []string{
 			"🚀 Start Installation",
 			"📚 Learn About Tools",
-			"⌨️  Keymaps Reference",
+			"⌨️ Keymaps Reference",
 			"📖 LazyVim Guide",
 			"🎮 Vim Trainer",
 		}
@@ -293,43 +303,30 @@ func (m Model) GetCurrentOptions() []string {
 	case ScreenKeymapsMenu:
 		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", m.menuSeparator(), "← Back"}
 	case ScreenOSSelect:
-		macLabel := "macOS"
-		linuxLabel := "Linux"
-		termuxLabel := "Termux"
-		if m.SystemInfo.OS == system.OSMac {
-			macLabel = "macOS (detected)"
-		} else if m.SystemInfo.OS == system.OSTermux {
-			termuxLabel = "Termux (detected)"
-		} else if m.SystemInfo.OS == system.OSLinux || m.SystemInfo.OS == system.OSArch || m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSFedora {
-			linuxLabel = "Linux (detected)"
-		}
-		return []string{macLabel, linuxLabel, termuxLabel}
+		// The detected platform is already named on the line above the menu, so
+		// the option labels do not repeat it: they were "Linux (detected)" and
+		// friends, which restated the description under the title.
+		return []string{"macOS", "Linux", "Termux"}
 	case ScreenTerminalSelect:
-		alacrittyLabel := "Alacritty"
-		// On Debian/Ubuntu, Alacritty needs to be built from source (PPAs are unreliable)
-		// This applies to ALL Debian-based systems, not just ARM
-		if m.SystemInfo != nil && (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && m.Choices.OS == "linux" {
-			alacrittyLabel = "Alacritty ⏱️  (builds from source, installs Rust ~5-10 min)"
-		}
 		if m.Choices.OS == "mac" {
-			return []string{alacrittyLabel, "WezTerm", "Kitty", "Ghostty", "None", m.menuSeparator(), "ℹ️  Learn about terminals"}
+			return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", "None", m.menuSeparator(), "ℹ️ Learn about terminals"}
 		}
-		return []string{alacrittyLabel, "WezTerm", "Ghostty", "None", m.menuSeparator(), "ℹ️  Learn about terminals"}
+		return []string{"Alacritty", "WezTerm", "Ghostty", "None", m.menuSeparator(), "ℹ️ Learn about terminals"}
 	case ScreenFontSelect:
 		return []string{"Yes, install Iosevka Term Nerd Font", "No, I already have it"}
 	case ScreenShellSelect:
-		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "ℹ️  Learn about shells"}
+		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "ℹ️ Learn about shells"}
 	case ScreenWMSelect:
 		if m.SystemInfo != nil && m.SystemInfo.IsTermux {
-			return []string{"Tmux", "Zellij", "None", m.menuSeparator(), "ℹ️  Learn about multiplexers"}
+			return []string{"Tmux", "Zellij", "None", m.menuSeparator(), "ℹ️ Learn about multiplexers"}
 		}
-		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "ℹ️  Learn about multiplexers"}
+		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "ℹ️ Learn about multiplexers"}
 	case ScreenNvimSelect:
-		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "ℹ️  Learn about Neovim", "⌨️  View Keymaps", "📖 LazyVim Guide"}
+		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "ℹ️ Learn about Neovim", "⌨️ View Keymaps", "📖 LazyVim Guide"}
 	case ScreenBackupConfirm:
 		return []string{
 			"✅ Install with Backup (recommended)",
-			"⚠️  Install without Backup",
+			"⚠️ Install without Backup",
 			"❌ Cancel",
 		}
 	case ScreenRestoreBackup:
@@ -344,12 +341,12 @@ func (m Model) GetCurrentOptions() []string {
 	case ScreenRestoreConfirm:
 		return []string{
 			"✅ Yes, restore this backup",
-			"🗑️  Delete this backup",
+			"🗑️ Delete this backup",
 			"❌ Cancel",
 		}
 	case ScreenGhosttyWarning:
 		return []string{
-			"⚠️  Continue with Ghostty anyway",
+			"⚠️ Continue with Ghostty anyway",
 			"🔄 Choose a different terminal",
 			"❌ Cancel installation",
 		}
@@ -433,13 +430,13 @@ func (m Model) GetScreenTitle() string {
 	case ScreenNvimSelect:
 		return "Step 6: Neovim Configuration"
 	case ScreenBackupConfirm:
-		return "⚠️  Existing Configs Detected"
+		return "⚠️ Existing Configs Detected"
 	case ScreenRestoreBackup:
 		return "🔄 Restore from Backup"
 	case ScreenRestoreConfirm:
 		return "🔄 Confirm Restore"
 	case ScreenGhosttyWarning:
-		return "⚠️  Ghostty Compatibility Warning"
+		return "⚠️ Ghostty Compatibility Warning"
 	case ScreenInstalling:
 		return "Installing..."
 	case ScreenComplete:
@@ -455,42 +452,42 @@ func (m Model) GetScreenTitle() string {
 	case ScreenLearnNvim:
 		return "📚 Learn: Neovim"
 	case ScreenKeymaps:
-		return "⌨️  Neovim Keymaps Reference"
+		return "⌨️ Neovim Keymaps Reference"
 	case ScreenKeymapCategory:
 		if m.SelectedCategory < len(m.KeymapCategories) {
-			return "⌨️  " + m.KeymapCategories[m.SelectedCategory].Name
+			return "⌨️ " + m.KeymapCategories[m.SelectedCategory].Name
 		}
-		return "⌨️  Keymaps"
+		return "⌨️ Keymaps"
 	case ScreenKeymapsMenu:
-		return "⌨️  Keymaps Reference"
+		return "⌨️ Keymaps Reference"
 	case ScreenKeymapsTmux:
-		return "⌨️  Tmux Keymaps"
+		return "⌨️ Tmux Keymaps"
 	case ScreenKeymapsTmuxCat:
 		if m.TmuxSelectedCategory < len(m.TmuxKeymapCategories) {
-			return "⌨️  " + m.TmuxKeymapCategories[m.TmuxSelectedCategory].Name
+			return "⌨️ " + m.TmuxKeymapCategories[m.TmuxSelectedCategory].Name
 		}
-		return "⌨️  Tmux Keymaps"
+		return "⌨️ Tmux Keymaps"
 	case ScreenKeymapsZellij:
-		return "⌨️  Zellij Keymaps"
+		return "⌨️ Zellij Keymaps"
 	case ScreenKeymapsZellijCat:
 		if m.ZellijSelectedCategory < len(m.ZellijKeymapCategories) {
-			return "⌨️  " + m.ZellijKeymapCategories[m.ZellijSelectedCategory].Name
+			return "⌨️ " + m.ZellijKeymapCategories[m.ZellijSelectedCategory].Name
 		}
-		return "⌨️  Zellij Keymaps"
+		return "⌨️ Zellij Keymaps"
 	case ScreenKeymapsGhostty:
-		return "⌨️  Ghostty Keymaps"
+		return "⌨️ Ghostty Keymaps"
 	case ScreenKeymapsGhosttyCat:
 		if m.GhosttySelectedCategory < len(m.GhosttyKeymapCategories) {
-			return "⌨️  " + m.GhosttyKeymapCategories[m.GhosttySelectedCategory].Name
+			return "⌨️ " + m.GhosttyKeymapCategories[m.GhosttySelectedCategory].Name
 		}
-		return "⌨️  Ghostty Keymaps"
+		return "⌨️ Ghostty Keymaps"
 	case ScreenKeymapsHerdr:
-		return "⌨️  Herdr Keymaps"
+		return "⌨️ Herdr Keymaps"
 	case ScreenKeymapsHerdrCat:
 		if m.HerdrSelectedCategory < len(m.HerdrKeymapCategories) {
-			return "⌨️  " + m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
+			return "⌨️ " + m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
 		}
-		return "⌨️  Herdr Keymaps"
+		return "⌨️ Herdr Keymaps"
 	case ScreenLearnLazyVim:
 		return "📖 LazyVim Guide"
 	case ScreenLazyVimTopic:
@@ -527,6 +524,13 @@ func (m Model) GetScreenDescription() string {
 	case ScreenTerminalSelect:
 		if m.SystemInfo.IsWSL {
 			return "WSL detected: terminal emulators should be installed on Windows.\nThe installer will skip terminal setup — use Windows Terminal or your preferred Windows terminal."
+		}
+		if m.alacrittyNeedsBuild() {
+			// The build cost used to sit inside the Alacritty menu label, which
+			// made a warning read like part of the terminal's name. It is a
+			// sentence beside the menu now, where the reader can weigh it before
+			// picking.
+			return "Select your preferred terminal emulator.\nAlacritty builds from source on this system, so it needs Rust and about 5–10 minutes."
 		}
 		return "Select your preferred terminal emulator"
 	case ScreenFontSelect:

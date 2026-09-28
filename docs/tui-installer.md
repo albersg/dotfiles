@@ -17,13 +17,18 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 ## Features
 
 - **Interactive Navigation**: Arrow keys or Vim-style `j/k` bindings
+- **Adaptive Theme**: One palette that reads on a dark or a light terminal, and that
+  degrades to 16 colours or no colour without losing information
+- **Shared Help Notation**: Every screen writes its keys the same way, so a legend
+  cannot drift from the keys the screen accepts
 - **Smart Detection**: Automatically detects your OS, existing configs, and installed tools
 - **Backup & Restore**: Safely backup existing configurations before installation
 - **Educational Content**: Learn about each tool before choosing (terminals, shells, multiplexers)
 - **Neovim Keymaps Reference**: Built-in keymap browser organized by category
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
-- **Progress Tracking**: Real-time installation progress with detailed logs
+- **Progress Tracking**: Real-time installation progress with a frame-width progress bar,
+  a percentage, and a per-step status rail, plus optional detailed logs
 - **Non-Interactive Mode**: CI/CD friendly installation via CLI flags
 
 ## Quick Start
@@ -69,19 +74,37 @@ From the main menu you can access:
 
 ### Installation Flow
 
-1. **OS Selection**: Choose macOS, Linux, or Termux
-2. **Terminal Emulator**: Select Ghostty, Kitty, WezTerm, Alacritty, or None
-3. **Font Installation**: Iosevka Term Nerd Font (required for icons)
-4. **Shell**: Choose Nushell, Fish, Zsh, or None
-5. **Window Manager**: Select Tmux, Zellij, Herdr, or None
-6. **Neovim**: Configure LazyVim with LSP and AI assistants
-7. **Toolset**: Install the `brew`, `tap`, `go`, `npm` and `uv` entries declared
-   in the `Brewfile` (best-effort; skipped on Termux and without Homebrew)
-8. **WSL Configuration** (WSL hosts only): derives the `.wslconfig` limits from the
-   Windows host it runs on, then installs the rendered file into the Windows user
-   profile and `/etc/wsl.conf` inside the distribution
-9. **Backup Confirmation**: Option to backup existing configs before overwriting
-10. **Installation**: Watch real-time progress
+Every screen is built to fit an 80×24 terminal: it never runs past the frame on
+either axis, and overlong text is cut with a visible marker or wrapped rather
+than clipped silently. The installer first asks for the choices (operating
+system, terminal emulator, font, shell, window manager, Neovim and backup), then
+runs the steps that fit that machine; the set of steps depends on the platform
+and the choices, so a run shows only the ones that apply.
+
+| Step | What it does |
+|------|--------------|
+| Install Dependencies | Installs the base packages the system needs (needs sudo on Linux) |
+| Install Xcode CLI | Installs the Apple developer command-line tools (macOS, when missing) |
+| Install Homebrew | Installs Homebrew, the package manager |
+| Clone Repository | Downloads your dotfiles repository |
+| Install Terminal | Installs your chosen terminal emulator |
+| Install Iosevka Nerd Font | Installs the Iosevka Nerd Font for icons |
+| Install Shell | Installs your shell and its plugins |
+| Install Multiplexer | Installs your terminal multiplexer |
+| Install Neovim | Installs Neovim with your configuration |
+| Install Toolset | Installs the command-line tools declared in the `Brewfile` (best effort; skipped on Termux and without Homebrew) |
+| Install Pi Agent Skills | Installs the pinned AI agent skills |
+| Install OfficeCLI | Installs the OfficeCLI document tool |
+| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only) |
+| Set Default Shell | Sets your shell as the default |
+| Cleanup | Removes the temporary files it created |
+
+The installing screen is the longest thing a user watches, so it shows how far
+the run has come: a progress bar sized to the frame with a percentage beside it,
+and a rail of one row per step whose state is a glyph and a word (`✓` done,
+`●` running, `○` pending, `✗` failed, `⊘` skipped). The running step's
+description is shown under its row, and `d` opens a bounded log box with the most
+recent output.
 
 ### Keyboard Shortcuts
 
@@ -330,12 +353,14 @@ installer/
 │       ├── tools_info.go        # Tool descriptions
 │       ├── keymaps_*.go         # Keymap definitions
 │       └── trainer/             # Vim Trainer RPG system
-│           ├── types.go         # Exercise types, modules
-│           ├── exercises.go     # Exercise definitions
-│           ├── validation.go    # Input validation
-│           ├── simulator.go     # Vim simulation
+│           ├── types.go         # Exercise types, modules, progress
+│           ├── exercises.go     # Module registry, lessons and bosses
+│           ├── exercises_*.go   # The exercise corpus per module
+│           ├── simulator.go     # Motion simulator (the motion judge)
+│           ├── editor.go        # Mutable editing engine (the buffer judge)
+│           ├── validation.go    # Chooses and runs the exercise's judge
 │           ├── stats.go         # Progress tracking
-│           ├── gamestate.go     # Save/load game state
-│           └── practice.go      # Practice mode
+│           ├── gamestate.go     # Lesson, practice and boss sessions
+│           └── practice.go      # Weighted practice selection
 └── go.mod
 ```

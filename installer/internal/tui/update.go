@@ -1623,7 +1623,7 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// Start lessons for the module
 		lessons := trainer.GetLessons(module.ID)
 		if len(lessons) == 0 {
-			m.TrainerMessage = "No lessons available for this module yet."
+			m.TrainerMessage = "No lessons for this module yet. Choose another module."
 			return m, nil
 		}
 
@@ -1706,10 +1706,10 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 					m.TrainerMessage = ""
 					m.Screen = ScreenTrainerBoss
 				} else {
-					m.TrainerMessage = "Boss not implemented yet!"
+					m.TrainerMessage = "This module has no boss fight yet. Try another module."
 				}
 			} else {
-				m.TrainerMessage = "Complete lessons + 80% practice accuracy to fight boss!"
+				m.TrainerMessage = "Finish every lesson and reach 80% practice accuracy to unlock the boss."
 			}
 		}
 	case "q":

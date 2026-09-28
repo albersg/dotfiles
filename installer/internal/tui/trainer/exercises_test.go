@@ -2,6 +2,7 @@ package trainer
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -1594,6 +1595,12 @@ var honestyBackedExerciseIDs = map[string]bool{
 // hint and explanation were rewritten to claim only the keystrokes the judge
 // actually checks. The map holds, for each, a fragment of the old prose that
 // claimed the unverifiable result; the test below asserts the claim is gone.
+//
+// The macros_020 to macros_024 entries are the global-command family the first
+// pass missed: they described the result of :g/… and :v/… commands, which the
+// engine cannot run, in words the old marker list ("register", "paste", "put",
+// ":normal") did not contain. They now say the trainer checks the keystrokes,
+// and the broadened detector below catches that class written the same way again.
 var honestyRewordedExerciseIDs = map[string]string{
 	"changerepeat_009": "Change the entire comment line",
 	"substitution_007": "for replacement",
@@ -1603,6 +1610,11 @@ var honestyRewordedExerciseIDs = map[string]string{
 	"macros_017":       "Add semicolon to end of current line",
 	"macros_018":       "Comment all lines with",
 	"macros_019":       "Add semicolons to lines 2-4",
+	"macros_020":       "Comment all lines containing",
+	"macros_021":       "Delete all TODO lines",
+	"macros_022":       "Run macro 'a' on all error lines",
+	"macros_023":       "Apply macro 'b' to all DEBUG lines",
+	"macros_024":       "Delete all lines NOT containing",
 	"macros_boss_5":    "Paste from the yank register (\"0)",
 }
 
@@ -1754,34 +1766,71 @@ func TestRewordedExercises_ClaimOnlyWhatIsJudged(t *testing.T) {
 	}
 }
 
-// missionMentionsRegisterPutOrNormal reports whether a mission talks about a
-// result that only a buffer or a register could hold: a put, a register, or the
-// :normal ex command. It is the trigger for the guard below, and it is the class
-// of promise the content-honesty pass had to make honest.
-func missionMentionsRegisterPutOrNormal(mission string) bool {
+// exCommandToken matches the start of an Ex command as a mission writes one: a
+// colon followed directly by a range character or a command letter, the shape of
+// ":g/…", ":%s/…", ":2,4s/…" and ":normal …". A prose colon is followed by a
+// space ("Note: …") and does not match.
+var exCommandToken = regexp.MustCompile(`:[%$0-9a-z]`)
+
+// missionMentionsUnmodelledEffect reports whether a mission names an operation
+// whose result the judge cannot verify: a register or put the buffer judge would
+// have to observe, or an Ex command, which the engine does not execute. The
+// previous detector enumerated a few literal words (":normal", ":norm",
+// "register", "paste", "put ") and so missed the :g/…/normal @a and :v/…/d
+// lessons, which make the same promise in other words. This one keys on the
+// Ex-command form itself, so a new global or range command is covered without
+// its exact name being listed here.
+//
+// The detector is a text heuristic over English mission prose. It keys on: the
+// Ex-command form or a register word, plus a result claim (the modal "must" or a
+// line-scope phrase), unless the mission disclaims the result by saying it checks
+// the keystrokes. It still cannot catch:
+//   - a promise that names no mechanism and no line scope, such as "make every
+//     console line a comment", because there is no word to key on;
+//   - a single-line or range substitute phrased without "all … lines" or
+//     "must", such as "replace 'foo' with 'bar' on this line using :s/…": it
+//     names the Ex command, but the claim is not one of the matched shapes;
+//   - a promise written in another language, because the markers are English.
+func missionMentionsUnmodelledEffect(mission string) bool {
 	m := strings.ToLower(mission)
-	for _, marker := range []string{"register", "paste", "put ", ":normal", ":norm"} {
+	for _, marker := range []string{"register", "paste", "put "} {
 		if strings.Contains(m, marker) {
 			return true
 		}
 	}
-	return false
+	return exCommandToken.MatchString(m)
 }
+
+// missionSaysItChecksKeystrokes reports whether a mission explicitly downgrades
+// itself to the keystrokes it can check. That disclaimer is what makes a mission
+// that still names the Ex command honest: it tells the player that the trainer
+// types the command but does not run it.
+func missionSaysItChecksKeystrokes(mission string) bool {
+	return strings.Contains(strings.ToLower(mission), "keystrokes")
+}
+
+// lineScopeResultClaim matches a claim that a command changes a run of lines at
+// once ("all lines", "all TODO lines", "all error lines"), which is the other
+// way the corpus phrases a buffer result. It is deliberately plural and scoped:
+// "this line" is a single-command claim, not a result the judge could still
+// fail to check, so a per-line substitute is not swept up here.
+var lineScopeResultClaim = regexp.MustCompile(`\ball\b[^.?!\n]*?\blines\b`)
 
 // missionClaimsABufferResult reports whether a mission states a buffer outcome.
 // The two buffer-judged modules phrase every such claim as "the buffer must
-// read ..." / "the line must read ...", so the modal "must" is the corpus's
-// result-claim marker, and a reworded mission that claims only keystrokes never
-// contains it.
+// read ..." / "the line must read ...", so the modal "must" is one result-claim
+// marker; lineScopeResultClaim catches the same claim written as "all … lines".
 func missionClaimsABufferResult(mission string) bool {
-	return strings.Contains(strings.ToLower(mission), "must")
+	m := strings.ToLower(mission)
+	return strings.Contains(m, "must") || lineScopeResultClaim.MatchString(m)
 }
 
 // TestNoMissionPromisesAResultItsJudgeCannotCheck is the guard that keeps the
 // class of dishonesty the content-honesty pass fixed from coming back silently:
-// an exercise whose mission mentions a put, a register or :normal must either
-// opt into the buffer judge or not claim a buffer result. It enumerates every
-// shipped lesson and boss step, so a new exercise cannot slip through.
+// an exercise whose mission names an operation the judge cannot model must
+// either opt into the buffer judge, say it checks only the keystrokes, or not
+// claim a result. It enumerates every shipped lesson and boss step, so a new
+// exercise cannot slip through.
 func TestNoMissionPromisesAResultItsJudgeCannotCheck(t *testing.T) {
 	for _, module := range moduleUnlockOrder {
 		for _, ex := range GetLessons(module) {
@@ -1795,15 +1844,80 @@ func TestNoMissionPromisesAResultItsJudgeCannotCheck(t *testing.T) {
 	}
 }
 
+// TestMissionHonestyDetector pins what the broadened guard keys on. It feeds the
+// detector the two shapes of the macros_020–024 promise, a register round trip
+// with no result claim, the reworded form that disclaims the result, and two
+// missions the detector does not catch, so a future edit that narrows or widens
+// it has to change this table on purpose.
+func TestMissionHonestyDetector(t *testing.T) {
+	cases := []struct {
+		name    string
+		mission string
+		mention bool
+		claim   bool
+	}{
+		{
+			name:    "a global command that claims every matching line",
+			mission: "Comment all lines containing 'console': :g/console/normal I// ",
+			mention: true,
+			claim:   true,
+		},
+		{
+			name:    "the inverse global command",
+			mission: "Delete all lines NOT containing 'keep': :v/keep/d",
+			mention: true,
+			claim:   true,
+		},
+		{
+			name:    "a register round trip with no result claim",
+			mission: "Play the macro stored in register 'a' using @a",
+			mention: true,
+			claim:   false,
+		},
+		{
+			name:    "the reworded form disclaims the result",
+			mission: "Type the ex command that would comment the lines containing 'console': :g/console/normal I//  (the trainer checks the keystrokes; it does not execute ex commands)",
+			mention: true,
+			claim:   false,
+		},
+		{
+			name:    "a plain motion names no unmodelled effect",
+			mission: "Move to the start of 'userName' using w (word)",
+			mention: false,
+			claim:   false,
+		},
+		{
+			name:    "the detector still misses a result claim with no command and no line scope",
+			mission: "Make the console calls comments",
+			mention: false,
+			claim:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := missionMentionsUnmodelledEffect(tc.mission); got != tc.mention {
+				t.Errorf("missionMentionsUnmodelledEffect(%q) = %v, want %v", tc.mission, got, tc.mention)
+			}
+			if got := missionClaimsABufferResult(tc.mission); got != tc.claim {
+				t.Errorf("missionClaimsABufferResult(%q) = %v, want %v", tc.mission, got, tc.claim)
+			}
+			if missionSaysItChecksKeystrokes(tc.mission) && tc.claim {
+				t.Errorf("%q both disclaims the result and claims it", tc.mission)
+			}
+		})
+	}
+}
+
 func checkMissionClaims(t *testing.T, ex Exercise) {
 	t.Helper()
-	if !missionMentionsRegisterPutOrNormal(ex.Mission) {
+	if !missionMentionsUnmodelledEffect(ex.Mission) {
 		return
 	}
-	if ex.BufferVerified {
+	if ex.BufferVerified || missionSaysItChecksKeystrokes(ex.Mission) {
 		return
 	}
 	if missionClaimsABufferResult(ex.Mission) {
-		t.Errorf("%s mission mentions a put, a register or :normal and claims a buffer result, but the exercise does not opt into the buffer judge: %q", ex.ID, ex.Mission)
+		t.Errorf("%s mission names an operation the judge cannot model and claims a result, but the exercise neither opts into the buffer judge nor says it checks the keystrokes: %q", ex.ID, ex.Mission)
 	}
 }

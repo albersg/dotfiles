@@ -255,6 +255,53 @@ Antes:              Macro: qa0i"<Esc>A",<Esc>jq      Después de @a@@:
   item3                                                "item3",
 ```
 
+### 📝 Editing & Undo
+
+| Comando | Descripción |
+|---------|-------------|
+| `i`, `a`, `I`, `A`, `o`, `O` | Entrar en modo inserción |
+| `<Esc>` | Volver a modo normal |
+| `u`, `Ctrl-r` | Deshacer / rehacer |
+| `dd`, `yy`, `p`, `P` | Borrar, copiar y pegar líneas |
+| `>>`, `<<`, `>motion` | Indentar |
+| `x`, `D`, `%`, marcas | Otras ediciones |
+
+### 📋 Registers & Indentation
+
+| Comando | Descripción |
+|---------|-------------|
+| `yy`, `yiw`, `y$`, `yj` | Copiar en el registro sin nombre |
+| `"a`-`"z` | Registros con nombre |
+| `"0` | Registro que solo guarda lo copiado |
+| `p`, `P` | Pegar antes / después del cursor |
+| `dd`, `x`, `D` | Borrar hacia el registro |
+| `>>`, `<<` | Indentar líneas |
+
+### Cómo se juzga un ejercicio: movimiento o buffer
+
+Cada ejercicio se comprueba con uno de dos jueces, y el propio ejercicio
+declara cuál usa. Un ejercicio de movimiento se compara por dónde queda el
+cursor y, en los operadores, qué selección deja. Un ejercicio juzgado por buffer
+se compara por el texto completo que la respuesta deja, más el cursor y el modo
+finales; las teclas usadas no importan, solo el resultado.
+
+| Juez | Qué compara | Cuándo se usa |
+|------|-------------|----------------|
+| Movimiento (simulador) | La posición final del cursor y la selección que dejan los operadores | Movimientos, text objects y todo comando cuyo efecto visible es dónde queda el cursor |
+| Buffer (motor de edición) | El texto del buffer, el cursor y el modo finales | Deshacer/rehacer, pegar, registros, indentación y todo comando cuyo efecto vive en el texto |
+
+Un ejercicio pide el juez de buffer con `BufferVerified: true`; el valor por
+defecto conserva el juez de movimiento, así que el corpus existente no cambia.
+Cuando la respuesta no coincide, la pantalla de resultado muestra el buffer
+esperado junto al obtenido para que la diferencia se vea.
+
+La regla de contenido es que un ejercicio solo puede prometer un resultado que su
+juez pueda comprobar. Undo, pegar, los registros y la indentación se comprueban
+por el buffer. Los comandos de Ex (como `:g/...`, `:v/...` o `:normal`) que el
+motor todavía no ejecuta se enseñan como una lección de tecleo: la misión dice
+que el entrenador comprueba las teclas y no afirma un resultado que no puede
+verificar.
+
 ---
 
 ## UI Mockups
@@ -404,6 +451,8 @@ Antes:              Macro: qa0i"<Esc>A",<Esc>jq      Después de @a@@:
 | Sustitución | The Transformer | Transformaciones complejas con rangos y flags |
 | Regex | The Pattern Master | Encontrar patterns complejos en código real |
 | Macros | The Automaton | Grabar macro y aplicar en múltiples líneas |
+| Editing & Undo | The Historian | Editar, deshacer y rehacer hasta dejar el buffer pedido |
+| Registers & Indentation | The Archivist | Copiar, pegar y conservar el registro correcto |
 
 ### Mecánicas de Boss
 
@@ -423,19 +472,20 @@ Antes:              Macro: qa0i"<Esc>A",<Esc>jq      Después de @a@@:
 
 ```go
 type Exercise struct {
-    ID            string     // "horizontal_001"
-    Module        string     // "horizontal", "textobjects", "cgn", etc.
-    Level         int        // 1-10
-    Type          string     // "lesson", "practice", "boss"
-    Code          []string   // Líneas de código a mostrar
-    CursorPos     Position   // Dónde está el cursor inicialmente
-    Mission       string     // "Mové el cursor hasta la 'N' de 'Name'"
-    Solutions     []string   // ["w", "W", "fe"] - todas las válidas
-    Optimal       string     // "w" - la mejor/más corta
-    Hint          string     // Pista que aparece después del timeout
-    Explanation   string     // Explicación post-respuesta
-    TimeoutSecs   int        // Segundos antes de mostrar solución
-    Points        int        // Puntos base por completar
+    ID             string       // "horizontal_001"
+    Module         ModuleID     // "horizontal", "vertical", "textobjects", ...
+    Level          int          // 1-10
+    Type           ExerciseType // lesson, practice, boss
+    Code           []string     // Líneas de código a mostrar
+    CursorPos      Position     // Dónde está el cursor inicialmente
+    Mission        string       // Qué debe lograr el jugador
+    Solutions      []string     // ["w", "W", "fe"] - todas las válidas
+    Optimal        string       // "w" - la mejor/más corta
+    Hint           string       // Pista que aparece después del timeout
+    Explanation    string       // Explicación post-respuesta
+    TimeoutSecs    int          // Segundos antes de mostrar la solución
+    Points         int          // Puntos base por completar
+    BufferVerified bool         // Opta al juez de buffer (ver "Cómo se juzga un ejercicio")
 }
 
 type Position struct {
@@ -443,6 +493,13 @@ type Position struct {
     Col  int
 }
 ```
+
+Los dos campos que deciden el comportamiento son `Module` (el módulo al que
+pertenece el ejercicio y que fija cuándo se desbloquea) y `BufferVerified` (el
+juez que lo comprueba). `Solutions` es la lista de respuestas aceptadas y
+funciona como verdad de referencia: una respuesta listada se acepta aunque el
+motor no pueda reproducirla todavía. `Optimal` es la que el motor debe poder
+ejecutar y la que se muestra al jugador.
 
 ### Boss Exercise
 
@@ -531,23 +588,20 @@ Guardar en `~/.config/dotfiles-trainer/stats.json`
 
 ```text
 installer/internal/tui/
-├── trainer/
-│   ├── model.go         # Model principal del trainer (Bubbletea)
-│   ├── update.go        # Update handlers
-│   ├── view.go          # Render de todas las pantallas
-│   ├── styles.go        # Lipgloss styles específicos del trainer
-│   ├── exercise.go      # Tipos y lógica de ejercicios
-│   ├── boss.go          # Lógica específica de boss fights
-│   ├── stats.go         # Persistencia de estadísticas
-│   ├── validation.go    # Validar respuestas del usuario
-│   └── exercises/
-│       ├── horizontal.go    # Ejercicios de movimientos horizontales
-│       ├── vertical.go      # Ejercicios de movimientos verticales
-│       ├── textobjects.go   # Ejercicios de text objects
-│       ├── cgn.go           # Ejercicios de change & repeat
-│       ├── substitution.go  # Ejercicios de %s
-│       ├── regex.go         # Ejercicios de regex/vimgrep
-│       └── macros.go        # Ejercicios de macros
+├── model.go             # Estado de la app, pantallas y opciones
+├── update.go            # Manejo de teclas y mensajes
+├── view.go              # Render de todas las pantallas, incluido el trainer
+├── styles.go            # Paleta y estilos Lipgloss
+└── trainer/
+    ├── types.go            # Ejercicios, módulos, progreso y estadísticas
+    ├── exercises.go        # Registro de módulos, lecciones y bosses
+    ├── exercises_*.go      # Corpus de cada módulo (horizontal, editing, ...)
+    ├── simulator.go        # Simulador de movimientos (juez de movimiento)
+    ├── editor.go           # Motor de edición mutable (juez de buffer)
+    ├── validation.go       # Decide qué juez usa cada respuesta
+    ├── practice.go         # Selección ponderada de práctica
+    ├── gamestate.go        # Sesión de lección, práctica y boss
+    └── stats.go            # Persistencia de estadísticas en JSON
 ```
 
 ---

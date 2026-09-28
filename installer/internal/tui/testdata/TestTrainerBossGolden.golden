@@ -1,5 +1,5 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-  ⚔️  BOSS FIGHT: The Line Walker                                               
+  ⚔️ BOSS FIGHT: The Line Walker                                                
   Lives: 3/3 ♥♥♥  |  Step: 1/5                                                  
   ⏳ Time left: 5s                                                              
                                                                                 
@@ -10,7 +10,7 @@
   ────────────────────────────────────────────────────────────────────────────  
    1 │ const getUserProfile = (userId) => fetchUserData(userId).then(processP…  
   ────────────────────────────────────────────────────────────────────────────  
-  ⌨️  Your answer: ...                                                          
+  ⌨️ Your answer: ...                                                           
                                                                                 
                                                                                 
                                                                                 
