@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1230,6 +1231,10 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 			{"ctrl+u", tea.KeyCtrlU, "\x15"},
 			{"ctrl+f", tea.KeyCtrlF, "\x06"},
 			{"ctrl+b", tea.KeyCtrlB, "\x02"},
+			// Ctrl-r is the buffer engine's redo. The motion simulator knows no
+			// such motion, so before the shared accepted set learned it the redo
+			// lesson was unanswerable.
+			{"ctrl+r", tea.KeyCtrlR, "\x12"},
 		}
 		cases := []struct {
 			name  string
@@ -2442,5 +2447,151 @@ func TestTrainerModuleResetKeyStillScopedToModule(t *testing.T) {
 	}
 	if got := m.TrainerStats.ModuleProgress[other.ID]; got == nil || !got.BossDefeated {
 		t.Error("module reset touched another module")
+	}
+}
+
+// =============================================================================
+// BUFFER-VERIFIED JUDGING THROUGH THE UI
+// =============================================================================
+
+// bufferVerifiedLessonModel builds a live lesson around an opted-in exercise
+// whose optimal is "x" on a two-rune buffer, so an answer can reach the same
+// result by different keys. The exercise is installed directly because the
+// shipped corpus deliberately does not opt in yet: the migration guard in the
+// trainer package pins that.
+func bufferVerifiedLessonModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerLesson
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
+
+	m.TrainerGameState.CurrentExercise = &trainer.Exercise{
+		ID:             "buffer_ui_001",
+		Module:         trainer.ModuleChangeRepeat,
+		Level:          1,
+		Type:           trainer.ExerciseLesson,
+		Code:           []string{"ab"},
+		CursorPos:      trainer.Position{Line: 0, Col: 0},
+		Mission:        "Delete the first character",
+		Solutions:      []string{"x"},
+		Optimal:        "x",
+		BufferVerified: true,
+	}
+	m.TrainerInput = ""
+	m.TrainerValidation = nil
+	return m
+}
+
+// typeTrainerKeys drives the real Update handler one key at a time, which is
+// where the input routing lives.
+func typeTrainerKeys(m Model, keys ...tea.KeyMsg) Model {
+	for _, key := range keys {
+		res, _ := m.Update(key)
+		m = res.(Model)
+	}
+	return m
+}
+
+// TestTrainerCtrlRReachesTheEngine pins the end-to-end path of the redo key:
+// typed on the exercise screen it becomes the control character the buffer
+// engine parses, and the answer it completes is judged by the buffer it
+// produces. "xu" plus Ctrl-r deletes the first rune, undoes it and redoes it,
+// reaching the same buffer as the optimal "x" by different keys.
+func TestTrainerCtrlRReachesTheEngine(t *testing.T) {
+	m := bufferVerifiedLessonModel(t)
+
+	m = typeTrainerKeys(m,
+		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}},
+		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}},
+		tea.KeyMsg{Type: tea.KeyCtrlR},
+	)
+	if want := "xu\x12"; m.TrainerInput != want {
+		t.Fatalf("TrainerInput = %q, want %q", m.TrainerInput, want)
+	}
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+
+	if !m.TrainerLastCorrect {
+		t.Fatalf("the redo answer was rejected: message = %q", m.TrainerMessage)
+	}
+	if m.TrainerValidation == nil {
+		t.Fatal("no validation result was kept for the result screen")
+	}
+	if want := []string{"b"}; !reflect.DeepEqual(m.TrainerValidation.ActualBuffer, want) {
+		t.Errorf("ActualBuffer = %#v, want %#v", m.TrainerValidation.ActualBuffer, want)
+	}
+}
+
+// TestTrainerResultShowsTheResultingBufferForOptedInExercises pins the result
+// screen contract: an opted-in exercise shows the buffer its answer produced,
+// and a shipped exercise renders exactly as before.
+func TestTrainerResultShowsTheResultingBufferForOptedInExercises(t *testing.T) {
+	t.Run("an opted-in exercise shows the resulting buffer", func(t *testing.T) {
+		m := bufferVerifiedLessonModel(t)
+		m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+
+		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = res.(Model)
+		if m.Screen != ScreenTrainerResult {
+			t.Fatalf("Screen = %v, want ScreenTrainerResult", m.Screen)
+		}
+
+		view := m.View()
+		if !strings.Contains(view, "Resulting buffer") {
+			t.Errorf("result screen does not show the resulting buffer:\n%s", view)
+		}
+		if !strings.Contains(view, "1 │ b") {
+			t.Errorf("result screen does not render the resulting line:\n%s", view)
+		}
+	})
+
+	t.Run("a shipped exercise renders as before", func(t *testing.T) {
+		m := newTrainerResultModel(t)
+		if view := m.View(); strings.Contains(view, "Resulting buffer") {
+			t.Errorf("a shipped exercise shows the buffer preview:\n%s", view)
+		}
+	})
+}
+
+// A rejected buffer-verified answer names what differed on the result screen,
+// derived from the buffers the engine produced rather than from the keystrokes.
+func TestTrainerResultNamesWhatDifferedForOptedInExercises(t *testing.T) {
+	m := bufferVerifiedLessonModel(t)
+
+	// "u" with an empty undo history is a no-op: the buffer keeps its text and
+	// only the buffer diverges from the optimal's result.
+	m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+
+	if m.TrainerLastCorrect {
+		t.Fatal("a no-op answer was accepted")
+	}
+	if !strings.Contains(m.TrainerMessage, "buffer") {
+		t.Errorf("TrainerMessage = %q, want it to name the buffer", m.TrainerMessage)
+	}
+	if strings.Contains(m.TrainerMessage, "\x15") {
+		t.Errorf("TrainerMessage = %q, want no raw keystrokes", m.TrainerMessage)
+	}
+	if m.TrainerValidation == nil {
+		t.Fatal("no validation result was kept for the result screen")
+	}
+	if want := []string{"ab"}; !reflect.DeepEqual(m.TrainerValidation.ActualBuffer, want) {
+		t.Errorf("ActualBuffer = %#v, want %#v", m.TrainerValidation.ActualBuffer, want)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "Expected buffer") {
+		t.Errorf("rejected result screen does not show the expected buffer:\n%s", view)
+	}
+	if !strings.Contains(view, "Resulting buffer") {
+		t.Errorf("rejected result screen does not show the produced buffer:\n%s", view)
 	}
 }

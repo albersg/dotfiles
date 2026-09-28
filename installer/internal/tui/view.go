@@ -2118,6 +2118,20 @@ func (m Model) renderTrainerBoss() string {
 	return s.String()
 }
 
+// renderBufferLines renders a buffer as numbered lines, matching the numbering
+// the exercise screen uses so the result lines up with the code the user saw.
+func renderBufferLines(buffer []string) string {
+	var s strings.Builder
+	s.WriteString(MutedStyle.Render(strings.Repeat("─", 60)))
+	s.WriteString("\n")
+	for i, line := range buffer {
+		s.WriteString(MutedStyle.Render(fmt.Sprintf("%2d │ ", i+1)))
+		s.WriteString(CodeStyle.Render(line))
+		s.WriteString("\n")
+	}
+	return s.String()
+}
+
 func (m Model) renderTrainerResult() string {
 	var s strings.Builder
 
@@ -2141,6 +2155,24 @@ func (m Model) renderTrainerResult() string {
 			s.WriteString("\n")
 			s.WriteString(MutedStyle.Render("   " + exercise.Explanation))
 			s.WriteString("\n")
+		}
+
+		// A buffer-verified answer is taught by the buffer it produced, which is
+		// the only place its effect is visible. The preview is gated on the
+		// judge that ran, so a shipped exercise renders exactly as before. A
+		// rejected answer shows the expected buffer next to the produced one,
+		// because the difference is what the lesson is about.
+		if exercise.BufferVerified && m.TrainerValidation != nil && m.TrainerValidation.BufferVerified {
+			if !m.TrainerValidation.IsCorrect {
+				s.WriteString("\n")
+				s.WriteString(SubtitleStyle.Render("🎯 Expected buffer:"))
+				s.WriteString("\n")
+				s.WriteString(renderBufferLines(m.TrainerValidation.TargetBuffer))
+			}
+			s.WriteString("\n")
+			s.WriteString(SubtitleStyle.Render("📝 Resulting buffer:"))
+			s.WriteString("\n")
+			s.WriteString(renderBufferLines(m.TrainerValidation.ActualBuffer))
 		}
 	}
 

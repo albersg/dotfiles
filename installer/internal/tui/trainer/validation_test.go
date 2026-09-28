@@ -1,6 +1,8 @@
 package trainer
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -696,5 +698,325 @@ func TestValidateAnswerDetailed_SkipSimulationUsesSolutionsOnly(t *testing.T) {
 
 	if result := ValidateAnswerDetailed(exercise, "w"); result.IsCorrect {
 		t.Errorf("answer outside the solutions list must be rejected when simulation is skipped: %+v", result)
+	}
+}
+
+// =============================================================================
+// BUFFER-VERIFIED JUDGING
+// =============================================================================
+
+// bufferVerifiedExercise is the opt-in fixture the buffer judge tests share: a
+// three-line buffer whose mission deletes the middle line. The optimal is
+// "2Gdd" (line two of the buffer is line 2 in Vim's 1-based count) and both
+// routes leave the cursor on the first character of the remaining "three" line.
+func bufferVerifiedExercise() *Exercise {
+	return &Exercise{
+		ID:             "buffer_test_001",
+		Module:         ModuleChangeRepeat,
+		Level:          1,
+		Type:           ExerciseLesson,
+		Code:           []string{"one", "two", "three"},
+		CursorPos:      Position{Line: 0, Col: 0},
+		Mission:        "Delete the middle line",
+		Solutions:      []string{"2Gdd"},
+		Optimal:        "2Gdd",
+		BufferVerified: true,
+	}
+}
+
+// An opted-in exercise is judged by the result its answer produces: the optimal
+// is correct, and a different answer that reaches the same buffer, cursor and
+// mode is correct too. That equivalence is the point of the feature, so it is
+// built concretely from two different routes: "2Gdd" (motion, then delete) and
+// "jdd" (motion, then delete) on the three-line fixture.
+func TestValidateAnswerDetailed_BufferVerifiedJudgesTheResult(t *testing.T) {
+	exercise := bufferVerifiedExercise()
+
+	optimal := ValidateAnswerDetailed(exercise, "2Gdd")
+	if !optimal.BufferVerified {
+		t.Errorf("ValidateAnswerDetailed(%q).BufferVerified = false, want true", exercise.Optimal)
+	}
+	if !optimal.IsCorrect {
+		t.Errorf("ValidateAnswerDetailed(%q).IsCorrect = false, want true", exercise.Optimal)
+	}
+	if !optimal.IsInSolutions {
+		t.Errorf("ValidateAnswerDetailed(%q).IsInSolutions = false, want true", exercise.Optimal)
+	}
+	if want := []string{"one", "three"}; !reflect.DeepEqual(optimal.TargetBuffer, want) {
+		t.Errorf("TargetBuffer = %#v, want %#v", optimal.TargetBuffer, want)
+	}
+	if want := (Position{Line: 1, Col: 0}); optimal.TargetPosition != want {
+		t.Errorf("TargetPosition = %+v, want %+v", optimal.TargetPosition, want)
+	}
+	if optimal.TargetMode != ModeNormal {
+		t.Errorf("TargetMode = %v, want %v", optimal.TargetMode, ModeNormal)
+	}
+
+	// "jdd" is not an authored solution: it earns correctness from the result
+	// it produces, not from the keys it used.
+	answer := ValidateAnswerDetailed(exercise, "jdd")
+	if answer.IsInSolutions {
+		t.Fatalf("fixture is wrong: %q is in Solutions %v", "jdd", exercise.Solutions)
+	}
+	if !answer.BufferVerified {
+		t.Error("ValidateAnswerDetailed(\"jdd\").BufferVerified = false, want true")
+	}
+	if !answer.IsCorrect {
+		t.Errorf("ValidateAnswerDetailed(\"jdd\") rejected an answer that reaches the same result: %+v", answer)
+	}
+	if want := optimal.TargetBuffer; !reflect.DeepEqual(answer.ActualBuffer, want) {
+		t.Errorf("ActualBuffer = %#v, want %#v", answer.ActualBuffer, want)
+	}
+	if answer.ActualPosition != optimal.TargetPosition {
+		t.Errorf("ActualPosition = %+v, want %+v", answer.ActualPosition, optimal.TargetPosition)
+	}
+	if answer.ActualMode != optimal.TargetMode {
+		t.Errorf("ActualMode = %v, want %v", answer.ActualMode, optimal.TargetMode)
+	}
+	if got := answer.MismatchSummary(); got != "" {
+		t.Errorf("MismatchSummary() = %q for a correct answer, want empty", got)
+	}
+}
+
+// A rejected answer must name what differed, and the result must carry the
+// buffer the answer produced so the interface can show it. "jx" deletes the
+// first rune of the middle line: the buffer differs while the cursor stays on
+// the row and column the optimal reaches, so only the buffer may be named.
+func TestValidateAnswerDetailed_BufferVerifiedRejectsDifferentBuffer(t *testing.T) {
+	exercise := bufferVerifiedExercise()
+
+	result := ValidateAnswerDetailed(exercise, "jx")
+	if result.IsCorrect {
+		t.Fatalf("ValidateAnswerDetailed(\"jx\").IsCorrect = true, want false: %+v", result)
+	}
+	if !result.BufferVerified {
+		t.Error("BufferVerified = false, want true")
+	}
+	if want := []string{"one", "three"}; !reflect.DeepEqual(result.TargetBuffer, want) {
+		t.Errorf("TargetBuffer = %#v, want %#v", result.TargetBuffer, want)
+	}
+	if want := []string{"one", "wo", "three"}; !reflect.DeepEqual(result.ActualBuffer, want) {
+		t.Errorf("ActualBuffer = %#v, want %#v", result.ActualBuffer, want)
+	}
+	if result.ActualPosition != result.TargetPosition {
+		t.Fatalf("fixture is wrong: cursor %+v differs from %+v, so more than the buffer diverged",
+			result.ActualPosition, result.TargetPosition)
+	}
+	got := result.MismatchSummary()
+	if !strings.Contains(got, "buffer") {
+		t.Errorf("MismatchSummary() = %q, want it to name the buffer", got)
+	}
+	if strings.Contains(got, "cursor") || strings.Contains(got, "mode") {
+		t.Errorf("MismatchSummary() = %q, want only the buffer named", got)
+	}
+}
+
+// A right buffer with the wrong cursor is rejected and named. "2Gddkk" deletes
+// the same line as the optimal and then walks the cursor up, so the buffer
+// matches and only the cursor differs.
+func TestValidateAnswerDetailed_BufferVerifiedRejectsDifferentCursor(t *testing.T) {
+	exercise := bufferVerifiedExercise()
+
+	result := ValidateAnswerDetailed(exercise, "2Gddkk")
+	if result.IsCorrect {
+		t.Fatalf("ValidateAnswerDetailed(\"2Gddkk\").IsCorrect = true, want false: %+v", result)
+	}
+	if !reflect.DeepEqual(result.ActualBuffer, result.TargetBuffer) {
+		t.Fatalf("fixture is wrong: buffers differ (%#v vs %#v)", result.ActualBuffer, result.TargetBuffer)
+	}
+	if result.ActualPosition == result.TargetPosition {
+		t.Fatalf("fixture is wrong: cursor %+v did not diverge", result.ActualPosition)
+	}
+	got := result.MismatchSummary()
+	if !strings.Contains(got, "cursor") {
+		t.Errorf("MismatchSummary() = %q, want it to name the cursor", got)
+	}
+}
+
+// The mode is part of the compared result, not an assumption: the same buffer
+// and cursor in a different mode is a different result. Today's engine returns
+// ModeNormal for every command it understands, so this pins the comparison rule
+// directly; the first command that leaves another mode (insert mode, E4) is
+// then rejected by the judge without a change here.
+func TestBufferResultMatches_RejectsADifferentMode(t *testing.T) {
+	expected := EditingResult{
+		Buffer:     []string{"one"},
+		Cursor:     Position{Line: 0, Col: 0},
+		Mode:       ModeNormal,
+		Recognized: true,
+	}
+
+	if !bufferResultMatches(expected, expected) {
+		t.Error("bufferResultMatches rejected an identical result")
+	}
+
+	differentMode := expected
+	differentMode.Mode = ModeInsert
+	if bufferResultMatches(expected, differentMode) {
+		t.Error("bufferResultMatches accepted the same buffer in a different mode")
+	}
+
+	differentBuffer := expected
+	differentBuffer.Buffer = []string{"two"}
+	if bufferResultMatches(expected, differentBuffer) {
+		t.Error("bufferResultMatches accepted a different buffer")
+	}
+
+	differentCursor := expected
+	differentCursor.Cursor = Position{Line: 1, Col: 0}
+	if bufferResultMatches(expected, differentCursor) {
+		t.Error("bufferResultMatches accepted the same buffer at a different cursor")
+	}
+}
+
+// The mismatch report names the mode when the mode is the divergence, and stays
+// silent for results the buffer judge did not decide.
+func TestValidationResult_MismatchSummaryNamesTheDivergence(t *testing.T) {
+	tests := []struct {
+		name   string
+		result ValidationResult
+		want   []string
+		absent []string
+	}{
+		{
+			name: "a correct result has nothing to report",
+			result: ValidationResult{
+				IsCorrect: true, BufferVerified: true,
+				TargetBuffer: []string{"one"}, ActualBuffer: []string{"one"},
+				TargetMode: ModeNormal, ActualMode: ModeInsert,
+			},
+		},
+		{
+			name: "a result the buffer judge did not decide has nothing to report",
+			result: ValidationResult{
+				TargetPosition: Position{Line: 0, Col: 0}, ActualPosition: Position{Line: 3, Col: 2},
+			},
+			absent: []string{"buffer", "cursor", "mode"},
+		},
+		{
+			name: "the buffer and the cursor can diverge together",
+			result: ValidationResult{
+				BufferVerified: true,
+				TargetBuffer:   []string{"one", "three"}, ActualBuffer: []string{"one", "two", "three"},
+				TargetPosition: Position{Line: 1, Col: 0}, ActualPosition: Position{Line: 2, Col: 0},
+				TargetMode: ModeNormal, ActualMode: ModeNormal,
+			},
+			want:   []string{"buffer", "cursor"},
+			absent: []string{"mode"},
+		},
+		{
+			name: "the mode alone can diverge",
+			result: ValidationResult{
+				BufferVerified: true,
+				TargetBuffer:   []string{"one"}, ActualBuffer: []string{"one"},
+				TargetPosition: Position{Line: 0, Col: 0}, ActualPosition: Position{Line: 0, Col: 0},
+				TargetMode: ModeNormal, ActualMode: ModeVisual,
+			},
+			want:   []string{"mode"},
+			absent: []string{"buffer", "cursor"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.result.MismatchSummary()
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("MismatchSummary() = %q, want it to name %q", got, want)
+				}
+			}
+			for _, absent := range tt.absent {
+				if strings.Contains(got, absent) {
+					t.Errorf("MismatchSummary() = %q, want %q left unnamed", got, absent)
+				}
+			}
+		})
+	}
+}
+
+// The exact-match fast path stays first for opted-in exercises: an authored
+// solution is ground truth even when the engine cannot reproduce it yet.
+// "daw" is an operator plus text object, which the buffer engine does not
+// implement (E5 owns registers and operator spans), so the engine cannot turn
+// it into the optimal's buffer; the same answer is rejected for an exercise
+// that does not author it.
+func TestValidateAnswerDetailed_BufferVerifiedExactMatchWins(t *testing.T) {
+	exercise := &Exercise{
+		ID:             "buffer_test_002",
+		Module:         ModuleChangeRepeat,
+		Level:          2,
+		Type:           ExerciseLesson,
+		Code:           []string{"one", "two", "three"},
+		CursorPos:      Position{Line: 0, Col: 0},
+		Mission:        "Delete the middle line",
+		Solutions:      []string{"2Gdd", "daw"},
+		Optimal:        "2Gdd",
+		BufferVerified: true,
+	}
+
+	result := ValidateAnswerDetailed(exercise, "daw")
+	if !result.IsInSolutions {
+		t.Fatalf("fixture is wrong: %q is not in Solutions %v", "daw", exercise.Solutions)
+	}
+	if !result.IsCorrect {
+		t.Errorf("ValidateAnswerDetailed(\"daw\") rejected an authored solution: %+v", result)
+	}
+
+	// The same answer is not authored by the shared fixture, so the result judge
+	// decides it -- and rejects it, because the buffer does not match.
+	if ValidateAnswer(bufferVerifiedExercise(), "daw") {
+		t.Error("ValidateAnswer(\"daw\") = true for an exercise that does not author it, want false")
+	}
+}
+
+// The judge's documented order is exact match, then the skip-simulation bypass,
+// then the buffer judge. An exercise in a skip-simulation module is therefore
+// decided by its authored solutions even when it opts in, because the buffer
+// engine does not implement that module's commands yet; the opt-in only takes
+// effect on exercises that are simulated at all. ValidationResult.BufferVerified
+// records which judge actually ran, so this precedence is observable rather than
+// implied.
+func TestValidateAnswerDetailed_BufferOptInDoesNotOverrideSkipSimulation(t *testing.T) {
+	exercise := &Exercise{
+		ID:             "buffer_test_003",
+		Module:         ModuleSubstitution,
+		Code:           []string{"  value = 1"},
+		CursorPos:      Position{Line: 0, Col: 0},
+		Solutions:      []string{"S"},
+		Optimal:        "S",
+		BufferVerified: true,
+	}
+
+	if !ShouldSkipSimulation(exercise) {
+		t.Fatal("a substitution exercise must skip simulation")
+	}
+
+	authored := ValidateAnswerDetailed(exercise, "S")
+	if !authored.IsCorrect {
+		t.Errorf("authored solution rejected: %+v", authored)
+	}
+	if authored.BufferVerified {
+		t.Error("the buffer judge ran for a skip-simulation exercise")
+	}
+	if authored.TargetBuffer != nil || authored.ActualBuffer != nil {
+		t.Errorf("a skip-simulation result carries buffers: %+v", authored)
+	}
+
+	if result := ValidateAnswerDetailed(exercise, "ciw"); result.IsCorrect {
+		t.Errorf("an answer outside the solutions list must still be rejected: %+v", result)
+	}
+}
+
+// ValidateAnswer is the boolean view of ValidateAnswerDetailed, so the buffer
+// path must agree through both entry points.
+func TestValidateAnswer_BufferVerifiedAgreesWithDetailed(t *testing.T) {
+	exercise := bufferVerifiedExercise()
+
+	for _, answer := range []string{"2Gdd", "jdd", "jx", "2Gddkk", "q"} {
+		detailed := ValidateAnswerDetailed(exercise, answer)
+		if got := ValidateAnswer(exercise, answer); got != detailed.IsCorrect {
+			t.Errorf("ValidateAnswer(%q) = %v, ValidateAnswerDetailed(%q).IsCorrect = %v",
+				answer, got, answer, detailed.IsCorrect)
+		}
 	}
 }

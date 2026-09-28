@@ -153,6 +153,10 @@ type Model struct {
 	TrainerInput       string               // User's input for current exercise
 	TrainerLastCorrect bool                 // Was last answer correct
 	TrainerMessage     string               // Feedback message to display
+	// TrainerValidation is the detailed validation of the answer shown on the
+	// result screen. It is nil until an answer is submitted, and only
+	// buffer-verified answers carry a buffer for the result screen to show.
+	TrainerValidation *trainer.ValidationResult
 	// Leader key mode (like Vim's <space> leader)
 	LeaderMode bool // True when waiting for next key after <space>
 }
@@ -203,6 +207,7 @@ func NewModel() Model {
 		TrainerInput:       "",
 		TrainerLastCorrect: false,
 		TrainerMessage:     "",
+		TrainerValidation:  nil,
 	}
 }
 

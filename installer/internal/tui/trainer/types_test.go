@@ -277,3 +277,99 @@ func TestExerciseStats_IsMastered(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// BUFFER JUDGE OPT-IN
+// =============================================================================
+
+// shippedLessons returns the lessons of every module in unlock order, and
+// shippedBossSteps every boss step, so the regression guards below enumerate the
+// real shipped corpus instead of a hand-copied list that could drift from it.
+func shippedLessons() []Exercise {
+	var all []Exercise
+	for _, module := range moduleUnlockOrder {
+		all = append(all, GetLessons(module)...)
+	}
+	return all
+}
+
+func shippedBossSteps() []Exercise {
+	var all []Exercise
+	for _, module := range moduleUnlockOrder {
+		if boss := GetBoss(module); boss != nil {
+			for _, step := range boss.Steps {
+				all = append(all, step.Exercise)
+			}
+		}
+	}
+	return all
+}
+
+// Exercise.BufferVerified is the opt-in for the buffer judge. Its zero value
+// must keep the judge an exercise was written against, so no shipped exercise
+// may opt in: the 156 lessons and the 35 boss steps were authored against the
+// motion/selection judge, and migrating even one of them changes how it is
+// scored. The count assertions also prove the enumeration found the real
+// corpus rather than an empty list.
+func TestShippedExercises_DoNotOptInToTheBufferJudge(t *testing.T) {
+	lessons := shippedLessons()
+	if len(lessons) != 156 {
+		t.Fatalf("enumerated %d shipped lessons, want 156", len(lessons))
+	}
+
+	bossSteps := shippedBossSteps()
+	if len(bossSteps) != 35 {
+		t.Fatalf("enumerated %d shipped boss steps, want 35", len(bossSteps))
+	}
+
+	for _, exercise := range append(lessons, bossSteps...) {
+		if exercise.BufferVerified {
+			t.Errorf("shipped exercise %s opts into the buffer judge; the shipped corpus must keep the judge it was authored against", exercise.ID)
+		}
+	}
+}
+
+// The shipped corpus keeps validating exactly as before while the opt-in exists.
+// A sample spanning the three judge paths (motion, selection and the
+// skip-simulation modules) pins that the new field did not reroute any of them.
+func TestShippedExercises_KeepTheirJudge(t *testing.T) {
+	tests := []struct {
+		name     string
+		exercise *Exercise
+		answer   string
+		want     bool
+	}{
+		{
+			name:     "a motion lesson accepts its optimal",
+			exercise: findLesson(t, ModuleHorizontal, "horizontal_001"),
+			answer:   findLesson(t, ModuleHorizontal, "horizontal_001").Optimal,
+			want:     true,
+		},
+		{
+			name:     "a motion lesson still rejects a different position",
+			exercise: findLesson(t, ModuleHorizontal, "horizontal_001"),
+			answer:   "b",
+			want:     false,
+		},
+		{
+			name:     "a selection lesson accepts its optimal",
+			exercise: findLesson(t, ModuleChangeRepeat, "changerepeat_001"),
+			answer:   findLesson(t, ModuleChangeRepeat, "changerepeat_001").Optimal,
+			want:     true,
+		},
+		{
+			name:     "a skip-simulation lesson accepts only its solutions",
+			exercise: findLesson(t, ModuleSubstitution, "substitution_001"),
+			answer:   findLesson(t, ModuleSubstitution, "substitution_001").Optimal,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ValidateAnswer(tt.exercise, tt.answer); got != tt.want {
+				t.Errorf("ValidateAnswer(%s, %q) = %v, want %v", tt.exercise.ID, tt.answer, got, tt.want)
+			}
+		})
+	}
+}

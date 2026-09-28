@@ -1771,15 +1771,16 @@ func (m Model) clearTrainerProfile() (tea.Model, tea.Cmd) {
 // trainerControlChars maps the control key names the trainer accepts as answer
 // input to the control character the Vim simulator parses. It mirrors the
 // control keys handled by trainer.SimulateMotionsWithSelection (\x04, \x15,
-// \x06 and \x02); a ctrl+ combination absent here has no meaning the simulator
-// can validate, so both exercise handlers ignore it instead of typing its
-// literal name into the answer. This is the single accepted set shared by the
-// lesson/practice and boss handlers.
+// \x06 and \x02) plus trainer.SimulateEditing's redo (\x12); a ctrl+
+// combination absent here has no meaning in either engine, so both exercise
+// handlers ignore it instead of typing its literal name into the answer. This
+// is the single accepted set shared by the lesson/practice and boss handlers.
 var trainerControlChars = map[string]string{
 	"ctrl+d": "\x04",
 	"ctrl+u": "\x15",
 	"ctrl+f": "\x06",
 	"ctrl+b": "\x02",
+	"ctrl+r": "\x12",
 }
 
 // handleTrainerExerciseKeys handles input during lesson/practice exercises
@@ -1811,6 +1812,9 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 
 		// Validate answer using detailed validation
 		validation := trainer.ValidateAnswerDetailed(exercise, m.TrainerInput)
+		// The result screen reads the answer's result, so keep the validation that
+		// describes this answer. It is the only writer of this field.
+		m.TrainerValidation = &validation
 
 		if validation.IsCorrect {
 			// The game state owns the answer clock: it stamps the moment the
@@ -1831,8 +1835,15 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 		} else {
 			m.TrainerGameState.RecordIncorrectAnswer()
 			m.TrainerLastCorrect = false
-			// Show all valid solutions, not just optimal
-			m.TrainerMessage = "✗ Incorrect. Solutions: " + trainer.FormatSolutionsHint(exercise)
+			// Show all valid solutions, not just optimal. A buffer-verified answer
+			// also names what diverged, derived from the compared results rather
+			// than from the keystrokes; both are valid answers, so the solutions
+			// stay listed.
+			mismatch := ""
+			if summary := validation.MismatchSummary(); summary != "" {
+				mismatch = summary + ". "
+			}
+			m.TrainerMessage = "✗ Incorrect. " + mismatch + "Solutions: " + trainer.FormatSolutionsHint(exercise)
 		}
 
 		// Record practice result for intelligent practice system
