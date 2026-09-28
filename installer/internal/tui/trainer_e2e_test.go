@@ -767,6 +767,40 @@ func TestTrainerBossAnswerAccounting(t *testing.T) {
 		}
 	})
 
+	t.Run("a non-optimal step names the step it judged", func(t *testing.T) {
+		m := newTrainerBossModel(t)
+
+		answered := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep]
+		next := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep+1]
+		if answered.Exercise.Optimal == next.Exercise.Optimal {
+			t.Fatalf("test setup: the first two steps share the optimal %q", answered.Exercise.Optimal)
+		}
+
+		// Reaches the same result as the answered step's own optimal without being
+		// it, so the answer takes the branch that names an optimal solution.
+		m.TrainerInput = "wl"
+		if !trainer.ValidateAnswer(&answered.Exercise, m.TrainerInput) {
+			t.Fatalf("test setup: %q is not accepted for %s", m.TrainerInput, answered.Exercise.ID)
+		}
+		if trainer.IsOptimalAnswer(&answered.Exercise, m.TrainerInput) {
+			t.Fatalf("test setup: %q is the optimal of %s", m.TrainerInput, answered.Exercise.ID)
+		}
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+
+		// BossStep has already advanced when the message is built, so naming the
+		// next step's optimal would spoil the challenge the user has not seen.
+		if !strings.Contains(m.TrainerMessage, answered.Exercise.Optimal) {
+			t.Errorf("message %q does not name the optimal %q of the answered step %s",
+				m.TrainerMessage, answered.Exercise.Optimal, answered.Exercise.ID)
+		}
+		if strings.Contains(m.TrainerMessage, next.Exercise.Optimal) {
+			t.Errorf("message %q names the NEXT step's optimal %q",
+				m.TrainerMessage, next.Exercise.Optimal)
+		}
+	})
+
 	t.Run("a lost boss spends the lives and records each attempt", func(t *testing.T) {
 		m := newTrainerBossModel(t)
 		progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)

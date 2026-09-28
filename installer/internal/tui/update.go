@@ -1777,7 +1777,8 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 				if isOptimal {
 					m.TrainerMessage = "✨ Perfect! Next challenge..."
 				} else {
-					m.TrainerMessage = "✓ Good! (Optimal: " + boss.Steps[m.TrainerGameState.BossStep].Exercise.Optimal + ") Next..."
+					// The answered step, not the next one: BossStep has already moved.
+					m.TrainerMessage = "✓ Good! (Optimal: " + m.TrainerGameState.CurrentExercise.Optimal + ") Next..."
 				}
 			}
 		} else {
