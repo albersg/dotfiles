@@ -23,9 +23,9 @@ type ValidationResult struct {
 	// TargetBuffer and ActualBuffer are the buffers the optimal solution and the
 	// answer produce in the engine, in that order; ActualBuffer is what the
 	// result screen shows. TargetMode and ActualMode are the modes the two
-	// answers leave behind. Today's engine returns ModeNormal for every command
-	// it understands, so a mode divergence cannot yet be produced by an answer;
-	// it is compared now so the judge does not change when insert mode lands.
+	// answers leave behind. They are compared because an answer can end in insert
+	// mode where the optimal returns to normal mode, so the same buffer and
+	// cursor can still be a different result.
 	BufferVerified bool
 	TargetBuffer   []string
 	ActualBuffer   []string
@@ -203,10 +203,9 @@ func validateViaBuffer(exercise *Exercise, answer string, result ValidationResul
 }
 
 // bufferResultMatches reports whether an answer produced the same result as the
-// optimal solution: the same buffer text, the same cursor and the same mode. It
-// is the buffer judge's comparison rule, factored out because today's engine
-// returns ModeNormal for every command it understands, so the mode clause can
-// otherwise only be exercised through a synthetic result.
+// optimal solution: the same buffer text, the same cursor and the same mode.
+// The mode clause is real now that insert mode exists: an answer that never
+// leaves insert mode diverges from an optimal that does.
 func bufferResultMatches(optimal, actual EditingResult) bool {
 	return sameLines(optimal.Buffer, actual.Buffer) &&
 		optimal.Cursor == actual.Cursor &&

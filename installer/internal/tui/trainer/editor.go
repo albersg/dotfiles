@@ -60,14 +60,33 @@ const shiftWidth = 2
 // characters, so a leading tab is two columns wide wherever a line places it.
 const tabStop = 2
 
-// editingRegister is the unnamed yank/delete register. linewise records whether
-// the content is whole lines (yy, dd) or a character range, because p and P mean
-// different things for each. Only linewise content exists today: yy and dd fill
-// the register, and put always inserts whole lines.
+// editingRegister is one yank/delete register's content. lines holds the whole
+// lines of a linewise register, or the single line of a character-wise one, and
+// linewise records which, because p and P mean different things for each. set
+// separates a register holding an empty string from one that was never filled,
+// so a put from an empty register stays a no-op.
 type editingRegister struct {
 	lines    []string
 	linewise bool
 	set      bool
+}
+
+// editorRegisters is the register file an answer can reach: the unnamed
+// register, register 0 (the last yank) and the named a-z registers. Vim's '+'
+// register is the system clipboard, which the trainer does not have, so it is
+// not stored here and is aliased to the unnamed register when a prefix names
+// it.
+type editorRegisters struct {
+	unnamed editingRegister
+	yank    editingRegister
+	named   map[byte]editingRegister
+}
+
+// registerRef is a parsed '"' register prefix: the register an answer named,
+// and whether it named one at all.
+type registerRef struct {
+	name     byte
+	explicit bool
 }
 
 // editorSnapshot is one undo history entry: the buffer and the cursor an undo
@@ -94,7 +113,7 @@ type editor struct {
 	mode   Mode
 	undo   []editorSnapshot
 	redo   []editorSnapshot
-	reg    editingRegister
+	regs   editorRegisters
 	// insertStart is the snapshot the open insert session commits when the
 	// escape token closes it, and nil in normal mode. It holds the buffer the
 	// session started from, so the whole session - the line o and O insert and
@@ -138,6 +157,7 @@ func newEditor(code []string, start Position) *editor {
 		buffer = []string{""}
 	}
 	e := &editor{buffer: buffer, cursor: start}
+	e.regs.named = make(map[byte]editingRegister)
 	e.clampCursor()
 	return e
 }
@@ -198,10 +218,18 @@ func (e *editor) execute(input string) bool {
 			continue
 		}
 
+		// A '"' prefix names the register the command reads or writes, ahead of
+		// the count as Vim writes it ("ayy, "0p, "+y). A prefix with no name,
+		// or with a name this engine does not model, is not recognized.
+		ref, afterRegister, ok := parseRegisterPrefix(input, i)
+		if !ok {
+			return false
+		}
+
 		// Parse the count once so a mutation and a motion share the same one.
 		// The count never starts with '0': that byte is the first-column
 		// motion, which countPrefix leaves for the motion parser.
-		count, afterCount := countPrefix(input, i)
+		count, afterCount := countPrefix(input, afterRegister)
 
 		// The trainer's escape token is not a Vim command, so it is consumed here
 		// in normal mode as a no-op and the answer stays recognized; a count in
@@ -235,7 +263,7 @@ func (e *editor) execute(input string) bool {
 				i = afterCount + 1
 				continue
 			}
-			if consumed, ok := e.applyMutation(cmd, count, input[afterCount+1:]); ok {
+			if consumed, ok := e.applyMutation(cmd, ref, count, input[afterCount+1:]); ok {
 				i = afterCount + 1 + consumed
 				continue
 			}
@@ -260,6 +288,27 @@ func (e *editor) execute(input string) bool {
 // motionPosition is the cursor in the motion simulator's coordinate type.
 func (e *editor) motionPosition() SimulatedPosition {
 	return SimulatedPosition{Line: e.cursor.Line, Col: e.cursor.Col}
+}
+
+// parseRegisterPrefix reads the optional '"' register prefix at input[from]
+// and reports the register it names. ok is false for a '"' with no name and
+// for a name the engine does not model, so an answer like "1p is unrecognized
+// rather than silently read from the unnamed register. The names it accepts are
+// the unnamed register ('"'), register 0, the named a-z registers and the '+'
+// alias the engine keeps for Vim's system clipboard.
+func parseRegisterPrefix(input string, from int) (registerRef, int, bool) {
+	if from >= len(input) || input[from] != '"' {
+		return registerRef{}, from, true
+	}
+	if from+1 >= len(input) {
+		return registerRef{}, from, false
+	}
+	name := input[from+1]
+	switch {
+	case name == '"' || name == '+' || name == '0' || (name >= 'a' && name <= 'z'):
+		return registerRef{name: name, explicit: true}, from + 2, true
+	}
+	return registerRef{}, from, false
 }
 
 // countPrefix parses a normal-mode count prefix at input[from]. Vim counts begin
@@ -290,42 +339,53 @@ func countPrefix(input string, from int) (int, int) {
 // is missing its second key; the caller then offers the input to the motion
 // parser instead. Only the two-key commands (dd, yy, >>, <<) consume a byte of
 // rest.
-func (e *editor) applyMutation(cmd byte, count int, rest string) (int, bool) {
+func (e *editor) applyMutation(cmd byte, ref registerRef, count int, rest string) (int, bool) {
 	switch cmd {
 	case 'd', 'y', '>', '<':
-		if len(rest) == 0 || rest[0] != cmd {
+		if len(rest) == 0 {
 			return 0, false
 		}
-		// A counted linewise operator starting on the last line is a complete
-		// no-op in nvim: it abandons the command rather than clamping the count
-		// to the single line under the cursor, so the buffer, the cursor, the
-		// unnamed register and the undo history are all left untouched. The keys
-		// are still consumed and the answer stays recognized. A count of one is
-		// the ordinary single-line command and never reaches this guard.
-		// TestSimulateEditing_CountedLinewiseOnLastLineIsNoOp records the exact
-		// nvim reference, settings and observations.
-		if count > 1 && e.cursor.Line == len(e.buffer)-1 {
+		if rest[0] == cmd {
+			// A counted linewise operator starting on the last line is a
+			// complete no-op in nvim: it abandons the command rather than
+			// clamping the count to the single line under the cursor, so the
+			// buffer, the cursor, the unnamed register and the undo history
+			// are all left untouched. The keys are still consumed and the
+			// answer stays recognized. A count of one is the ordinary
+			// single-line command and never reaches this guard.
+			// TestSimulateEditing_CountedLinewiseOnLastLineIsNoOp records the
+			// exact nvim reference, settings and observations.
+			if count > 1 && e.cursor.Line == len(e.buffer)-1 {
+				return 1, true
+			}
+			switch cmd {
+			case 'd':
+				e.deleteLines(ref, count)
+			case 'y':
+				e.yankLines(ref, count)
+			case '>':
+				e.shiftLines(count, true)
+			case '<':
+				e.shiftLines(count, false)
+			}
 			return 1, true
 		}
-		switch cmd {
-		case 'd':
-			e.deleteLines(count)
-		case 'y':
-			e.yankLines(count)
-		case '>':
-			e.shiftLines(count, true)
-		case '<':
-			e.shiftLines(count, false)
+		// d and y also take a motion or a text object. A motion the motion
+		// parser does not know leaves the whole command unrecognized.
+		if cmd == 'd' || cmd == 'y' {
+			if consumed, ok := e.applyOperatorMotion(cmd, ref, count, rest); ok {
+				return consumed, true
+			}
 		}
-		return 1, true
+		return 0, false
 	case 'x':
-		e.deleteChars(count)
+		e.deleteChars(ref, count)
 	case 'D':
-		e.deleteToLineEnd()
+		e.deleteToLineEnd(ref)
 	case 'p':
-		e.put(count, false)
+		e.put(ref, count, false)
 	case 'P':
-		e.put(count, true)
+		e.put(ref, count, true)
 	case 'u':
 		e.undoStep()
 	case '\x12': // Ctrl-r
@@ -501,16 +561,16 @@ func (e *editor) leaveInsert() {
 	}
 }
 
-// deleteLines implements [count]dd: it yanks the deleted lines into the
-// unnamed register as linewise content, removes them, and puts the cursor on
-// the first non-blank of the line that took their place.
-func (e *editor) deleteLines(count int) {
+// deleteLines implements [count]dd: it fills the selected register (the unnamed
+// one by default) with the deleted lines as linewise content, removes them, and
+// puts the cursor on the first non-blank of the line that took their place.
+func (e *editor) deleteLines(ref registerRef, count int) {
 	start := e.cursor.Line
 	end := start + count
 	if end > len(e.buffer) {
 		end = len(e.buffer)
 	}
-	e.reg = editingRegister{lines: copyLines(e.buffer[start:end]), linewise: true, set: true}
+	e.storeRegister(ref, linewiseRegister(e.buffer[start:end]), false)
 
 	remaining := make([]string, 0, len(e.buffer)-(end-start))
 	remaining = append(remaining, e.buffer[:start]...)
@@ -528,15 +588,16 @@ func (e *editor) deleteLines(count int) {
 	e.commit(remaining, cursor, !sameLines(e.buffer, remaining), count == 1)
 }
 
-// yankLines implements [count]yy: it fills the unnamed register with whole
-// lines as linewise content and leaves the buffer and cursor untouched.
-func (e *editor) yankLines(count int) {
+// yankLines implements [count]yy: it fills the selected register (the unnamed
+// one by default) with whole lines as linewise content and leaves the buffer
+// and cursor untouched.
+func (e *editor) yankLines(ref registerRef, count int) {
 	start := e.cursor.Line
 	end := start + count
 	if end > len(e.buffer) {
 		end = len(e.buffer)
 	}
-	e.reg = editingRegister{lines: copyLines(e.buffer[start:end]), linewise: true, set: true}
+	e.storeRegister(ref, linewiseRegister(e.buffer[start:end]), true)
 }
 
 // shiftLines implements [count]>> (indent true) and [count]<< (indent false)
@@ -561,11 +622,10 @@ func (e *editor) shiftLines(count int, indent bool) {
 	e.commit(next, cursor, !sameLines(e.buffer, next), count == 1)
 }
 
-// deleteChars implements [count]x: it deletes the runes at and after the cursor
-// on the current line and clamps the cursor to the last remaining rune. It does
-// not touch the unnamed register; character-wise register content is a later
-// task.
-func (e *editor) deleteChars(count int) {
+// deleteChars implements [count]x: it fills the selected register with the
+// deleted runes as character-wise content, deletes them at and after the cursor
+// on the current line, and clamps the cursor to the last remaining rune.
+func (e *editor) deleteChars(ref registerRef, count int) {
 	runes := []rune(e.buffer[e.cursor.Line])
 	if e.cursor.Col >= len(runes) {
 		return
@@ -574,6 +634,7 @@ func (e *editor) deleteChars(count int) {
 	if end > len(runes) {
 		end = len(runes)
 	}
+	e.storeRegister(ref, charwiseRegister(string(runes[e.cursor.Col:end])), false)
 
 	next := make([]rune, 0, len(runes)-(end-e.cursor.Col))
 	next = append(next, runes[:e.cursor.Col]...)
@@ -593,16 +654,18 @@ func (e *editor) deleteChars(count int) {
 	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
 }
 
-// deleteToLineEnd implements D: it deletes from the cursor to the end of the
-// current line, leaving the cursor on the last remaining rune. An empty line
-// has nothing to delete, so the command is a no-op there. A count of one is
-// Vim's D, but a larger count makes [count]D span lines, which this engine does
-// not model: execute refuses those before they reach here.
-func (e *editor) deleteToLineEnd() {
+// deleteToLineEnd implements D: it fills the selected register with the
+// character-wise text it deletes from the cursor to the end of the current
+// line, leaving the cursor on the last remaining rune. An empty line has
+// nothing to delete, so the command is a no-op there. A count of one is Vim's
+// D, but a larger count makes [count]D span lines, which this engine does not
+// model: execute refuses those before they reach here.
+func (e *editor) deleteToLineEnd(ref registerRef) {
 	runes := []rune(e.buffer[e.cursor.Line])
 	if e.cursor.Col >= len(runes) {
 		return
 	}
+	e.storeRegister(ref, charwiseRegister(string(runes[e.cursor.Col:])), false)
 
 	next := make([]rune, e.cursor.Col)
 	copy(next, runes[:e.cursor.Col])
@@ -621,14 +684,19 @@ func (e *editor) deleteToLineEnd() {
 	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
 }
 
-// put implements [count]p (before false) and [count]P (before true) for linewise
-// register content: p inserts the register's lines below the current line, P
-// above it, and the cursor lands on the first non-blank of the first inserted
-// line. An empty register makes the command a no-op. Only linewise content
-// exists today; the register's linewise flag is tracked now so the
-// character-wise branch can be added later.
-func (e *editor) put(count int, before bool) {
-	if !e.reg.set || len(e.reg.lines) == 0 {
+// put implements [count]p (before false) and [count]P (before true). A linewise
+// register inserts its whole lines below the current line with p, above it with
+// P, and the cursor lands on the first non-blank of the first inserted line. A
+// character-wise register inserts its text after the character under the cursor
+// with p, before it with P, and the cursor lands on the last inserted character
+// (see putChars). An empty register makes the command a no-op.
+func (e *editor) put(ref registerRef, count int, before bool) {
+	reg := e.readRegister(ref)
+	if !reg.set || len(reg.lines) == 0 {
+		return
+	}
+	if !reg.linewise {
+		e.putChars(reg.lines[0], count, before)
 		return
 	}
 
@@ -637,9 +705,9 @@ func (e *editor) put(count int, before bool) {
 		insertAt = e.cursor.Line + 1
 	}
 
-	block := make([]string, 0, count*len(e.reg.lines))
+	block := make([]string, 0, count*len(reg.lines))
 	for i := 0; i < count; i++ {
-		block = append(block, e.reg.lines...)
+		block = append(block, reg.lines...)
 	}
 
 	buffer := make([]string, 0, len(e.buffer)+len(block))
@@ -649,6 +717,256 @@ func (e *editor) put(count int, before bool) {
 
 	cursor := Position{Line: insertAt, Col: startOfLineColumn(buffer[insertAt])}
 	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
+}
+
+// putChars implements a character-wise p and P: p inserts the text after the
+// character under the cursor and P before it, the text repeats [count] times,
+// and the cursor lands on the last inserted character. On an empty line there
+// is no character to put beside, so both forms land at column zero, which is
+// where nvim puts it.
+func (e *editor) putChars(text string, count int, before bool) {
+	if text == "" {
+		return
+	}
+	runes := []rune(e.buffer[e.cursor.Line])
+	at := e.cursor.Col
+	if !before {
+		at++
+	}
+	if at > len(runes) {
+		at = len(runes)
+	}
+	if at < 0 {
+		at = 0
+	}
+
+	block := []rune(strings.Repeat(text, count))
+	next := make([]rune, 0, len(runes)+len(block))
+	next = append(next, runes[:at]...)
+	next = append(next, block...)
+	next = append(next, runes[at:]...)
+
+	buffer := copyLines(e.buffer)
+	buffer[e.cursor.Line] = string(next)
+
+	cursor := Position{Line: e.cursor.Line, Col: at + len(block) - 1}
+	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
+}
+
+// applyOperatorMotion applies d or y with a motion or a text object and reports
+// how many bytes of rest the motion consumed. The motion range is delegated:
+// tryParseTextObject and tryParseOperatorMotion are the motion simulator's own
+// range math, so an operator affects exactly the range the motion judge sees. A
+// linewise motion (j, k, G, gg) makes the operator linewise; every other range
+// is character-wise, and a character-wise range that crosses lines is refused
+// because this engine keeps character-wise content on one line. A count before
+// the operator multiplies the motion in Vim, which this engine does not model,
+// so it is refused like a counted D instead of applied once.
+func (e *editor) applyOperatorMotion(cmd byte, ref registerRef, count int, rest string) (int, bool) {
+	if count > 1 {
+		return 0, false
+	}
+
+	pos := e.motionPosition()
+
+	// A text object stays on one line in the simulator's range math. Vim's
+	// paragraph object is linewise and spans blank lines, so it is refused
+	// rather than stored as the single line the simplified object would return.
+	if len(rest) >= 2 && (rest[0] == 'i' || rest[0] == 'a') && rest[1] != 'p' {
+		if sel, consumed := tryParseTextObject(string(cmd)+rest, pos, e.buffer); consumed > 1 && sel.Active {
+			return consumed - 1, e.applyCharwiseOperator(cmd, ref, sel.StartLine, sel.StartCol, sel.EndCol)
+		}
+	}
+
+	sel, consumed := tryParseOperatorMotion(cmd, rest, pos, e.buffer)
+	if consumed == 0 || !sel.Active {
+		return 0, false
+	}
+
+	if linewise, boundary := linewiseOperatorMotion(rest); linewise {
+		return consumed, e.applyLinewiseOperatorMotion(cmd, ref, sel, boundary)
+	}
+	if sel.StartLine != sel.EndLine {
+		return 0, false
+	}
+	return consumed, e.applyCharwiseOperator(cmd, ref, sel.StartLine, sel.StartCol, sel.EndCol)
+}
+
+// linewiseOperatorMotion reports whether the motion in rest makes an operator
+// linewise, and whether it is one of the one-line motions (j and k) whose
+// failure to move aborts the whole command in nvim. rest may begin with a
+// motion count.
+func linewiseOperatorMotion(rest string) (linewise, boundary bool) {
+	i := 0
+	for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+		i++
+	}
+	if i >= len(rest) {
+		return false, false
+	}
+	switch rest[i] {
+	case 'j', 'k':
+		return true, true
+	case 'G':
+		return true, false
+	case 'g':
+		return i+1 < len(rest) && rest[i+1] == 'g', false
+	}
+	return false, false
+}
+
+// applyLinewiseOperatorMotion applies a linewise d or y over the whole lines
+// the motion reached. boundary marks j and k, whose failure to move is a
+// complete no-op in nvim: yj on the last line and yk on the first leave the
+// buffer, the cursor and the register untouched. A linewise yank backs the
+// cursor up to the first line when the range starts above the cursor, and a
+// linewise delete lands on the first non-blank of the line that took the
+// deleted lines' place.
+func (e *editor) applyLinewiseOperatorMotion(cmd byte, ref registerRef, sel Selection, boundary bool) bool {
+	first, last := sel.StartLine, sel.EndLine
+	if first > last {
+		first, last = last, first
+	}
+	if first < 0 {
+		first = 0
+	}
+	if last >= len(e.buffer) {
+		last = len(e.buffer) - 1
+	}
+	if first > last {
+		return false
+	}
+	if boundary && first == e.cursor.Line && last == e.cursor.Line {
+		return true
+	}
+
+	if cmd == 'y' {
+		e.storeRegister(ref, linewiseRegister(e.buffer[first:last+1]), true)
+		if first < e.cursor.Line {
+			e.cursor = Position{Line: first, Col: startOfLineColumn(e.buffer[first])}
+		}
+		return true
+	}
+
+	e.storeRegister(ref, linewiseRegister(e.buffer[first:last+1]), false)
+	remaining := make([]string, 0, len(e.buffer)-(last-first+1))
+	remaining = append(remaining, e.buffer[:first]...)
+	remaining = append(remaining, e.buffer[last+1:]...)
+	if len(remaining) == 0 {
+		remaining = []string{""}
+	}
+	cursor := Position{Line: first}
+	if cursor.Line >= len(remaining) {
+		cursor.Line = len(remaining) - 1
+	}
+	cursor.Col = startOfLineColumn(remaining[cursor.Line])
+	e.commit(remaining, cursor, !sameLines(e.buffer, remaining), last == first)
+	return true
+}
+
+// applyCharwiseOperator applies a character-wise d or y to the inclusive rune
+// range line:startCol..endCol. A yank stores the range and, when the range
+// starts before the cursor, backs the cursor up to its start, which is what
+// nvim does for yiw and yaw. A delete stores the range, removes it, and lands
+// the cursor on the range's start clamped into the shortened line.
+func (e *editor) applyCharwiseOperator(cmd byte, ref registerRef, line, startCol, endCol int) bool {
+	if line < 0 || line >= len(e.buffer) {
+		return false
+	}
+	runes := []rune(e.buffer[line])
+	if startCol < 0 {
+		startCol = 0
+	}
+	if endCol >= len(runes) {
+		endCol = len(runes) - 1
+	}
+	if startCol >= len(runes) || endCol < startCol {
+		return false
+	}
+
+	text := string(runes[startCol : endCol+1])
+	if cmd == 'y' {
+		e.storeRegister(ref, charwiseRegister(text), true)
+		if start := (Position{Line: line, Col: startCol}); lessPosition(start, e.cursor) {
+			e.cursor = start
+		}
+		return true
+	}
+
+	e.storeRegister(ref, charwiseRegister(text), false)
+	next := make([]rune, 0, len(runes)-(endCol-startCol+1))
+	next = append(next, runes[:startCol]...)
+	next = append(next, runes[endCol+1:]...)
+
+	buffer := copyLines(e.buffer)
+	buffer[line] = string(next)
+	cursor := Position{Line: line, Col: startCol}
+	if last := len(next) - 1; cursor.Col > last {
+		cursor.Col = last
+	}
+	if cursor.Col < 0 {
+		cursor.Col = 0
+	}
+	e.commit(buffer, cursor, !sameLines(e.buffer, buffer), false)
+	return true
+}
+
+// lessPosition reports whether a comes before b in buffer order.
+func lessPosition(a, b Position) bool {
+	if a.Line != b.Line {
+		return a.Line < b.Line
+	}
+	return a.Col < b.Col
+}
+
+// storeRegister records text in the register an answer named, following Vim's
+// rules. Every yank and delete fills the unnamed register; a named register
+// (a-z) is filled alongside it when one was named; and register 0 holds the
+// last yank, written only when the yank went to the unnamed register. That is
+// why a named yank leaves 0 alone while a delete takes over the unnamed
+// register without touching 0. The '+' alias is an explicit selection, so it
+// does not write 0 either, exactly as Vim's system clipboard does not.
+func (e *editor) storeRegister(ref registerRef, text editingRegister, yank bool) {
+	if ref.explicit && ref.name >= 'a' && ref.name <= 'z' {
+		if e.regs.named == nil {
+			e.regs.named = make(map[byte]editingRegister)
+		}
+		e.regs.named[ref.name] = text
+		e.regs.unnamed = text
+		return
+	}
+	e.regs.unnamed = text
+	if ref.explicit && ref.name == '0' {
+		e.regs.yank = text
+		return
+	}
+	if yank && !(ref.explicit && ref.name == '+') {
+		e.regs.yank = text
+	}
+}
+
+// readRegister is the register a put reads: 0 for the prefixed "0, the named
+// register for a-z, and the unnamed register for everything else, including the
+// '+' alias the trainer keeps in place of a system clipboard.
+func (e *editor) readRegister(ref registerRef) editingRegister {
+	if ref.explicit {
+		switch {
+		case ref.name == '0':
+			return e.regs.yank
+		case ref.name >= 'a' && ref.name <= 'z':
+			return e.regs.named[ref.name]
+		}
+	}
+	return e.regs.unnamed
+}
+
+// linewiseRegister and charwiseRegister build the two register contents.
+func linewiseRegister(lines []string) editingRegister {
+	return editingRegister{lines: copyLines(lines), linewise: true, set: true}
+}
+
+func charwiseRegister(text string) editingRegister {
+	return editingRegister{lines: []string{text}, linewise: false, set: true}
 }
 
 // undoStep implements u: one snapshot per normal-mode command. A command that

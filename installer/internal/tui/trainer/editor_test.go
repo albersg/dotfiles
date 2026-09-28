@@ -2202,3 +2202,329 @@ func TestBufferJudge_SeparatesModesForInsertAnswers(t *testing.T) {
 		t.Errorf("MismatchSummary() = %q, want %q", summary, "mode differs")
 	}
 }
+
+// nvimRegisterReference names the reference implementation and the exact
+// settings every expectation in the register tests below was read from: nvim
+// v0.12.5 run as "nvim --clean --headless" with "set shiftwidth=2 expandtab
+// tabstop=2 startofline", one fresh process per case and the buffer loaded from
+// a file. The cases record nvim's resulting buffer and cursor verbatim.
+//
+// The observations that shaped the engine, beyond the obvious buffer contents:
+//
+//   - yy, y$, yw and yj leave the cursor where it was; yiw, yaw and ygg move it
+//     to the start of the yanked text when that start is before the cursor.
+//   - A character-wise put inserts after the cursor with p and before it with P,
+//     and lands on the last inserted character in both cases.
+//   - A linewise put inserts below with p and above with P, keeps the stored
+//     indentation, and lands on the first non-blank of the first inserted line.
+//   - Register 0 holds the last yank; a delete changes the unnamed register but
+//     never 0. A named register is filled alongside the unnamed one, and a
+//     named yank leaves 0 alone.
+//   - yj on the last line and yk on the first line are complete no-ops, as is a
+//     put from an empty register.
+const nvimRegisterReference = "nvim --clean --headless, shiftwidth=2 expandtab tabstop=2 startofline"
+
+// TestSimulateEditing_YankWithMotion specifies y followed by a motion and yy
+// against nvimRegisterReference. Every row observes the register through a put,
+// because the register is the engine's state and the put is what makes its
+// linewise/charwise flag and its text visible.
+func TestSimulateEditing_YankWithMotion(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "yy leaves the cursor where it was",
+			code: base, start: Position{Line: 1, Col: 4}, input: "yy",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yiw yanks the inner word charwise and moves to its start",
+			code: base, start: Position{Line: 1, Col: 3}, input: "yiw",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yiw at the start of the word does not move the cursor",
+			code: base, start: Position{Line: 1, Col: 2}, input: "yiw",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a charwise yank puts after the cursor",
+			code: base, start: Position{Line: 1, Col: 2}, input: "yiwp",
+			wantBuffer: []string{"alpha", "  bbetaeta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a charwise yank puts before the cursor with P",
+			code: base, start: Position{Line: 1, Col: 2}, input: "yiwP",
+			wantBuffer: []string{"alpha", "  betabeta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "y$ yanks from the cursor to the end of the line",
+			code: base, start: Position{Line: 1, Col: 1}, input: "y$p",
+			wantBuffer: []string{"alpha", "   betabeta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 6}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "y$ then P puts the range before the cursor",
+			code: base, start: Position{Line: 1, Col: 1}, input: "y$P",
+			wantBuffer: []string{"alpha", "  beta beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yw yanks to the start of the next word",
+			code: base, start: Position{Line: 0, Col: 0}, input: "ywp",
+			wantBuffer: []string{"aalphalpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yj yanks two whole lines linewise and leaves the cursor",
+			code: base, start: Position{Line: 1, Col: 3}, input: "yj",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yj then p pastes the two lines below",
+			code: base, start: Position{Line: 1, Col: 3}, input: "yjp",
+			wantBuffer: []string{"alpha", "  beta", "  beta", "gamma", "gamma", "delta"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "ygg yanks back to the first line and moves the cursor there",
+			code: base, start: Position{Line: 2, Col: 1}, input: "ygg",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yj on the last line is a no-op",
+			code: base, start: Position{Line: 3, Col: 0}, input: "yj",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 3, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "yk on the first line is a no-op",
+			code: base, start: Position{Line: 0, Col: 0}, input: "yk",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an incomplete register prefix is not recognized",
+			code: base, start: Position{Line: 0, Col: 0}, input: "\"",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+		{
+			name: "a register name the engine does not model is not recognized",
+			code: base, start: Position{Line: 0, Col: 0}, input: "\"1p",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+	})
+}
+
+// TestSimulateEditing_OperatorDeletes specifies d followed by a motion against
+// nvimRegisterReference. A character-wise range is refused when it crosses
+// lines, and a count before the operator is refused outright, because Vim
+// multiplies the motion there and this engine does not model the product; both
+// refusals leave the buffer untouched and report the answer unrecognized,
+// exactly like the counted D the engine already refuses.
+func TestSimulateEditing_OperatorDeletes(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "d$ deletes from the cursor to the end of the line",
+			code: base, start: Position{Line: 0, Col: 1}, input: "d$",
+			wantBuffer: []string{"a", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "d$ then p restores the line charwise",
+			code: base, start: Position{Line: 0, Col: 1}, input: "d$p",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dw deletes to the start of the next word",
+			code: base, start: Position{Line: 0, Col: 0}, input: "dw",
+			wantBuffer: []string{"", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "diw deletes the inner word",
+			code: base, start: Position{Line: 1, Col: 3}, input: "diw",
+			wantBuffer: []string{"alpha", "  ", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "diw then p restores the word",
+			code: base, start: Position{Line: 1, Col: 3}, input: "diwp",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 5}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dj deletes two whole lines linewise",
+			code: base, start: Position{Line: 1, Col: 3}, input: "dj",
+			wantBuffer: []string{"alpha", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dG deletes to the last line",
+			code: base, start: Position{Line: 1, Col: 3}, input: "dG",
+			wantBuffer: []string{"alpha"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dgg deletes back to the first line",
+			code: base, start: Position{Line: 1, Col: 3}, input: "dgg",
+			wantBuffer: []string{"gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "dj on the last line is a no-op",
+			code: base, start: Position{Line: 3, Col: 0}, input: "dj",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 3, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted operator plus motion is refused",
+			code: base, start: Position{Line: 0, Col: 0}, input: "2dw",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: false,
+		},
+	})
+}
+
+// TestSimulateEditing_Registers specifies the unnamed, 0, named a-z and +
+// registers against nvimRegisterReference. The paired rows are the point: 0
+// keeps the last yank while a delete takes over the unnamed register, and a
+// named register survives the yanks that pass through the unnamed one.
+func TestSimulateEditing_Registers(t *testing.T) {
+	base := multiLineBuffer()
+
+	runEditingCases(t, []editingCase{
+		{
+			name: "a named yank fills the named register and survives another yank",
+			code: base, start: Position{Line: 0, Col: 0}, input: "\"ayyjyy\"ap",
+			wantBuffer: []string{"alpha", "  beta", "alpha", "gamma", "delta"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a named yank also fills the unnamed register",
+			code: base, start: Position{Line: 0, Col: 0}, input: "\"ayyp",
+			wantBuffer: []string{"alpha", "alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a named delete fills the named register",
+			code: base, start: Position{Line: 1, Col: 3}, input: "\"addk\"ap",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "register 0 keeps the last yank after a delete changed the unnamed one",
+			code: base, start: Position{Line: 0, Col: 0}, input: "yyjdd\"0p",
+			wantBuffer: []string{"alpha", "gamma", "alpha", "delta"},
+			wantCursor: Position{Line: 2, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the unnamed register follows a delete",
+			code: base, start: Position{Line: 0, Col: 0}, input: "yyjddp",
+			wantBuffer: []string{"alpha", "gamma", "  beta", "delta"},
+			wantCursor: Position{Line: 2, Col: 2}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "x fills the unnamed register charwise",
+			code: base, start: Position{Line: 0, Col: 0}, input: "xp",
+			wantBuffer: []string{"lapha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 1}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "a counted x fills the unnamed register with every deleted rune",
+			code: base, start: Position{Line: 0, Col: 0}, input: "3xp",
+			wantBuffer: []string{"halpa", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 3}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "D fills the unnamed register charwise",
+			code: base, start: Position{Line: 0, Col: 1}, input: "Dp",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 4}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "x does not touch register 0",
+			code: base, start: Position{Line: 0, Col: 0}, input: "x\"0p",
+			wantBuffer: []string{"lpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the + register aliases the unnamed register on a yank",
+			code: base, start: Position{Line: 0, Col: 0}, input: "\"+yyp",
+			wantBuffer: []string{"alpha", "alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "the + register aliases the unnamed register on a put",
+			code: base, start: Position{Line: 0, Col: 0}, input: "yy\"+p",
+			wantBuffer: []string{"alpha", "alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 1, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an empty register makes p a no-op",
+			code: base, start: Position{Line: 0, Col: 0}, input: "p",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an empty register 0 makes the prefixed put a no-op",
+			code: base, start: Position{Line: 0, Col: 0}, input: "\"0p",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+		{
+			name: "an empty named register makes the prefixed put a no-op",
+			code: base, start: Position{Line: 0, Col: 0}, input: "\"ap",
+			wantBuffer: []string{"alpha", "  beta", "gamma", "delta"},
+			wantCursor: Position{Line: 0, Col: 0}, wantMode: ModeNormal, wantRec: true,
+		},
+	})
+}
+
+// TestBufferJudge_AcceptsEquivalentOperatorAnswers proves the point of the
+// character-wise register: an operator answer such as d$ now leaves a buffer
+// the judge can compare. D and d$ reach the same buffer and cursor by different
+// keys, so d$ is correct without being listed in the exercise's Solutions.
+func TestBufferJudge_AcceptsEquivalentOperatorAnswers(t *testing.T) {
+	exercise := &Exercise{
+		ID:             "operator_dollar",
+		Code:           []string{"alpha", "  beta"},
+		CursorPos:      Position{Line: 0, Col: 1},
+		Optimal:        "D",
+		Solutions:      []string{"D"},
+		BufferVerified: true,
+	}
+
+	target := SimulateEditing(exercise.Code, exercise.CursorPos, exercise.Optimal)
+	if !reflect.DeepEqual(target.Buffer, []string{"a", "  beta"}) || target.Cursor != (Position{Line: 0, Col: 0}) {
+		t.Fatalf("optimal result = buffer %#v cursor %+v, want [a  beta] at 0:0", target.Buffer, target.Cursor)
+	}
+
+	equivalent := "d$"
+	if IsInSolutions(exercise, equivalent) {
+		t.Fatalf("%q is listed as a solution; the row must prove the judge, not the fast path", equivalent)
+	}
+
+	result := ValidateAnswerDetailed(exercise, equivalent)
+	if !result.IsCorrect {
+		t.Errorf("ValidateAnswerDetailed(%q).IsCorrect = false, want true; mismatch = %q",
+			equivalent, result.MismatchSummary())
+	}
+
+	// An answer that deletes fewer characters still reaches a different buffer.
+	if wrong := ValidateAnswerDetailed(exercise, "x"); wrong.IsCorrect {
+		t.Errorf("ValidateAnswerDetailed(%q).IsCorrect = true, want false", "x")
+	}
+}
