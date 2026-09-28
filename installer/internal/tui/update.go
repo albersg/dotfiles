@@ -123,7 +123,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Screen == ScreenInstalling {
 			m.SpinnerFrame++
 		}
-		// Continue ticking for animations
+		// The same tick that animates the spinner wakes the model on its own, so
+		// the exercise countdown stays live and an idle player's hint is revealed
+		// when its deadline passes without any key press.
+		m.revealExerciseHintOnDeadline()
+		// Continue ticking for animations and the countdown
 		return m, tickCmd()
 
 	case installStartMsg:
@@ -1511,6 +1515,39 @@ func isTrainerScreen(s Screen) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// revealExerciseHintOnDeadline reveals the current lesson or practice exercise's
+// hint once its own TimeoutSecs has passed, so a stuck user learns the hint
+// exists without having to discover the Tab key. It only writes the feedback
+// message: it never touches the typed answer, never submits, and never changes
+// the screen, so an expired exercise stays open and answerable. Boss steps
+// declare no TimeoutSecs, and the boss TimeLimit is a separate mechanic, so the
+// boss screen is deliberately left alone.
+func (m *Model) revealExerciseHintOnDeadline() {
+	state := m.TrainerGameState
+	if state == nil || state.CurrentExercise == nil {
+		return
+	}
+
+	switch m.Screen {
+	case ScreenTrainerLesson, ScreenTrainerPractice:
+	default:
+		return
+	}
+
+	if !state.HintDue() {
+		return
+	}
+
+	hint := state.CurrentExercise.Hint
+	if hint == "" {
+		return
+	}
+
+	if message := "💡 Hint: " + hint; m.TrainerMessage != message {
+		m.TrainerMessage = message
 	}
 }
 

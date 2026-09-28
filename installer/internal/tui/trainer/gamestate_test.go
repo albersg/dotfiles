@@ -745,3 +745,57 @@ func TestGameState_TotalTimeAccumulatesAndPersists(t *testing.T) {
 		t.Errorf("LastPlayed = %v after a save/load round trip, want %v", loaded.LastPlayed, state.Stats.LastPlayed)
 	}
 }
+
+// TestGameState_HintIsDueOnlyAfterTimeout pins the deadline the exercise screen
+// reads. RemainingSeconds counts down from the exercise's own TimeoutSecs on the
+// injected clock, and HintDue flips only once that deadline is reached, so the
+// automatic hint cannot arrive early.
+func TestGameState_HintIsDueOnlyAfterTimeout(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.SetPracticeExercise(timedExercise()) // TimeoutSecs 30
+
+	now = now.Add(29 * time.Second)
+	if state.HintDue() {
+		t.Error("HintDue = true one second before the deadline")
+	}
+	if got := state.RemainingSeconds(); got != 1 {
+		t.Errorf("RemainingSeconds = %v one second before the deadline, want 1", got)
+	}
+
+	now = now.Add(time.Second)
+	if !state.HintDue() {
+		t.Error("HintDue = false once the deadline passed")
+	}
+	if got := state.RemainingSeconds(); got != 0 {
+		t.Errorf("RemainingSeconds = %v at the deadline, want 0", got)
+	}
+
+	// Past the deadline the countdown stays clamped at zero.
+	now = now.Add(time.Minute)
+	if got := state.RemainingSeconds(); got != 0 {
+		t.Errorf("RemainingSeconds = %v after the deadline, want 0", got)
+	}
+	if !state.HintDue() {
+		t.Error("HintDue = false after the deadline, want true")
+	}
+}
+
+// TestGameState_UntimedExerciseHasNoDeadline pins that a boss-style exercise
+// without TimeoutSecs never reports a countdown or an automatic hint, so the
+// boss screen is untouched by the lesson/practice deadline.
+func TestGameState_UntimedExerciseHasNoDeadline(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.SetPracticeExercise(&Exercise{ID: "untimed", Points: 50})
+
+	now = now.Add(10 * time.Minute)
+	if state.HintDue() {
+		t.Error("HintDue = true for an exercise that declares no timeout")
+	}
+	if got := state.RemainingSeconds(); got != 0 {
+		t.Errorf("RemainingSeconds = %v for an exercise that declares no timeout, want 0", got)
+	}
+}

@@ -109,6 +109,32 @@ func (g *GameState) ElapsedSeconds() float64 {
 	return g.clockNow().Sub(g.exerciseStartedAt).Seconds()
 }
 
+// RemainingSeconds is how long the current exercise has left before its hint is
+// due, measured through the same injected clock as ElapsedSeconds. It is 0 when
+// the exercise declares no timeout, or once the deadline has passed, so a
+// caller can treat a positive value as "the countdown is running".
+func (g *GameState) RemainingSeconds() float64 {
+	if g.CurrentExercise == nil || g.CurrentExercise.TimeoutSecs <= 0 {
+		return 0
+	}
+	remaining := float64(g.CurrentExercise.TimeoutSecs) - g.ElapsedSeconds()
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// HintDue reports whether the current exercise declares a timeout and enough
+// time has passed for its hint to be shown without the user asking. It is a
+// hint, not a failure: a due hint never ends or fails the exercise, so the
+// screen stays open and answerable.
+func (g *GameState) HintDue() bool {
+	if g.CurrentExercise == nil || g.CurrentExercise.TimeoutSecs <= 0 {
+		return false
+	}
+	return g.ElapsedSeconds() >= float64(g.CurrentExercise.TimeoutSecs)
+}
+
 // StartLesson starts lesson mode for a module
 func (g *GameState) StartLesson(module ModuleID) {
 	g.CurrentModule = module

@@ -49,6 +49,12 @@ func TestTrainerLessonGolden(t *testing.T) {
 
 	// Start a lesson for horizontal module (first unlocked module)
 	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	// The exercise screen now renders a countdown derived from the injected
+	// clock, so the golden pins that clock to keep the snapshot deterministic on
+	// any host (the same reason isolateGoldenTest pins HOME and the platform).
+	m.TrainerGameState.SetClock(func() time.Time {
+		return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	})
 	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
 	m.TrainerInput = ""
 	m.TrainerMessage = ""
@@ -1336,12 +1342,13 @@ func TestTrainerAnswerTimeReachesScorer(t *testing.T) {
 	}
 }
 
-// TestTrainerBossAnswerTimeReachesScorer covers the second answer path. Boss
-// step exercises carry no TimeoutSecs, so the scorer's speed gate is closed for
-// them by design and the earned points cannot show the measured time; the
-// accumulated TotalTime is the observable that does. It also pins that a wrong
-// boss answer does not restart the clock: the retry is measured from the
-// presentation of the step, so it is honestly slower.
+// TestTrainerBossAnswerTimeReachesScorer covers the second answer path. It
+// asserts the accumulated TotalTime, the observable that shows the recorder
+// received the measured time regardless of how the points land. It also pins
+// that a wrong boss answer does not restart the clock: the retry is measured
+// from the presentation of the step, so it is honestly slower. Whether a fast
+// boss answer earns the speed bonus is pinned separately by
+// TestTrainerFastBossAnswerEarnsSpeedBonus.
 func TestTrainerBossAnswerTimeReachesScorer(t *testing.T) {
 	t.Run("a boss answer hands the measured time to the recorder", func(t *testing.T) {
 		m, now := newTrainerTimedBossModel(t)
@@ -1388,4 +1395,132 @@ func TestTrainerBossAnswerTimeReachesScorer(t *testing.T) {
 				m.TrainerStats.TotalTime, want)
 		}
 	})
+}
+
+// =============================================================================
+// EXERCISE DEADLINE / AUTOMATIC HINT
+// =============================================================================
+
+// tickTrainer delivers one animation tick, the same message the Bubbletea timer
+// re-arms every 100ms, and returns the resulting model. The countdown reads the
+// injected clock rather than the tick payload, so advancing the fake clock and
+// delivering a tick is what moves the deadline in these tests.
+func tickTrainer(m Model) Model {
+	next, _ := m.Update(tickMsg(time.Now()))
+	return next.(Model)
+}
+
+// typeRunes types answer one rune at a time, as a user would, so a test can
+// prove the exercise still accepts input.
+func typeRunes(t *testing.T, m Model, answer string) Model {
+	t.Helper()
+	for _, r := range answer {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+	return m
+}
+
+// TestTrainerHintIsRevealedWhenDeadlinePasses pins both halves of the deadline
+// contract: before the exercise's TimeoutSecs the screen shows the time
+// remaining and no hint, and once that deadline passes the hint appears on its
+// own while the user is idle.
+func TestTrainerHintIsRevealedWhenDeadlinePasses(t *testing.T) {
+	m, now := newTrainerTimedLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil || exercise.TimeoutSecs <= 0 {
+		t.Fatalf("test setup: %v is not a timed lesson exercise", exercise)
+	}
+	if exercise.Hint == "" {
+		t.Fatalf("test setup: %s has no hint to reveal", exercise.ID)
+	}
+
+	// One second before the deadline: no hint yet, but the countdown is live.
+	*now = now.Add(time.Duration(exercise.TimeoutSecs)*time.Second - time.Second)
+	m = tickTrainer(m)
+	if strings.Contains(m.TrainerMessage, "Hint") {
+		t.Errorf("TrainerMessage = %q before the deadline, want no hint", m.TrainerMessage)
+	}
+	view := m.renderTrainerExercise("Lesson")
+	if !strings.Contains(view, "Hint in") {
+		t.Errorf("the exercise screen does not show the time remaining before the hint:\n%s", view)
+	}
+
+	// Crossing the deadline reveals the hint without a key press.
+	*now = now.Add(time.Second)
+	m = tickTrainer(m)
+	want := "💡 Hint: " + exercise.Hint
+	if m.TrainerMessage != want {
+		t.Errorf("TrainerMessage = %q after the deadline, want %q", m.TrainerMessage, want)
+	}
+}
+
+// TestTrainerExpiryLeavesTheExerciseOpenAndAnswerable pins that a passed
+// deadline is a hint and not a failure: the hint appears, typing keeps working,
+// and a correct answer is still accepted.
+func TestTrainerExpiryLeavesTheExerciseOpenAndAnswerable(t *testing.T) {
+	m, now := newTrainerTimedLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil || exercise.TimeoutSecs <= 0 {
+		t.Fatalf("test setup: %v is not a timed lesson exercise", exercise)
+	}
+
+	// The deadline passes while the user is idle.
+	*now = now.Add(time.Duration(exercise.TimeoutSecs+5) * time.Second)
+	m = tickTrainer(m)
+	if m.Screen != ScreenTrainerLesson {
+		t.Fatalf("screen after the deadline = %v, want %v: expiry closed the exercise", m.Screen, ScreenTrainerLesson)
+	}
+	if !strings.Contains(m.TrainerMessage, "Hint") {
+		t.Fatalf("TrainerMessage = %q after the deadline, want the automatic hint", m.TrainerMessage)
+	}
+
+	// Typing still works once the hint is on screen.
+	m = typeRunes(t, m, exercise.Optimal)
+	if m.TrainerInput != exercise.Optimal {
+		t.Fatalf("TrainerInput = %q after typing, want %q: the revealed hint blocked typing", m.TrainerInput, exercise.Optimal)
+	}
+
+	// And the answer is still accepted after expiry.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.Screen != ScreenTrainerResult {
+		t.Fatalf("screen after answering the expired exercise = %v, want %v", m.Screen, ScreenTrainerResult)
+	}
+	if !m.TrainerLastCorrect {
+		t.Error("the expired exercise rejected a correct answer")
+	}
+}
+
+// TestTrainerFastBossAnswerEarnsSpeedBonus pins the consequence of removing the
+// TimeoutSecs precondition from the speed bonus. Boss steps declare no timeout,
+// so before the change a fast and a slow boss answer scored exactly the same;
+// now the multiplier follows the measured time alone.
+func TestTrainerFastBossAnswerEarnsSpeedBonus(t *testing.T) {
+	fast, fastNow := newTrainerTimedBossModel(t)
+	exercise := fast.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("no boss exercise presented")
+	}
+	if exercise.TimeoutSecs != 0 {
+		t.Fatalf("test setup: boss step %s declares TimeoutSecs %d, the regression needs none", exercise.ID, exercise.TimeoutSecs)
+	}
+
+	fast = submitNow(t, fast, fastNow, exercise.Optimal, 1500*time.Millisecond)
+	slow, slowNow := newTrainerTimedBossModel(t)
+	slow = submitNow(t, slow, slowNow, exercise.Optimal, 2500*time.Millisecond)
+
+	wantFast := trainer.CalculatePoints(exercise, 1.5, true, 1)
+	wantSlow := trainer.CalculatePoints(exercise, 2.5, true, 1)
+	if wantFast <= wantSlow {
+		t.Fatalf("test setup: the scorer gives no speed bonus without a timeout (fast %d, slow %d)", wantFast, wantSlow)
+	}
+
+	if fast.TrainerGameState.SessionScore != wantFast {
+		t.Errorf("fast boss SessionScore = %d, want %d: a fast boss answer did not earn the speed multiplier",
+			fast.TrainerGameState.SessionScore, wantFast)
+	}
+	if slow.TrainerGameState.SessionScore != wantSlow {
+		t.Errorf("slow boss SessionScore = %d, want %d", slow.TrainerGameState.SessionScore, wantSlow)
+	}
 }

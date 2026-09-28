@@ -335,6 +335,33 @@ func TestCalculatePoints_SpeedBonus(t *testing.T) {
 	}
 }
 
+// TestCalculatePoints_SpeedBonusDoesNotRequireTimeout pins that the speed bonus
+// follows the measured time alone. Boss steps declare no TimeoutSecs, so a
+// precondition on the timeout wrongly denied them the bonus even when the
+// player answered instantly: before this change the two answers below scored
+// the same.
+func TestCalculatePoints_SpeedBonusDoesNotRequireTimeout(t *testing.T) {
+	// A boss step: base points, no declared timeout.
+	exercise := &Exercise{
+		ID:     "horizontal_boss_like",
+		Points: 50,
+	}
+
+	fast := CalculatePoints(exercise, 1.5, false, 1)
+	slow := CalculatePoints(exercise, 2.5, false, 1)
+
+	if fast == slow {
+		t.Fatalf("a fast and a slow answer both scored %d: the speed bonus ignored the measured time", fast)
+	}
+	// 50 base, +25% speed: 62.5 truncated.
+	if fast != 62 {
+		t.Errorf("fast answer scored %d, want 62 (50 base + 25%% speed)", fast)
+	}
+	if slow != 50 {
+		t.Errorf("slow answer scored %d, want 50 (no speed bonus)", slow)
+	}
+}
+
 func TestCalculatePoints_ComboMultiplier(t *testing.T) {
 	exercise := &Exercise{
 		ID:     "test",

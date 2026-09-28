@@ -185,7 +185,10 @@ func FormatSolutionsHint(exercise *Exercise) string {
 // CalculatePoints calculates points earned for an exercise. timeSeconds is the
 // time taken to answer it, as measured by GameState.ElapsedSeconds, so the
 // under-two-second speed bonus below reflects a real measurement rather than a
-// fixed placeholder.
+// fixed placeholder. The bonus depends on the measured time alone: every answer
+// is timed now, so requiring the exercise to declare a TimeoutSecs wrongly
+// denied it to boss steps, which leave that field unset. TimeoutSecs only
+// decides when the hint appears, never how an answer scores.
 func CalculatePoints(exercise *Exercise, timeSeconds float64, isOptimal bool, comboMultiplier int) int {
 	if exercise == nil {
 		return 0
@@ -204,7 +207,7 @@ func CalculatePoints(exercise *Exercise, timeSeconds float64, isOptimal bool, co
 	}
 
 	// Speed bonus: up to 25% for very fast answers (under 2 seconds)
-	if exercise.TimeoutSecs > 0 && timeSeconds < 2.0 {
+	if timeSeconds < 2.0 {
 		points *= 1.25
 	}
 
