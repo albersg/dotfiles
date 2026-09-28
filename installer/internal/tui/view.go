@@ -1586,7 +1586,9 @@ func (m Model) renderTrainerMenu() string {
 
 	// Help
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss • [r] reset • [q/Esc] back"))
+	s.WriteString(HelpStyle.Render("↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss"))
+	s.WriteString("\n")
+	s.WriteString(HelpStyle.Render("[r] reset module • [R] reset all • [q/Esc] back"))
 
 	return s.String()
 }

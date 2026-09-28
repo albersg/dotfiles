@@ -2146,3 +2146,212 @@ func TestTrainerMenuNavigationUnchanged(t *testing.T) {
 		t.Errorf("selecting index 0 did not start the Horizontal module")
 	}
 }
+
+// =============================================================================
+// WHOLE-PROFILE RESET
+// =============================================================================
+
+// trainerHasProgress reports whether a profile holds anything a whole-profile
+// reset must erase. The seeded menu profile sets none of the top-level counters,
+// so the check also looks at the per-module records and the defeated bosses.
+func trainerHasProgress(stats *trainer.UserStats) bool {
+	if stats == nil {
+		return false
+	}
+	if stats.TotalScore != 0 || stats.CurrentStreak != 0 || stats.BestStreak != 0 {
+		return true
+	}
+	return len(stats.ModuleProgress) != 0 || len(stats.BossesDefeated) != 0
+}
+
+// trainerResetKeyMsg is the key press that arms and confirms the whole-profile
+// reset. Shifted R is a distinct rune from the per-module [r], so bubbletea
+// delivers it without a modifier chord.
+func trainerResetKeyMsg() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}}
+}
+
+// TestTrainerResetAllArmsWithoutClearing pins that a single press of the reset
+// key only arms the reset and says what it is waiting for: the profile, in
+// memory and on disk, must be untouched.
+func TestTrainerResetAllArmsWithoutClearing(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	m.TrainerStats.TotalScore = 250
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding stats failed: %v", err)
+	}
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+
+	if !trainerHasProgress(m.TrainerStats) {
+		t.Fatal("the first reset key press cleared the in-memory profile")
+	}
+	if onDisk := trainer.LoadStats(); !trainerHasProgress(onDisk) {
+		t.Fatal("the first reset key press cleared the profile on disk")
+	}
+	if !strings.Contains(m.TrainerMessage, "[R]") || !strings.Contains(strings.ToLower(m.TrainerMessage), "again") {
+		t.Errorf("armed reset does not say it is waiting for a confirmation: %q", m.TrainerMessage)
+	}
+}
+
+// TestTrainerResetAllConfirmingClearsProfile pins that the second press clears
+// the whole profile: the counters are zero in memory and the stats file on disk
+// holds the erased state, so the menu reflects it without a restart.
+func TestTrainerResetAllConfirmingClearsProfile(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	m.TrainerStats.TotalScore = 250
+	m.TrainerStats.BestStreak = 9
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding stats failed: %v", err)
+	}
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	res, _ = m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+
+	if trainerHasProgress(m.TrainerStats) {
+		t.Errorf("profile still has progress in memory after confirming: %+v", m.TrainerStats)
+	}
+
+	onDisk := trainer.LoadStats()
+	if onDisk == nil {
+		t.Fatal("no stats file after confirming; the cleared state was not persisted")
+	}
+	if trainerHasProgress(onDisk) {
+		t.Errorf("stats file still holds progress after confirming: %+v", onDisk)
+	}
+
+	// The menu must reflect the wipe from the same model, without a restart.
+	view := m.View()
+	if strings.Contains(view, "Bosses: 1/7") {
+		t.Errorf("menu still shows the erased boss count after confirming:\n%s", view)
+	}
+	if !strings.Contains(view, "Bosses: 0/7") {
+		t.Errorf("menu does not show the cleared boss count after confirming:\n%s", view)
+	}
+}
+
+// TestTrainerResetAllCancelKeepsProfile pins that any other key disarms the
+// reset and leaves the profile alone, so a single stray keystroke can neither
+// clear nor half-commit the wipe, and the next reset key press only re-arms.
+func TestTrainerResetAllCancelKeepsProfile(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	m.TrainerStats.TotalScore = 250
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding stats failed: %v", err)
+	}
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = res.(Model)
+
+	if !trainerHasProgress(m.TrainerStats) {
+		t.Error("an unrelated key cleared the in-memory profile")
+	}
+	if onDisk := trainer.LoadStats(); !trainerHasProgress(onDisk) {
+		t.Error("an unrelated key cleared the profile on disk")
+	}
+
+	// Cancelling must disarm: the next reset key press only arms again.
+	res, _ = m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	if !trainerHasProgress(m.TrainerStats) {
+		t.Error("a single reset key press after a cancel cleared the profile; the cancel did not disarm")
+	}
+}
+
+// TestTrainerResetAllEscapeCancels pins that escape disarms the pending reset
+// instead of leaving it armed behind the menu, and never clears the profile.
+func TestTrainerResetAllEscapeCancels(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	m.TrainerStats.TotalScore = 250
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		t.Fatalf("seeding stats failed: %v", err)
+	}
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = res.(Model)
+
+	if strings.Contains(m.TrainerMessage, "[R]") {
+		t.Errorf("escape left the reset armed: message = %q", m.TrainerMessage)
+	}
+	if onDisk := trainer.LoadStats(); !trainerHasProgress(onDisk) {
+		t.Error("escape cleared the profile on disk")
+	}
+}
+
+// TestTrainerResetAllWithMissingProfile pins that the reset path does not panic
+// when the stats file is missing or unreadable (LoadStats returns nil) and that
+// it still leaves a clean, empty profile behind.
+func TestTrainerResetAllWithMissingProfile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = nil // what LoadStats returns for a missing or corrupt file
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+
+	res, _ := m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+	res, _ = m.Update(trainerResetKeyMsg())
+	m = res.(Model)
+
+	if m.TrainerStats == nil {
+		t.Fatal("confirming with a missing profile left TrainerStats nil")
+	}
+	if trainerHasProgress(m.TrainerStats) {
+		t.Errorf("cleared profile is not empty: %+v", m.TrainerStats)
+	}
+}
+
+// TestTrainerMenuHelpMentionsResetKeys pins that both reset keys are
+// discoverable from the menu's help line.
+func TestTrainerMenuHelpMentionsResetKeys(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	view := m.View()
+
+	for _, want := range []string{"[r] reset module", "[R] reset all"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("trainer menu help does not mention %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTrainerModuleResetKeyStillScopedToModule pins that the existing [r]
+// shortcut keeps clearing only the selected module's practice data: the module
+// keeps its lessons and boss, and the other modules are untouched.
+func TestTrainerModuleResetKeyStillScopedToModule(t *testing.T) {
+	m := newTrainerProgressModel(t)
+	selected := m.TrainerModules[m.TrainerCursor] // Horizontal
+	other := m.TrainerModules[1]                  // Vertical
+
+	otherProgress := m.TrainerStats.GetModuleProgress(other.ID)
+	otherProgress.BossDefeated = true
+
+	horizontal := m.TrainerStats.ModuleProgress[selected.ID]
+	if len(horizontal.ExerciseStats) == 0 {
+		t.Fatal("seed did not create exercise stats")
+	}
+	lessonsBefore := horizontal.LessonsCompleted
+	bossBefore := horizontal.BossDefeated
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = res.(Model)
+
+	horizontal = m.TrainerStats.ModuleProgress[selected.ID]
+	if len(horizontal.ExerciseStats) != 0 {
+		t.Errorf("module reset left %d exercise records behind", len(horizontal.ExerciseStats))
+	}
+	if horizontal.LessonsCompleted != lessonsBefore || horizontal.BossDefeated != bossBefore {
+		t.Error("module reset changed the selected module's lessons or boss")
+	}
+	if got := m.TrainerStats.ModuleProgress[other.ID]; got == nil || !got.BossDefeated {
+		t.Error("module reset touched another module")
+	}
+}
