@@ -98,7 +98,6 @@ brew "spotify_player" if OS.linux?
 # only way to name them: they are not in homebrew/core and not on npm. That is a
 # dependency, not branding; this repository attributes nothing to that project.
 go "github.com/gentleman-programming/gentle-ai/v3/cmd/gentle-ai"
-go "github.com/gentleman-programming/gentle-ai/cmd/gentle-ai"
 npm "@google/gemini-cli"
 npm "@openai/codex"
 npm "azure-functions-core-tools"

@@ -552,3 +552,64 @@ func TestStepInstallNvimPrunesLeftoversAndKeepsUserState(t *testing.T) {
 		t.Errorf("the repository Neovim config was not installed: %v", err)
 	}
 }
+
+// TestShippedZshrcUsesAbsoluteWSLgWaylandSocket pins the WSLg display fix that
+// the tracked template lost. WAYLAND_DISPLAY must be absolute because WSLg's
+// socket lives outside XDG_RUNTIME_DIR, so a relative "wayland-0" resolves to a
+// non-existent path and every Wayland client (wl-copy, wl-paste, browsers)
+// fails to connect. The installer copies this asset verbatim, so asserting it
+// here is the only thing that stops the regression from shipping again.
+func TestShippedZshrcUsesAbsoluteWSLgWaylandSocket(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join(repoRoot(t), repoAssetZshrc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(content)
+
+	const waylandSocket = "/mnt/wslg/runtime-dir/wayland-0"
+
+	// The probe and the assignment have to agree on the same absolute socket.
+	if want := "[[ -S " + waylandSocket + " ]]"; !strings.Contains(script, want) {
+		t.Errorf(".zshrc no longer probes the WSLg socket before exporting it: %s", want)
+	}
+	if want := `export WAYLAND_DISPLAY="` + waylandSocket + `"`; !strings.Contains(script, want) {
+		t.Errorf(".zshrc is missing the absolute WSLg assignment: %s", want)
+	}
+
+	// DISPLAY is guarded by WSLg's own X11 socket, not by the interop socket
+	// that can be missing while WSLg works.
+	if want := "[[ -d /mnt/wslg/.X11-unix ]]"; !strings.Contains(script, want) {
+		t.Errorf(".zshrc no longer guards DISPLAY with WSLg's X11 socket: %s", want)
+	}
+
+	// Collect every assignment so a relative one or a reintroduced duplicate
+	// fails here instead of silently overwriting the correct value at runtime.
+	type assignment struct {
+		line  int
+		value string
+		text  string
+	}
+	var found []assignment
+	for i, line := range strings.Split(script, "\n") {
+		text := strings.TrimSpace(line)
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		idx := strings.Index(text, "WAYLAND_DISPLAY=")
+		if idx < 0 {
+			continue
+		}
+		value := strings.Trim(strings.TrimPrefix(text[idx:], "WAYLAND_DISPLAY="), `"'`)
+		found = append(found, assignment{line: i + 1, value: value, text: text})
+	}
+
+	if len(found) != 1 {
+		t.Fatalf("expected exactly one WAYLAND_DISPLAY assignment, found %d: %v", len(found), found)
+	}
+	if got := found[0]; !strings.HasPrefix(got.value, "/") {
+		t.Errorf("line %d assigns a relative WAYLAND_DISPLAY (%q): %s", got.line, got.value, got.text)
+	}
+	if got := found[0].value; got != waylandSocket {
+		t.Errorf("WAYLAND_DISPLAY = %q, want the absolute WSLg socket %q", got, waylandSocket)
+	}
+}

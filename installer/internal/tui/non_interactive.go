@@ -142,6 +142,12 @@ func buildStepsForChoices(m *Model) []InstallStep {
 		steps = append(steps, InstallStep{ID: "nvim", Name: "Install Neovim configuration"})
 	}
 
+	// Pi agent skills (pinned, checksum-verified packages under ~/.pi/agent/skills)
+	steps = append(steps, InstallStep{ID: "agentskills", Name: "Install Pi agent skills"})
+
+	// OfficeCLI binary (pinned, checksum-verified release asset in ~/.local/bin)
+	steps = append(steps, InstallStep{ID: "officecli", Name: "Install OfficeCLI"})
+
 	// WSL configuration (Windows host + in-distribution settings)
 	if m.SystemInfo.IsWSL {
 		steps = append(steps, InstallStep{ID: "wslconfig", Name: "Configure WSL"})

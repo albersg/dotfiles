@@ -829,8 +829,6 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
   # --- WSL detection ----------------------------------------------------------
   IS_WSL=1
   # Keep WSL_INTEROP untouched: WSL sets it to the current interop socket.
-  # Use a separate variable for the runtime directory instead.
-  WSL_RUNTIME_DIR="/run/WSL"
   # Recover shells started from an older session that incorrectly exported the
   # runtime directory instead of a socket; WSL will select the interop socket.
   if [[ -n "${WSL_INTEROP:-}" && -d "$WSL_INTEROP" ]]; then
@@ -838,13 +836,21 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
   fi
   WSL_DISTRO="${WSL_DISTRO_NAME:-unknown}"
 
-  # --- WSLg DISPLAY (auto-set by WSLg, but guard for headless scenarios) -----
-   if [[ -z "$DISPLAY" ]] && [[ -f "$WSL_RUNTIME_DIR/interop" ]]; then
-     export DISPLAY=":0"
-   fi
-   if [[ -z "$WAYLAND_DISPLAY" ]] && [[ -f "$WSL_RUNTIME_DIR/interop" ]]; then
-     export WAYLAND_DISPLAY="wayland-0"
-   fi
+  # --- WSLg DISPLAY and Wayland ----------------------------------------------
+  # Probe WSLg's own sockets instead of the WSL interop socket: interop can be
+  # missing (empty WSL_INTEROP, /mnt/c not on PATH) while WSLg is fully working.
+  #
+  # WAYLAND_DISPLAY must be an absolute path. WSLg's socket lives outside
+  # XDG_RUNTIME_DIR, which systemd pins to /run/user/$(id -u), so a relative
+  # "wayland-0" resolves to a non-existent socket and every Wayland client
+  # (wl-copy, wl-paste, browsers) fails with "Failed to connect to a Wayland
+  # server". An absolute path is used as-is by libwayland.
+  if [[ -z "$DISPLAY" ]] && [[ -d /mnt/wslg/.X11-unix ]]; then
+    export DISPLAY=":0"
+  fi
+  if [[ -S /mnt/wslg/runtime-dir/wayland-0 ]]; then
+    export WAYLAND_DISPLAY="/mnt/wslg/runtime-dir/wayland-0"
+  fi
 
   # --- BROWSER: prefer wslview (from wslu package), fallback chain -----------
   if command -v wslview &>/dev/null; then
@@ -887,14 +893,6 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
   if [[ -d "$CODE_BIN" ]]; then
     # Prefer the official launcher and remove only duplicate Code-bin entries.
     path=("$CODE_BIN" "${(@)path:#$CODE_BIN}")
-  fi
-
-  # --- WSLg (Wayland) display -------------------------------------------------
-  # Only meaningful inside WSL with WSLg available, never on a bare Linux host.
-  # XDG_RUNTIME_DIR is settled near the top of this file, before fnm needs it;
-  # here only the display is set.
-  if [[ -d "/mnt/wslg/runtime-dir" ]]; then
-    export WAYLAND_DISPLAY="wayland-0"
   fi
 
   # Some launchers start the shell without WSL_DISTRO_NAME; the kernel release

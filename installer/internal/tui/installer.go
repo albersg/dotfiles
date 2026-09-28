@@ -68,19 +68,21 @@ func dryRun() bool {
 // behind the last two fixes on this path. The switch this replaces could not be
 // enumerated, so nothing could close that agreement for more than one step.
 var stepExecutors = map[string]func(*Model) error{
-	"backup":    stepBackupConfigs,
-	"clone":     stepCloneRepo,
-	"homebrew":  stepInstallHomebrew,
-	"deps":      stepInstallDeps,
-	"xcode":     stepInstallXcode,
-	"terminal":  stepInstallTerminal,
-	"font":      stepInstallFont,
-	"shell":     stepInstallShell,
-	"wm":        stepInstallWM,
-	"nvim":      stepInstallNvim,
-	"wslconfig": stepInstallWSLConfig,
-	"cleanup":   stepCleanup,
-	"setshell":  stepSetDefaultShell,
+	"backup":      stepBackupConfigs,
+	"clone":       stepCloneRepo,
+	"homebrew":    stepInstallHomebrew,
+	"deps":        stepInstallDeps,
+	"xcode":       stepInstallXcode,
+	"terminal":    stepInstallTerminal,
+	"font":        stepInstallFont,
+	"shell":       stepInstallShell,
+	"wm":          stepInstallWM,
+	"nvim":        stepInstallNvim,
+	"agentskills": stepInstallAgentSkills,
+	"officecli":   stepInstallOfficeCLI,
+	"wslconfig":   stepInstallWSLConfig,
+	"cleanup":     stepCleanup,
+	"setshell":    stepSetDefaultShell,
 }
 
 // executeStep runs the actual installation for a step

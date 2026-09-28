@@ -633,6 +633,24 @@ func (m *Model) SetupInstallSteps() {
 		})
 	}
 
+	// Pi agent skills. Pinned, checksum-verified packages installed under
+	// ~/.pi/agent/skills. It needs no sudo, so it runs through executeStep.
+	m.Steps = append(m.Steps, InstallStep{
+		ID:          "agentskills",
+		Name:        "Install Pi Agent Skills",
+		Description: "Pinned security-audit, archify and officecli skills",
+		Status:      StatusPending,
+	})
+
+	// OfficeCLI binary. A pinned, checksum-verified release asset installed to
+	// ~/.local/bin/officecli. It needs no sudo, so it runs through executeStep.
+	m.Steps = append(m.Steps, InstallStep{
+		ID:          "officecli",
+		Name:        "Install OfficeCLI",
+		Description: "Pinned, checksum-verified CLI binary",
+		Status:      StatusPending,
+	})
+
 	// WSL configuration (Windows host + in-distribution settings). The files are
 	// only read when the WSL VM restarts, so this runs late in the sequence.
 	if m.SystemInfo.IsWSL {
