@@ -731,3 +731,156 @@ func TestTrainerPracticeSubmissionCountsOnce(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// SPACE KEY ROUTING REGRESSION
+// =============================================================================
+
+// newTrainerMenuModel builds a model parked on the trainer module menu.
+func newTrainerMenuModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerCursor = 0
+	return m
+}
+
+// newTrainerLessonModel builds a model parked on a live lesson exercise screen.
+func newTrainerLessonModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerLesson
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
+	m.TrainerInput = ""
+	return m
+}
+
+// newTrainerResultModel builds a model parked on the exercise result screen
+// with a live lesson session behind it.
+func newTrainerResultModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerResult
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
+	m.TrainerLastCorrect = true
+	m.TrainerMessage = "✨ Perfect!"
+	return m
+}
+
+// newTrainerBossModel builds a model parked on a live boss exercise screen.
+func newTrainerBossModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerBoss
+	m.TrainerStats = trainer.NewUserStats()
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+	progress.LessonsCompleted = 15
+	progress.LessonsTotal = 15
+	progress.PracticeAccuracy = 85.0
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartBoss(trainer.ModuleHorizontal)
+	m.TrainerInput = ""
+	return m
+}
+
+// TestTrainerSpaceKeyRouting is the regression test for the leader-mode clash.
+// The global key handler treated space as the leader-key prefix on every screen
+// except the lesson, practice and boss exercise screens, so on the trainer menu
+// and on the result screens it set LeaderMode instead of reaching
+// handleTrainerMenuKeys / handleTrainerResultKeys / handleTrainerBossResultKeys,
+// whose `case "enter", " "` arms were therefore unreachable for space. The
+// assertions drive the real global handler through Model.Update, because that is
+// where the routing, and the defect, lives.
+func TestTrainerSpaceKeyRouting(t *testing.T) {
+	t.Run("space starts the selected module from the trainer menu", func(t *testing.T) {
+		m := newTrainerMenuModel(t)
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+		m = result.(Model)
+
+		if m.LeaderMode {
+			t.Fatal("space activated leader mode on the trainer menu")
+		}
+		if m.Screen != ScreenTrainerLesson {
+			t.Fatalf("screen after space = %v, want %v", m.Screen, ScreenTrainerLesson)
+		}
+		if m.TrainerGameState == nil || m.TrainerGameState.CurrentExercise == nil {
+			t.Fatal("space did not start a lesson exercise")
+		}
+	})
+
+	t.Run("space advances from the exercise result screen", func(t *testing.T) {
+		m := newTrainerResultModel(t)
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+		m = result.(Model)
+
+		if m.LeaderMode {
+			t.Fatal("space activated leader mode on the trainer result screen")
+		}
+		if m.Screen == ScreenTrainerResult {
+			t.Fatal("space did not continue past the result screen")
+		}
+	})
+
+	t.Run("space returns from the boss result screen", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenTrainerBossResult
+		m.TrainerStats = trainer.NewUserStats()
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+		m = result.(Model)
+
+		if m.LeaderMode {
+			t.Fatal("space activated leader mode on the boss result screen")
+		}
+		if m.Screen != ScreenTrainerMenu {
+			t.Fatalf("screen after space = %v, want %v", m.Screen, ScreenTrainerMenu)
+		}
+	})
+
+	t.Run("space stays ordinary input on the exercise screens", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"practice", func(t *testing.T) Model {
+				m, _ := newPracticeSubmissionModel(t)
+				return m
+			}},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = ""
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+				m = result.(Model)
+
+				if m.LeaderMode {
+					t.Fatal("space activated leader mode on an exercise screen")
+				}
+				if m.TrainerInput != " " {
+					t.Errorf("TrainerInput = %q after space, want %q", m.TrainerInput, " ")
+				}
+			})
+		}
+	})
+}

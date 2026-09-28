@@ -276,19 +276,20 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// (Trainer screens use space in commands, Welcome screen uses space to continue)
 	if key == " " {
 		// Screens where space should NOT activate leader mode
-		switch m.Screen {
-		case ScreenWelcome:
+		switch {
+		case m.Screen == ScreenWelcome:
 			// Welcome screen: space continues to main menu
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 			return m, nil
-		case ScreenComplete, ScreenError:
+		case m.Screen == ScreenComplete || m.Screen == ScreenError:
 			// Complete/Error screens: space quits the app
 			m.Quitting = true
 			return m, tea.Quit
-		case ScreenTrainerLesson, ScreenTrainerPractice, ScreenTrainerBoss:
-			// Trainer input screens: space is part of the input, pass through
-			// (handled below in screen-specific handlers)
+		case isTrainerScreen(m.Screen):
+			// Trainer screens own space: the exercise screens append it to the
+			// answer input, and the menu and result screens treat it like enter.
+			// Pass through to the screen-specific handlers below.
 		default:
 			// All other screens: activate leader mode
 			m.LeaderMode = true
@@ -1484,6 +1485,23 @@ func (m *Model) runNextStep() tea.Cmd {
 // ============================================================================
 // Trainer Handlers
 // ============================================================================
+
+// isTrainerScreen reports whether s is one of the Vim Trainer screens.
+//
+// The trainer owns the space key on all of its screens: a space is ordinary
+// Vim input on the exercise screens, and it selects the highlighted action like
+// enter on the menu and result screens. The global key handler must therefore
+// hand space to the trainer screens instead of turning it into the leader-key
+// prefix.
+func isTrainerScreen(s Screen) bool {
+	switch s {
+	case ScreenTrainerMenu, ScreenTrainerLesson, ScreenTrainerPractice,
+		ScreenTrainerBoss, ScreenTrainerResult, ScreenTrainerBossResult:
+		return true
+	default:
+		return false
+	}
+}
 
 // handleTrainerMenuKeys handles module selection in the trainer
 func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
