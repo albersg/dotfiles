@@ -17,6 +17,7 @@ import (
 // TestTrainerMenuGolden tests the trainer module selection screen
 func TestTrainerMenuGolden(t *testing.T) {
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenTrainerMenu
@@ -39,6 +40,7 @@ func TestTrainerMenuGolden(t *testing.T) {
 // TestTrainerLessonGolden tests a lesson exercise screen
 func TestTrainerLessonGolden(t *testing.T) {
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenTrainerLesson
@@ -65,6 +67,7 @@ func TestTrainerLessonGolden(t *testing.T) {
 // TestTrainerResultCorrectGolden tests the result screen after correct answer
 func TestTrainerResultCorrectGolden(t *testing.T) {
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenTrainerResult
@@ -89,6 +92,7 @@ func TestTrainerResultCorrectGolden(t *testing.T) {
 // TestTrainerBossGolden tests the boss fight screen
 func TestTrainerBossGolden(t *testing.T) {
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenTrainerBoss
