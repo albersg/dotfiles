@@ -450,6 +450,13 @@ if command -v trip >/dev/null 2>&1; then
 fi
 alias http='xh'              # xh > curl for APIs
 
+# --- System tools ---
+# `btop` backs the `top` alias. Like `trip` above, it is only aliased when it
+# resolves, so a host that has no btop keeps the `top` it already had.
+if command -v btop >/dev/null 2>&1; then
+    alias top='btop'
+fi
+
 # bat's theme is set with the palette near the top of this file.
 
 export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'

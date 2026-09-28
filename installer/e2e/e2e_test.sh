@@ -6,6 +6,12 @@
 
 set -e
 
+# The toolset step runs `brew bundle install` against the repository's whole
+# Brewfile, which would pull roughly sixty formulae into every container and
+# destroy the job runtime. Its own logic is covered by the Go tests
+# (internal/tui/toolset_test.go), so the E2E suite skips the step.
+export DOTFILES_SKIP_TOOLSET=1
+
 PASSED=0
 FAILED=0
 

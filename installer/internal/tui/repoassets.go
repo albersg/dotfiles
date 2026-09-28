@@ -33,6 +33,10 @@ const (
 	// Includes the personal identity, because .gitconfig includes it through
 	// includeIf and a missing file would leave that block pointing at nothing.
 	repoAssetGitconfigPersonal = "gitconfig-personal"
+	// The machine toolset inventory. The toolset step reads it from the same
+	// checkout and hands a filtered copy to `brew bundle`; it is never copied
+	// into the home directory.
+	repoAssetBrewfile = "Brewfile"
 )
 
 // repoAssets enumerates repoAsset* constants so the existence test covers every
@@ -59,6 +63,7 @@ var repoAssets = []string{
 	repoAssetWSLConf,
 	repoAssetGitconfig,
 	repoAssetGitconfigPersonal,
+	repoAssetBrewfile,
 }
 
 // optionalRepoAssets are sources the installer tolerates missing. They are kept

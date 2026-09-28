@@ -142,6 +142,10 @@ func buildStepsForChoices(m *Model) []InstallStep {
 		steps = append(steps, InstallStep{ID: "nvim", Name: "Install Neovim configuration"})
 	}
 
+	// Toolset (after the shell step, whose fnm provides the Node runtime the
+	// Brewfile's npm entries need; best-effort, so it never fails the run)
+	steps = append(steps, InstallStep{ID: "toolset", Name: "Install toolset"})
+
 	// Pi agent skills (pinned, checksum-verified packages under ~/.pi/agent/skills)
 	steps = append(steps, InstallStep{ID: "agentskills", Name: "Install Pi agent skills"})
 

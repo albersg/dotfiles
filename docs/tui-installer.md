@@ -75,11 +75,13 @@ From the main menu you can access:
 4. **Shell**: Choose Nushell, Fish, Zsh, or None
 5. **Window Manager**: Select Tmux, Zellij, Herdr, or None
 6. **Neovim**: Configure LazyVim with LSP and AI assistants
-7. **WSL Configuration** (WSL hosts only): derives the `.wslconfig` limits from the
+7. **Toolset**: Install the `brew`, `tap`, `go`, `npm` and `uv` entries declared
+   in the `Brewfile` (best-effort; skipped on Termux and without Homebrew)
+8. **WSL Configuration** (WSL hosts only): derives the `.wslconfig` limits from the
    Windows host it runs on, then installs the rendered file into the Windows user
    profile and `/etc/wsl.conf` inside the distribution
-8. **Backup Confirmation**: Option to backup existing configs before overwriting
-9. **Installation**: Watch real-time progress
+9. **Backup Confirmation**: Option to backup existing configs before overwriting
+10. **Installation**: Watch real-time progress
 
 ### Keyboard Shortcuts
 

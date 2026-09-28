@@ -57,7 +57,7 @@ func TestDebianShellListsOmitNamesTheDistributionDoesNotCarry(t *testing.T) {
 		{
 			name:       "zsh",
 			shell:      "zsh",
-			wantDebian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting direnv jq gh bat fd-find ripgrep fzf",
+			wantDebian: "zsh zoxide zsh-autosuggestions zsh-syntax-highlighting direnv jq gh bat fd-find ripgrep fzf btop",
 			wantGone:   []string{"kubectx"},
 		},
 		{
