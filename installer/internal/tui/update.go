@@ -1526,8 +1526,9 @@ func isTrainerScreen(s Screen) bool {
 // exists without having to discover the Tab key. It only writes the feedback
 // message: it never touches the typed answer, never submits, and never changes
 // the screen, so an expired exercise stays open and answerable. Boss steps
-// declare no TimeoutSecs, and the boss TimeLimit is a separate mechanic, so the
-// boss screen is deliberately left alone.
+// mostly declare no TimeoutSecs (only the Change & Repeat boss's five do), and
+// the boss TimeLimit is a separate mechanic, so the boss screen is deliberately
+// left alone.
 func (m *Model) revealExerciseHintOnDeadline() {
 	state := m.TrainerGameState
 	if state == nil || state.CurrentExercise == nil {

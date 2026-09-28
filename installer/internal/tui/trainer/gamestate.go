@@ -40,9 +40,10 @@ type GameState struct {
 
 	// bossStepDeadline is when the boss step on screen runs out of time. It is
 	// stored rather than derived from the presentation time, because a retry
-	// after expiry must get a fresh full window while ElapsedSeconds keeps
-	// measuring the answer from the original presentation. presentBossStep and
-	// RecordBossStepTimeout are its only writers.
+	// after a lost life must get a fresh full window while ElapsedSeconds keeps
+	// measuring the answer from the original presentation. startBossDeadline is
+	// its only writer, reached from presentBossStep when a step is shown and from
+	// RecordIncorrectAnswer whenever a life is spent.
 	bossStepDeadline time.Time
 
 	// bossStepBonus is the extra seconds the previous won step granted to the
@@ -197,8 +198,11 @@ func (g *GameState) presentBossStep() {
 }
 
 // startBossDeadline arms the current boss step's deadline from its effective
-// limit. A step with no positive TimeLimit gets no clock at all, so it can never
-// expire; the deadline field is cleared so no earlier window lingers.
+// limit. It is the single place a window starts: presentBossStep calls it when a
+// step is shown, and RecordIncorrectAnswer calls it whenever a life is spent, so
+// a wrong answer and an expiry leave the player the same fresh retry window. A
+// step with no positive TimeLimit gets no clock at all, so it can never expire;
+// the deadline field is cleared so no earlier window lingers.
 func (g *GameState) startBossDeadline() {
 	limit := g.BossStepTimeLimit()
 	if limit <= 0 {
@@ -339,7 +343,12 @@ func (g *GameState) recordBossAttempt() {
 	g.Stats.GetModuleProgress(g.CurrentModule).BossAttempts++
 }
 
-// RecordIncorrectAnswer records an incorrect answer
+// RecordIncorrectAnswer records an incorrect answer. In boss mode it is also
+// the single owner of a spent life, which makes it the right place to re-arm the
+// step window: a life is lost either by a wrong answer or by the clock timing
+// out (RecordBossStepTimeout routes here), and both must leave the player a full
+// window for the retry. One owner means exactly one place decides when a window
+// starts.
 func (g *GameState) RecordIncorrectAnswer() {
 	g.CurrentStreak = 0
 	g.Stats.CurrentStreak = 0
@@ -353,30 +362,34 @@ func (g *GameState) RecordIncorrectAnswer() {
 	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
 	// the single owner of PracticeAttempts/PracticeCorrect.
 
-	// Boss mode: a lost life is one failed boss step.
+	// Boss mode: a lost life is one failed boss step. Re-arming the deadline here,
+	// rather than in each failure path, is what gives the retry a full window
+	// after a wrong answer as well as after an expiry; without it a wrong answer
+	// near the old deadline would lose a second life when that same window
+	// expired, and the player would never get a fresh window for the retry.
 	if g.IsBossMode {
 		g.recordBossAttempt()
 		g.BossLives--
 		if g.BossLives < 0 {
 			g.BossLives = 0
 		}
+		g.startBossDeadline()
 	}
 }
 
 // RecordBossStepTimeout charges the clock's own failure: the boss step on screen
 // ran out of time. It spends one life through RecordIncorrectAnswer, the same
-// canonical recorder a wrong answer uses, so the streak, the attempt and the
-// life cost are identical either way, and it then re-arms the deadline so the
-// retry gets a full window. Re-arming is what makes the 100ms tick idempotent:
-// after this call the deadline is a whole limit in the future, so a burst of
-// ticks past one deadline charges exactly one life instead of draining the
-// fight.
+// canonical recorder a wrong answer uses, so the streak, the attempt, the life
+// cost and the re-armed window are identical either way. That recorder owns the
+// re-arm, so this path deliberately adds no second one. The re-arm is what makes
+// the 100ms tick idempotent: after a lost life the deadline is a whole limit in
+// the future, so a burst of ticks past one deadline charges exactly one life
+// instead of draining the fight.
 func (g *GameState) RecordBossStepTimeout() {
 	if !g.IsBossMode {
 		return
 	}
 	g.RecordIncorrectAnswer()
-	g.startBossDeadline()
 }
 
 // NextExercise advances to the next exercise

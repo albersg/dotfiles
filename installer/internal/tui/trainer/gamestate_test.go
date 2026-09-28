@@ -922,6 +922,40 @@ func TestGameState_BossStepTimeoutSpendsOneLifeAndRearms(t *testing.T) {
 	}
 }
 
+// TestGameState_WrongAnswerRearmsTheBossWindow pins the owner: a lost life
+// re-arms the step window inside RecordIncorrectAnswer, so a wrong answer gets
+// the same fresh full window an expiry does. Before this, only expiry re-armed,
+// and a wrong answer near the old deadline cost a second life when that same
+// window expired.
+func TestGameState_WrongAnswerRearmsTheBossWindow(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.StartBoss(ModuleHorizontal)
+
+	limit := state.BossStepTimeLimit()
+	if limit <= 0 {
+		t.Fatal("test setup: boss step 0 declares no effective limit")
+	}
+
+	// A wrong answer late in the window: the spent life re-arms it in full.
+	now = now.Add(time.Duration(limit-1) * time.Second)
+	state.RecordIncorrectAnswer()
+	if state.BossDeadlinePassed() {
+		t.Fatal("BossDeadlinePassed = true right after a wrong answer, want a fresh window")
+	}
+	if got := state.BossStepSecondsLeft(); got != float64(limit) {
+		t.Errorf("seconds left after a wrong answer = %v, want a full %d", got, limit)
+	}
+
+	// The original deadline arrives with no second charge, because the window now
+	// ends a full limit after the wrong answer.
+	now = now.Add(time.Second)
+	if state.BossDeadlinePassed() {
+		t.Error("BossDeadlinePassed = true at the original deadline after the wrong answer re-armed the window")
+	}
+}
+
 // TestGameState_UntimedBossStepHasNoDeadline pins that a boss step which
 // declares no TimeLimit is never charged by the clock, so the deadline cannot
 // drain a fight whose data never asked for one.
