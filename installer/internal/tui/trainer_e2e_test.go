@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +50,12 @@ func TestTrainerLessonGolden(t *testing.T) {
 
 	// Start a lesson for horizontal module (first unlocked module)
 	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	// The exercise screen now renders a countdown derived from the injected
+	// clock, so the golden pins that clock to keep the snapshot deterministic on
+	// any host (the same reason isolateGoldenTest pins HOME and the platform).
+	m.TrainerGameState.SetClock(func() time.Time {
+		return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	})
 	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
 	m.TrainerInput = ""
 	m.TrainerMessage = ""
@@ -106,6 +113,13 @@ func TestTrainerBossGolden(t *testing.T) {
 	progress.PracticeAccuracy = 85.0
 
 	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	// The boss screen now renders a countdown derived from the step's TimeLimit
+	// through the injected clock, so the golden pins that clock to keep the
+	// snapshot deterministic on any host (the same reason the lesson golden pins
+	// it and isolateGoldenTest pins HOME and the platform).
+	m.TrainerGameState.SetClock(func() time.Time {
+		return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	})
 	m.TrainerGameState.StartBoss(trainer.ModuleHorizontal)
 	m.TrainerInput = ""
 	m.TrainerMessage = ""
@@ -1235,4 +1249,658 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 			}
 		}
 	})
+}
+
+// =============================================================================
+// ANSWER TIMING REGRESSION
+// =============================================================================
+
+// newTrainerTimedLessonModel builds a live lesson model whose answer clock is a
+// fake the test can advance, so answer timing is exercised without sleeping.
+// SetClock runs before StartLesson because presentation is what the clock is
+// measured from.
+func newTrainerTimedLessonModel(t *testing.T) (Model, *time.Time) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerLesson
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m.TrainerGameState.SetClock(func() time.Time { return now })
+	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
+	m.TrainerInput = ""
+	return m, &now
+}
+
+// newTrainerTimedBossModel is newTrainerTimedLessonModel for a boss fight.
+func newTrainerTimedBossModel(t *testing.T) (Model, *time.Time) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenTrainerBoss
+	m.TrainerStats = trainer.NewUserStats()
+	progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
+	progress.LessonsCompleted = 15
+	progress.LessonsTotal = 15
+	progress.PracticeAccuracy = 85.0
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m.TrainerGameState.SetClock(func() time.Time { return now })
+	m.TrainerGameState.StartBoss(trainer.ModuleHorizontal)
+	m.TrainerInput = ""
+	return m, &now
+}
+
+// submitNow types answer, advances the fake clock by elapsed and presses enter,
+// reporting the model the handler produced.
+func submitNow(t *testing.T, m Model, now *time.Time, answer string, elapsed time.Duration) Model {
+	t.Helper()
+
+	m.TrainerInput = answer
+	*now = now.Add(elapsed)
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	return result.(Model)
+}
+
+// TestTrainerAnswerTimeReachesScorer pins that the UI hands the time it measured
+// from presentation to the scorer instead of a fixed placeholder. Both cases
+// answer the same exercise optimally, so the scores can only differ if the
+// elapsed time the fake clock reports reaches the score calculation.
+func TestTrainerAnswerTimeReachesScorer(t *testing.T) {
+	fastModel, now := newTrainerTimedLessonModel(t)
+	exercise := fastModel.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("no lesson exercise presented")
+	}
+	fastModel = submitNow(t, fastModel, now, exercise.Optimal, 1500*time.Millisecond)
+
+	slowModel, slowNow := newTrainerTimedLessonModel(t)
+	slowExercise := slowModel.TrainerGameState.CurrentExercise
+	if slowExercise == nil {
+		t.Fatal("no lesson exercise presented")
+	}
+	if slowExercise.ID != exercise.ID {
+		t.Fatalf("test setup: the two runs presented different exercises: %s and %s", exercise.ID, slowExercise.ID)
+	}
+	slowModel = submitNow(t, slowModel, slowNow, slowExercise.Optimal, 2500*time.Millisecond)
+
+	if fastModel.Screen != ScreenTrainerResult || slowModel.Screen != ScreenTrainerResult {
+		t.Fatalf("screens after submitting = %v and %v, want %v", fastModel.Screen, slowModel.Screen, ScreenTrainerResult)
+	}
+
+	wantFast := trainer.CalculatePoints(exercise, 1.5, true, 1)
+	wantSlow := trainer.CalculatePoints(exercise, 2.5, true, 1)
+	if wantFast <= wantSlow {
+		t.Fatalf("test setup: the scorer gives no speed bonus for %s (fast %d, slow %d)", exercise.ID, wantFast, wantSlow)
+	}
+
+	if fastModel.TrainerGameState.SessionScore != wantFast {
+		t.Errorf("SessionScore = %d for a 1.5s answer, want %d: the measured time did not reach the scorer",
+			fastModel.TrainerGameState.SessionScore, wantFast)
+	}
+	if slowModel.TrainerGameState.SessionScore != wantSlow {
+		t.Errorf("SessionScore = %d for a 2.5s answer, want %d: the measured time did not reach the scorer",
+			slowModel.TrainerGameState.SessionScore, wantSlow)
+	}
+}
+
+// TestTrainerBossAnswerTimeReachesScorer covers the second answer path. It
+// asserts the accumulated TotalTime, the observable that shows the recorder
+// received the measured time regardless of how the points land. It also pins
+// that a wrong boss answer does not restart the clock: the retry is measured
+// from the presentation of the step, so it is honestly slower. Whether a fast
+// boss answer earns the speed bonus is pinned separately by
+// TestTrainerFastBossAnswerEarnsSpeedBonus.
+func TestTrainerBossAnswerTimeReachesScorer(t *testing.T) {
+	t.Run("a boss answer hands the measured time to the recorder", func(t *testing.T) {
+		m, now := newTrainerTimedBossModel(t)
+		exercise := m.TrainerGameState.CurrentExercise
+		if exercise == nil {
+			t.Fatal("no boss exercise presented")
+		}
+		if !trainer.ValidateAnswer(exercise, exercise.Optimal) {
+			t.Fatalf("test setup: the optimal answer %q is rejected for %s", exercise.Optimal, exercise.ID)
+		}
+
+		m = submitNow(t, m, now, exercise.Optimal, 1500*time.Millisecond)
+
+		if m.TrainerStats.TotalTime != 1500*time.Millisecond {
+			t.Errorf("TotalTime = %v after a 1.5s boss answer, want 1.5s: the measured time did not reach the recorder",
+				m.TrainerStats.TotalTime)
+		}
+	})
+
+	t.Run("a wrong boss answer does not restart the clock", func(t *testing.T) {
+		m, now := newTrainerTimedBossModel(t)
+		exercise := m.TrainerGameState.CurrentExercise
+		if exercise == nil {
+			t.Fatal("no boss exercise presented")
+		}
+
+		const wrong = "ZZZZZZ"
+		if trainer.ValidateAnswer(exercise, wrong) {
+			t.Fatalf("test setup: %q validated against %s", wrong, exercise.ID)
+		}
+
+		m = submitNow(t, m, now, wrong, 1500*time.Millisecond)
+		if m.Screen != ScreenTrainerBoss {
+			t.Fatalf("screen after a wrong boss answer = %v, want %v", m.Screen, ScreenTrainerBoss)
+		}
+
+		m = submitNow(t, m, now, exercise.Optimal, 500*time.Millisecond)
+
+		// Two seconds from presentation: the mistaken 1.5s plus the 0.5s retry.
+		// A clock restarted by the wrong answer would have recorded half a second.
+		const want = 2 * time.Second
+		if m.TrainerStats.TotalTime != want {
+			t.Errorf("TotalTime = %v after a wrong answer and a fast retry, want %v: the wrong answer restarted the clock",
+				m.TrainerStats.TotalTime, want)
+		}
+	})
+}
+
+// =============================================================================
+// EXERCISE DEADLINE / AUTOMATIC HINT
+// =============================================================================
+
+// tickTrainer delivers one animation tick, the same message the Bubbletea timer
+// re-arms every 100ms, and returns the resulting model. The countdown reads the
+// injected clock rather than the tick payload, so advancing the fake clock and
+// delivering a tick is what moves the deadline in these tests.
+func tickTrainer(m Model) Model {
+	next, _ := m.Update(tickMsg(time.Now()))
+	return next.(Model)
+}
+
+// typeRunes types answer one rune at a time, as a user would, so a test can
+// prove the exercise still accepts input.
+func typeRunes(t *testing.T, m Model, answer string) Model {
+	t.Helper()
+	for _, r := range answer {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+	return m
+}
+
+// TestTrainerHintIsRevealedWhenDeadlinePasses pins both halves of the deadline
+// contract: before the exercise's TimeoutSecs the screen shows the time
+// remaining and no hint, and once that deadline passes the hint appears on its
+// own while the user is idle.
+func TestTrainerHintIsRevealedWhenDeadlinePasses(t *testing.T) {
+	m, now := newTrainerTimedLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil || exercise.TimeoutSecs <= 0 {
+		t.Fatalf("test setup: %v is not a timed lesson exercise", exercise)
+	}
+	if exercise.Hint == "" {
+		t.Fatalf("test setup: %s has no hint to reveal", exercise.ID)
+	}
+
+	// One second before the deadline: no hint yet, but the countdown is live.
+	*now = now.Add(time.Duration(exercise.TimeoutSecs)*time.Second - time.Second)
+	m = tickTrainer(m)
+	if strings.Contains(m.TrainerMessage, "Hint") {
+		t.Errorf("TrainerMessage = %q before the deadline, want no hint", m.TrainerMessage)
+	}
+	view := m.renderTrainerExercise("Lesson")
+	if !strings.Contains(view, "Hint in") {
+		t.Errorf("the exercise screen does not show the time remaining before the hint:\n%s", view)
+	}
+
+	// Crossing the deadline reveals the hint without a key press.
+	*now = now.Add(time.Second)
+	m = tickTrainer(m)
+	want := "💡 Hint: " + exercise.Hint
+	if m.TrainerMessage != want {
+		t.Errorf("TrainerMessage = %q after the deadline, want %q", m.TrainerMessage, want)
+	}
+}
+
+// TestTrainerExpiryLeavesTheExerciseOpenAndAnswerable pins that a passed
+// deadline is a hint and not a failure: the hint appears, typing keeps working,
+// and a correct answer is still accepted.
+func TestTrainerExpiryLeavesTheExerciseOpenAndAnswerable(t *testing.T) {
+	m, now := newTrainerTimedLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil || exercise.TimeoutSecs <= 0 {
+		t.Fatalf("test setup: %v is not a timed lesson exercise", exercise)
+	}
+
+	// The deadline passes while the user is idle.
+	*now = now.Add(time.Duration(exercise.TimeoutSecs+5) * time.Second)
+	m = tickTrainer(m)
+	if m.Screen != ScreenTrainerLesson {
+		t.Fatalf("screen after the deadline = %v, want %v: expiry closed the exercise", m.Screen, ScreenTrainerLesson)
+	}
+	if !strings.Contains(m.TrainerMessage, "Hint") {
+		t.Fatalf("TrainerMessage = %q after the deadline, want the automatic hint", m.TrainerMessage)
+	}
+
+	// Typing still works once the hint is on screen.
+	m = typeRunes(t, m, exercise.Optimal)
+	if m.TrainerInput != exercise.Optimal {
+		t.Fatalf("TrainerInput = %q after typing, want %q: the revealed hint blocked typing", m.TrainerInput, exercise.Optimal)
+	}
+
+	// And the answer is still accepted after expiry.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.Screen != ScreenTrainerResult {
+		t.Fatalf("screen after answering the expired exercise = %v, want %v", m.Screen, ScreenTrainerResult)
+	}
+	if !m.TrainerLastCorrect {
+		t.Error("the expired exercise rejected a correct answer")
+	}
+}
+
+// TestTrainerFastBossAnswerEarnsSpeedBonus pins the consequence of removing the
+// TimeoutSecs precondition from the speed bonus. The horizontal boss steps
+// declare no timeout (only the Change & Repeat boss's five do), so before the
+// change a fast and a slow boss answer scored exactly the same; now the
+// multiplier follows the measured time alone.
+func TestTrainerFastBossAnswerEarnsSpeedBonus(t *testing.T) {
+	fast, fastNow := newTrainerTimedBossModel(t)
+	exercise := fast.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("no boss exercise presented")
+	}
+	if exercise.TimeoutSecs != 0 {
+		t.Fatalf("test setup: boss step %s declares TimeoutSecs %d, the regression needs none", exercise.ID, exercise.TimeoutSecs)
+	}
+
+	fast = submitNow(t, fast, fastNow, exercise.Optimal, 1500*time.Millisecond)
+	slow, slowNow := newTrainerTimedBossModel(t)
+	slow = submitNow(t, slow, slowNow, exercise.Optimal, 2500*time.Millisecond)
+
+	wantFast := trainer.CalculatePoints(exercise, 1.5, true, 1)
+	wantSlow := trainer.CalculatePoints(exercise, 2.5, true, 1)
+	if wantFast <= wantSlow {
+		t.Fatalf("test setup: the scorer gives no speed bonus without a timeout (fast %d, slow %d)", wantFast, wantSlow)
+	}
+
+	if fast.TrainerGameState.SessionScore != wantFast {
+		t.Errorf("fast boss SessionScore = %d, want %d: a fast boss answer did not earn the speed multiplier",
+			fast.TrainerGameState.SessionScore, wantFast)
+	}
+	if slow.TrainerGameState.SessionScore != wantSlow {
+		t.Errorf("slow boss SessionScore = %d, want %d", slow.TrainerGameState.SessionScore, wantSlow)
+	}
+}
+
+// =============================================================================
+// BOSS STEP DEADLINE
+// =============================================================================
+
+// TestTrainerBossStepExpiresOnItsDeadline pins the clock the boss fight was
+// missing: a step left unanswered past its own BossStep.TimeLimit costs one
+// life, shows the solution and leaves the player on that same step to retry it.
+// The tick drives the deadline because no key press happens when time runs out.
+func TestTrainerBossStepExpiresOnItsDeadline(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+	step := state.CurrentBoss.Steps[state.BossStep]
+	if step.TimeLimit <= 0 {
+		t.Fatalf("test setup: boss step %s declares no TimeLimit", step.Exercise.ID)
+	}
+	lives := state.BossLives
+	solutionHint := trainer.FormatSolutionsHint(&step.Exercise)
+
+	// The player walks away without answering.
+	*now = now.Add(time.Duration(step.TimeLimit)*time.Second + time.Second)
+	m = tickTrainer(m)
+
+	if got := m.TrainerGameState.BossLives; got != lives-1 {
+		t.Errorf("BossLives = %d after the deadline passed, want %d: the clock cost no life", got, lives-1)
+	}
+	if m.Screen != ScreenTrainerBoss {
+		t.Fatalf("screen = %v after the deadline passed, want %v: expiry left the step", m.Screen, ScreenTrainerBoss)
+	}
+	if got := m.TrainerGameState.BossStep; got != 0 {
+		t.Errorf("BossStep = %d after the deadline passed, want 0: expiry advanced the step", got)
+	}
+	if got := m.TrainerGameState.CurrentExercise; got == nil || got.ID != step.Exercise.ID {
+		t.Errorf("current exercise = %v after the deadline passed, want %s: expiry moved the retry to another step", got, step.Exercise.ID)
+	}
+	if !strings.Contains(m.TrainerMessage, solutionHint) {
+		t.Errorf("TrainerMessage = %q after the deadline passed, want the solution %q", m.TrainerMessage, solutionHint)
+	}
+}
+
+// TestTrainerBossDeadlineCostsOneLifePerWindow is the idempotence guard. The
+// 100ms animation tick keeps arriving while the player is away, and the clock is
+// held past the deadline for every one of them; a naive "elapsed >= limit"
+// check would charge a life on each tick and drain the whole fight in under a
+// second.
+func TestTrainerBossDeadlineCostsOneLifePerWindow(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+	limit := state.CurrentBoss.Steps[state.BossStep].TimeLimit
+	lives := state.BossLives
+
+	// Past the deadline and left there while the tick repeats.
+	*now = now.Add(time.Duration(limit)*time.Second + time.Second)
+	const ticks = 20
+	for i := 0; i < ticks; i++ {
+		m = tickTrainer(m)
+	}
+
+	if got := m.TrainerGameState.BossLives; got != lives-1 {
+		t.Errorf("BossLives = %d after %d ticks past one deadline, want %d: the deadline charged once per tick",
+			got, ticks, lives-1)
+	}
+}
+
+// TestTrainerBossExpiryKeepsTheStepAndRestartsTheWindow pins that expiry is a
+// retry and not an advance: the player stays on the failed step, and the
+// deadline restarts so the retry gets a full TimeLimit rather than whatever was
+// left when the first window ran out.
+func TestTrainerBossExpiryKeepsTheStepAndRestartsTheWindow(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+	step := state.CurrentBoss.Steps[state.BossStep]
+	lives := state.BossLives
+
+	// First window runs out.
+	*now = now.Add(time.Duration(step.TimeLimit) * time.Second)
+	m = tickTrainer(m)
+	if got := m.TrainerGameState.BossLives; got != lives-1 {
+		t.Fatalf("BossLives = %d at the deadline, want %d", got, lives-1)
+	}
+	if m.TrainerGameState.BossStep != 0 {
+		t.Fatalf("BossStep = %d at the deadline, want 0: expiry advanced the step", m.TrainerGameState.BossStep)
+	}
+	if got := m.TrainerGameState.CurrentExercise; got == nil || got.ID != step.Exercise.ID {
+		t.Fatalf("current exercise after expiry = %v, want %s", got, step.Exercise.ID)
+	}
+
+	// Ticks on the same instant, and the restarted window minus one second, are
+	// still inside the fresh window.
+	for i := 0; i < 5; i++ {
+		m = tickTrainer(m)
+	}
+	*now = now.Add(time.Duration(step.TimeLimit)*time.Second - time.Second)
+	for i := 0; i < 5; i++ {
+		m = tickTrainer(m)
+	}
+	if got := m.TrainerGameState.BossLives; got != lives-1 {
+		t.Fatalf("BossLives = %d before the restarted window elapsed, want %d: the retry did not get a full window",
+			got, lives-1)
+	}
+
+	// Crossing the restarted deadline costs the next life.
+	*now = now.Add(time.Second)
+	m = tickTrainer(m)
+	if got := m.TrainerGameState.BossLives; got != lives-2 {
+		t.Errorf("BossLives = %d after the restarted deadline, want %d", got, lives-2)
+	}
+}
+
+// TestTrainerBossWrongAnswerRearmsTheWindow is the regression for the life that
+// cost two: a wrong answer inside the window did not re-arm the step deadline,
+// so the player lost a life for the mistake and then lost a second one when that
+// same window expired, without ever getting a fresh window for the retry. A lost
+// life is now the single owner of the re-arm, so the wrong-answer path leaves
+// the same full window the expiry path does.
+func TestTrainerBossWrongAnswerRearmsTheWindow(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+	step := state.CurrentBoss.Steps[state.BossStep]
+	limit := step.TimeLimit
+	if limit <= 0 {
+		t.Fatalf("test setup: boss step %s declares no TimeLimit", step.Exercise.ID)
+	}
+	lives := state.BossLives
+
+	// Answer wrong one second before the original deadline.
+	const wrong = "ZZZZZZ"
+	if trainer.ValidateAnswer(&step.Exercise, wrong) {
+		t.Fatalf("test setup: %q validated against %s", wrong, step.Exercise.ID)
+	}
+	m = submitNow(t, m, now, wrong, time.Duration(limit-1)*time.Second)
+	if got := m.TrainerGameState.BossLives; got != lives-1 {
+		t.Fatalf("BossLives = %d after a wrong answer, want %d", got, lives-1)
+	}
+
+	// Drive ticks across the original deadline. The spent life must have re-armed
+	// the window, so exactly one life is gone in total and the retry is still
+	// open.
+	*now = now.Add(time.Second)
+	for i := 0; i < 20; i++ {
+		m = tickTrainer(m)
+	}
+	if got := m.TrainerGameState.BossLives; got != lives-1 {
+		t.Errorf("BossLives = %d after ticks across the original deadline, want %d: the wrong answer did not re-arm the window and charged a second life",
+			got, lives-1)
+	}
+	if m.Screen != ScreenTrainerBoss {
+		t.Fatalf("screen = %v after the original deadline, want %v: the retry window closed", m.Screen, ScreenTrainerBoss)
+	}
+	if got := m.TrainerGameState.BossStepSecondsLeft(); got <= 0 {
+		t.Errorf("BossStepSecondsLeft = %v after the original deadline, want a live retry window", got)
+	}
+
+	// Crossing the retry window itself costs exactly one more life.
+	*now = now.Add(time.Duration(limit) * time.Second)
+	m = tickTrainer(m)
+	if got := m.TrainerGameState.BossLives; got != lives-2 {
+		t.Errorf("BossLives = %d after the retry window, want %d", got, lives-2)
+	}
+}
+
+// TestTrainerBossDeadlineOffTheBossScreenCostsNoLife pins the screen guard that
+// keeps a re-armed deadline from charging once the fight has left the boss
+// screen. It matters because losing the last life re-arms the window and then
+// moves to the defeat screen, so without the guard the very next tick would
+// spend a life the fight no longer has. BossLives clamps at zero, so the boss
+// attempt count is the observable that would move.
+func TestTrainerBossDeadlineOffTheBossScreenCostsNoLife(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+	step := state.CurrentBoss.Steps[state.BossStep]
+	if step.TimeLimit <= 0 {
+		t.Fatalf("test setup: boss step %s declares no TimeLimit", step.Exercise.ID)
+	}
+	state.BossLives = 1
+
+	// The clock takes the last life and the fight moves to the defeat screen.
+	*now = now.Add(time.Duration(step.TimeLimit)*time.Second + time.Second)
+	m = tickTrainer(m)
+	if m.Screen != ScreenTrainerBossResult {
+		t.Fatalf("screen after the last life = %v, want %v", m.Screen, ScreenTrainerBossResult)
+	}
+	progress := m.TrainerGameState.Stats.GetModuleProgress(trainer.ModuleHorizontal)
+	attempts := progress.BossAttempts
+	if attempts != 1 {
+		t.Fatalf("BossAttempts = %d after the last life, want 1", attempts)
+	}
+
+	// Ticks well past the re-armed deadline are inert off the boss screen.
+	*now = now.Add(time.Duration(step.TimeLimit)*time.Second + time.Second)
+	for i := 0; i < 20; i++ {
+		m = tickTrainer(m)
+	}
+	if got := m.TrainerGameState.Stats.GetModuleProgress(trainer.ModuleHorizontal).BossAttempts; got != attempts {
+		t.Errorf("BossAttempts = %d after ticks off the boss screen, want %d: the re-armed deadline kept charging after the fight left the screen",
+			got, attempts)
+	}
+	if m.Screen != ScreenTrainerBossResult {
+		t.Errorf("screen = %v after ticks off the boss screen, want %v", m.Screen, ScreenTrainerBossResult)
+	}
+}
+
+// TestTrainerUntimedBossStepNeverExpires pins the data guard on the tick path: a
+// boss step whose TimeLimit is zero gets no deadline at all, so no amount of
+// elapsed time can charge a life. The state-level predicate is pinned by
+// TestGameState_UntimedBossStepHasNoDeadline; this drives the same guard through
+// expireBossStepOnDeadline, which is what the animation tick actually runs.
+func TestTrainerUntimedBossStepNeverExpires(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+
+	// Every real module gives each step a TimeLimit, so present an untimed step
+	// through the exported advance path to reach the guard.
+	state.CurrentBoss = &trainer.BossExercise{
+		ID:     "untimed_boss",
+		Module: trainer.ModuleHorizontal,
+		Lives:  3,
+		Steps: []trainer.BossStep{{
+			Exercise: trainer.Exercise{
+				ID:        "untimed_step",
+				Module:    trainer.ModuleHorizontal,
+				Optimal:   "w",
+				Solutions: []string{"w"},
+			},
+		}},
+	}
+	state.BossStep = -1
+	state.BossLives = 3
+	if !state.NextBossExercise() {
+		t.Fatal("test setup: the untimed step was not presented")
+	}
+	if limit := state.BossStepTimeLimit(); limit != 0 {
+		t.Fatalf("test setup: the untimed step reports a limit of %d", limit)
+	}
+	attempts := state.Stats.GetModuleProgress(trainer.ModuleHorizontal).BossAttempts
+
+	// A long idle stretch with the tick still arriving.
+	*now = now.Add(10 * time.Minute)
+	for i := 0; i < 20; i++ {
+		m = tickTrainer(m)
+	}
+
+	if got := m.TrainerGameState.BossLives; got != 3 {
+		t.Errorf("BossLives = %d after 10 minutes on a step with no TimeLimit, want 3", got)
+	}
+	if got := m.TrainerGameState.Stats.GetModuleProgress(trainer.ModuleHorizontal).BossAttempts; got != attempts {
+		t.Errorf("BossAttempts = %d after 10 minutes on a step with no TimeLimit, want %d", got, attempts)
+	}
+	if m.Screen != ScreenTrainerBoss {
+		t.Errorf("screen = %v after 10 minutes on a step with no TimeLimit, want %v", m.Screen, ScreenTrainerBoss)
+	}
+}
+
+// TestTrainerBossWonStepGrantsItsBonusToTheNextStep pins the bonus by its
+// effect on the clock: after winning a step, the next step is answerable for
+// TimeLimit+BonusTime seconds and not for the bare TimeLimit. The clock is
+// advanced to one second before that effective window and then across it, so a
+// bonus that was stored but never applied fails the last assertion.
+func TestTrainerBossWonStepGrantsItsBonusToTheNextStep(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+	boss := state.CurrentBoss
+	if boss.BonusTime <= 0 {
+		t.Fatalf("test setup: %s declares no BonusTime", boss.ID)
+	}
+	first := boss.Steps[state.BossStep]
+	next := boss.Steps[state.BossStep+1]
+	wantWindow := time.Duration(next.TimeLimit+boss.BonusTime) * time.Second
+	if wantWindow <= time.Duration(next.TimeLimit)*time.Second {
+		t.Fatalf("test setup: the bonus does not extend step %s (%ds + %ds)", next.Exercise.ID, next.TimeLimit, boss.BonusTime)
+	}
+
+	// Win the first step without any time pressure.
+	m = submitNow(t, m, now, first.Exercise.Optimal, time.Second)
+	if m.TrainerGameState.BossStep != 1 {
+		t.Fatalf("BossStep = %d after winning the first step, want 1", m.TrainerGameState.BossStep)
+	}
+
+	// Inside the effective window the next step is safe...
+	*now = now.Add(wantWindow - time.Second)
+	m = tickTrainer(m)
+	if got := m.TrainerGameState.BossLives; got != boss.Lives {
+		t.Fatalf("BossLives = %d one second before the effective window (%v), want %d", got, wantWindow, boss.Lives)
+	}
+
+	// ...and crossing it is what costs the life, so the window really is
+	// TimeLimit+BonusTime.
+	*now = now.Add(time.Second)
+	m = tickTrainer(m)
+	if got := m.TrainerGameState.BossLives; got != boss.Lives-1 {
+		t.Errorf("BossLives = %d after the effective window %v, want %d: the won step's bonus never reached the next step",
+			got, wantWindow, boss.Lives-1)
+	}
+}
+
+// TestTrainerBossLastLifeLostToTheClockEndsTheFight pins that the clock and a
+// wrong answer cost the last life identically: same result screen, same defeat
+// message, and IsBossDefeated still false because the player did not win.
+func TestTrainerBossLastLifeLostToTheClockEndsTheFight(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+	limit := state.CurrentBoss.Steps[state.BossStep].TimeLimit
+	state.BossLives = 1
+
+	*now = now.Add(time.Duration(limit)*time.Second + time.Second)
+	m = tickTrainer(m)
+
+	if got := m.TrainerGameState.BossLives; got != 0 {
+		t.Fatalf("BossLives = %d after the last life, want 0", got)
+	}
+	if m.TrainerLastCorrect {
+		t.Error("TrainerLastCorrect = true after losing the last life to the clock")
+	}
+	if m.Screen != ScreenTrainerBossResult {
+		t.Fatalf("screen = %v after losing the last life to the clock, want %v", m.Screen, ScreenTrainerBossResult)
+	}
+	if !strings.Contains(m.TrainerMessage, "DEFEATED") {
+		t.Errorf("TrainerMessage = %q after losing the last life to the clock, want the defeat message", m.TrainerMessage)
+	}
+	if m.TrainerGameState.IsBossDefeated {
+		t.Error("IsBossDefeated = true after losing the fight to the clock; it must mean the player won")
+	}
+}
+
+// TestTrainerBossAnswerInsideTheLimitCostsNoLife is the anti-regression half of
+// the deadline: an answer submitted before the step's TimeLimit loses nothing
+// and advances the fight, and the following tick cannot retroactively charge
+// for the answered step.
+func TestTrainerBossAnswerInsideTheLimitCostsNoLife(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	state := m.TrainerGameState
+	step := state.CurrentBoss.Steps[state.BossStep]
+	if step.TimeLimit <= 0 {
+		t.Fatalf("test setup: boss step %s declares no TimeLimit", step.Exercise.ID)
+	}
+	lives := state.BossLives
+
+	// One second inside the limit, then a tick on the same moment.
+	m = submitNow(t, m, now, step.Exercise.Optimal, time.Duration(step.TimeLimit)*time.Second-time.Second)
+	m = tickTrainer(m)
+
+	if got := m.TrainerGameState.BossLives; got != lives {
+		t.Errorf("BossLives = %d after answering inside the limit, want %d", got, lives)
+	}
+	if got := m.TrainerGameState.BossStep; got != 1 {
+		t.Errorf("BossStep = %d after a correct answer inside the limit, want 1", got)
+	}
+	if m.Screen != ScreenTrainerBoss {
+		t.Errorf("screen = %v after answering inside the limit, want %v", m.Screen, ScreenTrainerBoss)
+	}
+}
+
+// TestTrainerBossScreenShowsTheStepCountdown pins requirement three: the boss
+// screen shows the time left for the current step, in the same visual language
+// the exercise screen uses, and the number follows the injected clock.
+func TestTrainerBossScreenShowsTheStepCountdown(t *testing.T) {
+	m, now := newTrainerTimedBossModel(t)
+	limit := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep].TimeLimit
+
+	view := m.renderTrainerBoss()
+	if want := fmt.Sprintf("⏳ Time left: %ds", limit); !strings.Contains(view, want) {
+		t.Errorf("the boss screen does not show %q:\n%s", want, view)
+	}
+
+	// The countdown reads the injected clock, so it drops as time passes.
+	*now = now.Add(2 * time.Second)
+	view = m.renderTrainerBoss()
+	if want := fmt.Sprintf("⏳ Time left: %ds", limit-2); !strings.Contains(view, want) {
+		t.Errorf("the boss countdown did not follow the clock, want %q:\n%s", want, view)
+	}
 }

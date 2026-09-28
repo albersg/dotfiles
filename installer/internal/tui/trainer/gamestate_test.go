@@ -562,3 +562,447 @@ func TestGameState_NextPracticeExercise_ReturnsFalseWhenAllMastered(t *testing.T
 		t.Error("NextPracticeExercise should return false when all exercises are mastered")
 	}
 }
+
+// =============================================================================
+// GAME STATE - Answer timing
+// =============================================================================
+
+// timedExercise returns an exercise with a known base score and speed gate, so
+// the timing assertions can name exact point values instead of re-deriving the
+// scoring formula.
+func timedExercise() *Exercise {
+	return &Exercise{
+		ID:          "timed",
+		Module:      ModuleHorizontal,
+		Type:        ExercisePractice,
+		Points:      100,
+		TimeoutSecs: 30,
+		Optimal:     "w",
+		Solutions:   []string{"w"},
+	}
+}
+
+// TestGameState_ElapsedAnswerTimeDrivesSpeedBonus pins that the answer clock is
+// real: the points earned come from the time the injected clock reports, so the
+// under-two-second speed multiplier fires for a fast answer and not for a slow
+// one. The score, not the elapsed field, is the assertion.
+func TestGameState_ElapsedAnswerTimeDrivesSpeedBonus(t *testing.T) {
+	tests := []struct {
+		name      string
+		elapsed   time.Duration
+		wantScore int
+	}{
+		{
+			name:      "an answer under two seconds earns the speed bonus",
+			elapsed:   1500 * time.Millisecond,
+			wantScore: 187, // 100 base, +50% optimal, +25% speed: 187.5 truncated
+		},
+		{
+			name:      "an answer at the two second threshold does not",
+			elapsed:   2 * time.Second,
+			wantScore: 150, // 100 base, +50% optimal, no speed bonus
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			state := NewGameState()
+			state.SetClock(func() time.Time { return now })
+			state.SetPracticeExercise(timedExercise())
+
+			now = now.Add(tt.elapsed)
+			state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+			if state.SessionScore != tt.wantScore {
+				t.Errorf("SessionScore = %d for a %v answer, want %d",
+					state.SessionScore, tt.elapsed, tt.wantScore)
+			}
+		})
+	}
+}
+
+// TestGameState_IncorrectAnswerDoesNotRestartClock pins that the measured time
+// is the time to solve the current exercise: a wrong answer leaves the clock
+// running, so a fast correction after a mistake is honestly slower and must not
+// earn the speed bonus.
+func TestGameState_IncorrectAnswerDoesNotRestartClock(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.SetPracticeExercise(timedExercise())
+
+	// A mistake 1.5s in, then a correct answer half a second later: two seconds
+	// from presentation, so the answer is not fast any more.
+	now = now.Add(1500 * time.Millisecond)
+	state.RecordIncorrectAnswer()
+	now = now.Add(500 * time.Millisecond)
+	state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+	// 150 is the optimal-only score. A clock restarted by the wrong answer would
+	// have reported 0.5s and added the 25% speed multiplier instead.
+	if state.SessionScore != 150 {
+		t.Errorf("SessionScore = %d after a wrong answer and a fast correction, want 150: the clock restarted on the wrong answer",
+			state.SessionScore)
+	}
+}
+
+// TestGameState_AdvanceRestartsTheClock triangulates the presentation rule: an
+// advance to the next exercise presents it and starts its timer, so the next
+// answer is measured from the new exercise rather than from the one before it.
+// The assertion is the score of the next exercise's own answer.
+func TestGameState_AdvanceRestartsTheClock(t *testing.T) {
+	tests := []struct {
+		name    string
+		start   func(*GameState)
+		advance func(*GameState) bool
+	}{
+		{
+			name:    "lesson",
+			start:   func(state *GameState) { state.StartLesson(ModuleHorizontal) },
+			advance: func(state *GameState) bool { return state.NextExercise() },
+		},
+		{
+			name:    "practice",
+			start:   func(state *GameState) { state.StartPractice(ModuleHorizontal) },
+			advance: func(state *GameState) bool { return state.NextPracticeExercise() },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			state := NewGameState()
+			state.SetClock(func() time.Time { return now })
+			tt.start(state)
+
+			// Well past the speed threshold before the advance, so an unreset clock
+			// would deny the bonus to the exercise that follows.
+			now = now.Add(10 * time.Second)
+			if !tt.advance(state) {
+				t.Fatal("advance returned false, the test needs a next exercise")
+			}
+			next := state.CurrentExercise
+			if next == nil {
+				t.Fatal("advance did not present the next exercise")
+			}
+
+			now = now.Add(1500 * time.Millisecond)
+			state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+			want := CalculatePoints(next, 1.5, true, 1)
+			if want == CalculatePoints(next, 11.5, true, 1) {
+				t.Fatalf("test setup: %s scores the same fast and slow, the assertion cannot detect a stale clock", next.ID)
+			}
+			if state.SessionScore != want {
+				t.Errorf("SessionScore = %d after answering the exercise the advance presented, want %d: the clock was not restarted by the advance",
+					state.SessionScore, want)
+			}
+		})
+	}
+}
+
+// TestGameState_TotalTimeAccumulatesAndPersists pins that answered exercises
+// feed UserStats.TotalTime and LastPlayed, and that the accumulated total keeps
+// the persisted meaning across a save/load round trip.
+func TestGameState_TotalTimeAccumulatesAndPersists(t *testing.T) {
+	originalPath := statsConfigPath
+	statsConfigPath = t.TempDir()
+	defer func() { statsConfigPath = originalPath }()
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+
+	// Two answered exercises: three seconds, then four.
+	state.SetPracticeExercise(timedExercise())
+	now = now.Add(3 * time.Second)
+	state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+	state.SetPracticeExercise(timedExercise())
+	now = now.Add(4 * time.Second)
+	state.RecordCorrectAnswer(state.ElapsedSeconds(), true)
+
+	if state.Stats.TotalTime != 7*time.Second {
+		t.Errorf("TotalTime = %v after two answers, want 7s", state.Stats.TotalTime)
+	}
+	if !state.Stats.LastPlayed.Equal(now) {
+		t.Errorf("LastPlayed = %v after the second answer, want %v", state.Stats.LastPlayed, now)
+	}
+
+	if err := SaveStats(state.Stats); err != nil {
+		t.Fatalf("SaveStats failed: %v", err)
+	}
+
+	loaded := LoadStats()
+	if loaded == nil {
+		t.Fatal("LoadStats returned nil after SaveStats")
+	}
+	if loaded.TotalTime != 7*time.Second {
+		t.Errorf("TotalTime = %v after a save/load round trip, want 7s", loaded.TotalTime)
+	}
+	if !loaded.LastPlayed.Equal(state.Stats.LastPlayed) {
+		t.Errorf("LastPlayed = %v after a save/load round trip, want %v", loaded.LastPlayed, state.Stats.LastPlayed)
+	}
+}
+
+// TestGameState_HintIsDueOnlyAfterTimeout pins the deadline the exercise screen
+// reads. RemainingSeconds counts down from the exercise's own TimeoutSecs on the
+// injected clock, and HintDue flips only once that deadline is reached, so the
+// automatic hint cannot arrive early.
+func TestGameState_HintIsDueOnlyAfterTimeout(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.SetPracticeExercise(timedExercise()) // TimeoutSecs 30
+
+	now = now.Add(29 * time.Second)
+	if state.HintDue() {
+		t.Error("HintDue = true one second before the deadline")
+	}
+	if got := state.RemainingSeconds(); got != 1 {
+		t.Errorf("RemainingSeconds = %v one second before the deadline, want 1", got)
+	}
+
+	now = now.Add(time.Second)
+	if !state.HintDue() {
+		t.Error("HintDue = false once the deadline passed")
+	}
+	if got := state.RemainingSeconds(); got != 0 {
+		t.Errorf("RemainingSeconds = %v at the deadline, want 0", got)
+	}
+
+	// Past the deadline the countdown stays clamped at zero.
+	now = now.Add(time.Minute)
+	if got := state.RemainingSeconds(); got != 0 {
+		t.Errorf("RemainingSeconds = %v after the deadline, want 0", got)
+	}
+	if !state.HintDue() {
+		t.Error("HintDue = false after the deadline, want true")
+	}
+}
+
+// TestGameState_UntimedExerciseHasNoDeadline pins that a boss-style exercise
+// without TimeoutSecs never reports a countdown or an automatic hint, so the
+// boss screen is untouched by the lesson/practice deadline.
+func TestGameState_UntimedExerciseHasNoDeadline(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.SetPracticeExercise(&Exercise{ID: "untimed", Points: 50})
+
+	now = now.Add(10 * time.Minute)
+	if state.HintDue() {
+		t.Error("HintDue = true for an exercise that declares no timeout")
+	}
+	if got := state.RemainingSeconds(); got != 0 {
+		t.Errorf("RemainingSeconds = %v for an exercise that declares no timeout, want 0", got)
+	}
+}
+
+// =============================================================================
+// GAME STATE - BOSS STEP DEADLINE
+// =============================================================================
+
+// TestGameState_BossStepTimeLimitIncludesThePreviousWinBonus asserts the
+// effective limit directly rather than reading the raw TimeLimit field: the
+// first step gets no bonus, and each step after a win gets its own TimeLimit
+// plus BonusTime. Winning twice in a row still grants the bonus once, because
+// the grant is per win and must not accumulate across steps.
+func TestGameState_BossStepTimeLimitIncludesThePreviousWinBonus(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.StartBoss(ModuleHorizontal)
+
+	boss := state.CurrentBoss
+	if boss == nil || len(boss.Steps) < 3 {
+		t.Fatalf("test setup: the horizontal boss no longer has three steps")
+	}
+	if boss.BonusTime <= 0 {
+		t.Fatalf("test setup: %s declares no BonusTime", boss.ID)
+	}
+
+	// The first step is granted nothing: no step before it was won.
+	if got := state.BossStepTimeLimit(); got != boss.Steps[0].TimeLimit {
+		t.Errorf("step 0 effective limit = %d, want its own TimeLimit %d", got, boss.Steps[0].TimeLimit)
+	}
+
+	// Win step 0: step 1's effective limit must include the bonus.
+	state.RecordCorrectAnswer(1, true)
+	if !state.NextBossExercise() {
+		t.Fatal("NextBossExercise = false after step 0, want the fight to continue")
+	}
+	if got, want := state.BossStepTimeLimit(), boss.Steps[1].TimeLimit+boss.BonusTime; got != want {
+		t.Errorf("step 1 effective limit = %d, want TimeLimit %d + BonusTime %d = %d",
+			got, boss.Steps[1].TimeLimit, boss.BonusTime, want)
+	}
+	if got := state.BossStepSecondsLeft(); got != float64(state.BossStepTimeLimit()) {
+		t.Errorf("step 1 seconds left = %v right after presentation, want the full effective limit %d",
+			got, state.BossStepTimeLimit())
+	}
+
+	// Win step 1 too: step 2 gets one bonus, not two.
+	state.RecordCorrectAnswer(1, true)
+	if !state.NextBossExercise() {
+		t.Fatal("NextBossExercise = false after step 1, want the fight to continue")
+	}
+	if got, want := state.BossStepTimeLimit(), boss.Steps[2].TimeLimit+boss.BonusTime; got != want {
+		t.Errorf("step 2 effective limit = %d, want TimeLimit %d + one BonusTime %d = %d (the bonus accumulated)",
+			got, boss.Steps[2].TimeLimit, boss.BonusTime, want)
+	}
+}
+
+// TestGameState_BossStepTimeoutSpendsOneLifeAndRearms pins the state half of
+// the clock contract: the canonical recorder costs one life and one attempt,
+// the player stays on the same step, and the deadline is re-armed a full
+// effective limit ahead so the retry is not charged immediately.
+func TestGameState_BossStepTimeoutSpendsOneLifeAndRearms(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.StartBoss(ModuleHorizontal)
+
+	limit := state.BossStepTimeLimit()
+	if limit <= 0 {
+		t.Fatalf("test setup: boss step 0 declares no effective limit")
+	}
+	lives := state.BossLives
+	attempts := state.Stats.GetModuleProgress(ModuleHorizontal).BossAttempts
+	stepID := state.CurrentExercise.ID
+	state.CurrentStreak = 5
+
+	// Past the deadline.
+	now = now.Add(time.Duration(limit)*time.Second + time.Second)
+	if !state.BossDeadlinePassed() {
+		t.Fatalf("BossDeadlinePassed = false after %ds on a %ds step", limit+1, limit)
+	}
+	state.RecordBossStepTimeout()
+
+	if got := state.BossLives; got != lives-1 {
+		t.Errorf("BossLives = %d after the deadline, want %d", got, lives-1)
+	}
+	if got := state.Stats.GetModuleProgress(ModuleHorizontal).BossAttempts; got != attempts+1 {
+		t.Errorf("BossAttempts = %d after the deadline, want %d", got, attempts+1)
+	}
+	if state.CurrentStreak != 0 {
+		t.Errorf("CurrentStreak = %d after the deadline, want 0", state.CurrentStreak)
+	}
+	if state.CurrentExercise == nil || state.CurrentExercise.ID != stepID {
+		t.Errorf("current exercise after the deadline = %v, want %s: expiry moved the player off the step", state.CurrentExercise, stepID)
+	}
+	if state.BossStep != 0 {
+		t.Errorf("BossStep = %d after the deadline, want 0", state.BossStep)
+	}
+
+	// The retry starts with a full window, and the same instant is inside it.
+	if state.BossDeadlinePassed() {
+		t.Error("BossDeadlinePassed = true immediately after the timeout re-armed the deadline")
+	}
+	if got := state.BossStepSecondsLeft(); got != float64(limit) {
+		t.Errorf("seconds left after the timeout = %v, want a full %d", got, limit)
+	}
+
+	// One second before the fresh window ends nothing more is charged...
+	now = now.Add(time.Duration(limit)*time.Second - time.Second)
+	if state.BossDeadlinePassed() {
+		t.Fatal("BossDeadlinePassed = true one second before the re-armed deadline")
+	}
+	// ...and crossing it charges the next life through the same recorder.
+	now = now.Add(time.Second)
+	if !state.BossDeadlinePassed() {
+		t.Fatal("BossDeadlinePassed = false at the re-armed deadline")
+	}
+	state.RecordBossStepTimeout()
+	if got := state.BossLives; got != lives-2 {
+		t.Errorf("BossLives = %d after the second deadline, want %d", got, lives-2)
+	}
+	if got := state.Stats.GetModuleProgress(ModuleHorizontal).BossAttempts; got != attempts+2 {
+		t.Errorf("BossAttempts = %d after two deadlines, want %d", got, attempts+2)
+	}
+}
+
+// TestGameState_WrongAnswerRearmsTheBossWindow pins the owner: a lost life
+// re-arms the step window inside RecordIncorrectAnswer, so a wrong answer gets
+// the same fresh full window an expiry does. Before this, only expiry re-armed,
+// and a wrong answer near the old deadline cost a second life when that same
+// window expired.
+func TestGameState_WrongAnswerRearmsTheBossWindow(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.StartBoss(ModuleHorizontal)
+
+	limit := state.BossStepTimeLimit()
+	if limit <= 0 {
+		t.Fatal("test setup: boss step 0 declares no effective limit")
+	}
+
+	// A wrong answer late in the window: the spent life re-arms it in full.
+	now = now.Add(time.Duration(limit-1) * time.Second)
+	state.RecordIncorrectAnswer()
+	if state.BossDeadlinePassed() {
+		t.Fatal("BossDeadlinePassed = true right after a wrong answer, want a fresh window")
+	}
+	if got := state.BossStepSecondsLeft(); got != float64(limit) {
+		t.Errorf("seconds left after a wrong answer = %v, want a full %d", got, limit)
+	}
+
+	// The original deadline arrives with no second charge, because the window now
+	// ends a full limit after the wrong answer.
+	now = now.Add(time.Second)
+	if state.BossDeadlinePassed() {
+		t.Error("BossDeadlinePassed = true at the original deadline after the wrong answer re-armed the window")
+	}
+}
+
+// TestGameState_UntimedBossStepHasNoDeadline pins that a boss step which
+// declares no TimeLimit is never charged by the clock, so the deadline cannot
+// drain a fight whose data never asked for one.
+func TestGameState_UntimedBossStepHasNoDeadline(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.IsBossMode = true
+	state.BossLives = 3
+	state.CurrentBoss = &BossExercise{
+		ID:        "untimed_boss",
+		Module:    ModuleHorizontal,
+		Lives:     3,
+		BonusTime: 30,
+		Steps:     []BossStep{{Exercise: Exercise{ID: "untimed_step_1"}}},
+	}
+	state.presentBossStep()
+
+	now = now.Add(10 * time.Minute)
+
+	if got := state.BossStepTimeLimit(); got != 0 {
+		t.Errorf("BossStepTimeLimit = %d for a step with no TimeLimit, want 0", got)
+	}
+	if state.BossDeadlinePassed() {
+		t.Error("BossDeadlinePassed = true for a step with no TimeLimit")
+	}
+	if got := state.BossStepSecondsLeft(); got != 0 {
+		t.Errorf("BossStepSecondsLeft = %v for a step with no TimeLimit, want 0", got)
+	}
+}
+
+// TestGameState_BossStepTimeoutOutsideBossModeDoesNothing is the negative guard
+// for the recorder: it is a boss mechanic and must be inert in lesson or
+// practice mode, where losing a life has no meaning.
+func TestGameState_BossStepTimeoutOutsideBossModeDoesNothing(t *testing.T) {
+	state := NewGameState()
+	state.StartLesson(ModuleHorizontal)
+
+	state.RecordBossStepTimeout()
+
+	if state.BossLives != 0 {
+		t.Errorf("BossLives = %d after a timeout outside boss mode, want 0", state.BossLives)
+	}
+	if state.IsBossDefeated {
+		t.Error("IsBossDefeated = true after a timeout outside boss mode")
+	}
+	if state.CurrentExercise == nil {
+		t.Error("CurrentExercise = nil after a timeout outside boss mode: the lesson was disturbed")
+	}
+}

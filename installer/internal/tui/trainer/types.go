@@ -76,12 +76,17 @@ type BossStep struct {
 
 // BossExercise represents a boss fight challenge
 type BossExercise struct {
-	ID        string
-	Module    ModuleID
-	Name      string     // "The Line Walker"
-	Lives     int        // 3
-	Steps     []BossStep // Chain of missions
-	BonusTime int        // Total time for bonus points
+	ID     string
+	Module ModuleID
+	Name   string     // "The Line Walker"
+	Lives  int        // 3
+	Steps  []BossStep // Chain of missions
+	// BonusTime is extra seconds granted to the step that FOLLOWS a won step:
+	// winning a step lets the next one be answered for TimeLimit+BonusTime
+	// seconds. The grant is per win and is not accumulated across steps, so
+	// winning two steps in a row still grants BonusTime once, not twice. A step
+	// that is lost grants nothing, because a lost step never advances the fight.
+	BonusTime int
 }
 
 // ModuleProgress tracks progress within a module
@@ -114,13 +119,17 @@ type ModuleProgress struct {
 
 // UserStats contains all user statistics
 type UserStats struct {
-	TotalScore     int
-	CurrentStreak  int
-	BestStreak     int
+	TotalScore    int
+	CurrentStreak int
+	BestStreak    int
+	// TotalTime is the accumulated time spent solving exercises. It is persisted
+	// as whole seconds (totalTimeSeconds), so a save/load round trip keeps the
+	// seconds and drops any sub-second remainder.
 	TotalTime      time.Duration
 	ModuleProgress map[ModuleID]*ModuleProgress
 	BossesDefeated []ModuleID
-	LastPlayed     time.Time
+	// LastPlayed is when an answer was last recorded, correct or not.
+	LastPlayed time.Time
 }
 
 // NewUserStats creates a new UserStats with defaults
