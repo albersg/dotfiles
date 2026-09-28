@@ -76,12 +76,17 @@ type BossStep struct {
 
 // BossExercise represents a boss fight challenge
 type BossExercise struct {
-	ID        string
-	Module    ModuleID
-	Name      string     // "The Line Walker"
-	Lives     int        // 3
-	Steps     []BossStep // Chain of missions
-	BonusTime int        // Total time for bonus points
+	ID     string
+	Module ModuleID
+	Name   string     // "The Line Walker"
+	Lives  int        // 3
+	Steps  []BossStep // Chain of missions
+	// BonusTime is extra seconds granted to the step that FOLLOWS a won step:
+	// winning a step lets the next one be answered for TimeLimit+BonusTime
+	// seconds. The grant is per win and is not accumulated across steps, so
+	// winning two steps in a row still grants BonusTime once, not twice. A step
+	// that is lost grants nothing, because a lost step never advances the fight.
+	BonusTime int
 }
 
 // ModuleProgress tracks progress within a module

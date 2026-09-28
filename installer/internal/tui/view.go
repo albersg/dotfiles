@@ -1876,7 +1876,18 @@ func (m Model) renderTrainerBoss() string {
 	lives := strings.Repeat("❤️ ", m.TrainerGameState.BossLives)
 	lostLives := strings.Repeat("🖤 ", boss.Lives-m.TrainerGameState.BossLives)
 	s.WriteString(fmt.Sprintf("Lives: %s%s  |  Step: %d/%d", lives, lostLives, currentStep+1, len(boss.Steps)))
-	s.WriteString("\n\n")
+	s.WriteString("\n")
+
+	// Live countdown for the current step, in the same visual language as the
+	// exercise screen's hint countdown. It is derived from the step's own
+	// TimeLimit plus any bonus through the game state's injected clock, so it
+	// keeps counting while the animation tick re-renders the screen. Once the
+	// deadline passes the countdown disappears and the tick charges the life.
+	if remaining := m.TrainerGameState.BossStepSecondsLeft(); remaining > 0 {
+		s.WriteString(WarningStyle.Render(fmt.Sprintf("⏳ Time left: %ds", int(math.Ceil(remaining)))))
+		s.WriteString("\n")
+	}
+	s.WriteString("\n")
 
 	if currentStep < len(boss.Steps) {
 		step := boss.Steps[currentStep]

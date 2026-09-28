@@ -38,6 +38,18 @@ type GameState struct {
 	// Timing
 	TimeElapsed time.Duration
 
+	// bossStepDeadline is when the boss step on screen runs out of time. It is
+	// stored rather than derived from the presentation time, because a retry
+	// after expiry must get a fresh full window while ElapsedSeconds keeps
+	// measuring the answer from the original presentation. presentBossStep and
+	// RecordBossStepTimeout are its only writers.
+	bossStepDeadline time.Time
+
+	// bossStepBonus is the extra seconds the previous won step granted to the
+	// current one. NextBossExercise assigns it per win, so it never accumulates
+	// across steps.
+	bossStepBonus int
+
 	// now is the clock seam for answer timing: time.Now in production, replaced
 	// through SetClock in tests so no test has to sleep to advance time.
 	now func() time.Time
@@ -135,6 +147,67 @@ func (g *GameState) HintDue() bool {
 	return g.ElapsedSeconds() >= float64(g.CurrentExercise.TimeoutSecs)
 }
 
+// BossStepTimeLimit is the effective number of seconds the boss step on screen
+// allows the player: the step's own TimeLimit plus the bonus the previous won
+// step granted. It is 0 when there is no boss step or the step declares no
+// limit, so a caller can treat it as "this step has a clock".
+func (g *GameState) BossStepTimeLimit() int {
+	if g.CurrentBoss == nil || g.BossStep < 0 || g.BossStep >= len(g.CurrentBoss.Steps) {
+		return 0
+	}
+	limit := g.CurrentBoss.Steps[g.BossStep].TimeLimit
+	if limit <= 0 {
+		return 0
+	}
+	return limit + g.bossStepBonus
+}
+
+// BossStepSecondsLeft is how long the current boss step has left before the
+// clock charges a life, measured through the same injected clock as
+// ElapsedSeconds. It is 0 when the fight is not running or the step has no
+// deadline, so a positive value means the boss countdown is live.
+func (g *GameState) BossStepSecondsLeft() float64 {
+	if !g.IsBossMode || g.bossStepDeadline.IsZero() {
+		return 0
+	}
+	remaining := g.bossStepDeadline.Sub(g.clockNow()).Seconds()
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// BossDeadlinePassed reports whether the boss step on screen has been left
+// unanswered past its deadline. It is false for a fight that is not running and
+// for a step that declares no TimeLimit.
+func (g *GameState) BossDeadlinePassed() bool {
+	if !g.IsBossMode || g.bossStepDeadline.IsZero() {
+		return false
+	}
+	return !g.clockNow().Before(g.bossStepDeadline)
+}
+
+// presentBossStep is presentExercise for a boss step: it puts the step the fight
+// is on in front of the player and arms that step's deadline. Every path that
+// makes a boss step current routes through it, so a deadline is never left over
+// from the step before.
+func (g *GameState) presentBossStep() {
+	g.presentExercise(&g.CurrentBoss.Steps[g.BossStep].Exercise)
+	g.startBossDeadline()
+}
+
+// startBossDeadline arms the current boss step's deadline from its effective
+// limit. A step with no positive TimeLimit gets no clock at all, so it can never
+// expire; the deadline field is cleared so no earlier window lingers.
+func (g *GameState) startBossDeadline() {
+	limit := g.BossStepTimeLimit()
+	if limit <= 0 {
+		g.bossStepDeadline = time.Time{}
+		return
+	}
+	g.bossStepDeadline = g.clockNow().Add(time.Duration(limit) * time.Second)
+}
+
 // StartLesson starts lesson mode for a module
 func (g *GameState) StartLesson(module ModuleID) {
 	g.CurrentModule = module
@@ -204,6 +277,8 @@ func (g *GameState) StartBoss(module ModuleID) {
 	g.IsBossMode = true
 	g.CurrentBoss = GetBoss(module)
 	g.BossStep = 0
+	g.bossStepBonus = 0
+	g.bossStepDeadline = time.Time{}
 	g.CurrentStreak = 0
 	g.ComboMultiplier = 1
 	g.IsBossDefeated = false
@@ -211,7 +286,7 @@ func (g *GameState) StartBoss(module ModuleID) {
 	if g.CurrentBoss != nil {
 		g.BossLives = g.CurrentBoss.Lives
 		if len(g.CurrentBoss.Steps) > 0 {
-			g.presentExercise(&g.CurrentBoss.Steps[0].Exercise)
+			g.presentBossStep()
 		}
 	}
 }
@@ -288,6 +363,22 @@ func (g *GameState) RecordIncorrectAnswer() {
 	}
 }
 
+// RecordBossStepTimeout charges the clock's own failure: the boss step on screen
+// ran out of time. It spends one life through RecordIncorrectAnswer, the same
+// canonical recorder a wrong answer uses, so the streak, the attempt and the
+// life cost are identical either way, and it then re-arms the deadline so the
+// retry gets a full window. Re-arming is what makes the 100ms tick idempotent:
+// after this call the deadline is a whole limit in the future, so a burst of
+// ticks past one deadline charges exactly one life instead of draining the
+// fight.
+func (g *GameState) RecordBossStepTimeout() {
+	if !g.IsBossMode {
+		return
+	}
+	g.RecordIncorrectAnswer()
+	g.startBossDeadline()
+}
+
 // NextExercise advances to the next exercise
 func (g *GameState) NextExercise() bool {
 	if g.IsBossMode {
@@ -322,7 +413,11 @@ func (g *GameState) NextBossExercise() bool {
 	if g.CurrentBoss == nil || g.BossStep >= len(g.CurrentBoss.Steps) {
 		return false
 	}
-	g.presentExercise(&g.CurrentBoss.Steps[g.BossStep].Exercise)
+	// A won step grants the fight's BonusTime to the step that follows it. It is
+	// assigned rather than added, so the bonus is per win and never accumulates
+	// across steps; a lost step never reaches this path, so it grants nothing.
+	g.bossStepBonus = g.CurrentBoss.BonusTime
+	g.presentBossStep()
 	return true
 }
 
@@ -376,6 +471,8 @@ func (g *GameState) Reset() {
 
 	g.BossLives = 0
 	g.BossStep = 0
+	g.bossStepBonus = 0
+	g.bossStepDeadline = time.Time{}
 	g.IsBossDefeated = false
 
 	g.TimeElapsed = 0

@@ -127,6 +127,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the exercise countdown stays live and an idle player's hint is revealed
 		// when its deadline passes without any key press.
 		m.revealExerciseHintOnDeadline()
+		// The boss fight has a failure deadline instead of a hint: the same tick
+		// charges the life when a boss step is left unanswered.
+		m.expireBossStepOnDeadline()
 		// Continue ticking for animations and the countdown
 		return m, tickCmd()
 
@@ -1549,6 +1552,44 @@ func (m *Model) revealExerciseHintOnDeadline() {
 	if message := "💡 Hint: " + hint; m.TrainerMessage != message {
 		m.TrainerMessage = message
 	}
+}
+
+// expireBossStepOnDeadline charges the clock when a boss step is left
+// unanswered past its own TimeLimit. It mirrors the wrong-answer branch of
+// handleTrainerBossKeys: the canonical recorder spends one life and records one
+// attempt, the solution is shown, and the player stays on the same step with a
+// fresh window. The guard is what makes the 100ms tick idempotent: the recorder
+// re-arms the deadline a full limit ahead, so only the first tick of an expired
+// window fires. Defeat ends the fight exactly as a wrong last answer does.
+func (m *Model) expireBossStepOnDeadline() {
+	state := m.TrainerGameState
+	if state == nil || !state.IsBossMode || state.CurrentBoss == nil {
+		return
+	}
+	if m.Screen != ScreenTrainerBoss {
+		return
+	}
+	if !state.BossDeadlinePassed() {
+		return
+	}
+
+	solutionHint := ""
+	if state.CurrentExercise != nil {
+		solutionHint = trainer.FormatSolutionsHint(state.CurrentExercise)
+	}
+
+	state.RecordBossStepTimeout()
+	m.TrainerInput = ""
+
+	if state.BossLives <= 0 {
+		m.TrainerLastCorrect = false
+		m.TrainerMessage = "💀 DEFEATED! Solution was: " + solutionHint
+		m.Screen = ScreenTrainerBossResult
+		return
+	}
+
+	livesStr := strings.Repeat("❤️", state.BossLives)
+	m.TrainerMessage = "⏰ Time's up! Was: " + solutionHint + " | Lives: " + livesStr
 }
 
 // handleTrainerMenuKeys handles module selection in the trainer

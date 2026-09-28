@@ -799,3 +799,176 @@ func TestGameState_UntimedExerciseHasNoDeadline(t *testing.T) {
 		t.Errorf("RemainingSeconds = %v for an exercise that declares no timeout, want 0", got)
 	}
 }
+
+// =============================================================================
+// GAME STATE - BOSS STEP DEADLINE
+// =============================================================================
+
+// TestGameState_BossStepTimeLimitIncludesThePreviousWinBonus asserts the
+// effective limit directly rather than reading the raw TimeLimit field: the
+// first step gets no bonus, and each step after a win gets its own TimeLimit
+// plus BonusTime. Winning twice in a row still grants the bonus once, because
+// the grant is per win and must not accumulate across steps.
+func TestGameState_BossStepTimeLimitIncludesThePreviousWinBonus(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.StartBoss(ModuleHorizontal)
+
+	boss := state.CurrentBoss
+	if boss == nil || len(boss.Steps) < 3 {
+		t.Fatalf("test setup: the horizontal boss no longer has three steps")
+	}
+	if boss.BonusTime <= 0 {
+		t.Fatalf("test setup: %s declares no BonusTime", boss.ID)
+	}
+
+	// The first step is granted nothing: no step before it was won.
+	if got := state.BossStepTimeLimit(); got != boss.Steps[0].TimeLimit {
+		t.Errorf("step 0 effective limit = %d, want its own TimeLimit %d", got, boss.Steps[0].TimeLimit)
+	}
+
+	// Win step 0: step 1's effective limit must include the bonus.
+	state.RecordCorrectAnswer(1, true)
+	if !state.NextBossExercise() {
+		t.Fatal("NextBossExercise = false after step 0, want the fight to continue")
+	}
+	if got, want := state.BossStepTimeLimit(), boss.Steps[1].TimeLimit+boss.BonusTime; got != want {
+		t.Errorf("step 1 effective limit = %d, want TimeLimit %d + BonusTime %d = %d",
+			got, boss.Steps[1].TimeLimit, boss.BonusTime, want)
+	}
+	if got := state.BossStepSecondsLeft(); got != float64(state.BossStepTimeLimit()) {
+		t.Errorf("step 1 seconds left = %v right after presentation, want the full effective limit %d",
+			got, state.BossStepTimeLimit())
+	}
+
+	// Win step 1 too: step 2 gets one bonus, not two.
+	state.RecordCorrectAnswer(1, true)
+	if !state.NextBossExercise() {
+		t.Fatal("NextBossExercise = false after step 1, want the fight to continue")
+	}
+	if got, want := state.BossStepTimeLimit(), boss.Steps[2].TimeLimit+boss.BonusTime; got != want {
+		t.Errorf("step 2 effective limit = %d, want TimeLimit %d + one BonusTime %d = %d (the bonus accumulated)",
+			got, boss.Steps[2].TimeLimit, boss.BonusTime, want)
+	}
+}
+
+// TestGameState_BossStepTimeoutSpendsOneLifeAndRearms pins the state half of
+// the clock contract: the canonical recorder costs one life and one attempt,
+// the player stays on the same step, and the deadline is re-armed a full
+// effective limit ahead so the retry is not charged immediately.
+func TestGameState_BossStepTimeoutSpendsOneLifeAndRearms(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.StartBoss(ModuleHorizontal)
+
+	limit := state.BossStepTimeLimit()
+	if limit <= 0 {
+		t.Fatalf("test setup: boss step 0 declares no effective limit")
+	}
+	lives := state.BossLives
+	attempts := state.Stats.GetModuleProgress(ModuleHorizontal).BossAttempts
+	stepID := state.CurrentExercise.ID
+	state.CurrentStreak = 5
+
+	// Past the deadline.
+	now = now.Add(time.Duration(limit)*time.Second + time.Second)
+	if !state.BossDeadlinePassed() {
+		t.Fatalf("BossDeadlinePassed = false after %ds on a %ds step", limit+1, limit)
+	}
+	state.RecordBossStepTimeout()
+
+	if got := state.BossLives; got != lives-1 {
+		t.Errorf("BossLives = %d after the deadline, want %d", got, lives-1)
+	}
+	if got := state.Stats.GetModuleProgress(ModuleHorizontal).BossAttempts; got != attempts+1 {
+		t.Errorf("BossAttempts = %d after the deadline, want %d", got, attempts+1)
+	}
+	if state.CurrentStreak != 0 {
+		t.Errorf("CurrentStreak = %d after the deadline, want 0", state.CurrentStreak)
+	}
+	if state.CurrentExercise == nil || state.CurrentExercise.ID != stepID {
+		t.Errorf("current exercise after the deadline = %v, want %s: expiry moved the player off the step", state.CurrentExercise, stepID)
+	}
+	if state.BossStep != 0 {
+		t.Errorf("BossStep = %d after the deadline, want 0", state.BossStep)
+	}
+
+	// The retry starts with a full window, and the same instant is inside it.
+	if state.BossDeadlinePassed() {
+		t.Error("BossDeadlinePassed = true immediately after the timeout re-armed the deadline")
+	}
+	if got := state.BossStepSecondsLeft(); got != float64(limit) {
+		t.Errorf("seconds left after the timeout = %v, want a full %d", got, limit)
+	}
+
+	// One second before the fresh window ends nothing more is charged...
+	now = now.Add(time.Duration(limit)*time.Second - time.Second)
+	if state.BossDeadlinePassed() {
+		t.Fatal("BossDeadlinePassed = true one second before the re-armed deadline")
+	}
+	// ...and crossing it charges the next life through the same recorder.
+	now = now.Add(time.Second)
+	if !state.BossDeadlinePassed() {
+		t.Fatal("BossDeadlinePassed = false at the re-armed deadline")
+	}
+	state.RecordBossStepTimeout()
+	if got := state.BossLives; got != lives-2 {
+		t.Errorf("BossLives = %d after the second deadline, want %d", got, lives-2)
+	}
+	if got := state.Stats.GetModuleProgress(ModuleHorizontal).BossAttempts; got != attempts+2 {
+		t.Errorf("BossAttempts = %d after two deadlines, want %d", got, attempts+2)
+	}
+}
+
+// TestGameState_UntimedBossStepHasNoDeadline pins that a boss step which
+// declares no TimeLimit is never charged by the clock, so the deadline cannot
+// drain a fight whose data never asked for one.
+func TestGameState_UntimedBossStepHasNoDeadline(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	state := NewGameState()
+	state.SetClock(func() time.Time { return now })
+	state.IsBossMode = true
+	state.BossLives = 3
+	state.CurrentBoss = &BossExercise{
+		ID:        "untimed_boss",
+		Module:    ModuleHorizontal,
+		Lives:     3,
+		BonusTime: 30,
+		Steps:     []BossStep{{Exercise: Exercise{ID: "untimed_step_1"}}},
+	}
+	state.presentBossStep()
+
+	now = now.Add(10 * time.Minute)
+
+	if got := state.BossStepTimeLimit(); got != 0 {
+		t.Errorf("BossStepTimeLimit = %d for a step with no TimeLimit, want 0", got)
+	}
+	if state.BossDeadlinePassed() {
+		t.Error("BossDeadlinePassed = true for a step with no TimeLimit")
+	}
+	if got := state.BossStepSecondsLeft(); got != 0 {
+		t.Errorf("BossStepSecondsLeft = %v for a step with no TimeLimit, want 0", got)
+	}
+}
+
+// TestGameState_BossStepTimeoutOutsideBossModeDoesNothing is the negative guard
+// for the recorder: it is a boss mechanic and must be inert in lesson or
+// practice mode, where losing a life has no meaning.
+func TestGameState_BossStepTimeoutOutsideBossModeDoesNothing(t *testing.T) {
+	state := NewGameState()
+	state.StartLesson(ModuleHorizontal)
+
+	state.RecordBossStepTimeout()
+
+	if state.BossLives != 0 {
+		t.Errorf("BossLives = %d after a timeout outside boss mode, want 0", state.BossLives)
+	}
+	if state.IsBossDefeated {
+		t.Error("IsBossDefeated = true after a timeout outside boss mode")
+	}
+	if state.CurrentExercise == nil {
+		t.Error("CurrentExercise = nil after a timeout outside boss mode: the lesson was disturbed")
+	}
+}
