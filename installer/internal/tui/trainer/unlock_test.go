@@ -44,6 +44,7 @@ func TestIsModuleUnlocked_AllModulesInOrder(t *testing.T) {
 		ModuleSubstitution,
 		ModuleRegex,
 		ModuleMacros,
+		ModuleEditing,
 	}
 
 	// Initially only first is unlocked

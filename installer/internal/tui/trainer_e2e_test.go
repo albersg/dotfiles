@@ -425,6 +425,7 @@ func TestAllModulesRenderE2E(t *testing.T) {
 		trainer.ModuleSubstitution,
 		trainer.ModuleRegex,
 		trainer.ModuleMacros,
+		trainer.ModuleEditing,
 	}
 
 	for _, moduleID := range modules {
@@ -878,7 +879,7 @@ func TestTrainerBossResultUnlockClaim(t *testing.T) {
 	}
 
 	t.Run("the final module does not claim an unlock", func(t *testing.T) {
-		m := newVictoryModel(t, trainer.ModuleMacros)
+		m := newVictoryModel(t, trainer.ModuleEditing)
 
 		out := m.renderTrainerBossResult()
 		if strings.Contains(out, "unlocked") {
@@ -2311,7 +2312,7 @@ func TestTrainerMenuUnreadableStatsRendersSaneMenu(t *testing.T) {
 func TestTrainerMenuNavigationUnchanged(t *testing.T) {
 	m := newTrainerProgressModel(t)
 
-	if got := len(m.TrainerModules); got != 7 {
+	if got := len(m.TrainerModules); got != 8 {
 		t.Fatalf("selectable module count changed: got %d, want 7", got)
 	}
 
@@ -2433,10 +2434,10 @@ func TestTrainerResetAllConfirmingClearsProfile(t *testing.T) {
 
 	// The menu must reflect the wipe from the same model, without a restart.
 	view := m.View()
-	if strings.Contains(view, "Bosses: 1/7") {
+	if strings.Contains(view, "Bosses: 1/8") {
 		t.Errorf("menu still shows the erased boss count after confirming:\n%s", view)
 	}
-	if !strings.Contains(view, "Bosses: 0/7") {
+	if !strings.Contains(view, "Bosses: 0/8") {
 		t.Errorf("menu does not show the cleared boss count after confirming:\n%s", view)
 	}
 }

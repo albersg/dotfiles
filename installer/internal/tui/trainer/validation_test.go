@@ -662,6 +662,7 @@ func TestShouldSkipSimulation(t *testing.T) {
 		{"vertical motion", &Exercise{Module: ModuleVertical, Solutions: []string{"j"}}, false},
 		{"text objects", &Exercise{Module: ModuleTextObjects, Solutions: []string{"diw"}}, false},
 		{"change and repeat", &Exercise{Module: ModuleChangeRepeat, Solutions: []string{"dd"}}, false},
+		{"editing and undo is simulated", &Exercise{Module: ModuleEditing, Solutions: []string{"dd"}}, false},
 		{"no solutions", &Exercise{Module: ModuleHorizontal}, false},
 		{"empty first solution", &Exercise{Module: ModuleHorizontal, Solutions: []string{""}}, false},
 	}

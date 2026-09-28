@@ -16,6 +16,7 @@ func formatControlChars(input string) string {
 	result = strings.ReplaceAll(result, "\x15", "<C-u>")
 	result = strings.ReplaceAll(result, "\x06", "<C-f>")
 	result = strings.ReplaceAll(result, "\x02", "<C-b>")
+	result = strings.ReplaceAll(result, "\x12", "<C-r>")
 	return result
 }
 

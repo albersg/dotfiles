@@ -14,6 +14,7 @@ const (
 	ModuleSubstitution ModuleID = "substitution"
 	ModuleRegex        ModuleID = "regex"
 	ModuleMacros       ModuleID = "macros"
+	ModuleEditing      ModuleID = "editing"
 )
 
 // ExerciseType defines the type of exercise
@@ -191,6 +192,7 @@ var moduleUnlockOrder = []ModuleID{
 	ModuleSubstitution,
 	ModuleRegex,
 	ModuleMacros,
+	ModuleEditing,
 }
 
 // NextModule returns the module that follows the given one in the unlock
@@ -319,6 +321,13 @@ func GetAllModules() []ModuleInfo {
 			Icon:        "🎪",
 			Description: "qa, q, @a, @@, :normal, :g/pattern/",
 			BossName:    "The Automaton",
+		},
+		{
+			ID:          ModuleEditing,
+			Name:        "Editing & Undo",
+			Icon:        "📝",
+			Description: "i, a, I, A, o, O, <Esc>, u, Ctrl-r, dd, yy, p, P, >>, <<, x, D, %, marks",
+			BossName:    "The Historian",
 		},
 	}
 }

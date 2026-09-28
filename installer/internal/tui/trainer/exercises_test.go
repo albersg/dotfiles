@@ -944,6 +944,270 @@ func TestGetBoss_Macros_StepsHaveTimeLimits(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// EDITING & UNDO MODULE
+// =============================================================================
+
+func TestGetLessons_Editing_ReturnsExercises(t *testing.T) {
+	lessons := GetLessons(ModuleEditing)
+	if len(lessons) == 0 {
+		t.Fatal("GetLessons should return exercises for the Editing module")
+	}
+}
+
+func TestGetLessons_Editing_HasMinimum15(t *testing.T) {
+	lessons := GetLessons(ModuleEditing)
+	if len(lessons) < 15 {
+		t.Errorf("Editing module should have at least 15 lessons, got %d", len(lessons))
+	}
+}
+
+func TestGetLessons_Editing_AllHaveRequiredFields(t *testing.T) {
+	lessons := GetLessons(ModuleEditing)
+	for i, ex := range lessons {
+		if ex.ID == "" {
+			t.Errorf("Lesson %d: ID is empty", i)
+		}
+		if ex.Module != ModuleEditing {
+			t.Errorf("Lesson %d: Module should be Editing, got %s", i, ex.Module)
+		}
+		if ex.Type != ExerciseLesson {
+			t.Errorf("Lesson %d: Type should be Lesson, got %s", i, ex.Type)
+		}
+		if len(ex.Code) == 0 {
+			t.Errorf("Lesson %d: Code is empty", i)
+		}
+		if ex.Mission == "" {
+			t.Errorf("Lesson %d: Mission is empty", i)
+		}
+		if len(ex.Solutions) == 0 {
+			t.Errorf("Lesson %d: Solutions is empty", i)
+		}
+		if ex.Optimal == "" {
+			t.Errorf("Lesson %d: Optimal is empty", i)
+		}
+		if ex.Hint == "" {
+			t.Errorf("Lesson %d: Hint is empty", i)
+		}
+		if ex.Explanation == "" {
+			t.Errorf("Lesson %d: Explanation is empty", i)
+		}
+		if ex.TimeoutSecs <= 0 {
+			t.Errorf("Lesson %d: TimeoutSecs should be positive, got %d", i, ex.TimeoutSecs)
+		}
+		if ex.Points <= 0 {
+			t.Errorf("Lesson %d: Points should be positive, got %d", i, ex.Points)
+		}
+	}
+}
+
+func TestGetLessons_Editing_OptimalIsInSolutions(t *testing.T) {
+	for _, ex := range GetLessons(ModuleEditing) {
+		found := false
+		for _, sol := range ex.Solutions {
+			if sol == ex.Optimal {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Lesson %s: Optimal %q not in Solutions %v", ex.ID, ex.Optimal, ex.Solutions)
+		}
+	}
+}
+
+func TestGetLessons_Editing_UniqueIDs(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, ex := range GetLessons(ModuleEditing) {
+		if seen[ex.ID] {
+			t.Errorf("Duplicate lesson ID: %s", ex.ID)
+		}
+		seen[ex.ID] = true
+	}
+}
+
+func TestGetLessons_Editing_CoversTheCommandsItTeaches(t *testing.T) {
+	lessons := GetLessons(ModuleEditing)
+	allSolutions := make(map[string]bool)
+	for _, ex := range lessons {
+		for _, sol := range ex.Solutions {
+			allSolutions[sol] = true
+		}
+	}
+
+	requiredCommands := []string{
+		"u",         // undo
+		"\x12",      // redo
+		"xu",        // undo the last change
+		"ddu\x12",   // undo then redo
+		"i",         // insert entries, one per lesson
+		"a",         //
+		"I",         //
+		"A!<Esc>",   //
+		"o  return", //
+		"Ox := 1",   //
+		"dd",        // line delete
+		"2dd",       // counted line delete
+		"yyjp",      // yank and put
+		"yyjdd\"0p", // register 0
+		">>",        // indent
+		"2<<",       // counted dedent
+		"6x",        // counted character delete
+		"D",         // delete to line end
+		"dw",        // operator + delegated motion
+		"%x",        // bracket motion + change
+		"Gmaggdd`a", // marks
+	}
+
+	for _, cmd := range requiredCommands {
+		matched := false
+		for sol := range allSolutions {
+			if containsSubstring(sol, cmd) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("Editing lessons should cover command %q", cmd)
+		}
+	}
+}
+
+func TestGetBoss_Editing_ReturnsBoss(t *testing.T) {
+	boss := GetBoss(ModuleEditing)
+	if boss == nil {
+		t.Fatal("GetBoss should return a boss for the Editing module")
+	}
+}
+
+func TestGetBoss_Editing_HasCorrectName(t *testing.T) {
+	boss := GetBoss(ModuleEditing)
+	if boss == nil || boss.Name != "The Historian" {
+		t.Errorf("Editing boss name should be 'The Historian', got %v", boss)
+	}
+}
+
+func TestGetBoss_Editing_Has5Steps(t *testing.T) {
+	boss := GetBoss(ModuleEditing)
+	if boss == nil || len(boss.Steps) != 5 {
+		t.Errorf("Editing boss should have 5 steps, got %v", boss)
+	}
+}
+
+func TestGetBoss_Editing_StepsHaveTimeLimits(t *testing.T) {
+	boss := GetBoss(ModuleEditing)
+	if boss == nil {
+		t.Fatal("no editing boss")
+	}
+	for i, step := range boss.Steps {
+		if step.TimeLimit <= 0 {
+			t.Errorf("Boss step %d: TimeLimit should be positive, got %d", i, step.TimeLimit)
+		}
+	}
+}
+
+// =============================================================================
+// EDITING & UNDO MODULE - BUFFER JUDGE INVARIANTS
+// =============================================================================
+
+// editingExercises returns every exercise of the Editing & Undo module: its
+// lessons and its boss steps, in order. The invariants below enumerate the real
+// corpus so a lesson added without an optimal answer that validates cannot ship
+// unnoticed: a module whose own optimal does not validate is a module nobody
+// can finish.
+func editingExercises() []Exercise {
+	all := GetLessons(ModuleEditing)
+	if boss := GetBoss(ModuleEditing); boss != nil {
+		for _, step := range boss.Steps {
+			all = append(all, step.Exercise)
+		}
+	}
+	return all
+}
+
+// TestEditingModule_EveryOptimalValidates is the module's completion invariant:
+// answering each lesson and boss step with its own Optimal must be judged
+// correct, and the editing engine must recognize the optimal so the buffer
+// judge can actually reproduce the result the mission states. The Solutions
+// fast path alone would hide a broken optimal, which is why Recognized is
+// checked separately.
+func TestEditingModule_EveryOptimalValidates(t *testing.T) {
+	exercises := editingExercises()
+	if len(exercises) != 28 {
+		t.Fatalf("enumerated %d editing exercises, want 28 (23 lessons + 5 boss steps)", len(exercises))
+	}
+
+	for _, ex := range exercises {
+		t.Run(ex.ID, func(t *testing.T) {
+			if !ex.BufferVerified {
+				t.Error("exercise does not opt into the buffer judge; the editing module is judged by the buffer it produces")
+			}
+
+			result := ValidateAnswerDetailed(&ex, ex.Optimal)
+			if !result.IsCorrect {
+				t.Errorf("optimal %q is rejected; the module cannot be finished", ex.Optimal)
+			}
+			if !result.BufferVerified {
+				t.Error("validation did not run the buffer judge")
+			}
+
+			engine := SimulateEditing(ex.Code, ex.CursorPos, ex.Optimal)
+			if !engine.Recognized {
+				t.Errorf("the editing engine does not recognize the optimal %q; the mission states a result it cannot reproduce", ex.Optimal)
+			}
+		})
+	}
+}
+
+// TestEditingModule_PlausibleWrongAnswersAreRejected pins that the buffer judge
+// actually discriminates: each entry below is a believable attempt that does
+// not reach the mission's result, so it must be judged incorrect and named as
+// diverging. The first entry is the one the task requires; the others protect
+// the whole arc (undo, insert sessions, registers, marks) from drifting into
+// exercises that accept any answer.
+func TestEditingModule_PlausibleWrongAnswersAreRejected(t *testing.T) {
+	byID := make(map[string]Exercise)
+	for _, ex := range editingExercises() {
+		byID[ex.ID] = ex
+	}
+
+	tests := []struct {
+		id     string
+		answer string
+	}{
+		{"editing_001", "dd"},
+		{"editing_016", "xxu"},
+		{"editing_017", "A!<Esc>ojunk<Esc>"},
+		{"editing_020", "yyjddp"},
+		{"editing_023", "Gmaggdd"},
+		{"editing_boss_3", "yyjd"},
+		{"editing_boss_5", "Gmaggdd`a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			ex, ok := byID[tt.id]
+			if !ok {
+				t.Fatalf("no exercise %s", tt.id)
+			}
+			if IsInSolutions(&ex, tt.answer) {
+				t.Fatalf("%q is an authored solution of %s; pick a wrong answer", tt.answer, tt.id)
+			}
+
+			result := ValidateAnswerDetailed(&ex, tt.answer)
+			if result.IsCorrect {
+				t.Errorf("%s accepted the wrong answer %q", tt.id, tt.answer)
+			}
+			if !result.BufferVerified {
+				t.Error("wrong answer was not judged by the buffer judge")
+			}
+			if result.MismatchSummary() == "" {
+				t.Error("wrong answer has no mismatch summary to report to the player")
+			}
+		})
+	}
+}
+
 // Helper function to check if string contains substring
 func containsSubstring(s, substr string) bool {
 	if len(substr) > len(s) {
@@ -970,6 +1234,7 @@ func TestAllModules_HaveUniqueExerciseIDs(t *testing.T) {
 		ModuleSubstitution,
 		ModuleRegex,
 		ModuleMacros,
+		ModuleEditing,
 	}
 
 	allIDs := make(map[string]bool)
@@ -993,6 +1258,7 @@ func TestAllModules_BossesHave5Steps(t *testing.T) {
 		ModuleSubstitution,
 		ModuleRegex,
 		ModuleMacros,
+		ModuleEditing,
 	}
 
 	for _, mod := range modules {
@@ -1016,6 +1282,7 @@ func TestAllModules_BossesHave3Lives(t *testing.T) {
 		ModuleSubstitution,
 		ModuleRegex,
 		ModuleMacros,
+		ModuleEditing,
 	}
 
 	for _, mod := range modules {
