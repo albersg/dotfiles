@@ -184,9 +184,18 @@ func loadLastInstallCmd() tea.Cmd {
 
 // Update implements tea.Model. It is the one place a screen change is observed,
 // so it is also the one place the active panel is reset: a screen always opens on
-// its default panel, whichever path changed the screen.
+// its default panel, whichever path changed the screen. The companion's two
+// event-driven fields are written here for the same reason: any key wakes it, and
+// a key that moved the cursor or changed the screen gives it something to walk
+// toward. The walking itself happens on the frame ticks that follow.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	screen := m.Screen
+	cursor := m.Cursor
+	if _, ok := msg.(tea.KeyMsg); ok {
+		// Any key wakes the companion and restarts the stretch that would put it
+		// back to sleep.
+		m.CompanionIdle = 0
+	}
 	next, cmd := m.update(msg)
 
 	updated, ok := next.(Model)
@@ -195,6 +204,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if updated.Screen != screen {
 		updated.PanelIndex = 0
+	}
+	if updated.Cursor != cursor || updated.Screen != screen {
+		updated.armCompanionFollow()
 	}
 	return updated, cmd
 }
@@ -218,18 +230,21 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// charges the life when a boss step is left unanswered.
 		m.expireBossStepOnDeadline()
 		// Continue ticking for the trainer's deadlines. This is the trainer's clock,
-		// not the animation clock: the slow tick below is the one the animation gate
-		// owns, and this one keeps running whether or not the run animates.
+		// not the animation clock: the frame tick below is the one the animation gate
+		// owns, and this one keeps running whether or not the run animates. It never
+		// touches AnimTick, so it cannot move the tip or the companion.
 		return m, tickCmd()
 
 	case animTickMsg:
-		// The slow tick advances the counter the tip rotation and the companion
-		// read. It only re-arms while animation is on, so a gate that was forced off
-		// after the tick was armed stops the clock rather than letting it run on.
+		// The frame tick advances the counter the tip rotation and the companion
+		// read, then takes one companion step. It only re-arms while animation is on,
+		// so a gate that was forced off after the tick was armed stops the clock
+		// rather than letting it run on.
 		if !m.Animating {
 			return m, nil
 		}
 		m.AnimTick++
+		m.advanceCompanion()
 		return m, m.animTickCmdFor()
 
 	case installStartMsg:
@@ -278,6 +293,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.CurrentStep++
+		// A step that finished is worth a cheer for the next few ticks. The failure
+		// path above returns before this line, so an error is never celebrated.
+		m.CompanionPleased = companionPleasedTicks
 		return m, m.runNextStep()
 
 	case installCompleteMsg:
@@ -340,6 +358,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.CurrentStep++
+		// An interactive step counts as a finished step like any other, so it cheers
+		// the companion the same way; a failure returns above and never does.
+		m.CompanionPleased = companionPleasedTicks
 		return m, m.runNextStep()
 
 	case needsExecProcessMsg:

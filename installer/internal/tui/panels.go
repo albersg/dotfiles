@@ -1012,12 +1012,13 @@ const tipPanelLabel = "Did you know?"
 
 // The tip's shape is fixed so the rotation cannot make a screen jump: one dim
 // context row naming where the tip comes from, then at most tipContentRows rows
-// carrying the keys and what they do. Ten slow ticks -- ten seconds at the
-// animation tick's one-second interval -- is how long each tip stays, and it is a
-// named constant so the rotation, the tests that name tip 0 and tip 1 and the
-// documentation cannot disagree.
+// carrying the keys and what they do. Ten seconds is how long each tip stays,
+// derived from the frame rate as animTicksPerSecond * 10 frames so the rotation
+// keeps its ten seconds wherever the rate moves, and it is a named constant so
+// the rotation, the tests that name tip 0 and tip 1 and the documentation cannot
+// disagree.
 const (
-	ticksPerTip    = 10
+	ticksPerTip    = animTicksPerSecond * 10
 	tipContentRows = 2
 	tipKeyGap      = 2
 )

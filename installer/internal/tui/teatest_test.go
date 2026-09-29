@@ -166,6 +166,51 @@ func TestMainMenuWideGolden(t *testing.T) {
 	teatest.RequireEqualOutput(t, out)
 }
 
+// TestCompanionGoldenFramesTheCreatureAtTickZero pins the companion's frame 0:
+// the idle frame, at the cell no tick has moved it from. The art and the
+// placement are pinned on a frame the clock cannot move, so the snapshot cannot
+// flake, and the model is the wide main menu because that is the screen the
+// layout was measured on. The gate is on and the counter is zero on purpose: the
+// frame and the cell both come from the model, so this snapshot is the same on
+// every host -- the goldens around it stay animation-off, and the difference
+// between this file and TestMainMenuWideGolden's is exactly the companion's row.
+func TestCompanionGoldenFramesTheCreatureAtTickZero(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.ExistingConfigs = system.DetectExistingConfigs()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenMainMenu
+	m.Animating = true
+	m.AnimTick = 0
+
+	tm := teatest.NewTestModel(t, m,
+		teatest.WithInitialTermSize(160, 50),
+	)
+
+	// Quit on the first rendered frame rather than after a sleep. The frame tick
+	// fires every animTickInterval, and a sleep long enough to be sure the screen
+	// had drawn would race it: a tick that lands first strolls the creature off
+	// cell 0 and this snapshot stops being frame 0. Reading the output until the
+	// screen is on it, then quitting, pins the frame the test is about. The output
+	// reader has to be teed into a buffer of its own because reading the program's
+	// output consumes it, and the golden is compared against everything read.
+	seen := &bytes.Buffer{}
+	teatest.WaitFor(t, io.TeeReader(tm.Output(), seen), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(2*time.Millisecond), teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if _, err := io.Copy(seen, tm.Output()); err != nil {
+		t.Fatalf("reading the rest of the output failed: %v", err)
+	}
+	teatest.RequireEqualOutput(t, seen.Bytes())
+}
+
 // TestOSSelectGolden tests OS selection screen against golden file
 func TestOSSelectGolden(t *testing.T) {
 	skipIfTermux(t)
@@ -1226,6 +1271,20 @@ func TestInstallerScreensFitTheFrame(t *testing.T) {
 				cols = leaderCols
 			}
 
+			// The companion draws in one row the body did not need, so the frame fits
+			// exactly as it did without it. The gate is forced on here so a creature
+			// that cost the frame a row, or drew past the frame edge, fails this guard
+			// rather than showing up as a shifted screen on somebody's terminal.
+			m.LeaderMode = false
+			m.Animating = true
+			companionRows, companionCols := assertInstallerScreenFits(t, name+" with the companion", m)
+			if companionRows > rows {
+				rows = companionRows
+			}
+			if companionCols > cols {
+				cols = companionCols
+			}
+
 			if rows > worstRows {
 				worstRows, worstRowScreen = rows, name
 			}
@@ -1276,6 +1335,22 @@ func TestInstallerScreensFitWideTerminals(t *testing.T) {
 					for _, line := range strings.Split(view, "\n") {
 						if w := lipgloss.Width(line); w > c.width {
 							t.Errorf("%s renders a %d-column line in a %d-column terminal: %q",
+								name, w, c.width, line)
+						}
+					}
+
+					// The companion is one row of the body's spare room, so the wide frame
+					// holds exactly as many rows with it on -- the footer still lands on
+					// the terminal's last row -- and no line grows past the edge.
+					m.Animating = true
+					view = m.View()
+					if rows := renderedRowCount(view); rows != c.height {
+						t.Errorf("%s renders %d rows with the companion at %s, want exactly %d: the footer is off the frame",
+							name, rows, c.name, c.height)
+					}
+					for _, line := range strings.Split(view, "\n") {
+						if w := lipgloss.Width(line); w > c.width {
+							t.Errorf("%s renders a %d-column line with the companion in a %d-column terminal: %q",
 								name, w, c.width, line)
 						}
 					}

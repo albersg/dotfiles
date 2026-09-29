@@ -222,6 +222,14 @@ var (
 			Foreground(InkDim).
 			Background(BrandSoft)
 
+	// CompanionStyle is the companion's one tone. It takes the brand role because
+	// the creature is frame furniture rather than content -- it must not compete
+	// with the body it walks under -- and the tone carries nothing on its own: the
+	// eyes, the z and the ! are what say which state it is in, so a 16-colour or
+	// no-colour terminal loses no information at all.
+	CompanionStyle = lipgloss.NewStyle().
+			Foreground(Brand)
+
 	// RowBarStyle is the body of a selected row: Paper on the BrandSoft bar.
 	RowBarStyle = lipgloss.NewStyle().
 			Foreground(Paper).

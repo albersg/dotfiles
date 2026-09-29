@@ -59,6 +59,16 @@ machine's limits into another machine's VM.
 
 ### Added
 
+- **The installer has a companion.** A small ASCII creature walks the row immediately above the
+  footer, follows the selection you move the cursor to, sleeps after twenty quiet seconds and wakes
+  on the first key, and reacts to what is on screen: alert on the choices that throw something away,
+  pleased for about a second when an installation step finishes, flinching while an error is showing and
+  on the trainer's result screens when the last answer was wrong. The art is drawn in this repository
+  in plain ASCII — no emoji and no third-party mascot — so Termux and a 16-colour terminal keep
+  working and the state reads from the glyphs rather than from a colour. It draws only in a row the
+  body did not need, so a screen whose body fills its frame shows no companion and loses nothing, and
+  with animation off there is none at all (`DOTFILES_ANIM=0`, `--no-anim`, a piped stdout or
+  `TERM=dumb`).
 - **The Vim trainer can judge an answer by the buffer it leaves, not only by where it moves the
   cursor.** A mutable editing engine runs the answer and compares the buffer text, the cursor and
   the mode it produces against the optimal's result, so undo, put, register and indentation
@@ -90,7 +100,7 @@ machine's limits into another machine's VM.
   so no section ever says "never".
 - **Tips come from content the repository already ships.** The **Did you know?** pool is built in a
   declared order with no randomness from the keymap reference data and the trainer's own lessons, so
-  two runs on one machine show the same sequence; it advances one tip per ten ticks, and with
+  two runs on one machine show the same sequence; it advances one tip per ten seconds, and with
   animation off it stays on the first tip.
 - **The installer records when it last ran.** A completed run writes a small record — the finish
   time, the build and the configuration paths it replaced — to

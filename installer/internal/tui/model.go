@@ -110,20 +110,45 @@ type Model struct {
 	// the screen changes, so a screen always opens on the panel its own question
 	// is about.
 	PanelIndex int
-	// Animating is the animation gate: true when this run may schedule the slow
+	// Animating is the animation gate: true when this run may schedule the frame
 	// tick. It is decided once, when the model is built, from the environment and
 	// the stream the run would draw to, and stored here so a test can force either
 	// side without touching the environment.
 	Animating bool
-	// AnimTick counts the slow ticks since the run started. It stays at zero while
-	// animation is off, and it is the clock the tip rotation and the companion
-	// read instead of time.Now, so a snapshot can pin a frame instead of flaking.
-	AnimTick    int
-	ErrorMsg    string
-	ShowDetails bool
-	LogLines    []string
-	TotalTime   float64
-	Quitting    bool
+	// AnimTick counts the animation frames since the run started: one per frame
+	// tick, animTicksPerSecond of them a second. It stays at zero while animation
+	// is off, and it is the clock the tip rotation and the companion read instead
+	// of time.Now, so a snapshot can pin a frame instead of flaking.
+	AnimTick int
+	// CompanionPos is the cell the companion starts at on the stage it walks along.
+	// It is state rather than a function of the tick because the creature walks
+	// toward a target that moves, and together with AnimTick it is everything a
+	// snapshot needs to pin a frame and a position.
+	CompanionPos int
+	// CompanionDir is the direction it is strolling in: +1 right, -1 left. It is
+	// stored so the turn at an edge is a real reversal the eye can follow.
+	CompanionDir int
+	// CompanionFollow is set by a key that moved the selection or changed the
+	// screen and cleared when the creature reaches the row the cursor points at. It
+	// is what tells "walking toward what you pointed at" apart from "strolling".
+	CompanionFollow bool
+	// CompanionMoving records whether the last tick actually moved it, which is
+	// what the walking frames mean: a standing creature draws the idle frame while
+	// the clock keeps running.
+	CompanionMoving bool
+	// CompanionIdle counts the animation frames since the last key press. It is the
+	// stretch the sleeping frame is drawn from, and it lives on the model rather
+	// than in the renderer so a test can reach the sleeping state without waiting
+	// out companionSleepSeconds.
+	CompanionIdle int
+	// CompanionPleased counts the frames left of a celebration: an installation
+	// step that has just finished is worth companionPleasedTicks of them.
+	CompanionPleased int
+	ErrorMsg         string
+	ShowDetails      bool
+	LogLines         []string
+	TotalTime        float64
+	Quitting         bool
 	// Program reference for sending messages during installation
 	Program *tea.Program
 	// Learn mode
@@ -201,6 +226,7 @@ func NewModel() Model {
 		PanelIndex:              0,
 		Animating:               animationGate(os.Stdout),
 		AnimTick:                0,
+		CompanionDir:            1,
 		ShowDetails:             false,
 		LogLines:                []string{},
 		KeymapCategories:        GetNvimKeymaps(),

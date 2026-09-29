@@ -30,6 +30,8 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
 - **Progress Tracking**: Real-time installation progress with a frame-width progress bar,
   a percentage, and a per-step status rail, plus optional detailed logs
+- **A Companion**: A small ASCII creature walks the row above the footer, follows the selection you
+  move the cursor to, sleeps when you stop typing, and reacts to failures and to destructive choices
 - **Non-Interactive Mode**: CI/CD friendly installation via CLI flags
 
 ## Quick Start
@@ -208,7 +210,7 @@ content the repository already ships, in a declared order with no randomness —
 data (Neovim, then Tmux, Zellij, Ghostty and Herdr, each in its own declared order) followed by the
 trainer's own lessons in module order, with the lessons whose mission does not fit the tip's two
 rows left out so a tip is never cut — so two runs on the same machine show the same sequence. The
-panel advances one tip per ten animation ticks; with animation off it stays on the first tip.
+panel advances one tip per ten seconds; with animation off it stays on the first tip.
 
 **The installer records when it last ran.** When a run completes, the installer writes a small
 record, best effort, to
@@ -220,10 +222,57 @@ completes, because the record is a convenience and not a step. On the next run t
 panel shows that record; when there is no file the panel is not offered at all, so the tab row never
 names a panel that would have to say "never".
 
+### The companion
+
+One row of the frame is not information. **A small creature walks the row immediately above the
+footer rule** — the last row the body did not need — and only there: a screen whose body fills its
+frame shows no companion at all, so the creature never costs a body a row, and with animation off
+there is no companion anywhere, because a frozen pet is not the point.
+
+The art is drawn in this repository, in `installer/internal/tui/companion.go`, and it is plain ASCII:
+a 16-colour terminal, a terminal without an emoji font and Termux all draw it.
+
+| State | Frame | When |
+|-------|-------|------|
+| Idle | `(o.o)` | Awake and standing still: the first frame, and the tick it arrives at the row you pointed at |
+| Walking | `(o.o)/` `(o.o)\` | The frames it moves: the leg alternates, which is what reads as motion |
+| Asleep | `(-.-) z` | Twenty seconds with no key pressed |
+| Alert | `(O.O) !` | The selection throws something away |
+| Pleased | `\(o.o)/` | About a second after an installation step finishes, or a right answer on a trainer result screen |
+| Flinch | `(>.<)` | A failure is on screen, or a wrong answer on a trainer result screen |
+
+The state reads from the glyphs — the eyes, the `z` and the `!` — and not from the tone, so a
+16-colour or no-colour terminal loses nothing. Nothing was copied from a third-party mascot either:
+the Go gopher is CC-BY, cowsay's cow is GPL-ish and nyancat's cat belongs to its author, and this
+repository's attribution surface stays empty.
+
+**It walks, follows the selection, sleeps and reacts.** It strolls one cell per animation frame —
+eight frames a second, the frame tick the animation gate owns — and turns at the edge of its row.
+Moving the cursor points it at the new row and it walks there over the frames that follow — not in
+the frame you pressed the key in — and then resumes strolling. The walk halves the remaining
+distance each frame, so a one-row cursor move arrives in four to six frames (about half a second to
+three quarters) and the far edge of the widest stage in eight frames, one second. Twenty seconds
+without a key put it to sleep and the first key wakes it. It is alert on the screens whose purpose is to restore or overwrite — the backup list,
+the restore confirm, and the screen that installs over the configs it just listed — and on the menu
+rows that name a destructive action (`Restore`, `Delete`, install *without* backup), it is pleased
+for a few ticks after an installation step completes, and it flinches while an error is on screen. On
+the trainer's result screens it reacts to the verdict in the header: pleased on `✓ Correct`,
+flinching on `✗ Incorrect`. The reaction wins over the resting state, so a sleeping companion that
+must flinch flinches.
+
+**The frame and the cell come from the model, never from the clock.** The frame tick advances the
+counter and takes one step; the renderer only draws. The same model and tick therefore produce the
+same bytes on every run, which is what lets a snapshot pin a frame instead of flaking on the clock.
+The cost is bounded by a test rather than by a promise: the creature draws in one row, so a tick
+changes exactly that row and the renderer repaints one line. A screen with no spare row draws no
+companion, and on those the tick changes nothing at all: the view string is identical, so the
+renderer skips the frame entirely.
+
 ### Turning animation off
 
-The tip rotation is driven by one gate. Animation is off when any of these is true, and with it off
-no slow tick is scheduled and the screen stays on the first tip:
+The tip rotation and the companion are driven by one gate. Animation is off when any of these is
+true, and with it off no frame tick is scheduled, the screen stays on the first tip and there is no
+companion at all:
 
 - `DOTFILES_ANIM=0` is set;
 - `--no-anim` is passed (the flag sets `DOTFILES_ANIM=0` before the model is built);
