@@ -219,6 +219,79 @@ func TestCompanionGoldenFramesTheCreatureAtTickZero(t *testing.T) {
 	teatest.RequireEqualOutput(t, seen.Bytes())
 }
 
+// TestCompanionGoldenPinsTheFullSpriteAndItsGaze snapshots the five-row cat at
+// the wide main menu, on a tick and a gaze cell written on the model before the
+// program starts. Both are model state -- the counter names the frame and the
+// gaze names where the pupils sit -- so the snapshot cannot flake on the clock,
+// and it pins the composed eyes rather than a table row nobody composed.
+func TestCompanionGoldenPinsTheFullSpriteAndItsGaze(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.ExistingConfigs = system.DetectExistingConfigs()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenMainMenu
+	m.Animating = true
+	m.AnimTick = 3
+	m.CompanionGaze = companionGaze{X: -1, Y: -1}
+
+	tm := teatest.NewTestModel(t, m,
+		teatest.WithInitialTermSize(160, 50),
+	)
+
+	seen := &bytes.Buffer{}
+	teatest.WaitFor(t, io.TeeReader(tm.Output(), seen), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(2*time.Millisecond), teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if _, err := io.Copy(seen, tm.Output()); err != nil {
+		t.Fatalf("reading the rest of the output failed: %v", err)
+	}
+	teatest.RequireEqualOutput(t, seen.Bytes())
+}
+
+// TestCompanionGoldenPinsTheCompactSpriteAndItsGaze is the same snapshot one
+// ladder step down: at 100x24 the body leaves four spare rows, the summary takes
+// one and the ladder's first step needs six, so the frame draws the three-row
+// head. It is pinned to a different tick and the other horizontal gaze cell, so
+// the two snapshots together show the composer and the fallback rather than one
+// frame twice.
+func TestCompanionGoldenPinsTheCompactSpriteAndItsGaze(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.ExistingConfigs = system.DetectExistingConfigs()
+	m.Width = 100
+	m.Height = 24
+	m.Screen = ScreenMainMenu
+	m.Animating = true
+	m.AnimTick = 6
+	m.CompanionGaze = companionGaze{X: 1}
+
+	tm := teatest.NewTestModel(t, m,
+		teatest.WithInitialTermSize(100, 24),
+	)
+
+	seen := &bytes.Buffer{}
+	teatest.WaitFor(t, io.TeeReader(tm.Output(), seen), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(2*time.Millisecond), teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if _, err := io.Copy(seen, tm.Output()); err != nil {
+		t.Fatalf("reading the rest of the output failed: %v", err)
+	}
+	teatest.RequireEqualOutput(t, seen.Bytes())
+}
+
 // TestOSSelectGolden tests OS selection screen against golden file
 func TestOSSelectGolden(t *testing.T) {
 	skipIfTermux(t)

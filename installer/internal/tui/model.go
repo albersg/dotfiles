@@ -145,10 +145,16 @@ type Model struct {
 	// CompanionPleased counts the frames left of a celebration: an installation
 	// step that has just finished is worth companionPleasedTicks of them.
 	CompanionPleased int
-	ErrorMsg         string
-	ShowDetails      bool
-	LogLines         []string
-	TotalTime        float64
+	// CompanionGaze is where the creature is looking: the horizontal pupil
+	// position (-1 left, 0 centre, +1 right) and the vertical one (-1 up, 0
+	// level). It lives on the model, like the position and the frame, so a
+	// snapshot can pin a gaze and the pointer task only has to write it from a
+	// mouse message; a render never computes it.
+	CompanionGaze companionGaze
+	ErrorMsg      string
+	ShowDetails   bool
+	LogLines      []string
+	TotalTime     float64
 	// CreatedAt is the moment the model was built. It is state so the welcome and
 	// main menu greet by the time of day without a renderer ever reading the
 	// clock: a render that called time.Now could not be tested or snapshotted, and

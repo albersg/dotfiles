@@ -13,6 +13,18 @@ machine's limits into another machine's VM.
 
 ### Changed
 
+- **The companion has a body, a face and a gaze.** The installer's ASCII creature was one row of
+  seven characters; it is now a cat drawn at three heights, and a ladder picks between them from the
+  rows the body did not need — five rows where it leaves six, three where it leaves four, the one-row
+  art it shipped with where it leaves two, and nothing below that — so a smaller terminal gets a
+  smaller creature instead of none, and no screen loses the creature it had. The panel summary's rows
+  come off the spare rows first, because a fact still beats a decoration. Its pupils sit at one of
+  three columns and its eye row on one of two, and those cells are the only characters a gaze frame
+  changes, so the frame tables stay hand-written and reviewable instead of becoming thirty drawn
+  frames; it blinks every five seconds and yawns through the last two seconds before it sleeps. All
+  of it stays plain ASCII — no emoji, no block glyphs — so Termux and a 16-colour or no-colour
+  terminal keep working, and the frame, the cell and the gaze all come from the model, so a snapshot
+  can still pin a frame instead of flaking on the clock.
 - **The installer has one palette that reads on a light or a dark terminal.** The theme was near-white
   text on whatever background the terminal happened to have, so on a light terminal the body text was
   effectively invisible. Every colour is now adaptive: it asks the terminal for its background and
