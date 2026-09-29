@@ -203,13 +203,58 @@ func placeBody(body []string, rows int) []string {
 	return out
 }
 
+// composeColumns places a screen's body in the left column and the panel it was
+// given in the right one, the gutter columns apart, and indents the whole
+// composition by the leading margin, so a terminal wider than the composition
+// cap gets two symmetric margins instead of one strip of void on the right.
+//
+// Every line it returns is exactly Inner columns wide -- the leading margin, the
+// left column, the gutter, the right column and the matching right margin -- so
+// the composed body covers the same columns as the frame's rules above and below
+// it and the odd column, when the margins cannot be equal, falls to the right.
+// Nothing in the left column can reach under the panel: a line longer than its
+// column is cut by the shared truncate, with its marker, rather than allowed to
+// cross the gutter and collide with the column beside it.
+func composeColumns(body, panel []string, l layout) []string {
+	rows := max(len(body), len(panel))
+	out := make([]string, rows)
+	indent := strings.Repeat(" ", l.Leading)
+	gutter := strings.Repeat(" ", layoutGutter)
+	for i := 0; i < rows; i++ {
+		left, right := "", ""
+		if i < len(body) {
+			left = body[i]
+		}
+		if i < len(panel) {
+			right = panel[i]
+		}
+		out[i] = padRight(indent+
+			padRight(truncate(left, l.Left), l.Left)+gutter+
+			padRight(truncate(right, l.Right), l.Right), l.Inner)
+	}
+	return out
+}
+
 // frame wraps a screen body in the persistent frame. The header stays on the top
 // row and the footer on the bottom one, and the body is centred in the rows
 // between them: a short screen and a full one put their header and their help on
 // the same rows, and neither leaves a void above the footer.
 func (m Model) frame(name, vital string, body []string, hints []installerHint) string {
-	inner := contentWidth(m)
+	return m.frameWithPanel(name, vital, body, hints, nil)
+}
+
+// frameWithPanel is frame with a right column offered. The frame decides whether
+// there is room to compose one: a screen that offers no panel, or a terminal
+// below the two-column floor, is placed exactly as frame places it and renders
+// as it always has. Where there is room, the body is the left column and the
+// panel the right one, and the body drives how many rows the composition takes.
+func (m Model) frameWithPanel(name, vital string, body []string, hints []installerHint, panel []string) string {
+	l := layoutFor(m)
+	inner := l.Inner
 	footer := footerHints(inner, hints)
+	if l.TwoColumn && len(panel) > 0 {
+		body = composeColumns(body, panel, l)
+	}
 	placed := placeBody(body, installerBodyRows(m.Height, len(footer)))
 
 	var b strings.Builder
@@ -417,19 +462,26 @@ func gutteredBlock(lines []string) []string {
 	return out
 }
 
-// rowBar renders one menu row. The selected row is a full-width bar with the ▸
-// in Accent and the text in Paper on BrandSoft; the unselected row is the same
-// text in Ink at the SAME indent, so state comes from the bar and the weight
-// rather than from an indent that moves the text. A row may carry a trailing
-// meter for anything with progress.
+// rowBar renders one menu row. The selected row is a bar with the ▸ in Accent
+// and the text in Paper on BrandSoft; the unselected row is the same text in Ink
+// at the SAME indent, so state comes from the bar and the weight rather than
+// from an indent that moves the text. A row may carry a trailing meter for
+// anything with progress.
+//
+// The row is measured, not stretched: it runs the layout's RowMeasure columns,
+// which is the whole room up to the reading cap and the left column when there
+// are two. A 227-column terminal used to get a 227-column slab of bar behind
+// twenty characters of text; the bar now ends where the row does, and a
+// trailing meter sits at the right edge of that measure. At the 80x24 floor the
+// measure is the content width, so the rows are byte-for-byte what they were.
 func (m Model) rowBar(label string, selected bool, meterPlain string) string {
-	inner := contentWidth(m)
+	measure := layoutFor(m).RowMeasure
 	const markerWidth = 2
 	meterWidth := 0
 	if meterPlain != "" {
 		meterWidth = 1 + lipgloss.Width(meterPlain)
 	}
-	textWidth := inner - markerWidth - meterWidth
+	textWidth := measure - markerWidth - meterWidth
 	if textWidth < 1 {
 		textWidth = 1
 	}
@@ -531,16 +583,18 @@ func offsetWindowMax(rows, total int) int {
 }
 
 // menuRows renders a menu's options: one row per choice, the cursor marked with
-// ▸, and a separator rendered as a frame-width rule. Every menu in the TUI goes
-// through it, so the marker, the cursor style and the divider cannot drift from
-// screen to screen, and the divider follows the frame instead of being the
-// fixed 13-glyph string it used to be. Each option is a rowBar, so the selected
-// row is a full-width bar and the unselected rows keep the same indent.
+// ▸, and a separator rendered as a rule at the same measure as the rows. Every
+// menu in the TUI goes through it, so the marker, the cursor style and the
+// divider cannot drift from screen to screen, and the divider follows the
+// measure the rows are drawn in instead of running wider than the list it
+// groups. Each option is a rowBar, so the selected row is a bar across the
+// measure and the unselected rows keep the same indent.
 func (m Model) menuRows(options []string, cursor int) []string {
+	measure := layoutFor(m).RowMeasure
 	rows := make([]string, 0, len(options))
 	for i, opt := range options {
 		if strings.HasPrefix(opt, menuSeparatorPrefix) {
-			rows = append(rows, rule(contentWidth(m)))
+			rows = append(rows, rule(measure))
 			continue
 		}
 		rows = append(rows, m.rowBar(opt, i == cursor, ""))
@@ -817,7 +871,33 @@ func (m Model) renderMainMenu() string {
 		"",
 	}
 	body = append(body, m.menuRows(m.GetCurrentOptions(), m.Cursor)...)
-	return m.frame(m.headerName(), "", body, []installerHint{hintUp, hintDown, hintSelect, hintQuit})
+
+	// The main menu is the screen that offers a right column. The frame takes it
+	// only where there is room for it and drops it below the two-column floor, so
+	// the 80x24 rendering of this screen is unchanged.
+	return m.frameWithPanel(m.headerName(), "", body,
+		[]installerHint{hintUp, hintDown, hintSelect, hintQuit}, mainMenuPanel(layoutFor(m)))
+}
+
+// mainMenuPanelLabel names the main menu's right column. It is a constant so the
+// frame guard can read the panel back out of a rendered screen by the name a
+// reader sees.
+const mainMenuPanelLabel = "Coming next"
+
+// mainMenuPanel is the main menu's right column once the frame has room to
+// compose one: the block the next slice fills, first with the machine and then
+// with the install plan. It names itself and says what it is going to hold,
+// because it is a placeholder and not a panel -- it holds no data, and a block
+// that looked like a machine summary before there is one to read would be
+// decoration pretending to be information.
+func mainMenuPanel(l layout) []string {
+	text := "Your machine, then the install plan: the next slice fills this column with them."
+	var lines []string
+	for _, row := range wrapText(text, l.Right-blockGutterWidth, 0) {
+		lines = append(lines, MutedStyle.Render(row))
+	}
+	panel := []string{chip(mainMenuPanelLabel)}
+	return append(panel, gutteredBlock(lines)...)
 }
 
 // stripStepPrefix removes a leading "Step N: " from a wizard title, so the step
