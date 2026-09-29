@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1403,4 +1404,158 @@ func TestTheFullMainMenuTabRowFitsTheNarrowestTwoColumnPanel(t *testing.T) {
 			t.Errorf("the tab row does not name %q: %q", p.Title, panelText([]string{row}))
 		}
 	}
+}
+
+// --- the greeting by time of day -------------------------------------------
+
+// nonBlankLines strips a view's styling and its blank rows, so a comparison
+// between two renders reads the content instead of the padding that centring
+// shifts around.
+func nonBlankLines(view string) []string {
+	var out []string
+	for _, line := range strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n") {
+		if strings.TrimSpace(line) != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// TestGreetingForEachPartOfTheDay pins every part of the day the welcome and
+// main menu greet by. The function is pure, so the assertion is a table of
+// instants rather than something that waits for an hour to pass. A zero time has
+// no greeting at all, which is what keeps a model built without a creation time
+// from guessing an hour.
+func TestGreetingForEachPartOfTheDay(t *testing.T) {
+	at := func(h, m int) time.Time {
+		return time.Date(2026, time.March, 14, h, m, 0, 0, time.UTC)
+	}
+	cases := []struct {
+		name string
+		when time.Time
+		want string
+	}{
+		{"the first minute of the morning", at(5, 0), "Good morning"},
+		{"the last minute of the morning", at(11, 59), "Good morning"},
+		{"the first minute of the afternoon", at(12, 0), "Good afternoon"},
+		{"the last minute of the afternoon", at(17, 59), "Good afternoon"},
+		{"the first minute of the evening", at(18, 0), "Good evening"},
+		{"the last minute of the evening", at(23, 59), "Good evening"},
+		{"just after midnight", at(0, 0), "Good evening"},
+		{"no time at all", time.Time{}, ""},
+	}
+	for _, c := range cases {
+		if got := greetingFor(c.when); got != c.want {
+			t.Errorf("%s: greetingFor(%s) = %q, want %q", c.name, c.when.Format(time.RFC3339), got, c.want)
+		}
+	}
+}
+
+// TestGreetingComesFromTheModelNotTheClock pins that the greeting is model state
+// and not a clock read inside the renderer: two renders of one model produce the
+// same bytes, and a model with no creation time shows no greeting line. A
+// renderer that called time.Now could not be snapshotted and would change the
+// bytes when nothing else did.
+func TestGreetingComesFromTheModelNotTheClock(t *testing.T) {
+	for _, screen := range []Screen{ScreenWelcome, ScreenMainMenu} {
+		screen := screen
+		t.Run(fmt.Sprintf("screen %d", screen), func(t *testing.T) {
+			m := NewModel()
+			isolateGoldenTest(t, &m)
+			m.Screen = screen
+			m.Width, m.Height = 80, 24
+
+			greeting := greetingFor(m.CreatedAt)
+			if greeting == "" {
+				t.Fatal("the pinned creation time produced no greeting")
+			}
+			first := ansiEscape.ReplaceAllString(m.View(), "")
+			if !strings.Contains(first, greeting) {
+				t.Errorf("the screen does not show the greeting from the model's creation time:\n%s", first)
+			}
+			if second := m.View(); second != m.View() {
+				t.Errorf("two renders of one model differ")
+			}
+
+			noClock := m
+			noClock.CreatedAt = time.Time{}
+			if lines := ansiEscape.ReplaceAllString(noClock.View(), ""); strings.Contains(lines, greeting) {
+				t.Errorf("a model with no creation time showed a greeting:\n%s", lines)
+			}
+		})
+	}
+}
+
+// TestGreetingIsOnlyOnTheWelcomeAndTheMenu pins that the added line reaches the
+// two screens the design places it on and nowhere else, so no other snapshot may
+// move for it.
+func TestGreetingIsOnlyOnTheWelcomeAndTheMenu(t *testing.T) {
+	greeting := greetingFor(goldenGreetingTime)
+	if greeting == "" {
+		t.Fatal("the golden greeting time produced no greeting")
+	}
+	for _, name := range installerFrameScreenNames {
+		view := ansiEscape.ReplaceAllString(installerFrameCase(t, name).View(), "")
+		want := name == "welcome" || name == "main-menu" || name == "main-menu-restore"
+		if got := strings.Contains(view, greeting); got != want {
+			t.Errorf("screen %q shows the greeting = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// TestGreetingIsAnAddedLineThatMovesNothingElse pins the snapshot move the
+// greeting causes. In one column -- the 80-column floor, where the menu has no
+// panel -- the rendered lines are the lines without the greeting with exactly one
+// line inserted. In two columns the panel is a pure read of the model, so it is
+// byte-identical with and without the greeting; only the body gains the row.
+func TestGreetingIsAnAddedLineThatMovesNothingElse(t *testing.T) {
+	bare := func(screen Screen, width, height int) Model {
+		m := NewModel()
+		isolateGoldenTest(t, &m)
+		m.Screen = screen
+		m.Width, m.Height = width, height
+		return m
+	}
+
+	t.Run("one column gains exactly the one line", func(t *testing.T) {
+		with := bare(ScreenMainMenu, 80, 24)
+		without := with
+		without.CreatedAt = time.Time{}
+
+		greeting := greetingFor(with.CreatedAt)
+		got := nonBlankLines(with.View())
+		want := nonBlankLines(without.View())
+
+		withoutGreeting := make([]string, 0, len(got))
+		for _, line := range got {
+			if strings.TrimSpace(line) == greeting {
+				continue
+			}
+			withoutGreeting = append(withoutGreeting, line)
+		}
+		if !reflect.DeepEqual(withoutGreeting, want) {
+			t.Errorf("the greeting moved more than itself:\nwith it, less the line:\n%s\nwithout it:\n%s",
+				strings.Join(withoutGreeting, "\n"), strings.Join(want, "\n"))
+		}
+		if len(got) != len(want)+1 {
+			t.Errorf("the greeting added %d lines, want 1", len(got)-len(want))
+		}
+	})
+
+	t.Run("two columns leave the panel untouched", func(t *testing.T) {
+		with := bare(ScreenMainMenu, 160, 50)
+		without := with
+		without.CreatedAt = time.Time{}
+
+		l := layoutFor(with)
+		hints := with.panelHints(with.panelsFor(), []installerHint{hintUp, hintDown, hintSelect, hintQuit})
+		budget := installerBodyRows(with.Height, footerRowCount(l.Inner, hints))
+
+		withPanel := with.panelColumn(with.panelsFor(), l, budget)
+		withoutPanel := without.panelColumn(without.panelsFor(), l, budget)
+		if !reflect.DeepEqual(withPanel, withoutPanel) {
+			t.Errorf("the greeting changed the panel:\nwith it:\n%s\nwithout it:\n%s",
+				panelText(withPanel), panelText(withoutPanel))
+		}
+	})
 }

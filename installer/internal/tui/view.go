@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
@@ -864,6 +865,32 @@ func renderWordmark(text string) []string {
 	return out
 }
 
+// greetingFor is the greeting for a time of day. It is pure: the same instant
+// always yields the same words, so a test can pin every part of the day instead
+// of waiting for one to arrive. A zero time has no greeting, so a model built
+// without a creation time adds no line rather than guessing an hour.
+func greetingFor(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	switch h := t.Hour(); {
+	case h >= 5 && h < 12:
+		return "Good morning"
+	case h >= 12 && h < 18:
+		return "Good afternoon"
+	default:
+		return "Good evening"
+	}
+}
+
+// greeting is the welcome and main menu's added dim line. It reads the time the
+// model was created with, never time.Now: a greeting read from the clock while
+// drawing would change the bytes when nothing else did, and no snapshot could
+// pin it.
+func (m Model) greeting() string {
+	return greetingFor(m.CreatedAt)
+}
+
 func (m Model) renderWelcome() string {
 	l := layoutFor(m)
 	inner := contentWidth(m)
@@ -890,6 +917,12 @@ func (m Model) renderWelcome() string {
 		body = append(body, renderEmblem(compactLogo)...)
 		body = append(body, "")
 		body = append(body, BrandStyle.Render("dotfiles"))
+	}
+
+	// A greeting by time of day. It is an added dim line: no copy above or below
+	// it is replaced, and the model's own creation time is what it reads.
+	if g := m.greeting(); g != "" {
+		body = append(body, MutedStyle.Render(g))
 	}
 
 	// The version and the detected environment are one dim fact under the
@@ -936,9 +969,16 @@ func (m Model) renderMainMenu() string {
 	// first screen that a terminal without an emoji font drew as a box.
 	body := []string{
 		BrandStyle.Render("dotfiles"),
+	}
+	// A greeting by time of day, an added dim line read from the model's own
+	// creation time rather than from the clock at render time.
+	if g := m.greeting(); g != "" {
+		body = append(body, MutedStyle.Render(g))
+	}
+	body = append(body,
 		MutedStyle.Render("What would you like to do?"),
 		"",
-	}
+	)
 	body = append(body, m.menuRows(m.GetCurrentOptions(), m.Cursor)...)
 
 	// The main menu is the screen that asks what is about to happen, so it offers
@@ -1376,25 +1416,25 @@ func (m Model) renderLazyVimTopic() string {
 }
 
 // Installing screen rows. The bar is the one place the whole run's progress is
-// visible at a glance, and the step rail is windowed so a run with fifteen steps
-// cannot push its bottom off a 24-row terminal.
+// visible at a glance, the status rows say which step the run is on and how long
+// it has taken, and the step rail is windowed so a run with fifteen steps cannot
+// push its bottom off a 24-row terminal.
 const (
 	// installingBodyFixed is the part of the installing body that is not the step
-	// rail: the progress bar and the blank under it. The title moved into the
-	// frame's header, and the legend into its footer.
-	installingBodyFixed = 2
-	// installingDetailsRows is the whole height the log box adds: the blank above
-	// it, the box's border and padding around three log rows, and the blank below
-	// it.
-	installingDetailsRows = 9
-	// installingDetailsLogLines is how many log rows the box shows. Three is a
-	// deliberate trade, not an oversight: the box is a fixed height so turning
-	// details on cannot push the step rail or the legend off a 24-row frame, and a
-	// fixed box cannot also grow with the terminal. The newest three lines are the
-	// useful end of an installer log, and the final frame guard renders the screen
-	// with twelve lines queued to prove the box stays three rows tall. Raising it is
-	// a frame-budget change, not a one-line one.
-	installingDetailsLogLines = 3
+	// rail and not the log box: the progress bar, the blank under it and the two
+	// status rows that name the current step and the run's own clock. The title
+	// moved into the frame's header, and the legend into its footer.
+	installingBodyFixed = 4
+	// installingDetailsFrameRows is the height the log box spends around its own
+	// lines: the blank above it, the box's border (two rows), its padding (two more)
+	// and the blank below it. It is a constant because only the frame changes; the
+	// number of lines the box holds is what is left after the rail has its floor, so
+	// the box follows the terminal instead of a fixed three rows.
+	installingDetailsFrameRows = 6
+	// installingMinLogLines is the smallest useful box: one log line and the dim note
+	// naming the earlier lines it could not show. Below that the box is dropped and
+	// the rail keeps the rows rather than drawing an empty box.
+	installingMinLogLines = 2
 	// installingMinStepRows keeps the rail useful when the log box has taken its
 	// room.
 	installingMinStepRows = 3
@@ -1467,18 +1507,151 @@ func stepGlyph(step InstallStep) (string, lipgloss.Style) {
 	}
 }
 
-// installingStepRows is how many rows the step rail may use: the frame minus the
-// screen's own fixed rows and, when they are on, the log box.
-func (m Model) installingStepRows() int {
-	fixed := installingBodyFixed
-	if m.ShowDetails && len(m.LogLines) > 0 {
-		fixed += installingDetailsRows
+// installingRowBudget is how the installing body's rows are split between the
+// step rail and the log box. The box is given everything the rail's floor does
+// not need and never more than the log it holds, so the number of lines the log
+// shows follows the frame instead of a constant; a frame too short for even the
+// smallest useful box shows no box and gives the rail the rows.
+func (m Model) installingRowBudget(bodyRows int) (railRows, boxLines int) {
+	available := bodyRows - installingBodyFixed
+	if available < installingMinStepRows {
+		available = installingMinStepRows
 	}
-	rows := installerBodyRows(m.Height, footerRowCount(contentWidth(m), []installerHint{hintDetails})) - fixed
-	if rows < installingMinStepRows {
-		rows = installingMinStepRows
+	if !m.ShowDetails || len(m.LogLines) == 0 {
+		return available, 0
 	}
-	return rows
+	room := available - installingDetailsFrameRows - installingMinStepRows
+	if room < installingMinLogLines {
+		return available, 0
+	}
+	boxLines = len(m.LogLines)
+	if boxLines > room {
+		boxLines = room
+	}
+	return available - boxLines - installingDetailsFrameRows, boxLines
+}
+
+// logTailCount is how many of a log's freshest lines fit in a box of rows, and
+// how many earlier lines are left out. One of the rows is reserved for the dim
+// note that names the ones left out, so a log longer than its box degrades out
+// loud rather than dropping lines silently. It is the log's counterpart to
+// listRows.
+func logTailCount(total, rows int) (shown, hidden int) {
+	if rows < 2 || total < 1 {
+		return 0, total
+	}
+	if total <= rows {
+		return total, 0
+	}
+	return rows - 1, total - (rows - 1)
+}
+
+// logTail renders at most rows of a log's tail: the freshest lines are kept and
+// one dim row says how many earlier lines the screen could not show.
+func logTail(lines []string, rows, width int, style lipgloss.Style) []string {
+	shown, hidden := logTailCount(len(lines), rows)
+	if shown <= 0 && hidden <= 0 {
+		return nil
+	}
+	out := make([]string, 0, shown+1)
+	for _, line := range lines[len(lines)-shown:] {
+		out = append(out, style.Render(truncate(line, width)))
+	}
+	if hidden > 0 {
+		out = append(out, MutedStyle.Render(fmt.Sprintf("… %d earlier lines", hidden)))
+	}
+	return out
+}
+
+// installElapsed is how long the run has taken, read from the model's own start
+// timestamp and latest tick. It reports false when there is no start time or no
+// tick has advanced the clock yet, which is what makes the screen say it is
+// still estimating rather than show a number it cannot justify.
+func (m Model) installElapsed() (time.Duration, bool) {
+	if m.InstallStartedAt.IsZero() || m.Now.IsZero() || m.Now.Before(m.InstallStartedAt) {
+		return 0, false
+	}
+	return m.Now.Sub(m.InstallStartedAt), true
+}
+
+// installETA estimates what is left from this run's own elapsed time and
+// progress: the time already spent, scaled by the fraction still to do. It is
+// deliberately unable to guess: with nothing complete (progress 0) there is no
+// rate to scale, so it reports false, and it never reads a per-step constant or
+// anything about the machine.
+func installETA(progress float64, elapsed time.Duration) (time.Duration, bool) {
+	if progress <= 0 || progress >= 1 || elapsed <= 0 {
+		return 0, false
+	}
+	return time.Duration(float64(elapsed) * (1 - progress) / progress), true
+}
+
+// humanDuration states a duration the way the installing screen does: whole
+// seconds under a minute, minutes and seconds under an hour, hours and minutes
+// above it. No fractions, because a run's clock does not need them.
+func humanDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
+
+// installingStepText names the step the run is on and where it is in the plan.
+// The step counter and the step's name already exist on the model; showing them
+// invents nothing.
+func (m Model) installingStepText() string {
+	total := len(m.Steps)
+	if total == 0 {
+		return ""
+	}
+	current := m.CurrentStep + 1
+	if current > total {
+		current = total
+	}
+	if current < 1 {
+		current = 1
+	}
+	text := fmt.Sprintf("Step %d of %d", current, total)
+	if name := m.Steps[current-1].Name; name != "" {
+		text += panelTabSeparator + name
+	}
+	return text
+}
+
+// installingTimeText is the run's clock: how long it has taken and how much is
+// left. Everything it states is derived from the model, and a run with no basis
+// for an estimate says so instead of showing a number.
+func (m Model) installingTimeText() string {
+	elapsed, ok := m.installElapsed()
+	if !ok {
+		return "Estimating the time remaining…"
+	}
+	text := "Elapsed " + humanDuration(elapsed)
+	if eta, ok := installETA(m.installProgress(), elapsed); ok {
+		text += panelTabSeparator + "~" + humanDuration(eta) + " left"
+	} else {
+		text += panelTabSeparator + "estimating…"
+	}
+	return text
+}
+
+// installingStatusRows is the two rows under the bar: the step the run is on,
+// and the run's own clock. Both are pure reads of the model -- the renderer
+// never reads the wall clock -- which is why a snapshot is stable and why the
+// estimate cannot change when nothing else did. Nothing the installer does not
+// count is added here: the run holds no file counter, so the screen shows none.
+func (m Model) installingStatusRows() []string {
+	return []string{
+		InfoStyle.Render(m.installingStepText()),
+		MutedStyle.Render(m.installingTimeText()),
+	}
 }
 
 // installingVital is the installing screen's header vital sign: which step of
@@ -1526,6 +1699,8 @@ func railRow(name string, style lipgloss.Style, fraction float64, cells, inner i
 
 func (m Model) renderInstalling() string {
 	width := contentWidth(m)
+	hints := []installerHint{hintDetails}
+	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
 
 	// Progress bar. It is sized to the frame and labeled with the percentage, so
 	// the longest thing a user watches says how far along it is. The screen's
@@ -1539,6 +1714,9 @@ func (m Model) renderInstalling() string {
 		renderProgressBar(barWidth, progress) + MutedStyle.Render(fmt.Sprintf(" %3.0f%%", progress*100)),
 		"",
 	}
+	// What the run knows: the step it is on and its own clock. Both come from
+	// model state, so the render stays pure.
+	body = append(body, m.installingStatusRows()...)
 
 	// Step rail. Each step is one row and the running step's description is one
 	// more, and the whole rail is windowed around the running step so a long run
@@ -1559,25 +1737,22 @@ func (m Model) renderInstalling() string {
 		}
 	}
 
-	start, end := listWindow(runningIdx, m.installingStepRows(), len(rows))
+	// The rail and the log box share the rows the frame leaves: the box takes what
+	// the rail's floor does not need, so the log follows the terminal instead of a
+	// fixed three lines. Its rendered rows are split back out so the frame counts
+	// every row of the box, not the box as one row.
+	railRows, boxLines := m.installingRowBudget(bodyRows)
+	start, end := listWindow(runningIdx, railRows, len(rows))
 	body = append(body, rows[start:end]...)
 
-	// Log output when details are on. The box is a fixed height and its lines are
-	// cut to the frame, so turning details on cannot push the rail or the footer
-	// off screen. Its rendered rows are split back out so the frame counts every
-	// row of the box, not the box as one row.
-	if m.ShowDetails && len(m.LogLines) > 0 {
+	if boxLines > 0 {
 		body = append(body, "")
-		logs := m.LogLines[max(0, len(m.LogLines)-installingDetailsLogLines):]
-		lines := make([]string, 0, len(logs))
-		for _, line := range logs {
-			lines = append(lines, truncate(line, width-4))
-		}
+		lines := logTail(m.LogLines, boxLines, width-4, InfoStyle)
 		body = append(body, strings.Split(BoxStyle.Render(strings.Join(lines, "\n")), "\n")...)
 		body = append(body, "")
 	}
 
-	return m.frame(m.headerName(), m.installingVital(), body, []installerHint{hintDetails})
+	return m.frame(m.headerName(), m.installingVital(), body, hints)
 }
 
 func (m Model) renderComplete() string {
@@ -1622,6 +1797,8 @@ func (m Model) renderComplete() string {
 
 func (m Model) renderError() string {
 	width := contentWidth(m)
+	hints := []installerHint{hintRetry, hintQuit}
+	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
 
 	// The screen's name is the frame's header now, so the body opens on the failure
 	// block instead of repeating it as a second label row.
@@ -1635,24 +1812,21 @@ func (m Model) renderError() string {
 	}
 	body = append(body, gutteredBlock(errLines)...)
 
-	// Show last few log lines for context.
+	// Show the freshest log lines for context, as many as the frame leaves rather
+	// than a fixed five. One dim row names the earlier lines the panel could not
+	// show, so a log longer than the panel degrades out loud instead of dropping
+	// them silently. The blank above the panel and its chip are spent first, and a
+	// frame too small for even one line and the note shows no panel at all rather
+	// than an empty one.
 	if len(m.LogLines) > 0 {
-		body = append(body, "")
-		body = append(body, chip("Recent logs"))
-		// Show last 5 log lines, cut to the frame so a long line is marked rather
-		// than clipped at the edge.
-		startIdx := len(m.LogLines) - 5
-		if startIdx < 0 {
-			startIdx = 0
+		logRows := bodyRows - len(body) - 2
+		if logRows >= 2 {
+			body = append(body, "", chip("Recent logs"))
+			body = append(body, gutteredBlock(logTail(m.LogLines, logRows, width-2, InfoStyle))...)
 		}
-		logLines := make([]string, 0, len(m.LogLines)-startIdx)
-		for _, line := range m.LogLines[startIdx:] {
-			logLines = append(logLines, InfoStyle.Render(truncate(line, width-2)))
-		}
-		body = append(body, gutteredBlock(logLines)...)
 	}
 
-	return m.frame(m.headerName(), "", body, []installerHint{hintRetry, hintQuit})
+	return m.frame(m.headerName(), "", body, hints)
 }
 
 // backupConfirmFixed is the rows the backup-confirmation body spends around the
