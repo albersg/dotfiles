@@ -150,15 +150,11 @@ var (
 			Background(Primary).
 			Bold(false)
 
-	// TrainerHelpStyle is HelpStyle without its margin. The trainer screens budget
-	// one terminal row per element, so the blank line above a legend is an element
-	// of its own there instead of a margin the row count cannot see. The menu rows
-	// and the trainer title used to have styles of their own here; they go through
-	// the shared rowBar, headerRow and chip now, so those names were removed rather
-	// than left as unused choices no screen can be checked against.
-	TrainerHelpStyle = lipgloss.NewStyle().
-				Foreground(TextMuted).
-				Italic(true)
+	// The trainer menu rows and the trainer title used to have styles of their own in
+	// this block; they go through the shared rowBar, headerRow and chip now, so those
+	// names were removed rather than left as unused choices no screen can be checked
+	// against. The same reasoning removed TrainerHelpStyle once the trainer footers
+	// went through the shared footer component.
 
 	// --- Semantic roles ---------------------------------------------------
 	//

@@ -22,45 +22,14 @@ func formatControlChars(input string) string {
 	return result
 }
 
-// The key-hint fragments the trainer screens still share. The installer's own
-// screens draw their footers from the structured installerHint values below,
-// which give the keys and the verbs separate colours; the trainer's legends are
-// still lists of these plain fragments joined by helpNotation. One notation and
-// one order is the rule either way: every key is bracketed, and a screen lists
-// its hints navigation first, then the action, then the way back or out.
-//
-// Only the hints a screen actually honours live here.
-const (
-	helpNavigate = "↑/k up • ↓/j down"
-	helpBack     = "[Esc] back"
-
-	// helpReturnToMenu names the four keys that all do the same thing on a screen
-	// whose only action is to go back a level: the trainer's boss-result legend.
-	// It is one fragment because the four keys share one outcome, and it goes
-	// through the shared notation like every other legend.
-	helpReturnToMenu = "[Enter/Space/Esc/q] return to menu"
-)
-
-// helpNotation joins a screen's key hints with the one separator and the one
-// order the program shares, so a legend is a list of named fragments instead of
-// a hand-typed sentence that drifts from its neighbours. It is the notation
-// itself; helpLine and trainerHelpLine differ only in the style around it.
-func helpNotation(hints ...string) string {
-	return strings.Join(hints, " • ")
-}
-
-// helpLine renders a screen's key hints with the one separator and the one
-// order they share.
-func helpLine(hints ...string) string {
-	return HelpStyle.Render(helpNotation(hints...))
-}
-
-// trainerHelpLine is helpLine without the margin: the trainer budgets one row
-// per element, so it draws the same notation through TrainerHelpStyle, which
-// carries no margin of its own.
-func trainerHelpLine(hints ...string) string {
-	return TrainerHelpStyle.Render(helpNotation(hints...))
-}
+// Every footer in the program is one list of installerHint values -- the keys
+// that trigger an action and the verb that names it -- packed and styled by
+// footerHints below. One notation and one order is the rule: every key is
+// bracketed, and a screen lists its hints navigation first, then the action,
+// then the way back or out. The trainer screens used to spell their legends as
+// plain strings joined by their own notation, which is why their keys did not
+// look like keys; they go through the same component now, and their hints are
+// declared beside the trainer views.
 
 // deadEnd renders a screen with nothing to show: what is missing, and the way
 // out of it. The screens used to name the fact and stop ("Category not found",
@@ -84,14 +53,13 @@ func deadEnd(message, action string) string {
 // screens cannot: they size their code window from the exact number of rows the
 // chrome leaves, so they compose the same parts -- headerRow, rule, chip and
 // gutteredBlock -- directly, one row per element, without placeBody's padding.
-// The trainer-help helpers above (helpNotation, trainerHelpLine) keep their own
-// notation because the trainer's legends are plain strings rather than
-// installerHint pairs.
+// The trainer's legends go through footerHints too, one row per packed line, so
+// their keys and verbs read the same there as on every installer screen.
 
 // installerHint is one footer entry: the keys that trigger an action and the
 // verb that names it. The frame draws the keys in Accent and the verb in InkDim,
-// so the eye finds the keys without reading the sentence. It is the installer's
-// structured form of the notation the trainer still spells as one string.
+// so the eye finds the keys without reading the sentence. It is how every
+// footer, the trainer's included, spells one hint.
 type installerHint struct {
 	keys string
 	verb string
@@ -120,13 +88,21 @@ var (
 const helpHintSeparator = " • "
 
 // hintPlainWidth is the columns one hint takes: keys, the space between them,
-// and the verb.
+// and the verb. A hint with no keys -- an instruction like the trainer's "Type
+// command" -- is just its verb.
 func hintPlainWidth(h installerHint) int {
+	if h.keys == "" {
+		return lipgloss.Width(h.verb)
+	}
 	return lipgloss.Width(h.keys) + 1 + lipgloss.Width(h.verb)
 }
 
-// renderHint draws one hint: keys in Accent, verb in InkDim.
+// renderHint draws one hint: keys in Accent, verb in InkDim. A hint with no keys
+// renders as its verb alone, with no leading space for the key that is not there.
 func renderHint(h installerHint) string {
+	if h.keys == "" {
+		return HelpVerbStyle.Render(h.verb)
+	}
 	return AccentKeyStyle.Render(h.keys) + " " + HelpVerbStyle.Render(h.verb)
 }
 
@@ -1683,10 +1659,10 @@ func (m Model) renderRestoreConfirm() string {
 // TestTrainerScreensFitTheFrame renders every lesson and every boss step of
 // every module at 80x24 and fails when a screen does not fit.
 //
-// Two rules keep the arithmetic true: a legend is rendered one line per element
-// with no margin of its own (that is what TrainerHelpStyle is for), and a
-// wrapped block is capped to a fixed number of elements so it cannot consume
-// rows the code window was promised.
+// Two rules keep the arithmetic true: a legend is packed by the shared footer
+// component into the two rows trainerFrameRows reserves for it, and a wrapped
+// block is capped to a fixed number of elements so it cannot consume rows the
+// code window was promised.
 
 const (
 	// trainerGutterWidth is the columns the "%2d | " line-number prefix takes in
@@ -1732,32 +1708,35 @@ const (
 	trainerFrameRows = 12
 )
 
-// The labels and hints the trainer screens share. Each hint is one named
-// fragment, joined through the same helpNotation as every other screen, so the
-// menu, the lesson, the practice and the boss legends cannot drift apart on the
-// keys they promise: Ctrl-e types the token an insert answer needs to leave
-// insert mode, Ctrl-v types the byte that opens a blockwise visual selection,
-// Esc is the trainer's own exit key, Backspace is an input edit the engine never
-// sees, and PgUp/PgDn scroll the code window. The scroll keys are key names
-// rather than printable characters, so they cannot collide with typing, with
-// the hint key, with submit or with back.
-const (
-	trainerHelpLesson   = "[Enter/l] lesson"
-	trainerHelpPractice = "[p] practice"
-	trainerHelpBoss     = "[b] boss"
-	trainerHelpReset    = "[r] reset module"
-	trainerHelpResetAll = "[R] reset all"
-	trainerHelpBack     = "[q/Esc] back"
+// The hints the trainer screens share, in the shared installerHint form so they
+// pack and style through footerHints exactly like the installer's. Each one is a
+// key and its verb, so the menu, the lesson, the practice and the boss legends
+// cannot drift apart on the keys they promise: Ctrl-e types the token an insert
+// answer needs to leave insert mode, Ctrl-v types the byte that opens a
+// blockwise visual selection, Esc is the trainer's own exit key, Backspace is an
+// input edit the engine never sees, and PgUp/PgDn scroll the code window. The
+// scroll keys are key names rather than printable characters, so they cannot
+// collide with typing, with the hint key, with submit or with back. "Type
+// command" is the one instruction with no key of its own, so it carries an empty
+// key token and renders as its verb alone.
+var (
+	trainerHintLesson   = installerHint{"[Enter/l]", "lesson"}
+	trainerHintPractice = installerHint{"[p]", "practice"}
+	trainerHintBoss     = installerHint{"[b]", "boss"}
+	trainerHintReset    = installerHint{"[r]", "reset module"}
+	trainerHintResetAll = installerHint{"[R]", "reset all"}
+	trainerHintBack     = installerHint{"[q/Esc]", "back"}
+	trainerHintContinue = installerHint{"[Enter]", "continue"}
 
-	trainerHelpTypeCommand = "Type command"
-	trainerHelpSubmit      = "[Enter] submit"
-	trainerHelpHint        = "[Tab] hint"
-	trainerHelpScroll      = "[PgUp/PgDn] scroll"
-	trainerHelpDelete      = "[Backspace] delete"
-	trainerHelpEscToken    = "[Ctrl-e] type " + trainer.EscToken
-	trainerHelpBlockVisual = "[Ctrl-v] block"
-	trainerHelpQuit        = "[Esc] quit"
-	trainerHelpForfeit     = "[Esc] forfeit"
+	trainerHintTypeCommand = installerHint{"", "Type command"}
+	trainerHintSubmit      = installerHint{"[Enter]", "submit"}
+	trainerHintHint        = installerHint{"[Tab]", "hint"}
+	trainerHintScroll      = installerHint{"[PgUp/PgDn]", "scroll"}
+	trainerHintDelete      = installerHint{"[Backspace]", "delete"}
+	trainerHintEscToken    = installerHint{"[Ctrl-e]", "type " + trainer.EscToken}
+	trainerHintBlockVisual = installerHint{"[Ctrl-v]", "block"}
+	trainerHintQuit        = installerHint{"[Esc]", "quit"}
+	trainerHintForfeit     = installerHint{"[Esc]", "forfeit"}
 )
 
 // trainerAnswer is the typed answer as the screen shows it: control characters
@@ -2152,12 +2131,15 @@ func (m Model) renderTrainerMenu() string {
 		}
 	}
 
-	// Legend, one row per line through the shared notation, so the menu's height
-	// is countable and its keys read the way every other screen's do.
-	rows = append(rows,
-		trainerHelpLine(helpNavigate, trainerHelpLesson, trainerHelpPractice, trainerHelpBoss),
-		trainerHelpLine(trainerHelpReset, trainerHelpResetAll, trainerHelpBack),
-	)
+	// Legend, packed by the shared footer component: the keys read as keys and
+	// the verbs as verbs, the same way every installer screen's footer does. The
+	// menu's eight hints pack to two rows at the 80-column floor, the height the
+	// rows above already reserve.
+	rows = append(rows, footerHints(inner, []installerHint{
+		hintUp, hintDown,
+		trainerHintLesson, trainerHintPractice, trainerHintBoss,
+		trainerHintReset, trainerHintResetAll, trainerHintBack,
+	})...)
 
 	return strings.Join(rows, "\n")
 }
@@ -2457,13 +2439,14 @@ func (m Model) renderTrainerExercise(mode string) string {
 	)
 	rows = append(rows, m.trainerFeedbackRows(InfoStyle)...)
 
-	// Help. The two lines go through trainerHelpLine, one row each, so the
-	// screen's height is countable: see trainerFrameRows.
-	rows = append(rows,
-		"",
-		trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpHint, trainerHelpScroll),
-		trainerHelpLine(trainerHelpDelete, trainerHelpEscToken, trainerHelpBlockVisual, trainerHelpQuit),
-	)
+	// Help, packed by the shared footer component. It stays two rows at the
+	// 80-column floor, so the screen's height is still countable: see
+	// trainerFrameRows.
+	rows = append(rows, "")
+	rows = append(rows, footerHints(inner, []installerHint{
+		trainerHintTypeCommand, trainerHintSubmit, trainerHintHint, trainerHintScroll,
+		trainerHintDelete, trainerHintEscToken, trainerHintBlockVisual, trainerHintQuit,
+	})...)
 
 	return strings.Join(rows, "\n")
 }
@@ -2630,11 +2613,14 @@ func (m Model) renderTrainerBoss() string {
 	}
 
 	if state.BossStep >= len(boss.Steps) || exercise == nil {
-		// No step is on screen, so there is no code window to size around.
+		// No step is on screen, so there is no code window to size around. The
+		// legend packs through the shared footer component like every other.
 		rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
-		rows = append(rows, "",
-			trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpEscToken),
-			trainerHelpLine(trainerHelpScroll, trainerHelpForfeit, trainerHelpBlockVisual))
+		rows = append(rows, "")
+		rows = append(rows, footerHints(inner, []installerHint{
+			trainerHintTypeCommand, trainerHintSubmit, trainerHintEscToken,
+			trainerHintScroll, trainerHintForfeit, trainerHintBlockVisual,
+		})...)
 		return strings.Join(rows, "\n")
 	}
 
@@ -2653,9 +2639,11 @@ func (m Model) renderTrainerBoss() string {
 		RuleStyle.Render("│ ")+KeyStyle.Render(tailToWidth(m.trainerAnswer(), inner-blockGutterWidth)),
 	)
 	rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
-	rows = append(rows, "",
-		trainerHelpLine(trainerHelpTypeCommand, trainerHelpSubmit, trainerHelpEscToken),
-		trainerHelpLine(trainerHelpScroll, trainerHelpForfeit, trainerHelpBlockVisual))
+	rows = append(rows, "")
+	rows = append(rows, footerHints(inner, []installerHint{
+		trainerHintTypeCommand, trainerHintSubmit, trainerHintEscToken,
+		trainerHintScroll, trainerHintForfeit, trainerHintBlockVisual,
+	})...)
 
 	return strings.Join(rows, "\n")
 }
@@ -2739,7 +2727,11 @@ func (m Model) renderTrainerResult() string {
 		}
 	}
 
-	rows = append(rows, "", helpLine("[Enter] continue", helpBack))
+	// The last two blank rows are what the old help line's top margin drew; they
+	// are kept so the result screen keeps the breathing room it had above the
+	// footer, which now packs through the shared component.
+	rows = append(rows, "", "")
+	rows = append(rows, footerHints(inner, []installerHint{trainerHintContinue, hintBack})...)
 	return strings.Join(rows, "\n")
 }
 
@@ -2797,6 +2789,7 @@ func (m Model) renderTrainerBossResult() string {
 		rows = append(rows, gutteredBlock([]string{MutedStyle.Render(m.TrainerMessage)})...)
 	}
 
-	rows = append(rows, "", helpLine(helpReturnToMenu))
+	rows = append(rows, "", "")
+	rows = append(rows, footerHints(inner, []installerHint{hintReturn})...)
 	return strings.Join(rows, "\n")
 }
