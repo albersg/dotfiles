@@ -32,8 +32,10 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
   a percentage, the step the run is on with its name, the elapsed time and an estimate of what is
   left measured from the run's own clock, a per-step status rail, and optional detailed logs sized
   to the rows the frame leaves
-- **A Companion**: A small ASCII creature walks the row above the footer, follows the selection you
-  move the cursor to, sleeps when you stop typing, and reacts to failures and to destructive choices
+- **A Companion**: A small ASCII cat walks the rows above the footer — five rows where the body
+  leaves room, three where it leaves less, the one-row creature elsewhere — looks at the selection
+  you move the cursor to, blinks, yawns before it sleeps when you stop typing, and reacts to
+  failures and to destructive choices
 - **Non-Interactive Mode**: CI/CD friendly installation via CLI flags
 
 ## Quick Start
@@ -255,27 +257,64 @@ names a panel that would have to say "never".
 
 ### The companion
 
-One row of the frame is not information. **A small creature walks the row immediately above the
-footer rule** — the last row the body did not need — and only there: a screen whose body fills its
-frame shows no companion at all, so the creature never costs a body a row, and with animation off
-there is no companion anywhere, because a frozen pet is not the point.
+The rows of the frame the body did not need are not information. **A small creature walks the last
+of them** — immediately above the footer rule — and only there: a screen whose body fills its frame
+shows no companion at all, so the creature never costs a body a row, and with animation off there is
+no companion anywhere, because a frozen pet is not the point.
+
+It is drawn at three heights, and a ladder picks between them so that a terminal which leaves fewer
+rows gets a smaller creature rather than none: **five rows** (a cat with a body), else **three rows**
+(the same cat's head), else the **one row** the creature shipped with, else nothing. The panel
+summary's rows come off the spare rows first, because a fact beats a decoration: a narrow screen with
+one row to spare shows the facts and no creature, one with two rows to spare shows both with the
+summary above the creature, and one whose body fills its frame shows neither. At 80x24 — the floor
+every screen is guaranteed to work at — the main menu leaves five spare rows of which the summary
+takes one, so the three-row head is what draws there; the whole five-row cat needs six.
 
 The art is drawn in this repository, in `installer/internal/tui/companion.go`, and it is plain ASCII:
-a 16-colour terminal, a terminal without an emoji font and Termux all draw it.
+a 16-colour terminal, a terminal without an emoji font and Termux all draw it. Every row of a frame is
+the same width, so the creature never jitters sideways, and the cell is fixed per height, so a
+one-cell step is always one column.
 
-| State | Frame | When |
-|-------|-------|------|
-| Idle | `(o.o)` | Awake and standing still: the first frame, and the tick it arrives at the row you pointed at |
-| Walking | `(o.o)/` `(o.o)\` | The frames it moves: the leg alternates, which is what reads as motion |
-| Asleep | `(-.-) z` | Twenty seconds with no key pressed |
-| Alert | `(O.O) !` | The selection throws something away |
-| Pleased | `\(o.o)/` | About a second after an installation step finishes, or a right answer on a trainer result screen |
-| Flinch | `(>.<)` | A failure is on screen, or a wrong answer on a trainer result screen |
+```text
+   the whole cat (5 rows)        the head (3 rows)          the shipped art (1 row)
+    /\______/\                    /\_____/\
+   (          )                  (  o   o  )                (o.o)
+   (  o    o  )                    >  ^  <
+   (     ^    )
+    >  <  >  <
+```
 
-The state reads from the glyphs — the eyes, the `z` and the `!` — and not from the tone, so a
-16-colour or no-colour terminal loses nothing. Nothing was copied from a third-party mascot either:
-the Go gopher is CC-BY, cowsay's cow is GPL-ish and nyancat's cat belongs to its author, and this
-repository's attribution surface stays empty.
+**The state reads from the glyphs**, not from the tone — the eyes, the `z` and the `!` — so a
+16-colour or no-colour terminal loses nothing. The faces below are the five-row cat's; the head
+carries the same eyes and props, and the one-row art the same state as the frame it replaced.
+
+| State | What it looks like | When |
+|-------|--------------------|------|
+| Idle | `(  o    o  )` | Awake and standing still: the first frame, and the tick it arrives at the row you pointed at |
+| Walking | the paws alternate between legs apart and legs in | The frames it moves: the legs change, which is what reads as motion |
+| Blinking | `(  -    -  )` for one frame, every five seconds | It is awake and idle. The blink is the tick counter read at a modulus, not a second clock |
+| Yawning | `(  -    -  )` with the mouth open, over the last two seconds before it sleeps | The quiet run is nearly over, so falling asleep reads as a transition rather than a cut |
+| Asleep | `(  -    -  )` and a `z` beside the ears | Twenty seconds with no key pressed |
+| Alert | `(  O    O  )` and a `!` | The selection throws something away |
+| Pleased | `(  ^    ^  )` and `\o/` above the head | About a second after an installation step finishes, or a right answer on a trainer result screen |
+| Flinch | `(  >    <  )` and a `!` | A failure is on screen, or a wrong answer on a trainer result screen |
+
+**It looks where it is going.** The pupils sit at one of three columns across the head and the eye
+row is one of two rows, and those cells are the only characters a gaze frame changes: the tables hold
+one neutral frame per state and a composer moves the eyes, which is what keeps seven states and three
+gaze columns from becoming thirty hand-drawn frames. On the five-row cat "up" moves the eyes to the
+upper of the two interior rows; the three-row head has room for one eye row, so its gaze is
+horizontal; and the one-row face has no interior column to move a pupil into at all, which is why it
+is kept exactly as it shipped. Down is not drawn: there is no honest third eye row, and a
+wrong-looking "down" would read worse than a missing one. The pupils rest while the thing it wants is
+within a two-column dead zone of its own cell, so they cannot flicker.
+
+Today the creature looks at the selection: the row the cursor is on is a body row above its own, so a
+menu screen makes it look up and, while the selection is off to one side, that way too, and a screen
+with nothing to point at leaves it looking straight ahead. The gaze is a cell on the model, like the
+position and the frame, and `companionGazeFor` is the one function the pointer feeds when the mouse
+arrives.
 
 **It walks, follows the selection, sleeps and reacts.** It strolls one cell per animation frame —
 eight frames a second, the frame tick the animation gate owns — and turns at the edge of its row.
@@ -291,13 +330,16 @@ the trainer's result screens it reacts to the verdict in the header: pleased on 
 flinching on `✗ Incorrect`. The reaction wins over the resting state, so a sleeping companion that
 must flinch flinches.
 
-**The frame and the cell come from the model, never from the clock.** The frame tick advances the
-counter and takes one step; the renderer only draws. The same model and tick therefore produce the
-same bytes on every run, which is what lets a snapshot pin a frame instead of flaking on the clock.
-The cost is bounded by a test rather than by a promise: the creature draws in one row, so a tick
-changes exactly that row and the renderer repaints one line. A screen with no spare row draws no
-companion, and on those the tick changes nothing at all: the view string is identical, so the
-renderer skips the frame entirely.
+Nothing was copied from a third-party mascot: the Go gopher is CC-BY, cowsay's cow is GPL-ish and
+nyancat's cat belongs to its author, so this repository's attribution surface stays empty.
+
+**The frame, the cell and the gaze come from the model, never from the clock.** The frame tick
+advances the counter and takes one step; the renderer only draws. The same model and tick therefore
+produce the same bytes on every run, which is what lets a snapshot pin a frame, a cell and a gaze
+instead of flaking on the clock. The cost is bounded by a test rather than by a promise: the creature
+draws only in the rows it owns — one, three or five of them — so a tick changes those rows and the
+renderer repaints those lines. A screen with no spare row draws no companion, and on those the tick
+changes nothing at all: the view string is identical, so the renderer skips the frame entirely.
 
 ### Turning animation off
 
