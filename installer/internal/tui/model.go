@@ -438,11 +438,11 @@ func (m Model) GetScreenTitle() string {
 	case ScreenGhosttyWarning:
 		return "⚠️ Ghostty Compatibility Warning"
 	case ScreenInstalling:
-		return "Installing..."
+		return "Installing dotfiles"
 	case ScreenComplete:
-		return "Installation Complete!"
+		return "Installation complete"
 	case ScreenError:
-		return "Error"
+		return "Installation failed"
 	case ScreenLearnTerminals:
 		return "📚 Learn: Terminal Emulators"
 	case ScreenLearnShells:

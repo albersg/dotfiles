@@ -146,8 +146,8 @@ func TestGetScreenTitle(t *testing.T) {
 		{ScreenOSSelect, "Step 1: Select Your Operating System"},
 		{ScreenTerminalSelect, "Step 2: Choose Terminal Emulator"},
 		{ScreenShellSelect, "Step 4: Choose Your Shell"},
-		{ScreenComplete, "Installation Complete!"},
-		{ScreenError, "Error"},
+		{ScreenComplete, "Installation complete"},
+		{ScreenError, "Installation failed"},
 	}
 
 	for _, tt := range tests {
