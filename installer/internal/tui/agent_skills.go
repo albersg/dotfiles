@@ -19,10 +19,12 @@ import (
 // ~/.pi/agent/skills.
 //
 // Every source is immutable. The two repositories that publish a whole tree are
-// pinned to a commit archive, and the OfficeCLI skill is pinned to a commit in
-// the GitHub contents API. The installer downloads each artifact, verifies the
-// SHA-256 recorded here, and only then stages it for installation, so a changed
-// upstream or a tampered transfer is refused rather than installed.
+// pinned to a commit archive, and the OfficeCLI skill is pinned to individual
+// files served by raw.githubusercontent.com at a commit. The installer downloads
+// each artifact, verifies the SHA-256 recorded here, and only then stages it for
+// installation, so a changed upstream or a tampered transfer is refused rather
+// than installed. The pins pin bytes, not transport: only the URL used to fetch
+// them changes, never the verification.
 //
 // The update process for these pins is documented in docs/ai-configuration.md
 // ("Updating the pinned skill sources").
@@ -52,11 +54,13 @@ const (
 // script builders.
 const agentSkillsStepID = "agentskills"
 
-// officeCLISkillFileURL builds the contents-API URL for one file at the pinned
-// OfficeCLI commit. The API returns the raw bytes only for the media type sent
-// with the request; see downloadToFile.
+// officeCLISkillFileURL builds the raw URL for one file at the pinned OfficeCLI
+// commit. raw.githubusercontent.com serves the exact bytes committed at that
+// commit, and unlike the GitHub contents API it is not rate-limited per IP for
+// unauthenticated requests, so GitHub's shared CI runner addresses cannot turn
+// the download into a 403.
 func officeCLISkillFileURL(filePath string) string {
-	return fmt.Sprintf("https://api.github.com/repos/iOfficeAI/OfficeCLI/contents/%s?ref=%s", filePath, officeCLISkillCommit)
+	return fmt.Sprintf("https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/%s/%s", officeCLISkillCommit, filePath)
 }
 
 // agentSkillKind is the shape of a pinned source: a commit ZIP that contains a
@@ -76,8 +80,8 @@ type agentSkillExtra struct {
 	dest   string // destination-relative path
 }
 
-// agentSkillFile is one commit-pinned file fetched through the GitHub contents
-// API and written to dest inside the installed package.
+// agentSkillFile is one file fetched by raw URL at a pinned commit and written
+// to dest inside the installed package.
 type agentSkillFile struct {
 	url    string
 	dest   string
@@ -258,7 +262,7 @@ func installAgentSkillPackage(pkg agentSkillPackage, skillsDir, stepID string) e
 
 func stageAgentSkillZip(pkg agentSkillPackage, stagingRoot, stagedPkg, stepID string) error {
 	archivePath := filepath.Join(stagingRoot, pkg.name+".zip")
-	if err := downloadToFile(pkg.archiveURL, archivePath, stepID, ""); err != nil {
+	if err := downloadToFile(pkg.archiveURL, archivePath, stepID); err != nil {
 		return fmt.Errorf("failed to download %s: %w", pkg.archiveURL, err)
 	}
 	if err := verifyFileSHA256(archivePath, pkg.archiveSHA256); err != nil {
@@ -276,10 +280,10 @@ func stageAgentSkillFiles(pkg agentSkillPackage, stagedPkg, stepID string) error
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("failed to create %s: %w", filepath.Dir(dest), err)
 		}
-		// The GitHub contents API returns the raw bytes only for the media type
-		// below; without it the response is a JSON envelope and the checksum
-		// would never match.
-		if err := downloadToFile(file.url, dest, stepID, "application/vnd.github.raw"); err != nil {
+		// The file is fetched by raw URL at the pinned commit and then verified
+		// against the SHA-256 recorded for it, so the transport can change while
+		// the bytes still have to match exactly.
+		if err := downloadToFile(file.url, dest, stepID); err != nil {
 			return fmt.Errorf("failed to download %s: %w", file.url, err)
 		}
 		if err := verifyFileSHA256(dest, file.sha256); err != nil {
@@ -291,14 +295,10 @@ func stageAgentSkillFiles(pkg agentSkillPackage, stagedPkg, stepID string) error
 
 // downloadToFile fetches url with curl, exactly as the rest of the installer
 // does, so curl's own exit status is preserved and a failed transfer is seen
-// rather than swallowed. accept adds an Accept header when the source needs one
-// (the GitHub contents API).
-func downloadToFile(url, dest, stepID, accept string) error {
-	command := "curl -fsSL"
-	if accept != "" {
-		command += fmt.Sprintf(" -H %q", "Accept: "+accept)
-	}
-	command += fmt.Sprintf(" -o %q %q", dest, url)
+// rather than swallowed. It sends no extra headers: every pinned source is a
+// plain HTTPS URL.
+func downloadToFile(url, dest, stepID string) error {
+	command := fmt.Sprintf("curl -fsSL -o %q %q", dest, url)
 	result := system.RunWithLogs(command, nil, func(line string) {
 		SendLog(stepID, line)
 	})
