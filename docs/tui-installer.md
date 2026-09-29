@@ -192,23 +192,26 @@ question its own screen asks:
 |--------|-------|-------------------------|
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What is about to happen — the plan the run would execute, the configurations it will overwrite, and the newest backup with when it was taken and how old it is |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
 
-The welcome screen asks where you are, so its panel is the machine; the main menu asks what it is
-about to do, so its panel is the plan and the state that run will read. The plan is the wizard's own:
-before the first question the panel builds it with the same pure builder from the detected host, and
-names the host it is describing (`on Linux (detected)`) because the operating-system question has not
-been asked yet.
+The welcome screen asks where you are, so its panel is the machine; the main menu asks what is
+about to happen, so its panel follows the option under the cursor and names that option in its first
+row. **The panel's name does not move with the cursor** — the tab row would wander, and `Tab` would
+become a moving target on the very key that walks the panels — so the selection is named inside the
+panel instead. The plan is the wizard's own: before the first question the panel builds it with the
+same pure builder from the detected host, and names the host it is describing
+(`on Linux (detected)`) because the operating-system question has not been asked yet.
 
-A panel is a glance, not a document. The main menu's panel numbers the steps, gives the `▸` marker
-its own column and right-aligns the numbers, so the step names start on one column and the digits
-form a straight edge whether the plan has eight steps or eighty, and it keeps the description of the
-step the run starts at — or, once a run is in progress, the step it is on — because that is the next
-action. **The other steps' descriptions are deliberately left out**: they are read on the installing
-screen, beside the step that is running, which is where a description is read rather than skimmed.
+A panel is a glance, not a document. On the **Start Installation** selection the main menu's panel
+numbers the steps, gives the `▸` marker its own column and right-aligns the numbers, so the step
+names start on one column and the digits form a straight edge whether the plan has eight steps or
+eighty, and it keeps the description of the step the run starts at — or, once a run is in progress,
+the step it is on — because that is the next action. **The other steps' descriptions are
+deliberately left out**: they are read on the installing screen, beside the step that is running,
+which is where a description is read rather than skimmed.
 
 The panels also leave out every fact the installer has not measured. A value the model does not hold
 produces no row at all — never `unknown`, `none` or a guessed default — because a panel padded with
@@ -218,8 +221,11 @@ not show.
 
 **The plan is on the wizard's choice screens, and the trainer's panel reads the trainer's own file.**
 The wizard's own questions (operating system, terminal, font, shell, multiplexer, Neovim, the Ghostty
-warning) each draw a plan panel beside the choice, for the same reason the main menu does. The
-**Your trainer** panel reads the stats the trainer already persists (`~/.config/dotfiles-trainer/stats.json`)
+warning) each draw the plan panel beside the choice, name the highlighted choice in its first row
+and show the plan that choice would lead to — so the operating-system question previews the
+highlighted OS and the shell question previews the highlighted shell — while still marking the step
+the plan is on. The **Your trainer** panel reads the stats the trainer already persists
+(`~/.config/dotfiles-trainer/stats.json`)
 on the startup path, through the same accessors the trainer menu uses, so the panel and the menu
 cannot disagree, and a module you have never opened is left out rather than shown as `0/5`. When
 there is no record of any run — no file at all, or a file saved before anything was played — the
