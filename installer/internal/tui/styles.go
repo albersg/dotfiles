@@ -150,28 +150,12 @@ var (
 			Background(Primary).
 			Bold(false)
 
-	// Vim Trainer menu rows. Every row state -- selected, unselected and locked
-	// -- has to start on the same column, so these styles carry no padding: the
-	// row's own marker column is what separates the rows. The shared menu styles
-	// keep their padding for the installer's own menus.
-	TrainerRowStyle = lipgloss.NewStyle().
-			Foreground(Text)
-
-	TrainerRowSelectedStyle = lipgloss.NewStyle().
-				Foreground(Accent).
-				Bold(true)
-
-	TrainerRowLockedStyle = lipgloss.NewStyle().
-				Foreground(TextMuted)
-
-	// TrainerTitleStyle and TrainerHelpStyle are TitleStyle and HelpStyle without
-	// their margins. The trainer screens budget one terminal row per element, so
-	// the blank line above a legend and below a title is an element of its own
-	// there instead of a margin the row count cannot see.
-	TrainerTitleStyle = lipgloss.NewStyle().
-				Foreground(Primary).
-				Bold(true)
-
+	// TrainerHelpStyle is HelpStyle without its margin. The trainer screens budget
+	// one terminal row per element, so the blank line above a legend is an element
+	// of its own there instead of a margin the row count cannot see. The menu rows
+	// and the trainer title used to have styles of their own here; they go through
+	// the shared rowBar, headerRow and chip now, so those names were removed rather
+	// than left as unused choices no screen can be checked against.
 	TrainerHelpStyle = lipgloss.NewStyle().
 				Foreground(TextMuted).
 				Italic(true)
@@ -182,8 +166,10 @@ var (
 	// installer's own screens reach for a colour through. The palette above does
 	// not change: each role resolves to the one palette entry it may use, so
 	// "one meaning per colour" is enforced by the name a screen asks for rather
-	// than by a comment beside a hex value. The trainer screens keep the original
-	// style names, because their snapshots are frozen to those exact colours.
+	// than by a comment beside a hex value. The trainer screens now reach for these
+	// roles too: their menu rows are the shared rowBar, their titles are headerRow
+	// and their blocks are chip plus gutteredBlock, so the frozen style names the
+	// previous slice left them no longer exist.
 	//
 	//   Brand     chrome: the header title and a section chip
 	//   BrandSoft the bar behind a selected row
@@ -193,9 +179,9 @@ var (
 	//   Rule      every separator and gutter
 	//
 	// Rule and InkDim are the same quiet slate on purpose: a separator and a line
-	// of metadata are both "not content", and the shared rule() the trainer also
-	// draws through is already that slate, so naming a second dim tone here would
-	// have moved the trainer's frozen snapshots for no reader-visible gain.
+	// of metadata are both "not content", and the shared rule() every screen draws
+	// through is already that slate, so naming a second dim tone here would have
+	// invented a distinction no reader could see.
 	Brand     = Primary
 	BrandSoft = Primary
 	Paper     = Background

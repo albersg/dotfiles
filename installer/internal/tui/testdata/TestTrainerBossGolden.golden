@@ -1,18 +1,14 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-  ⚔️ BOSS FIGHT: The Line Walker                                                
-  Lives: 3/3 ♥♥♥  |  Step: 1/5                                                  
-  ⏳ Time left: 5s                                                              
-                                                                                
-  📋 Challenge:                                                                 
-     Move to the 'e' in 'getUser'                                               
-                                                                                
-  📝 Code:                                                                      
+  ⚔️ Boss · The Line Walker         Lives: 3/3 ♥♥♥  Step 1/5  ⏳ Time left: 5s  
   ────────────────────────────────────────────────────────────────────────────  
-   1 │ const getUserProfile = (userId) => fetchUserData(userId).then(processP…  
-  ────────────────────────────────────────────────────────────────────────────  
-  ⌨️ Your answer: ...                                                           
+  Challenge                                                                     
+  │ Move to the 'e' in 'getUser'                                                
+  Code                                                                          
+  │  1 │ const getUserProfile = (userId) => fetchUserData(userId).then(proces…  
+  Answer                                                                        
+  │ ...                                                                         
                                                                                 
                                                                                 
                                                                                 
   Type command • [Enter] submit • [Ctrl-e] type <Esc>                           
-  [PgUp/PgDn] scroll • [Esc] forfeit • [Ctrl-v] block                           [17A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  [PgUp/PgDn] scroll • [Esc] forfeit • [Ctrl-v] block                           [13A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

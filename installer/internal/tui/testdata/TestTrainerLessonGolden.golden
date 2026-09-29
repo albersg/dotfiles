@@ -1,18 +1,14 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-  🎮 Lesson Mode: horizontal                                                    
-  Exercise 1 of 19                                                              
-  ⏳ Hint in 30s                                                                
-                                                                                
-  📋 Mission:                                                                   
-     Move to the start of 'userName' using w (word)                             
-                                                                                
-  📝 Code:                                                                      
+  🎮 Lesson · horizontal     ░░░░░░ 1/19  Score: 0 · Streak: 0  ⏳ Hint in 30s  
   ────────────────────────────────────────────────────────────────────────────  
-   1 │ const userName = 'dotfiles';                                             
-  ────────────────────────────────────────────────────────────────────────────  
-  ⌨️ Your answer: ...                                                           
+  Mission                                                                       
+  │ Move to the start of 'userName' using w (word)                              
+  Code                                                                          
+  │  1 │ const userName = 'dotfiles';                                           
+  Answer                                                                        
+  │ ...                                                                         
                                                                                 
                                                                                 
                                                                                 
   Type command • [Enter] submit • [Tab] hint • [PgUp/PgDn] scroll               
-  [Backspace] delete • [Ctrl-e] type <Esc> • [Ctrl-v] block • [Esc] quit        [17A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  [Backspace] delete • [Ctrl-e] type <Esc> • [Ctrl-v] block • [Esc] quit        [13A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

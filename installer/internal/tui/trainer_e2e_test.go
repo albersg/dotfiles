@@ -2145,20 +2145,24 @@ func newTrainerProgressModel(t *testing.T) Model {
 }
 
 // TestTrainerMenuShowsModuleProgress pins that the menu renders the seeded
-// numbers for each module: lessons completed against total and mastered
-// exercises on the row, the boss state in the row's status word, and the
-// accuracy in the selected module's detail block. The accuracy moved off the row
-// because a row that carries every fact stops fitting 80 columns.
+// numbers for each module: the lessons-completed and mastery meters on the row,
+// the boss state in the row's status word, and the accuracy in the selected
+// module's guttered detail block. The numbers have to be here even though the
+// row now draws them as a meter -- the bar is the glance, the count after it is
+// the fact -- because a meter that stopped carrying its count would look the
+// same for 7/15 and 8/15.
 func TestTrainerMenuShowsModuleProgress(t *testing.T) {
 	m := newTrainerProgressModel(t)
 	view := m.View()
 
 	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
 	want := []string{
-		"Lessons 7/15",
-		fmt.Sprintf("Mastered 2/%d", len(lessons)),
+		"Lessons",
+		"7/15",
+		"Mastered",
+		fmt.Sprintf("2/%d", len(lessons)),
 		"✓ cleared",
-		"     Practice accuracy: 60%",
+		"Practice accuracy: 60%",
 	}
 	for _, w := range want {
 		if !strings.Contains(view, w) {
@@ -2169,6 +2173,13 @@ func TestTrainerMenuShowsModuleProgress(t *testing.T) {
 	row := trainerMenuRow(t, view, m.TrainerModules[0].Name)
 	if strings.Contains(row, "accuracy") {
 		t.Errorf("the selected module's row still carries its accuracy: %q", row)
+	}
+	// The detail block is guttered, so it reads as that module's detail instead of
+	// as three more list rows.
+	for _, w := range []string{"│ Practice accuracy: 60%", "│ ⚠️ Weakest:"} {
+		if !strings.Contains(view, w) {
+			t.Errorf("the selected module's detail block does not show %q:\n%s", w, view)
+		}
 	}
 }
 
@@ -2270,7 +2281,7 @@ func TestTrainerMenuShowsUnopenedModuleLessonTotal(t *testing.T) {
 	if len(lessons) == 0 {
 		t.Fatal("no vertical lessons available")
 	}
-	want := fmt.Sprintf("Lessons 0/%d", len(lessons))
+	want := fmt.Sprintf("Lessons ░░░ 0/%d", len(lessons))
 	if !strings.Contains(view, want) {
 		t.Errorf("unopened module does not show %q:\n%s", want, view)
 	}
@@ -3052,18 +3063,20 @@ func TestTrainerMenuRowsCarryAStatusWord(t *testing.T) {
 }
 
 // TestTrainerCodeWindowScrollsWithPageKeys pins the scroll contract of the code
-// window: it opens on the row the exercise's cursor is on, PgUp and PgDn move it
-// one row and stop at the ends of the code, the keys never reach the answer, and
-// a printable key still does.
+// window: it opens where the exercise's start cursor is visible on entry, PgUp
+// and PgDn move it one row and stop at the ends of the code, the keys never
+// reach the answer, and a printable key still does. The window itself grew when
+// the header absorbed the three stacked metadata rows, so the ranges here are
+// the new ones: eleven code rows at 80x24 rather than seven.
 func TestTrainerCodeWindowScrollsWithPageKeys(t *testing.T) {
 	m := newTrainerLongestExerciseModel(t)
 
-	if view := m.View(); !strings.Contains(view, " 11 │ ") || !strings.Contains(view, "rows 5-11 of 14") {
+	if view := m.View(); !strings.Contains(view, " 11 │ ") || !strings.Contains(view, "rows 1-11 of 14") {
 		t.Fatalf("the entry window does not show the start cursor's row:\n%s", view)
 	}
 
 	m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyPgDown})
-	if view := m.View(); !strings.Contains(view, "rows 6-12 of 14") {
+	if view := m.View(); !strings.Contains(view, "rows 2-12 of 14") {
 		t.Errorf("PgDn did not move the window one row:\n%s", view)
 	}
 	if m.TrainerInput != "" {
@@ -3071,7 +3084,7 @@ func TestTrainerCodeWindowScrollsWithPageKeys(t *testing.T) {
 	}
 
 	m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyPgUp})
-	if view := m.View(); !strings.Contains(view, "rows 5-11 of 14") {
+	if view := m.View(); !strings.Contains(view, "rows 1-11 of 14") {
 		t.Errorf("PgUp did not move the window back:\n%s", view)
 	}
 
@@ -3081,13 +3094,13 @@ func TestTrainerCodeWindowScrollsWithPageKeys(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyPgUp})
 	}
-	if view := m.View(); !strings.Contains(view, "rows 1-7 of 14") {
+	if view := m.View(); !strings.Contains(view, "rows 1-11 of 14") {
 		t.Errorf("scrolling up did not reach the top of the code:\n%s", view)
 	}
 	for i := 0; i < 30; i++ {
 		m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyPgDown})
 	}
-	if view := m.View(); !strings.Contains(view, "rows 8-14 of 14") {
+	if view := m.View(); !strings.Contains(view, "rows 4-14 of 14") {
 		t.Errorf("scrolling down did not stop at the last window:\n%s", view)
 	}
 

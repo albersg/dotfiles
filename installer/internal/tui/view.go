@@ -24,11 +24,10 @@ func formatControlChars(input string) string {
 
 // The key-hint fragments the trainer screens still share. The installer's own
 // screens draw their footers from the structured installerHint values below,
-// which give the keys and the verbs separate colours; these string fragments
-// remain because the trainer's legends go through helpNotation as one string and
-// their snapshots are frozen. One notation and one order is still the rule:
-// every key is bracketed, and a screen lists its hints navigation first, then the
-// action, then the way back or out.
+// which give the keys and the verbs separate colours; the trainer's legends are
+// still lists of these plain fragments joined by helpNotation. One notation and
+// one order is the rule either way: every key is bracketed, and a screen lists
+// its hints navigation first, then the action, then the way back or out.
 //
 // Only the hints a screen actually honours live here.
 const (
@@ -80,10 +79,14 @@ func deadEnd(message, action string) string {
 // frame is why the installer's screens read as one program instead of twenty
 // layouts: the same rows land in the same places on all of them.
 //
-// The trainer screens keep their own layout for now, so the trainer-help
-// helpers above (helpNotation, trainerHelpLine) stay exactly as they were and
-// the shared rule() below still draws through the trainer's frozen colour. Only
-// the installer's screens go through this frame.
+// The installer screens go through this frame, which pads their body so the
+// rule above the footer lands on the same row on every one of them. The trainer
+// screens cannot: they size their code window from the exact number of rows the
+// chrome leaves, so they compose the same parts -- headerRow, rule, chip and
+// gutteredBlock -- directly, one row per element, without placeBody's padding.
+// The trainer-help helpers above (helpNotation, trainerHelpLine) keep their own
+// notation because the trainer's legends are plain strings rather than
+// installerHint pairs.
 
 // installerHint is one footer entry: the keys that trigger an action and the
 // verb that names it. The frame draws the keys in Accent and the verb in InkDim,
@@ -378,6 +381,31 @@ func meterBar(fraction float64, cells int) string {
 		MeterStyle.Render(strings.Repeat("░", cells-n))
 }
 
+// meterCellsPlain is meterBar's glyph run with no style on it. The shared rowBar
+// paints its own trailing meter in one tone -- InkDim, or the bar's own tone on a
+// selected row -- so a meter it is handed has to arrive plain; a nested style
+// would fight the bar's background. The fill is still readable because it is
+// carried by the ▓/░ glyphs rather than by the colour.
+func meterCellsPlain(fraction float64, cells int) string {
+	if cells < 1 {
+		cells = 1
+	}
+	if fraction < 0 {
+		fraction = 0
+	}
+	if fraction > 1 {
+		fraction = 1
+	}
+	n := int(math.Round(fraction * float64(cells)))
+	if n > cells {
+		n = cells
+	}
+	if n < 0 {
+		n = 0
+	}
+	return strings.Repeat("▓", n) + strings.Repeat("░", cells-n)
+}
+
 // scrollVital is the header's vital sign for a screen that is showing part of a
 // list: which rows of how many are on screen. It carries the same "Showing" /
 // "Lines" wording the body's old scroll row did, so the scroll reachability
@@ -390,6 +418,11 @@ func scrollVital(label string, first, last, total int) string {
 func chip(label string) string {
 	return BrandStyle.Render(label)
 }
+
+// blockGutterWidth is the columns the "│ " gutter gutteredBlock draws takes.
+// A caller that measures text against the frame has to subtract it, or the
+// guttered line is two columns wider than the budget it was measured against.
+const blockGutterWidth = 2
 
 // gutteredBlock puts a Rule-coloured │ gutter in front of a block's lines, so
 // the lines read as one object under their chip instead of as loose rows. No
@@ -1674,17 +1707,29 @@ const (
 	// field. It fits the longest status ("● practice"), so a row's module name
 	// starts on the same column whatever state the module is in.
 	trainerModuleStatusWidth = 10
+	// trainerRowMeterCells is how many cells each of a menu row's trailing meters
+	// spends. Two labelled meters plus the status, the icon, the 23-column longest
+	// module name and the row marker have to share 76 inner columns, which leaves
+	// three cells each; the count after each bar carries the exact number.
+	trainerRowMeterCells = 3
+	// trainerHeaderMeterCells is the width of the position meter in an exercise
+	// screen's header, sharing that row with the score, the streak and the
+	// countdown.
+	trainerHeaderMeterCells = 6
 	// trainerFrameRows is what the exercise and boss screens spend on rows that
 	// are neither the mission text nor the code window: the global top padding
-	// View() adds, the title, the progress or lives line, the reserved countdown
-	// row, the blank above the mission label, that label, the blank, the code
-	// label, both rules, the answer row, the reserved feedback area and the
-	// two-line legend. The mission and the code window share what is left, which
-	// is 24-16 = 8 rows at 80x24. It is checked rather than trusted:
-	// TestTrainerScreensFitTheFrame renders every lesson and every boss step at
-	// 80x24, so a screen that spends a row this constant does not count fails that
-	// test instead of quietly losing the bottom of the screen.
-	trainerFrameRows = 16
+	// View() adds, the header row, its rule, the mission chip, the code chip, the
+	// answer chip and its guttered line, the reserved feedback area, the blank
+	// above the legend and the two-line legend. The mission and the code window
+	// share what is left, which is 24-12 = 12 rows at 80x24. The header carries what used to be three stacked rows (the mode
+	// title, the progress or lives line and the countdown) and the code block's two
+	// rules are gone -- the code rows are guttered now -- so the code window is
+	// four rows taller than before and the mission text keeps its own cap. It is
+	// checked rather than trusted: TestTrainerScreensFitTheFrame renders every
+	// lesson and every boss step at 80x24, so a screen that spends a row this
+	// constant does not count fails that test instead of quietly losing the bottom
+	// of the screen.
+	trainerFrameRows = 12
 )
 
 // The labels and hints the trainer screens share. Each hint is one named
@@ -1697,8 +1742,6 @@ const (
 // rather than printable characters, so they cannot collide with typing, with
 // the hint key, with submit or with back.
 const (
-	trainerAnswerLabel = "⌨️ Your answer: "
-
 	trainerHelpLesson   = "[Enter/l] lesson"
 	trainerHelpPractice = "[p] practice"
 	trainerHelpBoss     = "[b] boss"
@@ -1936,14 +1979,18 @@ func trainerModuleStatus(unlocked, bossDefeated, bossReady, practiceReady bool) 
 	}
 }
 
-// trainerModuleProgressText renders the per-module progress the trainer menu
-// shows: lessons completed against total, and mastered exercises. Mastery comes
-// from GetPracticeStatsForModule, which reads the same ExerciseStats.IsMastered
+// trainerModuleMeterText renders the per-module progress the trainer menu shows
+// as the two trailing meters a row can carry: a bar and a count for the lessons
+// completed and another for the exercises mastered. Mastery comes from
+// GetPracticeStatsForModule, which reads the same ExerciseStats.IsMastered
 // predicate weighted practice selection uses, so the count on screen cannot
-// drift from the practice pool. The boss is not repeated here: the row's status
-// field already says whether the boss is cleared, and saying it twice is what
-// cost the row its room inside 80 columns.
-func trainerModuleProgressText(progress *trainer.ModuleProgress, practice trainer.PracticeStats) string {
+// drift from the practice pool. The text is plain because the shared rowBar
+// paints the whole trailing meter in one tone; the fill is carried by the ▓/░
+// glyphs, not by a colour, so the meter still reads on a monochrome terminal.
+// The boss is not repeated here: the row's status field already says whether the
+// boss is cleared, and saying it twice is what cost the row its room inside 80
+// columns.
+func trainerModuleMeterText(progress *trainer.ModuleProgress, practice trainer.PracticeStats) string {
 	lessonsCompleted, lessonsTotal := 0, 0
 	if progress != nil {
 		lessonsCompleted = progress.LessonsCompleted
@@ -1956,8 +2003,18 @@ func trainerModuleProgressText(progress *trainer.ModuleProgress, practice traine
 		lessonsTotal = practice.TotalExercises
 	}
 
-	return fmt.Sprintf("Lessons %d/%d · Mastered %d/%d",
-		lessonsCompleted, lessonsTotal, practice.MasteredCount, practice.TotalExercises)
+	lessonsFraction := 0.0
+	if lessonsTotal > 0 {
+		lessonsFraction = float64(lessonsCompleted) / float64(lessonsTotal)
+	}
+	masteryFraction := 0.0
+	if practice.TotalExercises > 0 {
+		masteryFraction = float64(practice.MasteredCount) / float64(practice.TotalExercises)
+	}
+
+	return fmt.Sprintf("Lessons %s %d/%d Mastered %s %d/%d",
+		meterCellsPlain(lessonsFraction, trainerRowMeterCells), lessonsCompleted, lessonsTotal,
+		meterCellsPlain(masteryFraction, trainerRowMeterCells), practice.MasteredCount, practice.TotalExercises)
 }
 
 // trainerPracticeAccuracyText renders the selected module's practice accuracy,
@@ -1984,7 +2041,7 @@ func trainerWeakExerciseText(progress *trainer.ModuleProgress, practice trainer.
 		return ""
 	}
 
-	const prefix = "     ⚠️ Weakest: "
+	const prefix = "⚠️ Weakest: "
 	const separator = " · "
 
 	entries := make([]string, 0, len(practice.WeakestExercises))
@@ -2009,37 +2066,35 @@ func trainerWeakExerciseText(progress *trainer.ModuleProgress, practice trainer.
 	return prefix + strings.Join(entries, separator)
 }
 
-// renderTrainerMenu renders the module list. Every row state starts on the same
-// column: the marker column is fixed width, the status field is padded to
-// trainerModuleStatusWidth, and the row styles carry no padding of their own
-// (the shared SelectedStyle's PaddingLeft is what used to push the selected row
-// two columns right of the others while a locked row lost its padding
-// entirely). What used to sit on the row -- the accuracy of the selected module
-// -- moved into the detail block under it, so the row survives 80 columns.
-func (m Model) renderTrainerMenu() string {
-	var s strings.Builder
+// trainerMenuVital is the trainer menu's vital sign: the run's boss progress as
+// a meter, then the score, the streak and the boss count that used to be a
+// separate stats row. A nil profile has nothing to report and gets no filler.
+func (m Model) trainerMenuVital() string {
+	if m.TrainerStats == nil {
+		return ""
+	}
+	total := len(trainer.GetAllModules())
+	bosses := len(m.TrainerStats.BossesDefeated)
+	return meterRendered(bosses, total, trainerHeaderMeterCells) +
+		MeterStyle.Render(fmt.Sprintf("  Score: %d · Streak: %d · Bosses: %d/%d",
+			m.TrainerStats.TotalScore, m.TrainerStats.CurrentStreak, bosses, total))
+}
 
+// renderTrainerMenu renders the module list inside the trainer's header frame.
+// Each module is one row bar carrying its status (a glyph and a word), its name
+// and its two trailing meters -- lessons completed and exercises mastered -- so
+// the progress that used to run the row past 80 columns is now a glyph run and
+// its count. The selected module's commands, practice accuracy and most-missed
+// exercises are a guttered block under its row instead of loose indented lines,
+// which is what makes them read as that module's detail rather than as three
+// more list entries.
+func (m Model) renderTrainerMenu() string {
 	inner := trainerInnerWidth(m)
 
-	// Header. The trainer title style has no margin of its own: the blank line
-	// under the title is one of the menu's row elements, counted with the rest.
-	s.WriteString(TrainerTitleStyle.Render("🎮 Vim Mastery Trainer"))
-	s.WriteString("\n")
-	s.WriteString(MutedStyle.Render("Master Vim motions through progressive challenges"))
-	s.WriteString("\n")
-
-	// Stats bar
-	if m.TrainerStats != nil {
-		score := fmt.Sprintf("Score: %d", m.TrainerStats.TotalScore)
-		streak := fmt.Sprintf("Streak: %d", m.TrainerStats.CurrentStreak)
-		bosses := fmt.Sprintf("Bosses: %d/%d", len(m.TrainerStats.BossesDefeated), len(trainer.GetAllModules()))
-		s.WriteString(InfoStyle.Render(fmt.Sprintf("📊 %s  |  🔥 %s  |  👑 %s", score, streak, bosses)))
-		s.WriteString("\n")
+	rows := []string{
+		headerRow("🎮 Vim Mastery Trainer", m.trainerMenuVital(), inner),
+		rule(inner),
 	}
-
-	s.WriteString("\n")
-	s.WriteString(SubtitleStyle.Render("Select a Module:"))
-	s.WriteString("\n")
 
 	for i, module := range m.TrainerModules {
 		isUnlocked := m.TrainerStats != nil && m.TrainerStats.IsModuleUnlocked(module.ID)
@@ -2047,21 +2102,11 @@ func (m Model) renderTrainerMenu() string {
 		isPracticeReady := m.TrainerStats != nil && m.TrainerStats.IsPracticeReady(module.ID)
 		isBossReady := m.TrainerStats != nil && m.TrainerStats.IsBossReady(module.ID)
 
-		marker := "  "
-		style := TrainerRowStyle
-		if i == m.TrainerCursor {
-			marker = "▸ "
-			style = TrainerRowSelectedStyle
-		}
-		if !isUnlocked {
-			// A locked row keeps its marker column and loses the emphasis: the
-			// column is what makes the list scannable, the colour is what says the
-			// row cannot be entered yet.
-			style = TrainerRowLockedStyle
-		}
-
+		// The status is a glyph plus a word, so a monochrome terminal and one with
+		// no emoji font lose nothing. It is padded so every module name starts on
+		// the same column whatever state the module is in.
 		status := padRight(trainerModuleStatus(isUnlocked, isBossDefeated, isBossReady, isPracticeReady), trainerModuleStatusWidth)
-		line := fmt.Sprintf("%s%s %s %s", marker, status, module.Icon, module.Name)
+		label := fmt.Sprintf("%s %s %s", status, module.Icon, module.Name)
 
 		// Progress is display-only text attached to the existing entry. The
 		// unlock/ready predicates above and this direct map read both look the
@@ -2070,29 +2115,28 @@ func (m Model) renderTrainerMenu() string {
 		// persisted stats.
 		var progress *trainer.ModuleProgress
 		var practice trainer.PracticeStats
+		meter := ""
 		if m.TrainerStats != nil {
 			progress = m.TrainerStats.ModuleProgress[module.ID]
 			practice = trainer.GetPracticeStatsForModule(module.ID, progress)
-			line += "  " + trainerModuleProgressText(progress, practice)
+			meter = trainerModuleMeterText(progress, practice)
 		}
 
-		s.WriteString(style.Render(line))
-		s.WriteString("\n")
+		rows = append(rows, m.rowBar(label, i == m.TrainerCursor, meter))
 
 		// The selected module's detail block: its commands, the accuracy the row
 		// no longer carries, and the exercises it misses most. All three are
-		// display-only lines attached to the entry.
+		// display-only lines attached to the entry and all three sit behind one
+		// gutter.
 		if i == m.TrainerCursor {
-			s.WriteString(MutedStyle.Render("     " + module.Description))
-			s.WriteString("\n")
+			detail := []string{InkStyle.Render(truncate(module.Description, inner-blockGutterWidth))}
 			if accuracy := trainerPracticeAccuracyText(progress); accuracy != "" {
-				s.WriteString(InfoStyle.Render("     " + accuracy))
-				s.WriteString("\n")
+				detail = append(detail, InfoStyle.Render(accuracy))
 			}
-			if weak := trainerWeakExerciseText(progress, practice, inner); weak != "" {
-				s.WriteString(WarningStyle.Render(weak))
-				s.WriteString("\n")
+			if weak := trainerWeakExerciseText(progress, practice, inner-blockGutterWidth); weak != "" {
+				detail = append(detail, WarningStyle.Render(weak))
 			}
+			rows = append(rows, gutteredBlock(detail)...)
 		}
 	}
 
@@ -2102,18 +2146,20 @@ func (m Model) renderTrainerMenu() string {
 	message := wrapText(m.TrainerMessage, inner, trainerMessageRows)
 	for i := 0; i < trainerMessageRows; i++ {
 		if i < len(message) {
-			s.WriteString(WarningStyle.Render(message[i]))
+			rows = append(rows, WarningStyle.Render(message[i]))
+		} else {
+			rows = append(rows, "")
 		}
-		s.WriteString("\n")
 	}
 
 	// Legend, one row per line through the shared notation, so the menu's height
 	// is countable and its keys read the way every other screen's do.
-	s.WriteString(trainerHelpLine(helpNavigate, trainerHelpLesson, trainerHelpPractice, trainerHelpBoss))
-	s.WriteString("\n")
-	s.WriteString(trainerHelpLine(trainerHelpReset, trainerHelpResetAll, trainerHelpBack))
+	rows = append(rows,
+		trainerHelpLine(helpNavigate, trainerHelpLesson, trainerHelpPractice, trainerHelpBoss),
+		trainerHelpLine(trainerHelpReset, trainerHelpResetAll, trainerHelpBack),
+	)
 
-	return s.String()
+	return strings.Join(rows, "\n")
 }
 
 // trainerTextBudget splits the rows the chrome leaves (trainerFrameRows)
@@ -2130,7 +2176,7 @@ func (m Model) trainerTextBudget(exercise *trainer.Exercise) (missionRows []stri
 	if limit := flex - trainerCodeMinRows; maxMission > limit {
 		maxMission = limit
 	}
-	missionRows = wrapText(exercise.Mission, trainerInnerWidth(m)-3, maxMission)
+	missionRows = wrapText(exercise.Mission, trainerInnerWidth(m)-blockGutterWidth, maxMission)
 
 	codeRows = flex - len(missionRows)
 	if codeRows < trainerCodeMinRows {
@@ -2231,16 +2277,18 @@ func (m Model) trainerCodeViewport(exercise *trainer.Exercise, codeRows, width i
 
 // label names the code block and, when the window is not showing all of the
 // exercise, which rows of it are on screen: the scroll keys change which lines
-// appear under the mission, so the window has to say where it is.
+// appear under the mission, so the window has to say where it is. The chip is
+// the block's head; the range is the block's metadata, in the dim tone the rest
+// of the program gives a count.
 func (v codeViewport) label() string {
 	if v.rows >= len(v.exercise.Code) {
-		return "📝 Code:"
+		return chip("Code")
 	}
 	last := v.offset + v.rows
 	if last > len(v.exercise.Code) {
 		last = len(v.exercise.Code)
 	}
-	return fmt.Sprintf("📝 Code:  rows %d-%d of %d", v.offset+1, last, len(v.exercise.Code))
+	return chip("Code") + MeterStyle.Render(fmt.Sprintf("  rows %d-%d of %d", v.offset+1, last, len(v.exercise.Code)))
 }
 
 // render returns the visible code rows, one string per row.
@@ -2349,9 +2397,33 @@ func (m Model) trainerFeedbackRows(style lipgloss.Style) []string {
 	return rows
 }
 
-// renderTrainerExercise renders a lesson or practice exercise. The answer area is
-// one row and the code is a window, because the screen has to fit the 24-row
-// terminal the trainer claims: see trainerFrameRows for the arithmetic.
+// trainerExerciseVital is the exercise screen's vital sign, carried by its header
+// instead of three stacked rows: where the player is in the module (a position
+// meter, in lesson mode), the session's score and streak, and the live countdown
+// to the automatic hint. The countdown is derived from the exercise's own
+// TimeoutSecs through the game state's injected clock, so it keeps counting while
+// the animation tick re-renders the screen; once the deadline passes the countdown
+// leaves the header and the hint itself appears in the feedback area. The row
+// stays either way, so nothing below it moves when that happens.
+func (m Model) trainerExerciseVital() string {
+	state := m.TrainerGameState
+	parts := make([]string, 0, 3)
+	if state.IsLessonMode {
+		parts = append(parts, meterRendered(state.ExerciseIndex+1, len(state.Exercises), trainerHeaderMeterCells))
+	}
+	parts = append(parts, MeterStyle.Render(fmt.Sprintf("Score: %d · Streak: %d", state.SessionScore, state.CurrentStreak)))
+	if remaining := state.RemainingSeconds(); remaining > 0 {
+		parts = append(parts, WarningStyle.Render(fmt.Sprintf("⏳ Hint in %ds", int(math.Ceil(remaining)))))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// renderTrainerExercise renders a lesson or practice exercise. The mission, the
+// code window and the answer are guttered blocks under brand chips; the header
+// carries the mode, the position, the score, the streak and the countdown that
+// used to be four stacked rows. The code is a window because the screen has to
+// fit the 24-row terminal the trainer claims: see trainerFrameRows for the
+// arithmetic.
 func (m Model) renderTrainerExercise(mode string) string {
 	exercise := m.trainerCurrentExercise()
 	if exercise == nil {
@@ -2360,51 +2432,28 @@ func (m Model) renderTrainerExercise(mode string) string {
 
 	inner := trainerInnerWidth(m)
 	mission, codeRows := m.trainerTextBudget(exercise)
-
-	// Progress bar
-	var progressText string
-	if m.TrainerGameState.IsLessonMode {
-		current := m.TrainerGameState.ExerciseIndex + 1
-		total := len(m.TrainerGameState.Exercises)
-		progressText = fmt.Sprintf("Exercise %d of %d", current, total)
-	} else {
-		progressText = fmt.Sprintf("Score: %d | Streak: %d", m.TrainerGameState.SessionScore, m.TrainerGameState.CurrentStreak)
-	}
-
-	// Live countdown to the automatic hint. It is derived from the exercise's own
-	// TimeoutSecs through the game state's injected clock, so it keeps counting
-	// while the animation tick re-renders the screen. Once the deadline passes
-	// the countdown disappears and the hint itself appears in the feedback area;
-	// the row stays, so the code below does not move when that happens.
-	countdown := ""
-	if remaining := m.TrainerGameState.RemainingSeconds(); remaining > 0 {
-		countdown = WarningStyle.Render(fmt.Sprintf("⏳ Hint in %ds", int(math.Ceil(remaining))))
-	}
-
-	viewport := m.trainerCodeViewport(exercise, codeRows, inner-trainerGutterWidth)
+	viewport := m.trainerCodeViewport(exercise, codeRows, inner-blockGutterWidth-trainerGutterWidth)
 
 	// Every element below is one terminal row, which is what makes the code
 	// window's height the frame minus the chrome instead of an estimate: the
 	// screen used to render 22+N rows and lose its bottom.
 	rows := []string{
-		TrainerTitleStyle.Render(fmt.Sprintf("🎮 %s Mode: %s", mode, string(m.TrainerGameState.CurrentModule))),
-		MutedStyle.Render(progressText),
-		countdown,
-		"",
-		SubtitleStyle.Render("📋 Mission:"),
-	}
-	for _, row := range mission {
-		rows = append(rows, InfoStyle.Render("   "+row))
-	}
-	rows = append(rows,
-		"",
-		SubtitleStyle.Render(viewport.label()),
+		headerRow(fmt.Sprintf("🎮 %s · %s", mode, string(m.TrainerGameState.CurrentModule)), m.trainerExerciseVital(), inner),
 		rule(inner),
-	)
-	rows = append(rows, viewport.render()...)
+		chip("Mission"),
+	}
+	missionLines := make([]string, len(mission))
+	for i, row := range mission {
+		missionLines[i] = InfoStyle.Render(row)
+	}
+	rows = append(rows, gutteredBlock(missionLines)...)
+
+	rows = append(rows, viewport.label())
+	rows = append(rows, gutteredBlock(viewport.render())...)
+
 	rows = append(rows,
-		rule(inner),
-		SubtitleStyle.Render(trainerAnswerLabel)+KeyStyle.Render(tailToWidth(m.trainerAnswer(), inner-lipgloss.Width(trainerAnswerLabel))),
+		chip("Answer"),
+		RuleStyle.Render("│ ")+KeyStyle.Render(tailToWidth(m.trainerAnswer(), inner-blockGutterWidth)),
 	)
 	rows = append(rows, m.trainerFeedbackRows(InfoStyle)...)
 
@@ -2535,6 +2584,30 @@ func renderLineWithSelection(line string, startPos trainer.Position, sel trainer
 	return result.String()
 }
 
+// trainerBossVital is the boss screen's vital sign, carried by its header instead
+// of two stacked rows: the lives as a count and a glyph run, the step the fight
+// is on, and the live countdown, each as a chip. The countdown is derived from
+// the step's own TimeLimit plus any bonus through the game state's injected
+// clock, so it keeps counting while the animation tick re-renders the screen;
+// once the deadline passes the countdown leaves the header and the tick charges
+// the life.
+func (m Model) trainerBossVital() string {
+	state := m.TrainerGameState
+	boss := state.CurrentBoss
+	if boss == nil {
+		return ""
+	}
+
+	parts := []string{
+		chip(fmt.Sprintf("Lives: %d/%d %s", state.BossLives, boss.Lives, trainerLivesGlyphs(state.BossLives, boss.Lives))),
+		chip(fmt.Sprintf("Step %d/%d", state.BossStep+1, len(boss.Steps))),
+	}
+	if remaining := state.BossStepSecondsLeft(); remaining > 0 {
+		parts = append(parts, chip(fmt.Sprintf("⏳ Time left: %ds", int(math.Ceil(remaining)))))
+	}
+	return strings.Join(parts, "  ")
+}
+
 func (m Model) renderTrainerBoss() string {
 	state := m.TrainerGameState
 	if state == nil || state.CurrentBoss == nil {
@@ -2542,39 +2615,21 @@ func (m Model) renderTrainerBoss() string {
 	}
 
 	boss := state.CurrentBoss
-	currentStep := state.BossStep
 	inner := trainerInnerWidth(m)
-
-	// Live countdown for the current step, in the same visual language as the
-	// exercise screen's hint countdown. It is derived from the step's own
-	// TimeLimit plus any bonus through the game state's injected clock, so it
-	// keeps counting while the animation tick re-renders the screen. Once the
-	// deadline passes the countdown disappears and the tick charges the life.
-	countdown := ""
-	if remaining := state.BossStepSecondsLeft(); remaining > 0 {
-		countdown = WarningStyle.Render(fmt.Sprintf("⏳ Time left: %ds", int(math.Ceil(remaining))))
-	}
-
-	// The lives are a count first and a glyph run second. The red and black heart
-	// emoji this replaces were the only thing saying how many lives were left, and
-	// a terminal without an emoji font drew them as boxes.
-	lives := fmt.Sprintf("Lives: %d/%d %s  |  Step: %d/%d",
-		state.BossLives, boss.Lives, trainerLivesGlyphs(state.BossLives, boss.Lives), currentStep+1, len(boss.Steps))
+	exercise := state.CurrentExercise
 
 	// Every element below is one terminal row. The boss screen spends the same
 	// chrome as the exercise screen (trainerFrameRows), so it gets the same code
 	// window: a 14-line boss step scrolls instead of running off the bottom, which
-	// is where its whole second half used to be.
+	// is where its whole second half used to be. The lives and the countdown are
+	// chips in the header rather than the two label rows they used to stack.
 	rows := []string{
-		DangerStyle.Render("⚔️ BOSS FIGHT: " + boss.Name),
-		lives,
-		countdown,
-		"",
-		SubtitleStyle.Render("📋 Challenge:"),
+		headerRow("⚔️ Boss · "+boss.Name, m.trainerBossVital(), inner),
+		rule(inner),
+		chip("Challenge"),
 	}
 
-	exercise := state.CurrentExercise
-	if currentStep >= len(boss.Steps) || exercise == nil {
+	if state.BossStep >= len(boss.Steps) || exercise == nil {
 		// No step is on screen, so there is no code window to size around.
 		rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
 		rows = append(rows, "",
@@ -2584,20 +2639,18 @@ func (m Model) renderTrainerBoss() string {
 	}
 
 	mission, codeRows := m.trainerTextBudget(exercise)
-	for _, row := range mission {
-		rows = append(rows, InfoStyle.Render("   "+row))
+	missionLines := make([]string, len(mission))
+	for i, row := range mission {
+		missionLines[i] = InfoStyle.Render(row)
 	}
+	rows = append(rows, gutteredBlock(missionLines)...)
 
-	viewport := m.trainerCodeViewport(exercise, codeRows, inner-trainerGutterWidth)
+	viewport := m.trainerCodeViewport(exercise, codeRows, inner-blockGutterWidth-trainerGutterWidth)
+	rows = append(rows, viewport.label())
+	rows = append(rows, gutteredBlock(viewport.render())...)
 	rows = append(rows,
-		"",
-		SubtitleStyle.Render(viewport.label()),
-		rule(inner),
-	)
-	rows = append(rows, viewport.render()...)
-	rows = append(rows,
-		rule(inner),
-		SubtitleStyle.Render(trainerAnswerLabel)+KeyStyle.Render(tailToWidth(m.trainerAnswer(), inner-lipgloss.Width(trainerAnswerLabel))),
+		chip("Answer"),
+		RuleStyle.Render("│ ")+KeyStyle.Render(tailToWidth(m.trainerAnswer(), inner-blockGutterWidth)),
 	)
 	rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
 	rows = append(rows, "",
@@ -2607,55 +2660,68 @@ func (m Model) renderTrainerBoss() string {
 	return strings.Join(rows, "\n")
 }
 
-// renderBufferLines renders a buffer as numbered lines, matching the numbering
-// the exercise screen uses so the result lines up with the code the user saw. A
-// line wider than the frame is cut and marked: the frame edge used to clip the
-// buffer silently, which is the defect the exercise screen had.
-func renderBufferLines(buffer []string, width int) string {
-	rows := []string{rule(width)}
+// renderBufferLines renders a buffer as a guttered block of numbered lines,
+// matching the numbering the exercise screen uses so the result lines up with the
+// code the user saw. A line wider than the frame is cut and marked: the frame
+// edge used to clip the buffer silently, which is the defect the exercise screen
+// had. It returns rows rather than a string so the caller can put them under a
+// chip and so the frame counts every row of the block.
+func renderBufferLines(buffer []string, inner int) []string {
+	width := inner - blockGutterWidth - trainerGutterWidth
+	rows := make([]string, len(buffer))
 	for i, line := range buffer {
-		rows = append(rows, MutedStyle.Render(fmt.Sprintf("%2d │ ", i+1))+CodeStyle.Render(truncate(line, width-trainerGutterWidth)))
+		rows[i] = MutedStyle.Render(fmt.Sprintf("%2d │ ", i+1)) + CodeStyle.Render(truncate(line, width))
 	}
-	rows = append(rows, "")
-	return strings.Join(rows, "\n")
+	return gutteredBlock(rows)
 }
 
 func (m Model) renderTrainerResult() string {
-	var s strings.Builder
-
 	inner := trainerInnerWidth(m)
 
-	// Result header
+	// The outcome is the header's name and the score is its vital sign. The
+	// outcome is a glyph and a word, so it reads on a terminal with no colour and
+	// on one with no emoji font; the stacked result title and the session-score
+	// row it replaces are gone, which is one of the rows the blocks below gained.
+	name := "✗ Incorrect"
 	if m.TrainerLastCorrect {
-		s.WriteString(SuccessStyle.Render("✨ CORRECT! ✨"))
-	} else {
-		s.WriteString(ErrorStyle.Render("❌ INCORRECT"))
+		name = "✓ Correct"
 	}
-	s.WriteString("\n\n")
+	vital := ""
+	if m.TrainerGameState != nil {
+		vital = MeterStyle.Render(fmt.Sprintf("Score: %d · Streak: %d",
+			m.TrainerGameState.SessionScore, m.TrainerGameState.CurrentStreak))
+	}
 
-	// Show message/explanation. The message is wrapped instead of being left to
-	// the frame edge, which cut the solutions list mid-word.
-	message := wrapText(m.TrainerMessage, inner, 0)
+	rows := []string{
+		headerRow(name, vital, inner),
+		rule(inner),
+		chip("Summary"),
+	}
+
+	// The message is wrapped instead of being left to the frame edge, which cut
+	// the solutions list mid-word.
+	message := wrapText(m.TrainerMessage, inner-blockGutterWidth, 0)
 	if len(message) == 0 {
 		message = []string{""}
 	}
-	for _, row := range message {
-		s.WriteString(InfoStyle.Render(row))
-		s.WriteString("\n")
+	messageLines := make([]string, len(message))
+	for i, row := range message {
+		messageLines[i] = InfoStyle.Render(row)
 	}
+	rows = append(rows, gutteredBlock(messageLines)...)
 
 	if m.TrainerGameState != nil && m.TrainerGameState.CurrentExercise != nil {
 		exercise := m.TrainerGameState.CurrentExercise
 		if exercise.Explanation != "" {
-			s.WriteString("\n")
-			s.WriteString(SubtitleStyle.Render("📖 Explanation:"))
-			s.WriteString("\n")
+			rows = append(rows, chip("Explanation"))
 			// The explanation is wrapped rather than clipped: the result screen's
 			// snapshot used to end mid-word at the frame edge.
-			for _, row := range wrapText(exercise.Explanation, inner-3, 0) {
-				s.WriteString(MutedStyle.Render("   " + row))
-				s.WriteString("\n")
+			explanation := wrapText(exercise.Explanation, inner-blockGutterWidth, 0)
+			explanationLines := make([]string, len(explanation))
+			for i, row := range explanation {
+				explanationLines[i] = MutedStyle.Render(row)
 			}
+			rows = append(rows, gutteredBlock(explanationLines)...)
 		}
 
 		// A buffer-verified answer is taught by the buffer it produced, which is
@@ -2665,84 +2731,72 @@ func (m Model) renderTrainerResult() string {
 		// because the difference is what the lesson is about.
 		if exercise.BufferVerified && m.TrainerValidation != nil && m.TrainerValidation.BufferVerified {
 			if !m.TrainerValidation.IsCorrect {
-				s.WriteString("\n")
-				s.WriteString(SubtitleStyle.Render("🎯 Expected buffer:"))
-				s.WriteString("\n")
-				s.WriteString(renderBufferLines(m.TrainerValidation.TargetBuffer, inner))
+				rows = append(rows, chip("Expected buffer"))
+				rows = append(rows, renderBufferLines(m.TrainerValidation.TargetBuffer, inner)...)
 			}
-			s.WriteString("\n")
-			s.WriteString(SubtitleStyle.Render("📝 Resulting buffer:"))
-			s.WriteString("\n")
-			s.WriteString(renderBufferLines(m.TrainerValidation.ActualBuffer, inner))
+			rows = append(rows, chip("Resulting buffer"))
+			rows = append(rows, renderBufferLines(m.TrainerValidation.ActualBuffer, inner)...)
 		}
 	}
 
-	// Score info
-	if m.TrainerGameState != nil {
-		s.WriteString("\n")
-		s.WriteString(MutedStyle.Render(fmt.Sprintf("Session Score: %d  |  Streak: %d", m.TrainerGameState.SessionScore, m.TrainerGameState.CurrentStreak)))
-		s.WriteString("\n")
-	}
-
-	// Help
-	s.WriteString("\n")
-	s.WriteString(helpLine("[Enter] continue", helpBack))
-
-	return s.String()
+	rows = append(rows, "", helpLine("[Enter] continue", helpBack))
+	return strings.Join(rows, "\n")
 }
 
 func (m Model) renderTrainerBossResult() string {
-	var s strings.Builder
+	inner := trainerInnerWidth(m)
 
-	// Victory or defeat
+	// Victory or defeat is the header's name, a glyph and a word, so it reads
+	// without colour; the total score and the boss count are the header's vital
+	// sign instead of a stacked stats line.
+	name := "✗ Defeat"
 	if m.TrainerLastCorrect {
-		s.WriteString(SuccessStyle.Render("🏆 VICTORY! 🏆"))
-		s.WriteString("\n\n")
-		if m.TrainerGameState != nil && m.TrainerGameState.CurrentBoss != nil {
-			s.WriteString(TitleStyle.Render("You defeated " + m.TrainerGameState.CurrentBoss.Name + "!"))
-			s.WriteString("\n\n")
-			s.WriteString(InfoStyle.Render(fmt.Sprintf("Lives remaining: %d/%d %s",
-				m.TrainerGameState.BossLives, m.TrainerGameState.CurrentBoss.Lives,
-				trainerLivesGlyphs(m.TrainerGameState.BossLives, m.TrainerGameState.CurrentBoss.Lives))))
-			s.WriteString("\n")
+		name = "✓ Victory"
+	}
+	vital := ""
+	if m.TrainerStats != nil {
+		vital = MeterStyle.Render(fmt.Sprintf("Total Score: %d · Bosses: %d/%d",
+			m.TrainerStats.TotalScore, len(m.TrainerStats.BossesDefeated), len(trainer.GetAllModules())))
+	}
+
+	rows := []string{
+		headerRow(name, vital, inner),
+		rule(inner),
+		chip("Summary"),
+	}
+
+	var summary []string
+	state := m.TrainerGameState
+	if m.TrainerLastCorrect {
+		if state != nil && state.CurrentBoss != nil {
+			summary = append(summary, InfoStyle.Render("You defeated "+state.CurrentBoss.Name+"!"))
+			summary = append(summary, InfoStyle.Render(fmt.Sprintf("Lives remaining: %d/%d %s",
+				state.BossLives, state.CurrentBoss.Lives,
+				trainerLivesGlyphs(state.BossLives, state.CurrentBoss.Lives))))
 		}
-		s.WriteString("\n")
-		s.WriteString(SuccessStyle.Render("🎉 +500 bonus points!"))
-		s.WriteString("\n")
+		summary = append(summary, SuccessStyle.Render("🎉 +500 bonus points!"))
 		nextModuleExists := false
-		if m.TrainerGameState != nil {
-			_, nextModuleExists = trainer.NextModule(m.TrainerGameState.CurrentModule)
+		if state != nil {
+			_, nextModuleExists = trainer.NextModule(state.CurrentModule)
 		}
 		if nextModuleExists {
-			s.WriteString(SuccessStyle.Render("🔓 Next module unlocked!"))
+			summary = append(summary, SuccessStyle.Render("🔓 Next module unlocked!"))
 		} else {
-			s.WriteString(SuccessStyle.Render("👑 No modules left — you have cleared them all!"))
+			summary = append(summary, SuccessStyle.Render("👑 No modules left — you have cleared them all!"))
 		}
 	} else {
-		s.WriteString(DangerStyle.Render("💀 DEFEATED 💀"))
-		s.WriteString("\n\n")
-		if m.TrainerGameState != nil && m.TrainerGameState.CurrentBoss != nil {
-			s.WriteString(MutedStyle.Render(m.TrainerGameState.CurrentBoss.Name + " wins this time..."))
-			s.WriteString("\n\n")
+		if state != nil && state.CurrentBoss != nil {
+			summary = append(summary, MutedStyle.Render(state.CurrentBoss.Name+" wins this time..."))
 		}
-		s.WriteString(InfoStyle.Render("Keep practicing and try again!"))
+		summary = append(summary, InfoStyle.Render("Keep practicing and try again!"))
 	}
+	rows = append(rows, gutteredBlock(summary)...)
 
-	// Show message
 	if m.TrainerMessage != "" {
-		s.WriteString("\n\n")
-		s.WriteString(MutedStyle.Render(m.TrainerMessage))
+		rows = append(rows, chip("Message"))
+		rows = append(rows, gutteredBlock([]string{MutedStyle.Render(m.TrainerMessage)})...)
 	}
 
-	// Stats
-	if m.TrainerStats != nil {
-		s.WriteString("\n\n")
-		s.WriteString(MutedStyle.Render(fmt.Sprintf("Total Score: %d  |  Bosses Defeated: %d/%d", m.TrainerStats.TotalScore, len(m.TrainerStats.BossesDefeated), len(trainer.GetAllModules()))))
-	}
-
-	// Help
-	s.WriteString("\n\n")
-	s.WriteString(helpLine(helpReturnToMenu))
-
-	return s.String()
+	rows = append(rows, "", helpLine(helpReturnToMenu))
+	return strings.Join(rows, "\n")
 }
