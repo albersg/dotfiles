@@ -886,14 +886,11 @@ func (m Model) handleKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.KeymapCategories[m.SelectedCategory]
 
-	// The view and the keys ask the same helper for the window size, so the keys
-	// scroll exactly the rows the screen draws.
+	// The view and the keys ask the same helper for the window size, and the keys
+	// clamp the scroll value with the bound the renderer's own window uses, so the
+	// scroll value is the table's top row and the last binding is reachable.
 	visibleItems := keymapTableRows(m.Height)
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1009,11 +1006,7 @@ func (m Model) handleTmuxKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.TmuxKeymapCategories[m.TmuxSelectedCategory]
 
 	visibleItems := keymapTableRows(m.Height)
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1076,11 +1069,7 @@ func (m Model) handleZellijKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.ZellijKeymapCategories[m.ZellijSelectedCategory]
 
 	visibleItems := keymapTableRows(m.Height)
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1143,11 +1132,7 @@ func (m Model) handleGhosttyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) 
 	category := m.GhosttyKeymapCategories[m.GhosttySelectedCategory]
 
 	visibleItems := keymapTableRows(m.Height)
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1210,11 +1195,7 @@ func (m Model) handleHerdrKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.HerdrKeymapCategories[m.HerdrSelectedCategory]
 
 	visibleItems := keymapTableRows(m.Height)
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1274,19 +1255,9 @@ func (m Model) handleLazyVimMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleLazyVimTopicKeys(key string) (tea.Model, tea.Cmd) {
 	topic := m.LazyVimTopics[m.SelectedLazyVimTopic]
 
-	// Calculate view height based on terminal size (same as view)
-	// Reserve space for: title(1) + description(1) + blank(2) + scroll info(2) + help(2) = 8 lines
-	viewHeight := m.Height - 8
-	if viewHeight < 10 {
-		viewHeight = 10 // Minimum
-	}
-
-	// Calculate content height: content lines + code example lines + tips
-	contentLines := len(topic.Content) + strings.Count(topic.CodeExample, "\n") + len(topic.Tips) + 10
-	maxScroll := contentLines - viewHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	// The view and the keys measure the same lines and the same window, so the
+	// scroll value is the topic's top line and its last line is reachable.
+	maxScroll := offsetWindowMax(lazyVimTopicRows(m.Height), len(m.lazyVimTopicLines(topic)))
 
 	switch key {
 	case "up", "k":

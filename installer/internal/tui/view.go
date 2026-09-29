@@ -41,9 +41,11 @@ const (
 	helpQuit     = "[Space q] quit"
 	helpDetails  = "[Space d] details"
 
-	// helpReturnToMenu is the trainer's boss-result legend. It is one fragment
-	// because the four keys all do the same thing there, and it goes through the
-	// shared notation like every other legend.
+	// helpReturnToMenu names the four keys that all do the same thing on a screen
+	// whose only action is to go back a level: the keymap table and LazyVim topic
+	// legends and the trainer's boss-result legend. It is one fragment because the
+	// four keys share one outcome, and it goes through the shared notation like
+	// every other legend.
 	helpReturnToMenu = "[Enter/Space/Esc/q] return to menu"
 )
 
@@ -93,9 +95,12 @@ func contentWidth(m Model) int {
 }
 
 // listWindow returns the bounds of a window of at most rows entries that keeps
-// selected visible. Lists sized to their frame use it so a long list scrolls
-// instead of running off the bottom of the terminal, and so the entry under the
-// cursor is always one of the rows on screen.
+// selected visible. It CENTRES the window on selected, so the value it takes is
+// a position inside the list (a cursor), not a top-row offset. Lists sized to
+// their frame use it so a long list scrolls instead of running off the bottom of
+// the terminal, and so the entry under the cursor is always one of the rows on
+// screen. Screens whose stored scroll value is itself the top row must use
+// offsetWindow instead, and clamp that value with offsetWindowMax.
 func listWindow(selected, rows, total int) (start, end int) {
 	if rows < 1 {
 		rows = 1
@@ -111,6 +116,44 @@ func listWindow(selected, rows, total int) (start, end int) {
 		start = total - rows
 	}
 	return start, start + rows
+}
+
+// offsetWindow returns the bounds of a window of at most rows entries whose TOP
+// ROW is offset. The value it takes is a top-row offset, not a centred cursor:
+// offset 0 shows the first row and offsetWindowMax shows the last, so the tail of
+// a long list is reachable. It is the counterpart to listWindow; the keymap
+// tables and the LazyVim topic render through it and their handlers clamp the
+// same scroll value with offsetWindowMax, so the window a screen draws and the
+// bound its keys enforce cannot disagree.
+func offsetWindow(offset, rows, total int) (start, end int) {
+	if rows < 1 {
+		rows = 1
+	}
+	if offset > total-rows {
+		offset = total - rows
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end = offset + rows
+	if end > total {
+		end = total
+	}
+	return offset, end
+}
+
+// offsetWindowMax is the greatest top-row offset offsetWindow accepts: the one
+// that puts the last row on screen. A scrollable screen's key handler clamps its
+// scroll value to it, and it is derived from the same rows count as the window,
+// so the last entry is reachable instead of stopping rows/2 short of the end.
+func offsetWindowMax(rows, total int) int {
+	if rows < 1 {
+		rows = 1
+	}
+	if max := total - rows; max > 0 {
+		return max
+	}
+	return 0
 }
 
 // menuRows renders a menu's options: one row per choice, the cursor marked with
@@ -616,10 +659,12 @@ func keymapTableColumns(width, longestKey int) (keys, mode, description int) {
 }
 
 // renderKeymapTable renders one keymap category: its title, description, a
-// column header and the rows the frame has room for, scrolled to keep the
-// visible window inside the list. It replaces five copies of the same table that
-// had each picked their own column widths, their own window and their own
-// 60-column rule.
+// column header and the rows the frame has room for. Its scroll value IS the
+// top-row offset (0 shows the first binding, offsetWindowMax shows the last), so
+// it windows through offsetWindow and the category key handlers clamp that same
+// value with offsetWindowMax; the last binding is reachable. It replaces five
+// copies of the same table that had each picked their own column widths, their
+// own window and their own 60-column rule.
 func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
 	var s strings.Builder
 
@@ -644,7 +689,7 @@ func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
 	s.WriteString("\n")
 
 	rows := keymapTableRows(m.Height)
-	start, end := listWindow(scroll, rows, len(category.Keymaps))
+	start, end := offsetWindow(scroll, rows, len(category.Keymaps))
 	for i := start; i < end; i++ {
 		km := category.Keymaps[i]
 		s.WriteString(KeyStyle.Render(padRight(truncate(km.Keys, keys), keys)))
@@ -664,7 +709,7 @@ func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
 	s.WriteString("\n")
 	s.WriteString(MutedStyle.Render(scrollInfo))
 	s.WriteString("\n")
-	s.WriteString(helpLine(helpNavigate, helpBack))
+	s.WriteString(helpLine(helpNavigate, helpReturnToMenu))
 
 	return s.String()
 }
@@ -786,23 +831,14 @@ func (m Model) renderLazyVimMenu() string {
 	return m.renderMenu("Learn how to use and customize LazyVim")
 }
 
-func (m Model) renderLazyVimTopic() string {
-	if m.SelectedLazyVimTopic >= len(m.LazyVimTopics) {
-		return deadEnd("Topic not found", "Press [Esc] to return to the guide.")
-	}
-
-	topic := m.LazyVimTopics[m.SelectedLazyVimTopic]
+// lazyVimTopicLines is the topic's content exactly as the screen draws it: the
+// body, the code example and the tips, each line cut to the frame. The view
+// draws these lines and the scroll keys measure them, so the two cannot disagree
+// about how far the topic scrolls. It was the scroll keys' own, different count
+// that let the closing lines sit behind a bound the renderer never reached.
+func (m Model) lazyVimTopicLines(topic LazyVimTopic) []string {
 	width := contentWidth(m)
 
-	var s strings.Builder
-
-	s.WriteString(TitleStyle.Render(topic.Title))
-	s.WriteString("\n")
-	s.WriteString(SubtitleStyle.Render(truncate(topic.Description, width)))
-	s.WriteString("\n\n")
-
-	// Build the content, cut to the frame so a long line is marked instead of
-	// clipped silently at the edge.
 	var allLines []string
 	for _, line := range topic.Content {
 		allLines = append(allLines, truncate(line, width))
@@ -824,14 +860,46 @@ func (m Model) renderLazyVimTopic() string {
 		}
 	}
 
+	return allLines
+}
+
+// lazyVimTopicRows is the content rows the topic shows: the frame minus the
+// screen's own chrome. The view and the scroll keys both ask for it, so the
+// window the keys scroll is exactly the window the screen draws.
+func lazyVimTopicRows(height int) int {
+	rows := height - viewPaddingRows - lazyVimTopicChrome
+	if rows < 1 {
+		rows = 1
+	}
+	return rows
+}
+
+// renderLazyVimTopic renders one topic. Its scroll value IS the top-line offset
+// (0 shows the first line, offsetWindowMax shows the last), so it windows through
+// offsetWindow and its key handler clamps the same value with offsetWindowMax;
+// the topic's closing lines are reachable.
+func (m Model) renderLazyVimTopic() string {
+	if m.SelectedLazyVimTopic >= len(m.LazyVimTopics) {
+		return deadEnd("Topic not found", "Press [Esc] to return to the guide.")
+	}
+
+	topic := m.LazyVimTopics[m.SelectedLazyVimTopic]
+	width := contentWidth(m)
+
+	var s strings.Builder
+
+	s.WriteString(TitleStyle.Render(topic.Title))
+	s.WriteString("\n")
+	s.WriteString(SubtitleStyle.Render(truncate(topic.Description, width)))
+	s.WriteString("\n\n")
+
+	allLines := m.lazyVimTopicLines(topic)
+
 	// The content window is the rows the frame leaves, and the scroll row is held
 	// whether or not the topic is longer than the window, so a short topic and a
 	// long one lay their legend out on the same row.
-	viewHeight := m.Height - viewPaddingRows - lazyVimTopicChrome
-	if viewHeight < 1 {
-		viewHeight = 1
-	}
-	start, end := listWindow(m.LazyVimScroll, viewHeight, len(allLines))
+	viewHeight := lazyVimTopicRows(m.Height)
+	start, end := offsetWindow(m.LazyVimScroll, viewHeight, len(allLines))
 
 	for i := start; i < end; i++ {
 		line := allLines[i]
@@ -862,7 +930,7 @@ func (m Model) renderLazyVimTopic() string {
 	s.WriteString("\n")
 	s.WriteString(MutedStyle.Render(scrollInfo))
 	s.WriteString("\n")
-	s.WriteString(helpLine(helpNavigate, "[PgUp/PgDn] page", helpBack))
+	s.WriteString(helpLine(helpNavigate, "[PgUp/PgDn] page", helpReturnToMenu))
 
 	return s.String()
 }
@@ -884,8 +952,13 @@ const (
 	// the blank above it, the box's border and padding around three log rows, and
 	// the blank below it.
 	installingDetailsRows = 9
-	// installingDetailsLogLines is how many log rows the box shows. It is the
-	// last few, because the newest output is the useful end of a log.
+	// installingDetailsLogLines is how many log rows the box shows. Three is a
+	// deliberate trade, not an oversight: the box is a fixed height so turning
+	// details on cannot push the step rail or the legend off a 24-row frame, and a
+	// fixed box cannot also grow with the terminal. The newest three lines are the
+	// useful end of an installer log, and the final frame guard renders the screen
+	// with twelve lines queued to prove the box stays three rows tall. Raising it is
+	// a frame-budget change, not a one-line one.
 	installingDetailsLogLines = 3
 	// installingMinStepRows keeps the rail useful when the log box has taken its
 	// room.

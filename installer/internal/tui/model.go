@@ -570,7 +570,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "deps",
 			Name:        "Install Dependencies",
-			Description: "Installs the base packages your system needs.",
+			Description: "Installs base packages with your distribution's package manager.",
 			Status:      StatusPending,
 			Interactive: true, // Needs sudo
 		})
@@ -578,7 +578,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "deps",
 			Name:        "Install Dependencies",
-			Description: "Installs the base packages your system needs.",
+			Description: "Installs base packages with pkg.",
 			Status:      StatusPending,
 			Interactive: false, // Termux doesn't need sudo
 		})
@@ -668,7 +668,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "toolset",
 		Name:        "Install Toolset",
-		Description: "Installs the command-line tools you asked for.",
+		Description: "Installs the command-line tools listed in your Brewfile.",
 		Status:      StatusPending,
 	})
 
@@ -677,7 +677,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "agentskills",
 		Name:        "Install Pi Agent Skills",
-		Description: "Installs the pinned AI agent skills.",
+		Description: "Installs the pinned security-audit, archify and officecli skills.",
 		Status:      StatusPending,
 	})
 
@@ -686,7 +686,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "officecli",
 		Name:        "Install OfficeCLI",
-		Description: "Installs the OfficeCLI document tool.",
+		Description: "Installs the pinned, checksum-verified OfficeCLI binary.",
 		Status:      StatusPending,
 	})
 

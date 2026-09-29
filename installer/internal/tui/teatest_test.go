@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1180,6 +1182,130 @@ func TestLeaderBannerReplacesTheLegend(t *testing.T) {
 	if rows := renderedRowCount(view); rows > trainerFrameHeight {
 		t.Errorf("the leader banner grew the screen to %d rows, want <= %d:\n%s", rows, trainerFrameHeight, view)
 	}
+}
+
+// =============================================================================
+// SCROLL REACHABILITY
+// =============================================================================
+//
+// The frame guard renders a scrollable screen at scroll 0, where it fits and
+// passes; it cannot see the rows past the window. These tests render the END of
+// a long list, at the greatest scroll its own key handler produces, so the tail
+// is proven reachable. They exist because the shared window helper centred the
+// window on the scroll value while the handlers kept clamping an offset, and the
+// two disagreed silently: at the handler's maximum the window started rows/2
+// short of the end.
+
+// scrollUntilStill presses down until one press no longer moves the value the
+// getter reads, so a test uses the handler's own bound instead of recomputing
+// it and drifting from the thing it is checking.
+func scrollUntilStill(t *testing.T, m Model, get func(Model) int) Model {
+	t.Helper()
+	for i := 0; i < 500; i++ {
+		before := get(m)
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(Model)
+		if get(m) == before {
+			return m
+		}
+	}
+	t.Fatalf("scroll never settled after 500 down presses")
+	return m
+}
+
+// windowRange is the range one screen's own scroll row reports, parsed back out
+// of the rendered view so the assertion runs against what the user can see.
+func windowRange(t *testing.T, view, label string) (first, last, total int) {
+	t.Helper()
+	re := regexp.MustCompile(label + ` (\d+)-(\d+) of (\d+)`)
+	match := re.FindStringSubmatch(view)
+	if match == nil {
+		t.Fatalf("the view has no %q scroll row:\n%s", label, view)
+	}
+	first, _ = strconv.Atoi(match[1])
+	last, _ = strconv.Atoi(match[2])
+	total, _ = strconv.Atoi(match[3])
+	return first, last, total
+}
+
+// longKeymapCategory is the category the defect was measured on: "Search
+// Commands (Snacks)" is longer than the 80x24 table window, so its tail is the
+// rows the old mismatch hid.
+const longKeymapCategory = 5
+
+// TestKeymapCategoryLastBindingIsReachable renders the long category at the
+// maximum scroll its handler reaches and asserts the LAST binding is on screen.
+// The first binding was always visible, which is why the frame guard at scroll 0
+// could not see this defect.
+func TestKeymapCategoryLastBindingIsReachable(t *testing.T) {
+	m := installerFrameModel(t, ScreenKeymapCategory)
+	m.SelectedCategory = longKeymapCategory
+	bindings := m.KeymapCategories[longKeymapCategory].Keymaps
+	rows := keymapTableRows(m.Height)
+	if len(bindings) <= rows {
+		t.Fatalf("category %d has %d bindings, want more than the %d rows the frame shows",
+			longKeymapCategory, len(bindings), rows)
+	}
+
+	m = scrollUntilStill(t, m, func(m Model) int { return m.KeymapScroll })
+	last := bindings[len(bindings)-1]
+
+	view := m.View()
+	if !strings.Contains(view, last.Keys) {
+		t.Errorf("at the handler's maximum scroll the last binding %q is off screen:\n%s", last.Keys, view)
+	}
+}
+
+// TestLazyVimTopicLastLineIsReachable is the same probe for the LazyVim topic,
+// whose closing lines the shared centring window also hid behind the handler's
+// larger, differently-computed bound.
+func TestLazyVimTopicLastLineIsReachable(t *testing.T) {
+	m := installerFrameModel(t, ScreenLazyVimTopic)
+	topic := m.LazyVimTopics[m.SelectedLazyVimTopic]
+	if len(topic.Tips) == 0 {
+		t.Fatal("the first LazyVim topic has no tips to check the tail with")
+	}
+
+	m = scrollUntilStill(t, m, func(m Model) int { return m.LazyVimScroll })
+	lastTip := topic.Tips[len(topic.Tips)-1]
+
+	view := m.View()
+	if !strings.Contains(view, lastTip) {
+		t.Errorf("at the handler's maximum scroll the topic's last line %q is off screen:\n%s", lastTip, view)
+	}
+}
+
+// TestScrollBoundExposesTheEnd pins the handler's bound and the renderer's
+// window to one semantics: at the greatest scroll the handler produces, the
+// range the screen prints ends on the list's last row. Without it the two can
+// drift again while each stays self-consistent, which is exactly how this
+// defect shipped.
+func TestScrollBoundExposesTheEnd(t *testing.T) {
+	t.Run("keymap category", func(t *testing.T) {
+		m := installerFrameModel(t, ScreenKeymapCategory)
+		m.SelectedCategory = longKeymapCategory
+		want := len(m.KeymapCategories[longKeymapCategory].Keymaps)
+
+		m = scrollUntilStill(t, m, func(m Model) int { return m.KeymapScroll })
+		_, last, total := windowRange(t, m.View(), "Showing")
+
+		if total != want {
+			t.Fatalf("the scroll row reports %d bindings, want %d", total, want)
+		}
+		if last != total {
+			t.Errorf("the handler's maximum scroll exposes rows up to %d of %d: the last rows cannot be reached", last, total)
+		}
+	})
+
+	t.Run("lazyvim topic", func(t *testing.T) {
+		m := installerFrameModel(t, ScreenLazyVimTopic)
+		m = scrollUntilStill(t, m, func(m Model) int { return m.LazyVimScroll })
+		_, last, total := windowRange(t, m.View(), "Lines")
+
+		if last != total {
+			t.Errorf("the handler's maximum scroll exposes lines up to %d of %d: the last lines cannot be reached", last, total)
+		}
+	})
 }
 
 // TestKeymapTableColumnsWidenForLongKeys pins the column rule the five tables
