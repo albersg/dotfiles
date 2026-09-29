@@ -7,6 +7,7 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Screens & Navigation](#screens--navigation)
+- [Layout](#layout)
 - [Command Line Interface](#command-line-interface)
 - [Backup & Restore](#backup--restore)
 - [Learn Mode](#learn-mode)
@@ -117,6 +118,65 @@ recent output.
 | `q` | Quit (when not installing) |
 | `d` | Toggle details (during installation) |
 | `Ctrl+C` | Force quit |
+
+## Layout
+
+Every non-trainer screen is drawn inside the same frame — a header, a rule, the body, a rule and
+the footer — and that frame spends whatever terminal it is given instead of assuming the 80 columns
+it was designed at. Each choice below has a reason and a test behind it.
+
+**The composition is capped at 160 columns and centred.** A full-width row of prose is harder to
+read on a 227-column terminal than a 160-column one, because the eye loses the start of the line on
+the way back. The body is therefore never wider than 160 columns, and when the terminal is wider
+the surplus becomes a margin on each side: the composition sits centred rather than pinned left,
+because one void on the right is not a layout.
+
+**Two columns start at 124 terminal columns.** From that width the screen puts the body on the left
+and a panel on the right. The threshold is 124 and not 120 because the number the renderer checks is
+the *content* width: the frame spends two columns of padding on each side of every screen, so 120
+columns of content — the width at which a readable body and a panel fit side by side — is 124
+columns of terminal. Below the floor the panel is dropped, not squeezed: the screen is exactly what
+it was before the panels existed, and nothing else on it moves.
+
+**A row is a measure, not the terminal.** The bar behind a selected row runs
+`min(content width, 80)` columns in a one-column screen, and the left column's width when there are
+two, so a row stays a row instead of becoming a 227-column slab of colour behind twenty characters.
+A row's trailing meter sits at the right edge of that same measure.
+
+**A short body sits under its own header.** A body shorter than the rows the frame leaves is centred
+in them, but the blank rows above it are capped at **six**. Centring alone is right at the 80×24
+floor and wrong at scale: on a 227×62 terminal a nine-row menu was centred 24 rows down and sat 26
+rows below the header that named it, reading as content that had fallen to the bottom of the screen.
+At 80×24 the shift is five rows, below the cap, so nothing moves there.
+
+### Panels
+
+Where the frame has room for a second column, two screens offer one, and each panel answers the
+question its own screen asks:
+
+| Screen | Panel | The question it answers |
+|--------|-------|-------------------------|
+| Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
+| Main menu | **What will happen** | What is about to happen — the plan the run would execute, the configurations it will overwrite, and the newest backup with when it was taken and how old it is |
+
+The welcome screen asks where you are, so its panel is the machine; the main menu asks what it is
+about to do, so its panel is the plan and the state that run will read. The plan is the wizard's own:
+before the first question the panel builds it with the same pure builder from the detected host, and
+names the host it is describing (`on Linux (detected)`) because the operating-system question has not
+been asked yet.
+
+A panel is a glance, not a document. The main menu's panel numbers the steps, gives the `▸` marker
+its own column and right-aligns the numbers, so the step names start on one column and the digits
+form a straight edge whether the plan has eight steps or eighty, and it keeps the description of the
+step the run starts at — or, once a run is in progress, the step it is on — because that is the next
+action. **The other steps' descriptions are deliberately left out**: they are read on the installing
+screen, beside the step that is running, which is where a description is read rather than skimmed.
+
+The panels also leave out every fact the installer has not measured. A value the model does not hold
+produces no row at all — never `unknown`, `none` or a guessed default — because a panel padded with
+invented facts is worse than a short one. Nothing is clipped silently either: a value wider than the
+column wraps under itself, and a panel with more rows than the frame leaves says how many it could
+not show.
 
 ## Command Line Interface
 

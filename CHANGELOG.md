@@ -22,6 +22,16 @@ machine's limits into another machine's VM.
 - **Every screen writes its key hints the same way.** Navigation, the action and the way back now use
   one bracketed notation and one separator everywhere, including the trainer, whose legends were
   hand-typed and could drift from the keys they promised.
+- **The installer now uses the terminal it is given instead of assuming the 80 columns it was
+  designed at.** The body is capped at 160 columns and centred in the rest, the bar behind a selected
+  row is a measure of at most 80 columns instead of a slab of colour across the whole terminal, and
+  from 124 terminal columns the welcome screen and the main menu carry a second column: the machine
+  the run is about to change, and the plan it will execute with the configs it will overwrite and the
+  newest backup. Below that floor the panel is dropped and the screen renders exactly as it did, so
+  nothing is lost. A body shorter than its frame no longer floats down the screen either: the blank
+  rows above it are capped at six, where a nine-row menu in a 62-row terminal sat 26 rows below the
+  header that named it. The plan panel numbers its steps with the marker in its own column and the
+  numbers right-aligned, so the names line up.
 - **Menu and status copy was rewritten to say what to do.** Detected-platform labels no longer repeat
   the line above them, the Alacritty build warning no longer sits inside the terminal's name where it
   read as part of it, the welcome screen's environment note is one sentence instead of three facts
