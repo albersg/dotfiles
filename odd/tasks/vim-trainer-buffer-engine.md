@@ -178,33 +178,69 @@ script into one block, so undo granularity cannot be settled any other way.
 ## Slice 2 — the module (`feat/trainer-buffer-module`)
 
 ### M1 — Undo, redo and insert entries
-- [ ] `exercises_buffer.go` with lessons for `u`, `Ctrl-r`, and the six insert entries, plus a boss.
-- [ ] Every mission states a result the judge can verify, and the explanations say what the buffer
-      looks like afterwards.
-- Tests: the module's lessons load, their optimals validate, and their stated results hold.
-- Route: delegated writer.
+- [x] A new module with lessons for `u`, `Ctrl-r` and the six insert entries, plus a boss. It shipped
+      as "Editing & Undo" rather than `exercises_buffer.go`, with twenty-three lessons and the boss
+      "The Historian".
+- [x] Every mission states a result the judge can verify, and every lesson opts into the buffer judge.
+- Check: the two invariant tests pass, and the shipped-corpus guard was rewritten to allow exactly
+      this module and the one that followed.
+- Evidence: `TestEditingModule_EveryOptimalValidates` and
+      `TestEditingModule_PlausibleWrongAnswersAreRejected`. Registering the eighth module moved the
+      counts the rest of the suite pins, including four assertions in the end-to-end test that this
+      task's surfaces did not include and the parent applied. The wrong-answer test is the one worth
+      reading: deleting without undoing makes the buffer differ, forgetting the session undo leaves
+      the line behind, and forgetting a mark jump leaves the buffer identical and the cursor wrong,
+      which is the case that proves the judge compares more than text. Commit `ca5fe26`.
 
 ### M2 — Yank, put and indentation
-- [ ] Lessons for `yy`+`p`/`P`, `y`+motion+`p`, register variants, `>>` and `<<`, plus a boss.
-- Tests: as M1.
-- Route: delegated writer.
+- [x] A second module, "Registers & Indentation", with twenty lessons and the boss "The Archivist":
+      yanking a line and putting it below and above, yanking a word and putting it before and after
+      the cursor, a named register, `"0p` after a delete moved the unnamed register, moving a line with
+      `dd` then `p`, and shifting with counts.
+- [x] Tests: both invariants of M1, and nine plausible wrong answers rejected with a mismatch that
+      names what differed.
+- Evidence: the lesson about register 0 is the reason the register model is worth teaching, and the
+      wrong answers are the point of the judge: `"0p` where the unnamed register was asked for pastes
+      the deleted line rather than the yanked one. Commit `45447ca`.
+- Surface the task closed on the way: the engine had no range shift (`>j`, `Vj>`), which the module
+      had to work around with counted shifts. That gap became E7.
 
 ### M3 — Registration, unlock order and the menu
-- [ ] `ModuleID`, `moduleUnlockOrder`, `GetAllModules`, `NextModule` and the count assertions in the
-      existing tests learn the new module.
-- [ ] The menu golden is regenerated and still seeded so the counts are proven.
-- Route: delegated writer.
+- [x] Folded into M1 and M2 rather than done separately: each module registers itself the way the
+      skill's decision tree prescribes, so a module arrives complete and testable in one task instead
+      of depending on a later one to exist. `ModuleID`, the unlock order, `GetAllModules` with name,
+      icon, description and boss name, the lesson and boss dispatch, `NextModule`, and every count
+      assertion in the existing tests moved with each module, and the menu golden is regenerated and
+      still seeded so the counts in it are proven rather than assumed.
 
 ## Slice 3 — honesty and the last capability (`feat/trainer-buffer-honesty`)
 
 ### H1 — The nine exercises that promise what they cannot check
-- [ ] For each, either back the promise with buffer verification now that the engine exists, or
-      reword the mission so it claims only what is judged. Report each decision.
-- Route: delegated writer.
+- [x] Seventeen exercises in total were made honest, not nine: eight are backed by the buffer judge
+      with answers that finish the job the prose describes, and nine are reworded because what they
+      promise is an ex command the engine does not model. A second pass found five more in the macros
+      module and reworded those too.
+- [x] The judge order changed so this is possible at all: the buffer check now runs before the
+      skip-simulation bypass, which is what lets an exercise in any module be verified by its result.
+- [x] A guard test keeps the class from returning, and its blind spots are written down rather than
+      implied: prose that names no mechanism, a single-line `:s` claim without a result shape, and
+      promises written in a language other than English.
+- Evidence: commits `cc4620c` (amended to `03e0a7d`), and the second pass in the facelift close-out.
+      The verifier that reviewed the second pass is the one that found the remaining five, which is
+      why the task exists twice.
 
 ### H2 — Visual block
-- [ ] `Ctrl-v` block selection with `I`, `A`, `d` and `c`, and at least one lesson per operation.
-- Route: delegated writer.
+- [x] `V` for linewise and `Ctrl-v` for blockwise selection, with `d`/`x`, `c`, `y`, `>` and `<` on
+      lines and `d`/`x`, `y`, `I` and `A` on blocks, where `I` and `A` insert the text typed afterwards
+      on every line of the block. `Ctrl-v` became typeable and the legend documents it beside the
+      escape token.
+- [x] The engine returns the selection it made, so a screen can draw it, and the two modes are
+      covered by forty-five subtests against the reference.
+- Evidence: commit `db968bf`. The rules worth knowing came from nvim rather than reasoning: `I` skips
+      a line shorter than the block's left edge while `A` pads every short line with spaces, and a
+      block that runs past a short line extends instead of failing. Blockwise `$`, blockwise shifts
+      and counted visual operators are refused explicitly rather than approximated, because emulating
+      them needs a cursor model this engine does not have.
 
 ## Acceptance criteria
 1. [ ] A mission in a buffer-verified exercise can claim a result, and a wrong answer is rejected
@@ -234,3 +270,18 @@ script into one block, so undo granularity cannot be settled any other way.
   `a6ec2a6` and the counted-linewise guard. The verification also proved the motion seam is
   behaviour-identical to `main` by fuzzing 60,504 cases, and confirmed the opt-in gate, the bypass and
   the scoring are textually unchanged.
+
+## Delivery
+- **Merged to `main`** through two pull requests: `#40` for the engine, the judge, the two modules and
+  the honesty pass, and `#42` for the installer facelift that followed. Both had every CI check green
+  before the merge, and the local installer binary was rebuilt from the merged `main`.
+- Every task above is committed on its own, with the tests that pin it, and each slice had either a
+  differential verification against `nvim` or an independent read-only review. Those verifications
+  found real defects in the work itself, not in the plan: four Vim-fidelity divergences, a boss hint
+  that named the wrong step, a window that could cost two lives, a menu render that wrote to the
+  player's profile, and a scroll window that hid the tail of the longest lists. All were fixed before
+  landing.
+- Left deliberately undone and recorded in the pull requests rather than hidden: ex commands cannot be
+  verified, cross-line `d%`/`y%` and blockwise `$` are refused, the exercise screen's live preview
+  still uses the motion simulator, and a negative cursor column is unguarded while the out-of-range
+  line and column are.
