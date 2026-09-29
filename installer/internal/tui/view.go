@@ -868,10 +868,18 @@ func (m Model) renderWelcome() string {
 		body = append(body, BrandStyle.Render("dotfiles"))
 	}
 
-	// The version and the detected environment are one dim line under the
+	// The version and the detected environment are one dim fact under the
 	// wordmark now, instead of a sentence above the help: a machine fact belongs
 	// with the lockup, not between the pitch and its keys. The platform leads
 	// because it is the fact that changes how the installer behaves.
+	//
+	// It wraps rather than truncates. The panel beside the welcome body narrows it
+	// to the left column, and cutting the sentence to fit that column turned a
+	// fact the same screen states in full in one column -- "with Homebrew already
+	// installed (dev build)" -- into "already installe…": a layout that looked
+	// tidier and said less. The information is the point, so the sentence grows
+	// instead of losing anything, and the frame's row budget and the fit guard
+	// absorb the extra row.
 	env := "Running on " + m.SystemInfo.OSName
 	if m.SystemInfo.IsWSL && m.SystemInfo.OSName != "WSL" {
 		env += " under WSL"
@@ -880,7 +888,9 @@ func (m Model) renderWelcome() string {
 		env += ", with Homebrew already installed"
 	}
 	env += " (" + VersionLabel() + ")"
-	body = append(body, MeterStyle.Render(truncate(env, bodyWidth)))
+	for _, line := range wrapText(env, bodyWidth, 0) {
+		body = append(body, MeterStyle.Render(line))
+	}
 
 	body = append(body, "")
 	body = append(body, SubtitleStyle.Render("Your terminal environment, configured in minutes."))

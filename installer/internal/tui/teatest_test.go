@@ -1330,6 +1330,94 @@ func TestInstallerScreensFitWideTerminals(t *testing.T) {
 	}
 }
 
+// TestComposedScreensLoseNothingToTheirPanel pins the one thing the two-column
+// composition may never do to the body it places beside a panel: shorten it.
+//
+// composeColumns cuts the left column to the layout's Left width with the shared
+// truncate, so a body line longer than that column ends in the cut marker even
+// though the same line fits the screen's full content width. The welcome screen's
+// environment sentence did exactly that: 78 columns of fact, whole on a
+// one-column screen, cut to "... with Homebrew already installed (…" in the
+// 70-column column at 160, so a layout that looked tidier said less. The frame
+// guard could not see it, because its welcome model is a plain Linux host whose
+// sentence is 28 columns and never reaches the column edge.
+//
+// The guard renders each composing screen at every two-column size, with the
+// host that makes the welcome sentence long, and fails on any line in the body's
+// own column that ends with the truncation marker. A cut in that column is the
+// signal that the panel took a fact from the body; the panel's own column is
+// allowed to wrap and to say how many rows it could not show.
+func TestComposedScreensLoseNothingToTheirPanel(t *testing.T) {
+	hosts := []struct {
+		name   string
+		host   *system.SystemInfo
+		screen Screen
+	}{
+		{name: "welcome, a plain Linux host", screen: ScreenWelcome, host: goldenSystemInfo()},
+		{name: "welcome, a WSL host with Homebrew already installed", screen: ScreenWelcome, host: &system.SystemInfo{
+			OS: system.OSDebian, OSName: "Debian/Ubuntu", Arch: "x86_64",
+			IsWSL: true, WSLVersion: 2, UserShell: "zsh", HomeDir: "/home/testuser", HasBrew: true,
+		}},
+		{name: "main menu", screen: ScreenMainMenu, host: goldenSystemInfo()},
+	}
+
+	sizes := []struct {
+		name          string
+		width, height int
+	}{
+		{"124x24, the two-column floor", 124, 24},
+		{"124x30", 124, 30},
+		{"160x50", 160, 50},
+		{"227x62, the pane the feature exists for", 227, 62},
+	}
+
+	for _, c := range hosts {
+		for _, size := range sizes {
+			c, size := c, size
+			t.Run(c.name+" at "+size.name, func(t *testing.T) {
+				m := NewModel()
+				isolateGoldenTest(t, &m)
+				m.Screen = c.screen
+				m.Width, m.Height = size.width, size.height
+				m.SystemInfo = c.host
+
+				l := layoutFor(m)
+				if !l.TwoColumn {
+					t.Fatalf("%s lays out as one %d-column body at %s: no panel has room", c.name, l.Inner, size.name)
+				}
+
+				view := ansiEscape.ReplaceAllString(m.View(), "")
+				if rows := renderedRowCount(view); rows != size.height {
+					t.Errorf("%s at %s renders %d rows, want exactly %d: the growing body pushed the footer off the frame",
+						c.name, size.name, rows, size.height)
+				}
+				for _, line := range strings.Split(view, "\n") {
+					if w := lipgloss.Width(line); w > size.width {
+						t.Errorf("%s at %s renders a %d-column line in a %d-column terminal: %q", c.name, size.name, w, size.width, line)
+					}
+				}
+
+				// View() pads every screen two columns on each side, so the body's own
+				// column in the rendered line is [pad+Leading, pad+Leading+Left]; the
+				// gutter and the panel sit to the right of it. A marker inside the
+				// body's column is a fact the panel's arrival took away.
+				pad := (size.width - l.Inner) / 2
+				bodyRightEdge := pad + l.Leading + l.Left
+				for i, raw := range strings.Split(view, "\n") {
+					line := strings.TrimRight(raw, " ")
+					if !strings.HasSuffix(line, cutMarker) {
+						continue
+					}
+					if col := lipgloss.Width(line); col <= bodyRightEdge {
+						t.Errorf("%s at %s cuts a body line in the panel's own column at row %d: %q (the body has %d columns, the cut landed at %d); the panel must not take a fact from the body",
+							c.name, size.name, i+1, line, l.Left, col)
+					}
+				}
+			})
+		}
+	}
+}
+
 // TestInstallingScreenShowsProgressAndRail pins the two things the installing
 // screen has to show while it is the longest thing a user watches: a progress
 // bar that fills with the run, and a step rail whose state is a glyph rather
