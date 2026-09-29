@@ -197,11 +197,16 @@ func TestInstallFlowE2E(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	time.Sleep(50 * time.Millisecond)
 
-	// Should be at Terminal Select now
+	// Should be at Terminal Select now. On WSL and Termux the wizard skips the
+	// terminal and font questions and goes straight to Shell Select, so the shell
+	// screen is a valid next screen too. The assertion used to pass on those hosts
+	// only because the body listed every step name, including "Terminal"; the step
+	// counter now lives in the frame's header, so the check names the screens.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return bytes.Contains(bts, []byte("Terminal")) ||
 			bytes.Contains(bts, []byte("Alacritty")) ||
-			bytes.Contains(bts, []byte("WezTerm"))
+			bytes.Contains(bts, []byte("WezTerm")) ||
+			bytes.Contains(bts, []byte("Shell"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -1070,6 +1075,14 @@ func installerFrameCase(t *testing.T, name string) Model {
 // keymap tables shipped a 60-column rule and a 15-row window against a 24-row
 // frame, the installing screen had no progress bar at all, and two screens
 // hard-coded a title the model was carrying.
+//
+// The persistent frame added a header row, two rules and a footer to every
+// screen, so each screen's reserved rows moved: the body budgets now come from
+// installerBodyRows and the per-screen *BodyFixed constants in view.go, and the
+// keymap window, menu window, installing rail, tool-info lists and LazyVim
+// window were all recomputed against them. This guard's height assertion is
+// unchanged, so the new chrome is not treated as headroom: a screen that spends
+// a row it did not reserve still fails here.
 func TestInstallerScreensFitTheFrame(t *testing.T) {
 	names := []string{
 		"welcome",

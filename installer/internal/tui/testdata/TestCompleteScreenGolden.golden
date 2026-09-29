@@ -1,18 +1,24 @@
-[?25l[?2004h]2;dotfiles Installer                                           [K
-  Installation complete                    [K
-                                           [K
-  Summary                                  [K
-                                           [K
-    • OS: mac                              [K
-    • Terminal: ghostty                    [K
-    • Shell: fish                          [K
-    • Window Manager: tmux                 [K
-    • Editor: Neovim with dotfiles config  [K
-                                           [K
-  Next Step                                [K
-                                           [K
-  To use your new shell now, run:          [K
-     exec fish                             [K
-                                           [K
-                                           [K
-  [Enter] exit                             [K[17A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+[?25l[?2004h]2;dotfiles Installer                                                                                
+  Installation complete                                                         
+  ────────────────────────────────────────────────────────────────────────────  
+  Summary                                                                       
+  │ OS: mac                                                                     
+  │ Terminal: ghostty                                                           
+  │ Shell: fish                                                                 
+  │ Window Manager: tmux                                                        
+  │ Editor: Neovim with dotfiles config                                         
+                                                                                
+  Next Step                                                                     
+  │ To use your new shell now, run:                                             
+  │ exec fish                                                                   
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  ────────────────────────────────────────────────────────────────────────────  
+  [Enter] exit                                                                  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
