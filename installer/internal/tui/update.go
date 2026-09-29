@@ -119,13 +119,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		// Animate spinner during installation
-		if m.Screen == ScreenInstalling {
-			m.SpinnerFrame++
-		}
-		// The same tick that animates the spinner wakes the model on its own, so
-		// the exercise countdown stays live and an idle player's hint is revealed
-		// when its deadline passes without any key press.
+		// The tick wakes the model on its own, so the exercise countdown stays live
+		// and an idle player's hint is revealed when its deadline passes without
+		// any key press.
 		m.revealExerciseHintOnDeadline()
 		// The boss fight has a failure deadline instead of a hint: the same tick
 		// charges the life when a boss step is left unanswered.
@@ -890,16 +886,11 @@ func (m Model) handleKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.KeymapCategories[m.SelectedCategory]
 
-	// Calculate visible items based on terminal height (same as view)
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	// The view and the keys ask the same helper for the window size, and the keys
+	// clamp the scroll value with the bound the renderer's own window uses, so the
+	// scroll value is the table's top row and the last binding is reachable.
+	visibleItems := keymapTableRows(m.Height)
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1014,15 +1005,8 @@ func (m Model) handleTmuxKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleTmuxKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.TmuxKeymapCategories[m.TmuxSelectedCategory]
 
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	visibleItems := keymapTableRows(m.Height)
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1084,15 +1068,8 @@ func (m Model) handleZellijKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleZellijKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.ZellijKeymapCategories[m.ZellijSelectedCategory]
 
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	visibleItems := keymapTableRows(m.Height)
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1154,15 +1131,8 @@ func (m Model) handleGhosttyKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleGhosttyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.GhosttyKeymapCategories[m.GhosttySelectedCategory]
 
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	visibleItems := keymapTableRows(m.Height)
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1224,15 +1194,8 @@ func (m Model) handleHerdrKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleHerdrKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 	category := m.HerdrKeymapCategories[m.HerdrSelectedCategory]
 
-	visibleItems := m.Height - 9
-	if visibleItems < 5 {
-		visibleItems = 5
-	}
-
-	maxScroll := len(category.Keymaps) - visibleItems
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	visibleItems := keymapTableRows(m.Height)
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
 
 	switch key {
 	case "up", "k":
@@ -1292,19 +1255,9 @@ func (m Model) handleLazyVimMenuKeys(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleLazyVimTopicKeys(key string) (tea.Model, tea.Cmd) {
 	topic := m.LazyVimTopics[m.SelectedLazyVimTopic]
 
-	// Calculate view height based on terminal size (same as view)
-	// Reserve space for: title(1) + description(1) + blank(2) + scroll info(2) + help(2) = 8 lines
-	viewHeight := m.Height - 8
-	if viewHeight < 10 {
-		viewHeight = 10 // Minimum
-	}
-
-	// Calculate content height: content lines + code example lines + tips
-	contentLines := len(topic.Content) + strings.Count(topic.CodeExample, "\n") + len(topic.Tips) + 10
-	maxScroll := contentLines - viewHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	// The view and the keys measure the same lines and the same window, so the
+	// scroll value is the topic's top line and its last line is reachable.
+	maxScroll := offsetWindowMax(lazyVimTopicRows(m.Height), len(m.lazyVimTopicLines(topic)))
 
 	switch key {
 	case "up", "k":
@@ -1592,7 +1545,7 @@ func (m *Model) expireBossStepOnDeadline() {
 		return
 	}
 
-	livesStr := strings.Repeat("❤️", state.BossLives)
+	livesStr := trainerLivesGlyphs(state.BossLives, state.CurrentBoss.Lives)
 	m.TrainerMessage = "⏰ Time's up! Was: " + solutionHint + " | Lives: " + livesStr
 }
 
@@ -1641,7 +1594,7 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// Start lessons for the module
 		lessons := trainer.GetLessons(module.ID)
 		if len(lessons) == 0 {
-			m.TrainerMessage = "No lessons available for this module yet."
+			m.TrainerMessage = "No lessons for this module yet. Choose another module."
 			return m, nil
 		}
 
@@ -1724,10 +1677,10 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 					m.TrainerMessage = ""
 					m.Screen = ScreenTrainerBoss
 				} else {
-					m.TrainerMessage = "Boss not implemented yet!"
+					m.TrainerMessage = "This module has no boss fight yet. Try another module."
 				}
 			} else {
-				m.TrainerMessage = "Complete lessons + 80% practice accuracy to fight boss!"
+				m.TrainerMessage = "Finish every lesson and reach 80% practice accuracy to unlock the boss."
 			}
 		}
 	case "q":
@@ -1771,19 +1724,20 @@ func (m Model) clearTrainerProfile() (tea.Model, tea.Cmd) {
 // trainerControlChars maps the control key names the trainer accepts as answer
 // input to the bytes the engine parses for them. It mirrors the control keys
 // handled by trainer.SimulateMotionsWithSelection (\x04, \x15, \x06 and \x02)
-// plus trainer.SimulateEditing's redo (\x12); a ctrl+ combination absent here has
-// no meaning in either engine, so both exercise handlers ignore it instead of
-// typing its literal name into the answer. ctrl+e is the one value that is not a
-// control character: it types trainer.EscToken, because Esc is the trainer's
-// global exit key and an insert answer that has to leave insert mode cannot be
-// spelled any other way. This is the single accepted set shared by the
-// lesson/practice and boss handlers.
+// plus trainer.SimulateEditing's redo (\x12) and blockwise visual (\x16); a
+// ctrl+ combination absent here has no meaning in either engine, so both
+// exercise handlers ignore it instead of typing its literal name into the
+// answer. ctrl+e is the one value that is not a control character: it types
+// trainer.EscToken, because Esc is the trainer's global exit key and an insert
+// answer that has to leave insert mode cannot be spelled any other way. This is
+// the single accepted set shared by the lesson/practice and boss handlers.
 var trainerControlChars = map[string]string{
 	"ctrl+d": "\x04",
 	"ctrl+u": "\x15",
 	"ctrl+f": "\x06",
 	"ctrl+b": "\x02",
 	"ctrl+r": "\x12",
+	"ctrl+v": "\x16",
 	"ctrl+e": trainer.EscToken,
 }
 
@@ -1817,6 +1771,14 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
+	case "pgup", "pgdown":
+		// PgUp and PgDn scroll the code window, which is how a code block longer
+		// than the frame is still readable. They are key names rather than
+		// printable characters, so they cannot collide with typing, with the hint
+		// key, with submit or with back, and neither engine parses them.
+		m.scrollTrainerCode(key == "pgdown")
+		return m, nil
+
 	case "backspace":
 		// Remove the last typed unit from the input.
 		m.TrainerInput = backspaceTrainerInput(m.TrainerInput)
@@ -1904,6 +1866,13 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
+	case "pgup", "pgdown":
+		// PgUp and PgDn scroll the code window, shared with the lesson and
+		// practice screens: a boss step is the longest code the trainer shows, so
+		// it needs the keys most.
+		m.scrollTrainerCode(key == "pgdown")
+		return m, nil
+
 	case "backspace":
 		m.TrainerInput = backspaceTrainerInput(m.TrainerInput)
 		return m, nil
@@ -1958,7 +1927,7 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 				m.Screen = ScreenTrainerBossResult
 			} else {
 				// Still has lives - show solution and remaining lives
-				livesStr := strings.Repeat("❤️", m.TrainerGameState.BossLives)
+				livesStr := trainerLivesGlyphs(m.TrainerGameState.BossLives, boss.Lives)
 				m.TrainerMessage = "✗ Wrong! Was: " + solutionHint + " | Lives: " + livesStr
 			}
 		}

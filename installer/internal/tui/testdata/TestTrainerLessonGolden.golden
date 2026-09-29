@@ -1,23 +1,18 @@
-[?25l[?2004h]2;dotfiles Installer                                                                [K
-  🎮 Lesson Mode: horizontal                                    [K
-                                                                [K
-  Exercise 1 of 19                                              [K
-  ⏳ Hint in 30s                                                [K
-                                                                [K
-  📋 Mission:                                                   [K
-     Move to the start of 'userName' using w (word)             [K
-                                                                [K
-  📝 Code:                                                      [K
-  ────────────────────────────────────────────────────────────  [K
-   1 │ const userName = 'dotfiles';                             [K
-  ────────────────────────────────────────────────────────────  [K
-                                                                [K
-  ⌨️  Your answer:                                              [K
-  ╭───────╮                                                     [K
-  │       │                                                     [K
-  │  ...  │                                                     [K
-  │       │                                                     [K
-  ╰───────╯                                                     [K
-                                                                [K
-  Type command • [Enter] submit • [Tab] hint                    [K
-  [Backspace] delete • [Ctrl-e] type <Esc> • [Esc] quit         [K[22A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+[?25l[?2004h]2;dotfiles Installer                                                                                
+  🎮 Lesson Mode: horizontal                                                    
+  Exercise 1 of 19                                                              
+  ⏳ Hint in 30s                                                                
+                                                                                
+  📋 Mission:                                                                   
+     Move to the start of 'userName' using w (word)                             
+                                                                                
+  📝 Code:                                                                      
+  ────────────────────────────────────────────────────────────────────────────  
+   1 │ const userName = 'dotfiles';                                             
+  ────────────────────────────────────────────────────────────────────────────  
+  ⌨️ Your answer: ...                                                           
+                                                                                
+                                                                                
+                                                                                
+  Type command • [Enter] submit • [Tab] hint • [PgUp/PgDn] scroll               
+  [Backspace] delete • [Ctrl-e] type <Esc> • [Ctrl-v] block • [Esc] quit        [17A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

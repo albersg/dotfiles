@@ -6,11 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-The WSL configuration is now derived from the host that receives it. This release removes the last
-artifact that carried one machine's limits into another machine's VM.
+This cycle finishes the Vim trainer's buffer engine and its two new modules, and gives the installer
+an interface that fits the terminal it claims and reads on a light one. The WSL configuration is also
+now derived from the host that receives it, which removes the last artifact that carried one
+machine's limits into another machine's VM.
 
 ### Changed
 
+- **The installer has one palette that reads on a light or a dark terminal.** The theme was near-white
+  text on whatever background the terminal happened to have, so on a light terminal the body text was
+  effectively invisible. Every colour is now adaptive: it asks the terminal for its background and
+  picks a light or dark variant, so a light terminal gets dark ink and darker accents while a dark
+  terminal keeps the existing values. Only the colours change between the two; words and glyphs still
+  carry every state, so a 16-colour or no-colour terminal loses no information.
+- **Every screen writes its key hints the same way.** Navigation, the action and the way back now use
+  one bracketed notation and one separator everywhere, including the trainer, whose legends were
+  hand-typed and could drift from the keys they promised.
+- **Menu and status copy was rewritten to say what to do.** Detected-platform labels no longer repeat
+  the line above them, the Alacritty build warning no longer sits inside the terminal's name where it
+  read as part of it, the welcome screen's environment note is one sentence instead of three facts
+  joined by pipes, and empty or blocked states name the next step instead of only the problem.
+- **The Macros module's global-command lessons claim only what the judge can check.** The lessons that
+  described the result of `:g/...` and `:v/...` commands named an effect the engine does not run; they
+  now teach the keystrokes and say so, and a guard test catches that class of unkept promise in
+  future content.
 - **`.wslconfig` is rendered for the host it is installed on instead of shipped as one host's
   numbers.** The file was checked in holding what a single Windows machine had settled on — 6 GB of
   memory and 4 GB of swap against a 15.6 GB host, with 8 processors on a 12-thread one — and the
@@ -30,6 +49,19 @@ artifact that carried one machine's limits into another machine's VM.
 
 ### Added
 
+- **The Vim trainer can judge an answer by the buffer it leaves, not only by where it moves the
+  cursor.** A mutable editing engine runs the answer and compares the buffer text, the cursor and
+  the mode it produces against the optimal's result, so undo, put, register and indentation
+  exercises are marked by their actual effect. When a rejected answer differs, the result screen
+  shows the expected buffer next to the produced one. Commands the engine does not run yet are
+  taught as keystroke exercises and say so, instead of promising a result nothing checks.
+- **Two trainer modules: Editing & Undo and Registers & Indentation.** Editing & Undo covers
+  insertion, escape, undo/redo and the line edits around them; Registers & Indentation covers the
+  named registers, the yank-only register, put before and after the cursor, and the shift commands.
+  Each has its own lessons, practice pool and boss, and both extend the unlock chain after Macros.
+- **A progress bar and a per-step status rail on the installing screen.** The screen shows a bar
+  sized to the terminal with a percentage beside it, and a rail of one row per step whose state is a
+  glyph and a word, so the run's progress and each step's state are readable without colour.
 - **`DOTFILES_WSL_HOST_CPUS` and `DOTFILES_WSL_HOST_MEMORY_MB`**, for a machine whose interop is
   unavailable: setting both to the host's logical CPU count and its memory in MiB replaces the
   Windows-side query. Both must be present and valid, so a half-configured override falls back to

@@ -112,8 +112,6 @@ type Model struct {
 	Quitting    bool
 	// Program reference for sending messages during installation
 	Program *tea.Program
-	// Spinner animation
-	SpinnerFrame int
 	// Learn mode
 	ViewingTool string // Current tool being viewed in learn mode
 	// Keymaps mode
@@ -157,6 +155,13 @@ type Model struct {
 	// result screen. It is nil until an answer is submitted, and only
 	// buffer-verified answers carry a buffer for the result screen to show.
 	TrainerValidation *trainer.ValidationResult
+	// TrainerCodeScroll is the first code row the exercise screen's code window
+	// shows, and TrainerCodeScrollFor names the exercise those rows were chosen
+	// for. The window shows the exercise's entry position until the two agree,
+	// which is how a freshly presented exercise opens on the code row its start
+	// cursor is on without every presentation path having to remember to reset it.
+	TrainerCodeScroll    int
+	TrainerCodeScrollFor string
 	// Leader key mode (like Vim's <space> leader)
 	LeaderMode bool // True when waiting for next key after <space>
 }
@@ -175,7 +180,6 @@ func NewModel() Model {
 		Cursor:                  0,
 		ShowDetails:             false,
 		LogLines:                []string{},
-		SpinnerFrame:            0,
 		KeymapCategories:        GetNvimKeymaps(),
 		SelectedCategory:        0,
 		KeymapScroll:            0,
@@ -254,14 +258,39 @@ func (m *Model) SendLog(stepID string, log string) {
 	SendLog(stepID, log)
 }
 
+// menuSeparatorPrefix is the leading rune of the divider row. The key handlers
+// test the same run of dashes to skip a divider instead of selecting it, and
+// menuRows uses this name so the view's divider and the keys' divider are the
+// same marker.
+const menuSeparatorPrefix = "───"
+
+// menuSeparator is the divider row a menu uses to group its choices. It is a
+// frame-width rule rather than the fixed 13-glyph string it used to be, so the
+// divider fits the terminal it is drawn in and matches every other rule in the
+// TUI. The views detect it by its dashes and it is rendered by rule(), so the
+// data and the renderer cannot disagree on its length.
+func (m Model) menuSeparator() string {
+	return ruleText(contentWidth(m))
+}
+
 // GetCurrentOptions returns the options for the current screen
+// alacrittyNeedsBuild reports whether the Linux path installs Alacritty from
+// source, which is the one terminal choice with a cost worth stating beside the
+// menu instead of inside its label. The condition is the one the installer step
+// uses: a Debian-based host, or plain Linux, with Linux chosen as the platform.
+func (m Model) alacrittyNeedsBuild() bool {
+	return m.SystemInfo != nil &&
+		(m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) &&
+		m.Choices.OS == "linux"
+}
+
 func (m Model) GetCurrentOptions() []string {
 	switch m.Screen {
 	case ScreenMainMenu:
 		opts := []string{
 			"🚀 Start Installation",
 			"📚 Learn About Tools",
-			"⌨️  Keymaps Reference",
+			"⌨️ Keymaps Reference",
 			"📖 LazyVim Guide",
 			"🎮 Vim Trainer",
 		}
@@ -272,45 +301,32 @@ func (m Model) GetCurrentOptions() []string {
 		opts = append(opts, "❌ Exit")
 		return opts
 	case ScreenKeymapsMenu:
-		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", "─────────────", "← Back"}
+		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", m.menuSeparator(), "← Back"}
 	case ScreenOSSelect:
-		macLabel := "macOS"
-		linuxLabel := "Linux"
-		termuxLabel := "Termux"
-		if m.SystemInfo.OS == system.OSMac {
-			macLabel = "macOS (detected)"
-		} else if m.SystemInfo.OS == system.OSTermux {
-			termuxLabel = "Termux (detected)"
-		} else if m.SystemInfo.OS == system.OSLinux || m.SystemInfo.OS == system.OSArch || m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSFedora {
-			linuxLabel = "Linux (detected)"
-		}
-		return []string{macLabel, linuxLabel, termuxLabel}
+		// The detected platform is already named on the line above the menu, so
+		// the option labels do not repeat it: they were "Linux (detected)" and
+		// friends, which restated the description under the title.
+		return []string{"macOS", "Linux", "Termux"}
 	case ScreenTerminalSelect:
-		alacrittyLabel := "Alacritty"
-		// On Debian/Ubuntu, Alacritty needs to be built from source (PPAs are unreliable)
-		// This applies to ALL Debian-based systems, not just ARM
-		if m.SystemInfo != nil && (m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux) && m.Choices.OS == "linux" {
-			alacrittyLabel = "Alacritty ⏱️  (builds from source, installs Rust ~5-10 min)"
-		}
 		if m.Choices.OS == "mac" {
-			return []string{alacrittyLabel, "WezTerm", "Kitty", "Ghostty", "None", "─────────────", "ℹ️  Learn about terminals"}
+			return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", "None", m.menuSeparator(), "ℹ️ Learn about terminals"}
 		}
-		return []string{alacrittyLabel, "WezTerm", "Ghostty", "None", "─────────────", "ℹ️  Learn about terminals"}
+		return []string{"Alacritty", "WezTerm", "Ghostty", "None", m.menuSeparator(), "ℹ️ Learn about terminals"}
 	case ScreenFontSelect:
 		return []string{"Yes, install Iosevka Term Nerd Font", "No, I already have it"}
 	case ScreenShellSelect:
-		return []string{"Fish", "Zsh", "Nushell", "─────────────", "ℹ️  Learn about shells"}
+		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "ℹ️ Learn about shells"}
 	case ScreenWMSelect:
 		if m.SystemInfo != nil && m.SystemInfo.IsTermux {
-			return []string{"Tmux", "Zellij", "None", "─────────────", "ℹ️  Learn about multiplexers"}
+			return []string{"Tmux", "Zellij", "None", m.menuSeparator(), "ℹ️ Learn about multiplexers"}
 		}
-		return []string{"Tmux", "Zellij", "Herdr", "None", "─────────────", "ℹ️  Learn about multiplexers"}
+		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "ℹ️ Learn about multiplexers"}
 	case ScreenNvimSelect:
-		return []string{"Yes, install Neovim with config", "No, skip Neovim", "─────────────", "ℹ️  Learn about Neovim", "⌨️  View Keymaps", "📖 LazyVim Guide"}
+		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "ℹ️ Learn about Neovim", "⌨️ View Keymaps", "📖 LazyVim Guide"}
 	case ScreenBackupConfirm:
 		return []string{
 			"✅ Install with Backup (recommended)",
-			"⚠️  Install without Backup",
+			"⚠️ Install without Backup",
 			"❌ Cancel",
 		}
 	case ScreenRestoreBackup:
@@ -319,35 +335,35 @@ func (m Model) GetCurrentOptions() []string {
 			// Format: timestamp + file count
 			opts[i] = fmt.Sprintf("%s (%d items)", backup.Timestamp.Format("2006-01-02 15:04:05"), len(backup.Files))
 		}
-		opts[len(m.AvailableBackups)] = "─────────────"
+		opts[len(m.AvailableBackups)] = m.menuSeparator()
 		opts[len(m.AvailableBackups)+1] = "← Back"
 		return opts
 	case ScreenRestoreConfirm:
 		return []string{
 			"✅ Yes, restore this backup",
-			"🗑️  Delete this backup",
+			"🗑️ Delete this backup",
 			"❌ Cancel",
 		}
 	case ScreenGhosttyWarning:
 		return []string{
-			"⚠️  Continue with Ghostty anyway",
+			"⚠️ Continue with Ghostty anyway",
 			"🔄 Choose a different terminal",
 			"❌ Cancel installation",
 		}
 	case ScreenLearnTerminals:
-		return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", "─────────────", "← Back"}
+		return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", m.menuSeparator(), "← Back"}
 	case ScreenLearnShells:
-		return []string{"Fish", "Zsh", "Nushell", "─────────────", "← Back"}
+		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "← Back"}
 	case ScreenLearnWM:
-		return []string{"Tmux", "Zellij", "Herdr", "─────────────", "← Back"}
+		return []string{"Tmux", "Zellij", "Herdr", m.menuSeparator(), "← Back"}
 	case ScreenLearnNvim:
-		return []string{"View Features", "View Keymaps", "📖 LazyVim Guide", "─────────────", "← Back"}
+		return []string{"View Features", "View Keymaps", "📖 LazyVim Guide", m.menuSeparator(), "← Back"}
 	case ScreenKeymaps:
 		categories := make([]string, len(m.KeymapCategories)+2)
 		for i, cat := range m.KeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.KeymapCategories)] = "─────────────"
+		categories[len(m.KeymapCategories)] = m.menuSeparator()
 		categories[len(m.KeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenKeymapsTmux:
@@ -355,7 +371,7 @@ func (m Model) GetCurrentOptions() []string {
 		for i, cat := range m.TmuxKeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.TmuxKeymapCategories)] = "─────────────"
+		categories[len(m.TmuxKeymapCategories)] = m.menuSeparator()
 		categories[len(m.TmuxKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenKeymapsZellij:
@@ -363,7 +379,7 @@ func (m Model) GetCurrentOptions() []string {
 		for i, cat := range m.ZellijKeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.ZellijKeymapCategories)] = "─────────────"
+		categories[len(m.ZellijKeymapCategories)] = m.menuSeparator()
 		categories[len(m.ZellijKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenKeymapsGhostty:
@@ -371,7 +387,7 @@ func (m Model) GetCurrentOptions() []string {
 		for i, cat := range m.GhosttyKeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.GhosttyKeymapCategories)] = "─────────────"
+		categories[len(m.GhosttyKeymapCategories)] = m.menuSeparator()
 		categories[len(m.GhosttyKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenKeymapsHerdr:
@@ -379,14 +395,14 @@ func (m Model) GetCurrentOptions() []string {
 		for i, cat := range m.HerdrKeymapCategories {
 			categories[i] = cat.Name
 		}
-		categories[len(m.HerdrKeymapCategories)] = "─────────────"
+		categories[len(m.HerdrKeymapCategories)] = m.menuSeparator()
 		categories[len(m.HerdrKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenLearnLazyVim:
 		titles := GetLazyVimTopicTitles()
 		result := make([]string, len(titles)+2)
 		copy(result, titles)
-		result[len(titles)] = "─────────────"
+		result[len(titles)] = m.menuSeparator()
 		result[len(titles)+1] = "← Back"
 		return result
 	default:
@@ -414,13 +430,13 @@ func (m Model) GetScreenTitle() string {
 	case ScreenNvimSelect:
 		return "Step 6: Neovim Configuration"
 	case ScreenBackupConfirm:
-		return "⚠️  Existing Configs Detected"
+		return "⚠️ Existing Configs Detected"
 	case ScreenRestoreBackup:
 		return "🔄 Restore from Backup"
 	case ScreenRestoreConfirm:
 		return "🔄 Confirm Restore"
 	case ScreenGhosttyWarning:
-		return "⚠️  Ghostty Compatibility Warning"
+		return "⚠️ Ghostty Compatibility Warning"
 	case ScreenInstalling:
 		return "Installing..."
 	case ScreenComplete:
@@ -436,42 +452,42 @@ func (m Model) GetScreenTitle() string {
 	case ScreenLearnNvim:
 		return "📚 Learn: Neovim"
 	case ScreenKeymaps:
-		return "⌨️  Neovim Keymaps Reference"
+		return "⌨️ Neovim Keymaps Reference"
 	case ScreenKeymapCategory:
 		if m.SelectedCategory < len(m.KeymapCategories) {
-			return "⌨️  " + m.KeymapCategories[m.SelectedCategory].Name
+			return "⌨️ " + m.KeymapCategories[m.SelectedCategory].Name
 		}
-		return "⌨️  Keymaps"
+		return "⌨️ Keymaps"
 	case ScreenKeymapsMenu:
-		return "⌨️  Keymaps Reference"
+		return "⌨️ Keymaps Reference"
 	case ScreenKeymapsTmux:
-		return "⌨️  Tmux Keymaps"
+		return "⌨️ Tmux Keymaps"
 	case ScreenKeymapsTmuxCat:
 		if m.TmuxSelectedCategory < len(m.TmuxKeymapCategories) {
-			return "⌨️  " + m.TmuxKeymapCategories[m.TmuxSelectedCategory].Name
+			return "⌨️ " + m.TmuxKeymapCategories[m.TmuxSelectedCategory].Name
 		}
-		return "⌨️  Tmux Keymaps"
+		return "⌨️ Tmux Keymaps"
 	case ScreenKeymapsZellij:
-		return "⌨️  Zellij Keymaps"
+		return "⌨️ Zellij Keymaps"
 	case ScreenKeymapsZellijCat:
 		if m.ZellijSelectedCategory < len(m.ZellijKeymapCategories) {
-			return "⌨️  " + m.ZellijKeymapCategories[m.ZellijSelectedCategory].Name
+			return "⌨️ " + m.ZellijKeymapCategories[m.ZellijSelectedCategory].Name
 		}
-		return "⌨️  Zellij Keymaps"
+		return "⌨️ Zellij Keymaps"
 	case ScreenKeymapsGhostty:
-		return "⌨️  Ghostty Keymaps"
+		return "⌨️ Ghostty Keymaps"
 	case ScreenKeymapsGhosttyCat:
 		if m.GhosttySelectedCategory < len(m.GhosttyKeymapCategories) {
-			return "⌨️  " + m.GhosttyKeymapCategories[m.GhosttySelectedCategory].Name
+			return "⌨️ " + m.GhosttyKeymapCategories[m.GhosttySelectedCategory].Name
 		}
-		return "⌨️  Ghostty Keymaps"
+		return "⌨️ Ghostty Keymaps"
 	case ScreenKeymapsHerdr:
-		return "⌨️  Herdr Keymaps"
+		return "⌨️ Herdr Keymaps"
 	case ScreenKeymapsHerdrCat:
 		if m.HerdrSelectedCategory < len(m.HerdrKeymapCategories) {
-			return "⌨️  " + m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
+			return "⌨️ " + m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
 		}
-		return "⌨️  Herdr Keymaps"
+		return "⌨️ Herdr Keymaps"
 	case ScreenLearnLazyVim:
 		return "📖 LazyVim Guide"
 	case ScreenLazyVimTopic:
@@ -509,6 +525,13 @@ func (m Model) GetScreenDescription() string {
 		if m.SystemInfo.IsWSL {
 			return "WSL detected: terminal emulators should be installed on Windows.\nThe installer will skip terminal setup — use Windows Terminal or your preferred Windows terminal."
 		}
+		if m.alacrittyNeedsBuild() {
+			// The build cost used to sit inside the Alacritty menu label, which
+			// made a warning read like part of the terminal's name. It is a
+			// sentence beside the menu now, where the reader can weigh it before
+			// picking.
+			return "Select your preferred terminal emulator.\nAlacritty builds from source on this system, so it needs Rust and about 5–10 minutes."
+		}
 		return "Select your preferred terminal emulator"
 	case ScreenFontSelect:
 		return "Iosevka Term Nerd Font is required for icons and glyphs"
@@ -534,7 +557,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "backup",
 			Name:        "Backup Existing Configs",
-			Description: "Creating backup of your current configuration",
+			Description: "Saves a copy of your current configuration first.",
 			Status:      StatusPending,
 		})
 	}
@@ -547,7 +570,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "deps",
 			Name:        "Install Dependencies",
-			Description: "Base packages",
+			Description: "Installs base packages with your distribution's package manager.",
 			Status:      StatusPending,
 			Interactive: true, // Needs sudo
 		})
@@ -555,7 +578,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "deps",
 			Name:        "Install Dependencies",
-			Description: "Base packages (pkg)",
+			Description: "Installs base packages with pkg.",
 			Status:      StatusPending,
 			Interactive: false, // Termux doesn't need sudo
 		})
@@ -563,7 +586,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "xcode",
 			Name:        "Install Xcode CLI",
-			Description: "Developer tools",
+			Description: "Installs the Apple developer command-line tools.",
 			Status:      StatusPending,
 		})
 	}
@@ -572,7 +595,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "clone",
 		Name:        "Clone Repository",
-		Description: "Downloading dotfiles",
+		Description: "Downloads your dotfiles repository.",
 		Status:      StatusPending,
 	})
 
@@ -583,7 +606,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "homebrew",
 			Name:        "Install Homebrew",
-			Description: "Package manager",
+			Description: "Installs Homebrew, the package manager.",
 			Status:      StatusPending,
 			Interactive: true,
 		})
@@ -594,7 +617,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "terminal",
 			Name:        "Install " + m.Choices.Terminal,
-			Description: "Terminal emulator",
+			Description: "Installs your terminal emulator.",
 			Status:      StatusPending,
 			Interactive: m.Choices.OS == "linux", // Linux needs sudo for pacman/apt
 		})
@@ -605,7 +628,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "font",
 			Name:        "Install Iosevka Nerd Font",
-			Description: "Nerd font with icons",
+			Description: "Installs the Iosevka Nerd Font for icons.",
 			Status:      StatusPending,
 		})
 	}
@@ -614,7 +637,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "shell",
 		Name:        "Install " + m.Choices.Shell,
-		Description: "Shell and plugins",
+		Description: "Installs your shell and its plugins.",
 		Status:      StatusPending,
 	})
 
@@ -623,7 +646,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "wm",
 			Name:        "Install " + m.Choices.WindowMgr,
-			Description: "Terminal multiplexer",
+			Description: "Installs your terminal multiplexer.",
 			Status:      StatusPending,
 		})
 	}
@@ -633,7 +656,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "nvim",
 			Name:        "Install Neovim",
-			Description: "Editor with config",
+			Description: "Installs Neovim with your configuration.",
 			Status:      StatusPending,
 		})
 	}
@@ -645,7 +668,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "toolset",
 		Name:        "Install Toolset",
-		Description: "Tools declared in the Brewfile",
+		Description: "Installs the command-line tools listed in your Brewfile.",
 		Status:      StatusPending,
 	})
 
@@ -654,7 +677,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "agentskills",
 		Name:        "Install Pi Agent Skills",
-		Description: "Pinned security-audit, archify and officecli skills",
+		Description: "Installs the pinned security-audit, archify and officecli skills.",
 		Status:      StatusPending,
 	})
 
@@ -663,7 +686,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "officecli",
 		Name:        "Install OfficeCLI",
-		Description: "Pinned, checksum-verified CLI binary",
+		Description: "Installs the pinned, checksum-verified OfficeCLI binary.",
 		Status:      StatusPending,
 	})
 
@@ -673,7 +696,7 @@ func (m *Model) SetupInstallSteps() {
 		m.Steps = append(m.Steps, InstallStep{
 			ID:          "wslconfig",
 			Name:        "Configure WSL",
-			Description: ".wslconfig and /etc/wsl.conf",
+			Description: "Applies the WSL settings on Windows and in this distribution.",
 			Status:      StatusPending,
 			Interactive: true, // /etc/wsl.conf needs sudo
 		})
@@ -683,7 +706,7 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "setshell",
 		Name:        "Set Default Shell",
-		Description: "Configure default shell",
+		Description: "Sets your shell as the default.",
 		Status:      StatusPending,
 		Interactive: true,
 	})
@@ -692,7 +715,42 @@ func (m *Model) SetupInstallSteps() {
 	m.Steps = append(m.Steps, InstallStep{
 		ID:          "cleanup",
 		Name:        "Cleanup",
-		Description: "Removing temporary files",
+		Description: "Removes the temporary files it created.",
 		Status:      StatusPending,
 	})
+}
+
+// scrollTrainerCode moves the code window one row, clamped to the code it is
+// shown over. The window starts where the exercise's own cursor is (see
+// trainerCodeAnchor), so the first press of a scroll key starts from there; both
+// bounds come from the same window size the renderer uses, which is why a press
+// at either end does nothing instead of banking presses the player then has to
+// press back.
+func (m *Model) scrollTrainerCode(down bool) {
+	exercise := m.trainerCurrentExercise()
+	if exercise == nil {
+		return
+	}
+	_, codeRows := m.trainerTextBudget(exercise)
+
+	offset := m.TrainerCodeScroll
+	if !m.trainerCodeScrolled(exercise) {
+		offset = trainerCodeAnchor(exercise.CursorPos.Line, codeRows, len(exercise.Code))
+	}
+	if down {
+		offset++
+	} else {
+		offset--
+	}
+
+	m.TrainerCodeScroll = trainerCodeOffset(offset, codeRows, len(exercise.Code))
+	m.TrainerCodeScrollFor = exercise.ID
+}
+
+// trainerCodeScrolled reports whether the player has moved the code window for
+// this exercise. An exercise with no ID never counts as scrolled: there would be
+// nothing to tell one presentation of it from the next, so its window stays at
+// the entry position.
+func (m Model) trainerCodeScrolled(exercise *trainer.Exercise) bool {
+	return exercise.ID != "" && m.TrainerCodeScrollFor == exercise.ID
 }
