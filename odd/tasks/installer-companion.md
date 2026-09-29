@@ -1,6 +1,6 @@
 # Feature: The installer uses the terminal it is given, and gets a companion
 
-Status: in progress (S1 done, PR open)
+Status: in progress (S1 and S2 done)
 Opened: 2026-09-29
 Owner: autonomous session (design approved by the user in a brainstorm)
 
@@ -135,6 +135,28 @@ Tasks:
 | S1-1..3 layout, row measure, composition | b25f950 | 3324 pass; 10/10 snapshots untouched; both frame guards green; new guard at 160x50 and 227x62 |
 | S1-4..5 panels, plan extraction, startup scan, `Arch` | 95e3b92 | 3369 pass; error snapshot moved whitespace-only (verified by diffing the non-blank lines, not asserted); wide snapshot added at 160x50 |
 | S1-7 docs and CHANGELOG | d037943 | - |
+| S1 fixes: branding audit, welcome truncation | PR #49, PR #50 | both green before merge (the first one taught that lesson) |
+| S2 plumbing: registry, `Tab`, tab row, rotator, tick | aa6a4f7 | 3459 pass; no snapshot moved; `Tab` was already bound in the trainer but is not stolen, pinned by a guard |
+| S2 content: three panels, tips, state file, docs | 02d0d19 | 3473 pass; three snapshots moved, every moved line additive (verified by diffing the non-blank lines) |
+
+### S2 notes
+
+- **`Tab` was already taken** by the trainer's hint reveal. The cycle fires only on a
+  screen offering more than one panel and trainer screens offer none, so nothing was
+  stolen - but the next person to give a trainer screen a panel must handle this.
+- **The full four-panel tab row is exactly 62 columns at the 124-column floor**: zero
+  slack. A fifth panel or a longer title fails a test rather than wrapping badly.
+- **The tip pool is 621 tips** from the keymap reference data and the trainer's
+  lessons, in declared order, no randomness, one every ten seconds on the animation
+  tick. 61 trainer lessons whose first sentence does not fit the narrowest panel are
+  left out, so no shipped tip is ever cut.
+- **`trainer.LoadStats()` conflates a missing file with a corrupt one** (both `nil`),
+  and a file that records nothing parses to zeros. The panel treats all three as "no
+  run" and says so in one line. A corrupt profile is therefore silently ignored: worth
+  a follow-up in the trainer package, not here.
+- **The last-install record** lives at `$XDG_STATE_HOME/dotfiles/last-install.json`
+  (`~/.local/state` as fallback), is written best-effort when a run completes, and is
+  read on the startup path. Tests point the state directory at a temporary one.
 
 ### S1 notes
 

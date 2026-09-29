@@ -76,6 +76,27 @@ machine's limits into another machine's VM.
   unavailable: setting both to the host's logical CPU count and its memory in MiB replaces the
   Windows-side query. Both must be present and valid, so a half-configured override falls back to
   detection instead of planning a limit from one guessed number.
+- **Three more panels, a `Tab` key and a narrow-terminal summary.** Every panel answers a question:
+  **Your trainer** answers what you have gained (the lessons and mastery of each started module, the
+  overall accuracy, the best streak, and the next boss with the practice gate it needs), **Did you
+  know?** answers what you can learn right now (one shortcut at a time), and **Last install** answers
+  when this machine was last installed. A screen that offers more than one panel starts its column
+  with a tab row naming them and cycles them with `Tab`, which the footer advertises only where the
+  key does something. Below the two-column floor the active panel collapses to a one-line summary
+  placed in rows the body did not need, so no summary ever takes a row from a body.
+- **The not-yet-known panels say nothing rather than zero.** A panel with no run behind it leaves the
+  row out: with no trainer record the **Your trainer** panel says so in one line instead of drawing
+  zeros that read as progress, and the **Last install** panel is offered only when a record exists,
+  so no section ever says "never".
+- **Tips come from content the repository already ships.** The **Did you know?** pool is built in a
+  declared order with no randomness from the keymap reference data and the trainer's own lessons, so
+  two runs on one machine show the same sequence; it advances one tip per ten ticks, and with
+  animation off it stays on the first tip.
+- **The installer records when it last ran.** A completed run writes a small record — the finish
+  time, the build and the configuration paths it replaced — to
+  `$XDG_STATE_HOME/dotfiles/last-install.json` (falling back to
+  `~/.local/state/dotfiles/last-install.json`). The write is best effort: a state directory the
+  machine will not let us write never turns an install that finished into one that failed.
 
 ## [v0.3.0] — 2026-09-22
 

@@ -83,6 +83,10 @@ var (
 	hintRetry   = installerHint{"[r]", "retry"}
 	hintStart   = installerHint{"[Enter]", "start"}
 	hintExit    = installerHint{"[Enter]", "exit"}
+	// hintTab cycles the panels of a screen that offers more than one. It is only
+	// ever added to a screen that has something to cycle, so the footer never
+	// advertises a key that does nothing.
+	hintTab = installerHint{"[Tab]", "panel"}
 )
 
 // helpHintSeparator is the one separator the installer footer shares with the
@@ -254,27 +258,47 @@ func composeColumns(body, panel []string, l layout) []string {
 	return out
 }
 
-// frame wraps a screen body in the persistent frame. The header stays on the top
-// row and the footer on the bottom one, and the body is centred in the rows
-// between them: a short screen and a full one put their header and their help on
-// the same rows, and neither leaves a void above the footer.
+// frame wraps a screen body in the persistent frame, asking the registry what
+// panels the screen offers. The header stays on the top row and the footer on the
+// bottom one, and the body is centred in the rows between them: a short screen
+// and a full one put their header and their help on the same rows, and neither
+// leaves a void above the footer.
 func (m Model) frame(name, vital string, body []string, hints []installerHint) string {
-	return m.frameWithPanel(name, vital, body, hints, nil)
+	return m.frameWithPanels(name, vital, body, hints, m.panelsFor())
 }
 
-// frameWithPanel is frame with a right column offered. The frame decides whether
-// there is room to compose one: a screen that offers no panel, or a terminal
-// below the two-column floor, is placed exactly as frame places it and renders
-// as it always has. Where there is room, the body is the left column and the
-// panel the right one, and the body drives how many rows the composition takes.
-func (m Model) frameWithPanel(name, vital string, body []string, hints []installerHint, panel []string) string {
+// frameWithPanels is frame with the screen's panels given explicitly. Every
+// panel decision lives here, so a test can render a screen against a list the
+// shipped registry does not yet build -- two panels on one screen -- without a
+// second copy of the placement arithmetic.
+//
+// Where there is room for two columns the active panel is composed beside the
+// body; below that floor the active panel collapses to a one-line summary in the
+// rows the body did not need. A screen that offers no panel -- everything but the
+// welcome, the main menu and the wizard's own questions -- takes the exact path
+// it took before the registry existed.
+func (m Model) frameWithPanels(name, vital string, body []string, hints []installerHint, panels []panel) string {
 	l := layoutFor(m)
 	inner := l.Inner
+	hints = m.panelHints(panels, hints)
 	footer := footerHints(inner, hints)
-	if l.TwoColumn && len(panel) > 0 {
-		body = composeColumns(body, panel, l)
+	rows := installerBodyRows(m.Height, len(footer))
+
+	if l.TwoColumn && len(panels) > 0 {
+		body = composeColumns(body, m.panelColumn(panels, l, rows), l)
 	}
-	placed := placeBody(body, installerBodyRows(m.Height, len(footer)))
+	placed := placeBody(body, rows)
+
+	// Below the two-column floor there is no column for the panel, so the active
+	// panel collapses to one summary line just above the footer rule. It is
+	// placed only in the rows the body did not need: nothing may be dropped from
+	// a body to make room for a summary of it, so a screen whose body fills its
+	// frame shows no summary at all. A screen that offers one panel has nothing
+	// to rotate and shows nothing here -- its panel is simply dropped, exactly as
+	// it was below the floor before the panels existed.
+	if !l.TwoColumn && len(panels) > 1 {
+		placed = placeRotator(placed, m.rotatorLines(panels, inner))
+	}
 
 	var b strings.Builder
 	b.WriteString(headerRow(name, vital, inner))
@@ -846,12 +870,10 @@ func (m Model) renderWelcome() string {
 	// machine panel. The frame takes it only where there is room for two columns,
 	// and the body is centred in the column it will actually occupy: centring it
 	// across the whole room and then cutting it to the left column would slice the
-	// lockup in half.
-	hints := []installerHint{hintStart, hintQuit}
-	var panel []string
+	// lockup in half. The frame asks the same registry the body's width is
+	// measured against, so the two cannot disagree about whether a column exists.
 	bodyWidth := inner
-	if l.TwoColumn {
-		panel = m.welcomePanel(l, panelBudget(m, hints))
+	if l.TwoColumn && len(m.panelsFor()) > 0 {
 		bodyWidth = l.Left
 	}
 
@@ -904,7 +926,7 @@ func (m Model) renderWelcome() string {
 	for i, line := range body {
 		centered[i] = CenterHorizontally(line, bodyWidth)
 	}
-	return m.frameWithPanel(m.headerName(), "", centered, hints, panel)
+	return m.frame(m.headerName(), "", centered, []installerHint{hintStart, hintQuit})
 }
 
 func (m Model) renderMainMenu() string {
@@ -917,11 +939,11 @@ func (m Model) renderMainMenu() string {
 	}
 	body = append(body, m.menuRows(m.GetCurrentOptions(), m.Cursor)...)
 
-	// The main menu is the screen that offers a right column. The frame takes it
-	// only where there is room for it and drops it below the two-column floor, so
-	// the 80x24 rendering of this screen is unchanged.
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
-	return m.frameWithPanel(m.headerName(), "", body, hints, m.mainMenuPanel(layoutFor(m), panelBudget(m, hints)))
+	// The main menu is the screen that asks what is about to happen, so it offers
+	// the plan panel. The frame takes it only where there is room for it and drops
+	// it below the two-column floor, so the 80x24 rendering of this screen is
+	// unchanged.
+	return m.frame(m.headerName(), "", body, []installerHint{hintUp, hintDown, hintSelect, hintQuit})
 }
 
 // stripStepPrefix removes a leading "Step N: " from a wizard title, so the step
