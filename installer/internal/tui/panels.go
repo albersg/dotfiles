@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
@@ -157,14 +158,17 @@ func machinePanel() panel {
 	}
 }
 
-// planPanel is the plan panel's registry entry.
+// planPanel is the plan panel's registry entry. Its facts follow the selection:
+// on the main menu they describe the option under the cursor, and on the
+// wizard's own questions the choice being made. The name stays put, because the
+// tab row must not move under the key that walks it.
 func planPanel() panel {
 	return panel{
 		ID:       panelPlan,
 		Title:    mainMenuPanelLabel,
 		Short:    "Plan",
-		Headline: func(m Model) string { return m.planHeadline() },
-		Facts:    func(m Model, l layout) []string { return m.mainMenuPanelFacts(l) },
+		Headline: func(m Model) string { return m.contextHeadline() },
+		Facts:    func(m Model, l layout) []string { return m.contextPanelFacts(l) },
 	}
 }
 
@@ -545,13 +549,25 @@ func (m Model) packageManager() string {
 // rendered screen by the name a reader sees.
 const mainMenuPanelLabel = "What will happen"
 
-// mainMenuPanel is the main menu's right column. It shows the plan the run
-// would execute and the state that run will read:
+// mainMenuPanel is the main menu's right column. It shows the option under the
+// cursor and, under that, what the option holds:
 //
-//   - the numbered steps, the one the run starts at (or is on) marked with the
-//     ▸ the menus already use for "here", and that step's description under it;
-//   - how many configs the run will overwrite and which they are;
-//   - the newest backup, when it was taken and how old it is.
+//   - Start Installation: the plan the run would execute, the configs it would
+//     overwrite and the newest backup;
+//   - Learn About Tools: how many terminals, shells and multiplexers the learn
+//     screens describe;
+//   - Keymaps Reference: how many bindings each of the five tools ships;
+//   - LazyVim Guide: how many topics the guide holds;
+//   - Vim Trainer: how many modules, lessons and bosses the curriculum ships;
+//   - Restore from Backup: every backup the model holds, with when it was taken
+//     and how many files it carries;
+//   - Exit: one line that says quitting changes nothing.
+//
+// The panel's name does not move with the cursor -- the tab row would wander,
+// and Tab would become a moving target on the very key that walks the panels --
+// so the option is named in the panel's first row instead. The wizard's own
+// questions draw the same panel through contextPanelFacts, so the two screens
+// cannot describe the selection differently.
 //
 // It is a glance, not a document: the steps are their names rather than eight
 // bodies of prose, because the names are what a reader scans and the paragraphs
@@ -561,28 +577,341 @@ const mainMenuPanelLabel = "What will happen"
 // descriptions are not lost: they are on the installing screen, next to the step
 // that is running, which is where a description is read rather than skimmed.
 //
-// The plan is the wizard's own plan, not a second description of one: before the
-// wizard has built it, the panel asks the same pure builder for the plan the
-// model's state implies, and labels which host it is describing. A section the
-// model has no fact for is left out rather than filled in with a claim: no
-// scanned configs and no backups means no rows about them, not "none". A fact
-// the panel does have is never dropped to save room: a long list wraps under its
-// label, and panelBody says how many rows it could not show.
+// Nothing is invented: every value comes from a field the model already holds,
+// and a fact the model does not have renders no row rather than a zero or a
+// guess. A fact the panel does have is never dropped to save room: a long list
+// wraps under its label, and panelBody says how many rows it could not show.
 func (m Model) mainMenuPanel(l layout, budget int) []string {
-	return panelBody(mainMenuPanelLabel, m.mainMenuPanelFacts(l), l.Right, budget)
+	return panelBody(mainMenuPanelLabel, m.contextPanelFacts(l), l.Right, budget)
 }
 
-// planHeadline is the plan panel said in one short line, for the narrow
-// terminal's summary row: how many steps the run would execute and, before the
-// host has been chosen, which host the plan was built for. A plan the model
-// cannot build -- no detection to build it from -- gets no line rather than an
-// invented one.
-func (m Model) planHeadline() string {
+// contextPanelFacts is the plan panel's rows, whatever screen it is drawn on:
+// the wizard's own questions describe the choice under the cursor, and the main
+// menu describes the option under its cursor. It is the one entry the panel
+// registry calls, so a screen cannot draw a different plan through a second path.
+func (m Model) contextPanelFacts(l layout) []string {
+	if isWizardChoiceScreen(m.Screen) {
+		return m.wizardChoicePanelFacts(l)
+	}
+	return m.mainMenuPanelFacts(l)
+}
+
+// isWizardChoiceScreen reports whether a screen is one of the wizard's own
+// questions, which draw the plan beside the choice they are asking.
+func isWizardChoiceScreen(screen Screen) bool {
+	switch screen {
+	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect,
+		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
+		return true
+	}
+	return false
+}
+
+// contextHeadline is the plan panel said in one short line, for the narrow
+// terminal's summary row: the same answer the two-column panel gives, in one
+// line. A selection with nothing to say -- a plan the model cannot build, a
+// restore panel with no backups -- gets no line rather than an invented one.
+func (m Model) contextHeadline() string {
+	if isWizardChoiceScreen(m.Screen) {
+		opts, _ := m.wizardHighlightedChoice()
+		return planHeadlineFor(m.previewPlanFor(opts))
+	}
+
+	choice, _ := m.mainMenuSelection()
+	switch choice {
+	case choiceLearnTools:
+		return fmt.Sprintf("%d terminals%s%d shells%s%d multiplexers",
+			len(GetTerminalInfo()), panelTabSeparator, len(GetShellInfo()),
+			panelTabSeparator, len(GetWMInfo()))
+	case choiceKeymaps:
+		return fmt.Sprintf("%d tools%s%s", len(keymapSources()), panelTabSeparator, keymapBindingCount(totalKeymapCount()))
+	case choiceLazyVim:
+		return fmt.Sprintf("%d topics", len(GetLazyVimTopics()))
+	case choiceTrainer:
+		return trainerCurriculumHeadline()
+	case choiceRestore:
+		if len(m.AvailableBackups) == 0 {
+			return ""
+		}
+		return backupCount(len(m.AvailableBackups)) + " to restore"
+	case choiceExit:
+		return "nothing changes"
+	}
+	return m.planHeadline()
+}
+
+// mainMenuChoice names the main-menu option the cursor is on. It is an enum
+// rather than the option's label so the panel switches on a stable name, and a
+// label the menu rewords does not silently become a different panel.
+type mainMenuChoice int
+
+const (
+	choiceStartInstallation mainMenuChoice = iota
+	choiceLearnTools
+	choiceKeymaps
+	choiceLazyVim
+	choiceTrainer
+	choiceRestore
+	choiceExit
+)
+
+// mainMenuSelection is the option under the cursor and its plain name: the label
+// without the leading emoji, so the panel names the option in words a terminal
+// without an emoji font can draw. A cursor the menu does not cover -- a model
+// built by hand -- is treated as the first option, which is the menu's own
+// default, and gets no name.
+func (m Model) mainMenuSelection() (mainMenuChoice, string) {
+	options := m.GetCurrentOptions()
+	if m.Cursor < 0 || m.Cursor >= len(options) {
+		return choiceStartInstallation, ""
+	}
+	label := options[m.Cursor]
+	name := plainOptionName(label)
+	switch {
+	case strings.Contains(label, "Start Installation"):
+		return choiceStartInstallation, name
+	case strings.Contains(label, "Learn About Tools"):
+		return choiceLearnTools, name
+	case strings.Contains(label, "Keymaps Reference"):
+		return choiceKeymaps, name
+	case strings.Contains(label, "LazyVim Guide"):
+		return choiceLazyVim, name
+	case strings.Contains(label, "Vim Trainer"):
+		return choiceTrainer, name
+	case strings.Contains(label, "Restore from Backup"):
+		return choiceRestore, name
+	case strings.Contains(label, "Exit"):
+		return choiceExit, name
+	default:
+		return choiceStartInstallation, name
+	}
+}
+
+// mainMenuPanelFacts is the main menu's contextual panel: the option under the
+// cursor, then what that option holds. The first row names the option, so the
+// panel answers about the right thing without changing its own name.
+func (m Model) mainMenuPanelFacts(l layout) []string {
+	choice, name := m.mainMenuSelection()
+	rows := selectedPanelRow(name, l.Right)
+	switch choice {
+	case choiceLearnTools:
+		rows = append(rows, learnToolsPanelFacts(l)...)
+	case choiceKeymaps:
+		rows = append(rows, keymapsPanelFacts(l)...)
+	case choiceLazyVim:
+		rows = append(rows, lazyVimPanelFacts(l)...)
+	case choiceTrainer:
+		rows = append(rows, trainerCurriculumFacts(l)...)
+	case choiceRestore:
+		rows = append(rows, m.backupPanelFacts(l)...)
+	case choiceExit:
+		rows = append(rows, exitPanelFacts(l)...)
+	default:
+		rows = append(rows, m.planPanelFacts(l)...)
+	}
+	return rows
+}
+
+// selectedPanelRow names the option the panel is describing. It is the one row
+// every contextual panel shares, so the reader always knows which selection the
+// facts belong to, and it is left out when there is no name to give.
+func selectedPanelRow(name string, width int) []string {
+	if name == "" {
+		return nil
+	}
+	return panelFact("Selected", name, width)
+}
+
+// plainOptionName is a menu option's label without the leading emoji or symbol
+// the menus draw to catch the eye. The panel names the option in words, so a
+// terminal without an emoji font is not handed a second row of boxes.
+func plainOptionName(label string) string {
+	for i, r := range label {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return strings.TrimSpace(label[i:])
+		}
+	}
+	return strings.TrimSpace(label)
+}
+
+// planPanelFacts is the plan body the main menu's Start Installation option and
+// the wizard's own questions share: the preview plan with the host it is for,
+// the configs the run would overwrite and the newest backup. It is separate from
+// the contextual rows so both callers render the same plan.
+func (m Model) planPanelFacts(l layout) []string {
 	steps, hostNote := m.previewPlan()
+	return m.planPanelRows(steps, hostNote, l)
+}
+
+// planPanelRows renders the plan body: the host note when the plan is being
+// previewed for a host, the step count and the numbered steps with the one the
+// run is on marked, the configs the run would overwrite, and the newest backup.
+func (m Model) planPanelRows(steps []InstallStep, hostNote string, l layout) []string {
+	var rows []string
+	if hostNote != "" {
+		rows = append(rows, MutedStyle.Render(truncate(hostNote, l.Right)))
+	}
+	if len(steps) > 0 {
+		rows = append(rows, panelFact("Steps", strconv.Itoa(len(steps)), l.Right)...)
+		rows = append(rows, stepPanelRows(steps, currentStepIndex(steps), l.Right)...)
+	}
+	if len(m.ExistingConfigs) > 0 {
+		rows = append(rows, panelFact("Overwrites", configCount(len(m.ExistingConfigs)), l.Right)...)
+		for _, config := range m.ExistingConfigs {
+			rows = append(rows, panelFact("", config, l.Right)...)
+		}
+	}
+	if backup, ok := newestBackup(m.AvailableBackups); ok {
+		rows = append(rows, panelFact("Newest backup", backupLine(backup, m.Now), l.Right)...)
+	}
+	return rows
+}
+
+// learnToolsPanelFacts counts what the Learn About Tools screens ship: the
+// terminals, shells and multiplexers the repository declares, taken from the
+// same tables those screens look a tool up in.
+func learnToolsPanelFacts(l layout) []string {
+	rows := panelFact("Terminals", strconv.Itoa(len(GetTerminalInfo())), l.Right)
+	rows = append(rows, panelFact("Shells", strconv.Itoa(len(GetShellInfo())), l.Right)...)
+	rows = append(rows, panelFact("Multiplexers", strconv.Itoa(len(GetWMInfo())), l.Right)...)
+	return rows
+}
+
+// keymapSource is one tool's keymap reference: the name the tab row and the
+// reference menu use, and the categories the tables are built from.
+type keymapSource struct {
+	name string
+	cats []KeymapCategory
+}
+
+// keymapSources is the keymap reference the panel counts: the five tools the
+// reference menu offers, in the order it offers them, read through the same
+// getters the tables are loaded from so the panel and the tables cannot disagree.
+func keymapSources() []keymapSource {
+	return []keymapSource{
+		{"Neovim", GetNvimKeymaps()},
+		{"Tmux", GetTmuxKeymaps()},
+		{"Zellij", GetZellijKeymaps()},
+		{"Herdr", GetHerdrKeymaps()},
+		{"Ghostty", GetGhosttyKeymaps()},
+	}
+}
+
+// keymapsPanelFacts counts the bindings each tool's keymap reference ships. A
+// tool whose tables are empty is left out rather than shown as a zero.
+func keymapsPanelFacts(l layout) []string {
+	var rows []string
+	for _, src := range keymapSources() {
+		if n := keymapCount(src.cats); n > 0 {
+			rows = append(rows, panelFact(src.name, keymapBindingCount(n), l.Right)...)
+		}
+	}
+	return rows
+}
+
+// keymapCount is how many bindings a tool's categories hold.
+func keymapCount(cats []KeymapCategory) int {
+	n := 0
+	for _, cat := range cats {
+		n += len(cat.Keymaps)
+	}
+	return n
+}
+
+// totalKeymapCount is every binding the whole keymap reference ships.
+func totalKeymapCount() int {
+	n := 0
+	for _, src := range keymapSources() {
+		n += keymapCount(src.cats)
+	}
+	return n
+}
+
+// keymapBindingCount names a binding count, in the singular when there is one.
+func keymapBindingCount(n int) string {
+	if n == 1 {
+		return "1 binding"
+	}
+	return fmt.Sprintf("%d bindings", n)
+}
+
+// lazyVimPanelFacts says how many topics the LazyVim guide holds. The count is
+// the one the guide's own menu is built from.
+func lazyVimPanelFacts(l layout) []string {
+	return panelFact("Topics", strconv.Itoa(len(GetLazyVimTopics())), l.Right)
+}
+
+// trainerCurriculum counts what the Vim Trainer ships: the modules, the lessons
+// and the bosses its catalogue declares. It is the content, not the player's
+// progress, which the "Your trainer" panel already answers.
+func trainerCurriculum() (modules, lessons, bosses int) {
+	all := trainer.GetAllModules()
+	for _, mod := range all {
+		lessons += len(trainer.GetLessons(mod.ID))
+		if trainer.GetBoss(mod.ID) != nil {
+			bosses++
+		}
+	}
+	return len(all), lessons, bosses
+}
+
+// trainerCurriculumFacts renders the curriculum count for the panel.
+func trainerCurriculumFacts(l layout) []string {
+	modules, lessons, bosses := trainerCurriculum()
+	rows := panelFact("Modules", strconv.Itoa(modules), l.Right)
+	rows = append(rows, panelFact("Lessons", strconv.Itoa(lessons), l.Right)...)
+	if bosses > 0 {
+		rows = append(rows, panelFact("Bosses", strconv.Itoa(bosses), l.Right)...)
+	}
+	return rows
+}
+
+// trainerCurriculumHeadline says the curriculum count in one line for the narrow
+// terminal's summary.
+func trainerCurriculumHeadline() string {
+	modules, lessons, _ := trainerCurriculum()
+	return fmt.Sprintf("%d modules%s%d lessons", modules, panelTabSeparator, lessons)
+}
+
+// backupPanelFacts lists the backups the model holds, each with when it was
+// taken and how many files it carries. It reads the model's own list, so the
+// panel and the restore screen show the same set in the same order, and it says
+// nothing when there is nothing to restore.
+func (m Model) backupPanelFacts(l layout) []string {
+	if len(m.AvailableBackups) == 0 {
+		return nil
+	}
+	rows := panelFact("Backups", strconv.Itoa(len(m.AvailableBackups)), l.Right)
+	for _, backup := range m.AvailableBackups {
+		rows = append(rows, panelFact("", backupLine(backup, m.Now), l.Right)...)
+	}
+	return rows
+}
+
+// exitPanelFacts is the one honest line the panel says for Exit: quitting
+// changes nothing. It claims no state, because there is none to read.
+func exitPanelFacts(l layout) []string {
+	var rows []string
+	for _, line := range wrapText("Nothing on this machine changes.", l.Right, 0) {
+		rows = append(rows, InkStyle.Render(line))
+	}
+	return rows
+}
+
+// planHeadline is the plan said in one short line: how many steps the run would
+// execute and, before the host has been chosen, which host the plan was built
+// for. A plan the model cannot build -- no detection to build it from -- gets no
+// line rather than an invented one.
+func (m Model) planHeadline() string {
+	return planHeadlineFor(m.previewPlan())
+}
+
+// planHeadlineFor says what a plan is in one line. A plan with no steps gets no
+// line rather than an invented one.
+func planHeadlineFor(steps []InstallStep, hostNote string) string {
 	if len(steps) == 0 {
 		return ""
 	}
-
 	headline := stepCount(len(steps))
 	if hostNote != "" {
 		headline += " " + hostNote
@@ -597,36 +926,6 @@ func stepCount(n int) string {
 		return "1 step"
 	}
 	return fmt.Sprintf("%d steps", n)
-}
-
-// mainMenuPanelFacts is the plan panel's rows without the header that names the
-// panel. It is separate from mainMenuPanel so the registry can render the same
-// rows under a tab row.
-func (m Model) mainMenuPanelFacts(l layout) []string {
-	var rows []string
-
-	steps, hostNote := m.previewPlan()
-	if hostNote != "" {
-		rows = append(rows, MutedStyle.Render(truncate(hostNote, l.Right)))
-	}
-
-	if len(steps) > 0 {
-		rows = append(rows, panelFact("Steps", strconv.Itoa(len(steps)), l.Right)...)
-		rows = append(rows, stepPanelRows(steps, currentStepIndex(steps), l.Right)...)
-	}
-
-	if len(m.ExistingConfigs) > 0 {
-		rows = append(rows, panelFact("Overwrites", configCount(len(m.ExistingConfigs)), l.Right)...)
-		for _, config := range m.ExistingConfigs {
-			rows = append(rows, panelFact("", config, l.Right)...)
-		}
-	}
-
-	if backup, ok := newestBackup(m.AvailableBackups); ok {
-		rows = append(rows, panelFact("Newest backup", backupSummary(backup), l.Right)...)
-	}
-
-	return rows
 }
 
 // stepPanelRows renders the steps as a numbered list: one row per step holding
@@ -685,13 +984,20 @@ func (m Model) previewPlan() ([]InstallStep, string) {
 	if len(m.Steps) > 0 {
 		return m.Steps, ""
 	}
+	return m.previewPlanFor(m.planOptions())
+}
+
+// previewPlanFor returns the plan the given options build and, when the options
+// describe a host other than the detected one, one dim line naming that host.
+// The wizard's own questions call it with the highlighted choice, so the panel
+// describes the plan that choice would lead to rather than one already recorded.
+func (m Model) previewPlanFor(opts planOptions) ([]InstallStep, string) {
 	// A model with no detection has no host to describe, so it has no plan to
 	// show: the panel says nothing rather than inventing an OS to build one from.
 	if m.SystemInfo == nil {
 		return nil, ""
 	}
 
-	opts := m.planOptions()
 	detected := detectedOSChoice(m.SystemInfo)
 	switch {
 	case opts.OS == "":
@@ -702,6 +1008,91 @@ func (m Model) previewPlan() ([]InstallStep, string) {
 	default:
 		return planFor(opts), ""
 	}
+}
+
+// wizardChoicePanelFacts is a wizard question's panel: the choice under the
+// cursor, then the plan that choice would lead to, with the step the run is on
+// marked. The choice is read from the cursor rather than from the model's
+// recorded answers, because the question is still open and the panel describes
+// what the player is about to pick.
+func (m Model) wizardChoicePanelFacts(l layout) []string {
+	opts, name := m.wizardHighlightedChoice()
+	steps, hostNote := m.previewPlanFor(opts)
+	rows := selectedPanelRow(name, l.Right)
+	return append(rows, m.planPanelRows(steps, hostNote, l)...)
+}
+
+// wizardHighlightedChoice is the choice under the cursor expressed as the plan
+// options it would record, together with the option's plain name. Only the
+// question the screen is asking is overridden: the choices already answered come
+// from the model, so the plan the panel shows is the one the run would build.
+// An option that is not a plan choice -- a separator, or a "learn about" row --
+// leaves the recorded options alone, and the plan describes that state.
+func (m Model) wizardHighlightedChoice() (planOptions, string) {
+	opts := m.planOptions()
+	options := m.GetCurrentOptions()
+	name := ""
+	if m.Cursor >= 0 && m.Cursor < len(options) {
+		name = plainOptionName(options[m.Cursor])
+	}
+
+	switch m.Screen {
+	case ScreenOSSelect:
+		switch m.Cursor {
+		case 0:
+			opts.OS = "mac"
+		case 2:
+			opts.OS = "termux"
+		default:
+			opts.OS = "linux"
+		}
+	case ScreenTerminalSelect:
+		if term, ok := installedChoice(name, "alacritty", "wezterm", "kitty", "ghostty", "none"); ok {
+			opts.Terminal = term
+		}
+	case ScreenFontSelect:
+		if yesNoChoice(name) {
+			opts.InstallFont = m.Cursor == 0
+		}
+	case ScreenShellSelect:
+		if shell, ok := installedChoice(name, "fish", "zsh", "nushell"); ok {
+			opts.Shell = shell
+		}
+	case ScreenWMSelect:
+		if wm, ok := installedChoice(name, "tmux", "zellij", "herdr", "none"); ok {
+			opts.WindowMgr = wm
+		}
+	case ScreenNvimSelect:
+		if yesNoChoice(name) {
+			opts.InstallNvim = m.Cursor == 0
+		}
+	}
+	return opts, name
+}
+
+// installedChoice matches an option's plain name against the tool names a
+// question offers, case-insensitively, and returns the tool's key. It matches
+// the first word, so "None" is "none" while a "learn about" row is not a tool.
+// The bool says whether the option names a tool at all.
+func installedChoice(name string, tools ...string) (string, bool) {
+	fields := strings.Fields(strings.ToLower(name))
+	if len(fields) == 0 {
+		return "", false
+	}
+	for _, tool := range tools {
+		if fields[0] == tool {
+			return tool, true
+		}
+	}
+	return "", false
+}
+
+// yesNoChoice reports whether an option's plain name starts with yes or no, the
+// two halves of the font and Neovim questions. The cursor picks the half, exactly
+// as the wizard's own handler does.
+func yesNoChoice(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	return strings.HasPrefix(lower, "yes") || strings.HasPrefix(lower, "no")
 }
 
 // detectedOSChoice maps what detection found to the wizard's own OS choice
@@ -761,15 +1152,18 @@ func newestBackup(backups []system.BackupInfo) (system.BackupInfo, bool) {
 	return newest, true
 }
 
-// backupSummary is one line about a backup: when it was taken, how many files it
-// holds, and how old it is. The age is measured against the moment of rendering
-// and is therefore not stored on the model: the model records when the backup was
-// taken, and how old that is depends on now.
-func backupSummary(backup system.BackupInfo) string {
-	return fmt.Sprintf("%s, %s, %s",
-		backup.Timestamp.Format(panelBackupStamp),
-		fileCount(len(backup.Files)),
-		backupAge(backup.Timestamp, time.Now()))
+// backupLine is one line about a backup: when it was taken, how many files it
+// holds and, when the model carries a reference time, how old it is. The age is
+// measured against the model's own clock (Model.Now, copied from the run's tick
+// or left zero by a model the startup path has not ticked), never read from the
+// renderer, so two renders of one model are the same bytes and a zero reference
+// time simply leaves the age out rather than printing a moment nobody measured.
+func backupLine(backup system.BackupInfo, now time.Time) string {
+	line := fmt.Sprintf("%s, %s", backup.Timestamp.Format(panelBackupStamp), fileCount(len(backup.Files)))
+	if now.IsZero() {
+		return line
+	}
+	return line + ", " + backupAge(backup.Timestamp, now)
 }
 
 // configCount names how many configs a run will overwrite, in the singular when
@@ -789,10 +1183,20 @@ func fileCount(n int) string {
 	return fmt.Sprintf("%d files", n)
 }
 
+// backupCount names how many backups the model holds, in the singular when
+// there is one.
+func backupCount(n int) string {
+	if n == 1 {
+		return "1 backup"
+	}
+	return fmt.Sprintf("%d backups", n)
+}
+
 // backupAge names how long ago a backup was taken, in the coarsest unit that
 // still says something: minutes under an hour, hours under a day, days under a
-// month, then months. It takes the clock as a parameter rather than reading it,
-// so the arithmetic is a pure function its test can pin to the minute.
+// month, then months. It takes the reference time as a parameter rather than
+// reading it, so the arithmetic is a pure function its test can pin to the
+// minute and the panel never reads a clock while rendering.
 func backupAge(then, now time.Time) string {
 	age := now.Sub(then)
 	if age < 0 {
