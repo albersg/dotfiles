@@ -79,6 +79,41 @@ func TestDetect(t *testing.T) {
 	})
 }
 
+// TestArchLabelNamesTheArchitectureTheWayTheHostIsNamed pins the names the host
+// is known by outside Go: the two spellings release assets and package managers
+// use are translated, the rest are already the same everywhere, and an empty
+// GOARCH yields an empty label so a caller can leave the row out.
+func TestArchLabelNamesTheArchitectureTheWayTheHostIsNamed(t *testing.T) {
+	for _, c := range []struct {
+		goarch, want string
+	}{
+		{"amd64", "x86_64"},
+		{"386", "i386"},
+		{"arm64", "arm64"},
+		{"arm", "arm"},
+		{"riscv64", "riscv64"},
+		{"", ""},
+	} {
+		if got := archLabel(c.goarch); got != c.want {
+			t.Errorf("archLabel(%q) = %q, want %q", c.goarch, got, c.want)
+		}
+	}
+}
+
+// TestDetectRecordsTheArchitecture pins that Detect fills the new fact from the
+// build's own GOARCH, and that IsARM still answers the question the callers that
+// used it were asking.
+func TestDetectRecordsTheArchitecture(t *testing.T) {
+	info := Detect()
+
+	if want := archLabel(runtime.GOARCH); info.Arch != want {
+		t.Errorf("Arch = %q, want %q", info.Arch, want)
+	}
+	if want := runtime.GOARCH == "arm64" || runtime.GOARCH == "arm"; info.IsARM != want {
+		t.Errorf("IsARM = %v, want %v", info.IsARM, want)
+	}
+}
+
 // TestClassifyLinuxKeepsDistributionUnderWSL pins the fix that stopped WSL from
 // being modelled as an OS: the distribution underneath stays visible through OS
 // while IsWSL keeps driving the WSL-specific steps, and an unrecognised WSL

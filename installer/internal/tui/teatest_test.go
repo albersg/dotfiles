@@ -100,7 +100,7 @@ func TestWelcomeScreenGolden(t *testing.T) {
 	teatest.RequireEqualOutput(t, out)
 }
 
-// TestMainMenuGolden tests the main menu render against golden file
+// TestMainMenuWideGolden tests the main menu render against golden file
 func TestMainMenuGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
@@ -111,6 +111,45 @@ func TestMainMenuGolden(t *testing.T) {
 
 	tm := teatest.NewTestModel(t, m,
 		teatest.WithInitialTermSize(80, 24),
+	)
+
+	time.Sleep(100 * time.Millisecond)
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	out := readAll(t, tm.FinalOutput(t))
+	teatest.RequireEqualOutput(t, out)
+}
+
+// TestMainMenuWideGolden pins the two-column composition at 160x50, the first
+// size the layout composes at, together with the panel the main menu carries.
+// The 80x24 snapshot above cannot see either: below the two-column floor the
+// panel is dropped and the screen renders exactly as it always has, which is why
+// both snapshots exist rather than one.
+//
+// The panel shows the plan the run would execute even though the wizard has not
+// built it yet, labelled "on Linux (detected)" because the OS question is still
+// open. The overwrite and backup rows are absent because the isolated HOME has
+// neither a config nor a backup; those rows are pinned by unit tests with real
+// and synthetic state instead of a fixture directory (panels_test.go).
+//
+// The model is pinned the way every golden model is -- isolateGoldenTest points
+// HOME at an empty directory and goldenSystemInfo fixes the platform -- so the
+// composition is the same on every host and a machine that happens to have
+// backups cannot change the snapshot. ExistingConfigs is filled the way the
+// startup scan fills it, so the empty result is the real one for this HOME.
+func TestMainMenuWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.ExistingConfigs = system.DetectExistingConfigs()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenMainMenu
+
+	tm := teatest.NewTestModel(t, m,
+		teatest.WithInitialTermSize(160, 50),
 	)
 
 	time.Sleep(100 * time.Millisecond)
@@ -1120,6 +1159,30 @@ func installerFrameCase(t *testing.T, name string) Model {
 	}
 }
 
+// installerFrameScreenNames is every installer screen the frame guards render,
+// shared by the 80x24 floor guard and the wide-terminal guard so both measure
+// the same set of screens.
+var installerFrameScreenNames = []string{
+	"welcome",
+	"main-menu", "main-menu-restore",
+	"os-select", "terminal-select", "terminal-select-wsl", "font-select",
+	"shell-select", "wm-select", "nvim-select", "ghostty-warning",
+	"learn-terminals", "learn-terminals-info",
+	"learn-shells", "learn-shells-info",
+	"learn-wm", "learn-wm-info",
+	"learn-nvim", "learn-nvim-features",
+	"keymaps", "keymap-category", "keymaps-menu",
+	"keymaps-tmux", "keymaps-tmux-category",
+	"keymaps-zellij", "keymaps-zellij-category",
+	"keymaps-ghostty", "keymaps-ghostty-category",
+	"keymaps-herdr", "keymaps-herdr-category", "keymaps-herdr-long-keys",
+	"lazyvim", "lazyvim-topic",
+	"backup-confirm", "backup-confirm-many",
+	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
+	"installing", "installing-details", "installing-at-end",
+	"complete", "error",
+}
+
 // TestInstallerScreensFitTheFrame is the counterpart to
 // TestTrainerScreensFitTheFrame for every screen that is not the trainer. It
 // had no guard, so a screen could exceed the terminal and stay that way: the
@@ -1135,26 +1198,7 @@ func installerFrameCase(t *testing.T, name string) Model {
 // unchanged, so the new chrome is not treated as headroom: a screen that spends
 // a row it did not reserve still fails here.
 func TestInstallerScreensFitTheFrame(t *testing.T) {
-	names := []string{
-		"welcome",
-		"main-menu", "main-menu-restore",
-		"os-select", "terminal-select", "terminal-select-wsl", "font-select",
-		"shell-select", "wm-select", "nvim-select", "ghostty-warning",
-		"learn-terminals", "learn-terminals-info",
-		"learn-shells", "learn-shells-info",
-		"learn-wm", "learn-wm-info",
-		"learn-nvim", "learn-nvim-features",
-		"keymaps", "keymap-category", "keymaps-menu",
-		"keymaps-tmux", "keymaps-tmux-category",
-		"keymaps-zellij", "keymaps-zellij-category",
-		"keymaps-ghostty", "keymaps-ghostty-category",
-		"keymaps-herdr", "keymaps-herdr-category", "keymaps-herdr-long-keys",
-		"lazyvim", "lazyvim-topic",
-		"backup-confirm", "backup-confirm-many",
-		"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
-		"installing", "installing-details", "installing-at-end",
-		"complete", "error",
-	}
+	names := installerFrameScreenNames
 
 	worstRows, worstCols := 0, 0
 	worstRowScreen, worstColScreen := "", ""
@@ -1187,6 +1231,103 @@ func TestInstallerScreensFitTheFrame(t *testing.T) {
 
 	t.Logf("rendered %d installer screens at %dx%d; worst height %d rows (%s), worst width %d columns (%s)",
 		len(names), trainerFrameWidth, trainerFrameHeight, worstRows, worstRowScreen, worstCols, worstColScreen)
+}
+
+// wideFrameCases are the terminals the responsive layout was designed on. 160x50
+// is the first two-column size, and 227x62 is the pane the feature exists for:
+// there the previous layout drew the main menu in a fifth of the columns and its
+// selected row as a bar the whole width of the terminal.
+var wideFrameCases = []struct {
+	name          string
+	width, height int
+}{
+	{"160x50", 160, 50},
+	{"227x62", 227, 62},
+}
+
+// TestInstallerScreensFitWideTerminals is the wide counterpart to
+// TestInstallerScreensFitTheFrame, and it asks a different question. The floor
+// guard asks whether a screen fits the smallest frame it may be given; this one
+// asks whether a screen uses a large frame without running past it. Nothing the
+// installer draws may exceed the terminal's width, a screen must fill its frame
+// exactly so the footer stays on the last row, and a menu row must be a row
+// rather than a band of bar across the terminal.
+func TestInstallerScreensFitWideTerminals(t *testing.T) {
+	for _, c := range wideFrameCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			for _, name := range installerFrameScreenNames {
+				name := name
+				t.Run(name, func(t *testing.T) {
+					m := installerFrameCase(t, name)
+					m.Width, m.Height = c.width, c.height
+
+					view := m.View()
+					if rows := renderedRowCount(view); rows != c.height {
+						t.Errorf("%s renders %d rows at %s, want exactly %d: the footer is off the frame",
+							name, rows, c.name, c.height)
+					}
+					for _, line := range strings.Split(view, "\n") {
+						if w := lipgloss.Width(line); w > c.width {
+							t.Errorf("%s renders a %d-column line in a %d-column terminal: %q",
+								name, w, c.width, line)
+						}
+					}
+				})
+			}
+
+			// The main menu is the screen that composes: it offers a right column,
+			// and its rows are drawn at the row measure rather than across the
+			// terminal. That measure is what turns a 227-column slab of bar into a
+			// row.
+			m := installerFrameCase(t, "main-menu")
+			m.Width, m.Height = c.width, c.height
+			l := layoutFor(m)
+			if !l.TwoColumn {
+				t.Fatalf("the main menu at %s lays out as one %d-column body: no panel has room",
+					c.name, l.Inner)
+			}
+
+			bar := lipgloss.Width(m.rowBar("Start Installation", true, ""))
+			if bar != l.RowMeasure {
+				t.Errorf("the selected row's bar is %d columns, want the row measure %d", bar, l.RowMeasure)
+			}
+			if bar == l.Inner {
+				t.Errorf("the selected row's bar spans the body's whole %d columns", bar)
+			}
+			if bar > layoutRowMeasureMax {
+				t.Errorf("the selected row's bar is %d columns, want <= the reading measure %d", bar, layoutRowMeasureMax)
+			}
+
+			view := m.View()
+			if !strings.Contains(view, mainMenuPanelLabel) {
+				t.Errorf("the main menu at %s shows no right column: %q is not on screen", c.name, mainMenuPanelLabel)
+			}
+
+			// Every composed line is the inner width, the leading margin included,
+			// so the body covers the columns the frame's rules cover and the
+			// margins on either side of the composition are the ones it computed.
+			composed := ""
+			for _, line := range strings.Split(view, "\n") {
+				if strings.Contains(line, "What would you like to do?") {
+					composed = line
+				}
+			}
+			if w := lipgloss.Width(composed); w != c.width {
+				t.Errorf("the composed body line at %s is %d columns, want the terminal's %d", c.name, w, c.width)
+			}
+
+			// The frame uses its room: the widest line reaches the terminal's last
+			// column instead of stopping short.
+			widest := 0
+			for _, line := range strings.Split(view, "\n") {
+				widest = max(widest, lipgloss.Width(line))
+			}
+			if widest != c.width {
+				t.Errorf("the main menu at %s uses %d of its %d columns", c.name, widest, c.width)
+			}
+		})
+	}
 }
 
 // TestInstallingScreenShowsProgressAndRail pins the two things the installing
@@ -1410,5 +1551,56 @@ func TestPlaceBodyCentresShortBodies(t *testing.T) {
 	over := []string{"a", "b", "c", "d"}
 	if got := placeBody(over, 2); strings.Join(got, "|") != "a|b|c|d" {
 		t.Errorf("placeBody(4 rows into 2) = %q, want the oversized body unchanged, not truncated", got)
+	}
+}
+
+// TestPlaceBodyCapsTheTopMargin pins the other half of the placement: the shift
+// down is capped at placeBodyTopMarginMax rows, so a tall terminal leaves the
+// body just under the rule instead of floating it halfway down the screen. The
+// 80x24 floor is below the cap and does not move; the two sizes this feature was
+// designed on are above it and are held at the cap. The heights are asserted as
+// terminal rows with View()'s own chrome counted, because that is the row a
+// reader sees, and the three heights are the floor and the two wide sizes.
+func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
+	hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
+	body := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+
+	for _, c := range []struct {
+		name                string
+		width, height       int
+		wantFirst, wantLast int
+	}{
+		{"80x24, the floor: a 5-row shift, under the cap", 80, 24, 9, 17},
+		{"160x50: the shift is the cap, not the 18 the surplus half would ask for", 160, 50, 10, 18},
+		{"227x62: the cap holds at the widest terminal", 227, 62, 10, 18},
+	} {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			m := Model{Width: c.width, Height: c.height, Screen: ScreenMainMenu}
+			rows := installerBodyRows(c.height, footerRowCount(layoutFor(m).Inner, hints))
+			placed := placeBody(body, rows)
+
+			first, last := -1, -1
+			for i, row := range placed {
+				if row == "" {
+					continue
+				}
+				if first < 0 {
+					first = i
+				}
+				last = i
+			}
+
+			// View() spends one blank row on its padding and the frame two rows on
+			// the header and the rule under it, so the body's first row of the
+			// composition is the terminal's fourth row.
+			const chrome = 1 + 2
+			if got := first + chrome + 1; got != c.wantFirst {
+				t.Errorf("the body starts on terminal row %d, want %d: the top margin is %d rows", got, c.wantFirst, first)
+			}
+			if got := last + chrome + 1; got != c.wantLast {
+				t.Errorf("the body ends on terminal row %d, want %d", got, c.wantLast)
+			}
+		})
 	}
 }
