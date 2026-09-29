@@ -124,6 +124,20 @@ machine's limits into another machine's VM.
   copy. The greeting is a pure function of the time the model was created with, never of the clock
   read while drawing, so a snapshot pins it instead of flaking at the hour.
 
+### Fixed
+
+- **The trainer's hints say something the exercise's description does not.** A hint revealed with
+  `Tab` used to repeat the mission — the mission read "Move to the start of 'userName' using w
+  (word)" and the hint read "w moves to the start of the next word" — so asking for it cost a
+  keypress and taught nothing, which is the defect a player reported. Every hint now adds a mechanism
+  the mission leaves out: the count, flag or range the command takes, the part of it the mission does
+  not name, how it compares with the command it is easiest to confuse it with, or what follows from
+  it. One hundred and twenty-one hint lines were rewritten across the nine modules and the
+  change-and-repeat boss fight, and no judging, solution set or lesson count changed.
+  `TestShippedHintsAddWhatTheirMissionDoesNot` sweeps every shipped hint for one of those additions,
+  `hintEchoRewrites` pins the exact echoes that were withdrawn so a later edit cannot restore them,
+  and `docs/vim-trainer-spec.md` states the rule the two lines divide.
+
 ## [v0.3.0] — 2026-09-22
 
 This is the release where **the installer stops ignoring the `Brewfile`**. The repository has
