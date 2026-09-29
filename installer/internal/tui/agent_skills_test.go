@@ -319,7 +319,9 @@ func TestStepInstallAgentSkillsInstallsVerifiedZipPackage(t *testing.T) {
 }
 
 // TestStepInstallAgentSkillsInstallsVerifiedFilePackage covers the happy path for
-// a set of commit-pinned files fetched through the contents API.
+// a set of commit-pinned files: the files land in the destination with their
+// verified bytes, and the transport is a plain raw.githubusercontent.com URL at
+// the pinned commit with no Accept header and no contents API request.
 func TestStepInstallAgentSkillsInstallsVerifiedFilePackage(t *testing.T) {
 	fixture := writeAgentSkillFixtureFile(t, "SKILL.md", "officecli skill")
 	sum := sha256HexOfFile(t, fixture)
@@ -328,8 +330,8 @@ func TestStepInstallAgentSkillsInstallsVerifiedFilePackage(t *testing.T) {
 		name: "officecli",
 		kind: agentSkillFiles,
 		files: []agentSkillFile{
-			{url: "https://example.invalid/LICENSE", dest: "LICENSE", sha256: sum},
-			{url: "https://example.invalid/SKILL.md", dest: "SKILL.md", sha256: sum},
+			{url: officeCLISkillFileURL("LICENSE"), dest: "LICENSE", sha256: sum},
+			{url: officeCLISkillFileURL("skills/officecli/SKILL.md"), dest: "SKILL.md", sha256: sum},
 		},
 	})
 
@@ -341,10 +343,21 @@ func TestStepInstallAgentSkillsInstallsVerifiedFilePackage(t *testing.T) {
 	assertAgentSkillFile(t, filepath.Join(dest, "LICENSE"), "officecli skill")
 	assertAgentSkillFile(t, filepath.Join(dest, "SKILL.md"), "officecli skill")
 
-	// The contents API returns raw bytes only for this media type, so the step
-	// must send it.
-	if !anyCommandContains(stubs.ranCommands(t), "application/vnd.github.raw") {
-		t.Errorf("the contents API request did not ask for the raw media type: %v", stubs.ranCommands(t))
+	// The files are fetched by raw URL at the pinned commit, not through the
+	// rate-limited contents API.
+	wantURL := "https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/" + officeCLISkillCommit + "/skills/officecli/SKILL.md"
+	if gotURL := officeCLISkillFileURL("skills/officecli/SKILL.md"); gotURL != wantURL {
+		t.Errorf("officeCLISkillFileURL returned %q, want %q", gotURL, wantURL)
+	}
+
+	commands := stubs.ranCommands(t)
+	// A media-type Accept header is dead weight without the contents API; the
+	// URL above is the whole transport contract.
+	if anyCommandContains(commands, "Accept") {
+		t.Errorf("the pinned-file download still sends an Accept header: %v", commands)
+	}
+	if anyCommandContains(commands, "api.github.com") {
+		t.Errorf("the pinned-file download still uses the rate-limited contents API: %v", commands)
 	}
 }
 

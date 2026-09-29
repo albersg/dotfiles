@@ -92,10 +92,10 @@ is the only agent platform targeted: nothing is installed for Claude or OpenCode
 |-------|-------------|---------------|
 | `security-audit` | `~/.pi/agent/skills/security-audit` | Cloudflare `security-audit-skill` commit `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8` (codeload ZIP) |
 | `archify` | `~/.pi/agent/skills/archify` | tt-a1i `archify` commit `9e35d2b0b39b155553ba9fcfe0b4f2a5198dd993` (codeload ZIP) |
-| `officecli` | `~/.pi/agent/skills/officecli` | iOfficeAI `OfficeCLI` commit `ffa8a0afbe2e9686abd636368e3da38c50f22131` (`LICENSE` and `skills/officecli/SKILL.md` through the GitHub contents API) |
+| `officecli` | `~/.pi/agent/skills/officecli` | iOfficeAI `OfficeCLI` commit `ffa8a0afbe2e9686abd636368e3da38c50f22131` (`LICENSE` and `skills/officecli/SKILL.md` from `raw.githubusercontent.com` at that commit) |
 
 The step needs network access: it downloads each artifact from
-`codeload.github.com` or `api.github.com`. Every download is checked against a
+`codeload.github.com` or `raw.githubusercontent.com`. Every download is checked against a
 hard-coded SHA-256 before anything is staged, and a mismatch or a failed
 transfer fails the step without touching the destination. Nothing from the
 upstream repositories is executed; only the archive and file bytes are verified,
@@ -112,7 +112,7 @@ The pins live in `installer/internal/tui/agent_skills.go`. To move a skill to a
 new upstream revision:
 
 1. Pick the immutable commit and build the codeload archive URL (or the
-   contents-API URL with `?ref=<commit>` for the OfficeCLI files).
+   `raw.githubusercontent.com` URL at the pinned commit for the OfficeCLI files).
 2. Download the artifact and compute its SHA-256:
    `curl -fsSL -o /tmp/skill.zip <url> && sha256sum /tmp/skill.zip`.
 3. Update the URL and the matching checksum constant together, then re-run
