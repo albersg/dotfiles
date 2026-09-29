@@ -222,6 +222,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		// The tick is the run's clock. Its timestamp is copied onto the model here,
+		// in Update, so the installing screen's elapsed time and estimate are reads
+		// of model state and never a clock read inside a render.
+		m.Now = time.Time(msg)
 		// The tick wakes the model on its own, so the exercise countdown stays live
 		// and an idle player's hint is revealed when its deadline passes without
 		// any key press.
@@ -248,8 +252,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.animTickCmdFor()
 
 	case installStartMsg:
+		// A run begins here, so this is where the run's start timestamp is set -- and
+		// reset for a run that follows a retry. The installing screen measures its
+		// elapsed time from it, and it lives on the model rather than being read
+		// while rendering.
+		m.InstallStartedAt = time.Now()
 		// Start the installation process
-		return m, m.runNextStep()
+		cmd := m.runNextStep()
+		return m, cmd
 
 	case stepProgressMsg:
 		// Update progress

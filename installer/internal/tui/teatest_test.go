@@ -69,7 +69,15 @@ func isolateGoldenTest(t *testing.T, m *Model) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	m.SystemInfo = goldenSystemInfo()
+	m.CreatedAt = goldenGreetingTime
 }
+
+// goldenGreetingTime is the time the golden models were created with. The
+// welcome and main menu greet by the time of day from the model's own creation
+// time, so an unpinned model would render a different word at every hour and on
+// every host. 09:00 is the morning word; the other parts of the day are pinned
+// by TestGreetingForEachPartOfTheDay rather than by a second snapshot.
+var goldenGreetingTime = time.Date(2026, time.January, 1, 9, 0, 0, 0, time.UTC)
 
 // Helper to read all bytes from io.Reader
 func readAll(t *testing.T, r io.Reader) []byte {
@@ -1042,7 +1050,7 @@ func installerFrameCase(t *testing.T, name string) Model {
 		}
 		return m
 	}
-	installing := func(details bool, atEnd bool) Model {
+	installing := func(details bool, atEnd bool, logCount int) Model {
 		m := installerFrameModel(t, ScreenInstalling)
 		m.SystemInfo = &system.SystemInfo{OS: system.OSLinux, OSName: "Linux"}
 		m.Choices = UserChoices{
@@ -1065,10 +1073,8 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m.Steps[running].Progress = 0.5
 
 		m.ShowDetails = details
-		if details {
-			for i := 0; i < 12; i++ {
-				m.LogLines = append(m.LogLines, fmt.Sprintf("log line %d", i+1))
-			}
+		for i := 0; i < logCount; i++ {
+			m.LogLines = append(m.LogLines, fmt.Sprintf("log line %d", i+1))
 		}
 		return m
 	}
@@ -1190,11 +1196,15 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m.SelectedBackup = 0
 		return m
 	case "installing":
-		return installing(false, false)
+		return installing(false, false, 0)
 	case "installing-details":
-		return installing(true, false)
+		return installing(true, false, 12)
+	case "installing-details-many":
+		// A log longer than any frame can hold, so both guards see the box at its
+		// largest and the hidden-count note on screen.
+		return installing(true, false, 40)
 	case "installing-at-end":
-		return installing(false, true)
+		return installing(false, true, 0)
 	case "complete":
 		m := base(ScreenComplete)
 		m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
@@ -1203,6 +1213,16 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m := base(ScreenError)
 		m.ErrorMsg = "failed to install alacritty: the package manager refused the request after a long explanation that does not fit on one line"
 		m.LogLines = []string{"first log line", "second log line", "third log line", "fourth log line", "fifth log line", "sixth log line"}
+		return m
+	case "error-many-logs":
+		// The error panel used to cut at five lines whatever the frame was; a log
+		// longer than that proves the panel now follows the frame and says how many
+		// earlier lines it could not show.
+		m := base(ScreenError)
+		m.ErrorMsg = "failed to install alacritty: the package manager refused the request after a long explanation that does not fit on one line"
+		for i := 0; i < 40; i++ {
+			m.LogLines = append(m.LogLines, fmt.Sprintf("log line %d", i+1))
+		}
 		return m
 	default:
 		t.Fatalf("no frame case named %q", name)
@@ -1230,8 +1250,8 @@ var installerFrameScreenNames = []string{
 	"lazyvim", "lazyvim-topic",
 	"backup-confirm", "backup-confirm-many",
 	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
-	"installing", "installing-details", "installing-at-end",
-	"complete", "error",
+	"installing", "installing-details", "installing-details-many", "installing-at-end",
+	"complete", "error", "error-many-logs",
 }
 
 // TestInstallerScreensFitTheFrame is the counterpart to
@@ -1535,6 +1555,192 @@ func TestInstallProgressCountsEveryStepState(t *testing.T) {
 
 	if got := (Model{}).installProgress(); got != 1 {
 		t.Errorf("installProgress with no steps = %v, want 1", got)
+	}
+}
+
+// TestInstallingLogUsesTheRowsTheFrameLeaves pins that the log box follows the
+// frame instead of a fixed three lines: at the 80x24 floor it shows more of the
+// tail than the old constant, it keeps the freshest lines, and it names the
+// earlier ones it could not fit in one dim row rather than dropping them
+// silently.
+func TestInstallingLogUsesTheRowsTheFrameLeaves(t *testing.T) {
+	const queued = 40
+	m := installerFrameCase(t, "installing-details-many")
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+
+	shown := strings.Count(view, "log line ")
+	if shown <= 3 {
+		t.Errorf("the 80x24 log box shows %d log lines, want more than the old fixed three:\n%s", shown, view)
+	}
+	if !strings.Contains(view, fmt.Sprintf("log line %d", queued)) {
+		t.Errorf("the log box dropped its freshest line:\n%s", view)
+	}
+	note := fmt.Sprintf("… %d earlier lines", queued-shown)
+	if !strings.Contains(view, note) {
+		t.Errorf("the log box does not name the earlier lines it could not show (want %q):\n%s", note, view)
+	}
+}
+
+// TestErrorLogUsesTheRowsTheFrameLeaves pins the same for the error screen's log
+// panel, which used to cut at five lines for no stated reason.
+func TestErrorLogUsesTheRowsTheFrameLeaves(t *testing.T) {
+	const queued = 40
+	m := installerFrameCase(t, "error-many-logs")
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+
+	shown := strings.Count(view, "log line ")
+	if shown <= 5 {
+		t.Errorf("the 80x24 error log panel shows %d log lines, want more than the old fixed five:\n%s", shown, view)
+	}
+	if !strings.Contains(view, fmt.Sprintf("log line %d", queued)) {
+		t.Errorf("the error log panel dropped its freshest line:\n%s", view)
+	}
+	note := fmt.Sprintf("… %d earlier lines", queued-shown)
+	if !strings.Contains(view, note) {
+		t.Errorf("the error log panel does not name the earlier lines it could not show (want %q):\n%s", note, view)
+	}
+}
+
+// installingClockModel is an installing screen with the model's own start time
+// and a later tick, so the elapsed time and the estimate are pinned numbers
+// instead of a clock a test cannot predict. The steps are fixed so the progress
+// fraction is fixed, too.
+func installingClockModel(t *testing.T, progress float64) Model {
+	t.Helper()
+	start := time.Date(2026, time.March, 14, 9, 0, 0, 0, time.UTC)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Screen = ScreenInstalling
+	m.Width, m.Height = 80, 24
+	m.Steps = []InstallStep{
+		{ID: "a", Name: "Install Dependencies", Status: StatusDone, Progress: 1},
+		{ID: "b", Name: "Clone Repository", Status: StatusRunning, Progress: progress},
+		{ID: "c", Name: "Install Shell", Status: StatusPending},
+		{ID: "d", Name: "Cleanup", Status: StatusPending},
+	}
+	m.CurrentStep = 1
+	m.InstallStartedAt = start
+	m.Now = start.Add(40 * time.Second)
+	return m
+}
+
+// TestInstallingShowsTheStepAndTheRunsOwnClock pins the two rows under the bar:
+// the step counter with the step's name, and the elapsed time with the estimate.
+func TestInstallingShowsTheStepAndTheRunsOwnClock(t *testing.T) {
+	// Half of the second of four steps is 0.375 done, so 40s spent implies 66s left.
+	m := installingClockModel(t, 0.5)
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	for _, want := range []string{"Step 2 of 4", "Clone Repository", "Elapsed 40s", "~1m 06s left"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the installing screen does not show %q:\n%s", want, view)
+		}
+	}
+
+	// The same model renders the same bytes on every call: the estimate comes from
+	// state, so it cannot move while the model stands still.
+	if second := m.View(); second != m.View() {
+		t.Errorf("two renders of one model differ: the renderer read the clock")
+	}
+}
+
+// TestInstallingEstimateIsHonest pins the estimate's edges. With nothing done
+// there is no rate to scale, so the screen says it is estimating instead of
+// showing a number, and with no basis at all -- no recorded start -- it says so
+// too.
+func TestInstallingEstimateIsHonest(t *testing.T) {
+	t.Run("nothing done yet says it is estimating", func(t *testing.T) {
+		m := installingClockModel(t, 0)
+		// The model's earlier step is still pending, so nothing is complete and
+		// there is no rate to scale.
+		m.Steps[0].Status = StatusPending
+		m.Steps[0].Progress = 0
+
+		view := ansiEscape.ReplaceAllString(m.View(), "")
+		if !strings.Contains(view, "Elapsed 40s") {
+			t.Errorf("the screen lost the elapsed time with nothing done:\n%s", view)
+		}
+		if !strings.Contains(view, "estimating…") {
+			t.Errorf("the screen shows no estimating state with nothing done:\n%s", view)
+		}
+		if strings.Contains(view, " left") {
+			t.Errorf("the screen showed a number with no basis for one:\n%s", view)
+		}
+	})
+
+	t.Run("no start time shows no estimate at all", func(t *testing.T) {
+		m := installingClockModel(t, 0.5)
+		m.InstallStartedAt = time.Time{}
+		view := ansiEscape.ReplaceAllString(m.View(), "")
+		if !strings.Contains(view, "Estimating the time remaining") {
+			t.Errorf("a model with no start time does not say it is estimating:\n%s", view)
+		}
+		if strings.Contains(view, "~") {
+			t.Errorf("a model with no start time showed an estimate:\n%s", view)
+		}
+	})
+}
+
+// TestInstallETAIsDerivedFromThisRunAlone pins that the estimate is the elapsed
+// time scaled by the work still to do, and that it refuses to answer when there
+// is no rate to scale: never a per-step constant and never a guess about the
+// machine.
+func TestInstallETAIsDerivedFromThisRunAlone(t *testing.T) {
+	cases := []struct {
+		name     string
+		progress float64
+		elapsed  time.Duration
+		want     time.Duration
+		ok       bool
+	}{
+		{"half done after a minute leaves a minute", 0.5, time.Minute, time.Minute, true},
+		{"a quarter done after thirty seconds leaves ninety", 0.25, 30 * time.Second, 90 * time.Second, true},
+		{"nothing done has no rate", 0, time.Minute, 0, false},
+		{"a finished run has nothing left", 1, time.Minute, 0, false},
+		{"no elapsed time has no rate", 0.5, 0, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := installETA(c.progress, c.elapsed)
+			if ok != c.ok {
+				t.Fatalf("installETA(%v, %v) ok = %v, want %v", c.progress, c.elapsed, ok, c.ok)
+			}
+			if ok && got != c.want {
+				t.Errorf("installETA(%v, %v) = %v, want %v", c.progress, c.elapsed, got, c.want)
+			}
+		})
+	}
+}
+
+// TestInstallStartRecordsTheRunStartAndResetsIt pins that the run's start
+// timestamp is written where the run begins, and overwritten by the next run
+// rather than carried over.
+func TestInstallStartRecordsTheRunStartAndResetsIt(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenInstalling
+	m.Steps = []InstallStep{{ID: "a", Name: "Install Dependencies"}}
+	stale := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	m.InstallStartedAt = stale
+
+	before := time.Now()
+	next, _ := m.Update(installStartMsg{})
+	got := next.(Model).InstallStartedAt
+	if got.IsZero() || got.Before(before.Add(-time.Second)) {
+		t.Errorf("installStartMsg recorded %v, want a start time no earlier than %v", got, before)
+	}
+	if !got.After(stale) {
+		t.Errorf("a new run kept the previous start time %v", got)
+	}
+}
+
+// TestTickAdvancesTheRunsClock pins that the tick is what carries time onto the
+// model: the installing screen reads the tick's timestamp rather than the wall
+// clock while rendering.
+func TestTickAdvancesTheRunsClock(t *testing.T) {
+	when := time.Date(2026, time.March, 14, 9, 0, 0, 0, time.UTC)
+	m := NewModel()
+	next, _ := m.Update(tickMsg(when))
+	if got := next.(Model).Now; !got.Equal(when) {
+		t.Errorf("the tick left Now = %v, want %v", got, when)
 	}
 }
 

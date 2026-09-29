@@ -107,6 +107,22 @@ machine's limits into another machine's VM.
   `$XDG_STATE_HOME/dotfiles/last-install.json` (falling back to
   `~/.local/state/dotfiles/last-install.json`). The write is best effort: a state directory the
   machine will not let us write never turns an install that finished into one that failed.
+- **The installing screen says how long the run has taken and what is left.** Under the progress bar
+  it names the step the run is on, and it states the elapsed time with an estimate of the remainder
+  scaled from this run's own clock and progress (`Elapsed 3m 05s · ~1m 42s left`). The estimate is
+  stated only when it has a basis: with nothing complete it says `estimating…`, and with no run
+  behind it it says `Estimating the time remaining…` rather than a number. The start timestamp and
+  the latest tick live on the model, so the render never reads the clock and a snapshot cannot flake
+  on the hour. The run keeps no file tally, so the screen shows no file counter.
+- **The log box follows the terminal instead of a fixed three lines.** The installing screen's log
+  and the error screen's log panel — which cut at five lines for no stated reason — now show the
+  freshest lines that fit the frame and, when earlier lines do not, name how many were left out in
+  one dim row (`… 9 earlier lines`). At 80x24 the installing box shows more than twice what it did;
+  the step rail keeps a three-row floor, so the box can never push it or the footer off screen.
+- **The welcome screen and the main menu greet by the time of day.** One added dim line
+  (`Good morning`, `Good afternoon`, `Good evening`) greets the reader without replacing any existing
+  copy. The greeting is a pure function of the time the model was created with, never of the clock
+  read while drawing, so a snapshot pins it instead of flaking at the hour.
 
 ## [v0.3.0] — 2026-09-22
 

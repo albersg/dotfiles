@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
@@ -148,6 +149,20 @@ type Model struct {
 	ShowDetails      bool
 	LogLines         []string
 	TotalTime        float64
+	// CreatedAt is the moment the model was built. It is state so the welcome and
+	// main menu greet by the time of day without a renderer ever reading the
+	// clock: a render that called time.Now could not be tested or snapshotted, and
+	// the greeting would change when nothing else on the screen did.
+	CreatedAt time.Time
+	// Now is the time of the latest tick, copied from the tick's own timestamp. The
+	// installing screen derives its elapsed time from this and InstallStartedAt
+	// rather than reading the clock while rendering, for the same reason: the
+	// estimate would move on every repaint even when the run did not.
+	Now time.Time
+	// InstallStartedAt is when the run began. It is zero before a run and on the
+	// models the golden tests build, and a zero start means the screen shows no
+	// elapsed time and no estimate instead of a number it cannot justify.
+	InstallStartedAt time.Time
 	Quitting         bool
 	// Program reference for sending messages during installation
 	Program *tea.Program
@@ -226,6 +241,7 @@ func NewModel() Model {
 		PanelIndex:              0,
 		Animating:               animationGate(os.Stdout),
 		AnimTick:                0,
+		CreatedAt:               time.Now(),
 		CompanionDir:            1,
 		ShowDetails:             false,
 		LogLines:                []string{},

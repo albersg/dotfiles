@@ -29,7 +29,9 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
 - **Progress Tracking**: Real-time installation progress with a frame-width progress bar,
-  a percentage, and a per-step status rail, plus optional detailed logs
+  a percentage, the step the run is on with its name, the elapsed time and an estimate of what is
+  left measured from the run's own clock, a per-step status rail, and optional detailed logs sized
+  to the rows the frame leaves
 - **A Companion**: A small ASCII creature walks the row above the footer, follows the selection you
   move the cursor to, sleeps when you stop typing, and reacts to failures and to destructive choices
 - **Non-Interactive Mode**: CI/CD friendly installation via CLI flags
@@ -75,6 +77,11 @@ From the main menu you can access:
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
+The welcome screen and the main menu greet you by the time of day (`Good morning`, `Good afternoon`,
+`Good evening`) in one added dim line, so no existing copy is replaced. The greeting is a pure
+function of the time the model was created with, never of the clock read while drawing, so a
+snapshot pins it instead of flaking on the hour.
+
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -104,10 +111,34 @@ and the choices, so a run shows only the ones that apply.
 
 The installing screen is the longest thing a user watches, so it shows how far
 the run has come: a progress bar sized to the frame with a percentage beside it,
-and a rail of one row per step whose state is a glyph and a word (`✓` done,
-`●` running, `○` pending, `✗` failed, `⊘` skipped). The running step's
-description is shown under its row, and `d` opens a bounded log box with the most
-recent output.
+a rail of one row per step whose state is a glyph and a word (`✓` done,
+`●` running, `○` pending, `✗` failed, `⊘` skipped), and, under the bar, the step
+the run is on with its name (`Step 6 of 9 · Install Iosevka Nerd Font`) and the
+run's clock — how long it has taken and how much is left. The running step's
+description is shown under its row, and `d` opens a log box.
+
+**The estimate is the run's own, and it is stated only when it can be.** It scales
+the time this run has already spent by the work still to do, so it is derived from
+the run's own start timestamp and progress — never from a constant per step and
+never from a guess about the machine. With nothing complete there is no rate to
+scale and the row says `estimating…`; with no run behind it at all it says
+`Estimating the time remaining…` rather than a number. The start timestamp and the
+latest tick live on the model, so the renderer never reads the clock: the same
+model always renders the same bytes, which is what lets a snapshot pin the screen
+and stops the estimate from changing when nothing else did.
+
+**The log box uses the rows the frame leaves.** Its height follows the terminal
+instead of a fixed three lines: it shows the freshest lines that fit — the rail
+keeps a three-row floor, so turning details on never pushes it or the footer off
+the screen — and when earlier lines do not fit it says how many it could not show
+in one dim row (`… 9 earlier lines`) instead of dropping them silently. The error
+screen's log panel is sized the same way; it used to cut at five lines whatever
+the frame was.
+
+**The installer shows only the counts it keeps.** The step counter and the step's
+name exist on the run and are shown. The run does not count the files it installs
+— no step reports a file tally — so the screen has no file counter and does not
+invent one.
 
 ### Keyboard Shortcuts
 
