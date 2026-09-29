@@ -501,6 +501,35 @@ funciona como verdad de referencia: una respuesta listada se acepta aunque el
 motor no pueda reproducirla todavía. `Optimal` es la que el motor debe poder
 ejecutar y la que se muestra al jugador.
 
+#### Qué enuncia la misión y qué agrega la pista
+
+`Mission` y `Hint` se reparten el texto, y cada uno tiene un trabajo distinto:
+
+- `Mission` enuncia el objetivo. Dice dónde debe quedar el cursor, qué debe leer
+  el buffer o, en los ejercicios cuya respuesta es una secuencia exacta de teclas
+  que el entrenador no ejecuta, el comando que se pide tipear. Es la frase con la
+  que puede actuar quien ya conoce el comando.
+- `Hint` enuncia el mecanismo que la misión no da: dónde cae el comando, qué
+  incluye o deja afuera, qué cuenta, bandera o rango toma, cómo se compara con su
+  comando hermano más cercano, o qué se sigue de él. Es la línea que el jugador
+  pide con Tab (y que aparece sola tras `TimeoutSecs`), así que es la que enseña.
+
+Una pista tiene que agregar al menos una de esas cosas. La regla nace de un
+defecto reportado por un jugador: la misión decía "using w" y la pista decía "w
+moves to the start of the next word", así que pedir la pista costaba una tecla y
+no enseñaba nada, la misma frase dos veces.
+
+Una pista que solo puede repetir su misión no es una pista: o se escribe el
+mecanismo que la misión deja implícito, o se quita la pista y el ejercicio queda
+con su misión y su `Explanation`. Quitarla hoy toca dos paquetes: el caso de la
+tecla Tab del paquete `tui` antepone "Hint: " sin condición, así que una pista
+vacía se dibuja como una etiqueta vacía en lugar de no dibujarse.
+
+`TestShippedHintsAddWhatTheirMissionDoesNot` (en `exercises_test.go`) recorre
+todo el corpus y exige una de esas adiciones en cada pista; `hintEchoRewrites`
+fija los ecos exactos que esta pasada retiró, para que una edición posterior no
+los reponga sin que un test lo note.
+
 ### Boss Exercise
 
 ```go
