@@ -525,41 +525,64 @@ func TestWillHappenPanelCountsTheConfigsTheRunWillOverwrite(t *testing.T) {
 	})
 }
 
-// TestWillHappenPanelShowsTheNewestBackupAndItsAge pins the last row: the newest
-// backup of whatever the model holds, with when it was taken and how old it is.
-// The list system.ListBackups returns is in directory order, so the newest is the
-// greatest timestamp and not the last row.
-func TestWillHappenPanelShowsTheNewestBackupAndItsAge(t *testing.T) {
+// TestWillHappenPanelShowsTheNewestBackup pins the last row: the newest backup
+// of whatever the model holds, with when it was taken and how many files it
+// carries. The list system.ListBackups returns is in directory order, so the
+// newest is the greatest timestamp and not the last row. The age is measured
+// against the model's own clock, so a model with a zero Now leaves it out and a
+// model with a real one adds it, and neither reads the clock while rendering.
+func TestWillHappenPanelShowsTheNewestBackup(t *testing.T) {
 	l := narrowPanelLayout()
+	taken := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
 	newest := system.BackupInfo{
 		Path:      "/home/testuser/.dotfiles-backup-20240103-120000",
-		Timestamp: time.Now().Add(-72 * time.Hour),
+		Timestamp: taken,
 		Files:     []string{"nvim", "fish", "zsh"},
 	}
 	older := system.BackupInfo{
 		Path:      "/home/testuser/.dotfiles-backup-20240101-120000",
-		Timestamp: time.Now().Add(-30 * 24 * time.Hour),
+		Timestamp: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
 		Files:     []string{"nvim"},
 	}
-	m := Model{AvailableBackups: []system.BackupInfo{newest, older}}
 
-	rows := m.mainMenuPanel(l, 40)
-	assertPanelFits(t, rows, l.Right, 40)
-	text := panelText(rows)
+	t.Run("a model with no clock shows the date and the count", func(t *testing.T) {
+		m := Model{AvailableBackups: []system.BackupInfo{newest, older}}
 
-	for _, want := range []string{"Newest backup", newest.Timestamp.Format(panelBackupStamp), "3 files", "3 days ago"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the plan panel does not show %q:\n%s", want, text)
+		rows := m.mainMenuPanel(l, 40)
+		assertPanelFits(t, rows, l.Right, 40)
+		text := panelText(rows)
+
+		for _, want := range []string{"Newest backup", newest.Timestamp.Format(panelBackupStamp), "3 files"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("the plan panel does not show %q:\n%s", want, text)
+			}
 		}
-	}
-	if strings.Contains(text, older.Timestamp.Format(panelBackupStamp)) {
-		t.Errorf("the plan panel shows the older backup as the newest:\n%s", text)
-	}
+		if strings.Contains(text, "ago") {
+			t.Errorf("the plan panel measured an age against no clock:\n%s", text)
+		}
+		if strings.Contains(text, older.Timestamp.Format(panelBackupStamp)) {
+			t.Errorf("the plan panel shows the older backup as the newest:\n%s", text)
+		}
+
+		if again := m.mainMenuPanel(l, 40); !equalRows(rows, again) {
+			t.Errorf("the plan panel changed between two renders of one model:\nfirst:\n%s\nsecond:\n%s",
+				panelText(rows), panelText(again))
+		}
+	})
+
+	t.Run("a model with a clock adds the age", func(t *testing.T) {
+		m := Model{AvailableBackups: []system.BackupInfo{newest, older}, Now: taken.Add(9 * 24 * time.Hour)}
+
+		text := panelFlat(m.mainMenuPanel(l, 40))
+		if !strings.Contains(text, "3 files, 9 days ago") {
+			t.Errorf("the plan panel does not show the newest backup's age:\n%s", text)
+		}
+	})
 }
 
 // TestBackupAgeNamesTheCoarsestUnitThatSaysSomething pins the age arithmetic to
-// fixed clock readings, so it cannot flake: the panel reads the clock once and
-// hands the two instants here.
+// fixed clock readings: the panel hands the two instants here, so the function
+// reads no clock of its own and cannot flake.
 func TestBackupAgeNamesTheCoarsestUnitThatSaysSomething(t *testing.T) {
 	now := time.Date(2024, 1, 31, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -574,7 +597,7 @@ func TestBackupAgeNamesTheCoarsestUnitThatSaysSomething(t *testing.T) {
 		{"one hour", now.Add(-time.Hour), "1 hour ago"},
 		{"hours", now.Add(-5 * time.Hour), "5 hours ago"},
 		{"one day", now.Add(-25 * time.Hour), "1 day ago"},
-		{"days", now.Add(-3 * 24 * time.Hour), "3 days ago"},
+		{"days", now.Add(-9 * 24 * time.Hour), "9 days ago"},
 		{"one month", now.Add(-40 * 24 * time.Hour), "1 month ago"},
 		{"months", now.Add(-100 * 24 * time.Hour), "3 months ago"},
 		{"a clock that is ahead makes it just now, not a negative age", now.Add(time.Hour), "just now"},
@@ -587,6 +610,23 @@ func TestBackupAgeNamesTheCoarsestUnitThatSaysSomething(t *testing.T) {
 				t.Errorf("backupAge = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// TestBackupLineOmitsTheAgeWithoutAReferenceTime pins the zero-Now rule: the
+// model carries no clock until the startup path or the tick fills one, and a
+// golden model stays zero forever, so the row keeps a deterministic date and
+// file count and simply leaves the age out instead of reading a clock or
+// printing a moment nobody measured.
+func TestBackupLineOmitsTheAgeWithoutAReferenceTime(t *testing.T) {
+	taken := time.Date(2026, 9, 19, 19, 30, 41, 0, time.UTC)
+	backup := system.BackupInfo{Timestamp: taken, Files: make([]string, 12)}
+
+	if got, want := backupLine(backup, time.Time{}), "2026-09-19 19:30:41, 12 files"; got != want {
+		t.Errorf("backupLine with a zero reference time = %q, want %q", got, want)
+	}
+	if got, want := backupLine(backup, taken.Add(9*24*time.Hour)), "2026-09-19 19:30:41, 12 files, 9 days ago"; got != want {
+		t.Errorf("backupLine with a real reference time = %q, want %q", got, want)
 	}
 }
 
@@ -1558,4 +1598,340 @@ func TestGreetingIsAnAddedLineThatMovesNothingElse(t *testing.T) {
 				panelText(withPanel), panelText(withoutPanel))
 		}
 	})
+}
+
+// --- The panel follows the selection -----------------------------------------
+
+// contextualMainMenuModel is a main menu with every kind of state the panel can
+// be pointed at: a host to plan for, a config to overwrite and two backups to
+// restore, so every option under the cursor has real facts to show.
+func contextualMainMenuModel() Model {
+	return Model{
+		Screen:          ScreenMainMenu,
+		SystemInfo:      goldenSystemInfo(),
+		ExistingConfigs: []string{"nvim: /home/testuser/.config/nvim"},
+		AvailableBackups: []system.BackupInfo{
+			{
+				Path:      "/home/testuser/.dotfiles-backup-20240103-120000",
+				Timestamp: time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC),
+				Files:     []string{"nvim", "fish"},
+			},
+			{
+				Path:      "/home/testuser/.dotfiles-backup-20240101-120000",
+				Timestamp: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+				Files:     []string{"nvim"},
+			},
+		},
+	}
+}
+
+// TestMainMenuPanelDescribesTheOptionUnderTheCursor pins the point of the slice:
+// with the cursor on a main-menu option, the panel names that option and shows
+// what it holds, and it shows nothing the option does not hold.
+func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
+	l := narrowPanelLayout()
+	modules, lessons, bosses := trainerCurriculum()
+
+	cases := []struct {
+		cursor int
+		name   string
+		want   []string
+		absent []string
+	}{
+		{
+			cursor: 0,
+			name:   "Start Installation",
+			want: []string{
+				"Selected Start Installation",
+				"Steps 8",
+				"Install Dependencies",
+				"Overwrites 1 config",
+				"nvim: /home/testuser/.config/nvim",
+				"Newest backup",
+				"2024-01-03 12:00:00, 2 files",
+			},
+		},
+		{
+			cursor: 1,
+			name:   "Learn About Tools",
+			want: []string{
+				"Selected Learn About Tools",
+				fmt.Sprintf("Terminals %d", len(GetTerminalInfo())),
+				fmt.Sprintf("Shells %d", len(GetShellInfo())),
+				fmt.Sprintf("Multiplexers %d", len(GetWMInfo())),
+			},
+			absent: []string{"Steps", "Overwrites", "Newest backup"},
+		},
+		{
+			cursor: 2,
+			name:   "Keymaps Reference",
+			want: []string{
+				"Selected Keymaps Reference",
+				fmt.Sprintf("Neovim %s", keymapBindingCount(keymapCount(GetNvimKeymaps()))),
+				"Ghostty",
+			},
+			absent: []string{"Steps", "Terminals"},
+		},
+		{
+			cursor: 3,
+			name:   "LazyVim Guide",
+			want: []string{
+				"Selected LazyVim Guide",
+				fmt.Sprintf("Topics %d", len(GetLazyVimTopics())),
+			},
+			absent: []string{"Steps", "Neovim"},
+		},
+		{
+			cursor: 4,
+			name:   "Vim Trainer",
+			want: []string{
+				"Selected Vim Trainer",
+				fmt.Sprintf("Modules %d", modules),
+				fmt.Sprintf("Lessons %d", lessons),
+				fmt.Sprintf("Bosses %d", bosses),
+			},
+			absent: []string{"Steps", "Overwrites"},
+		},
+		{
+			cursor: 5,
+			name:   "Restore from Backup",
+			want: []string{
+				"Selected Restore from Backup",
+				"Backups 2",
+				"2024-01-03 12:00:00, 2 files",
+				"2024-01-01 12:00:00, 1 file",
+			},
+			absent: []string{"Steps", "Overwrites", "Modules"},
+		},
+		{
+			cursor: 6,
+			name:   "Exit",
+			want: []string{
+				"Selected Exit",
+				"Nothing on this machine changes.",
+			},
+			absent: []string{"Steps", "Overwrites", "Newest backup", "Backups", "Modules", "Topics", "Terminals"},
+		},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			m := contextualMainMenuModel()
+			m.Cursor = c.cursor
+			rows := m.mainMenuPanel(l, 200)
+			assertPanelFits(t, rows, l.Right, 200)
+			flat := panelFlat(rows)
+			for _, want := range c.want {
+				if !strings.Contains(flat, want) {
+					t.Errorf("the panel for %q does not show %q:\n%s", c.name, want, panelText(rows))
+				}
+			}
+			for _, absent := range c.absent {
+				if strings.Contains(flat, absent) {
+					t.Errorf("the panel for %q shows %q, which that option does not hold:\n%s", c.name, absent, panelText(rows))
+				}
+			}
+		})
+	}
+}
+
+// TestMainMenuPanelNameStaysStableAcrossTheCursor pins the second half of the
+// design: the panel's name and the tab row are the same for every selection, so
+// Tab is not a moving target, and the option's name lives inside the panel.
+func TestMainMenuPanelNameStaysStableAcrossTheCursor(t *testing.T) {
+	l := narrowPanelLayout()
+	m := contextualMainMenuModel()
+	if panels := m.panelsFor(); len(panels) == 0 || panels[0].ID != panelPlan {
+		t.Fatalf("the main menu's first panel is not the plan panel")
+	}
+	wantTab := tabRow(m.panelsFor(), 0, l.Right)
+
+	for cursor := range m.GetCurrentOptions() {
+		m.Cursor = cursor
+		got := m.panelsFor()
+		if got[0].Title != mainMenuPanelLabel || got[0].Short != "Plan" {
+			t.Errorf("with the cursor at %d the panel's name is (%q, %q), want (%q, Plan)",
+				cursor, got[0].Title, got[0].Short, mainMenuPanelLabel)
+		}
+		if row := tabRow(got, 0, l.Right); row != wantTab {
+			t.Errorf("with the cursor at %d the tab row moved:\n%q\n%q",
+				cursor, panelText([]string{wantTab}), panelText([]string{row}))
+		}
+	}
+}
+
+// visibleSlice returns the columns [start, end) of a plain (escape-free) line,
+// counting columns the way the terminal does so a wide glyph is one slice.
+func visibleSlice(line string, start, end int) string {
+	var b strings.Builder
+	col := 0
+	for _, r := range line {
+		w := lipgloss.Width(string(r))
+		if col >= start && col+w <= end {
+			b.WriteRune(r)
+		}
+		col += w
+	}
+	return b.String()
+}
+
+// TestMovingTheCursorChangesOnlyThePanel pins the rule the design depends on:
+// the cursor move changes the panel column and nothing else on the screen. The
+// frame is split at the gutter the layout computed, the selection marker is
+// normalised away first because that is the cursor's own highlight, and a row
+// that moved has to have moved in the panel's column.
+func TestMovingTheCursorChangesOnlyThePanel(t *testing.T) {
+	m := contextualMainMenuModel()
+	m.Width, m.Height = 160, 50
+
+	first := m
+	first.Cursor = 0 // Start Installation
+	second := m
+	second.Cursor = 5 // Restore from Backup, whose panel holds other facts
+
+	l := layoutFor(m)
+	if !l.TwoColumn {
+		t.Fatalf("the main menu at 160x50 lays out as one column")
+	}
+	// View() pads two columns on the left and adds one blank row above the frame.
+	const viewPad = 2
+	bodyStart := viewPad + l.Leading
+	bodyEnd := bodyStart + l.Left
+	panelStart := bodyEnd + layoutGutter
+	panelEnd := panelStart + l.Right
+
+	strip := func(view string) []string {
+		plain := ansiEscape.ReplaceAllString(view, "")
+		plain = strings.ReplaceAll(plain, "▸ ", "  ")
+		return strings.Split(plain, "\n")
+	}
+	rowsFirst := strip(first.View())
+	rowsSecond := strip(second.View())
+	if len(rowsFirst) != len(rowsSecond) {
+		t.Fatalf("the cursor changed the row count from %d to %d", len(rowsFirst), len(rowsSecond))
+	}
+
+	panelChanged, bodyMoved := false, false
+	for i := range rowsFirst {
+		if rowsFirst[i] == rowsSecond[i] {
+			continue
+		}
+		if got, want := visibleSlice(rowsFirst[i], bodyStart, bodyEnd), visibleSlice(rowsSecond[i], bodyStart, bodyEnd); got != want {
+			bodyMoved = true
+			t.Errorf("row %d changed in the body column:\n%q\n%q", i, got, want)
+		}
+		if visibleSlice(rowsFirst[i], panelStart, panelEnd) != visibleSlice(rowsSecond[i], panelStart, panelEnd) {
+			panelChanged = true
+		}
+	}
+	if bodyMoved {
+		t.Errorf("the cursor move changed a body row")
+	}
+	if !panelChanged {
+		t.Errorf("the cursor move did not change the panel column")
+	}
+}
+
+// TestNarrowSummaryFollowsTheSelection pins the same rule for the one-line
+// summary a narrow terminal gets: its headline is the selected option's answer,
+// not the plan's, while the panel's short name stays put.
+func TestNarrowSummaryFollowsTheSelection(t *testing.T) {
+	m := contextualMainMenuModel()
+	m.Width = 100
+	m.Cursor = 5 // Restore from Backup
+
+	lines := m.rotatorLines(m.panelsFor(), 96)
+	text := panelText(lines)
+	if !strings.Contains(text, "Plan") {
+		t.Errorf("the summary does not name the panel: %q", text)
+	}
+	if !strings.Contains(text, "2 backups to restore") {
+		t.Errorf("the summary does not carry the selection's headline: %q", text)
+	}
+}
+
+// TestWizardChoicePanelDescribesTheChoiceUnderTheCursor pins the wizard half:
+// each question names the choice the cursor is on and shows the plan that choice
+// would lead to, with the step the plan is on still marked.
+func TestWizardChoicePanelDescribesTheChoiceUnderTheCursor(t *testing.T) {
+	l := narrowPanelLayout()
+
+	t.Run("the operating system question previews the highlighted OS", func(t *testing.T) {
+		m := Model{Screen: ScreenOSSelect, SystemInfo: goldenSystemInfo()}
+
+		m.Cursor = 0 // macOS
+		mac := panelFlat(m.mainMenuPanel(l, 200))
+		for _, want := range []string{"Selected macOS", "on macOS", "Install Xcode CLI"} {
+			if !strings.Contains(mac, want) {
+				t.Errorf("the macOS choice panel does not show %q:\n%s", want, mac)
+			}
+		}
+		if !strings.Contains(mac, "▸") {
+			t.Errorf("the macOS choice panel does not mark the step the plan is on:\n%s", mac)
+		}
+
+		m.Cursor = 1 // Linux, what detection found
+		linux := panelFlat(m.mainMenuPanel(l, 200))
+		for _, want := range []string{"Selected Linux", "Install Dependencies"} {
+			if !strings.Contains(linux, want) {
+				t.Errorf("the Linux choice panel does not show %q:\n%s", want, linux)
+			}
+		}
+		if strings.Contains(linux, "Xcode") {
+			t.Errorf("the Linux choice panel shows the macOS plan:\n%s", linux)
+		}
+		if strings.Contains(linux, "(detected)") {
+			t.Errorf("the Linux choice panel labels a host the player is choosing as detected:\n%s", linux)
+		}
+	})
+
+	t.Run("the shell question previews the highlighted shell", func(t *testing.T) {
+		for _, c := range []struct {
+			cursor int
+			want   string
+		}{
+			{0, "Install fish"},
+			{1, "Install zsh"},
+			{2, "Install nushell"},
+		} {
+			m := Model{Screen: ScreenShellSelect, SystemInfo: goldenSystemInfo(), Choices: UserChoices{OS: "linux"}}
+			m.Cursor = c.cursor
+			flat := panelFlat(m.mainMenuPanel(l, 200))
+			if !strings.Contains(flat, c.want) {
+				t.Errorf("the shell panel at cursor %d does not show %q:\n%s", c.cursor, c.want, flat)
+			}
+		}
+	})
+}
+
+// TestMainMenuPanelFitsTheFrameForEverySelection pins the frame at every cursor
+// position and every two-column size: one selection's panel is longer than
+// another's, and the longest may not push the footer off the frame. The shipped
+// guards render the menu at cursor zero only, so this covers the selections they
+// never reach.
+func TestMainMenuPanelFitsTheFrameForEverySelection(t *testing.T) {
+	sizes := []struct{ width, height int }{
+		{124, 24}, // the two-column floor
+		{160, 50},
+		{227, 62},
+	}
+	for _, size := range sizes {
+		for cursor := range contextualMainMenuModel().GetCurrentOptions() {
+			m := contextualMainMenuModel()
+			m.Width, m.Height = size.width, size.height
+			m.Cursor = cursor
+			view := m.View()
+			if rows := renderedRowCount(view); rows != size.height {
+				t.Errorf("the main menu with cursor %d at %dx%d renders %d rows, want %d",
+					cursor, size.width, size.height, rows, size.height)
+			}
+			for _, line := range strings.Split(view, "\n") {
+				if w := lipgloss.Width(line); w > size.width {
+					t.Errorf("the main menu with cursor %d at %dx%d renders a %d-column line: %q",
+						cursor, size.width, size.height, w, line)
+				}
+			}
+		}
+	}
 }

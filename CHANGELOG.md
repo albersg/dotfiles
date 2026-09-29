@@ -43,7 +43,15 @@ machine's limits into another machine's VM.
   nothing is lost. A body shorter than its frame no longer floats down the screen either: the blank
   rows above it are capped at six, where a nine-row menu in a 62-row terminal sat 26 rows below the
   header that named it. The plan panel numbers its steps with the marker in its own column and the
-  numbers right-aligned, so the names line up.
+  numbers right-aligned, so the names line up. The panel follows the selection instead of always
+  describing the installation: on `Restore from Backup` it lists the backups with their dates and
+  file counts, on `Keymaps Reference` it counts the bindings each tool ships, on the trainer it
+  counts the curriculum, and on `Exit` it says in one line that nothing changes. The panel's name
+  stays put so `Tab` does not wander — the option is named in the panel's first row instead — and
+  the wizard's own questions preview the plan the highlighted OS or shell would lead to while still
+  marking the step the run is on. The newest-backup row keeps its age ("9 days ago") without the
+  render path reading a clock: the reference time is the model's own, so a snapshot still pins the
+  bytes while a live run reads like a person would write it.
 - **Menu and status copy was rewritten to say what to do.** Detected-platform labels no longer repeat
   the line above them, the Alacritty build warning no longer sits inside the terminal's name where it
   read as part of it, the welcome screen's environment note is one sentence instead of three facts
