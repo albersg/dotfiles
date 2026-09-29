@@ -22,8 +22,13 @@ const (
 )
 
 type SystemInfo struct {
-	OS         OSType
-	OSName     string
+	OS     OSType
+	OSName string
+	// Arch is the host architecture under the name a reader recognises, from
+	// runtime.GOARCH. It is a fact of its own because x86_64 and arm64 decide
+	// which binaries a run would fetch. Empty when a caller has not filled it,
+	// which is how a panel knows to leave the row out rather than invent one.
+	Arch       string
 	IsWSL      bool
 	WSLVersion int // 0=none, 1=WSL1, 2=WSL2
 	IsARM      bool
@@ -40,6 +45,7 @@ func Detect() *SystemInfo {
 	info := &SystemInfo{
 		OS:      OSUnknown,
 		OSName:  "Unknown",
+		Arch:    archLabel(runtime.GOARCH),
 		HomeDir: os.Getenv("HOME"),
 		IsARM:   runtime.GOARCH == "arm64" || runtime.GOARCH == "arm",
 		Prefix:  os.Getenv("PREFIX"),
@@ -253,6 +259,22 @@ func BrewInstalled() bool {
 	}
 	info, err := os.Stat(filepath.Join(brewPrefix, "bin", "brew"))
 	return err == nil && !info.IsDir()
+}
+
+// archLabel turns a runtime.GOARCH value into the name the host is known by
+// outside Go. Only the two spellings that differ get translated: release assets
+// and package managers call amd64 "x86_64" and 386 "i386", while arm64, arm and
+// riscv64 already read the same everywhere. An empty GOARCH yields an empty
+// label, so a caller can leave the row out instead of printing a placeholder.
+func archLabel(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "x86_64"
+	case "386":
+		return "i386"
+	default:
+		return goarch
+	}
 }
 
 func checkXcode() bool {

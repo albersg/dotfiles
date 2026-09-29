@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -8,10 +9,13 @@ import (
 
 // TestLayoutForSpendsTheColumnsItHas pins the columns contract at the sizes the
 // design was settled on: the 80x24 floor, the two-column threshold with the
-// widths on either side of it, and the wide pane this feature exists for. Each
-// row states the content width -- what the layout is a function of -- and the
-// test derives the terminal width from it, so it reads the same path a render
-// does instead of a second copy of the arithmetic.
+// widths on either side of it, and the wide pane this feature exists for. The
+// table's name for a row states the TERMINAL width, which is what a reader
+// measures their pane in, and the row's inner field is that minus the four
+// columns View() pads every screen with; the test derives the terminal width
+// back from it, so it reads the same path a render does instead of a second copy
+// of the arithmetic. The floor in terminal columns is 124, not 120: 120 is the
+// content width the comparison is made against.
 func TestLayoutForSpendsTheColumnsItHas(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -24,15 +28,15 @@ func TestLayoutForSpendsTheColumnsItHas(t *testing.T) {
 		rowMeasure  int
 	}{
 		{"the 80x24 floor", 76, false, 76, 0, 76, 0, 76},
-		{"78 columns, the floor as the design table states it", 78, false, 78, 0, 78, 0, 78},
-		{"118 columns, one short of two", 118, false, 118, 0, 118, 0, 80},
-		{"119 columns, still one short", 119, false, 119, 0, 119, 0, 80},
-		{"120 columns, the two-column floor", 120, true, 120, 0, 56, 62, 56},
-		{"121 columns, just into two", 121, true, 121, 0, 56, 63, 56},
-		{"158 columns, the 160x50 terminal", 158, true, 158, 0, 71, 85, 71},
-		{"160 columns, the composition cap", 160, true, 160, 0, 72, 86, 72},
-		{"223 columns, the 227x62 terminal", 223, true, 160, 31, 72, 86, 72},
-		{"225 columns", 225, true, 160, 32, 72, 86, 72},
+		{"the 82-column design floor", 78, false, 78, 0, 78, 0, 78},
+		{"122 terminal columns, two short of two", 118, false, 118, 0, 118, 0, 80},
+		{"123 terminal columns, one short of two", 119, false, 119, 0, 119, 0, 80},
+		{"124 terminal columns, the two-column floor", 120, true, 120, 0, 56, 62, 56},
+		{"125 terminal columns, just into two", 121, true, 121, 0, 56, 63, 56},
+		{"the 160x50 terminal", 158, true, 158, 0, 71, 85, 71},
+		{"160 content columns, the composition cap", 160, true, 160, 0, 72, 86, 72},
+		{"the 227x62 terminal", 223, true, 160, 31, 72, 86, 72},
+		{"225 content columns", 225, true, 160, 32, 72, 86, 72},
 	}
 
 	for _, c := range cases {
@@ -69,6 +73,35 @@ func TestLayoutForSpendsTheColumnsItHas(t *testing.T) {
 				t.Errorf("RowMeasure = %d, want %d", l.RowMeasure, c.rowMeasure)
 			}
 		})
+	}
+}
+
+// TestMainMenuAtTheOneColumnFloorKeepsEverything pins the collapse side of the
+// 124-terminal-column floor: at 123 columns there is no room for a second
+// column, so the main menu is the plain single column it was below the floor and
+// no option is dropped to make room for a panel that does not fit. The table
+// above covers 124 and 123 as width boundaries; this covers what a reader sees
+// on the near side of it.
+func TestMainMenuAtTheOneColumnFloorKeepsEverything(t *testing.T) {
+	m := installerFrameModel(t, ScreenMainMenu)
+	m.Width = layoutTwoColumnWidth + 3 // 123 terminal columns: one short
+	m.Height = trainerFrameHeight
+
+	if l := layoutFor(m); l.TwoColumn {
+		t.Fatalf("123 terminal columns (%d content) laid out as two columns: TwoColumn = %v", l.Inner, l.TwoColumn)
+	}
+
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	if strings.Contains(view, mainMenuPanelLabel) {
+		t.Errorf("the main menu at 123 columns shows the %q panel:\n%s", mainMenuPanelLabel, view)
+	}
+	for _, option := range m.GetCurrentOptions() {
+		if !strings.Contains(view, option) {
+			t.Errorf("the main menu at 123 columns dropped the option %q:\n%s", option, view)
+		}
+	}
+	if rows := renderedRowCount(m.View()); rows != trainerFrameHeight {
+		t.Errorf("the main menu at 123 columns renders %d rows, want %d", rows, trainerFrameHeight)
 	}
 }
 

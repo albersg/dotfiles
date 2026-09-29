@@ -181,6 +181,16 @@ func headerRow(name, vital string, inner int) string {
 	return left + strings.Repeat(" ", gap) + vital
 }
 
+// placeBodyTopMarginMax caps how far placeBody shifts a short body down: the
+// greatest number of blank rows it puts above the body, however much surplus the
+// frame has. Centring alone is right at the 80x24 floor, where it removes the
+// void above the footer, and wrong at scale: a nine-row body in a 57-row frame
+// was centred 24 rows down, so at 227x62 the main menu sat at rows 28-36 with its
+// own header on row 2 and read as content that had fallen to the bottom of the
+// screen. The cap keeps the body under its rule at every size instead. It is a
+// constant with a test, not a number buried in the arithmetic.
+const placeBodyTopMarginMax = 6
+
 // placeBody fits a screen's body into the rows the frame leaves. The body is
 // centred in those rows, so a screen shorter than its frame reads as designed
 // space above and below the content instead of a void between the content and
@@ -188,12 +198,21 @@ func headerRow(name, vital string, inner int) string {
 // odd one, if any, below: the same placement the splash has always used, so a
 // screen that does not fill its rows cannot drift from it.
 //
+// The margin above the body is capped at placeBodyTopMarginMax rows, so a tall
+// terminal leaves the body just under the rule instead of floating it halfway
+// down the screen. At the 80x24 floor the shift is 5 rows and nothing moves; the
+// cap only takes over where the surplus could not be spent on the body.
+//
 // A body that fills or overflows the rows is left exactly as it is, and is not
 // truncated: a screen that draws more rows than it reserved must fail the frame
 // guard, not be quietly clipped here.
 func placeBody(body []string, rows int) []string {
+	top := (rows - len(body)) / 2
+	if top > placeBodyTopMarginMax {
+		top = placeBodyTopMarginMax
+	}
 	out := make([]string, 0, max(len(body), rows))
-	for i := 0; i < (rows-len(body))/2; i++ {
+	for i := 0; i < top; i++ {
 		out = append(out, "")
 	}
 	out = append(out, body...)
@@ -820,7 +839,21 @@ func renderWordmark(text string) []string {
 }
 
 func (m Model) renderWelcome() string {
+	l := layoutFor(m)
 	inner := contentWidth(m)
+
+	// The welcome screen is the one that asks "where am I", so it offers the
+	// machine panel. The frame takes it only where there is room for two columns,
+	// and the body is centred in the column it will actually occupy: centring it
+	// across the whole room and then cutting it to the left column would slice the
+	// lockup in half.
+	hints := []installerHint{hintStart, hintQuit}
+	var panel []string
+	bodyWidth := inner
+	if l.TwoColumn {
+		panel = m.welcomePanel(l, panelBudget(m, hints))
+		bodyWidth = l.Left
+	}
 
 	// Emblem plus wordmark. Only the colouring changed: the glyphs and the
 	// full/compact threshold are the measured decisions the geometry tests pin.
@@ -847,19 +880,21 @@ func (m Model) renderWelcome() string {
 		env += ", with Homebrew already installed"
 	}
 	env += " (" + VersionLabel() + ")"
-	body = append(body, MeterStyle.Render(truncate(env, inner)))
+	body = append(body, MeterStyle.Render(truncate(env, bodyWidth)))
 
 	body = append(body, "")
 	body = append(body, SubtitleStyle.Render("Your terminal environment, configured in minutes."))
 
-	// Center the splash horizontally within the frame; the frame centres every
-	// body vertically in the rows it leaves, so the last row of a full-height
-	// screen still lands on the terminal's last row instead of one past it.
+	// Center the splash horizontally within the columns it has; the frame centres
+	// every body vertically in the rows it leaves, so the last row of a full-height
+	// screen still lands on the terminal's last row instead of one past it. The
+	// vertical shift is capped too, so a tall terminal leaves the lockup under the
+	// frame's rule rather than floating it halfway down the screen.
 	centered := make([]string, len(body))
 	for i, line := range body {
-		centered[i] = CenterHorizontally(line, inner)
+		centered[i] = CenterHorizontally(line, bodyWidth)
 	}
-	return m.frame(m.headerName(), "", centered, []installerHint{hintStart, hintQuit})
+	return m.frameWithPanel(m.headerName(), "", centered, hints, panel)
 }
 
 func (m Model) renderMainMenu() string {
@@ -875,29 +910,8 @@ func (m Model) renderMainMenu() string {
 	// The main menu is the screen that offers a right column. The frame takes it
 	// only where there is room for it and drops it below the two-column floor, so
 	// the 80x24 rendering of this screen is unchanged.
-	return m.frameWithPanel(m.headerName(), "", body,
-		[]installerHint{hintUp, hintDown, hintSelect, hintQuit}, mainMenuPanel(layoutFor(m)))
-}
-
-// mainMenuPanelLabel names the main menu's right column. It is a constant so the
-// frame guard can read the panel back out of a rendered screen by the name a
-// reader sees.
-const mainMenuPanelLabel = "Coming next"
-
-// mainMenuPanel is the main menu's right column once the frame has room to
-// compose one: the block the next slice fills, first with the machine and then
-// with the install plan. It names itself and says what it is going to hold,
-// because it is a placeholder and not a panel -- it holds no data, and a block
-// that looked like a machine summary before there is one to read would be
-// decoration pretending to be information.
-func mainMenuPanel(l layout) []string {
-	text := "Your machine, then the install plan: the next slice fills this column with them."
-	var lines []string
-	for _, row := range wrapText(text, l.Right-blockGutterWidth, 0) {
-		lines = append(lines, MutedStyle.Render(row))
-	}
-	panel := []string{chip(mainMenuPanelLabel)}
-	return append(panel, gutteredBlock(lines)...)
+	hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
+	return m.frameWithPanel(m.headerName(), "", body, hints, m.mainMenuPanel(layoutFor(m), panelBudget(m, hints)))
 }
 
 // stripStepPrefix removes a leading "Step N: " from a wizard title, so the step

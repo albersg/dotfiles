@@ -45,6 +45,13 @@ type (
 		backups []system.BackupInfo
 	}
 
+	// configsDetectedMsg carries the existing configs the startup scan found. It
+	// arrives once, from Init, so the main menu's plan can say what the run will
+	// overwrite before the wizard has asked anything.
+	configsDetectedMsg struct {
+		configs []string
+	}
+
 	// execFinishedMsg signals an interactive process finished
 	execFinishedMsg struct {
 		stepID string
@@ -91,6 +98,7 @@ func (m Model) Init() tea.Cmd {
 		tea.SetWindowTitle("dotfiles Installer"),
 		tickCmd(),
 		loadBackupsCmd(),
+		detectConfigsCmd(),
 	)
 }
 
@@ -104,6 +112,16 @@ func loadBackupsCmd() tea.Cmd {
 	return func() tea.Msg {
 		backups := system.ListBackups()
 		return loadBackupsMsg{backups: backups}
+	}
+}
+
+// detectConfigsCmd scans the config paths once, on the startup path, so the main
+// menu can show the overwrite facts before the wizard re-scans them at the
+// Neovim question. The later scan is unchanged: it re-reads the same paths and
+// replaces this value, so the two cannot disagree about what exists.
+func detectConfigsCmd() tea.Cmd {
+	return func() tea.Msg {
+		return configsDetectedMsg{configs: system.DetectExistingConfigs()}
 	}
 }
 
@@ -184,6 +202,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case loadBackupsMsg:
 		m.AvailableBackups = msg.backups
+		return m, nil
+
+	case configsDetectedMsg:
+		// The startup scan bootstraps the overwrite facts that the main menu's plan
+		// is built from; it does not overwrite a model that already holds them. In
+		// the program the field is empty when this arrives, so the scan fills it,
+		// while the wizard's own scan at the Neovim question stays the authority
+		// that replaces what the model knows.
+		if len(m.ExistingConfigs) == 0 {
+			m.ExistingConfigs = msg.configs
+		}
 		return m, nil
 
 	case execFinishedMsg:

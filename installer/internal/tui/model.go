@@ -548,13 +548,74 @@ func (m Model) GetScreenDescription() string {
 	}
 }
 
-// SetupInstallSteps creates the installation steps based on user choices
-func (m *Model) SetupInstallSteps() {
-	m.Steps = []InstallStep{}
+// planOptions is every fact the install plan is built from. The plan is a pure
+// function of these, so the wizard and the main menu's panel can both ask for it
+// without either owning the answer: SetupInstallSteps fills the struct from the
+// model it is about to run, and the panel fills it from the model it is showing.
+type planOptions struct {
+	// OS is the choice the wizard recorded ("mac", "linux" or "termux"), or ""
+	// while the question is still open.
+	OS string
+	// DetectedOS is the distribution family detection found. The Homebrew
+	// decision reads it: Arch and Fedora install through their own package
+	// manager instead.
+	DetectedOS system.OSType
+
+	HasBrew  bool
+	HasXcode bool
+	IsWSL    bool
+	// DetectedTermux is what the host is, and it is separate from OS because the
+	// two questions differ: the dependencies step treats a chosen termux like a
+	// detected one, while the Homebrew step only skips a host detection actually
+	// recognised as Termux.
+	DetectedTermux bool
+
+	// ConfigCount is how many existing configs the run would overwrite, and
+	// CreateBackup is whether the player asked for the backup step that saves
+	// them. The step exists only when both are set.
+	ConfigCount  int
+	CreateBackup bool
+
+	Terminal    string
+	InstallFont bool
+	Shell       string
+	WindowMgr   string
+	InstallNvim bool
+}
+
+// planOptions reads the facts the plan is built from out of the model. It only
+// reads: nothing here records progress, scans the machine or starts a step.
+func (m Model) planOptions() planOptions {
+	opts := planOptions{
+		OS:           m.Choices.OS,
+		CreateBackup: m.Choices.CreateBackup,
+		ConfigCount:  len(m.ExistingConfigs),
+		Terminal:     m.Choices.Terminal,
+		InstallFont:  m.Choices.InstallFont,
+		Shell:        m.Choices.Shell,
+		WindowMgr:    m.Choices.WindowMgr,
+		InstallNvim:  m.Choices.InstallNvim,
+	}
+	if m.SystemInfo != nil {
+		opts.DetectedOS = m.SystemInfo.OS
+		opts.HasBrew = m.SystemInfo.HasBrew
+		opts.HasXcode = m.SystemInfo.HasXcode
+		opts.IsWSL = m.SystemInfo.IsWSL
+		opts.DetectedTermux = m.SystemInfo.IsTermux
+	}
+	return opts
+}
+
+// planFor builds the install plan. It is pure: the same options always produce
+// the same steps, and it touches no model and no machine. That is what lets the
+// main menu's panel show the plan the wizard is about to run instead of a
+// second, hand-written copy of it that can drift.
+func planFor(opts planOptions) []InstallStep {
+	steps := []InstallStep{}
 
 	// Backup step if user chose to backup (not interactive - just file copies)
-	if m.Choices.CreateBackup && len(m.ExistingConfigs) > 0 {
-		m.Steps = append(m.Steps, InstallStep{
+	if opts.CreateBackup && opts.ConfigCount > 0 {
+		steps = append(steps, InstallStep{
 			ID:          "backup",
 			Name:        "Backup Existing Configs",
 			Description: "Saves a copy of your current configuration first.",
@@ -563,11 +624,11 @@ func (m *Model) SetupInstallSteps() {
 	}
 
 	// Dependencies based on OS
-	// Check both Choices.OS and SystemInfo for Termux detection (redundancy)
+	// Check both the OS choice and the detected host for Termux (redundancy)
 	// Must run BEFORE clone and homebrew on Linux so git is available for clone
-	isTermux := m.Choices.OS == "termux" || m.SystemInfo.IsTermux
-	if m.Choices.OS == "linux" && !isTermux {
-		m.Steps = append(m.Steps, InstallStep{
+	isTermux := opts.OS == "termux" || opts.DetectedTermux
+	if opts.OS == "linux" && !isTermux {
+		steps = append(steps, InstallStep{
 			ID:          "deps",
 			Name:        "Install Dependencies",
 			Description: "Installs base packages with your distribution's package manager.",
@@ -575,15 +636,15 @@ func (m *Model) SetupInstallSteps() {
 			Interactive: true, // Needs sudo
 		})
 	} else if isTermux {
-		m.Steps = append(m.Steps, InstallStep{
+		steps = append(steps, InstallStep{
 			ID:          "deps",
 			Name:        "Install Dependencies",
 			Description: "Installs base packages with pkg.",
 			Status:      StatusPending,
 			Interactive: false, // Termux doesn't need sudo
 		})
-	} else if m.Choices.OS == "mac" && !m.SystemInfo.HasXcode {
-		m.Steps = append(m.Steps, InstallStep{
+	} else if opts.OS == "mac" && !opts.HasXcode {
+		steps = append(steps, InstallStep{
 			ID:          "xcode",
 			Name:        "Install Xcode CLI",
 			Description: "Installs the Apple developer command-line tools.",
@@ -592,7 +653,7 @@ func (m *Model) SetupInstallSteps() {
 	}
 
 	// Clone repo (after deps so git is available on fresh Linux installs)
-	m.Steps = append(m.Steps, InstallStep{
+	steps = append(steps, InstallStep{
 		ID:          "clone",
 		Name:        "Clone Repository",
 		Description: "Downloads your dotfiles repository.",
@@ -602,8 +663,8 @@ func (m *Model) SetupInstallSteps() {
 	// Homebrew (interactive - first install needs password)
 	// Skip Termux and native package manager Linux distributions.
 	// WSL systems use Homebrew (Debian-based approach).
-	if !m.SystemInfo.HasBrew && !m.SystemInfo.IsTermux && m.SystemInfo.OS != system.OSArch && m.SystemInfo.OS != system.OSFedora {
-		m.Steps = append(m.Steps, InstallStep{
+	if !opts.HasBrew && !opts.DetectedTermux && opts.DetectedOS != system.OSArch && opts.DetectedOS != system.OSFedora {
+		steps = append(steps, InstallStep{
 			ID:          "homebrew",
 			Name:        "Install Homebrew",
 			Description: "Installs Homebrew, the package manager.",
@@ -613,19 +674,19 @@ func (m *Model) SetupInstallSteps() {
 	}
 
 	// Terminal
-	if m.Choices.Terminal != "none" && m.Choices.Terminal != "" {
-		m.Steps = append(m.Steps, InstallStep{
+	if opts.Terminal != "none" && opts.Terminal != "" {
+		steps = append(steps, InstallStep{
 			ID:          "terminal",
-			Name:        "Install " + m.Choices.Terminal,
+			Name:        "Install " + opts.Terminal,
 			Description: "Installs your terminal emulator.",
 			Status:      StatusPending,
-			Interactive: m.Choices.OS == "linux", // Linux needs sudo for pacman/apt
+			Interactive: opts.OS == "linux", // Linux needs sudo for pacman/apt
 		})
 	}
 
 	// Font (not interactive - brew doesn't need password after installed)
-	if m.Choices.InstallFont {
-		m.Steps = append(m.Steps, InstallStep{
+	if opts.InstallFont {
+		steps = append(steps, InstallStep{
 			ID:          "font",
 			Name:        "Install Iosevka Nerd Font",
 			Description: "Installs the Iosevka Nerd Font for icons.",
@@ -634,26 +695,33 @@ func (m *Model) SetupInstallSteps() {
 	}
 
 	// Shell installation runs through executeStep. Native Linux package managers use sudo there.
-	m.Steps = append(m.Steps, InstallStep{
-		ID:          "shell",
-		Name:        "Install " + m.Choices.Shell,
-		Description: "Installs your shell and its plugins.",
-		Status:      StatusPending,
-	})
+	// The shell is the one choice with no "skip", so in the wizard it is always set
+	// and the step is always planned. The main menu's preview runs before the
+	// question is asked, so it has no name to give the step and leaves it out
+	// rather than showing "Install " -- the same rule the terminal and the
+	// multiplexer already follow for an unmade choice.
+	if opts.Shell != "" {
+		steps = append(steps, InstallStep{
+			ID:          "shell",
+			Name:        "Install " + opts.Shell,
+			Description: "Installs your shell and its plugins.",
+			Status:      StatusPending,
+		})
+	}
 
 	// Window manager installation runs through executeStep. Herdr downloads to ~/.local/bin on non-Homebrew Linux.
-	if m.Choices.WindowMgr != "none" && m.Choices.WindowMgr != "" {
-		m.Steps = append(m.Steps, InstallStep{
+	if opts.WindowMgr != "none" && opts.WindowMgr != "" {
+		steps = append(steps, InstallStep{
 			ID:          "wm",
-			Name:        "Install " + m.Choices.WindowMgr,
+			Name:        "Install " + opts.WindowMgr,
 			Description: "Installs your terminal multiplexer.",
 			Status:      StatusPending,
 		})
 	}
 
 	// Neovim installation runs through executeStep. Native Linux package managers use sudo there.
-	if m.Choices.InstallNvim {
-		m.Steps = append(m.Steps, InstallStep{
+	if opts.InstallNvim {
+		steps = append(steps, InstallStep{
 			ID:          "nvim",
 			Name:        "Install Neovim",
 			Description: "Installs Neovim with your configuration.",
@@ -665,7 +733,7 @@ func (m *Model) SetupInstallSteps() {
 	// the Node runtime fnm provides, and after the Homebrew step because it needs
 	// brew. It is best-effort and never fails the run, so it stays
 	// non-interactive: brew bundle runs unattended.
-	m.Steps = append(m.Steps, InstallStep{
+	steps = append(steps, InstallStep{
 		ID:          "toolset",
 		Name:        "Install Toolset",
 		Description: "Installs the command-line tools listed in your Brewfile.",
@@ -674,7 +742,7 @@ func (m *Model) SetupInstallSteps() {
 
 	// Pi agent skills. Pinned, checksum-verified packages installed under
 	// ~/.pi/agent/skills. It needs no sudo, so it runs through executeStep.
-	m.Steps = append(m.Steps, InstallStep{
+	steps = append(steps, InstallStep{
 		ID:          "agentskills",
 		Name:        "Install Pi Agent Skills",
 		Description: "Installs the pinned security-audit, archify and officecli skills.",
@@ -683,7 +751,7 @@ func (m *Model) SetupInstallSteps() {
 
 	// OfficeCLI binary. A pinned, checksum-verified release asset installed to
 	// ~/.local/bin/officecli. It needs no sudo, so it runs through executeStep.
-	m.Steps = append(m.Steps, InstallStep{
+	steps = append(steps, InstallStep{
 		ID:          "officecli",
 		Name:        "Install OfficeCLI",
 		Description: "Installs the pinned, checksum-verified OfficeCLI binary.",
@@ -692,8 +760,8 @@ func (m *Model) SetupInstallSteps() {
 
 	// WSL configuration (Windows host + in-distribution settings). The files are
 	// only read when the WSL VM restarts, so this runs late in the sequence.
-	if m.SystemInfo.IsWSL {
-		m.Steps = append(m.Steps, InstallStep{
+	if opts.IsWSL {
+		steps = append(steps, InstallStep{
 			ID:          "wslconfig",
 			Name:        "Configure WSL",
 			Description: "Applies the WSL settings on Windows and in this distribution.",
@@ -703,7 +771,7 @@ func (m *Model) SetupInstallSteps() {
 	}
 
 	// Set default shell (interactive - chsh needs password)
-	m.Steps = append(m.Steps, InstallStep{
+	steps = append(steps, InstallStep{
 		ID:          "setshell",
 		Name:        "Set Default Shell",
 		Description: "Sets your shell as the default.",
@@ -712,12 +780,21 @@ func (m *Model) SetupInstallSteps() {
 	})
 
 	// Cleanup (not interactive - just file deletion)
-	m.Steps = append(m.Steps, InstallStep{
+	steps = append(steps, InstallStep{
 		ID:          "cleanup",
 		Name:        "Cleanup",
 		Description: "Removes the temporary files it created.",
 		Status:      StatusPending,
 	})
+
+	return steps
+}
+
+// SetupInstallSteps records the plan the run will execute, from the choices the
+// wizard has collected and the host detection filled. It is a thin wrapper over
+// planFor so the wizard and the main menu's panel read the same source.
+func (m *Model) SetupInstallSteps() {
+	m.Steps = planFor(m.planOptions())
 }
 
 // scrollTrainerCode moves the code window one row, clamped to the code it is

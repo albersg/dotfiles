@@ -30,9 +30,13 @@ const (
 	// layoutMaxComposition caps how wide the printed body is allowed to get.
 	layoutMaxComposition = 160
 
-	// layoutTwoColumnWidth is the content width at which a body and a panel fit
-	// beside each other. Below it there is not enough room for both a readable
-	// row and a panel, and the screen stays one column.
+	// layoutTwoColumnWidth is the CONTENT width at which a body and a panel fit
+	// beside each other. It is a content width, not a terminal width: every screen
+	// loses four columns to View()'s padding (two on each side), so the floor in
+	// terminal columns is 124. Below the content width there is not enough room
+	// for both a readable row and a panel, and the screen stays one column -- and
+	// because the collapse drops the panel rather than the facts, nothing else on
+	// the screen changes when it happens.
 	layoutTwoColumnWidth = 120
 
 	// layoutLeftMin and layoutLeftMax bound the left column: wide enough for a

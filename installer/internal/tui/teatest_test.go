@@ -100,7 +100,7 @@ func TestWelcomeScreenGolden(t *testing.T) {
 	teatest.RequireEqualOutput(t, out)
 }
 
-// TestMainMenuGolden tests the main menu render against golden file
+// TestMainMenuWideGolden tests the main menu render against golden file
 func TestMainMenuGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
@@ -111,6 +111,45 @@ func TestMainMenuGolden(t *testing.T) {
 
 	tm := teatest.NewTestModel(t, m,
 		teatest.WithInitialTermSize(80, 24),
+	)
+
+	time.Sleep(100 * time.Millisecond)
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	out := readAll(t, tm.FinalOutput(t))
+	teatest.RequireEqualOutput(t, out)
+}
+
+// TestMainMenuWideGolden pins the two-column composition at 160x50, the first
+// size the layout composes at, together with the panel the main menu carries.
+// The 80x24 snapshot above cannot see either: below the two-column floor the
+// panel is dropped and the screen renders exactly as it always has, which is why
+// both snapshots exist rather than one.
+//
+// The panel shows the plan the run would execute even though the wizard has not
+// built it yet, labelled "on Linux (detected)" because the OS question is still
+// open. The overwrite and backup rows are absent because the isolated HOME has
+// neither a config nor a backup; those rows are pinned by unit tests with real
+// and synthetic state instead of a fixture directory (panels_test.go).
+//
+// The model is pinned the way every golden model is -- isolateGoldenTest points
+// HOME at an empty directory and goldenSystemInfo fixes the platform -- so the
+// composition is the same on every host and a machine that happens to have
+// backups cannot change the snapshot. ExistingConfigs is filled the way the
+// startup scan fills it, so the empty result is the real one for this HOME.
+func TestMainMenuWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.ExistingConfigs = system.DetectExistingConfigs()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenMainMenu
+
+	tm := teatest.NewTestModel(t, m,
+		teatest.WithInitialTermSize(160, 50),
 	)
 
 	time.Sleep(100 * time.Millisecond)
@@ -1512,5 +1551,56 @@ func TestPlaceBodyCentresShortBodies(t *testing.T) {
 	over := []string{"a", "b", "c", "d"}
 	if got := placeBody(over, 2); strings.Join(got, "|") != "a|b|c|d" {
 		t.Errorf("placeBody(4 rows into 2) = %q, want the oversized body unchanged, not truncated", got)
+	}
+}
+
+// TestPlaceBodyCapsTheTopMargin pins the other half of the placement: the shift
+// down is capped at placeBodyTopMarginMax rows, so a tall terminal leaves the
+// body just under the rule instead of floating it halfway down the screen. The
+// 80x24 floor is below the cap and does not move; the two sizes this feature was
+// designed on are above it and are held at the cap. The heights are asserted as
+// terminal rows with View()'s own chrome counted, because that is the row a
+// reader sees, and the three heights are the floor and the two wide sizes.
+func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
+	hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
+	body := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+
+	for _, c := range []struct {
+		name                string
+		width, height       int
+		wantFirst, wantLast int
+	}{
+		{"80x24, the floor: a 5-row shift, under the cap", 80, 24, 9, 17},
+		{"160x50: the shift is the cap, not the 18 the surplus half would ask for", 160, 50, 10, 18},
+		{"227x62: the cap holds at the widest terminal", 227, 62, 10, 18},
+	} {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			m := Model{Width: c.width, Height: c.height, Screen: ScreenMainMenu}
+			rows := installerBodyRows(c.height, footerRowCount(layoutFor(m).Inner, hints))
+			placed := placeBody(body, rows)
+
+			first, last := -1, -1
+			for i, row := range placed {
+				if row == "" {
+					continue
+				}
+				if first < 0 {
+					first = i
+				}
+				last = i
+			}
+
+			// View() spends one blank row on its padding and the frame two rows on
+			// the header and the rule under it, so the body's first row of the
+			// composition is the terminal's fourth row.
+			const chrome = 1 + 2
+			if got := first + chrome + 1; got != c.wantFirst {
+				t.Errorf("the body starts on terminal row %d, want %d: the top margin is %d rows", got, c.wantFirst, first)
+			}
+			if got := last + chrome + 1; got != c.wantLast {
+				t.Errorf("the body ends on terminal row %d, want %d", got, c.wantLast)
+			}
+		})
 	}
 }
