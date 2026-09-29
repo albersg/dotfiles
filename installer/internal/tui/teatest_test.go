@@ -2052,3 +2052,41 @@ func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
 		})
 	}
 }
+
+// TestCompanionGoldenPinsThePixelSpriteAndItsGaze snapshots the ladder's top step:
+// the shaded sprite at the wide main menu, on a tick and a gaze cell written on the
+// model before the program starts, so the snapshot pins a composited pixel frame
+// instead of flaking on the clock. PixelSprite is forced here because the real gate
+// asks the terminal for its colour profile and this test has no terminal: the field
+// is the seam, and the gate itself is pinned by the sprite's own tests.
+func TestCompanionGoldenPinsThePixelSpriteAndItsGaze(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.ExistingConfigs = system.DetectExistingConfigs()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenMainMenu
+	m.Animating = true
+	m.PixelSprite = true
+	m.AnimTick = 3
+	m.CompanionGaze = companionGaze{X: 1, Y: -1}
+
+	tm := teatest.NewTestModel(t, m,
+		teatest.WithInitialTermSize(160, 50),
+	)
+
+	seen := &bytes.Buffer{}
+	teatest.WaitFor(t, io.TeeReader(tm.Output(), seen), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(2*time.Millisecond), teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if _, err := io.Copy(seen, tm.Output()); err != nil {
+		t.Fatalf("reading the rest of the output failed: %v", err)
+	}
+	teatest.RequireEqualOutput(t, seen.Bytes())
+}

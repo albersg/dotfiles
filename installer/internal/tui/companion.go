@@ -1,6 +1,15 @@
 package tui
 
-import "strings"
+import (
+	"image/color"
+	"os"
+	"strconv"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+)
 
 // ============================================================================
 // THE COMPANION
@@ -82,10 +91,10 @@ const (
 	// companionCellWidth is the widest cell any height draws, and the one the walk
 	// uses to bound the stage. Fixing the walk on the widest cell rather than on
 	// the drawn one means no height can walk its sprite past the edge of the stage:
-	// the one-row art stops short of the right edge instead of reaching it, which
-	// is invisible, where the five-row art reaching past it would cross the frame's
-	// margin.
-	companionCellWidth = companionFullWidth
+	// the narrower glyph cells stop short of the right edge instead of reaching it,
+	// which is invisible, where the sixteen-pixel sprite reaching past it would
+	// cross the frame's margin.
+	companionCellWidth = companionPixelWidth
 
 	// companionStrollCells is how far it walks per frame when it is strolling.
 	// One cell is what animTicksPerSecond frames a second deserves: eight cells a
@@ -125,6 +134,13 @@ const (
 
 	// companionPleasedTicks is that celebration in frames.
 	companionPleasedTicks = companionPleasedSeconds * animTicksPerSecond
+
+	// companionHopTicks is how many frames the little jump a click earns lasts. It
+	// is a frame count rather than a duration because what it counts really is
+	// frames -- two consecutive frames of the same sprite drawn one row higher --
+	// and at animTicksPerSecond a quarter of a second is as long as a jump should
+	// take to read as a jump rather than as hovering.
+	companionHopTicks = 2
 )
 
 // companionState is the state the creature is drawn in. The reactions come
@@ -204,18 +220,113 @@ func companionGazeFor(targetCol, targetRow, anchorCol int) companionGaze {
 	return gaze
 }
 
-// aimCompanion points the creature's gaze at whatever the cursor is on. It is
-// called only from the two places that can change what the creature sees -- a key
-// that moved the selection or changed the screen, and the tick that moved the
-// creature -- so the render path draws a gaze it did not compute and a snapshot
-// can pin one.
+// companionAsleepNow reports whether the quiet stretch has put the creature to
+// sleep. The tick reads it to stop the creature walking, and the state machine
+// reads it to draw the sleeping face; both read it here so the two cannot drift.
+func (m Model) companionAsleepNow() bool {
+	return m.CompanionIdle >= companionSleepTicks
+}
+
+// aimCompanion points the creature's gaze at whatever it should be looking at:
+// the pointer when this run asked the terminal for one and has seen it, and the
+// selection otherwise, which is what the gaze did before the pointer existed. It
+// is called only from the three places that can change what the creature sees -- a
+// key that moved the selection or changed the screen, the tick that moved the
+// creature, and a pointer event -- so the render path draws a gaze it did not
+// compute and a snapshot can pin one.
 func (m *Model) aimCompanion() {
-	target, ok := m.companionTarget(companionStageWidth(*m))
+	stage := companionStageWidth(*m)
+	if col, row, ok := m.companionPointerTarget(stage); ok {
+		m.CompanionGaze = companionGazeFor(col, row, m.CompanionPos)
+		return
+	}
+	target, ok := m.companionTarget(stage)
 	if !ok {
 		m.CompanionGaze = companionGaze{}
 		return
 	}
 	m.CompanionGaze = companionGazeFor(target, companionSelectionRow, m.CompanionPos)
+}
+
+// ============================================================================
+// THE POINTER
+// ============================================================================
+//
+// The gaze follows the pointer when the run asked the terminal for mouse motion,
+// and the selection when it did not. That fallback is the whole reason the pointer
+// is a source of the gaze rather than a replacement for it: a terminal that
+// refuses mouse reporting, a run with the gate off, and a Termux session where the
+// pointer is a finger all keep the creature looking at what is selected instead of
+// losing the gaze entirely.
+//
+// The terminal reports the pointer in its own cell coordinates and knows nothing
+// about the frame, so two numbers from the layout turn one into the other: the
+// frame pads viewPaddingCols columns on the left, which is where the stage starts,
+// and the creature draws in the last rows of the frame, which is the band the
+// vertical gaze is measured against. Neither is resolved against the body's
+// absolute rows, for the reason companionSelectionRow gives -- the placement does
+// not know them, and a gaze that needed them would have to be computed inside the
+// renderer, which is exactly where the creature is not allowed to compute.
+
+// companionGroundShare is the share of the frame's height the creature's ground
+// band takes from the bottom, as a divisor: the band is the bottom third of the
+// screen, and a pointer above it is above the creature. It is a share of the
+// height rather than a row count because the frame's footer and the panel summary
+// move the creature's exact rows and the placement does not know them (see
+// companionSelectionRow); a two-thirds line is below the creature at every size,
+// while a fixed row count is only right at the size it was measured at.
+const companionGroundShare = 3
+
+// companionGroundTop is the first row of that band: the row above it is "above the
+// creature" and the row itself is level with it.
+func companionGroundTop(height int) int {
+	return height * (companionGroundShare - 1) / companionGroundShare
+}
+
+// companionPointerTarget is the cell the pointer is on, in the creature's own
+// coordinates: the column of the stage it points at, clamped to the row the
+// creature can walk, and its row measured against the band the creature draws in,
+// where a negative row means above the creature. It reports false when this run has
+// no live pointer -- the gate is off, or no event has arrived yet -- and the gaze
+// then falls back to the selection.
+func (m Model) companionPointerTarget(stage int) (col, row int, ok bool) {
+	if !m.Hovering || !m.PointerSet {
+		return 0, 0, false
+	}
+	col = m.PointerCol - viewPaddingCols
+	col = min(max(col, 0), max(stage-companionCellWidth, 0))
+	row = m.PointerRow - companionGroundTop(m.Height)
+	return col, row, true
+}
+
+// handleCompanionMouse is the pointer's whole input path: it remembers the cell,
+// wakes the creature, turns the gaze, and treats a left click as an event of its
+// own -- the celebration a finished step earns plus the little jump.
+//
+// Waking on motion is oneko's rule, and there is nothing clever to detect about a
+// parked mouse: a parked mouse sends no events at all, so the only pointer event
+// that exists is the user moving the mouse and every one of them is the sudden
+// movement that wakes the cat. A jittery hand therefore keeps it awake, which is
+// the honest reading of "the user is at the mouse".
+//
+// A wheel is ignored: the installer runs in the alternate screen, where there is no
+// scrollback for it to move, and the creature has nothing to say about it. The
+// events that are not handled here are dropped exactly as they were before the
+// pointer existed.
+func (m Model) handleCompanionMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// tea.MouseMsg is a named copy of the event rather than an alias, so the
+	// predicate that knows what a wheel is lives on the underlying type.
+	if !m.Hovering || tea.MouseEvent(msg).IsWheel() {
+		return m, nil
+	}
+	m.CompanionIdle = 0
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		m.CompanionPleased = companionPleasedTicks
+		m.CompanionHop = companionHopTicks
+	}
+	m.PointerCol, m.PointerRow, m.PointerSet = msg.X, msg.Y, true
+	m.aimCompanion()
+	return m, nil
 }
 
 // ============================================================================
@@ -351,6 +462,8 @@ func companionFramesAt(height int) []companionFrame {
 // no row of the sprite reaches past the cell it is placed in.
 func companionSpriteWidth(height int) int {
 	switch height {
+	case companionPixelHeight:
+		return companionPixelWidth
 	case companionFullHeight:
 		return companionFullWidth
 	case companionCompactHeight:
@@ -359,6 +472,18 @@ func companionSpriteWidth(height int) int {
 		return companionMiniWidth
 	}
 	return 0
+}
+
+// companionHeightNow is the ladder with the shaded sprite's step on top: the pixel
+// sprite where the frame can hold it and the run may draw it, and the glyph ladder
+// otherwise. The glyph ladder is untouched below it, which is what keeps the floor
+// a floor: a terminal without true colour, a run with the sprite switched off and a
+// frame with fewer than the sprite's rows all get the cat the glyph ladder picks.
+func (m Model) companionHeightNow(spare int) int {
+	if m.PixelSprite && spare >= companionPixelHeight {
+		return companionPixelHeight
+	}
+	return companionHeight(spare)
 }
 
 // companionHeight is the ladder: the tallest sprite the rows the body did not
@@ -500,6 +625,399 @@ func companionGazeRows(rows []string, eyes companionEyes, gaze companionGaze) []
 }
 
 // ============================================================================
+// THE SHADED SPRITE
+// ============================================================================
+//
+// The glyph cat is the floor: every terminal draws it. Above it there is one more
+// step, drawn only where it can be drawn properly -- a terminal with true colour --
+// and that step is the same cat as a shaded pixel sprite, sixteen pixels square,
+// drawn as eight rows of half blocks with a foreground and a background colour per
+// cell.
+//
+// Why a second sprite at all: the glyph art is a silhouette of punctuation, and at
+// six or eight cells tall there is no room in it for a body, a cheek or a shaded
+// ear. Half blocks give two pixels per cell vertically, so the same eight rows
+// carry sixteen rows of drawing and the creature stops looking like a smiley and
+// starts looking like a cat. The price is that it only reads in colour: with no
+// colour every cell is a block glyph, so this sprite is drawn only when the
+// terminal reports true colour and the glyph cat draws everywhere else. The ladder
+// below still runs on the glyph heights, which is what makes the floor real.
+//
+// The art is a grid of tones rather than of glyphs, and the tone says which of the
+// theme's colours a pixel takes. Four tones and the background: the outline and the
+// pupils are the same ink, the fur is two shades of the palette's amber, and the
+// nose and mouth are the error rose. The background tone is the theme's own
+// background, so the pixels the cat does not cover blend with the terminal instead
+// of drawing a box around it.
+//
+// The sprite is composed, not drawn per state, on the same terms as the glyph art:
+// one block of face rows per state class, and the pupils are stamped into it. That
+// is what lets one sprite carry eight states and six gazes without becoming
+// fifty hand-drawn pictures.
+
+// companionPixelWidth and companionPixelRows are the sprite's size in pixels: one
+// pixel per column and two per half-block row, so the cell it occupies is
+// companionPixelWidth columns wide and companionPixelHeight rows tall.
+const (
+	companionPixelWidth  = 16
+	companionPixelRows   = 16
+	companionPixelHeight = companionPixelRows / 2
+)
+
+// The tones. A pixel's tone picks its colour and nothing else: no state is carried
+// by a tone that a colourless terminal would lose, because a colourless terminal
+// does not draw this sprite at all.
+const (
+	companionPixelNone = ' ' // the theme's background: the pixels the cat does not cover
+	companionPixelFurL = '.' // the light fur
+	companionPixelFurM = 'o' // the mid fur
+	companionPixelInk  = '#' // the outline, the pupils and the lids
+	companionPixelRose = 'x' // the nose and the mouth
+)
+
+// The rows every state shares: the ears and brow above the face, and the nose,
+// mouth and chin below it. Every row is exactly companionPixelWidth pixels wide,
+// so the sprite is a rectangle and a one-cell step is always one column.
+var (
+	companionPixelTop = [6]string{
+		`  o#        #o  `,
+		`  o##      ##o  `,
+		`  o###    ###o  `,
+		` #o####  ####o# `,
+		` #oooooooooooo# `,
+		` #oooooooooooo# `,
+	}
+	companionPixelBottom = [6]string{
+		` #oooooxxooooo# `,
+		` #oooooxxooooo# `,
+		` #oooox..xoooo# `,
+		`  #oooooooooo#  `,
+		`   #oooooooo#   `,
+		`    ########    `,
+	}
+)
+
+// companionPixelMouthOpen is the two rows the mouth takes when the creature yawns,
+// in place of the two rows of companionPixelBottom that hold the closed mouth. An
+// open mouth is the one expression the pixel sprite draws that the glyph art can
+// only hint at, and it is worth the two rows: a yawn with a closed mouth is a cat
+// with its eyes shut.
+var companionPixelMouthOpen = [2]string{
+	` #ooooxxxxoooo# `,
+	` #ooooxxxxoooo# `,
+}
+
+// companionPixelEyes is one state's face: the four rows the eyes live in, and how
+// wide the pupil pair is. A width of zero means the eyes are drawn into those rows
+// and do not move -- a cat with its eyes shut has nothing to look with -- while a
+// width of two or three is a pupil pair the gaze can stamp at three columns and two
+// rows.
+//
+// The socket area is the ten pixels between the head's own sides, columns 3 to 12,
+// and every pupil position the gaze can ask for lands inside it, which is why the
+// pupils can never be drawn outside the face.
+type companionPixelFace struct {
+	rows   [4]string
+	pupils int
+}
+
+var (
+	companionPixelFaceOpen   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o..##oo##..o# `, ` #o..##oo##..o# `, ` #o..........o# `}, pupils: 2}
+	companionPixelFaceWide   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o.###..###.o# `, ` #o.###..###.o# `, ` #o..........o# `}, pupils: 3}
+	companionPixelFaceShut   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o.###..###.o# `, ` #o..........o# `, ` #o..........o# `}}
+	companionPixelFaceHappy  = companionPixelFace{rows: [4]string{` #o..#....#..o# `, ` #o.#.#..#.#.o# `, ` #o..........o# `, ` #o..........o# `}}
+	companionPixelFaceSquint = companionPixelFace{rows: [4]string{` #o.#......#.o# `, ` #o..#....#..o# `, ` #o.#......#.o# `, ` #o..........o# `}}
+)
+
+// companionPixelFaceFor is the face a state is drawn with. The shut face is shared
+// by the three states whose eyes are closed -- a blink, a sleep and the eyes of a
+// yawn -- because a closed eye is a closed eye, and the mouth is what tells those
+// three apart.
+func companionPixelFaceFor(state companionState) companionPixelFace {
+	switch state {
+	case companionBlinkingState, companionAsleepState, companionYawningState:
+		return companionPixelFaceShut
+	case companionAlertState:
+		return companionPixelFaceWide
+	case companionPleasedState:
+		return companionPixelFaceHappy
+	case companionFlinchingState:
+		return companionPixelFaceSquint
+	default:
+		return companionPixelFaceOpen
+	}
+}
+
+// companionPixelSocketLeft and companionPixelSocketRight are the columns the pupil
+// pair is stamped at when the creature looks straight ahead. Looking to one side
+// moves both pupils by one column, which is the whole of the horizontal gaze here.
+const (
+	companionPixelSocketLeft  = 5
+	companionPixelSocketRight = 9
+	companionPixelSocketRow   = 1
+)
+
+// companionPixelGrid is the sprite's whole pixel grid for one state and gaze: the
+// shared rows, the state's face with the gaze stamped into it, and the mouth the
+// state calls for. It is pure -- state in, pixels out, no model and no clock -- so
+// a test can pin the exact grid a state draws.
+func companionPixelGrid(state companionState, tick int, gaze companionGaze) [companionPixelRows]string {
+	face := companionPixelFaceFor(state)
+	face = companionPixelGaze(face, gaze)
+
+	mouth := [2]string{companionPixelBottom[1], companionPixelBottom[2]}
+	if state == companionYawningState {
+		mouth = companionPixelMouthOpen
+	}
+
+	var grid [companionPixelRows]string
+	copy(grid[0:6], companionPixelTop[:])
+	copy(grid[6:10], face.rows[:])
+	grid[10] = companionPixelBottom[0]
+	grid[11], grid[12] = mouth[0], mouth[1]
+	copy(grid[13:16], companionPixelBottom[3:])
+
+	// The pixel sprite can move by half a cell, which the glyph art cannot: the walk
+	// bobs one pixel row on alternate frames, and a sleeping cat sags the same way.
+	// That is one row of drawing moved, not a row of the frame, so it costs nothing
+	// and it reads as breathing rather than as a jump.
+	shift := 0
+	switch {
+	case state == companionAsleepState:
+		shift = 1
+	case state == companionWalkingState && tick%2 == 1:
+		shift = 1
+	}
+	if shift == 1 {
+		blank := strings.Repeat(string(companionPixelNone), companionPixelWidth)
+		copy(grid[1:], grid[:companionPixelRows-1])
+		grid[0] = blank
+	}
+	return grid
+}
+
+// companionPixelGaze stamps the pupil pair at the position the gaze asks for: one
+// column to either side of the middle and, for a creature looking up, one pixel row
+// higher. A face whose pupils do not move is returned as it is, which is how a
+// closed eye stays closed whatever the pointer does.
+func companionPixelGaze(face companionPixelFace, gaze companionGaze) companionPixelFace {
+	if face.pupils == 0 {
+		return face
+	}
+	socket := [4]string{}
+	for i, row := range face.rows {
+		socket[i] = companionPixelClearSockets(row)
+	}
+
+	col := companionPixelSocketLeft + gaze.X
+	row := companionPixelSocketRow
+	if gaze.Y < 0 {
+		row = 0
+	}
+	for _, pupil := range []int{col, companionPixelSocketRight + gaze.X} {
+		for x := pupil; x < pupil+face.pupils; x++ {
+			for y := row; y < row+2; y++ {
+				socket[y] = companionPixelSetPixel(socket[y], x, companionPixelInk)
+			}
+		}
+	}
+	return companionPixelFace{rows: socket, pupils: face.pupils}
+}
+
+// companionPixelClearSockets returns a face row with its pupils taken out: every
+// mark inside the socket area becomes light fur again, so a gaze that moved them
+// leaves the row they came from clean instead of doubled. The head's outline and
+// its two inner edges are outside the socket area and are left alone.
+func companionPixelClearSockets(row string) string {
+	pixels := []rune(row)
+	for x := companionPixelSocketLeft - 2; x <= companionPixelSocketRight+3 && x < len(pixels); x++ {
+		if pixels[x] == companionPixelInk {
+			pixels[x] = companionPixelFurL
+		}
+	}
+	return string(pixels)
+}
+
+// companionPixelSetPixel writes one tone into one pixel of a row. It is a write
+// and not an insert: the grid's width is the art's, and a gaze that asked for a
+// pixel outside it would be a bug in the position arithmetic rather than something
+// to draw past the edge of the face.
+func companionPixelSetPixel(row string, x int, tone rune) string {
+	pixels := []rune(row)
+	if x < 0 || x >= len(pixels) {
+		return row
+	}
+	pixels[x] = tone
+	return string(pixels)
+}
+
+// companionInk is the five colours the pixel sprite is drawn with, resolved once
+// when the model is built. Resolving them asks the terminal about its background,
+// which a render may not do, so the answer lives on the model the way the
+// animation gate does.
+//
+// The outline is the palette's dark ink on a light terminal and its background on a
+// dark one: the theme's text colour is near-white on a dark terminal, and a
+// near-white outline around light amber fur would be no outline at all. The
+// background tone is the theme's own background, so the pixels the cat does not
+// cover blend with the terminal.
+type companionInk struct {
+	none, furLight, furMid, ink, rose color.RGBA
+}
+
+// companionInkFor resolves the palette against the terminal's background.
+func companionInkFor(dark bool) companionInk {
+	pick := func(c lipgloss.AdaptiveColor) string {
+		if dark {
+			return string(c.Dark)
+		}
+		return string(c.Light)
+	}
+	outline := Background
+	if !dark {
+		outline = Text
+	}
+	return companionInk{
+		none:     parseHexColour(pick(Background)),
+		furLight: parseHexColour(pick(Accent)),
+		furMid:   parseHexColour(pick(Warning)),
+		ink:      parseHexColour(pick(outline)),
+		rose:     parseHexColour(pick(Error)),
+	}
+}
+
+// parseHexColour reads the #rrggbb a theme colour is written as. The palette is
+// the repository's own and every entry is that shape, so a value that is not is a
+// programming error and falls back to black rather than panicking mid-render.
+func parseHexColour(hex string) color.RGBA {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return color.RGBA{A: 0xff}
+	}
+	value, err := strconv.ParseUint(hex, 16, 32)
+	if err != nil {
+		return color.RGBA{A: 0xff}
+	}
+	return color.RGBA{R: uint8(value >> 16), G: uint8(value >> 8 & 0xff), B: uint8(value & 0xff), A: 0xff}
+}
+
+// companionPixelTone returns the colour a tone is drawn with.
+func (ink companionInk) tone(tone rune) color.RGBA {
+	switch tone {
+	case companionPixelFurL:
+		return ink.furLight
+	case companionPixelFurM:
+		return ink.furMid
+	case companionPixelInk:
+		return ink.ink
+	case companionPixelRose:
+		return ink.rose
+	default:
+		return ink.none
+	}
+}
+
+// companionPixelRow draws one row of the sprite: two pixel rows folded into one
+// line of half blocks. A cell whose two pixels are the same tone is a solid block in
+// that tone; a cell whose pixels differ is the upper half block with the upper
+// pixel as its foreground and the lower one as its background, which is the trick
+// the whole tier rests on. A cell that is background on both rows is a space with no
+// escape sequence at all, so the empty half of the sprite costs a byte a cell.
+//
+// The style is written only when it changes from the cell before it, so a row of
+// one tone -- most of the fur -- is one escape sequence and sixteen glyphs.
+func (ink companionInk) row(top, bottom string) string {
+	var out strings.Builder
+	out.Grow(companionPixelWidth * 4)
+	last := ""
+	for x := 0; x < companionPixelWidth && x < len(top) && x < len(bottom); x++ {
+		upper, lower := rune(top[x]), rune(bottom[x])
+		switch {
+		case upper == companionPixelNone && lower == companionPixelNone:
+			out.WriteByte(' ')
+			last = ""
+		case upper == lower:
+			style := ink.style(ink.tone(upper), nil)
+			if style != last {
+				out.WriteString(style)
+				last = style
+			}
+			out.WriteRune('\u2588')
+		default:
+			style := ink.style(ink.tone(upper), &lower)
+			if style != last {
+				out.WriteString(style)
+				last = style
+			}
+			out.WriteRune('\u2580')
+		}
+	}
+	if last != "" {
+		out.WriteString("\x1b[0m")
+	}
+	return out.String()
+}
+
+// style is the escape sequence one cell is drawn with: the tone as the foreground
+// and, when the cell's two pixels differ, the lower tone as the background. A nil
+// background means the cell is a solid block in one colour, which needs no second
+// colour at all. It is built with strconv rather than with a format string because a
+// sprite frame is a hundred and twenty-eight cells and the formatting was most of
+// what the tier cost.
+func (ink companionInk) style(fg color.RGBA, bg *rune) string {
+	out := make([]byte, 0, 48)
+	out = appendColour(out, fg, true)
+	if bg != nil {
+		out = appendColour(out, ink.tone(*bg), false)
+	}
+	return string(out)
+}
+
+// appendColour appends one true-colour escape sequence: 38;2 for a foreground, 48;2
+// for a background.
+func appendColour(out []byte, c color.RGBA, foreground bool) []byte {
+	if foreground {
+		out = append(out, "\x1b[38;2;"...)
+	} else {
+		out = append(out, "\x1b[48;2;"...)
+	}
+	out = strconv.AppendUint(out, uint64(c.R), 10)
+	out = append(out, ';')
+	out = strconv.AppendUint(out, uint64(c.G), 10)
+	out = append(out, ';')
+	out = strconv.AppendUint(out, uint64(c.B), 10)
+	return append(out, 'm')
+}
+
+// companionPixelSpriteRows is the whole pixel sprite, placed along the stage: eight
+// rows of half blocks, each indented to the cell the creature is standing on, or
+// nothing when this run does not draw the sprite at all.
+func (m Model) companionPixelSpriteRows(stage int) []string {
+	if !m.Animating || !m.PixelSprite || stage < companionPixelWidth {
+		return nil
+	}
+	grid := companionPixelGrid(m.companionStateNow(), m.AnimTick, m.CompanionGaze)
+	pos := min(max(m.CompanionPos, 0), stage-companionPixelWidth)
+	indent := strings.Repeat(" ", pos)
+	rows := make([]string, 0, companionPixelHeight)
+	for i := 0; i < companionPixelRows; i += 2 {
+		rows = append(rows, indent+m.ink.row(grid[i], grid[i+1]))
+	}
+	return rows
+}
+
+// pixelSpriteGate answers whether this run may draw the shaded sprite: the switch
+// is not off and the terminal reports true colour. It reads the environment and the
+// terminal once, when the model is built; the render path reads the model's answer
+// and never the environment.
+func pixelSpriteGate() bool {
+	if os.Getenv(envSprite) == "0" {
+		return false
+	}
+	return lipgloss.ColorProfile() == termenv.TrueColor
+}
+
+// ============================================================================
 // THE STATE THE MODEL IS IN
 // ============================================================================
 
@@ -521,7 +1039,7 @@ func (m Model) companionStateNow() companionState {
 		return companionAlertState
 	case m.companionPleased():
 		return companionPleasedState
-	case m.CompanionIdle >= companionSleepTicks:
+	case m.companionAsleepNow():
 		return companionAsleepState
 	case m.companionYawning():
 		return companionYawningState
@@ -668,12 +1186,20 @@ func (m *Model) advanceCompanion() {
 	if m.CompanionPleased > 0 {
 		m.CompanionPleased--
 	}
+	// The hop is aged here rather than in the renderer for the same reason the
+	// celebration is: it is a frame count the tick owns, so a snapshot can pin the
+	// jump it is in the middle of. It ages before the sleep return below, because a
+	// click that lands on a sleeping creature must still land.
+	if m.CompanionHop > 0 {
+		m.CompanionHop--
+	}
 
 	// A sleeping companion is still. The frame says asleep, and a creature that
 	// kept strolling while asleep would contradict its own face; it also means an
 	// idle run settles into a view string that no longer changes, so the renderer
-	// stops repainting anything at all. Its gaze is left where it fell asleep.
-	if m.CompanionIdle >= companionSleepTicks {
+	// stops repainting anything at all. Its gaze is left where it fell asleep, and
+	// only the pointer -- which wakes it -- turns it again.
+	if m.companionAsleepNow() {
 		m.CompanionMoving = false
 		return
 	}
@@ -768,6 +1294,9 @@ func (m Model) companionSprite(stage, height int) []string {
 	if width == 0 || stage < width {
 		return nil
 	}
+	if height == companionPixelHeight {
+		return m.companionPixelSpriteRows(stage)
+	}
 	pos := min(max(m.CompanionPos, 0), stage-width)
 	art := companionArtFor(m.companionStateNow(), height, m.AnimTick, m.CompanionGaze)
 	rows := make([]string, len(art))
@@ -813,8 +1342,17 @@ func (m Model) trainerCompanionRow(stage int) string {
 // is not drawn. When both fit, the companion takes the rows nearest the footer and
 // the summary sits above it, so neither displaces the other.
 func (m Model) placeCompanion(placed, summary []string, stage int) []string {
-	height := companionHeight(companionSpareRows(placed) - len(summary))
+	spare := companionSpareRows(placed) - len(summary)
+	height := m.companionHeightNow(spare)
 	sprite := m.companionSprite(stage, height)
+	// A click's hop lifts the creature off the ground: the sprite gains a blank row
+	// under it, which is what makes the lift visible on a grid of cells, and it
+	// costs one spare row more than the sprite itself. Where the frame has no such
+	// row the jump is simply not drawn -- the celebration still shows in the face,
+	// which is the ladder's rule that the creature never takes a row a fact needs.
+	if len(sprite) > 0 && m.CompanionHop > 0 && spare >= height+1 {
+		sprite = append(sprite, "")
+	}
 	if len(sprite) == 0 || len(sprite) > len(placed) {
 		return placeRotator(placed, summary)
 	}

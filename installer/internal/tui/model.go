@@ -8,6 +8,7 @@ import (
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Screen represents the current screen being displayed
@@ -151,10 +152,34 @@ type Model struct {
 	// snapshot can pin a gaze and the pointer task only has to write it from a
 	// mouse message; a render never computes it.
 	CompanionGaze companionGaze
-	ErrorMsg      string
-	ShowDetails   bool
-	LogLines      []string
-	TotalTime     float64
+	// Hovering says whether this run asked the terminal for pointer motion. It is
+	// the mouse's own gate, decided once when the model is built and read from the
+	// model afterwards, so a render never reads the environment and a test can force
+	// either side without touching it.
+	Hovering bool
+	// PointerCol and PointerRow are the last cell the pointer was seen on, in the
+	// terminal's own coordinates, and PointerSet records whether any pointer event
+	// has arrived at all: before the first one the creature looks at the selection,
+	// which is what it did before the pointer existed, and a terminal that refuses
+	// mouse reporting keeps it there for the whole run.
+	PointerCol, PointerRow int
+	PointerSet             bool
+	// CompanionHop counts the frames left of the little jump a click earns. It is
+	// counted on the model, not in the renderer, so a snapshot can pin the jump the
+	// way it pins a frame, and a frame that cannot spare the row draws the creature
+	// on the ground instead of failing.
+	CompanionHop int
+	// PixelSprite says whether this run draws the creature as the shaded pixel sprite
+	// instead of the glyph art. It is the terminal's answer, read once when the model
+	// is built, so a render never asks the terminal anything.
+	PixelSprite bool
+	// ink is the palette the pixel sprite is drawn with, resolved once beside the
+	// gate for the same reason: resolving it asks the terminal about its background.
+	ink         companionInk
+	ErrorMsg    string
+	ShowDetails bool
+	LogLines    []string
+	TotalTime   float64
 	// CreatedAt is the moment the model was built. It is state so the welcome and
 	// main menu greet by the time of day without a renderer ever reading the
 	// clock: a render that called time.Now could not be tested or snapshotted, and
@@ -246,6 +271,9 @@ func NewModel() Model {
 		Cursor:                  0,
 		PanelIndex:              0,
 		Animating:               animationGate(os.Stdout),
+		Hovering:                hoverRequested(),
+		PixelSprite:             pixelSpriteGate(),
+		ink:                     companionInkFor(lipgloss.HasDarkBackground()),
 		AnimTick:                0,
 		CreatedAt:               time.Now(),
 		CompanionDir:            1,

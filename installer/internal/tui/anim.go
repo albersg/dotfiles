@@ -56,6 +56,31 @@ const (
 	// envTerm is the environment variable whose "dumb" value means the terminal
 	// cannot address a cursor well enough to animate on.
 	envTerm = "TERM"
+
+	// envMouse names the environment switch that turns the pointer off. The
+	// creature's gaze asks the terminal for mouse motion, and a terminal in mouse
+	// reporting mode gives its own selection up to the application unless the user
+	// holds the bypass key, so the pointer is a switch of its own beside the
+	// animation one rather than something attached to it.
+	envMouse = "DOTFILES_MOUSE"
+
+	// envTermux is the variable a Termux session sets for itself. It is read rather
+	// than guessing from TERM because it is the one the terminal exports, and a
+	// touch screen has no pointer to hover with: Termux turns a finger drag into a
+	// wheel report, so the gaze would cost the user the swipe and give nothing back.
+	envTermux = "TERMUX_VERSION"
+
+	// envMouseForce is the value of envMouse that overrides that Termux default. A
+	// wired mouse on a Termux session with an external display is a real case, so
+	// the Termux rule is a default and not a refusal.
+	envMouseForce = "1"
+
+	// envSprite names the environment switch that turns the shaded sprite off. It is
+	// its own switch because the sprite is the one part of the creature that a
+	// terminal cannot be asked to draw: a run on a terminal that reports true colour
+	// but renders block glyphs badly can keep the glyph cat with this and nothing
+	// else.
+	envSprite = "DOTFILES_SPRITE"
 )
 
 // animTickMsg is the frame tick: one wakeup per animTickInterval while animation
@@ -93,6 +118,44 @@ func animationGate(stdout *os.File) bool {
 		return false
 	}
 	return isCharDevice(stdout)
+}
+
+// hoverGate answers whether this run may ask the terminal for pointer motion. It
+// is the mouse's own switch, and it is deliberately not the animation gate: a run
+// may animate with no pointer -- the creature then looks at the selection, which
+// is what it did before the pointer existed -- and an operator may want the
+// pointer off while the animation stays on.
+//
+// Three things turn it off: DOTFILES_MOUSE=0, a stdout that is not a terminal (a
+// redirected run has nothing to hover on and would only stream escape sequences
+// into a file), and a Termux session, where the pointer is the user's finger.
+// DOTFILES_MOUSE=1 overrides the Termux default for a session with a real mouse
+// attached.
+func hoverGate(stdout *os.File) bool {
+	switch os.Getenv(envMouse) {
+	case "0":
+		return false
+	case envMouseForce:
+		return isCharDevice(stdout)
+	}
+	if os.Getenv(envTermux) != "" {
+		return false
+	}
+	return isCharDevice(stdout)
+}
+
+// hoverRequested reports whether this run should ask the terminal for mouse
+// motion: there is a creature to look with and the terminal will report the
+// pointer. It is the single decision behind both halves of the pointer -- the
+// model's Hovering field, which decides whether a mouse message means anything,
+// and the program's mouse option, which main reads off that field -- so the two
+// cannot disagree the way two environment reads would.
+//
+// The animation gate is half of it because a frozen creature has no eyes to move:
+// asking for the pointer without one would cost the user the terminal's selection
+// and show nothing for it.
+func hoverRequested() bool {
+	return animationGate(os.Stdout) && hoverGate(os.Stdout)
 }
 
 // isCharDevice reports whether f is a terminal-like character device. A pipe or

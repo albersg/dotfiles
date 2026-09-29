@@ -221,6 +221,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Height = msg.Height
 		return m, nil
 
+	case tea.MouseMsg:
+		// The pointer is the creature's to read and nobody else's: the installer
+		// binds no mouse action, so a motion, a click and a wheel all arrive here and
+		// the creature decides what they mean. It is handled in the inner switch so
+		// the outer Update's own post-processing (the companion's follow arming) does
+		// not run for a message that changed no screen and no cursor.
+		return m.handleCompanionMouse(msg)
+
 	case tickMsg:
 		// The tick is the run's clock. Its timestamp is copied onto the model here,
 		// in Update, so the installing screen's elapsed time and estimate are reads
