@@ -1921,3 +1921,356 @@ func checkMissionClaims(t *testing.T, ex Exercise) {
 		t.Errorf("%s mission names an operation the judge cannot model and claims a result, but the exercise neither opts into the buffer judge nor says it checks the keystrokes: %q", ex.ID, ex.Mission)
 	}
 }
+
+// =============================================================================
+// HINT COHERENCE - A HINT MUST ADD WHAT ITS MISSION DOES NOT SAY
+// =============================================================================
+
+// The rule these guards enforce is stated where the content lives, above
+// GetLessons in exercises.go, and in docs/vim-trainer-spec.md: the mission states
+// the goal and the hint states the mechanism the mission does not give. A hint
+// that only repeats its mission costs the player the keypress that asked for it.
+
+// hintTokenPattern is how both sides of the comparison are read: runs of letters,
+// runs of digits, and every other non-blank character on its own, so "yiwjlp",
+// "2dd", ":s/foo/bar/g" and "<Esc>" all decompose into the same pieces.
+var hintTokenPattern = regexp.MustCompile(`[A-Za-z]+|[0-9]+|[^A-Za-z0-9\s]`)
+
+var (
+	// hintCountDetail matches a count or a flag: what 6x, 2<<, 3@a and the g of
+	// :s/foo/bar/g tell the player that the mission did not.
+	hintCountDetail = regexp.MustCompile(`[0-9]`)
+	// hintComparisonDetail matches a hint that relates its command to the sibling
+	// the player is most likely to confuse it with.
+	hintComparisonDetail = regexp.MustCompile(`(?i)\b(like|unlike|same as|instead|opposite|whereas|vs)\b`)
+	// hintConsequenceDetail matches the "why" half of a mechanism: what follows
+	// from the command, which a restatement of the mission never states.
+	hintConsequenceDetail = regexp.MustCompile(`(?i)\b(so|because|since|therefore|means|which is why|that is why)\b`)
+)
+
+// shippedExercises returns every lesson and boss step the trainer ships, in
+// module order, so a content guard covers the same corpus the player plays.
+func shippedExercises() []Exercise {
+	var all []Exercise
+	for _, module := range moduleUnlockOrder {
+		all = append(all, GetLessons(module)...)
+		if boss := GetBoss(module); boss != nil {
+			for _, step := range boss.Steps {
+				all = append(all, step.Exercise)
+			}
+		}
+	}
+	return all
+}
+
+// hintTokens lowercases and splits a piece of exercise copy into the tokens the
+// hint checker compares.
+func hintTokens(s string) []string {
+	return hintTokenPattern.FindAllString(strings.ToLower(s), -1)
+}
+
+// hintCommandVocabulary is the command vocabulary the checker keys on: every
+// command token the shipped solutions and optimals are written from. Deriving it
+// from the corpus rather than listing commands by hand means a new exercise that
+// ships a new command token also teaches the checker about it.
+func hintCommandVocabulary() map[string]bool {
+	vocab := map[string]bool{}
+	for _, ex := range shippedExercises() {
+		for _, tok := range hintTokens(ex.Optimal) {
+			addHintCommandToken(vocab, tok)
+		}
+		for _, sol := range ex.Solutions {
+			for _, tok := range hintTokens(sol) {
+				addHintCommandToken(vocab, tok)
+			}
+		}
+	}
+	return vocab
+}
+
+// addHintCommandToken records one token from the corpus as a command. Bare
+// punctuation is not a command -- a hyphen or a sentence-final period in prose
+// would otherwise count as one, and a hint containing either would look like it
+// added something. Neither is a bare number, which the count check already
+// covers on its own. The article "a" and the pronoun "i" are dropped too: as
+// tokens they are far more often English than the append and insert commands
+// they also name, so accepting them would credit any sentence with an "a" in it.
+func addHintCommandToken(vocab map[string]bool, tok string) {
+	if !strings.ContainsAny(tok, "abcdefghijklmnopqrstuvwxyz") {
+		return
+	}
+	if tok == "a" || tok == "i" {
+		return
+	}
+	vocab[tok] = true
+}
+
+// hintMechanismDetails lists what a hint adds to its mission: a count or flag, a
+// command token from the trainer's own vocabulary that the mission does not name,
+// a comparison with a sibling command, or a consequence. An empty result means
+// the hint only says again what the mission already said.
+//
+// The detector reads English prose, so a hint written in another language is not
+// covered. It also cannot see a restatement that borrows a count or a comparison
+// word, or one whose only addition is the meaning of a command the mission names
+// without explaining: the explicit list below is what pins those.
+func hintMechanismDetails(mission, hint string, vocab map[string]bool) []string {
+	missionTokens := map[string]bool{}
+	for _, tok := range hintTokens(mission) {
+		missionTokens[tok] = true
+	}
+
+	var details []string
+	if hintCountDetail.MatchString(hint) {
+		details = append(details, "a count or flag")
+	}
+	for _, tok := range hintTokens(hint) {
+		if vocab[tok] && !missionTokens[tok] {
+			details = append(details, "the command "+tok)
+			break
+		}
+	}
+	if hintComparisonDetail.MatchString(hint) {
+		details = append(details, "a comparison with a sibling command")
+	}
+	if hintConsequenceDetail.MatchString(hint) {
+		details = append(details, "a consequence")
+	}
+	return details
+}
+
+// TestHintEchoDetector pins what the guard keys on with constructed pairs. The
+// first case is the shipped copy of the reported defect, verbatim, so the guard
+// cannot rot into a tautology that accepts the sentence that started this pass:
+// if the detector stops flagging it, this test fails on its own.
+func TestHintEchoDetector(t *testing.T) {
+	vocab := hintCommandVocabulary()
+
+	cases := []struct {
+		name     string
+		mission  string
+		hint     string
+		expected bool // the hint adds at least one mechanism detail
+	}{
+		{
+			name:     "the reported echo: the mission says w and the hint says w",
+			mission:  "Move to the start of 'userName' using w (word)",
+			hint:     "w moves to the start of the next word",
+			expected: false,
+		},
+		{
+			name:     "the same restatement with the command spelled out as a name",
+			mission:  "Jump to the top of the visible screen using H (High)",
+			hint:     "H takes you to the Highest line on screen",
+			expected: false,
+		},
+		{
+			name:     "a hint that adds the count the command takes",
+			mission:  "Delete the first six characters 'const ' with a single counted command.",
+			hint:     "x takes a count: 6x deletes six characters in one command.",
+			expected: true,
+		},
+		{
+			name:     "a hint that adds the register the mission leaves out",
+			mission:  "Delete 'oldName' - just the word, not the parenthesis",
+			hint:     "de deletes to the END of the word, not including the next character",
+			expected: true,
+		},
+		{
+			name:     "a hint that compares with a sibling command",
+			mission:  "Convert 'getUser' to 'GETUSER' using gUiw",
+			hint:     "gU with a word motion: gUiw upper-cases one word, unlike gu which lowers it.",
+			expected: true,
+		},
+		{
+			name:     "a hint that states a consequence",
+			mission:  "Open a new line below line 1 with o and type '  return', then leave insert mode.",
+			hint:     "o then <Esc> leaves the new line empty, so nothing of it is written to the file.",
+			expected: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := len(hintMechanismDetails(tc.mission, tc.hint, vocab)) > 0
+			if got != tc.expected {
+				t.Errorf("hintMechanismDetails(%q, %q) found a detail = %v, want %v",
+					tc.mission, tc.hint, got, tc.expected)
+			}
+		})
+	}
+}
+
+// TestShippedHintsAddWhatTheirMissionDoesNot is the guard over the real corpus:
+// every shipped hint, in every module and boss fight, must add a mechanism detail
+// its mission does not give.
+func TestShippedHintsAddWhatTheirMissionDoesNot(t *testing.T) {
+	vocab := hintCommandVocabulary()
+	checked := 0
+
+	for _, ex := range shippedExercises() {
+		if ex.Hint == "" {
+			continue
+		}
+		checked++
+		if len(hintMechanismDetails(ex.Mission, ex.Hint, vocab)) == 0 {
+			t.Errorf("%s hint repeats its mission and adds no count, sibling or consequence\n  mission: %q\n  hint:    %q",
+				ex.ID, ex.Mission, ex.Hint)
+		}
+	}
+
+	if checked < 200 {
+		t.Fatalf("only %d hints were checked; the sweep is not reaching the corpus", checked)
+	}
+}
+
+// hintEchoRewrites holds, for every exercise whose hint was a restatement of its
+// mission, the exact copy that was withdrawn. The test below asserts each echo is
+// gone, so restoring the old sentence fails here instead of reaching the player.
+var hintEchoRewrites = map[string]string{
+	"horizontal_001":          "w moves to the start of the next word",
+	"horizontal_003":          "e moves to the end of the current or next word",
+	"horizontal_004":          "b moves to the start of the previous word",
+	"horizontal_005":          "$ moves to the last character of the line",
+	"vertical_001":            "j moves the cursor down one line",
+	"vertical_002":            "k moves the cursor up one line",
+	"vertical_004":            "gg goes to the first line of the file",
+	"vertical_009":            "{ moves to the previous blank line",
+	"vertical_010":            "+ moves down and to the first non-blank character",
+	"vertical_011":            "- moves up and to the first non-blank character",
+	"vertical_014":            "You can chain any motions together",
+	"vertical_015":            "Sometimes going to the end and moving back is faster",
+	"vertical_016":            "H takes you to the Highest line on screen",
+	"vertical_017":            "M takes you to the Middle line on screen",
+	"vertical_018":            "L takes you to the Lowest line on screen",
+	"vertical_019":            "Ctrl+d scrolls Down half a page",
+	"vertical_020":            "Ctrl+u scrolls Up half a page",
+	"vertical_021":            "Ctrl+f scrolls Forward a full page",
+	"vertical_022":            "Ctrl+b scrolls Backward a full page",
+	"changerepeat_011":        "x deletes the character under the cursor",
+	"changerepeat_013":        "dd deletes the current line. The DOT (.) in real Vim would repeat this command!",
+	"changerepeat_016":        "gn goes to the Next match and Visually selects it",
+	"changerepeat_020":        "* searches forward for the word under cursor",
+	"changerepeat_021":        "# searches backward for the word under cursor",
+	"changerepeat_022":        "n repeats the last search in the same direction",
+	"changerepeat_024":        ". repeats your last change command",
+	"changerepeat_boss_step1": "dd deletes the entire current line",
+	"changerepeat_boss_step3": "dd deletes the entire current line",
+	"changerepeat_boss_step4": "D deletes from cursor to end of line in one keystroke",
+	"changerepeat_boss_step5": "dd deletes the entire current line",
+	"editing_002":             "dd deletes the whole current line.",
+	"editing_004":             "Ctrl-r reapplies the change u just undid.",
+	"editing_008":             ">> shifts the current line one 'shiftwidth' to the right.",
+	"editing_009":             "I starts insert mode at the first non-blank, after the indentation.",
+	"editing_010":             "A jumps to the end of the line and starts insert mode there.",
+	"editing_011":             "o opens a new line below the cursor and starts insert mode on it.",
+	"editing_019":             "Ctrl-r restores the whole insert session u removed, in one step.",
+	"macros_003":              "Just press q to stop recording",
+	"macros_005":              "@ followed by register letter plays that macro",
+	"macros_007":              "@@ repeats the most recently executed macro",
+	"macros_008":              "Double @ replays whatever macro you last executed",
+	"macros_012":              "\"a before the yank stores the line in register a; \"ap puts that named register.",
+	"macros_020":              ":g/pattern/command runs command on all lines matching pattern",
+	"macros_021":              ":g/pattern/d deletes all lines matching pattern",
+	"macros_022":              "Combine :g (global) with :normal @a to run macro on matching lines",
+	"regex_007":               "* searches forward for the word under the cursor",
+	"regex_008":               "* searches forward for the exact word under cursor",
+	"regex_017":               "**/* matches all files in all subdirectories",
+	"regex_018":               ":copen opens the quickfix window to see all search results",
+	"regex_023":               "Quote patterns with special characters",
+	"regex_boss_step2":        "* searches for word under cursor",
+	"regex_boss_step3":        "Use ? to search backward",
+	"regex_boss_step4":        "Use \\v for very magic mode with regex",
+	"regex_boss_step5":        "Use word boundaries \\< and \\>",
+	"registers_007":           "The \"a prefix names register a for both the yank and the put.",
+	"registers_010":           ">> shifts the current line one 'shiftwidth' to the right.",
+	"registers_011":           "<< removes one shift of indentation from the current line.",
+	"substitution_001":        "r replaces single character without entering insert mode",
+	"substitution_005":        "s deletes the character under cursor and enters insert mode",
+	"substitution_006":        "s removes one character and enters insert mode for replacement",
+	"substitution_009":        "~ toggles the case of the character under cursor and moves right",
+	"substitution_011":        "gu followed by a motion lowercases the text covered by that motion",
+	"substitution_012":        "guu lowercases the entire current line",
+	"substitution_013":        "gU followed by a motion uppercases the text covered by that motion",
+	"substitution_014":        "gU with word motions uppercases entire words",
+	"substitution_016":        ":s/old/new/ substitutes 'old' with 'new' on current line",
+	"textobjects_002":         "iw selects the entire word even if cursor is in the middle",
+	"textobjects_004":         "i\" selects everything INSIDE the double quotes",
+	"textobjects_015":         "at selects the entire tag including opening and closing tags",
+
+	// The echoes the pass's second sweep found once the guard's command vocabulary
+	// was tightened: the first version counted bare punctuation as a command, so a
+	// hint carrying a hyphen or a sentence-final period looked like it added
+	// something. Both groups were rewritten in the same pass, and the stricter
+	// sweep now runs over every shipped hint.
+	"horizontal_008":          "f followed by a character takes you to that character",
+	"horizontal_014":          "You can put a number before any motion to repeat it",
+	"horizontal_015":          "There are two parentheses - how do you get to the second directly?",
+	"horizontal_016":          "E moves to the end of the current WORD (space-separated)",
+	"vertical_005":            "G (capital) goes to the last line",
+	"vertical_008":            "} moves to the next blank line (paragraph boundary)",
+	"vertical_013":            "You can use counts with } and { too",
+	"changerepeat_003":        "$ moves to end of line - combine with d to delete to end",
+	"changerepeat_004":        "dd = delete + delete = delete entire line",
+	"changerepeat_005":        "D is the uppercase shortcut - deletes to end of line",
+	"changerepeat_007":        "ciw = change inner word. Works even if cursor is in MIDDLE of word!",
+	"changerepeat_010":        "C is the uppercase shortcut for c$ - changes to end of line",
+	"changerepeat_017":        "cgn = change + go to next match. It changes the next occurrence!",
+	"changerepeat_018":        "dgn = delete + go to next match. Deletes the next occurrence!",
+	"changerepeat_019":        "cgn starts the change, then . repeats it on each subsequent match",
+	"changerepeat_boss_step2": "cw changes from cursor to end of word, entering insert mode",
+	"editing_006":             "a is i shifted one character right: it inserts after the cursor.",
+	"editing_007":             "D is d$: delete to the end of the line.",
+	"editing_014":             "yy copies a line; p pastes it below the cursor.",
+	"editing_015":             "o then <Esc> leaves the new line empty; the auto-indentation is dropped again.",
+	"editing_022":             "% is a motion: it moves to the bracket matching the one under the cursor.",
+	"macros_006":              "@ + register letter executes the recorded keystrokes",
+	"macros_011":              "\"a before a yank stores the text in register a; a later \"ap puts that named register.",
+	"regex_002":               "Use /pattern to search forward - the pattern is 'error'",
+	"regex_004":               "Use ?pattern to search backward - you're at the bottom looking up",
+	"regex_005":               "After a search, n jumps to the next match in the same direction",
+	"regex_010":               "# searches backward - perfect for finding where something was defined",
+	"regex_011":               "\\v enables 'very magic' mode where special chars work without escaping",
+	"regex_012":               "\\v lets you use \\w+ (one or more word chars) without extra escaping",
+	"regex_014":               "\\w matches word characters: letters, digits, and underscore",
+	"regex_016":               ":vimgrep /pattern/ files - searches pattern in multiple files",
+	"regex_019":               ":cw is a shorter alias that only opens if there are entries",
+	"regex_boss_step1":        "Use / to search forward",
+	"registers_018":           "A named yank fills the named register and the unnamed one; a later unnamed yank cannot touch the named register.",
+	"registers_020":           "Put the copy first, then edit it: A appends at the end of the line the cursor is on.",
+	"substitution_003":        "R enters replace mode - each character you type overwrites the existing one",
+	"substitution_015":        "J joins the current line with the next line, adding a space between them",
+	"textobjects_005":         "a\" selects the quotes AND everything inside them",
+	"textobjects_007":         "a' includes the quote characters in the selection",
+	"textobjects_008":         "i( or i) or ib all select inside parentheses",
+	"textobjects_009":         "a( includes the parentheses themselves",
+	"textobjects_010":         "i{ or i} or iB selects inside curly braces",
+	"textobjects_011":         "a{ includes the curly braces in the selection",
+	"textobjects_012":         "i[ or i] selects inside square brackets",
+	"textobjects_013":         "a[ includes the square brackets",
+	"textobjects_014":         "it selects inside XML/HTML tags",
+	"textobjects_016":         "diw = delete inner word. Works from any position in the word!",
+	"textobjects_017":         "daw = delete a word including surrounding whitespace",
+	"textobjects_018":         "ci\" = change inside quotes. Deletes content and enters insert mode",
+	"textobjects_019":         "di{ deletes content inside {} but keeps the braces",
+	"textobjects_020":         "yiw = yank inner word. It fills a register without changing the buffer; the following P is what makes the yank visible.",
+	"textobjects_021":         "yi\" = yank inside quotes. It copies the quoted content without the quotes; P puts it back between a pair of them.",
+}
+
+// TestRewrittenHintsWithdrewTheRepeatedMechanism pins that the specific echoes
+// this pass withdrew are gone, so a later edit that restores the old sentence --
+// or the same sentence with the command named in different words -- fails here
+// rather than silently costing the player their keypress again.
+func TestRewrittenHintsWithdrewTheRepeatedMechanism(t *testing.T) {
+	for id, withdrawn := range hintEchoRewrites {
+		t.Run(id, func(t *testing.T) {
+			ex := findExerciseByID(t, id)
+			if ex.Hint == "" {
+				t.Fatalf("%s has no hint at all; the pass replaced the echo instead of dropping it", id)
+			}
+			if strings.Contains(ex.Hint, withdrawn) {
+				t.Errorf("%s hint still carries the withdrawn echo %q\n  hint: %q", id, withdrawn, ex.Hint)
+			}
+		})
+	}
+}

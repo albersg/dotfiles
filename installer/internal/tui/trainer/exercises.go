@@ -1,5 +1,40 @@
 package trainer
 
+// =============================================================================
+// WHAT A MISSION STATES AND WHAT A HINT ADDS
+// =============================================================================
+//
+// Every exercise carries two lines of guidance, and they divide the work
+// between them:
+//
+//   - Mission states the goal. It says where the cursor must end, what the
+//     buffer must read, or -- for the exercises whose answer is an exact
+//     keystroke sequence the trainer cannot run -- the command the player is
+//     being asked to type. It is the sentence a player who already knows the
+//     command can act on.
+//   - Hint states the mechanism the mission does not give: where the command
+//     lands, what it includes or leaves out, the count, flag or range it takes,
+//     how it compares with its nearest sibling, or what follows from it. The
+//     hint is the one the player asks for with Tab (and gets after TimeoutSecs),
+//     so it is the line that has to teach.
+//
+// A hint must add at least one of those things. The rule exists because of a
+// defect a player reported: the mission said "using w" and the hint said "w
+// moves to the start of the next word", so the hint key cost a keypress and
+// taught nothing -- the same sentence twice.
+//
+// A hint that can only repeat its mission is not a hint: write the mechanism the
+// mission already implies but does not state, or drop the hint and let the
+// mission and the post-answer Explanation carry the exercise. Dropping one is a
+// two-package change today: the trainer's own Tab case in the tui package
+// prefixes "Hint: " unconditionally, so an empty hint renders as an empty
+// label rather than as no hint at all.
+//
+// TestShippedHintsAddWhatTheirMissionDoesNot in exercises_test.go is the guard.
+// It checks every shipped hint for one of those additions, and
+// hintEchoRewrites pins the exact echoes this rule withdrew so a later edit
+// cannot quietly restore them.
+
 // GetLessons returns lesson exercises for a module
 func GetLessons(module ModuleID) []Exercise {
 	switch module {
@@ -69,7 +104,7 @@ func getHorizontalLessons() []Exercise {
 			Mission:     "Move to the start of 'userName' using w (word)",
 			Solutions:   []string{"w"},
 			Optimal:     "w",
-			Hint:        "w moves to the start of the next word",
+			Hint:        "w stops on the first character of the next word: one w replaces 6 l presses.",
 			Explanation: "w (word) moves the cursor to the start of the next word. It's the most basic and useful horizontal motion in Vim.",
 			TimeoutSecs: 30,
 			Points:      10,
@@ -101,7 +136,7 @@ func getHorizontalLessons() []Exercise {
 			Mission:     "Move to the end of 'const' using e (end)",
 			Solutions:   []string{"e"},
 			Optimal:     "e",
-			Hint:        "e moves to the end of the current or next word",
+			Hint:        "e stops ON the last character of the word, unlike w which lands past the whole word.",
 			Explanation: "e (end) moves the cursor to the last character of the current or next word. Very useful for positioning before adding text.",
 			TimeoutSecs: 30,
 			Points:      10,
@@ -117,7 +152,7 @@ func getHorizontalLessons() []Exercise {
 			Mission:     "Go back to the start of 'userName' using b (back)",
 			Solutions:   []string{"b"},
 			Optimal:     "b",
-			Hint:        "b moves to the start of the previous word",
+			Hint:        "b is w run backwards: from the '=' it steps back to the 'u' of 'userName'.",
 			Explanation: "b (back) is the opposite of w. It moves to the start of the previous word. Essential for navigating backwards efficiently.",
 			TimeoutSecs: 30,
 			Points:      10,
@@ -133,7 +168,7 @@ func getHorizontalLessons() []Exercise {
 			Mission:     "Move to the end of the line using $ (end of line)",
 			Solutions:   []string{"$"},
 			Optimal:     "$",
-			Hint:        "$ moves to the last character of the line",
+			Hint:        "$ stops on the last character before the newline; d$ and y$ reuse that same motion.",
 			Explanation: "$ moves to the end of the line. It's one of the most used motions along with 0 (start of line) and ^ (first non-blank).",
 			TimeoutSecs: 30,
 			Points:      10,
@@ -181,7 +216,7 @@ func getHorizontalLessons() []Exercise {
 			Mission:     "Move to the '=' using f (find)",
 			Solutions:   []string{"f="},
 			Optimal:     "f=",
-			Hint:        "f followed by a character takes you to that character",
+			Hint:        "f waits for the character you type next, so f= stops ON the '=' while t= stops one before it.",
 			Explanation: "f{char} (find) moves the cursor to the next occurrence of the specified character (inclusive). It's one of the most powerful commands.",
 			TimeoutSecs: 30,
 			Points:      15,
@@ -277,7 +312,7 @@ func getHorizontalLessons() []Exercise {
 			Mission:     "Reach 'four' using 3w (three words forward)",
 			Solutions:   []string{"3w", "ff"},
 			Optimal:     "3w",
-			Hint:        "You can put a number before any motion to repeat it",
+			Hint:        "A count multiplies the motion: 3w moves three words in one command.",
 			Explanation: "{n}w jumps n words forward. 3w = www. This works with any motion: 3e, 3b, 3f{char}, etc.",
 			TimeoutSecs: 30,
 			Points:      25,
@@ -293,7 +328,7 @@ func getHorizontalLessons() []Exercise {
 			Mission:     "Reach the opening parenthesis of fetchUser efficiently",
 			Solutions:   []string{"2f(", "f(;"},
 			Optimal:     "2f(",
-			Hint:        "There are two parentheses - how do you get to the second directly?",
+			Hint:        "Both parentheses are findable: f( lands on the first, and 2f( jumps straight to the second.",
 			Explanation: "2f( jumps to the second '('. You can also use f( then ; to repeat. Mastering {n}f{char} is the key to being fast in Vim.",
 			TimeoutSecs: 30,
 			Points:      30,
@@ -309,7 +344,7 @@ func getHorizontalLessons() []Exercise {
 			Mission:     "Move to the end of 'user.profile.settings' using E (end of WORD)",
 			Solutions:   []string{"E"},
 			Optimal:     "E",
-			Hint:        "E moves to the end of the current WORD (space-separated)",
+			Hint:        "E crosses punctuation the way w crosses spaces, so the dots in 'user.profile.settings' do not stop it.",
 			Explanation: "E (end of WORD) moves to the end of the current space-separated block. While 'e' stops at 'user', 'E' goes all the way to 'settings'. Use E when dealing with dotted paths or hyphenated words.",
 			TimeoutSecs: 30,
 			Points:      15,
@@ -474,7 +509,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Move down to the console.log line using j",
 			Solutions:   []string{"j"},
 			Optimal:     "j",
-			Hint:        "j moves the cursor down one line",
+			Hint:        "j moves down a whole line and keeps the column, so a shorter line stops it at its last character.",
 			Explanation: "j is the most basic downward motion. Think of j as having a downward hook at the bottom of the letter.",
 			TimeoutSecs: 30,
 			Points:      10,
@@ -495,7 +530,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Move up to the console.log line using k",
 			Solutions:   []string{"k"},
 			Optimal:     "k",
-			Hint:        "k moves the cursor up one line",
+			Hint:        "k is j upwards: it keeps the column and moves one line up at a time.",
 			Explanation: "k moves up. Together j and k are your bread and butter for vertical navigation. Think of k as pointing upward.",
 			TimeoutSecs: 30,
 			Points:      10,
@@ -540,7 +575,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Jump to the first line of the file using gg",
 			Solutions:   []string{"gg"},
 			Optimal:     "gg",
-			Hint:        "gg goes to the first line of the file",
+			Hint:        "gg takes a count: 3gg jumps straight to line 3 in one command.",
 			Explanation: "gg instantly jumps to the top of the file. Essential for navigating large files. You can also use [n]gg to go to line n.",
 			TimeoutSecs: 30,
 			Points:      15,
@@ -563,7 +598,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Jump to the last line of the file using G",
 			Solutions:   []string{"G"},
 			Optimal:     "G",
-			Hint:        "G (capital) goes to the last line",
+			Hint:        "G jumps to the last line from anywhere in the file; 2G would land on line 2 instead.",
 			Explanation: "G jumps to the end of the file. Use [n]G to go to a specific line number. gg and G are the vertical equivalent of 0 and $.",
 			TimeoutSecs: 30,
 			Points:      15,
@@ -632,7 +667,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Jump to the blank line between functions using }",
 			Solutions:   []string{"}"},
 			Optimal:     "}",
-			Hint:        "} moves to the next blank line (paragraph boundary)",
+			Hint:        "} skips to the next blank line and takes a count, so 3} crosses three paragraph gaps.",
 			Explanation: "} jumps forward to the next blank line. In code, this usually means jumping between functions or blocks. Super useful!",
 			TimeoutSecs: 30,
 			Points:      20,
@@ -656,7 +691,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Jump back to the blank line using {",
 			Solutions:   []string{"{"},
 			Optimal:     "{",
-			Hint:        "{ moves to the previous blank line",
+			Hint:        "{ skips to the previous blank line and takes a count, so 2{ steps back two paragraph gaps.",
 			Explanation: "{ jumps backward to the previous blank line. Combined with }, you can quickly navigate between code blocks.",
 			TimeoutSecs: 30,
 			Points:      20,
@@ -677,7 +712,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Move to the first non-blank character of the next line using +",
 			Solutions:   []string{"+", "j^"},
 			Optimal:     "+",
-			Hint:        "+ moves down and to the first non-blank character",
+			Hint:        "+ is 0 on the line below: it stops at the first non-blank, not at column 0.",
 			Explanation: "+ is like j followed by ^. It moves to the next line's first non-blank character. Great for navigating indented code.",
 			TimeoutSecs: 30,
 			Points:      20,
@@ -698,7 +733,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Move to the first non-blank character of the previous line using -",
 			Solutions:   []string{"-", "k^"},
 			Optimal:     "-",
-			Hint:        "- moves up and to the first non-blank character",
+			Hint:        "- is + upwards, so it lands on the first non-blank of the line above.",
 			Explanation: "- is like k followed by ^. Moves to previous line's first non-blank. Together + and - help you navigate indented blocks.",
 			TimeoutSecs: 30,
 			Points:      20,
@@ -749,7 +784,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Jump forward two paragraph boundaries using 2}",
 			Solutions:   []string{"2}"},
 			Optimal:     "2}",
-			Hint:        "You can use counts with } and { too",
+			Hint:        "Counts work on both paragraph motions: 2} goes forward two gaps, 2{ comes back two.",
 			Explanation: "2} jumps two blank lines forward. This is faster than }} and works great in code with consistent spacing.",
 			TimeoutSecs: 30,
 			Points:      25,
@@ -771,7 +806,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Navigate to 'debug' using 3j then w",
 			Solutions:   []string{"3jw"},
 			Optimal:     "3jw",
-			Hint:        "You can chain any motions together",
+			Hint:        "Motions chain: 3j moves three lines down, and w then takes over from there.",
 			Explanation: "Vim motions compose naturally. 3jw = go down 3 lines, then next word. This is the power of modal editing!",
 			TimeoutSecs: 30,
 			Points:      30,
@@ -799,7 +834,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Reach the 'TARGET' comment using G then k",
 			Solutions:   []string{"Gk"},
 			Optimal:     "Gk",
-			Hint:        "Sometimes going to the end and moving back is faster",
+			Hint:        "G jumps to the last line, so a following k walks back up it line by line.",
 			Explanation: "Real Vim mastery is knowing multiple ways and choosing the fastest. Gk = end of file, one line up. Sometimes that's fastest!",
 			TimeoutSecs: 30,
 			Points:      30,
@@ -823,7 +858,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Jump to the top of the visible screen using H (High)",
 			Solutions:   []string{"H"},
 			Optimal:     "H",
-			Hint:        "H takes you to the Highest line on screen",
+			Hint:        "H, M and L split the screen: H is the top line shown, M the middle, L the bottom.",
 			Explanation: "H (High) jumps to the top of the visible screen. Unlike gg which goes to the file's first line, H goes to the first VISIBLE line. Combined with M and L, you can navigate the screen in thirds.",
 			TimeoutSecs: 30,
 			Points:      20,
@@ -847,7 +882,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Jump to the middle of the visible screen using M (Middle)",
 			Solutions:   []string{"M"},
 			Optimal:     "M",
-			Hint:        "M takes you to the Middle line on screen",
+			Hint:        "M is the middle line of the window, halfway between H at the top and L at the bottom.",
 			Explanation: "M (Middle) jumps to the middle of the visible screen. It's perfect for quickly getting to the center of what you're viewing without counting lines.",
 			TimeoutSecs: 30,
 			Points:      20,
@@ -871,7 +906,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Jump to the bottom of the visible screen using L (Low)",
 			Solutions:   []string{"L"},
 			Optimal:     "L",
-			Hint:        "L takes you to the Lowest line on screen",
+			Hint:        "L is the bottom line shown; with a count, 3L lands three lines above it.",
 			Explanation: "L (Low) jumps to the bottom of the visible screen. H, M, L together let you navigate any visible area in at most 2 keystrokes: one to get to the right third, then fine-tune with j/k.",
 			TimeoutSecs: 30,
 			Points:      20,
@@ -898,7 +933,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Scroll half a page down using Ctrl+d",
 			Solutions:   []string{"\x04"},
 			Optimal:     "\x04",
-			Hint:        "Ctrl+d scrolls Down half a page",
+			Hint:        "Ctrl+d scrolls half a screen down, so Ctrl+u brings the same half back.",
 			Explanation: "Ctrl+d (down) scrolls half a page down, keeping your cursor in the middle of the screen. It's smoother than jumping full pages and helps you maintain context while navigating.",
 			TimeoutSecs: 30,
 			Points:      25,
@@ -925,7 +960,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Scroll half a page up using Ctrl+u",
 			Solutions:   []string{"\x15"},
 			Optimal:     "\x15",
-			Hint:        "Ctrl+u scrolls Up half a page",
+			Hint:        "Ctrl+u scrolls half a screen up, so Ctrl+d brings the same half back down.",
 			Explanation: "Ctrl+u (up) scrolls half a page up. Together with Ctrl+d, these are the most practical scrolling commands - they move enough to make progress but not so much that you lose your place.",
 			TimeoutSecs: 30,
 			Points:      25,
@@ -952,7 +987,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Scroll a full page forward using Ctrl+f",
 			Solutions:   []string{"\x06"},
 			Optimal:     "\x06",
-			Hint:        "Ctrl+f scrolls Forward a full page",
+			Hint:        "Ctrl+f pages a whole screen forward, so Ctrl+b pages back the same amount.",
 			Explanation: "Ctrl+f (forward) scrolls a full page down. Use it when you need to move quickly through a long file. The cursor stays at the same screen position while the content scrolls.",
 			TimeoutSecs: 30,
 			Points:      25,
@@ -979,7 +1014,7 @@ func getVerticalLessons() []Exercise {
 			Mission:     "Scroll a full page backward using Ctrl+b",
 			Solutions:   []string{"\x02"},
 			Optimal:     "\x02",
-			Hint:        "Ctrl+b scrolls Backward a full page",
+			Hint:        "Ctrl+b pages a whole screen backward, so Ctrl+f pages forward the same amount.",
 			Explanation: "Ctrl+b (backward) scrolls a full page up. Summary: Ctrl+d/u for half pages (precise), Ctrl+f/b for full pages (fast). Learn to mix them based on how far you need to go!",
 			TimeoutSecs: 30,
 			Points:      25,
