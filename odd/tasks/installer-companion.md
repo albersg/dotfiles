@@ -2,7 +2,7 @@
 
 Status: in progress (S1 done, PR open)
 Opened: 2026-09-29
-Owner: el Gentleman (autonomous, user approved the design in a brainstorm)
+Owner: autonomous session (design approved by the user in a brainstorm)
 
 ## Why
 
