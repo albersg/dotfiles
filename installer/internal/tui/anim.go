@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// The animation gate and its slow tick.
+// The animation gate and its frame tick.
 //
 // Two things in the installer are time-driven but not information: the tip the
 // panel rotates and the companion that arrives after it. Neither is allowed to
@@ -28,17 +28,27 @@ import (
 // environment, and the counter it drives is a plain int so a snapshot can pin a
 // frame instead of flaking on the clock.
 //
-// This is separate from tickMsg, the 100ms tick the trainer already had: that
-// one is a deadline clock (the exercise hint and the boss step expire on it), not
-// decoration, so gating it on an animation switch would silently disable a game
-// mechanic. The slow tick below is the one the gate owns.
+// There are two clocks, and they do not fight because they drive different
+// things. tickMsg is the trainer's 100ms deadline clock: it expires the exercise
+// hint and the boss step, it is not decoration, and it keeps running whether or
+// not the run animates, so gating it on the animation switch would silently
+// disable a game mechanic. animTickMsg below is the frame tick the gate owns: it
+// advances AnimTick, and AnimTick is the only thing the tip rotation and the
+// companion read. Nothing in the trainer's clock advances AnimTick, and nothing
+// in the frame tick warns a deadline; neither one can move the other's screen.
 const (
-	// animTickInterval is how often the slow tick fires. One second is the
-	// coarsest unit the tip rotation and the companion both fit into: the tip
-	// changes every ~10 ticks and the companion advances a frame per tick only
-	// where it is visible, so the wakeups stay bounded by the frame count and not
-	// by the clock.
-	animTickInterval = time.Second
+	// animTicksPerSecond is the animation frame rate, named once so every cadence
+	// below is derived from it and cannot drift: the interval, the tip's
+	// ticks-per-tip and the companion's durations are all expressed through this
+	// number, and changing it moves all of them together.
+	animTicksPerSecond = 8
+
+	// animTickInterval is how often the frame tick fires: one frame, derived from
+	// the rate rather than written as a second, so the interval cannot disagree
+	// with the rate that names it. One row of ASCII at this rate is the cost the
+	// design bounded: the renderer returns early when a frame changes nothing, and
+	// the companion changes one row when it does move.
+	animTickInterval = time.Second / animTicksPerSecond
 
 	// envAnim names the environment switch that turns animation off.
 	envAnim = "DOTFILES_ANIM"
@@ -48,12 +58,12 @@ const (
 	envTerm = "TERM"
 )
 
-// animTickMsg is the slow tick: one wakeup per animTickInterval while animation
+// animTickMsg is the frame tick: one wakeup per animTickInterval while animation
 // is on. It is a distinct message from tickMsg so the trainer's deadline clock
 // and the animation clock cannot be confused for one another.
 type animTickMsg struct{}
 
-// animTickCmd schedules the next slow tick.
+// animTickCmd schedules the next frame tick.
 func animTickCmd() tea.Cmd {
 	return tea.Tick(animTickInterval, func(time.Time) tea.Msg {
 		return animTickMsg{}

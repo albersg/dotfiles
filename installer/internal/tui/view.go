@@ -289,16 +289,18 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	}
 	placed := placeBody(body, rows)
 
-	// Below the two-column floor there is no column for the panel, so the active
-	// panel collapses to one summary line just above the footer rule. It is
-	// placed only in the rows the body did not need: nothing may be dropped from
-	// a body to make room for a summary of it, so a screen whose body fills its
-	// frame shows no summary at all. A screen that offers one panel has nothing
-	// to rotate and shows nothing here -- its panel is simply dropped, exactly as
-	// it was below the floor before the panels existed.
+	// The panel summary of a narrow terminal and the companion both live in the
+	// rows the body did not need, and they are placed together so neither can
+	// displace the other or a body row. The companion's row is the last of them --
+	// immediately above the footer rule -- and it is placed only where that row is
+	// spare and the summary does not need it: a screen whose body fills its frame
+	// shows no companion at all, exactly as it shows no summary, and a screen with
+	// one row to spare shows the facts rather than the creature.
+	var summary []string
 	if !l.TwoColumn && len(panels) > 1 {
-		placed = placeRotator(placed, m.rotatorLines(panels, inner))
+		summary = m.rotatorLines(panels, inner)
 	}
+	placed = placeCompanion(placed, m.companionRow(inner), summary)
 
 	var b strings.Builder
 	b.WriteString(headerRow(name, vital, inner))
@@ -2574,7 +2576,7 @@ func (m Model) renderTrainerExercise(mode string) string {
 	// Help, packed by the shared footer component. It stays two rows at the
 	// 80-column floor, so the screen's height is still countable: see
 	// trainerFrameRows.
-	rows = append(rows, "")
+	rows = append(rows, m.trainerCompanionRow(inner))
 	rows = append(rows, footerHints(inner, []installerHint{
 		trainerHintTypeCommand, trainerHintSubmit, trainerHintHint, trainerHintScroll,
 		trainerHintDelete, trainerHintEscToken, trainerHintBlockVisual, trainerHintQuit,
@@ -2748,7 +2750,7 @@ func (m Model) renderTrainerBoss() string {
 		// No step is on screen, so there is no code window to size around. The
 		// legend packs through the shared footer component like every other.
 		rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
-		rows = append(rows, "")
+		rows = append(rows, m.trainerCompanionRow(inner))
 		rows = append(rows, footerHints(inner, []installerHint{
 			trainerHintTypeCommand, trainerHintSubmit, trainerHintEscToken,
 			trainerHintScroll, trainerHintForfeit, trainerHintBlockVisual,
@@ -2771,7 +2773,7 @@ func (m Model) renderTrainerBoss() string {
 		RuleStyle.Render("│ ")+KeyStyle.Render(tailToWidth(m.trainerAnswer(), inner-blockGutterWidth)),
 	)
 	rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
-	rows = append(rows, "")
+	rows = append(rows, m.trainerCompanionRow(inner))
 	rows = append(rows, footerHints(inner, []installerHint{
 		trainerHintTypeCommand, trainerHintSubmit, trainerHintEscToken,
 		trainerHintScroll, trainerHintForfeit, trainerHintBlockVisual,
@@ -2861,8 +2863,11 @@ func (m Model) renderTrainerResult() string {
 
 	// The last two blank rows are what the old help line's top margin drew; they
 	// are kept so the result screen keeps the breathing room it had above the
-	// footer, which now packs through the shared component.
-	rows = append(rows, "", "")
+	// footer, which now packs through the shared component. The second of them is
+	// the row nearest the legend, and it is the one the companion takes: a
+	// creature drawn here reacts to the verdict in the header above it without
+	// costing the screen a row, so the frame it was measured in is unchanged.
+	rows = append(rows, "", m.trainerCompanionRow(inner))
 	rows = append(rows, footerHints(inner, []installerHint{trainerHintContinue, hintBack})...)
 	return strings.Join(rows, "\n")
 }
@@ -2921,7 +2926,10 @@ func (m Model) renderTrainerBossResult() string {
 		rows = append(rows, gutteredBlock([]string{MutedStyle.Render(m.TrainerMessage)})...)
 	}
 
-	rows = append(rows, "", "")
+	// The two blank rows are the breathing room above the legend, the same as the
+	// result screen's; the one nearest the legend carries the companion, which
+	// reacts to the victory or the defeat the header names.
+	rows = append(rows, "", m.trainerCompanionRow(inner))
 	rows = append(rows, footerHints(inner, []installerHint{hintReturn})...)
 	return strings.Join(rows, "\n")
 }

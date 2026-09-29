@@ -2,7 +2,9 @@ package tui
 
 import (
 	"os"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestAnimationGateTurnsOffOnTheEnvironmentAndTheStream pins the whole gate: a
@@ -60,7 +62,7 @@ func TestAnimationGateTurnsOffOnTheEnvironmentAndTheStream(t *testing.T) {
 func TestAnimTickIsArmedAndCountedOnlyWhileAnimating(t *testing.T) {
 	off := Model{Animating: false}
 	if cmd := off.animTickCmdFor(); cmd != nil {
-		t.Error("an animation-off model armed the slow tick")
+		t.Error("an animation-off model armed the frame tick")
 	}
 	next, cmd := off.Update(animTickMsg{})
 	got := next.(Model)
@@ -68,12 +70,12 @@ func TestAnimTickIsArmedAndCountedOnlyWhileAnimating(t *testing.T) {
 		t.Errorf("AnimTick = %d while animation is off, want 0", got.AnimTick)
 	}
 	if cmd != nil {
-		t.Error("an animation-off model re-armed the slow tick")
+		t.Error("an animation-off model re-armed the frame tick")
 	}
 
 	on := Model{Animating: true}
 	if cmd := on.animTickCmdFor(); cmd == nil {
-		t.Error("an animation-on model did not arm the slow tick")
+		t.Error("an animation-on model did not arm the frame tick")
 	}
 	next, cmd = on.Update(animTickMsg{})
 	got = next.(Model)
@@ -81,7 +83,7 @@ func TestAnimTickIsArmedAndCountedOnlyWhileAnimating(t *testing.T) {
 		t.Errorf("AnimTick = %d after one tick, want 1", got.AnimTick)
 	}
 	if cmd == nil {
-		t.Error("the slow tick did not re-arm while animation is on")
+		t.Error("the frame tick did not re-arm while animation is on")
 	}
 
 	stopped := Model{Animating: false, AnimTick: 5}
@@ -102,30 +104,127 @@ func TestAnimTickCmdDeliversTheSlowTick(t *testing.T) {
 	}
 }
 
-// TestExistingScreensRenderIdenticallyWithAnimationOnAndOff pins that the gate
-// changes scheduling and nothing else: every framed screen renders the same bytes
-// with animation on and with it off, because the counter it drives is not shown
-// anywhere until the slices that place a tip or a companion.
-func TestExistingScreensRenderIdenticallyWithAnimationOnAndOff(t *testing.T) {
-	screens := []Screen{
-		ScreenWelcome,
-		ScreenMainMenu,
-		ScreenOSSelect,
-		ScreenTerminalSelect,
-		ScreenFontSelect,
-		ScreenShellSelect,
-		ScreenWMSelect,
-		ScreenNvimSelect,
-		ScreenGhosttyWarning,
-		ScreenLearnTerminals,
-		ScreenKeymaps,
-		ScreenInstalling,
-		ScreenComplete,
-		ScreenError,
-		ScreenBackupConfirm,
-		ScreenRestoreBackup,
-		ScreenTrainerMenu,
-		ScreenTrainerLesson,
+// TestTheAnimationRateIsNamedOnceAndEverythingDerivesFromIt pins the single-rate
+// rule: the frame interval, the tip's hold and the companion's two clocks are all
+// derived from animTicksPerSecond, so no cadence can keep an old value while the
+// rate moves. The durations themselves are stated too, because they are the
+// numbers a reader reasons about and a change to one of them is a design change
+// rather than a mechanical one.
+func TestTheAnimationRateIsNamedOnceAndEverythingDerivesFromIt(t *testing.T) {
+	if got := animTickInterval * animTicksPerSecond; got != time.Second {
+		t.Errorf("%d frames of %v make %v a second, want exactly one second",
+			animTicksPerSecond, animTickInterval, got)
+	}
+	if animTicksPerSecond <= 1 {
+		t.Errorf("the animation rate is %d frames a second, which is not an animation", animTicksPerSecond)
+	}
+
+	if got, want := ticksPerTip, animTicksPerSecond*10; got != want {
+		t.Errorf("a tip holds for %d frames, want %d: ten seconds at %d frames a second",
+			got, want, animTicksPerSecond)
+	}
+	if got, want := companionSleepTicks, companionSleepSeconds*animTicksPerSecond; got != want {
+		t.Errorf("the sleep is %d frames, want %d: %d seconds at %d frames a second",
+			got, want, companionSleepSeconds, animTicksPerSecond)
+	}
+	if got, want := companionPleasedTicks, companionPleasedSeconds*animTicksPerSecond; got != want {
+		t.Errorf("the celebration is %d frames, want %d: %d second at %d frames a second",
+			got, want, companionPleasedSeconds, animTicksPerSecond)
+	}
+
+	// The durations the frames are derived from: twenty seconds asleep, about a
+	// second pleased. A rate change must move the frame counts and not these.
+	if companionSleepSeconds != 20 {
+		t.Errorf("the sleep is %d seconds, want 20", companionSleepSeconds)
+	}
+	if companionPleasedSeconds != 1 {
+		t.Errorf("the celebration is %d seconds, want 1", companionPleasedSeconds)
+	}
+}
+
+// TestTheTrainersDeadlineClockDoesNotMoveTheAnimation pins that the two clocks
+// stay out of each other's way: the trainer's 100ms tick expires hints and boss
+// steps and is not the animation clock, so fifty of its ticks -- five seconds of
+// the trainer's time -- advance no animation frame and change no byte on a screen
+// the animation owns. The frame tick is what moves AnimTick, and therefore the
+// tip and the companion, and nothing else is allowed to.
+func TestTheTrainersDeadlineClockDoesNotMoveTheAnimation(t *testing.T) {
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Screen = ScreenMainMenu
+	m.Width, m.Height = 160, 50
+	m.Animating = true
+
+	before := m.View()
+	tip := tipIndex(m)
+	frame := m.AnimTick
+	pos := m.CompanionPos
+	idle := m.CompanionIdle
+
+	for i := 0; i < 50; i++ {
+		next, _ := m.Update(tickMsg(time.Time{}))
+		got, ok := next.(Model)
+		if !ok {
+			t.Fatalf("Update returned %T, want Model", next)
+		}
+		m = got
+	}
+
+	if m.AnimTick != frame {
+		t.Errorf("the trainer's clock advanced AnimTick from %d to %d", frame, m.AnimTick)
+	}
+	if got := tipIndex(m); got != tip {
+		t.Errorf("the trainer's clock rotated the tip from %d to %d", tip, got)
+	}
+	if m.CompanionPos != pos {
+		t.Errorf("the trainer's clock moved the companion from %d to %d", pos, m.CompanionPos)
+	}
+	if m.CompanionIdle != idle {
+		t.Errorf("the trainer's clock aged the idle stretch from %d to %d", idle, m.CompanionIdle)
+	}
+	if got := m.View(); got != before {
+		t.Errorf("the trainer's clock changed the screen:\nbefore:\n%s\nafter:\n%s", before, got)
+	}
+}
+
+// TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow pins
+// that the gate changes scheduling and, now that the companion exists, exactly
+// one row. The previous slice's version of this guard asserted that every framed
+// screen rendered the same bytes with animation on and with it off, because then
+// no screen showed the counter at all -- "until the slices that place a tip or a
+// companion", as its own comment said. The companion is that slice, so the guard
+// is restated for the new truth rather than dropped: every row a body needs is
+// still byte-identical, the frame neither gains nor loses a row (a companion that
+// cost it one would push a body row off the screen the moment animation was
+// turned on), and the one row that may differ is the last row the body did not
+// need, immediately above the footer rule. TestCompanionTicksChangeOnlyItsOwnRow
+// pins the same one-row budget on the tick axis.
+func TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow(t *testing.T) {
+	screens := []struct {
+		screen Screen
+		// framed is true for the screens that draw inside the installer's frame,
+		// whose body ends with a rule above the footer. The trainer's screens
+		// compose their own rows, so no rule follows their companion row.
+		framed bool
+	}{
+		{ScreenWelcome, true},
+		{ScreenMainMenu, true},
+		{ScreenOSSelect, true},
+		{ScreenTerminalSelect, true},
+		{ScreenFontSelect, true},
+		{ScreenShellSelect, true},
+		{ScreenWMSelect, true},
+		{ScreenNvimSelect, true},
+		{ScreenGhosttyWarning, true},
+		{ScreenLearnTerminals, true},
+		{ScreenKeymaps, true},
+		{ScreenInstalling, true},
+		{ScreenComplete, true},
+		{ScreenError, true},
+		{ScreenBackupConfirm, true},
+		{ScreenRestoreBackup, true},
+		{ScreenTrainerMenu, false},
+		{ScreenTrainerLesson, false},
 	}
 	sizes := []struct {
 		name          string
@@ -137,12 +236,12 @@ func TestExistingScreensRenderIdenticallyWithAnimationOnAndOff(t *testing.T) {
 	}
 
 	for _, size := range sizes {
-		for _, screen := range screens {
-			size, screen := size, screen
+		for _, entry := range screens {
+			size, entry := size, entry
 			t.Run(size.name, func(t *testing.T) {
 				base := NewModel()
 				isolateGoldenTest(t, &base)
-				base.Screen = screen
+				base.Screen = entry.screen
 				base.Width, base.Height = size.width, size.height
 
 				base.Animating, base.AnimTick = false, 0
@@ -150,9 +249,72 @@ func TestExistingScreensRenderIdenticallyWithAnimationOnAndOff(t *testing.T) {
 				base.Animating, base.AnimTick = true, 7
 				moving := base.View()
 
-				if still != moving {
-					t.Errorf("screen %v renders differently with animation off and on at %s:\nstill:\n%s\nmoving:\n%s",
-						screen, size.name, still, moving)
+				stillRows := strings.Split(still, "\n")
+				movingRows := strings.Split(moving, "\n")
+				if len(stillRows) != len(movingRows) {
+					t.Fatalf("screen %v renders %d rows with animation off and %d with it on at %s",
+						entry.screen, len(stillRows), len(movingRows), size.name)
+				}
+
+				var changed []int
+				for i := range stillRows {
+					if stillRows[i] != movingRows[i] {
+						changed = append(changed, i)
+					}
+				}
+				if len(changed) == 0 {
+					// A screen whose body fills its frame has no spare row for a
+					// companion, and nothing else on any screen reads the counter.
+					return
+				}
+
+				if entry.framed {
+					// The frame's last rule is the row above its footer; above it
+					// the body ends. The gate may fill the decorated tail the body
+					// did not need -- the summary and the companion -- and nothing
+					// above it: not one row of the body.
+					lastRule := -1
+					for i := len(movingRows) - 1; i >= 0; i-- {
+						if isRuleRow(movingRows[i]) {
+							lastRule = i
+							break
+						}
+					}
+					if lastRule < 0 {
+						t.Fatalf("screen %v has no footer rule to place the companion above:\n%s",
+							entry.screen, moving)
+					}
+					tail := rotatorMaxRows + 1 // the summary's rows plus the companion's
+					if len(changed) > tail {
+						t.Fatalf("screen %v changes %d rows with animation on at %s, want at most the decorated tail's %d:\nstill:\n%s\nmoving:\n%s",
+							entry.screen, len(changed), size.name, tail, still, moving)
+					}
+					for _, i := range changed {
+						if i < lastRule-tail {
+							t.Errorf("screen %v changes a body row at %s: %q became %q",
+								entry.screen, size.name, plainRow(stillRows[i]), plainRow(movingRows[i]))
+						}
+					}
+					if row := movingRows[lastRule-1]; !companionRowHasArt(row) {
+						t.Errorf("screen %v does not put the companion on the last row the body did not need at %s: %q",
+							entry.screen, size.name, plainRow(row))
+					}
+					return
+				}
+
+				// The trainer's screens compose their own rows, so the companion
+				// takes the blank spacer above their legend. A row that carries
+				// content in both views is a row the gate must not have touched.
+				if len(changed) > 1 {
+					t.Fatalf("screen %v changes %d rows with animation on at %s, want at most the companion's one:\nstill:\n%s\nmoving:\n%s",
+						entry.screen, len(changed), size.name, still, moving)
+				}
+				row := changed[0]
+				if strings.TrimSpace(plainRow(stillRows[row])) != "" &&
+					strings.TrimSpace(plainRow(movingRows[row])) != "" &&
+					!companionRowHasArt(movingRows[row]) {
+					t.Errorf("screen %v changes a row that carries content either way at %s: %q became %q",
+						entry.screen, size.name, plainRow(stillRows[row]), plainRow(movingRows[row]))
 				}
 			})
 		}

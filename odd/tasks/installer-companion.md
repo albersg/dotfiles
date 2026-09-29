@@ -1,6 +1,6 @@
 # Feature: The installer uses the terminal it is given, and gets a companion
 
-Status: in progress (S1 and S2 done)
+Status: in progress (S1, S2 and S3 done)
 Opened: 2026-09-29
 Owner: autonomous session (design approved by the user in a brainstorm)
 
@@ -138,6 +138,23 @@ Tasks:
 | S1 fixes: branding audit, welcome truncation | PR #49, PR #50 | both green before merge (the first one taught that lesson) |
 | S2 plumbing: registry, `Tab`, tab row, rotator, tick | aa6a4f7 | 3459 pass; no snapshot moved; `Tab` was already bound in the trainer but is not stolen, pinned by a guard |
 | S2 content: three panels, tips, state file, docs | 02d0d19 | 3473 pass; three snapshots moved, every moved line additive (verified by diffing the non-blank lines) |
+| S3 the companion | a5a1179 | 3524 pass; no snapshot moved; cost bound asserted (one row per tick); one clock, one rate |
+
+### S3 notes
+
+- **The rate is one named constant.** `animTicksPerSecond = 8` and everything else derives
+  from it: the tip's ten seconds is eighty ticks, sleep is twenty seconds, the celebration is
+  one. A first attempt left the tick at one second (because the tip rotation depended on it)
+  and the creature crawled two cells a second; the dependency was moved instead of the
+  creature being slowed down.
+- **The companion's row is the only row a tick may change**, and that is asserted across ten
+  screens and sizes rather than promised in a comment. On a screen with no spare row the tick
+  changes nothing at all, so the renderer skips the frame.
+- **The old "identical with animation on and off" guard was restated**, not weakened: the
+  rendering is now identical *except* the companion row, which is what that guard's own
+  comment said would have to happen when a slice placed a tip or a companion.
+- The trainer's 100ms deadline clock and the frame clock are independent; a test pins that
+  fifty deadline ticks cannot move the animation.
 
 ### S2 notes
 

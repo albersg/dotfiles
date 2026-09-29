@@ -1226,12 +1226,32 @@ func TestTipPoolIsDeclaredOrderAndDeterministic(t *testing.T) {
 }
 
 // TestTipRotationFollowsTheTickAndStaysAtZeroWithoutAnimation pins the rotation
-// arithmetic: one tip per ten ticks, wrapping at the end of the pool, and tip 0
+// arithmetic: one tip per ten seconds, wrapping at the end of the pool, and tip 0
 // while the counter cannot leave zero.
 func TestTipRotationFollowsTheTickAndStaysAtZeroWithoutAnimation(t *testing.T) {
 	size := len(tipPool())
 	if size < 2 {
 		t.Fatalf("the tip pool has %d entries, want at least 2", size)
+	}
+
+	// Ten seconds is the rule and the frames follow from the rate. The tip has to
+	// hold for every frame of those ten seconds and turn on the first frame of the
+	// next ten -- checked frame by frame, so a rotation that turns one frame early
+	// or late is caught here rather than by someone counting ticks.
+	if want := animTicksPerSecond * 10; ticksPerTip != want {
+		t.Fatalf("a tip holds for %d frames, want %d: ten seconds at %d frames a second",
+			ticksPerTip, want, animTicksPerSecond)
+	}
+	for tick := 0; tick < ticksPerTip; tick++ {
+		if got := tipIndex(Model{AnimTick: tick}); got != 0 {
+			t.Fatalf("the tip at frame %d of %d is %d, want tip 0 for the whole first ten seconds",
+				tick, ticksPerTip, got)
+		}
+	}
+	for tick := ticksPerTip; tick < 2*ticksPerTip; tick++ {
+		if got := tipIndex(Model{AnimTick: tick}); got != 1 {
+			t.Fatalf("the tip at frame %d (the second ten seconds) is %d, want 1", tick, got)
+		}
 	}
 
 	cases := []struct {
