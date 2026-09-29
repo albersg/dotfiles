@@ -1,22 +1,19 @@
-[?25l[?2004h]2;dotfiles Installer                                                                         [K
-  🎮 Vim Mastery Trainer                                                 [K
-  Master Vim motions through progressive challenges                      [K
-  📊 Score: 0  |  🔥 Streak: 0  |  👑 Bosses: 1/9                        [K
-                                                                         [K
-  Select a Module:                                                       [K
-  ▸ ✓ cleared  🏃 Horizontal Motions  Lessons 7/15 · Mastered 2/19       [K
-       w, W, e, E, b, B, f, F, t, T, ;, ,, 0, $, ^                       [K
-       Practice accuracy: 60%                                            [K
-       ⚠️ Weakest: horizontal_003 (3✗) · horizontal_004 (1✗)             [K
-    ○ lessons  📐 Vertical Motions  Lessons 0/22 · Mastered 0/22         [K
-    ✗ locked   🎯 Text Objects  Lessons 0/21 · Mastered 0/21             [K
-    ✗ locked   🔁 Change & Repeat  Lessons 0/24 · Mastered 0/24          [K
-    ✗ locked   🔄 Substitution  Lessons 0/22 · Mastered 0/22             [K
-    ✗ locked   🔍 Regex & Vimgrep  Lessons 0/24 · Mastered 0/24          [K
-    ✗ locked   🎪 Macros  Lessons 0/24 · Mastered 0/24                   [K
-    ✗ locked   📝 Editing & Undo  Lessons 0/23 · Mastered 0/23           [K
-    ✗ locked   📋 Registers & Indentation  Lessons 0/20 · Mastered 0/20  [K
-                                                                         [K
-                                                                         [K
-  ↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss         [K
-  [r] reset module • [R] reset all • [q/Esc] back                        [K[21A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+[?25l[?2004h]2;dotfiles Installer                                                                                
+  🎮 Vim Mastery Trainer        ▓░░░░░ 1/9  Score: 0 · Streak: 0 · Bosses: 1/9  
+  ────────────────────────────────────────────────────────────────────────────  
+  ▸ ✓ cleared  🏃 Horizontal Motions        Lessons ▓░░ 7/15 Mastered ░░░ 2/19  
+  │ w, W, e, E, b, B, f, F, t, T, ;, ,, 0, $, ^                                 
+  │ Practice accuracy: 60%                                                      
+  │ ⚠️ Weakest: horizontal_003 (3✗) · horizontal_004 (1✗)                       
+    ○ lessons  📐 Vertical Motions          Lessons ░░░ 0/22 Mastered ░░░ 0/22  
+    ✗ locked   🎯 Text Objects              Lessons ░░░ 0/21 Mastered ░░░ 0/21  
+    ✗ locked   🔁 Change & Repeat           Lessons ░░░ 0/24 Mastered ░░░ 0/24  
+    ✗ locked   🔄 Substitution              Lessons ░░░ 0/22 Mastered ░░░ 0/22  
+    ✗ locked   🔍 Regex & Vimgrep           Lessons ░░░ 0/24 Mastered ░░░ 0/24  
+    ✗ locked   🎪 Macros                    Lessons ░░░ 0/24 Mastered ░░░ 0/24  
+    ✗ locked   📝 Editing & Undo            Lessons ░░░ 0/23 Mastered ░░░ 0/23  
+    ✗ locked   📋 Registers & Indentation   Lessons ░░░ 0/20 Mastered ░░░ 0/20  
+                                                                                
+                                                                                
+  ↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss                
+  [r] reset module • [R] reset all • [q/Esc] back                               [18A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

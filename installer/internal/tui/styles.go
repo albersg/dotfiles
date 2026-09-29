@@ -81,50 +81,26 @@ var (
 	MutedStyle = lipgloss.NewStyle().
 			Foreground(TextMuted)
 
-	// Selection styles
-	SelectedStyle = lipgloss.NewStyle().
-			Foreground(Accent).
-			Bold(true).
-			PaddingLeft(2)
-
-	UnselectedStyle = lipgloss.NewStyle().
-			Foreground(Text).
-			PaddingLeft(4)
-
 	// Box styles
 	BoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(BorderActive).
 			Padding(1, 2)
 
-	// Progress bar styles. They were deleted as dead surface in the trainer slice
-	// because nothing rendered a bar; the installing screen renders one now, and
-	// it is the one place the whole run's progress is visible. The bar's cells are
-	// glyphs (█ and ░) rather than filled backgrounds, so these styles carry the
-	// colour only and the bar still reads with no colour at all.
+	// Progress bar styles. The installing screen is the one place the whole run's
+	// progress is visible at a glance. Its filled part is brand chrome, not a
+	// status colour: progress is not a state, and Success is reserved for the
+	// steps that are actually done. The bar's cells are glyphs (█ and ░) rather
+	// than filled backgrounds, so these styles carry the colour only and the bar
+	// still reads with no colour at all.
 	ProgressBarFilled = lipgloss.NewStyle().
-				Foreground(Success)
+				Foreground(Brand)
 
 	ProgressBarEmpty = lipgloss.NewStyle().
 				Foreground(TextMuted)
 
-	// Logo style
-	LogoStyle = lipgloss.NewStyle().
-			Foreground(Primary).
-			Bold(true)
-
-	// Step indicator
-	StepActiveStyle = lipgloss.NewStyle().
-			Foreground(Accent).
-			Bold(true)
-
-	StepDoneStyle = lipgloss.NewStyle().
-			Foreground(Success)
-
-	StepPendingStyle = lipgloss.NewStyle().
-				Foreground(TextMuted)
-
-	// Help style
+	// Help style. The installer's footer draws through AccentKeyStyle and
+	// HelpVerbStyle now; HelpStyle remains for deadEnd's one-line way out.
 	HelpStyle = lipgloss.NewStyle().
 			Foreground(TextMuted).
 			Italic(true).
@@ -174,50 +150,93 @@ var (
 			Background(Primary).
 			Bold(false)
 
-	// Vim Trainer menu rows. Every row state -- selected, unselected and locked
-	// -- has to start on the same column, so these styles carry no padding: the
-	// row's own marker column is what separates the rows. The shared menu styles
-	// keep their padding for the installer's own menus.
-	TrainerRowStyle = lipgloss.NewStyle().
-			Foreground(Text)
+	// The trainer menu rows and the trainer title used to have styles of their own in
+	// this block; they go through the shared rowBar, headerRow and chip now, so those
+	// names were removed rather than left as unused choices no screen can be checked
+	// against. The same reasoning removed TrainerHelpStyle once the trainer footers
+	// went through the shared footer component.
 
-	TrainerRowSelectedStyle = lipgloss.NewStyle().
+	// --- Semantic roles ---------------------------------------------------
+	//
+	// These names are the design's vocabulary, and they are the only names the
+	// installer's own screens reach for a colour through. The palette above does
+	// not change: each role resolves to the one palette entry it may use, so
+	// "one meaning per colour" is enforced by the name a screen asks for rather
+	// than by a comment beside a hex value. The trainer screens now reach for these
+	// roles too: their menu rows are the shared rowBar, their titles are headerRow
+	// and their blocks are chip plus gutteredBlock, so the frozen style names the
+	// previous slice left them no longer exist.
+	//
+	//   Brand     chrome: the header title and a section chip
+	//   BrandSoft the bar behind a selected row
+	//   Paper     the cut-out text on that bar
+	//   Ink       body text
+	//   InkDim    metadata, help verbs, line numbers and trailing meters
+	//   Rule      every separator and gutter
+	//
+	// Rule and InkDim are the same quiet slate on purpose: a separator and a line
+	// of metadata are both "not content", and the shared rule() every screen draws
+	// through is already that slate, so naming a second dim tone here would have
+	// invented a distinction no reader could see.
+	Brand     = Primary
+	BrandSoft = Primary
+	Paper     = Background
+	Ink       = Text
+	InkDim    = TextMuted
+	Rule      = TextMuted
+
+	// BrandStyle is chrome text: the frame's header title and a section chip.
+	BrandStyle = lipgloss.NewStyle().
+			Foreground(Brand).
+			Bold(true)
+
+	// RuleStyle draws a separator or a block's gutter in the rule tone.
+	RuleStyle = lipgloss.NewStyle().
+			Foreground(Rule)
+
+	// InkStyle is plain body text at the row's own indent.
+	InkStyle = lipgloss.NewStyle().
+			Foreground(Ink)
+
+	// AccentKeyStyle is a key token: the one thing to act on now.
+	AccentKeyStyle = lipgloss.NewStyle().
+			Foreground(Accent).
+			Bold(true)
+
+	// HelpVerbStyle is the verb a footer key token does.
+	HelpVerbStyle = lipgloss.NewStyle().
+			Foreground(InkDim)
+
+	// MeterFilledStyle is the filled part of a progress meter: brand chrome, the
+	// same role the filled part of the step counter takes.
+	MeterFilledStyle = lipgloss.NewStyle().
+				Foreground(Brand)
+
+	// MeterStyle is a meter's empty cells and its trailing count: metadata.
+	MeterStyle = lipgloss.NewStyle().
+			Foreground(InkDim)
+
+	// MeterOnBarStyle is a trailing meter drawn on a selected row's bar, so the
+	// bar's background runs under it.
+	MeterOnBarStyle = lipgloss.NewStyle().
+			Foreground(InkDim).
+			Background(BrandSoft)
+
+	// RowBarStyle is the body of a selected row: Paper on the BrandSoft bar.
+	RowBarStyle = lipgloss.NewStyle().
+			Foreground(Paper).
+			Background(BrandSoft).
+			Bold(true)
+
+	// RowBarMarkerStyle is the ▸ that marks the selected row. It shares the bar's
+	// background so the marker sits inside the bar rather than beside it.
+	RowBarMarkerStyle = lipgloss.NewStyle().
 				Foreground(Accent).
+				Background(BrandSoft).
 				Bold(true)
-
-	TrainerRowLockedStyle = lipgloss.NewStyle().
-				Foreground(TextMuted)
-
-	// TrainerTitleStyle and TrainerHelpStyle are TitleStyle and HelpStyle without
-	// their margins. The trainer screens budget one terminal row per element, so
-	// the blank line above a legend and below a title is an element of its own
-	// there instead of a margin the row count cannot see.
-	TrainerTitleStyle = lipgloss.NewStyle().
-				Foreground(Primary).
-				Bold(true)
-
-	TrainerHelpStyle = lipgloss.NewStyle().
-				Foreground(TextMuted).
-				Italic(true)
 )
 
 // CenterHorizontally centers text horizontally within a given width
 func CenterHorizontally(text string, width int) string {
 	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(text)
-}
-
-// CenterVertically centers text vertically within a given height
-func CenterVertically(text string, height int) string {
-	lines := lipgloss.Height(text)
-	if lines >= height {
-		return text
-	}
-
-	topPadding := (height - lines) / 2
-	return lipgloss.NewStyle().PaddingTop(topPadding).Render(text)
-}
-
-// CenterBoth centers text both horizontally and vertically using lipgloss.Place
-func CenterBoth(text string, width, height int) string {
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, text)
 }

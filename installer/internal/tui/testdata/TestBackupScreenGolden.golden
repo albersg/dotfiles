@@ -1,17 +1,24 @@
-[?25l[?2004h]2;dotfiles Installer                                                            [K
-  ⚠️ Existing Configs Detected                              [K
-                                                            [K
-  The following configs will be overwritten:                [K
-                                                            [K
-    ⚠️ .config/nvim                                         [K
-    ⚠️ .zshrc                                               [K
-    ⚠️ .tmux.conf                                           [K
-                                                            [K
-  Creating a backup allows you to restore later if needed.  [K
-                                                            [K
-    ▸ ✅ Install with Backup (recommended)                  [K
-        ⚠️ Install without Backup                           [K
-        ❌ Cancel                                           [K
-                                                            [K
-                                                            [K
-  ↑/k up • ↓/j down • [Enter] select • [Esc] back           [K[16A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+[?25l[?2004h]2;dotfiles Installer                                                                                
+  Backups                                                                       
+  ────────────────────────────────────────────────────────────────────────────  
+                                                                                
+                                                                                
+                                                                                
+  ⚠️ Existing Configs Detected                                                  
+  The following configs will be overwritten:                                    
+                                                                                
+    ⚠️ .config/nvim                                                             
+    ⚠️ .zshrc                                                                   
+    ⚠️ .tmux.conf                                                               
+                                                                                
+  Creating a backup allows you to restore later if needed.                      
+                                                                                
+  ▸ ✅ Install with Backup (recommended)                                        
+    ⚠️ Install without Backup                                                   
+    ❌ Cancel                                                                   
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  ────────────────────────────────────────────────────────────────────────────  
+  ↑/k up • ↓/j down • [Enter] select • [Esc] back                               [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

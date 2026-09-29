@@ -1,13 +1,24 @@
-[?25l[?2004h]2;dotfiles Installer                                                        [K
-  ● OS → ○ Terminal → ○ Font → ○ Shell → ○ WM → ○ Nvim  [K
-                                                        [K
-  Step 1: Select Your Operating System                  [K
-                                                        [K
-  Detected: Linux                                       [K
-                                                        [K
-    ▸ macOS                                             [K
-        Linux                                           [K
-        Termux                                          [K
-                                                        [K
-                                                        [K
-  ↑/k up • ↓/j down • [Enter] select • [Esc] back       [K[12A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+[?25l[?2004h]2;dotfiles Installer                                                                                
+  Setup                                                         ▓▓░░░░░░░░ 1/6  
+  ────────────────────────────────────────────────────────────────────────────  
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  Select Your Operating System                                                  
+  Detected: Linux                                                               
+                                                                                
+  ▸ macOS                                                                       
+    Linux                                                                       
+    Termux                                                                      
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  ────────────────────────────────────────────────────────────────────────────  
+  ↑/k up • ↓/j down • [Enter] select • [Esc] back                               [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

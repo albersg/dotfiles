@@ -197,11 +197,16 @@ func TestInstallFlowE2E(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	time.Sleep(50 * time.Millisecond)
 
-	// Should be at Terminal Select now
+	// Should be at Terminal Select now. On WSL and Termux the wizard skips the
+	// terminal and font questions and goes straight to Shell Select, so the shell
+	// screen is a valid next screen too. The assertion used to pass on those hosts
+	// only because the body listed every step name, including "Terminal"; the step
+	// counter now lives in the frame's header, so the check names the screens.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return bytes.Contains(bts, []byte("Terminal")) ||
 			bytes.Contains(bts, []byte("Alacritty")) ||
-			bytes.Contains(bts, []byte("WezTerm"))
+			bytes.Contains(bts, []byte("WezTerm")) ||
+			bytes.Contains(bts, []byte("Shell"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -767,10 +772,30 @@ func TestMainMenuWithRestoreOption(t *testing.T) {
 	})
 }
 
-// TestBackupFlowE2E tests complete backup flow from install wizard
+// plainOutput strips the terminal escape sequences from a chunk of raw program
+// output, so a test can search for the text a screen shows rather than the exact
+// byte stream it was styled into. Two strings the reader sees as adjacent -- the
+// selection marker and the option label, say -- are styled separately, so the
+// escapes between them break a literal search even though the screen is right.
+func plainOutput(bts []byte) string {
+	return ansiEscape.ReplaceAllString(string(bts), "")
+}
+
+// TestBackupFlowE2E walks the install wizard far enough to prove the choices it
+// collects lead where the flow says they lead.
+//
+// It pins the host and waits for each screen before sending the next key. Both
+// matter: the wizard skips the terminal and font steps on WSL and Termux, so the
+// sequence used to depend on where the test ran, and a fixed sleep between
+// keypresses raced the renderer, so a loaded runner lost keypresses and the flow
+// ended on the wrong terminal.
 func TestBackupFlowE2E(t *testing.T) {
 	t.Run("full flow: wizard -> backup confirm -> install", func(t *testing.T) {
 		m := NewModel()
+		isolateGoldenTest(t, &m)
+		// Pin the host so every run walks the same wizard: Linux, not WSL, so the
+		// terminal and font steps are part of the flow everywhere.
+		m.SystemInfo = goldenSystemInfo()
 		m.Width = 80
 		m.Height = 24
 		// Simulate having existing configs
@@ -780,34 +805,65 @@ func TestBackupFlowE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		// Welcome -> Main Menu
-		time.Sleep(50 * time.Millisecond)
-		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-		time.Sleep(50 * time.Millisecond)
-
-		// Main Menu -> Start Installation
-		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-		time.Sleep(50 * time.Millisecond)
-
-		// OS Select -> macOS
-		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-		time.Sleep(50 * time.Millisecond)
-
-		// Terminal Select -> None (skip terminal)
-		// Navigate to "None" option (usually last)
-		for i := 0; i < 5; i++ {
-			tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-			time.Sleep(20 * time.Millisecond)
+		// Send a key and wait for the screen it should produce, rather than sleeping
+		// a fixed amount and hoping the model caught up.
+		send := func(key tea.KeyMsg, marker string) {
+			t.Helper()
+			tm.Send(key)
+			teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+				return bytes.Contains(bts, []byte(marker))
+			}, teatest.WithCheckInterval(20*time.Millisecond), teatest.WithDuration(5*time.Second))
 		}
-		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-		time.Sleep(50 * time.Millisecond)
 
-		// Should now be at Shell Select (skipped font because terminal=none)
+		// Welcome -> Main Menu -> the wizard's first step -> the terminal step.
+		send(tea.KeyMsg{Type: tea.KeyEnter}, "Start Installation")
+		send(tea.KeyMsg{Type: tea.KeyEnter}, "Select Your Operating System")
+		send(tea.KeyMsg{Type: tea.KeyEnter}, "Choose Terminal Emulator")
+
+		// Choose "None" so the font step is skipped. The list carries a separator and
+		// a learn-more entry after the choices, so the index is read from a model
+		// driven through the same two steps rather than counted by hand or taken from
+		// a list built for a different host: counting assumed "None" was the last
+		// entry, which stopped being true when the list grew, and a probe that pinned
+		// the OS by hand listed a terminal the pinned host does not offer, so the
+		// marker landed one row past None.
+		probe := installerFrameModel(t, ScreenMainMenu)
+		step, _ := probe.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		step, _ = step.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+		probe = step.(Model)
+		if probe.Screen != ScreenTerminalSelect {
+			t.Fatalf("driving the wizard from the main menu landed on screen %v, want the terminal step", probe.Screen)
+		}
+		noneIndex := -1
+		for i, opt := range probe.GetCurrentOptions() {
+			if opt == "None" {
+				noneIndex = i
+				break
+			}
+		}
+		if noneIndex < 0 {
+			t.Fatalf("the terminal step has no None option: %v", probe.GetCurrentOptions())
+		}
+		for i := 0; i < noneIndex; i++ {
+			tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+		}
+		// Confirm the marker reached None before committing to it, so a lost key is
+		// reported here instead of as a puzzling failure three screens later. The
+		// marker and the label are styled apart, so the escape sequences between them
+		// are stripped before the search; the assertion still means the marker is on
+		// None, not merely that None is on screen.
+		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+			return strings.Contains(plainOutput(bts), "▸ None")
+		}, teatest.WithCheckInterval(20*time.Millisecond), teatest.WithDuration(5*time.Second))
+
+		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+		// Should now be at Shell Select (font is skipped because terminal=none).
 		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 			return bytes.Contains(bts, []byte("Shell")) ||
 				bytes.Contains(bts, []byte("Fish")) ||
 				bytes.Contains(bts, []byte("Zsh"))
-		}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
+		}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(5*time.Second))
 
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
@@ -1070,6 +1126,14 @@ func installerFrameCase(t *testing.T, name string) Model {
 // keymap tables shipped a 60-column rule and a 15-row window against a 24-row
 // frame, the installing screen had no progress bar at all, and two screens
 // hard-coded a title the model was carrying.
+//
+// The persistent frame added a header row, two rules and a footer to every
+// screen, so each screen's reserved rows moved: the body budgets now come from
+// installerBodyRows and the per-screen *BodyFixed constants in view.go, and the
+// keymap window, menu window, installing rail, tool-info lists and LazyVim
+// window were all recomputed against them. This guard's height assertion is
+// unchanged, so the new chrome is not treated as headroom: a screen that spends
+// a row it did not reserve still fails here.
 func TestInstallerScreensFitTheFrame(t *testing.T) {
 	names := []string{
 		"welcome",
@@ -1323,5 +1387,28 @@ func TestKeymapTableColumnsWidenForLongKeys(t *testing.T) {
 	}
 	if description < width/3 {
 		t.Errorf("description column = %d, want >= %d", description, width/3)
+	}
+}
+
+// TestPlaceBodyCentresShortBodies pins the frame's vertical placement. The body
+// used to be top-aligned, so a short screen left eight or nine blank rows between
+// the content and the pinned footer and read as an unfinished screen. It is
+// centred in the rows between header and footer now, and a body that fills or
+// overflows those rows is left exactly where it was, so a list long enough to
+// scroll loses nothing.
+func TestPlaceBodyCentresShortBodies(t *testing.T) {
+	short := []string{"title", "description", "option"}
+	if got := placeBody(short, 9); len(got) != 9 || got[3] != "title" || got[5] != "option" {
+		t.Errorf("placeBody(3 rows into 9) = %q, want the body centred on rows 3-5 with the remaining space split above and below", got)
+	}
+
+	full := []string{"a", "b", "c"}
+	if got := placeBody(full, 3); strings.Join(got, "|") != "a|b|c" {
+		t.Errorf("placeBody(3 rows into 3) = %q, want the body unchanged", got)
+	}
+
+	over := []string{"a", "b", "c", "d"}
+	if got := placeBody(over, 2); strings.Join(got, "|") != "a|b|c|d" {
+		t.Errorf("placeBody(4 rows into 2) = %q, want the oversized body unchanged, not truncated", got)
 	}
 }
