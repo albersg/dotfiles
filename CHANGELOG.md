@@ -13,6 +13,38 @@ machine's limits into another machine's VM.
 
 ### Changed
 
+- **The companion is shaded where the terminal can shade it.** Above the glyph cat there is now one
+  more step: where the terminal reports true colour and the frame can spare eight rows, the same cat is
+  drawn as a sixteen-pixel-square sprite of half blocks, with a foreground and a background colour per
+  cell — outline, two shades of fur and a rose nose, all from the installer's own palette, with the
+  walk bobbing by half a cell and a sleeping cat sagging the same way. It is composed, not drawn per
+  state: one block of face rows per state and the pupils stamped into it, so eight states and six
+  gazes stay one sprite. Where the terminal cannot do it the glyph ladder is untouched — five rows,
+  three, one, nothing — because a colourless terminal draws those cells as plain blocks, and
+  `DOTFILES_SPRITE=0` / `--no-sprite` turns the tier off on its own. It is honest about its price and
+  the price is measured, not estimated: a sprite frame writes at most 1560 bytes (a test asserts it),
+  about 12 KB/s while the creature animates and at most 94 KB/s if a repaint is driven at the
+  renderer's 60 fps ceiling, for about 140 µs of the ~700 µs a frame of that screen already costs.
+  No new dependency was needed: the encoder is a few dozen lines of this repository's own code.
+  `charmbracelet/x/mosaic` was evaluated for this step and rejected on two measured reasons — it forces
+  `x/ansi` ≥0.11.7, which breaks the `x/cellbuf` Bubble Tea pins and drags eight modules through the
+  render path of every screen, and its luminance-threshold colour model collapses the shading
+  boundaries a four-tone sprite is drawn for — so the hand-written encoder is a decision, and the
+  reasoning is written down beside the sprite where the next person will read it.
+- **The companion's eyes follow the mouse.** They followed the selection; the pointer is now what they
+  look at when there is one, and the selection is the fallback for the runs and terminals that have no
+  pointer. The installer asks the terminal for mouse motion only when the run can use it, and it is a
+  switch of its own — `--no-mouse` / `DOTFILES_MOUSE=0` — because mouse reporting costs the user the
+  terminal's own drag-to-select: with the pointer off no mouse mode is requested at all, so ordinary
+  selection works again, where a run that merely ignored the events would still have taken the drag.
+  A Termux session defaults to no pointer, because a finger is not a hover and Termux turns a drag
+  into a wheel report; `DOTFILES_MOUSE=1` overrides that for a session with a real mouse. The turn
+  happens on the mouse message rather than on the next frame, the pupils rest inside a two-column
+  dead zone so they cannot flicker, and a pointer that has not moved a cell changes no byte. Moving
+  the mouse also wakes a sleeping creature — a parked mouse sends no events, so every pointer event
+  is the user moving it — and a click earns the celebration a finished step gets plus a hop one row
+  off the ground, which costs one spare row and is skipped on a frame that has none rather than take
+  a fact's row.
 - **The companion has a body, a face and a gaze.** The installer's ASCII creature was one row of
   seven characters; it is now a cat drawn at three heights, and a ladder picks between them from the
   rows the body did not need — five rows where it leaves six, three where it leaves four, the one-row

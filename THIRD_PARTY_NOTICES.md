@@ -11,6 +11,7 @@ The installer (`installer/`) depends on Go modules. See `installer/go.mod` for t
 | [Bubbletea](https://github.com/charmbracelet/bubbletea) | MIT | TUI framework |
 | [Bubbles](https://github.com/charmbracelet/bubbles) | MIT | TUI components |
 | [Lip Gloss](https://github.com/charmbracelet/lipgloss) | MIT | Terminal styling |
+| [termenv](https://github.com/muesli/termenv) | MIT | Terminal capability and colour detection (used directly for the companion's palette) |
 | [Cobra](https://github.com/spf13/cobra) | Apache 2.0 | CLI framework |
 | [Viper](https://github.com/spf13/viper) | MIT | Configuration management |
 | [go-yaml](https://github.com/go-yaml/yaml) | MIT | YAML parsing |

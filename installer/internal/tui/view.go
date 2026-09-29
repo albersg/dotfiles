@@ -557,6 +557,12 @@ func (m Model) rowBar(label string, selected bool, meterPlain string) string {
 // this padding.
 const viewPaddingRows = 1
 
+// viewPaddingCols is the columns that same padding adds on each side, and it is
+// named for the same reason the row count is: the companion's pointer turns a
+// mouse column into a column of the stage by subtracting it, so the number the
+// padding applies and the number the pointer subtracts have to be one number.
+const viewPaddingCols = 2
+
 // contentWidth is the columns a screen can render in: the model width minus the
 // two columns of left and right padding View() applies to every screen.
 func contentWidth(m Model) int {
@@ -795,7 +801,7 @@ func (m Model) View() string {
 	}
 
 	// Apply global padding (top: 1, right: 2, bottom: 0, left: 2)
-	paddedStyle := lipgloss.NewStyle().Padding(1, 2, 0, 2)
+	paddedStyle := lipgloss.NewStyle().Padding(viewPaddingRows, viewPaddingCols, 0, viewPaddingCols)
 	return paddedStyle.Render(content)
 }
 

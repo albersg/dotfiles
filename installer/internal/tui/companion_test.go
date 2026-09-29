@@ -70,7 +70,25 @@ func companionRowHasArt(row string) bool {
 			return true
 		}
 	}
-	return false
+	return companionPixelRowShape(plain)
+}
+
+// companionPixelRowShape reports whether a stripped row is a row of the shaded
+// sprite: nothing but the half blocks it draws with and the spaces its empty cells
+// leave, which is a shape no other row in the frame has. "Any block glyph" would
+// not do -- the welcome screen's wordmark is full blocks and the panels draw their
+// meters with shading glyphs -- and the sprite's own rows are the only ones made
+// exclusively of these, so the two cannot be confused.
+func companionPixelRowShape(plain string) bool {
+	if !strings.ContainsAny(plain, "\u2580\u2588") {
+		return false
+	}
+	for _, r := range plain {
+		if r != ' ' && r != '\u2580' && r != '\u2588' {
+			return false
+		}
+	}
+	return true
 }
 
 // companionArtRowSet is every row the art can draw, at every height and every
@@ -194,11 +212,19 @@ type companionScreenFixture struct {
 // five columns and padding it to the seven-column cell would change bytes a
 // snapshot already pins -- so for it the guard is "no wider than the cell".
 func TestCompanionArtIsRowsOfPrintableASCII(t *testing.T) {
-	if companionCellWidth != companionSpriteWidth(companionFullHeight) {
-		t.Errorf("the walk bounds itself on %d columns but the tallest cell is %d",
-			companionCellWidth, companionSpriteWidth(companionFullHeight))
+	// The walk bounds itself on the widest cell, which is the shaded sprite's: no
+	// height may draw wider than that, and every glyph height is narrower, so a
+	// sprite can never walk past the edge of the stage it is drawn on.
+	if companionCellWidth != companionPixelWidth {
+		t.Errorf("the walk bounds itself on %d columns but the widest cell is %d",
+			companionCellWidth, companionPixelWidth)
 	}
-
+	for _, height := range companionHeights() {
+		if cell := companionSpriteWidth(height); cell > companionCellWidth {
+			t.Errorf("height %d draws a %d-column cell, wider than the %d the walk allows",
+				height, cell, companionCellWidth)
+		}
+	}
 	for _, height := range companionHeights() {
 		states := map[companionState][]string{}
 		cell := companionSpriteWidth(height)
@@ -1610,5 +1636,649 @@ func testBackupInfo() system.BackupInfo {
 		Path:      "/home/testuser/.dotfiles-backup-2026-01-01",
 		Timestamp: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
 		Files:     []string{"/home/testuser/.zshrc"},
+	}
+}
+
+// ============================================================================
+// THE POINTER
+// ============================================================================
+//
+// The gaze follows the pointer when the run asked the terminal for mouse motion
+// and falls back to the selection when it did not. These tests pin both halves:
+// the gate that decides which one is in force, the gaze the pointer produces, the
+// rows a pointer event is allowed to change, the wake-and-click reactions, and
+// what happens to all of it when the gate is off.
+
+// companionMouse drives one mouse message through Update, the way the program
+// does, and returns the model it produced.
+func companionMouse(t *testing.T, m Model, msg tea.MouseMsg) Model {
+	t.Helper()
+	next, _ := m.Update(msg)
+	got, ok := next.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T, want Model", next)
+	}
+	return got
+}
+
+// companionMotion is the pointer moving to one cell.
+func companionMotion(x, y int) tea.MouseMsg {
+	return tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone}
+}
+
+// companionClick is the left button going down on one cell.
+func companionClick(x, y int) tea.MouseMsg {
+	return tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+}
+
+// pointerModel is the model every pointer test starts from: a screen with room
+// for the full sprite and a run that asked the terminal for the pointer.
+func pointerModel(t *testing.T, width, height int) Model {
+	t.Helper()
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Screen = ScreenMainMenu
+	m.Width, m.Height = width, height
+	m.Animating, m.Hovering = true, true
+	return m
+}
+
+// TestCompanionHoverGateIsItsOwnSwitch pins the pointer's gate: it is not the
+// animation gate, and it turns off for the three things that make a pointer
+// useless -- the switch, a stdout that is not a terminal, and a Termux session,
+// where the pointer is a finger. The forced value overrides the Termux default
+// because a Termux session with a real mouse attached is a real case.
+func TestCompanionHoverGateIsItsOwnSwitch(t *testing.T) {
+	terminal, err := os.Open(os.DevNull) // a character device, which is what the gate asks for
+	if err != nil {
+		t.Fatalf("opening %s: %v", os.DevNull, err)
+	}
+	defer terminal.Close()
+
+	regular, err := os.CreateTemp(t.TempDir(), "not-a-terminal")
+	if err != nil {
+		t.Fatalf("creating a regular file: %v", err)
+	}
+	defer regular.Close()
+
+	tests := []struct {
+		name   string
+		mouse  string
+		termux string
+		file   *os.File
+		want   bool
+	}{
+		{"a terminal with nothing set hovers", "", "", terminal, true},
+		{"DOTFILES_MOUSE=0 turns the pointer off", "0", "", terminal, false},
+		{"DOTFILES_MOUSE=1 keeps it on", "1", "", terminal, true},
+		{"a Termux session defaults the pointer off", "", "0.118.0", terminal, false},
+		{"DOTFILES_MOUSE=1 overrides the Termux default", "1", "0.118.0", terminal, true},
+		{"a stdout that is not a terminal cannot hover", "", "", regular, false},
+		{"no stdout at all cannot hover", "", "", nil, false},
+		{"an unrelated value is not a switch", "yes", "", terminal, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envMouse, tt.mouse)
+			t.Setenv(envTermux, tt.termux)
+			if got := hoverGate(tt.file); got != tt.want {
+				t.Errorf("hoverGate = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCompanionAsksForNoPointerWithoutACreature pins the coupling between the two
+// gates. The package's TestMain pins the animation gate off, so the model built
+// here is the frozen case: with DOTFILES_MOUSE=1 there is still nothing to look
+// with, and a run that asked the terminal for the pointer anyway would have cost
+// the user the terminal's own selection for nothing.
+func TestCompanionAsksForNoPointerWithoutACreature(t *testing.T) {
+	t.Setenv(envMouse, envMouseForce)
+
+	m := NewModel()
+	if m.Animating {
+		t.Fatalf("the package's animation gate is on, so this test cannot tell the two halves apart")
+	}
+	if m.Hovering {
+		t.Errorf("Hovering = true with the animation gate off, want false")
+	}
+
+	t.Setenv(envMouse, "0")
+	if off := NewModel(); off.Hovering {
+		t.Errorf("Hovering = true with DOTFILES_MOUSE=0, want false")
+	}
+}
+
+// TestCompanionGazeFollowsThePointer pins what the pointer does to the eyes: the
+// pupil pair turns to the side the pointer is on and looks up when the pointer is
+// above the creature's band, both of them one column outside the dead zone, and
+// the turn happens on the message rather than on the next tick -- which is what
+// makes the eyes arrive with the mouse instead of a frame later.
+func TestCompanionGazeFollowsThePointer(t *testing.T) {
+	const width, height = 160, 50
+	m := pointerModel(t, width, height)
+	m.CompanionPos = 60
+	anchor := m.CompanionPos
+	level := companionGroundTop(height)
+
+	tests := []struct {
+		name string
+		x, y int
+		want companionGaze
+	}{
+		{"left of the creature", viewPaddingCols + anchor - companionGazeDeadZone - 1, height - 2, companionGaze{X: -1}},
+		{"just inside the dead zone", viewPaddingCols + anchor - companionGazeDeadZone, height - 2, companionGaze{}},
+		{"straight at the creature", viewPaddingCols + anchor, height - 2, companionGaze{}},
+		{"right of the creature", viewPaddingCols + anchor + companionGazeDeadZone + 1, height - 2, companionGaze{X: 1}},
+		{"above the creature's band", viewPaddingCols + anchor, level - 1, companionGaze{Y: -1}},
+		{"level with the creature's band", viewPaddingCols + anchor, level, companionGaze{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := companionMouse(t, m, companionMotion(tt.x, tt.y))
+			if got.CompanionGaze != tt.want {
+				t.Errorf("gaze = %+v, want %+v", got.CompanionGaze, tt.want)
+			}
+			if !got.PointerSet {
+				t.Errorf("the pointer was not remembered")
+			}
+			if got.AnimTick != m.AnimTick {
+				t.Errorf("the gaze turned on a tick rather than on the message")
+			}
+		})
+	}
+
+	// The column is clamped to the row the creature can walk: a pointer past the
+	// right edge of the stage points at the last cell it could stand on, which is
+	// where oneko's cat stops too.
+	edge := companionMouse(t, m, companionMotion(width, height-2))
+	if edge.PointerCol != width {
+		t.Errorf("the pointer was not remembered as it arrived: %d", edge.PointerCol)
+	}
+	if got := edge.CompanionGaze; got != (companionGaze{X: 1}) {
+		t.Errorf("a pointer past the stage turned the gaze %+v, want it right", got)
+	}
+	if edge.CompanionPos != m.CompanionPos {
+		t.Errorf("the pointer moved the creature: cell %d, want %d", edge.CompanionPos, m.CompanionPos)
+	}
+}
+
+// TestCompanionPointerChangesOnlyItsOwnRows pins the cost of the pointer the way
+// the tick's own test pins the tick's: a pointer event may change the rows the
+// creature draws in and nothing else, and a pointer that lands on the cell it was
+// already on changes nothing at all -- which is what keeps a hover from streaming
+// escape sequences into a terminal whose frame did not change.
+func TestCompanionPointerChangesOnlyItsOwnRows(t *testing.T) {
+	fixtures := []companionScreenFixture{
+		{name: "main menu 160x50", screen: ScreenMainMenu, width: 160, height: 50, framed: true},
+		{name: "main menu 227x62", screen: ScreenMainMenu, width: 227, height: 62, framed: true},
+		{name: "welcome 160x50", screen: ScreenWelcome, width: 160, height: 50, framed: true},
+		{name: "os select 100x24", screen: ScreenOSSelect, width: 100, height: 24, framed: true},
+	}
+
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			m := NewModel()
+			isolateGoldenTest(t, &m)
+			m.Screen = f.screen
+			m.Width, m.Height = f.width, f.height
+			m.Animating, m.Hovering, m.AnimTick = true, true, 3
+
+			pointer := func(x int) tea.MouseMsg { return companionMotion(x, m.Height-2) }
+			far := viewPaddingCols + m.CompanionPos + 20
+
+			before := m.View()
+			moved := companionMouse(t, m, pointer(far))
+			after := moved.View()
+
+			beforeRows := strings.Split(before, "\n")
+			afterRows := strings.Split(after, "\n")
+			if len(beforeRows) != len(afterRows) {
+				t.Fatalf("a pointer event changed the row count from %d to %d",
+					len(beforeRows), len(afterRows))
+			}
+			var changed []int
+			for i := range beforeRows {
+				if beforeRows[i] != afterRows[i] {
+					changed = append(changed, i)
+				}
+			}
+			if len(changed) == 0 {
+				t.Fatalf("a pointer event that turned the gaze changed no row at all")
+			}
+			owned := map[int]bool{}
+			for _, row := range companionOwnedRows(afterRows) {
+				owned[row] = true
+			}
+			for _, row := range changed {
+				if !owned[row] {
+					t.Errorf("a pointer event changed row %d, which carries no art: %q",
+						row, plainRow(afterRows[row]))
+				}
+			}
+
+			// The same cell twice is not a change: the creature is already looking
+			// there, so the view is byte for byte what it was.
+			again := companionMouse(t, moved, pointer(far)).View()
+			if again != after {
+				t.Errorf("a pointer event on the cell it was already on changed the view")
+			}
+		})
+	}
+}
+
+// TestCompanionPointerWakesItAndAParkedMouseDoesNot pins the two halves of the
+// sleep rule. A pointer event is the user moving the mouse -- a parked mouse sends
+// no events at all, so there is nothing else a pointer event can mean -- and it
+// wakes the creature and turns its gaze. With no events the quiet stretch still
+// runs out, which is what the same screen proves a tick before.
+func TestCompanionPointerWakesItAndAParkedMouseDoesNot(t *testing.T) {
+	m := pointerModel(t, 160, 50)
+	m = companionTicks(t, m, companionSleepTicks)
+
+	if got := m.companionStateNow(); got != companionAsleepState {
+		t.Fatalf("with no events for %d ticks the creature draws state %s, want asleep",
+			companionSleepTicks, companionStateNames[got])
+	}
+
+	woke := companionMouse(t, m, companionMotion(viewPaddingCols+m.CompanionPos+20, m.Height-2))
+	if woke.CompanionIdle != 0 {
+		t.Errorf("the quiet stretch is %d frames after a pointer event, want 0", woke.CompanionIdle)
+	}
+	if got := woke.companionStateNow(); got == companionAsleepState {
+		t.Errorf("the creature is still asleep after the pointer moved")
+	}
+	if got := woke.CompanionGaze; got != (companionGaze{X: 1}) {
+		t.Errorf("a waking pointer turned the gaze %+v, want it right", got)
+	}
+}
+
+// TestCompanionClickHopsAndCelebrates pins the click reaction: the same
+// celebration a finished step earns, plus a jump that is drawn as one blank row
+// under the creature. The jump is the placement's business, so it is pinned where
+// it is decided: the creature's first row moves one row up while the hop lasts and
+// returns when the tick has aged it.
+func TestCompanionClickHopsAndCelebrates(t *testing.T) {
+	m := pointerModel(t, 160, 50)
+	grounded, _, ok := findCompanionRow(m.View())
+	if !ok {
+		t.Fatalf("the roomy screen drew no companion:\n%s", m.View())
+	}
+
+	clicked := companionMouse(t, m, companionClick(viewPaddingCols+m.CompanionPos+6, m.Height-2))
+	if clicked.CompanionPleased != companionPleasedTicks {
+		t.Errorf("the click set the celebration to %d frames, want %d",
+			clicked.CompanionPleased, companionPleasedTicks)
+	}
+	if clicked.CompanionHop != companionHopTicks {
+		t.Errorf("the click set the hop to %d frames, want %d",
+			clicked.CompanionHop, companionHopTicks)
+	}
+
+	lifted, _, ok := findCompanionRow(clicked.View())
+	if !ok {
+		t.Fatalf("the click left the screen with no companion:\n%s", clicked.View())
+	}
+	if lifted != grounded-1 {
+		t.Errorf("the hop drew the creature's first row at %d, want one row above %d",
+			lifted, grounded)
+	}
+
+	landed := companionTicks(t, clicked, companionHopTicks)
+	if landed.CompanionHop != 0 {
+		t.Errorf("after %d ticks the hop has %d frames left, want 0",
+			companionHopTicks, landed.CompanionHop)
+	}
+	if back, _, ok := findCompanionRow(landed.View()); !ok || back != grounded {
+		t.Errorf("after the hop the creature's first row is %d (found %v), want %d",
+			back, ok, grounded)
+	}
+}
+
+// TestCompanionHopNeedsItsOwnRow pins the row budget of the jump: the sprite gains
+// a blank row under it, so the hop costs one spare row more than the sprite itself.
+// Where the frame has no such row the creature stays on the ground and the
+// celebration shows in its face, which is the ladder's rule that no decoration
+// takes a row a fact needs.
+func TestCompanionHopNeedsItsOwnRow(t *testing.T) {
+	body := make([]string, 10)
+	for i := range body {
+		body[i] = fmt.Sprintf("body row %d", i+1)
+	}
+
+	tests := []struct {
+		name   string
+		spare  int
+		drawn  int // how many rows carry art: the sprite's own rows, hop or no hop
+		lifted bool
+	}{
+		{"room for the full sprite and the hop", companionFullHeight + 1, companionFullHeight, true},
+		{"room for the full sprite only", companionFullHeight, companionFullHeight, false},
+		{"room for the compact sprite and the hop", companionCompactHeight + 1, companionCompactHeight, true},
+		{"room for the compact sprite only", companionCompactHeight, companionCompactHeight, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{Width: 160, Height: 50, Animating: true, Hovering: true, CompanionHop: companionHopTicks}
+			placed := append(append([]string(nil), body...), make([]string, tt.spare)...)
+
+			got := m.placeCompanion(placed, nil, companionStageWidth(m))
+			if len(got) != len(placed) {
+				t.Fatalf("placement drew %d rows on a %d-row frame", len(got), len(placed))
+			}
+			drawn := 0
+			for _, row := range got {
+				if companionRowHasArt(row) {
+					drawn++
+				}
+			}
+			if drawn != tt.drawn {
+				t.Errorf("%d rows carry art, want the sprite's %d", drawn, tt.drawn)
+			}
+			if last := companionRowHasArt(got[len(got)-1]); last == tt.lifted {
+				if tt.lifted {
+					t.Errorf("the hop drew art on the frame's last row, so the creature did not lift")
+				} else {
+					t.Errorf("the creature did not lift and its last row carries no art")
+				}
+			}
+		})
+	}
+}
+
+// TestCompanionIgnoresWhatItCannotUse pins the two events that are not the
+// creature's: a wheel, which the alternate screen has no scrollback for, and any
+// pointer event at all on a run whose gate is off. Neither may move the creature,
+// wake it, or change a single byte of the view -- a gate that only stopped the
+// gaze would still have cost the user the terminal's own selection.
+func TestCompanionIgnoresWhatItCannotUse(t *testing.T) {
+	t.Run("the pointer is inert when the gate is off", func(t *testing.T) {
+		m := pointerModel(t, 160, 50)
+		m.Hovering = false
+
+		got := companionMouse(t, m, companionClick(viewPaddingCols+m.CompanionPos, m.Height-2))
+		if got.PointerSet {
+			t.Errorf("the pointer was remembered with the gate off")
+		}
+		if got.CompanionHop != 0 || got.CompanionPleased != m.CompanionPleased {
+			t.Errorf("a click moved the creature with the gate off")
+		}
+		if got.CompanionIdle != m.CompanionIdle {
+			t.Errorf("a click woke the creature with the gate off")
+		}
+		if got.View() != m.View() {
+			t.Errorf("a click changed the view with the gate off")
+		}
+	})
+
+	t.Run("a wheel is not an event", func(t *testing.T) {
+		m := pointerModel(t, 160, 50)
+
+		got := companionMouse(t, m, tea.MouseMsg{
+			X: viewPaddingCols + m.CompanionPos, Y: m.Height - 2,
+			Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp,
+		})
+		if got.PointerSet {
+			t.Errorf("a wheel was remembered as a pointer position")
+		}
+		if got.CompanionIdle != m.CompanionIdle || got.CompanionGaze != m.CompanionGaze {
+			t.Errorf("a wheel woke the creature or turned its gaze")
+		}
+		if got.View() != m.View() {
+			t.Errorf("a wheel changed the view")
+		}
+	})
+}
+
+// ============================================================================
+// THE SHADED SPRITE
+// ============================================================================
+//
+// The pixel sprite sits above the glyph ladder and is drawn only where it can be
+// drawn properly. These tests pin its geometry, its gaze, its place in the ladder,
+// and its determinism; the benchmark at the end measures what it costs.
+
+// companionGazes is every gaze the composer can be asked for.
+func companionGazes() []companionGaze {
+	return []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {X: -1, Y: -1}, {X: 1, Y: -1}}
+}
+
+// companionPixelGrids is every state's grid at every gaze, which is what the
+// sprite is drawn from.
+func companionPixelGrids() map[companionState]map[companionGaze][companionPixelRows]string {
+	out := map[companionState]map[companionGaze][companionPixelRows]string{}
+	for _, state := range companionStates() {
+		out[state] = map[companionGaze][companionPixelRows]string{}
+		for _, gaze := range companionGazes() {
+			out[state][gaze] = companionPixelGrid(state, 0, gaze)
+		}
+	}
+	return out
+}
+
+// TestCompanionPixelArtIsARectangleOfTones pins the pixel art's own rules: every
+// row is exactly the sprite's width and every pixel is one of the five tones, at
+// every state and every gaze. A grid that is a pixel short would shift the sprite's
+// right-hand outline by a column; a tone outside the palette would draw in whatever
+// colour the zero value happens to be.
+func TestCompanionPixelArtIsARectangleOfTones(t *testing.T) {
+	tones := string([]rune{companionPixelNone, companionPixelFurL, companionPixelFurM, companionPixelInk, companionPixelRose})
+	for state, gazes := range companionPixelGrids() {
+		for gaze, grid := range gazes {
+			for i, row := range grid {
+				if got := len([]rune(row)); got != companionPixelWidth {
+					t.Errorf("state %s at gaze %+v draws row %d as %d pixels, want %d",
+						companionStateNames[state], gaze, i, got, companionPixelWidth)
+				}
+				for x, tone := range row {
+					if !strings.ContainsRune(tones, tone) {
+						t.Errorf("state %s at gaze %+v draws tone %q at row %d column %d, which is not in the palette",
+							companionStateNames[state], gaze, tone, i, x)
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestCompanionPixelGazeMovesOnlyThePupils is the glyph gaze rule in pixels: a gaze
+// may change the four rows the eyes live in and the ten columns between the head's
+// sides, and nothing else. A face whose eyes are already drawn -- a blink, a sleep,
+// a happy squint -- may not change at all, because a cat with its eyes shut has
+// nothing to look with.
+func TestCompanionPixelGazeMovesOnlyThePupils(t *testing.T) {
+	const firstEyeRow, lastEyeRow = 6, 9
+
+	for _, state := range companionStates() {
+		face := companionPixelFaceFor(state)
+		for _, gaze := range companionGazes() {
+			if gaze == (companionGaze{}) {
+				continue
+			}
+			neutral := companionPixelGrid(state, 0, companionGaze{})
+			turned := companionPixelGrid(state, 0, gaze)
+
+			moved := 0
+			for i := range turned {
+				if turned[i] == neutral[i] {
+					continue
+				}
+				if i < firstEyeRow || i > lastEyeRow {
+					t.Errorf("state %s at gaze %+v changed row %d, which is not an eye row: %q -> %q",
+						companionStateNames[state], gaze, i, neutral[i], turned[i])
+					continue
+				}
+				for x := range []rune(neutral[i]) {
+					if []rune(neutral[i])[x] != []rune(turned[i])[x] {
+						moved++
+						if x < companionPixelSocketLeft-2 || x > companionPixelSocketRight+3 {
+							t.Errorf("state %s at gaze %+v changed column %d, outside the socket area",
+								companionStateNames[state], gaze, x)
+						}
+					}
+				}
+			}
+
+			switch {
+			case face.pupils == 0 && moved != 0:
+				t.Errorf("state %s moved its pupils at gaze %+v with its eyes drawn shut",
+					companionStateNames[state], gaze)
+			case face.pupils > 0 && moved == 0:
+				t.Errorf("state %s did not move its pupils at gaze %+v", companionStateNames[state], gaze)
+			}
+		}
+	}
+}
+
+// TestCompanionPixelSpriteIsTheLadderTopStep pins the ladder with the shaded sprite
+// on top of it: the pixel sprite where the frame can hold its eight rows and the run
+// may draw it, the five-row glyph cat where it cannot, and the glyph ladder
+// untouched everywhere the gate is off -- the floor is skipped over, never replaced.
+func TestCompanionPixelSpriteIsTheLadderTopStep(t *testing.T) {
+	body := make([]string, 10)
+	for i := range body {
+		body[i] = fmt.Sprintf("body row %d", i+1)
+	}
+
+	tests := []struct {
+		name      string
+		pixel     bool
+		spare     int
+		wantRows  int
+		wantPixel bool
+	}{
+		{"true colour and eight rows draws the pixel sprite", true, companionPixelHeight, companionPixelHeight, true},
+		{"the pixel sprite needs one row more than the glyph cat", true, companionPixelHeight - 1, companionFullHeight, false},
+		{"the gate off draws the glyph cat however much room there is", false, companionPixelHeight + 9, companionFullHeight, false},
+		{"a frame too small for the cat falls through to the head", true, companionCompactHeight, companionCompactHeight, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{Width: 160, Height: 50, Animating: true, PixelSprite: tt.pixel, ink: companionInkFor(true)}
+			placed := append(append([]string(nil), body...), make([]string, tt.spare)...)
+
+			got := m.placeCompanion(placed, nil, companionStageWidth(m))
+			if len(got) != len(placed) {
+				t.Fatalf("placement drew %d rows on a %d-row frame", len(got), len(placed))
+			}
+			sprite := got[len(got)-tt.wantRows:]
+			blocks := 0
+			for _, row := range sprite {
+				if strings.ContainsAny(ansiEscape.ReplaceAllString(row, ""), "\u2580\u2584\u2588") {
+					blocks++
+				}
+			}
+			if tt.wantPixel && blocks != companionPixelHeight {
+				t.Errorf("the sprite draws %d rows of half blocks, want %d", blocks, companionPixelHeight)
+			}
+			if !tt.wantPixel && blocks != 0 {
+				t.Errorf("the sprite drew %d rows of half blocks, want the glyph art", blocks)
+			}
+		})
+	}
+}
+
+// TestCompanionPixelSpriteIsDeterministic pins the promise the glyph sprite keeps,
+// in pixels: the same model, tick and gaze render the same bytes, the render is
+// pure so calling it twice changes nothing, and the sprite a snapshot would pin is
+// the ladder's eight rows.
+func TestCompanionPixelSpriteIsDeterministic(t *testing.T) {
+	build := func() Model {
+		m := NewModel()
+		isolateGoldenTest(t, &m)
+		m.Screen = ScreenMainMenu
+		m.Width, m.Height = 160, 50
+		m.Animating, m.PixelSprite, m.Hovering = true, true, true
+		return m
+	}
+
+	first, second := build(), build()
+	first = companionTicks(t, first, 3)
+	second = companionTicks(t, second, 3)
+
+	if first.View() != second.View() {
+		t.Errorf("two models advanced by three ticks rendered different bytes with the pixel sprite")
+	}
+	if first.View() != first.View() {
+		t.Errorf("rendering the same model twice produced different bytes, so the render is not pure")
+	}
+
+	rows := companionOwnedRows(strings.Split(first.View(), "\n"))
+	if len(rows) != companionPixelHeight {
+		t.Errorf("the pixel sprite owns %d rows, want %d", len(rows), companionPixelHeight)
+	}
+	for _, i := range rows {
+		if !strings.ContainsAny(plainRow(strings.Split(first.View(), "\n")[i]), "\u2580\u2584\u2588") {
+			t.Errorf("row %d of the pixel sprite carries no half blocks: %q",
+				i, plainRow(strings.Split(first.View(), "\n")[i]))
+		}
+	}
+}
+
+// TestCompanionPixelFrameBytesAreBounded declares the cost of the tier the way the
+// repository declares costs: with a test rather than a comment. A frame of the
+// shaded sprite is eight rows of sixteen cells, and the encoder writes an escape
+// sequence only when a cell's style changes, so a whole sprite frame -- every row,
+// every escape, the block glyphs -- fits in a few hundred bytes. The bound is
+// generous on purpose: it is there to catch a change that starts emitting a
+// sequence per cell, not to pin the exact number, which the test logs instead.
+func TestCompanionPixelFrameBytesAreBounded(t *testing.T) {
+	const bound = 2048
+
+	m := Model{Width: 160, Height: 50, Animating: true, PixelSprite: true, ink: companionInkFor(true)}
+	m.Screen = ScreenMainMenu
+	m.CompanionPos = 40
+
+	biggest := 0
+	for _, state := range companionStates() {
+		for _, gaze := range companionGazes() {
+			grid := companionPixelGrid(state, 0, gaze)
+			total := 0
+			for i := 0; i < companionPixelRows; i += 2 {
+				total += len(m.ink.row(grid[i], grid[i+1]))
+			}
+			biggest = max(biggest, total)
+			if total > bound {
+				t.Errorf("state %s at gaze %+v writes %d bytes in one frame, want at most %d",
+					companionStateNames[state], gaze, total, bound)
+			}
+		}
+	}
+	t.Logf("the shaded sprite writes at most %d bytes per frame (%d rows of %d cells)",
+		biggest, companionPixelHeight, companionPixelWidth)
+}
+
+// BenchmarkCompanionPixelFrame measures what drawing the shaded sprite costs in the
+// render path: one View of a walking model with a live pointer, which is the worst
+// case a live run reaches.
+func BenchmarkCompanionPixelFrame(b *testing.B) {
+	m := Model{Width: 160, Height: 50, Animating: true, PixelSprite: true, Hovering: true, ink: companionInkFor(true)}
+	m.Screen = ScreenMainMenu
+	m.CompanionPos = 40
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		m.AnimTick = i
+		_ = m.View()
+	}
+}
+
+// BenchmarkCompanionGlyphFrame is the same frame drawn with the glyph cat, so the
+// shaded sprite's share of the render can be read off the two benchmarks together:
+// the difference between them is what the extra tier costs a live run.
+func BenchmarkCompanionGlyphFrame(b *testing.B) {
+	m := Model{Width: 160, Height: 50, Animating: true, Hovering: true, ink: companionInkFor(true)}
+	m.Screen = ScreenMainMenu
+	m.CompanionPos = 40
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		m.AnimTick = i
+		_ = m.View()
 	}
 }
