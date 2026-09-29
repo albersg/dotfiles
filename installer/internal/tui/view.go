@@ -48,13 +48,15 @@ func deadEnd(message, action string) string {
 // frame is why the installer's screens read as one program instead of twenty
 // layouts: the same rows land in the same places on all of them.
 //
-// The installer screens go through this frame, which pads their body so the
-// rule above the footer lands on the same row on every one of them. The trainer
-// screens cannot: they size their code window from the exact number of rows the
-// chrome leaves, so they compose the same parts -- headerRow, rule, chip and
-// gutteredBlock -- directly, one row per element, without placeBody's padding.
-// The trainer's legends go through footerHints too, one row per packed line, so
-// their keys and verbs read the same there as on every installer screen.
+// The installer screens go through this frame, which pads and centres their body
+// so the rule above the footer lands on the same row on every one of them and
+// the content sits in the middle of the rows they leave instead of against the
+// header. The trainer screens cannot: they size their code window from the exact
+// number of rows the chrome leaves, so they compose the same parts -- headerRow,
+// rule, chip and gutteredBlock -- directly, one row per element, without
+// placeBody's padding. The trainer's legends go through footerHints too, one row
+// per packed line, so their keys and verbs read the same there as on every
+// installer screen.
 
 // installerHint is one footer entry: the keys that trigger an action and the
 // verb that names it. The frame draws the keys in Accent and the verb in InkDim,
@@ -180,16 +182,19 @@ func headerRow(name, vital string, inner int) string {
 }
 
 // placeBody fits a screen's body into the rows the frame leaves. The body is
-// top-aligned, or centered for the welcome splash, and padded with blank rows
-// so the rule above the footer lands on the same row on every screen. It does
-// NOT truncate an oversized body: a screen that draws more rows than it reserved
-// must fail the frame guard, not be quietly clipped here.
-func placeBody(body []string, rows int, center bool) []string {
-	out := make([]string, 0, rows)
-	if center {
-		for i := 0; i < (rows-len(body))/2; i++ {
-			out = append(out, "")
-		}
+// centred in those rows, so a screen shorter than its frame reads as designed
+// space above and below the content instead of a void between the content and
+// the pinned footer. The blank rows go above and below in equal parts, with the
+// odd one, if any, below: the same placement the splash has always used, so a
+// screen that does not fill its rows cannot drift from it.
+//
+// A body that fills or overflows the rows is left exactly as it is, and is not
+// truncated: a screen that draws more rows than it reserved must fail the frame
+// guard, not be quietly clipped here.
+func placeBody(body []string, rows int) []string {
+	out := make([]string, 0, max(len(body), rows))
+	for i := 0; i < (rows-len(body))/2; i++ {
+		out = append(out, "")
 	}
 	out = append(out, body...)
 	for len(out) < rows {
@@ -198,13 +203,14 @@ func placeBody(body []string, rows int, center bool) []string {
 	return out
 }
 
-// frame wraps a screen body in the persistent frame. The footer is pinned to the
-// bottom by padding the body region, so a short screen and a full one still put
-// their header and their help on the same rows.
-func (m Model) frame(name, vital string, body []string, hints []installerHint, centerBody bool) string {
+// frame wraps a screen body in the persistent frame. The header stays on the top
+// row and the footer on the bottom one, and the body is centred in the rows
+// between them: a short screen and a full one put their header and their help on
+// the same rows, and neither leaves a void above the footer.
+func (m Model) frame(name, vital string, body []string, hints []installerHint) string {
 	inner := contentWidth(m)
 	footer := footerHints(inner, hints)
-	placed := placeBody(body, installerBodyRows(m.Height, len(footer)), centerBody)
+	placed := placeBody(body, installerBodyRows(m.Height, len(footer)))
 
 	var b strings.Builder
 	b.WriteString(headerRow(name, vital, inner))
@@ -792,14 +798,14 @@ func (m Model) renderWelcome() string {
 	body = append(body, "")
 	body = append(body, SubtitleStyle.Render("Your terminal environment, configured in minutes."))
 
-	// Center the splash horizontally within the frame and vertically in the rows
-	// the frame leaves, so the last row of a full-height screen still lands on
-	// the terminal's last row instead of one past it.
+	// Center the splash horizontally within the frame; the frame centres every
+	// body vertically in the rows it leaves, so the last row of a full-height
+	// screen still lands on the terminal's last row instead of one past it.
 	centered := make([]string, len(body))
 	for i, line := range body {
 		centered[i] = CenterHorizontally(line, inner)
 	}
-	return m.frame(m.headerName(), "", centered, []installerHint{hintStart, hintQuit}, true)
+	return m.frame(m.headerName(), "", centered, []installerHint{hintStart, hintQuit})
 }
 
 func (m Model) renderMainMenu() string {
@@ -811,7 +817,7 @@ func (m Model) renderMainMenu() string {
 		"",
 	}
 	body = append(body, m.menuRows(m.GetCurrentOptions(), m.Cursor)...)
-	return m.frame(m.headerName(), "", body, []installerHint{hintUp, hintDown, hintSelect, hintQuit}, false)
+	return m.frame(m.headerName(), "", body, []installerHint{hintUp, hintDown, hintSelect, hintQuit})
 }
 
 // stripStepPrefix removes a leading "Step N: " from a wizard title, so the step
@@ -845,7 +851,7 @@ func (m Model) renderSelection() string {
 	if current, total := m.wizardProgress(); total > 0 {
 		vital = meterRendered(current, total, 10)
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintSelect, hintBack}, false)
+	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintSelect, hintBack})
 }
 
 func (m Model) renderLearnTerminals() string {
@@ -931,7 +937,7 @@ func (m Model) renderSingleToolInfo(info ToolInfo) string {
 	body = append(body, WarningStyle.Render("✗")+" "+chip("Cons"))
 	body = append(body, gutteredBlock(listRows(info.Cons, "• ", consRows, width-2, MutedStyle))...)
 
-	return m.frame(m.headerName(), "", body, hints, false)
+	return m.frame(m.headerName(), "", body, hints)
 }
 
 // keymapTableBodyFixed is the part of a keymap table's body that is not a
@@ -1027,7 +1033,7 @@ func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
 	if len(category.Keymaps) > rows {
 		vital = scrollVital("Showing", start+1, end, len(category.Keymaps))
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintReturn}, false)
+	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintReturn})
 }
 
 // menuBodyFixed is the part of a menu's body that is not an option row: the
@@ -1063,7 +1069,7 @@ func (m Model) renderMenu(description string) string {
 	if len(rows) > visible {
 		vital = scrollVital("Showing", start+1, end, len(rows))
 	}
-	return m.frame(m.headerName(), vital, body, hints, false)
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 func (m Model) renderKeymapsMenu() string {
@@ -1238,7 +1244,7 @@ func (m Model) renderLazyVimTopic() string {
 	if len(allLines) > viewHeight {
 		vital = scrollVital("Lines", start+1, end, len(allLines))
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintPage, hintReturn}, false)
+	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintPage, hintReturn})
 }
 
 // Installing screen rows. The bar is the one place the whole run's progress is
@@ -1443,7 +1449,7 @@ func (m Model) renderInstalling() string {
 		body = append(body, "")
 	}
 
-	return m.frame(m.headerName(), m.installingVital(), body, []installerHint{hintDetails}, false)
+	return m.frame(m.headerName(), m.installingVital(), body, []installerHint{hintDetails})
 }
 
 func (m Model) renderComplete() string {
@@ -1483,7 +1489,7 @@ func (m Model) renderComplete() string {
 		HighlightStyle.Render(fmt.Sprintf("exec %s", shellCmd)),
 	})...)
 
-	return m.frame(m.headerName(), "", body, []installerHint{hintExit}, false)
+	return m.frame(m.headerName(), "", body, []installerHint{hintExit})
 }
 
 func (m Model) renderError() string {
@@ -1518,7 +1524,7 @@ func (m Model) renderError() string {
 		body = append(body, gutteredBlock(logLines)...)
 	}
 
-	return m.frame(m.headerName(), "", body, []installerHint{hintRetry, hintQuit}, false)
+	return m.frame(m.headerName(), "", body, []installerHint{hintRetry, hintQuit})
 }
 
 // backupConfirmFixed is the rows the backup-confirmation body spends around the
@@ -1551,7 +1557,7 @@ func (m Model) renderBackupConfirm() string {
 	body = append(body, "")
 	body = append(body, m.menuRows(options, m.Cursor)...)
 
-	return m.frame(m.headerName(), "", body, hints, false)
+	return m.frame(m.headerName(), "", body, hints)
 }
 
 // restoreBackupBodyFixed is the part of the restore list's body that is not a
@@ -1602,7 +1608,7 @@ func (m Model) renderRestoreBackup() string {
 	if len(m.AvailableBackups) > listBudget {
 		vital = scrollVital("Showing", start+1, end, len(m.AvailableBackups))
 	}
-	return m.frame(m.headerName(), vital, body, hints, false)
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 // restoreConfirmBodyFixed is the part of the restore confirmation's body that is
@@ -1640,7 +1646,7 @@ func (m Model) renderRestoreConfirm() string {
 	body = append(body, "")
 	body = append(body, m.menuRows(options, m.Cursor)...)
 
-	return m.frame(m.headerName(), "", body, hints, false)
+	return m.frame(m.headerName(), "", body, hints)
 }
 
 // ============================================================================
