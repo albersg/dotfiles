@@ -292,16 +292,17 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 
 	// The panel summary of a narrow terminal and the companion both live in the
 	// rows the body did not need, and they are placed together so neither can
-	// displace the other or a body row. The companion's row is the last of them --
-	// immediately above the footer rule -- and it is placed only where that row is
-	// spare and the summary does not need it: a screen whose body fills its frame
-	// shows no companion at all, exactly as it shows no summary, and a screen with
-	// one row to spare shows the facts rather than the creature.
+	// displace the other or a body row. The summary keeps its rows first -- the
+	// facts beat a decoration -- and the companion takes the rows nearest the
+	// footer that are left, at the tallest height those rows can hold: a screen
+	// whose body fills its frame shows no companion at all, exactly as it shows no
+	// summary, and a screen with one row to spare shows the facts rather than the
+	// creature.
 	var summary []string
 	if !l.TwoColumn && len(panels) > 1 {
 		summary = m.rotatorLines(panels, inner)
 	}
-	placed = placeCompanion(placed, m.companionRow(inner), summary)
+	placed = m.placeCompanion(placed, summary, inner)
 
 	var b strings.Builder
 	b.WriteString(headerRow(name, vital, inner))

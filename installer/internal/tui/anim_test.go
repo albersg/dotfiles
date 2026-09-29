@@ -188,17 +188,20 @@ func TestTheTrainersDeadlineClockDoesNotMoveTheAnimation(t *testing.T) {
 }
 
 // TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow pins
-// that the gate changes scheduling and, now that the companion exists, exactly
-// one row. The previous slice's version of this guard asserted that every framed
-// screen rendered the same bytes with animation on and with it off, because then
-// no screen showed the counter at all -- "until the slices that place a tip or a
-// companion", as its own comment said. The companion is that slice, so the guard
-// is restated for the new truth rather than dropped: every row a body needs is
-// still byte-identical, the frame neither gains nor loses a row (a companion that
-// cost it one would push a body row off the screen the moment animation was
-// turned on), and the one row that may differ is the last row the body did not
-// need, immediately above the footer rule. TestCompanionTicksChangeOnlyItsOwnRow
-// pins the same one-row budget on the tick axis.
+// that the gate changes scheduling and, now that the companion exists, only the
+// companion's own rows. The previous slice's version of this guard asserted that
+// every framed screen rendered the same bytes with animation on and with it off,
+// because then no screen showed the counter at all -- "until the slices that place
+// a tip or a companion", as its own comment said. The companion is that slice, so
+// the guard is restated for the new truth rather than dropped: every row a body
+// needs is still byte-identical, the frame neither gains nor loses a row (a
+// companion that cost it one would push a body row off the screen the moment
+// animation was turned on), and the rows that may differ are the last rows the
+// body did not need, immediately above the footer rule. The bound is not a number
+// written here: the companion's height is read off the render, so the tail this
+// guard allows is the summary's rows plus the art that screen's ladder actually
+// chose, and a fourth height added tomorrow cannot slip past it.
+// TestCompanionTicksChangeOnlyItsOwnRows pins the same budget on the tick axis.
 func TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow(t *testing.T) {
 	screens := []struct {
 		screen Screen
@@ -272,7 +275,10 @@ func TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow(t *t
 					// The frame's last rule is the row above its footer; above it
 					// the body ends. The gate may fill the decorated tail the body
 					// did not need -- the summary and the companion -- and nothing
-					// above it: not one row of the body.
+					// above it: not one row of the body. How tall that tail is comes
+					// from the render, not from this test: the rows immediately above
+					// the rule that carry art are the height the ladder chose for this
+					// screen and size.
 					lastRule := -1
 					for i := len(movingRows) - 1; i >= 0; i-- {
 						if isRuleRow(movingRows[i]) {
@@ -284,7 +290,15 @@ func TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow(t *t
 						t.Fatalf("screen %v has no footer rule to place the companion above:\n%s",
 							entry.screen, moving)
 					}
-					tail := rotatorMaxRows + 1 // the summary's rows plus the companion's
+					artRows := companionArtRun(movingRows, lastRule)
+					if artRows == 0 {
+						// Something changed with animation on but no creature is on screen.
+						// That is a defect -- a row changing with nothing drawing is
+						// exactly the cost this guard exists to bound -- and not a pass.
+						t.Fatalf("screen %v changes %d rows with animation on at %s without drawing the companion above the footer rule:\nstill:\n%s\nmoving:\n%s",
+							entry.screen, len(changed), size.name, still, moving)
+					}
+					tail := rotatorMaxRows + artRows // the summary's rows plus the art this screen drew
 					if len(changed) > tail {
 						t.Fatalf("screen %v changes %d rows with animation on at %s, want at most the decorated tail's %d:\nstill:\n%s\nmoving:\n%s",
 							entry.screen, len(changed), size.name, tail, still, moving)
