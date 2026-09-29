@@ -113,6 +113,7 @@ recent output.
 |-----|--------|
 | `↑` / `k` | Move up |
 | `↓` / `j` | Move down |
+| `Tab` | Cycle the panels of a screen that offers more than one |
 | `Enter` / `Space` | Select option |
 | `Esc` | Go back |
 | `q` | Quit (when not installing) |
@@ -151,13 +152,17 @@ At 80×24 the shift is five rows, below the cap, so nothing moves there.
 
 ### Panels
 
-Where the frame has room for a second column, two screens offer one, and each panel answers the
+Where the frame has room for a second column, a screen offers one, and each panel answers the
 question its own screen asks:
 
 | Screen | Panel | The question it answers |
 |--------|-------|-------------------------|
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
+| Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **What will happen** | What is about to happen — the plan the run would execute, the configurations it will overwrite, and the newest backup with when it was taken and how old it is |
+| Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
+| Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
+| Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
 
 The welcome screen asks where you are, so its panel is the machine; the main menu asks what it is
 about to do, so its panel is the plan and the state that run will read. The plan is the wizard's own:
@@ -178,6 +183,57 @@ invented facts is worse than a short one. Nothing is clipped silently either: a 
 column wraps under itself, and a panel with more rows than the frame leaves says how many it could
 not show.
 
+**The plan is on the wizard's choice screens, and the trainer's panel reads the trainer's own file.**
+The wizard's own questions (operating system, terminal, font, shell, multiplexer, Neovim, the Ghostty
+warning) each draw a plan panel beside the choice, for the same reason the main menu does. The
+**Your trainer** panel reads the stats the trainer already persists (`~/.config/dotfiles-trainer/stats.json`)
+on the startup path, through the same accessors the trainer menu uses, so the panel and the menu
+cannot disagree, and a module you have never opened is left out rather than shown as `0/5`. When
+there is no record of any run — no file at all, or a file saved before anything was played — the
+panel says so in one line instead of drawing the zeros as progress.
+
+**`Tab` cycles the panels, and the tab row names them.** A screen that offers more than one panel
+starts its right column with a row naming them all, the active one in the brand tone and the others
+dim; `Tab` moves to the next and wraps at the end. The footer advertises `[Tab] panel` only on those
+screens, because on a screen with one panel the key does nothing (the trainer's exercise screens
+still read it as "hint"). A screen the frame drops the column from below the two-column floor shows
+a **one-line summary** of the active panel above the footer rule instead. That summary names the
+panel short (`Machine`, `Plan`, `Trainer`, `Tip`, `Last install`) because it has one row to spend,
+and it carries the same headline the panel would. It is placed only in rows the body did not need: a
+screen whose body fills its frame shows no summary, and no summary ever takes a row from a body.
+
+**A tip rotates every ten seconds.** The **Did you know?** panel shows one item at a time: the keys
+as key tokens, what they do, and the source in the dim tone above them. The pool is built from
+content the repository already ships, in a declared order with no randomness — the keymap reference
+data (Neovim, then Tmux, Zellij, Ghostty and Herdr, each in its own declared order) followed by the
+trainer's own lessons in module order, with the lessons whose mission does not fit the tip's two
+rows left out so a tip is never cut — so two runs on the same machine show the same sequence. The
+panel advances one tip per ten animation ticks; with animation off it stays on the first tip.
+
+**The installer records when it last ran.** When a run completes, the installer writes a small
+record, best effort, to
+`$XDG_STATE_HOME/dotfiles/last-install.json` — or `~/.local/state/dotfiles/last-install.json` when
+`XDG_STATE_HOME` is unset. The record holds when the run finished, the build it ran (`VersionLabel`)
+and the configuration paths that run backed up and replaced. It is written once, when the run
+finishes, and read once on the startup path; a run whose state directory cannot be written still
+completes, because the record is a convenience and not a step. On the next run the **Last install**
+panel shows that record; when there is no file the panel is not offered at all, so the tab row never
+names a panel that would have to say "never".
+
+### Turning animation off
+
+The tip rotation is driven by one gate. Animation is off when any of these is true, and with it off
+no slow tick is scheduled and the screen stays on the first tip:
+
+- `DOTFILES_ANIM=0` is set;
+- `--no-anim` is passed (the flag sets `DOTFILES_ANIM=0` before the model is built);
+- stdout is not a terminal (a redirected or piped run), so the installer does not stream escape
+  sequences into a file; or
+- `TERM=dumb`, because that terminal cannot address a cursor well enough to animate on.
+
+The gate is decided once, when the model is built; the render path itself never reads the
+environment, so a render stays pure.
+
 ## Command Line Interface
 
 ### Basic Flags
@@ -192,6 +248,7 @@ dotfiles [flags]
 | `--version` | `-v` | Show version information |
 | `--test` | `-t` | Run in test mode (uses temporary directory) |
 | `--dry-run` | | Show what would be installed without doing it |
+| `--no-anim` | | Disable animation; the same as `DOTFILES_ANIM=0` |
 | `--non-interactive` | | Run without TUI, use CLI flags instead |
 
 ### Non-Interactive Mode
