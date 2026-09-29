@@ -277,6 +277,37 @@ summary above the creature, and one whose body fills its frame shows neither. At
 every screen is guaranteed to work at — the main menu leaves five spare rows of which the summary
 takes one, so the three-row head is what draws there; the whole five-row cat needs six.
 
+**Above the glyph cat there is one more step, drawn only where it can be drawn properly.** Where the
+terminal reports true colour and the frame can hold eight more rows, the same cat is drawn as a shaded
+pixel sprite: sixteen pixels square, as eight rows of half blocks with a foreground and a background
+colour per cell, so the outline, the fur in two shades and the rose nose all come from the palette,
+the walk bobs by half a cell and a sleeping cat's whole body sags. Half blocks give two pixels per
+cell vertically, which is what lets eight rows carry sixteen rows of drawing — enough for a face that
+reads as a cat rather than as a smiley. It needs colour in a way the glyph art does not: a terminal
+with no colour draws those cells as plain blocks, so this step exists only when the terminal says it
+has true colour, and the glyph ladder — all of it, the five-row cat included — stays exactly as it is
+for every other run. The ladder therefore reads: shaded sprite, else five rows, else three, else one,
+else nothing.
+
+It costs what it looks like it costs. A sprite frame is eight rows of sixteen cells, and the encoder
+writes an escape sequence only when a cell's style changes, so a whole frame is at most **1560 bytes**
+(asserted by a test, not promised in a comment) — about 12 KB/s while the creature animates at eight
+frames a second, and at most 94 KB/s if a repaint is driven at the renderer's 60 fps ceiling. Drawing
+it is about 140 µs of the roughly 700 µs a frame of this screen already takes, which the benchmark
+beside the sprite's tests measures rather than estimates.
+
+**Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
+this step and deliberately rejected, for two reasons that were measured rather than guessed. It
+requires `x/ansi` at 0.11.7 or later, and with that version the `x/cellbuf` that Bubble Tea v1.3.10
+pins does not compile — so adopting it means moving `x/ansi`, `x/cellbuf`, `colorprofile`, `x/term`,
+`x/sys`, `x/text`, `go-colorful` and `go-runewidth` inside the **render path of every screen**, for a
+sprite. And its colour choice is keyed on a luminance threshold: the block glyph it picks depends on
+which pixel counts as "set", and a cell whose two pixels fall on the same side of the threshold is
+collapsed to their average colour, which is exactly the shading boundary a four-tone sprite exists to
+draw (and it softens every edge on a light terminal). The fifty lines here give exact colours per
+cell, cost nothing at install time and add no module, so this is a decision and not an oversight: if
+someone wants to reintroduce the library, the two costs above are what they have to answer.
+
 The art is drawn in this repository, in `installer/internal/tui/companion.go`, and it is plain ASCII:
 a 16-colour terminal, a terminal without an emoji font and Termux all draw it. Every row of a frame is
 the same width, so the creature never jitters sideways, and the cell is fixed per height, so a
@@ -289,6 +320,31 @@ one-cell step is always one column.
    (  o    o  )                    >  ^  <
    (     ^    )
     >  <  >  <
+```
+
+The shaded sprite is the same cat as pixels, and it is drawn from a grid of tones rather than of
+glyphs: `.` is the light fur, `o` the mid fur, `#` the outline and the pupils, `x` the nose and the
+mouth, and a blank the terminal's own background, so the pixels the cat does not cover blend with it.
+The face below is the centre gaze; the composer moves the pupil pair one column to either side and,
+when the pointer is above the creature, one pixel row up.
+
+```text
+    o#        #o
+    o##      ##o
+    o###    ###o
+   #o####  ####o#
+   #oooooooooooo#
+   #oooooooooooo#
+   #o..........o#
+   #o..##oo##..o#
+   #o..##oo##..o#
+   #o..........o#
+   #oooooxxooooo#
+   #oooooxxooooo#
+   #oooox..xoooo#
+    #oooooooooo#
+     #oooooooo#
+      ########
 ```
 
 **The state reads from the glyphs**, not from the tone — the eyes, the `z` and the `!` — so a
@@ -316,11 +372,32 @@ is kept exactly as it shipped. Down is not drawn: there is no honest third eye r
 wrong-looking "down" would read worse than a missing one. The pupils rest while the thing it wants is
 within a two-column dead zone of its own cell, so they cannot flicker.
 
-Today the creature looks at the selection: the row the cursor is on is a body row above its own, so a
-menu screen makes it look up and, while the selection is off to one side, that way too, and a screen
-with nothing to point at leaves it looking straight ahead. The gaze is a cell on the model, like the
-position and the frame, and `companionGazeFor` is the one function the pointer feeds when the mouse
-arrives.
+**Its eyes follow the mouse.** With the pointer live (which is the default; see below) the pupils turn
+one column to the side the pointer is on and look up when it is above the creature, and that is what
+`companionGazeFor` receives: the pointer's column clamped to the stage the creature walks, and its row
+measured against the bottom third of the frame — the band the creature draws in — so a pointer up the
+screen makes it look up and one across the floor makes it look sideways. The turn happens on the
+mouse message itself, not on the next tick, so the eyes arrive with the hand rather than a frame
+behind it. The pupils rest while the pointer is within a two-column dead zone of the creature's own
+cell, so they cannot flicker, and a pointer that lands on the cell it was already on changes nothing
+at all — the renderer sees the same bytes and skips the frame.
+
+Where there is no live pointer the creature looks at the selection, which is what it did before the
+pointer existed: the row the cursor is on is a body row above its own, so a menu screen makes it look
+up and, while the selection is off to one side, that way too, and a screen with nothing to point at
+leaves it looking straight ahead. That fallback is why a terminal that refuses mouse reporting, a run
+with the pointer switched off and a Termux session all keep a gaze rather than losing it. The gaze is
+a cell on the model, like the position and the frame, so a snapshot pins it either way.
+
+**A pointer event also wakes it, and a click makes it jump.** There is nothing clever to detect about
+a parked mouse — a parked mouse sends no events at all — so the only pointer event that exists is the
+user moving the mouse, and every one of them is the sudden movement that wakes the cat, which is
+oneko's rule as much as the sleeping face is. A left click is an event of its own: the creature earns
+the same celebration as a finished installation step and hops one row off the ground, drawn as one
+blank row under it. The hop costs one spare row more than the sprite itself, so on a frame that has
+none the creature stays on the ground and the celebration shows in its face instead — no decoration
+takes a row a fact needs. A wheel is ignored: the installer runs in the alternate screen, where there
+is no scrollback for it to move.
 
 **It walks, follows the selection, sleeps and reacts.** It strolls one cell per animation frame —
 eight frames a second, the frame tick the animation gate owns — and turns at the edge of its row.
@@ -349,7 +426,22 @@ changes nothing at all: the view string is identical, so the renderer skips the 
 
 ### Turning animation off
 
-The tip rotation and the companion are driven by one gate. Animation is off when any of these is
+Three switches decide what the creature is drawn as, and they are read once, when the model is built;
+the render path reads the model's answers and never the environment. They are independent on purpose:
+the animation is the creature moving at all, the pointer is the mouse being read, and the sprite is
+the drawing being shaded.
+
+| Switch | What it turns off | What is drawn instead |
+|--------|-------------------|-----------------------|
+| `DOTFILES_ANIM=0`, `--no-anim` | the frame tick and the tip rotation | no creature anywhere and the first tip. A frozen pet is not the point |
+| `DOTFILES_MOUSE=0`, `--no-mouse` | reading the mouse; no mouse mode is requested at all | the glyph or pixel cat looking at the selection, and the terminal's own drag-to-select |
+| `DOTFILES_SPRITE=0`, `--no-sprite` | the shaded pixel sprite | the glyph cat at whichever of its three heights the rows allow, with the pointer and the animation untouched |
+
+The first two also switch off further down: with the animation off there is nothing to move, so the
+pointer is off too, and with the sprite off true colour is never asked about. Turning the pointer off
+is the one that has a price attached, not a benefit: it gives the terminal's own drag-to-select back.
+
+The animation gate and the tip rotation are driven by one gate. Animation is off when any of these is
 true, and with it off no frame tick is scheduled, the screen stays on the first tip and there is no
 companion at all:
 
@@ -361,6 +453,32 @@ companion at all:
 
 The gate is decided once, when the model is built; the render path itself never reads the
 environment, so a render stays pure.
+
+### The mouse pointer, and what it costs
+
+The creature's gaze is the one thing in the installer that reads the mouse, and it has **a switch of
+its own** rather than a side of the animation gate, because it costs the user something: a terminal
+that is reporting the mouse gives its own text selection up to the application, so on the installer's
+screens a normal drag no longer selects text — hold the terminal's bypass key (Shift on xterm-family
+terminals, kitty, VTE, Windows Terminal and Alacritty; Option on iTerm2 by default) to select with the
+mouse anyway. The pointer is off when any of these is true:
+
+- `DOTFILES_MOUSE=0` is set, or `--no-mouse` is passed (the flag sets the variable before the model is
+  built, exactly as `--no-anim` does);
+- stdout is not a terminal; or
+- the session is Termux, where the pointer is a finger: Termux turns a drag into a wheel report, so the
+  gaze would cost the user the swipe and give nothing back. `DOTFILES_MOUSE=1` overrides that default
+  for a Termux session with a real mouse attached.
+
+With the pointer off **no mouse mode is asked for at all**, so the terminal never enters application
+mouse reporting and its ordinary selection works again; a run that merely ignored the events would
+still have cost the user the drag. With the animation gate off there is nothing to move, so the
+pointer is off too. The two switches are read once, when the model is built, and the model's own field
+decides the program's mouse option, so the option and the model cannot disagree.
+
+The shaded sprite has a switch of its own too, `DOTFILES_SPRITE=0` / `--no-sprite`, and it turns off
+only the pixel sprite: a run whose terminal claims true colour but renders block glyphs badly keeps
+the glyph cat instead, with the pointer and the animation untouched.
 
 ## Command Line Interface
 
@@ -377,6 +495,8 @@ dotfiles [flags]
 | `--test` | `-t` | Run in test mode (uses temporary directory) |
 | `--dry-run` | | Show what would be installed without doing it |
 | `--no-anim` | | Disable animation; the same as `DOTFILES_ANIM=0` |
+| `--no-mouse` | | Do not track the mouse pointer; the same as `DOTFILES_MOUSE=0` |
+| `--no-sprite` | | Draw the creature as glyphs, not as the shaded sprite; the same as `DOTFILES_SPRITE=0` |
 | `--non-interactive` | | Run without TUI, use CLI flags instead |
 
 ### Non-Interactive Mode
