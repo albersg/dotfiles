@@ -18,10 +18,12 @@ func TestModuleID_Constants(t *testing.T) {
 		ModuleSubstitution,
 		ModuleRegex,
 		ModuleMacros,
+		ModuleEditing,
+		ModuleRegisters,
 	}
 
-	if len(modules) != 7 {
-		t.Errorf("Expected 7 modules, got %d", len(modules))
+	if len(modules) != 9 {
+		t.Errorf("Expected 9 modules, got %d", len(modules))
 	}
 
 	// Verificar valores únicos
@@ -46,6 +48,8 @@ func TestModuleID_StringValues(t *testing.T) {
 		{ModuleSubstitution, "substitution"},
 		{ModuleRegex, "regex"},
 		{ModuleMacros, "macros"},
+		{ModuleEditing, "editing"},
+		{ModuleRegisters, "registers"},
 	}
 
 	for _, tt := range tests {
@@ -137,8 +141,8 @@ func TestExercise_Creation(t *testing.T) {
 func TestGetAllModules_ReturnsCorrectCount(t *testing.T) {
 	modules := GetAllModules()
 
-	if len(modules) != 7 {
-		t.Errorf("Expected 7 modules, got %d", len(modules))
+	if len(modules) != 9 {
+		t.Errorf("Expected 9 modules, got %d", len(modules))
 	}
 }
 
@@ -153,6 +157,8 @@ func TestGetAllModules_CorrectOrder(t *testing.T) {
 		ModuleSubstitution,
 		ModuleRegex,
 		ModuleMacros,
+		ModuleEditing,
+		ModuleRegisters,
 	}
 
 	for i, expected := range expectedOrder {
@@ -206,6 +212,8 @@ func TestGetAllModules_BossNames(t *testing.T) {
 		ModuleSubstitution: "The Transformer",
 		ModuleRegex:        "The Pattern Master",
 		ModuleMacros:       "The Automaton",
+		ModuleEditing:      "The Historian",
+		ModuleRegisters:    "The Archivist",
 	}
 
 	for _, mod := range modules {
@@ -237,7 +245,9 @@ func TestNextModule_FollowsUnlockOrder(t *testing.T) {
 		{"cgn unlocks substitution", ModuleChangeRepeat, ModuleSubstitution, true},
 		{"substitution unlocks regex", ModuleSubstitution, ModuleRegex, true},
 		{"regex unlocks macros", ModuleRegex, ModuleMacros, true},
-		{"macros is the final module", ModuleMacros, "", false},
+		{"macros unlocks editing", ModuleMacros, ModuleEditing, true},
+		{"editing unlocks registers", ModuleEditing, ModuleRegisters, true},
+		{"registers is the final module", ModuleRegisters, "", false},
 		{"unknown module has no successor", ModuleID("nope"), "", false},
 	}
 
@@ -273,6 +283,111 @@ func TestExerciseStats_IsMastered(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.stats.IsMastered(); got != tt.want {
 				t.Errorf("IsMastered() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// BUFFER JUDGE OPT-IN
+// =============================================================================
+
+// shippedLessons returns the lessons of every module in unlock order, and
+// shippedBossSteps every boss step, so the regression guards below enumerate the
+// real shipped corpus instead of a hand-copied list that could drift from it.
+func shippedLessons() []Exercise {
+	var all []Exercise
+	for _, module := range moduleUnlockOrder {
+		all = append(all, GetLessons(module)...)
+	}
+	return all
+}
+
+func shippedBossSteps() []Exercise {
+	var all []Exercise
+	for _, module := range moduleUnlockOrder {
+		if boss := GetBoss(module); boss != nil {
+			for _, step := range boss.Steps {
+				all = append(all, step.Exercise)
+			}
+		}
+	}
+	return all
+}
+
+// Exercise.BufferVerified is the opt-in for the buffer judge. Its zero value
+// keeps the judge an exercise was written against, so an exercise opts in only
+// when its mission states a result the buffer judge can check. Editing & Undo
+// and Registers & Indentation are built for the buffer judge, so every one of
+// their exercises opts in. The content-honesty pass opted in the buffer-visible
+// exercises named in honestyBackedExerciseIDs (see exercises_test.go) after
+// giving each a mission that states a buffer result; every other exercise keeps
+// the judge it was authored against. The count assertions also prove the
+// enumeration found the real corpus rather than an empty list.
+func TestShippedExercises_OptInOnlyWhereTheMissionStatesABufferResult(t *testing.T) {
+	lessons := shippedLessons()
+	if len(lessons) != 199 {
+		t.Fatalf("enumerated %d shipped lessons, want 199", len(lessons))
+	}
+
+	bossSteps := shippedBossSteps()
+	if len(bossSteps) != 45 {
+		t.Fatalf("enumerated %d shipped boss steps, want 45", len(bossSteps))
+	}
+
+	for _, exercise := range append(lessons, bossSteps...) {
+		want := exercise.Module == ModuleEditing ||
+			exercise.Module == ModuleRegisters ||
+			honestyBackedExerciseIDs[exercise.ID]
+		switch {
+		case want && !exercise.BufferVerified:
+			t.Errorf("buffer-judged exercise %s does not opt into the buffer judge; its mission states a result the buffer judge can check", exercise.ID)
+		case !want && exercise.BufferVerified:
+			t.Errorf("shipped exercise %s opts into the buffer judge without a mission that states a buffer result", exercise.ID)
+		}
+	}
+}
+
+// The shipped corpus keeps validating exactly as before while the opt-in exists.
+// A sample spanning the three judge paths (motion, selection and the
+// skip-simulation modules) pins that the new field did not reroute any of them.
+func TestShippedExercises_KeepTheirJudge(t *testing.T) {
+	tests := []struct {
+		name     string
+		exercise *Exercise
+		answer   string
+		want     bool
+	}{
+		{
+			name:     "a motion lesson accepts its optimal",
+			exercise: findLesson(t, ModuleHorizontal, "horizontal_001"),
+			answer:   findLesson(t, ModuleHorizontal, "horizontal_001").Optimal,
+			want:     true,
+		},
+		{
+			name:     "a motion lesson still rejects a different position",
+			exercise: findLesson(t, ModuleHorizontal, "horizontal_001"),
+			answer:   "b",
+			want:     false,
+		},
+		{
+			name:     "a selection lesson accepts its optimal",
+			exercise: findLesson(t, ModuleChangeRepeat, "changerepeat_001"),
+			answer:   findLesson(t, ModuleChangeRepeat, "changerepeat_001").Optimal,
+			want:     true,
+		},
+		{
+			name:     "a skip-simulation lesson accepts only its solutions",
+			exercise: findLesson(t, ModuleSubstitution, "substitution_001"),
+			answer:   findLesson(t, ModuleSubstitution, "substitution_001").Optimal,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ValidateAnswer(tt.exercise, tt.answer); got != tt.want {
+				t.Errorf("ValidateAnswer(%s, %q) = %v, want %v", tt.exercise.ID, tt.answer, got, tt.want)
 			}
 		})
 	}

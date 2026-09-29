@@ -2004,3 +2004,139 @@ func TestSimulateMotionsWithSelection_CursorColumnPastEndOfLineDoesNotPanic(t *t
 		})
 	}
 }
+
+// TestSimulateMotions_MatchPairPercent specifies % as a motion. It is additive:
+// no shipped exercise uses % as a motion (the corpus only uses it inside ex
+// ranges like :%s, which take the skip-simulation path), so adding the key must
+// change nothing the trainer already judged.
+//
+// Reference: nvim 0.12.5, one case per process, the buffer loaded from a file:
+//
+//	nvim --clean --headless -u NONE \
+//	  --cmd 'set shiftwidth=2 expandtab tabstop=2 startofline' <file> \
+//	  -c 'lua ...' -c 'qa!'
+//
+// with the keys under observation run through `:normal!`. nvim's default
+// 'matchpairs' is (:),{:},[:]; % is that option's motion, so ( ) [ ] { } are the
+// pairs it matches and < > are not pairs at all (verified: % on < in "x < y > z"
+// does not move). The cursor moves and the buffer does not. A cursor that is not
+// on a bracket scans forward on its own line for the first bracket at or after
+// it and jumps to that bracket's match; a line without one, and an unmatched
+// bracket, both leave the cursor where it was (nvim reports an error, E490, and
+// the engine keeps its existing convention for a recognized motion that cannot
+// move, like f with a target its line does not hold).
+func TestSimulateMotions_MatchPairPercent(t *testing.T) {
+	braceBlock := []string{
+		"func main() {",
+		"  return",
+		"}",
+	}
+
+	tests := []struct {
+		name  string
+		code  []string
+		start SimulatedPosition
+		want  SimulatedPosition
+	}{
+		{"on ( jumps to its )", []string{"if (a) {}"}, SimulatedPosition{0, 3}, SimulatedPosition{0, 5}},
+		{"on ) jumps back to its (", []string{"if (a) {}"}, SimulatedPosition{0, 5}, SimulatedPosition{0, 3}},
+		{"on [ jumps to its ]", []string{"list[0]"}, SimulatedPosition{0, 4}, SimulatedPosition{0, 6}},
+		{"on ] jumps back to its [", []string{"list[0]"}, SimulatedPosition{0, 6}, SimulatedPosition{0, 4}},
+		{"nested: the inner ( jumps to the inner )", []string{"((a))"}, SimulatedPosition{0, 1}, SimulatedPosition{0, 3}},
+		{"nested: the outer ( skips the inner pair", []string{"((a))"}, SimulatedPosition{0, 0}, SimulatedPosition{0, 4}},
+		{"not on a bracket: the nearest bracket to the right decides", []string{"((a))"}, SimulatedPosition{0, 2}, SimulatedPosition{0, 1}},
+		{"on { across lines jumps to its }", braceBlock, SimulatedPosition{0, 12}, SimulatedPosition{2, 0}},
+		{"on } across lines jumps back to its {", braceBlock, SimulatedPosition{2, 0}, SimulatedPosition{0, 12}},
+		{"not on a bracket scans forward on the line", []string{"x = foo(a)"}, SimulatedPosition{0, 0}, SimulatedPosition{0, 9}},
+		{"a line with no bracket does not leave the line", braceBlock, SimulatedPosition{1, 2}, SimulatedPosition{1, 2}},
+		{"brackets to the left of the cursor are ignored", []string{"(a) b"}, SimulatedPosition{0, 4}, SimulatedPosition{0, 4}},
+		{"an unmatched ( does not move", []string{"if (a {"}, SimulatedPosition{0, 3}, SimulatedPosition{0, 3}},
+		{"an unmatched ( at the cursor does not move", []string{"(x b(c)d"}, SimulatedPosition{0, 0}, SimulatedPosition{0, 0}},
+		{"an unmatched ) does not move", []string{"a) b (c)"}, SimulatedPosition{0, 1}, SimulatedPosition{0, 1}},
+		{"the first bracket to the right wins even when unmatched", []string{"a) b (c)"}, SimulatedPosition{0, 0}, SimulatedPosition{0, 0}},
+		{"no bracket at all leaves the cursor alone", []string{"plain text"}, SimulatedPosition{0, 0}, SimulatedPosition{0, 0}},
+		{"only same-type brackets nest for (", []string{"( a [ b ) c"}, SimulatedPosition{0, 0}, SimulatedPosition{0, 8}},
+		{"only same-type brackets nest for {", []string{"a{b[c(d)e]f}g"}, SimulatedPosition{0, 1}, SimulatedPosition{0, 11}},
+		{"only same-type brackets nest for [", []string{"a{b[c(d)e]f}g"}, SimulatedPosition{0, 3}, SimulatedPosition{0, 9}},
+		{"< is not a match pair", []string{"x < y > z"}, SimulatedPosition{0, 2}, SimulatedPosition{0, 2}},
+		{"> is not a match pair", []string{"x < y > z"}, SimulatedPosition{0, 6}, SimulatedPosition{0, 6}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SimulateMotionsWithSelection(Position{Line: tt.start.Line, Col: tt.start.Col}, tt.code, "%")
+
+			if got.Position != tt.want {
+				t.Errorf("%% from %+v = %+v, want %+v", tt.start, got.Position, tt.want)
+			}
+			if !got.Recognized {
+				t.Errorf("%% from %+v is not recognized, want recognized", tt.start)
+			}
+			if got.Selection.Active {
+				t.Errorf("%% from %+v produced a selection, want none", tt.start)
+			}
+		})
+	}
+
+	if !IsRecognizedInput([]string{"if (a) {}"}, "%") {
+		t.Error(`IsRecognizedInput("%") = false, want true`)
+	}
+
+	// % is its own inverse on a matched pair: jumping twice comes back.
+	roundTrip := SimulateMotionsWithSelection(Position{Line: 0, Col: 3}, []string{"if (a) {}"}, "%%")
+	if roundTrip.Position != (SimulatedPosition{0, 3}) {
+		t.Errorf("%%%% from {0 3} = %+v, want {0 3}", roundTrip.Position)
+	}
+	if !roundTrip.Recognized {
+		t.Error("%% is not recognized, want recognized")
+	}
+
+	// [count]% is nvim's other %: 50% on a five-line file lands on line 3, a
+	// percent-of-file motion with nothing to do with the bracket under the
+	// cursor. The simulator does not model it, so a counted % stays unrecognized
+	// rather than being applied as a bracket jump.
+	counted := SimulateMotionsWithSelection(Position{}, []string{"aaa", "bbb", "ccc"}, "2%")
+	if counted.Recognized {
+		t.Error(`SimulateMotionsWithSelection("2%").Recognized = true, want false`)
+	}
+	if counted.Position != (SimulatedPosition{0, 0}) {
+		t.Errorf(`counted percent moved the cursor to %+v, want it unmoved`, counted.Position)
+	}
+	if IsRecognizedInput([]string{"aaa", "bbb", "ccc"}, "2%") {
+		t.Error(`IsRecognizedInput("2%") = true, want false`)
+	}
+}
+
+// TestValidateAnswer_MatchPairExerciseUsesTheMotionJudge is the point of adding
+// % to the motion simulator: an exercise about match-pair jumping is judged by
+// the position comparator every pure-motion exercise already uses, with no new
+// judge and no buffer opt-in.
+func TestValidateAnswer_MatchPairExerciseUsesTheMotionJudge(t *testing.T) {
+	exercise := &Exercise{
+		ID:        "textobjects_pair_999",
+		Module:    ModuleTextObjects,
+		Code:      []string{"func main() {", "}"},
+		CursorPos: Position{Line: 0, Col: 12},
+		Solutions: []string{"%"},
+		Optimal:   "%",
+	}
+
+	correct := ValidateAnswerDetailed(exercise, "%")
+	if !correct.IsCorrect {
+		t.Error(`ValidateAnswerDetailed("%").IsCorrect = false, want true`)
+	}
+	if correct.BufferVerified {
+		t.Error(`ValidateAnswerDetailed("%").BufferVerified = true; a match-pair answer is a motion, not a buffer result`)
+	}
+	if correct.TargetPosition != (Position{Line: 1, Col: 0}) || correct.ActualPosition != (Position{Line: 1, Col: 0}) {
+		t.Errorf("positions = %+v -> %+v, want line 1 column 0 for both", correct.TargetPosition, correct.ActualPosition)
+	}
+
+	wrong := ValidateAnswerDetailed(exercise, "0")
+	if wrong.IsCorrect {
+		t.Error(`ValidateAnswerDetailed("0").IsCorrect = true, want false`)
+	}
+	if wrong.BufferVerified {
+		t.Error(`ValidateAnswerDetailed("0").BufferVerified = true, want false`)
+	}
+}

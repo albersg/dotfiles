@@ -13,6 +13,56 @@ type ValidationResult struct {
 	ActualPosition  Position // Where the answer actually ended up
 	OptimalSolution string   // The best solution
 	AllSolutions    []string // All predefined valid solutions
+
+	// The fields below are filled only when the buffer judge decided the answer
+	// (Exercise.BufferVerified). BufferVerified therefore records which judge
+	// ran, so a caller can tell a buffer comparison from a motion comparison
+	// even when both happen to leave the cursor where they found it, and so the
+	// interface shows a buffer preview only where a buffer was compared.
+	//
+	// TargetBuffer and ActualBuffer are the buffers the optimal solution and the
+	// answer produce in the engine, in that order; ActualBuffer is what the
+	// result screen shows. TargetMode and ActualMode are the modes the two
+	// answers leave behind. They are compared because an answer can end in insert
+	// mode where the optimal returns to normal mode, so the same buffer and
+	// cursor can still be a different result.
+	BufferVerified bool
+	TargetBuffer   []string
+	ActualBuffer   []string
+	TargetMode     Mode
+	ActualMode     Mode
+}
+
+// MismatchSummary names the parts of a buffer-verified result that diverged
+// from the optimal's result: the buffer, the cursor, the mode, or an English
+// combination of them. It returns "" when the answer matched and for results
+// the buffer judge did not decide. The summary is derived from the compared
+// results, never from the raw keystrokes: the point of the buffer judge is that
+// the keys do not matter.
+func (r ValidationResult) MismatchSummary() string {
+	if r.IsCorrect || !r.BufferVerified {
+		return ""
+	}
+
+	var parts []string
+	if !sameLines(r.TargetBuffer, r.ActualBuffer) {
+		parts = append(parts, "buffer")
+	}
+	if r.TargetPosition != r.ActualPosition {
+		parts = append(parts, "cursor")
+	}
+	if r.TargetMode != r.ActualMode {
+		parts = append(parts, "mode")
+	}
+
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0] + " differs"
+	default:
+		return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1] + " differ"
+	}
 }
 
 // ShouldSkipSimulation reports whether an exercise is validated and rendered
@@ -64,6 +114,18 @@ func ValidateAnswerDetailed(exercise *Exercise, answer string) ValidationResult 
 	// Check if it's optimal (normalize for comparison)
 	result.IsOptimal = answer == strings.TrimSpace(exercise.Optimal)
 
+	// Buffer-verified exercises are judged by the result the answer leaves in
+	// the buffer. The buffer judge comes after the authored-solutions fast path
+	// (which validateViaBuffer keeps as its own first case) and before the
+	// skip-simulation bypass, so an exercise in Substitution, Macros or Regex can
+	// be verified by the result it leaves: the bypass answers a different
+	// question ("does the answer match an authored solution?") and running it
+	// first would hide the buffer judge for exactly the modules whose commands
+	// the engine now models. An exercise that does not opt in is unaffected.
+	if exercise.BufferVerified {
+		return validateViaBuffer(exercise, answer, result)
+	}
+
 	// Exercises that are not pure motions are not simulated; correctness is
 	// decided by the predefined solutions alone.
 	if ShouldSkipSimulation(exercise) {
@@ -105,6 +167,52 @@ func ValidateAnswerDetailed(exercise *Exercise, answer string) ValidationResult 
 // sameSimulatedPosition reports whether two simulated positions are identical.
 func sameSimulatedPosition(a, b SimulatedPosition) bool {
 	return a.Line == b.Line && a.Col == b.Col
+}
+
+// validateViaBuffer decides a buffer-verified exercise by running the optimal
+// and the answer through the mutable editing engine from the exercise's start
+// position and comparing the results. It fills the validation result with both
+// results so the interface can show what the answer produced and name what
+// diverged.
+//
+// The authored solutions stay first, exactly as on the motion path: a solution
+// listed in Solutions is ground truth even where the engine cannot reproduce it
+// yet, and an answer the engine cannot fully parse can never be correct on its
+// own.
+func validateViaBuffer(exercise *Exercise, answer string, result ValidationResult) ValidationResult {
+	optimalResult := SimulateEditing(exercise.Code, exercise.CursorPos, exercise.Optimal)
+	actualResult := SimulateEditing(exercise.Code, exercise.CursorPos, answer)
+
+	result.BufferVerified = true
+	result.TargetPosition = optimalResult.Cursor
+	result.ActualPosition = actualResult.Cursor
+	result.TargetBuffer = optimalResult.Buffer
+	result.ActualBuffer = actualResult.Buffer
+	result.TargetMode = optimalResult.Mode
+	result.ActualMode = actualResult.Mode
+
+	switch {
+	case result.IsInSolutions:
+		// Fast path: predefined solutions are always accepted
+		result.IsCorrect = true
+	case !actualResult.Recognized:
+		// An answer the engine cannot fully parse can never be correct
+		result.IsCorrect = false
+	default:
+		result.IsCorrect = bufferResultMatches(optimalResult, actualResult)
+	}
+
+	return result
+}
+
+// bufferResultMatches reports whether an answer produced the same result as the
+// optimal solution: the same buffer text, the same cursor and the same mode.
+// The mode clause is real now that insert mode exists: an answer that never
+// leaves insert mode diverges from an optimal that does.
+func bufferResultMatches(optimal, actual EditingResult) bool {
+	return sameLines(optimal.Buffer, actual.Buffer) &&
+		optimal.Cursor == actual.Cursor &&
+		optimal.Mode == actual.Mode
 }
 
 // sameSelection reports whether two selections cover the same range.

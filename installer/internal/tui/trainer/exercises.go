@@ -17,6 +17,10 @@ func GetLessons(module ModuleID) []Exercise {
 		return getRegexLessons()
 	case ModuleMacros:
 		return getMacrosLessons()
+	case ModuleEditing:
+		return getEditingLessons()
+	case ModuleRegisters:
+		return getRegistersLessons()
 	default:
 		return []Exercise{}
 	}
@@ -39,6 +43,10 @@ func GetBoss(module ModuleID) *BossExercise {
 		return getRegexBoss()
 	case ModuleMacros:
 		return getMacrosBoss()
+	case ModuleEditing:
+		return getEditingBoss()
+	case ModuleRegisters:
+		return getRegistersBoss()
 	default:
 		return nil
 	}

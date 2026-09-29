@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -424,6 +425,8 @@ func TestAllModulesRenderE2E(t *testing.T) {
 		trainer.ModuleSubstitution,
 		trainer.ModuleRegex,
 		trainer.ModuleMacros,
+		trainer.ModuleEditing,
+		trainer.ModuleRegisters,
 	}
 
 	for _, moduleID := range modules {
@@ -877,7 +880,7 @@ func TestTrainerBossResultUnlockClaim(t *testing.T) {
 	}
 
 	t.Run("the final module does not claim an unlock", func(t *testing.T) {
-		m := newVictoryModel(t, trainer.ModuleMacros)
+		m := newVictoryModel(t, trainer.ModuleRegisters)
 
 		out := m.renderTrainerBossResult()
 		if strings.Contains(out, "unlocked") {
@@ -1151,6 +1154,11 @@ func TestTrainerEscapeAbandonsBossVisibly(t *testing.T) {
 // validate, and since the simulator rejects unrecognized input the submission is
 // lost. The handlers must instead ignore keys the simulator cannot parse, while
 // still inserting the control characters it does model.
+//
+// ctrl+e is the one key whose mapping is not a control character: it types
+// trainer.EscToken, the trainer's stand-in for the Esc key an insert answer has
+// to use. The model still receives the token through TrainerInput, so the
+// interface and the engine cannot disagree about what the token is.
 func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 	t.Run("ctrl+a is ignored on the exercise screens", func(t *testing.T) {
 		cases := []struct {
@@ -1191,7 +1199,7 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 		}
 	})
 
-	t.Run("ctrl+e and ctrl+w are ignored too", func(t *testing.T) {
+	t.Run("ctrl+w is ignored too", func(t *testing.T) {
 		cases := []struct {
 			name  string
 			model func(*testing.T) Model
@@ -1201,22 +1209,53 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 		}
 
 		for _, tc := range cases {
-			for keyName, keyType := range map[string]tea.KeyType{
-				"ctrl+e": tea.KeyCtrlE,
-				"ctrl+w": tea.KeyCtrlW,
-			} {
-				t.Run(tc.name+"/"+keyName, func(t *testing.T) {
-					m := tc.model(t)
-					m.TrainerInput = ""
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = ""
 
-					result, _ := m.Update(tea.KeyMsg{Type: keyType})
-					m = result.(Model)
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+				m = result.(Model)
 
-					if m.TrainerInput != "" {
-						t.Errorf("TrainerInput = %q after %s, want empty", m.TrainerInput, keyName)
-					}
-				})
-			}
+				if m.TrainerInput != "" {
+					t.Errorf("TrainerInput = %q after ctrl+w, want empty", m.TrainerInput)
+				}
+			})
+		}
+	})
+
+	t.Run("ctrl+e types the escape token on every exercise screen", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			model func(*testing.T) Model
+		}{
+			{"lesson", newTrainerLessonModel},
+			{"boss", newTrainerBossModel},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = "iX"
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+				m = result.(Model)
+
+				// The literal token, not the key's name and not an escape byte.
+				want := "iX" + trainer.EscToken
+				if m.TrainerInput != want {
+					t.Errorf("TrainerInput = %q after ctrl+e, want %q", m.TrainerInput, want)
+				}
+
+				// The engine parses exactly what the interface inserted: the answer
+				// now leaves insert mode instead of staying open.
+				exercise := m.TrainerGameState.CurrentExercise
+				if exercise == nil {
+					t.Fatal("no exercise loaded")
+				}
+				if got := trainer.SimulateEditing(exercise.Code, exercise.CursorPos, m.TrainerInput); got.Mode != trainer.ModeNormal {
+					t.Errorf("SimulateEditing(%q).Mode = %v, want %v", m.TrainerInput, got.Mode, trainer.ModeNormal)
+				}
+			})
 		}
 	})
 
@@ -1230,6 +1269,10 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 			{"ctrl+u", tea.KeyCtrlU, "\x15"},
 			{"ctrl+f", tea.KeyCtrlF, "\x06"},
 			{"ctrl+b", tea.KeyCtrlB, "\x02"},
+			// Ctrl-r is the buffer engine's redo. The motion simulator knows no
+			// such motion, so before the shared accepted set learned it the redo
+			// lesson was unanswerable.
+			{"ctrl+r", tea.KeyCtrlR, "\x12"},
 		}
 		cases := []struct {
 			name  string
@@ -1255,6 +1298,84 @@ func TestTrainerControlKeysReachSimulatorInput(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestTrainerBackspaceDeletesOneTypedUnit pins the answer input's backspace
+// behaviour, which is interface behaviour and not a Vim command: one press
+// removes the last unit the player typed. A unit is one keystroke, so the escape
+// token inserted by a single ctrl+e comes out whole, rather than leaving the
+// half-token "<Es" behind for the engine to reject. The engine never sees a
+// backspace at all, which is why insert mode reports one as unrecognized instead
+// of deleting a rune.
+func TestTrainerBackspaceDeletesOneTypedUnit(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "one typed command", input: "ww", want: "w"},
+		{name: "the whole input", input: "w", want: ""},
+		{name: "empty input stays empty", input: "", want: ""},
+		{name: "the escape token goes as one unit", input: "iX" + trainer.EscToken, want: "iX"},
+		{name: "only the escape token", input: "i" + trainer.EscToken, want: "i"},
+		{name: "a half token is only text", input: "iX<Es", want: "iX<E"},
+		{name: "a token that is not last is untouched", input: "iX" + trainer.EscToken + "aY", want: "iX" + trainer.EscToken + "a"},
+	}
+
+	cases := []struct {
+		name  string
+		model func(*testing.T) Model
+	}{
+		{"lesson", newTrainerLessonModel},
+		{"boss", newTrainerBossModel},
+	}
+
+	for _, tc := range cases {
+		for _, tt := range tests {
+			t.Run(tc.name+"/"+tt.name, func(t *testing.T) {
+				m := tc.model(t)
+				m.TrainerInput = tt.input
+
+				result, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+				m = result.(Model)
+
+				if m.TrainerInput != tt.want {
+					t.Errorf("TrainerInput = %q after backspace, want %q", m.TrainerInput, tt.want)
+				}
+			})
+		}
+	}
+}
+
+// TestTrainerExerciseHelpNamesTheEscapeToken is the visual half of the token
+// contract: the exercise screens must tell the player which key types the token
+// the engine parses, and the text they render comes from the engine's own
+// constant so the two cannot drift apart. The help must not present backspace as
+// a Vim command either, because it is an input edit the engine never sees.
+func TestTrainerExerciseHelpNamesTheEscapeToken(t *testing.T) {
+	cases := []struct {
+		name  string
+		model func(*testing.T) Model
+	}{
+		{"lesson", newTrainerLessonModel},
+		{"boss", newTrainerBossModel},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.model(t)
+			m.Width = 80
+			m.Height = 24
+
+			view := m.View()
+			if !strings.Contains(view, "[Ctrl-e] type "+trainer.EscToken) {
+				t.Errorf("exercise help does not document ctrl+e typing %s:\n%s", trainer.EscToken, view)
+			}
+			if !strings.Contains(view, "[Esc] ") {
+				t.Errorf("exercise help lost the Esc key:\n%s", view)
+			}
+		})
+	}
 }
 
 // =============================================================================
@@ -2192,8 +2313,8 @@ func TestTrainerMenuUnreadableStatsRendersSaneMenu(t *testing.T) {
 func TestTrainerMenuNavigationUnchanged(t *testing.T) {
 	m := newTrainerProgressModel(t)
 
-	if got := len(m.TrainerModules); got != 7 {
-		t.Fatalf("selectable module count changed: got %d, want 7", got)
+	if got := len(m.TrainerModules); got != 9 {
+		t.Fatalf("selectable module count changed: got %d, want 9", got)
 	}
 
 	down := func(m Model) Model {
@@ -2314,10 +2435,10 @@ func TestTrainerResetAllConfirmingClearsProfile(t *testing.T) {
 
 	// The menu must reflect the wipe from the same model, without a restart.
 	view := m.View()
-	if strings.Contains(view, "Bosses: 1/7") {
+	if strings.Contains(view, "Bosses: 1/9") {
 		t.Errorf("menu still shows the erased boss count after confirming:\n%s", view)
 	}
-	if !strings.Contains(view, "Bosses: 0/7") {
+	if !strings.Contains(view, "Bosses: 0/9") {
 		t.Errorf("menu does not show the cleared boss count after confirming:\n%s", view)
 	}
 }
@@ -2442,5 +2563,151 @@ func TestTrainerModuleResetKeyStillScopedToModule(t *testing.T) {
 	}
 	if got := m.TrainerStats.ModuleProgress[other.ID]; got == nil || !got.BossDefeated {
 		t.Error("module reset touched another module")
+	}
+}
+
+// =============================================================================
+// BUFFER-VERIFIED JUDGING THROUGH THE UI
+// =============================================================================
+
+// bufferVerifiedLessonModel builds a live lesson around an opted-in exercise
+// whose optimal is "x" on a two-rune buffer, so an answer can reach the same
+// result by different keys. The exercise is installed directly because the
+// shipped corpus deliberately does not opt in yet: the migration guard in the
+// trainer package pins that.
+func bufferVerifiedLessonModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewModel()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTrainerLesson
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+	m.TrainerGameState.StartLesson(trainer.ModuleHorizontal)
+
+	m.TrainerGameState.CurrentExercise = &trainer.Exercise{
+		ID:             "buffer_ui_001",
+		Module:         trainer.ModuleChangeRepeat,
+		Level:          1,
+		Type:           trainer.ExerciseLesson,
+		Code:           []string{"ab"},
+		CursorPos:      trainer.Position{Line: 0, Col: 0},
+		Mission:        "Delete the first character",
+		Solutions:      []string{"x"},
+		Optimal:        "x",
+		BufferVerified: true,
+	}
+	m.TrainerInput = ""
+	m.TrainerValidation = nil
+	return m
+}
+
+// typeTrainerKeys drives the real Update handler one key at a time, which is
+// where the input routing lives.
+func typeTrainerKeys(m Model, keys ...tea.KeyMsg) Model {
+	for _, key := range keys {
+		res, _ := m.Update(key)
+		m = res.(Model)
+	}
+	return m
+}
+
+// TestTrainerCtrlRReachesTheEngine pins the end-to-end path of the redo key:
+// typed on the exercise screen it becomes the control character the buffer
+// engine parses, and the answer it completes is judged by the buffer it
+// produces. "xu" plus Ctrl-r deletes the first rune, undoes it and redoes it,
+// reaching the same buffer as the optimal "x" by different keys.
+func TestTrainerCtrlRReachesTheEngine(t *testing.T) {
+	m := bufferVerifiedLessonModel(t)
+
+	m = typeTrainerKeys(m,
+		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}},
+		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}},
+		tea.KeyMsg{Type: tea.KeyCtrlR},
+	)
+	if want := "xu\x12"; m.TrainerInput != want {
+		t.Fatalf("TrainerInput = %q, want %q", m.TrainerInput, want)
+	}
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+
+	if !m.TrainerLastCorrect {
+		t.Fatalf("the redo answer was rejected: message = %q", m.TrainerMessage)
+	}
+	if m.TrainerValidation == nil {
+		t.Fatal("no validation result was kept for the result screen")
+	}
+	if want := []string{"b"}; !reflect.DeepEqual(m.TrainerValidation.ActualBuffer, want) {
+		t.Errorf("ActualBuffer = %#v, want %#v", m.TrainerValidation.ActualBuffer, want)
+	}
+}
+
+// TestTrainerResultShowsTheResultingBufferForOptedInExercises pins the result
+// screen contract: an opted-in exercise shows the buffer its answer produced,
+// and a shipped exercise renders exactly as before.
+func TestTrainerResultShowsTheResultingBufferForOptedInExercises(t *testing.T) {
+	t.Run("an opted-in exercise shows the resulting buffer", func(t *testing.T) {
+		m := bufferVerifiedLessonModel(t)
+		m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+
+		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = res.(Model)
+		if m.Screen != ScreenTrainerResult {
+			t.Fatalf("Screen = %v, want ScreenTrainerResult", m.Screen)
+		}
+
+		view := m.View()
+		if !strings.Contains(view, "Resulting buffer") {
+			t.Errorf("result screen does not show the resulting buffer:\n%s", view)
+		}
+		if !strings.Contains(view, "1 │ b") {
+			t.Errorf("result screen does not render the resulting line:\n%s", view)
+		}
+	})
+
+	t.Run("a shipped exercise renders as before", func(t *testing.T) {
+		m := newTrainerResultModel(t)
+		if view := m.View(); strings.Contains(view, "Resulting buffer") {
+			t.Errorf("a shipped exercise shows the buffer preview:\n%s", view)
+		}
+	})
+}
+
+// A rejected buffer-verified answer names what differed on the result screen,
+// derived from the buffers the engine produced rather than from the keystrokes.
+func TestTrainerResultNamesWhatDifferedForOptedInExercises(t *testing.T) {
+	m := bufferVerifiedLessonModel(t)
+
+	// "u" with an empty undo history is a no-op: the buffer keeps its text and
+	// only the buffer diverges from the optimal's result.
+	m = typeTrainerKeys(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+
+	if m.TrainerLastCorrect {
+		t.Fatal("a no-op answer was accepted")
+	}
+	if !strings.Contains(m.TrainerMessage, "buffer") {
+		t.Errorf("TrainerMessage = %q, want it to name the buffer", m.TrainerMessage)
+	}
+	if strings.Contains(m.TrainerMessage, "\x15") {
+		t.Errorf("TrainerMessage = %q, want no raw keystrokes", m.TrainerMessage)
+	}
+	if m.TrainerValidation == nil {
+		t.Fatal("no validation result was kept for the result screen")
+	}
+	if want := []string{"ab"}; !reflect.DeepEqual(m.TrainerValidation.ActualBuffer, want) {
+		t.Errorf("ActualBuffer = %#v, want %#v", m.TrainerValidation.ActualBuffer, want)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "Expected buffer") {
+		t.Errorf("rejected result screen does not show the expected buffer:\n%s", view)
+	}
+	if !strings.Contains(view, "Resulting buffer") {
+		t.Errorf("rejected result screen does not show the produced buffer:\n%s", view)
 	}
 }

@@ -39,6 +39,10 @@ paths = [
     # The trainer's test fixture for those two exercises. Gitleaks reports this
     # one path twice, once for each exercise string.
     '''^installer/internal/tui/trainer/exercises_visual_test\.go$''',
+    # The same exercise material asserted from the corpus tests, which grew the
+    # sample key line when the honesty pass rewrote the exercise that promised a
+    # result nothing checked. Same line, same exercise, one more file.
+    '''^installer/internal/tui/trainer/exercises_test\.go$''',
 
     # Vendored oh-my-zsh dotenv plugin README. It documents the plugin with
     # example variables in two code blocks, which is why the same two values are

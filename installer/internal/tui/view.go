@@ -16,6 +16,7 @@ func formatControlChars(input string) string {
 	result = strings.ReplaceAll(result, "\x15", "<C-u>")
 	result = strings.ReplaceAll(result, "\x06", "<C-f>")
 	result = strings.ReplaceAll(result, "\x02", "<C-b>")
+	result = strings.ReplaceAll(result, "\x12", "<C-r>")
 	return result
 }
 
@@ -1800,9 +1801,16 @@ func (m Model) renderTrainerExercise(mode string) string {
 		s.WriteString("\n")
 	}
 
-	// Help
-	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("Type command • [Enter] submit • [Tab] hint • [Backspace] clear • [Esc] quit"))
+	// Help. Ctrl-e types the token an insert answer needs to leave insert mode;
+	// Esc itself is the trainer's own exit key, and Backspace is an input edit
+	// rather than a Vim command. The two lines go through one HelpStyle call so
+	// its margin supplies the single blank line before the legend, which keeps
+	// the screen exactly as tall as the one-line legend it replaced: the longest
+	// shipped exercise already renders more rows than a 24-row terminal shows,
+	// and one more would push its Mission label out of the frame.
+	s.WriteString(HelpStyle.Render(
+		"Type command • [Enter] submit • [Tab] hint\n" +
+			"[Backspace] delete • [Ctrl-e] type " + trainer.EscToken + " • [Esc] quit"))
 
 	return s.String()
 }
@@ -2113,8 +2121,22 @@ func (m Model) renderTrainerBoss() string {
 
 	// Help
 	s.WriteString("\n")
-	s.WriteString(HelpStyle.Render("Type command • [Enter] submit • [Esc] forfeit"))
+	s.WriteString(HelpStyle.Render("Type command • [Enter] submit • [Ctrl-e] type " + trainer.EscToken + " • [Esc] forfeit"))
 
+	return s.String()
+}
+
+// renderBufferLines renders a buffer as numbered lines, matching the numbering
+// the exercise screen uses so the result lines up with the code the user saw.
+func renderBufferLines(buffer []string) string {
+	var s strings.Builder
+	s.WriteString(MutedStyle.Render(strings.Repeat("─", 60)))
+	s.WriteString("\n")
+	for i, line := range buffer {
+		s.WriteString(MutedStyle.Render(fmt.Sprintf("%2d │ ", i+1)))
+		s.WriteString(CodeStyle.Render(line))
+		s.WriteString("\n")
+	}
 	return s.String()
 }
 
@@ -2141,6 +2163,24 @@ func (m Model) renderTrainerResult() string {
 			s.WriteString("\n")
 			s.WriteString(MutedStyle.Render("   " + exercise.Explanation))
 			s.WriteString("\n")
+		}
+
+		// A buffer-verified answer is taught by the buffer it produced, which is
+		// the only place its effect is visible. The preview is gated on the
+		// judge that ran, so a shipped exercise renders exactly as before. A
+		// rejected answer shows the expected buffer next to the produced one,
+		// because the difference is what the lesson is about.
+		if exercise.BufferVerified && m.TrainerValidation != nil && m.TrainerValidation.BufferVerified {
+			if !m.TrainerValidation.IsCorrect {
+				s.WriteString("\n")
+				s.WriteString(SubtitleStyle.Render("🎯 Expected buffer:"))
+				s.WriteString("\n")
+				s.WriteString(renderBufferLines(m.TrainerValidation.TargetBuffer))
+			}
+			s.WriteString("\n")
+			s.WriteString(SubtitleStyle.Render("📝 Resulting buffer:"))
+			s.WriteString("\n")
+			s.WriteString(renderBufferLines(m.TrainerValidation.ActualBuffer))
 		}
 	}
 

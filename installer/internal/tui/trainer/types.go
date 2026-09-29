@@ -14,6 +14,8 @@ const (
 	ModuleSubstitution ModuleID = "substitution"
 	ModuleRegex        ModuleID = "regex"
 	ModuleMacros       ModuleID = "macros"
+	ModuleEditing      ModuleID = "editing"
+	ModuleRegisters    ModuleID = "registers"
 )
 
 // ExerciseType defines the type of exercise
@@ -65,6 +67,16 @@ type Exercise struct {
 	Explanation string       // Post-answer explanation
 	TimeoutSecs int          // Seconds before showing solution
 	Points      int          // Base points for completion
+	// BufferVerified opts the exercise into the buffer judge: the answer is run
+	// through the mutable editing engine (SimulateEditing) and compared to the
+	// optimal's result instead of to the optimal's cursor and selection. It is
+	// how undo/redo, put, indentation and every other command whose effect lives
+	// in the buffer become verifiable. The zero value keeps the judge the
+	// exercise was authored against -- the motion/selection simulator -- so the
+	// shipped corpus is unaffected. Opt in only when the exercise's mission
+	// states a result the buffer judge can check; an authored Solutions entry is
+	// still accepted as ground truth.
+	BufferVerified bool
 }
 
 // ModuleInfo contains display info for a module
@@ -181,6 +193,8 @@ var moduleUnlockOrder = []ModuleID{
 	ModuleSubstitution,
 	ModuleRegex,
 	ModuleMacros,
+	ModuleEditing,
+	ModuleRegisters,
 }
 
 // NextModule returns the module that follows the given one in the unlock
@@ -309,6 +323,20 @@ func GetAllModules() []ModuleInfo {
 			Icon:        "🎪",
 			Description: "qa, q, @a, @@, :normal, :g/pattern/",
 			BossName:    "The Automaton",
+		},
+		{
+			ID:          ModuleEditing,
+			Name:        "Editing & Undo",
+			Icon:        "📝",
+			Description: "i, a, I, A, o, O, <Esc>, u, Ctrl-r, dd, yy, p, P, >>, <<, x, D, %, marks",
+			BossName:    "The Historian",
+		},
+		{
+			ID:          ModuleRegisters,
+			Name:        "Registers & Indentation",
+			Icon:        "📋",
+			Description: "yy, yiw, y$, yw, yj, p, P, \"a-\"z, \"0, dd, x, D, >>, <<",
+			BossName:    "The Archivist",
 		},
 	}
 }
