@@ -1,6 +1,6 @@
 # Feature: The installer uses the terminal it is given, and gets a companion
 
-Status: in progress
+Status: in progress (S1 done, PR open)
 Opened: 2026-09-29
 Owner: el Gentleman (autonomous, user approved the design in a brainstorm)
 
@@ -131,7 +131,33 @@ Tasks:
 
 | Task | Commit | Checks observed |
 | --- | --- | --- |
-| (tracker opened) | - | - |
+| (tracker opened) | b5e8d41 | issue #47 |
+| S1-1..3 layout, row measure, composition | b25f950 | 3324 pass; 10/10 snapshots untouched; both frame guards green; new guard at 160x50 and 227x62 |
+| S1-4..5 panels, plan extraction, startup scan, `Arch` | 95e3b92 | 3369 pass; error snapshot moved whitespace-only (verified by diffing the non-blank lines, not asserted); wide snapshot added at 160x50 |
+| S1-7 docs and CHANGELOG | d037943 | - |
+
+### S1 notes
+
+- **The two-column floor is 124 terminal columns, not 120.** The constant holds the
+  *content* width and the frame spends two columns of padding on each side. Any
+  future threshold change has to move the constant and the test together.
+- **The plan needed a pure builder.** It did not exist before the main menu's panel
+  asked for it: `SetupInstallSteps` ran at the editor step, so the panel would have
+  been empty on the screen where it is shown. `planFor(planOptions)` is now the one
+  source and `SetupInstallSteps` fills the struct.
+- **Two facts moved to startup** so the panel is true rather than empty: the
+  existing-config scan (the non-interactive path already scanned there) and
+  `SystemInfo.Arch`. The startup scan fills only an empty field, so the wizard's own
+  scan stays the authority and a seeded model is not overwritten.
+- **A panel shows only what the installer measured.** No row for an unmeasured fact,
+  ever - not `unknown` and not a guess. A panel with more rows than the frame has
+  says how many it could not show.
+- **Descriptions are read where the step runs.** The plan panel numbers the steps and
+  keeps the description of the step the run starts at (or is on); the rest are on the
+  installing screen. This is a deliberate placement, not lost information.
+- Open question for S2: `model.go`'s `menuSeparator()` still builds a full-width dash
+  string while the renderer draws at the row measure. Detection is by prefix so
+  nothing breaks, but the data should agree with the render.
 
 ## Out of scope
 
