@@ -27,6 +27,7 @@ type cliFlags struct {
 	nvim           bool
 	font           bool
 	backup         bool
+	noAnim         bool
 }
 
 func parseFlags() *cliFlags {
@@ -46,6 +47,7 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.nvim, "nvim", false, "Install Neovim configuration")
 	flag.BoolVar(&flags.font, "font", false, "Install Nerd Font")
 	flag.BoolVar(&flags.backup, "backup", true, "Backup existing configs (default: true)")
+	flag.BoolVar(&flags.noAnim, "no-anim", false, "Disable animations (same as DOTFILES_ANIM=0)")
 
 	flag.Parse()
 	return flags
@@ -75,6 +77,13 @@ func main() {
 	if flags.dryRun {
 		os.Setenv("DOTFILES_DRY_RUN", "1")
 		fmt.Println("🧪 Dry-run mode: No actual installations will be performed")
+	}
+
+	// --no-anim and DOTFILES_ANIM=0 are the same switch: the flag sets the variable
+	// the TUI reads when it builds the model, so the gate has one source of truth
+	// and the flag cannot drift from the environment.
+	if flags.noAnim {
+		os.Setenv("DOTFILES_ANIM", "0")
 	}
 
 	// Non-interactive mode: run installation directly with provided flags
@@ -203,6 +212,8 @@ Flags:
   -t, --test           Run in test mode (uses temporary directory)
   --dry-run            Show what would be installed without doing it
   --non-interactive    Run without TUI, use CLI flags instead
+  --no-anim            Disable animations (same as DOTFILES_ANIM=0); animation
+                       is also off when stdout is not a terminal or TERM=dumb
 
 Non-Interactive Options:
   --shell=<shell>      Shell to install (required): fish, zsh, nushell

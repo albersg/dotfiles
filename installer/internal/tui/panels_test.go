@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
+	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
+	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -620,8 +622,11 @@ func TestPanelNeverExceedsItsColumnOrItsBudget(t *testing.T) {
 
 // TestPanelsStayOffTheFloorFrame pins the collapse: below the two-column floor
 // neither panel has room, so the screen renders exactly as it did before the
-// panels existed and no panel title appears. The wide-terminal guard covers the
-// other half of the same rule.
+// panels existed and no panel's full title appears. The wide-terminal guard
+// covers the other half of the same rule. Since the first slice's collapse, the
+// narrow screens show a one-line summary of their active panel instead -- but
+// that summary names the panel short ("Machine", "Plan") because it has one row
+// to spend, so the full titles stay the tab row's and nothing else's.
 func TestPanelsStayOffTheFloorFrame(t *testing.T) {
 	for _, screen := range []struct {
 		name   string
@@ -657,6 +662,725 @@ func TestWelcomeScreenCarriesTheMachinePanelWhenItHasRoom(t *testing.T) {
 	for _, want := range []string{"Linux", "zsh", "apt-get", "/home/testuser"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the welcome screen's panel does not name %q:\n%s", want, view)
+		}
+	}
+}
+
+// --- The panel registry, Tab and the narrow-terminal summary ----------------
+
+// testPanel is a panel with fixed facts, for the registry tests. The machinery
+// they exercise -- the tab row, the [Tab] hint, the narrow summary -- reads a
+// panel's title and headline, not where its facts come from, so a synthetic
+// panel is enough to reach a two-panel screen while the shipped registry still
+// lists one panel per screen.
+func testPanel(id panelID, title, headline string, facts ...string) panel {
+	return panel{
+		ID:       id,
+		Title:    title,
+		Short:    title,
+		Headline: func(Model) string { return headline },
+		Facts:    func(Model, layout) []string { return facts },
+	}
+}
+
+// twoPanelFacts is a stand-in body for a framed two-panel render: short enough
+// that the frame keeps spare rows for the narrow summary.
+func twoPanelFacts() []string {
+	return []string{
+		BrandStyle.Render("dotfiles"),
+		MutedStyle.Render("What would you like to do?"),
+		"",
+		"Start Installation",
+		"Learn",
+		"Quit",
+	}
+}
+
+// TestPanelsForListsWhatEachScreenOffers pins the registry: the welcome screen
+// offers the machine panel, the main menu and the wizard's own questions offer
+// the plan, and every other screen offers nothing, exactly as before the panels
+// existed. A screen may not advertise a panel it does not list, and the default
+// is the one listed first.
+func TestPanelsForListsWhatEachScreenOffers(t *testing.T) {
+	cases := []struct {
+		screen Screen
+		want   []panelID
+	}{
+		{ScreenWelcome, []panelID{panelMachine, panelTip}},
+		{ScreenMainMenu, []panelID{panelPlan, panelTrainer, panelTip}},
+		{ScreenOSSelect, []panelID{panelPlan}},
+		{ScreenTerminalSelect, []panelID{panelPlan}},
+		{ScreenFontSelect, []panelID{panelPlan}},
+		{ScreenShellSelect, []panelID{panelPlan}},
+		{ScreenWMSelect, []panelID{panelPlan}},
+		{ScreenNvimSelect, []panelID{panelPlan}},
+		{ScreenGhosttyWarning, []panelID{panelPlan}},
+		{ScreenLearnTerminals, nil},
+		{ScreenKeymaps, nil},
+		{ScreenInstalling, nil},
+		{ScreenComplete, nil},
+		{ScreenError, nil},
+		{ScreenBackupConfirm, nil},
+		{ScreenRestoreBackup, nil},
+		{ScreenTrainerMenu, nil},
+		{ScreenTrainerLesson, nil},
+	}
+
+	for _, c := range cases {
+		m := Model{Screen: c.screen}
+		got := m.panelsFor()
+		if len(got) != len(c.want) {
+			t.Errorf("screen %v offers %d panels, want %d", c.screen, len(got), len(c.want))
+			continue
+		}
+		for i, want := range c.want {
+			if got[i].ID != want {
+				t.Errorf("screen %v panel %d = %q, want %q", c.screen, i, got[i].ID, want)
+			}
+		}
+		if len(got) > 0 && m.activePanelIndex(got) != 0 {
+			t.Errorf("screen %v opens on panel %d, want the default (the first)", c.screen, m.activePanelIndex(got))
+		}
+	}
+}
+
+// TestSinglePanelColumnIsTheChipItAlwaysShowed pins the no-change case: a screen
+// that offers one panel renders the same chip, rule and rows through the
+// registry as it did through the panel's own function, so the machinery cannot
+// have moved a single byte of the two panels that already shipped.
+func TestSinglePanelColumnIsTheChipItAlwaysShowed(t *testing.T) {
+	l := narrowPanelLayout()
+
+	machine := Model{SystemInfo: goldenSystemInfo()}
+	if got, want := machine.panelColumn([]panel{machinePanel()}, l, 40), machine.welcomePanel(l, 40); !equalRows(got, want) {
+		t.Errorf("the machine column through the registry differs from its own panel:\nregistry:\n%s\npanel:\n%s",
+			panelText(got), panelText(want))
+	}
+
+	steps := []InstallStep{{Name: "Clone Repository"}, {Name: "Install Dependencies"}}
+	plan := Model{Steps: steps, ExistingConfigs: []string{"nvim: /home/testuser/.config/nvim"}}
+	if got, want := plan.panelColumn([]panel{planPanel()}, l, 40), plan.mainMenuPanel(l, 40); !equalRows(got, want) {
+		t.Errorf("the plan column through the registry differs from its own panel:\nregistry:\n%s\npanel:\n%s",
+			panelText(got), panelText(want))
+	}
+}
+
+// equalRows compares two rendered blocks by their visible words, so a stylistic
+// difference is not reported as a content difference.
+func equalRows(a, b []string) bool {
+	return panelText(a) == panelText(b)
+}
+
+// TestTabRowNamesThePanelsAndMarksTheActiveOne pins the tab row: every panel the
+// screen offers is named on the one row, the active one in brand chrome and the
+// rest in the dim tone, separated by a dim separator. Switching the active index
+// moves the chrome and the facts with it.
+func TestTabRowNamesThePanelsAndMarksTheActiveOne(t *testing.T) {
+	l := narrowPanelLayout()
+	panels := []panel{
+		testPanel(panelMachine, "Machine", "here", "OS  Linux"),
+		testPanel(panelPlan, "Plan", "next", "Steps  8"),
+	}
+
+	first := Model{}.panelColumn(panels, l, 40)
+	rows := strings.Split(panelText(first), "\n")
+	if len(rows) < 2 {
+		t.Fatalf("the tab row is missing:\n%s", panelText(first))
+	}
+	if !strings.Contains(rows[0], "Machine") || !strings.Contains(rows[0], "Plan") {
+		t.Errorf("the tab row does not name both panels: %q", rows[0])
+	}
+	if !strings.Contains(first[0], BrandStyle.Render("Machine")) {
+		t.Errorf("the active panel is not in brand chrome: %q", first[0])
+	}
+	if !strings.Contains(first[0], MutedStyle.Render("Plan")) {
+		t.Errorf("the inactive panel is not dim: %q", first[0])
+	}
+	if !strings.Contains(first[0], MutedStyle.Render(panelTabSeparator)) {
+		t.Errorf("the tab row has no dim separator: %q", first[0])
+	}
+	if !strings.Contains(panelText(first), "OS  Linux") {
+		t.Errorf("the first panel's facts are not shown:\n%s", panelText(first))
+	}
+
+	second := Model{PanelIndex: 1}.panelColumn(panels, l, 40)
+	if !strings.Contains(second[0], BrandStyle.Render("Plan")) {
+		t.Errorf("after a Tab the plan is not the active panel: %q", second[0])
+	}
+	if !strings.Contains(second[0], MutedStyle.Render("Machine")) {
+		t.Errorf("after a Tab the machine panel is not dim: %q", second[0])
+	}
+	if !strings.Contains(panelText(second), "Steps  8") || strings.Contains(panelText(second), "OS  Linux") {
+		t.Errorf("after a Tab the column still shows the first panel's facts:\n%s", panelText(second))
+	}
+}
+
+// TestNextPanelIndexWrapsAndRefusesToMoveWithOnePanel pins the key itself: the
+// index advances and wraps to the first panel at the end, and a screen with
+// fewer than two panels reports that it did not consume the key, which is what
+// leaves Tab free for the trainer screens.
+func TestNextPanelIndexWrapsAndRefusesToMoveWithOnePanel(t *testing.T) {
+	none := []panel{}
+	one := []panel{testPanel(panelPlan, "Plan", "x", "a")}
+	three := []panel{
+		testPanel(panelMachine, "Machine", "x", "a"),
+		testPanel(panelPlan, "Plan", "x", "b"),
+		testPanel("third", "Third", "x", "c"),
+	}
+
+	if index, moved := nextPanelIndex(none, 0); moved || index != 0 {
+		t.Errorf("Tab on a screen with no panels = (%d, %v), want (0, false)", index, moved)
+	}
+	if index, moved := nextPanelIndex(one, 0); moved || index != 0 {
+		t.Errorf("Tab on a one-panel screen = (%d, %v), want (0, false)", index, moved)
+	}
+	if index, moved := nextPanelIndex(three, 0); !moved || index != 1 {
+		t.Errorf("Tab from the first panel = (%d, %v), want (1, true)", index, moved)
+	}
+	if index, moved := nextPanelIndex(three, 2); !moved || index != 0 {
+		t.Errorf("Tab from the last panel = (%d, %v), want (0, true)", index, moved)
+	}
+}
+
+// TestActivePanelIndexClampsAModelBuiltByHand pins the safety net: an index that
+// no longer addresses a panel of the screen -- a model built by hand rather than
+// by a screen change -- falls back to the default instead of panicking.
+func TestActivePanelIndexClampsAModelBuiltByHand(t *testing.T) {
+	panels := []panel{
+		testPanel(panelMachine, "Machine", "x", "a"),
+		testPanel(panelPlan, "Plan", "x", "b"),
+	}
+	for _, index := range []int{-1, 2, 99} {
+		m := Model{PanelIndex: index}
+		if got := m.activePanelIndex(panels); got != 0 {
+			t.Errorf("activePanelIndex with index %d = %d, want the default 0", index, got)
+		}
+	}
+}
+
+// TestPanelIndexResetsWhenTheScreenChanges pins the reset through the one path
+// every screen change takes: Update. A screen always opens on its default panel,
+// so a Tab on one screen cannot leave the next screen showing a panel it does
+// not have.
+func TestPanelIndexResetsWhenTheScreenChanges(t *testing.T) {
+	m := Model{Screen: ScreenWelcome, PanelIndex: 1}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+	if got.Screen != ScreenMainMenu {
+		t.Fatalf("screen after enter = %v, want %v", got.Screen, ScreenMainMenu)
+	}
+	if got.PanelIndex != 0 {
+		t.Errorf("PanelIndex after a screen change = %d, want the default 0", got.PanelIndex)
+	}
+}
+
+// TestTabIsNotStolenFromTheTrainer pins the other half of the key: the exercise
+// screens give Tab their own meaning -- it reveals the hint -- and a screen that
+// offers no panel must not consume it. The trainer shipped this binding first,
+// so the panel machinery yields to it.
+func TestTabIsNotStolenFromTheTrainer(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil || exercise.Hint == "" {
+		t.Fatalf("test setup: the lesson exercise has no hint for Tab to reveal")
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	got := next.(Model)
+	if want := "💡 Hint: " + exercise.Hint; got.TrainerMessage != want {
+		t.Errorf("TrainerMessage after Tab = %q, want %q: the panel key stole the trainer's hint", got.TrainerMessage, want)
+	}
+}
+
+// TestFooterAdvertisesTabOnlyWhereThereIsAnotherPanel pins the discoverability
+// rule: Tab appears in a screen's footer only when the screen offers a second
+// panel, because a key that does nothing must not be advertised.
+func TestFooterAdvertisesTabOnlyWhereThereIsAnotherPanel(t *testing.T) {
+	one := []panel{testPanel(panelPlan, "Plan", "x", "a")}
+	two := []panel{
+		testPanel(panelMachine, "Machine", "x", "a"),
+		testPanel(panelPlan, "Plan", "x", "b"),
+	}
+	hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
+
+	m := Model{}
+	if got := m.panelHints(one, hints); len(got) != len(hints) {
+		t.Errorf("a one-panel screen's hints grew to %d, want %d unchanged", len(got), len(hints))
+	}
+	got := m.panelHints(two, hints)
+	if len(got) != len(hints)+1 || got[len(got)-1] != hintTab {
+		t.Errorf("a two-panel screen's hints = %v, want the same list with the [Tab] hint appended", got)
+	}
+	if len(hints) != 4 {
+		t.Errorf("panelHints modified the caller's slice: %v", hints)
+	}
+}
+
+// TestNarrowSummaryShowsTheActivePanelWholeOrNotAtAll pins the summary row: it
+// names the active panel in the dim tone followed by its headline, follows the
+// active index, wraps rather than cutting, and is left out entirely when the
+// text would not fit in the two rows the frame allows -- a headline that stops
+// mid-sentence says less than none.
+func TestNarrowSummaryShowsTheActivePanelWholeOrNotAtAll(t *testing.T) {
+	panels := []panel{
+		testPanel(panelMachine, "Machine", "Linux · x86_64", "a"),
+		testPanel(panelPlan, "Plan", "8 steps on Linux (detected)", "b"),
+	}
+
+	lines := (Model{}).rotatorLines(panels, 96)
+	if len(lines) != 1 {
+		t.Fatalf("the summary is %d rows at 96 columns, want 1:\n%v", len(lines), lines)
+	}
+	text := panelText(lines)
+	for _, want := range []string{"Machine", "Linux · x86_64"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the summary does not name %q: %q", want, text)
+		}
+	}
+	if !strings.Contains(lines[0], MutedStyle.Render("Machine")) {
+		t.Errorf("the panel's name is not in the dim tone: %q", lines[0])
+	}
+	if strings.Contains(text, cutMarker) {
+		t.Errorf("the summary was cut instead of wrapped: %q", text)
+	}
+
+	second := Model{PanelIndex: 1}.rotatorLines(panels, 96)
+	if text := panelText(second); !strings.Contains(text, "8 steps on Linux (detected)") || strings.Contains(text, "x86_64") {
+		t.Errorf("the summary does not follow the active panel: %q", text)
+	}
+
+	// A headline that needs more than the allowed rows is not shown, and it is
+	// not shown rather than cut.
+	long := []panel{testPanel(panelPlan, "Plan", strings.Repeat("word ", 30), "a")}
+	if lines := (Model{}).rotatorLines(long, 24); len(lines) != 0 {
+		t.Errorf("a summary needing more than %d rows was shown as %v", rotatorMaxRows, panelText(lines))
+	}
+}
+
+// TestRotatorFillsOnlyTheRowsTheBodyDidNotNeed pins the placement rule: the
+// summary may take a trailing blank row and nothing else. A body row is never
+// displaced, and a frame with fewer spare rows than the summary needs shows no
+// summary at all.
+func TestRotatorFillsOnlyTheRowsTheBodyDidNotNeed(t *testing.T) {
+	cases := []struct {
+		name    string
+		placed  []string
+		rotator []string
+		want    []string
+	}{
+		{"one blank row takes the summary", []string{"a", "", ""}, []string{"r"}, []string{"a", "", "r"}},
+		{"a full body is left alone", []string{"a", "b", "c"}, []string{"r"}, []string{"a", "b", "c"}},
+		{"a two-row summary takes two blank rows", []string{"a", "", ""}, []string{"r1", "r2"}, []string{"a", "r1", "r2"}},
+		{"too few spare rows: no summary", []string{"a", "b", ""}, []string{"r1", "r2"}, []string{"a", "b", ""}},
+		{"no rows at all: no panic", nil, []string{"r"}, nil},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			got := placeRotator(c.placed, c.rotator)
+			if strings.Join(got, "|") != strings.Join(c.want, "|") {
+				t.Errorf("placeRotator = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestTwoPanelScreensRenderTheTabRowAndTheSummary pins the machinery end to end
+// through the frame, at the two sizes the design was settled on. Above the
+// two-column floor the panel column starts with the tab row and the footer
+// advertises Tab; below it the active panel becomes the summary row above the
+// footer rule, and Tab is advertised there too so the hint stays truthful. A
+// screen whose body fills its frame gets no summary, because nothing may be
+// dropped from a body to make room for a summary of it.
+func TestTwoPanelScreensRenderTheTabRowAndTheSummary(t *testing.T) {
+	panels := []panel{
+		testPanel(panelMachine, "Machine", "Linux · x86_64", "OS  Linux"),
+		testPanel(panelPlan, "Plan", "8 steps", "Steps  8"),
+	}
+	hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
+
+	t.Run("two columns at 160x50", func(t *testing.T) {
+		m := Model{Width: 160, Height: 50}
+		view := ansiEscape.ReplaceAllString(m.frameWithPanels("Main Menu", "", twoPanelFacts(), hints, panels), "")
+
+		// View() adds the one global padding row; the frame itself spends
+		// exactly the rows it reserved.
+		if rows := renderedRowCount(view); rows != 50-viewPaddingRows {
+			t.Fatalf("the two-panel screen renders %d rows, want %d", rows, 50-viewPaddingRows)
+		}
+		if !strings.Contains(view, "Machine") || !strings.Contains(view, "Plan") {
+			t.Errorf("the panel tab row does not name both panels:\n%s", view)
+		}
+		if !strings.Contains(view, "[Tab]") {
+			t.Errorf("a two-panel screen does not advertise Tab:\n%s", view)
+		}
+		if !strings.Contains(view, "OS  Linux") {
+			t.Errorf("the active panel's facts are not composed beside the body:\n%s", view)
+		}
+	})
+
+	t.Run("narrow at 100x24", func(t *testing.T) {
+		m := Model{Width: 100, Height: 24}
+		view := ansiEscape.ReplaceAllString(m.frameWithPanels("Main Menu", "", twoPanelFacts(), hints, panels), "")
+
+		if rows := renderedRowCount(view); rows != 24-viewPaddingRows {
+			t.Fatalf("the narrow two-panel screen renders %d rows, want exactly %d", rows, 24-viewPaddingRows)
+		}
+		lines := strings.Split(view, "\n")
+		var summary string
+		for _, line := range lines {
+			if strings.Contains(line, "Machine") {
+				summary = line
+			}
+		}
+		if summary == "" {
+			t.Fatalf("the narrow screen has no summary row naming the active panel:\n%s", view)
+		}
+		if !strings.Contains(summary, "Linux · x86_64") {
+			t.Errorf("the summary row does not carry the headline fact: %q", summary)
+		}
+		if !strings.Contains(view, "[Tab]") {
+			t.Errorf("the narrow screen does not advertise Tab:\n%s", view)
+		}
+	})
+
+	t.Run("a body that fills the frame gets no summary", func(t *testing.T) {
+		m := Model{Width: 100, Height: 24}
+		rows := installerBodyRows(m.Height, footerRowCount(layoutFor(m).Inner, m.panelHints(panels, hints)))
+		body := make([]string, rows)
+		for i := range body {
+			body[i] = fmt.Sprintf("body row %d", i+1)
+		}
+
+		view := ansiEscape.ReplaceAllString(m.frameWithPanels("Main Menu", "", body, hints, panels), "")
+		if strings.Contains(view, "Machine") {
+			t.Errorf("a full body was summarised and may have lost a row:\n%s", view)
+		}
+		if rows := renderedRowCount(view); rows != 24-viewPaddingRows {
+			t.Errorf("the full-body screen renders %d rows, want exactly %d", rows, 24-viewPaddingRows)
+		}
+	})
+}
+
+// --- The trainer, the tip and the state panels ------------------------------
+
+// TestMainMenuOffersLastInstallOnlyWhenARecordExists pins the conditional slot:
+// the state panel is offered when the model holds a record and left out when it
+// does not, so the tab row never names a panel with nothing to say and the screen
+// never shows a section that reads "never".
+func TestMainMenuOffersLastInstallOnlyWhenARecordExists(t *testing.T) {
+	offered := func(m Model) bool {
+		for _, p := range m.panelsFor() {
+			if p.ID == panelLastInstall {
+				return true
+			}
+		}
+		return false
+	}
+
+	if offered(Model{Screen: ScreenMainMenu}) {
+		t.Errorf("the main menu offers a Last install panel with no record")
+	}
+	withRecord := Model{
+		Screen:      ScreenMainMenu,
+		LastInstall: &lastInstall{Timestamp: time.Now(), Version: "v0.4.0"},
+	}
+	if !offered(withRecord) {
+		t.Errorf("the main menu does not offer the Last install panel it holds a record for")
+	}
+
+	// The welcome screen never carries the state panel; it answers where you are.
+	if offered(Model{Screen: ScreenWelcome, LastInstall: withRecord.LastInstall}) {
+		t.Errorf("the welcome screen offers the state panel")
+	}
+}
+
+// TestTrainerPanelSaysSoWhenThereAreNoRuns pins the honesty rule the panel
+// exists for: a nil profile (no file) and a saved profile with nothing played
+// both read as "no run", and neither is drawn as a column of zeros that would
+// look like progress.
+func TestTrainerPanelSaysSoWhenThereAreNoRuns(t *testing.T) {
+	for _, stats := range []*trainer.UserStats{nil, trainer.NewUserStats()} {
+		m := Model{TrainerStats: stats, TrainerModules: trainer.GetAllModules()}
+		rows := m.trainerPanelFacts(narrowPanelLayout())
+
+		if len(rows) != 1 {
+			t.Errorf("a profile with no runs rendered %d rows, want the one line that says so:\n%s", len(rows), panelText(rows))
+			continue
+		}
+		text := panelText(rows)
+		if !strings.Contains(text, "No runs recorded") {
+			t.Errorf("the no-runs panel does not say so: %q", text)
+		}
+		for _, zero := range []string{"0%", "0/", "streak", "boss"} {
+			if strings.Contains(text, zero) {
+				t.Errorf("the no-runs panel draws %q, which reads as measured progress: %q", zero, text)
+			}
+		}
+	}
+}
+
+// TestTrainerPanelNamesModulesAccuracyStreakAndTheNextBoss pins the loaded
+// panel: a started module with its lessons and mastery, the overall accuracy and
+// the best streak, and the next boss with the practice gate it needs. A module
+// that was never opened stays out rather than appearing as "0/5".
+func TestTrainerPanelNamesModulesAccuracyStreakAndTheNextBoss(t *testing.T) {
+	stats := trainer.NewUserStats()
+	progress := stats.GetModuleProgress(trainer.ModuleHorizontal)
+	progress.LessonsCompleted = 2
+	progress.LessonsTotal = 5
+	progress.PracticeAttempts = 4
+	progress.PracticeCorrect = 3
+	progress.PracticeAccuracy = 0.75
+	stats.BestStreak = 6
+
+	m := Model{TrainerStats: stats, TrainerModules: trainer.GetAllModules()}
+	l := narrowPanelLayout()
+	rows := m.trainerPanelFacts(l)
+	assertPanelFits(t, rows, l.Right, 200)
+
+	flat := panelFlat(rows)
+	for _, want := range []string{
+		"Horizontal", "2/5 lessons", "mastered",
+		"Accuracy 75%",
+		"Best streak 6",
+		"Next boss The Line Walker",
+		"80% practice accuracy and 10 tries",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the trainer panel does not name %q:\n%s", want, panelText(rows))
+		}
+	}
+	if strings.Contains(flat, "Vertical Motions") {
+		t.Errorf("the trainer panel shows a module that was never opened as a row of zeros:\n%s", panelText(rows))
+	}
+
+	headline := m.trainerHeadline()
+	if !strings.Contains(headline, "accuracy 75%") || !strings.Contains(headline, "best streak 6") {
+		t.Errorf("the trainer headline = %q, want the accuracy and the best streak", headline)
+	}
+}
+
+// TestTipPoolIsDeclaredOrderAndDeterministic pins the pool: it starts with the
+// keymap reference data's first binding, walks the sources in their declared
+// order, ends with the trainer's lessons, and is rebuilt byte-for-byte the same
+// on a second call, so two runs on one machine show one sequence.
+func TestTipPoolIsDeclaredOrderAndDeterministic(t *testing.T) {
+	a := buildTipPool()
+	b := buildTipPool()
+	if len(a) < 2 {
+		t.Fatalf("the tip pool has %d entries, want at least 2", len(a))
+	}
+	if len(a) != len(b) {
+		t.Fatalf("the pool rebuilt to %d entries, want %d", len(b), len(a))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("the pool rebuilt differently at %d: %+v vs %+v", i, a[i], b[i])
+		}
+	}
+
+	nvim := GetNvimKeymaps()
+	first := nvim[0]
+	if a[0].Context != "Neovim"+panelTabSeparator+first.Name {
+		t.Errorf("tip 0 comes from %q, want the first Neovim category %q", a[0].Context, first.Name)
+	}
+	if a[0].Keys != first.Keymaps[0].Keys || a[0].Action != first.Keymaps[0].Description {
+		t.Errorf("tip 0 = %+v, want the first Neovim binding %+v", a[0], first.Keymaps[0])
+	}
+	if a[1].Keys != first.Keymaps[1].Keys || a[1].Action != first.Keymaps[1].Description {
+		t.Errorf("tip 1 = %+v, want the second Neovim binding %+v", a[1], first.Keymaps[1])
+	}
+
+	// The trainer's lessons follow every keymap source, so the trainer block starts
+	// exactly one keymap count along and runs to the end of the pool. The first
+	// surviving lesson is one of the first module's; lessons whose mission does not
+	// fit the tip's rows were left out of the pool rather than admitted and cut.
+	keymapCount := 0
+	for _, cats := range [][]KeymapCategory{GetNvimKeymaps(), GetTmuxKeymaps(), GetZellijKeymaps(), GetGhosttyKeymaps(), GetHerdrKeymaps()} {
+		for _, cat := range cats {
+			keymapCount += len(cat.Keymaps)
+		}
+	}
+	if keymapCount >= len(a) {
+		t.Fatalf("the pool holds %d entries, all keymaps", len(a))
+	}
+	modules := trainer.GetAllModules()
+	if a[keymapCount].Context != "Vim Trainer"+panelTabSeparator+modules[0].Name {
+		t.Errorf("the first trainer tip comes from %q, want the first module %q", a[keymapCount].Context, modules[0].Name)
+	}
+	horizontalOptimal := make(map[string]bool)
+	for _, exercise := range trainer.GetLessons(modules[0].ID) {
+		horizontalOptimal[exercise.Optimal] = true
+	}
+	if !horizontalOptimal[a[keymapCount].Keys] {
+		t.Errorf("the first trainer tip's keys = %q, not an optimal of %q", a[keymapCount].Keys, modules[0].Name)
+	}
+	for i := keymapCount; i < len(a); i++ {
+		if !strings.HasPrefix(a[i].Context, "Vim Trainer"+panelTabSeparator) {
+			t.Errorf("a keymap tip %q follows the trainer tips at %d", a[i].Context, i)
+			break
+		}
+	}
+}
+
+// TestTipRotationFollowsTheTickAndStaysAtZeroWithoutAnimation pins the rotation
+// arithmetic: one tip per ten ticks, wrapping at the end of the pool, and tip 0
+// while the counter cannot leave zero.
+func TestTipRotationFollowsTheTickAndStaysAtZeroWithoutAnimation(t *testing.T) {
+	size := len(tipPool())
+	if size < 2 {
+		t.Fatalf("the tip pool has %d entries, want at least 2", size)
+	}
+
+	cases := []struct {
+		tick int
+		want int
+	}{
+		{0, 0},
+		{ticksPerTip - 1, 0},
+		{ticksPerTip, 1},
+		{2 * ticksPerTip, 2},
+		{size * ticksPerTip, 0},
+		{(size + 1) * ticksPerTip, 1},
+	}
+	for _, c := range cases {
+		if got := tipIndex(Model{AnimTick: c.tick}); got != c.want {
+			t.Errorf("tipIndex(tick %d) = %d, want %d", c.tick, got, c.want)
+		}
+	}
+
+	if got := tipIndex(Model{AnimTick: -1}); got != 0 {
+		t.Errorf("tipIndex with a negative tick = %d, want 0", got)
+	}
+
+	// Animation off is the tick staying at zero, so the screen is on tip 0 with no
+	// second source of truth to disagree with the tick.
+	if got := tipIndex(Model{Animating: false, AnimTick: 0}); got != 0 {
+		t.Errorf("tipIndex with animation off = %d, want 0", got)
+	}
+}
+
+// TestShippedTipBlocksAreAtMostThreeRowsAndFitTheColumn pins the shape every
+// shipped tip has to keep: two or three rows, none of them wider than the column,
+// at the narrowest panel and at the widest, so the rotation cannot make a panel
+// jump and no tip is cut at the gutter. From tipMinPanelWidth up, which is every
+// width a two-column screen can compose, no shipped tip may end in the cut marker
+// either: the pool admitted only whole tips.
+func TestShippedTipBlocksAreAtMostThreeRowsAndFitTheColumn(t *testing.T) {
+	for _, width := range []int{20, tipMinPanelWidth, 84} {
+		for i, tip := range tipPool() {
+			rows := tipRows(tip, width)
+			if len(rows) > 3 {
+				t.Errorf("tip %d rendered %d rows at %d columns, want at most 3: %+v", i, len(rows), width, tip)
+			}
+			for _, row := range rows {
+				if got := lipgloss.Width(row); got > width {
+					t.Errorf("tip %d rendered a %d-column row in a %d-column column: %q", i, got, width, row)
+				}
+			}
+			if width >= tipMinPanelWidth && strings.Contains(panelText(rows), cutMarker) {
+				t.Errorf("tip %d is cut at %d columns, a width the layout composes: %+v", i, width, tip)
+			}
+		}
+	}
+}
+
+// TestTipPanelShowsTheTipTheTickSelects pins the panel end to end: tip 0 at tick
+// 0, the next tip once another ten ticks have passed, and the same tip again
+// after the pool wraps.
+func TestTipPanelShowsTheTipTheTickSelects(t *testing.T) {
+	l := narrowPanelLayout()
+	pool := tipPool()
+
+	first := Model{AnimTick: 0}.tipFacts(l)
+	if !strings.Contains(panelFlat(first), pool[0].Action) {
+		t.Errorf("the panel at tick 0 does not show tip 0 %+v:\n%s", pool[0], panelText(first))
+	}
+
+	second := Model{AnimTick: ticksPerTip}.tipFacts(l)
+	if !strings.Contains(panelFlat(second), pool[1].Action) || strings.Contains(panelFlat(second), pool[0].Action) {
+		t.Errorf("the panel at tick %d does not show tip 1 %+v:\n%s", ticksPerTip, pool[1], panelText(second))
+	}
+
+	wrapped := Model{AnimTick: len(pool) * ticksPerTip}.tipFacts(l)
+	if panelFlat(wrapped) != panelFlat(first) {
+		t.Errorf("the panel did not wrap back to tip 0:\n%s", panelText(wrapped))
+	}
+}
+
+// TestLastInstallPanelNamesTheRunItWasGiven pins the state panel's rows: when the
+// run finished, the build it ran, and the files it touched -- and no files row
+// when it touched none, so absence is not drawn as a zero.
+func TestLastInstallPanelNamesTheRunItWasGiven(t *testing.T) {
+	l := narrowPanelLayout()
+	when := time.Date(2026, 9, 29, 14, 30, 0, 0, time.UTC)
+
+	m := Model{LastInstall: &lastInstall{
+		Timestamp: when,
+		Version:   "v0.4.0",
+		Files:     []string{"nvim: /home/testuser/.config/nvim"},
+	}}
+	rows := m.lastInstallPanelFacts(l)
+	assertPanelFits(t, rows, l.Right, 200)
+	flat := panelFlat(rows)
+	for _, want := range []string{
+		"Ran 2026-09-29 14:30:00",
+		"Version v0.4.0",
+		"Touched 1 file",
+		"nvim: /home/testuser/.config/nvim",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the state panel does not name %q:\n%s", want, panelText(rows))
+		}
+	}
+
+	bare := Model{LastInstall: &lastInstall{Timestamp: when, Version: "v0.4.0"}}
+	text := panelText(bare.lastInstallPanelFacts(l))
+	if strings.Contains(text, "Touched") || strings.Contains(text, "never") {
+		t.Errorf("a run that touched nothing rendered a zero or a \"never\":\n%s", text)
+	}
+	if !strings.Contains(panelFlat(bare.lastInstallPanelFacts(l)), "Ran 2026-09-29 14:30:00") {
+		t.Errorf("a run with no files still has to name when it ran:\n%s", text)
+	}
+
+	if rows := (Model{}).lastInstallPanelFacts(l); rows != nil {
+		t.Errorf("a model with no record rendered %v, want no rows", panelText(rows))
+	}
+}
+
+// TestTheFullMainMenuTabRowFitsTheNarrowestTwoColumnPanel pins the widest tab
+// row the shipped registry can build against the narrowest panel it can be drawn
+// in. The four titles together are one character from the column's edge at 124
+// terminal columns, so a title that grows -- or a fifth panel -- must fail here
+// with its own name rather than silently fall back to a truncated row.
+func TestTheFullMainMenuTabRowFitsTheNarrowestTwoColumnPanel(t *testing.T) {
+	m := Model{
+		Screen:      ScreenMainMenu,
+		LastInstall: &lastInstall{Timestamp: time.Now(), Version: "v0.4.0"},
+	}
+	panels := m.panelsFor()
+	if len(panels) != 4 {
+		t.Fatalf("the main menu offers %d panels, want 4 with a record", len(panels))
+	}
+
+	// 124 terminal columns is the two-column floor; its panel is the narrowest one.
+	l := layoutFor(Model{Width: layoutTwoColumnWidth + 4})
+	if !l.TwoColumn {
+		t.Fatalf("the two-column floor did not lay out as two columns")
+	}
+
+	row := tabRow(panels, 0, l.Right)
+	if got := lipgloss.Width(row); got > l.Right {
+		t.Errorf("the tab row is %d columns in a %d-column panel: %q", got, l.Right, panelText([]string{row}))
+	}
+	if strings.Contains(panelText([]string{row}), cutMarker) {
+		t.Errorf("the tab row fell back to a truncated row in a %d-column panel: %q", l.Right, panelText([]string{row}))
+	}
+	for _, p := range panels {
+		if !strings.Contains(panelText([]string{row}), p.Title) {
+			t.Errorf("the tab row does not name %q: %q", p.Title, panelText([]string{row}))
 		}
 	}
 }

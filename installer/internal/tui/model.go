@@ -105,6 +105,20 @@ type Model struct {
 	Steps       []InstallStep
 	CurrentStep int
 	Cursor      int
+	// PanelIndex is which panel of the current screen's list is being shown. The
+	// registry's first panel is the default, and the index is reset to it whenever
+	// the screen changes, so a screen always opens on the panel its own question
+	// is about.
+	PanelIndex int
+	// Animating is the animation gate: true when this run may schedule the slow
+	// tick. It is decided once, when the model is built, from the environment and
+	// the stream the run would draw to, and stored here so a test can force either
+	// side without touching the environment.
+	Animating bool
+	// AnimTick counts the slow ticks since the run started. It stays at zero while
+	// animation is off, and it is the clock the tip rotation and the companion
+	// read instead of time.Now, so a snapshot can pin a frame instead of flaking.
+	AnimTick    int
 	ErrorMsg    string
 	ShowDetails bool
 	LogLines    []string
@@ -140,6 +154,12 @@ type Model struct {
 	AvailableBackups []system.BackupInfo // Available backups for restore
 	SelectedBackup   int                 // Selected backup index
 	BackupDir        string              // Last backup directory created
+	// LastInstall is the record of the previous completed run -- when it finished,
+	// the build it ran and the configuration paths it replaced -- read from the
+	// state file on the startup path. It is nil when there is no record, and the
+	// main menu then offers no "Last install" panel at all rather than a section
+	// that says "never".
+	LastInstall *lastInstall
 	// Repository checkout created by the clone step
 	WorkDir string // Private temporary directory owned by this run (empty until clone)
 	RepoDir string // Repository checkout inside WorkDir (empty until clone)
@@ -178,6 +198,9 @@ func NewModel() Model {
 		Steps:                   []InstallStep{},
 		CurrentStep:             0,
 		Cursor:                  0,
+		PanelIndex:              0,
+		Animating:               animationGate(os.Stdout),
+		AnimTick:                0,
 		ShowDetails:             false,
 		LogLines:                []string{},
 		KeymapCategories:        GetNvimKeymaps(),

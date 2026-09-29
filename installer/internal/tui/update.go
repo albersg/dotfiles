@@ -45,6 +45,20 @@ type (
 		backups []system.BackupInfo
 	}
 
+	// trainerStatsLoadedMsg carries the trainer's persisted stats onto the startup
+	// path, so the main menu's "Your trainer" panel can describe real progress
+	// before the player has opened the trainer.
+	trainerStatsLoadedMsg struct {
+		stats *trainer.UserStats
+	}
+
+	// lastInstallLoadedMsg carries the record of the previous completed run onto
+	// the startup path. A nil record means there is no file, and the main menu
+	// then offers no "Last install" panel.
+	lastInstallLoadedMsg struct {
+		record *lastInstall
+	}
+
 	// configsDetectedMsg carries the existing configs the startup scan found. It
 	// arrives once, from Init, so the main menu's plan can say what the run will
 	// overwrite before the wizard has asked anything.
@@ -92,14 +106,37 @@ func (r stepRecordedState) applyTo(m *Model) {
 	m.BackupDir = r.BackupDir
 }
 
+// recordLastInstall writes the record of a completed run and puts it on the
+// model, so the "Last install" panel shows the run that just finished without
+// waiting for the next startup read. The file write is deliberately unchecked:
+// it is a convenience for the next run, and a read-only or missing state
+// directory must not fail an install that already succeeded.
+func (m *Model) recordLastInstall() {
+	rec := lastInstall{
+		Timestamp: time.Now(),
+		Version:   VersionLabel(),
+		Files:     append([]string(nil), m.ExistingConfigs...),
+	}
+	m.LastInstall = &rec
+	_ = writeLastInstall(rec)
+}
+
 // Init implements tea.Model
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		tea.SetWindowTitle("dotfiles Installer"),
 		tickCmd(),
 		loadBackupsCmd(),
 		detectConfigsCmd(),
-	)
+		loadTrainerStatsCmd(),
+		loadLastInstallCmd(),
+	}
+	// The slow animation tick is armed only when the run may animate. With
+	// animation off nothing is scheduled and the counter stays at zero.
+	if cmd := m.animTickCmdFor(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
 }
 
 func tickCmd() tea.Cmd {
@@ -125,8 +162,44 @@ func detectConfigsCmd() tea.Cmd {
 	}
 }
 
-// Update implements tea.Model
+// loadTrainerStatsCmd reads the trainer's persisted stats on the startup path,
+// the way the backups are loaded, so the main menu's "Your trainer" panel
+// describes real progress on the first frame the message lands instead of an
+// empty panel that reads as "nothing played". The trainer's own entry point still
+// re-reads them, so a session that just saved is reflected when it is reopened.
+func loadTrainerStatsCmd() tea.Cmd {
+	return func() tea.Msg {
+		return trainerStatsLoadedMsg{stats: trainer.LoadStats()}
+	}
+}
+
+// loadLastInstallCmd reads the record of the previous completed run on the
+// startup path. It is the read half of the state file writeLastInstall writes
+// when a run finishes.
+func loadLastInstallCmd() tea.Cmd {
+	return func() tea.Msg {
+		return lastInstallLoadedMsg{record: readLastInstall()}
+	}
+}
+
+// Update implements tea.Model. It is the one place a screen change is observed,
+// so it is also the one place the active panel is reset: a screen always opens on
+// its default panel, whichever path changed the screen.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	screen := m.Screen
+	next, cmd := m.update(msg)
+
+	updated, ok := next.(Model)
+	if !ok {
+		return next, cmd
+	}
+	if updated.Screen != screen {
+		updated.PanelIndex = 0
+	}
+	return updated, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
@@ -144,8 +217,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The boss fight has a failure deadline instead of a hint: the same tick
 		// charges the life when a boss step is left unanswered.
 		m.expireBossStepOnDeadline()
-		// Continue ticking for animations and the countdown
+		// Continue ticking for the trainer's deadlines. This is the trainer's clock,
+		// not the animation clock: the slow tick below is the one the animation gate
+		// owns, and this one keeps running whether or not the run animates.
 		return m, tickCmd()
+
+	case animTickMsg:
+		// The slow tick advances the counter the tip rotation and the companion
+		// read. It only re-arms while animation is on, so a gate that was forced off
+		// after the tick was armed stops the clock rather than letting it run on.
+		if !m.Animating {
+			return m, nil
+		}
+		m.AnimTick++
+		return m, m.animTickCmdFor()
 
 	case installStartMsg:
 		// Start the installation process
@@ -198,10 +283,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case installCompleteMsg:
 		m.TotalTime = msg.totalTime
 		m.Screen = ScreenComplete
+		// The run finished, so record it for the next one. The write is best effort:
+		// a state directory the machine will not let us write must not fail an
+		// install that has already succeeded.
+		m.recordLastInstall()
 		return m, nil
 
 	case loadBackupsMsg:
 		m.AvailableBackups = msg.backups
+		return m, nil
+
+	case trainerStatsLoadedMsg:
+		// The startup load bootstraps the panel; it does not overwrite a model that
+		// already holds stats, so a seeded model and a session that entered the
+		// trainer before this arrived both keep what they have.
+		if m.TrainerStats == nil {
+			m.TrainerStats = msg.stats
+		}
+		return m, nil
+
+	case lastInstallLoadedMsg:
+		// As with the stats, the startup read fills a model the writer did not
+		// already fill, and never clobbers one.
+		if m.LastInstall == nil {
+			m.LastInstall = msg.record
+		}
 		return m, nil
 
 	case configsDetectedMsg:
@@ -332,6 +438,19 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ESC goes back from content/learn screens (and cancels leader mode implicitly)
 	if key == "esc" {
 		return m.handleEscape()
+	}
+
+	// Tab cycles the panels of a screen that offers more than one, wrapping
+	// around. It is taken here, before the per-screen dispatch, but only when
+	// there is a panel to reach: a screen that offers one panel or none does not
+	// consume the key, so whatever Tab means to it -- the trainer's exercise
+	// screens read it as "hint" -- is left exactly as it was. The key does nothing
+	// on a single-panel screen, which is why no such screen advertises it.
+	if key == "tab" {
+		if next, moved := nextPanelIndex(m.panelsFor(), m.PanelIndex); moved {
+			m.PanelIndex = next
+			return m, nil
+		}
 	}
 
 	// Screen-specific keys

@@ -59,9 +59,15 @@ func goldenSystemInfo() *system.SystemInfo {
 // that render the detected platform must not be snapshotted from the OS that
 // happened to run them. Tests that assert a specific platform still assign
 // m.SystemInfo after calling this.
+//
+// XDG_STATE_HOME is pinned for the same class of reason: the "Last install"
+// panel and the trainer panel load their files on the startup path, so a real
+// state file or a real trainer profile on the machine running the test would
+// otherwise change the tab row a snapshot records.
 func isolateGoldenTest(t *testing.T, m *Model) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	m.SystemInfo = goldenSystemInfo()
 }
 
