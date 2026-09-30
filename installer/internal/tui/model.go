@@ -127,12 +127,9 @@ type Model struct {
 	// toward a target that moves, and together with AnimTick it is everything a
 	// snapshot needs to pin a frame and a position.
 	CompanionPos int
-	// CompanionDir is the direction it is strolling in: +1 right, -1 left. It is
-	// stored so the turn at an edge is a real reversal the eye can follow.
-	CompanionDir int
 	// CompanionFollow is set by a key that moved the selection or changed the
 	// screen and cleared when the creature reaches the row the cursor points at. It
-	// is what tells "walking toward what you pointed at" apart from "strolling".
+	// is what tells a walk that has somewhere to go from a creature standing still.
 	CompanionFollow bool
 	// CompanionMoving records whether the last tick actually moved it, which is
 	// what the walking frames mean: a standing creature draws the idle frame while
@@ -259,7 +256,7 @@ type Model struct {
 
 // NewModel creates a new Model with initial state
 func NewModel() Model {
-	return Model{
+	m := Model{
 		Screen:                  ScreenWelcome,
 		PrevScreen:              ScreenWelcome,
 		Width:                   80,
@@ -276,7 +273,6 @@ func NewModel() Model {
 		ink:                     companionInkFor(lipgloss.HasDarkBackground()),
 		AnimTick:                0,
 		CreatedAt:               time.Now(),
-		CompanionDir:            1,
 		ShowDetails:             false,
 		LogLines:                []string{},
 		KeymapCategories:        GetNvimKeymaps(),
@@ -312,6 +308,11 @@ func NewModel() Model {
 		TrainerMessage:     "",
 		TrainerValidation:  nil,
 	}
+	// The gaze is settled once here, so a model that never sees a key, a resize or
+	// a pointer event still draws eyes that are looking at what it starts on, and
+	// the first tick does not have to move them.
+	m.aimCompanion()
+	return m
 }
 
 // SetProgram sets the tea.Program reference for sending messages during installation

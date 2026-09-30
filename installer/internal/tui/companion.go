@@ -18,9 +18,11 @@ import (
 // The installer's screens are wide and mostly empty below their content: at the
 // 227x62 the layout was measured on, the main menu occupies 8 of 62 rows. The
 // panels fill some of that room with facts; the companion is the one element in
-// it that is not information. It is a small creature that strolls along the rows
-// the body did not need, walks toward whatever the cursor points at, looks at it,
-// sleeps when the user stops typing and reacts to what is on screen.
+// it that is not information. It is a small creature that walks the rows the body
+// did not need, toward whatever the cursor points at, looks at it, sleeps when the
+// user stops typing and reacts to what is on screen. It walks only when it has
+// somewhere to go: a creature with nothing to do stands still, so a screen nobody
+// is typing into settles into bytes the renderer never has to repaint.
 //
 // The art is drawn here, in the three tables below, and it is deliberately plain
 // ASCII. Termux, a 16-colour terminal and a terminal with no font fallback all
@@ -52,13 +54,16 @@ import (
 // model and moves nothing, and advanceCompanion, called only from the frame tick
 // (animTickMsg), is the one writer of everything below.
 //
-// Cost is bounded by a test rather than by this comment. The creature draws in the
-// rows it owns, so a tick changes those rows and the renderer repaints those
-// lines: TestCompanionTicksChangeOnlyItsOwnRows asserts exactly that over several
-// screens and terminal sizes. The other half is asserted beside it -- a screen
-// whose body fills its frame draws no companion, and the tick then changes nothing
-// at all, so the view string is identical and the renderer skips the frame
-// entirely.
+// Cost has two regimes and a test for each, rather than a promise in this comment.
+// At rest the creature moves nothing, so nothing it draws changes and the renderer
+// writes no bytes at all: TestCompanionStaysPutWhenNothingHappens asserts the view
+// is byte-identical across a run of ticks. Walking is the other regime: the sprite
+// changes one column, every row of it moves with the move, and the renderer
+// repaints every line those rows are on -- so the cost is the sprite's row count
+// times the line width for as long as a stroll lasts, and zero afterwards.
+// TestCompanionTicksChangeOnlyItsOwnRows bounds which rows a walking tick may
+// touch, and TestCompanionCostHasTwoRegimes measures both regimes rather than
+// pinning a byte count that the terminal's width decides.
 //
 // With the animation gate off there is no companion anywhere: a frozen pet is not
 // the point, and the gate already means "this run cannot animate".
@@ -96,11 +101,29 @@ const (
 	// cross the frame's margin.
 	companionCellWidth = companionPixelWidth
 
-	// companionStrollCells is how far it walks per frame when it is strolling.
-	// One cell is what animTicksPerSecond frames a second deserves: eight cells a
-	// second reads as a walk along a row that spans the terminal, where the two
-	// cells a frame the slow clock needed would be a dash at this rate.
-	companionStrollCells = 1
+	// companionStepCells is the walk's only speed: at most one cell per animation
+	// frame, whatever the distance left. A step proportional to what remains is
+	// what made the creature read as a jump -- a long move was thirty-five cells in
+	// one frame and then a crawl for the last two -- so the step is capped instead
+	// and a long walk is simply a walk, at a constant companionStepCells *
+	// animTicksPerSecond = eight cells a second, with a known number of frames.
+	companionStepCells = 1
+
+	// companionBrakeCells is how far from its target the creature starts slowing
+	// down, and companionBrakeFrames is the cadence it uses there: the last few
+	// cells are crossed on every other frame, so it arrives in small steps instead
+	// of stopping dead. Braking cannot be a fraction of a cell -- the grid is whole
+	// cells -- so it is a frame count: one step every companionBrakeFrames.
+	companionBrakeCells  = 3
+	companionBrakeFrames = 2
+
+	// companionFollowCells is how far the creature walks for one row of a menu.
+	// Spreading the menu's whole index across the stage is what threw it thirty-five
+	// cells for one arrow key on a wide terminal; walking a fixed three cells per
+	// row makes one keypress a short stroll and a jump to the last row a walk of a
+	// few seconds. It also keeps the creature near the menu it is following instead
+	// of out in the middle of a 227-column stage on its own.
+	companionFollowCells = 3
 
 	// companionSleepSeconds is how long without a key puts it to sleep. It is a
 	// duration: the stretch stays twenty seconds if the frame rate ever moves.
@@ -120,10 +143,13 @@ const (
 	// companionYawnTicks is that stretch in frames.
 	companionYawnTicks = companionYawnSeconds * animTicksPerSecond
 
-	// companionBlinkSeconds is how often an awake, idle creature blinks. The blink
-	// lasts one frame, and it is derived from the tick counter rather than from a
-	// second clock, so a snapshot can pin the blink without waiting for it.
-	companionBlinkSeconds = 5
+	// companionBlinkSeconds is how often an awake, idle creature blinks. It is ten
+	// and not five because every blink rewrites the creature's rows: a blink is a
+	// decoration, and once it is frequent enough to notice it is noise in the middle
+	// of whatever the reader is reading. The blink lasts one frame and is derived
+	// from the tick counter rather than from a second clock, so a snapshot can pin
+	// the blink without waiting for it.
+	companionBlinkSeconds = 10
 
 	// companionBlinkTicks is that interval in frames.
 	companionBlinkTicks = companionBlinkSeconds * animTicksPerSecond
@@ -230,10 +256,11 @@ func (m Model) companionAsleepNow() bool {
 // aimCompanion points the creature's gaze at whatever it should be looking at:
 // the pointer when this run asked the terminal for one and has seen it, and the
 // selection otherwise, which is what the gaze did before the pointer existed. It
-// is called only from the three places that can change what the creature sees -- a
-// key that moved the selection or changed the screen, the tick that moved the
-// creature, and a pointer event -- so the render path draws a gaze it did not
-// compute and a snapshot can pin one.
+// is called from the places that can change what the creature sees -- the model's
+// own construction, a key that moved the selection or changed the screen, the tick
+// that actually moved the creature, and a pointer event -- so the eyes settle when
+// the thing they look at moves, never on a tick that changed nothing. The render
+// path draws the gaze and never computes it, and a snapshot can pin one.
 func (m *Model) aimCompanion() {
 	stage := companionStageWidth(*m)
 	if col, row, ok := m.companionPointerTarget(stage); ok {
@@ -644,11 +671,14 @@ func companionGazeRows(rows []string, eyes companionEyes, gaze companionGaze) []
 // below still runs on the glyph heights, which is what makes the floor real.
 //
 // The art is a grid of tones rather than of glyphs, and the tone says which of the
-// theme's colours a pixel takes. Four tones and the background: the outline and the
-// pupils are the same ink, the fur is two shades of the palette's amber, and the
-// nose and mouth are the error rose. The background tone is the theme's own
-// background, so the pixels the cat does not cover blend with the terminal instead
-// of drawing a box around it.
+// theme's colours a pixel takes. Six tones and the background: the outline is the
+// palette's ink, the fur is two muted tones, the eyes -- the pupils, the lids and
+// the expressions they draw -- take the one bright tone in the set, and the nose
+// and mouth are the error rose. The one bright tone is spent on the eyes on
+// purpose: the creature is decoration, and the reader's eye should find the small
+// feature the gaze moves before it finds the body. The background tone is the
+// theme's own background, so the pixels the cat does not cover blend with the
+// terminal instead of drawing a box around it.
 //
 // The sprite is composed, not drawn per state, on the same terms as the glyph art:
 // one block of face rows per state class, and the pupils are stamped into it. That
@@ -669,9 +699,10 @@ const (
 // does not draw this sprite at all.
 const (
 	companionPixelNone = ' ' // the theme's background: the pixels the cat does not cover
-	companionPixelFurL = '.' // the light fur
-	companionPixelFurM = 'o' // the mid fur
-	companionPixelInk  = '#' // the outline, the pupils and the lids
+	companionPixelFurL = '.' // the light fur: the face between the eyes
+	companionPixelFurM = 'o' // the mid fur: the body
+	companionPixelInk  = '#' // the outline
+	companionPixelEye  = '@' // the eyes: the pupils, the lids and the expressions they draw
 	companionPixelRose = 'x' // the nose and the mouth
 )
 
@@ -722,11 +753,11 @@ type companionPixelFace struct {
 }
 
 var (
-	companionPixelFaceOpen   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o..##oo##..o# `, ` #o..##oo##..o# `, ` #o..........o# `}, pupils: 2}
-	companionPixelFaceWide   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o.###..###.o# `, ` #o.###..###.o# `, ` #o..........o# `}, pupils: 3}
-	companionPixelFaceShut   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o.###..###.o# `, ` #o..........o# `, ` #o..........o# `}}
-	companionPixelFaceHappy  = companionPixelFace{rows: [4]string{` #o..#....#..o# `, ` #o.#.#..#.#.o# `, ` #o..........o# `, ` #o..........o# `}}
-	companionPixelFaceSquint = companionPixelFace{rows: [4]string{` #o.#......#.o# `, ` #o..#....#..o# `, ` #o.#......#.o# `, ` #o..........o# `}}
+	companionPixelFaceOpen   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o..@@oo@@..o# `, ` #o..@@oo@@..o# `, ` #o..........o# `}, pupils: 2}
+	companionPixelFaceWide   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o.@@@..@@@.o# `, ` #o.@@@..@@@.o# `, ` #o..........o# `}, pupils: 3}
+	companionPixelFaceShut   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o.@@@..@@@.o# `, ` #o..........o# `, ` #o..........o# `}}
+	companionPixelFaceHappy  = companionPixelFace{rows: [4]string{` #o..@....@..o# `, ` #o.@.@..@.@.o# `, ` #o..........o# `, ` #o..........o# `}}
+	companionPixelFaceSquint = companionPixelFace{rows: [4]string{` #o.@......@.o# `, ` #o..@....@..o# `, ` #o.@......@.o# `, ` #o..........o# `}}
 )
 
 // companionPixelFaceFor is the face a state is drawn with. The shut face is shared
@@ -817,7 +848,7 @@ func companionPixelGaze(face companionPixelFace, gaze companionGaze) companionPi
 	for _, pupil := range []int{col, companionPixelSocketRight + gaze.X} {
 		for x := pupil; x < pupil+face.pupils; x++ {
 			for y := row; y < row+2; y++ {
-				socket[y] = companionPixelSetPixel(socket[y], x, companionPixelInk)
+				socket[y] = companionPixelSetPixel(socket[y], x, companionPixelEye)
 			}
 		}
 	}
@@ -826,12 +857,14 @@ func companionPixelGaze(face companionPixelFace, gaze companionGaze) companionPi
 
 // companionPixelClearSockets returns a face row with its pupils taken out: every
 // mark inside the socket area becomes light fur again, so a gaze that moved them
-// leaves the row they came from clean instead of doubled. The head's outline and
-// its two inner edges are outside the socket area and are left alone.
+// leaves the row they came from clean instead of doubled. It clears the eye tone
+// and the outline alike, because the two have both been the pupil mark at some
+// point in the art's history and a stale one would be left behind. The head's
+// outline and its two inner edges are outside the socket area and are left alone.
 func companionPixelClearSockets(row string) string {
 	pixels := []rune(row)
 	for x := companionPixelSocketLeft - 2; x <= companionPixelSocketRight+3 && x < len(pixels); x++ {
-		if pixels[x] == companionPixelInk {
+		if pixels[x] == companionPixelInk || pixels[x] == companionPixelEye {
 			pixels[x] = companionPixelFurL
 		}
 	}
@@ -851,18 +884,24 @@ func companionPixelSetPixel(row string, x int, tone rune) string {
 	return string(pixels)
 }
 
-// companionInk is the five colours the pixel sprite is drawn with, resolved once
-// when the model is built. Resolving them asks the terminal about its background,
-// which a render may not do, so the answer lives on the model the way the
-// animation gate does.
+// companionInk is the colours the pixel sprite is drawn with, resolved once when
+// the model is built. Resolving them asks the terminal about its background, which
+// a render may not do, so the answer lives on the model the way the animation gate
+// does.
+//
+// The palette is chosen so the creature is decoration and not information: the
+// body and the face are muted tones, so the cat is not the loudest object on a
+// screen whose words are, and the one bright tone in the set is spent on the eyes,
+// which are the small feature the gaze moves and the one the reader's own eye
+// should find first. The nose and mouth are the error rose, the only other accent.
 //
 // The outline is the palette's dark ink on a light terminal and its background on a
 // dark one: the theme's text colour is near-white on a dark terminal, and a
-// near-white outline around light amber fur would be no outline at all. The
-// background tone is the theme's own background, so the pixels the cat does not
-// cover blend with the terminal.
+// near-white outline around muted fur would be no outline at all. The background
+// tone is the theme's own background, so the pixels the cat does not cover blend
+// with the terminal.
 type companionInk struct {
-	none, furLight, furMid, ink, rose color.RGBA
+	none, furLight, furMid, ink, eye, rose color.RGBA
 }
 
 // companionInkFor resolves the palette against the terminal's background.
@@ -879,9 +918,10 @@ func companionInkFor(dark bool) companionInk {
 	}
 	return companionInk{
 		none:     parseHexColour(pick(Background)),
-		furLight: parseHexColour(pick(Accent)),
-		furMid:   parseHexColour(pick(Warning)),
+		furLight: parseHexColour(pick(Secondary)),
+		furMid:   parseHexColour(pick(TextMuted)),
 		ink:      parseHexColour(pick(outline)),
+		eye:      parseHexColour(pick(Accent)),
 		rose:     parseHexColour(pick(Error)),
 	}
 }
@@ -910,6 +950,8 @@ func (ink companionInk) tone(tone rune) color.RGBA {
 		return ink.furMid
 	case companionPixelInk:
 		return ink.ink
+	case companionPixelEye:
+		return ink.eye
 	case companionPixelRose:
 		return ink.rose
 	default:
@@ -1146,11 +1188,13 @@ func (m Model) companionSelectedRow() string {
 	return options[m.Cursor]
 }
 
-// companionTarget is the cell the cursor points at: the cursor's index spread
-// across the stage, so the first row of a menu is the left edge and the last one
-// the right. It reports false when there is nothing to point at -- a screen with
-// no menu, like the installing screen or the trainer's exercises -- and the
-// creature then simply strolls.
+// companionTarget is the cell the cursor points at: the cursor's index times
+// companionFollowCells, capped at the right edge of the stage. Spreading the whole
+// index across the stage is what threw the creature tens of cells for one arrow
+// key on a wide terminal; a fixed three cells a row makes one keypress a short
+// stroll and keeps the creature near the menu it follows. It reports false when
+// there is nothing to point at -- a screen with no menu, like the installing
+// screen or the trainer's exercises -- and the creature then simply stands still.
 func (m Model) companionTarget(stage int) (int, bool) {
 	options := m.GetCurrentOptions()
 	if len(options) < 2 {
@@ -1161,7 +1205,7 @@ func (m Model) companionTarget(stage int) (int, bool) {
 		return 0, false
 	}
 	index := min(max(m.Cursor, 0), len(options)-1)
-	return index * limit / (len(options) - 1), true
+	return min(index*companionFollowCells, limit), true
 }
 
 // armCompanionFollow points the companion at the row the cursor is on and turns
@@ -1169,7 +1213,7 @@ func (m Model) companionTarget(stage int) (int, bool) {
 // screen, is the event; the walking itself happens on the ticks that follow,
 // which is why moving the cursor visibly moves the creature over the following
 // ticks instead of teleporting it. A screen with nothing to point at leaves it
-// strolling and looking straight ahead.
+// standing still and looking straight ahead.
 func (m *Model) armCompanionFollow() {
 	if _, ok := m.companionTarget(companionStageWidth(*m)); ok {
 		m.CompanionFollow = true
@@ -1178,9 +1222,10 @@ func (m *Model) armCompanionFollow() {
 }
 
 // advanceCompanion is the creature's whole clock: it ages the idle stretch, ages
-// a celebration, takes one step and points the gaze at what it now sees. It is
-// called from the frame tick and from nowhere else, so the render path never
-// moves anything and the same model and tick always draw the same bytes.
+// a celebration, takes one step and, when that step moved it, points the gaze at
+// what it now sees. It is called from the frame tick and from nowhere else, so the
+// render path never moves anything and the same model and tick always draw the
+// same bytes.
 func (m *Model) advanceCompanion() {
 	m.CompanionIdle++
 	if m.CompanionPleased > 0 {
@@ -1195,7 +1240,7 @@ func (m *Model) advanceCompanion() {
 	}
 
 	// A sleeping companion is still. The frame says asleep, and a creature that
-	// kept strolling while asleep would contradict its own face; it also means an
+	// kept walking while asleep would contradict its own face; it also means an
 	// idle run settles into a view string that no longer changes, so the renderer
 	// stops repainting anything at all. Its gaze is left where it fell asleep, and
 	// only the pointer -- which wakes it -- turns it again.
@@ -1204,12 +1249,24 @@ func (m *Model) advanceCompanion() {
 		return
 	}
 
+	// The gaze is aimed only when the tick actually moved the creature. The cell it
+	// stands on is half of what the gaze is computed from, so a step can turn the
+	// eyes; a tick that moved nothing must change nothing, or the pupils would
+	// settle a frame after the target did and a still screen would flicker. The
+	// other events that change what it sees -- the model's construction and a key
+	// that moved the cursor or changed the screen -- aim the gaze themselves, and so
+	// does a pointer event.
+	before := m.CompanionPos
 	m.stepCompanion()
-	m.aimCompanion()
+	if m.CompanionPos != before {
+		m.aimCompanion()
+	}
 }
 
-// stepCompanion takes one step: toward the row the cursor points at while the
-// walk is armed, and a fixed stroll otherwise.
+// stepCompanion takes one step toward the row the cursor points at, and does
+// nothing at all when there is nothing to walk toward. Standing still is the
+// default: the creature walks only while the walk is armed, and a creature with
+// nothing to do does nothing.
 func (m *Model) stepCompanion() {
 	stage := companionStageWidth(*m)
 	limit := stage - companionCellWidth
@@ -1219,53 +1276,36 @@ func (m *Model) stepCompanion() {
 	}
 	pos := min(max(m.CompanionPos, 0), limit)
 
-	if target, ok := m.companionTarget(stage); ok && m.CompanionFollow {
-		if target == pos {
-			// It has arrived at the row the cursor points at. It stands there for
-			// this tick -- the idle frame, which is what "it resumes strolling"
-			// looks like on the tick it stops walking -- and strolls on from the
-			// next one.
-			m.CompanionFollow = false
-			m.CompanionPos, m.CompanionMoving = pos, false
-			return
-		}
-		// Half the distance per frame. Because the step is a fraction and not a
-		// length, arrival takes log2(distance) frames: the time is set by how far
-		// away the row is. At animTicksPerSecond a one-row cursor move is four to
-		// six frames (about half a second to three quarters), and the far edge of
-		// the widest stage is eight frames, one second. The step is shortest where
-		// the eye is, one cell away, so the arrival reads as a step rather than as a
-		// jump.
-		step := (companionDistance(pos, target) + 1) / 2
-		if target > pos {
-			pos = min(pos+step, target)
-		} else {
-			pos = max(pos-step, target)
-		}
-		m.CompanionPos, m.CompanionMoving = pos, true
+	// Standing still is the default and the whole of the quiet: the creature walks
+	// only to reach the row the cursor points at, and a creature with nothing to do
+	// does nothing. That is what makes a screen nobody is typing into settle into a
+	// view string that never changes, so the renderer writes no bytes at all while
+	// the user reads -- which is the difference between a pet and a flicker.
+	target, ok := m.companionTarget(stage)
+	if !ok || !m.CompanionFollow {
+		m.CompanionFollow, m.CompanionMoving = false, false
+		return
+	}
+	distance := companionDistance(pos, target)
+	if distance == 0 {
+		m.CompanionFollow, m.CompanionMoving = false, false
 		return
 	}
 
-	// Strolling: a fixed step in the direction it is already going, turning at the
-	// edge instead of walking off the row. The direction is stored so the turn is
-	// visible -- the creature reverses and walks back the way it came.
-	m.CompanionFollow = false
-	direction := m.CompanionDir
-	if direction == 0 {
-		direction = 1
+	// Braking: the last few cells are crossed on every other frame, so the arrival
+	// is a step and not a stop. A step is never more than companionStepCells, so a
+	// long walk takes as many frames as it has cells and can be timed exactly.
+	if distance <= companionBrakeCells && m.AnimTick%companionBrakeFrames == 1 {
+		m.CompanionMoving = false
+		return
 	}
-	next := pos + direction*companionStrollCells
-	if next < 0 || next > limit {
-		direction = -direction
-		next = min(max(pos+direction*companionStrollCells, 0), limit)
-		if next == pos {
-			// The row is narrower than one step: walk its whole length instead of
-			// standing still at one end, so a two-column stage still moves.
-			next = limit - pos
-		}
+	step := min(distance, companionStepCells)
+	if target > pos {
+		pos += step
+	} else {
+		pos -= step
 	}
-	m.CompanionDir = direction
-	m.CompanionPos, m.CompanionMoving = next, next != pos
+	m.CompanionPos, m.CompanionMoving = pos, true
 }
 
 // companionDistance is how far apart two cells are, always positive.
