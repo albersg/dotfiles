@@ -7,8 +7,18 @@
 
   # Auto-install herdr on home-manager activation if it is missing.
   # Guarded so a missing/failed brew never breaks the activation (same approach as engram.nix).
+  # Home Manager activation runs with a minimal PATH that excludes Homebrew, so
+  # Homebrew is prepended before the probes: otherwise both `command -v herdr`
+  # and `command -v brew` fail on a machine where both are installed, the
+  # warning below is false, and the install branch is unreachable.
   home.activation.installHerdr = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     echo "🔧 Setting up Herdr..."
+
+    if [ "$(uname)" = "Darwin" ]; then
+      export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    else
+      export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+    fi
 
     if command -v herdr &>/dev/null; then
       echo "✅ Herdr already installed"

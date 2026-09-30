@@ -1,9 +1,9 @@
 if status is-interactive
     # Commands to run in interactive sessions can go here
-    # Install Fisher if not installed
+    # Install Fisher if not installed (git.io was shut down by GitHub in 2023)
     if not functions -q fisher
-        curl -sL https://git.io/fisher | source
-        fisher install jorgebucaran/fisher
+        curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source
+        and fisher install jorgebucaran/fisher
     end
 
 end
@@ -26,11 +26,11 @@ else if test (uname) = Darwin
         # Intel Mac
         set BREW_BIN /usr/local/bin/brew
     end
-    set -x PATH $HOME/.local/bin $HOME/.opencode/bin $HOME/.volta/bin $HOME/.bun/bin $HOME/.nix-profile/bin /nix/var/nix/profiles/default/bin /usr/local/bin $HOME/.config $HOME/.cargo/bin /usr/local/lib/* $PATH
+    set -x PATH $HOME/.local/bin $HOME/.opencode/bin $HOME/.volta/bin $HOME/.bun/bin $HOME/.nix-profile/bin /nix/var/nix/profiles/default/bin /usr/local/bin $HOME/.cargo/bin $PATH
 else
     # Linux
     set BREW_BIN /home/linuxbrew/.linuxbrew/bin/brew
-    set -x PATH $HOME/.local/bin $HOME/.opencode/bin $HOME/.volta/bin $HOME/.bun/bin $HOME/.nix-profile/bin /nix/var/nix/profiles/default/bin /usr/local/bin $HOME/.config $HOME/.cargo/bin /usr/local/lib/* $PATH
+    set -x PATH $HOME/.local/bin $HOME/.opencode/bin $HOME/.volta/bin $HOME/.bun/bin $HOME/.nix-profile/bin /nix/var/nix/profiles/default/bin /usr/local/bin $HOME/.cargo/bin $PATH
 end
 
 # Only eval brew shellenv if brew is installed (not on Termux)
@@ -39,8 +39,10 @@ if test $IS_TERMUX -eq 0; and set -q BREW_BIN; and test -f $BREW_BIN
 end
 
 # Start selected terminal multiplexer
+# A unique session per terminal window: -A would attach to an existing session
+# instead, mirroring the same panes across every terminal emulator.
 if status is-interactive; and command -q tmux; and not set -q TMUX; and not set -q ZELLIJ; and not set -q HERDR_ENV
-    tmux new-session -A -s main
+    tmux new-session -s "term-$(date +%s)-$(random)"
 end
 
 # Initialize tools
@@ -48,8 +50,6 @@ starship init fish | source
 zoxide init fish | source
 atuin init fish | source
 fzf --fish | source
-
-set -x PATH $HOME/.cargo/bin $PATH
 
 # Carapace completions
 set -Ux CARAPACE_BRIDGES 'zsh,fish,bash,inshellisense'
@@ -76,6 +76,9 @@ fish_vi_key_bindings
 # Set nvim as default editor for opencode and other tools
 set -gx EDITOR nvim
 set -gx VISUAL nvim
+
+# Use bat as the man page pager
+set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
 
 ## alias
 if test (uname) = Darwin
@@ -119,4 +122,3 @@ set -g fish_pager_color_progress $comment
 set -g fish_pager_color_prefix $cyan
 set -g fish_pager_color_completion $foreground
 set -g fish_pager_color_description $comment
-clear

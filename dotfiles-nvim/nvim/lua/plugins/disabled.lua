@@ -24,7 +24,12 @@ return {
     enabled = false,
   },
   {
-    "jonroosevelt/gemini-cli.nvim",
+    -- Plugin: antigravity-cli.nvim
+    -- URL: https://github.com/mceazy2700/antigravity-cli.nvim
+    -- Description: Google Antigravity CLI integration (successor to Gemini CLI,
+    -- now deprecated). To switch: remove this entry and leave every other AI
+    -- plugin off, since <leader>a is shared.
+    "mceazy2700/antigravity-cli.nvim",
     enabled = false,
   },
   {
