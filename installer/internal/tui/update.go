@@ -136,6 +136,12 @@ func (m Model) Init() tea.Cmd {
 	if cmd := m.animTickCmdFor(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	// The host is read on the same gate: a run that may not animate also does not
+	// sample the machine, so its live panel reports the sampling as off rather
+	// than drawing a stale reading.
+	if cmd := m.metricsTickCmdFor(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -249,7 +255,22 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.AnimTick++
 		m.advanceCompanion()
+		m.advanceCelebration()
 		return m, m.animTickCmdFor()
+
+	case metricsTickMsg:
+		// The sampling tick reads the host and re-arms itself, on the same gate the
+		// frame tick uses. A gate forced off after the tick was armed stops the
+		// sampling rather than letting the reading go stale-but-live.
+		if !m.Animating {
+			return m, nil
+		}
+		return m, tea.Batch(readMetricsCmd(), metricsTickCmd())
+
+	case metricsReadMsg:
+		// One raw reading is folded into the ring here, in Update, so the render
+		// path draws samples from the model and never touches the host.
+		return m.withMetricsRead(msg.sample), nil
 
 	case installStartMsg:
 		// A run begins here, so this is where the run's start timestamp is set -- and
@@ -257,6 +278,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// elapsed time from it, and it lives on the model rather than being read
 		// while rendering.
 		m.InstallStartedAt = time.Now()
+		// A new run starts its progress history over: the chart on the installing
+		// screen is this run's, not the previous one's, and a retry begins clean for
+		// the same reason the start timestamp is reset.
+		m.ProgressSamples = nil
+		m.Celebrating = false
+		m.CelebrationTick = 0
+		m.Particles = nil
 		// Start the installation process
 		cmd := m.runNextStep()
 		return m, cmd
@@ -311,6 +339,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case installCompleteMsg:
 		m.TotalTime = msg.totalTime
 		m.Screen = ScreenComplete
+		// The run is over, so this is where the celebration belongs: the burst of
+		// particles and the companion's pleased state are both armed from here, and
+		// both are no-ops when the animation gate is off.
+		if m.Animating {
+			m.startCelebration()
+			m.CompanionPleased = companionPleasedTicks
+		}
 		// The run finished, so record it for the next one. The write is best effort:
 		// a state directory the machine will not let us write must not fail an
 		// install that has already succeeded.

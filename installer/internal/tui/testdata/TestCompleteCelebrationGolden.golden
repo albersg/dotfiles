@@ -1,0 +1,24 @@
+                                                                                
+  Installation complete                                                         
+  ────────────────────────────────────────────────────────────────────────────  
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  Summary                                                                       
+  │ OS: mac                                                                     
+  │ Terminal: ghostty                                                           
+  │ Shell: fish                                                                 
+  │ Window Manager: tmux                                                        
+  │ Font: Iosevka Term Nerd Font                                                
+  │ Editor: Neovim with dotfiles config                                         
+                                                                                
+  Next Step                                                                     
+  │ To use your new shell now, run:                                             
+  │ exec fish                                                                   
+          ▗          ▘          ▖          █          ▝                         
+  ▝            ▗            ▘              ▘            ▖            █          
+    ▝                ▖   █                ▘   ▖                ▗                
+      \(o.o)/                                                                   
+  ────────────────────────────────────────────────────────────────────────────  
+  [Enter] exit                                                                  
