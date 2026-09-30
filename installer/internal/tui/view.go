@@ -2463,7 +2463,18 @@ func (m Model) renderTrainerMenu() string {
 // between the mission text, which cannot be scrolled, and the code window, which
 // can. The renderer and the scroll key both ask for it, so the window the keys
 // scroll is exactly the window the screen draws.
+//
+// On an exercise screen that composes two columns it returns the two-column
+// budget instead: the mission wraps in the right column and the code window
+// keeps every row the left column can hold. trainerTwoColumnLayout is the one
+// predicate that decides which budget applies, so the renderer, the scroll keys
+// and the frame guard cannot disagree about the shape of the screen.
 func (m Model) trainerTextBudget(exercise *trainer.Exercise) (missionRows []string, codeRows int) {
+	l := layoutFor(m)
+	if m.trainerTwoColumnLayout(l) {
+		return m.trainerWideTextBudget(exercise, l)
+	}
+
 	flex := m.Height - trainerFrameRows
 	if flex < trainerCodeMinRows+1 {
 		flex = trainerCodeMinRows + 1
@@ -2479,6 +2490,34 @@ func (m Model) trainerTextBudget(exercise *trainer.Exercise) (missionRows []stri
 	if codeRows < trainerCodeMinRows {
 		codeRows = trainerCodeMinRows
 	}
+	return missionRows, codeRows
+}
+
+// trainerRightColumnChrome is the right column's fixed rows: the mission chip,
+// the answer chip, the answer line and the fixed feedback area. One mission row
+// on top of it is the shortest the column can be.
+const trainerRightColumnChrome = 5
+
+// trainerWideTextBudget is the two-column budget for an exercise screen. The
+// footer the screen will actually draw decides how many body rows the frame
+// leaves, the code window takes them all in its own column, and the mission
+// wraps in the right column with the rows the answer and the feedback do not
+// need. The mission is capped at what the right column can hold, which is the
+// existing cut marker's job at an extreme height, not a normal case.
+func (m Model) trainerWideTextBudget(exercise *trainer.Exercise, l layout) (missionRows []string, codeRows int) {
+	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints()))
+
+	// The code window owns the left column: the column minus its chip.
+	codeRows = bodyRows - 1
+	if codeRows < trainerCodeMinRows {
+		codeRows = trainerCodeMinRows
+	}
+
+	maxMission := bodyRows - trainerRightColumnChrome
+	if maxMission < 1 {
+		maxMission = 1
+	}
+	missionRows = wrapText(exercise.Mission, l.Right-blockGutterWidth, maxMission)
 	return missionRows, codeRows
 }
 
@@ -2687,8 +2726,15 @@ func withCursor(text string, col int, style lipgloss.Style) string {
 // fit, in a fixed number of rows so the layout above it never moves when a
 // message arrives or goes away.
 func (m Model) trainerFeedbackRows(style lipgloss.Style) []string {
+	return m.trainerFeedbackRowsWidth(style, trainerInnerWidth(m))
+}
+
+// trainerFeedbackRowsWidth is trainerFeedbackRows measured against a given
+// width, so the two-column right column wraps the feedback to its own column
+// instead of the whole room.
+func (m Model) trainerFeedbackRowsWidth(style lipgloss.Style, width int) []string {
 	rows := make([]string, trainerMessageRows)
-	for i, row := range wrapText(m.TrainerMessage, trainerInnerWidth(m), trainerMessageRows) {
+	for i, row := range wrapText(m.TrainerMessage, width, trainerMessageRows) {
 		rows[i] = style.Render(row)
 	}
 	return rows
@@ -2715,30 +2761,61 @@ func (m Model) trainerExerciseVital() string {
 	return strings.Join(parts, "  ")
 }
 
+// trainerExerciseHints are the legend entries a lesson or practice screen
+// packs, in the canonical order every footer uses. It is one list so the footer
+// and the two-column row budget agree on how many rows the legend spends, and
+// the hint key is listed because the screen honours it (see
+// handleTrainerExerciseKeys).
+func (m Model) trainerExerciseHints() []installerHint {
+	return []installerHint{
+		trainerHintTypeCommand, trainerHintSubmit, trainerHintHint, trainerHintScroll,
+		trainerHintDelete, trainerHintEscToken, trainerHintBlockVisual, trainerHintQuit,
+	}
+}
+
 // renderTrainerExercise renders a lesson or practice exercise. The mission, the
 // code window and the answer are guttered blocks under brand chips; the header
 // carries the mode, the position, the score, the streak and the countdown that
 // used to be four stacked rows. The code is a window because the screen has to
 // fit the 24-row terminal the trainer claims: see trainerFrameRows for the
 // arithmetic.
+//
+// Where the installer's own screens have room for two columns (see layoutFor),
+// the exercise screen composes the same two columns: the code window on the
+// left and the mission, the answer and the feedback on the right, through the
+// shared composeColumns. The code window then keeps the rows the stacked right
+// column no longer needs, so a wide terminal shows more code instead of a
+// narrower window in the same shape. Below the floor the body is the one
+// column it has always been.
 func (m Model) renderTrainerExercise(mode string) string {
 	exercise := m.trainerCurrentExercise()
 	if exercise == nil {
 		return deadEnd("No exercise loaded", "Press [Esc] to return to the trainer.")
 	}
 
-	inner := trainerInnerWidth(m)
+	l := layoutFor(m)
+	inner := l.Inner
+	hints := m.trainerExerciseHints()
+
+	rows := []string{
+		headerRow(fmt.Sprintf("🎮 %s · %s", mode, string(m.TrainerGameState.CurrentModule)), m.trainerExerciseVital(), inner),
+		rule(inner),
+	}
+
+	if m.trainerTwoColumnLayout(l) {
+		rows = append(rows, m.trainerExerciseColumns(exercise, l)...)
+		rows = append(rows, m.trainerCompanionRow(inner))
+		rows = append(rows, footerHints(inner, hints)...)
+		return strings.Join(rows, "\n")
+	}
+
 	mission, codeRows := m.trainerTextBudget(exercise)
 	viewport := m.trainerCodeViewport(exercise, codeRows, inner-blockGutterWidth-trainerGutterWidth)
 
 	// Every element below is one terminal row, which is what makes the code
 	// window's height the frame minus the chrome instead of an estimate: the
 	// screen used to render 22+N rows and lose its bottom.
-	rows := []string{
-		headerRow(fmt.Sprintf("🎮 %s · %s", mode, string(m.TrainerGameState.CurrentModule)), m.trainerExerciseVital(), inner),
-		rule(inner),
-		chip("Mission"),
-	}
+	rows = append(rows, chip("Mission"))
 	missionLines := make([]string, len(mission))
 	for i, row := range mission {
 		missionLines[i] = InfoStyle.Render(row)
@@ -2758,12 +2835,51 @@ func (m Model) renderTrainerExercise(mode string) string {
 	// 80-column floor, so the screen's height is still countable: see
 	// trainerFrameRows.
 	rows = append(rows, m.trainerCompanionRow(inner))
-	rows = append(rows, footerHints(inner, []installerHint{
-		trainerHintTypeCommand, trainerHintSubmit, trainerHintHint, trainerHintScroll,
-		trainerHintDelete, trainerHintEscToken, trainerHintBlockVisual, trainerHintQuit,
-	})...)
+	rows = append(rows, footerHints(inner, hints)...)
 
 	return strings.Join(rows, "\n")
+}
+
+// trainerExerciseColumns composes the exercise screen's two-column body: the
+// code window in the left column and the mission, the answer and the feedback
+// in the right one. It is the one place the two halves are built, and both are
+// measured against the layout's own columns, so the width the renderer draws
+// with is the width layoutFor granted.
+func (m Model) trainerExerciseColumns(exercise *trainer.Exercise, l layout) []string {
+	mission, codeRows := m.trainerWideTextBudget(exercise, l)
+	viewport := m.trainerCodeViewport(exercise, codeRows, l.Left-blockGutterWidth-trainerGutterWidth)
+
+	left := append([]string{viewport.label()}, gutteredBlock(viewport.render())...)
+
+	missionLines := make([]string, len(mission))
+	for i, row := range mission {
+		missionLines[i] = InfoStyle.Render(row)
+	}
+	right := []string{chip("Mission")}
+	right = append(right, gutteredBlock(missionLines)...)
+	right = append(right,
+		chip("Answer"),
+		RuleStyle.Render("│ ")+KeyStyle.Render(tailToWidth(m.trainerAnswer(), l.Right-blockGutterWidth)),
+	)
+	right = append(right, m.trainerFeedbackRowsWidth(InfoStyle, l.Right)...)
+
+	return composeColumns(left, right, l)
+}
+
+// trainerTwoColumnLayout reports whether the current trainer screen composes
+// two columns. It is the single predicate the renderer and the scroll/render
+// budget both read, so neither can decide "wide" on its own. It requires the
+// shared layout's own two-column room (layoutFor, the same threshold and the
+// same columns as every installer screen), an exercise screen -- the boss and
+// the menu keep their one-column bodies -- and a frame tall enough to hold the
+// right column's fixed chrome plus one mission row. When the frame is too short
+// the screen falls back to the one-column body rather than overflow it.
+func (m Model) trainerTwoColumnLayout(l layout) bool {
+	if !l.TwoColumn || (m.Screen != ScreenTrainerLesson && m.Screen != ScreenTrainerPractice) {
+		return false
+	}
+	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints()))
+	return bodyRows >= trainerRightColumnChrome+1
 }
 
 // renderLineWithTwoCursors renders a line with both start and current cursor
@@ -2956,8 +3072,8 @@ func (m Model) renderTrainerBoss() string {
 	rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
 	rows = append(rows, m.trainerCompanionRow(inner))
 	rows = append(rows, footerHints(inner, []installerHint{
-		trainerHintTypeCommand, trainerHintSubmit, trainerHintEscToken,
-		trainerHintScroll, trainerHintForfeit, trainerHintBlockVisual,
+		trainerHintTypeCommand, trainerHintSubmit, trainerHintHint,
+		trainerHintScroll, trainerHintForfeit, trainerHintEscToken, trainerHintBlockVisual,
 	})...)
 
 	return strings.Join(rows, "\n")
