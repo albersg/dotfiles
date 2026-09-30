@@ -692,6 +692,12 @@ const (
 	companionPixelWidth  = 16
 	companionPixelRows   = 16
 	companionPixelHeight = companionPixelRows / 2
+
+	// companionInkReset retires the style a cell set. It is named rather than
+	// written out at each site because missing one is not a cosmetic slip: a tone
+	// left active paints every cell after it, which is how a sprite became a bar of
+	// colour across the terminal.
+	companionInkReset = "\x1b[0m"
 )
 
 // The tones. A pixel's tone picks its colour and nothing else: no state is carried
@@ -976,8 +982,18 @@ func (ink companionInk) row(top, bottom string) string {
 		upper, lower := rune(top[x]), rune(bottom[x])
 		switch {
 		case upper == companionPixelNone && lower == companionPixelNone:
+			// A transparent cell has to retire the style before writing its space. A
+			// space is painted with whatever colour is still active, and a terminal's
+			// escape state outlives the line: without this reset the last tone of a row
+			// bleeds through every cell after it, to the end of the row and on through
+			// the frame's own padding. It is not a subtle tint either - half the sprite's
+			// cells set a background, so the leak is a solid bar of colour across the
+			// terminal.
+			if last != "" {
+				out.WriteString(companionInkReset)
+				last = ""
+			}
 			out.WriteByte(' ')
-			last = ""
 		case upper == lower:
 			style := ink.style(ink.tone(upper), nil)
 			if style != last {
@@ -995,7 +1011,7 @@ func (ink companionInk) row(top, bottom string) string {
 		}
 	}
 	if last != "" {
-		out.WriteString("\x1b[0m")
+		out.WriteString(companionInkReset)
 	}
 	return out.String()
 }
