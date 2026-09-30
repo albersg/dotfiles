@@ -9,7 +9,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This cycle finishes the Vim trainer's buffer engine and its two new modules, and gives the installer
 an interface that fits the terminal it claims and reads on a light one. The WSL configuration is also
 now derived from the host that receives it, which removes the last artifact that carried one
-machine's limits into another machine's VM.
+machine's limits into another machine's VM. The installer's companion has also stopped moving when
+nothing is happening: it was repainting its own rows on every frame, which read as flicker.
+
+### Fixed
+
+- **The companion is quiet until you move something.** It used to stroll along its row on its own and
+  to halve the remaining distance to every target, so a screen nobody was touching repainted two of
+  its rows on every frame — including the row the eyes settle on, a frame after the target moves —
+  and the creature flickered. It now walks only while it has somewhere to go: moving the cursor points
+  it at a row and it walks there at a fixed one cell a frame, slowing to a step every other frame over
+  the last three cells, and stops when it arrives. One menu row is three cells of walking and no more,
+  so one arrow key is a short stroll rather than a dash across a 227-column stage, and the gaze is
+  settled when the target changes rather than on the next tick. At rest the view string is
+  byte-identical from tick to tick, so the renderer writes nothing at all; while walking it repaints
+  only the sprite's own lines. The pixel sprite's body is also drawn in the theme's muted tones now,
+  with the one bright tone spent on the eyes, so the decoration is no longer the loudest thing on a
+  screen whose words should be.
 
 ### Changed
 
@@ -31,10 +47,12 @@ machine's limits into another machine's VM.
   gazes stay one sprite. Where the terminal cannot do it the glyph ladder is untouched — five rows,
   three, one, nothing — because a colourless terminal draws those cells as plain blocks, and
   `DOTFILES_SPRITE=0` / `--no-sprite` turns the tier off on its own. It is honest about its price and
-  the price is measured, not estimated: a sprite frame writes at most 1560 bytes (a test asserts it),
-  about 12 KB/s while the creature animates and at most 94 KB/s if a repaint is driven at the
-  renderer's 60 fps ceiling, for about 140 µs of the ~700 µs a frame of that screen already costs.
-  No new dependency was needed: the encoder is a few dozen lines of this repository's own code.
+  the price is measured, not estimated: the sprite itself is under 1560 bytes (a test asserts it), but
+  the sprite is not what the terminal is written — the renderer repaints a whole line whenever any
+  byte in it changed — so what matters is the two regimes, at rest and while walking, and those are
+  measured by `TestCompanionCostHasTwoRegimes` rather than guessed. Drawing it is about 140 µs of the
+  ~700 µs a frame of that screen already costs. No new dependency was needed: the encoder is a few
+  dozen lines of this repository's own code.
   `charmbracelet/x/mosaic` was evaluated for this step and rejected on two measured reasons — it forces
   `x/ansi` ≥0.11.7, which breaks the `x/cellbuf` Bubble Tea pins and drags eight modules through the
   render path of every screen, and its luminance-threshold colour model collapses the shading

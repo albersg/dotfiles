@@ -296,12 +296,25 @@ has true colour, and the glyph ladder — all of it, the five-row cat included �
 for every other run. The ladder therefore reads: shaded sprite, else five rows, else three, else one,
 else nothing.
 
-It costs what it looks like it costs. A sprite frame is eight rows of sixteen cells, and the encoder
-writes an escape sequence only when a cell's style changes, so a whole frame is at most **1560 bytes**
-(asserted by a test, not promised in a comment) — about 12 KB/s while the creature animates at eight
-frames a second, and at most 94 KB/s if a repaint is driven at the renderer's 60 fps ceiling. Drawing
-it is about 140 µs of the roughly 700 µs a frame of this screen already takes, which the benchmark
-beside the sprite's tests measures rather than estimates.
+It costs what it looks like it costs, and only while it is moving. The sprite the encoder writes is
+small: eight rows of sixteen cells, with an escape sequence only when a cell's style changes, so the
+sprite itself is at most **1560 bytes** (asserted by a test, not promised in a comment). But the
+sprite is not what the terminal is written. The renderer repaints a whole line whenever any byte in it
+changed, so the cost of a tick is the lines it moved times the width of those lines — which is why the
+creature has two regimes, measured by `TestCompanionCostHasTwoRegimes` at 227 columns:
+
+- **At rest — nothing.** With no key and no pointer event the view string is byte-identical from tick
+  to tick, so the renderer writes **no bytes at all**. Pacing on its own and settling its gaze a frame
+  after the target were both removed for this: they made the creature repaint two of its rows on every
+  frame over a screen nobody was touching.
+- **While walking — about 3.3 KB a frame.** The eight rows of the shaded sprite (five for the glyph
+  cat) all move with the one-cell step, so every one of those lines is repainted: the measured widest
+  frame is 3297 bytes, some **25.8 KB/s** at eight frames a second, and walking from the first menu row
+  to the last — five rows, fifteen cells — is 19 frames, about **2.4 s** and 46 KB in total. The line is
+  the frame's width, so a wider terminal costs more per line and the same per cell walked.
+
+Drawing it is about 140 µs of the roughly 700 µs a frame of this screen already takes, which the
+benchmark beside the sprite's tests measures rather than estimates.
 
 **Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
 this step and deliberately rejected, for two reasons that were measured rather than guessed. It
@@ -330,10 +343,12 @@ one-cell step is always one column.
 ```
 
 The shaded sprite is the same cat as pixels, and it is drawn from a grid of tones rather than of
-glyphs: `.` is the light fur, `o` the mid fur, `#` the outline and the pupils, `x` the nose and the
-mouth, and a blank the terminal's own background, so the pixels the cat does not cover blend with it.
-The face below is the centre gaze; the composer moves the pupil pair one column to either side and,
-when the pointer is above the creature, one pixel row up.
+glyphs: `.` is the light fur, `o` the mid fur, `#` the outline, `@` the eyes — the pupils, the lids and
+the expressions — `x` the nose and the mouth, and a blank the terminal's own background, so the pixels
+the cat does not cover blend with it. The fur takes the palette's muted tones and the eyes take its one
+bright tone, so the decoration stays quieter than the words around it. The face below is the centre
+gaze; the composer moves the pupil pair one column to either side and, when the pointer is above the
+creature, one pixel row up.
 
 ```text
     o#        #o
@@ -362,7 +377,7 @@ carries the same eyes and props, and the one-row art the same state as the frame
 |-------|--------------------|------|
 | Idle | `(  o    o  )` | Awake and standing still: the first frame, and the tick it arrives at the row you pointed at |
 | Walking | the paws alternate between legs apart and legs in | The frames it moves: the legs change, which is what reads as motion |
-| Blinking | `(  -    -  )` for one frame, every five seconds | It is awake and idle. The blink is the tick counter read at a modulus, not a second clock |
+| Blinking | `(  -    -  )` for one frame, every ten seconds | It is awake and idle. The blink is the tick counter read at a modulus, not a second clock |
 | Yawning | `(  -    -  )` with the mouth open, over the last two seconds before it sleeps | The quiet run is nearly over, so falling asleep reads as a transition rather than a cut |
 | Asleep | `(  -    -  )` and a `z` beside the ears | Twenty seconds with no key pressed |
 | Alert | `(  O    O  )` and a `!` | The selection throws something away |
@@ -406,13 +421,15 @@ none the creature stays on the ground and the celebration shows in its face inst
 takes a row a fact needs. A wheel is ignored: the installer runs in the alternate screen, where there
 is no scrollback for it to move.
 
-**It walks, follows the selection, sleeps and reacts.** It strolls one cell per animation frame —
-eight frames a second, the frame tick the animation gate owns — and turns at the edge of its row.
-Moving the cursor points it at the new row and it walks there over the frames that follow — not in
-the frame you pressed the key in — and then resumes strolling. The walk halves the remaining
-distance each frame, so a one-row cursor move arrives in four to six frames (about half a second to
-three quarters) and the far edge of the widest stage in eight frames, one second. Twenty seconds
-without a key put it to sleep and the first key wakes it. It is alert on the screens whose purpose is to restore or overwrite — the backup list,
+**It walks, follows the selection, sleeps and reacts.** It takes at most one cell per animation
+frame — eight frames a second, the frame tick the animation gate owns — and only when it has somewhere
+to go. Moving the cursor points it at the new row and it walks there over the frames that follow, not
+in the frame you pressed the key in, slowing to a step every other frame over the last three cells so
+the arrival reads as a step rather than as a stop; when it arrives it stops, because a creature with
+nothing to do does nothing. One row of a menu is three cells of walking and no more, so one arrow key
+is a short stroll rather than a dash across a stage that can be 200 columns wide, and a walk from the
+first menu row to the last is about two and a half seconds. Twenty seconds without a key put it to
+sleep and the first key wakes it. It is alert on the screens whose purpose is to restore or overwrite — the backup list,
 the restore confirm, and the screen that installs over the configs it just listed — and on the menu
 rows that name a destructive action (`Restore`, `Delete`, install *without* backup), it is pleased
 for a few ticks after an installation step completes, and it flinches while an error is on screen. On
@@ -426,10 +443,10 @@ nyancat's cat belongs to its author, so this repository's attribution surface st
 **The frame, the cell and the gaze come from the model, never from the clock.** The frame tick
 advances the counter and takes one step; the renderer only draws. The same model and tick therefore
 produce the same bytes on every run, which is what lets a snapshot pin a frame, a cell and a gaze
-instead of flaking on the clock. The cost is bounded by a test rather than by a promise: the creature
-draws only in the rows it owns — one, three or five of them — so a tick changes those rows and the
-renderer repaints those lines. A screen with no spare row draws no companion, and on those the tick
-changes nothing at all: the view string is identical, so the renderer skips the frame entirely.
+instead of flaking on the clock. The cost is bounded by tests rather than by a promise: at rest the
+tick changes nothing at all, so the renderer writes nothing, and while walking it changes only the rows
+the creature owns, so those are the lines the renderer repaints. A screen with no spare row draws no
+companion, and on those the tick changes nothing either.
 
 ### Turning animation off
 
