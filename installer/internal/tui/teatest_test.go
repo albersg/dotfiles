@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
+	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
@@ -2089,4 +2090,207 @@ func TestCompanionGoldenPinsThePixelSpriteAndItsGaze(t *testing.T) {
 		t.Fatalf("reading the rest of the output failed: %v", err)
 	}
 	teatest.RequireEqualOutput(t, seen.Bytes())
+}
+
+// =============================================================================
+// TRAINER HINT COHERENCE AND THE TWO-COLUMN LESSON
+// =============================================================================
+
+// TestTrainerHintLabelOmitsAnEmptyHint pins the empty-hint decision: the label
+// helper returns no label at all for an exercise whose hint was dropped, so no
+// caller can print the bare marker on its own. It is the single place the
+// decision lives, which is what keeps the lesson, the practice and the boss
+// handlers in step.
+func TestTrainerHintLabelOmitsAnEmptyHint(t *testing.T) {
+	if got := trainerHintLabel(nil); got != "" {
+		t.Errorf("trainerHintLabel(nil) = %q, want no label", got)
+	}
+	if got := trainerHintLabel(&trainer.Exercise{}); got != "" {
+		t.Errorf("trainerHintLabel with no hint = %q, want no label: a dropped hint must render nothing", got)
+	}
+	exercise := &trainer.Exercise{Hint: "dd deletes the line"}
+	if got, want := trainerHintLabel(exercise), "💡 Hint: dd deletes the line"; got != want {
+		t.Errorf("trainerHintLabel = %q, want %q", got, want)
+	}
+}
+
+// TestTrainerTabRevealsNoLabelWithoutAHint drives the real key handler on a
+// lesson whose hint was dropped and pins that Tab writes no bare label. The
+// label used to be built inline, so the marker printed with nothing after it.
+func TestTrainerTabRevealsNoLabelWithoutAHint(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("test setup: no live lesson exercise")
+	}
+	// The mission/hint rule permits a dropped hint; this is what the data looks
+	// like when one is dropped.
+	exercise.Hint = ""
+	m.TrainerMessage = ""
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	got := next.(Model)
+	if got.TrainerMessage != "" {
+		t.Errorf("TrainerMessage after Tab on a hint-less exercise = %q, want empty: the label must not print with no hint", got.TrainerMessage)
+	}
+}
+
+// TestBossTabRevealsTheStepHint is the reachability test the boss screen was
+// missing: the Change & Repeat boss step hints the previous pass rewrote sat in
+// the data with no key that could show them. It starts that boss, presses Tab
+// through the real global handler, and pins the hint line.
+func TestBossTabRevealsTheStepHint(t *testing.T) {
+	m := newTrainerBossModel(t)
+	m.TrainerGameState.StartBoss(trainer.ModuleChangeRepeat)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil || exercise.Hint == "" {
+		t.Fatalf("test setup: the Change & Repeat boss step 1 carries no hint")
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	got := next.(Model)
+	if want := "💡 Hint: " + exercise.Hint; got.TrainerMessage != want {
+		t.Errorf("TrainerMessage after Tab on the boss screen = %q, want %q", got.TrainerMessage, want)
+	}
+}
+
+// TestBossTabRevealsNoLabelWithoutAHint pins the other half on the boss screen:
+// a step with no hint gets no label, exactly like the exercise screen. The
+// horizontal boss steps ship without hints, so that is the screen under test.
+func TestBossTabRevealsNoLabelWithoutAHint(t *testing.T) {
+	m := newTrainerBossModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("test setup: no live boss step")
+	}
+	exercise.Hint = ""
+	m.TrainerMessage = ""
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	got := next.(Model)
+	if got.TrainerMessage != "" {
+		t.Errorf("TrainerMessage after Tab on a hint-less boss step = %q, want empty", got.TrainerMessage)
+	}
+}
+
+// TestBossLegendAdvertisesTheHintKey pins both halves of the boss hint footer:
+// the key the screen now honours is advertised, and advertising it did not cost
+// the boss screen a row at the 80x24 floor. If the extra hint had needed a third
+// legend row, the screen would be 25 rows tall and this fails.
+func TestBossLegendAdvertisesTheHintKey(t *testing.T) {
+	m := newTrainerBossModel(t)
+	m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
+
+	view := m.View()
+	if !strings.Contains(view, "[Tab] hint") {
+		t.Errorf("the boss legend does not advertise [Tab] hint even though the screen honours it:\n%s", view)
+	}
+	if rows := renderedRowCount(view); rows > trainerFrameHeight {
+		t.Errorf("the boss hint grew the boss screen to %d rows at %dx%d, want <= %d:\n%s",
+			rows, trainerFrameWidth, trainerFrameHeight, trainerFrameHeight, view)
+	}
+}
+
+// TestTrainerLessonComposesTwoColumnsInWideTerminals pins the wide lesson
+// layout: at the sizes the installer's own screens go two-column, the code
+// window sits in the left column and the mission in the right one, on the same
+// rows, and the screen still fits the terminal.
+func TestTrainerLessonComposesTwoColumnsInWideTerminals(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	m.Width, m.Height = 160, 50
+
+	view := m.View()
+	t.Logf("160x50 lesson, escape sequences stripped:\n%s", ansiEscape.ReplaceAllString(view, ""))
+
+	sideBySide := false
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Code") && strings.Contains(line, "Mission") {
+			sideBySide = true
+			break
+		}
+	}
+	if !sideBySide {
+		t.Fatalf("the lesson screen at 160x50 does not put the code window beside the mission:\n%s", view)
+	}
+
+	// The mission, the answer and the feedback must all still be on screen.
+	for _, want := range []string{"Mission", "Answer", "[Ctrl-v] block"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the two-column lesson screen dropped %q:\n%s", want, view)
+		}
+	}
+
+	if rows := renderedRowCount(view); rows > 50 {
+		t.Errorf("the two-column lesson screen renders %d rows at 160x50, want <= 50:\n%s", rows, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > 160 {
+			t.Errorf("the two-column lesson screen renders a line %d columns wide at 160x50, want <= 160: %q", w, line)
+		}
+	}
+}
+
+// TestWideLessonShowsMoreCodeThanTheNarrowFloor pins the point of the wide
+// layout: the code window takes the rows the stacked right column no longer
+// needs, so a wide terminal shows more code, not just wider code.
+func TestWideLessonShowsMoreCodeThanTheNarrowFloor(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("test setup: no live lesson exercise")
+	}
+
+	m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
+	_, narrow := m.trainerTextBudget(exercise)
+
+	m.Width, m.Height = 160, 50
+	_, wide := m.trainerTextBudget(exercise)
+
+	if wide <= narrow {
+		t.Errorf("the code window is %d rows at 160x50 and %d at 80x24, want strictly more: the wide layout must show more code", wide, narrow)
+	}
+	if narrow < 1 {
+		t.Errorf("the code window at 80x24 is %d rows, want at least one", narrow)
+	}
+}
+
+// trainerCodeRowPattern matches one rendered code row: the block gutter, a
+// line number, the inner gutter. It is how a test counts the code rows on a
+// screen without depending on the screen's other guttered blocks.
+var trainerCodeRowPattern = regexp.MustCompile(`│ *\d+ │`)
+
+// trainerCodeRowCount counts the code rows a rendered trainer screen shows.
+func trainerCodeRowCount(view string) int {
+	n := 0
+	for _, line := range strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n") {
+		if trainerCodeRowPattern.MatchString(line) {
+			n++
+		}
+	}
+	return n
+}
+
+// TestWideLessonRendersMoreCodeForLongExercises drives the renderer, not just
+// the row budget: a code block longer than the narrow window must show more of
+// itself at 160x50. The longest shipped lesson (vertical_015, eleven lines)
+// already fits the eleven-row narrow window, so the test uses a fourteen-line
+// regex boss step, which is the same code the lesson window renders. This is
+// the end-to-end proof that the height the two columns free is spent on code.
+func TestWideLessonRendersMoreCodeForLongExercises(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	long := trainer.GetBoss(trainer.ModuleRegex).Steps[0].Exercise
+	m.TrainerGameState.SetPracticeExercise(&long)
+
+	m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
+	narrowRows := trainerCodeRowCount(m.View())
+
+	m.Width, m.Height = 160, 50
+	wideRows := trainerCodeRowCount(m.View())
+
+	if wideRows <= narrowRows {
+		t.Errorf("the wide lesson shows %d code rows and the narrow floor %d, want strictly more: the extra height must be spent on code", wideRows, narrowRows)
+	}
+	if wideRows != len(long.Code) {
+		t.Errorf("the wide lesson shows %d code rows of a %d-line exercise, want all of them", wideRows, len(long.Code))
+	}
 }

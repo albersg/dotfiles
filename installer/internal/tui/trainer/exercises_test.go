@@ -52,9 +52,11 @@ func TestGetLessons_Horizontal_AllHaveRequiredFields(t *testing.T) {
 		if ex.Optimal == "" {
 			t.Errorf("Lesson %d: Optimal is empty", i)
 		}
-		if ex.Hint == "" {
-			t.Errorf("Lesson %d: Hint is empty", i)
-		}
+		// Hint is deliberately NOT a required field: the mission/hint rule in
+		// exercises.go lets an exercise whose hint can only repeat its mission
+		// drop the hint. What a hint that IS present must still do -- add a
+		// count, sibling or consequence its mission does not give -- is guarded
+		// by TestShippedHintsAddWhatTheirMissionDoesNot.
 		if ex.Explanation == "" {
 			t.Errorf("Lesson %d: Explanation is empty", i)
 		}
@@ -259,7 +261,15 @@ func TestHorizontalExercises_HintsAreHelpful(t *testing.T) {
 	lessons := GetLessons(ModuleHorizontal)
 
 	for i, ex := range lessons {
-		// Hint should be longer than just the solution
+		// A hint is optional: the mission/hint rule in exercises.go lets an
+		// exercise whose hint can only repeat its mission drop the hint, and the
+		// shipped corpus may drop one without failing this test. What is still
+		// pinned is that a hint which IS present says more than the answer alone,
+		// because a hint that only echoed the command would cost the player a
+		// keypress and teach nothing.
+		if ex.Hint == "" {
+			continue
+		}
 		if len(ex.Hint) <= len(ex.Optimal) {
 			t.Errorf("Lesson %d: Hint should be more helpful than just the answer", i)
 		}
@@ -327,9 +337,10 @@ func TestGetLessons_Vertical_AllHaveRequiredFields(t *testing.T) {
 		if ex.Optimal == "" {
 			t.Errorf("Lesson %d: Optimal is empty", i)
 		}
-		if ex.Hint == "" {
-			t.Errorf("Lesson %d: Hint is empty", i)
-		}
+		// Hint is deliberately NOT a required field here: see
+		// TestShippedHintsAddWhatTheirMissionDoesNot for the guard over present
+		// hints and exercises.go for the mission/hint rule that allows a hint to
+		// be dropped.
 		if ex.Points <= 0 {
 			t.Errorf("Lesson %d: Points should be positive, got %d", i, ex.Points)
 		}
@@ -989,9 +1000,10 @@ func TestGetLessons_Editing_AllHaveRequiredFields(t *testing.T) {
 		if ex.Optimal == "" {
 			t.Errorf("Lesson %d: Optimal is empty", i)
 		}
-		if ex.Hint == "" {
-			t.Errorf("Lesson %d: Hint is empty", i)
-		}
+		// Hint is deliberately NOT a required field here: see
+		// TestShippedHintsAddWhatTheirMissionDoesNot for the guard over present
+		// hints and exercises.go for the mission/hint rule that allows a hint to
+		// be dropped.
 		if ex.Explanation == "" {
 			t.Errorf("Lesson %d: Explanation is empty", i)
 		}
@@ -1253,9 +1265,10 @@ func TestGetLessons_Registers_AllHaveRequiredFields(t *testing.T) {
 		if ex.Optimal == "" {
 			t.Errorf("Lesson %d: Optimal is empty", i)
 		}
-		if ex.Hint == "" {
-			t.Errorf("Lesson %d: Hint is empty", i)
-		}
+		// Hint is deliberately NOT a required field here: see
+		// TestShippedHintsAddWhatTheirMissionDoesNot for the guard over present
+		// hints and exercises.go for the mission/hint rule that allows a hint to
+		// be dropped.
 		if ex.Explanation == "" {
 			t.Errorf("Lesson %d: Explanation is empty", i)
 		}
