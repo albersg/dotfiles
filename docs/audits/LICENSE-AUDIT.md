@@ -16,17 +16,25 @@ The installer binary links against the following Go modules. This list is derive
 
 ### Direct Dependencies
 
+Four modules are imported by the installer's own code; the rest of the graph is transitive. The
+versions are the ones `installer/go.mod` pins.
+
 | Module | Version | License | Type |
 |--------|---------|---------|------|
-| github.com/charmbracelet/bubbletea | latest | MIT | TUI framework |
-| github.com/charmbracelet/bubbles | latest | MIT | TUI components |
-| github.com/charmbracelet/lipgloss | latest | MIT | Terminal styling |
-| github.com/charmbracelet/x/ansi | latest | MIT | ANSI sequences |
-| github.com/charmbracelet/x/exp/teatest | latest | MIT | Bubbletea testing |
-| github.com/charmbracelet/x/exp/golden | latest | MIT | Golden file testing |
-| gopkg.in/yaml.v3 | latest | MIT | YAML parsing |
+| github.com/charmbracelet/bubbletea | v1.3.10 | MIT | TUI framework and runtime |
+| github.com/charmbracelet/lipgloss | v1.1.0 | MIT | Terminal styling and colour profiles |
+| github.com/charmbracelet/x/exp/teatest | v0.0.0-20251215102626-e0db08df7383 | MIT | End-to-end TUI testing (test-only) |
+| github.com/muesli/termenv | v0.16.0 | MIT | Terminal capability and colour detection |
 
-All direct dependencies are MIT-licensed. No copyleft (GPL, AGPL) dependencies are used in the installer.
+Every direct dependency is MIT. The transitive set is permissive as well - MIT, with
+`golang.org/x/sys` and `golang.org/x/text` under BSD-3-Clause - and no copyleft (GPL, AGPL, LGPL)
+dependency is linked into the installer in any form.
+
+### Corrected 2026-09-29
+
+The table above used to list `charmbracelet/bubbles` and `gopkg.in/yaml.v3`, neither of which the
+installer depends on, and it presented two transitive modules as direct ones while omitting
+`muesli/termenv`, which became a direct import. It now matches `installer/go.mod`.
 
 ## Shell Configurations
 
