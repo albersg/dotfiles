@@ -15,6 +15,7 @@ import (
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/exp/golden"
 	"github.com/charmbracelet/x/exp/teatest"
 )
 
@@ -42,6 +43,42 @@ func goldenSystemInfo() *system.SystemInfo {
 		HomeDir:   "/home/testuser",
 		UserShell: "zsh",
 	}
+}
+
+// pinnedMetrics is a plausible host reading for a snapshot: a CPU share that
+// varies as a heartbeat, memory that climbs, and the load, disk and process
+// facts. A snapshot that pinned nothing would draw a different chart every run,
+// which is exactly what the model-held samples exist to prevent.
+func pinnedMetrics(n int) []system.Metrics {
+	if n < 1 {
+		n = 1
+	}
+	out := make([]system.Metrics, n)
+	for i := range out {
+		share := 0.30 + 0.45*float64((i*3)%7)/6.0
+		memUsed := uint64(4<<30) + uint64(i)*(64<<20)
+		out[i] = system.Metrics{
+			CPUOK: true, CPUBusy: share,
+			MemOK: true, MemUsed: memUsed, MemTotal: 16 << 30,
+			LoadOK: true, Load1: 0.8 + float64(i%5)*0.2, Load5: 1.1, Load15: 1.4,
+			DiskOK: true, DiskFree: uint64(320<<30) - uint64(i)*(1<<28), DiskTotal: 500 << 30,
+			ProcOK: true, ProcCount: 380 + i*3,
+		}
+	}
+	return out
+}
+
+// pinnedProgress is a run's progress history for a snapshot: a straight climb,
+// which is the shape the chart is meant to show.
+func pinnedProgress(n int) []float64 {
+	if n < 1 {
+		n = 1
+	}
+	out := make([]float64, n)
+	for i := range out {
+		out[i] = float64(i) / float64(n)
+	}
+	return out
 }
 
 // isolateGoldenTest pins the inputs a golden test would otherwise inherit from
@@ -90,7 +127,14 @@ func readAll(t *testing.T, r io.Reader) []byte {
 	return bts
 }
 
-// TestWelcomeScreenGolden tests the welcome screen render against golden file
+// TestWelcomeScreenGolden tests the welcome screen render against golden file.
+//
+// It renders the model rather than driving a program: this screen shows the live
+// panel, whose metrics arrive from a command, so a test that started a program and
+// captured everything it wrote would race that read - it did, about one run in
+// three - and pin a different number of frames depending on scheduling. A model
+// with its state pinned renders the same bytes every time, and that is the only
+// thing a snapshot may do.
 func TestWelcomeScreenGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
@@ -99,20 +143,11 @@ func TestWelcomeScreenGolden(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenWelcome
+	m.PanelIndex = 0
+	m.Metrics = pinnedMetrics(24)
+	m.Animating = false
 
-	tm := teatest.NewTestModel(t, m,
-		teatest.WithInitialTermSize(80, 24),
-	)
-
-	// Wait for initial render
-	time.Sleep(100 * time.Millisecond)
-
-	// Get final output
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	out := readAll(t, tm.FinalOutput(t))
-	teatest.RequireEqualOutput(t, out)
+	golden.RequireEqual(t, []byte(m.View()))
 }
 
 // TestMainMenuWideGolden tests the main menu render against golden file
@@ -543,6 +578,54 @@ func TestCompleteScreenGolden(t *testing.T) {
 
 	out := readAll(t, tm.FinalOutput(t))
 	teatest.RequireEqualOutput(t, out)
+}
+
+// TestWelcomeLivePanelGolden pins the live machine panel -- the CPU and memory
+// sparklines and the load, disk and process facts -- at the two-column size
+// where it is drawn. The samples are pinned on the model, so the snapshot is the
+// chart and not the machine that generated it.
+func TestWelcomeLivePanelGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 160, 40
+	m.Screen = ScreenWelcome
+	m.Animating = true
+	m.AnimTick = 0
+	m.PanelIndex = 1 // the live panel
+	m.Metrics = pinnedMetrics(24)
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestInstallingLiveGolden pins the installing screen with the machine's pulse
+// and the run's own progress chart on it, at the 80x24 floor, so the block that
+// shares the frame with the rail is checked at the size where the room is
+// tightest.
+func TestInstallingLiveGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := installerFrameCase(t, "installing-live")
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
+// pleased companion at a frame a few ticks into the two seconds. The burst is
+// model state, so its positions are the same on every machine that renders it.
+func TestCompleteCelebrationGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 80, 24
+	m.Screen = ScreenComplete
+	m.Animating = true
+	m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
+	m.startCelebration()
+	m.CompanionPleased = companionPleasedTicks
+	for i := 0; i < 4; i++ {
+		m.AnimTick++
+		m.advanceCompanion()
+		m.advanceCelebration()
+	}
+	golden.RequireEqual(t, []byte(m.View()))
 }
 
 // TestKeyboardNavigationE2E tests various keyboard interactions
@@ -1279,6 +1362,17 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return installing(true, false, 40)
 	case "installing-at-end":
 		return installing(false, true, 0)
+	case "installing-live":
+		// A run whose sampler has landed: the machine's pulse and the run's own
+		// progress chart are on screen, which is the state the frame guard did not
+		// otherwise cover -- its other installing cases have no samples.
+		m := installing(false, false, 0)
+		m.Animating = true
+		m.InstallStartedAt = goldenGreetingTime
+		m.Now = goldenGreetingTime.Add(42 * time.Second)
+		m.Metrics = pinnedMetrics(24)
+		m.ProgressSamples = pinnedProgress(24)
+		return m
 	case "complete":
 		m := base(ScreenComplete)
 		m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
@@ -1325,6 +1419,7 @@ var installerFrameScreenNames = []string{
 	"backup-confirm", "backup-confirm-many",
 	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
 	"installing", "installing-details", "installing-details-many", "installing-at-end",
+	"installing-live",
 	"complete", "error", "error-many-logs",
 }
 

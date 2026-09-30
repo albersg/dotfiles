@@ -172,7 +172,29 @@ type Model struct {
 	PixelSprite bool
 	// ink is the palette the pixel sprite is drawn with, resolved once beside the
 	// gate for the same reason: resolving it asks the terminal about its background.
-	ink         companionInk
+	ink companionInk
+
+	// Metrics is the ring of the host's derived readings, oldest first and newest
+	// last, capped at metricsRingSize. It is on the model so a snapshot can pin a
+	// series: a renderer never samples the machine, it draws the samples it was
+	// handed.
+	Metrics []system.Metrics
+	// MetricsPrev is the raw sample the next derived reading is measured against.
+	// CPU busy is a delta between two readings, so the previous one is model state
+	// like everything else the chart shows.
+	MetricsPrev system.Sample
+	// ProgressSamples is the run's own progress over time, one value per metrics
+	// sample, appended only while a run is in flight and capped at metricsRingSize.
+	// It is the series behind the installing screen's run chart.
+	ProgressSamples []float64
+	// Celebrating is true for the short burst that greets a finished run, and
+	// CelebrationTick counts its frames. Both live on the model so the burst is a
+	// deterministic function of state and a snapshot can pin the frame it is on.
+	Celebrating     bool
+	CelebrationTick int
+	// Particles are the burst's cells. They live on the model for the same reason
+	// the creature's position does: a snapshot must be able to pin a frame.
+	Particles   []celebrationParticle
 	ErrorMsg    string
 	ShowDetails bool
 	LogLines    []string

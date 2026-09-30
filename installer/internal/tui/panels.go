@@ -71,6 +71,13 @@ const (
 	// change.
 	panelMachine panelID = "machine"
 
+	// panelLive is the live machine panel: the same machine's pulse right now,
+	// sampled by a command and drawn from the model's ring. It is distinct from
+	// panelMachine on purpose -- one answers what the machine is, the other what
+	// it is doing -- and it is on the welcome screen, where the question is still
+	// "where am I".
+	panelLive panelID = "live"
+
 	// panelPlan is the plan panel: the wizard's own steps and the state the run
 	// will read. The main menu and the wizard's own questions all show it.
 	panelPlan panelID = "plan"
@@ -116,13 +123,15 @@ type panel struct {
 // main menu and the wizard's own questions -- returns nil, and the frame then
 // renders it exactly as it did before panels existed.
 //
-// The welcome screen asks where it is, so it offers the machine panel first and
-// then a tip: after knowing the machine, the next thing worth learning is
-// something it can do. The main menu asks what is about to happen, so it offers
-// the plan first, then what the player has gained in the trainer, then a tip, and
-// last when this machine was installed -- each in the order it is worth reading.
-// The wizard's own questions draw through renderSelection, and the plan is what is
-// happening on them, so they offer the plan panel alone.
+// The welcome screen asks where it is, so it offers the machine panel first --
+// what the machine is -- then the live panel, what it is doing right now, and
+// then a tip: after knowing the machine, the next thing worth seeing is its
+// pulse and the next thing worth learning is something it can do. The main menu
+// asks what is about to happen, so it offers the plan first, then what the player
+// has gained in the trainer, then a tip, and last when this machine was installed
+// -- each in the order it is worth reading. The wizard's own questions draw
+// through renderSelection, and the plan is what is happening on them, so they
+// offer the plan panel alone.
 //
 // Only the panels that exist are listed: an empty slot is not a panel, and a
 // screen may not advertise a column it cannot fill. That is why "Last install"
@@ -131,7 +140,7 @@ type panel struct {
 func (m Model) panelsFor() []panel {
 	switch m.Screen {
 	case ScreenWelcome:
-		return []panel{machinePanel(), tipPanel()}
+		return []panel{machinePanel(), livePanel(), tipPanel()}
 	case ScreenMainMenu:
 		panels := []panel{planPanel(), trainerPanel(), tipPanel()}
 		if m.LastInstall != nil {
