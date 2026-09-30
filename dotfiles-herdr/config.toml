@@ -31,6 +31,13 @@ show_agent_labels_on_pane_borders = true
 agent_panel_sort = "spaces"
 status_indicators = "symbols"
 
+# Herdr asks for a tab name on every new tab by default. Without that prompt a
+# tab keeps its automatic label — the directory it was created in, or a number
+# when that name is taken — so opening several tabs does not mean dismissing a
+# dialog each time. Naming a tab stays available through `prefix+shift+t`
+# (`keys.rename_tab`) or `herdr tab rename`.
+prompt_new_tab_name = false
+
 [ui.sound]
 # Play a short mp3 alert when an agent finishes or needs input in a background
 # workspace. Herdr ships no audio decoder: it shells out to an external mp3

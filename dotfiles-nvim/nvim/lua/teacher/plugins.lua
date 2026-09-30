@@ -10,7 +10,7 @@
 --   already removed every plugin with `enabled = false` or a function `enabled`
 --   that returns false, before this module reads the table. Verified: the
 --   disabled.lua entries (precognition.nvim, avante.nvim, codecompanion.nvim,
---   copilot.lua, CopilotChat.nvim, gemini-cli.nvim, opencode.nvim,
+--   copilot.lua, CopilotChat.nvim, antigravity-cli.nvim, opencode.nvim,
 --   claudecode.nvim, noice.nvim, bufferline.nvim, smear-cursor.nvim) are
 --   ABSENT, while the active core set is present.
 --   Rejected alternatives:
