@@ -199,11 +199,11 @@ func TestCompanionGoldenFramesTheCreatureAtTickZero(t *testing.T) {
 		teatest.WithInitialTermSize(160, 50),
 	)
 
-	// Quit on the first rendered frame rather than after a sleep. The frame tick
-	// fires every animTickInterval, and a sleep long enough to be sure the screen
-	// had drawn would race it: a tick that lands first strolls the creature off
-	// cell 0 and this snapshot stops being frame 0. Reading the output until the
-	// screen is on it, then quitting, pins the frame the test is about. The output
+	// Quit on the first rendered frame rather than after a sleep, so the snapshot
+	// pins the frame the test is about instead of whatever the tick clock reached by
+	// the time the sleep ended. A tick can no longer walk the creature off cell 0 --
+	// with nothing to follow, a tick moves nothing -- but the counter it advances is
+	// still what names the frame, so the first frame is what is wanted. The output
 	// reader has to be teed into a buffer of its own because reading the program's
 	// output consumes it, and the golden is compared against everything read.
 	seen := &bytes.Buffer{}

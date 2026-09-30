@@ -722,14 +722,20 @@ func TestCompanionReactsToAFinishedStepAndToAFailedOne(t *testing.T) {
 		t.Errorf("State = %d after a finished step, want the pleased one", state)
 	}
 
-	// The celebration is a few ticks, not a mode: it settles by itself.
+	// The celebration is a few ticks, not a mode: it settles by itself, and what it
+	// settles to is the resting state and not motion. This screen has no menu, so the
+	// creature has nothing to walk toward, and the ticks after the celebration leave
+	// it standing exactly where it is.
 	settled := companionTicks(t, done, companionPleasedTicks)
 	if settled.CompanionPleased != 0 {
 		t.Errorf("CompanionPleased = %d after %d ticks, want 0",
 			settled.CompanionPleased, companionPleasedTicks)
 	}
-	if !settled.CompanionMoving {
-		t.Errorf("the companion stopped strolling after its celebration")
+	if state := settled.companionStateNow(); state != companionIdleState {
+		t.Errorf("State = %d after the celebration settles, want the idle one", state)
+	}
+	if settled.CompanionMoving {
+		t.Errorf("the companion walked on its own after its celebration")
 	}
 
 	failed := Model{
@@ -785,8 +791,17 @@ func TestCompanionSleepsAfterAQuietStretchAndWakesOnAKey(t *testing.T) {
 	if state := woken.companionStateNow(); state == companionAsleepState {
 		t.Errorf("the companion is still asleep after a key")
 	}
-	if walking := companionTick(t, woken); !walking.CompanionMoving {
-		t.Errorf("the companion did not stroll after being woken")
+	// Waking restores the resting state, not motion: this screen has no menu, so the
+	// tick after a key leaves the creature standing where it woke and changes nothing.
+	// The walk is the wake's other half, and it is pinned on a menu screen by
+	// TestCompanionWalksTowardWhatTheCursorPointsAt.
+	walked := companionTick(t, woken)
+	if walked.CompanionMoving {
+		t.Errorf("the companion walked on its own after being woken")
+	}
+	if walked.View() != woken.View() {
+		t.Errorf("the tick after a key changed a screen with nothing to walk toward:\nbefore:\n%s\nafter:\n%s",
+			woken.View(), walked.View())
 	}
 }
 
@@ -818,13 +833,14 @@ func TestCompanionDrawsNothingWhenAnimationIsOff(t *testing.T) {
 
 // --- cost -----------------------------------------------------------------
 
-// TestCompanionTicksChangeOnlyItsOwnRows is the cost bound. The creature draws
-// in the rows it owns -- one, three or five of them, whichever height the ladder
-// picked for the screen -- so a tick may change exactly those rows and nothing
-// else: the frame is not re-laid out, no body row is touched and the row count
-// does not move. It is asserted over several screens and terminal sizes, on ticks
-// that are not a tip boundary, because a tip rotating is the one other thing the
-// slow clock shows.
+// TestCompanionTicksChangeOnlyItsOwnRows is the cost bound, and it is two-sided.
+// At rest the creature has nothing to do, so a tick changes no row at all -- the
+// stronger half, and the one the reported flicker came from. While it is armed and
+// walking the sprite moves one column, so every row it owns changes and no other
+// row may: the frame is not re-laid out, no body row is touched and the row count
+// does not move. Both halves are asserted over several screens and terminal sizes,
+// on ticks that are not a tip boundary, because a tip rotating is the one other
+// thing the slow clock shows.
 func TestCompanionTicksChangeOnlyItsOwnRows(t *testing.T) {
 	fixtures := []companionScreenFixture{
 		{name: "main menu 80x24", screen: ScreenMainMenu, width: 80, height: 24, framed: true},
@@ -845,23 +861,48 @@ func TestCompanionTicksChangeOnlyItsOwnRows(t *testing.T) {
 	for _, f := range fixtures {
 		f := f
 		t.Run(f.name, func(t *testing.T) {
-			m := NewModel()
-			isolateGoldenTest(t, &m)
-			m.Screen = f.screen
-			m.Width, m.Height = f.width, f.height
-			m.Animating, m.AnimTick = true, firstTick
-			if f.backups {
-				m.AvailableBackups = []system.BackupInfo{testBackupInfo()}
-				m.SelectedBackup = 0
+			build := func() Model {
+				m := NewModel()
+				isolateGoldenTest(t, &m)
+				m.Screen = f.screen
+				m.Width, m.Height = f.width, f.height
+				m.Animating, m.AnimTick = true, firstTick
+				if f.backups {
+					m.AvailableBackups = []system.BackupInfo{testBackupInfo()}
+					m.SelectedBackup = 0
+				}
+				return m
 			}
 
-			before := m.View()
-			after := companionTick(t, m).View()
+			// At rest a tick changes nothing at all: no body row, no sprite row, no
+			// byte. The creature is not strolling and its gaze is not settling a frame
+			// late, so the view is the same string a tick later.
+			atRest := build()
+			before := atRest.View()
+			after := companionTick(t, atRest).View()
+			if before != after {
+				t.Fatalf("a tick with nothing to do changed the view:\nbefore:\n%s\nafter:\n%s", before, after)
+			}
 
+			// Walking is the other half: the sprite moves one column, so every row of it
+			// changes and no other row may. The walk is armed by hand here because a key
+			// that moved the cursor is the only thing that arms it, and that path is
+			// pinned by TestCompanionWalksTowardWhatTheCursorPointsAt.
+			walking := build()
+			options := walking.GetCurrentOptions()
+			if len(options) < 2 {
+				return
+			}
+			walking.Cursor = len(options) - 1
+			walking.armCompanionFollow()
+
+			before = walking.View()
+			ticked := companionTick(t, walking)
+			after = ticked.View()
 			beforeRows := strings.Split(before, "\n")
 			afterRows := strings.Split(after, "\n")
 			if len(beforeRows) != len(afterRows) {
-				t.Fatalf("a tick changed the row count from %d to %d",
+				t.Fatalf("a walking tick changed the row count from %d to %d",
 					len(beforeRows), len(afterRows))
 			}
 
@@ -872,16 +913,19 @@ func TestCompanionTicksChangeOnlyItsOwnRows(t *testing.T) {
 				}
 			}
 			owned := companionOwnedRows(afterRows)
-
-			// The tick walks the cell one column, so every row of the sprite moves with
-			// it and no other row may move at all.
+			if !ticked.CompanionMoving {
+				t.Fatalf("the armed walk did not move the companion on its tick")
+			}
+			if len(owned) == 0 {
+				t.Fatalf("the sprite owns no row at %dx%d, so the walking bound would be vacuous", f.width, f.height)
+			}
 			if len(changed) != len(owned) {
-				t.Fatalf("a tick changed %d rows, want the sprite's %d:\nbefore:\n%s\nafter:\n%s",
+				t.Fatalf("a walking tick changed %d rows, want the sprite's %d:\nbefore:\n%s\nafter:\n%s",
 					len(changed), len(owned), before, after)
 			}
 			for i, row := range changed {
 				if row != owned[i] {
-					t.Fatalf("a tick changed row %d, which the sprite does not own: %q", row, plainRow(afterRows[row]))
+					t.Fatalf("a walking tick changed row %d, which the sprite does not own: %q", row, plainRow(afterRows[row]))
 				}
 			}
 			for _, row := range owned {
@@ -943,6 +987,21 @@ func companionOwnedRows(rows []string) []int {
 		}
 	}
 	return owned
+}
+
+// companionChangedRows lists the rows two rendered views disagree on and the bytes
+// those rows hold. The bytes are the whole line, not the difference between the
+// lines: the renderer writes a whole line when any byte in it changed, so that is
+// what a changed row costs the terminal.
+func companionChangedRows(before, after string) (rows []int, bytes int) {
+	beforeRows, afterRows := strings.Split(before, "\n"), strings.Split(after, "\n")
+	for i := 0; i < len(beforeRows) && i < len(afterRows); i++ {
+		if beforeRows[i] != afterRows[i] {
+			rows = append(rows, i)
+			bytes += len(afterRows[i])
+		}
+	}
+	return rows, bytes
 }
 
 // companionArtRun is how many consecutive rows immediately above a rule carry art:
@@ -1134,77 +1193,90 @@ func TestCompanionTakesTheSpareRowAboveTheFooterRule(t *testing.T) {
 
 // TestCompanionTicksOnlyWithinTheStage pins the row budget: wherever the creature
 // is, its cell stays inside the stage, so no frame guard can see it stick out.
+//
+// It used to walk the row to both edges and turn, so it was also the test of the
+// idle stroll. There is no idle stroll now: the still half of what it asserted
+// lives in the first block here -- two hundred ticks with no input leave the cell
+// exactly where it was -- and, for the bytes, in
+// TestCompanionStaysPutWhenNothingHappens. What is left is the walk the creature
+// still does, and the bound is now checked over every target the menu can ask for
+// rather than over a stroll: not a lost assertion but a wider one.
 func TestCompanionTicksOnlyWithinTheStage(t *testing.T) {
 	m := NewModel()
 	isolateGoldenTest(t, &m)
-	m.Screen = ScreenComplete
+	m.Screen = ScreenMainMenu
 	m.Width, m.Height = 100, 24
 	m.Animating = true
 
 	stage := companionStageWidth(m)
 	limit := stage - companionCellWidth
 
-	lowest, highest := m.CompanionPos, m.CompanionPos
-	reversals := 0
-	previousDir := m.CompanionDir
+	// With no input at all the creature stands where it is, for far longer than the
+	// twenty quiet seconds that put it to sleep: none of the two hundred ticks may
+	// move it.
 	for tick := 0; tick < 200; tick++ {
-		if tick%10 == 0 {
-			// The creature sleeps after twenty quiet seconds, and a sleeping one is
-			// still; a key every ten ticks keeps this test about walking.
-			m = companionKey(t, m, "x")
-		}
 		m = companionTick(t, m)
-		if m.CompanionPos < 0 || m.CompanionPos > limit {
-			t.Fatalf("tick %d left the companion at cell %d, outside 0..%d",
-				tick, m.CompanionPos, limit)
+		if m.CompanionPos != 0 {
+			t.Fatalf("tick %d moved a creature with no input to cell %d, want 0", tick, m.CompanionPos)
 		}
-		lowest = min(lowest, m.CompanionPos)
-		highest = max(highest, m.CompanionPos)
-		if m.CompanionDir != previousDir {
-			reversals++
-			previousDir = m.CompanionDir
-		}
-		if row := m.companionRow(stage); len([]rune(plainRow(row))) > stage {
-			t.Fatalf("tick %d drew a %d-column row on a %d-column stage",
-				tick, len([]rune(plainRow(row))), stage)
-		}
-		// Whichever height this screen's spare rows could hold, no row of it reaches
-		// past the stage: the frame guard would otherwise see the creature stick out
-		// of the frame it is drawn in.
-		for _, height := range companionHeights() {
-			for _, row := range m.companionSprite(stage, height) {
-				if w := len([]rune(plainRow(row))); w > stage {
-					t.Fatalf("tick %d drew a %d-column row at height %d on a %d-column stage",
-						tick, w, height, stage)
+	}
+
+	// Walking to every row the menu offers stays inside the stage: the cell never
+	// leaves 0..limit, it lands on the target, and no row of the sprite at any
+	// height is wider than the stage it is drawn on.
+	options := m.GetCurrentOptions()
+	if len(options) < 2 {
+		t.Fatalf("the main menu offers %d options, want enough to walk between", len(options))
+	}
+	for target := 0; target < len(options); target++ {
+		m.Cursor = target
+		// The quiet stretch above put it to sleep, and a sleeping creature does not
+		// walk; waking it is what a key does, and this block is about the awake walk.
+		m.CompanionIdle = 0
+		m.armCompanionFollow()
+		for tick := 0; tick < 200 && m.CompanionFollow; tick++ {
+			m = companionTick(t, m)
+			if m.CompanionPos < 0 || m.CompanionPos > limit {
+				t.Fatalf("walking to option %d left the companion at cell %d, outside 0..%d",
+					target, m.CompanionPos, limit)
+			}
+			if row := m.companionRow(stage); len([]rune(plainRow(row))) > stage {
+				t.Fatalf("walking to option %d drew a %d-column row on a %d-column stage",
+					target, len([]rune(plainRow(row))), stage)
+			}
+			for _, height := range companionHeights() {
+				for _, row := range m.companionSprite(stage, height) {
+					if w := len([]rune(plainRow(row))); w > stage {
+						t.Fatalf("walking to option %d drew a %d-column row at height %d on a %d-column stage",
+							target, w, height, stage)
+					}
 				}
 			}
 		}
-	}
-
-	// It walks the row to both ends and turns instead of leaving it: it lands on
-	// the left edge and stops within one stroll step of the right one, because a
-	// step that would leave the row is a step it does not take.
-	if lowest != 0 {
-		t.Errorf("the companion never came back to the left edge: its lowest cell was %d", lowest)
-	}
-	if want := limit - companionStrollCells + 1; highest < want {
-		t.Errorf("the companion turned at cell %d, want within one stroll step of the right edge %d",
-			highest, want)
-	}
-	if reversals < 2 {
-		t.Errorf("the companion turned %d times in 200 ticks, want at least 2", reversals)
+		if m.CompanionFollow {
+			t.Fatalf("the companion never reached the row for option %d", target)
+		}
+		want, ok := m.companionTarget(stage)
+		if !ok {
+			t.Fatalf("option %d has no target cell", target)
+		}
+		if m.CompanionPos != want {
+			t.Errorf("option %d left the companion at cell %d, want %d", target, m.CompanionPos, want)
+		}
 	}
 }
 
-// TestCompanionStrollsOneCellPerFrame pins the stroll's pace at the frame rate
-// the animation now runs at: one cell per frame, so the creature walks rather
-// than dashing, and it logs three consecutive frames' rows so the movement can be
-// read instead of trusted. The pace is a frame count, not a duration: eight cells
-// a second is animTicksPerSecond frames of one cell, and moving the rate moves the
-// speed with it.
-func TestCompanionStrollsOneCellPerFrame(t *testing.T) {
-	if companionStrollCells != 1 {
-		t.Fatalf("the stroll is %d cells a frame, want exactly one", companionStrollCells)
+// TestCompanionStepIsCappedAtOneCellPerFrame is the walk's speed bound: however
+// far the creature has to go, one frame moves it at most companionStepCells -- one
+// cell -- and never a fraction of the distance that remains. The proportional step
+// is what made a long move read as a jump: from the far edge it arrived in one
+// frame and then crawled the last cell. The walk is now a walk, at
+// animTicksPerSecond cells a second, with one deliberate exception inside the last
+// companionBrakeCells, where a step comes every other frame. It logs three
+// consecutive frames' rows so the movement can be read instead of trusted.
+func TestCompanionStepIsCappedAtOneCellPerFrame(t *testing.T) {
+	if companionStepCells != 1 {
+		t.Fatalf("the walk is %d cells a frame, want exactly one", companionStepCells)
 	}
 
 	m := NewModel()
@@ -1214,20 +1286,58 @@ func TestCompanionStrollsOneCellPerFrame(t *testing.T) {
 	m.Animating = true
 	stage := companionStageWidth(m)
 
-	first := companionTick(t, m)
-	if first.CompanionPos != m.CompanionPos+1 {
-		t.Fatalf("one frame moved the companion from cell %d to %d, want one cell",
-			m.CompanionPos, first.CompanionPos)
+	options := m.GetCurrentOptions()
+	m.Cursor = len(options) - 1
+	m.armCompanionFollow()
+	target, ok := m.companionTarget(stage)
+	if !ok {
+		t.Fatalf("the last option has no target cell")
 	}
-	second := companionTick(t, first)
-	if second.CompanionPos != first.CompanionPos+1 {
-		t.Fatalf("the next frame moved the companion from cell %d to %d, want one cell",
-			first.CompanionPos, second.CompanionPos)
+	if distance := companionDistance(m.CompanionPos, target); distance <= companionBrakeCells {
+		t.Fatalf("the last option is only %d cells away, too close to read a long walk", distance)
 	}
 
+	first := companionTick(t, m)
+	second := companionTick(t, first)
+	if first.CompanionPos != m.CompanionPos+companionStepCells {
+		t.Fatalf("one frame moved the companion from cell %d to %d, want %d cells",
+			m.CompanionPos, first.CompanionPos, companionStepCells)
+	}
+	if second.CompanionPos != first.CompanionPos+companionStepCells {
+		t.Fatalf("the next frame moved the companion from cell %d to %d, want %d cells",
+			first.CompanionPos, second.CompanionPos, companionStepCells)
+	}
 	for _, f := range []Model{m, first, second} {
 		t.Logf("frame %d, cell %d: %q", f.AnimTick, f.CompanionPos, plainRow(f.companionRow(stage)))
 	}
+
+	// The bound holds for the whole walk, not only for the first two frames: no
+	// frame may move more than one cell, and no frame outside the braking window may
+	// stand still.
+	previous := second.CompanionPos
+	frames := 2
+	m = second
+	for tick := 0; tick < 200 && m.CompanionFollow; tick++ {
+		next := companionTick(t, m)
+		step := companionDistance(previous, next.CompanionPos)
+		if step > companionStepCells {
+			t.Fatalf("tick %d moved the companion %d cells, want at most %d", tick, step, companionStepCells)
+		}
+		if step == 0 && companionDistance(previous, target) > companionBrakeCells {
+			t.Fatalf("tick %d stood still at cell %d, %d cells from the target and outside the braking window",
+				tick, previous, companionDistance(previous, target))
+		}
+		if step > 0 {
+			frames++
+		}
+		previous = next.CompanionPos
+		m = next
+	}
+	if m.CompanionPos != target {
+		t.Fatalf("the companion stands at cell %d, want %d", m.CompanionPos, target)
+	}
+	t.Logf("a %d-cell walk took %d moving frames, at most %d cell each",
+		target, frames, companionStepCells)
 }
 
 // --- following the selection ----------------------------------------------
@@ -1235,7 +1345,7 @@ func TestCompanionStrollsOneCellPerFrame(t *testing.T) {
 // TestCompanionWalksTowardWhatTheCursorPointsAt is the behaviour the user asked
 // for by name: moving the cursor moves the creature, over the ticks that follow
 // rather than in the same frame, and the walk ends where the creature can see the
-// row it was pointed at. A key that moves nothing leaves it strolling.
+// row it was pointed at. A key that moves nothing leaves it standing still.
 func TestCompanionWalksTowardWhatTheCursorPointsAt(t *testing.T) {
 	build := func(t *testing.T) Model {
 		t.Helper()
@@ -1254,7 +1364,7 @@ func TestCompanionWalksTowardWhatTheCursorPointsAt(t *testing.T) {
 	}
 	stage := companionStageWidth(m)
 
-	// A key that changes nothing must not send it anywhere: it is strolling.
+	// A key that changes nothing must not send it anywhere: it stands still.
 	quiet := companionKey(t, m, "x")
 	if quiet.CompanionFollow {
 		t.Errorf("a key that changed no selection armed the walk")
@@ -1276,9 +1386,8 @@ func TestCompanionWalksTowardWhatTheCursorPointsAt(t *testing.T) {
 	if !ok {
 		t.Fatalf("the last option has no target cell")
 	}
-	if target != stage-companionCellWidth {
-		t.Errorf("the last option points at cell %d, want the right edge %d",
-			target, stage-companionCellWidth)
+	if want := min(last*companionFollowCells, stage-companionCellWidth); target != want {
+		t.Errorf("the last option points at cell %d, want %d", target, want)
 	}
 
 	previousDistance := companionDistance(moved.CompanionPos, target)
@@ -1286,8 +1395,12 @@ func TestCompanionWalksTowardWhatTheCursorPointsAt(t *testing.T) {
 	for tick := 1; tick <= 40; tick++ {
 		moved = companionTick(t, moved)
 		distance := companionDistance(moved.CompanionPos, target)
-		if distance >= previousDistance {
-			t.Fatalf("tick %d did not move the companion toward the row the cursor points at: %d -> %d",
+		// The walk never moves away from the row the cursor points at. It may stand
+		// still on a frame inside the braking window -- the last companionBrakeCells
+		// are crossed every other frame -- which is why the bound is "not further"
+		// rather than "strictly closer".
+		if distance > previousDistance {
+			t.Fatalf("tick %d moved the companion away from the row the cursor points at: %d -> %d",
 				tick, previousDistance, distance)
 		}
 		previousDistance = distance
@@ -1303,8 +1416,8 @@ func TestCompanionWalksTowardWhatTheCursorPointsAt(t *testing.T) {
 		t.Fatalf("the companion stands at cell %d, want %d", moved.CompanionPos, target)
 	}
 
-	// The tick after the one that lands is the tick it stands still on: the walk
-	// is over, the frame is the idle one, and the stroll resumes from there.
+	// The tick after the one that lands is the tick it stands still on: the walk is
+	// over and the frame is the idle one.
 	stood := companionTick(t, moved)
 	if stood.CompanionFollow {
 		t.Errorf("the companion is still walking toward a row it has reached")
@@ -1315,8 +1428,10 @@ func TestCompanionWalksTowardWhatTheCursorPointsAt(t *testing.T) {
 	if state := stood.companionStateNow(); state != companionIdleState {
 		t.Errorf("the tick it arrives on draws state %d, want the idle one", state)
 	}
-	if strolling := companionTick(t, stood); !strolling.CompanionMoving {
-		t.Errorf("the companion did not resume strolling after arriving")
+	// There is no stroll to resume: the tick after the arrival is a second still one
+	// and moves nothing.
+	if still := companionTick(t, stood); still.CompanionMoving {
+		t.Errorf("the companion walked on its own after arriving")
 	}
 	moved = stood
 
@@ -1339,7 +1454,7 @@ func TestCompanionWalksTowardWhatTheCursorPointsAt(t *testing.T) {
 
 // TestCompanionFollowIsArmedOnlyWhereThereIsSomethingToPointAt pins the other
 // half of the walk: a screen with no menu -- the installing screen, the trainer's
-// exercises -- has no cursor to point with, so the creature keeps strolling
+// exercises -- has no cursor to point with, so the creature stays where it is
 // instead of walking to the corner for nothing.
 func TestCompanionFollowIsArmedOnlyWhereThereIsSomethingToPointAt(t *testing.T) {
 	m := NewModel()
@@ -1546,8 +1661,8 @@ func alertOnEveryRow(screen Screen) bool {
 // produce the same frames.
 func TestCompanionRendersTheSameBytesAndMovesNothing(t *testing.T) {
 	state := func(m Model) string {
-		return fmt.Sprintf("%d/%d/%v/%v/%d/%d/%d/%d/%d",
-			m.CompanionPos, m.CompanionDir, m.CompanionFollow, m.CompanionMoving,
+		return fmt.Sprintf("%d/%v/%v/%d/%d/%d/%d/%d",
+			m.CompanionPos, m.CompanionFollow, m.CompanionMoving,
 			m.CompanionIdle, m.CompanionPleased, m.AnimTick, m.CompanionGaze.X, m.CompanionGaze.Y)
 	}
 
@@ -2066,7 +2181,7 @@ func companionPixelGrids() map[companionState]map[companionGaze][companionPixelR
 // right-hand outline by a column; a tone outside the palette would draw in whatever
 // colour the zero value happens to be.
 func TestCompanionPixelArtIsARectangleOfTones(t *testing.T) {
-	tones := string([]rune{companionPixelNone, companionPixelFurL, companionPixelFurM, companionPixelInk, companionPixelRose})
+	tones := string([]rune{companionPixelNone, companionPixelFurL, companionPixelFurM, companionPixelInk, companionPixelEye, companionPixelRose})
 	for state, gazes := range companionPixelGrids() {
 		for gaze, grid := range gazes {
 			for i, row := range grid {
@@ -2280,5 +2395,143 @@ func BenchmarkCompanionGlyphFrame(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		m.AnimTick = i
 		_ = m.View()
+	}
+}
+
+// TestCompanionStaysPutWhenNothingHappens pins the rest regime of the creature's
+// cost: with no key and no pointer, nothing about the frame changes at all. Not
+// "the creature does not move" but "the bytes do not change", which is what makes
+// the renderer write nothing -- it repaints a line only when a byte in it changed,
+// so a view identical from tick to tick is a terminal that is not written to. The
+// creature used to stroll on its own and settle its gaze a tick after the target
+// did, so two of its rows changed on every frame and the screen flickered; neither
+// happens now. The horizon is shorter than companionBlinkTicks on purpose: a blink
+// is a deliberate decoration with its own interval, and the regime this pins is the
+// one between blinks.
+func TestCompanionStaysPutWhenNothingHappens(t *testing.T) {
+	fixtures := []companionScreenFixture{
+		{name: "main menu 160x50", screen: ScreenMainMenu, width: 160, height: 50, framed: true},
+		{name: "main menu 227x62", screen: ScreenMainMenu, width: 227, height: 62, framed: true},
+		{name: "welcome 160x50", screen: ScreenWelcome, width: 160, height: 50, framed: true},
+	}
+
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			m := NewModel()
+			isolateGoldenTest(t, &m)
+			m.Screen = f.screen
+			m.Width, m.Height = f.width, f.height
+			m.Animating, m.PixelSprite = true, true
+
+			before := m.View()
+			after := companionTicks(t, m, 24).View()
+			if rows, bytes := companionChangedRows(before, after); len(rows) != 0 || bytes != 0 {
+				t.Errorf("twenty-four ticks with no input changed %d rows and %d bytes, want none:\nbefore:\n%s\nafter:\n%s",
+					len(rows), bytes, before, after)
+			}
+		})
+	}
+}
+
+// TestCompanionCostHasTwoRegimes measures the two costs the creature has. The
+// number a comment used to carry was the sprite's own bytes, which is not what the
+// terminal is written: the renderer repaints a whole line whenever any byte in it
+// changed, so a walking tick costs the sprite's row count times the line width. At
+// rest the view is byte-identical and the renderer writes nothing. The walking
+// figure is logged rather than asserted, because the terminal's width and the
+// sprite's height set it and a constant here could not defend itself; what is
+// asserted is the shape -- a walking tick changes the sprite's rows and only those,
+// and a walk writes something on the frames it moves.
+func TestCompanionCostHasTwoRegimes(t *testing.T) {
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Screen = ScreenMainMenu
+	m.Width, m.Height = 227, 62
+	m.Animating, m.PixelSprite = true, true
+
+	// At rest: nothing changes at all.
+	before := m.View()
+	after := companionTicks(t, m, 24).View()
+	if rows, bytes := companionChangedRows(before, after); len(rows) != 0 || bytes != 0 {
+		t.Errorf("a resting creature changed %d rows and %d bytes, want none", len(rows), bytes)
+	}
+
+	// While walking: the cursor moves one row and the creature walks to it.
+	options := m.GetCurrentOptions()
+	m.Cursor = len(options) - 1
+	m.armCompanionFollow()
+
+	frames, moves, total, widest, lines := 0, 0, 0, 0, 0
+	for tick := 0; tick < 200 && (m.CompanionFollow || m.CompanionMoving); tick++ {
+		next := companionTick(t, m)
+		rows, bytes := companionChangedRows(m.View(), next.View())
+		frames++
+		if len(rows) > 0 {
+			owned := companionOwnedRows(strings.Split(next.View(), "\n"))
+			if len(rows) != len(owned) {
+				t.Fatalf("a walking tick changed %d rows, want the sprite's %d", len(rows), len(owned))
+			}
+			for i, row := range rows {
+				if row != owned[i] {
+					t.Fatalf("a walking tick changed row %d, which the sprite does not own", row)
+				}
+			}
+			moves++
+			total += bytes
+			widest = max(widest, bytes)
+			lines = max(lines, len(rows))
+		}
+		m = next
+	}
+	if moves == 0 {
+		t.Fatalf("the armed walk wrote no frame")
+	}
+	t.Logf("walking at %d columns with a %d-line sprite: %d moving frames out of %d (%.2f s), %d bytes in total, %d bytes in the widest frame (%.1f KB/s at %d fps); the rest regime writes 0",
+		m.Width, lines, moves, frames, float64(frames)/animTicksPerSecond, total, widest, float64(widest)*animTicksPerSecond/1024, animTicksPerSecond)
+}
+
+// TestCompanionFollowStepIsBoundedByFollowCells pins the walk's distance rule: one
+// row of a menu is companionFollowCells cells of walking and no more. The creature
+// used to spread the whole menu index across the stage, so one arrow key on a wide
+// terminal threw it tens of cells; a fixed number per row makes one keypress a
+// short stroll, and the cap at the right edge only ever makes a step shorter.
+func TestCompanionFollowStepIsBoundedByFollowCells(t *testing.T) {
+	fixtures := []companionScreenFixture{
+		{name: "main menu 160x50", screen: ScreenMainMenu, width: 160, height: 50},
+		{name: "main menu 227x62", screen: ScreenMainMenu, width: 227, height: 62},
+		{name: "os select 80x24", screen: ScreenOSSelect, width: 80, height: 24},
+		{name: "restore confirm 100x30", screen: ScreenRestoreConfirm, width: 100, height: 30, backups: true},
+	}
+
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			m := NewModel()
+			isolateGoldenTest(t, &m)
+			m.Screen = f.screen
+			m.Width, m.Height = f.width, f.height
+			if f.backups {
+				m.AvailableBackups = []system.BackupInfo{testBackupInfo()}
+			}
+			stage := companionStageWidth(m)
+			options := m.GetCurrentOptions()
+			if len(options) < 2 {
+				t.Fatalf("the screen offers %d options, want at least two", len(options))
+			}
+
+			previous := -1
+			for i := range options {
+				m.Cursor = i
+				cell, ok := m.companionTarget(stage)
+				if !ok {
+					t.Fatalf("option %d has no target cell", i)
+				}
+				if previous >= 0 {
+					if step := companionDistance(previous, cell); step > companionFollowCells {
+						t.Errorf("one menu row moved the target %d cells, want at most %d", step, companionFollowCells)
+					}
+				}
+				previous = cell
+			}
+		})
 	}
 }
