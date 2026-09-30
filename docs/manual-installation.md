@@ -447,6 +447,9 @@ mkdir -p ~/.cache/starship
 mkdir -p ~/.cache/carapace
 mkdir -p ~/.local/share/atuin
 cp -rf starship.toml ~/.config/
+# This replaces ~/.config/fish/config.fish wholesale; it merges the rest of the
+# tree, so files you keep under ~/.config/fish/conf.d/ survive. Save config.fish
+# first if it holds personal settings.
 cp -rf dotfiles-fish/fish ~/.config
 ```
 
@@ -459,6 +462,9 @@ mkdir -p ~/.cache/carapace
 mkdir -p ~/.local/share/atuin
 cp -rf dotfiles-zsh/.zshrc ~/
 cp -rf dotfiles-zsh/.p10k.zsh ~/
+# Personal additions belong in ~/.zshrc.d/*.zsh: ~/.zshrc is replaced on every
+# update, while ~/.zshrc.d/ is never written to. The shipped .zshrc sources
+# those files last, in lexical order, so they can override anything above.
 # Oh My Zsh manages its own checkout. Only install it when it is missing, and
 # never copy a snapshot over an existing clone: that dirties its tracked files
 # and breaks `omz update` on the autostash pop.

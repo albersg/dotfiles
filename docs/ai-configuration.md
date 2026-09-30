@@ -30,7 +30,7 @@ The one assistant that is active is the `pi` floating chat, wired in
 | **CopilotChat.nvim** | GitHub Copilot chat (`CopilotC-Nvim/CopilotChat.nvim`) | Disabled |
 | **copilot.lua** | GitHub Copilot inline suggestions | Disabled |
 | **CodeCompanion.nvim** | Multi-provider assistant (`olimorris/codecompanion.nvim`) | Disabled |
-| **Gemini.nvim** | Google Gemini integration (`jonroosevelt/gemini-cli.nvim`) | Disabled |
+| **Antigravity.nvim** | Google Antigravity integration (`mceazy2700/antigravity-cli.nvim`) | Disabled |
 
 None of these is enabled "by default", and no plugin spec in `lua/plugins/` sets
 `enabled = true` at the plugin level. Any documentation or keymap table that
@@ -76,7 +76,6 @@ that use them are disabled:
 |------|---------------------|
 | Claude Code CLI | `curl -fsSL https://claude.ai/install.sh \| bash` |
 | OpenCode CLI | `curl -fsSL https://opencode.ai/install \| bash` |
-| Gemini CLI | `npm install -g @google/gemini-cli` |
 
 The CLI installs are non-fatal and skipped on Termux. If you never enable the
 plugins, those two commands are effort spent on something that stays off.
@@ -171,7 +170,7 @@ The pins live in `installer/internal/tui/officecli.go`. To move to a new release
 
 The configuration files for the disabled plugins are still present and still
 maintained: `avante.lua`, `code-companion.lua`, `copilot-chat.lua`, `copilot.lua`,
-`gemini.lua`, `opencode.lua` and `claude-code.lua`. `lazy-lock.json` still locks
+`antigravity.lua`, `opencode.lua` and `claude-code.lua`. `lazy-lock.json` still locks
 several of them, so they remain pinned and reproducible even though they never
 load.
 

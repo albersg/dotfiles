@@ -273,7 +273,7 @@ recorded in `lua/config/lazy.lua` ("AI integrations are intentionally disabled i
 this configuration") and enforced by name in `lua/plugins/disabled.lua`:
 
 `claudecode.nvim`, `opencode.nvim`, `avante.nvim`, `codecompanion.nvim`,
-`CopilotChat.nvim`, `copilot.lua`, `gemini-cli.nvim`.
+`CopilotChat.nvim`, `copilot.lua`, `antigravity-cli.nvim`.
 
 Their configuration files are still present under `lua/plugins/` and still
 maintained, and `lazy-lock.json` still locks several of them, so those plugins
