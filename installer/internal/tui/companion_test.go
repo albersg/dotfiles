@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/muesli/termenv"
 )
 
 // TestMain pins the animation gate off for the whole package. The gate reads
@@ -73,12 +75,12 @@ func companionRowHasArt(row string) bool {
 	return companionPixelRowShape(plain)
 }
 
-// companionPixelRowShape reports whether a stripped row is a row of the shaded
-// sprite: nothing but the half blocks it draws with and the spaces its empty cells
-// leave, which is a shape no other row in the frame has. "Any block glyph" would
-// not do -- the welcome screen's wordmark is full blocks and the panels draw their
-// meters with shading glyphs -- and the sprite's own rows are the only ones made
-// exclusively of these, so the two cannot be confused.
+// companionPixelRowShape reports whether a stripped row is a row of the volumetric sprite:
+// nothing but the half blocks it draws with and the spaces its empty cells leave, which is a
+// shape no other row in the frame has. "Any block glyph" would not do -- the welcome
+// screen's wordmark is full blocks and the panels draw their meters with shading glyphs --
+// and the sprite's own rows are the only ones made exclusively of these, so the two cannot
+// be confused.
 func companionPixelRowShape(plain string) bool {
 	if !strings.ContainsAny(plain, "\u2580\u2588") {
 		return false
@@ -212,12 +214,12 @@ type companionScreenFixture struct {
 // five columns and padding it to the seven-column cell would change bytes a
 // snapshot already pins -- so for it the guard is "no wider than the cell".
 func TestCompanionArtIsRowsOfPrintableASCII(t *testing.T) {
-	// The walk bounds itself on the widest cell, which is the shaded sprite's: no
-	// height may draw wider than that, and every glyph height is narrower, so a
-	// sprite can never walk past the edge of the stage it is drawn on.
-	if companionCellWidth != companionPixelWidth {
+	// The walk bounds itself on the widest cell, which is the full volumetric sprite's: no
+	// height may draw wider than that, and every glyph height is narrower, so a sprite can
+	// never walk past the edge of the stage it is drawn on.
+	if companionCellWidth != companionVolumeFullWidth {
 		t.Errorf("the walk bounds itself on %d columns but the widest cell is %d",
-			companionCellWidth, companionPixelWidth)
+			companionCellWidth, companionVolumeFullWidth)
 	}
 	for _, height := range companionHeights() {
 		if cell := companionSpriteWidth(height); cell > companionCellWidth {
@@ -2150,165 +2152,614 @@ func TestCompanionIgnoresWhatItCannotUse(t *testing.T) {
 }
 
 // ============================================================================
-// THE SHADED SPRITE
+// THE VOLUMETRIC SPRITE
 // ============================================================================
 //
-// The pixel sprite sits above the glyph ladder and is drawn only where it can be
-// drawn properly. These tests pin its geometry, its gaze, its place in the ladder,
-// and its determinism; the benchmark at the end measures what it costs.
+// The sprite above the glyph ladder is a volume: a field for its shape, a light for its
+// shading and a fixed dither for the ramp between them. These tests pin the rungs it is
+// drawn at, the shading and the dither that are the drawing, the gaze and the gait that
+// move it, the layout the eye reads it by, its determinism and its cost; the benchmarks
+// after them measure what a live run pays for it.
 
 // companionGazes is every gaze the composer can be asked for.
 func companionGazes() []companionGaze {
 	return []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {X: -1, Y: -1}, {X: 1, Y: -1}}
 }
 
-// companionPixelGrids is every state's grid at every gaze, which is what the
-// sprite is drawn from.
-func companionPixelGrids() map[companionState]map[companionGaze][companionPixelRows]string {
-	out := map[companionState]map[companionGaze][companionPixelRows]string{}
-	for _, state := range companionStates() {
-		out[state] = map[companionGaze][companionPixelRows]string{}
-		for _, gaze := range companionGazes() {
-			out[state][gaze] = companionPixelGrid(state, 0, gaze)
+// companionVolumeRungs is the volume's two sizes, in the ladder's own order: the full
+// sprite first and the small one after it.
+func companionVolumeRungs() []companionVolumeSize {
+	rungs := make([]companionVolumeSize, 0, 2)
+	for _, height := range []int{companionVolumeFullHeight, companionVolumeSmallHeight} {
+		if size, ok := companionVolumeSizeFor(height); ok {
+			rungs = append(rungs, size)
 		}
 	}
-	return out
+	return rungs
 }
 
-// TestCompanionPixelArtIsARectangleOfTones pins the pixel art's own rules: every
-// row is exactly the sprite's width and every pixel is one of the five tones, at
-// every state and every gaze. A grid that is a pixel short would shift the sprite's
-// right-hand outline by a column; a tone outside the palette would draw in whatever
-// colour the zero value happens to be.
-func TestCompanionPixelArtIsARectangleOfTones(t *testing.T) {
-	tones := string([]rune{companionPixelNone, companionPixelFurL, companionPixelFurM, companionPixelInk, companionPixelEye, companionPixelRose})
-	for state, gazes := range companionPixelGrids() {
-		for gaze, grid := range gazes {
-			for i, row := range grid {
-				if got := len([]rune(row)); got != companionPixelWidth {
-					t.Errorf("state %s at gaze %+v draws row %d as %d pixels, want %d",
-						companionStateNames[state], gaze, i, got, companionPixelWidth)
+// companionVolumeText renders one grid as the text a reader can look at: the ramp as
+// characters from the darkest fold to the lit fur, and the marks as their own letters. It
+// exists because a frame of this sprite is colours and a test's failure message is not,
+// and the tests that say something about the drawing use it to say what they saw.
+func companionVolumeText(grid [][]companionTone) string {
+	glyphs := map[companionTone]rune{
+		companionToneNone:  ' ',
+		companionToneRamp0: '.',
+		companionToneRamp1: ':',
+		companionToneRamp2: '-',
+		companionToneRamp3: '=',
+		companionToneRamp4: '*',
+		companionToneEye:   'o',
+		companionTonePupil: '@',
+		companionToneGlint: '+',
+		companionToneNose:  '^',
+	}
+	var out strings.Builder
+	for _, row := range grid {
+		for _, tone := range row {
+			glyph, ok := glyphs[tone]
+			if !ok {
+				glyph = '?'
+			}
+			out.WriteRune(glyph)
+		}
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
+
+// companionVolumeGrid is one frame of the volume at one rung, with the tremble of a
+// startle left out: the tests below are about the shape, the light and the movement, and
+// none of them is about the shiver, which has its own test.
+func companionVolumeGrid(state companionState, tick int, gaze companionGaze, size companionVolumeSize) [][]companionTone {
+	return companionVolumeTones(state, tick, gaze, 0, size)
+}
+
+// companionVolumeGridTones counts the tones one grid uses, which is how the tests below
+// ask whether the shading is really there.
+func companionVolumeGridTones(grid [][]companionTone) map[companionTone]int {
+	counts := map[companionTone]int{}
+	for _, row := range grid {
+		for _, tone := range row {
+			counts[tone]++
+		}
+	}
+	return counts
+}
+
+// TestCompanionVolumeIsATonedRectangle pins the volume's own rules at every state, every
+// gaze and both rungs: the grid is the rung's own rectangle, every tone in it has a name,
+// and a frame is really shaded -- four of the ramp's five tones and one of the face's
+// marks, which is what a frame of this tier is and what a frame that had gone flat or
+// faceless would fail to be.
+func TestCompanionVolumeIsATonedRectangle(t *testing.T) {
+	for _, size := range companionVolumeRungs() {
+		for _, state := range companionStates() {
+			for _, gaze := range companionGazes() {
+				grid := companionVolumeGrid(state, 0, gaze, size)
+				if len(grid) != size.rows {
+					t.Fatalf("state %s draws %d pixel rows, want %d", companionStateNames[state], len(grid), size.rows)
 				}
-				for x, tone := range row {
-					if !strings.ContainsRune(tones, tone) {
-						t.Errorf("state %s at gaze %+v draws tone %q at row %d column %d, which is not in the palette",
-							companionStateNames[state], gaze, tone, i, x)
+				for i, row := range grid {
+					if len(row) != size.width {
+						t.Fatalf("state %s draws row %d as %d pixels, want %d",
+							companionStateNames[state], i, len(row), size.width)
 					}
-				}
-			}
-		}
-	}
-}
-
-// TestCompanionPixelGazeMovesOnlyThePupils is the glyph gaze rule in pixels: a gaze
-// may change the four rows the eyes live in and the ten columns between the head's
-// sides, and nothing else. A face whose eyes are already drawn -- a blink, a sleep,
-// a happy squint -- may not change at all, because a cat with its eyes shut has
-// nothing to look with.
-func TestCompanionPixelGazeMovesOnlyThePupils(t *testing.T) {
-	const firstEyeRow, lastEyeRow = 6, 9
-
-	for _, state := range companionStates() {
-		face := companionPixelFaceFor(state)
-		for _, gaze := range companionGazes() {
-			if gaze == (companionGaze{}) {
-				continue
-			}
-			neutral := companionPixelGrid(state, 0, companionGaze{})
-			turned := companionPixelGrid(state, 0, gaze)
-
-			moved := 0
-			for i := range turned {
-				if turned[i] == neutral[i] {
-					continue
-				}
-				if i < firstEyeRow || i > lastEyeRow {
-					t.Errorf("state %s at gaze %+v changed row %d, which is not an eye row: %q -> %q",
-						companionStateNames[state], gaze, i, neutral[i], turned[i])
-					continue
-				}
-				for x := range []rune(neutral[i]) {
-					if []rune(neutral[i])[x] != []rune(turned[i])[x] {
-						moved++
-						if x < companionPixelSocketLeft-2 || x > companionPixelSocketRight+3 {
-							t.Errorf("state %s at gaze %+v changed column %d, outside the socket area",
-								companionStateNames[state], gaze, x)
+					for x, tone := range row {
+						if _, ok := companionToneNames[tone]; !ok {
+							t.Errorf("state %s draws tone %d at row %d column %d, which has no name",
+								companionStateNames[state], tone, i, x)
 						}
 					}
 				}
-			}
 
-			switch {
-			case face.pupils == 0 && moved != 0:
-				t.Errorf("state %s moved its pupils at gaze %+v with its eyes drawn shut",
-					companionStateNames[state], gaze)
-			case face.pupils > 0 && moved == 0:
-				t.Errorf("state %s did not move its pupils at gaze %+v", companionStateNames[state], gaze)
+				counts := companionVolumeGridTones(grid)
+				steps := 0
+				for step := 0; step < companionRampSteps; step++ {
+					if counts[companionRampTone(step)] > 0 {
+						steps++
+					}
+				}
+				if steps < companionRampSteps-1 {
+					t.Errorf("state %s at %d rows uses %d of the %d ramp tones, so it is not shaded:\n%s",
+						companionStateNames[state], size.rows, steps, companionRampSteps, companionVolumeText(grid))
+				}
+				if counts[companionToneEye]+counts[companionTonePupil]+counts[companionToneGlint] == 0 {
+					t.Errorf("state %s at %d rows draws no eye at all:\n%s",
+						companionStateNames[state], size.rows, companionVolumeText(grid))
+				}
 			}
 		}
 	}
 }
 
-// TestCompanionPixelSpriteIsTheLadderTopStep pins the ladder with the shaded sprite
-// on top of it: the pixel sprite where the frame can hold its eight rows and the run
-// may draw it, the five-row glyph cat where it cannot, and the glyph ladder
-// untouched everywhere the gate is off -- the floor is skipped over, never replaced.
-func TestCompanionPixelSpriteIsTheLadderTopStep(t *testing.T) {
+// TestCompanionVolumeShadingRunsFromTheLight puts the light model's one claim to the test
+// it is worth: the side the light comes from is brighter than the side it does not. The
+// pixels of the volume are split by where they sit against the light's own diagonal, and
+// the mean tone of the lit side has to beat the mean tone of the shaded one -- which a
+// flat fill, an inside-out normal or a light on the wrong side all fail.
+func TestCompanionVolumeShadingRunsFromTheLight(t *testing.T) {
+	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
+	if !ok {
+		t.Fatal("the full height is not a rung of the volume")
+	}
+	grid := companionVolumeGrid(companionIdleState, 0, companionGaze{}, size)
+
+	lit, litCount, shaded, shadedCount := 0, 0, 0, 0
+	for py, row := range grid {
+		for px, tone := range row {
+			if tone < companionToneRamp0 || tone > companionRampTone(companionRampSteps-1) {
+				continue
+			}
+			// The light is up and to the left, so the diagonal that separates the two sides
+			// is the grid's own: a pixel is lit when its column plus its row is small.
+			if px+py < (size.width+size.rows)/2 {
+				lit += int(tone)
+				litCount++
+				continue
+			}
+			shaded += int(tone)
+			shadedCount++
+		}
+	}
+	if litCount == 0 || shadedCount == 0 {
+		t.Fatalf("the volume has nothing on one side of the light:\n%s", companionVolumeText(grid))
+	}
+	litMean := float64(lit) / float64(litCount)
+	shadedMean := float64(shaded) / float64(shadedCount)
+	if litMean <= shadedMean {
+		t.Errorf("the lit side of the creature means %.2f on the ramp and the shaded side %.2f, so the light is not coming from the upper left:\n%s",
+			litMean, shadedMean, companionVolumeText(grid))
+	}
+}
+
+// TestCompanionVolumeFillsEveryPixelRow pins the row the sprite does not use: none. Every
+// pixel row of every frame carries something at both rungs. The placement, the cost test
+// and the sprite's own row count all read the sprite's rows off the render, so a frame
+// whose top or bottom row was empty would be a frame one row shorter than the ladder
+// thinks it asked for -- and the ear tips and the shadow are exactly the two things that
+// could fall short of the cell's own edges.
+func TestCompanionVolumeFillsEveryPixelRow(t *testing.T) {
+	for _, size := range companionVolumeRungs() {
+		for _, state := range companionStates() {
+			for _, gaze := range companionGazes() {
+				grid := companionVolumeGrid(state, 0, gaze, size)
+				for py, row := range grid {
+					empty := true
+					for _, tone := range row {
+						if tone != companionToneNone {
+							empty = false
+							break
+						}
+					}
+					if empty {
+						t.Errorf("state %s at %d rows leaves pixel row %d empty:\n%s",
+							companionStateNames[state], size.rows, py, companionVolumeText(grid))
+					}
+				}
+			}
+		}
+	}
+}
+
+// companionVolumeEyeBox is where one eye sits and how far the art can draw from it: the
+// two eye centres of a pose, and the reach every eye mark fits inside. The tests below ask
+// the implementation where the head is rather than repeating the head's own arithmetic,
+// which is what keeps them about the drawing rather than about the numbers behind it.
+func companionVolumeEyeBox(t *testing.T, state companionState, size companionVolumeSize) [2][2]int {
+	t.Helper()
+	scale := companionVolumeScale(size)
+	pose := companionPoseFor(state, 0, companionGaze{}, 0, size)
+	return companionEyeCentres(pose.head, size, scale)
+}
+
+// companionVolumeCountAround counts the tones of one kind inside the box an eye can draw
+// in, which is how the tests tell a disc from a pupil from the one pixel of glint.
+func companionVolumeCountAround(grid [][]companionTone, centre [2]int, tone companionTone, reach int) int {
+	count := 0
+	for dy := -reach; dy <= reach; dy++ {
+		for dx := -reach; dx <= reach; dx++ {
+			x, y := centre[0]+dx, centre[1]+dy
+			if y < 0 || y >= len(grid) || x < 0 || x >= len(grid[y]) {
+				continue
+			}
+			if grid[y][x] == tone {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// TestCompanionVolumeEyeIsADiscAPupilAndAGlint pins the eye at every state and both
+// rungs: an open eye is a light disc with a dark pupil in it and exactly one bright pixel
+// of glint, and a shut one is the lid and nothing else -- no disc to glint off and no pupil
+// left looking at anything. The glint's colour is also pinned as the palette's loudest,
+// which is the one tone in the sprite that is allowed to be loud.
+func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
+	for _, size := range companionVolumeRungs() {
+		for _, state := range companionStates() {
+			grid := companionVolumeGrid(state, 0, companionGaze{}, size)
+			mark := companionEyeMarkFor(state)
+			shut := mark == companionEyeShut || mark == companionEyeArc
+			for _, centre := range companionVolumeEyeBox(t, state, size) {
+				reach := int(math.Ceil(size.eyeRadius))
+				disc := companionVolumeCountAround(grid, centre, companionToneEye, reach)
+				pupils := companionVolumeCountAround(grid, centre, companionTonePupil, reach)
+				glints := companionVolumeCountAround(grid, centre, companionToneGlint, reach)
+
+				if shut {
+					if disc != 0 || glints != 0 {
+						t.Errorf("state %s at %d rows drew %d disc pixels and %d glints with its eyes shut:\n%s",
+							companionStateNames[state], size.rows, disc, glints, companionVolumeText(grid))
+					}
+					if pupils == 0 {
+						t.Errorf("state %s at %d rows shut its eyes with no lid at all:\n%s",
+							companionStateNames[state], size.rows, companionVolumeText(grid))
+					}
+					continue
+				}
+				if disc == 0 {
+					t.Errorf("state %s at %d rows has no light disc in one of its eyes:\n%s",
+						companionStateNames[state], size.rows, companionVolumeText(grid))
+				}
+				if pupils == 0 {
+					t.Errorf("state %s at %d rows has no pupil in one of its eyes:\n%s",
+						companionStateNames[state], size.rows, companionVolumeText(grid))
+				}
+				if glints != 1 {
+					t.Errorf("state %s at %d rows drew %d glints in one eye, want one:\n%s",
+						companionStateNames[state], size.rows, glints, companionVolumeText(grid))
+				}
+			}
+
+			// The glint is one pixel per eye and no more: the whole frame carries one per eye
+			// that can glint, which is what makes it the loudest single thing on the screen
+			// rather than a pattern.
+			total := companionVolumeGridTones(grid)[companionToneGlint]
+			want := 2
+			if shut {
+				want = 0
+			}
+			if total != want {
+				t.Errorf("state %s at %d rows carries %d glint pixels, want %d:\n%s",
+					companionStateNames[state], size.rows, total, want, companionVolumeText(grid))
+			}
+		}
+	}
+
+	ink := companionInkFor(true)
+	if ink.colour(companionToneGlint) != parseHexColour(string(Accent.Dark)) {
+		t.Errorf("the glint is not drawn in the palette's accent, so the loudest tone is spent elsewhere")
+	}
+	for _, tone := range companionTones() {
+		if tone == companionToneGlint {
+			continue
+		}
+		if ink.colour(tone) == ink.colour(companionToneGlint) {
+			t.Errorf("tone %s is drawn in the same colour as the glint, so the bright pixel is not the only one",
+				companionToneNames[tone])
+		}
+	}
+}
+
+// companionVolumeGazeReach is how many dithered pixels a look may change outside the head's
+// own box. It is a bound and not a promise: the field is a sum, so moving the head moves the
+// surface's height wherever the head's own blobs are felt, and a dither boundary is exactly
+// where a small change in that height turns into a different tone. Eight pixels is what the
+// full rung measured at, with room for the two rungs' own arithmetic.
+const companionVolumeGazeReach = 8
+
+// companionVolumeHeadBox is the box the head, its ears and its muzzle fit in, widened by
+// the margin a turn moves them by. The gaze test uses it to say what a look may touch: the
+// head and the parts placed from it, and nothing else on the creature.
+func companionVolumeHeadBox(pose companionPose, size companionVolumeSize, scale float64) (left, top, right, bottom int) {
+	x0, x1 := pose.head.x-pose.head.a, pose.head.x+pose.head.a
+	x1 = max(x1, pose.muzzle.x+pose.muzzle.a)
+	y1 := pose.head.y + pose.head.b
+	for _, ear := range pose.ears {
+		x0, x1 = min(x0, ear.x1-ear.r), max(x1, ear.x1+ear.r)
+		y1 = max(y1, ear.y1+ear.r)
+	}
+	margin := companionHeadTurnX + 0.05
+	corner := companionPixelOf(x0-margin, y1+margin, size, scale)
+	far := companionPixelOf(x1+margin, pose.muzzle.y-pose.muzzle.b-margin, size, scale)
+	return corner[0], corner[1], far[0], far[1]
+}
+
+// TestCompanionVolumeGazeTurnsTheHeadAndThePupils pins what a gaze moves: the pupils, by
+// the direction the creature is looking, and the head they sit in -- and nothing else about
+// the creature. The legs, the shadow, the body and the tail are all outside the head's own
+// box and have to be untouched by it, which is the pixel version of the rule that the gaze
+// is a look and not a redraw.
+func TestCompanionVolumeGazeTurnsTheHeadAndThePupils(t *testing.T) {
+	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
+	if !ok {
+		t.Fatal("the full height is not a rung of the volume")
+	}
+	scale := companionVolumeScale(size)
+	gaze := companionGaze{X: 1}
+	turnedPose := companionPoseFor(companionIdleState, 0, gaze, 0, size)
+	centre := companionPixelOf(turnedPose.head.x, turnedPose.head.y, size, scale)
+	left, top, right, bottom := companionVolumeHeadBox(companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size), size, scale)
+
+	neutral := companionVolumeGrid(companionIdleState, 0, companionGaze{}, size)
+	turned := companionVolumeGrid(companionIdleState, 0, gaze, size)
+
+	moved, outside := 0, 0
+	for py := range turned {
+		for px := range turned[py] {
+			if turned[py][px] == neutral[py][px] {
+				continue
+			}
+			moved++
+			if px >= left && px <= right && py >= top && py <= bottom {
+				continue
+			}
+			// A gaze may also nudge a few dithered pixels elsewhere on the body, and it is
+			// worth saying why: the shading's height is read from the summed field, so
+			// bringing the head nearer raises the surface it is near, and a pixel whose place
+			// on the ramp sat on a dither boundary changes tone. What it may never do is
+			// redraw the creature's outline -- a pixel outside the head may not appear or
+			// disappear -- and there may not be many of them.
+			outside++
+			if neutral[py][px] == companionToneNone || turned[py][px] == companionToneNone {
+				t.Errorf("a gaze right redrew the creature's own outline at (%d, %d): %s -> %s",
+					px, py, companionToneNames[neutral[py][px]], companionToneNames[turned[py][px]])
+			}
+		}
+	}
+	if moved == 0 {
+		t.Errorf("a gaze right changed nothing at all:\n%s", companionVolumeText(turned))
+	}
+	if outside > companionVolumeGazeReach {
+		t.Errorf("a gaze right changed %d pixels outside the head's own box, want at most %d:\n%s",
+			outside, companionVolumeGazeReach, companionVolumeText(turned))
+	}
+
+	// The pupils follow the gaze rather than only the head: the pair's own mean column moves
+	// the way the creature is looking.
+	for _, looking := range []companionGaze{{X: -1}, {X: 1}} {
+		grid := companionVolumeGrid(companionIdleState, 0, looking, size)
+		sum, count := 0, 0
+		for _, eye := range companionVolumeEyeBox(t, companionIdleState, size) {
+			for dy := -2; dy <= 2; dy++ {
+				for dx := -2; dx <= 2; dx++ {
+					x, y := eye[0]+dx, eye[1]+dy
+					if y < 0 || y >= len(grid) || x < 0 || x >= len(grid[y]) {
+						continue
+					}
+					if grid[y][x] == companionTonePupil {
+						sum += x
+						count++
+					}
+				}
+			}
+		}
+		if count == 0 {
+			t.Fatalf("a gaze %+v left no pupil to follow it:\n%s", looking, companionVolumeText(grid))
+		}
+		mean := sum / count
+		if looking.X > 0 && mean <= centre[0] {
+			t.Errorf("looking right put the pupils at mean column %d, which is not right of the head's own %d", mean, centre[0])
+		}
+		if looking.X < 0 && mean >= centre[0] {
+			t.Errorf("looking left put the pupils at mean column %d, which is not left of the head's own %d", mean, centre[0])
+		}
+	}
+}
+
+// TestCompanionVolumeGaitMovesThePawsAndCounterSwaysTheTail pins the walk where it is
+// decided: in the pose. The four poses are a stride -- the front paw reaches forward and
+// back, the tail's tip goes the other way, the body rides up over the passing poses and the
+// paws stay on the ground while it does -- and the drawing has to show all of it, which the
+// two contact poses' own pixels are checked for. A walk whose legs swapped places without
+// the paws moving would pass a "the frame changed" test and fail this one.
+func TestCompanionVolumeGaitMovesThePawsAndCounterSwaysTheTail(t *testing.T) {
+	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
+	if !ok {
+		t.Fatal("the full height is not a rung of the volume")
+	}
+	scale := companionVolumeScale(size)
+	standing := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size)
+
+	var poses [4]companionPose
+	for phase := range poses {
+		poses[phase] = companionPoseFor(companionWalkingState, phase*companionGaitTicks, companionGaze{}, 0, size)
+	}
+
+	for _, phase := range []int{0, 2} {
+		paw := poses[phase].legs[0].x1 - standing.legs[0].x1
+		tail := poses[phase].tail[1].x1 - standing.tail[1].x1
+		if paw == 0 {
+			t.Errorf("pose %d left the front paw where it stands", phase)
+		}
+		if paw*tail >= 0 {
+			t.Errorf("pose %d moved the front paw by %.3f and the tail's tip by %.3f, so the tail is not counter-swaying",
+				phase, paw, tail)
+		}
+	}
+
+	// The body rides up one pixel over the passing poses and not at all otherwise, and the
+	// paws alternate in diagonal pairs: two on the ground and two off it at every pose,
+	// which is a trot rather than a glide or a hop.
+	for phase, pose := range poses {
+		bob := pose.body.y - standing.body.y
+		want := float64(companionBodyBobPx) * companionGaitBob[phase] / scale
+		if math.Abs(bob-want) > 1e-9 {
+			t.Errorf("pose %d bobbed the body by %.4f, want %.4f", phase, bob, want)
+		}
+		lifted := 0
+		for i, leg := range pose.legs {
+			switch {
+			case leg.y1 > standing.legs[i].y1+1e-9:
+				lifted++
+			case leg.y1 < standing.legs[i].y1-1e-9:
+				t.Errorf("pose %d pushed paw %d through the ground", phase, i)
+			}
+		}
+		if lifted != 2 {
+			t.Errorf("pose %d has %d paws off the ground, want the two of one diagonal pair", phase, lifted)
+		}
+	}
+
+	// And the drawing shows it: the two contact poses are different frames.
+	first := companionVolumeText(companionVolumeGrid(companionWalkingState, 0, companionGaze{}, size))
+	second := companionVolumeText(companionVolumeGrid(companionWalkingState, 2*companionGaitTicks, companionGaze{}, size))
+	if first == second {
+		t.Errorf("the two contact poses of the walk draw the same frame, so the legs are not stepping:\n%s", first)
+	}
+}
+
+// TestCompanionVolumeStatesAreDistinct pins the state set at the rung that has room for a
+// face: every state draws a different frame at the same tick and the same gaze. It is the
+// volume's version of the glyph art's "the state reads from the glyphs" rule, and it is
+// what a state added without an eye mark or a pose of its own would fail.
+func TestCompanionVolumeStatesAreDistinct(t *testing.T) {
+	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
+	if !ok {
+		t.Fatal("the full height is not a rung of the volume")
+	}
+	drawn := map[string]companionState{}
+	for _, state := range companionStates() {
+		frame := companionVolumeText(companionVolumeGrid(state, 0, companionGaze{}, size))
+		if other, clash := drawn[frame]; clash {
+			t.Errorf("states %s and %s draw the same frame:\n%s",
+				companionStateNames[other], companionStateNames[state], frame)
+		}
+		drawn[frame] = state
+	}
+}
+
+// TestCompanionStartleTremblesThenHolds pins the one animated reaction's bound. A flinching
+// creature shivers for companionShiverTicks frames after the last key and then holds the
+// crouched pose, so an error screen nobody is touching settles into bytes the renderer stops
+// writing. A tremble that ran for as long as the error did would repaint twelve rows eight
+// times a second over a screen the user may be reading.
+func TestCompanionStartleTremblesThenHolds(t *testing.T) {
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Screen = ScreenError
+	m.ErrorMsg = "the step failed"
+	m.Width, m.Height = 160, 50
+	m.Animating, m.PixelSprite = true, true
+
+	// The key that reached the error reset the idle counter, so the first frames shiver.
+	resting := m.AnimTick % 2
+	if m.companionShiverPx() == 0 {
+		t.Fatalf("a just-startled creature is not trembling")
+	}
+	if m.View() == companionTick(t, m).View() {
+		t.Errorf("the tremble did not reach the drawing")
+	}
+
+	// Once the stretch is over the pose holds: the same view from tick to tick.
+	settled := companionTicks(t, m, companionShiverTicks)
+	if settled.companionShiverPx() != 0 {
+		t.Errorf("the creature is still trembling %d frames after the key", companionShiverTicks)
+	}
+	before := settled.View()
+	after := companionTicks(t, settled, 8).View()
+	if rows, bytes := companionChangedRows(before, after); len(rows) != 0 || bytes != 0 {
+		t.Errorf("a settled flinch changed %d rows and %d bytes, want none", len(rows), bytes)
+	}
+	if m.AnimTick%2 == resting {
+		t.Logf("the startle trembles for %d frames and then holds the crouched pose", companionShiverTicks)
+	}
+}
+
+// TestCompanionVolumeSpriteIsTheLadderTopSteps pins the ladder with the volume's two rungs
+// on top of it: the full sprite where the frame can hold its twelve rows and the run may
+// draw it, the small one where it can hold ten, the five-row glyph cat where it can hold
+// neither, and the glyph ladder untouched everywhere the gate is off -- the floor is
+// skipped over, never replaced.
+func TestCompanionVolumeSpriteIsTheLadderTopSteps(t *testing.T) {
 	body := make([]string, 10)
 	for i := range body {
 		body[i] = fmt.Sprintf("body row %d", i+1)
 	}
 
 	tests := []struct {
-		name      string
-		pixel     bool
-		spare     int
-		wantRows  int
-		wantPixel bool
+		name       string
+		sprite     bool
+		spare      int
+		wantHeight int
 	}{
-		{"true colour and eight rows draws the pixel sprite", true, companionPixelHeight, companionPixelHeight, true},
-		{"the pixel sprite needs one row more than the glyph cat", true, companionPixelHeight - 1, companionFullHeight, false},
-		{"the gate off draws the glyph cat however much room there is", false, companionPixelHeight + 9, companionFullHeight, false},
-		{"a frame too small for the cat falls through to the head", true, companionCompactHeight, companionCompactHeight, false},
+		{"twelve rows draws the full sprite", true, companionVolumeFullHeight, companionVolumeFullHeight},
+		{"eleven rows drops to the small sprite rather than to the cat", true, companionVolumeFullHeight - 1, companionVolumeSmallHeight},
+		{"ten rows draws the small sprite", true, companionVolumeSmallHeight, companionVolumeSmallHeight},
+		{"nine rows drops to the glyph cat", true, companionVolumeSmallHeight - 1, companionFullHeight},
+		{"the gate off draws the glyph cat however much room there is", false, companionVolumeFullHeight + 9, companionFullHeight},
+		{"a frame too small for the cat falls through to the head", true, companionCompactHeight, companionCompactHeight},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := Model{Width: 160, Height: 50, Animating: true, PixelSprite: tt.pixel, ink: companionInkFor(true)}
+			m := Model{Width: 160, Height: 50, Animating: true, PixelSprite: tt.sprite, ink: companionInkFor(true)}
 			placed := append(append([]string(nil), body...), make([]string, tt.spare)...)
 
 			got := m.placeCompanion(placed, nil, companionStageWidth(m))
 			if len(got) != len(placed) {
 				t.Fatalf("placement drew %d rows on a %d-row frame", len(got), len(placed))
 			}
-			sprite := got[len(got)-tt.wantRows:]
+			sprite := got[len(got)-tt.wantHeight:]
 			blocks := 0
 			for _, row := range sprite {
 				if strings.ContainsAny(ansiEscape.ReplaceAllString(row, ""), "\u2580\u2584\u2588") {
 					blocks++
 				}
 			}
-			if tt.wantPixel && blocks != companionPixelHeight {
-				t.Errorf("the sprite draws %d rows of half blocks, want %d", blocks, companionPixelHeight)
+			_, volume := companionVolumeSizeFor(tt.wantHeight)
+			if volume && blocks != tt.wantHeight {
+				t.Errorf("the sprite draws %d rows of half blocks, want %d", blocks, tt.wantHeight)
 			}
-			if !tt.wantPixel && blocks != 0 {
+			if !volume && blocks != 0 {
 				t.Errorf("the sprite drew %d rows of half blocks, want the glyph art", blocks)
 			}
 		})
 	}
 }
 
-// TestCompanionPixelSpriteIsDeterministic pins the promise the glyph sprite keeps,
-// in pixels: the same model, tick and gaze render the same bytes, the render is
-// pure so calling it twice changes nothing, and the sprite a snapshot would pin is
-// the ladder's eight rows.
-func TestCompanionPixelSpriteIsDeterministic(t *testing.T) {
+// TestCompanionVolumeIsRefusedWithoutTrueColour pins the floor of the ladder as a decision
+// rather than as a comment: the volume is drawn only where the terminal reports true colour,
+// and a terminal with sixteen colours, eight or none is refused it -- sixteen colours cannot
+// draw a five-step ramp, so the tier would arrive as five tones of whatever the terminal maps
+// them to, which is a smear rather than a volume. Those terminals draw the glyph cat, which
+// is why the refusal is a ladder step and not a lost companion.
+func TestCompanionVolumeIsRefusedWithoutTrueColour(t *testing.T) {
+	tests := []struct {
+		name     string
+		profile  termenv.Profile
+		spriteOn string
+		wanted   bool
+	}{
+		{"true colour draws the volume", termenv.TrueColor, "", true},
+		{"DOTFILES_SPRITE=0 refuses it even in true colour", termenv.TrueColor, "0", false},
+		{"a 256-colour terminal is refused", termenv.ANSI256, "", false},
+		{"a 16-colour terminal is refused", termenv.ANSI, "", false},
+		{"a terminal with no colour at all is refused", termenv.Ascii, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pixelSpriteAllowed(tt.profile, tt.spriteOn); got != tt.wanted {
+				t.Errorf("pixelSpriteAllowed(%v, %q) = %v, want %v", tt.profile, tt.spriteOn, got, tt.wanted)
+			}
+		})
+	}
+}
+
+// TestCompanionVolumeSpriteIsDeterministic pins the promise the glyph sprite keeps, in
+// pixels: the same model, tick and gaze render the same bytes, the render is pure so
+// calling it twice changes nothing, and the sprite a snapshot would pin is the full rung's
+// twelve rows.
+func TestCompanionVolumeSpriteIsDeterministic(t *testing.T) {
 	build := func() Model {
 		m := NewModel()
 		isolateGoldenTest(t, &m)
 		m.Screen = ScreenMainMenu
 		m.Width, m.Height = 160, 50
-		m.Animating, m.PixelSprite, m.Hovering = true, true, true
+		m.Animating, m.PixelSprite = true, true
 		return m
 	}
 
@@ -2317,61 +2768,131 @@ func TestCompanionPixelSpriteIsDeterministic(t *testing.T) {
 	second = companionTicks(t, second, 3)
 
 	if first.View() != second.View() {
-		t.Errorf("two models advanced by three ticks rendered different bytes with the pixel sprite")
+		t.Errorf("two models advanced by three ticks rendered different bytes with the volume sprite")
 	}
 	if first.View() != first.View() {
 		t.Errorf("rendering the same model twice produced different bytes, so the render is not pure")
 	}
 
-	rows := companionOwnedRows(strings.Split(first.View(), "\n"))
-	if len(rows) != companionPixelHeight {
-		t.Errorf("the pixel sprite owns %d rows, want %d", len(rows), companionPixelHeight)
+	viewRows := strings.Split(first.View(), "\n")
+	rows := companionOwnedRows(viewRows)
+	if len(rows) != companionVolumeFullHeight {
+		t.Errorf("the volume sprite owns %d rows, want %d", len(rows), companionVolumeFullHeight)
 	}
 	for _, i := range rows {
-		if !strings.ContainsAny(plainRow(strings.Split(first.View(), "\n")[i]), "\u2580\u2584\u2588") {
-			t.Errorf("row %d of the pixel sprite carries no half blocks: %q",
-				i, plainRow(strings.Split(first.View(), "\n")[i]))
+		if !strings.ContainsAny(plainRow(viewRows[i]), "\u2580\u2584\u2588") {
+			t.Errorf("row %d of the volume sprite carries no half blocks: %q", i, plainRow(viewRows[i]))
 		}
 	}
 }
 
-// TestCompanionPixelFrameBytesAreBounded declares the cost of the tier the way the
-// repository declares costs: with a test rather than a comment. A frame of the
-// shaded sprite is eight rows of sixteen cells, and the encoder writes an escape
-// sequence only when a cell's style changes, so a whole sprite frame -- every row,
-// every escape, the block glyphs -- fits in a few hundred bytes. The bound is
-// generous on purpose: it is there to catch a change that starts emitting a
-// sequence per cell, not to pin the exact number, which the test logs instead.
-func TestCompanionPixelFrameBytesAreBounded(t *testing.T) {
-	const bound = 2048
+// TestCompanionVolumeFrameBytesAreBounded declares the cost of the tier the way the
+// repository declares costs: with a test rather than a comment. A frame of the full sprite
+// is twelve rows of thirty-two cells, and the encoder writes an escape sequence only when a
+// cell's style changes, so a whole frame fits in a few thousand bytes. The bound is generous
+// on purpose: it is there to catch a change that starts emitting a sequence per cell, not to
+// pin the exact number, which the test logs instead.
+func TestCompanionVolumeFrameBytesAreBounded(t *testing.T) {
+	const bound = 8192
 
 	m := Model{Width: 160, Height: 50, Animating: true, PixelSprite: true, ink: companionInkFor(true)}
 	m.Screen = ScreenMainMenu
 	m.CompanionPos = 40
 
 	biggest := 0
-	for _, state := range companionStates() {
-		for _, gaze := range companionGazes() {
-			grid := companionPixelGrid(state, 0, gaze)
-			total := 0
-			for i := 0; i < companionPixelRows; i += 2 {
-				total += len(m.ink.row(grid[i], grid[i+1]))
-			}
-			biggest = max(biggest, total)
-			if total > bound {
-				t.Errorf("state %s at gaze %+v writes %d bytes in one frame, want at most %d",
-					companionStateNames[state], gaze, total, bound)
+	for _, size := range companionVolumeRungs() {
+		for _, state := range companionStates() {
+			for _, gaze := range companionGazes() {
+				grid := companionVolumeGrid(state, 0, gaze, size)
+				total := 0
+				for py := 0; py+1 < size.rows; py += 2 {
+					total += len(m.ink.row(grid[py], grid[py+1]))
+				}
+				biggest = max(biggest, total)
+				if total > bound {
+					t.Errorf("state %s at %d rows and gaze %+v writes %d bytes in one frame, want at most %d",
+						companionStateNames[state], size.rows, gaze, total, bound)
+				}
 			}
 		}
 	}
-	t.Logf("the shaded sprite writes at most %d bytes per frame (%d rows of %d cells)",
-		biggest, companionPixelHeight, companionPixelWidth)
+	t.Logf("the volume sprite writes at most %d bytes per frame (%d rows of %d cells)",
+		biggest, companionVolumeFullHeight, companionVolumeFullWidth)
 }
 
-// BenchmarkCompanionPixelFrame measures what drawing the shaded sprite costs in the
-// render path: one View of a walking model with a live pointer, which is the worst
-// case a live run reaches.
-func BenchmarkCompanionPixelFrame(b *testing.B) {
+// TestCompanionVolumeReadsAsACreature pins the layout the eye reads the drawing by, which is
+// the one thing about "it looks like a creature" that can be asserted rather than looked at:
+// the body fills the cell it was given, the eyes are in the head -- above and in front of the
+// body's own mass -- and the nose is in front of the eyes, on the muzzle. It also writes the
+// two frames it checked into the log, because a frame of this sprite is colours and a reader
+// of a test log is not, and the log is where a reviewer can see what is being drawn.
+func TestCompanionVolumeReadsAsACreature(t *testing.T) {
+	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
+	if !ok {
+		t.Fatal("the full height is not a rung of the volume")
+	}
+	grid := companionVolumeGrid(companionIdleState, 0, companionGaze{}, size)
+
+	leftmost, rightmost := size.width, -1
+	bodySum, bodyCount := 0, 0
+	for py, row := range grid {
+		for px, tone := range row {
+			if tone == companionToneNone {
+				continue
+			}
+			leftmost, rightmost = min(leftmost, px), max(rightmost, px)
+			bodySum, bodyCount = bodySum+py, bodyCount+1
+		}
+	}
+	if bodyCount == 0 {
+		t.Fatal("the idle frame draws nothing at all")
+	}
+	if leftmost > size.width/4 || rightmost < 3*size.width/4 {
+		t.Errorf("the creature spans columns %d to %d of %d, so it does not fill its own cell:\n%s",
+			leftmost, rightmost, size.width, companionVolumeText(grid))
+	}
+
+	bodyMeanRow := float64(bodySum) / float64(bodyCount)
+	for _, eye := range companionVolumeEyeBox(t, companionIdleState, size) {
+		if float64(eye[1]) >= bodyMeanRow {
+			t.Errorf("an eye sits at pixel row %d and the body's own mass is at %.1f, so the eyes are not in a head above it:\n%s",
+				eye[1], bodyMeanRow, companionVolumeText(grid))
+		}
+	}
+
+	glintSum, glintCount, noseSum, noseCount := 0, 0, 0, 0
+	for _, row := range grid {
+		for px, tone := range row {
+			switch tone {
+			case companionToneGlint:
+				glintSum, glintCount = glintSum+px, glintCount+1
+			case companionToneNose:
+				noseSum, noseCount = noseSum+px, noseCount+1
+			}
+		}
+	}
+	if glintCount == 0 || noseCount == 0 {
+		t.Fatalf("the idle frame has no face at all:\n%s", companionVolumeText(grid))
+	}
+	if noseSum/noseCount <= glintSum/glintCount {
+		t.Errorf("the nose is at column %d and the eyes at %d, so the muzzle is not in front of them:\n%s",
+			noseSum/noseCount, glintSum/glintCount, companionVolumeText(grid))
+	}
+
+	t.Logf("the full sprite at rest, ramp dark to light and the marks as letters:\n%s", companionVolumeText(grid))
+	t.Logf("the same creature one step into its walk, looking right:\n%s",
+		companionVolumeText(companionVolumeGrid(companionWalkingState, 2*companionGaitTicks, companionGaze{X: 1}, size)))
+
+	if small, ok := companionVolumeSizeFor(companionVolumeSmallHeight); ok {
+		t.Logf("the small sprite, which is the same field on fewer rows and columns:\n%s",
+			companionVolumeText(companionVolumeGrid(companionIdleState, 0, companionGaze{X: 1}, small)))
+	}
+}
+
+// BenchmarkCompanionVolumeFrame measures what drawing the volume costs in the render path:
+// one View of a walking model with a live pointer, which is the worst case a live run
+// reaches.
+func BenchmarkCompanionVolumeFrame(b *testing.B) {
 	m := Model{Width: 160, Height: 50, Animating: true, PixelSprite: true, Hovering: true, ink: companionInkFor(true)}
 	m.Screen = ScreenMainMenu
 	m.CompanionPos = 40
