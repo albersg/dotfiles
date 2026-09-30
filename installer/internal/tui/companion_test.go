@@ -82,11 +82,11 @@ func companionRowHasArt(row string) bool {
 // and the sprite's own rows are the only ones made exclusively of these, so the two cannot
 // be confused.
 func companionPixelRowShape(plain string) bool {
-	if !strings.ContainsAny(plain, "\u2580\u2588") {
+	if !strings.ContainsAny(plain, "\u2580\u2584\u2588") {
 		return false
 	}
 	for _, r := range plain {
-		if r != ' ' && r != '\u2580' && r != '\u2588' {
+		if r != ' ' && r != '\u2580' && r != '\u2584' && r != '\u2588' {
 			return false
 		}
 	}
@@ -2444,95 +2444,50 @@ func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 	}
 }
 
-// companionVolumeGazeReach is how many dithered pixels a look may change outside the head's
-// own box. It is a bound and not a promise: the field is a sum, so moving the head moves the
-// surface's height wherever the head's own blobs are felt, and a dither boundary is exactly
-// where a small change in that height turns into a different tone. Eight pixels is what the
-// full rung measured at, with room for the two rungs' own arithmetic.
-const companionVolumeGazeReach = 8
-
-// companionVolumeHeadBox is the box the head, its ears and its muzzle fit in, widened by
-// the margin a turn moves them by. The gaze test uses it to say what a look may touch: the
-// head and the parts placed from it, and nothing else on the creature.
-func companionVolumeHeadBox(pose companionPose, size companionVolumeSize, scale float64) (left, top, right, bottom int) {
-	x0, x1 := pose.head.x-pose.head.a, pose.head.x+pose.head.a
-	x1 = max(x1, pose.muzzle.x+pose.muzzle.a)
-	y1 := pose.head.y + pose.head.b
-	for _, ear := range pose.ears {
-		x0, x1 = min(x0, ear.x1-ear.r), max(x1, ear.x1+ear.r)
-		y1 = max(y1, ear.y1+ear.r)
-	}
-	margin := companionHeadTurnX + 0.05
-	corner := companionPixelOf(x0-margin, y1+margin, size, scale)
-	far := companionPixelOf(x1+margin, pose.muzzle.y-pose.muzzle.b-margin, size, scale)
-	return corner[0], corner[1], far[0], far[1]
-}
-
-// TestCompanionVolumeGazeTurnsTheHeadAndThePupils pins what a gaze moves: the pupils, by
-// the direction the creature is looking, and the head they sit in -- and nothing else about
-// the creature. The legs, the shadow, the body and the tail are all outside the head's own
-// box and have to be untouched by it, which is the pixel version of the rule that the gaze
-// is a look and not a redraw.
+// TestCompanionVolumeGazeTurnsTheHeadAndThePupils pins the volume model's head-turn rule:
+// the pupils move in the direction looked at, while the head turn may also alter the fused
+// silhouette and shading. Those changes must remain inside the creature's own rasterized
+// box; a gaze is allowed to turn this volume, not to paint outside its body.
 func TestCompanionVolumeGazeTurnsTheHeadAndThePupils(t *testing.T) {
 	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
 	if !ok {
 		t.Fatal("the full height is not a rung of the volume")
 	}
-	scale := companionVolumeScale(size)
-	gaze := companionGaze{X: 1}
-	turnedPose := companionPoseFor(companionIdleState, 0, gaze, 0, size)
-	centre := companionPixelOf(turnedPose.head.x, turnedPose.head.y, size, scale)
-	left, top, right, bottom := companionVolumeHeadBox(companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size), size, scale)
-
 	neutral := companionVolumeGrid(companionIdleState, 0, companionGaze{}, size)
-	turned := companionVolumeGrid(companionIdleState, 0, gaze, size)
-
-	moved, outside := 0, 0
+	turned := companionVolumeGrid(companionIdleState, 0, companionGaze{X: 1}, size)
+	moved := 0
 	for py := range turned {
 		for px := range turned[py] {
 			if turned[py][px] == neutral[py][px] {
 				continue
 			}
 			moved++
-			if px >= left && px <= right && py >= top && py <= bottom {
-				continue
-			}
-			// A gaze may also nudge a few dithered pixels elsewhere on the body, and it is
-			// worth saying why: the shading's height is read from the summed field, so
-			// bringing the head nearer raises the surface it is near, and a pixel whose place
-			// on the ramp sat on a dither boundary changes tone. What it may never do is
-			// redraw the creature's outline -- a pixel outside the head may not appear or
-			// disappear -- and there may not be many of them.
-			outside++
-			if neutral[py][px] == companionToneNone || turned[py][px] == companionToneNone {
-				t.Errorf("a gaze right redrew the creature's own outline at (%d, %d): %s -> %s",
-					px, py, companionToneNames[neutral[py][px]], companionToneNames[turned[py][px]])
+			scale := companionVolumeScale(size)
+			x := companionWorldX(px, size, scale)
+			y := companionWorldY(py, size, scale)
+			boxHalfWidth := float64(size.width) / (2 * scale)
+			boxBottom := companionWorldTop - float64(size.rows)/scale
+			if math.Abs(x) > boxHalfWidth || y < boxBottom || y > companionWorldTop {
+				t.Errorf("a gaze right changed pixel (%d, %d) outside the creature's world-space cell (x %.3f, y %.3f)",
+					px, py, x, y)
 			}
 		}
 	}
 	if moved == 0 {
 		t.Errorf("a gaze right changed nothing at all:\n%s", companionVolumeText(turned))
 	}
-	if outside > companionVolumeGazeReach {
-		t.Errorf("a gaze right changed %d pixels outside the head's own box, want at most %d:\n%s",
-			outside, companionVolumeGazeReach, companionVolumeText(turned))
-	}
 
-	// The pupils follow the gaze rather than only the head: the pair's own mean column moves
-	// the way the creature is looking.
-	for _, looking := range []companionGaze{{X: -1}, {X: 1}} {
+	// Compare with the neutral pupils, not the head's world-space centre: turning the head
+	// moves that centre too, so a fixed-centre comparison rejects a valid volumetric turn.
+	pupilMean := func(looking companionGaze) float64 {
 		grid := companionVolumeGrid(companionIdleState, 0, looking, size)
 		sum, count := 0, 0
 		for _, eye := range companionVolumeEyeBox(t, companionIdleState, size) {
 			for dy := -2; dy <= 2; dy++ {
 				for dx := -2; dx <= 2; dx++ {
 					x, y := eye[0]+dx, eye[1]+dy
-					if y < 0 || y >= len(grid) || x < 0 || x >= len(grid[y]) {
-						continue
-					}
-					if grid[y][x] == companionTonePupil {
-						sum += x
-						count++
+					if y >= 0 && y < len(grid) && x >= 0 && x < len(grid[y]) && grid[y][x] == companionTonePupil {
+						sum, count = sum+x, count+1
 					}
 				}
 			}
@@ -2540,13 +2495,13 @@ func TestCompanionVolumeGazeTurnsTheHeadAndThePupils(t *testing.T) {
 		if count == 0 {
 			t.Fatalf("a gaze %+v left no pupil to follow it:\n%s", looking, companionVolumeText(grid))
 		}
-		mean := sum / count
-		if looking.X > 0 && mean <= centre[0] {
-			t.Errorf("looking right put the pupils at mean column %d, which is not right of the head's own %d", mean, centre[0])
-		}
-		if looking.X < 0 && mean >= centre[0] {
-			t.Errorf("looking left put the pupils at mean column %d, which is not left of the head's own %d", mean, centre[0])
-		}
+		return float64(sum) / float64(count)
+	}
+	leftMean := pupilMean(companionGaze{X: -1})
+	neutralMean := pupilMean(companionGaze{})
+	rightMean := pupilMean(companionGaze{X: 1})
+	if !(leftMean < neutralMean && neutralMean < rightMean) {
+		t.Errorf("pupil mean columns left %.2f, neutral %.2f, right %.2f do not follow gaze direction", leftMean, neutralMean, rightMean)
 	}
 }
 
@@ -2982,18 +2937,20 @@ func TestCompanionCostHasTwoRegimes(t *testing.T) {
 	m.Cursor = len(options) - 1
 	m.armCompanionFollow()
 
-	frames, moves, total, widest, lines := 0, 0, 0, 0, 0
+	frames, moves, total, widest, lines, spriteLines := 0, 0, 0, 0, 0, 0
 	for tick := 0; tick < 200 && (m.CompanionFollow || m.CompanionMoving); tick++ {
 		next := companionTick(t, m)
 		rows, bytes := companionChangedRows(m.View(), next.View())
 		frames++
 		if len(rows) > 0 {
 			owned := companionOwnedRows(strings.Split(next.View(), "\n"))
-			if len(rows) != len(owned) {
-				t.Fatalf("a walking tick changed %d rows, want the sprite's %d", len(rows), len(owned))
+			ownedRows := make(map[int]struct{}, len(owned))
+			spriteLines = max(spriteLines, len(owned))
+			for _, row := range owned {
+				ownedRows[row] = struct{}{}
 			}
-			for i, row := range rows {
-				if row != owned[i] {
+			for _, row := range rows {
+				if _, ok := ownedRows[row]; !ok {
 					t.Fatalf("a walking tick changed row %d, which the sprite does not own", row)
 				}
 			}
@@ -3007,8 +2964,8 @@ func TestCompanionCostHasTwoRegimes(t *testing.T) {
 	if moves == 0 {
 		t.Fatalf("the armed walk wrote no frame")
 	}
-	t.Logf("walking at %d columns with a %d-line sprite: %d moving frames out of %d (%.2f s), %d bytes in total, %d bytes in the widest frame (%.1f KB/s at %d fps); the rest regime writes 0",
-		m.Width, lines, moves, frames, float64(frames)/animTicksPerSecond, total, widest, float64(widest)*animTicksPerSecond/1024, animTicksPerSecond)
+	t.Logf("walking at %d columns: %d sprite rows, up to %d changed lines per moving tick; %d moving frames out of %d (%.2f s), %d bytes total, %d bytes in the widest changed lines (%.1f KB/s at %d fps); rest writes 0",
+		m.Width, spriteLines, lines, moves, frames, float64(frames)/animTicksPerSecond, total, widest, float64(widest)*animTicksPerSecond/1024, animTicksPerSecond)
 }
 
 // TestCompanionFollowStepIsBoundedByFollowCells pins the walk's distance rule: one

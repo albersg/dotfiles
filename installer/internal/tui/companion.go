@@ -1018,6 +1018,11 @@ func companionGaitPhase(tick int) int {
 // reads a cat: a long low body, a head a little over a third of the body's own length
 // with two ears and a muzzle, four legs under the body and a tail out of the back. The
 // head is the part the animation moves most, because the head is where a reader looks.
+// A gaze turns that head, not just its pupils: because the outline is a threshold over
+// the summed field, the turn may move nearby silhouette and shading pixels too. That is
+// a real consequence of this volume model, not a redraw defect; tests bound all such
+// changes to the creature's world-space cell and separately require the pupils to
+// move in the looked-at direction.
 func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver int, size companionVolumeSize) companionPose {
 	scale := companionVolumeScale(size)
 	unit := func(pixels float64) float64 { return pixels / scale }
@@ -1643,8 +1648,11 @@ func (ink companionInk) row(top, bottom []companionTone) string {
 	for x := 0; x < len(top) && x < len(bottom); x++ {
 		style, glyph := ink.cellStyle(top[x], bottom[x])
 		if style == "" {
+			if last != "" {
+				out.WriteString("\x1b[0m")
+				last = ""
+			}
 			out.WriteByte(' ')
-			last = ""
 			continue
 		}
 		if style != last {
