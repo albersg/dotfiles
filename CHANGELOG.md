@@ -14,6 +14,16 @@ nothing is happening: it was repainting its own rows on every frame, which read 
 
 ### Fixed
 
+- **The creature's colours stay inside the creature.** The shaded sprite set a tone per cell and never
+  retired it, so the colour it left active painted every cell after it: a space is drawn with whatever
+  colour is still set, half of the sprite's cells set a background, and a terminal's escape state outlives
+  the line. The visible result was a solid bar of amber and one of light blue across the bottom of the
+  screen, with the creature's head sitting inside a painted band. The pinned snapshot for the sprite
+  contained not a single reset, so nothing had retired a style in the whole creature - and no test could
+  see it, because a snapshot compares the escapes it is given and the check that verified the ink
+  stripped them. There is now a guard that can see the class instead of the instance: **no rendered line
+  may end with a style still active**, over every screen at five sizes, and it fails when the leak is
+  reintroduced.
 - **The companion is quiet until you move something.** It used to stroll along its row on its own and
   to halve the remaining distance to every target, so a screen nobody was touching repainted two of
   its rows on every frame — including the row the eyes settle on, a frame after the target moves —
