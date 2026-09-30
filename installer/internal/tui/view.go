@@ -302,6 +302,12 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	if !l.TwoColumn && len(panels) > 1 {
 		summary = m.rotatorLines(panels, inner)
 	}
+	// The end-of-run burst shares the rows nobody needed, above the creature and
+	// below any summary of the panel. It is decoration, so it comes after the
+	// facts and is dropped entirely when the frame leaves it no room.
+	if burst := m.celebrationRows(inner); len(burst) > 0 {
+		summary = append(summary, burst...)
+	}
 	placed = m.placeCompanion(placed, summary, inner)
 
 	var b strings.Builder
@@ -1473,10 +1479,13 @@ func (m Model) installProgress() float64 {
 }
 
 // renderProgressBar draws a bar of width cells filled to progress. The cells are
-// text glyphs (█ and ░) rather than a background colour, so the bar still reads
-// on a 16-colour terminal and in a terminal with no colour at all -- the same
-// reason the step rail's glyphs carry its state.
-func renderProgressBar(width int, progress float64) string {
+// text glyphs (█, ▒ and ░) rather than a background colour, so the bar still
+// reads on a 16-colour terminal and in a terminal with no colour at all -- the
+// same reason the step rail's glyphs carry its state. A highlight of -1 draws no
+// traveller; a non-negative one draws that filled cell as the lighter ▒, so the
+// highlight is a glyph difference and not a colour difference and a colourless
+// terminal still sees it move.
+func renderProgressBar(width int, progress float64, highlight int) string {
 	if width < 1 {
 		width = 1
 	}
@@ -1490,8 +1499,19 @@ func renderProgressBar(width int, progress float64) string {
 	if filled > width {
 		filled = width
 	}
-	return ProgressBarFilled.Render(strings.Repeat("█", filled)) +
-		ProgressBarEmpty.Render(strings.Repeat("░", width-filled))
+
+	var b strings.Builder
+	for i := 0; i < width; i++ {
+		switch {
+		case i < filled && i == highlight:
+			b.WriteString(ProgressBarFilled.Render("▒"))
+		case i < filled:
+			b.WriteString(ProgressBarFilled.Render("█"))
+		default:
+			b.WriteString(ProgressBarEmpty.Render("░"))
+		}
+	}
+	return b.String()
 }
 
 // stepGlyph names a step's state with a glyph and a colour. The glyph is what
@@ -1520,7 +1540,7 @@ func stepGlyph(step InstallStep) (string, lipgloss.Style) {
 // shows follows the frame instead of a constant; a frame too short for even the
 // smallest useful box shows no box and gives the rail the rows.
 func (m Model) installingRowBudget(bodyRows int) (railRows, boxLines int) {
-	available := bodyRows - installingBodyFixed
+	available := bodyRows - installingBodyFixed - m.installingLiveRowCount()
 	if available < installingMinStepRows {
 		available = installingMinStepRows
 	}
@@ -1717,13 +1737,30 @@ func (m Model) renderInstalling() string {
 		barWidth = 10
 	}
 	progress := m.installProgress()
+	// The traveller is the lighter cell that walks the filled part of the bar
+	// during a long step. It only draws while a run is actually in flight and the
+	// bar is not already full, so a screen with no run behind it is byte-for-byte
+	// the screen it was. Its position comes from the model's own frame tick, never
+	// from the renderer's clock.
+	highlight := -1
+	if m.Animating && len(m.Steps) > 0 && progress < 1 {
+		filled := int(math.Round(progress * float64(barWidth)))
+		if filled > 0 {
+			highlight = m.AnimTick % filled
+		}
+	}
 	body := []string{
-		renderProgressBar(barWidth, progress) + MutedStyle.Render(fmt.Sprintf(" %3.0f%%", progress*100)),
+		renderProgressBar(barWidth, progress, highlight) + MutedStyle.Render(fmt.Sprintf(" %3.0f%%", progress*100)),
 		"",
 	}
 	// What the run knows: the step it is on and its own clock. Both come from
 	// model state, so the render stays pure.
 	body = append(body, m.installingStatusRows()...)
+	// The machine's pulse, and the run's own progress over time, beside the bar.
+	// The live block appears only once a sample lands and only in the rows the row
+	// budget left it, so it cannot push the rail or the log off the frame. A model
+	// the gate never sampled draws the installing screen exactly as it was.
+	body = append(body, m.installingLiveRows(width)...)
 
 	// Step rail. Each step is one row and the running step's description is one
 	// more, and the whole rail is windowed around the running step so a long run

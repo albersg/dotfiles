@@ -14,6 +14,16 @@ nothing is happening: it was repainting its own rows on every frame, which read 
 
 ### Fixed
 
+- **The creature's colours stay inside the creature.** The shaded sprite set a tone per cell and never
+  retired it, so the colour it left active painted every cell after it: a space is drawn with whatever
+  colour is still set, half of the sprite's cells set a background, and a terminal's escape state outlives
+  the line. The visible result was a solid bar of amber and one of light blue across the bottom of the
+  screen, with the creature's head sitting inside a painted band. The pinned snapshot for the sprite
+  contained not a single reset, so nothing had retired a style in the whole creature - and no test could
+  see it, because a snapshot compares the escapes it is given and the check that verified the ink
+  stripped them. There is now a guard that can see the class instead of the instance: **no rendered line
+  may end with a style still active**, over every screen at five sizes, and it fails when the leak is
+  reintroduced.
 - **The companion is quiet until you move something.** It used to stroll along its row on its own and
   to halve the remaining distance to every target, so a screen nobody was touching repainted two of
   its rows on every frame — including the row the eyes settle on, a frame after the target moves —
@@ -26,6 +36,15 @@ nothing is happening: it was repainting its own rows on every frame, which read 
   only the sprite's own lines. The pixel sprite's body is also drawn in the theme's muted tones now,
   with the one bright tone spent on the eyes, so the decoration is no longer the loudest thing on a
   screen whose words should be.
+- **The installer's frames no longer tear while they animate.** bubbletea builds each frame in one
+  write, but the terminal paints those bytes as they arrive, so a redraw that rewrites several lines
+  was visible half-updated. The installer now brackets every frame in the terminal's
+  synchronized-output mode (DECSET 2026, `\x1b[?2026h` / `\x1b[?2026l`), which makes the terminal
+  hold the frame and repaint it once, installed through bubbletea's own `tea.WithOutput` and with no
+  renderer of its own. A terminal that does not implement the mode ignores the sequences, so nothing
+  is detected and nothing is at risk; the sequences are emitted only when stdout is a terminal, so a
+  piped or redirected run keeps its bytes, and `DOTFILES_SYNC=0` turns the mode off for a multiplexer
+  that mishandles it.
 
 ### Changed
 
@@ -138,6 +157,26 @@ nothing is happening: it was repainting its own rows on every frame, which read 
 
 ### Added
 
+- **The installer shows the machine it is changing, live.** A sampler reads the host about once a
+  second — CPU busy as the delta between two readings, memory used and total, the load average, the
+  free space on the target and the process count — as a command, never while rendering, and the
+  readings live in a ring on the model. It reads `/proc` on Linux and WSL and `kern.cp_time`,
+  `hw.memsize`, `vm_stat`, `vm.loadavg` and `ps` on macOS, and it degrades row by row: Termux and an
+  unreadable host report nothing rather than a zero dressed as a measurement, and the panel says so
+  in one line. The numbers are drawn by hand, in block sparklines and braille, so a 16-colour or
+  no-colour terminal loses nothing — the shape is the information. They appear in a new **This
+  machine, now** panel on the welcome screen and, most of all, on the installing screen, where the
+  machine's pulse sits beside the progress bar and the run's own progress is charted over time; the
+  pulse is drawn only from the rows the rail and the log do not need, so it never displaces them.
+  The sampling is gated by the same switch as the animation: with it off no sample is taken and the
+  panel says the sampling is off rather than freezing a chart and calling it live. The cost is
+  bounded by a test: a reading repaints only the rows a live widget owns, and a screen that shows no
+  reading renders the same bytes after one lands.
+- **The progress bar has a travelling highlight, and a finished run celebrates.** During a long step
+  one lighter cell (`▒`) walks the filled part of the bar on the frame tick, so the wait reads as
+  alive; it is a glyph difference, not a colour one, and it only draws while a run is in flight. When
+  the run finishes, a two-second burst of particles rises in the rows the body did not need and the
+  companion is pleased — both model state advanced by the frame tick, both absent with animation off.
 - **The installer has a companion.** A small ASCII creature walks the row immediately above the
   footer, follows the selection you move the cursor to, sleeps after twenty quiet seconds and wakes
   on the first key, and reacts to what is on screen: alert on the choices that throw something away,
