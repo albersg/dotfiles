@@ -79,6 +79,26 @@ machine's limits into another machine's VM.
 
 ### Added
 
+- **The installer shows the machine it is changing, live.** A sampler reads the host about once a
+  second — CPU busy as the delta between two readings, memory used and total, the load average, the
+  free space on the target and the process count — as a command, never while rendering, and the
+  readings live in a ring on the model. It reads `/proc` on Linux and WSL and `kern.cp_time`,
+  `hw.memsize`, `vm_stat`, `vm.loadavg` and `ps` on macOS, and it degrades row by row: Termux and an
+  unreadable host report nothing rather than a zero dressed as a measurement, and the panel says so
+  in one line. The numbers are drawn by hand, in block sparklines and braille, so a 16-colour or
+  no-colour terminal loses nothing — the shape is the information. They appear in a new **This
+  machine, now** panel on the welcome screen and, most of all, on the installing screen, where the
+  machine's pulse sits beside the progress bar and the run's own progress is charted over time; the
+  pulse is drawn only from the rows the rail and the log do not need, so it never displaces them.
+  The sampling is gated by the same switch as the animation: with it off no sample is taken and the
+  panel says the sampling is off rather than freezing a chart and calling it live. The cost is
+  bounded by a test: a reading repaints only the rows a live widget owns, and a screen that shows no
+  reading renders the same bytes after one lands.
+- **The progress bar has a travelling highlight, and a finished run celebrates.** During a long step
+  one lighter cell (`▒`) walks the filled part of the bar on the frame tick, so the wait reads as
+  alive; it is a glyph difference, not a colour one, and it only draws while a run is in flight. When
+  the run finishes, a two-second burst of particles rises in the rows the body did not need and the
+  companion is pleased — both model state advanced by the frame tick, both absent with animation off.
 - **The installer has a companion.** A small ASCII creature walks the row immediately above the
   footer, follows the selection you move the cursor to, sleeps after twenty quiet seconds and wakes
   on the first key, and reacts to what is on screen: alert on the choices that throw something away,
