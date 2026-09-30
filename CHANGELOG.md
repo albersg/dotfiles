@@ -26,6 +26,15 @@ nothing is happening: it was repainting its own rows on every frame, which read 
   only the sprite's own lines. The pixel sprite's body is also drawn in the theme's muted tones now,
   with the one bright tone spent on the eyes, so the decoration is no longer the loudest thing on a
   screen whose words should be.
+- **The installer's frames no longer tear while they animate.** bubbletea builds each frame in one
+  write, but the terminal paints those bytes as they arrive, so a redraw that rewrites several lines
+  was visible half-updated. The installer now brackets every frame in the terminal's
+  synchronized-output mode (DECSET 2026, `\x1b[?2026h` / `\x1b[?2026l`), which makes the terminal
+  hold the frame and repaint it once, installed through bubbletea's own `tea.WithOutput` and with no
+  renderer of its own. A terminal that does not implement the mode ignores the sequences, so nothing
+  is detected and nothing is at risk; the sequences are emitted only when stdout is a terminal, so a
+  piped or redirected run keeps its bytes, and `DOTFILES_SYNC=0` turns the mode off for a multiplexer
+  that mishandles it.
 
 ### Changed
 

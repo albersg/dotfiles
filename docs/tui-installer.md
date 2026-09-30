@@ -504,6 +504,34 @@ The shaded sprite has a switch of its own too, `DOTFILES_SPRITE=0` / `--no-sprit
 only the pixel sprite: a run whose terminal claims true colour but renders block glyphs badly keeps
 the glyph cat instead, with the pointer and the animation untouched.
 
+### Synchronized output: the frame, painted at once
+
+The creature is not the only thing that moves. bubbletea builds each frame in a buffer and hands it to
+the program's output in one write, but the terminal does not wait for that write to finish before
+painting: it draws the bytes as they arrive, so a frame large enough to reach it in more than one read
+is visible half-updated — the tearing the animation shows on a redraw that rewrites several lines. The
+terminal has a frame buffer of its own for exactly this: the synchronized-output mode (DECSET 2026, the
+`\x1b[?2026h` / `\x1b[?2026l` pair) tells the terminal to hold everything between the two sequences
+and show it in one repaint. Windows Terminal has supported it since 1.23.20211, and a terminal that
+does not implement the mode ignores the two sequences, so no feature detection is needed and the worst
+case is a build without this writer.
+
+The installer emits the pair around each frame through bubbletea's own `tea.WithOutput` extension
+point, not from `View()`: the frame's bytes belong to the program's writer, and putting escapes in the
+view would break the snapshots and the renderer's line diffing. Two rules keep it out of the way:
+
+- **Only when stdout is a terminal.** A pipe or a file has nobody painting frames, and the sequences
+  in it would be noise, so a redirected run keeps its bytes byte-for-byte. The same character-device
+  check the animation gate uses decides it.
+- **`DOTFILES_SYNC=0` turns it off**, in the same spirit as the animation and pointer gates: a
+  multiplexer that mishandles the mode has to be escapable without a rebuild. There is no flag for it,
+  because the environment variable is the escape hatch.
+
+The wrapper keeps the stream's file descriptor rather than only the stream, so bubbletea can still see
+the terminal underneath it — that is where the window size comes from, and on Windows it is also what
+enables virtual terminal processing — and a zero-length write emits nothing rather than an empty pair
+of sequences.
+
 ## Command Line Interface
 
 ### Basic Flags
