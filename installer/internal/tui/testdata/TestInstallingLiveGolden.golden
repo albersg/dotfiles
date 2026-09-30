@@ -1,0 +1,24 @@
+                                                                                
+  Installing dotfiles                                          ▓▓░░░░░░░░ 3/14  
+  ────────────────────────────────────────────────────────────────────────────  
+  ▒███████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  18%     
+                                                                                
+  Step 3 of 14 · Clone Repository                                               
+  Elapsed 42s · ~3m 13s left                                                    
+  cpu ▅▆▄▆▄▅▃▅▆ 75%  mem ▃▃▃▃▃▃▃▃▃ 34%  load 1.40  disk 314.2 GiB free          
+  run ▃▃▃▄▄▄▅▅▅▅▆▆▆▇▇▇▇█                                                        
+  ✓ Backup Existing Configs                                         ▓▓▓▓▓▓▓▓▓▓  
+  ✓ Install Dependencies                                            ▓▓▓▓▓▓▓▓▓▓  
+  ● Clone Repository                                                ▓▓▓▓▓░░░░░  
+     Downloads your dotfiles repository.                                        
+  ○ Install Homebrew                                                ░░░░░░░░░░  
+  ○ Install alacritty                                               ░░░░░░░░░░  
+  ○ Install Iosevka Nerd Font                                       ░░░░░░░░░░  
+  ○ Install fish                                                    ░░░░░░░░░░  
+  ○ Install tmux                                                    ░░░░░░░░░░  
+  ○ Install Neovim                                                  ░░░░░░░░░░  
+  ○ Install Toolset                                                 ░░░░░░░░░░  
+  ○ Install Pi Agent Skills                                         ░░░░░░░░░░  
+  ○ Install OfficeCLI                                               ░░░░░░░░░░  
+  ────────────────────────────────────────────────────────────────────────────  
+  [Space d] details                                                             

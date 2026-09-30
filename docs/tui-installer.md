@@ -28,14 +28,22 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - **Neovim Keymaps Reference**: Built-in keymap browser organized by category
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
-- **Progress Tracking**: Real-time installation progress with a frame-width progress bar,
-  a percentage, the step the run is on with its name, the elapsed time and an estimate of what is
-  left measured from the run's own clock, a per-step status rail, and optional detailed logs sized
-  to the rows the frame leaves
+- **Progress Tracking**: Real-time installation progress with a frame-width progress bar whose
+  filled part carries a travelling highlight during long steps, a percentage, the step the run is on
+  with its name, the elapsed time and an estimate of what is left measured from the run's own clock,
+  a chart of the run's own progress over time, a per-step status rail, and optional detailed logs
+  sized to the rows the frame leaves
+- **The Machine's Pulse**: A sampler reads the host about once a second — CPU and memory sparklines,
+  the load average, the free space on the target and the process count — and draws them in block
+  glyphs on the welcome screen's **This machine, now** panel and beside the installing screen's
+  progress bar, where the run's progress is charted over time; a host that cannot be read shows no
+  row rather than a lie, and with animation off the panel says the sampling is off instead of
+  freezing a chart
 - **A Companion**: A small ASCII cat walks the rows above the footer — five rows where the body
   leaves room, three where it leaves less, the one-row creature elsewhere — looks at the selection
-  you move the cursor to, blinks, yawns before it sleeps when you stop typing, and reacts to
-  failures and to destructive choices
+  you move the cursor to, blinks, yawns before it sleeps when you stop typing, reacts to failures
+  and to destructive choices, and celebrates with a two-second burst of particles when the run
+  finishes
 - **Non-Interactive Mode**: CI/CD friendly installation via CLI flags
 
 ## Quick Start
@@ -117,7 +125,11 @@ a rail of one row per step whose state is a glyph and a word (`✓` done,
 `●` running, `○` pending, `✗` failed, `⊘` skipped), and, under the bar, the step
 the run is on with its name (`Step 6 of 9 · Install Iosevka Nerd Font`) and the
 run's clock — how long it has taken and how much is left. The running step's
-description is shown under its row, and `d` opens a log box.
+description is shown under its row, and `d` opens a log box. Under the clock, once
+the sampler has a reading, one row shows the machine's pulse (cpu and memory
+sparklines, load and free disk) and the next charts the run's own progress over
+time; the block is drawn only from the rows the rail and the log do not need, so
+it never displaces them.
 
 **The estimate is the run's own, and it is stated only when it can be.** It scales
 the time this run has already spent by the work still to do, so it is derived from
@@ -200,14 +212,16 @@ question its own screen asks:
 | Screen | Panel | The question it answers |
 |--------|-------|-------------------------|
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
+| Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
 
-The welcome screen asks where you are, so its panel is the machine; the main menu asks what is
-about to happen, so its panel follows the option under the cursor and names that option in its first
+The welcome screen asks where you are, so its panels are the machine — first what it is, then what
+it is doing right now — and then a tip; the main menu asks what is about to happen, so its panel
+follows the option under the cursor and names that option in its first
 row. **The panel's name does not move with the cursor** — the tab row would wander, and `Tab` would
 become a moving target on the very key that walks the panels — so the selection is named inside the
 panel instead. The plan is the wizard's own: before the first question the panel builds it with the
@@ -267,6 +281,50 @@ finishes, and read once on the startup path; a run whose state directory cannot 
 completes, because the record is a convenience and not a step. On the next run the **Last install**
 panel shows that record; when there is no file the panel is not offered at all, so the tab row never
 names a panel that would have to say "never".
+
+### The machine, live
+
+While a run takes minutes the screen should show the machine doing the work, so a sampler reads the
+host **about once a second** and the readings live in a ring on the model. The sampler is a command,
+never a renderer: it touches `/proc` on Linux and WSL, `kern.cp_time`, `hw.memsize`, `vm_stat`,
+`vm.loadavg` and `ps` on macOS, and it asks the filesystem behind `$HOME` for its free bytes. What
+it reads is CPU busy (the busy share of the difference between two readings), memory used and total,
+the load average, the free space on the target and the process count.
+
+**A reading degrades row by row, and a host that cannot be read reports nothing.** Termux, an
+unknown platform and an unreadable file all come back with no rows rather than with zeros dressed up
+as a measurement, and the panel then says so in one line instead of drawing an empty chart. The ring
+is on the model, so the renderer reads no clock and no file — a snapshot pins a series, which is what
+lets an "alive" panel be tested.
+
+The readings are drawn by hand, in block glyphs (`▁▂▃▄▅▆▇█`) for the sparklines and braille for a
+denser chart, so a 16-colour terminal and a terminal with no colour at all lose nothing: the shape is
+the information and colour only decorates. They appear in two places. The welcome screen's **This
+machine, now** panel shows the CPU and memory sparklines and the load, disk and process facts; and
+the installing screen — the screen a person stares at while waiting — shows the machine's pulse on
+one row beside the progress bar, with the run's own progress charted over time on the next. The pulse
+is a fact and earns its rows only from the budget the rail and the log do not need: a frame that
+cannot hold it drops it rather than the rail, and a model that has not been sampled draws the
+installing screen exactly as it was.
+
+```text
+  cpu ▃▅▆▄▆▇▅▃▅▆ 42%  mem ▃▃▅▅▆▆▇▇ 61%  load 1.20  disk 314.2 GiB free
+  run ▁▂▃▃▄▄▅▅▆▆▇▇█
+```
+
+**The sampling is gated by the same switch as the animation.** With the gate off no sample is
+scheduled at all, and the panel says the sampling is off rather than showing the last reading as if
+it were current; a stale chart presented as live is the lie the gate exists to prevent. The cost is
+bounded the same way the companion's is: a reading only repaints the rows a live widget owns, and a
+screen that shows no reading — the main menu — is byte-for-byte the same after one lands. The
+interval is named once, so the sampler's cadence and the cost the test measures cannot drift.
+
+**The bar has a traveller, and a finished run celebrates.** During a long step the filled part of the
+progress bar carries one lighter cell (`▒`) that walks it on the frame tick; the highlight is a glyph
+difference, so a colourless terminal still sees it move, and it only draws while a run is actually in
+flight. When the run finishes, a two-second burst of particles rises in the rows the body did not
+need and the companion is pleased — both are model state advanced by the frame tick, so a snapshot
+pins the frame they are on, and both are absent with the animation gate off.
 
 ### The companion
 
@@ -465,9 +523,9 @@ The first two also switch off further down: with the animation off there is noth
 pointer is off too, and with the sprite off true colour is never asked about. Turning the pointer off
 is the one that has a price attached, not a benefit: it gives the terminal's own drag-to-select back.
 
-The animation gate and the tip rotation are driven by one gate. Animation is off when any of these is
-true, and with it off no frame tick is scheduled, the screen stays on the first tip and there is no
-companion at all:
+The tip rotation, the companion and the host sampler are driven by one gate. Animation is off when
+any of these is true, and with it off no frame tick and no sampling tick are scheduled, the screen
+stays on the first tip, there is no companion at all and the live panel says the sampling is off:
 
 - `DOTFILES_ANIM=0` is set;
 - `--no-anim` is passed (the flag sets `DOTFILES_ANIM=0` before the model is built);
@@ -730,11 +788,16 @@ installer/
 ├── internal/
 │   ├── system/
 │   │   ├── detect.go            # OS/tool detection
+│   │   ├── metrics.go           # The host sampler: /proc, sysctl, vm_stat, Statfs
 │   │   └── exec.go              # Command execution, file ops, backups
 │   └── tui/
 │       ├── model.go             # App state, screens, choices
 │       ├── update.go            # Event handlers
 │       ├── view.go              # UI rendering
+│       ├── metrics.go           # The sample ring, the gated tick, the live panel
+│       ├── sparkline.go         # Hand-drawn block sparklines
+│       ├── chart.go             # Hand-drawn braille charts
+│       ├── panels.go            # The panel registry and its facts
 │       ├── installer.go         # Installation steps
 │       ├── interactive.go       # TUI mode logic
 │       ├── non_interactive.go   # CLI mode logic

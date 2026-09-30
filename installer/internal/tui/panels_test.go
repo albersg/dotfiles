@@ -747,7 +747,7 @@ func TestPanelsForListsWhatEachScreenOffers(t *testing.T) {
 		screen Screen
 		want   []panelID
 	}{
-		{ScreenWelcome, []panelID{panelMachine, panelTip}},
+		{ScreenWelcome, []panelID{panelMachine, panelLive, panelTip}},
 		{ScreenMainMenu, []panelID{panelPlan, panelTrainer, panelTip}},
 		{ScreenOSSelect, []panelID{panelPlan}},
 		{ScreenTerminalSelect, []panelID{panelPlan}},
