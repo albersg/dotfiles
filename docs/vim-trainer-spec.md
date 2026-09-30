@@ -521,9 +521,18 @@ no enseñaba nada, la misma frase dos veces.
 
 Una pista que solo puede repetir su misión no es una pista: o se escribe el
 mecanismo que la misión deja implícito, o se quita la pista y el ejercicio queda
-con su misión y su `Explanation`. Quitarla hoy toca dos paquetes: el caso de la
-tecla Tab del paquete `tui` antepone "Hint: " sin condición, así que una pista
-vacía se dibuja como una etiqueta vacía en lugar de no dibujarse.
+con su misión y su `Explanation`. Quitar una pista ya es una operación de un solo
+paquete: `trainerHintLabel` (en `update.go`) es el único lugar que arma la
+etiqueta y devuelve cadena vacía cuando no hay pista, así que una pista ausente
+no dibuja ninguna etiqueta. La misma función sirve a las pantallas de lección,
+práctica y jefe, y a la revelación automática tras `TimeoutSecs`.
+
+La tecla Tab revela la pista en la pantalla de jefe con los mismos términos que
+en la de ejercicio: la misma etiqueta y la misma comprobación de pista vacía. Las
+pistas de los pasos de jefe (por ejemplo las del jefe de Change & Repeat) dejan de
+ser texto inalcanzable; la revelación automática por `TimeoutSecs` sigue siendo
+solo de los ejercicios, porque el reloj del jefe cuesta una vida y es otro
+mecanismo.
 
 `TestShippedHintsAddWhatTheirMissionDoesNot` (en `exercises_test.go`) recorre
 todo el corpus y exige una de esas adiciones en cada pista; `hintEchoRewrites`

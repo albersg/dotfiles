@@ -13,6 +13,15 @@ machine's limits into another machine's VM.
 
 ### Changed
 
+- **The trainer's lesson screen goes two columns on a wide terminal.** From the same 124-terminal-
+  column floor the framed screens use, the code window moves to the left column and the mission, the
+  answer line and the feedback move to the right, through the same `layoutFor` columns and the same
+  `composeColumns` composition the installer's own screens use — no second idea of "wide". The code
+  window keeps every row the stacked right column no longer occupies: at 160×50 the lesson's window
+  budget is 44 rows against 11 at the 80×24 floor, and a fourteen-line exercise that scrolls below
+  the floor shows all fourteen in full. The mission, the answer and the feedback are wrapped to their
+  own column and lose no line; the menu and the boss screens keep their one-column bodies; and at
+  exactly 80×24 the lesson screen is byte-for-byte what it was.
 - **The companion is shaded where the terminal can shade it.** Above the glyph cat there is now one
   more step: where the terminal reports true colour and the frame can spare eight rows, the same cat is
   drawn as a sixteen-pixel-square sprite of half blocks, with a foreground and a background colour per
@@ -178,17 +187,24 @@ machine's limits into another machine's VM.
 
 ### Fixed
 
-- **The trainer's hints say something the exercise's description does not.** A hint revealed with
-  `Tab` used to repeat the mission — the mission read "Move to the start of 'userName' using w
-  (word)" and the hint read "w moves to the start of the next word" — so asking for it cost a
-  keypress and taught nothing, which is the defect a player reported. Every hint now adds a mechanism
-  the mission leaves out: the count, flag or range the command takes, the part of it the mission does
-  not name, how it compares with the command it is easiest to confuse it with, or what follows from
-  it. One hundred and twenty-one hint lines were rewritten across the nine modules and the
-  change-and-repeat boss fight, and no judging, solution set or lesson count changed.
+- **The trainer's hints say something the exercise's description does not, and the hint line is
+  guarded.** A hint revealed with `Tab` used to repeat the mission — the mission read "Move to the
+  start of 'userName' using w (word)" and the hint read "w moves to the start of the next word" — so
+  asking for it cost a keypress and taught nothing, which is the defect a player reported. Every hint
+  now adds the mechanism its mission leaves out: the count, flag or range the command takes, the part
+  of it the mission does not name, how it compares with the command it is easiest to confuse it with,
+  or what follows from it. One hundred and twenty-one hint lines were rewritten across the nine
+  modules and the change-and-repeat boss fight, and no judging, solution set or lesson count changed.
   `TestShippedHintsAddWhatTheirMissionDoesNot` sweeps every shipped hint for one of those additions,
-  `hintEchoRewrites` pins the exact echoes that were withdrawn so a later edit cannot restore them,
-  and `docs/vim-trainer-spec.md` states the rule the two lines divide.
+  and `hintEchoRewrites` pins the exact echoes that were withdrawn so a later edit cannot restore
+  them. The hint line itself is now guarded: `trainerHintLabel` is the one place that builds
+  "💡 Hint: …", and it returns nothing when the exercise carries no hint, so a hint that was
+  legitimately dropped no longer renders a bare label — and the five content tests that required every
+  lesson to have a hint were reshaped, because a hint is optional under the mission/hint rule and the
+  guard over a hint that *is* present is the one that matters. The hint copy the Change & Repeat boss
+  steps already carried was unreachable — the boss screen had no key that could show it — so the boss
+  screen now reveals its step's hint on `Tab` on the same terms, and its legend advertises the key
+  without costing a row.
 
 ## [v0.3.0] — 2026-09-22
 

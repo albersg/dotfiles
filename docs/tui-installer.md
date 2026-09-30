@@ -174,6 +174,13 @@ columns of content — the width at which a readable body and a panel fit side b
 columns of terminal. Below the floor the panel is dropped, not squeezed: the screen is exactly what
 it was before the panels existed, and nothing else on it moves.
 
+**The trainer's lesson screen uses the same two columns, without a panel.** From the same 124-column
+floor the trainer's own `layoutFor` columns put the code window on the left and the mission, the
+answer line and the feedback on the right, through the same `composeColumns` the framed screens use.
+The code window then keeps every row the stacked right column no longer needs, so a wide terminal
+shows more code instead of a narrow window under a full-width body. The boss and the menu keep their
+one-column bodies; below the floor the lesson screen is byte-for-byte what it was.
+
 **A row is a measure, not the terminal.** The bar behind a selected row runs
 `min(content width, 80)` columns in a one-column screen, and the left column's width when there are
 two, so a row stays a row instead of becoming a 227-column slab of colour behind twenty characters.
