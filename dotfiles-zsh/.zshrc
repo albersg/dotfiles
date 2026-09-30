@@ -1,5 +1,39 @@
 export ZSH="$HOME/.oh-my-zsh"
 
+# ---------------------------------------------------------------------------
+# Window-manager autostart.
+#
+# This block MUST stay above the powerlevel10k instant prompt below: that block
+# runs the rest of this file in a subshell with stdout redirected, where
+# `[[ -t 1 ]]` is false and an `exec` would only replace the subshell. A
+# launcher placed after it never starts the WM and the terminal is left with a
+# plain shell.
+#
+# The lookup PATH is set here because the platform PATH block further down has
+# not run yet. It repeats entries that block adds again; duplicates are
+# harmless, and without it a WM installed into ~/.local/bin or Homebrew's bin
+# would not be found from the outer shell.
+#
+# The line shapes below are matched in place by PatchZshForWM
+# (installer/internal/system/exec.go): WM_VAR, the WM_CMD array, the guard and
+# the `start_if_needed` call have to keep their exact form.
+# ---------------------------------------------------------------------------
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:$PATH"
+
+WM_VAR="$HERDR_ENV"
+
+# WM_CMD array: zsh does not word-split an unquoted parameter, so a multi-word command must be launched as "${WM_CMD[@]}".
+typeset -a WM_CMD
+WM_CMD=(herdr)
+
+function start_if_needed() {
+    if [[ $- == *i* ]] && command -v "${WM_CMD[1]}" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then
+        exec "${WM_CMD[@]}"
+    fi
+}
+
+start_if_needed
+
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
@@ -393,18 +427,6 @@ export FZF_ALT_C_OPTS="--preview 'eza --tree --icons --group-directories-first -
 # fzf also drives the `**<Tab>` completion trigger, which renders with the same
 # hard-coded defaults otherwise.
 export FZF_COMPLETION_OPTS="--border=rounded --layout=reverse"
-
-WM_VAR="$HERDR_ENV"
-
-# WM_CMD array: zsh does not word-split an unquoted parameter, so a multi-word command must be launched as "${WM_CMD[@]}".
-typeset -a WM_CMD
-WM_CMD=(herdr)
-
-function start_if_needed() {
-    if [[ $- == *i* ]] && command -v "${WM_CMD[1]}" >/dev/null 2>&1 && [[ -z "${WM_VAR#/}" ]] && [[ -z "$TMUX" ]] && [[ -z "$ZELLIJ" ]] && [[ -z "$HERDR_ENV" ]] && [[ -t 1 ]]; then
-        exec "${WM_CMD[@]}"
-    fi
-}
 
 # alias
 alias fzfbat='fzf --preview="bat --color=always {}"'
@@ -829,8 +851,6 @@ env-export() {
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-start_if_needed
-
 # ─── WSL2 cross-platform support ──────────────────────────────────────────────
 if grep -qi microsoft /proc/version 2>/dev/null; then
   # --- WSL detection ----------------------------------------------------------
@@ -910,3 +930,15 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
 fi
 
 export PATH="$HOME/go/bin:$PATH"
+
+# ─── User extension point ─────────────────────────────────────────────────────
+# Files under ~/.zshrc.d/ belong to the user, not to this configuration: the
+# installer replaces ~/.zshrc on every update, so local tweaks written directly
+# into it are lost. Keeping them in this directory makes them survive, because
+# nothing here writes to it. They are sourced last, in lexical order, so they
+# can override anything above. The (N.) glob qualifier sources only plain files
+# and stays silent when the directory does not exist.
+for _dotfiles_user_config in "$HOME"/.zshrc.d/*.zsh(N.); do
+    source "$_dotfiles_user_config"
+done
+unset _dotfiles_user_config
