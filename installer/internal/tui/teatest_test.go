@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
+	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/exp/golden"
 	"github.com/charmbracelet/x/exp/teatest"
 )
 
@@ -41,6 +43,42 @@ func goldenSystemInfo() *system.SystemInfo {
 		HomeDir:   "/home/testuser",
 		UserShell: "zsh",
 	}
+}
+
+// pinnedMetrics is a plausible host reading for a snapshot: a CPU share that
+// varies as a heartbeat, memory that climbs, and the load, disk and process
+// facts. A snapshot that pinned nothing would draw a different chart every run,
+// which is exactly what the model-held samples exist to prevent.
+func pinnedMetrics(n int) []system.Metrics {
+	if n < 1 {
+		n = 1
+	}
+	out := make([]system.Metrics, n)
+	for i := range out {
+		share := 0.30 + 0.45*float64((i*3)%7)/6.0
+		memUsed := uint64(4<<30) + uint64(i)*(64<<20)
+		out[i] = system.Metrics{
+			CPUOK: true, CPUBusy: share,
+			MemOK: true, MemUsed: memUsed, MemTotal: 16 << 30,
+			LoadOK: true, Load1: 0.8 + float64(i%5)*0.2, Load5: 1.1, Load15: 1.4,
+			DiskOK: true, DiskFree: uint64(320<<30) - uint64(i)*(1<<28), DiskTotal: 500 << 30,
+			ProcOK: true, ProcCount: 380 + i*3,
+		}
+	}
+	return out
+}
+
+// pinnedProgress is a run's progress history for a snapshot: a straight climb,
+// which is the shape the chart is meant to show.
+func pinnedProgress(n int) []float64 {
+	if n < 1 {
+		n = 1
+	}
+	out := make([]float64, n)
+	for i := range out {
+		out[i] = float64(i) / float64(n)
+	}
+	return out
 }
 
 // isolateGoldenTest pins the inputs a golden test would otherwise inherit from
@@ -89,7 +127,14 @@ func readAll(t *testing.T, r io.Reader) []byte {
 	return bts
 }
 
-// TestWelcomeScreenGolden tests the welcome screen render against golden file
+// TestWelcomeScreenGolden tests the welcome screen render against golden file.
+//
+// It renders the model rather than driving a program: this screen shows the live
+// panel, whose metrics arrive from a command, so a test that started a program and
+// captured everything it wrote would race that read - it did, about one run in
+// three - and pin a different number of frames depending on scheduling. A model
+// with its state pinned renders the same bytes every time, and that is the only
+// thing a snapshot may do.
 func TestWelcomeScreenGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
@@ -98,20 +143,11 @@ func TestWelcomeScreenGolden(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenWelcome
+	m.PanelIndex = 0
+	m.Metrics = pinnedMetrics(24)
+	m.Animating = false
 
-	tm := teatest.NewTestModel(t, m,
-		teatest.WithInitialTermSize(80, 24),
-	)
-
-	// Wait for initial render
-	time.Sleep(100 * time.Millisecond)
-
-	// Get final output
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	out := readAll(t, tm.FinalOutput(t))
-	teatest.RequireEqualOutput(t, out)
+	golden.RequireEqual(t, []byte(m.View()))
 }
 
 // TestMainMenuWideGolden tests the main menu render against golden file
@@ -198,11 +234,11 @@ func TestCompanionGoldenFramesTheCreatureAtTickZero(t *testing.T) {
 		teatest.WithInitialTermSize(160, 50),
 	)
 
-	// Quit on the first rendered frame rather than after a sleep. The frame tick
-	// fires every animTickInterval, and a sleep long enough to be sure the screen
-	// had drawn would race it: a tick that lands first strolls the creature off
-	// cell 0 and this snapshot stops being frame 0. Reading the output until the
-	// screen is on it, then quitting, pins the frame the test is about. The output
+	// Quit on the first rendered frame rather than after a sleep, so the snapshot
+	// pins the frame the test is about instead of whatever the tick clock reached by
+	// the time the sleep ended. A tick can no longer walk the creature off cell 0 --
+	// with nothing to follow, a tick moves nothing -- but the counter it advances is
+	// still what names the frame, so the first frame is what is wanted. The output
 	// reader has to be teed into a buffer of its own because reading the program's
 	// output consumes it, and the golden is compared against everything read.
 	seen := &bytes.Buffer{}
@@ -542,6 +578,54 @@ func TestCompleteScreenGolden(t *testing.T) {
 
 	out := readAll(t, tm.FinalOutput(t))
 	teatest.RequireEqualOutput(t, out)
+}
+
+// TestWelcomeLivePanelGolden pins the live machine panel -- the CPU and memory
+// sparklines and the load, disk and process facts -- at the two-column size
+// where it is drawn. The samples are pinned on the model, so the snapshot is the
+// chart and not the machine that generated it.
+func TestWelcomeLivePanelGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 160, 40
+	m.Screen = ScreenWelcome
+	m.Animating = true
+	m.AnimTick = 0
+	m.PanelIndex = 1 // the live panel
+	m.Metrics = pinnedMetrics(24)
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestInstallingLiveGolden pins the installing screen with the machine's pulse
+// and the run's own progress chart on it, at the 80x24 floor, so the block that
+// shares the frame with the rail is checked at the size where the room is
+// tightest.
+func TestInstallingLiveGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := installerFrameCase(t, "installing-live")
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
+// pleased companion at a frame a few ticks into the two seconds. The burst is
+// model state, so its positions are the same on every machine that renders it.
+func TestCompleteCelebrationGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 80, 24
+	m.Screen = ScreenComplete
+	m.Animating = true
+	m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
+	m.startCelebration()
+	m.CompanionPleased = companionPleasedTicks
+	for i := 0; i < 4; i++ {
+		m.AnimTick++
+		m.advanceCompanion()
+		m.advanceCelebration()
+	}
+	golden.RequireEqual(t, []byte(m.View()))
 }
 
 // TestKeyboardNavigationE2E tests various keyboard interactions
@@ -1278,6 +1362,17 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return installing(true, false, 40)
 	case "installing-at-end":
 		return installing(false, true, 0)
+	case "installing-live":
+		// A run whose sampler has landed: the machine's pulse and the run's own
+		// progress chart are on screen, which is the state the frame guard did not
+		// otherwise cover -- its other installing cases have no samples.
+		m := installing(false, false, 0)
+		m.Animating = true
+		m.InstallStartedAt = goldenGreetingTime
+		m.Now = goldenGreetingTime.Add(42 * time.Second)
+		m.Metrics = pinnedMetrics(24)
+		m.ProgressSamples = pinnedProgress(24)
+		return m
 	case "complete":
 		m := base(ScreenComplete)
 		m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
@@ -1324,6 +1419,7 @@ var installerFrameScreenNames = []string{
 	"backup-confirm", "backup-confirm-many",
 	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
 	"installing", "installing-details", "installing-details-many", "installing-at-end",
+	"installing-live",
 	"complete", "error", "error-many-logs",
 }
 
@@ -2050,5 +2146,246 @@ func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
 				t.Errorf("the body ends on terminal row %d, want %d", got, c.wantLast)
 			}
 		})
+	}
+}
+
+// TestCompanionGoldenPinsThePixelSpriteAndItsGaze snapshots the ladder's top step:
+// the shaded sprite at the wide main menu, on a tick and a gaze cell written on the
+// model before the program starts, so the snapshot pins a composited pixel frame
+// instead of flaking on the clock. PixelSprite is forced here because the real gate
+// asks the terminal for its colour profile and this test has no terminal: the field
+// is the seam, and the gate itself is pinned by the sprite's own tests.
+func TestCompanionGoldenPinsThePixelSpriteAndItsGaze(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.ExistingConfigs = system.DetectExistingConfigs()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenMainMenu
+	m.Animating = true
+	m.PixelSprite = true
+	m.AnimTick = 3
+	m.CompanionGaze = companionGaze{X: 1, Y: -1}
+
+	tm := teatest.NewTestModel(t, m,
+		teatest.WithInitialTermSize(160, 50),
+	)
+
+	seen := &bytes.Buffer{}
+	teatest.WaitFor(t, io.TeeReader(tm.Output(), seen), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(2*time.Millisecond), teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if _, err := io.Copy(seen, tm.Output()); err != nil {
+		t.Fatalf("reading the rest of the output failed: %v", err)
+	}
+	teatest.RequireEqualOutput(t, seen.Bytes())
+}
+
+// =============================================================================
+// TRAINER HINT COHERENCE AND THE TWO-COLUMN LESSON
+// =============================================================================
+
+// TestTrainerHintLabelOmitsAnEmptyHint pins the empty-hint decision: the label
+// helper returns no label at all for an exercise whose hint was dropped, so no
+// caller can print the bare marker on its own. It is the single place the
+// decision lives, which is what keeps the lesson, the practice and the boss
+// handlers in step.
+func TestTrainerHintLabelOmitsAnEmptyHint(t *testing.T) {
+	if got := trainerHintLabel(nil); got != "" {
+		t.Errorf("trainerHintLabel(nil) = %q, want no label", got)
+	}
+	if got := trainerHintLabel(&trainer.Exercise{}); got != "" {
+		t.Errorf("trainerHintLabel with no hint = %q, want no label: a dropped hint must render nothing", got)
+	}
+	exercise := &trainer.Exercise{Hint: "dd deletes the line"}
+	if got, want := trainerHintLabel(exercise), "💡 Hint: dd deletes the line"; got != want {
+		t.Errorf("trainerHintLabel = %q, want %q", got, want)
+	}
+}
+
+// TestTrainerTabRevealsNoLabelWithoutAHint drives the real key handler on a
+// lesson whose hint was dropped and pins that Tab writes no bare label. The
+// label used to be built inline, so the marker printed with nothing after it.
+func TestTrainerTabRevealsNoLabelWithoutAHint(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("test setup: no live lesson exercise")
+	}
+	// The mission/hint rule permits a dropped hint; this is what the data looks
+	// like when one is dropped.
+	exercise.Hint = ""
+	m.TrainerMessage = ""
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	got := next.(Model)
+	if got.TrainerMessage != "" {
+		t.Errorf("TrainerMessage after Tab on a hint-less exercise = %q, want empty: the label must not print with no hint", got.TrainerMessage)
+	}
+}
+
+// TestBossTabRevealsTheStepHint is the reachability test the boss screen was
+// missing: the Change & Repeat boss step hints the previous pass rewrote sat in
+// the data with no key that could show them. It starts that boss, presses Tab
+// through the real global handler, and pins the hint line.
+func TestBossTabRevealsTheStepHint(t *testing.T) {
+	m := newTrainerBossModel(t)
+	m.TrainerGameState.StartBoss(trainer.ModuleChangeRepeat)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil || exercise.Hint == "" {
+		t.Fatalf("test setup: the Change & Repeat boss step 1 carries no hint")
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	got := next.(Model)
+	if want := "💡 Hint: " + exercise.Hint; got.TrainerMessage != want {
+		t.Errorf("TrainerMessage after Tab on the boss screen = %q, want %q", got.TrainerMessage, want)
+	}
+}
+
+// TestBossTabRevealsNoLabelWithoutAHint pins the other half on the boss screen:
+// a step with no hint gets no label, exactly like the exercise screen. The
+// horizontal boss steps ship without hints, so that is the screen under test.
+func TestBossTabRevealsNoLabelWithoutAHint(t *testing.T) {
+	m := newTrainerBossModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("test setup: no live boss step")
+	}
+	exercise.Hint = ""
+	m.TrainerMessage = ""
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	got := next.(Model)
+	if got.TrainerMessage != "" {
+		t.Errorf("TrainerMessage after Tab on a hint-less boss step = %q, want empty", got.TrainerMessage)
+	}
+}
+
+// TestBossLegendAdvertisesTheHintKey pins both halves of the boss hint footer:
+// the key the screen now honours is advertised, and advertising it did not cost
+// the boss screen a row at the 80x24 floor. If the extra hint had needed a third
+// legend row, the screen would be 25 rows tall and this fails.
+func TestBossLegendAdvertisesTheHintKey(t *testing.T) {
+	m := newTrainerBossModel(t)
+	m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
+
+	view := m.View()
+	if !strings.Contains(view, "[Tab] hint") {
+		t.Errorf("the boss legend does not advertise [Tab] hint even though the screen honours it:\n%s", view)
+	}
+	if rows := renderedRowCount(view); rows > trainerFrameHeight {
+		t.Errorf("the boss hint grew the boss screen to %d rows at %dx%d, want <= %d:\n%s",
+			rows, trainerFrameWidth, trainerFrameHeight, trainerFrameHeight, view)
+	}
+}
+
+// TestTrainerLessonComposesTwoColumnsInWideTerminals pins the wide lesson
+// layout: at the sizes the installer's own screens go two-column, the code
+// window sits in the left column and the mission in the right one, on the same
+// rows, and the screen still fits the terminal.
+func TestTrainerLessonComposesTwoColumnsInWideTerminals(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	m.Width, m.Height = 160, 50
+
+	view := m.View()
+	t.Logf("160x50 lesson, escape sequences stripped:\n%s", ansiEscape.ReplaceAllString(view, ""))
+
+	sideBySide := false
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Code") && strings.Contains(line, "Mission") {
+			sideBySide = true
+			break
+		}
+	}
+	if !sideBySide {
+		t.Fatalf("the lesson screen at 160x50 does not put the code window beside the mission:\n%s", view)
+	}
+
+	// The mission, the answer and the feedback must all still be on screen.
+	for _, want := range []string{"Mission", "Answer", "[Ctrl-v] block"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the two-column lesson screen dropped %q:\n%s", want, view)
+		}
+	}
+
+	if rows := renderedRowCount(view); rows > 50 {
+		t.Errorf("the two-column lesson screen renders %d rows at 160x50, want <= 50:\n%s", rows, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > 160 {
+			t.Errorf("the two-column lesson screen renders a line %d columns wide at 160x50, want <= 160: %q", w, line)
+		}
+	}
+}
+
+// TestWideLessonShowsMoreCodeThanTheNarrowFloor pins the point of the wide
+// layout: the code window takes the rows the stacked right column no longer
+// needs, so a wide terminal shows more code, not just wider code.
+func TestWideLessonShowsMoreCodeThanTheNarrowFloor(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	exercise := m.TrainerGameState.CurrentExercise
+	if exercise == nil {
+		t.Fatal("test setup: no live lesson exercise")
+	}
+
+	m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
+	_, narrow := m.trainerTextBudget(exercise)
+
+	m.Width, m.Height = 160, 50
+	_, wide := m.trainerTextBudget(exercise)
+
+	if wide <= narrow {
+		t.Errorf("the code window is %d rows at 160x50 and %d at 80x24, want strictly more: the wide layout must show more code", wide, narrow)
+	}
+	if narrow < 1 {
+		t.Errorf("the code window at 80x24 is %d rows, want at least one", narrow)
+	}
+}
+
+// trainerCodeRowPattern matches one rendered code row: the block gutter, a
+// line number, the inner gutter. It is how a test counts the code rows on a
+// screen without depending on the screen's other guttered blocks.
+var trainerCodeRowPattern = regexp.MustCompile(`│ *\d+ │`)
+
+// trainerCodeRowCount counts the code rows a rendered trainer screen shows.
+func trainerCodeRowCount(view string) int {
+	n := 0
+	for _, line := range strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n") {
+		if trainerCodeRowPattern.MatchString(line) {
+			n++
+		}
+	}
+	return n
+}
+
+// TestWideLessonRendersMoreCodeForLongExercises drives the renderer, not just
+// the row budget: a code block longer than the narrow window must show more of
+// itself at 160x50. The longest shipped lesson (vertical_015, eleven lines)
+// already fits the eleven-row narrow window, so the test uses a fourteen-line
+// regex boss step, which is the same code the lesson window renders. This is
+// the end-to-end proof that the height the two columns free is spent on code.
+func TestWideLessonRendersMoreCodeForLongExercises(t *testing.T) {
+	m := newTrainerLessonModel(t)
+	long := trainer.GetBoss(trainer.ModuleRegex).Steps[0].Exercise
+	m.TrainerGameState.SetPracticeExercise(&long)
+
+	m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
+	narrowRows := trainerCodeRowCount(m.View())
+
+	m.Width, m.Height = 160, 50
+	wideRows := trainerCodeRowCount(m.View())
+
+	if wideRows <= narrowRows {
+		t.Errorf("the wide lesson shows %d code rows and the narrow floor %d, want strictly more: the extra height must be spent on code", wideRows, narrowRows)
+	}
+	if wideRows != len(long.Code) {
+		t.Errorf("the wide lesson shows %d code rows of a %d-line exercise, want all of them", wideRows, len(long.Code))
 	}
 }

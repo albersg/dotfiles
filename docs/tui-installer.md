@@ -28,14 +28,22 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - **Neovim Keymaps Reference**: Built-in keymap browser organized by category
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
-- **Progress Tracking**: Real-time installation progress with a frame-width progress bar,
-  a percentage, the step the run is on with its name, the elapsed time and an estimate of what is
-  left measured from the run's own clock, a per-step status rail, and optional detailed logs sized
-  to the rows the frame leaves
+- **Progress Tracking**: Real-time installation progress with a frame-width progress bar whose
+  filled part carries a travelling highlight during long steps, a percentage, the step the run is on
+  with its name, the elapsed time and an estimate of what is left measured from the run's own clock,
+  a chart of the run's own progress over time, a per-step status rail, and optional detailed logs
+  sized to the rows the frame leaves
+- **The Machine's Pulse**: A sampler reads the host about once a second — CPU and memory sparklines,
+  the load average, the free space on the target and the process count — and draws them in block
+  glyphs on the welcome screen's **This machine, now** panel and beside the installing screen's
+  progress bar, where the run's progress is charted over time; a host that cannot be read shows no
+  row rather than a lie, and with animation off the panel says the sampling is off instead of
+  freezing a chart
 - **A Companion**: A small ASCII cat walks the rows above the footer — five rows where the body
   leaves room, three where it leaves less, the one-row creature elsewhere — looks at the selection
-  you move the cursor to, blinks, yawns before it sleeps when you stop typing, and reacts to
-  failures and to destructive choices
+  you move the cursor to, blinks, yawns before it sleeps when you stop typing, reacts to failures
+  and to destructive choices, and celebrates with a two-second burst of particles when the run
+  finishes
 - **Non-Interactive Mode**: CI/CD friendly installation via CLI flags
 
 ## Quick Start
@@ -117,7 +125,11 @@ a rail of one row per step whose state is a glyph and a word (`✓` done,
 `●` running, `○` pending, `✗` failed, `⊘` skipped), and, under the bar, the step
 the run is on with its name (`Step 6 of 9 · Install Iosevka Nerd Font`) and the
 run's clock — how long it has taken and how much is left. The running step's
-description is shown under its row, and `d` opens a log box.
+description is shown under its row, and `d` opens a log box. Under the clock, once
+the sampler has a reading, one row shows the machine's pulse (cpu and memory
+sparklines, load and free disk) and the next charts the run's own progress over
+time; the block is drawn only from the rows the rail and the log do not need, so
+it never displaces them.
 
 **The estimate is the run's own, and it is stated only when it can be.** It scales
 the time this run has already spent by the work still to do, so it is derived from
@@ -174,6 +186,13 @@ columns of content — the width at which a readable body and a panel fit side b
 columns of terminal. Below the floor the panel is dropped, not squeezed: the screen is exactly what
 it was before the panels existed, and nothing else on it moves.
 
+**The trainer's lesson screen uses the same two columns, without a panel.** From the same 124-column
+floor the trainer's own `layoutFor` columns put the code window on the left and the mission, the
+answer line and the feedback on the right, through the same `composeColumns` the framed screens use.
+The code window then keeps every row the stacked right column no longer needs, so a wide terminal
+shows more code instead of a narrow window under a full-width body. The boss and the menu keep their
+one-column bodies; below the floor the lesson screen is byte-for-byte what it was.
+
 **A row is a measure, not the terminal.** The bar behind a selected row runs
 `min(content width, 80)` columns in a one-column screen, and the left column's width when there are
 two, so a row stays a row instead of becoming a 227-column slab of colour behind twenty characters.
@@ -193,14 +212,16 @@ question its own screen asks:
 | Screen | Panel | The question it answers |
 |--------|-------|-------------------------|
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
+| Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
 
-The welcome screen asks where you are, so its panel is the machine; the main menu asks what is
-about to happen, so its panel follows the option under the cursor and names that option in its first
+The welcome screen asks where you are, so its panels are the machine — first what it is, then what
+it is doing right now — and then a tip; the main menu asks what is about to happen, so its panel
+follows the option under the cursor and names that option in its first
 row. **The panel's name does not move with the cursor** — the tab row would wander, and `Tab` would
 become a moving target on the very key that walks the panels — so the selection is named inside the
 panel instead. The plan is the wizard's own: before the first question the panel builds it with the
@@ -261,6 +282,50 @@ completes, because the record is a convenience and not a step. On the next run t
 panel shows that record; when there is no file the panel is not offered at all, so the tab row never
 names a panel that would have to say "never".
 
+### The machine, live
+
+While a run takes minutes the screen should show the machine doing the work, so a sampler reads the
+host **about once a second** and the readings live in a ring on the model. The sampler is a command,
+never a renderer: it touches `/proc` on Linux and WSL, `kern.cp_time`, `hw.memsize`, `vm_stat`,
+`vm.loadavg` and `ps` on macOS, and it asks the filesystem behind `$HOME` for its free bytes. What
+it reads is CPU busy (the busy share of the difference between two readings), memory used and total,
+the load average, the free space on the target and the process count.
+
+**A reading degrades row by row, and a host that cannot be read reports nothing.** Termux, an
+unknown platform and an unreadable file all come back with no rows rather than with zeros dressed up
+as a measurement, and the panel then says so in one line instead of drawing an empty chart. The ring
+is on the model, so the renderer reads no clock and no file — a snapshot pins a series, which is what
+lets an "alive" panel be tested.
+
+The readings are drawn by hand, in block glyphs (`▁▂▃▄▅▆▇█`) for the sparklines and braille for a
+denser chart, so a 16-colour terminal and a terminal with no colour at all lose nothing: the shape is
+the information and colour only decorates. They appear in two places. The welcome screen's **This
+machine, now** panel shows the CPU and memory sparklines and the load, disk and process facts; and
+the installing screen — the screen a person stares at while waiting — shows the machine's pulse on
+one row beside the progress bar, with the run's own progress charted over time on the next. The pulse
+is a fact and earns its rows only from the budget the rail and the log do not need: a frame that
+cannot hold it drops it rather than the rail, and a model that has not been sampled draws the
+installing screen exactly as it was.
+
+```text
+  cpu ▃▅▆▄▆▇▅▃▅▆ 42%  mem ▃▃▅▅▆▆▇▇ 61%  load 1.20  disk 314.2 GiB free
+  run ▁▂▃▃▄▄▅▅▆▆▇▇█
+```
+
+**The sampling is gated by the same switch as the animation.** With the gate off no sample is
+scheduled at all, and the panel says the sampling is off rather than showing the last reading as if
+it were current; a stale chart presented as live is the lie the gate exists to prevent. The cost is
+bounded the same way the companion's is: a reading only repaints the rows a live widget owns, and a
+screen that shows no reading — the main menu — is byte-for-byte the same after one lands. The
+interval is named once, so the sampler's cadence and the cost the test measures cannot drift.
+
+**The bar has a traveller, and a finished run celebrates.** During a long step the filled part of the
+progress bar carries one lighter cell (`▒`) that walks it on the frame tick; the highlight is a glyph
+difference, so a colourless terminal still sees it move, and it only draws while a run is actually in
+flight. When the run finishes, a two-second burst of particles rises in the rows the body did not
+need and the companion is pleased — both are model state advanced by the frame tick, so a snapshot
+pins the frame they are on, and both are absent with the animation gate off.
+
 ### The companion
 
 The rows of the frame the body did not need are not information. **A small creature walks the last
@@ -277,6 +342,50 @@ summary above the creature, and one whose body fills its frame shows neither. At
 every screen is guaranteed to work at — the main menu leaves five spare rows of which the summary
 takes one, so the three-row head is what draws there; the whole five-row cat needs six.
 
+**Above the glyph cat there is one more step, drawn only where it can be drawn properly.** Where the
+terminal reports true colour and the frame can hold eight more rows, the same cat is drawn as a shaded
+pixel sprite: sixteen pixels square, as eight rows of half blocks with a foreground and a background
+colour per cell, so the outline, the fur in two shades and the rose nose all come from the palette,
+the walk bobs by half a cell and a sleeping cat's whole body sags. Half blocks give two pixels per
+cell vertically, which is what lets eight rows carry sixteen rows of drawing — enough for a face that
+reads as a cat rather than as a smiley. It needs colour in a way the glyph art does not: a terminal
+with no colour draws those cells as plain blocks, so this step exists only when the terminal says it
+has true colour, and the glyph ladder — all of it, the five-row cat included — stays exactly as it is
+for every other run. The ladder therefore reads: shaded sprite, else five rows, else three, else one,
+else nothing.
+
+It costs what it looks like it costs, and only while it is moving. The sprite the encoder writes is
+small: eight rows of sixteen cells, with an escape sequence only when a cell's style changes, so the
+sprite itself is at most **1560 bytes** (asserted by a test, not promised in a comment). But the
+sprite is not what the terminal is written. The renderer repaints a whole line whenever any byte in it
+changed, so the cost of a tick is the lines it moved times the width of those lines — which is why the
+creature has two regimes, measured by `TestCompanionCostHasTwoRegimes` at 227 columns:
+
+- **At rest — nothing.** With no key and no pointer event the view string is byte-identical from tick
+  to tick, so the renderer writes **no bytes at all**. Pacing on its own and settling its gaze a frame
+  after the target were both removed for this: they made the creature repaint two of its rows on every
+  frame over a screen nobody was touching.
+- **While walking — about 3.3 KB a frame.** The eight rows of the shaded sprite (five for the glyph
+  cat) all move with the one-cell step, so every one of those lines is repainted: the measured widest
+  frame is 3297 bytes, some **25.8 KB/s** at eight frames a second, and walking from the first menu row
+  to the last — five rows, fifteen cells — is 19 frames, about **2.4 s** and 46 KB in total. The line is
+  the frame's width, so a wider terminal costs more per line and the same per cell walked.
+
+Drawing it is about 140 µs of the roughly 700 µs a frame of this screen already takes, which the
+benchmark beside the sprite's tests measures rather than estimates.
+
+**Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
+this step and deliberately rejected, for two reasons that were measured rather than guessed. It
+requires `x/ansi` at 0.11.7 or later, and with that version the `x/cellbuf` that Bubble Tea v1.3.10
+pins does not compile — so adopting it means moving `x/ansi`, `x/cellbuf`, `colorprofile`, `x/term`,
+`x/sys`, `x/text`, `go-colorful` and `go-runewidth` inside the **render path of every screen**, for a
+sprite. And its colour choice is keyed on a luminance threshold: the block glyph it picks depends on
+which pixel counts as "set", and a cell whose two pixels fall on the same side of the threshold is
+collapsed to their average colour, which is exactly the shading boundary a four-tone sprite exists to
+draw (and it softens every edge on a light terminal). The fifty lines here give exact colours per
+cell, cost nothing at install time and add no module, so this is a decision and not an oversight: if
+someone wants to reintroduce the library, the two costs above are what they have to answer.
+
 The art is drawn in this repository, in `installer/internal/tui/companion.go`, and it is plain ASCII:
 a 16-colour terminal, a terminal without an emoji font and Termux all draw it. Every row of a frame is
 the same width, so the creature never jitters sideways, and the cell is fixed per height, so a
@@ -291,6 +400,33 @@ one-cell step is always one column.
     >  <  >  <
 ```
 
+The shaded sprite is the same cat as pixels, and it is drawn from a grid of tones rather than of
+glyphs: `.` is the light fur, `o` the mid fur, `#` the outline, `@` the eyes — the pupils, the lids and
+the expressions — `x` the nose and the mouth, and a blank the terminal's own background, so the pixels
+the cat does not cover blend with it. The fur takes the palette's muted tones and the eyes take its one
+bright tone, so the decoration stays quieter than the words around it. The face below is the centre
+gaze; the composer moves the pupil pair one column to either side and, when the pointer is above the
+creature, one pixel row up.
+
+```text
+    o#        #o
+    o##      ##o
+    o###    ###o
+   #o####  ####o#
+   #oooooooooooo#
+   #oooooooooooo#
+   #o..........o#
+   #o..##oo##..o#
+   #o..##oo##..o#
+   #o..........o#
+   #oooooxxooooo#
+   #oooooxxooooo#
+   #oooox..xoooo#
+    #oooooooooo#
+     #oooooooo#
+      ########
+```
+
 **The state reads from the glyphs**, not from the tone — the eyes, the `z` and the `!` — so a
 16-colour or no-colour terminal loses nothing. The faces below are the five-row cat's; the head
 carries the same eyes and props, and the one-row art the same state as the frame it replaced.
@@ -299,7 +435,7 @@ carries the same eyes and props, and the one-row art the same state as the frame
 |-------|--------------------|------|
 | Idle | `(  o    o  )` | Awake and standing still: the first frame, and the tick it arrives at the row you pointed at |
 | Walking | the paws alternate between legs apart and legs in | The frames it moves: the legs change, which is what reads as motion |
-| Blinking | `(  -    -  )` for one frame, every five seconds | It is awake and idle. The blink is the tick counter read at a modulus, not a second clock |
+| Blinking | `(  -    -  )` for one frame, every ten seconds | It is awake and idle. The blink is the tick counter read at a modulus, not a second clock |
 | Yawning | `(  -    -  )` with the mouth open, over the last two seconds before it sleeps | The quiet run is nearly over, so falling asleep reads as a transition rather than a cut |
 | Asleep | `(  -    -  )` and a `z` beside the ears | Twenty seconds with no key pressed |
 | Alert | `(  O    O  )` and a `!` | The selection throws something away |
@@ -316,19 +452,42 @@ is kept exactly as it shipped. Down is not drawn: there is no honest third eye r
 wrong-looking "down" would read worse than a missing one. The pupils rest while the thing it wants is
 within a two-column dead zone of its own cell, so they cannot flicker.
 
-Today the creature looks at the selection: the row the cursor is on is a body row above its own, so a
-menu screen makes it look up and, while the selection is off to one side, that way too, and a screen
-with nothing to point at leaves it looking straight ahead. The gaze is a cell on the model, like the
-position and the frame, and `companionGazeFor` is the one function the pointer feeds when the mouse
-arrives.
+**Its eyes follow the mouse.** With the pointer live (which is the default; see below) the pupils turn
+one column to the side the pointer is on and look up when it is above the creature, and that is what
+`companionGazeFor` receives: the pointer's column clamped to the stage the creature walks, and its row
+measured against the bottom third of the frame — the band the creature draws in — so a pointer up the
+screen makes it look up and one across the floor makes it look sideways. The turn happens on the
+mouse message itself, not on the next tick, so the eyes arrive with the hand rather than a frame
+behind it. The pupils rest while the pointer is within a two-column dead zone of the creature's own
+cell, so they cannot flicker, and a pointer that lands on the cell it was already on changes nothing
+at all — the renderer sees the same bytes and skips the frame.
 
-**It walks, follows the selection, sleeps and reacts.** It strolls one cell per animation frame —
-eight frames a second, the frame tick the animation gate owns — and turns at the edge of its row.
-Moving the cursor points it at the new row and it walks there over the frames that follow — not in
-the frame you pressed the key in — and then resumes strolling. The walk halves the remaining
-distance each frame, so a one-row cursor move arrives in four to six frames (about half a second to
-three quarters) and the far edge of the widest stage in eight frames, one second. Twenty seconds
-without a key put it to sleep and the first key wakes it. It is alert on the screens whose purpose is to restore or overwrite — the backup list,
+Where there is no live pointer the creature looks at the selection, which is what it did before the
+pointer existed: the row the cursor is on is a body row above its own, so a menu screen makes it look
+up and, while the selection is off to one side, that way too, and a screen with nothing to point at
+leaves it looking straight ahead. That fallback is why a terminal that refuses mouse reporting, a run
+with the pointer switched off and a Termux session all keep a gaze rather than losing it. The gaze is
+a cell on the model, like the position and the frame, so a snapshot pins it either way.
+
+**A pointer event also wakes it, and a click makes it jump.** There is nothing clever to detect about
+a parked mouse — a parked mouse sends no events at all — so the only pointer event that exists is the
+user moving the mouse, and every one of them is the sudden movement that wakes the cat, which is
+oneko's rule as much as the sleeping face is. A left click is an event of its own: the creature earns
+the same celebration as a finished installation step and hops one row off the ground, drawn as one
+blank row under it. The hop costs one spare row more than the sprite itself, so on a frame that has
+none the creature stays on the ground and the celebration shows in its face instead — no decoration
+takes a row a fact needs. A wheel is ignored: the installer runs in the alternate screen, where there
+is no scrollback for it to move.
+
+**It walks, follows the selection, sleeps and reacts.** It takes at most one cell per animation
+frame — eight frames a second, the frame tick the animation gate owns — and only when it has somewhere
+to go. Moving the cursor points it at the new row and it walks there over the frames that follow, not
+in the frame you pressed the key in, slowing to a step every other frame over the last three cells so
+the arrival reads as a step rather than as a stop; when it arrives it stops, because a creature with
+nothing to do does nothing. One row of a menu is three cells of walking and no more, so one arrow key
+is a short stroll rather than a dash across a stage that can be 200 columns wide, and a walk from the
+first menu row to the last is about two and a half seconds. Twenty seconds without a key put it to
+sleep and the first key wakes it. It is alert on the screens whose purpose is to restore or overwrite — the backup list,
 the restore confirm, and the screen that installs over the configs it just listed — and on the menu
 rows that name a destructive action (`Restore`, `Delete`, install *without* backup), it is pleased
 for a few ticks after an installation step completes, and it flinches while an error is on screen. On
@@ -342,16 +501,31 @@ nyancat's cat belongs to its author, so this repository's attribution surface st
 **The frame, the cell and the gaze come from the model, never from the clock.** The frame tick
 advances the counter and takes one step; the renderer only draws. The same model and tick therefore
 produce the same bytes on every run, which is what lets a snapshot pin a frame, a cell and a gaze
-instead of flaking on the clock. The cost is bounded by a test rather than by a promise: the creature
-draws only in the rows it owns — one, three or five of them — so a tick changes those rows and the
-renderer repaints those lines. A screen with no spare row draws no companion, and on those the tick
-changes nothing at all: the view string is identical, so the renderer skips the frame entirely.
+instead of flaking on the clock. The cost is bounded by tests rather than by a promise: at rest the
+tick changes nothing at all, so the renderer writes nothing, and while walking it changes only the rows
+the creature owns, so those are the lines the renderer repaints. A screen with no spare row draws no
+companion, and on those the tick changes nothing either.
 
 ### Turning animation off
 
-The tip rotation and the companion are driven by one gate. Animation is off when any of these is
-true, and with it off no frame tick is scheduled, the screen stays on the first tip and there is no
-companion at all:
+Three switches decide what the creature is drawn as, and they are read once, when the model is built;
+the render path reads the model's answers and never the environment. They are independent on purpose:
+the animation is the creature moving at all, the pointer is the mouse being read, and the sprite is
+the drawing being shaded.
+
+| Switch | What it turns off | What is drawn instead |
+|--------|-------------------|-----------------------|
+| `DOTFILES_ANIM=0`, `--no-anim` | the frame tick and the tip rotation | no creature anywhere and the first tip. A frozen pet is not the point |
+| `DOTFILES_MOUSE=0`, `--no-mouse` | reading the mouse; no mouse mode is requested at all | the glyph or pixel cat looking at the selection, and the terminal's own drag-to-select |
+| `DOTFILES_SPRITE=0`, `--no-sprite` | the shaded pixel sprite | the glyph cat at whichever of its three heights the rows allow, with the pointer and the animation untouched |
+
+The first two also switch off further down: with the animation off there is nothing to move, so the
+pointer is off too, and with the sprite off true colour is never asked about. Turning the pointer off
+is the one that has a price attached, not a benefit: it gives the terminal's own drag-to-select back.
+
+The tip rotation, the companion and the host sampler are driven by one gate. Animation is off when
+any of these is true, and with it off no frame tick and no sampling tick are scheduled, the screen
+stays on the first tip, there is no companion at all and the live panel says the sampling is off:
 
 - `DOTFILES_ANIM=0` is set;
 - `--no-anim` is passed (the flag sets `DOTFILES_ANIM=0` before the model is built);
@@ -361,6 +535,60 @@ companion at all:
 
 The gate is decided once, when the model is built; the render path itself never reads the
 environment, so a render stays pure.
+
+### The mouse pointer, and what it costs
+
+The creature's gaze is the one thing in the installer that reads the mouse, and it has **a switch of
+its own** rather than a side of the animation gate, because it costs the user something: a terminal
+that is reporting the mouse gives its own text selection up to the application, so on the installer's
+screens a normal drag no longer selects text — hold the terminal's bypass key (Shift on xterm-family
+terminals, kitty, VTE, Windows Terminal and Alacritty; Option on iTerm2 by default) to select with the
+mouse anyway. The pointer is off when any of these is true:
+
+- `DOTFILES_MOUSE=0` is set, or `--no-mouse` is passed (the flag sets the variable before the model is
+  built, exactly as `--no-anim` does);
+- stdout is not a terminal; or
+- the session is Termux, where the pointer is a finger: Termux turns a drag into a wheel report, so the
+  gaze would cost the user the swipe and give nothing back. `DOTFILES_MOUSE=1` overrides that default
+  for a Termux session with a real mouse attached.
+
+With the pointer off **no mouse mode is asked for at all**, so the terminal never enters application
+mouse reporting and its ordinary selection works again; a run that merely ignored the events would
+still have cost the user the drag. With the animation gate off there is nothing to move, so the
+pointer is off too. The two switches are read once, when the model is built, and the model's own field
+decides the program's mouse option, so the option and the model cannot disagree.
+
+The shaded sprite has a switch of its own too, `DOTFILES_SPRITE=0` / `--no-sprite`, and it turns off
+only the pixel sprite: a run whose terminal claims true colour but renders block glyphs badly keeps
+the glyph cat instead, with the pointer and the animation untouched.
+
+### Synchronized output: the frame, painted at once
+
+The creature is not the only thing that moves. bubbletea builds each frame in a buffer and hands it to
+the program's output in one write, but the terminal does not wait for that write to finish before
+painting: it draws the bytes as they arrive, so a frame large enough to reach it in more than one read
+is visible half-updated — the tearing the animation shows on a redraw that rewrites several lines. The
+terminal has a frame buffer of its own for exactly this: the synchronized-output mode (DECSET 2026, the
+`\x1b[?2026h` / `\x1b[?2026l` pair) tells the terminal to hold everything between the two sequences
+and show it in one repaint. Windows Terminal has supported it since 1.23.20211, and a terminal that
+does not implement the mode ignores the two sequences, so no feature detection is needed and the worst
+case is a build without this writer.
+
+The installer emits the pair around each frame through bubbletea's own `tea.WithOutput` extension
+point, not from `View()`: the frame's bytes belong to the program's writer, and putting escapes in the
+view would break the snapshots and the renderer's line diffing. Two rules keep it out of the way:
+
+- **Only when stdout is a terminal.** A pipe or a file has nobody painting frames, and the sequences
+  in it would be noise, so a redirected run keeps its bytes byte-for-byte. The same character-device
+  check the animation gate uses decides it.
+- **`DOTFILES_SYNC=0` turns it off**, in the same spirit as the animation and pointer gates: a
+  multiplexer that mishandles the mode has to be escapable without a rebuild. There is no flag for it,
+  because the environment variable is the escape hatch.
+
+The wrapper keeps the stream's file descriptor rather than only the stream, so bubbletea can still see
+the terminal underneath it — that is where the window size comes from, and on Windows it is also what
+enables virtual terminal processing — and a zero-length write emits nothing rather than an empty pair
+of sequences.
 
 ## Command Line Interface
 
@@ -377,6 +605,8 @@ dotfiles [flags]
 | `--test` | `-t` | Run in test mode (uses temporary directory) |
 | `--dry-run` | | Show what would be installed without doing it |
 | `--no-anim` | | Disable animation; the same as `DOTFILES_ANIM=0` |
+| `--no-mouse` | | Do not track the mouse pointer; the same as `DOTFILES_MOUSE=0` |
+| `--no-sprite` | | Draw the creature as glyphs, not as the shaded sprite; the same as `DOTFILES_SPRITE=0` |
 | `--non-interactive` | | Run without TUI, use CLI flags instead |
 
 ### Non-Interactive Mode
@@ -586,11 +816,16 @@ installer/
 ├── internal/
 │   ├── system/
 │   │   ├── detect.go            # OS/tool detection
+│   │   ├── metrics.go           # The host sampler: /proc, sysctl, vm_stat, Statfs
 │   │   └── exec.go              # Command execution, file ops, backups
 │   └── tui/
 │       ├── model.go             # App state, screens, choices
 │       ├── update.go            # Event handlers
 │       ├── view.go              # UI rendering
+│       ├── metrics.go           # The sample ring, the gated tick, the live panel
+│       ├── sparkline.go         # Hand-drawn block sparklines
+│       ├── chart.go             # Hand-drawn braille charts
+│       ├── panels.go            # The panel registry and its facts
 │       ├── installer.go         # Installation steps
 │       ├── interactive.go       # TUI mode logic
 │       ├── non_interactive.go   # CLI mode logic

@@ -136,6 +136,12 @@ func (m Model) Init() tea.Cmd {
 	if cmd := m.animTickCmdFor(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	// The host is read on the same gate: a run that may not animate also does not
+	// sample the machine, so its live panel reports the sampling as off rather
+	// than drawing a stale reading.
+	if cmd := m.metricsTickCmdFor(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -221,6 +227,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Height = msg.Height
 		return m, nil
 
+	case tea.MouseMsg:
+		// The pointer is the creature's to read and nobody else's: the installer
+		// binds no mouse action, so a motion, a click and a wheel all arrive here and
+		// the creature decides what they mean. It is handled in the inner switch so
+		// the outer Update's own post-processing (the companion's follow arming) does
+		// not run for a message that changed no screen and no cursor.
+		return m.handleCompanionMouse(msg)
+
 	case tickMsg:
 		// The tick is the run's clock. Its timestamp is copied onto the model here,
 		// in Update, so the installing screen's elapsed time and estimate are reads
@@ -249,7 +263,22 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.AnimTick++
 		m.advanceCompanion()
+		m.advanceCelebration()
 		return m, m.animTickCmdFor()
+
+	case metricsTickMsg:
+		// The sampling tick reads the host and re-arms itself, on the same gate the
+		// frame tick uses. A gate forced off after the tick was armed stops the
+		// sampling rather than letting the reading go stale-but-live.
+		if !m.Animating {
+			return m, nil
+		}
+		return m, tea.Batch(readMetricsCmd(), metricsTickCmd())
+
+	case metricsReadMsg:
+		// One raw reading is folded into the ring here, in Update, so the render
+		// path draws samples from the model and never touches the host.
+		return m.withMetricsRead(msg.sample), nil
 
 	case installStartMsg:
 		// A run begins here, so this is where the run's start timestamp is set -- and
@@ -257,6 +286,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// elapsed time from it, and it lives on the model rather than being read
 		// while rendering.
 		m.InstallStartedAt = time.Now()
+		// A new run starts its progress history over: the chart on the installing
+		// screen is this run's, not the previous one's, and a retry begins clean for
+		// the same reason the start timestamp is reset.
+		m.ProgressSamples = nil
+		m.Celebrating = false
+		m.CelebrationTick = 0
+		m.Particles = nil
 		// Start the installation process
 		cmd := m.runNextStep()
 		return m, cmd
@@ -311,6 +347,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case installCompleteMsg:
 		m.TotalTime = msg.totalTime
 		m.Screen = ScreenComplete
+		// The run is over, so this is where the celebration belongs: the burst of
+		// particles and the companion's pleased state are both armed from here, and
+		// both are no-ops when the animation gate is off.
+		if m.Animating {
+			m.startCelebration()
+			m.CompanionPleased = companionPleasedTicks
+		}
 		// The run finished, so record it for the next one. The write is best effort:
 		// a state directory the machine will not let us write must not fail an
 		// install that has already succeeded.
@@ -1680,14 +1723,31 @@ func (m *Model) revealExerciseHintOnDeadline() {
 		return
 	}
 
-	hint := state.CurrentExercise.Hint
-	if hint == "" {
+	message := trainerHintLabel(state.CurrentExercise)
+	if message == "" {
 		return
 	}
 
-	if message := "💡 Hint: " + hint; m.TrainerMessage != message {
+	if m.TrainerMessage != message {
 		m.TrainerMessage = message
 	}
+}
+
+// trainerHintLabel is the feedback line the hint key reveals and the deadline
+// reveal writes: the exercise's hint behind the one marker the trainer uses, or
+// "" when there is no hint. The empty case is the reason this is one function.
+// The label used to be built inline as "💡 Hint: " + hint, with no check, so an
+// exercise whose hint was legitimately dropped -- the mission/hint rule lets a
+// hint that adds no mechanism go -- rendered a bare label with nothing after
+// the marker. Returning "" here is the single place that decides "no hint means
+// no label", so the lesson, the practice and the boss handlers, and the
+// automatic deadline reveal, cannot disagree about what a missing hint looks
+// like.
+func trainerHintLabel(exercise *trainer.Exercise) string {
+	if exercise == nil || exercise.Hint == "" {
+		return ""
+	}
+	return "💡 Hint: " + exercise.Hint
 }
 
 // expireBossStepOnDeadline charges the clock when a boss step is left
@@ -2016,8 +2076,11 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		// Show hint
-		m.TrainerMessage = "💡 Hint: " + exercise.Hint
+		// Show hint. trainerHintLabel returns nothing for a hint that was
+		// dropped, so an exercise without a hint gets no bare label.
+		if label := trainerHintLabel(exercise); label != "" {
+			m.TrainerMessage = label
+		}
 		return m, nil
 
 	default:
@@ -2054,6 +2117,17 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 
 	case "backspace":
 		m.TrainerInput = backspaceTrainerInput(m.TrainerInput)
+		return m, nil
+
+	case "tab":
+		// The boss screen reveals its step's hint on the same terms as the
+		// exercise screen: trainerHintLabel's label, its empty check, and no
+		// label at all when the step carries none. Before this case the hint the
+		// rewritten Change & Repeat boss steps ship was unreachable copy: it sat
+		// in the data and no boss key could show it.
+		if label := trainerHintLabel(m.TrainerGameState.CurrentExercise); label != "" {
+			m.TrainerMessage = label
+		}
 		return m, nil
 
 	case "enter":

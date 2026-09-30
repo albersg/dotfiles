@@ -56,6 +56,31 @@ const (
 	// envTerm is the environment variable whose "dumb" value means the terminal
 	// cannot address a cursor well enough to animate on.
 	envTerm = "TERM"
+
+	// envMouse names the environment switch that turns the pointer off. The
+	// creature's gaze asks the terminal for mouse motion, and a terminal in mouse
+	// reporting mode gives its own selection up to the application unless the user
+	// holds the bypass key, so the pointer is a switch of its own beside the
+	// animation one rather than something attached to it.
+	envMouse = "DOTFILES_MOUSE"
+
+	// envTermux is the variable a Termux session sets for itself. It is read rather
+	// than guessing from TERM because it is the one the terminal exports, and a
+	// touch screen has no pointer to hover with: Termux turns a finger drag into a
+	// wheel report, so the gaze would cost the user the swipe and give nothing back.
+	envTermux = "TERMUX_VERSION"
+
+	// envMouseForce is the value of envMouse that overrides that Termux default. A
+	// wired mouse on a Termux session with an external display is a real case, so
+	// the Termux rule is a default and not a refusal.
+	envMouseForce = "1"
+
+	// envSprite names the environment switch that turns the shaded sprite off. It is
+	// its own switch because the sprite is the one part of the creature that a
+	// terminal cannot be asked to draw: a run on a terminal that reports true colour
+	// but renders block glyphs badly can keep the glyph cat with this and nothing
+	// else.
+	envSprite = "DOTFILES_SPRITE"
 )
 
 // animTickMsg is the frame tick: one wakeup per animTickInterval while animation
@@ -95,6 +120,44 @@ func animationGate(stdout *os.File) bool {
 	return isCharDevice(stdout)
 }
 
+// hoverGate answers whether this run may ask the terminal for pointer motion. It
+// is the mouse's own switch, and it is deliberately not the animation gate: a run
+// may animate with no pointer -- the creature then looks at the selection, which
+// is what it did before the pointer existed -- and an operator may want the
+// pointer off while the animation stays on.
+//
+// Three things turn it off: DOTFILES_MOUSE=0, a stdout that is not a terminal (a
+// redirected run has nothing to hover on and would only stream escape sequences
+// into a file), and a Termux session, where the pointer is the user's finger.
+// DOTFILES_MOUSE=1 overrides the Termux default for a session with a real mouse
+// attached.
+func hoverGate(stdout *os.File) bool {
+	switch os.Getenv(envMouse) {
+	case "0":
+		return false
+	case envMouseForce:
+		return isCharDevice(stdout)
+	}
+	if os.Getenv(envTermux) != "" {
+		return false
+	}
+	return isCharDevice(stdout)
+}
+
+// hoverRequested reports whether this run should ask the terminal for mouse
+// motion: there is a creature to look with and the terminal will report the
+// pointer. It is the single decision behind both halves of the pointer -- the
+// model's Hovering field, which decides whether a mouse message means anything,
+// and the program's mouse option, which main reads off that field -- so the two
+// cannot disagree the way two environment reads would.
+//
+// The animation gate is half of it because a frozen creature has no eyes to move:
+// asking for the pointer without one would cost the user the terminal's selection
+// and show nothing for it.
+func hoverRequested() bool {
+	return animationGate(os.Stdout) && hoverGate(os.Stdout)
+}
+
 // isCharDevice reports whether f is a terminal-like character device. A pipe or
 // a regular file is not, which is how a redirected stdout turns animation off
 // without anyone setting a variable.
@@ -107,4 +170,135 @@ func isCharDevice(f *os.File) bool {
 		return false
 	}
 	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// ============================================================================
+// THE END-OF-RUN BURST
+// ============================================================================
+//
+// The run's last moment is the one the user waited for, so it gets the one piece
+// of pure delight the installer allows itself: a short fountain of particles and
+// the companion joining in. It is bounded and honest: it lasts two seconds, it
+// owns only the rows the body did not need, and its whole state -- whether it is
+// running, which frame it is on and where every particle is -- lives on the
+// model, so a snapshot pins it and the renderer only draws.
+//
+// The particles are not random and the renderer is not told to hurry: they are
+// launched with a deterministic spread and advanced one step per frame tick, the
+// same clock the companion walks on.
+
+const (
+	// celebrationFrames is how long the burst lasts. Two seconds, named through
+	// the frame rate so it cannot drift from it.
+	celebrationFrames = 2 * animTicksPerSecond
+
+	// celebrationParticleCount is how many particles the fountain launches. It is
+	// small on purpose: this is an exclamation at the end of a run, not a screen.
+	celebrationParticleCount = 18
+
+	// celebrationRowCount is the rows the burst may draw in, the rows nearest the
+	// footer that the body did not need.
+	celebrationRowCount = 3
+)
+
+// celebrationGlyphs are the shapes a particle can take. They are block and
+// quadrant glyphs, all one cell wide, so the burst reads on a 16-colour terminal
+// and on Termux.
+var celebrationGlyphs = []rune("▘▝▖▗█")
+
+// celebrationParticle is one particle of the end-of-run burst: a cell, a step
+// and a glyph. Every position lives on the model, so a frame of the burst is
+// pinned by the model's own fields rather than recomputed from a seed at render
+// time.
+type celebrationParticle struct {
+	X, Y, VX, VY int
+	Glyph        rune
+}
+
+// startCelebration launches the burst. It is a pure spread: particle i takes a
+// column and a speed from i, so two runs on the same machine draw the same
+// fountain.
+func (m *Model) startCelebration() {
+	width := m.Width
+	if width < 20 {
+		width = 80
+	}
+	m.Celebrating = true
+	m.CelebrationTick = 0
+	m.Particles = make([]celebrationParticle, celebrationParticleCount)
+	for i := range m.Particles {
+		m.Particles[i] = celebrationParticle{
+			X:     (i*7 + 5) % width,
+			Y:     i % celebrationRowCount,
+			VX:    []int{-1, 0, 1}[i%3],
+			VY:    1 + i%3,
+			Glyph: celebrationGlyphs[i%len(celebrationGlyphs)],
+		}
+	}
+}
+
+// advanceCelebration is the burst's whole clock: it ages the burst, recycles the
+// particles that left the top and stops the whole thing after a fixed number of
+// frames. It is called from the frame tick and nowhere else.
+func (m *Model) advanceCelebration() {
+	if !m.Celebrating {
+		return
+	}
+	m.CelebrationTick++
+	if m.CelebrationTick >= celebrationFrames {
+		m.Celebrating = false
+		m.Particles = nil
+		return
+	}
+
+	width := m.Width
+	if width < 20 {
+		width = 80
+	}
+	for i := range m.Particles {
+		p := &m.Particles[i]
+		p.X += p.VX
+		if p.X < 0 {
+			p.X = width - 1
+		}
+		if p.X >= width {
+			p.X %= width
+		}
+		p.Y += p.VY
+		if p.Y >= celebrationRowCount {
+			// It left the visible rows, so it is launched again from the bottom at
+			// a column derived from where it was: deterministic, and it keeps the
+			// fountain alive for the whole burst.
+			p.Y = 0
+			p.X = (p.X*7 + 13) % width
+		}
+	}
+}
+
+// celebrationRows draws the burst in the rows nearest the footer. It returns
+// nothing when the burst is over or the gate is off, so a screen with no
+// celebration spends no row at all. Row 0 of the returned slice is the top line,
+// so a particle's Y counts up from the bottom.
+func (m Model) celebrationRows(width int) []string {
+	if !m.Celebrating || width < 1 {
+		return nil
+	}
+	canvas := make([][]rune, celebrationRowCount)
+	for i := range canvas {
+		canvas[i] = make([]rune, width)
+		for j := range canvas[i] {
+			canvas[i][j] = ' '
+		}
+	}
+	for _, p := range m.Particles {
+		if p.Y < 0 || p.Y >= celebrationRowCount || p.X < 0 || p.X >= width {
+			continue
+		}
+		canvas[celebrationRowCount-1-p.Y][p.X] = p.Glyph
+	}
+	out := make([]string, celebrationRowCount)
+	for i, row := range canvas {
+		out[i] = HighlightStyle.Render(string(row))
+	}
+	return out
 }

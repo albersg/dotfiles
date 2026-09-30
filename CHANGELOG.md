@@ -9,10 +9,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This cycle finishes the Vim trainer's buffer engine and its two new modules, and gives the installer
 an interface that fits the terminal it claims and reads on a light one. The WSL configuration is also
 now derived from the host that receives it, which removes the last artifact that carried one
-machine's limits into another machine's VM.
+machine's limits into another machine's VM. The installer's companion has also stopped moving when
+nothing is happening: it was repainting its own rows on every frame, which read as flicker.
+
+### Fixed
+
+- **The creature's colours stay inside the creature.** The shaded sprite set a tone per cell and never
+  retired it, so the colour it left active painted every cell after it: a space is drawn with whatever
+  colour is still set, half of the sprite's cells set a background, and a terminal's escape state outlives
+  the line. The visible result was a solid bar of amber and one of light blue across the bottom of the
+  screen, with the creature's head sitting inside a painted band. The pinned snapshot for the sprite
+  contained not a single reset, so nothing had retired a style in the whole creature - and no test could
+  see it, because a snapshot compares the escapes it is given and the check that verified the ink
+  stripped them. There is now a guard that can see the class instead of the instance: **no rendered line
+  may end with a style still active**, over every screen at five sizes, and it fails when the leak is
+  reintroduced.
+- **The companion is quiet until you move something.** It used to stroll along its row on its own and
+  to halve the remaining distance to every target, so a screen nobody was touching repainted two of
+  its rows on every frame — including the row the eyes settle on, a frame after the target moves —
+  and the creature flickered. It now walks only while it has somewhere to go: moving the cursor points
+  it at a row and it walks there at a fixed one cell a frame, slowing to a step every other frame over
+  the last three cells, and stops when it arrives. One menu row is three cells of walking and no more,
+  so one arrow key is a short stroll rather than a dash across a 227-column stage, and the gaze is
+  settled when the target changes rather than on the next tick. At rest the view string is
+  byte-identical from tick to tick, so the renderer writes nothing at all; while walking it repaints
+  only the sprite's own lines. The pixel sprite's body is also drawn in the theme's muted tones now,
+  with the one bright tone spent on the eyes, so the decoration is no longer the loudest thing on a
+  screen whose words should be.
+- **The installer's frames no longer tear while they animate.** bubbletea builds each frame in one
+  write, but the terminal paints those bytes as they arrive, so a redraw that rewrites several lines
+  was visible half-updated. The installer now brackets every frame in the terminal's
+  synchronized-output mode (DECSET 2026, `\x1b[?2026h` / `\x1b[?2026l`), which makes the terminal
+  hold the frame and repaint it once, installed through bubbletea's own `tea.WithOutput` and with no
+  renderer of its own. A terminal that does not implement the mode ignores the sequences, so nothing
+  is detected and nothing is at risk; the sequences are emitted only when stdout is a terminal, so a
+  piped or redirected run keeps its bytes, and `DOTFILES_SYNC=0` turns the mode off for a multiplexer
+  that mishandles it.
 
 ### Changed
 
+- **The trainer's lesson screen goes two columns on a wide terminal.** From the same 124-terminal-
+  column floor the framed screens use, the code window moves to the left column and the mission, the
+  answer line and the feedback move to the right, through the same `layoutFor` columns and the same
+  `composeColumns` composition the installer's own screens use — no second idea of "wide". The code
+  window keeps every row the stacked right column no longer occupies: at 160×50 the lesson's window
+  budget is 44 rows against 11 at the 80×24 floor, and a fourteen-line exercise that scrolls below
+  the floor shows all fourteen in full. The mission, the answer and the feedback are wrapped to their
+  own column and lose no line; the menu and the boss screens keep their one-column bodies; and at
+  exactly 80×24 the lesson screen is byte-for-byte what it was.
+- **The companion is shaded where the terminal can shade it.** Above the glyph cat there is now one
+  more step: where the terminal reports true colour and the frame can spare eight rows, the same cat is
+  drawn as a sixteen-pixel-square sprite of half blocks, with a foreground and a background colour per
+  cell — outline, two shades of fur and a rose nose, all from the installer's own palette, with the
+  walk bobbing by half a cell and a sleeping cat sagging the same way. It is composed, not drawn per
+  state: one block of face rows per state and the pupils stamped into it, so eight states and six
+  gazes stay one sprite. Where the terminal cannot do it the glyph ladder is untouched — five rows,
+  three, one, nothing — because a colourless terminal draws those cells as plain blocks, and
+  `DOTFILES_SPRITE=0` / `--no-sprite` turns the tier off on its own. It is honest about its price and
+  the price is measured, not estimated: the sprite itself is under 1560 bytes (a test asserts it), but
+  the sprite is not what the terminal is written — the renderer repaints a whole line whenever any
+  byte in it changed — so what matters is the two regimes, at rest and while walking, and those are
+  measured by `TestCompanionCostHasTwoRegimes` rather than guessed. Drawing it is about 140 µs of the
+  ~700 µs a frame of that screen already costs. No new dependency was needed: the encoder is a few
+  dozen lines of this repository's own code.
+  `charmbracelet/x/mosaic` was evaluated for this step and rejected on two measured reasons — it forces
+  `x/ansi` ≥0.11.7, which breaks the `x/cellbuf` Bubble Tea pins and drags eight modules through the
+  render path of every screen, and its luminance-threshold colour model collapses the shading
+  boundaries a four-tone sprite is drawn for — so the hand-written encoder is a decision, and the
+  reasoning is written down beside the sprite where the next person will read it.
+- **The companion's eyes follow the mouse.** They followed the selection; the pointer is now what they
+  look at when there is one, and the selection is the fallback for the runs and terminals that have no
+  pointer. The installer asks the terminal for mouse motion only when the run can use it, and it is a
+  switch of its own — `--no-mouse` / `DOTFILES_MOUSE=0` — because mouse reporting costs the user the
+  terminal's own drag-to-select: with the pointer off no mouse mode is requested at all, so ordinary
+  selection works again, where a run that merely ignored the events would still have taken the drag.
+  A Termux session defaults to no pointer, because a finger is not a hover and Termux turns a drag
+  into a wheel report; `DOTFILES_MOUSE=1` overrides that for a session with a real mouse. The turn
+  happens on the mouse message rather than on the next frame, the pupils rest inside a two-column
+  dead zone so they cannot flicker, and a pointer that has not moved a cell changes no byte. Moving
+  the mouse also wakes a sleeping creature — a parked mouse sends no events, so every pointer event
+  is the user moving it — and a click earns the celebration a finished step gets plus a hop one row
+  off the ground, which costs one spare row and is skipped on a frame that has none rather than take
+  a fact's row.
 - **The companion has a body, a face and a gaze.** The installer's ASCII creature was one row of
   seven characters; it is now a cat drawn at three heights, and a ladder picks between them from the
   rows the body did not need — five rows where it leaves six, three where it leaves four, the one-row
@@ -79,6 +157,26 @@ machine's limits into another machine's VM.
 
 ### Added
 
+- **The installer shows the machine it is changing, live.** A sampler reads the host about once a
+  second — CPU busy as the delta between two readings, memory used and total, the load average, the
+  free space on the target and the process count — as a command, never while rendering, and the
+  readings live in a ring on the model. It reads `/proc` on Linux and WSL and `kern.cp_time`,
+  `hw.memsize`, `vm_stat`, `vm.loadavg` and `ps` on macOS, and it degrades row by row: Termux and an
+  unreadable host report nothing rather than a zero dressed as a measurement, and the panel says so
+  in one line. The numbers are drawn by hand, in block sparklines and braille, so a 16-colour or
+  no-colour terminal loses nothing — the shape is the information. They appear in a new **This
+  machine, now** panel on the welcome screen and, most of all, on the installing screen, where the
+  machine's pulse sits beside the progress bar and the run's own progress is charted over time; the
+  pulse is drawn only from the rows the rail and the log do not need, so it never displaces them.
+  The sampling is gated by the same switch as the animation: with it off no sample is taken and the
+  panel says the sampling is off rather than freezing a chart and calling it live. The cost is
+  bounded by a test: a reading repaints only the rows a live widget owns, and a screen that shows no
+  reading renders the same bytes after one lands.
+- **The progress bar has a travelling highlight, and a finished run celebrates.** During a long step
+  one lighter cell (`▒`) walks the filled part of the bar on the frame tick, so the wait reads as
+  alive; it is a glyph difference, not a colour one, and it only draws while a run is in flight. When
+  the run finishes, a two-second burst of particles rises in the rows the body did not need and the
+  companion is pleased — both model state advanced by the frame tick, both absent with animation off.
 - **The installer has a companion.** A small ASCII creature walks the row immediately above the
   footer, follows the selection you move the cursor to, sleeps after twenty quiet seconds and wakes
   on the first key, and reacts to what is on screen: alert on the choices that throw something away,
@@ -146,17 +244,24 @@ machine's limits into another machine's VM.
 
 ### Fixed
 
-- **The trainer's hints say something the exercise's description does not.** A hint revealed with
-  `Tab` used to repeat the mission — the mission read "Move to the start of 'userName' using w
-  (word)" and the hint read "w moves to the start of the next word" — so asking for it cost a
-  keypress and taught nothing, which is the defect a player reported. Every hint now adds a mechanism
-  the mission leaves out: the count, flag or range the command takes, the part of it the mission does
-  not name, how it compares with the command it is easiest to confuse it with, or what follows from
-  it. One hundred and twenty-one hint lines were rewritten across the nine modules and the
-  change-and-repeat boss fight, and no judging, solution set or lesson count changed.
+- **The trainer's hints say something the exercise's description does not, and the hint line is
+  guarded.** A hint revealed with `Tab` used to repeat the mission — the mission read "Move to the
+  start of 'userName' using w (word)" and the hint read "w moves to the start of the next word" — so
+  asking for it cost a keypress and taught nothing, which is the defect a player reported. Every hint
+  now adds the mechanism its mission leaves out: the count, flag or range the command takes, the part
+  of it the mission does not name, how it compares with the command it is easiest to confuse it with,
+  or what follows from it. One hundred and twenty-one hint lines were rewritten across the nine
+  modules and the change-and-repeat boss fight, and no judging, solution set or lesson count changed.
   `TestShippedHintsAddWhatTheirMissionDoesNot` sweeps every shipped hint for one of those additions,
-  `hintEchoRewrites` pins the exact echoes that were withdrawn so a later edit cannot restore them,
-  and `docs/vim-trainer-spec.md` states the rule the two lines divide.
+  and `hintEchoRewrites` pins the exact echoes that were withdrawn so a later edit cannot restore
+  them. The hint line itself is now guarded: `trainerHintLabel` is the one place that builds
+  "💡 Hint: …", and it returns nothing when the exercise carries no hint, so a hint that was
+  legitimately dropped no longer renders a bare label — and the five content tests that required every
+  lesson to have a hint were reshaped, because a hint is optional under the mission/hint rule and the
+  guard over a hint that *is* present is the one that matters. The hint copy the Change & Repeat boss
+  steps already carried was unreachable — the boss screen had no key that could show it — so the boss
+  screen now reveals its step's hint on `Tab` on the same terms, and its legend advertises the key
+  without costing a row.
 
 ## [v0.3.0] — 2026-09-22
 
