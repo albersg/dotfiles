@@ -28,6 +28,8 @@ type cliFlags struct {
 	font           bool
 	backup         bool
 	noAnim         bool
+	noMouse        bool
+	noSprite       bool
 }
 
 func parseFlags() *cliFlags {
@@ -48,6 +50,8 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.font, "font", false, "Install Nerd Font")
 	flag.BoolVar(&flags.backup, "backup", true, "Backup existing configs (default: true)")
 	flag.BoolVar(&flags.noAnim, "no-anim", false, "Disable animations (same as DOTFILES_ANIM=0)")
+	flag.BoolVar(&flags.noMouse, "no-mouse", false, "Do not track the mouse pointer (same as DOTFILES_MOUSE=0)")
+	flag.BoolVar(&flags.noSprite, "no-sprite", false, "Draw the creature as glyphs, not as the shaded sprite (same as DOTFILES_SPRITE=0)")
 
 	flag.Parse()
 	return flags
@@ -86,6 +90,24 @@ func main() {
 		os.Setenv("DOTFILES_ANIM", "0")
 	}
 
+	// --no-mouse and DOTFILES_MOUSE=0 are the same switch, on the same terms: the
+	// flag sets the variable the TUI reads when it builds the model. It is a switch
+	// of its own rather than a side of --no-anim because the pointer costs the user
+	// something -- the terminal gives its own selection up while an application is
+	// reading the mouse -- so it has to be possible to want the animation without
+	// it, and to get the pointer back without losing the creature.
+	if flags.noMouse {
+		os.Setenv("DOTFILES_MOUSE", "0")
+	}
+
+	// --no-sprite and DOTFILES_SPRITE=0 are the same switch on the same terms. It is
+	// its own switch because the shaded sprite is the one drawing a terminal cannot
+	// be asked to be good at: a run whose terminal claims true colour but renders
+	// block glyphs badly keeps the glyph cat with this and loses nothing else.
+	if flags.noSprite {
+		os.Setenv("DOTFILES_SPRITE", "0")
+	}
+
 	// Non-interactive mode: run installation directly with provided flags
 	if flags.nonInteractive {
 		if err := runNonInteractive(flags); err != nil {
@@ -97,11 +119,17 @@ func main() {
 
 	// Interactive TUI mode
 	model := tui.NewModel()
-	p := tea.NewProgram(
-		model,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
+	// The pointer is asked for only when the run can use it, and the decision is
+	// the model's: NewModel already read the gates to set Hovering, so the program
+	// option and the model cannot disagree about whether a pointer event means
+	// anything. With hover off NO mouse option is passed at all, which is what gives
+	// the terminal's own selection back -- a run that merely ignored the events
+	// would still have cost the user the drag.
+	options := []tea.ProgramOption{tea.WithAltScreen()}
+	if model.Hovering {
+		options = append(options, tea.WithMouseAllMotion())
+	}
+	p := tea.NewProgram(model, options...)
 	tui.SetGlobalProgram(p)
 
 	if _, err := p.Run(); err != nil {
