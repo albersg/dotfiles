@@ -129,6 +129,16 @@ func main() {
 	if model.Hovering {
 		options = append(options, tea.WithMouseAllMotion())
 	}
+	// The renderer ends each frame with a single write to the program's output,
+	// so bracketing that write in the terminal's synchronized-output mode (DECSET
+	// 2026) is what stops the terminal from painting a frame as it arrives -- the
+	// tearing the animation shows. outputWriter hands the stream back untouched
+	// when stdout is not a terminal or DOTFILES_SYNC=0, so a piped run and a
+	// gated run keep the bytes they always had, and the wrapper keeps the
+	// stream's file descriptor, which is what bubbletea reads the window size
+	// from and, on Windows, what it enables virtual terminal processing on.
+	options = append(options, tea.WithOutput(outputWriter(os.Stdout)))
+
 	p := tea.NewProgram(model, options...)
 	tui.SetGlobalProgram(p)
 
