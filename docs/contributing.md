@@ -151,12 +151,6 @@ On a Debian-family host the installer routes its dependencies through Homebrew, 
 Ubuntu container installs Linuxbrew and 251 brew formulae across its four installation passes, and
 why it takes about six minutes where Fedora and Arch, which use dnf and pacman, take about two.
 
-GitHub Actions builds these images with Buildx and the GitHub Actions cache backend. Each image has
-its own `e2e-<image>` cache scope; BuildKit matches layers from the base image, Dockerfile commands,
-and their inputs. A cold cache still builds the complete image, and local runs keep using `docker
-build` without requiring Buildx or Actions credentials. The workflow must set up Buildx before
-calling `docker-test.sh` for the cache backend to work.
-
 ### Adding Tests
 
 Edit `e2e_test.sh` or `e2e_test_termux.sh`:

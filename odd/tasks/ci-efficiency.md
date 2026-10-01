@@ -295,6 +295,33 @@ Honest leftovers, in the order a reviewer should look at them.
    no new tag (run 36565443368), which is the normal state. Unlike `Build (${{ matrix.os }})` it is
    not a placeholder: the name is honest and the job runs when there is something to do. Left alone.
 
+## The Docker layer cache: measured, and deliberately not shipped
+
+The handover below asked for a cache because GitHub starts every job on a fresh Docker daemon and the
+images are rebuilt from nothing. It was implemented with BuildKit's Actions cache (scoped per image, taken
+only in Actions so a local `docker build` is untouched) and then **measured**, which is the only way this
+question has an answer. Three runs of the same job:
+
+| Run | `Run Docker E2E` (ubuntu) | Image build phase | Suite |
+| --- | --- | --- | --- |
+| Baseline, no cache (run 36830572115) | 403 s | **32.5 s** | 368 s |
+| Cold: the cache being written (run 36832989552) | 596 s | - | - |
+| Warm: the same run re-run, cache readable | 451 s | **42.2 s** | 406 s |
+
+The warm build is **slower** than the build with no cache at all, so the cache is not being reused. The
+likely reason is in the export mode: `mode=min` exports only the layers of the final stage, and for these
+Dockerfiles the work worth caching sits in earlier layers, so there is nearly nothing to import. `mode=max`
+would export the intermediate layers and is the untested hypothesis.
+
+Even if it worked, the prize is bounded by the image build: **32.5 s of a ~400 s job, about 7%**, while the
+cold run paid **+193 s** to write a cache that did not read back in the same job, and the suite's own
+run-to-run variance (±40 s, from Homebrew's network) is larger than the prize itself.
+
+So it was reverted rather than kept: a cache that does not pay for itself is worse than none, because it
+hides its own cost behind a number nobody checks. Anyone who wants to try again should start from the table
+above, change `mode=min` to `mode=max` first, and require a warm build under ten seconds before believing
+it.
+
 ## Handover - Docker layer cache
 
 Implemented in this worktree; no workflow was run and hosted cache-hit behavior is not verified.
