@@ -10,13 +10,68 @@ on:
 permissions:
   contents: read
 
+# One run per branch. A superseded push cancels the run it replaced: three
+# pushes on one branch used to pay this matrix three times over.
+#
+# A push to main is never cancelled. The group is the same for every push to
+# main, so `cancel-in-progress: true` was killing the previous commit's matrix
+# as soon as the next merge arrived: run 36586936998 has `Linux E2E (ubuntu)`
+# cancelled at 15:09:32, five seconds after the next push created run
+# 36588029818, and that commit's only full apt-and-Homebrew installation was
+# never verified by anything. Waiting behind the previous run costs minutes;
+# abandoning a merged commit's check costs the check.
 concurrency:
   group: e2e-installer-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Which images this event runs is a coverage decision, and it is written here,
+  # in plain shell, rather than inside an expression that only GitHub evaluates.
+  #
+  # A pull request runs one image per package manager and shell family. debian is
+  # the image a pull request drops, and only it: it is the second apt-family
+  # image, and the installer classifies Ubuntu and Debian alike as `OSDebian`
+  # (internal/system/detect.go, decided by /etc/debian_version), so ubuntu walks
+  # the same package list and the same 240-combination dry-run planning matrix
+  # through the same binary - and then installs for real, which debian never
+  # does. Debian's own thirteen assertions are three binary smoke tests (also run
+  # on ubuntu, fedora, arch and alpine), three option-planning tests (also run on
+  # ubuntu) and the dry-run matrix (also run on ubuntu, same OSDebian path). Its
+  # only remaining difference is that e2e_test.sh itself runs under `sh` (dash)
+  # rather than bash, and alpine covers that on a pull request under busybox
+  # `ash`, a stricter POSIX shell. It returns on main, where a second apt
+  # generation is worth a 36-second job.
+  #
+  # Nothing else goes. fedora is the only dnf execution, arch the only pacman
+  # execution, alpine the only apk detection and the only non-bash shell left on
+  # a pull request, and termux the only Android/Termux detection. Cutting any of
+  # them would be the false safety of a matrix that looks green over a path
+  # nobody exercised.
+  e2e-images:
+    name: E2E image list
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.images.outputs.images }}
+    steps:
+      - name: Decide which images this event runs
+        id: images
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo 'images=["ubuntu","fedora","arch","alpine"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'images=["ubuntu","debian","fedora","arch","alpine"]' >> "$GITHUB_OUTPUT"
+          fi
+
   go-tests:
     name: Go tests
+    # `go test ./... -skip Golden` also runs inside Go Validation in ci.yml, on
+    # the same runner with the same toolchain, so this job is a duplicate by
+    # command. It stays because it is the only place a test failure is reported
+    # without a gofmt failure in front of it - Go Validation stops at gofmt and
+    # never reaches its test step - and because the parallel run costs no
+    # pull-request feedback time at all: this job takes 47 seconds while the
+    # Ubuntu image takes 424. The duplication is deliberate, and the reason to
+    # merge them is a leftover worth one check, not this one.
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -37,11 +92,19 @@ jobs:
   linux-e2e:
     name: Linux E2E (${{ matrix.image }})
     runs-on: ubuntu-latest
-    needs: go-tests
+    # Only the image list. The gate that used to sit here, `needs: go-tests`, was
+    # worth removing: this job builds the binary from its own checkout and runs it
+    # in Docker, so it consumes nothing the Go tests produce, and waiting for a
+    # 47-second job before starting a 424-second one cost the pull request 50
+    # seconds (run 36625550831: Go tests 20:19:41-20:20:28, this matrix starting
+    # at 20:20:31). It also corrupted the check list - a failing `Go tests`
+    # skipped this matrix and listed it as `Linux E2E (${{ matrix.image }})`, an
+    # unexpanded name for a matrix that never ran.
+    needs: e2e-images
     strategy:
       fail-fast: false
       matrix:
-        image: [ubuntu, debian, fedora, arch, alpine]
+        image: ${{ fromJSON(needs.e2e-images.outputs.images) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,8 +128,9 @@ jobs:
   termux-e2e:
     name: Termux E2E (non-blocking)
     runs-on: ubuntu-latest
-    needs: go-tests
     continue-on-error: true
+    # No `needs: go-tests`, for the same reason as the Linux matrix: nothing
+    # here reads the Go tests' output, and the dependency only serialised it.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
