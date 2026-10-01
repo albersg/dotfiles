@@ -447,12 +447,13 @@ mkdir -p ~/.cache/starship
 mkdir -p ~/.cache/carapace
 mkdir -p ~/.local/share/atuin
 cp -rf starship.toml ~/.config/
-# Fish loads ~/.config/fish/conf.d/*.fish natively. Keep personal Fish startup
-# settings there. The TUI installer preserves an unmarked config.fish there and
-# logs its exact path. For this manual copy, save an existing personal config:
+# Personal Fish settings belong in dotfiles.d; config.fish sources these files
+# last so they can override managed defaults. The TUI installer preserves an
+# unmarked config.fish there and logs its exact path. For this manual copy, save
+# an existing personal config:
 if [ -f ~/.config/fish/config.fish ] && ! grep -q '^# dotfiles-managed-config: fish$' ~/.config/fish/config.fish; then
-  mkdir -p ~/.config/fish/conf.d
-  cp ~/.config/fish/config.fish ~/.config/fish/conf.d/dotfiles-user-config-manual-$(date +%Y%m%d-%H%M%S).fish
+  mkdir -p ~/.config/fish/dotfiles.d
+  cp ~/.config/fish/config.fish ~/.config/fish/dotfiles.d/dotfiles-user-config-manual-$(date +%Y%m%d-%H%M%S).fish
 fi
 cp -rf dotfiles-fish/fish ~/.config
 ```

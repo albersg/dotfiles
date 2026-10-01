@@ -124,3 +124,16 @@ set -g fish_pager_color_progress $comment
 set -g fish_pager_color_prefix $cyan
 set -g fish_pager_color_completion $foreground
 set -g fish_pager_color_description $comment
+
+# Files in this directory belong to the user, not to this managed config: the
+# installer replaces config.fish on updates, so local edits written here are
+# lost. The drop-ins survive because installation leaves this directory alone.
+# Source them last so personal settings can override managed defaults, matching
+# the user extension point in .zshrc.
+if test -d "$HOME/.config/fish/dotfiles.d"
+    for _dotfiles_user_config in "$HOME"/.config/fish/dotfiles.d/dotfiles-user-config-*.fish
+        if test -f "$_dotfiles_user_config"
+            source "$_dotfiles_user_config"
+        end
+    end
+end
