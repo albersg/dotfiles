@@ -2019,18 +2019,25 @@ func (m Model) companionRow(stage int) string {
 	return rows[0]
 }
 
-// trainerCompanionRow is the companion's row on a trainer screen. The trainer's
-// exercise and boss screens spend every row they are given -- their code window
-// takes whatever the chrome leaves -- so there is no spare row for the frame's
-// placement to find. What they do have is one blank spacer row above the legend,
-// which is the row nearest the footer and a row the body did not need; the
-// companion takes that one row where the frame's screens take the last spare
-// ones. One spare row is the ladder's last step, so the trainer draws the
-// one-row art and keeps the screen exactly as tall as it was. It draws nothing
-// when the gate is off, so the spacer stays blank and the screen renders exactly
-// the bytes it did before the creature existed.
-func (m Model) trainerCompanionRow(stage int) string {
-	return m.companionRow(stage)
+// trainerCompanionRows places the same ladder-selected sprite as the installer's
+// frame in the rows the trainer's content did not need. The trainer owns its row
+// composition, so it supplies the rows already spent and the legend's height;
+// the ladder and renderer remain shared. At the documented floor only the legacy
+// one-row slot is available, preserving the 80x24 layout exactly.
+func (m Model) trainerCompanionRows(stage, precedingRows, footerRows int) []string {
+	spare := m.Height - viewPaddingRows - precedingRows - footerRows
+	if m.Height <= trainerFloorHeight {
+		spare = companionMiniHeight
+	}
+	height := m.companionHeightNow(spare)
+	if height == 0 {
+		return []string{""}
+	}
+	rows := m.companionSprite(stage, height)
+	if len(rows) == 0 {
+		return []string{""}
+	}
+	return rows
 }
 
 // placeCompanion puts the creature's sprite in the last rows the body did not
