@@ -10,20 +10,9 @@ import (
 
 func TestModuleID_Constants(t *testing.T) {
 	// Verificar que todos los módulos están definidos correctamente
-	modules := []ModuleID{
-		ModuleHorizontal,
-		ModuleVertical,
-		ModuleTextObjects,
-		ModuleChangeRepeat,
-		ModuleSubstitution,
-		ModuleRegex,
-		ModuleMacros,
-		ModuleEditing,
-		ModuleRegisters,
-	}
-
-	if len(modules) != 9 {
-		t.Errorf("Expected 9 modules, got %d", len(modules))
+	modules := allModuleIDs()
+	if len(modules) == 0 {
+		t.Fatal("GetAllModules returned no modules")
 	}
 
 	// Verificar valores únicos
