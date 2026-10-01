@@ -33,9 +33,9 @@ nothing is happening: it was repainting its own rows on every frame, which read 
   so one arrow key is a short stroll rather than a dash across a 227-column stage, and the gaze is
   settled when the target changes rather than on the next tick. At rest the view string is
   byte-identical from tick to tick, so the renderer writes nothing at all; while walking it repaints
-  only the sprite's own lines. The pixel sprite's body is also drawn in the theme's muted tones now,
-  with the one bright tone spent on the eyes, so the decoration is no longer the loudest thing on a
-  screen whose words should be.
+  only the creature's own lines. The creature's body is also drawn in the theme's muted tones now, with
+  the one bright tone spent on the eyes, so the decoration is no longer the loudest thing on a screen
+  whose words should be.
 - **The installer's frames no longer tear while they animate.** bubbletea builds each frame in one
   write, but the terminal paints those bytes as they arrive, so a redraw that rewrites several lines
   was visible half-updated. The installer now brackets every frame in the terminal's
@@ -57,52 +57,49 @@ nothing is happening: it was repainting its own rows on every frame, which read 
   the floor shows all fourteen in full. The mission, the answer and the feedback are wrapped to their
   own column and lose no line; the menu and the boss screens keep their one-column bodies; and at
   exactly 80×24 the lesson screen is byte-for-byte what it was.
-- **The companion is shaded where the terminal can shade it.** Above the glyph cat there is now one
-  more step: where the terminal reports true colour and the frame can spare eight rows, the same cat is
-  drawn as a sixteen-pixel-square sprite of half blocks, with a foreground and a background colour per
-  cell — outline, two shades of fur and a rose nose, all from the installer's own palette, with the
-  walk bobbing by half a cell and a sleeping cat sagging the same way. It is composed, not drawn per
-  state: one block of face rows per state and the pupils stamped into it, so eight states and six
-  gazes stay one sprite. Where the terminal cannot do it the glyph ladder is untouched — five rows,
-  three, one, nothing — because a colourless terminal draws those cells as plain blocks, and
-  `DOTFILES_SPRITE=0` / `--no-sprite` turns the tier off on its own. It is honest about its price and
-  the price is measured, not estimated: the sprite itself is under 1560 bytes (a test asserts it), but
-  the sprite is not what the terminal is written — the renderer repaints a whole line whenever any
-  byte in it changed — so what matters is the two regimes, at rest and while walking, and those are
-  measured by `TestCompanionCostHasTwoRegimes` rather than guessed. Drawing it is about 140 µs of the
-  ~700 µs a frame of that screen already costs. No new dependency was needed: the encoder is a few
-  dozen lines of this repository's own code.
-  `charmbracelet/x/mosaic` was evaluated for this step and rejected on two measured reasons — it forces
-  `x/ansi` ≥0.11.7, which breaks the `x/cellbuf` Bubble Tea pins and drags eight modules through the
-  render path of every screen, and its luminance-threshold colour model collapses the shading
-  boundaries a four-tone sprite is drawn for — so the hand-written encoder is a decision, and the
-  reasoning is written down beside the sprite where the next person will read it.
-- **The companion's eyes follow the mouse.** They followed the selection; the pointer is now what they
-  look at when there is one, and the selection is the fallback for the runs and terminals that have no
-  pointer. The installer asks the terminal for mouse motion only when the run can use it, and it is a
-  switch of its own — `--no-mouse` / `DOTFILES_MOUSE=0` — because mouse reporting costs the user the
-  terminal's own drag-to-select: with the pointer off no mouse mode is requested at all, so ordinary
-  selection works again, where a run that merely ignored the events would still have taken the drag.
-  A Termux session defaults to no pointer, because a finger is not a hover and Termux turns a drag
-  into a wheel report; `DOTFILES_MOUSE=1` overrides that for a session with a real mouse. The turn
-  happens on the mouse message rather than on the next frame, the pupils rest inside a two-column
-  dead zone so they cannot flicker, and a pointer that has not moved a cell changes no byte. Moving
-  the mouse also wakes a sleeping creature — a parked mouse sends no events, so every pointer event
-  is the user moving it — and a click earns the celebration a finished step gets plus a hop one row
-  off the ground, which costs one spare row and is skipped on a frame that has none rather than take
-  a fact's row.
-- **The companion has a body, a face and a gaze.** The installer's ASCII creature was one row of
-  seven characters; it is now a cat drawn at three heights, and a ladder picks between them from the
-  rows the body did not need — five rows where it leaves six, three where it leaves four, the one-row
-  art it shipped with where it leaves two, and nothing below that — so a smaller terminal gets a
-  smaller creature instead of none, and no screen loses the creature it had. The panel summary's rows
-  come off the spare rows first, because a fact still beats a decoration. Its pupils sit at one of
-  three columns and its eye row on one of two, and those cells are the only characters a gaze frame
-  changes, so the frame tables stay hand-written and reviewable instead of becoming thirty drawn
-  frames; it blinks every five seconds and yawns through the last two seconds before it sleeps. All
-  of it stays plain ASCII — no emoji, no block glyphs — so Termux and a 16-colour or no-colour
-  terminal keep working, and the frame, the cell and the gaze all come from the model, so a snapshot
-  can still pin a frame instead of flaking on the clock.
+- **The companion became a creature.** The installer's ASCII cat was one row of seven characters; it is
+  now a **shaded volume** where the terminal can shade, and a ladder picks the size from the rows the body
+  did not need: the volume at twelve rows where it can spare twelve, the same volume at eight where it can
+  spare eight, and then the glyph cat at five, its head at three, the one-row art the creature shipped
+  with, and nothing below that. The panel summary's rows come off the spare rows first, because a fact
+  still beats a decoration, and no screen loses the creature it had.
+
+  The volume is **rendered, not drawn**: an implicit surface — a handful of metaballs for the head, the
+  muzzle, the body, the four legs and the tail, cut at a threshold — shaded by a light from the upper left
+  with normals taken from the field's gradient, quantised to the installer's own tones through a fixed
+  ordered-dither matrix so the gradient reads smooth instead of banded, and grounded by a drop shadow.
+  Animation **moves the metaballs** rather than swapping drawings, which is what makes the shape deform:
+  a walk cycle with alternating legs and a one-pixel bob, a lean, a tail that counter-sways, and a head
+  and pupils that turn toward what the creature is looking at. The glyph ladder under it needs no colour
+  at all and is untouched — a half-block cell without colour draws as a plain block — so a terminal
+  without true colour, a run with `DOTFILES_SPRITE=0` / `--no-sprite`, and a frame with fewer rows all
+  still get a cat. The pupils sit at one of three columns and the eye row on one of two, and a composer
+  moves them, so the tables stay one frame per state instead of thirty drawn frames; it blinks every ten
+  seconds and yawns through the last two before it sleeps.
+
+  **Its eyes follow the pointer.** They followed the selection; the pointer is what they look at when
+  there is one, and the selection remains the fallback for a run or a terminal without one. Mouse motion
+  is asked for only when the run can use it and it is a switch of its own — `--no-mouse` /
+  `DOTFILES_MOUSE=0` — because mouse reporting costs the user the terminal's own drag-to-select: with the
+  pointer off **no mouse mode is requested at all**, so ordinary selection works again, where a run that
+  merely ignored the events would still have taken the drag. Termux defaults to no pointer, because a
+  finger is not a hover and Termux turns a drag into a wheel report, and `DOTFILES_MOUSE=1` overrides
+  that. The turn happens on the mouse message rather than on the next frame, the pupils rest inside a
+  two-column dead zone so they cannot flicker, a pointer that has not moved a cell changes no byte, and
+  every pointer event wakes a sleeping creature. A click earns the celebration a finished step gets plus a
+  hop of one row, which costs a spare row and is skipped where there is none rather than take a fact's row.
+
+  Its price is **measured, not estimated**, and it has two regimes (`TestCompanionCostHasTwoRegimes`): at
+  rest, with no key and no pointer event, the view is byte-identical from tick to tick and the renderer
+  writes **nothing**; while it walks, the volume's twelve rows all move, so twelve whole lines are
+  repainted — 7488 bytes in the widest frame, about 58 KB/s at eight frames a second for the two and a
+  half seconds a walk lasts. Rendering the volume is the expensive part of that:
+  `BenchmarkCompanionVolumeFrame` measures about 1.6 ms a frame. `charmbracelet/x/mosaic` was evaluated for
+  this and rejected on two measured reasons — it forces `x/ansi` ≥0.11.7, which breaks the `x/cellbuf`
+  Bubble Tea pins and drags eight modules through the render path of every screen, and its
+  luminance-threshold colour model collapses the shading boundaries the volume is made of — so the
+  hand-written renderer is a decision, and the reasoning is written down beside it. The frame, the cell
+  and the gaze all come from the model, so a snapshot can pin a frame instead of flaking on a clock.
 - **The installer has one palette that reads on a light or a dark terminal.** The theme was near-white
   text on whatever background the terminal happened to have, so on a light terminal the body text was
   effectively invisible. Every colour is now adaptive: it asks the terminal for its background and

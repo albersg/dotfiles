@@ -39,11 +39,11 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
   progress bar, where the run's progress is charted over time; a host that cannot be read shows no
   row rather than a lie, and with animation off the panel says the sampling is off instead of
   freezing a chart
-- **A Companion**: A small ASCII cat walks the rows above the footer — five rows where the body
-  leaves room, three where it leaves less, the one-row creature elsewhere — looks at the selection
-  you move the cursor to, blinks, yawns before it sleeps when you stop typing, reacts to failures
-  and to destructive choices, and celebrates with a two-second burst of particles when the run
-  finishes
+- **A Companion**: A creature walks the rows above the footer — a shaded volume where the terminal can
+  shade and the body leaves twelve rows or eight, and the glyph cat at five, three or one everywhere else
+  — follows the mouse pointer with its gaze where the terminal reports one, blinks, yawns before it sleeps
+  when you stop typing, reacts to failures and to destructive choices, and celebrates with a two-second
+  burst of particles when the run finishes
 - **Non-Interactive Mode**: CI/CD friendly installation via CLI flags
 
 ## Quick Start
@@ -333,46 +333,50 @@ of them** — immediately above the footer rule — and only there: a screen who
 shows no companion at all, so the creature never costs a body a row, and with animation off there is
 no companion anywhere, because a frozen pet is not the point.
 
-It is drawn at three heights, and a ladder picks between them so that a terminal which leaves fewer
-rows gets a smaller creature rather than none: **five rows** (a cat with a body), else **three rows**
-(the same cat's head), else the **one row** the creature shipped with, else nothing. The panel
-summary's rows come off the spare rows first, because a fact beats a decoration: a narrow screen with
-one row to spare shows the facts and no creature, one with two rows to spare shows both with the
-summary above the creature, and one whose body fills its frame shows neither. At 80x24 — the floor
-every screen is guaranteed to work at — the main menu leaves five spare rows of which the summary
-takes one, so the three-row head is what draws there; the whole five-row cat needs six.
+It is drawn at five sizes, and a ladder picks between them so that a terminal which leaves fewer rows
+gets a smaller creature rather than none. Where the terminal reports true colour: the **shaded volume**
+at twelve rows where the frame can spare twelve, then the same volume at eight rows where it can spare
+eight. Then, for a frame or a terminal that cannot shade, the glyph cat at **five rows**, its **head**
+at three, the **one row** the creature shipped with, and nothing below that. The panel summary's rows
+come off the spare rows first, because a fact beats a decoration: a narrow screen with one row to spare
+shows the facts and no creature, one with two rows to spare shows both with the summary above the
+creature, and one whose body fills its frame shows neither. At 80x24 — the floor every screen is
+guaranteed to work at — the main menu leaves five spare rows of which the summary takes one, so the
+three-row head is what draws there.
 
-**Above the glyph cat there is one more step, drawn only where it can be drawn properly.** Where the
-terminal reports true colour and the frame can hold eight more rows, the same cat is drawn as a shaded
-pixel sprite: sixteen pixels square, as eight rows of half blocks with a foreground and a background
-colour per cell, so the outline, the fur in two shades and the rose nose all come from the palette,
-the walk bobs by half a cell and a sleeping cat's whole body sags. Half blocks give two pixels per
-cell vertically, which is what lets eight rows carry sixteen rows of drawing — enough for a face that
-reads as a cat rather than as a smiley. It needs colour in a way the glyph art does not: a terminal
-with no colour draws those cells as plain blocks, so this step exists only when the terminal says it
-has true colour, and the glyph ladder — all of it, the five-row cat included — stays exactly as it is
-for every other run. The ladder therefore reads: shaded sprite, else five rows, else three, else one,
-else nothing.
+**The volume is rendered, not drawn.** It is an implicit surface: the sum of a handful of metaballs —
+head, muzzle, body, four legs, tail — cut at a threshold, so the outline is smooth and organic rather
+than a bitmap somebody placed. Normals come from the field's gradient and a light from the upper left
+shades it; the result is quantised to the theme's tones through a fixed ordered-dither matrix, so the
+gradient reads as smooth rather than as bands, and a drop shadow grounds it on the row it stands on.
+Animation **moves the metaballs** — a walk cycle with alternating legs and a one-pixel bob, a lean, a
+tail that counter-sways, and a head and pupils that turn toward whatever it is looking at — which is
+what makes the shape deform rather than jump between drawings.
 
-It costs what it looks like it costs, and only while it is moving. The sprite the encoder writes is
-small: eight rows of sixteen cells, with an escape sequence only when a cell's style changes, so the
-sprite itself is at most **1560 bytes** (asserted by a test, not promised in a comment). But the
-sprite is not what the terminal is written. The renderer repaints a whole line whenever any byte in it
-changed, so the cost of a tick is the lines it moved times the width of those lines — which is why the
-creature has two regimes, measured by `TestCompanionCostHasTwoRegimes` at 227 columns:
+The glyph ladder under it needs no colour at all and stays exactly as it is: a half-block cell with no
+colour draws as a plain block, and this shading means nothing there. That is what keeps it a floor
+rather than a fallback — a terminal without true colour, a run with the sprite switched off
+(`DOTFILES_SPRITE=0`) and a frame with fewer rows all get the cat the glyph ladder picks.
+
+It costs what it looks like it costs, and only while it is moving. The renderer repaints a whole line
+whenever any byte in it changed, so the cost of a tick is the lines it moved times the width of those
+lines. The creature therefore has two regimes, measured by `TestCompanionCostHasTwoRegimes` at 227
+columns and quoted here from that test's own output rather than from a number typed once:
 
 - **At rest — nothing.** With no key and no pointer event the view string is byte-identical from tick
   to tick, so the renderer writes **no bytes at all**. Pacing on its own and settling its gaze a frame
   after the target were both removed for this: they made the creature repaint two of its rows on every
   frame over a screen nobody was touching.
-- **While walking — about 3.3 KB a frame.** The eight rows of the shaded sprite (five for the glyph
-  cat) all move with the one-cell step, so every one of those lines is repainted: the measured widest
-  frame is 3297 bytes, some **25.8 KB/s** at eight frames a second, and walking from the first menu row
-  to the last — five rows, fifteen cells — is 19 frames, about **2.4 s** and 46 KB in total. The line is
-  the frame's width, so a wider terminal costs more per line and the same per cell walked.
+- **While walking — twelve lines.** The volume's twelve rows all move with the one-cell step, so every
+  one of them is repainted: the test measures **7488 bytes** in the widest changed lines, about
+  **58 KB/s** at eight frames a second, and a walk from the first menu row to the last takes about
+  **2.4 s**. The line is the frame's width, so a wider terminal costs more per line and the same per
+  cell walked.
 
-Drawing it is about 140 µs of the roughly 700 µs a frame of this screen already takes, which the
-benchmark beside the sprite's tests measures rather than estimates.
+Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` measures 884
+height-field samples and 768 raster pixels at roughly **1.6 ms** a frame, plus the allocations of
+assembling a frame's strings. It is paid only where the volume is drawn and only while it moves, and it
+is written down here rather than left to be discovered.
 
 **Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
 this step and deliberately rejected, for two reasons that were measured rather than guessed. It
