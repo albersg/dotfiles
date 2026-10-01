@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 )
 
 // sgrEscape matches a Select Graphic Rendition sequence: the escape that sets a
@@ -35,20 +37,18 @@ func TestNoRenderedLineLeavesAColourActive(t *testing.T) {
 			m.Width, m.Height = size.width, size.height
 			m.Animating = true
 			m.PixelSprite = true
+			checkRenderedLineStyles(t, name, size.width, size.height, m.View())
+			checked++
+		}
+	}
 
-			for i, line := range strings.Split(m.View(), "\n") {
-				matches := sgrEscape.FindAllStringSubmatch(line, -1)
-				if len(matches) == 0 {
-					continue
-				}
-				last := matches[len(matches)-1][1]
-				if last == "" || last == "0" {
-					continue
-				}
-				t.Errorf("%s at %dx%d line %d ends with a style still active (%q): the colour will bleed "+
-					"through every cell after it and through the lines below.\nline: %q",
-					name, size.width, size.height, i+1, last, line)
-			}
+	for _, name := range trainerLeakScreenNames {
+		for _, size := range sizes {
+			m := trainerLeakFrameCase(t, name)
+			m.Width, m.Height = size.width, size.height
+			m.Animating = true
+			m.PixelSprite = true
+			checkRenderedLineStyles(t, name, size.width, size.height, m.View())
 			checked++
 		}
 	}
@@ -56,4 +56,51 @@ func TestNoRenderedLineLeavesAColourActive(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no screens were checked, so this guard proves nothing")
 	}
+}
+
+func checkRenderedLineStyles(t *testing.T, name string, width, height int, view string) {
+	t.Helper()
+	for i, line := range strings.Split(view, "\n") {
+		matches := sgrEscape.FindAllStringSubmatch(line, -1)
+		if len(matches) == 0 {
+			continue
+		}
+		last := matches[len(matches)-1][1]
+		if last == "" || last == "0" {
+			continue
+		}
+		t.Errorf("%s at %dx%d line %d ends with a style still active (%q): the colour will bleed "+
+			"through every cell after it and through the lines below.\nline: %q",
+			name, width, height, i+1, last, line)
+	}
+}
+
+var trainerLeakScreenNames = []string{
+	"trainer-menu", "trainer-lesson", "trainer-practice", "trainer-boss",
+	"trainer-result", "trainer-boss-result",
+}
+
+func trainerLeakFrameCase(t *testing.T, name string) Model {
+	t.Helper()
+	m := newTrainerFrameModel(t, trainer.ModuleHorizontal)
+	switch name {
+	case "trainer-menu":
+		m.Screen = ScreenTrainerMenu
+		m.TrainerModules = trainer.GetAllModules()
+	case "trainer-lesson":
+		m.Screen = ScreenTrainerLesson
+	case "trainer-practice":
+		m.Screen = ScreenTrainerPractice
+	case "trainer-boss":
+		m.Screen = ScreenTrainerBoss
+		m.TrainerGameState.StartBoss(trainer.ModuleHorizontal)
+	case "trainer-result":
+		m.Screen = ScreenTrainerResult
+	case "trainer-boss-result":
+		m.TrainerGameState.StartBoss(trainer.ModuleHorizontal)
+		m.Screen = ScreenTrainerBossResult
+	default:
+		t.Fatalf("unknown trainer leak screen %q", name)
+	}
+	return m
 }

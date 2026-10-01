@@ -2031,6 +2031,9 @@ const (
 	trainerMessageRows = 2
 	// trainerCodeMinRows is the floor the code window is never taken below.
 	trainerCodeMinRows = 1
+	// trainerFloorHeight is the smallest supported trainer terminal. At this
+	// height the companion keeps its original one-row mini.
+	trainerFloorHeight = 24
 	// trainerModuleStatusWidth is the column width of the trainer menu's status
 	// field. It fits the longest status ("● practice"), so a row's module name
 	// starts on the same column whatever state the module is in.
@@ -2487,11 +2490,15 @@ func (m Model) renderTrainerMenu() string {
 	// the verbs as verbs, the same way every installer screen's footer does. The
 	// menu's eight hints pack to two rows at the 80-column floor, the height the
 	// rows above already reserve.
-	rows = append(rows, footerHints(inner, []installerHint{
+	footer := footerHints(inner, []installerHint{
 		hintUp, hintDown,
 		trainerHintLesson, trainerHintPractice, trainerHintBoss,
 		trainerHintReset, trainerHintResetAll, trainerHintBack,
-	})...)
+	})
+	if m.Height > trainerFloorHeight {
+		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+	}
+	rows = append(rows, footer...)
 
 	return strings.Join(rows, "\n")
 }
@@ -2512,7 +2519,11 @@ func (m Model) trainerTextBudget(exercise *trainer.Exercise) (missionRows []stri
 		return m.trainerWideTextBudget(exercise, l)
 	}
 
-	flex := m.Height - trainerFrameRows
+	reserve := 0
+	if m.Height > trainerFloorHeight {
+		reserve = m.companionHeightNow()
+	}
+	flex := m.Height - trainerFrameRows - reserve
 	if flex < trainerCodeMinRows+1 {
 		flex = trainerCodeMinRows + 1
 	}
@@ -2543,6 +2554,9 @@ const trainerRightColumnChrome = 5
 // existing cut marker's job at an extreme height, not a normal case.
 func (m Model) trainerWideTextBudget(exercise *trainer.Exercise, l layout) (missionRows []string, codeRows int) {
 	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints()))
+	if m.Height > trainerFloorHeight {
+		bodyRows -= m.companionHeightNow()
+	}
 
 	// The code window owns the left column: the column minus its chip.
 	codeRows = bodyRows - 1
@@ -2841,8 +2855,9 @@ func (m Model) renderTrainerExercise(mode string) string {
 
 	if m.trainerTwoColumnLayout(l) {
 		rows = append(rows, m.trainerExerciseColumns(exercise, l)...)
-		rows = append(rows, m.trainerCompanionRow(inner))
-		rows = append(rows, footerHints(inner, hints)...)
+		footer := footerHints(inner, hints)
+		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+		rows = append(rows, footer...)
 		return strings.Join(rows, "\n")
 	}
 
@@ -2871,8 +2886,9 @@ func (m Model) renderTrainerExercise(mode string) string {
 	// Help, packed by the shared footer component. It stays two rows at the
 	// 80-column floor, so the screen's height is still countable: see
 	// trainerFrameRows.
-	rows = append(rows, m.trainerCompanionRow(inner))
-	rows = append(rows, footerHints(inner, hints)...)
+	footer := footerHints(inner, hints)
+	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+	rows = append(rows, footer...)
 
 	return strings.Join(rows, "\n")
 }
@@ -3084,11 +3100,13 @@ func (m Model) renderTrainerBoss() string {
 		// No step is on screen, so there is no code window to size around. The
 		// legend packs through the shared footer component like every other.
 		rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
-		rows = append(rows, m.trainerCompanionRow(inner))
-		rows = append(rows, footerHints(inner, []installerHint{
+		hints := []installerHint{
 			trainerHintTypeCommand, trainerHintSubmit, trainerHintEscToken,
 			trainerHintScroll, trainerHintForfeit, trainerHintBlockVisual,
-		})...)
+		}
+		footer := footerHints(inner, hints)
+		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+		rows = append(rows, footer...)
 		return strings.Join(rows, "\n")
 	}
 
@@ -3107,11 +3125,13 @@ func (m Model) renderTrainerBoss() string {
 		RuleStyle.Render("│ ")+KeyStyle.Render(tailToWidth(m.trainerAnswer(), inner-blockGutterWidth)),
 	)
 	rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
-	rows = append(rows, m.trainerCompanionRow(inner))
-	rows = append(rows, footerHints(inner, []installerHint{
+	hints := []installerHint{
 		trainerHintTypeCommand, trainerHintSubmit, trainerHintHint,
 		trainerHintScroll, trainerHintForfeit, trainerHintEscToken, trainerHintBlockVisual,
-	})...)
+	}
+	footer := footerHints(inner, hints)
+	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+	rows = append(rows, footer...)
 
 	return strings.Join(rows, "\n")
 }
@@ -3201,8 +3221,10 @@ func (m Model) renderTrainerResult() string {
 	// the row nearest the legend, and it is the one the companion takes: a
 	// creature drawn here reacts to the verdict in the header above it without
 	// costing the screen a row, so the frame it was measured in is unchanged.
-	rows = append(rows, "", m.trainerCompanionRow(inner))
-	rows = append(rows, footerHints(inner, []installerHint{trainerHintContinue, hintBack})...)
+	rows = append(rows, "")
+	footer := footerHints(inner, []installerHint{trainerHintContinue, hintBack})
+	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+	rows = append(rows, footer...)
 	return strings.Join(rows, "\n")
 }
 
@@ -3263,7 +3285,9 @@ func (m Model) renderTrainerBossResult() string {
 	// The two blank rows are the breathing room above the legend, the same as the
 	// result screen's; the one nearest the legend carries the companion, which
 	// reacts to the victory or the defeat the header names.
-	rows = append(rows, "", m.trainerCompanionRow(inner))
-	rows = append(rows, footerHints(inner, []installerHint{hintReturn})...)
+	rows = append(rows, "")
+	footer := footerHints(inner, []installerHint{hintReturn})
+	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+	rows = append(rows, footer...)
 	return strings.Join(rows, "\n")
 }

@@ -2910,6 +2910,87 @@ func TestTrainerScreensFitTheFrame(t *testing.T) {
 	t.Logf("rendered %d trainer screens at %dx%d", rendered, trainerFrameWidth, trainerFrameHeight)
 }
 
+// TestTrainerLessonUsesTheSharedCompanionLadder pins the trainer's placement
+// contract: the 80x24 floor keeps the one-row mini, while the unused rows of a
+// tall terminal let the shared ladder choose the full glyph creature.
+func TestTrainerLessonUsesTheSharedCompanionLadder(t *testing.T) {
+	m := newTrainerFrameModel(t, trainer.ModuleHorizontal)
+	m.Animating = true
+	m.PixelSprite = false
+
+	m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
+	floor := m.View()
+	if rows := renderedRowCount(floor); rows > trainerFrameHeight {
+		t.Fatalf("floor lesson rendered %d rows, want at most %d:\n%s", rows, trainerFrameHeight, floor)
+	}
+	floorArt, floorRows := trainerViewCompanionArt(floor)
+	if floorRows != companionMiniHeight || !strings.Contains(floorArt, "(o.o)") {
+		t.Errorf("floor companion has %d art rows %q, want the one-row mini", floorRows, floorArt)
+	}
+
+	m.Width, m.Height = 227, 62
+	wide := m.View()
+	wideArt, wideRows := trainerViewCompanionArt(wide)
+	if wideRows != companionFullHeight || !strings.Contains(wideArt, companionFullEars) {
+		t.Errorf("tall companion has %d art rows, want the shared full glyph rung:\n%s", wideRows, wide)
+	}
+	if rows := renderedRowCount(wide); rows > m.Height {
+		t.Errorf("tall lesson rendered %d rows, want at most %d", rows, m.Height)
+	}
+	t.Logf("80x24 lesson (ANSI stripped):\n%s", plainOutput([]byte(floor)))
+	t.Logf("227x62 lesson (ANSI stripped):\n%s", plainOutput([]byte(wide)))
+	if !strings.Contains(wide, "[Tab]") {
+		t.Errorf("tall lesson lost the [Tab] hint:\n%s", wide)
+	}
+}
+
+func trainerViewCompanionArt(view string) (string, int) {
+	var art []string
+	for _, row := range strings.Split(view, "\n") {
+		plain := plainRow(row)
+		if companionRowHasArt(plain) {
+			art = append(art, plain)
+		}
+	}
+	return strings.Join(art, "\n"), len(art)
+}
+
+func TestTrainerCompanionCostAtRestAndWalking(t *testing.T) {
+	m := newTrainerFrameModel(t, trainer.ModuleHorizontal)
+	m.Width, m.Height = 227, 62
+	m.Animating = true
+	m.PixelSprite = false
+	m.CompanionPos = 1
+
+	atRest := m.View()
+	if unchanged := m.View(); atRest != unchanged {
+		t.Fatal("resting trainer companion changed its rendered bytes")
+	}
+
+	walking := m
+	walking.CompanionMoving = true
+	walking.CompanionPos++
+	walking.AnimTick++
+	walkingView := walking.View()
+	changedRows, changedBytes := trainerChangedCost(atRest, walkingView)
+	t.Logf("trainer companion at rest: 0 changed bytes; walking: %d changed rows, %d changed bytes at %dx%d",
+		changedRows, changedBytes, m.Width, m.Height)
+	if changedRows != companionFullHeight {
+		t.Errorf("walking changed %d rows, want the full sprite's %d rows", changedRows, companionFullHeight)
+	}
+}
+
+func trainerChangedCost(before, after string) (rows, bytes int) {
+	beforeRows, afterRows := strings.Split(before, "\n"), strings.Split(after, "\n")
+	for i := range beforeRows {
+		if beforeRows[i] != afterRows[i] {
+			rows++
+			bytes += len(beforeRows[i]) + len(afterRows[i])
+		}
+	}
+	return rows, bytes
+}
+
 // TestTrainerMenuFitsTheFrameWithItsResetPrompt pins the reason the menu holds
 // two rows of feedback area even when it has nothing to say: the armed reset
 // prompt is a message the menu shows, and the screen has to stay inside the frame
