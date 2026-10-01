@@ -8,10 +8,10 @@ The drop-in locations must load after dotfiles' managed settings so the user's c
 
 | Task | Outcome | Commit |
 |---|---|---|
-| 1. Couple preservation and replacement at a tested system seam for Fish and Zsh | Added `ReplaceUserConfig`; the behavior test covers unmarked preservation, exact bytes, returned location, replacement content, and marker-managed replacement without a drop-in. The test was run with the preservation call temporarily removed and failed on the missing preserved config. | Not created by this implementation writer; transaction controller to record after authorized commit |
-| 2. Make Fish user drop-ins load last and update user-facing documentation | Fish now saves into `dotfiles.d`, sources those files at the end of `config.fish`, and reports the right path. Manual-installation and TUI docs plus the changelog describe the new path and precedence. | Not created by this implementation writer; transaction controller to record after authorized commit |
-| 3. Guard Fish merge-copy retention | Installer-level regression test runs `stepInstallShell`, verifies preserved bytes survive the merge, and checks the shipped loader. Temporarily switching the installer to `CopyDirPruned` made the test fail because the drop-in disappeared. | Not created by this implementation writer; transaction controller to record after authorized commit |
-| 4. Record outcomes and remaining work | This document records the reports, marker/drop-in decision, precedence rationale, implementation outcomes, and validation evidence. | Not created by this implementation writer; transaction controller to record after authorized commit |
+| 1. Couple preservation and replacement at a tested system seam for Fish and Zsh | Added `ReplaceUserConfig`; the behavior test covers unmarked preservation, exact bytes, returned location, replacement content, and marker-managed replacement without a drop-in. The test was run with the preservation call temporarily removed and failed on the missing preserved config. | 3905437 (tasks 2 and 3) / 6c1b254 (task 1) |
+| 2. Make Fish user drop-ins load last and update user-facing documentation | Fish now saves into `dotfiles.d`, sources those files at the end of `config.fish`, and reports the right path. Manual-installation and TUI docs plus the changelog describe the new path and precedence. | 3905437 (tasks 2 and 3) / 6c1b254 (task 1) |
+| 3. Guard Fish merge-copy retention | Installer-level regression test runs `stepInstallShell`, verifies preserved bytes survive the merge, and checks the shipped loader. Temporarily switching the installer to `CopyDirPruned` made the test fail because the drop-in disappeared. | 3905437 (tasks 2 and 3) / 6c1b254 (task 1) |
+| 4. Record outcomes and remaining work | This document records the reports, marker/drop-in decision, precedence rationale, implementation outcomes, and validation evidence. | 3905437 (tasks 2 and 3) / 6c1b254 (task 1) |
 
 ## Validation
 
