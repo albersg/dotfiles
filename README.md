@@ -149,15 +149,17 @@ Learn Vim the fun way! The installer includes an interactive RPG-style trainer w
 
 | Module | Keys Covered |
 |--------|--------------|
-| 🔤 Horizontal Movement | `w`, `e`, `b`, `f`, `t`, `0`, `$`, `^` |
-| ↕️ Vertical Movement | `j`, `k`, `G`, `gg`, `{`, `}` |
-| 📦 Text Objects | `iw`, `aw`, `i"`, `a(`, `it`, `at` |
-| ✂️ Change & Repeat | `d`, `c`, `dd`, `cc`, `D`, `C`, `x` |
-| 🔄 Substitution | `r`, `R`, `s`, `S`, `~`, `gu`, `gU`, `J` |
-| 🎬 Macros & Registers | `qa`, `@a`, `@@`, `"ay`, `"+p` |
-| 🔍 Regex/Search | `/`, `?`, `n`, `N`, `*`, `#`, `\v` |
+| 🏃 Horizontal Motions | `w, W, e, E, b, B, f, F, t, T, ;, ,, 0, $, ^` |
+| 📐 Vertical Motions | `j, k, gg, G, {, }, H, M, L, ctrl+d/u/f/b` |
+| 🎯 Text Objects | `viw, vaw, vi", va", vi{, diw, daw, ci", di{, yiw, yi"` |
+| 🔁 Change & Repeat | `d, c, dd, D, C, x, *, #, n, N, gn, cgn, dgn, .` |
+| 🔄 Substitution | `r, R, s, S, ~, gu, gU, J, :s, :%s, flags (g, c, i)` |
+| 🔍 Regex & Vimgrep | `/, ?, n, N, *, #, \\v, :vimgrep, :copen, :cnext` |
+| 🎪 Macros | `qa, q, @a, @@, :normal, :g/pattern/` |
+| 📝 Editing & Undo | `i, a, I, A, o, O, <Esc>, u, Ctrl-r, dd, yy, p, P, >>, <<, x, D, %, marks` |
+| 📋 Registers & Indentation | `yy, yiw, y$, yw, yj, p, P, "a-"z, "0, dd, x, D, >>, <<` |
 
-Each module includes 15 progressive lessons, practice mode with intelligent exercise selection, boss fights, and XP tracking.
+Each module has 19–24 progressive lessons (with a minimum of 15 enforced), practice mode with intelligent exercise selection, boss fights, and XP tracking.
 
 Launch it from the main menu: **Vim Mastery Trainer**
 
