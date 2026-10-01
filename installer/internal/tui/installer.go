@@ -1826,6 +1826,15 @@ func stepInstallShell(m *Model) error {
 				result.Error)
 		}
 		SendLog(stepID, "Copying Fish configuration...")
+		fishConfig := filepath.Join(homeDir, ".config", "fish", "config.fish")
+		preservedFish, err := system.PreserveUserConfig(fishConfig, "# dotfiles-managed-config: fish",
+			filepath.Join(homeDir, ".config", "fish", "conf.d"), "dotfiles-user-config", ".fish")
+		if err != nil {
+			return wrapStepError("shell", "Install Fish", "Failed to preserve existing Fish configuration", err)
+		}
+		if preservedFish != "" {
+			SendLog(stepID, fmt.Sprintf("Preserved your existing Fish configuration at %s; Fish loads it from conf.d.", preservedFish))
+		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetStarship), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
 			return wrapStepError("shell", "Install Fish",
 				"Failed to copy starship configuration",
@@ -1925,7 +1934,16 @@ func stepInstallShell(m *Model) error {
 				"Failed to copy .zshenv configuration",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshrc), filepath.Join(homeDir, ".zshrc")); err != nil {
+		zshrcPath := filepath.Join(homeDir, ".zshrc")
+		preservedZsh, err := system.PreserveUserConfig(zshrcPath, "# dotfiles-managed-config: zsh",
+			filepath.Join(homeDir, ".zshrc.d"), "dotfiles-user-config", ".zsh")
+		if err != nil {
+			return wrapStepError("shell", "Install Zsh", "Failed to preserve existing .zshrc", err)
+		}
+		if preservedZsh != "" {
+			SendLog(stepID, fmt.Sprintf("Preserved your existing .zshrc at %s; it is sourced from ~/.zshrc.d/.", preservedZsh))
+		}
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshrc), zshrcPath); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy .zshrc configuration",
 				err)

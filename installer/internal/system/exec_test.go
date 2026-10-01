@@ -176,6 +176,67 @@ func TestCopyFile(t *testing.T) {
 	})
 }
 
+func TestPreserveUserShellConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		managedMark string
+		dropIn      string
+		extension   string
+	}{
+		{name: "fish", managedMark: "# dotfiles-managed-config: fish", dropIn: "conf.d", extension: ".fish"},
+		{name: "zsh", managedMark: "# dotfiles-managed-config: zsh", dropIn: ".zshrc.d", extension: ".zsh"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+" preserves user config before replacement", func(t *testing.T) {
+			home := t.TempDir()
+			configPath := filepath.Join(home, "config")
+			userConfig := "# user shell config\nalias personal='reachable'\n"
+			if err := os.WriteFile(configPath, []byte(userConfig), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			preserved, err := PreserveUserConfig(configPath, tt.managedMark, filepath.Join(home, tt.dropIn), "dotfiles-user-config", tt.extension)
+			if err != nil {
+				t.Fatalf("PreserveUserConfig failed: %v", err)
+			}
+			if preserved == "" {
+				t.Fatal("user config was not preserved")
+			}
+			got, err := os.ReadFile(preserved)
+			if err != nil {
+				t.Fatalf("preserved path %q is not reachable: %v", preserved, err)
+			}
+			if string(got) != userConfig {
+				t.Errorf("preserved content = %q, want %q", got, userConfig)
+			}
+
+			managedContent := tt.managedMark + "\n# shipped config\n"
+			if err := os.WriteFile(configPath, []byte(managedContent), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			preservedAgain, err := PreserveUserConfig(configPath, tt.managedMark, filepath.Join(home, tt.dropIn), "dotfiles-user-config", tt.extension)
+			if err != nil {
+				t.Fatalf("PreserveUserConfig on managed config failed: %v", err)
+			}
+			if preservedAgain != "" {
+				t.Errorf("managed config accumulated a backup at %q", preservedAgain)
+			}
+		})
+	}
+}
+
+func TestPreserveUserShellConfigFreshInstall(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config")
+	preserved, err := PreserveUserConfig(configPath, "# dotfiles-managed-config: fish", filepath.Join(t.TempDir(), "conf.d"), "dotfiles-user-config", ".fish")
+	if err != nil {
+		t.Fatalf("PreserveUserConfig failed for missing config: %v", err)
+	}
+	if preserved != "" {
+		t.Errorf("fresh install unexpectedly preserved a file at %q", preserved)
+	}
+}
+
 func TestCopyDir(t *testing.T) {
 	t.Run("should copy directory recursively", func(t *testing.T) {
 		srcDir := filepath.Join(t.TempDir(), "src")

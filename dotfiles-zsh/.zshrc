@@ -1,3 +1,4 @@
+# dotfiles-managed-config: zsh
 export ZSH="$HOME/.oh-my-zsh"
 
 # ---------------------------------------------------------------------------

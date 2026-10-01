@@ -1,3 +1,5 @@
+# dotfiles-managed-config: fish
+
 if status is-interactive
     # Commands to run in interactive sessions can go here
     # Install Fisher if not installed (git.io was shut down by GitHub in 2023)
