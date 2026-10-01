@@ -447,9 +447,14 @@ mkdir -p ~/.cache/starship
 mkdir -p ~/.cache/carapace
 mkdir -p ~/.local/share/atuin
 cp -rf starship.toml ~/.config/
-# This replaces ~/.config/fish/config.fish wholesale; it merges the rest of the
-# tree, so files you keep under ~/.config/fish/conf.d/ survive. Save config.fish
-# first if it holds personal settings.
+# Personal Fish settings belong in dotfiles.d; config.fish sources these files
+# last so they can override managed defaults. The TUI installer preserves an
+# unmarked config.fish there and logs its exact path. For this manual copy, save
+# an existing personal config:
+if [ -f ~/.config/fish/config.fish ] && ! grep -q '^# dotfiles-managed-config: fish$' ~/.config/fish/config.fish; then
+  mkdir -p ~/.config/fish/dotfiles.d
+  cp ~/.config/fish/config.fish ~/.config/fish/dotfiles.d/dotfiles-user-config-manual-$(date +%Y%m%d-%H%M%S).fish
+fi
 cp -rf dotfiles-fish/fish ~/.config
 ```
 
@@ -460,11 +465,18 @@ brew install zsh carapace zoxide atuin fzf
 brew install zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete
 mkdir -p ~/.cache/carapace
 mkdir -p ~/.local/share/atuin
+# Personal additions belong in ~/.zshrc.d/*.zsh. The shipped .zshrc sources
+# those files last, in lexical order, so they can override anything above. The
+# TUI installer preserves an unmarked existing ~/.zshrc as a dated
+# dotfiles-user-config-*.zsh here and logs its exact path. Before manual first
+# install only, save a personal .zshrc into this sourced directory:
+if [ -f ~/.zshrc ] && ! grep -q '^# dotfiles-managed-config: zsh$' ~/.zshrc; then
+  mkdir -p ~/.zshrc.d
+  cp ~/.zshrc ~/.zshrc.d/dotfiles-user-config-manual-$(date +%Y%m%d-%H%M%S).zsh
+fi
 cp -rf dotfiles-zsh/.zshrc ~/
 cp -rf dotfiles-zsh/.p10k.zsh ~/
-# Personal additions belong in ~/.zshrc.d/*.zsh: ~/.zshrc is replaced on every
-# update, while ~/.zshrc.d/ is never written to. The shipped .zshrc sources
-# those files last, in lexical order, so they can override anything above.
+# Subsequent updates recognize the ownership marker and do not create more copies.
 # Oh My Zsh manages its own checkout. Only install it when it is missing, and
 # never copy a snapshot over an existing clone: that dirties its tracked files
 # and breaks `omz update` on the autostash pop.

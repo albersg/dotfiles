@@ -678,7 +678,7 @@ Backups are stored in your home directory with a timestamp:
 ~/.dotfiles-backup-YYYY-MM-DD-HHMMSS/
 ```
 
-Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongside single-file configs like `~/.zshrc`.
+Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongside single-file configs like `~/.zshrc`. When installing Fish or Zsh, an existing shell startup file without the shipped ownership marker is also preserved as a dated, sourced drop-in: Fish at `~/.config/fish/dotfiles.d/dotfiles-user-config-*.fish`, Zsh at `~/.zshrc.d/dotfiles-user-config-*.zsh`. The install log names the exact saved path. The shipped `config.fish` sources Fish drop-ins last so personal settings override managed defaults; `.zshrc` likewise sources `.zshrc.d` files last. Fish uses `dotfiles.d` rather than native `conf.d`, because Fish loads `conf.d` before `config.fish`. Files already marked as dotfiles-managed are replaced silently without accumulating drop-ins. For future personal changes, edit or add files in those drop-in directories rather than the managed startup file.
 
 ### Restoring a Backup
 
