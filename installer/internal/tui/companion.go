@@ -511,16 +511,19 @@ func companionSpriteWidth(height int) int {
 // true colour, a run with the sprite switched off and a frame with fewer than the
 // small sprite's rows all get the cat the glyph ladder picks, and every step
 // degrades into the next rather than disappearing.
-func (m Model) companionHeightNow(spare int) int {
+func (m Model) companionHeightNow() int {
 	if m.PixelSprite {
-		if spare >= companionVolumeFullHeight {
+		switch {
+		case m.Height >= 34:
 			return companionVolumeFullHeight
-		}
-		if spare >= companionVolumeSmallHeight {
+		case m.Height >= 30:
 			return companionVolumeSmallHeight
 		}
 	}
-	return companionHeight(spare)
+	if m.Height >= 25 {
+		return companionFullHeight
+	}
+	return companionCompactHeight
 }
 
 // companionHeight is the ladder: the tallest sprite the rows the body did not
@@ -1999,7 +2002,16 @@ func (m Model) companionSprite(stage, height int) []string {
 		return m.companionVolumeRows(stage, size)
 	}
 	pos := min(max(m.CompanionPos, 0), stage-width)
-	art := companionArtFor(m.companionStateNow(), height, m.AnimTick, m.CompanionGaze)
+	state := m.companionStateNow()
+	artHeight := height
+	// At the compact rung a celebration keeps the shipped one-row face. The
+	// three-row pleased head has no room beside the end-of-run burst at the 80x24
+	// floor; this is the expression for that rung, not a fallback selected from
+	// the frame's spare rows. Other states still draw the full selected rung.
+	if state == companionPleasedState && height == companionCompactHeight {
+		artHeight = companionMiniHeight
+	}
+	art := companionArtFor(state, artHeight, m.AnimTick, m.CompanionGaze)
 	rows := make([]string, len(art))
 	for i, row := range art {
 		rows[i] = strings.Repeat(" ", pos) + CompanionStyle.Render(row)
@@ -2019,18 +2031,30 @@ func (m Model) companionRow(stage int) string {
 	return rows[0]
 }
 
-// trainerCompanionRow is the companion's row on a trainer screen. The trainer's
-// exercise and boss screens spend every row they are given -- their code window
-// takes whatever the chrome leaves -- so there is no spare row for the frame's
-// placement to find. What they do have is one blank spacer row above the legend,
-// which is the row nearest the footer and a row the body did not need; the
-// companion takes that one row where the frame's screens take the last spare
-// ones. One spare row is the ladder's last step, so the trainer draws the
-// one-row art and keeps the screen exactly as tall as it was. It draws nothing
-// when the gate is off, so the spacer stays blank and the screen renders exactly
-// the bytes it did before the creature existed.
-func (m Model) trainerCompanionRow(stage int) string {
-	return m.companionRow(stage)
+// trainerCompanionRows places the same ladder-selected sprite as the installer's
+// frame in the rows the trainer's content did not need. The trainer owns its row
+// composition, so it supplies the rows already spent and the legend's height;
+// the ladder and renderer remain shared. At the documented floor only the legacy
+// one-row slot is available, preserving the 80x24 layout exactly.
+func (m Model) trainerCompanionRows(stage, precedingRows, footerRows int) []string {
+	height := m.companionHeightNow()
+	if m.Height <= trainerFloorHeight {
+		height = companionMiniHeight
+	}
+	padding := 0
+	if m.Height > trainerFloorHeight {
+		padding = m.Height - viewPaddingRows - footerRows - height - precedingRows
+		if padding < 0 {
+			padding = 0
+		}
+	}
+	rows := m.companionSprite(stage, height)
+	block := make([]string, padding+height)
+	if len(rows) == 0 {
+		return block
+	}
+	copy(block[len(block)-len(rows):], rows)
+	return block
 }
 
 // placeCompanion puts the creature's sprite in the last rows the body did not
@@ -2043,22 +2067,84 @@ func (m Model) trainerCompanionRow(stage int) string {
 // is not drawn. When both fit, the companion takes the rows nearest the footer and
 // the summary sits above it, so neither displaces the other.
 func (m Model) placeCompanion(placed, summary []string, stage int) []string {
-	spare := companionSpareRows(placed) - len(summary)
-	height := m.companionHeightNow(spare)
+	height := m.companionHeightNow()
+	// Nothing to draw means nothing to reserve: the summary keeps the row the
+	// creature would have taken, which is what a run without a terminal, or with
+	// the creature off, has always rendered.
 	sprite := m.companionSprite(stage, height)
-	// A click's hop lifts the creature off the ground: the sprite gains a blank row
-	// under it, which is what makes the lift visible on a grid of cells, and it
-	// costs one spare row more than the sprite itself. Where the frame has no such
-	// row the jump is simply not drawn -- the celebration still shows in the face,
-	// which is the ladder's rule that the creature never takes a row a fact needs.
-	if len(sprite) > 0 && m.CompanionHop > 0 && spare >= height+1 {
-		sprite = append(sprite, "")
-	}
-	if len(sprite) == 0 || len(sprite) > len(placed) {
+	if len(sprite) == 0 || len(sprite) > height {
 		return placeRotator(placed, summary)
 	}
-	out := placeRotator(placed[:len(placed)-len(sprite)], summary)
-	return append(out, sprite...)
+	// A click's hop lifts the creature off the ground, and on a grid of cells the
+	// only way to show that is to give the sprite a blank row under it - which
+	// costs one row above the block. Where the frame has no such row the jump is
+	// simply not drawn: the celebration still shows in the face, because the
+	// creature never takes a row a fact needs.
+	lift := 0
+	if m.CompanionHop > 0 {
+		lift = 1
+	}
+	// The block is what the sprite actually draws, not the rung that chose it: a
+	// state whose art is one row tall - a celebration face - needs one row, and
+	// demanding the rung's rows instead would silently drop it from a frame that
+	// has room for exactly what it draws.
+	blockHeight := len(sprite) + lift
+	blockStart := len(placed) - blockHeight
+	if blockStart < 0 {
+		lift = 0
+		blockHeight = len(sprite)
+		blockStart = len(placed) - blockHeight
+	}
+	out := append([]string(nil), placed...)
+	for i, line := range summary {
+		row := blockStart - len(summary) + i
+		if row < 0 || out[row] != "" {
+			return placeRotator(placed, summary)
+		}
+		out[row] = line
+	}
+	// The block has to be rows the body did not need. The rung is chosen by the
+	// terminal now rather than by the space this screen happens to leave, so a
+	// block that lands on content is possible for the first time - and a fact
+	// still beats a decoration: the creature is not drawn at all rather than
+	// painted over a row the screen is stating something in.
+	for row := blockStart; row < len(placed); row++ {
+		if out[row] != "" {
+			if lift > 0 {
+				// The hop is the decoration that gives way first, and only then the
+				// creature itself.
+				return placeCompanionGrounded(placed, summary, sprite)
+			}
+			return placeRotator(placed, summary)
+		}
+	}
+	copy(out[blockStart:], sprite)
+	return out
+}
+
+// placeCompanionGrounded draws the same sprite without its hop, for a click that
+// arrives when the frame has no row to lift into. It is the placement the creature
+// would have had without the click, so the hop is the only thing that gives way.
+func placeCompanionGrounded(placed, summary, sprite []string) []string {
+	blockStart := len(placed) - len(sprite)
+	if blockStart < 0 {
+		return placeRotator(placed, summary)
+	}
+	out := append([]string(nil), placed...)
+	for i, line := range summary {
+		row := blockStart - len(summary) + i
+		if row < 0 || out[row] != "" {
+			return placeRotator(placed, summary)
+		}
+		out[row] = line
+	}
+	for row := blockStart; row < len(placed); row++ {
+		if out[row] != "" {
+			return placeRotator(placed, summary)
+		}
+	}
+	copy(out[blockStart:], sprite)
+	return out
 }
 
 // companionSpareRows counts the blank rows at the bottom of a frame: the rows the

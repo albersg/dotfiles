@@ -15,6 +15,12 @@ nothing is happening: it was repainting its own rows on every frame, which read 
 ### Fixed
 
 - **Fish and Zsh startup customizations survive installer updates.** The shipped shell configs carry ownership markers, and the installer now preserves an existing unmarked `config.fish` or `.zshrc` as a dated, sourced drop-in (`~/.config/fish/dotfiles.d/` or `~/.zshrc.d/`) before replacing it. Both shells source personal drop-ins last so the user's settings override managed defaults; Fish uses `dotfiles.d` because native `conf.d` loads before `config.fish`. The install log names the preserved file; managed configs update without creating another copy. New personal Fish and Zsh startup changes belong in those extension directories.
+- **The companion is the same size everywhere, and it no longer changes size as you move around it.** Its
+  rung was chosen from the rows a screen happened to leave over, so the Vim Trainer kept a smaller creature
+  than the menu while the menu's creature grew and shrank with its own content. The rung now comes from the
+  terminal height alone, the trainer reserves it so it shows the same animal as the menu, and a screen that
+  cannot hold it draws no creature rather than a smaller one.
+
 - **The creature's colours stay inside the creature.** The shaded sprite set a tone per cell and never
   retired it, so the colour it left active painted every cell after it: a space is drawn with whatever
   colour is still set, half of the sprite's cells set a background, and a terminal's escape state outlives

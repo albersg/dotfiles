@@ -316,19 +316,34 @@ func TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow(t *t
 					return
 				}
 
-				// The trainer's screens compose their own rows, so the companion
-				// takes the blank spacer above their legend. A row that carries
-				// content in both views is a row the gate must not have touched.
-				if len(changed) > 1 {
-					t.Fatalf("screen %v changes %d rows with animation on at %s, want at most the companion's one:\nstill:\n%s\nmoving:\n%s",
+				// The trainer's screens compose their own rows, so the companion is
+				// drawn in a block the trainer reserves above its legend. The tick may
+				// redraw the creature's own rows and nothing else - the block is as
+				// tall as the rung the terminal calls for, so this counts the art
+				// the render actually drew rather than assuming the one-row animal
+				// the trainer used to show. A row that carries content in both views
+				// is a row the gate must not have touched.
+				art := 0
+				for _, row := range movingRows {
+					if companionRowHasArt(row) {
+						art++
+					}
+				}
+				if art == 0 {
+					t.Fatalf("screen %v changes %d rows with animation on at %s without drawing the companion:\nstill:\n%s\nmoving:\n%s",
 						entry.screen, len(changed), size.name, still, moving)
 				}
-				row := changed[0]
-				if strings.TrimSpace(plainRow(stillRows[row])) != "" &&
-					strings.TrimSpace(plainRow(movingRows[row])) != "" &&
-					!companionRowHasArt(movingRows[row]) {
-					t.Errorf("screen %v changes a row that carries content either way at %s: %q became %q",
-						entry.screen, size.name, plainRow(stillRows[row]), plainRow(movingRows[row]))
+				if len(changed) > art {
+					t.Fatalf("screen %v changes %d rows with animation on at %s, want at most the companion's %d art rows:\nstill:\n%s\nmoving:\n%s",
+						entry.screen, len(changed), size.name, art, still, moving)
+				}
+				for _, row := range changed {
+					if strings.TrimSpace(plainRow(stillRows[row])) != "" &&
+						strings.TrimSpace(plainRow(movingRows[row])) != "" &&
+						!companionRowHasArt(movingRows[row]) {
+						t.Errorf("screen %v changes a row that carries content either way at %s: %q became %q",
+							entry.screen, size.name, plainRow(stillRows[row]), plainRow(movingRows[row]))
+					}
 				}
 			})
 		}
