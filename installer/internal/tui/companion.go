@@ -830,6 +830,41 @@ type companionCapsule struct {
 	r      float64 // the segment's thickness
 }
 
+type companionTriangle struct {
+	points [3][2]float64
+	r      float64
+}
+
+func (tr companionTriangle) contains(x, y float64) bool {
+	positive, negative := false, false
+	for i, a := range tr.points {
+		b := tr.points[(i+1)%len(tr.points)]
+		cross := (b[0]-a[0])*(y-a[1]) - (b[1]-a[1])*(x-a[0])
+		positive = positive || cross > 0
+		negative = negative || cross < 0
+	}
+	return !(positive && negative)
+}
+
+func (tr companionTriangle) field(x, y float64) float64 {
+	minDistance2 := math.Inf(1)
+	for i, a := range tr.points {
+		b := tr.points[(i+1)%len(tr.points)]
+		dx, dy := b[0]-a[0], b[1]-a[1]
+		length2 := dx*dx + dy*dy
+		t := 0.0
+		if length2 > 0 {
+			t = min(1, max(0, ((x-a[0])*dx+(y-a[1])*dy)/length2))
+		}
+		ex, ey := x-a[0]-t*dx, y-a[1]-t*dy
+		minDistance2 = math.Min(minDistance2, ex*ex+ey*ey)
+	}
+	if tr.contains(x, y) {
+		return 1 / 1e-6
+	}
+	return 1 / math.Max(minDistance2/(tr.r*tr.r), 1e-6)
+}
+
 // companionBlobAt is an ellipsoid written the way the art reads: a centre, the two
 // half-axes and a rotation in radians, taken anticlockwise.
 func companionBlobAt(x, y, a, b, rot float64) companionBlob {
@@ -863,10 +898,10 @@ func (cp companionCapsule) field(x, y float64) float64 {
 // and the tremble of a startle, and it carries no model and no clock of its own -- the
 // render path can therefore build one, draw it and drop it.
 type companionPose struct {
-	body, head, muzzle companionBlob
-	ears               [2]companionCapsule
-	legs               [4]companionCapsule
-	tail               [2]companionCapsule
+	body, chest, haunch, neck, head, muzzle companionBlob
+	ears                                    [2]companionTriangle
+	legs                                    [4]companionCapsule
+	tail                                    [3]companionCapsule
 	// shadow is flat on the ground and does not move with anything the creature does:
 	// it is what the creature stands on, so it is drawn from the ground and not from
 	// the body.
@@ -877,7 +912,7 @@ type companionPose struct {
 // outline. The shadow is not part of it -- the shadow is not the creature, it is what
 // the creature casts.
 func (p companionPose) field(x, y float64) float64 {
-	sum := p.body.field(x, y) + p.head.field(x, y) + p.muzzle.field(x, y)
+	sum := p.body.field(x, y) + p.chest.field(x, y) + p.haunch.field(x, y) + p.neck.field(x, y) + p.head.field(x, y) + p.muzzle.field(x, y)
 	for _, ear := range p.ears {
 		sum += ear.field(x, y)
 	}
@@ -1058,7 +1093,7 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 	// The head turns towards what the creature is looking at and the muzzle turns
 	// further; the ears and the face's own marks are placed from the head, so they turn
 	// with it without being told to.
-	headX := 0.52 + float64(gaze.X)*companionHeadTurnX + tremble
+	headX := 0.42 + float64(gaze.X)*companionHeadTurnX + tremble
 	headY := 0.93 - float64(gaze.Y)*companionHeadTurnY + headLift
 	muzzleX := headX + 0.28 + float64(gaze.X)*companionHeadTurnX*(companionMuzzleSwing-1)
 	muzzleY := headY - 0.12 - float64(gaze.Y)*companionHeadTurnY*(companionMuzzleSwing-1)
@@ -1103,16 +1138,21 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 
 	// The two ends of the tail, so the capsule above and the one below meet at the same
 	// point: a tail whose two parts disagreed would have a gap in it.
-	tailJointX := -0.88 + tremble + sway*0.35
+	tailJointX := -0.78 + tremble + sway*0.35
 	tailJointY := 0.86 + lift + tailTip*0.3
+	tailTipX := -0.96 + tremble + sway
+	tailTipY := 1.16 + lift + tailTip
 
 	return companionPose{
-		body:   companionBlobAt(-0.18+tremble, 0.56+lift, 0.50, 0.29, lean),
+		body:   companionBlobAt(-0.18+tremble, 0.56+lift, 0.42, 0.26, lean),
+		chest:  companionBlobAt(0.22+tremble, 0.57+lift, 0.30, 0.28, lean),
+		haunch: companionBlobAt(-0.53+tremble, 0.57+lift, 0.43, 0.34, lean),
+		neck:   companionBlobAt(0.38+tremble, 0.73+lift, 0.15, 0.25, lean),
 		head:   companionBlobAt(headX, headY, 0.29, 0.275, 0),
 		muzzle: companionBlobAt(muzzleX, muzzleY, 0.17, 0.105, 0),
-		ears: [2]companionCapsule{
-			{x0: headX - 0.06, y0: headY + 0.19, x1: headX - 0.13 + earBack, y1: headY + 0.48 + earLift, r: 0.062},
-			{x0: headX + 0.12, y0: headY + 0.19, x1: headX + 0.20 + earBack, y1: headY + 0.48 + earLift, r: 0.062},
+		ears: [2]companionTriangle{
+			{points: [3][2]float64{{headX - 0.22 + earBack, headY + 0.17}, {headX - 0.13 + earBack, headY + 0.50 + earLift}, {headX + 0.01 + earBack, headY + 0.17}}, r: 0.025},
+			{points: [3][2]float64{{headX + 0.02 + earBack, headY + 0.17}, {headX + 0.20 + earBack, headY + 0.50 + earLift}, {headX + 0.26 + earBack, headY + 0.17}}, r: 0.025},
 		},
 		legs: [4]companionCapsule{
 			{x0: 0.16 + tremble, y0: 0.40 + lift, x1: 0.19 + tremble + reach[0], y1: 0.06 + swing[0], r: 0.072},
@@ -1120,9 +1160,10 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 			{x0: -0.46 + tremble, y0: 0.40 + lift, x1: -0.49 + tremble + reach[2], y1: 0.06 + swing[2], r: 0.072},
 			{x0: -0.58 + tremble, y0: 0.38 + lift, x1: -0.61 + tremble + reach[3], y1: 0.06 + swing[3], r: 0.072},
 		},
-		tail: [2]companionCapsule{
-			{x0: -0.70 + tremble, y0: 0.60 + lift, x1: tailJointX, y1: tailJointY, r: 0.058},
-			{x0: tailJointX, y0: tailJointY, x1: -0.78 + tremble + sway, y1: 1.16 + lift + tailTip, r: 0.05},
+		tail: [3]companionCapsule{
+			{x0: -0.62 + tremble, y0: 0.60 + lift, x1: tailJointX, y1: tailJointY, r: 0.090},
+			{x0: tailJointX, y0: tailJointY, x1: tailTipX + 0.04, y1: tailTipY - 0.08, r: 0.045},
+			{x0: tailTipX + 0.04, y0: tailTipY - 0.08, x1: tailTipX, y1: tailTipY, r: 0.020},
 		},
 		// The shadow is flat on the ground and does not move with the creature: it is what
 		// the creature stands on, and it is drawn from the ground so that a hop or a bob
@@ -1421,15 +1462,21 @@ func companionPaintEye(grid [][]companionTone, inside func(int, int) bool, centr
 // opens the mouth by a row, which is the one expression the volume draws that the glyph
 // art can only hint at.
 func companionPaintMuzzle(grid [][]companionTone, inside func(int, int) bool, muzzle companionBlob, size companionVolumeSize, scale float64, state companionState) {
-	width := int(math.Round(size.eyeRadius))
+	width := 1
+	if size.width == companionVolumeFullWidth {
+		width = 2
+	}
 	nose := companionPixelOf(muzzle.x+0.045, muzzle.y+0.03, size, scale)
 	for dx := 0; dx < width; dx++ {
 		companionPaintTone(grid, inside, nose[0]+dx, nose[1], companionToneNose)
 	}
 
+	if size.width != companionVolumeFullWidth {
+		return
+	}
 	mouth := companionPixelOf(muzzle.x+0.03, muzzle.y-0.045, size, scale)
 	open := state == companionYawningState
-	for dx := -width / 2; dx <= width/2; dx++ {
+	for dx := 0; dx < 2; dx++ {
 		dy := 0
 		if !open && dx == 0 {
 			// A closed mouth is a shallow curve rather than a line: the middle of it is a
@@ -1439,6 +1486,55 @@ func companionPaintMuzzle(grid [][]companionTone, inside func(int, int) bool, mu
 		companionPaintTone(grid, inside, mouth[0]+dx, mouth[1]+dy, companionTonePupil)
 		if open {
 			companionPaintTone(grid, inside, mouth[0]+dx, mouth[1]+1, companionTonePupil)
+		}
+	}
+}
+
+// companionPaintAnatomyDetails draws the small landmarks that do not belong to the
+// smooth field: inner ears, paw pads and the largest rung's whiskers.
+func companionPaintAnatomyDetails(grid [][]companionTone, pose companionPose, size companionVolumeSize, scale float64) {
+	for _, ear := range pose.ears {
+		var centre [2]float64
+		for _, point := range ear.points {
+			centre[0] += point[0] / 3
+			centre[1] += point[1] / 3
+		}
+		inner := ear
+		for i, point := range ear.points {
+			inner.points[i][0] = centre[0] + (point[0]-centre[0])*0.42
+			inner.points[i][1] = centre[1] + (point[1]-centre[1])*0.42
+		}
+		for py := range grid {
+			for px := range grid[py] {
+				if inner.contains(companionWorldX(px, size, scale), companionWorldY(py, size, scale)) && grid[py][px] != companionToneNone {
+					grid[py][px] = companionTonePupil
+				}
+			}
+		}
+	}
+
+	for _, leg := range pose.legs {
+		paw := companionPixelOf(leg.x1, leg.y1, size, scale)
+		for dx := -1; dx <= 1; dx++ {
+			x, y := paw[0]+dx, paw[1]
+			if y >= 0 && y < len(grid) && x >= 0 && x < len(grid[y]) && grid[y][x] != companionToneNone {
+				grid[y][x] = companionToneRamp0
+			}
+		}
+	}
+
+	if size.width != companionVolumeFullWidth {
+		return
+	}
+	for _, offset := range []float64{-0.09, 0, 0.09} {
+		y := companionPixelOf(pose.muzzle.x, pose.muzzle.y+offset, size, scale)[1]
+		for _, side := range []float64{-1, 1} {
+			for step := 0; step < 3; step++ {
+				x := companionPixelOf(pose.muzzle.x+side*(0.17+float64(step)*0.065), pose.muzzle.y+offset, size, scale)[0]
+				if y >= 0 && y < len(grid) && x >= 0 && x < len(grid[y]) {
+					grid[y][x] = companionTonePupil
+				}
+			}
 		}
 	}
 }
@@ -1482,6 +1578,7 @@ func companionVolumeTones(state companionState, tick int, gaze companionGaze, sh
 		companionPaintEye(grid, inside, centre, size, companionEyeMarkFor(state), gaze)
 	}
 	companionPaintMuzzle(grid, inside, pose.muzzle, size, scale, state)
+	companionPaintAnatomyDetails(grid, pose, size, scale)
 	return grid
 }
 
@@ -1567,7 +1664,7 @@ func companionInkFor(dark bool) companionInk {
 		eye:   ramp[companionRampSteps-1],
 		pupil: pupil,
 		glint: parseHexColour(pick(Accent)),
-		nose:  parseHexColour(pick(Error)),
+		nose:  pupil,
 	}
 }
 

@@ -2240,6 +2240,113 @@ func companionVolumeGrid(state companionState, tick int, gaze companionGaze, siz
 	return companionVolumeTones(state, tick, gaze, 0, size)
 }
 
+// TestCompanionAnatomyIsStructural checks the volume and its raster, not just a saved frame.
+func TestCompanionAnatomyIsStructural(t *testing.T) {
+	size, _ := companionVolumeSizeFor(companionVolumeFullHeight)
+	pose := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size)
+	skullTop := pose.head.y + pose.head.b
+	for i, ear := range pose.ears {
+		top := math.Max(ear.points[0][1], math.Max(ear.points[1][1], ear.points[2][1]))
+		if top <= skullTop {
+			t.Errorf("ear %d maximum %.3f is not above skull maximum %.3f", i, top, skullTop)
+		}
+	}
+
+	area := func(blob companionBlob) float64 { return blob.a * blob.b }
+	if area(pose.haunch) <= math.Max(area(pose.chest), area(pose.body)) || area(pose.haunch) <= area(pose.neck) {
+		t.Errorf("haunch %.4f is not largest (chest %.4f body %.4f neck %.4f)",
+			area(pose.haunch), area(pose.chest), area(pose.body), area(pose.neck))
+	}
+	for i, leg := range pose.legs {
+		if leg.y1-leg.r > 0.01 {
+			t.Errorf("leg %d stops at y=%.3f and does not reach ground line y=0", i, leg.y1-leg.r)
+		}
+	}
+
+	grid := companionVolumeGrid(companionIdleState, 0, companionGaze{}, size)
+	for i, ear := range pose.ears {
+		var centre [2]float64
+		for _, point := range ear.points {
+			centre[0] += point[0] / 3
+			centre[1] += point[1] / 3
+		}
+		innerPixels := 0
+		for py := range grid {
+			for px := range grid[py] {
+				worldX, worldY := companionWorldX(px, size, companionVolumeScale(size)), companionWorldY(py, size, companionVolumeScale(size))
+				if math.Abs(worldX-centre[0]) < 0.04 && math.Abs(worldY-centre[1]) < 0.04 && grid[py][px] == companionTonePupil {
+					innerPixels++
+				}
+			}
+		}
+		if innerPixels == 0 {
+			t.Errorf("ear %d has no darker inner-ear raster pixels", i)
+		}
+	}
+
+	for i, leg := range pose.legs {
+		paw := companionPixelOf(leg.x1, leg.y1, size, companionVolumeScale(size))
+		pad := false
+		for dx := -1; dx <= 1; dx++ {
+			x, y := paw[0]+dx, paw[1]
+			if y >= 0 && y < len(grid) && x >= 0 && x < len(grid[y]) && grid[y][x] == companionToneRamp0 {
+				pad = true
+			}
+		}
+		if !pad {
+			t.Errorf("leg %d has no dark paw-pad pixel", i)
+		}
+	}
+
+	nose := companionPixelOf(pose.muzzle.x+0.045, pose.muzzle.y+0.03, size, companionVolumeScale(size))
+	for dx := 0; dx < 2; dx++ {
+		if grid[nose[1]][nose[0]+dx] != companionToneNose {
+			t.Errorf("nose pixel %d is not the dark nose tone", dx)
+		}
+	}
+	mouth := companionPixelOf(pose.muzzle.x+0.03, pose.muzzle.y-0.045, size, companionVolumeScale(size))
+	if grid[mouth[1]+1][mouth[0]] != companionTonePupil || grid[mouth[1]][mouth[0]+1] != companionTonePupil {
+		t.Errorf("the largest rung does not draw the two-pixel mouth under its nose")
+	}
+	for _, offset := range []float64{-0.09, 0, 0.09} {
+		y := companionPixelOf(pose.muzzle.x, pose.muzzle.y+offset, size, companionVolumeScale(size))[1]
+		for _, side := range []float64{-1, 1} {
+			for step := 0; step < 3; step++ {
+				x := companionPixelOf(pose.muzzle.x+side*(0.17+float64(step)*0.065), pose.muzzle.y+offset, size, companionVolumeScale(size))[0]
+				if grid[y][x] != companionTonePupil {
+					t.Errorf("whisker at (%d, %d) is missing", x, y)
+				}
+			}
+		}
+	}
+
+	// Rasterize the tail primitives alone so the torso cannot hide a taper at the root.
+	scale := companionVolumeScale(size)
+	counts := make([]int, size.width)
+	for py := 0; py < size.rows; py++ {
+		for px := 0; px < size.width; px++ {
+			x, y := companionWorldX(px, size, scale), companionWorldY(py, size, scale)
+			for _, segment := range pose.tail {
+				if segment.field(x, y) >= companionSurface {
+					counts[px]++
+					break
+				}
+			}
+		}
+	}
+	base, tip := companionPixelOf(-0.70, 0.60, size, scale)[0], companionPixelOf(-0.96, 1.16, size, scale)[0]
+	if base < tip {
+		base, tip = tip, base
+	}
+	previous := counts[base]
+	for x := base - 1; x >= tip; x-- {
+		if counts[x] > previous {
+			t.Errorf("tail pixel count grows from base to tip at column %d: %d after %d", x, counts[x], previous)
+		}
+		previous = counts[x]
+	}
+}
+
 // companionVolumeGridTones counts the tones one grid uses, which is how the tests below
 // ask whether the shading is really there.
 func companionVolumeGridTones(grid [][]companionTone) map[companionTone]int {
@@ -2550,7 +2657,7 @@ func TestCompanionVolumeGaitMovesThePawsAndCounterSwaysTheTail(t *testing.T) {
 
 	for _, phase := range []int{0, 2} {
 		paw := poses[phase].legs[0].x1 - standing.legs[0].x1
-		tail := poses[phase].tail[1].x1 - standing.tail[1].x1
+		tail := poses[phase].tail[2].x1 - standing.tail[2].x1
 		if paw == 0 {
 			t.Errorf("pose %d left the front paw where it stands", phase)
 		}
