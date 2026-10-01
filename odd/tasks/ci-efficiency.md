@@ -295,27 +295,37 @@ Honest leftovers, in the order a reviewer should look at them.
    no new tag (run 36565443368), which is the normal state. Unlike `Build (${{ matrix.os }})` it is
    not a placeholder: the name is honest and the job runs when there is something to do. Left alone.
 
-## Handover - the one change this front may not make
+## Handover - Docker layer cache
 
-Docker layer caching, for whoever owns `installer/e2e/docker-test.sh`. The measured gain is ~44 s
-off the critical path and ~133 s of runner time per run; the reason it is not here is that the file
-belongs to another front.
+Implemented in this worktree; no workflow was run and hosted cache-hit behavior is not verified.
+The workflow invokes `./installer/e2e/docker-test.sh`, so Buildx flags belong in that script rather
+than changing the workflow's build invocation. Both E2E jobs now set up Buildx first.
 
-```sh
-# in build_image(), after the platform/tag flags and before the build
-cache_flags=""
-if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    cache_flags="--cache-from type=gha,scope=e2e-${name} --cache-to type=gha,mode=max,scope=e2e-${name}"
-fi
-# then build with buildx so those flags are accepted
-if ! docker buildx build "$platform_flag" $cache_flags --load \
-    -f "$dockerfile" -t "dotfiles-test-${name}${tag_suffix}" . 2>&1; then
-```
+In Actions, each image uses `docker buildx build --cache-from type=gha,scope=e2e-${name}` and
+`--cache-to type=gha,mode=min,scope=e2e-${name}`, followed by `--load`; local runs retain their
+original `docker build` path. The per-image scope is a namespace, not a content key. BuildKit derives
+layer matches from the base-image digest, Dockerfile instructions, and inputs. Reuse is likely across
+PR commits because expensive package-install `RUN` layers precede changing binary/script `COPY`
+layers; changing an earlier input correctly invalidates downstream layers. PRs can read the default
+branch cache. `mode=min` is sufficient because the expensive layers are part of the final image and
+avoids exporting intermediate-only layers.
 
-and `docker/setup-buildx-action@v3` in the `linux-e2e` job before the run step. Two cautions worth
-carrying: the repository's Actions cache is capped at 10 GB, so the cache must stay scoped per image
-so it cannot evict the 27 MB Go caches, and `mode=max` exports more than the final layer - measure
-the export cost before assuming the trade is positive.
+Before: the workflow ran `./installer/e2e/docker-test.sh e2e ${{ matrix.image }}` and the script ran
+`docker build $platform_flag -f "$dockerfile" -t "dotfiles-test-${name}${tag_suffix}" .`. After:
+the workflow invocation is unchanged, while Actions uses `docker buildx build $platform_flag
+--cache-from type=gha,scope=e2e-${name} --cache-to type=gha,mode=min,scope=e2e-${name} --load
+-f "$dockerfile" -t "dotfiles-test-${name}${tag_suffix}" .`.
+
+Measured image builds total **118 s on a PR** (ubuntu 44 + fedora 47 + arch 22 + alpine 5; debian
+is excluded), and **133 s on main** (+ debian 15). Ubuntu's 44 s is on the critical path. The first
+cache-writing run still pays 118/133 s of cold build time, plus unmeasured cache export overhead. A
+warm run can avoid up to 118/133 s of image build time, including up to 44 s on the PR critical path;
+net savings equal that avoided build time minus cache import/export and Buildx setup time. Those
+transfer costs and cache sizes are unknown until CI runs, so these are projections, not measured
+savings. The scopes isolate each BuildKit image cache, but they do not guarantee storage isolation from the
+shared Actions cache quota or the existing Go cache entries. The first run on this PR writes its
+cache; a second run on the same PR is the proof of a hit. A worktree cannot verify a hosted cache hit,
+and the orchestrator will run both and report.
 
 ## Evidence log
 

@@ -115,6 +115,9 @@ jobs:
           go-version-file: installer/go.mod
           cache-dependency-path: installer/go.sum
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Run Docker E2E
         env:
           # The revision under test, so the installer inside the container clones
@@ -140,6 +143,9 @@ jobs:
         with:
           go-version-file: installer/go.mod
           cache-dependency-path: installer/go.sum
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Run Termux Docker E2E
         env:

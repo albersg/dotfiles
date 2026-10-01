@@ -136,13 +136,31 @@ build_image() {
     # therefore ran on to the success line below, which reported an image that
     # was never built, and the E2E run counted the infrastructure failure as an
     # "unknown failure" product test failure.
-    # shellcheck disable=SC2086
-    if ! docker build $platform_flag \
-        -f "$dockerfile" \
-        -t "dotfiles-test-${name}${tag_suffix}" \
-        . 2>&1; then
-        echo "${RED}✗ Could not build dotfiles-test-${name}${tag_suffix}${NC}"
-        exit 1
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        # BuildKit's GHA cache is enabled only in Actions; local builds retain
+        # the Docker CLI path and require no Actions runtime credentials.
+        # The scope keeps each image's layers independent. BuildKit keys the
+        # layers from the base image, Dockerfile instructions and their inputs.
+        # shellcheck disable=SC2086
+        if ! docker buildx build $platform_flag \
+            --cache-from "type=gha,scope=e2e-${name}" \
+            --cache-to "type=gha,mode=min,scope=e2e-${name}" \
+            --load \
+            -f "$dockerfile" \
+            -t "dotfiles-test-${name}${tag_suffix}" \
+            . 2>&1; then
+            echo "${RED}✗ Could not build dotfiles-test-${name}${tag_suffix}${NC}"
+            exit 1
+        fi
+    else
+        # shellcheck disable=SC2086
+        if ! docker build $platform_flag \
+            -f "$dockerfile" \
+            -t "dotfiles-test-${name}${tag_suffix}" \
+            . 2>&1; then
+            echo "${RED}✗ Could not build dotfiles-test-${name}${tag_suffix}${NC}"
+            exit 1
+        fi
     fi
 
     echo "${GREEN}✓ Built dotfiles-test-${name}${tag_suffix}${NC}"
