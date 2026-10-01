@@ -32,26 +32,33 @@ type cliFlags struct {
 	noSprite       bool
 }
 
+// registerFlags declares every flag on the given set, so the help text can be
+// checked against the flags the binary really accepts without parsing anything.
+// A flag nobody documents is a flag nobody finds, and the display switches added
+// with the creature are exactly the ones a user on an odd terminal looks for.
+func registerFlags(fs *flag.FlagSet, flags *cliFlags) {
+	fs.BoolVar(&flags.version, "version", false, "Show version information")
+	fs.BoolVar(&flags.version, "v", false, "Show version information (shorthand)")
+	fs.BoolVar(&flags.help, "help", false, "Show help message")
+	fs.BoolVar(&flags.help, "h", false, "Show help message (shorthand)")
+	fs.BoolVar(&flags.test, "test", false, "Run in test mode (uses temporary directory)")
+	fs.BoolVar(&flags.test, "t", false, "Run in test mode (shorthand)")
+	fs.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed without doing it")
+	fs.BoolVar(&flags.nonInteractive, "non-interactive", false, "Run without TUI, use CLI flags")
+	fs.StringVar(&flags.terminal, "terminal", "", "Terminal: "+strings.Join(tui.SupportedTerminals(runtime.GOOS), ", "))
+	fs.StringVar(&flags.shell, "shell", "", "Shell: fish, zsh, nushell")
+	fs.StringVar(&flags.windowMgr, "wm", "", "Window manager: tmux, zellij, herdr, none")
+	fs.BoolVar(&flags.nvim, "nvim", false, "Install Neovim configuration")
+	fs.BoolVar(&flags.font, "font", false, "Install Nerd Font")
+	fs.BoolVar(&flags.backup, "backup", true, "Backup existing configs (default: true)")
+	fs.BoolVar(&flags.noAnim, "no-anim", false, "Disable animations (same as DOTFILES_ANIM=0)")
+	fs.BoolVar(&flags.noMouse, "no-mouse", false, "Do not track the mouse pointer (same as DOTFILES_MOUSE=0)")
+	fs.BoolVar(&flags.noSprite, "no-sprite", false, "Draw the creature as glyphs, not as the shaded sprite (same as DOTFILES_SPRITE=0)")
+}
+
 func parseFlags() *cliFlags {
 	flags := &cliFlags{}
-
-	flag.BoolVar(&flags.version, "version", false, "Show version information")
-	flag.BoolVar(&flags.version, "v", false, "Show version information (shorthand)")
-	flag.BoolVar(&flags.help, "help", false, "Show help message")
-	flag.BoolVar(&flags.help, "h", false, "Show help message (shorthand)")
-	flag.BoolVar(&flags.test, "test", false, "Run in test mode (uses temporary directory)")
-	flag.BoolVar(&flags.test, "t", false, "Run in test mode (shorthand)")
-	flag.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed without doing it")
-	flag.BoolVar(&flags.nonInteractive, "non-interactive", false, "Run without TUI, use CLI flags")
-	flag.StringVar(&flags.terminal, "terminal", "", "Terminal: "+strings.Join(tui.SupportedTerminals(runtime.GOOS), ", "))
-	flag.StringVar(&flags.shell, "shell", "", "Shell: fish, zsh, nushell")
-	flag.StringVar(&flags.windowMgr, "wm", "", "Window manager: tmux, zellij, herdr, none")
-	flag.BoolVar(&flags.nvim, "nvim", false, "Install Neovim configuration")
-	flag.BoolVar(&flags.font, "font", false, "Install Nerd Font")
-	flag.BoolVar(&flags.backup, "backup", true, "Backup existing configs (default: true)")
-	flag.BoolVar(&flags.noAnim, "no-anim", false, "Disable animations (same as DOTFILES_ANIM=0)")
-	flag.BoolVar(&flags.noMouse, "no-mouse", false, "Do not track the mouse pointer (same as DOTFILES_MOUSE=0)")
-	flag.BoolVar(&flags.noSprite, "no-sprite", false, "Draw the creature as glyphs, not as the shaded sprite (same as DOTFILES_SPRITE=0)")
+	registerFlags(flag.CommandLine, flags)
 
 	flag.Parse()
 	return flags
@@ -233,7 +240,12 @@ func setupTestMode() {
 }
 
 func printHelp() {
-	fmt.Println(`dotfiles - TUI installer for dotfiles terminal environment
+	fmt.Println(helpText)
+}
+
+// helpText is the help the binary prints, kept as a value so a test can read it
+// rather than capture stdout.
+const helpText = `dotfiles - TUI installer for dotfiles terminal environment
 
 Usage:
   dotfiles [flags]
@@ -252,6 +264,11 @@ Flags:
   --non-interactive    Run without TUI, use CLI flags instead
   --no-anim            Disable animations (same as DOTFILES_ANIM=0); animation
                        is also off when stdout is not a terminal or TERM=dumb
+  --no-mouse           Do not ask the terminal for pointer motion (same as
+                       DOTFILES_MOUSE=0): the terminal keeps its own selection
+                       and scrolling, and the creature looks at the selection
+  --no-sprite          Draw the creature as glyphs instead of the shaded volume
+                       (same as DOTFILES_SPRITE=0)
 
 Non-Interactive Options:
   --shell=<shell>      Shell to install (required): fish, zsh, nushell
@@ -261,6 +278,28 @@ Non-Interactive Options:
   --nvim               Install Neovim configuration
   --font               Install Nerd Font
   --backup=false       Disable config backup (default: true)
+
+Display and terminals:
+  The installer draws a frame, a moving tip and a shaded creature. Each can be
+  turned off, and each switch is both a flag and an environment variable, so a
+  script can pin it too.
+
+  --no-anim            DOTFILES_ANIM=0 stops the tip and the creature's motion.
+                       Off by itself when stdout is not a terminal, or TERM=dumb.
+  --no-mouse           DOTFILES_MOUSE=0 stops asking the terminal for pointer
+                       motion, giving selection and scrolling back to it. Off by
+                       itself when stdout is not a terminal and in Termux, where
+                       a finger drag arrives as a wheel report; DOTFILES_MOUSE=1
+                       asks for it anyway, for a Termux session with a real mouse
+                       attached.
+  --no-sprite          DOTFILES_SPRITE=0 keeps the creature but draws the ASCII
+                       cat instead of the shaded volume. Use it on a terminal
+                       that reports true colour and still renders block glyphs
+                       badly.
+  DOTFILES_SYNC=0      Stop bracketing each frame in synchronized output, which
+                       is on whenever stdout is a terminal. Use it if a
+                       multiplexer renders the frames worse with it.
+  DOTFILES_VERBOSE=1   Print every command the installer runs.
 
 Examples:
   # Interactive TUI
@@ -282,5 +321,4 @@ Navigation (TUI mode):
   q               Quit
   d               Toggle details (during installation)
 
-For more info: https://github.com/albersg/dotfiles`)
-}
+For more info: https://github.com/albersg/dotfiles`

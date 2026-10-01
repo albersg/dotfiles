@@ -37,6 +37,8 @@ const (
     ModuleSubstitution ModuleID = "substitution"
     ModuleRegex        ModuleID = "regex"
     ModuleMacros       ModuleID = "macros"
+    ModuleEditing      ModuleID = "editing"
+    ModuleRegisters    ModuleID = "registers"
     // Add new modules here
 )
 ```
@@ -60,8 +62,20 @@ type Exercise struct {
     Explanation  string       // Post-answer teaching
     TimeoutSecs  int          // Before showing solution
     Points       int          // Base score
+    // BufferVerified opts the exercise into the buffer judge: the answer is run
+    // against a mutable buffer, which is how undo, put, indentation and any other
+    // command whose effect lives in the buffer become verifiable. The zero value
+    // keeps the judge the exercise was authored against, so shipped exercises are
+    // unaffected; opt in only when the mission states a result the buffer judge
+    // can check.
+    BufferVerified bool
 }
 ```
+
+An exercise with `BufferVerified` set is judged by running the answer, not by matching the typed string,
+so `Solutions` stays useful as ground truth for authoring and for the explanation but is no longer the
+verdict. `installer/internal/tui/trainer/editor.go` is the engine; a guard test fails if an exercise claims
+the buffer judge and its own answer does not verify against it.
 
 ### Pattern 3: Module Unlock Order
 
@@ -73,7 +87,11 @@ var moduleUnlockOrder = []ModuleID{
     ModuleVertical,     // After horizontal boss
     ModuleTextObjects,  // After vertical boss
     ModuleChangeRepeat, // After textobjects boss
-    // ... etc
+    ModuleSubstitution, // After cgn boss
+    ModuleRegex,        // After substitution boss
+    ModuleMacros,       // After regex boss
+    ModuleEditing,      // After macros boss
+    ModuleRegisters,    // The last one: it has no successor
 }
 ```
 

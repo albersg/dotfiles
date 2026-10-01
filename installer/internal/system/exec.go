@@ -291,6 +291,76 @@ func RunPkgInstall(packages string, opts *ExecOptions, logFunc func(string)) *Ex
 // so callers have to decide what to do instead of attempting the copy.
 var ErrNotRegularFile = errors.New("source is not a regular file")
 
+// PreserveUserConfig copies an existing, unowned shell configuration into a
+// sourced drop-in directory before the caller replaces it. A standalone marker
+// line identifies configurations installed by this repository; those are
+// replaced without creating another archive. The returned path is empty when
+// there was no file to preserve or the file was already managed.
+func PreserveUserConfig(configPath, managedMarker, dropInDir, prefix, extension string) (string, error) {
+	info, err := os.Stat(configPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("preserve config %s: %w", configPath, ErrNotRegularFile)
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == managedMarker {
+			return "", nil
+		}
+	}
+
+	if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+		return "", err
+	}
+	stamp := time.Now().Format("20060102-150405")
+	for suffix := 0; ; suffix++ {
+		name := fmt.Sprintf("%s-%s%s", prefix, stamp, extension)
+		if suffix > 0 {
+			name = fmt.Sprintf("%s-%s-%d%s", prefix, stamp, suffix, extension)
+		}
+		path := filepath.Join(dropInDir, name)
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if _, err := file.Write(content); err != nil {
+			_ = file.Close()
+			return "", err
+		}
+		if err := file.Close(); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+}
+
+// ReplaceUserConfig preserves an unowned destination before replacing it with
+// the repository's source. A standalone managedMarker identifies configurations
+// the repository already owns, which are replaced without creating another
+// drop-in. The returned path is empty when there was nothing to preserve.
+func ReplaceUserConfig(src, dst, managedMarker, dropInDir, prefix, extension string) (string, error) {
+	preservedPath, err := PreserveUserConfig(dst, managedMarker, dropInDir, prefix, extension)
+	if err != nil {
+		return "", err
+	}
+	if err := CopyFile(src, dst); err != nil {
+		return preservedPath, err
+	}
+	return preservedPath, nil
+}
+
 // CopyFile copies a file from src to dst
 func CopyFile(src, dst string) error {
 	info, err := os.Stat(src)
