@@ -8,6 +8,7 @@ Guide for contributors and developers working on dotfiles.
 - [Project Structure](#project-structure)
 - [AI Skills System](#ai-skills-system)
 - [E2E Testing](#e2e-testing)
+- [Continuous Integration](#continuous-integration)
 - [Release Process](#release-process)
 
 ## Development Setup
@@ -126,13 +127,29 @@ cd installer/e2e
 
 ### Test Environments
 
+Each image is built from `Dockerfile.<name>` and runs `e2e_test.sh`. What the script runs is decided
+by two variables the Dockerfile sets: `RUN_FULL_E2E=1` turns on the real installation passes and the
+verification steps, and `RUN_BACKUP_TESTS=1` turns on the backup suite. An image that sets neither
+installs nothing and stops after the binary smoke tests and the dry-run planning tests.
+
 | Environment | Shell | Package Manager | Tests |
 |-------------|-------|-----------------|-------|
 | Ubuntu | bash | apt + Homebrew | Full E2E + backup |
-| Debian | dash | apt + Homebrew | Basic + shell detection |
-| Fedora | bash | dnf | Full E2E |
-| Alpine | ash | apk | POSIX compatibility |
-| Termux | sh | pkg (simulated) | Android/Termux specific |
+| Debian | dash | apt + Homebrew | Smoke + dry-run planning, installs nothing |
+| Fedora | bash | dnf | Full E2E + backup |
+| Arch | bash | pacman | Full E2E + backup |
+| Alpine | ash | apk | Smoke + dry-run planning, installs nothing |
+| Termux | sh | pkg (simulated) | Android/Termux suite, simulated pkg |
+
+For scale, from run 36625550831: ubuntu 65 assertions, fedora 64, arch 65, debian 13, alpine 13,
+termux 38. The three that install something differ only by platform, and the two that do not install
+anything stop after the binary smoke tests and the dry-run planning matrix, which is why their jobs
+finish in about a second of container time.
+
+On a Debian-family host the installer routes its dependencies through Homebrew, and Ubuntu is one:
+`internal/system/detect.go` classifies it as `OSDebian` from `/etc/debian_version`. That is why the
+Ubuntu container installs Linuxbrew and 251 brew formulae across its four installation passes, and
+why it takes about six minutes where Fedora and Arch, which use dnf and pacman, take about two.
 
 ### Adding Tests
 
@@ -150,6 +167,51 @@ test_my_feature() {
 ```
 
 Tests must be POSIX-compliant (no bashisms).
+
+## Continuous Integration
+
+Two workflows run on a pull request and on every push to `main`: `ci.yml` (Go Validation, Shell
+Validation, Branding Audit, Secret Scanning, Build on Linux and macOS) and `e2e-testing.yml` (Go
+tests, the Linux installation matrix, Termux, macOS smoke). The pull request waits for whichever
+finishes last, and that is always the Ubuntu job of the Linux matrix.
+
+### Which images run where
+
+The Linux matrix holds five images. A pull request runs four of them; a push to `main` and a
+manual run execute all five.
+
+| Image | Pull request | `main` | Why |
+|-------|--------------|--------|-----|
+| ubuntu | yes | yes | The only apt-plus-Homebrew installation, and the critical path |
+| debian | no | yes | A second `OSDebian` run of the same code path; Ubuntu covers the family and installs for real |
+| fedora | yes | yes | The only dnf execution |
+| arch | yes | yes | The only pacman execution |
+| alpine | yes | yes | The only apk detection, and the only non-bash shell left on a pull request |
+| termux | yes | yes | The only Android/Termux detection (non-blocking) |
+
+The rule the matrix follows: an image stays on a pull request unless every axis it covers is covered
+by another image that runs there. Debian is the only one that fails that test. Removing any other
+would leave a package manager or a shell with no execution on a pull request at all, which makes a
+green matrix say less than it appears to.
+
+Termux is `continue-on-error: true`: it reports, it does not block.
+
+### Concurrency
+
+Both workflows keep one run per ref and cancel a superseded run **on a pull request only**. On
+`main` nothing is cancelled: a run there is the verdict on a commit that is already merged, so the
+next run waits its turn rather than replacing a check that nobody will re-run.
+
+The practical effect for a contributor: drafting a pull request with three pushes costs one matrix,
+not three.
+
+### Reading the timings
+
+```bash
+gh run list --limit 20 --json databaseId,workflowName,headBranch
+gh run view <id> --json jobs \
+  --jq '.jobs[] | "\(.conclusion) \(.name) \(( (.completedAt|fromdate) - (.startedAt|fromdate) ))s"'
+```
 
 ## Release Process
 
