@@ -328,21 +328,20 @@ pins the frame they are on, and both are absent with the animation gate off.
 
 ### The companion
 
-The rows of the frame the body did not need are not information. **A small creature walks the last
-of them** — immediately above the footer rule — and only there: a screen whose body fills its frame
-shows no companion at all, so the creature never costs a body a row, and with animation off there is
-no companion anywhere, because a frozen pet is not the point.
+The companion's size is **a function of terminal height and sprite mode only**. Spare rows and the
+selected item never choose a smaller creature. `TestCompanionVolumeSpriteIsTheLadderTopSteps` prints
+and asserts the rung at each boundary: pixel mode selects the shaded volume at **12 rows at height
+34+**, **8 rows at height 30–33**, then the glyph rung; glyph mode selects **5 rows at height 25+**
+and **3 rows at height 24 or below**. These are rung sizes, not screen reservations.
 
-It is drawn at five sizes, and a ladder picks between them so that a terminal which leaves fewer rows
-gets a smaller creature rather than none. Where the terminal reports true colour: the **shaded volume**
-at twelve rows where the frame can spare twelve, then the same volume at eight rows where it can spare
-eight. Then, for a frame or a terminal that cannot shade, the glyph cat at **five rows**, its **head**
-at three, the **one row** the creature shipped with, and nothing below that. The panel summary's rows
-come off the spare rows first, because a fact beats a decoration: a narrow screen with one row to spare
-shows the facts and no creature, one with two rows to spare shows both with the summary above the
-creature, and one whose body fills its frame shows neither. At 80x24 — the floor every screen is
-guaranteed to work at — the main menu leaves five spare rows of which the summary takes one, so the
-three-row head is what draws there.
+The trainer reserves its rung by reducing the code window's available rows; framed installer screens
+do not reserve body rows. They draw the creature in existing rows their body did not need. Across the
+framed screens shipped here, those rows hold the selected rung, so their layout and goldens stay
+unchanged. The sprite is bottom-anchored in those rows. If an unusual frame cannot fit it without
+covering content, no creature is drawn: it never shrinks to fit, and a fact always beats decoration.
+At the 80x24 floor, the compact rung's celebration expression remains the shipped one-row face so the
+end-of-run burst and the face both fit; `TestCompleteCelebrationGolden` pins that output without a
+snapshot update.
 
 **The volume is rendered, not drawn.** It is an implicit surface: the sum of a handful of metaballs —
 head, muzzle, body, four legs, tail — cut at a threshold, so the outline is smooth and organic rather
@@ -359,24 +358,18 @@ rather than a fallback — a terminal without true colour, a run with the sprite
 (`DOTFILES_SPRITE=0`) and a frame with fewer rows all get the cat the glyph ladder picks.
 
 It costs what it looks like it costs, and only while it is moving. The renderer repaints a whole line
-whenever any byte in it changed, so the cost of a tick is the lines it moved times the width of those
-lines. The creature therefore has two regimes, measured by `TestCompanionCostHasTwoRegimes` at 227
-columns and quoted here from that test's own output rather than from a number typed once:
+whenever any byte in it changed. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227
+columns and height 62**:
 
-- **At rest — nothing.** With no key and no pointer event the view string is byte-identical from tick
-  to tick, so the renderer writes **no bytes at all**. Pacing on its own and settling its gaze a frame
-  after the target were both removed for this: they made the creature repaint two of its rows on every
-  frame over a screen nobody was touching.
-- **While walking — twelve lines.** The volume's twelve rows all move with the one-cell step, so every
-  one of them is repainted: the test measures **7488 bytes** in the widest changed lines, about
-  **58 KB/s** at eight frames a second, and a walk from the first menu row to the last takes about
-  **2.4 s**. The line is the frame's width, so a wider terminal costs more per line and the same per
-  cell walked.
+- **At rest:** the view is byte-identical across ticks, so the terminal receives **0 bytes**.
+- **While walking:** the test reports **12 sprite rows**, up to **12 changed lines per moving tick**,
+  **19 moving frames**, **136,135 bytes total**, and **7,488 bytes** in the widest changed lines
+  (**58.5 KB/s at 8 fps**). Those measurements change with the line width and are printed by the test,
+  rather than treated as constants in the renderer.
 
-Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` measures 884
-height-field samples and 768 raster pixels at roughly **1.6 ms** a frame, plus the allocations of
-assembling a frame's strings. It is paid only where the volume is drawn and only while it moves, and it
-is written down here rather than left to be discovered.
+`BenchmarkCompanionVolumeFrame` reports the encoder's rendering work separately from terminal output;
+its benchmark output is the source for any timing or raster-work figure, so no unmeasured timing claim
+is repeated here.
 
 **Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
 this step and deliberately rejected, for two reasons that were measured rather than guessed. It
