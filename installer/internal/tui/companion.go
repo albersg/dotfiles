@@ -2,6 +2,7 @@ package tui
 
 import (
 	"image/color"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -96,10 +97,10 @@ const (
 	// companionCellWidth is the widest cell any height draws, and the one the walk
 	// uses to bound the stage. Fixing the walk on the widest cell rather than on
 	// the drawn one means no height can walk its sprite past the edge of the stage:
-	// the narrower glyph cells stop short of the right edge instead of reaching it,
-	// which is invisible, where the sixteen-pixel sprite reaching past it would
-	// cross the frame's margin.
-	companionCellWidth = companionPixelWidth
+	// the narrower glyph cells and the smaller volumetric one stop short of the right
+	// edge instead of reaching it, which is invisible, where the full volumetric
+	// sprite reaching past it would cross the frame's margin.
+	companionCellWidth = companionVolumeFullWidth
 
 	// companionStepCells is the walk's only speed: at most one cell per animation
 	// frame, whatever the distance left. A step proportional to what remains is
@@ -486,11 +487,13 @@ func companionFramesAt(height int) []companionFrame {
 
 // companionSpriteWidth is the columns the sprite's cell takes at one height: the
 // widest row in that height's table, so a one-cell step is always one column and
-// no row of the sprite reaches past the cell it is placed in.
+// no row of the sprite reaches past the cell it is placed in. The volumetric
+// heights answer with their own pixel width, which is one column per pixel.
 func companionSpriteWidth(height int) int {
+	if size, ok := companionVolumeSizeFor(height); ok {
+		return size.width
+	}
 	switch height {
-	case companionPixelHeight:
-		return companionPixelWidth
 	case companionFullHeight:
 		return companionFullWidth
 	case companionCompactHeight:
@@ -501,14 +504,21 @@ func companionSpriteWidth(height int) int {
 	return 0
 }
 
-// companionHeightNow is the ladder with the shaded sprite's step on top: the pixel
-// sprite where the frame can hold it and the run may draw it, and the glyph ladder
-// otherwise. The glyph ladder is untouched below it, which is what keeps the floor
-// a floor: a terminal without true colour, a run with the sprite switched off and a
-// frame with fewer than the sprite's rows all get the cat the glyph ladder picks.
+// companionHeightNow is the ladder with the volumetric sprite's two steps on top:
+// the full sprite where the frame can hold it and the run may draw it, else the
+// smaller one on the same terms, else the glyph ladder. The glyph ladder is
+// untouched below them, which is what keeps the floor a floor: a terminal without
+// true colour, a run with the sprite switched off and a frame with fewer than the
+// small sprite's rows all get the cat the glyph ladder picks, and every step
+// degrades into the next rather than disappearing.
 func (m Model) companionHeightNow(spare int) int {
-	if m.PixelSprite && spare >= companionPixelHeight {
-		return companionPixelHeight
+	if m.PixelSprite {
+		if spare >= companionVolumeFullHeight {
+			return companionVolumeFullHeight
+		}
+		if spare >= companionVolumeSmallHeight {
+			return companionVolumeSmallHeight
+		}
 	}
 	return companionHeight(spare)
 }
@@ -652,265 +662,870 @@ func companionGazeRows(rows []string, eyes companionEyes, gaze companionGaze) []
 }
 
 // ============================================================================
-// THE SHADED SPRITE
+// THE VOLUMETRIC SPRITE
 // ============================================================================
 //
-// The glyph cat is the floor: every terminal draws it. Above it there is one more
-// step, drawn only where it can be drawn properly -- a terminal with true colour --
-// and that step is the same cat as a shaded pixel sprite, sixteen pixels square,
-// drawn as eight rows of half blocks with a foreground and a background colour per
-// cell.
+// The glyph cat is the floor: every terminal draws it. Above it there are two more
+// steps, drawn only where they can be drawn properly -- a terminal with true colour
+// -- and those two steps are the same creature shaded as a volume rather than drawn
+// as a silhouette.
 //
-// Why a second sprite at all: the glyph art is a silhouette of punctuation, and at
-// six or eight cells tall there is no room in it for a body, a cheek or a shaded
-// ear. Half blocks give two pixels per cell vertically, so the same eight rows
-// carry sixteen rows of drawing and the creature stops looking like a smiley and
-// starts looking like a cat. The price is that it only reads in colour: with no
-// colour every cell is a block glyph, so this sprite is drawn only when the
-// terminal reports true colour and the glyph cat draws everywhere else. The ladder
-// below still runs on the glyph heights, which is what makes the floor real.
+// Why a volume and not a bigger drawing. The cat that shipped as pixels was a
+// hand-written grid of tones: sixteen pixels square of flat colour behind a hard
+// outline, which is to say two or three flat regions and an edge, and that is why it
+// read as a sticker rather than as a body. The creature is drawn here from an
+// implicit surface instead: a handful of ellipsoids and capsules -- a body, a head, a
+// muzzle, two ears, four legs and a tail -- summed into one field whose threshold is
+// the creature's outline. Nothing is hand-placed but the primitives themselves, so the
+// silhouette is round where the eye expects a body to be round, the limbs melt into
+// the torso instead of meeting it at a seam, and -- the point of the exercise -- every
+// part of the shape is a parameter, which is what lets the gait, the head turn and the
+// reactions move a model instead of swapping between drawings.
 //
-// The art is a grid of tones rather than of glyphs, and the tone says which of the
-// theme's colours a pixel takes. Six tones and the background: the outline is the
-// palette's ink, the fur is two muted tones, the eyes -- the pupils, the lids and
-// the expressions they draw -- take the one bright tone in the set, and the nose
-// and mouth are the error rose. The one bright tone is spent on the eyes on
-// purpose: the creature is decoration, and the reader's eye should find the small
-// feature the gaze moves before it finds the body. The background tone is the
-// theme's own background, so the pixels the cat does not cover blend with the
-// terminal instead of drawing a box around it.
+// The shading is what makes it read as a solid rather than as a flat cut-out. The
+// field says where the surface is; the field's own gradient says which way the surface
+// faces. h = sqrt(1 - T/F) is the surface's height above the outline -- zero on the
+// outline, growing towards the middle of a primitive, and for a lone primitive it is
+// exactly the cap of a sphere -- so the normal is the vertical to that height field
+// and nothing has to be guessed. A light from the upper left then gives the body a lit
+// top and a dark underside, an ambient term keeps the shaded side visible as fur, and
+// a rim term brightens the silhouette so it separates from the terminal's background
+// even where the fur is at its lightest.
 //
-// The sprite is composed, not drawn per state, on the same terms as the glyph art:
-// one block of face rows per state class, and the pupils are stamped into it. That
-// is what lets one sprite carry eight states and six gazes without becoming
-// fifty hand-drawn pictures.
+// A gradient that is continuous in the model still arrives as bands once it is
+// quantised, so the ramp is dithered: a fixed 2x2 Bayer matrix decides which of the
+// two neighbouring tones each pixel takes. Nothing about it is random and nothing of
+// it is time: the matrix is indexed by the pixel's own place in the grid, so a frame
+// is a pure function of the model's state and the same model renders the same bytes
+// twice. That is also why the dither is in the sprite's own pixel coordinates rather
+// than in cells: the two pixels of one cell are one pixel apart, and a dither that was
+// constant across a cell could not smooth anything.
+//
+// Three more parts of the drawing are what make it a creature rather than a shaded
+// blob. A drop shadow -- a flat, stippled ellipse on the ground, outside the volume --
+// is what puts it in space: in flat media a contact shadow is the whole of depth. The
+// eyes are a light disc, a slit pupil and one bright pixel of glint, drawn over the
+// volume at the head's own place, and the palette's loudest tone is spent on that
+// single glint because the reader's eye should find the one small thing the gaze moves
+// rather than the body around it. The nose and the mouth are the two marks on the
+// muzzle that make the head a face.
+//
+// Two sizes, and the ladder now tries them in order: the full sprite at
+// companionVolumeFullHeight rows, else the small one at companionVolumeSmallHeight,
+// else the glyph cat's five, three and one, else nothing. The small one is not a crop
+// of the full one and not a redrawing of it: it is the same field sampled on a smaller
+// grid, so the two steps differ in resolution and not in shape, and a frame that cannot
+// spare the full sprite's rows loses size rather than the creature. Both need true
+// colour, because the shading is the drawing: on a sixteen-colour terminal those cells
+// are blocks in whatever the terminal maps five near-neighbours to, so the gate refuses
+// the whole tier and the glyph cat draws instead -- a sixteen-colour terminal and a
+// colourless one lose the volume, not the companion.
 
-// companionPixelWidth and companionPixelRows are the sprite's size in pixels: one
-// pixel per column and two per half-block row, so the cell it occupies is
-// companionPixelWidth columns wide and companionPixelHeight rows tall.
+// companionVolumeFullHeight and companionVolumeSmallHeight are the two heights the
+// ladder can pick above the glyph cat, in the order it tries them, and the pixel grid
+// each is drawn on. A pixel is one column and half a row -- the half-block glyph the
+// encoder draws with carries two pixels vertically, which is what makes a pixel square
+// on a terminal whose cells are twice as tall as they are wide -- so the rows here are
+// the pixels and the height is half of them.
 const (
-	companionPixelWidth  = 16
-	companionPixelRows   = 16
-	companionPixelHeight = companionPixelRows / 2
-
-	// companionInkReset retires the style a cell set. It is named rather than
-	// written out at each site because missing one is not a cosmetic slip: a tone
-	// left active paints every cell after it, which is how a sprite became a bar of
-	// colour across the terminal.
-	companionInkReset = "\x1b[0m"
+	companionVolumeFullHeight  = 12
+	companionVolumeFullWidth   = 32
+	companionVolumeFullRows    = 24
+	companionVolumeSmallHeight = 8
+	companionVolumeSmallWidth  = 24
+	companionVolumeSmallRows   = 16
 )
 
-// The tones. A pixel's tone picks its colour and nothing else: no state is carried
-// by a tone that a colourless terminal would lose, because a colourless terminal
-// does not draw this sprite at all.
-const (
-	companionPixelNone = ' ' // the theme's background: the pixels the cat does not cover
-	companionPixelFurL = '.' // the light fur: the face between the eyes
-	companionPixelFurM = 'o' // the mid fur: the body
-	companionPixelInk  = '#' // the outline
-	companionPixelEye  = '@' // the eyes: the pupils, the lids and the expressions they draw
-	companionPixelRose = 'x' // the nose and the mouth
-)
-
-// The rows every state shares: the ears and brow above the face, and the nose,
-// mouth and chin below it. Every row is exactly companionPixelWidth pixels wide,
-// so the sprite is a rectangle and a one-cell step is always one column.
-var (
-	companionPixelTop = [6]string{
-		`  o#        #o  `,
-		`  o##      ##o  `,
-		`  o###    ###o  `,
-		` #o####  ####o# `,
-		` #oooooooooooo# `,
-		` #oooooooooooo# `,
-	}
-	companionPixelBottom = [6]string{
-		` #oooooxxooooo# `,
-		` #oooooxxooooo# `,
-		` #oooox..xoooo# `,
-		`  #oooooooooo#  `,
-		`   #oooooooo#   `,
-		`    ########    `,
-	}
-)
-
-// companionPixelMouthOpen is the two rows the mouth takes when the creature yawns,
-// in place of the two rows of companionPixelBottom that hold the closed mouth. An
-// open mouth is the one expression the pixel sprite draws that the glyph art can
-// only hint at, and it is worth the two rows: a yawn with a closed mouth is a cat
-// with its eyes shut.
-var companionPixelMouthOpen = [2]string{
-	` #ooooxxxxoooo# `,
-	` #ooooxxxxoooo# `,
+// companionVolumeSize is one rung of that ladder: the pixel grid one frame is sampled
+// on, and the radius of the eye's light disc in pixels. The eye's radius is the one
+// part of the drawing that is not derived from the scale, because the small rung's
+// scale puts the world's eye below a pixel and a disc with no pixels left is not an
+// eye: the floor is what keeps the gaze readable at both sizes.
+type companionVolumeSize struct {
+	width, rows int
+	eyeRadius   float64
 }
 
-// companionPixelEyes is one state's face: the four rows the eyes live in, and how
-// wide the pupil pair is. A width of zero means the eyes are drawn into those rows
-// and do not move -- a cat with its eyes shut has nothing to look with -- while a
-// width of two or three is a pupil pair the gaze can stamp at three columns and two
-// rows.
-//
-// The socket area is the ten pixels between the head's own sides, columns 3 to 12,
-// and every pupil position the gaze can ask for lands inside it, which is why the
-// pupils can never be drawn outside the face.
-type companionPixelFace struct {
-	rows   [4]string
-	pupils int
+// companionVolumeSizeFor is the rung a height draws on, and whether that height is one
+// of the rungs at all. The glyph heights are not: they are drawn from the tables above.
+func companionVolumeSizeFor(height int) (companionVolumeSize, bool) {
+	switch height {
+	case companionVolumeFullHeight:
+		return companionVolumeSize{width: companionVolumeFullWidth, rows: companionVolumeFullRows, eyeRadius: 1.5}, true
+	case companionVolumeSmallHeight:
+		return companionVolumeSize{width: companionVolumeSmallWidth, rows: companionVolumeSmallRows, eyeRadius: 1.1}, true
+	}
+	return companionVolumeSize{}, false
 }
 
-var (
-	companionPixelFaceOpen   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o..@@oo@@..o# `, ` #o..@@oo@@..o# `, ` #o..........o# `}, pupils: 2}
-	companionPixelFaceWide   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o.@@@..@@@.o# `, ` #o.@@@..@@@.o# `, ` #o..........o# `}, pupils: 3}
-	companionPixelFaceShut   = companionPixelFace{rows: [4]string{` #o..........o# `, ` #o.@@@..@@@.o# `, ` #o..........o# `, ` #o..........o# `}}
-	companionPixelFaceHappy  = companionPixelFace{rows: [4]string{` #o..@....@..o# `, ` #o.@.@..@.@.o# `, ` #o..........o# `, ` #o..........o# `}}
-	companionPixelFaceSquint = companionPixelFace{rows: [4]string{` #o.@......@.o# `, ` #o..@....@..o# `, ` #o.@......@.o# `, ` #o..........o# `}}
+// ============================================================================
+// THE CREATURE'S BODY
+// ============================================================================
+//
+// The world the creature is modelled in is its own: y = 0 is the ground, y grows up,
+// and one unit is about the width of the body. The box below is what the frame's cell
+// shows, and it is the whole of the camera: both rungs look at the same box from the
+// same distance, so the small sprite is the full one seen smaller. The box takes the
+// room the shadow needs under the paws and the ear tips' own height above them, and the
+// scale is the tighter of the two axes, so no part of a leaning, striding or startled
+// creature can leave the cell it is drawn in.
+const (
+	companionWorldHalfWidth = 1.0
+	companionWorldTop       = 1.45
+	companionWorldBottom    = -0.18
 )
 
-// companionPixelFaceFor is the face a state is drawn with. The shut face is shared
-// by the three states whose eyes are closed -- a blink, a sleep and the eyes of a
-// yawn -- because a closed eye is a closed eye, and the mouth is what tells those
-// three apart.
-func companionPixelFaceFor(state companionState) companionPixelFace {
+// companionVolumeScale is pixels per world unit: the tighter of the cell's two axes.
+func companionVolumeScale(size companionVolumeSize) float64 {
+	byWidth := float64(size.width) / (2 * companionWorldHalfWidth)
+	byHeight := float64(size.rows) / (companionWorldTop - companionWorldBottom)
+	return math.Min(byWidth, byHeight)
+}
+
+// companionWorldX and companionWorldY are the cell's camera: the world point at the
+// middle of one pixel, given the pixel's own column and row. The row counts downwards
+// and the world upwards, and half a pixel is added to each so a pixel is sampled at its
+// centre rather than at its corner -- which is also why the two are the exact inverses
+// of companionPixelOf.
+func companionWorldX(px int, size companionVolumeSize, scale float64) float64 {
+	return (float64(px) + 0.5 - float64(size.width)/2) / scale
+}
+
+func companionWorldY(py int, size companionVolumeSize, scale float64) float64 {
+	return companionWorldTop - (float64(py)+0.5)/scale
+}
+
+// companionPixelOf is the inverse: the pixel a world point falls on.
+func companionPixelOf(x, y float64, size companionVolumeSize, scale float64) [2]int {
+	return [2]int{
+		int(math.Round(x*scale + float64(size.width)/2 - 0.5)),
+		int(math.Round((companionWorldTop-y)*scale - 0.5)),
+	}
+}
+
+// companionSurface is the field's threshold: the outline is where the primitives' sum
+// crosses it. It is deliberately above one. Each primitive is written with the
+// half-axes the creature's own shape wants, and at a threshold of one a lone
+// primitive's surface would sit exactly on them; a little above one shaves every
+// primitive the same few per cent and leaves the fusion between two neighbours to do the
+// growing, which is the whole reason the shape is a field and not a list of ellipses.
+const companionSurface = 1.15
+
+// companionBlob is one ellipsoid and companionCapsule one thick segment: the two
+// primitives the creature is made of. Both answer with the same kind of number -- the
+// inverse square of the distance to their own surface, in their own units -- so they can
+// be summed, and the sum's threshold is the creature.
+type companionBlob struct {
+	x, y float64 // the centre
+	a, b float64 // the half-axes
+	c, s float64 // the rotation, as its cosine and sine: resolved when the pose is built
+}
+
+type companionCapsule struct {
+	x0, y0 float64 // one end, the end that stays on the body
+	x1, y1 float64 // the other, the end the animation moves
+	r      float64 // the segment's thickness
+}
+
+// companionBlobAt is an ellipsoid written the way the art reads: a centre, the two
+// half-axes and a rotation in radians, taken anticlockwise.
+func companionBlobAt(x, y, a, b, rot float64) companionBlob {
+	return companionBlob{x: x, y: y, a: a, b: b, c: math.Cos(rot), s: math.Sin(rot)}
+}
+
+// field is one primitive's contribution at a point. It is one on the primitive's own
+// surface, more inside it and less outside, so the threshold is the outline.
+func (bl companionBlob) field(x, y float64) float64 {
+	dx, dy := x-bl.x, y-bl.y
+	if bl.s != 0 {
+		dx, dy = dx*bl.c+dy*bl.s, -dx*bl.s+dy*bl.c
+	}
+	u, v := dx/bl.a, dy/bl.b
+	return 1 / math.Max(u*u+v*v, 1e-6)
+}
+
+// field is the capsule's: the distance to its own segment, measured in its thickness.
+func (cp companionCapsule) field(x, y float64) float64 {
+	dx, dy := cp.x1-cp.x0, cp.y1-cp.y0
+	t := 0.0
+	if length := dx*dx + dy*dy; length > 0 {
+		t = min(1, max(0, ((x-cp.x0)*dx+(y-cp.y0)*dy)/length))
+	}
+	ex, ey := x-cp.x0-t*dx, y-cp.y0-t*dy
+	return 1 / math.Max((ex*ex+ey*ey)/(cp.r*cp.r), 1e-6)
+}
+
+// companionPose is the creature's primitives at one instant: the whole of its shape for
+// one frame. It is a value built from the state, the tick, the gaze, the rung's size
+// and the tremble of a startle, and it carries no model and no clock of its own -- the
+// render path can therefore build one, draw it and drop it.
+type companionPose struct {
+	body, head, muzzle companionBlob
+	ears               [2]companionCapsule
+	legs               [4]companionCapsule
+	tail               [2]companionCapsule
+	// shadow is flat on the ground and does not move with anything the creature does:
+	// it is what the creature stands on, so it is drawn from the ground and not from
+	// the body.
+	shadow companionBlob
+}
+
+// field is the creature's own field: the sum of every primitive, whose threshold is the
+// outline. The shadow is not part of it -- the shadow is not the creature, it is what
+// the creature casts.
+func (p companionPose) field(x, y float64) float64 {
+	sum := p.body.field(x, y) + p.head.field(x, y) + p.muzzle.field(x, y)
+	for _, ear := range p.ears {
+		sum += ear.field(x, y)
+	}
+	for _, leg := range p.legs {
+		sum += leg.field(x, y)
+	}
+	for _, part := range p.tail {
+		sum += part.field(x, y)
+	}
+	return sum
+}
+
+// height is how far the surface stands above the outline at one point: the height field
+// the shading reads its normals from. sqrt(1 - T/F) is zero where the field is at its
+// threshold, rises towards the middle of a primitive and is exactly the cap of a sphere
+// for a lone one, which is what makes its gradient a surface normal rather than a
+// guess. It is bounded in [0, 1) instead of growing with the field, so the gradient
+// stays finite at a primitive's centre.
+func (p companionPose) height(x, y float64) float64 {
+	field := p.field(x, y)
+	if field <= companionSurface {
+		return 0
+	}
+	return math.Sqrt(1 - companionSurface/field)
+}
+
+// heightField samples that height on the sprite's own grid, one pixel wider on every
+// side. The border is there because a pixel's normal is read from its neighbours and the
+// pixels on the edge of the cell need neighbours too; the field is defined everywhere,
+// so the border is sampled exactly like any other pixel.
+func (p companionPose) heightField(size companionVolumeSize, scale float64) [][]float64 {
+	heights := make([][]float64, size.rows+2)
+	for gy := range heights {
+		heights[gy] = make([]float64, size.width+2)
+		for gx := range heights[gy] {
+			heights[gy][gx] = p.height(
+				companionWorldX(gx-1, size, scale),
+				companionWorldY(gy-1, size, scale),
+			)
+		}
+	}
+	return heights
+}
+
+// The animation's amplitudes. The geometry below them is the art; these are the
+// animation, and they are the numbers a reader should be able to change without
+// redrawing the creature.
+const (
+	// companionStrideReach is how far a swinging paw reaches in front of its own middle
+	// and companionStrideLift how far off the ground it comes while it swings. At the
+	// full sprite they are about a pixel and most of another, which is as far as a paw
+	// can move and still read as a paw rather than as a leg that teleports.
+	companionStrideReach = 0.075
+	companionStrideLift  = 0.055
+
+	// companionBodyBobPx is how far the body rises on the walk's two passing poses. It
+	// is a pixel count because a bob that moves less than a pixel moves nothing at all,
+	// and one pixel off a twenty-four-row sprite is as much of a bob as a walk is worth.
+	companionBodyBobPx = 1
+
+	// companionTailSway is how far the tail's tip swings, as a share of the front paw's
+	// own reach and in the opposite direction: the tail balances the front of the body,
+	// so it goes back when the front paw comes forward. That opposition is the whole
+	// reason the tail reads as alive rather than as attached.
+	companionTailSway = 0.9
+
+	// companionHeadTurnX and companionHeadTurnY are how far the head turns towards what
+	// the creature is looking at -- a pixel at the full size, and a little less upwards
+	// -- and companionMuzzleSwing is how much further the muzzle swings than the head
+	// does. A turn that moved the head without moving the muzzle further would read as a
+	// head sliding sideways rather than as a face turning.
+	companionHeadTurnX   = 0.07
+	companionHeadTurnY   = 0.025
+	companionMuzzleSwing = 1.8
+
+	// companionLeanTurn is how far the torso tilts with the gait. Small, and worth it: a
+	// body that stays exactly rigid while its legs stride reads as a cut-out being
+	// carried along.
+	companionLeanTurn = 0.10
+
+	// companionSagPx is how far a sleeping or startled creature's body sinks, and the
+	// companion of the walk's bob: both move the body while the paws stay on the ground.
+	companionSagPx = 1
+
+	// companionShiverPx and companionShiverTicks are the startle: one pixel either way
+	// on alternate frames, for the first few frames after a key. It is bounded on
+	// purpose, and that bound is why a startle costs three repaints rather than one
+	// repaint per frame for as long as an error stays on screen: the creature shivers,
+	// and then it holds the pose.
+	companionShiverPx    = 1
+	companionShiverTicks = 3
+
+	// companionGaitTicks is how many animation frames one of the walk's four poses
+	// lasts. It is a frame count and not a duration because what it counts really is
+	// frames, and at animTicksPerSecond two frames a pose is a stride a little over a
+	// second long, which is what a walk of about fifteen cells gets out of it.
+	companionGaitTicks = 2
+)
+
+// companionGaitReach and companionGaitLift are the walk's four poses, one entry per
+// pose: how far a paw is from the middle of its stride and how far off the ground it
+// is. A paw is planted for two poses -- sliding back under the body as the body walks
+// over it, which is what the ground does under a walking animal -- and swings for two,
+// coming off the ground, reaching forward and planting again. Four poses of that is a
+// walk rather than four pictures, and it is what makes the paws on one side disagree
+// with the ones on the other instead of the creature gliding.
+var (
+	companionGaitReach = [4]float64{1, -1, -1, 1}
+	companionGaitLift  = [4]float64{0, 0, 1, 0.8}
+
+	// companionGaitBob says which of the four poses lift the body: the two passing
+	// poses, which are the ones between a paw leaving the ground and the next one
+	// landing, so the body rides up over the legs that are standing on it.
+	companionGaitBob = [4]float64{0, 1, 0, 1}
+
+	// companionLegPhase is the pose each paw starts its own cycle on. The order is the
+	// pose's own order -- front near, front far, back near, back far -- and the offsets
+	// pair the front-near paw with the back-far one and the other two with each other,
+	// which is a trot: the diagonal pairs alternate, so two paws are always on the ground
+	// and two are always swinging.
+	companionLegPhase = [4]int{0, 2, 2, 0}
+)
+
+// companionGaitPhase is the walk's pose, read from the tick and from nothing else:
+// companionGaitTicks frames a pose, four poses, then round again. It is the tick's own
+// arithmetic and not a clock's, so the same model draws the same stride and a snapshot
+// can pin one.
+func companionGaitPhase(tick int) int {
+	phase := (tick / companionGaitTicks) % 4
+	if phase < 0 {
+		phase += 4
+	}
+	return phase
+}
+
+// companionPoseFor builds the creature's primitives for one frame: the whole of its
+// shape, in the world's own units. Everything above draws from this and nothing here
+// reads the model, the terminal or the clock.
+//
+// The creature faces right -- the direction it walks -- and it is built the way the eye
+// reads a cat: a long low body, a head a little over a third of the body's own length
+// with two ears and a muzzle, four legs under the body and a tail out of the back. The
+// head is the part the animation moves most, because the head is where a reader looks.
+// A gaze turns that head, not just its pupils: because the outline is a threshold over
+// the summed field, the turn may move nearby silhouette and shading pixels too. That is
+// a real consequence of this volume model, not a redraw defect; tests bound all such
+// changes to the creature's world-space cell and separately require the pupils to
+// move in the looked-at direction.
+func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver int, size companionVolumeSize) companionPose {
+	scale := companionVolumeScale(size)
+	unit := func(pixels float64) float64 { return pixels / scale }
+	gait := companionGaitPhase(tick)
+
+	// What the body itself does this frame: the walk lifts it over the passing poses, sleep
+	// and a startle fold it down, and a yawn stretches it up. The paws stay on the ground
+	// through all of them, which is what makes a bob read as a body moving over standing legs
+	// rather than as the whole creature hopping. The head keeps its own height while the body
+	// folds: that is what a cat crouching does, and it is also what keeps the ears -- which
+	// are the top of the creature -- inside the cell's own top row in every state, so no
+	// frame is a row shorter than the ladder asked for.
+	lift, headLift := 0.0, 0.0
 	switch state {
-	case companionBlinkingState, companionAsleepState, companionYawningState:
-		return companionPixelFaceShut
+	case companionWalkingState:
+		lift = unit(companionBodyBobPx * companionGaitBob[gait])
+		headLift = lift
+	case companionAsleepState, companionFlinchingState:
+		lift = -unit(companionSagPx)
+	case companionYawningState:
+		lift = unit(1)
+		headLift = lift
+	}
+
+	// The tremble of a startle: the whole creature, moved one pixel, the way a shiver
+	// moves a whole animal. The pose it settles into is the crouch above, so a creature
+	// that has stopped trembling is still a creature that was startled.
+	tremble := unit(float64(shiver))
+
+	// The head turns towards what the creature is looking at and the muzzle turns
+	// further; the ears and the face's own marks are placed from the head, so they turn
+	// with it without being told to.
+	headX := 0.52 + float64(gaze.X)*companionHeadTurnX + tremble
+	headY := 0.93 - float64(gaze.Y)*companionHeadTurnY + headLift
+	muzzleX := headX + 0.28 + float64(gaze.X)*companionHeadTurnX*(companionMuzzleSwing-1)
+	muzzleY := headY - 0.12 - float64(gaze.Y)*companionHeadTurnY*(companionMuzzleSwing-1)
+
+	// The ears and the tail are the two parts that carry a state's mood: a startled
+	// creature sweeps its ears back over its head and tucks its tail, an alert one pricks
+	// both up, and a sleeping one lets both go slack. The ears are swept rather than
+	// lowered on purpose -- an ear that dropped would take the top row of the sprite with
+	// it -- so even the lowest ear still reaches the cell's own top.
+	earBack, earLift, tailTip := 0.0, 0.0, 0.0
+	switch state {
 	case companionAlertState:
-		return companionPixelFaceWide
-	case companionPleasedState:
-		return companionPixelFaceHappy
+		earLift, tailTip = 0.045, 0.12
 	case companionFlinchingState:
-		return companionPixelFaceSquint
-	default:
-		return companionPixelFaceOpen
+		earBack, earLift, tailTip = -0.10, -0.02, -0.16
+	case companionAsleepState:
+		earBack, tailTip = -0.03, -0.18
+	case companionPleasedState:
+		earLift, tailTip = 0.035, 0.14
+	}
+
+	// The walk's own four poses, one per paw. Every other state plants all four paws
+	// where they stand, which is what makes the idle pose a stance.
+	var reach, swing [4]float64
+	if state == companionWalkingState {
+		for i := range reach {
+			foot := (gait + companionLegPhase[i]) % 4
+			reach[i] = companionStrideReach * companionGaitReach[foot]
+			swing[i] = companionStrideLift * companionGaitLift[foot]
+		}
+	}
+
+	// The tail balances the front of the body: it swings opposite the front paw, and its
+	// tip swings further than its middle does, so it bends as it sways.
+	sway := -companionTailSway * reach[0]
+
+	// The torso tilts with the gait.
+	lean := 0.0
+	if state == companionWalkingState {
+		lean = companionLeanTurn * companionGaitReach[gait]
+	}
+
+	// The two ends of the tail, so the capsule above and the one below meet at the same
+	// point: a tail whose two parts disagreed would have a gap in it.
+	tailJointX := -0.88 + tremble + sway*0.35
+	tailJointY := 0.86 + lift + tailTip*0.3
+
+	return companionPose{
+		body:   companionBlobAt(-0.18+tremble, 0.56+lift, 0.50, 0.29, lean),
+		head:   companionBlobAt(headX, headY, 0.29, 0.275, 0),
+		muzzle: companionBlobAt(muzzleX, muzzleY, 0.17, 0.105, 0),
+		ears: [2]companionCapsule{
+			{x0: headX - 0.06, y0: headY + 0.19, x1: headX - 0.13 + earBack, y1: headY + 0.48 + earLift, r: 0.062},
+			{x0: headX + 0.12, y0: headY + 0.19, x1: headX + 0.20 + earBack, y1: headY + 0.48 + earLift, r: 0.062},
+		},
+		legs: [4]companionCapsule{
+			{x0: 0.16 + tremble, y0: 0.40 + lift, x1: 0.19 + tremble + reach[0], y1: 0.06 + swing[0], r: 0.072},
+			{x0: 0.02 + tremble, y0: 0.38 + lift, x1: -0.01 + tremble + reach[1], y1: 0.06 + swing[1], r: 0.072},
+			{x0: -0.46 + tremble, y0: 0.40 + lift, x1: -0.49 + tremble + reach[2], y1: 0.06 + swing[2], r: 0.072},
+			{x0: -0.58 + tremble, y0: 0.38 + lift, x1: -0.61 + tremble + reach[3], y1: 0.06 + swing[3], r: 0.072},
+		},
+		tail: [2]companionCapsule{
+			{x0: -0.70 + tremble, y0: 0.60 + lift, x1: tailJointX, y1: tailJointY, r: 0.058},
+			{x0: tailJointX, y0: tailJointY, x1: -0.78 + tremble + sway, y1: 1.16 + lift + tailTip, r: 0.05},
+		},
+		// The shadow is flat on the ground and does not move with the creature: it is what
+		// the creature stands on, and it is drawn from the ground so that a hop or a bob
+		// leaves it where it is.
+		shadow: companionBlobAt(0, -0.07, 0.62, 0.105, 0),
 	}
 }
 
-// companionPixelSocketLeft and companionPixelSocketRight are the columns the pupil
-// pair is stamped at when the creature looks straight ahead. Looking to one side
-// moves both pupils by one column, which is the whole of the horizontal gaze here.
+// ============================================================================
+// THE LIGHT AND THE RAMP
+// ============================================================================
+
+// The light model's four numbers, named because they are the difference between a
+// shaded body and a flat one. Ambient is what the unlit side is still worth, diffuse is
+// what the lamp adds where the surface faces it, rim is how much brighter the silhouette
+// is than the surface behind it, and relief is how much of a normal the height field's
+// gradient is worth: the gradient of a gentle dome is a shallow slope, and relief is
+// what turns it into a body rather than a saucer.
 const (
-	companionPixelSocketLeft  = 5
-	companionPixelSocketRight = 9
-	companionPixelSocketRow   = 1
+	companionAmbient = 0.34
+	companionDiffuse = 0.72
+	companionRim     = 0.45
+	companionRelief  = 1.5
 )
 
-// companionPixelGrid is the sprite's whole pixel grid for one state and gaze: the
-// shared rows, the state's face with the gaze stamped into it, and the mouth the
-// state calls for. It is pure -- state in, pixels out, no model and no clock -- so
-// a test can pin the exact grid a state draws.
-func companionPixelGrid(state companionState, tick int, gaze companionGaze) [companionPixelRows]string {
-	face := companionPixelFaceFor(state)
-	face = companionPixelGaze(face, gaze)
+// companionRampSteps is how many tones the shading quantises into. Five is what the
+// palette can support honestly: the two ends are the darkest fur and the lit one, and
+// the three between them are the ramp the dither picks from. Fewer steps band visibly;
+// more would need tones the theme does not have.
+const companionRampSteps = 5
 
-	mouth := [2]string{companionPixelBottom[1], companionPixelBottom[2]}
-	if state == companionYawningState {
-		mouth = companionPixelMouthOpen
+// companionLight is where the light is: up, to the left and in front of the creature,
+// normalised once so the Lambert term is a dot product and nothing else. The direction
+// is what puts the bright side of the body at its upper left and the dark side under its
+// chin and along its right -- the way a reader expects a photograph to be lit.
+var companionLight = companionUnit([3]float64{-0.50, 0.62, 0.60})
+
+// companionUnit normalises a three-vector, which the light is read far too often per
+// frame to do on every call.
+func companionUnit(v [3]float64) [3]float64 {
+	n := math.Sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
+	return [3]float64{v[0] / n, v[1] / n, v[2] / n}
+}
+
+// companionBayer is the ordered-dither matrix, as the thresholds a pixel's fraction of
+// the way to the next tone is compared against. It is the standard 2x2 arrangement --
+// the classic (0 2 / 3 1)/4 -- moved by half a step so that a fraction of zero stays on
+// the lower tone. Nothing about it is random and nothing is time: it is indexed by the
+// pixel's own place in the grid, which is what makes the dither part of the drawing
+// rather than noise over it.
+var companionBayer = [2][2]float64{{0.125, 0.625}, {0.875, 0.375}}
+
+// companionShadowLevel is where on the ramp the ground's shadow sits: half the pixels take
+// the darkest tone and half the one above it, which is what a soft shadow looks like on a
+// grid of whole cells -- the two average to something darker than the background and lighter
+// than the darkest fur. A flat tone would read as a bar under the creature and a solid one
+// as a hole in the screen, and the level is half rather than a quarter because a quarter
+// leaves the odd pixel rows solid, which stripes the shadow from the inside.
+const companionShadowLevel = 0.5
+
+// companionDitherTone quantises a place on the ramp to one of its tones, using the
+// pixel's own cell of the Bayer matrix to choose between the two tones the place falls
+// between. A place of zero or less is left on the lowest tone rather than dithered, so a
+// pixel meant to be the darkest fur is not stippled with anything.
+func companionDitherTone(level float64, px, py int) companionTone {
+	if level <= 0 {
+		return companionRampTone(0)
+	}
+	if level >= companionRampSteps-1 {
+		return companionRampTone(companionRampSteps - 1)
+	}
+	low := int(level)
+	if level-float64(low) > companionBayer[py%2][px%2] {
+		low++
+	}
+	return companionRampTone(low)
+}
+
+// companionRampTone is the tone one step of the ramp draws as. It is a cast with its
+// bounds held here because the ramp's tones are the ramp's own indices, which is what
+// lets the dither choose between them with arithmetic instead of with a table.
+func companionRampTone(step int) companionTone {
+	return companionTone(min(max(step, 0), companionRampSteps-1))
+}
+
+// companionShadeTone is the light model at one pixel: the surface's normal read off the
+// height field's four neighbours, Lambert with companionLight, the ambient term, and the
+// rim term that brightens the silhouette. The normal is the vertical to the height field
+// -- (-dh/dx, -dh/dy, 1) -- and the height field's row runs downwards while the world's
+// y runs up, which is the one sign in here worth a comment.
+func companionShadeTone(heights [][]float64, px, py int, scale float64) companionTone {
+	gx := (heights[py+1][px+2] - heights[py+1][px]) * scale / 2
+	gy := (heights[py+2][px+1] - heights[py][px+1]) * scale / 2
+	nx, ny, nz := -gx*companionRelief, gy*companionRelief, 1.0
+	if inv := 1 / math.Sqrt(nx*nx+ny*ny+nz*nz); inv > 0 {
+		nx, ny, nz = nx*inv, ny*inv, nz*inv
+	}
+	lambert := math.Max(0, nx*companionLight[0]+ny*companionLight[1]+nz*companionLight[2])
+	rim := (1 - nz) * (1 - nz) * companionRim
+	// The light is a luminance in [0, 1] and the ramp is a count of tones, so the one is
+	// scaled into the other here rather than inside the dither, which has to stay the same
+	// function for the shadow's own place on the ramp.
+	luminance := min(1, max(0, companionAmbient+companionDiffuse*lambert+rim))
+	return companionDitherTone(luminance*float64(companionRampSteps-1), px, py)
+}
+
+// companionTone is one pixel of the sprite before it is a colour: a step of the
+// shading's ramp, or one of the marks the art draws on top of the volume. It is a tone
+// and not a colour because the ramp and the marks are the drawing and the palette is only
+// how the terminal is told about it: a test can pin the exact tones a frame is made of
+// without a terminal, and the ink below answers with the colours.
+type companionTone int
+
+const (
+	// companionToneNone is a pixel the creature does not cover: the terminal's own
+	// background, drawn as a space with no escape sequence at all.
+	companionToneNone companionTone = -1
+
+	// The ramp, darkest first: the shading quantises into these, and a test that counts
+	// how many of them a frame uses is a test of whether the gradient is really there.
+	companionToneRamp0 companionTone = 0
+	companionToneRamp1 companionTone = 1
+	companionToneRamp2 companionTone = 2
+	companionToneRamp3 companionTone = 3
+	companionToneRamp4 companionTone = 4
+
+	// The marks. They sit above the ramp's own numbers so that "is this tone part of the
+	// shading" is a comparison rather than a lookup.
+	companionToneEye   companionTone = 5 // the light disc of an eye
+	companionTonePupil companionTone = 6 // a pupil, and the lid or the mouth line that is the same dark
+	companionToneGlint companionTone = 7 // the one bright pixel in the whole sprite
+	companionToneNose  companionTone = 8 // the rose nose
+)
+
+// companionToneNames names every tone, in the order they are declared, so a tone added
+// without a name fails a test rather than printing as a number in a failure message.
+var companionToneNames = map[companionTone]string{
+	companionToneNone:  "none",
+	companionToneRamp0: "ramp0",
+	companionToneRamp1: "ramp1",
+	companionToneRamp2: "ramp2",
+	companionToneRamp3: "ramp3",
+	companionToneRamp4: "ramp4",
+	companionToneEye:   "eye",
+	companionTonePupil: "pupil",
+	companionToneGlint: "glint",
+	companionToneNose:  "nose",
+}
+
+// companionTones is every tone the art draws, the empty one included, which is the list
+// a test walks rather than a hand-kept copy of it.
+func companionTones() []companionTone {
+	return []companionTone{
+		companionToneNone,
+		companionToneRamp0, companionToneRamp1, companionToneRamp2, companionToneRamp3, companionToneRamp4,
+		companionToneEye, companionTonePupil, companionToneGlint, companionToneNose,
+	}
+}
+
+// companionEyeMark is what an eye is doing this frame, which is the whole of the face's
+// expression: the volume supplies the head and the light supplies the body, and a state
+// is read off its eyes and its pose before it is read off its nose.
+type companionEyeMark int
+
+const (
+	companionEyeOpen companionEyeMark = iota
+	companionEyeWide
+	companionEyeShut
+	companionEyeArc
+	companionEyeSquint
+	companionEyeHalfShut
+)
+
+// companionEyeMarkFor is the state's own eye mark. The shut eye is shared by a blink and
+// a sleep -- a closed eye is a closed eye, and the sag of the body is what tells those
+// two apart -- while a yawn keeps the top half of its own open, which is what stops a
+// yawn from reading as a blink.
+func companionEyeMarkFor(state companionState) companionEyeMark {
+	switch state {
+	case companionBlinkingState, companionAsleepState:
+		return companionEyeShut
+	case companionYawningState:
+		return companionEyeHalfShut
+	case companionAlertState:
+		return companionEyeWide
+	case companionPleasedState:
+		return companionEyeArc
+	case companionFlinchingState:
+		return companionEyeSquint
+	default:
+		return companionEyeOpen
+	}
+}
+
+// companionEyeAt is one pixel of one eye: the tone the eye draws at a place relative to
+// its own centre. It is pure -- the mark, the disc's radius and where the pupil is are
+// the whole of its input -- so every expression the art can draw is a table a test can
+// walk, and the pupil is always somewhere inside the disc because the mark is asked for
+// each pixel rather than stamped over the eye afterwards.
+func companionEyeAt(dx, dy int, radius float64, mark companionEyeMark, pupilX, pupilY int) companionTone {
+	switch mark {
+	case companionEyeShut:
+		// A closed eye is a straight line where the eye was.
+		if dy == 0 && dx >= -1 && dx <= 1 {
+			return companionTonePupil
+		}
+		return companionToneNone
+	case companionEyeArc:
+		// A pleased eye curves up at the ends: the two ends on the lid's own row and the
+		// middle a pixel above it.
+		if (dy == 0 && (dx == -1 || dx == 1)) || (dx == 0 && dy == -1) {
+			return companionTonePupil
+		}
+		return companionToneNone
 	}
 
-	var grid [companionPixelRows]string
-	copy(grid[0:6], companionPixelTop[:])
-	copy(grid[6:10], face.rows[:])
-	grid[10] = companionPixelBottom[0]
-	grid[11], grid[12] = mouth[0], mouth[1]
-	copy(grid[13:16], companionPixelBottom[3:])
-
-	// The pixel sprite can move by half a cell, which the glyph art cannot: the walk
-	// bobs one pixel row on alternate frames, and a sleeping cat sags the same way.
-	// That is one row of drawing moved, not a row of the frame, so it costs nothing
-	// and it reads as breathing rather than as a jump.
-	shift := 0
+	disc := float64(dx*dx+dy*dy) <= radius*radius
+	// A wide eye is the same disc with one more row over it, and it grows upwards and
+	// not sideways on purpose: two eyes that grew sideways would grow into each other.
+	if mark == companionEyeWide && dy == -1 {
+		disc = disc || float64(dx*dx) <= radius*radius
+	}
+	if !disc {
+		return companionToneNone
+	}
 	switch {
-	case state == companionAsleepState:
-		shift = 1
-	case state == companionWalkingState && tick%2 == 1:
-		shift = 1
+	case mark == companionEyeSquint && dy == -1:
+		// The lid comes down over the top of the eye, which is what a flinch looks like.
+		return companionTonePupil
+	case mark == companionEyeHalfShut && dy == 0:
+		return companionTonePupil
+	case dx == pupilX && dy == pupilY:
+		return companionTonePupil
 	}
-	if shift == 1 {
-		blank := strings.Repeat(string(companionPixelNone), companionPixelWidth)
-		copy(grid[1:], grid[:companionPixelRows-1])
-		grid[0] = blank
+	return companionToneEye
+}
+
+// companionEyeCentres is where the pair of eyes sits: one pixel row above the head's own
+// centre and either side of it by a share of the head's own radius, so a head drawn larger
+// carries its eyes further apart -- with the eye's own radius as a floor, because the small
+// rung's share of its head is one pixel and two eyes one pixel either side of the middle
+// would share the middle. Both centres are whole pixels, which is what lets a pupil sit on
+// one.
+func companionEyeCentres(head companionBlob, size companionVolumeSize, scale float64) [2][2]int {
+	centre := companionPixelOf(head.x, head.y, size, scale)
+	offset := max(int(math.Ceil(size.eyeRadius)), int(math.Round(head.a*scale*0.48)))
+	return [2][2]int{
+		{centre[0] - offset, centre[1] - 1},
+		{centre[0] + offset, centre[1] - 1},
 	}
+}
+
+// companionPaintTone writes one tone into the grid, inside the sprite and inside the
+// creature: a mark is a mark on a body, and one that asked for a pixel the body does not
+// cover is a bug in the placement rather than something to draw in mid-air.
+func companionPaintTone(grid [][]companionTone, inside func(int, int) bool, x, y int, tone companionTone) {
+	if !inside(x, y) {
+		return
+	}
+	grid[y][x] = tone
+}
+
+// companionPaintEye draws one eye into the grid: the disc, the pupil the gaze puts in it,
+// and the single pixel of glint. The glint is the first lit pixel of the disc in reading
+// order -- the eye's own upper left -- which is where a highlight goes and which is also
+// the pixel a gaze takes last, so a pupil that has moved into the corner moves the glint
+// beside it rather than under it.
+func companionPaintEye(grid [][]companionTone, inside func(int, int) bool, centre [2]int, size companionVolumeSize, mark companionEyeMark, gaze companionGaze) {
+	reach := int(math.Ceil(size.eyeRadius)) + 1
+	glintX, glintY, glinting := 0, 0, false
+	for dy := -reach; dy <= reach; dy++ {
+		for dx := -reach; dx <= reach; dx++ {
+			tone := companionEyeAt(dx, dy, size.eyeRadius, mark, gaze.X, gaze.Y)
+			if tone == companionToneNone {
+				continue
+			}
+			x, y := centre[0]+dx, centre[1]+dy
+			if !inside(x, y) {
+				continue
+			}
+			if tone == companionToneEye && !glinting {
+				glintX, glintY, glinting = x, y, true
+			}
+			grid[y][x] = tone
+		}
+	}
+	if glinting {
+		grid[glintY][glintX] = companionToneGlint
+	}
+}
+
+// companionPaintMuzzle draws the two marks that make the head a face: the nose, in the
+// palette's rose, and the mouth under it. Both are sized off the eye's own radius
+// because they are the same problem -- how much detail a mark is worth at this rung -- and
+// a mouth as wide as the full rung's on the small one would be the whole muzzle. A yawn
+// opens the mouth by a row, which is the one expression the volume draws that the glyph
+// art can only hint at.
+func companionPaintMuzzle(grid [][]companionTone, inside func(int, int) bool, muzzle companionBlob, size companionVolumeSize, scale float64, state companionState) {
+	width := int(math.Round(size.eyeRadius))
+	nose := companionPixelOf(muzzle.x+0.045, muzzle.y+0.03, size, scale)
+	for dx := 0; dx < width; dx++ {
+		companionPaintTone(grid, inside, nose[0]+dx, nose[1], companionToneNose)
+	}
+
+	mouth := companionPixelOf(muzzle.x+0.03, muzzle.y-0.045, size, scale)
+	open := state == companionYawningState
+	for dx := -width / 2; dx <= width/2; dx++ {
+		dy := 0
+		if !open && dx == 0 {
+			// A closed mouth is a shallow curve rather than a line: the middle of it is a
+			// pixel lower than its ends, which is what makes it read as a mouth.
+			dy = 1
+		}
+		companionPaintTone(grid, inside, mouth[0]+dx, mouth[1]+dy, companionTonePupil)
+		if open {
+			companionPaintTone(grid, inside, mouth[0]+dx, mouth[1]+1, companionTonePupil)
+		}
+	}
+}
+
+// companionVolumePixel is one pixel of the drawing outside the face: the volume's own
+// shading where the field covers it, the ground's shadow where it does not. The shadow is
+// asked for last because it is what the creature stands on: a pixel the creature covers
+// is fur, whatever the ground under it is doing.
+func companionVolumePixel(pose companionPose, heights [][]float64, size companionVolumeSize, scale float64, px, py int) companionTone {
+	if heights[py+1][px+1] > 0 {
+		return companionShadeTone(heights, px, py, scale)
+	}
+	if pose.shadow.field(companionWorldX(px, size, scale), companionWorldY(py, size, scale)) >= 1 {
+		return companionDitherTone(companionShadowLevel, px, py)
+	}
+	return companionToneNone
+}
+
+// companionVolumeTones draws one frame of the volumetric sprite: a grid of tones, one per
+// pixel, that the half-block encoder turns into the rows of the sprite. It is pure --
+// state, tick, gaze, tremble and rung in, tones out, with no model, no clock and no
+// terminal -- so a test can pin the exact frame a tick draws, and calling it twice returns
+// the same grid.
+func companionVolumeTones(state companionState, tick int, gaze companionGaze, shiver int, size companionVolumeSize) [][]companionTone {
+	pose := companionPoseFor(state, tick, gaze, shiver, size)
+	scale := companionVolumeScale(size)
+	heights := pose.heightField(size, scale)
+	inside := func(px, py int) bool {
+		return px >= 0 && py >= 0 && px < size.width && py < size.rows && heights[py+1][px+1] > 0
+	}
+
+	grid := make([][]companionTone, size.rows)
+	for py := range grid {
+		grid[py] = make([]companionTone, size.width)
+		for px := range grid[py] {
+			grid[py][px] = companionVolumePixel(pose, heights, size, scale, px, py)
+		}
+	}
+
+	for _, centre := range companionEyeCentres(pose.head, size, scale) {
+		companionPaintEye(grid, inside, centre, size, companionEyeMarkFor(state), gaze)
+	}
+	companionPaintMuzzle(grid, inside, pose.muzzle, size, scale, state)
 	return grid
 }
 
-// companionPixelGaze stamps the pupil pair at the position the gaze asks for: one
-// column to either side of the middle and, for a creature looking up, one pixel row
-// higher. A face whose pupils do not move is returned as it is, which is how a
-// closed eye stays closed whatever the pointer does.
-func companionPixelGaze(face companionPixelFace, gaze companionGaze) companionPixelFace {
-	if face.pupils == 0 {
-		return face
+// companionShiverPx is how far the creature is trembling on this frame: nothing unless it
+// is flinching, and then one pixel either way on alternate frames, for the first few
+// frames after a key. The bound is the point of it. A tremble that ran for as long as an
+// error stayed on screen would repaint the creature's rows on every frame over a screen
+// nobody was touching, which is exactly the regime this repository measured and fixed;
+// a tremble that stops after three frames leaves the creature crouched, which is the part
+// of a startle a reader can still see at this size.
+func (m Model) companionShiverPx() int {
+	if m.companionStateNow() != companionFlinchingState || m.CompanionIdle >= companionShiverTicks {
+		return 0
 	}
-	socket := [4]string{}
-	for i, row := range face.rows {
-		socket[i] = companionPixelClearSockets(row)
-	}
-
-	col := companionPixelSocketLeft + gaze.X
-	row := companionPixelSocketRow
-	if gaze.Y < 0 {
-		row = 0
-	}
-	for _, pupil := range []int{col, companionPixelSocketRight + gaze.X} {
-		for x := pupil; x < pupil+face.pupils; x++ {
-			for y := row; y < row+2; y++ {
-				socket[y] = companionPixelSetPixel(socket[y], x, companionPixelEye)
-			}
-		}
-	}
-	return companionPixelFace{rows: socket, pupils: face.pupils}
+	return companionShiverPx - 2*companionShiverPx*(m.AnimTick%2)
 }
 
-// companionPixelClearSockets returns a face row with its pupils taken out: every
-// mark inside the socket area becomes light fur again, so a gaze that moved them
-// leaves the row they came from clean instead of doubled. It clears the eye tone
-// and the outline alike, because the two have both been the pupil mark at some
-// point in the art's history and a stale one would be left behind. The head's
-// outline and its two inner edges are outside the socket area and are left alone.
-func companionPixelClearSockets(row string) string {
-	pixels := []rune(row)
-	for x := companionPixelSocketLeft - 2; x <= companionPixelSocketRight+3 && x < len(pixels); x++ {
-		if pixels[x] == companionPixelInk || pixels[x] == companionPixelEye {
-			pixels[x] = companionPixelFurL
-		}
-	}
-	return string(pixels)
-}
-
-// companionPixelSetPixel writes one tone into one pixel of a row. It is a write
-// and not an insert: the grid's width is the art's, and a gaze that asked for a
-// pixel outside it would be a bug in the position arithmetic rather than something
-// to draw past the edge of the face.
-func companionPixelSetPixel(row string, x int, tone rune) string {
-	pixels := []rune(row)
-	if x < 0 || x >= len(pixels) {
-		return row
-	}
-	pixels[x] = tone
-	return string(pixels)
-}
-
-// companionInk is the colours the pixel sprite is drawn with, resolved once when
-// the model is built. Resolving them asks the terminal about its background, which
-// a render may not do, so the answer lives on the model the way the animation gate
-// does.
+// companionInk is the palette the volume is drawn with, resolved once when the model is
+// built -- resolving it asks the terminal about its background, which a render may not do,
+// so the answer lives on the model the way the animation gate does.
 //
-// The palette is chosen so the creature is decoration and not information: the
-// body and the face are muted tones, so the cat is not the loudest object on a
-// screen whose words are, and the one bright tone in the set is spent on the eyes,
-// which are the small feature the gaze moves and the one the reader's own eye
-// should find first. The nose and mouth are the error rose, the only other accent.
+// It is a ramp and four marks rather than a list of colours. The ramp is the shading: five
+// tones from the deepest fold to the lit fur, blended from the theme's own entries because
+// a theme written for text does not carry five fur tones. The marks are the only pixels
+// that are not the volume: the eye's light disc, the pupil -- and the lid and the mouth
+// line, which are the same dark -- the single pixel of glint, and the rose nose.
 //
-// The outline is the palette's dark ink on a light terminal and its background on a
-// dark one: the theme's text colour is near-white on a dark terminal, and a
-// near-white outline around muted fur would be no outline at all. The background
-// tone is the theme's own background, so the pixels the cat does not cover blend
-// with the terminal.
+// The loudest tone in the palette is spent on the glint alone, which is one pixel of the
+// whole sprite: the creature is decoration, and the reader's eye should find the small
+// thing the gaze moves rather than the body around it. The nose and the mouth are the only
+// other accents. The dark end of the ramp is the palette's own ink, which is its text
+// colour on a light terminal and its background on a dark one -- a near-white fold on a
+// dark terminal would read as no shading at all.
 type companionInk struct {
-	none, furLight, furMid, ink, eye, rose color.RGBA
+	ramp  [companionRampSteps]color.RGBA
+	eye   color.RGBA
+	pupil color.RGBA
+	glint color.RGBA
+	nose  color.RGBA
 }
 
-// companionInkFor resolves the palette against the terminal's background.
+// companionInkFor resolves that palette against the terminal's background. The two
+// ramps run in the same direction -- darkest fold first -- but they are built from
+// different places in the palette, because every entry in the light column is dark: on a
+// light terminal the lit side of the creature is a pale grey rather than a bright one, so
+// that it stays visible against a white background, and the folds are the palette's own
+// ink.
 func companionInkFor(dark bool) companionInk {
 	pick := func(c lipgloss.AdaptiveColor) string {
 		if dark {
@@ -918,18 +1533,49 @@ func companionInkFor(dark bool) companionInk {
 		}
 		return string(c.Light)
 	}
-	outline := Background
-	if !dark {
-		outline = Text
+	background := parseHexColour(pick(Background))
+	muted := parseHexColour(pick(TextMuted))
+	fur := parseHexColour(pick(Secondary))
+	text := parseHexColour(pick(Text))
+
+	ramp := [companionRampSteps]color.RGBA{
+		blendColour(text, muted, 0.5),
+		muted,
+		blendColour(muted, background, 0.45),
+		blendColour(muted, background, 0.72),
+		blendColour(muted, background, 0.9),
+	}
+	pupil := text
+	if dark {
+		ramp = [companionRampSteps]color.RGBA{
+			blendColour(background, muted, 0.45),
+			muted,
+			blendColour(muted, fur, 0.55),
+			fur,
+			blendColour(fur, text, 0.55),
+		}
+		// On a dark terminal the pupil is the terminal's own background, exactly as the
+		// shipped pixel cat's outline was: the palette's near-white would put two bright
+		// holes in a dark face.
+		pupil = background
 	}
 	return companionInk{
-		none:     parseHexColour(pick(Background)),
-		furLight: parseHexColour(pick(Secondary)),
-		furMid:   parseHexColour(pick(TextMuted)),
-		ink:      parseHexColour(pick(outline)),
-		eye:      parseHexColour(pick(Accent)),
-		rose:     parseHexColour(pick(Error)),
+		ramp:  ramp,
+		eye:   ramp[companionRampSteps-1],
+		pupil: pupil,
+		glint: parseHexColour(pick(Accent)),
+		nose:  parseHexColour(pick(Error)),
 	}
+}
+
+// blendColour mixes two palette entries, which is where the ramp's intermediate steps come
+// from: they are places the theme does not name, and rounding them to the nearest theme
+// colour would flatten the two ends of the shading into nothing.
+func blendColour(from, to color.RGBA, t float64) color.RGBA {
+	mix := func(a, b uint8) uint8 {
+		return uint8(math.Round(float64(a) + (float64(b)-float64(a))*t))
+	}
+	return color.RGBA{R: mix(from.R, to.R), G: mix(from.G, to.G), B: mix(from.B, to.B), A: 0xff}
 }
 
 // parseHexColour reads the #rrggbb a theme colour is written as. The palette is
@@ -947,88 +1593,78 @@ func parseHexColour(hex string) color.RGBA {
 	return color.RGBA{R: uint8(value >> 16), G: uint8(value >> 8 & 0xff), B: uint8(value & 0xff), A: 0xff}
 }
 
-// companionPixelTone returns the colour a tone is drawn with.
-func (ink companionInk) tone(tone rune) color.RGBA {
-	switch tone {
-	case companionPixelFurL:
-		return ink.furLight
-	case companionPixelFurM:
-		return ink.furMid
-	case companionPixelInk:
-		return ink.ink
-	case companionPixelEye:
+// colour returns the colour a tone is drawn with. The empty tone answers with the ramp's
+// darkest step: the encoder draws a space for it and never asks, so the answer only has to
+// be a colour and not the right one.
+func (ink companionInk) colour(tone companionTone) color.RGBA {
+	switch {
+	case tone >= companionToneRamp0 && tone <= companionRampTone(companionRampSteps-1):
+		return ink.ramp[tone]
+	case tone == companionToneEye:
 		return ink.eye
-	case companionPixelRose:
-		return ink.rose
+	case tone == companionTonePupil:
+		return ink.pupil
+	case tone == companionToneGlint:
+		return ink.glint
+	case tone == companionToneNose:
+		return ink.nose
+	}
+	return ink.ramp[0]
+}
+
+// pen is one escape sequence for one tone, as a foreground or as a background.
+func (ink companionInk) pen(tone companionTone, foreground bool) string {
+	return string(appendColour(make([]byte, 0, 24), ink.colour(tone), foreground))
+}
+
+// cellStyle is the escape sequence and the glyph one cell of the sprite is drawn with: a
+// space with no escape at all for a cell the creature does not cover, a solid block for one
+// tone, and a half block with the two colours for two. A cell whose upper pixel is empty
+// takes the lower half block rather than an upper one over a background colour, which is
+// one escape sequence fewer on the sprite's edges.
+func (ink companionInk) cellStyle(upper, lower companionTone) (string, rune) {
+	switch {
+	case upper == companionToneNone && lower == companionToneNone:
+		return "", ' '
+	case upper == companionToneNone:
+		return ink.pen(lower, true), '\u2584'
+	case lower == companionToneNone:
+		return ink.pen(upper, true), '\u2580'
+	case upper == lower:
+		return ink.pen(upper, true), '\u2588'
 	default:
-		return ink.none
+		return ink.pen(upper, true) + ink.pen(lower, false), '\u2580'
 	}
 }
 
-// companionPixelRow draws one row of the sprite: two pixel rows folded into one
-// line of half blocks. A cell whose two pixels are the same tone is a solid block in
-// that tone; a cell whose pixels differ is the upper half block with the upper
-// pixel as its foreground and the lower one as its background, which is the trick
-// the whole tier rests on. A cell that is background on both rows is a space with no
-// escape sequence at all, so the empty half of the sprite costs a byte a cell.
-//
-// The style is written only when it changes from the cell before it, so a row of
-// one tone -- most of the fur -- is one escape sequence and sixteen glyphs.
-func (ink companionInk) row(top, bottom string) string {
+// row draws one row of the volume: two rows of tones folded into one line of half blocks.
+// The style is written only where it changes from the cell before it, so a stretch of one
+// tone -- most of the fur, and every solid run the dither makes -- is one escape sequence
+// and its glyphs, and the empty cells of a sprite's edges cost one byte each.
+func (ink companionInk) row(top, bottom []companionTone) string {
 	var out strings.Builder
-	out.Grow(companionPixelWidth * 4)
+	out.Grow(len(top) * 8)
 	last := ""
-	for x := 0; x < companionPixelWidth && x < len(top) && x < len(bottom); x++ {
-		upper, lower := rune(top[x]), rune(bottom[x])
-		switch {
-		case upper == companionPixelNone && lower == companionPixelNone:
-			// A transparent cell has to retire the style before writing its space. A
-			// space is painted with whatever colour is still active, and a terminal's
-			// escape state outlives the line: without this reset the last tone of a row
-			// bleeds through every cell after it, to the end of the row and on through
-			// the frame's own padding. It is not a subtle tint either - half the sprite's
-			// cells set a background, so the leak is a solid bar of colour across the
-			// terminal.
+	for x := 0; x < len(top) && x < len(bottom); x++ {
+		style, glyph := ink.cellStyle(top[x], bottom[x])
+		if style == "" {
 			if last != "" {
-				out.WriteString(companionInkReset)
+				out.WriteString("\x1b[0m")
 				last = ""
 			}
 			out.WriteByte(' ')
-		case upper == lower:
-			style := ink.style(ink.tone(upper), nil)
-			if style != last {
-				out.WriteString(style)
-				last = style
-			}
-			out.WriteRune('\u2588')
-		default:
-			style := ink.style(ink.tone(upper), &lower)
-			if style != last {
-				out.WriteString(style)
-				last = style
-			}
-			out.WriteRune('\u2580')
+			continue
 		}
+		if style != last {
+			out.WriteString(style)
+			last = style
+		}
+		out.WriteRune(glyph)
 	}
 	if last != "" {
-		out.WriteString(companionInkReset)
+		out.WriteString("\x1b[0m")
 	}
 	return out.String()
-}
-
-// style is the escape sequence one cell is drawn with: the tone as the foreground
-// and, when the cell's two pixels differ, the lower tone as the background. A nil
-// background means the cell is a solid block in one colour, which needs no second
-// colour at all. It is built with strconv rather than with a format string because a
-// sprite frame is a hundred and twenty-eight cells and the formatting was most of
-// what the tier cost.
-func (ink companionInk) style(fg color.RGBA, bg *rune) string {
-	out := make([]byte, 0, 48)
-	out = appendColour(out, fg, true)
-	if bg != nil {
-		out = appendColour(out, ink.tone(*bg), false)
-	}
-	return string(out)
 }
 
 // appendColour appends one true-colour escape sequence: 38;2 for a foreground, 48;2
@@ -1047,32 +1683,41 @@ func appendColour(out []byte, c color.RGBA, foreground bool) []byte {
 	return append(out, 'm')
 }
 
-// companionPixelSpriteRows is the whole pixel sprite, placed along the stage: eight
-// rows of half blocks, each indented to the cell the creature is standing on, or
-// nothing when this run does not draw the sprite at all.
-func (m Model) companionPixelSpriteRows(stage int) []string {
-	if !m.Animating || !m.PixelSprite || stage < companionPixelWidth {
+// companionVolumeRows is the whole volumetric sprite, placed along the stage: the rung's
+// rows of half blocks, each indented to the cell the creature is standing on, or nothing
+// when this run does not draw the volume at all.
+func (m Model) companionVolumeRows(stage int, size companionVolumeSize) []string {
+	if !m.Animating || !m.PixelSprite || stage < size.width {
 		return nil
 	}
-	grid := companionPixelGrid(m.companionStateNow(), m.AnimTick, m.CompanionGaze)
-	pos := min(max(m.CompanionPos, 0), stage-companionPixelWidth)
+	grid := companionVolumeTones(m.companionStateNow(), m.AnimTick, m.CompanionGaze, m.companionShiverPx(), size)
+	pos := min(max(m.CompanionPos, 0), stage-size.width)
 	indent := strings.Repeat(" ", pos)
-	rows := make([]string, 0, companionPixelHeight)
-	for i := 0; i < companionPixelRows; i += 2 {
-		rows = append(rows, indent+m.ink.row(grid[i], grid[i+1]))
+	rows := make([]string, 0, size.rows/2)
+	for py := 0; py+1 < size.rows; py += 2 {
+		rows = append(rows, indent+m.ink.row(grid[py], grid[py+1]))
 	}
 	return rows
 }
 
-// pixelSpriteGate answers whether this run may draw the shaded sprite: the switch
-// is not off and the terminal reports true colour. It reads the environment and the
-// terminal once, when the model is built; the render path reads the model's answer
-// and never the environment.
+// pixelSpriteGate answers whether this run may draw the volumetric sprite: the switch is
+// not off and the terminal reports true colour. It reads the environment and the terminal
+// once, when the model is built; the render path reads the model's answer and never the
+// environment.
 func pixelSpriteGate() bool {
-	if os.Getenv(envSprite) == "0" {
+	return pixelSpriteAllowed(termenv.ColorProfile(), os.Getenv(envSprite))
+}
+
+// pixelSpriteAllowed is that decision as a function of its two inputs, which is what makes
+// the floor testable without a terminal: true colour draws the volume, and a terminal that
+// reports sixteen colours, eight or none draws the glyph cat instead -- the shading is the
+// drawing, so a tier that cannot show it is not attempted. DOTFILES_SPRITE=0 is the same
+// refusal for a terminal that reports true colour and renders block glyphs badly.
+func pixelSpriteAllowed(profile termenv.Profile, spriteEnv string) bool {
+	if spriteEnv == "0" {
 		return false
 	}
-	return lipgloss.ColorProfile() == termenv.TrueColor
+	return profile == termenv.TrueColor
 }
 
 // ============================================================================
@@ -1350,8 +1995,8 @@ func (m Model) companionSprite(stage, height int) []string {
 	if width == 0 || stage < width {
 		return nil
 	}
-	if height == companionPixelHeight {
-		return m.companionPixelSpriteRows(stage)
+	if size, ok := companionVolumeSizeFor(height); ok {
+		return m.companionVolumeRows(stage, size)
 	}
 	pos := min(max(m.CompanionPos, 0), stage-width)
 	art := companionArtFor(m.companionStateNow(), height, m.AnimTick, m.CompanionGaze)
