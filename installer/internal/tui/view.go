@@ -2490,11 +2490,15 @@ func (m Model) renderTrainerMenu() string {
 	// the verbs as verbs, the same way every installer screen's footer does. The
 	// menu's eight hints pack to two rows at the 80-column floor, the height the
 	// rows above already reserve.
-	rows = append(rows, footerHints(inner, []installerHint{
+	footer := footerHints(inner, []installerHint{
 		hintUp, hintDown,
 		trainerHintLesson, trainerHintPractice, trainerHintBoss,
 		trainerHintReset, trainerHintResetAll, trainerHintBack,
-	})...)
+	})
+	if m.Height > trainerFloorHeight {
+		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+	}
+	rows = append(rows, footer...)
 
 	return strings.Join(rows, "\n")
 }
@@ -2515,7 +2519,11 @@ func (m Model) trainerTextBudget(exercise *trainer.Exercise) (missionRows []stri
 		return m.trainerWideTextBudget(exercise, l)
 	}
 
-	flex := m.Height - trainerFrameRows
+	reserve := 0
+	if m.Height > trainerFloorHeight {
+		reserve = m.companionHeightNow()
+	}
+	flex := m.Height - trainerFrameRows - reserve
 	if flex < trainerCodeMinRows+1 {
 		flex = trainerCodeMinRows + 1
 	}
@@ -2546,6 +2554,9 @@ const trainerRightColumnChrome = 5
 // existing cut marker's job at an extreme height, not a normal case.
 func (m Model) trainerWideTextBudget(exercise *trainer.Exercise, l layout) (missionRows []string, codeRows int) {
 	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints()))
+	if m.Height > trainerFloorHeight {
+		bodyRows -= m.companionHeightNow()
+	}
 
 	// The code window owns the left column: the column minus its chip.
 	codeRows = bodyRows - 1
