@@ -113,6 +113,42 @@ func (m Model) handleNewFeatureKeys(key string) (tea.Model, tea.Cmd) {
 
 ---
 
+### Pattern 5: The invariants the guards enforce
+
+Every one of these came out of a defect that reached a real terminal, so they are not style preferences.
+Each has a guard that fails when it is broken, and the guards live in `teatest_test.go` and
+`render_leak_test.go` unless the entry says otherwise.
+
+1. **The frame's rows are reserved, not headroom.** Every screen renders inside the shared frame, and both
+   frame guards measure it at the 80x24 floor and at wide sizes. **A new screen has to be added to the list
+   those guards iterate** - otherwise it ships unmeasured, and nothing complains. `installerBodyRows` and the
+   per-screen `*BodyFixed` constants are how a screen reserves the rows it needs; spending a row nobody
+   reserved fails the guard.
+2. **Colour never carries meaning on its own.** Words and glyphs do. A 16-colour or colourless terminal must
+   lose nothing, and Termux is a supported terminal: no emoji with meaning, no state that only truecolour
+   shows.
+3. **The render path reads nothing.** No clock, no file, no environment, no terminal query while drawing:
+   everything a screen shows arrives on the model, which is what lets a snapshot pin it. The gates
+   (`--no-anim`, `--no-mouse`, `--no-sprite`, the `DOTFILES_*` switches) are read **once, when the model is
+   built**, and the model carries the answer.
+4. **One ladder, one renderer.** The companion is chosen by one ladder and drawn by one set of functions. A
+   screen that composes its own rows - the trainer does - must call them rather than reimplement the art:
+   two copies drift, and the drift is invisible until somebody notices the old creature on one screen.
+5. **A tick may change only the rows a widget owns**, and at rest, with nothing happening, the view must be
+   byte-identical from tick to tick so the renderer writes nothing at all.
+6. **Escape sequences are retired.** A cell that stops being painted must reset the style it set: an active
+   **background** paints every cell after it, to the end of the line and on through the rows below, which is
+   how a sprite once became a bar of colour across the terminal.
+7. **Snapshots are regenerated from the merged code and inspected, never hand-merged**, and one that moves
+   for a legitimate reason is reported with its diff. Look at both the shape and the escapes: a shape-only
+   check cannot see a leak, and an escape-only check cannot see art that moved.
+8. **A number in prose comes from a test that prints it** - `TestCompanionCostHasTwoRegimes` for the
+   companion's two cost regimes, `BenchmarkCompanionVolumeFrame` for what rendering costs,
+   `TestNoRenderedLineLeavesAColourActive` for the leak. Prose decays silently; a figure with a test behind
+   it can be re-derived.
+
+---
+
 ## Decision Tree
 
 ```
