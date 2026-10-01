@@ -1142,17 +1142,29 @@ func TestCompanionTakesTheSpareRowAboveTheFooterRule(t *testing.T) {
 	})
 
 	t.Run("the facts keep the last spare row", func(t *testing.T) {
-		// A narrow screen with one row to spare shows the panel's summary and no
-		// companion: the summary is the fact the panel was answering with and the
-		// creature is decoration, so the creature is the one that gives way. With
-		// two rows to spare both fit, the summary above the creature.
+		// A narrow screen shows the panel's summary above the creature, and the
+		// creature is the one that gives way: the summary is the fact the panel was
+		// answering with and the creature is decoration. What "gives way" means
+		// changed with the constant-space contract - the creature used to shrink to
+		// whatever was left over, so the same screen drew a different animal as its
+		// content changed; now it draws the rung the terminal calls for, or nothing
+		// at all, and never a smaller creature than the one every other screen shows.
 		panels := []panel{
 			testPanel(panelMachine, "Machine", "Linux · x86_64", "OS  Linux"),
 			testPanel(panelPlan, "Plan", "8 steps", "Steps  8"),
 		}
 		hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
 
-		for _, spare := range []int{1, 2} {
+		rung := Model{Width: 100, Height: 24}.companionHeightNow()
+		if rung < 1 {
+			t.Fatal("this terminal height has no creature at all, so the test proves nothing")
+		}
+
+		// `spare` is the rows the body leaves blank. At the rung itself there is room
+		// for the creature but no row left for the summary above it: the summary wins,
+		// because a fact beats a decoration. With room to spare the creature draws the
+		// SAME rung - not a bigger one, and not a smaller one.
+		for _, spare := range []int{rung, rung + 4} {
 			m := Model{Width: 100, Height: 24, Animating: true}
 			l := layoutFor(m)
 			rows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.panelHints(panels, hints)))
@@ -1171,19 +1183,16 @@ func TestCompanionTakesTheSpareRowAboveTheFooterRule(t *testing.T) {
 			if !summary {
 				t.Errorf("with %d spare row(s) the panel summary is gone:\n%s", spare, view)
 			}
-			if spare == 1 && companion {
-				t.Errorf("with one spare row the companion took the row from the summary:\n%s", view)
+			want := 0
+			if spare > rung {
+				want = rung
 			}
-			if spare == 2 && !companion {
-				t.Errorf("with two spare rows the companion did not draw: %q", view)
-			}
-			// The ladder reads the spare rows the body left after the summary took
-			// its own, so the creature shrinks instead of losing its row or taking
-			// one from a fact: one spare row leaves nothing and draws no companion,
-			// two leave one and draw the one-row art.
-			want := companionHeight(spare - 1)
 			if got := len(companionOwnedRows(strings.Split(view, "\n"))); got != want {
-				t.Errorf("with %d spare row(s) the sprite owns %d rows, want %d", spare, got, want)
+				t.Errorf("with %d spare row(s) the sprite owns %d rows, want %d: the creature draws the "+
+					"terminal's rung or nothing, never an animal of a different size", spare, got, want)
+			}
+			if companion != (want > 0) {
+				t.Errorf("with %d spare row(s) the companion is %v while it owns %d rows", spare, companion, want)
 			}
 			if rows := renderedRowCount(view); rows != 24-viewPaddingRows {
 				t.Errorf("the frame renders %d rows with %d spare row(s), want %d",
@@ -2058,12 +2067,23 @@ func TestCompanionClickHopsAndCelebrates(t *testing.T) {
 // TestCompanionHopNeedsItsOwnRow pins the row budget of the jump: the sprite gains
 // a blank row under it, so the hop costs one spare row more than the sprite itself.
 // Where the frame has no such row the creature stays on the ground and the
-// celebration shows in its face, which is the ladder's rule that no decoration
-// takes a row a fact needs.
+// celebration shows in its face, which is the rule that no decoration takes a row a
+// fact needs.
+//
+// The last two rows of the table used to expect a smaller creature - the compact
+// sprite - because the rung was read from the spare rows. A rung chosen by the
+// terminal cannot do that: when a frame has less room than the rung, no creature is
+// drawn at all, because a creature that changes size with its screen is the defect
+// this contract exists to remove.
 func TestCompanionHopNeedsItsOwnRow(t *testing.T) {
 	body := make([]string, 10)
 	for i := range body {
 		body[i] = fmt.Sprintf("body row %d", i+1)
+	}
+
+	rung := (Model{Width: 160, Height: 50}).companionHeightNow()
+	if rung < 1 {
+		t.Fatal("this terminal height has no creature at all, so the test proves nothing")
 	}
 
 	tests := []struct {
@@ -2072,10 +2092,10 @@ func TestCompanionHopNeedsItsOwnRow(t *testing.T) {
 		drawn  int // how many rows carry art: the sprite's own rows, hop or no hop
 		lifted bool
 	}{
-		{"room for the full sprite and the hop", companionFullHeight + 1, companionFullHeight, true},
-		{"room for the full sprite only", companionFullHeight, companionFullHeight, false},
-		{"room for the compact sprite and the hop", companionCompactHeight + 1, companionCompactHeight, true},
-		{"room for the compact sprite only", companionCompactHeight, companionCompactHeight, false},
+		{"room for the sprite and the hop", rung + 1, rung, true},
+		{"room for the sprite only", rung, rung, false},
+		{"not enough room for the rung", rung - 1, 0, false},
+		{"far less room than the rung needs", 2, 0, false},
 	}
 
 	for _, tt := range tests {
@@ -2095,6 +2115,10 @@ func TestCompanionHopNeedsItsOwnRow(t *testing.T) {
 			}
 			if drawn != tt.drawn {
 				t.Errorf("%d rows carry art, want the sprite's %d", drawn, tt.drawn)
+			}
+			if tt.drawn == 0 {
+				// No creature: there is no hop to check and no row it may touch.
+				return
 			}
 			if last := companionRowHasArt(got[len(got)-1]); last == tt.lifted {
 				if tt.lifted {
@@ -2624,36 +2648,37 @@ func TestCompanionStartleTremblesThenHolds(t *testing.T) {
 	}
 }
 
-// TestCompanionVolumeSpriteIsTheLadderTopSteps pins the ladder with the volume's two rungs
-// on top of it: the full sprite where the frame can hold its twelve rows and the run may
-// draw it, the small one where it can hold ten, the five-row glyph cat where it can hold
-// neither, and the glyph ladder untouched everywhere the gate is off -- the floor is
-// skipped over, never replaced.
+// TestCompanionVolumeSpriteIsTheLadderTopSteps pins the rung to terminal height,
+// never to the rows a screen happened to leave: volume-full, volume-small, glyph
+// cat, then compact glyph art. A terminal that cannot use volume falls through to
+// the glyph rung, and the compact floor remains drawable without colour.
 func TestCompanionVolumeSpriteIsTheLadderTopSteps(t *testing.T) {
-	body := make([]string, 10)
-	for i := range body {
-		body[i] = fmt.Sprintf("body row %d", i+1)
-	}
-
 	tests := []struct {
 		name       string
+		height     int
 		sprite     bool
-		spare      int
 		wantHeight int
 	}{
-		{"twelve rows draws the full sprite", true, companionVolumeFullHeight, companionVolumeFullHeight},
-		{"eleven rows drops to the small sprite rather than to the cat", true, companionVolumeFullHeight - 1, companionVolumeSmallHeight},
-		{"ten rows draws the small sprite", true, companionVolumeSmallHeight, companionVolumeSmallHeight},
-		{"nine rows drops to the glyph cat", true, companionVolumeSmallHeight - 1, companionFullHeight},
-		{"the gate off draws the glyph cat however much room there is", false, companionVolumeFullHeight + 9, companionFullHeight},
-		{"a frame too small for the cat falls through to the head", true, companionCompactHeight, companionCompactHeight},
+		{"height 34 selects volume-full", 34, true, companionVolumeFullHeight},
+		{"height 33 selects volume-small", 33, true, companionVolumeSmallHeight},
+		{"height 30 selects volume-small", 30, true, companionVolumeSmallHeight},
+		{"height 29 falls through to glyph cat", 29, true, companionFullHeight},
+		{"height 25 selects glyph cat", 25, false, companionFullHeight},
+		{"gate off selects glyph cat", 40, false, companionFullHeight},
+		{"height 24 selects compact glyph art", 24, true, companionCompactHeight},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := Model{Width: 160, Height: 50, Animating: true, PixelSprite: tt.sprite, ink: companionInkFor(true)}
-			placed := append(append([]string(nil), body...), make([]string, tt.spare)...)
-
+			m := Model{Width: 160, Height: tt.height, Animating: true, PixelSprite: tt.sprite, ink: companionInkFor(true)}
+			wantRung := m.companionHeightNow()
+			if wantRung != tt.wantHeight {
+				t.Fatalf("terminal height %d selected rung %d, want %d", tt.height, wantRung, tt.wantHeight)
+			}
+			t.Logf("terminal height %d with pixel=%t selects a %d-row rung", tt.height, tt.sprite, wantRung)
+			// Give placement more than enough blank rows: only the terminal height
+			// and sprite mode may determine which art is drawn.
+			placed := make([]string, tt.wantHeight+2)
 			got := m.placeCompanion(placed, nil, companionStageWidth(m))
 			if len(got) != len(placed) {
 				t.Fatalf("placement drew %d rows on a %d-row frame", len(got), len(placed))
@@ -2906,6 +2931,98 @@ func TestCompanionStaysPutWhenNothingHappens(t *testing.T) {
 					len(rows), bytes, before, after)
 			}
 		})
+	}
+}
+
+// TestCompanionBlockDependsOnlyOnTheTerminal guards the companion's reserved
+// block against content-driven sizing. Every framed screen and each of the six
+// trainer screens is rendered in two content states at each size, in both pixel
+// and glyph modes. At the 80x24 floor the menu and trainer intentionally retain
+// their separately pinned legacy blocks; above it every screen must use the
+// mode's terminal-height rung at the same row position.
+func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
+	sizes := []struct {
+		width, height int
+	}{{80, 24}, {120, 40}, {160, 50}, {227, 62}}
+
+	for _, size := range sizes {
+		for _, pixel := range []bool{false, true} {
+			positions := map[string]int{}
+			for _, name := range installerFrameScreenNames {
+				for state := 0; state < 2; state++ {
+					m := installerFrameCase(t, name)
+					m.Width, m.Height = size.width, size.height
+					m.Animating, m.PixelSprite = true, pixel
+					if options := m.GetCurrentOptions(); len(options) > 1 {
+						m.Cursor = state
+					}
+					assertCompanionBlockContract(t, positions, fmt.Sprintf("%s/state-%d", name, state), m, size.height, pixel, true)
+				}
+			}
+			for _, name := range trainerLeakScreenNames {
+				for state := 0; state < 2; state++ {
+					m := trainerLeakFrameCase(t, name)
+					m.Width, m.Height = size.width, size.height
+					m.Animating, m.PixelSprite = true, pixel
+					if state == 1 {
+						m.TrainerMessage = "Hint: use the lesson's suggested motion."
+					}
+					assertCompanionBlockContract(t, positions, fmt.Sprintf("%s/state-%d", name, state), m, size.height, pixel, false)
+				}
+			}
+		}
+	}
+}
+
+func assertCompanionBlockContract(t *testing.T, positions map[string]int, name string, m Model, height int, pixel, framed bool) {
+	t.Helper()
+	view := m.View()
+	if height == trainerFloorHeight && name != "main-menu/state-0" && name != "main-menu/state-1" && !strings.HasPrefix(name, "trainer-lesson/") {
+		return // The floor preserves each existing framed screen; only these two values are pinned.
+	}
+	art, rows := trainerViewCompanionArt(view)
+	if rows == 0 {
+		if framed {
+			return // A framed screen whose unchanged body leaves no block does not show the creature.
+		}
+		t.Fatalf("%s at %dx%d pixel=%t has no companion block", name, m.Width, height, pixel)
+	}
+	first, _, ok := findCompanionRow(view)
+	if !ok {
+		t.Fatalf("%s at %dx%d pixel=%t has no companion row", name, m.Width, height, pixel)
+	}
+	if height == trainerFloorHeight {
+		want := companionCompactHeight
+		if !framed {
+			want = companionMiniHeight
+		}
+		if rows != want {
+			t.Errorf("%s at 80x24 has %d art rows, want pinned floor block %d:\n%s", name, rows, want, art)
+		}
+		return
+	}
+
+	want := companionFullHeight
+	if pixel {
+		switch {
+		case height >= 34:
+			want = companionVolumeFullHeight
+		case height >= 30:
+			want = companionVolumeSmallHeight
+		default:
+			want = companionFullHeight
+		}
+	} else if height < 25 {
+		want = companionCompactHeight
+	}
+	if rows != want {
+		t.Errorf("%s at %dx%d pixel=%t has %d art rows, want terminal rung %d:\n%s", name, m.Width, height, pixel, rows, want, art)
+	}
+	key := fmt.Sprintf("%dx%d/pixel=%t/%s", m.Width, height, pixel, strings.Split(name, "/")[0])
+	if prior, ok := positions[key]; ok && first != prior {
+		t.Errorf("%s at %dx%d pixel=%t starts companion at row %d, want same-screen row %d in the alternate content state", name, m.Width, height, pixel, first, prior)
+	} else {
+		positions[key] = first
 	}
 }
 
