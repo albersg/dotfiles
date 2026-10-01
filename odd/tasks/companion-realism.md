@@ -10,13 +10,15 @@ reserved on every screen, and it never resizes or moves because of what is on sc
 
 ## What exists today (measured, not remembered)
 
-- A 32x24 half-block raster drawn in twelve rows (24x16 in eight), from metaballs: head, muzzle, body, four
-  legs, tail.
-- Lambert shading from the upper left, ordered dithering, a drop shadow, four tones.
+- A 32x24 half-block raster drawn in twelve rows (24x16 in eight), from metaballs. Step 1 adds distinct
+  skull, muzzle, neck, chest and haunch masses, triangular ears, four legs and a tapered three-segment tail.
+- Lambert shading from the upper left, ordered dithering, a drop shadow and the existing five-step ramp;
+  Step 1 does not change the light model.
 - A four-pose walk, a bob, a lean, a tail counter-sway, a head and pupil turn; a blink every ten seconds.
 - Pupils: three columns by two rows inside the head.
-- Cost: about 1.6 ms a frame (884 field samples, 768 raster pixels, 928 allocations); at rest zero bytes,
-  while walking 7488 bytes over twelve changed lines at 227 columns.
+- After Step 1, `TestCompanionCostHasTwoRegimes` reports 0 bytes at rest and, at 227 columns, 19 moving
+  frames over 2.38 s, 158228 bytes total and 8852 bytes in the widest changed lines (69.2 KB/s at 8 fps).
+  `BenchmarkCompanionVolumeFrame` reports 1,557,471 ns/op, 304,295 B/op and 1040 allocs/op on Linux/amd64.
 
 ## The standard
 
@@ -109,5 +111,46 @@ snapshot harness does.
 4. Then the motion, and the restatement of the at-rest claim.
 5. Then the budget ceiling and the bounding-box guard, and the documentation pass that ties every figure to
    the test that prints it.
+
+## Step 1 outcome: anatomy
+
+Implemented in `installer/internal/tui/companion.go`. The volume now has a rounded skull and shorter
+muzzle, a separate narrowing neck, chest and larger haunch, two triangular ears with darker inner-ear
+raster pixels, four ground-reaching legs with dark paw pads, and a three-segment curved/tapered tail.
+The face has a one-to-two-pixel dark nose, a two-pixel mouth on the full rung, and three one-pixel whisker
+strokes on each side only on the twelve-row rung. The existing sclera/pupil renderer remains for now;
+its stricter eye/gaze contract belongs to Step 3.
+
+`TestCompanionAnatomyIsStructural` pins the ear maxima above the skull, haunch mass against chest/body/
+neck, each leg against the ground line, inner-ear and paw-pad raster pixels, nose and mouth landmarks,
+full-rung whiskers, and a non-increasing tail pixel count from the base column to the tip. Deletion experiments were run and
+restored:
+
+- With the second ear removed, the test failed verbatim: `companion_test.go:2227: ear 1 maximum 0.000 is not above skull maximum 1.205`.
+- With the haunch removed, the test failed verbatim: `companion_test.go:2233: haunch 0.0000 is not largest (chest 0.0840 body 0.1092 neck 0.0375)`.
+
+The sole moved snapshot is `installer/internal/tui/testdata/TestCompanionGoldenPinsThePixelSpriteAndItsGaze.golden`:
+its pixel silhouette and its ANSI foreground/background runs changed with the new field masses and facial
+landmarks. The glyph snapshots did not move. The ANSI snapshot was read after regeneration; each sprite
+line ends with a reset, and `TestNoRenderedLineLeavesAColourActive` remains the executable escape-state
+guard.
+
+Measured after the anatomy change: rest is 0 bytes; walking at 227 columns changes 12 lines, over 19
+moving frames/2.38 s, with 158228 bytes total, a maximum 8852-byte changed-line cost and 69.2 KB/s at
+8 fps (`TestCompanionCostHasTwoRegimes`). `BenchmarkCompanionVolumeFrame`: 1,557,471 ns/op,
+304,295 B/op, 1040 allocs/op. These replace the earlier baseline figures; the tests/benchmark above are
+the sources for remeasurement. The ladder, rung heights and block remain unchanged.
+
+## Remaining steps
+
+2. **Light and material** still owes rim light, contact/ambient-occlusion regions, and histogram assertions.
+   Step 1 intentionally leaves the current Lambert, dither, shadow and five-step ramp alone. Reconcile the
+   plan's four-tone target with the measured current five-step implementation before changing the ramp.
+3. **Eyes and gaze** still owes the explicit sclera/pupil/highlight guarantees, gaze-grid isolation, eyelid
+   blink semantics, and pointer-driven ear/skull shifts.
+4. **Motion with weight** still owes the specified landing order, body/head lead and tail lag, idle events,
+   hop poses, and a precise still-between-events cost statement.
+5. **Budget, block and leaks** still owes the benchmark ceiling and all-pose/all-rung bounding-box guard;
+   this pass updates the anatomy documentation and retains the existing block/leak/cost guards.
 
 Each step is a work-unit commit, and each keeps the suite, both frame guards and the leak guard green.

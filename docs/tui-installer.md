@@ -344,14 +344,21 @@ creature, and one whose body fills its frame shows neither. At 80x24 — the flo
 guaranteed to work at — the main menu leaves five spare rows of which the summary takes one, so the
 three-row head is what draws there.
 
-**The volume is rendered, not drawn.** It is an implicit surface: the sum of a handful of metaballs —
-head, muzzle, body, four legs, tail — cut at a threshold, so the outline is smooth and organic rather
-than a bitmap somebody placed. Normals come from the field's gradient and a light from the upper left
-shades it; the result is quantised to the theme's tones through a fixed ordered-dither matrix, so the
-gradient reads as smooth rather than as bands, and a drop shadow grounds it on the row it stands on.
-Animation **moves the metaballs** — a walk cycle with alternating legs and a one-pixel bob, a lean, a
-tail that counter-sways, and a head and pupils that turn toward whatever it is looking at — which is
-what makes the shape deform rather than jump between drawings.
+**The volume is rendered, not drawn.** It is an implicit surface made from separate masses: a rounded
+skull and shorter muzzle, a narrowing neck, chest and larger haunch, four legs, two triangular ears,
+and a three-segment tail. The ears are hinged above the skull rather than merged into its ball; their
+inner triangles are darker. The face has a two-pixel dark nose, a two-pixel mouth and bright sclera
+around each pupil. The four legs end at the ground line with darker paw pads, and the largest rung adds
+three one-pixel whisker strokes on each side. `TestCompanionAnatomyIsStructural` checks that both ear
+maxima clear the skull, the haunch has the largest mass below the neck, each leg reaches the ground,
+and the rasterized tail's pixel count never increases from its base column toward its tip.
+
+Normals come from the field's gradient and the existing upper-left light shades it; the result is
+quantised to the theme's five-step ramp through a fixed ordered-dither matrix, and a drop shadow
+grounds it on the row it stands on. Animation **moves the field primitives** — alternating legs, a
+one-pixel body bob, a lean, a counter-swaying tail, and a head turn toward the gaze — which makes the
+shape deform rather than jump between drawings. The field and raster assertions are in
+`TestCompanionAnatomyIsStructural`; the saved frame is only a visual companion to those checks.
 
 The glyph ladder under it needs no colour at all and stays exactly as it is: a half-block cell with no
 colour draws as a plain block, and this shading means nothing there. That is what keeps it a floor
@@ -368,15 +375,14 @@ columns and quoted here from that test's own output rather than from a number ty
   after the target were both removed for this: they made the creature repaint two of its rows on every
   frame over a screen nobody was touching.
 - **While walking — twelve lines.** The volume's twelve rows all move with the one-cell step, so every
-  one of them is repainted: the test measures **7488 bytes** in the widest changed lines, about
-  **58 KB/s** at eight frames a second, and a walk from the first menu row to the last takes about
-  **2.4 s**. The line is the frame's width, so a wider terminal costs more per line and the same per
-  cell walked.
+  one of them is repainted. At 227 columns `TestCompanionCostHasTwoRegimes` reports 19 moving frames
+  over 2.38 s, 158228 bytes total and **8852 bytes** in the widest changed lines (about **69.2 KB/s**
+  at eight frames a second); the same test reports zero bytes at rest. A wider terminal costs more per
+  line and the same per cell walked.
 
-Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` measures 884
-height-field samples and 768 raster pixels at roughly **1.6 ms** a frame, plus the allocations of
-assembling a frame's strings. It is paid only where the volume is drawn and only while it moves, and it
-is written down here rather than left to be discovered.
+Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` reports
+**1,557,471 ns/op, 304,295 B/op and 1040 allocs/op** on the measured Linux/amd64 host. Those are
+benchmark outputs, not portable limits; the test and benchmark are the sources for remeasurement.
 
 **Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
 this step and deliberately rejected, for two reasons that were measured rather than guessed. It

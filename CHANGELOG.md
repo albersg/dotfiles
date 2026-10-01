@@ -14,6 +14,10 @@ nothing is happening: it was repainting its own rows on every frame, which read 
 
 ### Fixed
 
+- **The shaded companion has a cat's anatomy.** The volume now separates the skull, muzzle, neck, chest,
+  haunch, triangular ears, four legs and tapered tail; the raster adds inner ears, paw pads, a dark nose,
+  a two-pixel mouth and full-rung whiskers. Structural field and raster assertions guard the anatomy without
+  changing the companion ladder or its reserved block.
 - **Fish and Zsh startup customizations survive installer updates.** The shipped shell configs carry ownership markers, and the installer now preserves an existing unmarked `config.fish` or `.zshrc` as a dated, sourced drop-in (`~/.config/fish/dotfiles.d/` or `~/.zshrc.d/`) before replacing it. Both shells source personal drop-ins last so the user's settings override managed defaults; Fish uses `dotfiles.d` because native `conf.d` loads before `config.fish`. The install log names the preserved file; managed configs update without creating another copy. New personal Fish and Zsh startup changes belong in those extension directories.
 - **The creature's colours stay inside the creature.** The shaded sprite set a tone per cell and never
   retired it, so the colour it left active painted every cell after it: a space is drawn with whatever
