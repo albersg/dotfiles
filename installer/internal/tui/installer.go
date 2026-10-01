@@ -1827,13 +1827,14 @@ func stepInstallShell(m *Model) error {
 		}
 		SendLog(stepID, "Copying Fish configuration...")
 		fishConfig := filepath.Join(homeDir, ".config", "fish", "config.fish")
-		preservedFish, err := system.PreserveUserConfig(fishConfig, "# dotfiles-managed-config: fish",
-			filepath.Join(homeDir, ".config", "fish", "conf.d"), "dotfiles-user-config", ".fish")
+		preservedFish, err := system.ReplaceUserConfig(filepath.Join(repoDir, repoAssetFish, "config.fish"), fishConfig,
+			"# dotfiles-managed-config: fish", filepath.Join(homeDir, ".config", "fish", "dotfiles.d"),
+			"dotfiles-user-config", ".fish")
 		if err != nil {
 			return wrapStepError("shell", "Install Fish", "Failed to preserve existing Fish configuration", err)
 		}
 		if preservedFish != "" {
-			SendLog(stepID, fmt.Sprintf("Preserved your existing Fish configuration at %s; Fish loads it from conf.d.", preservedFish))
+			SendLog(stepID, fmt.Sprintf("Preserved your existing Fish configuration at %s; dotfiles loads it last from ~/.config/fish/dotfiles.d/.", preservedFish))
 		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetStarship), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
 			return wrapStepError("shell", "Install Fish",
@@ -1935,18 +1936,13 @@ func stepInstallShell(m *Model) error {
 				err)
 		}
 		zshrcPath := filepath.Join(homeDir, ".zshrc")
-		preservedZsh, err := system.PreserveUserConfig(zshrcPath, "# dotfiles-managed-config: zsh",
-			filepath.Join(homeDir, ".zshrc.d"), "dotfiles-user-config", ".zsh")
+		preservedZsh, err := system.ReplaceUserConfig(filepath.Join(repoDir, repoAssetZshrc), zshrcPath,
+			"# dotfiles-managed-config: zsh", filepath.Join(homeDir, ".zshrc.d"), "dotfiles-user-config", ".zsh")
 		if err != nil {
 			return wrapStepError("shell", "Install Zsh", "Failed to preserve existing .zshrc", err)
 		}
 		if preservedZsh != "" {
 			SendLog(stepID, fmt.Sprintf("Preserved your existing .zshrc at %s; it is sourced from ~/.zshrc.d/.", preservedZsh))
-		}
-		if err := system.CopyFile(filepath.Join(repoDir, repoAssetZshrc), zshrcPath); err != nil {
-			return wrapStepError("shell", "Install Zsh",
-				"Failed to copy .zshrc configuration",
-				err)
 		}
 		// Patch .zshrc based on WM choice
 		SendLog(stepID, "Configuring shell for window manager...")

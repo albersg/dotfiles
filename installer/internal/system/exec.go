@@ -346,6 +346,21 @@ func PreserveUserConfig(configPath, managedMarker, dropInDir, prefix, extension 
 	}
 }
 
+// ReplaceUserConfig preserves an unowned destination before replacing it with
+// the repository's source. A standalone managedMarker identifies configurations
+// the repository already owns, which are replaced without creating another
+// drop-in. The returned path is empty when there was nothing to preserve.
+func ReplaceUserConfig(src, dst, managedMarker, dropInDir, prefix, extension string) (string, error) {
+	preservedPath, err := PreserveUserConfig(dst, managedMarker, dropInDir, prefix, extension)
+	if err != nil {
+		return "", err
+	}
+	if err := CopyFile(src, dst); err != nil {
+		return preservedPath, err
+	}
+	return preservedPath, nil
+}
+
 // CopyFile copies a file from src to dst
 func CopyFile(src, dst string) error {
 	info, err := os.Stat(src)
