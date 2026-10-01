@@ -1505,18 +1505,17 @@ func containsSubstring(s, substr string) bool {
 // ALL MODULES - CROSS-MODULE TESTS
 // =============================================================================
 
-func TestAllModules_HaveUniqueExerciseIDs(t *testing.T) {
-	modules := []ModuleID{
-		ModuleHorizontal,
-		ModuleVertical,
-		ModuleTextObjects,
-		ModuleChangeRepeat,
-		ModuleSubstitution,
-		ModuleRegex,
-		ModuleMacros,
-		ModuleEditing,
-		ModuleRegisters,
+func allModuleIDs() []ModuleID {
+	modules := GetAllModules()
+	ids := make([]ModuleID, 0, len(modules))
+	for _, module := range modules {
+		ids = append(ids, module.ID)
 	}
+	return ids
+}
+
+func TestAllModules_HaveUniqueExerciseIDs(t *testing.T) {
+	modules := allModuleIDs()
 
 	allIDs := make(map[string]bool)
 	for _, mod := range modules {
@@ -1531,17 +1530,7 @@ func TestAllModules_HaveUniqueExerciseIDs(t *testing.T) {
 }
 
 func TestAllModules_BossesHave5Steps(t *testing.T) {
-	modules := []ModuleID{
-		ModuleHorizontal,
-		ModuleVertical,
-		ModuleTextObjects,
-		ModuleChangeRepeat,
-		ModuleSubstitution,
-		ModuleRegex,
-		ModuleMacros,
-		ModuleEditing,
-		ModuleRegisters,
-	}
+	modules := allModuleIDs()
 
 	for _, mod := range modules {
 		boss := GetBoss(mod)
@@ -1556,17 +1545,7 @@ func TestAllModules_BossesHave5Steps(t *testing.T) {
 }
 
 func TestAllModules_BossesHave3Lives(t *testing.T) {
-	modules := []ModuleID{
-		ModuleHorizontal,
-		ModuleVertical,
-		ModuleTextObjects,
-		ModuleChangeRepeat,
-		ModuleSubstitution,
-		ModuleRegex,
-		ModuleMacros,
-		ModuleEditing,
-		ModuleRegisters,
-	}
+	modules := allModuleIDs()
 
 	for _, mod := range modules {
 		boss := GetBoss(mod)
@@ -1575,6 +1554,39 @@ func TestAllModules_BossesHave3Lives(t *testing.T) {
 		}
 		if boss.Lives != 3 {
 			t.Errorf("Module %s boss should have 3 lives, got %d", mod, boss.Lives)
+		}
+	}
+}
+
+func TestAllModules_HaveAGradedCourseOfLessons(t *testing.T) {
+	modules := GetAllModules()
+	if len(modules) == 0 {
+		t.Fatal("GetAllModules returned no modules")
+	}
+
+	for _, module := range modules {
+		lessons := GetLessons(module.ID)
+		lessonCount := len(lessons)
+		if boss := GetBoss(module.ID); boss == nil {
+			t.Errorf("Module %s has %d lessons and no boss", module.ID, lessonCount)
+		}
+		if lessonCount < 15 {
+			t.Errorf("Module %s has %d lessons; want at least 15", module.ID, lessonCount)
+		}
+
+		for i, lesson := range lessons {
+			if lesson.ID == "" {
+				t.Errorf("Module %s has %d lessons; lesson %d has an empty ID", module.ID, lessonCount, i)
+			}
+			if lesson.Mission == "" {
+				t.Errorf("Module %s has %d lessons; lesson %d has an empty Mission", module.ID, lessonCount, i)
+			}
+			if lesson.Optimal == "" {
+				t.Errorf("Module %s has %d lessons; lesson %d has an empty Optimal", module.ID, lessonCount, i)
+			}
+			if len(lesson.Solutions) == 0 {
+				t.Errorf("Module %s has %d lessons; lesson %d has no Solutions", module.ID, lessonCount, i)
+			}
 		}
 	}
 }
