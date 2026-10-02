@@ -163,11 +163,11 @@ func TestMainMenuGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	time.Sleep(100 * time.Millisecond)
+	seen := waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-	out := readAll(t, tm.FinalOutput(t))
+	out := append(seen.Bytes(), readAll(t, tm.Output())...)
 	teatest.RequireEqualOutput(t, out)
 }
 
@@ -202,11 +202,11 @@ func TestMainMenuWideGolden(t *testing.T) {
 		teatest.WithInitialTermSize(160, 50),
 	)
 
-	time.Sleep(100 * time.Millisecond)
+	seen := waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-	out := readAll(t, tm.FinalOutput(t))
+	out := append(seen.Bytes(), readAll(t, tm.Output())...)
 	teatest.RequireEqualOutput(t, out)
 }
 
@@ -342,11 +342,11 @@ func TestOSSelectGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	time.Sleep(100 * time.Millisecond)
+	seen := waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-	out := readAll(t, tm.FinalOutput(t))
+	out := append(seen.Bytes(), readAll(t, tm.Output())...)
 	teatest.RequireEqualOutput(t, out)
 }
 
@@ -361,7 +361,7 @@ func TestNavigationFlowE2E(t *testing.T) {
 	)
 
 	// Start at welcome screen, press Enter to go to main menu
-	time.Sleep(50 * time.Millisecond)
+	waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
 	// Wait for main menu render and verify we can read output
@@ -385,13 +385,14 @@ func TestInstallFlowE2E(t *testing.T) {
 	)
 
 	// Welcome -> Enter
-	time.Sleep(50 * time.Millisecond)
+	waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
 	// Main Menu -> Start Installation (already cursor=0)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
 
 	// Should be at OS Select now
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -402,7 +403,6 @@ func TestInstallFlowE2E(t *testing.T) {
 
 	// Select macOS (cursor=0)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
 
 	// Should be at Terminal Select now. On WSL and Termux the wizard skips the
 	// terminal and font questions and goes straight to Shell Select, so the shell
@@ -431,17 +431,16 @@ func TestKeymapsE2E(t *testing.T) {
 	)
 
 	// Welcome -> Enter
-	time.Sleep(50 * time.Millisecond)
+	waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
 	// Main Menu -> Navigate down to Keymaps (index 2)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-	time.Sleep(20 * time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-	time.Sleep(20 * time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
 
 	// Should be at KeymapsMenu (tool selection: Neovim, Tmux, Zellij, Ghostty)
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -453,7 +452,6 @@ func TestKeymapsE2E(t *testing.T) {
 
 	// Select Neovim (first option) to get to Neovim keymaps categories
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
 
 	// Should be at Neovim Keymaps categories (Harpoon, Mini.files, etc.)
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -463,7 +461,6 @@ func TestKeymapsE2E(t *testing.T) {
 
 	// Select first category (Harpoon)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
 
 	// Should show keymaps now with leader key bindings
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -487,15 +484,15 @@ func TestLearnToolsE2E(t *testing.T) {
 	)
 
 	// Welcome -> Enter
-	time.Sleep(50 * time.Millisecond)
+	waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
 	// Main Menu -> Navigate to Learn About Tools (index 1)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-	time.Sleep(20 * time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
 
 	// Should show tool categories
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -522,11 +519,11 @@ func TestBackupScreenGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	time.Sleep(100 * time.Millisecond)
+	seen := waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-	out := readAll(t, tm.FinalOutput(t))
+	out := append(seen.Bytes(), readAll(t, tm.Output())...)
 	teatest.RequireEqualOutput(t, out)
 }
 
@@ -544,11 +541,11 @@ func TestErrorScreenGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	time.Sleep(100 * time.Millisecond)
+	seen := waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-	out := readAll(t, tm.FinalOutput(t))
+	out := append(seen.Bytes(), readAll(t, tm.Output())...)
 	teatest.RequireEqualOutput(t, out)
 }
 
@@ -572,11 +569,11 @@ func TestCompleteScreenGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	time.Sleep(100 * time.Millisecond)
+	seen := waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-	out := readAll(t, tm.FinalOutput(t))
+	out := append(seen.Bytes(), readAll(t, tm.Output())...)
 	teatest.RequireEqualOutput(t, out)
 }
 
@@ -640,15 +637,16 @@ func TestKeyboardNavigationE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
+		// Wait for the initial frame so the first navigation key is not sent before
+		// the program starts; the cursor moves themselves have no textual marker.
+		waitForAnyOutput(t, tm)
+
 		// Use j to move down
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
-		time.Sleep(50 * time.Millisecond)
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
-		time.Sleep(50 * time.Millisecond)
 
 		// Use k to move up
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
-		time.Sleep(50 * time.Millisecond)
 
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
@@ -665,8 +663,8 @@ func TestKeyboardNavigationE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
+		waitForTrainerText(t, tm, "learn terminals screen", "Terminal", "Alacritty", "WezTerm")
 		tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
-		time.Sleep(100 * time.Millisecond)
 
 		// Should be back at main menu (learn screens support escape)
 		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -703,13 +701,12 @@ func TestResponsiveLayoutE2E(t *testing.T) {
 				teatest.WithInitialTermSize(sz.width, sz.height),
 			)
 
-			time.Sleep(100 * time.Millisecond)
+			seen := waitForAnyOutput(t, tm)
 			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 			tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
 			// Just verify it doesn't panic and produces output
-			out := readAll(t, tm.FinalOutput(t))
-			if len(out) == 0 {
+			if len(seen.Bytes()) == 0 {
 				t.Error("Expected some output")
 			}
 		})
@@ -727,19 +724,17 @@ func TestLazyVimGuideE2E(t *testing.T) {
 	)
 
 	// Welcome -> Enter
-	time.Sleep(50 * time.Millisecond)
+	waitForAnyOutput(t, tm)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
+	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
 	// Main Menu -> Navigate to LazyVim Guide (index 3)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-	time.Sleep(20 * time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-	time.Sleep(20 * time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-	time.Sleep(20 * time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(50 * time.Millisecond)
 
 	// Should be at LazyVim guide screen
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -773,8 +768,6 @@ func TestBackupConfirmScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		time.Sleep(100 * time.Millisecond)
-
 		// Verify the screen shows backup options
 		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 			hasBackup := bytes.Contains(bts, []byte("Backup")) || bytes.Contains(bts, []byte("backup"))
@@ -797,17 +790,14 @@ func TestBackupConfirmScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		time.Sleep(50 * time.Millisecond)
+		waitForTrainerText(t, tm, "backup confirmation screen", "Backup", "backup", "Install")
 
 		// Navigate down
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
-		time.Sleep(50 * time.Millisecond)
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
-		time.Sleep(50 * time.Millisecond)
 
 		// Navigate up
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
-		time.Sleep(50 * time.Millisecond)
 
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
@@ -824,11 +814,10 @@ func TestBackupConfirmScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		time.Sleep(50 * time.Millisecond)
+		waitForTrainerText(t, tm, "backup confirmation screen", "Backup", "backup", "Install")
 
 		// Press escape
 		tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
-		time.Sleep(100 * time.Millisecond)
 
 		// Should go back to Nvim selection screen
 		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -859,8 +848,6 @@ func TestRestoreBackupScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		time.Sleep(100 * time.Millisecond)
-
 		// Verify screen shows restore options
 		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 			return bytes.Contains(bts, []byte("Restore")) ||
@@ -885,11 +872,10 @@ func TestRestoreBackupScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		time.Sleep(50 * time.Millisecond)
+		waitForTrainerText(t, tm, "restore backup list", "Restore", "Backup", "Back")
 
 		// Select first backup (Enter)
 		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-		time.Sleep(100 * time.Millisecond)
 
 		// Should go to restore confirm screen
 		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -920,10 +906,9 @@ func TestRestoreConfirmScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		time.Sleep(100 * time.Millisecond)
+		out := waitForTrainerText(t, tm, "restore confirmation options", "Restore", "Delete", "Cancel")
 
 		// Should show the three options
-		out := readAll(t, tm.Output())
 		hasOptions := bytes.Contains(out, []byte("Restore")) ||
 			bytes.Contains(out, []byte("Delete")) ||
 			bytes.Contains(out, []byte("Cancel"))
@@ -950,14 +935,13 @@ func TestRestoreConfirmScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		time.Sleep(50 * time.Millisecond)
+		waitForTrainerText(t, tm, "restore confirmation screen", "Restore", "Delete", "Cancel")
 
 		// Press escape
 		tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
-		time.Sleep(100 * time.Millisecond)
 
 		// Should go back to restore backup screen
-		// Note: The screen transition might be quick
+		waitForTrainerText(t, tm, "restore backup list after escape", "Restore", "Backup", "Back")
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 	})
@@ -1014,10 +998,8 @@ func TestMainMenuWithRestoreOption(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		time.Sleep(100 * time.Millisecond)
-
 		// Get output and verify standard menu items exist
-		out := readAll(t, tm.Output())
+		out := waitForAnyOutput(t, tm).Bytes()
 		if !bytes.Contains(out, []byte("Start Installation")) {
 			t.Error("Should show Start Installation option")
 		}

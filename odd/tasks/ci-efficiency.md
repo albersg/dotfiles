@@ -451,3 +451,57 @@ shell wall-clock command measured the guard at 7.911 s before and a 6.280 s mean
 also measured 1.064 s faster. These are local measurements, not a claim about other hosts.
 The required three focused runs all passed. Full suite: `cd installer && go test ./... -count=1`
 passed 3,899 tests in 4 packages (30.960 s wall-clock). `go vet ./...` passed, and `gofmt -l installer/internal/tui/companion_test.go` returned no paths.
+
+### Phase 2, third pass: teatest waits classified by shape
+
+This closes phase 2's test half. The 47 fixed sleeps in `installer/internal/tui/teatest_test.go`
+were classified individually instead of replacing them with one wait rule:
+
+| Shape | Sleep sites | Replacement | Why |
+| --- | ---: | --- | --- |
+| Golden / test quits immediately | **13** | Wait for two successive output chunks using only `len(output) > 0`; send keys, `WaitFinished`, then compare the captured stream plus the remaining output | The first output may be terminal initialization bytes, not a drawn frame. Waiting for the next output event lets the frame arrive without depending on screen text. The waiter consumes its stream, so golden output is retained explicitly rather than assumed to remain in `FinalOutput`. |
+| Screen opens | **22** | Wait for that screen's own distinguishing text; existing screen waits now follow the key directly where they already proved the transition | The stream is consumed in sequence. Each next predicate is evaluated against the output after the preceding wait, and no wait uses text from a previous screen as its condition. |
+| Pure arrow/j/k navigation | **12** | **No wait** | Cursor movement has no reliable new text: the marker moves and unchanged labels are not a new observable. The next screen-opening wait checks the consequential navigation. |
+| **Total** | **47** | **47 removed** | No fixed sleep remains in `teatest_test.go`. |
+
+The necessary second length-only observation is evidence-driven. A first converted run that waited for
+any output once failed both golden output comparisons and
+`TestMainMenuWithRestoreOption/main_menu_renders_without_restore_when_no_backups`: the bytes observed
+were only terminal initialization, and the program could be stopped before drawing its first frame.
+That attempt exposed the old assumption that 100 ms always covered startup; it was not papered over
+with a longer timeout. The final helper waits for the next length-positive output event and captures
+both consumed chunks. All six teatest goldens still compare against their unchanged snapshots.
+
+The required deliberately broken-wait proof changed `TestMainMenuGolden` to a predicate that always
+returns false. Verbatim observed failure:
+
+```text
+teatest_test.go:166: WaitFor: condition not met after 2s. Last output:
+\x1b[?25l\x1b[?2004h\x1b]2;dotfiles Installer\x07
+```
+
+The predicate was restored immediately. No tests were deleted, skipped, shortened, or given weaker
+assertions. No production file changed, and no changelog entry was added because user-visible behavior
+did not change.
+
+Measured on this host, after conversion:
+
+| Command | Wall clock | Result |
+| --- | ---: | --- |
+| `cd installer && go test ./internal/tui/ -count=1` (run 1) | 31.231 s | 2,019 passed |
+| same (run 2) | 29.508 s | 2,019 passed |
+| same (run 3) | 29.479 s | 2,019 passed |
+| `cd installer && go test ./... -count=1` | 27.964 s | 3,899 passed in 4 packages |
+
+For before/after context, the prior phase's real full-suite run on this host was 30.960 s for
+`cd installer && go test ./... -count=1` (3,899 passed). The prior package measurement in the log was
+33.779 s for `cd installer && go test ./internal/tui/... -count=1`; it includes the package subtree,
+so it is not an exact pre-change measurement of the requested `./internal/tui/` command. No exact
+pre-change wall-clock run for that one-package command was recorded, so the package before/after
+comparison is unavailable rather than inferred. These are host measurements, not a controlled
+performance claim.
+
+`cd installer && go vet ./...` passed. `gofmt -l installer/internal/tui/teatest_test.go installer/internal/tui/wait_test.go`
+returned no paths. Phase 2's test half is **complete**: trainer and teatest sleeps have been removed
+by their appropriate shapes, the three required package reruns and full suite pass, and the goldens
+remain unchanged.
