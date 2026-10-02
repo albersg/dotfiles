@@ -3041,6 +3041,77 @@ func TestCompanionStaysPutWhenNothingHappens(t *testing.T) {
 	}
 }
 
+// TestCompanionLightTerms pins the tone ramp and both spatial lighting terms on the
+// rendered field. Contact pixels are checked against the named world-coordinate regions.
+func TestCompanionLightTerms(t *testing.T) {
+	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
+	if !ok {
+		t.Fatal("full volume size unavailable")
+	}
+	grid := companionVolumeTones(companionIdleState, 0, companionGaze{}, 0, size)
+	counts := make([]int, companionRampSteps)
+	mask := func(x, y int) bool {
+		return y >= 0 && y < size.rows && x >= 0 && x < size.width && grid[y][x] != companionToneNone
+	}
+	contactDark, contactTerm, upperLeftRim, upperLeftRimEffects, lowerRightRim := 0, 0, 0, 0, 0
+	pose := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size)
+	heights := pose.heightField(size, companionVolumeScale(size))
+	for y, row := range grid {
+		for x, tone := range row {
+			if tone >= companionToneRamp0 && tone <= companionToneRamp4 {
+				counts[tone]++
+			}
+			wx, wy := companionWorldX(x, size, companionVolumeScale(size)), companionWorldY(y, size, companionVolumeScale(size))
+			if tone == companionToneRamp0 && companionContactRegion(wx, wy) {
+				contactDark++
+			}
+			if heights[y+1][x+1] > 0 {
+				lit := companionShadeToneWithTerms(heights, x, y, companionVolumeScale(size), companionRim, true)
+				withoutContact := companionShadeToneWithTerms(heights, x, y, companionVolumeScale(size), companionRim, false)
+				if companionContactRegion(wx, wy) && int(withoutContact)-int(lit) == 2 {
+					contactTerm++
+				}
+				boundary := !mask(x-1, y) || !mask(x+1, y) || !mask(x, y-1) || !mask(x, y+1)
+				withoutRim := companionShadeToneWithTerms(heights, x, y, companionVolumeScale(size), 0, true)
+				if boundary && x < size.width/2 && y < size.rows/2 && lit > withoutRim {
+					upperLeftRimEffects++
+				}
+				if boundary && x < size.width/2 && y < size.rows/2 && lit == companionToneRamp4 && withoutRim < lit {
+					upperLeftRim++
+				}
+				if boundary && x >= size.width/2 && y >= size.rows/2 && lit > withoutRim {
+					lowerRightRim++
+				}
+			}
+		}
+	}
+	seen := 0
+	for _, count := range counts {
+		if count > 0 {
+			seen++
+		}
+	}
+	if seen != companionRampSteps {
+		t.Errorf("rendered tone histogram %v contains %d distinct ramp tones, want encoder ramp count %d", counts, seen, companionRampSteps)
+	}
+	if contactDark == 0 {
+		t.Errorf("darkest ramp tone has no pixels in documented contact regions")
+	}
+	if contactTerm == 0 {
+		t.Errorf("AO has no two-tone contact pixels")
+	}
+	if upperLeftRim == 0 {
+		t.Errorf("rim tone is absent from the upper-left boundary")
+	}
+	if upperLeftRimEffects < 2 {
+		t.Errorf("rim affects %d upper-left boundary pixels, want at least two", upperLeftRimEffects)
+	}
+	if lowerRightRim != 0 {
+		t.Errorf("rim tone appears %d times on the lower-right boundary, want none", lowerRightRim)
+	}
+	t.Logf("encoder ramp histogram: %v (%d distinct tones)", counts, seen)
+}
+
 // TestCompanionBlockDependsOnlyOnTheTerminal guards the companion's reserved
 // block against content-driven sizing. Every framed screen and each of the six
 // trainer screens is rendered in two content states at each size, in both pixel
