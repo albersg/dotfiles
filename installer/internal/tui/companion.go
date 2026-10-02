@@ -56,15 +56,11 @@ import (
 // (animTickMsg), is the one writer of everything below.
 //
 // Cost has two regimes and a test for each, rather than a promise in this comment.
-// At rest the creature moves nothing, so nothing it draws changes and the renderer
-// writes no bytes at all: TestCompanionStaysPutWhenNothingHappens asserts the view
-// is byte-identical across a run of ticks. Walking is the other regime: the sprite
-// changes one column, every row of it moves with the move, and the renderer
-// repaints every line those rows are on -- so the cost is the sprite's row count
-// times the line width for as long as a stroll lasts, and zero afterwards.
-// TestCompanionTicksChangeOnlyItsOwnRows bounds which rows a walking tick may
-// touch, and TestCompanionCostHasTwoRegimes measures both regimes rather than
-// pinning a byte count that the terminal's width decides.
+// A still creature writes nothing between events; its breath, ear twitch, tail-tip
+// flick and blink each have their own model-tick period. Walking repaints its owned
+// rows as the cell moves. TestCompanionIdleEventsHaveIndependentPeriods pins the
+// event clocks, TestCompanionTicksChangeOnlyItsOwnRows bounds row ownership, and
+// TestCompanionCostHasTwoRegimes measures the terminal's actual line cost.
 //
 // With the animation gate off there is no companion anywhere: a frozen pet is not
 // the point, and the gate already means "this run cannot animate".
@@ -162,12 +158,17 @@ const (
 	// companionPleasedTicks is that celebration in frames.
 	companionPleasedTicks = companionPleasedSeconds * animTicksPerSecond
 
-	// companionHopTicks is how many frames the little jump a click earns lasts. It
-	// is a frame count rather than a duration because what it counts really is
-	// frames -- two consecutive frames of the same sprite drawn one row higher --
-	// and at animTicksPerSecond a quarter of a second is as long as a jump should
-	// take to read as a jump rather than as hovering.
-	companionHopTicks = 2
+	// companionHopTicks counts anticipation, lift and landing, one pinned frame each.
+	companionHopTicks = 3
+
+	// Idle motions are one-frame events. Their periods are durations converted by
+	// the model's animation clock; frames between these boundaries are identical.
+	companionBreathSeconds    = 4
+	companionEarTwitchSeconds = 20
+	companionTailFlickSeconds = 15
+	companionBreathTicks      = companionBreathSeconds * animTicksPerSecond
+	companionEarTwitchTicks   = companionEarTwitchSeconds * animTicksPerSecond
+	companionTailFlickTicks   = companionTailFlickSeconds * animTicksPerSecond
 )
 
 // companionState is the state the creature is drawn in. The reactions come
@@ -960,9 +961,8 @@ func (p companionPose) heightField(size companionVolumeSize, scale float64) [][]
 	return heights
 }
 
-// The animation's amplitudes. The geometry below them is the art; these are the
-// animation, and they are the numbers a reader should be able to change without
-// redrawing the creature.
+// The animation's amplitudes and cadence. The geometry below is the art; these
+// are the motion values a reader can change without redrawing the creature.
 const (
 	// companionStrideReach is how far a swinging paw reaches in front of its own middle
 	// and companionStrideLift how far off the ground it comes while it swings. At the
@@ -971,15 +971,10 @@ const (
 	companionStrideReach = 0.075
 	companionStrideLift  = 0.055
 
-	// companionBodyBobPx is how far the body rises on the walk's two passing poses. It
-	// is a pixel count because a bob that moves less than a pixel moves nothing at all,
-	// and one pixel off a twenty-four-row sprite is as much of a bob as a walk is worth.
+	// companionBodyBobPx is the body's rise at the passing pose, in raster pixels.
 	companionBodyBobPx = 1
 
-	// companionTailSway is how far the tail's tip swings, as a share of the front paw's
-	// own reach and in the opposite direction: the tail balances the front of the body,
-	// so it goes back when the front paw comes forward. That opposition is the whole
-	// reason the tail reads as alive rather than as attached.
+	// companionTailSway scales the tail's signal, sampled two gait poses behind the body.
 	companionTailSway = 0.9
 
 	// companionHeadTurnX and companionHeadTurnY are how far the head turns towards what
@@ -1008,35 +1003,24 @@ const (
 	companionShiverPx    = 1
 	companionShiverTicks = 3
 
-	// companionGaitTicks is how many animation frames one of the walk's four poses
-	// lasts. It is a frame count and not a duration because what it counts really is
-	// frames, and at animTicksPerSecond two frames a pose is a stride a little over a
-	// second long, which is what a walk of about fifteen cells gets out of it.
-	companionGaitTicks = 2
+	// companionGaitTicks is one frame per named pose: a four-frame, half-second
+	// cycle at the model's eight ticks per second.
+	companionGaitTicks = 1
 )
 
-// companionGaitReach and companionGaitLift are the walk's four poses, one entry per
-// pose: how far a paw is from the middle of its stride and how far off the ground it
-// is. A paw is planted for two poses -- sliding back under the body as the body walks
-// over it, which is what the ground does under a walking animal -- and swings for two,
-// coming off the ground, reaching forward and planting again. Four poses of that is a
-// walk rather than four pictures, and it is what makes the paws on one side disagree
-// with the ones on the other instead of the creature gliding.
+// companionGaitReach and companionGaitLift are the four values sampled by each paw's
+// local pose. Each paw's phase offset determines its touchdown frame; the sequence is
+// staggered rather than paired into a diagonal trot.
 var (
-	companionGaitReach = [4]float64{1, -1, -1, 1}
-	companionGaitLift  = [4]float64{0, 0, 1, 0.8}
+	companionGaitReach = [4]float64{0, 1, -1, 0}
+	companionGaitLift  = [4]float64{0, 0.8, 1, 0.35}
 
-	// companionGaitBob says which of the four poses lift the body: the two passing
-	// poses, which are the ones between a paw leaving the ground and the next one
-	// landing, so the body rides up over the legs that are standing on it.
-	companionGaitBob = [4]float64{0, 1, 0, 1}
+	// The body rises at the passing pose only; its one-frame lead is applied to the head.
+	companionGaitBob = [4]float64{0, 0, 1, 0}
 
-	// companionLegPhase is the pose each paw starts its own cycle on. The order is the
-	// pose's own order -- front near, front far, back near, back far -- and the offsets
-	// pair the front-near paw with the back-far one and the other two with each other,
-	// which is a trot: the diagonal pairs alternate, so two paws are always on the ground
-	// and two are always swinging.
-	companionLegPhase = [4]int{0, 2, 2, 0}
+	// Geometry order is front-left, front-right, back-left, back-right. The offsets
+	// make touchdown occur front-left, back-right, front-right, back-left.
+	companionLegPhase = [4]int{0, 2, 1, 3}
 )
 
 // companionGaitPhase is the walk's pose, read from the tick and from nothing else:
@@ -1049,6 +1033,18 @@ func companionGaitPhase(tick int) int {
 		phase += 4
 	}
 	return phase
+}
+
+// companionEventAt emits a one-frame event at each independent period boundary.
+func companionEventAt(tick, period int) bool {
+	return period > 0 && tick%period == period-1
+}
+
+func boolFloat(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 // companionPoseFor builds the creature's primitives for one frame: the whole of its
@@ -1064,10 +1060,14 @@ func companionGaitPhase(tick int) int {
 // a real consequence of this volume model, not a redraw defect; tests bound all such
 // changes to the creature's world-space cell and separately require the pupils to
 // move in the looked-at direction.
-func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver int, size companionVolumeSize) companionPose {
+func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver int, size companionVolumeSize, hop ...int) companionPose {
 	scale := companionVolumeScale(size)
 	unit := func(pixels float64) float64 { return pixels / scale }
 	gait := companionGaitPhase(tick)
+	hopPhase := 0
+	if len(hop) > 0 {
+		hopPhase = hop[0]
+	}
 
 	// What the body itself does this frame: the walk lifts it over the passing poses, sleep
 	// and a startle fold it down, and a yawn stretches it up. The paws stay on the ground
@@ -1080,12 +1080,23 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 	switch state {
 	case companionWalkingState:
 		lift = unit(companionBodyBobPx * companionGaitBob[gait])
-		headLift = lift
+		headLift = unit(companionBodyBobPx * companionGaitBob[(gait+1)%4])
 	case companionAsleepState, companionFlinchingState:
 		lift = -unit(companionSagPx)
 	case companionYawningState:
 		lift = unit(1)
 		headLift = lift
+	}
+	// Hop poses deform within the rung's fixed raster: anticipation crouches,
+	// flight lifts one pixel and landing compresses the body without adding rows.
+	if hopPhase == companionHopTicks {
+		lift -= unit(1)
+		headLift -= unit(1)
+	} else if hopPhase == companionHopTicks-1 {
+		// Two square raster pixels make one terminal row of travel; clipping at
+		// the fixed grid edge is preferable to borrowing another block row.
+		lift += unit(2)
+		headLift += unit(2)
 	}
 
 	// The tremble of a startle: the whole creature, moved one pixel, the way a shiver
@@ -1113,6 +1124,14 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 	// lowered on purpose -- an ear that dropped would take the top row of the sprite with
 	// it -- so even the lowest ear still reaches the cell's own top.
 	earBack, earLift, tailTip := 0.0, 0.0, 0.0
+	idlePose := state == companionIdleState || state == companionBlinkingState
+	breath := idlePose && companionEventAt(tick, companionBreathTicks)
+	if idlePose && companionEventAt(tick, companionEarTwitchTicks) {
+		earLift += unit(1)
+	}
+	if idlePose && companionEventAt(tick, companionTailFlickTicks) {
+		tailTip += unit(1)
+	}
 	switch state {
 	case companionAlertState:
 		earLift, tailTip = 0.045, 0.12
@@ -1135,9 +1154,12 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 		}
 	}
 
-	// The tail balances the front of the body: it swings opposite the front paw, and its
-	// tip swings further than its middle does, so it bends as it sways.
-	sway := -companionTailSway * reach[0]
+	// The tail's signal trails the body by two gait poses; the tip travels farther
+	// than the middle so the tail bends as it counterbalances the stride.
+	sway := 0.0
+	if state == companionWalkingState {
+		sway = -companionTailSway * companionGaitReach[(gait+2)%4]
+	}
 
 	// The torso tilts with the gait.
 	lean := 0.0
@@ -1152,9 +1174,13 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 	tailTipX := -0.96 + tremble + sway
 	tailTipY := 1.16 + lift + tailTip
 
+	bodyDepth := 1.0
+	if hopPhase == 1 {
+		bodyDepth = 0.78
+	}
 	return companionPose{
-		body:   companionBlobAt(-0.18+tremble, 0.56+lift, 0.42, 0.26, lean),
-		chest:  companionBlobAt(0.22+tremble, 0.57+lift, 0.30, 0.28, lean),
+		body:   companionBlobAt(-0.18+tremble, 0.56+lift, 0.42, 0.26*bodyDepth, lean),
+		chest:  companionBlobAt(0.22+tremble, 0.57+lift+boolFloat(breath)*unit(1), 0.30, 0.28*bodyDepth, lean),
 		haunch: companionBlobAt(-0.53+tremble, 0.57+lift, 0.43, 0.34, lean),
 		neck:   companionBlobAt(0.38+tremble, 0.73+lift, 0.15, 0.25, lean),
 		head:   companionBlobAt(headX, headY, 0.29, 0.275, 0),
@@ -1659,8 +1685,8 @@ func companionVolumePixel(pose companionPose, heights [][]float64, size companio
 // state, tick, gaze, tremble and rung in, tones out, with no model, no clock and no
 // terminal -- so a test can pin the exact frame a tick draws, and calling it twice returns
 // the same grid.
-func companionVolumeTones(state companionState, tick int, gaze companionGaze, shiver int, size companionVolumeSize) [][]companionTone {
-	pose := companionPoseFor(state, tick, gaze, shiver, size)
+func companionVolumeTones(state companionState, tick int, gaze companionGaze, shiver int, size companionVolumeSize, hop ...int) [][]companionTone {
+	pose := companionPoseFor(state, tick, gaze, shiver, size, hop...)
 	scale := companionVolumeScale(size)
 	heights := pose.heightField(size, scale)
 	inside := func(px, py int) bool {
@@ -1686,8 +1712,8 @@ func companionVolumeTones(state companionState, tick int, gaze companionGaze, sh
 	// geometry so a head turn cannot drag the torso, limbs, tail or ground shadow.
 	if gaze.X != 0 {
 		baselineGaze := companionGaze{Y: gaze.Y}
-		baseline := companionVolumeTones(state, tick, baselineGaze, shiver, size)
-		baselinePose := companionPoseFor(state, tick, baselineGaze, shiver, size)
+		baseline := companionVolumeTones(state, tick, baselineGaze, shiver, size, hop...)
+		baselinePose := companionPoseFor(state, tick, baselineGaze, shiver, size, hop...)
 		shiftedEyes := companionEyeCentres(pose.head, size, scale)
 		baselineEyes := companionEyeCentres(baselinePose.head, size, scale)
 		for py := range grid {
@@ -1916,7 +1942,7 @@ func (m Model) companionVolumeRows(stage int, size companionVolumeSize) []string
 	if !m.Animating || !m.PixelSprite || stage < size.width {
 		return nil
 	}
-	grid := companionVolumeTones(m.companionStateNow(), m.AnimTick, m.CompanionGaze, m.companionShiverPx(), size)
+	grid := companionVolumeTones(m.companionStateNow(), m.AnimTick, m.CompanionGaze, m.companionShiverPx(), size, m.CompanionHop)
 	pos := min(max(m.CompanionPos, 0), stage-size.width)
 	indent := strings.Repeat(" ", pos)
 	rows := make([]string, 0, size.rows/2)
@@ -2298,25 +2324,16 @@ func (m Model) placeCompanion(placed, summary []string, stage int) []string {
 	if len(sprite) == 0 || len(sprite) > height {
 		return placeRotator(placed, summary)
 	}
-	// A click's hop lifts the creature off the ground, and on a grid of cells the
-	// only way to show that is to give the sprite a blank row under it - which
-	// costs one row above the block. Where the frame has no such row the jump is
-	// simply not drawn: the celebration still shows in the face, because the
-	// creature never takes a row a fact needs.
-	lift := 0
-	if m.CompanionHop > 0 {
-		lift = 1
-	}
+	// Hop anticipation, flight and landing are raster poses inside this reserved
+	// block; they never borrow a row from the frame or move facts.
 	// The block is what the sprite actually draws, not the rung that chose it: a
 	// state whose art is one row tall - a celebration face - needs one row, and
 	// demanding the rung's rows instead would silently drop it from a frame that
 	// has room for exactly what it draws.
-	blockHeight := len(sprite) + lift
+	blockHeight := len(sprite)
 	blockStart := len(placed) - blockHeight
 	if blockStart < 0 {
-		lift = 0
-		blockHeight = len(sprite)
-		blockStart = len(placed) - blockHeight
+		return placeRotator(placed, summary)
 	}
 	out := append([]string(nil), placed...)
 	for i, line := range summary {
@@ -2331,36 +2348,6 @@ func (m Model) placeCompanion(placed, summary []string, stage int) []string {
 	// block that lands on content is possible for the first time - and a fact
 	// still beats a decoration: the creature is not drawn at all rather than
 	// painted over a row the screen is stating something in.
-	for row := blockStart; row < len(placed); row++ {
-		if out[row] != "" {
-			if lift > 0 {
-				// The hop is the decoration that gives way first, and only then the
-				// creature itself.
-				return placeCompanionGrounded(placed, summary, sprite)
-			}
-			return placeRotator(placed, summary)
-		}
-	}
-	copy(out[blockStart:], sprite)
-	return out
-}
-
-// placeCompanionGrounded draws the same sprite without its hop, for a click that
-// arrives when the frame has no row to lift into. It is the placement the creature
-// would have had without the click, so the hop is the only thing that gives way.
-func placeCompanionGrounded(placed, summary, sprite []string) []string {
-	blockStart := len(placed) - len(sprite)
-	if blockStart < 0 {
-		return placeRotator(placed, summary)
-	}
-	out := append([]string(nil), placed...)
-	for i, line := range summary {
-		row := blockStart - len(summary) + i
-		if row < 0 || out[row] != "" {
-			return placeRotator(placed, summary)
-		}
-		out[row] = line
-	}
 	for row := blockStart; row < len(placed); row++ {
 		if out[row] != "" {
 			return placeRotator(placed, summary)

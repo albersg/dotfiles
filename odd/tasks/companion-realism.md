@@ -200,11 +200,63 @@ rows, up to 12 lines, 19 moving frames/2.38 s, **166735 bytes** total, **9235 by
 suite passed 3877 tests; both frame guards, the block, anatomy, light, leak, welcome lockup and cost guards
 were also run directly and passed.
 
-## Remaining steps
+## Step 4 outcome: motion with weight
 
-4. **Motion with weight** still owes the specified landing order, body/head lead and tail lag, idle events,
-   hop poses, and a precise still-between-events cost statement.
-5. **Budget, block and leaks** still owes the benchmark ceiling and all-pose/all-rung bounding-box guard;
-   the block, existing frame/leak guards, cost measurements and anatomy remain protected and unchanged.
+Implemented in `installer/internal/tui/companion.go`, with geometry/tick assertions in
+`installer/internal/tui/companion_test.go`. The walk is contact, down, passing and up, one model tick
+per pose (four frames, 0.50 seconds at 8 fps, printed by `TestCompanionWalkPoseSequencePinsContactsAndLag`).
+That test asserts the paw touchdown order front-left, back-right, front-right, back-left, the body's
+one-pixel rise at passing, the head's one-pixel lead one pose earlier, and the tail's two-pose delay.
+The old two-ticks-per-pose arithmetic would have made this cycle eight frames / one second; it is
+corrected because the plan calls for a four-pose cycle and the tick arithmetic now gives each named
+pose exactly one frame.
 
-Each step is a work-unit commit, and each keeps the suite, both frame guards and the leak guard green.
+Idle motion is a set of independent one-frame events on `AnimTick`: breath 32 frames / 4 seconds,
+ear twitch 160 / 20 seconds, tail-tip flick 120 / 15 seconds, blink 80 / 10 seconds. The periods come
+from duration constants times the model's 8 fps (`TestCompanionIdleEventsHaveIndependentPeriods`
+and `TestCompanionCostHasTwoRegimes` print/assert them). Raster assertions prove each event changes
+pixels and every tick between event boundaries leaves geometry and raster unchanged. The hop countdown
+is three frames: anticipation crouch, one terminal row of travel (two raster pixels), landing squash,
+then settled; the fixed raster and
+rendered block do not grow, and `TestCompanionClickHopsAndCelebrates` proves no non-companion row moves.
+
+Two defect experiments were run and restored. Swapping the paw phase order failed verbatim:
+
+```text
+companion_test.go:3574: pose 2 paw 1 ground contact=false, want true in landing order [0 3 1 2]
+companion_test.go:3574: pose 3 paw 1 ground contact=true, want false in landing order [0 3 1 2]
+companion_test.go:3574: pose 2 paw 2 ground contact=true, want false in landing order [0 3 1 2]
+companion_test.go:3574: pose 3 paw 2 ground contact=false, want true in landing order [0 3 1 2]
+--- FAIL: TestCompanionWalkPoseSequencePinsContactsAndLag (0.00s)
+```
+
+Making tail sway in phase failed verbatim:
+
+```text
+companion_test.go:3589: tail sway at pose 0 is 0.000, want body sway delayed two poses (0.900)
+companion_test.go:3589: tail sway at pose 1 is -0.900, want body sway delayed two poses (-0.000)
+companion_test.go:3589: tail sway at pose 2 is 0.900, want body sway delayed two poses (-0.000)
+companion_test.go:3589: tail sway at pose 3 is 0.000, want body sway delayed two poses (-0.900)
+--- FAIL: TestCompanionWalkPoseSequencePinsContactsAndLag (0.00s)
+```
+
+No companion snapshots moved: the glyph captures pin idle frames at ticks 0, 3 and 6, all before an
+event boundary; the pixel capture also pins an idle tick. I inspected all four current goldens in both
+shape and escapes: the three ASCII shapes remain unchanged, and the pixel raster's shape and ANSI
+runs match the current idle/gaze model with a reset at the end of its sprite lines. No golden was
+regenerated because no captured frame changed. `TestNoRenderedLineLeavesAColourActive` remains the
+executable escape-state guard.
+
+Measured by `TestCompanionCostHasTwoRegimes` at 227×62: still-between-events **0 changed bytes across
+24 pinned ticks**; walking **12 sprite rows**, up to **12 changed lines**, **19 moving frames of 19 / 2.38 s**,
+**166586 bytes**, **9138 widest-line bytes**, **71.4 KB/s at 8 fps**. `BenchmarkCompanionVolumeFrame`
+measured **2,179,233–4,199,595 ns/op, 359,912–359,928 B/op, 1087 allocs/op** over three
+Linux/amd64 runs; the observed time varied in the shared environment.
+The cost wording is deliberately no longer "zero bytes at rest" across all idle time: each named event
+repaints the sprite.
+
+## Remaining step
+
+5. **Budget, block and leaks** still owes the explicit benchmark ceiling and the all-pose/all-rung
+bounding-box guard. The terminal-sized block, current tick row-ownership checks, both frame guards,
+leak guard, anatomy, light and gaze guards remain protected. No rung or block was enlarged for motion.

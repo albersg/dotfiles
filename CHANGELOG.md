@@ -9,8 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This cycle finishes the Vim trainer's buffer engine and its two new modules, and gives the installer
 an interface that fits the terminal it claims and reads on a light one. The WSL configuration is also
 now derived from the host that receives it, which removes the last artifact that carried one
-machine's limits into another machine's VM. The installer's companion has also stopped moving when
-nothing is happening: it was repainting its own rows on every frame, which read as flicker.
+machine's limits into another machine's VM. The installer's companion now stays still between
+periodic idle events rather than repainting its own rows on every frame.
 
 ### Fixed
 
@@ -48,11 +48,18 @@ nothing is happening: it was repainting its own rows on every frame, which read 
   it at a row and it walks there at a fixed one cell a frame, slowing to a step every other frame over
   the last three cells, and stops when it arrives. One menu row is three cells of walking and no more,
   so one arrow key is a short stroll rather than a dash across a 227-column stage, and the gaze is
-  settled when the target changes rather than on the next tick. At rest the view string is
-  byte-identical from tick to tick, so the renderer writes nothing at all; while walking it repaints
-  only the creature's own lines. The creature's body is also drawn in the theme's muted tones now, with
+  settled when the target changes rather than on the next tick. Between idle events the view string
+  is byte-identical, so the renderer writes nothing; while walking it repaints only the creature's own
+  lines. The creature's body is also drawn in the theme's muted tones now, with
   the one bright tone spent on the eyes, so the decoration is no longer the loudest thing on a screen
   whose words should be.
+- **The shaded companion walks, breathes, twitches, flicks and hops on model ticks.** Its four one-frame
+  poses land front-left, back-right, front-right, back-left; the head leads by one pixel, the body rises
+  at passing and the tail follows by two poses. Breath, ear twitch, tail-tip flick and blink recur at 4,
+  20, 15 and 10 seconds, with no redraw between events. Clicks get anticipation, one terminal row of travel and
+  landing squash inside the fixed block. `TestCompanionWalkPoseSequencePinsContactsAndLag`,
+  `TestCompanionIdleEventsHaveIndependentPeriods`, `TestCompanionClickHopsAndCelebrates` and
+  `TestCompanionCostHasTwoRegimes` pin the behavior and the zero-byte-between-events statement.
 - **The installer's frames no longer tear while they animate.** bubbletea builds each frame in one
   write, but the terminal paints those bytes as they arrive, so a redraw that rewrites several lines
   was visible half-updated. The installer now brackets every frame in the terminal's
