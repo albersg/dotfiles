@@ -457,6 +457,8 @@ test_shell_functional() {
         else
             log_fail "Fish shell not working"
         fi
+    else
+        log_fail "Fish shell is not installed"
     fi
     
     # Check if zsh runs  
@@ -466,6 +468,8 @@ test_shell_functional() {
         else
             log_fail "Zsh shell not working"
         fi
+    else
+        log_fail "Zsh shell is not installed"
     fi
 }
 

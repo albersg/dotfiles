@@ -215,6 +215,7 @@ of distributions that run it on a pull request changed.
 | `Linux E2E (${{ matrix.image }})` phantom skipped check | Never ran, by construction | Gone: the matrix no longer waits behind `go-tests` |
 | `Shell Validation` apt install | `apt-get update` + `install -y shellcheck` | `command -v shellcheck` guard; the install still runs when the image lacks it |
 | `Branding Audit` apt install | `apt-get update` + `install -y ripgrep` | `command -v rg` guard; the install still runs when the image lacks it |
+| E2E shell-functional check silently skipped missing fish/zsh | Command-existence guards had no `else`, so a missing shell generated no verdict while the full-install test could still pass | Missing fish or zsh now calls `log_fail`; the same E2E suite verifies shell execution when installed and reports absence otherwise |
 | Cancelled `main` runs | `cancel-in-progress: true` on `refs/heads/main` | Main runs are no longer cancelled; the next run waits |
 
 Check count per run: **14 before** (6 in `ci.yml`: Go Validation, Shell Validation, Branding Audit,
