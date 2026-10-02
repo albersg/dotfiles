@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+- Added the main-menu easter eggs `vim` (Vim Trainer), `:q` (quit), and `dd` (a brief selected-row gag).
+
 This cycle finishes the Vim trainer's buffer engine and its two new modules, and gives the installer
 an interface that fits the terminal it claims and reads on a light one. The WSL configuration is also
 now derived from the host that receives it, which removes the last artifact that carried one
