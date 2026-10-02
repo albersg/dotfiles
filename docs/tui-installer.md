@@ -396,8 +396,24 @@ measurement; wider terminals cost more per line.
 
 Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` on Linux/amd64
 measured **2,179,233–4,199,595 ns/op, 359,912–359,928 B/op and 1087 allocs/op** across three
-Linux/amd64 runs. These are observed benchmark values, not portable limits; rerun the benchmark to
-remeasure.
+Linux/amd64 runs. The benchmark now enforces ceilings of **10,000,000 ns/op, 450,000 B/op and
+1,400 allocs/op**. The time ceiling is over twice the slowest of those shared-host measurements to
+leave room for host scheduling and Go-version variance; the byte and allocation ceilings leave about
+25% headroom over the stable measured allocation footprint. A fivefold allocation regression exceeds
+the byte and allocation ceilings. These limits are a regression guard, not a promise of latency on
+other hosts; rerun `go test ./internal/tui -run '^$' -bench '^BenchmarkCompanionVolumeFrame$' -benchmem`
+to remeasure. This measurement also does not include a raster-buffer optimization: roughly **293 KB
+per frame** was measured and declared as future optimization work, not implemented here.
+
+`TestCompanionRenderedPosesStayInsideTheirReservedBlock` checks the rendered rows themselves for
+both sprite modes: the 12-row and 8-row volume rungs, the 5-row and 3-row glyph rungs, and the
+one-row trainer floor. It covers all four walk poses, breath/ear/tail idle events, all three hop
+phases, left/up and right/down gaze extremes, and blink. Every pose must own exactly the terminal's
+rung rows in the same rendered position (above the frame rule on framed screens), with no additional
+art row outside that block. `TestCompanionBlockDependsOnlyOnTheTerminal` continues to assert the
+block's terminal-sized position across screens and content states. The cost bound and bounding-box
+guard do not change the creature, rung or reserved block. The benchmark does not guarantee cost on a
+terminal slower than the measured Linux/amd64 host.
 
 **Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
 this step and deliberately rejected, for two reasons that were measured rather than guessed. It

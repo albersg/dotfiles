@@ -14,6 +14,7 @@ periodic idle events rather than repainting its own rows on every frame.
 
 ### Fixed
 
+- **The companion's render cost and reserved block now have executable ceilings.** `BenchmarkCompanionVolumeFrame` fails above 10,000,000 ns/op, 450,000 B/op or 1,400 allocs/op, with headroom chosen from measured Linux/amd64 runs; `TestCompanionRenderedPosesStayInsideTheirReservedBlock` checks every walk pose, idle event, hop phase, gaze extreme and blink across both sprite modes and every rung. Raster-buffer optimization and performance guarantees for slower terminals remain out of scope.
 - **The shaded companion's eyes now hold a sclera around a moving pupil, blink with a lid, and track gaze without dragging the body.** The full rung uses a 3×4 sclera and 1×2 slit at three long-axis positions. The slit keeps sclera columns on both sides at every position and has a full ring at centre; at either extreme it touches the corresponding lid. The smaller rung uses a 2×2 sclera and 1×1 pupil. `TestCompanionVolumeEyePupilAdjacencyByRung`, `TestCompanionEyeGazeIsolationAndBlinkPinsTheFaceContract` and `TestCompanionVolumeGazeTurnsTheHeadAndThePupils` pin the pupil margins, highlight, eyelid, head/ear motion and named-region bounds. The terminal-height ladder and reserved block are unchanged.
 - **The shaded companion has a directional rim and contact shadows.** Lambert shading and ordered
   dithering remain, while a rim term now catches only the upper-left silhouette and two-step ambient

@@ -255,8 +255,38 @@ Linux/amd64 runs; the observed time varied in the shared environment.
 The cost wording is deliberately no longer "zero bytes at rest" across all idle time: each named event
 repaints the sprite.
 
-## Remaining step
+## Step 5 outcome: budget, block and leaks
 
-5. **Budget, block and leaks** still owes the explicit benchmark ceiling and the all-pose/all-rung
-bounding-box guard. The terminal-sized block, current tick row-ownership checks, both frame guards,
-leak guard, anatomy, light and gaze guards remain protected. No rung or block was enlarged for motion.
+Implemented in `installer/internal/tui/companion_test.go`, with the budget and block contract documented
+in `docs/tui-installer.md`. `BenchmarkCompanionVolumeFrame` now enforces 10,000,000 ns/op,
+450,000 B/op and 1,400 allocs/op ceilings. The time ceiling leaves more than 2× headroom over the
+slowest recent measured run (4,199,595 ns/op); byte and allocation ceilings leave about 25% over the
+stable ~360 KB / 1087–1088 allocs measured footprint. The bounds catch a fivefold allocation
+regression while allowing for shared-host timing and Go-version variance. They are not a cost guarantee
+for terminals slower than the measured host.
+
+`TestCompanionRenderedPosesStayInsideTheirReservedBlock` asserts on rendered rows—not only raster
+fields—in both sprite modes: volume full (12 rendered rows), volume small (8), glyph full (5), glyph
+compact (3), and the trainer's one-row floor. For each rung it covers the four walk ticks, breath, ear
+twitch, tail flick, all three hop phases, the left/up and right/down gaze extremes, and blink. Each
+state must retain exactly the baseline block rows and framed blocks must remain immediately above the
+frame rule. The existing `TestCompanionBlockDependsOnlyOnTheTerminal`, both frame guards,
+`TestCompanionCostHasTwoRegimes`, anatomy/light/eye/gaze/walk/idle/hop guards and
+`TestNoRenderedLineLeavesAColourActive` remain intact. No creature geometry, rung, block, lighting or
+motion changed.
+
+The five plan steps are complete; implementation commits are recorded here. Steps 1–4 are the existing
+commits, and step 5's commit ID is intentionally pending the parent transaction controller, which owns
+the commit:
+
+| Step | Commit |
+|------|--------|
+| 1. Anatomy | `9cf2bcf` |
+| 2. Light and material | `217fe65` |
+| 3. Eyes and gaze | `fc3ecf5` |
+| 4. Motion with weight | `848e7de` |
+| 5. Budget, block and leaks | pending parent commit |
+
+**Not done:** raster-buffer optimization. Approximately 293 KB per frame was measured and declared as
+future optimization work, not implemented in this realism pass. The benchmark does not guarantee cost
+on a terminal slower than the measured Linux/amd64 host.
