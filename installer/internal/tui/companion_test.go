@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -836,13 +837,11 @@ func TestCompanionDrawsNothingWhenAnimationIsOff(t *testing.T) {
 // --- cost -----------------------------------------------------------------
 
 // TestCompanionTicksChangeOnlyItsOwnRows is the cost bound, and it is two-sided.
-// At rest the creature has nothing to do, so a tick changes no row at all -- the
-// stronger half, and the one the reported flicker came from. While it is armed and
+// Between idle events, a still creature changes no row at all. While it is armed and
 // walking the sprite moves one column, so every row it owns changes and no other
 // row may: the frame is not re-laid out, no body row is touched and the row count
 // does not move. Both halves are asserted over several screens and terminal sizes,
-// on ticks that are not a tip boundary, because a tip rotating is the one other
-// thing the slow clock shows.
+// on ticks that are not event boundaries.
 func TestCompanionTicksChangeOnlyItsOwnRows(t *testing.T) {
 	fixtures := []companionScreenFixture{
 		{name: "main menu 80x24", screen: ScreenMainMenu, width: 80, height: 24, framed: true},
@@ -876,9 +875,8 @@ func TestCompanionTicksChangeOnlyItsOwnRows(t *testing.T) {
 				return m
 			}
 
-			// At rest a tick changes nothing at all: no body row, no sprite row, no
-			// byte. The creature is not strolling and its gaze is not settling a frame
-			// late, so the view is the same string a tick later.
+			// This tick pair is between idle events: a still companion changes no row
+			// or byte, and the view stays identical.
 			atRest := build()
 			before := atRest.View()
 			after := companionTick(t, atRest).View()
@@ -2022,13 +2020,11 @@ func TestCompanionPointerWakesItAndAParkedMouseDoesNot(t *testing.T) {
 	}
 }
 
-// TestCompanionClickHopsAndCelebrates pins the click reaction: the same
-// celebration a finished step earns, plus a jump that is drawn as one blank row
-// under the creature. The jump is the placement's business, so it is pinned where
-// it is decided: the creature's first row moves one row up while the hop lasts and
-// returns when the tick has aged it.
+// TestCompanionClickHopsAndCelebrates pins the click reaction and the three
+// raster poses, all inside the unchanged companion block.
 func TestCompanionClickHopsAndCelebrates(t *testing.T) {
 	m := pointerModel(t, 160, 50)
+	size, _ := companionVolumeSizeFor(companionVolumeFullHeight)
 	grounded, _, ok := findCompanionRow(m.View())
 	if !ok {
 		t.Fatalf("the roomy screen drew no companion:\n%s", m.View())
@@ -2048,15 +2044,39 @@ func TestCompanionClickHopsAndCelebrates(t *testing.T) {
 	if !ok {
 		t.Fatalf("the click left the screen with no companion:\n%s", clicked.View())
 	}
-	if lifted != grounded-1 {
-		t.Errorf("the hop drew the creature's first row at %d, want one row above %d",
-			lifted, grounded)
+	if lifted != grounded {
+		t.Errorf("the hop moved the reserved block's first row from %d to %d", grounded, lifted)
+	}
+	// The hop changes only the sprite pixels: no content, rule or footer row moves.
+	if before, after := strings.Split(m.View(), "\n"), strings.Split(clicked.View(), "\n"); len(before) != len(after) {
+		t.Fatalf("the click changed rendered row count from %d to %d", len(before), len(after))
+	} else {
+		for i := range before {
+			if !companionRowHasArt(before[i]) && before[i] != after[i] {
+				t.Errorf("the hop changed non-companion row %d", i)
+			}
+		}
 	}
 
-	landed := companionTicks(t, clicked, companionHopTicks)
+	phaseModels := []Model{clicked}
+	for i := 0; i < companionHopTicks; i++ {
+		phaseModels = append(phaseModels, companionTick(t, phaseModels[len(phaseModels)-1]))
+	}
+	var previousRaster [][]companionTone
+	for i, phaseModel := range phaseModels {
+		wantLeft := max(companionHopTicks-i, 0)
+		if phaseModel.CompanionHop != wantLeft {
+			t.Errorf("hop phase %d has %d frames left, want %d", i, phaseModel.CompanionHop, wantLeft)
+		}
+		grid := companionVolumeTones(phaseModel.companionStateNow(), phaseModel.AnimTick, phaseModel.CompanionGaze, phaseModel.companionShiverPx(), size, phaseModel.CompanionHop)
+		if i > 0 && reflect.DeepEqual(previousRaster, grid) {
+			t.Errorf("hop phase %d did not change raster from the previous phase", i)
+		}
+		previousRaster = grid
+	}
+	landed := phaseModels[len(phaseModels)-1]
 	if landed.CompanionHop != 0 {
-		t.Errorf("after %d ticks the hop has %d frames left, want 0",
-			companionHopTicks, landed.CompanionHop)
+		t.Errorf("after %d ticks the hop has %d frames left, want 0", companionHopTicks, landed.CompanionHop)
 	}
 	if back, _, ok := findCompanionRow(landed.View()); !ok || back != grounded {
 		t.Errorf("after the hop the creature's first row is %d (found %v), want %d",
@@ -2064,11 +2084,8 @@ func TestCompanionClickHopsAndCelebrates(t *testing.T) {
 	}
 }
 
-// TestCompanionHopNeedsItsOwnRow pins the row budget of the jump: the sprite gains
-// a blank row under it, so the hop costs one spare row more than the sprite itself.
-// Where the frame has no such row the creature stays on the ground and the
-// celebration shows in its face, which is the rule that no decoration takes a row a
-// fact needs.
+// TestCompanionHopNeedsItsOwnRow pins that all three hop poses fit the terminal-sized
+// rung without borrowing a row from the body, facts or footer.
 //
 // The last two rows of the table used to expect a smaller creature - the compact
 // sprite - because the rung was read from the spare rows. A rung chosen by the
@@ -2087,15 +2104,14 @@ func TestCompanionHopNeedsItsOwnRow(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		spare  int
-		drawn  int // how many rows carry art: the sprite's own rows, hop or no hop
-		lifted bool
+		name  string
+		spare int
+		drawn int // the sprite's own rows, unchanged throughout the hop
 	}{
-		{"room for the sprite and the hop", rung + 1, rung, true},
-		{"room for the sprite only", rung, rung, false},
-		{"not enough room for the rung", rung - 1, 0, false},
-		{"far less room than the rung needs", 2, 0, false},
+		{"room for the sprite and hop", rung + 1, rung},
+		{"room for the sprite only", rung, rung},
+		{"not enough room for the rung", rung - 1, 0},
+		{"far less room than the rung needs", 2, 0},
 	}
 
 	for _, tt := range tests {
@@ -2120,12 +2136,8 @@ func TestCompanionHopNeedsItsOwnRow(t *testing.T) {
 				// No creature: there is no hop to check and no row it may touch.
 				return
 			}
-			if last := companionRowHasArt(got[len(got)-1]); last == tt.lifted {
-				if tt.lifted {
-					t.Errorf("the hop drew art on the frame's last row, so the creature did not lift")
-				} else {
-					t.Errorf("the creature did not lift and its last row carries no art")
-				}
+			if !companionRowHasArt(got[len(got)-1]) {
+				t.Errorf("the sprite's reserved block lost its bottom row during the hop")
 			}
 		})
 	}
@@ -2864,12 +2876,9 @@ func TestCompanionVolumeGazeTurnsTheHeadAndThePupils(t *testing.T) {
 	}
 }
 
-// TestCompanionVolumeGaitMovesThePawsAndCounterSwaysTheTail pins the walk where it is
-// decided: in the pose. The four poses are a stride -- the front paw reaches forward and
-// back, the tail's tip goes the other way, the body rides up over the passing poses and the
-// paws stay on the ground while it does -- and the drawing has to show all of it, which the
-// two contact poses' own pixels are checked for. A walk whose legs swapped places without
-// the paws moving would pass a "the frame changed" test and fail this one.
+// TestCompanionVolumeGaitMovesThePawsAndCounterSwaysTheTail pins gait geometry and
+// raster changes. The explicit touchdown order and two-pose tail lag are asserted by
+// TestCompanionWalkPoseSequencePinsContactsAndLag.
 func TestCompanionVolumeGaitMovesThePawsAndCounterSwaysTheTail(t *testing.T) {
 	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
 	if !ok {
@@ -2883,21 +2892,18 @@ func TestCompanionVolumeGaitMovesThePawsAndCounterSwaysTheTail(t *testing.T) {
 		poses[phase] = companionPoseFor(companionWalkingState, phase*companionGaitTicks, companionGaze{}, 0, size)
 	}
 
-	for _, phase := range []int{0, 2} {
-		paw := poses[phase].legs[0].x1 - standing.legs[0].x1
-		tail := poses[phase].tail[2].x1 - standing.tail[2].x1
-		if paw == 0 {
-			t.Errorf("pose %d left the front paw where it stands", phase)
-		}
-		if paw*tail >= 0 {
-			t.Errorf("pose %d moved the front paw by %.3f and the tail's tip by %.3f, so the tail is not counter-swaying",
-				phase, paw, tail)
+	// The body's sway signal is delayed by two gait frames at the tail tip, not
+	// merely present in both parts at the same instant.
+	for phase := range poses {
+		want := -companionTailSway * companionGaitReach[(phase+2)%4]
+		got := poses[phase].tail[2].x1 - standing.tail[2].x1
+		if math.Abs(got-want) > 1e-9 {
+			t.Errorf("pose %d tail sway is %.3f, want two-frame-delayed body signal %.3f", phase, got, want)
 		}
 	}
 
-	// The body rides up one pixel over the passing poses and not at all otherwise, and the
-	// paws alternate in diagonal pairs: two on the ground and two off it at every pose,
-	// which is a trot rather than a glide or a hop.
+	// The body rises one pixel only at passing; each leg's ground contact is
+	// pinned in landing order by TestCompanionWalkPoseSequencePinsContactsAndLag.
 	for phase, pose := range poses {
 		bob := pose.body.y - standing.body.y
 		want := float64(companionBodyBobPx) * companionGaitBob[phase] / scale
@@ -2913,8 +2919,8 @@ func TestCompanionVolumeGaitMovesThePawsAndCounterSwaysTheTail(t *testing.T) {
 				t.Errorf("pose %d pushed paw %d through the ground", phase, i)
 			}
 		}
-		if lifted != 2 {
-			t.Errorf("pose %d has %d paws off the ground, want the two of one diagonal pair", phase, lifted)
+		if lifted != 3 {
+			t.Errorf("pose %d has %d paws off the ground, want one paw in contact", phase, lifted)
 		}
 	}
 
@@ -3432,11 +3438,9 @@ func assertCompanionBlockContract(t *testing.T, positions map[string]int, name s
 	}
 }
 
-// TestCompanionCostHasTwoRegimes measures the two costs the creature has. The
-// number a comment used to carry was the sprite's own bytes, which is not what the
-// terminal is written: the renderer repaints a whole line whenever any byte in it
-// changed, so a walking tick costs the sprite's row count times the line width. At
-// rest the view is byte-identical and the renderer writes nothing. The walking
+// TestCompanionCostHasTwoRegimes measures the creature's two costs. The renderer
+// repaints a whole line whenever any byte in it changed. A still creature writes
+// nothing between its independent idle events; the walking
 // figure is logged rather than asserted, because the terminal's width and the
 // sprite's height set it and a constant here could not defend itself; what is
 // asserted is the shape -- a walking tick changes the sprite's rows and only those,
@@ -3448,7 +3452,7 @@ func TestCompanionCostHasTwoRegimes(t *testing.T) {
 	m.Width, m.Height = 227, 62
 	m.Animating, m.PixelSprite = true, true
 
-	// At rest: nothing changes at all.
+	// Pin an interval between events: the view is byte-identical across these ticks.
 	before := m.View()
 	after := companionTicks(t, m, 24).View()
 	if rows, bytes := companionChangedRows(before, after); len(rows) != 0 || bytes != 0 {
@@ -3487,8 +3491,10 @@ func TestCompanionCostHasTwoRegimes(t *testing.T) {
 	if moves == 0 {
 		t.Fatalf("the armed walk wrote no frame")
 	}
-	t.Logf("walking at %d columns: %d sprite rows, up to %d changed lines per moving tick; %d moving frames out of %d (%.2f s), %d bytes total, %d bytes in the widest changed lines (%.1f KB/s at %d fps); rest writes 0",
-		m.Width, spriteLines, lines, moves, frames, float64(frames)/animTicksPerSecond, total, widest, float64(widest)*animTicksPerSecond/1024, animTicksPerSecond)
+	t.Logf("walking at %d columns: %d sprite rows, up to %d changed lines per moving tick; %d moving frames out of %d (%.2f s), %d bytes total, %d bytes in the widest changed lines (%.1f KB/s at %d fps); still creature writes nothing between events: 0 changed bytes across 24 pinned ticks; events: breath %d ticks (%ds), ear twitch %d ticks (%ds), tail-tip flick %d ticks (%ds), blink %d ticks (%ds)",
+		m.Width, spriteLines, lines, moves, frames, float64(frames)/animTicksPerSecond, total, widest, float64(widest)*animTicksPerSecond/1024, animTicksPerSecond,
+		companionBreathTicks, companionBreathSeconds, companionEarTwitchTicks, companionEarTwitchSeconds,
+		companionTailFlickTicks, companionTailFlickSeconds, companionBlinkTicks, companionBlinkSeconds)
 }
 
 // TestCompanionFollowStepIsBoundedByFollowCells pins the walk's distance rule: one
@@ -3534,5 +3540,167 @@ func TestCompanionFollowStepIsBoundedByFollowCells(t *testing.T) {
 				previous = cell
 			}
 		})
+	}
+}
+
+// TestCompanionWalkPoseSequencePinsContactsAndLag checks geometry, not a saved image:
+// touchdown order, one-pixel passing bob, one-pose head lead and a two-pose tail delay.
+func TestCompanionWalkPoseSequencePinsContactsAndLag(t *testing.T) {
+	size, _ := companionVolumeSizeFor(companionVolumeFullHeight)
+	scale := companionVolumeScale(size)
+	contactOrder := []int{0, 3, 1, 2} // front-left, back-right, front-right, back-left
+	poses := make([]companionPose, 4)
+	for phase := range poses {
+		poses[phase] = companionPoseFor(companionWalkingState, phase, companionGaze{}, 0, size)
+		if got := companionGaitPhase(phase); got != phase {
+			t.Fatalf("tick %d has gait pose %d, want pose %d", phase, got, phase)
+		}
+	}
+	t.Logf("walk cycle: %d poses × %d frame each = %d frames (%.2f s at %d fps)",
+		len(poses), companionGaitTicks, len(poses)*companionGaitTicks,
+		float64(len(poses)*companionGaitTicks)/animTicksPerSecond, animTicksPerSecond)
+	for landing, leg := range contactOrder {
+		for phase := range poses {
+			grounded := math.Abs(poses[phase].legs[leg].y1-0.06) < 1e-9
+			if grounded != (phase == landing) {
+				t.Errorf("pose %d paw %d ground contact=%t, want %t in landing order %v", phase, leg, grounded, phase == landing, contactOrder)
+			}
+		}
+	}
+	if got, want := poses[2].body.y-poses[0].body.y, 1/scale; math.Abs(got-want) > 1e-9 {
+		t.Errorf("passing body rises %.4f world units, want one pixel %.4f", got, want)
+	}
+	if got, want := poses[1].head.y-poses[0].head.y, 1/scale; math.Abs(got-want) > 1e-9 {
+		t.Errorf("head lead is %.4f world units, want one pixel %.4f one pose before the body", got, want)
+	}
+	for phase := range poses {
+		priorBodyPose := (phase + 2) % 4
+		wantSway := -companionTailSway * companionGaitReach[priorBodyPose]
+		gotSway := poses[phase].tail[2].x1 + 0.96
+		if math.Abs(gotSway-wantSway) > 1e-9 {
+			t.Errorf("tail sway at pose %d is %.3f, want body sway delayed two poses (%.3f)", phase, gotSway, wantSway)
+		}
+	}
+}
+
+// TestCompanionIdleEventsHaveIndependentPeriods pins each one-frame pulse on the model
+// clock and proves every intervening idle pose is unchanged at the geometry level.
+func TestCompanionIdleEventsHaveIndependentPeriods(t *testing.T) {
+	// Two things this test's name and the documentation promise, and this is where
+	// they are held. Independent: two events that shared a period would fire
+	// together and read as one movement, which is why the periods are distinct.
+	// Documented: the guide tells a reader that the creature breathes every four
+	// seconds, twitches an ear every twenty, flicks its tail every fifteen and
+	// blinks every ten, so those numbers are pinned here rather than left to drift
+	// away from the prose. Both were checked by changing a period - to twenty-one
+	// seconds, and to fifteen to collide with the tail - and both changes used to
+	// pass this test.
+	documented := []struct {
+		name  string
+		ticks int
+	}{
+		{"breath", 4 * animTicksPerSecond},
+		{"ear twitch", 20 * animTicksPerSecond},
+		{"tail-tip flick", 15 * animTicksPerSecond},
+		{"blink", 10 * animTicksPerSecond},
+	}
+	periods := []int{companionBreathTicks, companionEarTwitchTicks, companionTailFlickTicks, companionBlinkTicks}
+	for i, want := range documented {
+		if periods[i] != want.ticks {
+			t.Errorf("the %s fires every %d ticks, but the documentation states %d ticks (%d seconds at %d fps)",
+				want.name, periods[i], want.ticks, want.ticks/animTicksPerSecond, animTicksPerSecond)
+		}
+	}
+	for i := range periods {
+		for j := i + 1; j < len(periods); j++ {
+			if periods[i] == periods[j] {
+				t.Errorf("the %s and the %s share a %d-tick period, so two idle events fire together",
+					documented[i].name, documented[j].name, periods[i])
+			}
+		}
+	}
+
+	size, _ := companionVolumeSizeFor(companionVolumeFullHeight)
+	poseAt := func(tick int) companionPose {
+		return companionPoseFor(companionIdleState, tick, companionGaze{}, 0, size)
+	}
+	base := poseAt(0)
+	baseRaster := companionVolumeTones(companionIdleState, 0, companionGaze{}, 0, size)
+	for _, event := range []struct {
+		name    string
+		period  int
+		changed func(companionPose) bool
+	}{
+		{"breath", companionBreathTicks, func(p companionPose) bool { return p.chest.y != base.chest.y }},
+		{"ear twitch", companionEarTwitchTicks, func(p companionPose) bool { return p.ears != base.ears }},
+		{"tail-tip flick", companionTailFlickTicks, func(p companionPose) bool { return p.tail[2].y1 != base.tail[2].y1 }},
+	} {
+		first := event.period - 1
+		if !event.changed(poseAt(first)) {
+			t.Errorf("%s did not fire at frame %d (%d-frame period)", event.name, first, event.period)
+		}
+		if raster := companionVolumeTones(companionIdleState, first, companionGaze{}, 0, size); reflect.DeepEqual(baseRaster, raster) {
+			t.Errorf("%s changed geometry but no raster pixels at frame %d", event.name, first)
+		}
+		if event.changed(poseAt(first + 1)) {
+			t.Errorf("%s remained active after its one-frame event", event.name)
+		}
+		if companionEventAt(first+1, event.period) {
+			t.Errorf("%s fired before its next %d-frame period", event.name, event.period)
+		}
+	}
+	for tick := 0; tick < companionEarTwitchTicks; tick++ {
+		if companionEventAt(tick, companionBreathTicks) || companionEventAt(tick, companionEarTwitchTicks) || companionEventAt(tick, companionTailFlickTicks) {
+			continue
+		}
+		p := poseAt(tick)
+		if p.chest != base.chest || p.ears != base.ears || p.tail != base.tail {
+			t.Fatalf("idle geometry changed at frame %d between event periods", tick)
+		}
+		if raster := companionVolumeTones(companionIdleState, tick, companionGaze{}, 0, size); !reflect.DeepEqual(baseRaster, raster) {
+			t.Fatalf("idle raster changed at frame %d between event periods", tick)
+		}
+	}
+	m := Model{Animating: true, AnimTick: companionBlinkTicks - 1}
+	if !m.companionBlinking() {
+		t.Errorf("blink did not fire at frame %d of its %d-frame period", companionBlinkTicks-1, companionBlinkTicks)
+	}
+	m.AnimTick++
+	if m.companionBlinking() {
+		t.Errorf("blink fired between its %d-frame periods", companionBlinkTicks)
+	}
+}
+
+// TestCompanionHopHasThreeRasterPhases pins crouch, lift and landing squash without
+// growing or moving the reserved raster block.
+func TestCompanionHopHasThreeRasterPhases(t *testing.T) {
+	size, _ := companionVolumeSizeFor(companionVolumeFullHeight)
+	scale := companionVolumeScale(size)
+	basePose := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size)
+	flightPose := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size, companionHopTicks-1)
+	crouchPose := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size, companionHopTicks)
+	landingPose := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size, 1)
+	if got, want := flightPose.body.y-basePose.body.y, 2/scale; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("flight travels %.4f world units, want one terminal row (two raster pixels) %.4f", got, want)
+	}
+	if !(crouchPose.body.y < basePose.body.y) {
+		t.Errorf("anticipation body row %.4f is not below the settled row %.4f", crouchPose.body.y, basePose.body.y)
+	}
+	if math.Abs(landingPose.body.b-basePose.body.b*0.78) > 1e-9 {
+		t.Errorf("landing body half-height %.4f is not the squash factor 0.78 of %.4f", landingPose.body.b, basePose.body.b)
+	}
+	var grids [][][]companionTone
+	for _, left := range []int{companionHopTicks, companionHopTicks - 1, 1, 0} {
+		grids = append(grids, companionVolumeTones(companionIdleState, 0, companionGaze{}, 0, size, left))
+	}
+	for i, grid := range grids {
+		if len(grid) != size.rows || len(grid[0]) != size.width {
+			t.Fatalf("hop phase %d raster is %dx%d, want fixed %dx%d", i, len(grid), len(grid[0]), size.rows, size.width)
+		}
+	}
+	for _, phase := range [][2]int{{0, 1}, {1, 2}, {2, 3}} {
+		if reflect.DeepEqual(grids[phase[0]], grids[phase[1]]) {
+			t.Errorf("hop phases %d and %d render identical rasters", phase[0], phase[1])
+		}
 	}
 }
