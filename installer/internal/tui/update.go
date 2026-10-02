@@ -218,6 +218,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// A buffer is never allowed to survive a non-key event: in particular, a
+	// frame tick cannot leave a stale prefix waiting to consume a later key.
+	if m.MenuKeyBuffer != "" {
+		if _, ok := msg.(tea.KeyMsg); !ok {
+			m.MenuKeyBuffer = ""
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
@@ -236,6 +243,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleCompanionMouse(msg)
 
 	case tickMsg:
+		// A menu gag's lifetime uses this model tick, including when animation is
+		// gated off. The renderer sees only the resulting state and never a clock.
+		if m.MenuGagActive {
+			m.MenuGagTicks++
+			if m.MenuGagTicks >= menuGagDurationTicks {
+				m.MenuGagActive = false
+			}
+		}
 		// The tick is the run's clock. Its timestamp is copied onto the model here,
 		// in Update, so the installing screen's elapsed time and estimate are reads
 		// of model state and never a clock read inside a render.
@@ -451,8 +466,43 @@ func execInteractiveCmd(stepID string, name string, args ...string) tea.Cmd {
 	})
 }
 
+const (
+	menuEasterEggBufferMax = 3
+	menuGagDurationTicks   = 8
+)
+
+var menuEasterEggForms = [...]string{"dd", ":q", "vim"}
+
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+
+	// On the main menu, printable characters only remain buffered while they
+	// extend one of the three known forms. A mismatch clears the prefix and falls
+	// through to the ordinary handler below with this same key.
+	if m.Screen == ScreenMainMenu {
+		candidate := m.MenuKeyBuffer + key
+		if len([]rune(candidate)) <= menuEasterEggBufferMax && isMenuEasterEggPrefix(candidate) {
+			m.MenuKeyBuffer = candidate
+			if isMenuEasterEgg(candidate) {
+				m.MenuKeyBuffer = ""
+				switch candidate {
+				case "dd":
+					m.MenuGagRow = m.Cursor
+					m.MenuGagTicks = 0
+					m.MenuGagActive = true
+				case ":q":
+					m.Quitting = true
+					return m, tea.Quit
+				case "vim":
+					return m.startTrainer()
+				}
+			}
+			return m, nil
+		}
+		m.MenuKeyBuffer = ""
+	} else {
+		m.MenuKeyBuffer = ""
+	}
 
 	// ctrl+c always quits immediately (no leader needed)
 	if key == "ctrl+c" {
@@ -720,6 +770,39 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func isMenuEasterEggPrefix(candidate string) bool {
+	for _, form := range menuEasterEggForms {
+		if strings.HasPrefix(form, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func isMenuEasterEgg(candidate string) bool {
+	for _, form := range menuEasterEggForms {
+		if candidate == form {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) startTrainer() (tea.Model, tea.Cmd) {
+	stats := trainer.LoadStats()
+	if stats == nil {
+		stats = trainer.NewUserStats()
+	}
+	m.TrainerStats = stats
+	m.TrainerGameState = nil
+	m.TrainerCursor = 0
+	m.TrainerInput = ""
+	m.TrainerMessage = ""
+	m.Screen = ScreenTrainerMenu
+	m.PrevScreen = ScreenMainMenu
+	return m, nil
+}
+
 func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 	hasRestoreOption := len(m.AvailableBackups) > 0
@@ -757,18 +840,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.PrevScreen = ScreenMainMenu
 			m.Cursor = 0
 		case strings.Contains(selected, "Vim Trainer"):
-			// Load user stats when entering trainer
-			stats := trainer.LoadStats()
-			if stats == nil {
-				stats = trainer.NewUserStats()
-			}
-			m.TrainerStats = stats
-			m.TrainerGameState = nil
-			m.TrainerCursor = 0
-			m.TrainerInput = ""
-			m.TrainerMessage = "" // a fresh menu is never armed
-			m.Screen = ScreenTrainerMenu
-			m.PrevScreen = ScreenMainMenu
+			return m.startTrainer()
 		case strings.Contains(selected, "Restore from Backup") && hasRestoreOption:
 			m.Screen = ScreenRestoreBackup
 			m.Cursor = 0

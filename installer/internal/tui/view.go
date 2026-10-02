@@ -656,6 +656,22 @@ func (m Model) menuRows(options []string, cursor int) []string {
 			rows = append(rows, rule(measure))
 			continue
 		}
+		if m.Screen == ScreenMainMenu && m.MenuGagActive && i == m.MenuGagRow {
+			// The gag occupies the original menu row exactly: its slot and bar
+			// width are unchanged, and its small puff is a pure function of the
+			// model's tick state. With animation gated off, show one composed pose.
+			puff := "////   .  o  ."
+			if m.Animating {
+				poses := [...]string{"////   .  o  .", "////    o  .", "////     ."}
+				pose := m.MenuGagTicks / 2
+				if pose >= len(poses) {
+					pose = len(poses) - 1
+				}
+				puff = poses[pose]
+			}
+			rows = append(rows, m.rowBar(puff, i == cursor, ""))
+			continue
+		}
 		rows = append(rows, m.rowBar(opt, i == cursor, ""))
 	}
 	return rows
