@@ -371,3 +371,39 @@ and the orchestrator will run both and report.
 | apt waste | jobs 109601476939, 109601477212 | `shellcheck is already the newest version (0.9.0-1)`; 12.5 MB fetched in 6.4 s |
 | upstream pipefail family | `installer/e2e/docker-test.sh:271` | the `cmd \| tee` defect is already fixed here, with the reason in a comment; no remaining pipeline in the E2E scripts decides a pass or a fail |
 | upstream `rm -rf` family | `installer/e2e/*.sh` | every `rm -rf` is anchored to `$HOME`, `$PREFIX` or a `mktemp -d`; none is a bare relative path |
+
+## Phase 2, second pass: measured, not converted
+
+The workflow half is done (PR #116: the shell check that could not fail now fails, and there are no fixed waits
+left in the workflows or the e2e scripts). **The test half is not done, and two attempts have now measured it
+without converting it.** Recording that plainly is the point of this section: the next session should start
+from these numbers rather than from a third agent discovering them.
+
+MEASURED BASELINE, this host, `go test ./internal/tui/... -count=1`:
+
+- **54.3 s wall clock**, 3,651 tests in 2 packages.
+- The waits that bet on time: **47** in `teatest_test.go`, **36** in `trainer_e2e_test.go`, and **1** in
+  `companion_test.go` that is the subject under test rather than a wait (the animation's elapsed time).
+- The slowest tests: `TestCompanionBlockDependsOnlyOnTheTerminal` **14.5 s**, `TestStepCloneRepository`
+  **8.7 s**, `TestStepInstallShellCreatesTheAliasOnlyForANewFnm` **1.7 s**.
+
+THE FINDING WORTH KEEPING: the slowest test in the package is not a `teatest` golden at all, it is the
+constant-space guard this repository added last night, which renders roughly eight hundred screens (four
+terminal sizes x two sprite modes x forty-seven framed states x two content states, plus the trainer's six x
+two). That is real work rather than a wait, so it is not a sleep to convert but a candidate to **parallelise**
+or to sample - and any change to it must not shrink what it covers, because its coverage is the reason the
+creature's size can no longer drift with a screen's content.
+
+WHAT THE NEXT PASS SHOULD DO, in this order:
+
+1. Convert the 83 waits to conditions with bounded timeouts that name what they wait for. The `teatest` idiom
+   is: start the model, sleep, send a key, sleep, read the final output - so the facts to wait for are the
+   first frame, the key's effect in the output, and the program's finish. A helper that polls the output for a
+   substring and fails with that substring in its message is the shape; a timeout that says 'timed out' is no
+   better than the sleep it replaced.
+2. Keep every sleep that is the subject under test and list it with its reason. A sleep that measures elapsed
+   time, an animation frame, a countdown or a timestamp's resolution is behaviour, not a wait.
+3. Treat a test that turns out to have been passing by luck as a FINDING and report what it assumed. Do not
+   paper over it with a longer timeout.
+4. Prove one converted wait by pointing it at something that never happens and pasting the verbatim failure.
+5. Then, and only then, look at the guard: parallelise its subtests or sample its states, keeping its coverage.
