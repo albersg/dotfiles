@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -3665,7 +3667,18 @@ func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 	sizes := []struct {
 		width, height int
 	}{{80, 24}, {120, 40}, {160, 50}, {227, 62}}
+	type renderCase struct {
+		positions map[string]int
+		name      string
+		model     Model
+		height    int
+		pixel     bool
+		framed    bool
+		view      string
+	}
+	var cases []renderCase
 
+	// Build every model on the test goroutine: the fixture helpers call t.Setenv.
 	for _, size := range sizes {
 		for _, pixel := range []bool{false, true} {
 			positions := map[string]int{}
@@ -3677,7 +3690,10 @@ func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 					if options := m.GetCurrentOptions(); len(options) > 1 {
 						m.Cursor = state
 					}
-					assertCompanionBlockContract(t, positions, fmt.Sprintf("%s/state-%d", name, state), m, size.height, pixel, true)
+					cases = append(cases, renderCase{
+						positions: positions, name: fmt.Sprintf("%s/state-%d", name, state),
+						model: m, height: size.height, pixel: pixel, framed: true,
+					})
 				}
 			}
 			for _, name := range trainerLeakScreenNames {
@@ -3688,16 +3704,50 @@ func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 					if state == 1 {
 						m.TrainerMessage = "Hint: use the lesson's suggested motion."
 					}
-					assertCompanionBlockContract(t, positions, fmt.Sprintf("%s/state-%d", name, state), m, size.height, pixel, false)
+					cases = append(cases, renderCase{
+						positions: positions, name: fmt.Sprintf("%s/state-%d", name, state),
+						model: m, height: size.height, pixel: pixel, framed: false,
+					})
 				}
 			}
 		}
 	}
+
+	indices := make(chan int)
+	workers := min(runtime.NumCPU(), len(cases))
+	var renderers sync.WaitGroup
+	var rendered atomic.Int64
+	renderers.Add(workers)
+	for worker := 0; worker < workers; worker++ {
+		go func() {
+			defer renderers.Done()
+			for i := range indices {
+				cases[i].view = cases[i].model.View()
+				rendered.Add(1)
+			}
+		}()
+	}
+	for i := range cases {
+		indices <- i
+	}
+	close(indices)
+	renderers.Wait()
+
+	compared := 0
+	for i := range cases {
+		c := &cases[i]
+		assertCompanionBlockContract(t, c.positions, c.name, c.model, c.height, c.pixel, c.framed, c.view)
+		compared++
+	}
+	renderedCount := int(rendered.Load())
+	if renderedCount != 848 || compared != 848 {
+		t.Fatalf("companion block guard rendered %d screens and compared %d, want 848 of each", renderedCount, compared)
+	}
+	t.Logf("companion block guard coverage: %d rendered screens, %d comparisons", renderedCount, compared)
 }
 
-func assertCompanionBlockContract(t *testing.T, positions map[string]int, name string, m Model, height int, pixel, framed bool) {
+func assertCompanionBlockContract(t *testing.T, positions map[string]int, name string, m Model, height int, pixel, framed bool, view string) {
 	t.Helper()
-	view := m.View()
 	if height == trainerFloorHeight && name != "main-menu/state-0" && name != "main-menu/state-1" && !strings.HasPrefix(name, "trainer-lesson/") {
 		return // The floor preserves each existing framed screen; only these two values are pinned.
 	}
