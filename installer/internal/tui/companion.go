@@ -205,10 +205,10 @@ var companionStateNames = map[companionState]string{
 // THE GAZE
 // ============================================================================
 
-// companionGaze is where the creature is looking: the horizontal pupil position
-// (-1 left, 0 centre, +1 right) and the vertical one (-1 up, 0 level). Down is
-// deliberately not drawn: the taller art has one interior row to spare for the
-// eyes and a wrong-looking "down" would read worse than a missing one.
+// companionGaze is where the creature is looking: horizontal direction (-1 left, 0 centre,
+// +1 right) and vertical direction (-1 up, 0 level, +1 down). The volume uses the three
+// vertical values to place its pupil along the eye's long axis; horizontal direction turns
+// the head. The glyph art retains its older two-row up/level composer.
 type companionGaze struct {
 	X, Y int
 }
@@ -229,10 +229,9 @@ const companionGazeDeadZone = 2
 const companionSelectionRow = -1
 
 // companionGazeFor turns the cell the creature is looking at into a gaze. It is
-// the seam the pointer will feed: today the cell is the selection's, next task's
-// is the pointer's, and this function is the only thing either of them has to
-// satisfy. It is pure -- no model, no clock, no layout -- so every gaze can be
-// pinned by a test.
+// pure -- no model, no clock, no layout -- so every gaze can be pinned by a test.
+// The volume maps above/level/below to three positions along its vertical slit; the
+// horizontal value is expressed by the skull and ear turn.
 func companionGazeFor(targetCol, targetRow, anchorCol int) companionGaze {
 	gaze := companionGaze{}
 	switch {
@@ -241,8 +240,11 @@ func companionGazeFor(targetCol, targetRow, anchorCol int) companionGaze {
 	case targetCol > anchorCol+companionGazeDeadZone:
 		gaze.X = 1
 	}
-	if targetRow < 0 {
+	switch {
+	case targetRow < 0:
 		gaze.Y = -1
+	case targetRow > 0:
+		gaze.Y = 1
 	}
 	return gaze
 }
@@ -745,8 +747,9 @@ const (
 // scale puts the world's eye below a pixel and a disc with no pixels left is not an
 // eye: the floor is what keeps the gaze readable at both sizes.
 type companionVolumeSize struct {
-	width, rows int
-	eyeRadius   float64
+	width, rows       int
+	eyeRadius         float64
+	eyeWidth, eyeRows int
 }
 
 // companionVolumeSizeFor is the rung a height draws on, and whether that height is one
@@ -754,9 +757,9 @@ type companionVolumeSize struct {
 func companionVolumeSizeFor(height int) (companionVolumeSize, bool) {
 	switch height {
 	case companionVolumeFullHeight:
-		return companionVolumeSize{width: companionVolumeFullWidth, rows: companionVolumeFullRows, eyeRadius: 1.5}, true
+		return companionVolumeSize{width: companionVolumeFullWidth, rows: companionVolumeFullRows, eyeRadius: 1.5, eyeWidth: 3, eyeRows: 4}, true
 	case companionVolumeSmallHeight:
-		return companionVolumeSize{width: companionVolumeSmallWidth, rows: companionVolumeSmallRows, eyeRadius: 1.1}, true
+		return companionVolumeSize{width: companionVolumeSmallWidth, rows: companionVolumeSmallRows, eyeRadius: 1.1, eyeWidth: 2, eyeRows: 2}, true
 	}
 	return companionVolumeSize{}, false
 }
@@ -1090,13 +1093,19 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 	// that has stopped trembling is still a creature that was startled.
 	tremble := unit(float64(shiver))
 
-	// The head turns towards what the creature is looking at and the muzzle turns
-	// further; the ears and the face's own marks are placed from the head, so they turn
-	// with it without being told to.
-	headX := 0.42 + float64(gaze.X)*companionHeadTurnX + tremble
-	headY := 0.93 - float64(gaze.Y)*companionHeadTurnY + headLift
-	muzzleX := headX + 0.28 + float64(gaze.X)*companionHeadTurnX*(companionMuzzleSwing-1)
-	muzzleY := headY - 0.12 - float64(gaze.Y)*companionHeadTurnY*(companionMuzzleSwing-1)
+	// The extreme horizontal gaze shifts the skull exactly one pixel. The central
+	// dead-zone columns leave its geometry untouched, so only the eye overlay changes.
+	headShift := 0.0
+	if gaze.X < 0 {
+		headShift = -unit(1)
+	} else if gaze.X > 0 {
+		headShift = unit(1)
+	}
+	earTilt := headShift
+	headX := 0.42 + headShift + tremble
+	headY := 0.93 + headLift
+	muzzleX := headX + 0.28
+	muzzleY := headY - 0.12
 
 	// The ears and the tail are the two parts that carry a state's mood: a startled
 	// creature sweeps its ears back over its head and tucks its tail, an alert one pricks
@@ -1151,8 +1160,8 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 		head:   companionBlobAt(headX, headY, 0.29, 0.275, 0),
 		muzzle: companionBlobAt(muzzleX, muzzleY, 0.17, 0.105, 0),
 		ears: [2]companionTriangle{
-			{points: [3][2]float64{{headX - 0.22 + earBack, headY + 0.17}, {headX - 0.13 + earBack, headY + 0.50 + earLift}, {headX + 0.01 + earBack, headY + 0.17}}, r: 0.025},
-			{points: [3][2]float64{{headX + 0.02 + earBack, headY + 0.17}, {headX + 0.20 + earBack, headY + 0.50 + earLift}, {headX + 0.26 + earBack, headY + 0.17}}, r: 0.025},
+			{points: [3][2]float64{{headX - 0.22 + earBack, headY + 0.17}, {headX - 0.13 + earBack + earTilt, headY + 0.50 + earLift}, {headX + 0.01 + earBack, headY + 0.17}}, r: 0.025},
+			{points: [3][2]float64{{headX + 0.02 + earBack, headY + 0.17}, {headX + 0.20 + earBack + earTilt, headY + 0.50 + earLift}, {headX + 0.26 + earBack, headY + 0.17}}, r: 0.025},
 		},
 		legs: [4]companionCapsule{
 			{x0: 0.16 + tremble, y0: 0.40 + lift, x1: 0.19 + tremble + reach[0], y1: 0.06 + swing[0], r: 0.072},
@@ -1203,6 +1212,31 @@ func companionContactRegion(x, y float64) bool {
 	underBody := x > -0.44 && x < 0.18 && y > 0.25 && y < 0.40
 	betweenLegs := x > -0.42 && x < 0.10 && y > 0.12 && y < 0.31
 	return underNeck || underBody || betweenLegs
+}
+
+// companionEyeBox is the named rectangular raster region owned by an eye, measured from
+// the same rung-sized dimensions used by companionPaintEye.
+func companionEyeBox(centre [2]int, size companionVolumeSize, x, y int) bool {
+	halfW, halfH := size.eyeWidth/2, size.eyeRows/2
+	return x >= centre[0]-halfW && x < centre[0]+size.eyeWidth-halfW &&
+		y >= centre[1]-halfH && y < centre[1]+size.eyeRows-halfH
+}
+
+// companionHeadOutlineBand is the named silhouette-edge region that extreme gaze may
+// alter. It includes pixels close to the skull field's threshold and either ear's edge;
+// the interior of the head, torso, limbs, tail and shadow are deliberately excluded.
+func companionHeadOutlineBand(pose companionPose, size companionVolumeSize, scale float64, px, py int) bool {
+	x, y := companionWorldX(px, size, scale), companionWorldY(py, size, scale)
+	near := func(field float64) bool { return math.Abs(field-companionSurface) <= 0.55 }
+	if near(pose.head.field(x, y)) {
+		return true
+	}
+	for _, ear := range pose.ears {
+		if near(ear.field(x, y)) {
+			return true
+		}
+	}
+	return false
 }
 
 // companionLight is where the light is: up, to the left and in front of the creature,
@@ -1382,44 +1416,61 @@ func companionEyeMarkFor(state companionState) companionEyeMark {
 	}
 }
 
-// companionEyeAt is one pixel of one eye: the tone the eye draws at a place relative to
-// its own centre. It is pure -- the mark, the disc's radius and where the pupil is are
-// the whole of its input -- so every expression the art can draw is a table a test can
-// walk, and the pupil is always somewhere inside the disc because the mark is asked for
-// each pixel rather than stamped over the eye afterwards.
-func companionEyeAt(dx, dy int, radius float64, mark companionEyeMark, pupilX, pupilY int) companionTone {
-	switch mark {
-	case companionEyeShut:
-		// A closed eye is a straight line where the eye was.
-		if dy == 0 && dx >= -1 && dx <= 1 {
-			return companionTonePupil
+// companionPupilStartRow maps vertical gaze to the pupil's long axis. The full-rung 3x4
+// sclera places the 1x2 slit at each of its three possible row offsets: the centre has a full
+// ring, while each extreme touches one eyelid edge. The small rung keeps its one-pixel pupil
+// inside its actual two-row box.
+func companionPupilStartRow(size companionVolumeSize, gaze companionGaze) int {
+	if size.eyeRows >= 4 {
+		switch {
+		case gaze.Y < 0:
+			return 0
+		case gaze.Y > 0:
+			return 2
+		default:
+			return 1
 		}
-		return companionToneNone
-	case companionEyeArc:
-		// A pleased eye curves up at the ends: the two ends on the lid's own row and the
-		// middle a pixel above it.
-		if (dy == 0 && (dx == -1 || dx == 1)) || (dx == 0 && dy == -1) {
-			return companionTonePupil
-		}
-		return companionToneNone
 	}
+	if gaze.Y > 0 {
+		return 1
+	}
+	return 0
+}
 
-	disc := float64(dx*dx+dy*dy) <= radius*radius
-	// A wide eye is the same disc with one more row over it, and it grows upwards and
-	// not sideways on purpose: two eyes that grew sideways would grow into each other.
-	if mark == companionEyeWide && dy == -1 {
-		disc = disc || float64(dx*dx) <= radius*radius
-	}
-	if !disc {
+// companionEyeAt is one pixel of one eye. The sclera stays a rectangular, rung-sized
+// field and the pupil is composed over it; a closed eye overlays a face-tone lid instead
+// of deleting the eye. The pupil never touches the face outline and is always inside the
+// sclera. At the full rung, the vertical slit has sclera on both sides across its own length;
+// at the small 2x2 rung, the 1x1 pupil keeps horizontal and vertical sclera adjacency. The
+// full-rung 3x4 box keeps a sclera column on both sides at every pupil position; only its
+// central position has room for a full ring. The rung, head and block never grow to fit an eye.
+func companionEyeAt(dx, dy int, size companionVolumeSize, mark companionEyeMark, gaze companionGaze) companionTone {
+	halfW, halfH := size.eyeWidth/2, size.eyeRows/2
+	if dx < -halfW || dx >= size.eyeWidth-halfW || dy < -halfH || dy >= size.eyeRows-halfH {
 		return companionToneNone
 	}
-	switch {
-	case mark == companionEyeSquint && dy == -1:
-		// The lid comes down over the top of the eye, which is what a flinch looks like.
-		return companionTonePupil
-	case mark == companionEyeHalfShut && dy == 0:
-		return companionTonePupil
-	case dx == pupilX && dy == pupilY:
+	if mark == companionEyeShut {
+		if dy == 0 {
+			return companionToneRamp2
+		}
+		return companionToneEye
+	}
+	if mark == companionEyeArc && dy == -halfH {
+		return companionToneRamp2
+	}
+	if mark == companionEyeSquint && dy == -halfH {
+		return companionToneRamp2
+	}
+	if mark == companionEyeHalfShut && dy == 0 {
+		return companionToneRamp2
+	}
+	pupilX := 0 // Horizontal gaze is carried by the head, leaving a full sclera ring.
+	pupilHeight := 1
+	if size.eyeRows >= 4 {
+		pupilHeight = 2
+	}
+	pupilY := companionPupilStartRow(size, gaze) - halfH
+	if dx == pupilX && dy >= pupilY && dy < pupilY+pupilHeight {
 		return companionTonePupil
 	}
 	return companionToneEye
@@ -1435,8 +1486,8 @@ func companionEyeCentres(head companionBlob, size companionVolumeSize, scale flo
 	centre := companionPixelOf(head.x, head.y, size, scale)
 	offset := max(int(math.Ceil(size.eyeRadius)), int(math.Round(head.a*scale*0.48)))
 	return [2][2]int{
-		{centre[0] - offset, centre[1] - 1},
-		{centre[0] + offset, centre[1] - 1},
+		{centre[0] - offset, centre[1]},
+		{centre[0] + offset, centre[1]},
 	}
 }
 
@@ -1450,32 +1501,40 @@ func companionPaintTone(grid [][]companionTone, inside func(int, int) bool, x, y
 	grid[y][x] = tone
 }
 
-// companionPaintEye draws one eye into the grid: the disc, the pupil the gaze puts in it,
-// and the single pixel of glint. The glint is the first lit pixel of the disc in reading
-// order -- the eye's own upper left -- which is where a highlight goes and which is also
-// the pixel a gaze takes last, so a pupil that has moved into the corner moves the glint
-// beside it rather than under it.
-func companionPaintEye(grid [][]companionTone, inside func(int, int) bool, centre [2]int, size companionVolumeSize, mark companionEyeMark, gaze companionGaze) {
-	reach := int(math.Ceil(size.eyeRadius)) + 1
-	glintX, glintY, glinting := 0, 0, false
-	for dy := -reach; dy <= reach; dy++ {
-		for dx := -reach; dx <= reach; dx++ {
-			tone := companionEyeAt(dx, dy, size.eyeRadius, mark, gaze.X, gaze.Y)
-			if tone == companionToneNone {
-				continue
-			}
+// companionPaintEye draws the rung-sized sclera, pupil/lid and a fixed upper-left
+// highlight. The glint's position is relative to the eye centre, never to gaze.
+func companionPaintEye(grid [][]companionTone, centre [2]int, size companionVolumeSize, mark companionEyeMark, gaze companionGaze) {
+	halfW, halfH := size.eyeWidth/2, size.eyeRows/2
+	for dy := -halfH; dy < size.eyeRows-halfH; dy++ {
+		for dx := -halfW; dx < size.eyeWidth-halfW; dx++ {
 			x, y := centre[0]+dx, centre[1]+dy
-			if !inside(x, y) {
+			if y < 0 || y >= len(grid) || x < 0 || x >= len(grid[y]) {
 				continue
 			}
-			if tone == companionToneEye && !glinting {
-				glintX, glintY, glinting = x, y, true
-			}
-			grid[y][x] = tone
+			grid[y][x] = companionEyeAt(dx, dy, size, mark, gaze)
 		}
 	}
-	if glinting {
-		grid[glintY][glintX] = companionToneGlint
+	if mark != companionEyeArc {
+		pupilY := companionPupilStartRow(size, gaze) - halfH
+		pupilHeight := 1
+		if size.eyeRows >= 4 {
+			pupilHeight = 2
+		}
+		for dy := pupilY; dy < pupilY+pupilHeight; dy++ {
+			if mark == companionEyeShut && dy == 0 {
+				continue // The eyelid line closes over this pupil pixel.
+			}
+			x, y := centre[0], centre[1]+dy
+			if y >= 0 && y < len(grid) && x >= 0 && x < len(grid[y]) {
+				grid[y][x] = companionTonePupil
+			}
+		}
+	}
+	if mark != companionEyeArc {
+		glintX, glintY := centre[0]-halfW, centre[1]-halfH
+		if glintY >= 0 && glintY < len(grid) && glintX >= 0 && glintX < len(grid[glintY]) {
+			grid[glintY][glintX] = companionToneGlint
+		}
 	}
 }
 
@@ -1514,6 +1573,24 @@ func companionPaintMuzzle(grid [][]companionTone, inside func(int, int) bool, mu
 	}
 }
 
+// companionWhiskerPixel places one whisker landmark. If its nominal pixel overlaps the
+// full-rung eye box, it steps outward along its own whisker until the sclera ring stays
+// intact; all three strokes per side remain visible.
+func companionWhiskerPixel(muzzle companionBlob, offset, side float64, step int, size companionVolumeSize, scale float64, eyes [2][2]int) [2]int {
+	point := companionPixelOf(muzzle.x+side*(0.17+float64(step)*0.065), muzzle.y+offset, size, scale)
+	for moved := 0; moved < size.width; moved++ {
+		insideEye := false
+		for _, centre := range eyes {
+			insideEye = insideEye || companionEyeBox(centre, size, point[0], point[1])
+		}
+		if !insideEye {
+			break
+		}
+		point[0] += int(side)
+	}
+	return point
+}
+
 // companionPaintAnatomyDetails draws the small landmarks that do not belong to the
 // smooth field: inner ears, paw pads and the largest rung's whiskers.
 func companionPaintAnatomyDetails(grid [][]companionTone, pose companionPose, size companionVolumeSize, scale float64) {
@@ -1550,13 +1627,13 @@ func companionPaintAnatomyDetails(grid [][]companionTone, pose companionPose, si
 	if size.width != companionVolumeFullWidth {
 		return
 	}
+	eyes := companionEyeCentres(pose.head, size, scale)
 	for _, offset := range []float64{-0.09, 0, 0.09} {
-		y := companionPixelOf(pose.muzzle.x, pose.muzzle.y+offset, size, scale)[1]
 		for _, side := range []float64{-1, 1} {
 			for step := 0; step < 3; step++ {
-				x := companionPixelOf(pose.muzzle.x+side*(0.17+float64(step)*0.065), pose.muzzle.y+offset, size, scale)[0]
-				if y >= 0 && y < len(grid) && x >= 0 && x < len(grid[y]) {
-					grid[y][x] = companionTonePupil
+				point := companionWhiskerPixel(pose.muzzle, offset, side, step, size, scale, eyes)
+				if point[1] >= 0 && point[1] < len(grid) && point[0] >= 0 && point[0] < len(grid[point[1]]) {
+					grid[point[1]][point[0]] = companionTonePupil
 				}
 			}
 		}
@@ -1598,11 +1675,36 @@ func companionVolumeTones(state companionState, tick int, gaze companionGaze, sh
 		}
 	}
 
+	companionPaintAnatomyDetails(grid, pose, size, scale)
 	for _, centre := range companionEyeCentres(pose.head, size, scale) {
-		companionPaintEye(grid, inside, centre, size, companionEyeMarkFor(state), gaze)
+		companionPaintEye(grid, centre, size, companionEyeMarkFor(state), gaze)
 	}
 	companionPaintMuzzle(grid, inside, pose.muzzle, size, scale, state)
-	companionPaintAnatomyDetails(grid, pose, size, scale)
+
+	// Extreme horizontal gaze may move only the named eye boxes and the skull/ear
+	// silhouette band. Keep the rest of the shaded volume byte-for-byte at its neutral
+	// geometry so a head turn cannot drag the torso, limbs, tail or ground shadow.
+	if gaze.X != 0 {
+		baselineGaze := companionGaze{Y: gaze.Y}
+		baseline := companionVolumeTones(state, tick, baselineGaze, shiver, size)
+		baselinePose := companionPoseFor(state, tick, baselineGaze, shiver, size)
+		shiftedEyes := companionEyeCentres(pose.head, size, scale)
+		baselineEyes := companionEyeCentres(baselinePose.head, size, scale)
+		for py := range grid {
+			for px := range grid[py] {
+				if grid[py][px] == baseline[py][px] {
+					continue
+				}
+				inEye := false
+				for _, centre := range append(baselineEyes[:], shiftedEyes[:]...) {
+					inEye = inEye || companionEyeBox(centre, size, px, py)
+				}
+				if !inEye && !companionHeadOutlineBand(baselinePose, size, scale, px, py) && !companionHeadOutlineBand(pose, size, scale, px, py) {
+					grid[py][px] = baseline[py][px]
+				}
+			}
+		}
+	}
 	return grid
 }
 

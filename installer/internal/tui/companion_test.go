@@ -386,7 +386,7 @@ func TestCompanionGazeForTurnsACellAndARowIntoAGaze(t *testing.T) {
 		{"past the dead zone is to the right", anchor + companionGazeDeadZone + 1, 0, companionGaze{X: 1}},
 		{"before the dead zone is to the left", anchor - companionGazeDeadZone - 1, 0, companionGaze{X: -1}},
 		{"a row above the creature is up", anchor, -1, companionGaze{Y: -1}},
-		{"a row below leaves it level, because down is not drawn", anchor, 1, companionGaze{}},
+		{"a row below is down", anchor, 1, companionGaze{Y: 1}},
 		{"up and right combine", anchor + companionGazeDeadZone + 1, -1, companionGaze{X: 1, Y: -1}},
 	}
 
@@ -1894,10 +1894,10 @@ func TestCompanionGazeFollowsThePointer(t *testing.T) {
 		x, y int
 		want companionGaze
 	}{
-		{"left of the creature", viewPaddingCols + anchor - companionGazeDeadZone - 1, height - 2, companionGaze{X: -1}},
-		{"just inside the dead zone", viewPaddingCols + anchor - companionGazeDeadZone, height - 2, companionGaze{}},
-		{"straight at the creature", viewPaddingCols + anchor, height - 2, companionGaze{}},
-		{"right of the creature", viewPaddingCols + anchor + companionGazeDeadZone + 1, height - 2, companionGaze{X: 1}},
+		{"left of the creature", viewPaddingCols + anchor - companionGazeDeadZone - 1, height - 2, companionGaze{X: -1, Y: 1}},
+		{"just inside the dead zone", viewPaddingCols + anchor - companionGazeDeadZone, height - 2, companionGaze{Y: 1}},
+		{"straight at the creature", viewPaddingCols + anchor, height - 2, companionGaze{Y: 1}},
+		{"right of the creature", viewPaddingCols + anchor + companionGazeDeadZone + 1, height - 2, companionGaze{X: 1, Y: 1}},
 		{"above the creature's band", viewPaddingCols + anchor, level - 1, companionGaze{Y: -1}},
 		{"level with the creature's band", viewPaddingCols + anchor, level, companionGaze{}},
 	}
@@ -1924,7 +1924,7 @@ func TestCompanionGazeFollowsThePointer(t *testing.T) {
 	if edge.PointerCol != width {
 		t.Errorf("the pointer was not remembered as it arrived: %d", edge.PointerCol)
 	}
-	if got := edge.CompanionGaze; got != (companionGaze{X: 1}) {
+	if got := edge.CompanionGaze; got != (companionGaze{X: 1, Y: 1}) {
 		t.Errorf("a pointer past the stage turned the gaze %+v, want it right", got)
 	}
 	if edge.CompanionPos != m.CompanionPos {
@@ -2017,7 +2017,7 @@ func TestCompanionPointerWakesItAndAParkedMouseDoesNot(t *testing.T) {
 	if got := woke.companionStateNow(); got == companionAsleepState {
 		t.Errorf("the creature is still asleep after the pointer moved")
 	}
-	if got := woke.CompanionGaze; got != (companionGaze{X: 1}) {
+	if got := woke.CompanionGaze; got != (companionGaze{X: 1, Y: 1}) {
 		t.Errorf("a waking pointer turned the gaze %+v, want it right", got)
 	}
 }
@@ -2187,7 +2187,7 @@ func TestCompanionIgnoresWhatItCannotUse(t *testing.T) {
 
 // companionGazes is every gaze the composer can be asked for.
 func companionGazes() []companionGaze {
-	return []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {X: -1, Y: -1}, {X: 1, Y: -1}}
+	return []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {Y: 1}, {X: -1, Y: -1}, {X: 1, Y: -1}, {X: -1, Y: 1}, {X: 1, Y: 1}}
 }
 
 // companionVolumeRungs is the volume's two sizes, in the ladder's own order: the full
@@ -2264,23 +2264,33 @@ func TestCompanionAnatomyIsStructural(t *testing.T) {
 	}
 
 	grid := companionVolumeGrid(companionIdleState, 0, companionGaze{}, size)
+	eyeCentres := companionEyeCentres(pose.head, size, companionVolumeScale(size))
 	for i, ear := range pose.ears {
 		var centre [2]float64
 		for _, point := range ear.points {
 			centre[0] += point[0] / 3
 			centre[1] += point[1] / 3
 		}
+		inner := ear
+		for j, point := range ear.points {
+			inner.points[j][0] = centre[0] + (point[0]-centre[0])*0.42
+			inner.points[j][1] = centre[1] + (point[1]-centre[1])*0.42
+		}
 		innerPixels := 0
 		for py := range grid {
 			for px := range grid[py] {
 				worldX, worldY := companionWorldX(px, size, companionVolumeScale(size)), companionWorldY(py, size, companionVolumeScale(size))
-				if math.Abs(worldX-centre[0]) < 0.04 && math.Abs(worldY-centre[1]) < 0.04 && grid[py][px] == companionTonePupil {
+				insideEye := false
+				for _, eye := range eyeCentres {
+					insideEye = insideEye || companionEyeBox(eye, size, px, py)
+				}
+				if inner.contains(worldX, worldY) && !insideEye && grid[py][px] == companionTonePupil {
 					innerPixels++
 				}
 			}
 		}
 		if innerPixels == 0 {
-			t.Errorf("ear %d has no darker inner-ear raster pixels", i)
+			t.Errorf("ear %d has no darker inner-ear raster pixels outside EYE BOX", i)
 		}
 	}
 
@@ -2309,12 +2319,11 @@ func TestCompanionAnatomyIsStructural(t *testing.T) {
 		t.Errorf("the largest rung does not draw the two-pixel mouth under its nose")
 	}
 	for _, offset := range []float64{-0.09, 0, 0.09} {
-		y := companionPixelOf(pose.muzzle.x, pose.muzzle.y+offset, size, companionVolumeScale(size))[1]
 		for _, side := range []float64{-1, 1} {
 			for step := 0; step < 3; step++ {
-				x := companionPixelOf(pose.muzzle.x+side*(0.17+float64(step)*0.065), pose.muzzle.y+offset, size, companionVolumeScale(size))[0]
-				if grid[y][x] != companionTonePupil {
-					t.Errorf("whisker at (%d, %d) is missing", x, y)
+				point := companionWhiskerPixel(pose.muzzle, offset, side, step, size, companionVolumeScale(size), eyeCentres)
+				if grid[point[1]][point[0]] != companionTonePupil {
+					t.Errorf("whisker at (%d, %d) is missing", point[0], point[1])
 				}
 			}
 		}
@@ -2503,30 +2512,46 @@ func companionVolumeCountAround(grid [][]companionTone, centre [2]int, tone comp
 	return count
 }
 
-// TestCompanionVolumeEyeIsADiscAPupilAndAGlint pins the eye at every state and both
-// rungs: an open eye is a light disc with a dark pupil in it and exactly one bright pixel
-// of glint, and a shut one is the lid and nothing else -- no disc to glint off and no pupil
-// left looking at anything. The glint's colour is also pinned as the palette's loudest,
-// which is the one tone in the sprite that is allowed to be loud.
+// TestCompanionVolumeEyeIsADiscAPupilAndAGlint pins the rung-sized sclera, pupil and
+// highlight. A shut eye keeps its sclera and draws a face-tone lid across it; the highlight
+// is absent only while shut. The glint's colour is the palette's loudest tone.
 func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 	for _, size := range companionVolumeRungs() {
 		for _, state := range companionStates() {
 			grid := companionVolumeGrid(state, 0, companionGaze{}, size)
 			mark := companionEyeMarkFor(state)
-			shut := mark == companionEyeShut || mark == companionEyeArc
+			shut := mark == companionEyeShut || mark == companionEyeArc || mark == companionEyeHalfShut
 			for _, centre := range companionVolumeEyeBox(t, state, size) {
-				reach := int(math.Ceil(size.eyeRadius))
-				disc := companionVolumeCountAround(grid, centre, companionToneEye, reach)
-				pupils := companionVolumeCountAround(grid, centre, companionTonePupil, reach)
-				glints := companionVolumeCountAround(grid, centre, companionToneGlint, reach)
+				disc, pupils, lids, glints := 0, 0, 0, 0
+				for y := 0; y < size.rows; y++ {
+					for x := 0; x < size.width; x++ {
+						if !companionEyeBox(centre, size, x, y) {
+							continue
+						}
+						switch grid[y][x] {
+						case companionToneEye:
+							disc++
+						case companionTonePupil:
+							pupils++
+						case companionToneRamp2:
+							lids++
+						case companionToneGlint:
+							glints++
+						}
+					}
+				}
 
 				if shut {
-					if disc != 0 || glints != 0 {
-						t.Errorf("state %s at %d rows drew %d disc pixels and %d glints with its eyes shut:\n%s",
-							companionStateNames[state], size.rows, disc, glints, companionVolumeText(grid))
+					wantGlints := 1
+					if mark == companionEyeArc {
+						wantGlints = 0
 					}
-					if pupils == 0 {
-						t.Errorf("state %s at %d rows shut its eyes with no lid at all:\n%s",
+					if (disc == 0 && size.eyeRows >= 4) || glints != wantGlints {
+						t.Errorf("state %s at %d rows drew %d sclera pixels and %d glints with its eyes shut, want %d glints:\n%s",
+							companionStateNames[state], size.rows, disc, glints, wantGlints, companionVolumeText(grid))
+					}
+					if lids == 0 {
+						t.Errorf("state %s at %d rows shut its eyes with no face-tone eyelid at all:\n%s",
 							companionStateNames[state], size.rows, companionVolumeText(grid))
 					}
 					continue
@@ -2551,7 +2576,10 @@ func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 			total := companionVolumeGridTones(grid)[companionToneGlint]
 			want := 2
 			if shut {
-				want = 0
+				want = 2
+				if mark == companionEyeArc {
+					want = 0
+				}
 			}
 			if total != want {
 				t.Errorf("state %s at %d rows carries %d glint pixels, want %d:\n%s",
@@ -2575,11 +2603,81 @@ func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 	}
 }
 
+// TestCompanionVolumeEyePupilAdjacencyByRung pins the two-tier eye rule. At full size a 1x2
+// slit travels through all three positions in a 3x4 sclera, with a complete ring at the centre
+// and a sclera column on both sides at every stop; the small rung uses a 1x1 pupil with
+// horizontal and vertical sclera adjacency in its 2x2 eye.
+func TestCompanionVolumeEyePupilAdjacencyByRung(t *testing.T) {
+	for _, size := range companionVolumeRungs() {
+		if size.width == companionVolumeFullWidth && (size.eyeWidth != 3 || size.eyeRows != 4) {
+			t.Fatalf("full-rung eye is %dx%d, want 3x4", size.eyeWidth, size.eyeRows)
+		}
+		for _, gazeY := range []int{-1, 0, 1} {
+			gaze := companionGaze{Y: gazeY}
+			if size.eyeRows >= 4 {
+				wantStart := map[int]int{-1: 0, 0: 1, 1: 2}[gazeY]
+				if got := companionPupilStartRow(size, gaze); got != wantStart {
+					t.Errorf("vertical gaze %d places pupil at sclera row %d, want row %d", gazeY, got, wantStart)
+				}
+			}
+			grid := companionVolumeGrid(companionIdleState, 0, gaze, size)
+			pose := companionPoseFor(companionIdleState, 0, gaze, 0, size)
+			for eye, centre := range companionEyeCentres(pose.head, size, companionVolumeScale(size)) {
+				startRow := centre[1] - size.eyeRows/2 + companionPupilStartRow(size, gaze)
+				pupilRows := 1
+				if size.eyeRows >= 4 {
+					pupilRows = 2
+				}
+				if size.eyeRows >= 4 {
+					top, bottom := centre[1]-size.eyeRows/2, centre[1]+size.eyeRows/2-1
+					if gazeY < 0 && startRow != top {
+						t.Errorf("up gaze pupil starts at row %d, want top lid row %d", startRow, top)
+					}
+					if gazeY > 0 && startRow+pupilRows-1 != bottom {
+						t.Errorf("down gaze pupil ends at row %d, want bottom lid row %d", startRow+pupilRows-1, bottom)
+					}
+				}
+				for dy := 0; dy < pupilRows; dy++ {
+					y, x := startRow+dy, centre[0]
+					if grid[y][x] != companionTonePupil {
+						t.Errorf("%d-row eye %d gaze %+v missing pupil at (%d,%d)", size.rows, eye, gaze, x, y)
+					}
+					if size.eyeRows >= 4 {
+						for _, side := range []int{x - 1, x + 1} {
+							if grid[y][side] != companionToneEye && grid[y][side] != companionToneGlint {
+								t.Errorf("3x4 eye %d gaze %+v pupil lacks side sclera at (%d,%d)", eye, gaze, side, y)
+							}
+						}
+					} else {
+						if grid[y][x-1] != companionToneEye && grid[y][x-1] != companionToneGlint {
+							t.Errorf("small-rung eye %d lacks horizontal sclera adjacency", eye)
+						}
+						vertical := y - 1
+						if !companionEyeBox(centre, size, x, vertical) {
+							vertical = y + 1
+						}
+						if !companionEyeBox(centre, size, x, vertical) || (grid[vertical][x] != companionToneEye && grid[vertical][x] != companionToneGlint) {
+							t.Errorf("small-rung eye %d lacks vertical sclera adjacency", eye)
+						}
+					}
+				}
+				if size.eyeRows >= 4 && gazeY == 0 {
+					for _, edgeY := range []int{startRow - 1, startRow + pupilRows} {
+						if grid[edgeY][centre[0]] != companionToneEye && grid[edgeY][centre[0]] != companionToneGlint {
+							t.Errorf("3x4 eye %d central gaze pupil lacks top/bottom ring at row %d", eye, edgeY)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // TestCompanionVolumeGazeTurnsTheHeadAndThePupils pins the volume model's head-turn rule:
 // the pupils move in the direction looked at, while the head turn may also alter the fused
 // silhouette and shading. Those changes must remain inside the creature's own rasterized
 // box; a gaze is allowed to turn this volume, not to paint outside its body.
-func TestCompanionVolumeGazeTurnsTheHeadAndThePupils(t *testing.T) {
+func TestCompanionVolumeGazeChangeStaysInsideTheSprite(t *testing.T) {
 	size, ok := companionVolumeSizeFor(companionVolumeFullHeight)
 	if !ok {
 		t.Fatal("the full height is not a rung of the volume")
@@ -2633,6 +2731,136 @@ func TestCompanionVolumeGazeTurnsTheHeadAndThePupils(t *testing.T) {
 	rightMean := pupilMean(companionGaze{X: 1})
 	if !(leftMean < neutralMean && neutralMean < rightMean) {
 		t.Errorf("pupil mean columns left %.2f, neutral %.2f, right %.2f do not follow gaze direction", leftMean, neutralMean, rightMean)
+	}
+}
+
+// TestCompanionEyeGazeIsolationAndBlinkPinsTheFaceContract checks the strict neutral-column
+// contract: gaze changes only pupils inside the named eye boxes; the fixed highlight does not
+// move; and a blink changes only the eyelid line while sclera remains visible.
+func TestCompanionEyeGazeIsolationAndBlinkPinsTheFaceContract(t *testing.T) {
+	size, _ := companionVolumeSizeFor(companionVolumeFullHeight)
+	neutral := companionVolumeGrid(companionIdleState, 0, companionGaze{}, size)
+	up := companionVolumeGrid(companionIdleState, 0, companionGaze{Y: -1}, size)
+	centres := companionVolumeEyeBox(t, companionIdleState, size)
+	allowed := func(x, y int) bool {
+		for _, c := range centres {
+			if companionEyeBox(c, size, x, y) {
+				return true
+			}
+		}
+		return false
+	}
+	for y := range neutral {
+		for x := range neutral[y] {
+			if neutral[y][x] == up[y][x] {
+				continue
+			}
+			if !allowed(x, y) {
+				t.Errorf("central gaze changed pixel (%d,%d) outside EYE BOX: %s -> %s", x, y, companionToneNames[neutral[y][x]], companionToneNames[up[y][x]])
+			}
+			if neutral[y][x] != companionTonePupil && up[y][x] != companionTonePupil {
+				t.Errorf("central gaze changed non-pupil pixel (%d,%d): %s -> %s", x, y, companionToneNames[neutral[y][x]], companionToneNames[up[y][x]])
+			}
+		}
+	}
+	for i, c := range centres {
+		// The highlight stays at the eye box's upper-left pixel across vertical pupil travel.
+		highlightX, highlightY := c[0]-size.eyeWidth/2, c[1]-size.eyeRows/2
+		if neutral[highlightY][highlightX] != companionToneGlint || up[highlightY][highlightX] != companionToneGlint {
+			t.Errorf("eye %d highlight moved with gaze; fixed upper-left highlight not preserved", i)
+		}
+		for _, gaze := range []companionGaze{{X: -1, Y: -1}, {X: -1}, {X: -1, Y: 1}, {Y: -1}, {}, {Y: 1}, {X: 1, Y: -1}, {X: 1}, {X: 1, Y: 1}} {
+			grid := companionVolumeGrid(companionIdleState, 0, gaze, size)
+			pose := companionPoseFor(companionIdleState, 0, gaze, 0, size)
+			for _, eyeCentre := range companionEyeCentres(pose.head, size, companionVolumeScale(size)) {
+				start := eyeCentre[1] - size.eyeRows/2 + companionPupilStartRow(size, gaze)
+				rows := 1
+				if size.eyeRows >= 4 {
+					rows = 2
+				}
+				for dy := 0; dy < rows; dy++ {
+					if grid[start+dy][eyeCentre[0]] != companionTonePupil {
+						t.Errorf("gaze %+v lost the pupil at (%d,%d)", gaze, eyeCentre[0], start+dy)
+					}
+				}
+			}
+		}
+	}
+
+	blink := companionVolumeGrid(companionBlinkingState, 0, companionGaze{}, size)
+	changed := 0
+	for y := range neutral {
+		for x := range neutral[y] {
+			if neutral[y][x] == blink[y][x] {
+				continue
+			}
+			changed++
+			lidRow := false
+			for _, c := range centres {
+				lidRow = lidRow || (y == c[1] && x >= c[0]-1 && x <= c[0]+1)
+			}
+			if !allowed(x, y) || !lidRow {
+				t.Errorf("blink changed pixel (%d,%d) outside the eyelid line in EYE BOX", x, y)
+			}
+		}
+	}
+	if changed == 0 {
+		t.Fatal("blink changed no eyelid pixels")
+	}
+	for _, c := range centres {
+		if blink[c[1]][c[0]] != companionToneRamp2 {
+			t.Errorf("blink did not draw a face-tone eyelid line through eye centre %v", c)
+		}
+		topX, topY := c[0]-size.eyeWidth/2, c[1]-size.eyeRows/2
+		bottomX, bottomY := c[0]+size.eyeWidth/2, c[1]+size.eyeRows/2-1
+		if blink[topY][topX] != neutral[topY][topX] || blink[bottomY][bottomX] != companionToneEye {
+			t.Errorf("blink cleared the eye or moved its fixed highlight at %v", c)
+		}
+	}
+}
+
+// TestCompanionVolumeGazeTurnsTheHeadAndThePupils pins extreme gaze motion and its bounds.
+func TestCompanionVolumeGazeTurnsTheHeadAndThePupils(t *testing.T) {
+	size, _ := companionVolumeSizeFor(companionVolumeFullHeight)
+	neutral := companionVolumeGrid(companionIdleState, 0, companionGaze{}, size)
+	turned := companionVolumeGrid(companionIdleState, 0, companionGaze{X: 1}, size)
+	if fmt.Sprint(neutral) == fmt.Sprint(turned) {
+		t.Fatal("extreme gaze changed no pixels")
+	}
+	baselinePose := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size)
+	turnedPose := companionPoseFor(companionIdleState, 0, companionGaze{X: 1}, 0, size)
+	if math.Abs((turnedPose.head.x-baselinePose.head.x)*companionVolumeScale(size)-1) > 1e-9 {
+		t.Errorf("extreme gaze shifted skull by %.3f pixels, want one", (turnedPose.head.x-baselinePose.head.x)*companionVolumeScale(size))
+	}
+	if turnedPose.ears[0].points[1][0] == baselinePose.ears[0].points[1][0] {
+		t.Error("extreme gaze did not tilt the ears")
+	}
+	scale := companionVolumeScale(size)
+	baselineEyes := companionEyeCentres(baselinePose.head, size, scale)
+	turnedEyes := companionEyeCentres(turnedPose.head, size, scale)
+	for y, row := range turned {
+		for x, tone := range row {
+			if tone == neutral[y][x] {
+				continue
+			}
+			inEyeBox := false
+			for _, centre := range append(baselineEyes[:], turnedEyes[:]...) {
+				inEyeBox = inEyeBox || companionEyeBox(centre, size, x, y)
+			}
+			if !inEyeBox && !companionHeadOutlineBand(baselinePose, size, scale, x, y) && !companionHeadOutlineBand(turnedPose, size, scale, x, y) {
+				t.Errorf("extreme gaze changed (%d,%d) outside EYE BOX and HEAD OUTLINE BAND: %s -> %s", x, y, companionToneNames[neutral[y][x]], companionToneNames[tone])
+			}
+		}
+	}
+	for name, grid := range map[string][][]companionTone{"neutral": neutral, "extreme": turned} {
+		if len(grid) != size.rows {
+			t.Errorf("%s gaze raster has %d rows, reserved block has %d", name, len(grid), size.rows)
+		}
+		for y, row := range grid {
+			if len(row) != size.width {
+				t.Errorf("%s gaze row %d has %d pixels, reserved block has %d", name, y, len(row), size.width)
+			}
+		}
 	}
 }
 
