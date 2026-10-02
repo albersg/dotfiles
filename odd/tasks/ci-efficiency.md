@@ -407,3 +407,31 @@ WHAT THE NEXT PASS SHOULD DO, in this order:
    paper over it with a longer timeout.
 4. Prove one converted wait by pointing it at something that never happens and pasting the verbatim failure.
 5. Then, and only then, look at the guard: parallelise its subtests or sample its states, keeping its coverage.
+
+### Guard rendering pass: parallel, coverage held
+
+The guard was parallelised without making its fixture helpers concurrent. It builds all 848 models
+sequentially (the fixture helpers call `t.Setenv`), then uses a bounded `runtime.NumCPU()` worker
+pool over indexed cases to run only `Model.View()` concurrently. The indexed results are asserted
+sequentially, preserving each screen/state identity and the original row, size, mode, message and
+position checks. There is no `t.Parallel()`.
+
+Coverage is unchanged: 47 framed screens + 6 trainer screens, each at 4 sizes × 2 sprite modes × 2
+content states = **848 rendered screens and 848 comparisons**, before and after. The guard now counts
+completed renders atomically, counts sequential comparisons, asserts both are 848, and logs the
+counts.
+
+Measured on this host (wall-clock, `TIMEFORMAT='WALL_SECONDS=%3R'; time ...`):
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Guard command `cd installer && go test ./internal/tui -run '^TestCompanionBlockDependsOnlyOnTheTerminal$' -count=1 -v` | 7.911 s | 7.261 s, 5.825 s, 5.755 s (three runs; mean 6.280 s) |
+| Package command `cd installer && go test ./internal/tui/... -count=1` | 33.779 s | 32.715 s |
+| Guard test execution (Go test JSON `Elapsed`) | prior recorded measurement: 14.5 s | 5.99 s (`go test -json ./internal/tui -run '^TestCompanionBlockDependsOnlyOnTheTerminal$' -count=1`) |
+
+The direct pre-change wall-clock run in this session was faster than the historical 14.5 s reported
+above, so the test-execution figures are not a controlled apples-to-apples comparison. The same
+shell wall-clock command measured the guard at 7.911 s before and a 6.280 s mean after; the package
+also measured 1.064 s faster. These are local measurements, not a claim about other hosts.
+The required three focused runs all passed. Full suite: `cd installer && go test ./... -count=1`
+passed 3,899 tests in 4 packages (30.960 s wall-clock). `go vet ./...` passed, and `gofmt -l installer/internal/tui/companion_test.go` returned no paths.
