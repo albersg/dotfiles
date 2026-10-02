@@ -366,33 +366,38 @@ true-colour terminals. `TestCompanionVolumeIsRefusedWithoutTrueColour` checks th
 checks the unchanged glyph fallback. Termux, 16-colour and colourless terminals therefore lose no
 companion or meaning; they do not receive a falsely promised five-tone conversion.
 
-Animation **moves the field primitives** — alternating legs, a
-one-pixel body bob, a lean, a counter-swaying tail, and a head turn toward the gaze — which makes the
-shape deform rather than jump between drawings. The field and raster assertions are in
-`TestCompanionAnatomyIsStructural`; the saved frame is only a visual companion to those checks.
+Animation **moves the field primitives** through four one-tick poses — contact, down, passing and up.
+`TestCompanionWalkPoseSequencePinsContactsAndLag` prints the four-frame (**0.50-second at 8 fps**)
+cycle and asserts each paw's landing frame in the order
+front-left, back-right, front-right, back-left, the body's one-pixel rise at passing, the head's
+one-pixel lead and the tail's two-pose lag. The geometry is checked against the raster; the art stays
+inside the terminal-sized block. The anatomy guard remains `TestCompanionAnatomyIsStructural`.
+
+An idle creature emits one-frame events on the model tick: the chest breathes one pixel every **32
+frames / 4 seconds**, an ear twitches every **160 frames / 20 seconds**, the tail tip flicks every
+**120 frames / 15 seconds**, and the existing blink recurs every **80 frames / 10 seconds**. These
+figures are asserted by `TestCompanionIdleEventsHaveIndependentPeriods`. Every frame between events
+is unchanged; drawing reads no clock.
 
 The glyph ladder under it needs no colour at all and stays exactly as it is: a half-block cell with no
 colour draws as a plain block, and this shading means nothing there. That is what keeps it a floor
 rather than a fallback — a terminal without true colour, a run with the sprite switched off
 (`DOTFILES_SPRITE=0`) and a frame with fewer rows all get the cat the glyph ladder picks.
 
-It costs what it looks like it costs, and only while it is moving. The renderer repaints a whole line
-whenever any byte in it changed. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227
-columns and height 62**:
+It costs what it looks like it costs. The renderer repaints a whole line whenever any byte in it
+changes. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227 columns and height 62**:
 
-- **At rest — nothing.** With no key and no pointer event the view string is byte-identical from tick
-  to tick, so the renderer writes **no bytes at all**. Pacing on its own and settling its gaze a frame
-  after the target were both removed for this: they made the creature repaint two of its rows on every
-  frame over a screen nobody was touching.
-- **While walking — twelve lines.** The volume's twelve rows all move with the one-cell step, so every
-  one of them is repainted. At 227 columns `TestCompanionCostHasTwoRegimes` reports 19 moving frames
-  over 2.38 s, **166735 bytes** total and **9235 bytes** in the widest changed lines (about **72.1 KB/s**
-  at eight frames a second); the same test reports zero bytes at rest. A wider terminal costs more per
-  line and the same per cell walked.
+- **Between events:** the still creature changed **0 bytes across 24 pinned ticks**. It is not accurate
+to claim zero bytes for all idle time: each periodic event repaints the sprite's owned rows.
+- **Walking:** the volume owns **12 sprite rows** and changes up to **12 lines per moving tick**. The
+test reports **19 moving frames out of 19 (2.38 seconds)**, **166586 bytes total**, and **9138 bytes**
+in the widest changed lines (**71.4 KB/s at 8 fps**). The test prints the four periods alongside this
+measurement; wider terminals cost more per line.
 
-Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` reports
-Three Linux/amd64 runs measured **666,939–723,914 ns/op**, **360,033–360,035 B/op** and **1088 allocs/op**. Those are
-benchmark outputs, not portable limits; the test and benchmark are the sources for remeasurement.
+Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` on Linux/amd64
+measured **2,179,233–4,199,595 ns/op, 359,912–359,928 B/op and 1087 allocs/op** across three
+Linux/amd64 runs. These are observed benchmark values, not portable limits; rerun the benchmark to
+remeasure.
 
 **Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
 this step and deliberately rejected, for two reasons that were measured rather than guessed. It
@@ -491,15 +496,15 @@ leaves it looking straight ahead. That fallback is why a terminal that refuses m
 with the pointer switched off and a Termux session all keep a gaze rather than losing it. The gaze is
 a cell on the model, like the position and the frame, so a snapshot pins it either way.
 
-**A pointer event also wakes it, and a click makes it jump.** There is nothing clever to detect about
+**A pointer event also wakes it, and a click earns a hop.** There is nothing clever to detect about
 a parked mouse — a parked mouse sends no events at all — so the only pointer event that exists is the
 user moving the mouse, and every one of them is the sudden movement that wakes the cat, which is
 oneko's rule as much as the sleeping face is. A left click is an event of its own: the creature earns
-the same celebration as a finished installation step and hops one row off the ground, drawn as one
-blank row under it. The hop costs one spare row more than the sprite itself, so on a frame that has
-none the creature stays on the ground and the celebration shows in its face instead — no decoration
-takes a row a fact needs. A wheel is ignored: the installer runs in the alternate screen, where there
-is no scrollback for it to move.
+the same celebration as a finished installation step, then shows anticipation, one terminal row of travel (two raster pixels) and a
+landing squash in three successive frames. All three poses deform the raster inside the terminal-sized
+block; `TestCompanionClickHopsAndCelebrates` and `TestCompanionHopHasThreeRasterPhases` pin the order,
+fixed block and unchanged non-companion rows. A fact row is never borrowed or moved. A wheel is
+ignored: the installer runs in the alternate screen, where there is no scrollback for it to move.
 
 **It walks, follows the selection, sleeps and reacts.** It takes at most one cell per animation
 frame — eight frames a second, the frame tick the animation gate owns — and only when it has somewhere
@@ -523,10 +528,12 @@ nyancat's cat belongs to its author, so this repository's attribution surface st
 **The frame, the cell and the gaze come from the model, never from the clock.** The frame tick
 advances the counter and takes one step; the renderer only draws. The same model and tick therefore
 produce the same bytes on every run, which is what lets a snapshot pin a frame, a cell and a gaze
-instead of flaking on the clock. The cost is bounded by tests rather than by a promise: at rest the
-tick changes nothing at all, so the renderer writes nothing, and while walking it changes only the rows
-the creature owns, so those are the lines the renderer repaints. A screen with no spare row draws no
-companion, and on those the tick changes nothing either.
+instead of flaking on the clock. A still creature writes nothing between its periodic events; the
+breath, ear twitch, tail-tip flick and blink are model-tick events with periods asserted by
+`TestCompanionIdleEventsHaveIndependentPeriods`. `TestCompanionCostHasTwoRegimes` measures the
+zero-byte interval between events and the walking line cost; `TestCompanionTicksChangeOnlyItsOwnRows`
+proves animation changes no row outside the widget. A screen with no reserved block draws no companion
+and its tick changes no content row.
 
 ### Turning animation off
 
