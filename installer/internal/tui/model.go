@@ -122,6 +122,16 @@ type Model struct {
 	// is off, and it is the clock the tip rotation and the companion read instead
 	// of time.Now, so a snapshot can pin a frame instead of flaking.
 	AnimTick int
+	// MenuKeyBuffer holds only a prefix of one of the main-menu easter eggs. It is
+	// capped at the longest form (three runes) and discarded as soon as an event
+	// does not extend it, so it never queues or delays ordinary input.
+	MenuKeyBuffer string
+	// MenuGagRow is the option row struck by dd, and MenuGagTicks counts the
+	// deterministic ticks the decoration has been showing. MenuGagActive keeps
+	// row zero distinguishable from the inactive zero value.
+	MenuGagRow    int
+	MenuGagTicks  int
+	MenuGagActive bool
 	// CompanionPos is the cell the companion starts at on the stage it walks along.
 	// It is state rather than a function of the tick because the creature walks
 	// toward a target that moves, and together with AnimTick it is everything a

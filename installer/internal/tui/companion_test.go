@@ -63,6 +63,193 @@ func companionKey(t *testing.T, m Model, key string) Model {
 	return got
 }
 
+func menuKey(t *testing.T, m Model, key tea.KeyMsg) (Model, tea.Cmd) {
+	t.Helper()
+	next, cmd := m.Update(key)
+	got, ok := next.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T, want Model", next)
+	}
+	return got, cmd
+}
+
+func menuRuneKey(t *testing.T, m Model, key rune) (Model, tea.Cmd) {
+	t.Helper()
+	return menuKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+}
+
+func TestMainMenuEasterEggsFireOnlyAfterTheirLastCharacter(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	tests := []struct {
+		name string
+		keys []rune
+		want Screen
+		quit bool
+		gag  bool
+	}{
+		{name: "vim", keys: []rune{'v', 'i', 'm'}, want: ScreenTrainerMenu},
+		{name: "colon q", keys: []rune{':', 'q'}, want: ScreenMainMenu, quit: true},
+		{name: "dd", keys: []rune{'d', 'd'}, want: ScreenMainMenu, gag: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel()
+			m.Screen = ScreenMainMenu
+			for i, key := range tt.keys {
+				var cmd tea.Cmd
+				m, cmd = menuRuneKey(t, m, key)
+				last := i == len(tt.keys)-1
+				if !last && (m.Screen != ScreenMainMenu || m.Quitting || m.MenuGagActive) {
+					t.Fatalf("form fired before final character %q: %+v", key, m)
+				}
+				if !last && cmd != nil {
+					t.Fatalf("form returned command before final character %q", key)
+				}
+			}
+			if m.Screen != tt.want || m.Quitting != tt.quit || m.MenuGagActive != tt.gag {
+				t.Fatalf("result screen=%v quitting=%v gag=%v, want screen=%v quitting=%v gag=%v", m.Screen, m.Quitting, m.MenuGagActive, tt.want, tt.quit, tt.gag)
+			}
+		})
+	}
+}
+
+func TestMainMenuEasterEggPrefixesDoNotSwallowOtherInput(t *testing.T) {
+	t.Run("d then j navigates immediately", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenMainMenu
+		m, _ = menuRuneKey(t, m, 'd')
+		if m.MenuKeyBuffer != "d" {
+			t.Fatalf("buffer = %q, want d", m.MenuKeyBuffer)
+		}
+		m, _ = menuKey(t, m, tea.KeyMsg{Type: tea.KeyDown})
+		if m.Cursor != 1 || m.MenuKeyBuffer != "" || m.MenuGagActive {
+			t.Fatalf("navigation was consumed or gag queued: cursor=%d buffer=%q gag=%v", m.Cursor, m.MenuKeyBuffer, m.MenuGagActive)
+		}
+	})
+
+	t.Run("colon then unrelated key clears prefix", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenMainMenu
+		m, _ = menuRuneKey(t, m, ':')
+		m, _ = menuRuneKey(t, m, 'x')
+		if m.MenuKeyBuffer != "" || m.Quitting {
+			t.Fatalf("unrelated key left a prefix or quit: buffer=%q quitting=%v", m.MenuKeyBuffer, m.Quitting)
+		}
+	})
+
+	t.Run("v then unrelated key clears prefix", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenMainMenu
+		m, _ = menuRuneKey(t, m, 'v')
+		m, _ = menuRuneKey(t, m, 'x')
+		if m.MenuKeyBuffer != "" || m.Screen != ScreenMainMenu {
+			t.Fatalf("unrelated key left a prefix or entered trainer: buffer=%q screen=%v", m.MenuKeyBuffer, m.Screen)
+		}
+	})
+
+	t.Run("dd fires once and third d only starts a fresh prefix", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenMainMenu
+		m, _ = menuRuneKey(t, m, 'd')
+		m, _ = menuRuneKey(t, m, 'd')
+		if !m.MenuGagActive || m.MenuGagTicks != 0 {
+			t.Fatalf("dd did not start one gag: active=%v ticks=%d", m.MenuGagActive, m.MenuGagTicks)
+		}
+		m, _ = menuRuneKey(t, m, 'd')
+		if !m.MenuGagActive || m.MenuGagTicks != 0 || m.MenuKeyBuffer != "d" {
+			t.Fatalf("third d repeated or swallowed incorrectly: active=%v ticks=%d buffer=%q", m.MenuGagActive, m.MenuGagTicks, m.MenuKeyBuffer)
+		}
+	})
+
+	t.Run("tick clears prefix", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenMainMenu
+		m, _ = menuRuneKey(t, m, 'd')
+		next, _ := m.Update(tickMsg(time.Time{}))
+		m = next.(Model)
+		if m.MenuKeyBuffer != "" {
+			t.Fatalf("tick left stale prefix %q", m.MenuKeyBuffer)
+		}
+	})
+
+	t.Run("mouse clears prefix", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenMainMenu
+		m, _ = menuRuneKey(t, m, 'd')
+		next, _ := m.Update(tea.MouseMsg{X: 3, Y: 4, Action: tea.MouseActionMotion})
+		m = next.(Model)
+		if m.MenuKeyBuffer != "" {
+			t.Fatalf("mouse event left stale prefix %q", m.MenuKeyBuffer)
+		}
+	})
+}
+
+func TestMainMenuDDEasterEggRestoresExactRowAndStaysWithinFrame(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+	m.Width, m.Height = 80, 24
+	m.Animating = true
+	m.Cursor = 2
+	before := m.View()
+	m, _ = menuRuneKey(t, m, 'd')
+	m, _ = menuRuneKey(t, m, 'd')
+	struck := m.View()
+	if strings.Contains(struck, m.GetCurrentOptions()[m.Cursor]) {
+		t.Fatal("struck row still contains its option content")
+	}
+	rows := strings.Count(struck, "\n")
+	for i := 0; i < menuGagDurationTicks-1; i++ {
+		next, _ := m.Update(tickMsg(time.Time{}))
+		m = next.(Model)
+		if strings.Count(m.View(), "\n") != rows {
+			t.Fatalf("frame row count changed at gag tick %d", i+1)
+		}
+	}
+	if !m.MenuGagActive {
+		t.Fatal("gag ended before its named duration")
+	}
+	next, _ := m.Update(tickMsg(time.Time{}))
+	m = next.(Model)
+	if m.MenuGagActive || m.View() != before {
+		t.Fatal("gag did not restore the original screen exactly at its duration")
+	}
+}
+
+func TestMainMenuDDEasterEggIsDeterministicAndAnimationGateFreezesPose(t *testing.T) {
+	base := NewModel()
+	base.Screen = ScreenMainMenu
+	base.Cursor = 1
+	base.Animating = true
+	base.CreatedAt = time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+	left, right := base, base
+	for _, m := range []*Model{&left, &right} {
+		*m, _ = menuRuneKey(t, *m, 'd')
+		*m, _ = menuRuneKey(t, *m, 'd')
+	}
+	for i := 0; i < 4; i++ {
+		for _, m := range []*Model{&left, &right} {
+			next, _ := m.Update(tickMsg(time.Time{}))
+			*m = next.(Model)
+		}
+		if left.View() != right.View() {
+			t.Fatalf("same model ticks diverged at tick %d", i+1)
+		}
+	}
+	if left.View() == base.View() {
+		t.Fatal("animated gag did not move from its initial pose")
+	}
+
+	base.Animating = false
+	base, _ = menuRuneKey(t, base, 'd')
+	base, _ = menuRuneKey(t, base, 'd')
+	pose := base.View()
+	next, _ := base.Update(tickMsg(time.Time{}))
+	base = next.(Model)
+	if base.View() != pose {
+		t.Fatal("animation-off gag moved instead of holding its composed pose")
+	}
+}
+
 // companionRowHasArt reports whether a rendered row carries one of the art's
 // rows, stripped of styling: the art is what the eye reads, so the art is what
 // a test looks for. It asks the composer, not only the tables: a frame at any

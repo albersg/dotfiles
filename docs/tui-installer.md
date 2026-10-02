@@ -87,6 +87,8 @@ From the main menu you can access:
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
+On the main menu, `vim` opens the Vim Trainer, `:q` quits, and `dd` briefly sweeps away the selected row before it returns.
+
 The welcome screen and the main menu greet you by the time of day (`Good morning`, `Good afternoon`,
 `Good evening`) in one added dim line, so no existing copy is replaced. The greeting is a pure
 function of the time the model was created with, never of the clock read while drawing, so a
