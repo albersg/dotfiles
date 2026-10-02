@@ -14,6 +14,11 @@ nothing is happening: it was repainting its own rows on every frame, which read 
 
 ### Fixed
 
+- **The shaded companion has a directional rim and contact shadows.** Lambert shading and ordered
+  dithering remain, while a rim term now catches only the upper-left silhouette and two-step ambient
+  occlusion darkens the neck, body and leg contact regions. `TestCompanionLightTerms` pins the encoder's
+  five distinct tones and both spatial lighting terms. The encoder remains true-colour-only; 16-colour
+  and colourless terminals keep the glyph companion.
 - **The shaded companion has a cat's anatomy.** The volume now separates the skull, muzzle, neck, chest,
   haunch, triangular ears, four legs and tapered tail; the raster adds inner ears, paw pads, a dark nose,
   a two-pixel mouth and full-rung whiskers. Structural field and raster assertions guard the anatomy without

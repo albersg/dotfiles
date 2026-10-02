@@ -352,9 +352,21 @@ three one-pixel whisker strokes on each side. `TestCompanionAnatomyIsStructural`
 maxima clear the skull, the haunch has the largest mass below the neck, each leg reaches the ground,
 and the rasterized tail's pixel count never increases from its base column toward its tip.
 
-Normals come from the field's gradient and the existing upper-left light shades it; the result is
-quantised to the theme's five-step ramp through a fixed ordered-dither matrix, and a drop shadow
-grounds it on the row it stands on. Animation **moves the field primitives** — alternating legs, a
+Normals come from the field's gradient. Lambert diffuse light comes from the upper left, and a
+silhouette rim term is limited to upper-left-facing boundary normals; fixed 2×2 ordered dithering
+quantises the result to the encoder's **five distinct ramp tones**. `TestCompanionLightTerms` asserts
+that all five occur in a rendered frame, checks the rim's upper-left boundary contribution and its
+absence on the lower-right boundary, and verifies two-step ambient-occlusion darkening in the
+normalized contact regions under the neck, under the body and between the legs. A separate drop
+shadow grounds it on the row it stands on.
+
+The volume encoder is not colour-profile adaptive: the model gate admits the shaded tier only for
+true-colour terminals. `TestCompanionVolumeIsRefusedWithoutTrueColour` checks that 16-colour,
+256-colour and colourless profiles refuse it, and `TestCompanionVolumeSpriteIsTheLadderTopSteps`
+checks the unchanged glyph fallback. Termux, 16-colour and colourless terminals therefore lose no
+companion or meaning; they do not receive a falsely promised five-tone conversion.
+
+Animation **moves the field primitives** — alternating legs, a
 one-pixel body bob, a lean, a counter-swaying tail, and a head turn toward the gaze — which makes the
 shape deform rather than jump between drawings. The field and raster assertions are in
 `TestCompanionAnatomyIsStructural`; the saved frame is only a visual companion to those checks.
@@ -374,12 +386,12 @@ columns and height 62**:
   frame over a screen nobody was touching.
 - **While walking — twelve lines.** The volume's twelve rows all move with the one-cell step, so every
   one of them is repainted. At 227 columns `TestCompanionCostHasTwoRegimes` reports 19 moving frames
-  over 2.38 s, 158228 bytes total and **8852 bytes** in the widest changed lines (about **69.2 KB/s**
+  over 2.38 s, **168177 bytes** total and **9479 bytes** in the widest changed lines (about **74.1 KB/s**
   at eight frames a second); the same test reports zero bytes at rest. A wider terminal costs more per
   line and the same per cell walked.
 
 Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` reports
-**1,557,471 ns/op, 304,295 B/op and 1040 allocs/op** on the measured Linux/amd64 host. Those are
+**1,457,641 ns/op, 357,321 B/op and 1079 allocs/op** on the measured Linux/amd64 host. Those are
 benchmark outputs, not portable limits; the test and benchmark are the sources for remeasurement.
 
 **Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
@@ -389,7 +401,7 @@ pins does not compile — so adopting it means moving `x/ansi`, `x/cellbuf`, `co
 `x/sys`, `x/text`, `go-colorful` and `go-runewidth` inside the **render path of every screen**, for a
 sprite. And its colour choice is keyed on a luminance threshold: the block glyph it picks depends on
 which pixel counts as "set", and a cell whose two pixels fall on the same side of the threshold is
-collapsed to their average colour, which is exactly the shading boundary a four-tone sprite exists to
+collapsed to their average colour, which is exactly the shading boundary a five-tone sprite exists to
 draw (and it softens every edge on a light terminal). The fifty lines here give exact colours per
 cell, cost nothing at install time and add no module, so this is a decision and not an oversight: if
 someone wants to reintroduce the library, the two costs above are what they have to answer.

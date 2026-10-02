@@ -54,9 +54,8 @@ leg reaches the ground line. Not a snapshot alone: a snapshot proves nothing mov
 - Add a **rim light** on the silhouette's upper-left edge, so the creature separates from a dark terminal.
 - Add **contact shading** (ambient occlusion) where parts meet: under the neck, under the body, between the
   legs. Two tones darker than the local surface.
-- Keep the four-tone ramp, and keep it degrading readably: if the encoder can be driven by a colour profile,
-  assert a 16-colour render still shows four distinct tones or a deliberate two-tone fallback; if it cannot,
-  say so in the doc instead of claiming it.
+- Keep the encoder's five-tone ramp, and keep it degrading readably: the encoder is not driven by a
+  colour profile, so document and test its deliberate glyph fallback on 16-colour and colourless terminals.
 
 **Test**: the tone histogram of a rendered frame has the four tones; the darkest tone's pixels fall inside
 the documented contact regions; a rim tone appears on the upper-left boundary of the mask.
@@ -141,16 +140,39 @@ moving frames/2.38 s, with 158228 bytes total, a maximum 8852-byte changed-line 
 304,295 B/op, 1040 allocs/op. These replace the earlier baseline figures; the tests/benchmark above are
 the sources for remeasurement. The ladder, rung heights and block remain unchanged.
 
+## Step 2 outcome: light and material
+
+Implemented in `installer/internal/tui/companion.go`. The existing Lambert diffuse term and fixed 2×2
+Bayer dithering remain. The rim term now contributes only on upper-left-facing boundary normals. Ambient
+occlusion darkens by exactly two ramp steps in named normalized-coordinate regions under the neck, under
+the body and between the legs. `TestCompanionLightTerms` checks the rendered five-step histogram
+(`[70 98 82 75 112]` in its measured full idle frame), darkest pixels within the documented contact
+regions, an upper-left rim contribution and no lower-right rim contribution. It verifies the lighting
+terms against no-rim/no-contact controls, so deleting either term fails multiple assertions.
+
+The encoder cannot accept a colour profile: `pixelSpriteAllowed` selects the volume tier only for
+`termenv.TrueColor`. `TestCompanionVolumeIsRefusedWithoutTrueColour` rejects ANSI/16-colour, ANSI256 and
+ASCII profiles, and `TestCompanionVolumeSpriteIsTheLadderTopSteps` pins the unchanged glyph fallback.
+There is no claim of five-tone shading on those profiles; Termux and colourless terminals keep the
+existing cat glyphs without loss of meaning.
+
+Measured by `TestCompanionCostHasTwoRegimes` at 227 columns: 0 bytes at rest; while walking, 12 sprite
+rows, up to 12 changed lines, 19 moving frames/2.38 s, 168177 bytes total, a widest changed-line cost
+of 9479 bytes, and 74.1 KB/s at 8 fps. `BenchmarkCompanionVolumeFrame` on Linux/amd64 reports
+1,457,641 ns/op, 357,321 B/op and 1079 allocs/op. The latter measurements are observations, not portable
+limits. `TestCompanionGoldenPinsThePixelSpriteAndItsGaze` is regenerated because AO and the directional
+rim change the sprite's shaded pixels and ANSI foreground/background runs; glyph snapshots do not move.
+
+The sentence above requesting a four-tone ramp was written before the encoder existed and is corrected:
+the encoder prints a five-tone ramp. Reducing it would remove shading and break the dither tuning.
+
 ## Remaining steps
 
-2. **Light and material** still owes rim light, contact/ambient-occlusion regions, and histogram assertions.
-   Step 1 intentionally leaves the current Lambert, dither, shadow and five-step ramp alone. Reconcile the
-   plan's four-tone target with the measured current five-step implementation before changing the ramp.
 3. **Eyes and gaze** still owes the explicit sclera/pupil/highlight guarantees, gaze-grid isolation, eyelid
    blink semantics, and pointer-driven ear/skull shifts.
 4. **Motion with weight** still owes the specified landing order, body/head lead and tail lag, idle events,
    hop poses, and a precise still-between-events cost statement.
 5. **Budget, block and leaks** still owes the benchmark ceiling and all-pose/all-rung bounding-box guard;
-   this pass updates the anatomy documentation and retains the existing block/leak/cost guards.
+   the block, existing frame/leak guards, cost measurements and anatomy remain protected and unchanged.
 
 Each step is a work-unit commit, and each keeps the suite, both frame guards and the leak guard green.
