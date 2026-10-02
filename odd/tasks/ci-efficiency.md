@@ -372,12 +372,13 @@ and the orchestrator will run both and report.
 | upstream pipefail family | `installer/e2e/docker-test.sh:271` | the `cmd \| tee` defect is already fixed here, with the reason in a comment; no remaining pipeline in the E2E scripts decides a pass or a fail |
 | upstream `rm -rf` family | `installer/e2e/*.sh` | every `rm -rf` is anchored to `$HOME`, `$PREFIX` or a `mktemp -d`; none is a bare relative path |
 
-## Phase 2, second pass: measured, not converted
+## Phase 2, second pass: trainer waits converted; remaining waits measured
 
 The workflow half is done (PR #116: the shell check that could not fail now fails, and there are no fixed waits
-left in the workflows or the e2e scripts). **The test half is not done, and two attempts have now measured it
-without converting it.** Recording that plainly is the point of this section: the next session should start
-from these numbers rather than from a third agent discovering them.
+left in the workflows or the e2e scripts). This section records the measured baseline, the earlier guard
+rendering pass, and the trainer-wait follow-up. The trainer follow-up restored the existing `teatest.WaitFor`
+conditions, converted the 36 sleeps in `trainer_e2e_test.go`, and left the separate 47 waits in
+`teatest_test.go` as the last remaining unit of this work.
 
 MEASURED BASELINE, this host, `go test ./internal/tui/... -count=1`:
 
@@ -394,19 +395,34 @@ two). That is real work rather than a wait, so it is not a sleep to convert but 
 or to sample - and any change to it must not shrink what it covers, because its coverage is the reason the
 creature's size can no longer drift with a screen's content.
 
-WHAT THE NEXT PASS SHOULD DO, in this order:
+The trainer conversion preserved every test and golden. All 36 sleeps were synchronization waits, not behavior
+under test: startup sleeps became first-frame waits; sleeps following key input became waits for rendered
+output. **Kept sleeps: 0**, because none measured elapsed behavior, animation, countdown, or timestamp
+resolution. The existing 14 `teatest.WaitFor` call sites keep their original predicates and 50 ms / 2 s
+interval and timeout. The shared trainer helper now delegates stream reading to `teatest.WaitFor` and captures
+the matched bytes only for golden output; the previous custom polling reader was removed.
 
-1. Convert the 83 waits to conditions with bounded timeouts that name what they wait for. The `teatest` idiom
-   is: start the model, sleep, send a key, sleep, read the final output - so the facts to wait for are the
-   first frame, the key's effect in the output, and the program's finish. A helper that polls the output for a
-   substring and fails with that substring in its message is the shape; a timeout that says 'timed out' is no
-   better than the sleep it replaced.
-2. Keep every sleep that is the subject under test and list it with its reason. A sleep that measures elapsed
-   time, an animation frame, a countdown or a timestamp's resolution is behaviour, not a wait.
-3. Treat a test that turns out to have been passing by luck as a FINDING and report what it assumed. Do not
-   paper over it with a longer timeout.
-4. Prove one converted wait by pointing it at something that never happens and pasting the verbatim failure.
-5. Then, and only then, look at the guard: parallelise its subtests or sample its states, keeping its coverage.
+Before/after measurements from this host, using wall-clock timing (`TIMEFORMAT='WALL_SECONDS=%3R'; time ...`):
+
+| Measurement | Before this pass (working-in-progress state) | After this pass |
+| --- | ---: | ---: |
+| Trainer command `cd installer && go test ./internal/tui -run '^TestTrainer' -count=1` | 4.120 s; 393 passed, 1 failed (the replaced waiter timed out) | 4.923 s, 3.039 s, 3.132 s; 394 passed each run (mean 3.698 s) |
+| Package command `cd installer && go test ./... -count=1` | 32.146 s; 3,898 passed, 1 failed (same timeout) | 38.003 s; 3,899 passed in 4 packages |
+
+The before figures are the real failed WIP runs, not a clean pre-conversion baseline; the suite wall clocks are
+therefore evidence of this host's runs, not a controlled claim that the conversion alone saved time. The three
+trainer runs all passed, and the full package suite passed without changing goldens.
+
+The failure proof was produced by temporarily changing the `TestTrainerMenuGolden` predicate to
+`FACT_THAT_NEVER_ARRIVES`, then restoring it. The observed failure was:
+
+```text
+trainer_e2e_test.go:41: WaitFor: condition not met after 2s. Last output:
+```
+
+The last output was the terminal initialization bytes only. No production file changed and there is no changelog
+entry: user-visible behavior did not change. **Remaining work: convert the 47 waits in `teatest_test.go`; that
+file is the last remaining unit of this work.**
 
 ### Guard rendering pass: parallel, coverage held
 

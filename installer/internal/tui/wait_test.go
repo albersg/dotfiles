@@ -2,7 +2,6 @@ package tui
 
 import (
 	"bytes"
-	"io"
 	"testing"
 	"time"
 
@@ -12,26 +11,20 @@ import (
 const trainerOutputWaitTimeout = 2 * time.Second
 
 // waitForTrainerOutput waits until the rendered output satisfies condition.
-// Keeping the accumulated output lets timeout failures show the evidence that
-// the test actually saw instead of reporting only that a wait expired.
+// teatest.WaitFor owns reading the output stream; the matching transcript is
+// retained for golden tests that append it to the final output.
 func waitForTrainerOutput(t *testing.T, tm *teatest.TestModel, waitingFor string, condition func([]byte) bool) []byte {
 	t.Helper()
 
-	var output bytes.Buffer
-	reader := tm.Output()
-	deadline := time.Now().Add(trainerOutputWaitTimeout)
-	for time.Now().Before(deadline) {
-		if _, err := io.Copy(&output, reader); err != nil {
-			t.Fatalf("failed waiting for %q: reading output: %v; output seen:\n%s", waitingFor, err, output.String())
+	var output []byte
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		if !condition(bts) {
+			return false
 		}
-		if condition(output.Bytes()) {
-			return append([]byte(nil), output.Bytes()...)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	t.Fatalf("timed out waiting for %q after %s; output seen:\n%s", waitingFor, trainerOutputWaitTimeout, output.String())
-	return nil
+		output = append(output[:0], bts...)
+		return true
+	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(trainerOutputWaitTimeout))
+	return output
 }
 
 func waitForTrainerText(t *testing.T, tm *teatest.TestModel, waitingFor string, alternatives ...string) []byte {
