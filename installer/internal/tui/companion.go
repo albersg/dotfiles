@@ -1195,6 +1195,16 @@ const (
 // more would need tones the theme does not have.
 const companionRampSteps = 5
 
+// Contact regions are expressed in the creature's normalized world coordinates. They
+// describe the creases under the neck and body and the narrow gap between the legs; the
+// test checks dark pixels against these regions rather than choosing pixels by appearance.
+func companionContactRegion(x, y float64) bool {
+	underNeck := x > 0.20 && x < 0.48 && y > 0.37 && y < 0.54
+	underBody := x > -0.44 && x < 0.18 && y > 0.25 && y < 0.40
+	betweenLegs := x > -0.42 && x < 0.10 && y > 0.12 && y < 0.31
+	return underNeck || underBody || betweenLegs
+}
+
 // companionLight is where the light is: up, to the left and in front of the creature,
 // normalised once so the Lambert term is a dot product and nothing else. The direction
 // is what puts the bright side of the body at its upper left and the dark side under its
@@ -1255,6 +1265,10 @@ func companionRampTone(step int) companionTone {
 // -- (-dh/dx, -dh/dy, 1) -- and the height field's row runs downwards while the world's
 // y runs up, which is the one sign in here worth a comment.
 func companionShadeTone(heights [][]float64, px, py int, scale float64) companionTone {
+	return companionShadeToneWithTerms(heights, px, py, scale, companionRim, true)
+}
+
+func companionShadeToneWithTerms(heights [][]float64, px, py int, scale, rimStrength float64, contact bool) companionTone {
 	gx := (heights[py+1][px+2] - heights[py+1][px]) * scale / 2
 	gy := (heights[py+2][px+1] - heights[py][px+1]) * scale / 2
 	nx, ny, nz := -gx*companionRelief, gy*companionRelief, 1.0
@@ -1262,12 +1276,22 @@ func companionShadeTone(heights [][]float64, px, py int, scale float64) companio
 		nx, ny, nz = nx*inv, ny*inv, nz*inv
 	}
 	lambert := math.Max(0, nx*companionLight[0]+ny*companionLight[1]+nz*companionLight[2])
-	rim := (1 - nz) * (1 - nz) * companionRim
+	// The rim is directional: only the creature's upper-left-facing edge catches it.
+	rim := 0.0
+	if nx < -0.18 && ny > 0.12 {
+		rim = (1 - nz) * (1 - nz) * rimStrength
+	}
 	// The light is a luminance in [0, 1] and the ramp is a count of tones, so the one is
 	// scaled into the other here rather than inside the dither, which has to stay the same
 	// function for the shadow's own place on the ramp.
 	luminance := min(1, max(0, companionAmbient+companionDiffuse*lambert+rim))
-	return companionDitherTone(luminance*float64(companionRampSteps-1), px, py)
+	tone := companionDitherTone(luminance*float64(companionRampSteps-1), px, py)
+	x, y := companionWorldX(px, companionVolumeSize{width: len(heights[0]) - 2, rows: len(heights) - 2}, scale),
+		companionWorldY(py, companionVolumeSize{width: len(heights[0]) - 2, rows: len(heights) - 2}, scale)
+	if contact && companionContactRegion(x, y) {
+		tone = companionRampTone(int(tone) - 2)
+	}
+	return tone
 }
 
 // companionTone is one pixel of the sprite before it is a colour: a step of the
