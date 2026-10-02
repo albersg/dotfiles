@@ -386,12 +386,12 @@ columns and height 62**:
   frame over a screen nobody was touching.
 - **While walking — twelve lines.** The volume's twelve rows all move with the one-cell step, so every
   one of them is repainted. At 227 columns `TestCompanionCostHasTwoRegimes` reports 19 moving frames
-  over 2.38 s, **168177 bytes** total and **9479 bytes** in the widest changed lines (about **74.1 KB/s**
+  over 2.38 s, **166735 bytes** total and **9235 bytes** in the widest changed lines (about **72.1 KB/s**
   at eight frames a second); the same test reports zero bytes at rest. A wider terminal costs more per
   line and the same per cell walked.
 
 Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` reports
-**1,457,641 ns/op, 357,321 B/op and 1079 allocs/op** on the measured Linux/amd64 host. Those are
+Three Linux/amd64 runs measured **666,939–723,914 ns/op**, **360,033–360,035 B/op** and **1088 allocs/op**. Those are
 benchmark outputs, not portable limits; the test and benchmark are the sources for remeasurement.
 
 **Why the encoder is ours and not a library.** `github.com/charmbracelet/x/mosaic` was evaluated for
@@ -424,9 +424,12 @@ The shaded sprite is the same cat as pixels, and it is drawn from a grid of tone
 glyphs: `.` is the light fur, `o` the mid fur, `#` the outline, `@` the eyes — the pupils, the lids and
 the expressions — `x` the nose and the mouth, and a blank the terminal's own background, so the pixels
 the cat does not cover blend with it. The fur takes the palette's muted tones and the eyes take its one
-bright tone, so the decoration stays quieter than the words around it. The face below is the centre
-gaze; the composer moves the pupil pair one column to either side and, when the pointer is above the
-creature, one pixel row up.
+bright tone, so the decoration stays quieter than the words around it. Each full-rung volume eye is
+3×4, with a 1×2 vertical slit pupil; the small rung retains its 2×2 eye and 1×1 pupil.
+`TestCompanionVolumeEyePupilAdjacencyByRung` pins the full-rung contract: the slit has a sclera column
+on both sides at all three long-axis positions. The central position has a full ring, while the up/down
+extremes touch the corresponding lid edge. The pupil never touches the face outline. The one-pixel
+highlight is fixed at the eye's upper-left relative position, independent of gaze.
 
 ```text
     o#        #o
@@ -462,23 +465,22 @@ carries the same eyes and props, and the one-row art the same state as the frame
 | Pleased | `(  ^    ^  )` and `\o/` above the head | About a second after an installation step finishes, or a right answer on a trainer result screen |
 | Flinch | `(  >    <  )` and a `!` | A failure is on screen, or a wrong answer on a trainer result screen |
 
-**It looks where it is going.** The pupils sit at one of three columns across the head and the eye
-row is one of two rows, and those cells are the only characters a gaze frame changes: the tables hold
-one neutral frame per state and a composer moves the eyes, which is what keeps seven states and three
-gaze columns from becoming thirty hand-drawn frames. On the five-row cat "up" moves the eyes to the
-upper of the two interior rows; the three-row head has room for one eye row, so its gaze is
-horizontal; and the one-row face has no interior column to move a pupil into at all, which is why it
-is kept exactly as it shipped. Down is not drawn: there is no honest third eye row, and a
-wrong-looking "down" would read worse than a missing one. The pupils rest while the thing it wants is
-within a two-column dead zone of its own cell, so they cannot flicker.
+**The glyph cat looks where it is going.** Its pupils sit at three columns across the head and the eye
+row is one of two rows; the five-row cat can look up and the three-row head has one horizontal eye row.
+The one-row face remains unchanged. Down is not drawn. The two-column dead zone keeps the gaze from
+flickering. These are the glyph-art rules; the volume has its own raster contract below.
 
-**Its eyes follow the mouse.** With the pointer live (which is the default; see below) the pupils turn
-one column to the side the pointer is on and look up when it is above the creature, and that is what
-`companionGazeFor` receives: the pointer's column clamped to the stage the creature walks, and its row
-measured against the bottom third of the frame — the band the creature draws in — so a pointer up the
-screen makes it look up and one across the floor makes it look sideways. The turn happens on the
-mouse message itself, not on the next tick, so the eyes arrive with the hand rather than a frame
-behind it. The pupils rest while the pointer is within a two-column dead zone of the creature's own
+**The volume's eyes follow the mouse.** With the pointer live (which is the default; see below), the
+pupil travels over three positions along the eye's vertical long axis (up, level, down); horizontal
+gaze shifts the skull one pixel and tilts the ears one pixel toward the pointer. `companionGazeFor` receives the pointer's
+column clamped to the stage and its row measured against the bottom third of the frame. The turn
+happens on the mouse message itself, not on the next tick. `TestCompanionEyeGazeIsolationAndBlinkPinsTheFaceContract`
+requires central gaze changes to stay in the eye boxes and pins the fixed highlight and blink; the
+`TestCompanionVolumeGazeTurnsTheHeadAndThePupils` permits changes only in the named EYE BOX or HEAD
+OUTLINE BAND. The test pins the sclera side columns at all three vertical pupil positions and the full
+ring at the central position, where the 3×4 box has room above and below the slit. At the two extremes
+the slit reaches the lid edge. Horizontal direction is carried by the head, not by sliding the slit
+sideways. The pupils rest while the pointer is within a two-column dead zone of the creature's own
 cell, so they cannot flicker, and a pointer that lands on the cell it was already on changes nothing
 at all — the renderer sees the same bytes and skips the frame.
 

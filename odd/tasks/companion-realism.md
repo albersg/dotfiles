@@ -117,8 +117,8 @@ Implemented in `installer/internal/tui/companion.go`. The volume now has a round
 muzzle, a separate narrowing neck, chest and larger haunch, two triangular ears with darker inner-ear
 raster pixels, four ground-reaching legs with dark paw pads, and a three-segment curved/tapered tail.
 The face has a one-to-two-pixel dark nose, a two-pixel mouth on the full rung, and three one-pixel whisker
-strokes on each side only on the twelve-row rung. The existing sclera/pupil renderer remains for now;
-its stricter eye/gaze contract belongs to Step 3.
+strokes on each side only on the twelve-row rung. Step 3 below replaces the original sclera/pupil renderer
+with the rung-specific raster contract.
 
 `TestCompanionAnatomyIsStructural` pins the ear maxima above the skull, haunch mass against chest/body/
 neck, each leg against the ground line, inner-ear and paw-pad raster pixels, nose and mouth landmarks,
@@ -166,10 +166,42 @@ rim change the sprite's shaded pixels and ANSI foreground/background runs; glyph
 The sentence above requesting a four-tone ramp was written before the encoder existed and is corrected:
 the encoder prints a five-tone ramp. Reducing it would remove shading and break the dither tuning.
 
+## Step 3 outcome: eyes and gaze
+
+Implemented in `installer/internal/tui/companion.go` without changing the ladder, thresholds, head size,
+light model or reserved block. Each full-rung eye is 3×4 with a vertical 1×2 slit pupil; the small rung
+retains a 2×2 eye and 1×1 pupil. **At full size, the slit has a sclera column on both sides at all three
+long-axis positions. The central position has a full ring; at the up/down extremes the slit touches the
+corresponding lid edge.** At the small rung, the 1×1 pupil keeps horizontal and vertical sclera
+adjacency. The pupil never touches the face outline. Vertical gaze selects pupil rows 0–1, 1–2 or 2–3;
+horizontal gaze is the one-pixel skull shift and ear tilt, not a sideways pupil movement.
+
+`TestCompanionVolumeEyePupilAdjacencyByRung` asserts the 3×4 size, both sclera side columns at all three full-rung positions, the full ring at centre, and the expected lid contact at the extremes.
+`TestCompanionEyeGazeIsolationAndBlinkPinsTheFaceContract` asserts central-gaze eye-box isolation,
+the stationary one-pixel highlight and a blink that changes only the face-tone eyelid row while retaining
+sclera. `TestCompanionVolumeGazeTurnsTheHeadAndThePupils` checks extreme skull/ear motion and that every
+changed pixel is confined to the named EYE BOX or HEAD OUTLINE BAND. The raster grid remains exactly the
+rung's reserved dimensions. The 10-second blink period is unchanged.
+
+Two fault experiments were run and restored. Moving the highlight with vertical gaze failed verbatim:
+`companion_test.go:2770: eye 0 highlight moved with gaze; fixed upper-left highlight not preserved`. Disabling
+the out-of-region clamp failed verbatim: `companion_test.go:2851: extreme gaze changed (20,0) outside EYE BOX and HEAD OUTLINE BAND: ramp4 -> none`.
+
+The only moved golden is `installer/internal/tui/testdata/TestCompanionGoldenPinsThePixelSpriteAndItsGaze.golden`.
+Its pixel shape changed around the face from the new sclera, pupils, fixed glints, lids and extreme gaze;
+its ANSI foreground/background escapes changed with those tone locations. I inspected the shape and escapes:
+the sprite lines end in resets, and `TestNoRenderedLineLeavesAColourActive` remains the escape guard. All
+glyph snapshots stayed unchanged.
+
+Measured by `TestCompanionCostHasTwoRegimes` at 227 columns: **0 bytes at rest**; walking changes 12 sprite
+rows, up to 12 lines, 19 moving frames/2.38 s, **166735 bytes** total, **9235 bytes** widest changed lines,
+**72.1 KB/s** at 8 fps. Three `BenchmarkCompanionVolumeFrame` runs on Linux/amd64 measured
+**666939–723914 ns/op, 360033–360035 B/op and 1088 allocs/op**. These are test/benchmark observations, not portable limits. The full
+suite passed 3877 tests; both frame guards, the block, anatomy, light, leak, welcome lockup and cost guards
+were also run directly and passed.
+
 ## Remaining steps
 
-3. **Eyes and gaze** still owes the explicit sclera/pupil/highlight guarantees, gaze-grid isolation, eyelid
-   blink semantics, and pointer-driven ear/skull shifts.
 4. **Motion with weight** still owes the specified landing order, body/head lead and tail lag, idle events,
    hop poses, and a precise still-between-events cost statement.
 5. **Budget, block and leaks** still owes the benchmark ceiling and all-pose/all-rung bounding-box guard;
