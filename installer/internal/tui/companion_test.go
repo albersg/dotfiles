@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -104,8 +105,10 @@ func companionEveryArtRow() []string {
 	var rows []string
 	for _, height := range companionHeights() {
 		for _, state := range companionStates() {
-			for _, gaze := range []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {X: -1, Y: -1}, {X: 1, Y: -1}} {
-				rows = append(rows, companionArtFor(state, height, 0, gaze)...)
+			for tick := 0; tick < 4; tick++ {
+				for _, gaze := range []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {X: -1, Y: -1}, {X: 1, Y: -1}} {
+					rows = append(rows, companionArtFor(state, height, tick, gaze)...)
+				}
 			}
 		}
 	}
@@ -3219,9 +3222,128 @@ func BenchmarkCompanionVolumeFrame(b *testing.B) {
 	m.CompanionPos = 40
 
 	b.ReportAllocs()
+	b.ResetTimer()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
 	for i := 0; i < b.N; i++ {
 		m.AnimTick = i
 		_ = m.View()
+	}
+	b.StopTimer()
+	runtime.ReadMemStats(&after)
+
+	// Linux/amd64 runs measured 0.67–4.20 ms/op (the high end is shared-host
+	// noise), about 360 KB/op and 1088 allocs/op. The 10 ms / 450 KB / 1400
+	// ceiling leaves >2x time headroom and ~25% allocation headroom for machine
+	// and Go-version variance, while making a 5x regression fail instead of ship.
+	const maxNanosPerOp = 10_000_000
+	const maxBytesPerOp = 450_000
+	const maxAllocsPerOp = 1400
+	b.Logf("enforced companion volume frame ceilings: %d ns/op, %d B/op, %d allocs/op", maxNanosPerOp, maxBytesPerOp, maxAllocsPerOp)
+	elapsed := b.Elapsed().Nanoseconds()
+	if elapsed/int64(max(b.N, 1)) > maxNanosPerOp {
+		b.Fatalf("companion volume frame cost %d ns/op exceeds %d ns/op ceiling", elapsed/int64(max(b.N, 1)), maxNanosPerOp)
+	}
+	allocated := after.TotalAlloc - before.TotalAlloc
+	bytesPerOp := allocated / uint64(max(b.N, 1))
+	allocsPerOp := (after.Mallocs - before.Mallocs) / uint64(max(b.N, 1))
+	if bytesPerOp > maxBytesPerOp || allocsPerOp > maxAllocsPerOp {
+		b.Fatalf("companion volume frame cost %d B/op, %d allocs/op exceeds %d B/op, %d allocs/op ceiling", bytesPerOp, allocsPerOp, maxBytesPerOp, maxAllocsPerOp)
+	}
+}
+
+// TestCompanionRenderedPosesStayInsideTheirReservedBlock checks the rows the screen
+// actually renders, not just the raster dimensions. Every walk tick, independent idle
+// event, hop phase, gaze extreme and blink must keep the same terminal-selected block.
+func TestCompanionRenderedPosesStayInsideTheirReservedBlock(t *testing.T) {
+	fixtures := []struct {
+		name       string
+		height     int
+		pixel      bool
+		trainer    bool
+		wantHeight int
+	}{
+		{"volume full", 50, true, false, companionVolumeFullHeight},
+		{"volume small", 33, true, false, companionVolumeSmallHeight},
+		{"glyph full", 29, false, false, companionFullHeight},
+		{"glyph compact", 24, false, false, companionCompactHeight},
+		{"glyph trainer floor", trainerFloorHeight, false, true, companionMiniHeight},
+	}
+
+	for _, fixture := range fixtures {
+		fixture := fixture
+		t.Run(fixture.name, func(t *testing.T) {
+			build := func() Model {
+				var m Model
+				if fixture.trainer {
+					m = newTrainerFrameModel(t, trainer.ModuleHorizontal)
+					m.Screen = ScreenTrainerLesson
+				} else {
+					m = NewModel()
+					m.Screen = ScreenMainMenu
+				}
+				isolateGoldenTest(t, &m)
+				m.Width, m.Height = 160, fixture.height
+				m.Animating, m.PixelSprite = true, fixture.pixel
+				m.ink = companionInkFor(true)
+				return m
+			}
+
+			states := []struct {
+				name  string
+				setup func(*Model)
+			}{
+				{"idle", func(*Model) {}},
+				{"walk contact", func(m *Model) { m.CompanionMoving = true; m.AnimTick = 0 }},
+				{"walk down", func(m *Model) { m.CompanionMoving = true; m.AnimTick = 1 }},
+				{"walk passing", func(m *Model) { m.CompanionMoving = true; m.AnimTick = 2 }},
+				{"walk up", func(m *Model) { m.CompanionMoving = true; m.AnimTick = 3 }},
+				{"breath", func(m *Model) { m.AnimTick = companionBreathTicks - 1 }},
+				{"ear twitch", func(m *Model) { m.AnimTick = companionEarTwitchTicks - 1 }},
+				{"tail flick", func(m *Model) { m.AnimTick = companionTailFlickTicks - 1 }},
+				{"hop crouch", func(m *Model) { m.CompanionHop = companionHopTicks }},
+				{"hop flight", func(m *Model) { m.CompanionHop = companionHopTicks - 1 }},
+				{"hop landing", func(m *Model) { m.CompanionHop = 1 }},
+				{"gaze left/up", func(m *Model) { m.CompanionGaze = companionGaze{X: -1, Y: -1} }},
+				{"gaze right/down", func(m *Model) { m.CompanionGaze = companionGaze{X: 1, Y: 1} }},
+				{"blink", func(m *Model) { m.AnimTick = companionBlinkTicks - 1 }},
+			}
+
+			var reserved []int
+			for i, state := range states {
+				m := build()
+				state.setup(&m)
+				view := m.View()
+				rows := strings.Split(view, "\n")
+				owned := companionOwnedRows(rows)
+				if len(owned) != fixture.wantHeight {
+					t.Fatalf("%s owns %d rendered rows, want terminal rung block of %d:\n%s", state.name, len(owned), fixture.wantHeight, view)
+				}
+				left := viewPaddingCols + m.CompanionPos
+				right := left + companionSpriteWidth(m.companionHeightNow())
+				for i, row := range owned {
+					if i > 0 && row != owned[i-1]+1 {
+						t.Errorf("%s has a stray art row outside its contiguous reserved block at rendered row %d (block %v)", state.name, row, owned)
+					}
+					for col, cell := range []rune(plainRow(rows[row])) {
+						if cell != ' ' && (col < left || col >= right) {
+							t.Errorf("%s drew non-blank cell %q at rendered column %d outside reserved columns %d..%d", state.name, cell, col, left, right-1)
+						}
+					}
+				}
+				if i == 0 {
+					reserved = append([]int(nil), owned...)
+				} else if !reflect.DeepEqual(owned, reserved) {
+					t.Errorf("%s moved the rendered block from rows %v to %v", state.name, reserved, owned)
+				}
+				if len(owned) != 0 {
+					next := owned[len(owned)-1] + 1
+					if !fixture.trainer && (next >= len(rows) || !isRuleRow(rows[next])) {
+						t.Errorf("%s block at rows %v is not in the terminal rung's reserved position immediately above the frame rule", state.name, owned)
+					}
+				}
+			}
+		})
 	}
 }
 
