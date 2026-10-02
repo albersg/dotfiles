@@ -8,12 +8,12 @@ import (
 	"github.com/charmbracelet/x/exp/teatest"
 )
 
-const trainerOutputWaitTimeout = 2 * time.Second
+const outputWaitTimeout = 2 * time.Second
 
-// waitForTrainerOutput waits until the rendered output satisfies condition.
+// waitForOutput waits until the rendered output satisfies condition.
 // teatest.WaitFor owns reading the output stream; the matching transcript is
 // retained for golden tests that append it to the final output.
-func waitForTrainerOutput(t *testing.T, tm *teatest.TestModel, waitingFor string, condition func([]byte) bool) []byte {
+func waitForOutput(t *testing.T, tm *teatest.TestModel, waitingFor string, condition func([]byte) bool) []byte {
 	t.Helper()
 
 	var output []byte
@@ -23,13 +23,13 @@ func waitForTrainerOutput(t *testing.T, tm *teatest.TestModel, waitingFor string
 		}
 		output = append(output[:0], bts...)
 		return true
-	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(trainerOutputWaitTimeout))
+	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(outputWaitTimeout))
 	return output
 }
 
-func waitForTrainerText(t *testing.T, tm *teatest.TestModel, waitingFor string, alternatives ...string) []byte {
+func waitForText(t *testing.T, tm *teatest.TestModel, waitingFor string, alternatives ...string) []byte {
 	t.Helper()
-	return waitForTrainerOutput(t, tm, waitingFor, func(output []byte) bool {
+	return waitForOutput(t, tm, waitingFor, func(output []byte) bool {
 		for _, text := range alternatives {
 			if bytes.Contains(output, []byte(text)) {
 				return true

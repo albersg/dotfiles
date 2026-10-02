@@ -38,7 +38,7 @@ func TestTrainerMenuGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	out := waitForTrainerText(t, tm, "trainer module menu to render", "Horizontal", "Vertical", "Module")
+	out := waitForText(t, tm, "trainer module menu to render", "Horizontal", "Vertical", "Module")
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
@@ -71,7 +71,7 @@ func TestTrainerLessonGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	out := waitForTrainerText(t, tm, "trainer lesson screen to render", "Mission", "Code", "Lesson")
+	out := waitForText(t, tm, "trainer lesson screen to render", "Mission", "Code", "Lesson")
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
@@ -96,7 +96,7 @@ func TestTrainerResultCorrectGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	out := waitForTrainerText(t, tm, "trainer result screen to render", "Perfect", "Correct", "Result")
+	out := waitForText(t, tm, "trainer result screen to render", "Perfect", "Correct", "Result")
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
@@ -135,7 +135,7 @@ func TestTrainerBossGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	out := waitForTrainerText(t, tm, "trainer boss screen to render", "Boss", "Lives", "Step")
+	out := waitForText(t, tm, "trainer boss screen to render", "Boss", "Lives", "Step")
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
@@ -159,11 +159,11 @@ func TestTrainerNavigationE2E(t *testing.T) {
 
 	// Wait for the terminal's first frame before sending input, so startup is
 	// synchronized without assuming that the welcome text is emitted separately.
-	waitForTrainerOutput(t, tm, "first terminal frame", func(output []byte) bool {
+	waitForOutput(t, tm, "first terminal frame", func(output []byte) bool {
 		return len(output) > 0
 	})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	waitForTrainerText(t, tm, "main menu to render after Enter", "Start", "Learn")
+	waitForText(t, tm, "main menu to render after Enter", "Start", "Learn")
 
 	// Main Menu -> Navigate to Vim Trainer (index 4: Start, Learn, Keymaps, LazyVim, Vim Trainer)
 	for i := 0; i < 4; i++ {
@@ -196,7 +196,7 @@ func TestTrainerStartLessonE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "trainer module menu before starting lesson", "Horizontal", "Vertical", "Module")
+	waitForText(t, tm, "trainer module menu before starting lesson", "Horizontal", "Vertical", "Module")
 
 	// Press Enter to start lesson on first module (Horizontal)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
@@ -227,7 +227,7 @@ func TestTrainerInputE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "lesson screen before typing an answer", "Mission", "Code", "Lesson")
+	waitForText(t, tm, "lesson screen before typing an answer", "Mission", "Code", "Lesson")
 
 	// Type "w" as input (common first lesson answer)
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
@@ -267,7 +267,7 @@ func TestTrainerBackspaceE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "lesson input screen before backspace", "Mission", "Code", "Lesson")
+	waitForText(t, tm, "lesson input screen before backspace", "Mission", "Code", "Lesson")
 
 	// Press backspace
 	tm.Send(tea.KeyMsg{Type: tea.KeyBackspace})
@@ -298,7 +298,7 @@ func TestTrainerModuleNavigationE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "trainer module menu before cursor navigation", "Horizontal", "Vertical")
+	waitForText(t, tm, "trainer module menu before cursor navigation", "Horizontal", "Vertical")
 
 	// Navigate down through modules using j
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
@@ -332,7 +332,7 @@ func TestTrainerEscapeE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "lesson screen before Escape", "Mission", "Code", "Lesson")
+	waitForText(t, tm, "lesson screen before Escape", "Mission", "Code", "Lesson")
 
 	// Press Escape to go back to menu
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
@@ -364,7 +364,7 @@ func TestTrainerLessonProgressE2E(t *testing.T) {
 	)
 
 	// Complete first exercise
-	waitForTrainerText(t, tm, "first lesson screen before answering", "Mission", "Code", "Lesson")
+	waitForText(t, tm, "first lesson screen before answering", "Mission", "Code", "Lesson")
 
 	// Get the current exercise's optimal solution
 	exercise := m.TrainerGameState.CurrentExercise
@@ -477,7 +477,7 @@ func TestTextObjectsVisualSelectionE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "text-object lesson screen before typing", "Mission", "Code", "Lesson")
+	waitForText(t, tm, "text-object lesson screen before typing", "Mission", "Code", "Lesson")
 
 	// Type "iw" to see visual selection
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
@@ -514,7 +514,7 @@ func TestBossFlowE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "trainer module menu before starting boss fight", "Horizontal", "Module")
+	waitForText(t, tm, "trainer module menu before starting boss fight", "Horizontal", "Module")
 
 	// Press 'b' to start boss fight
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
@@ -544,7 +544,7 @@ func TestLockedModuleMessageE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "locked trainer module menu before selection", "Vertical", "Module")
+	waitForText(t, tm, "locked trainer module menu before selection", "Vertical", "Module")
 
 	// Try to start locked module
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
@@ -592,7 +592,7 @@ func TestTrainerResponsiveE2E(t *testing.T) {
 				teatest.WithInitialTermSize(sz.width, sz.height),
 			)
 
-			waitForTrainerText(t, tm, "responsive lesson output before quitting", "Mission", "Code", "Lesson")
+			waitForText(t, tm, "responsive lesson output before quitting", "Mission", "Code", "Lesson")
 			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 			tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
@@ -633,7 +633,7 @@ func TestPracticeModeE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	waitForTrainerText(t, tm, "trainer module menu before starting practice", "Horizontal", "Module")
+	waitForText(t, tm, "trainer module menu before starting practice", "Horizontal", "Module")
 
 	// Press 'p' to start practice
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
