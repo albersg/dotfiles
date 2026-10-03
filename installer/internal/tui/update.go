@@ -788,6 +788,88 @@ func isMenuEasterEgg(candidate string) bool {
 	return false
 }
 
+// The OS step's option positions (model.go, ScreenOSSelect). They are named so
+// the preselection and the menu cannot drift apart silently.
+const (
+	osOptionMac    = 0
+	osOptionLinux  = 1
+	osOptionTermux = 2
+)
+
+// osOptionIndex returns the OS menu option the wizard's cursor should start on
+// for a detected platform.
+//
+// Every platform constant the system package declares has an explicit case
+// here, and the switch has no default: a platform it does not know returns
+// ok=false, so nothing can fall through to macOS. That fall-through was the
+// defect this replaces, where an else branch compared against one constant and
+// silently meant "not generic Linux, therefore macOS" for Debian, Ubuntu, Arch,
+// Fedora, Termux and WSL alike.
+func osOptionIndex(detected system.OSType) (index int, ok bool) {
+	switch detected {
+	case system.OSMac:
+		return osOptionMac, true
+	case system.OSLinux, system.OSArch, system.OSDebian, system.OSFedora, system.OSWSL:
+		// WSL is a hosting environment: detection reports the distribution when
+		// it recognises one and OSWSL only when it does not, but either way the
+		// menu option that matches it is Linux.
+		return osOptionLinux, true
+	case system.OSTermux:
+		return osOptionTermux, true
+	case system.OSUnknown:
+		// Detection failed and the menu has no "unknown" entry. Signal that
+		// there is nothing to preselect rather than claiming a platform.
+		return 0, false
+	}
+	return 0, false
+}
+
+// The shell step's option positions (model.go, ScreenShellSelect), named for the
+// same reason as the OS positions above.
+const (
+	shellOptionFish    = 0
+	shellOptionZsh     = 1
+	shellOptionNushell = 2
+)
+
+// shellOptionIndex returns the shell menu option that matches a detected login
+// shell. The bool is false for a shell the menu does not offer (bash, dash and
+// the rest), so a caller cannot mistake one of them for Fish.
+func shellOptionIndex(shell string) (index int, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(shell)) {
+	case "fish":
+		return shellOptionFish, true
+	case "zsh":
+		return shellOptionZsh, true
+	case "nu", "nushell":
+		return shellOptionNushell, true
+	}
+	return 0, false
+}
+
+// shellCursor is where the shell step's cursor starts. A shell the user already
+// chose wins, so stepping back to the screen keeps their answer; otherwise the
+// detected login shell is used; when neither is a shell the menu lists, the
+// cursor takes the first entry.
+func (m Model) shellCursor() int {
+	if index, ok := shellOptionIndex(m.Choices.Shell); ok {
+		return index
+	}
+	if m.SystemInfo != nil {
+		if index, ok := shellOptionIndex(m.SystemInfo.UserShell); ok {
+			return index
+		}
+	}
+	return 0
+}
+
+// enterShellSelect moves to the shell step with the cursor on the detected
+// shell, so the screen's "Current shell" line and the cursor agree.
+func (m *Model) enterShellSelect() {
+	m.Screen = ScreenShellSelect
+	m.Cursor = m.shellCursor()
+}
+
 func (m Model) startTrainer() (tea.Model, tea.Cmd) {
 	stats := trainer.LoadStats()
 	if stats == nil {
@@ -821,11 +903,14 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		switch {
 		case strings.Contains(selected, "Start Installation"):
 			m.Screen = ScreenOSSelect
-			// Pre-select detected OS
-			if m.SystemInfo.OS == system.OSLinux {
-				m.Cursor = 1 // Linux is second option
+			// Start the cursor on the detected platform. Every platform the
+			// system package declares is mapped by osOptionIndex; when detection
+			// named nothing the menu keeps its first entry, which is a positional
+			// default rather than a claim that the host is macOS.
+			if index, ok := osOptionIndex(m.SystemInfo.OS); ok {
+				m.Cursor = index
 			} else {
-				m.Cursor = 0 // macOS is first option (default)
+				m.Cursor = 0
 			}
 		case strings.Contains(selected, "Learn About Tools"):
 			m.Screen = ScreenLearnTerminals
@@ -927,8 +1012,7 @@ func (m Model) goBackInstallStep() (tea.Model, tea.Cmd) {
 		m.Choices.Shell = ""
 
 	case ScreenWMSelect:
-		m.Screen = ScreenShellSelect
-		m.Cursor = 0
+		m.enterShellSelect()
 		m.Choices.WindowMgr = ""
 
 	case ScreenNvimSelect:
@@ -1007,15 +1091,15 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 		if m.Choices.OS == "termux" {
 			m.Choices.Terminal = "none"
 			m.Choices.InstallFont = true // Install Nerd Font for Termux
-			m.Screen = ScreenShellSelect
+			m.enterShellSelect()
 		} else if m.SystemInfo.IsWSL {
 			m.Choices.Terminal = "none"
 			m.Choices.InstallFont = false // Fonts should be installed on Windows host
-			m.Screen = ScreenShellSelect
+			m.enterShellSelect()
 		} else {
 			m.Screen = ScreenTerminalSelect
+			m.Cursor = 0
 		}
-		m.Cursor = 0
 
 	case ScreenTerminalSelect:
 		term := strings.ToLower(strings.Split(options[m.Cursor], " ")[0])
@@ -1030,15 +1114,14 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 
 		if term != "none" {
 			m.Screen = ScreenFontSelect
+			m.Cursor = 0
 		} else {
-			m.Screen = ScreenShellSelect
+			m.enterShellSelect()
 		}
-		m.Cursor = 0
 
 	case ScreenFontSelect:
 		m.Choices.InstallFont = m.Cursor == 0
-		m.Screen = ScreenShellSelect
-		m.Cursor = 0
+		m.enterShellSelect()
 
 	case ScreenShellSelect:
 		m.Choices.Shell = strings.ToLower(options[m.Cursor])

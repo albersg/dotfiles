@@ -668,7 +668,14 @@ func (m Model) GetScreenDescription() string {
 	case ScreenFontSelect:
 		return "Iosevka Term Nerd Font is required for icons and glyphs"
 	case ScreenShellSelect:
-		return "Current shell: " + m.SystemInfo.UserShell
+		// The line names the detected shell and says what the cursor is doing: it
+		// starts on the detected shell when the menu lists it. The old line stated
+		// the current shell and left the cursor on Fish, so the two contradicted
+		// each other whenever the account did not already use Fish.
+		if m.SystemInfo == nil || m.SystemInfo.UserShell == "" || m.SystemInfo.UserShell == "unknown" {
+			return "Select your shell — the cursor starts on the detected shell when the menu lists it"
+		}
+		return "Current shell: " + m.SystemInfo.UserShell + " — the cursor starts on it when the menu lists it"
 	case ScreenWMSelect:
 		return "Terminal multiplexer for managing sessions"
 	case ScreenNvimSelect:

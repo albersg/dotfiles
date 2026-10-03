@@ -12,6 +12,12 @@ import (
 func TestFullInstallationFlow(t *testing.T) {
 	t.Run("complete flow: welcome -> main menu -> installation screens", func(t *testing.T) {
 		m := NewModel()
+		// Pin the host so the flow is the same on every machine. The wizard's OS
+		// step now starts its cursor on the detected platform, and the shell step
+		// on the detected login shell, so a model built from the real host walked
+		// a different path on a Debian laptop than on the macOS CI runner. This
+		// test walks the macOS path.
+		m.SystemInfo = &system.SystemInfo{OS: system.OSMac, OSName: "macOS", UserShell: "fish"}
 
 		// Start at welcome screen
 		if m.Screen != ScreenWelcome {
@@ -34,8 +40,7 @@ func TestFullInstallationFlow(t *testing.T) {
 			t.Fatalf("Expected ScreenOSSelect, got %v", m.Screen)
 		}
 
-		// Select macOS (cursor at 0) — override WSL for standard flow test
-		m.SystemInfo.IsWSL = false
+		// Select macOS (cursor at 0; the preselection puts it there for this host)
 		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
 
