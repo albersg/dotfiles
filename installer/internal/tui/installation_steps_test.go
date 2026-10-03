@@ -197,6 +197,61 @@ func TestStepCloneRepository(t *testing.T) {
 	})
 }
 
+// TestStepInstallTerminalCopiesFromCheckout is the defect this change fixes:
+// the terminal step resolved its configuration sources from the literal
+// "dotfiles" directory under the working directory instead of from the checkout
+// the clone step created for this run. The test builds a checkout in a
+// temporary directory, runs the step from an unrelated working directory, and
+// asserts the configuration lands in a temporary HOME carrying the checkout's
+// content. A cwd-relative source cannot resolve by accident here.
+func TestStepInstallTerminalCopiesFromCheckout(t *testing.T) {
+	checkout := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	const config = "checkout alacritty\n"
+	if err := os.WriteFile(filepath.Join(checkout, repoAssetAlacritty), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Point PATH at a directory holding a fake alacritty so the step takes its
+	// "already installed" branch and never installs anything.
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "alacritty"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	// Run from a directory that has no "dotfiles" folder, so the old
+	// cwd-relative source path does not exist.
+	originalWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(originalWd)
+
+	m := &Model{
+		SystemInfo: &system.SystemInfo{OS: system.OSLinux},
+		Choices:    UserChoices{Terminal: "alacritty", OS: "linux"},
+		RepoDir:    checkout,
+	}
+
+	if err := stepInstallTerminal(m); err != nil {
+		t.Fatalf("stepInstallTerminal failed outside a directory containing dotfiles/: %v", err)
+	}
+
+	copied, err := os.ReadFile(filepath.Join(home, ".config", "alacritty", "alacritty.toml"))
+	if err != nil {
+		t.Fatalf("the terminal configuration was not copied from the checkout: %v", err)
+	}
+	if string(copied) != config {
+		t.Errorf("copied configuration = %q, want the checkout's content %q", copied, config)
+	}
+}
+
 // TestStepInstallShellZsh tests zsh installation step
 func TestStepInstallShellZsh(t *testing.T) {
 	t.Run("zsh step patches config based on WM choice - none", func(t *testing.T) {

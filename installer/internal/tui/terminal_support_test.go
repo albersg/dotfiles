@@ -191,3 +191,50 @@ func TestStepInstallTerminalRefusesKittyOnEveryNonMacPlatform(t *testing.T) {
 		})
 	}
 }
+
+// TestTerminalScriptCopiesFromCheckout is the interactive half of the same
+// defect: the generated script hardcoded `cp "dotfiles/..."`, a path relative
+// to the working directory. The script runs under `set -e`, so that copy
+// aborted the interactive step whenever the installer was not run from a
+// directory that happened to contain a `dotfiles` folder. With the checkout
+// recorded on the model, the script must copy from that checkout's absolute
+// path instead.
+func TestTerminalScriptCopiesFromCheckout(t *testing.T) {
+	cases := []struct {
+		terminal string
+		asset    string
+	}{
+		{"alacritty", repoAssetAlacritty},
+		{"wezterm", repoAssetWezterm},
+		{"ghostty", repoAssetGhostty},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.terminal, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			// Leave PATH without the terminal binary so the script also carries
+			// the install route. The configuration copy is what this test pins.
+			t.Setenv("PATH", t.TempDir())
+
+			checkout := t.TempDir()
+			m := &Model{
+				SystemInfo: &system.SystemInfo{OS: system.OSLinux},
+				Choices:    UserChoices{Terminal: tc.terminal, OS: "linux"},
+				RepoDir:    checkout,
+			}
+
+			script, err := getTerminalScript(m)
+			if err != nil {
+				t.Fatalf("getTerminalScript(%s) failed: %v", tc.terminal, err)
+			}
+
+			want := filepath.Join(checkout, tc.asset)
+			if !strings.Contains(script, want) {
+				t.Errorf("the script does not copy from the checkout: %q is missing\nscript:\n%s", want, script)
+			}
+			if strings.Contains(script, `"dotfiles/`+tc.asset) {
+				t.Errorf("the script still copies from a cwd-relative dotfiles path")
+			}
+		})
+	}
+}
