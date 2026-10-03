@@ -872,21 +872,25 @@ func TestRestoreBackupScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		waitForTrainerText(t, tm, "restore backup list", "Restore", "Backup", "Back")
-
-		// Select first backup (Enter)
+		// Wait for the initial frame without depending on its content, then select
+		// the first backup. The cell-diff stream is not a reliable text predicate;
+		// capture output until the transition repaint arrives and inspect it after
+		// the program finishes.
+		seen := waitForAnyOutput(t, tm)
 		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-
-		// Should go to restore confirm screen
-		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-			return bytes.Contains(bts, []byte("Confirm")) ||
-				bytes.Contains(bts, []byte("Restore")) ||
-				bytes.Contains(bts, []byte("Delete")) ||
-				bytes.Contains(bts, []byte("Cancel"))
-		}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
-
+		transition := &bytes.Buffer{}
+		teatest.WaitFor(t, io.TeeReader(tm.Output(), transition), func(bts []byte) bool {
+			return len(bts) > 0
+		}, teatest.WithCheckInterval(2*time.Millisecond), teatest.WithDuration(2*time.Second))
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+		finalOutput := append(seen.Bytes(), transition.Bytes()...)
+		finalOutput = append(finalOutput, readAll(t, tm.FinalOutput(t))...)
+		finalOutputText := plainOutput(finalOutput)
+		if !strings.Contains(finalOutputText, "Confirm Restore") {
+			t.Errorf("final output did not show the restore confirmation screen:\n%s", finalOutputText)
+		}
 	})
 }
 
@@ -906,19 +910,17 @@ func TestRestoreConfirmScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		out := waitForTrainerText(t, tm, "restore confirmation options", "Restore", "Delete", "Cancel")
-
-		// Should show the three options
-		hasOptions := bytes.Contains(out, []byte("Restore")) ||
-			bytes.Contains(out, []byte("Delete")) ||
-			bytes.Contains(out, []byte("Cancel"))
-
-		if !hasOptions {
-			t.Log("Output may not show all options yet, checking with WaitFor")
-		}
-
+		seen := waitForAnyOutput(t, tm)
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+		finalOutput := append(seen.Bytes(), readAll(t, tm.FinalOutput(t))...)
+		finalOutputText := plainOutput(finalOutput)
+		for _, option := range []string{"Yes, restore this backup", "Delete this backup", "Cancel"} {
+			if !strings.Contains(finalOutputText, option) {
+				t.Errorf("final output did not show option %q:\n%s", option, finalOutputText)
+			}
+		}
 	})
 
 	t.Run("escape returns to backup list", func(t *testing.T) {

@@ -505,3 +505,11 @@ performance claim.
 returned no paths. Phase 2's test half is **complete**: trainer and teatest sleeps have been removed
 by their appropriate shapes, the three required package reruns and full suite pass, and the goldens
 remain unchanged.
+
+### Restore-screen CI follow-up
+
+CI exposed that `tm.Output()` is a cell-diff stream, not a complete frame: styled text may be split
+across escape sequences, and earlier waits consume bytes. The restore navigation and confirmation
+option tests now finish the program and assert on the captured output plus `FinalOutput`, rather than
+searching for screen text in the diff stream. Local runs validate the new assertions, but only CI can
+establish whether the former diff-stream failure reproduces there.
