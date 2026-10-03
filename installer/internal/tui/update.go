@@ -733,35 +733,31 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	// Trainer screens
 	case ScreenTrainerMenu:
 		// Save stats and return to main menu. Escape also cancels an armed
-		// whole-profile reset, so it can never stay armed behind the menu.
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
+		// whole-profile reset, so it can never stay armed behind the menu. The
+		// message is cleared first so a failed save can replace it with the
+		// warning instead of being wiped by it.
 		m.TrainerMessage = ""
+		saveTrainerStats(&m)
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 	case ScreenTrainerLesson, ScreenTrainerPractice:
 		// Esc is handled here before the screen-specific handlers run, so this
 		// path owns the save for the exercise screens.
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
-		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = ""
+		saveTrainerStats(&m)
+		m.Screen = ScreenTrainerMenu
 	case ScreenTrainerBoss:
 		// Save the run and report the abandoned fight instead of leaving silently.
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
+		// The save runs after the message so a failed save is reported instead
+		// of the abandoned-fight line.
 		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = "Boss fight abandoned!"
+		saveTrainerStats(&m)
 	case ScreenTrainerResult, ScreenTrainerBossResult:
 		// Return to trainer menu
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
 		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = ""
+		saveTrainerStats(&m)
 	// Main menu - quit
 	case ScreenMainMenu:
 		m.Quitting = true
@@ -1776,7 +1772,15 @@ func (m Model) handleRestoreConfirmKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenComplete
 			m.Choices = UserChoices{} // Clear choices to indicate restore
 		case 1: // Delete
-			_ = system.DeleteBackup(backup.Path)
+			// A failed deletion used to be discarded and the screen advanced as
+			// if the backup were gone, so the list still held it while the UI
+			// claimed otherwise. Report it the same way the restore failure
+			// above does instead of moving on.
+			if err := system.DeleteBackup(backup.Path); err != nil {
+				m.Screen = ScreenError
+				m.ErrorMsg = "Failed to delete backup: " + err.Error()
+				return m, nil
+			}
 			// Refresh backups list
 			m.AvailableBackups = system.ListBackups()
 			m.Screen = ScreenRestoreBackup
@@ -2052,8 +2056,8 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 			if m.TrainerStats.IsModuleUnlocked(module.ID) {
 				progress := m.TrainerStats.GetModuleProgress(module.ID)
 				progress.ResetModulePractice()
-				trainer.SaveStats(m.TrainerStats)
 				m.TrainerMessage = "🔄 Practice progress reset for " + module.Name + ". Try again!"
+				saveTrainerStats(&m)
 			} else {
 				m.TrainerMessage = "🔒 Module locked. Complete previous boss first."
 			}
@@ -2079,9 +2083,7 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 		}
 	case "q":
 		// Save stats and go back to main menu
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
+		saveTrainerStats(&m)
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 	case trainerResetKey:
@@ -2090,6 +2092,21 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// saveTrainerStats persists the trainer profile and reports a failed save on the
+// trainer message line instead of discarding the error. clearTrainerProfile
+// already checked its own save; every other save went straight to
+// trainer.SaveStats, so on a read-only or missing HOME the player lost progress
+// with no warning. A caller that sets its own message must call this after it,
+// so the warning replaces the success text rather than being wiped by it.
+func saveTrainerStats(m *Model) {
+	if m.TrainerStats == nil {
+		return
+	}
+	if err := trainer.SaveStats(m.TrainerStats); err != nil {
+		m.TrainerMessage = "⚠️ Could not save trainer progress: " + err.Error()
+	}
 }
 
 // clearTrainerProfile erases the whole trainer profile and persists the empty
@@ -2224,7 +2241,7 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 		if m.TrainerGameState.IsPracticeMode && exercise.ID != "" {
 			progress := m.TrainerStats.GetModuleProgress(m.TrainerGameState.CurrentModule)
 			progress.RecordPracticeResult(exercise.ID, validation.IsCorrect)
-			trainer.SaveStats(m.TrainerStats)
+			saveTrainerStats(&m)
 		}
 
 		m.Screen = ScreenTrainerResult
@@ -2386,24 +2403,20 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 				m.Screen = ScreenTrainerPractice
 			}
 		} else {
-			// Session complete
-			if m.TrainerStats != nil {
-				trainer.SaveStats(m.TrainerStats)
-			}
-
+			// Session complete. The save runs after the celebration message so a
+			// failed save is reported instead of being hidden behind it.
 			if m.TrainerGameState.IsPracticeMode {
 				m.TrainerMessage = "🎉 All exercises mastered! You're a Vim master! 🏆"
 			} else {
 				m.TrainerMessage = "🎉 Lesson complete! Practice mode unlocked!"
 			}
+			saveTrainerStats(&m)
 			m.Screen = ScreenTrainerMenu
 		}
 
 	case "q":
 		// Return to menu
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
+		saveTrainerStats(&m)
 		m.Screen = ScreenTrainerMenu
 	}
 
@@ -2415,11 +2428,9 @@ func (m Model) handleTrainerBossResultKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "enter", " ", "q":
 		// Return to menu
-		if m.TrainerStats != nil {
-			trainer.SaveStats(m.TrainerStats)
-		}
-		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = ""
+		saveTrainerStats(&m)
+		m.Screen = ScreenTrainerMenu
 	}
 
 	return m, nil

@@ -210,6 +210,13 @@ func (m *Model) repoDir() (string, error) {
 // see stepInstallHomebrew.
 const homebrewInstallerURL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 
+// ghosttyInstallerURL is the upstream install script the terminal step runs on
+// the hosts where Ghostty is not a native package. It is downloaded to a file
+// before it is run, for the same reason homebrewInstallerURL is: a failed
+// download must keep curl's exit status instead of expanding to an empty
+// command substitution. Both the step and the interactive script use it.
+const ghosttyInstallerURL = "https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh"
+
 func stepInstallHomebrew(m *Model) error {
 	stepID := "homebrew"
 
@@ -932,7 +939,41 @@ func stepInstallTerminal(m *Model) error {
 					SendLog(stepID, line)
 				})
 			} else {
-				result = system.RunWithLogs(`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh)"`, nil, func(line string) {
+				// The installer is downloaded and then run as two commands, for the
+				// same reason the Homebrew step does it: the old
+				// `/bin/bash -c "$(curl -fsSL ...)"` ran curl inside a command
+				// substitution, where a failed download expands to the empty
+				// string: the shell it was handed ran nothing and still exited 0.
+				// A 403 from raw.githubusercontent.com therefore reached the
+				// caller as a successful installation and the step copied
+				// configuration under a success line. Downloading to a file keeps
+				// curl's own exit status, which is the failure this step has to
+				// see. The file lives in a temporary directory this step owns and
+				// is removed on every path out.
+				installer, err := os.CreateTemp("", "ghostty-install-*.sh")
+				if err != nil {
+					return wrapStepError("terminal", "Install Ghostty",
+						"Failed to create a temporary file for the Ghostty install script",
+						err)
+				}
+				installerPath := installer.Name()
+				if err := installer.Close(); err != nil {
+					return wrapStepError("terminal", "Install Ghostty",
+						"Failed to create a temporary file for the Ghostty install script",
+						err)
+				}
+				defer func() { _ = os.Remove(installerPath) }()
+
+				if result := system.RunWithLogs(
+					fmt.Sprintf("curl -fsSL -o %q %s", installerPath, ghosttyInstallerURL), nil, func(line string) {
+						SendLog(stepID, line)
+					}); result.Error != nil {
+					return wrapStepError("terminal", "Install Ghostty",
+						"Failed to download the Ghostty install script. Check your internet connection and whether raw.githubusercontent.com is reachable; a proxy or firewall can return an HTTP error there.",
+						result.Error)
+				}
+
+				result = system.RunWithLogs(fmt.Sprintf("/bin/bash %q", installerPath), nil, func(line string) {
 					SendLog(stepID, line)
 				})
 			}
@@ -2287,12 +2328,21 @@ func stepInstallWM(m *Model) error {
 			}
 		}
 
-		// Install plugins
+		// Install plugins. The result is checked instead of discarded: TPM fails
+		// here with no running tmux server or no network, and logging
+		// "✓ Tmux configured" over it left the user with an empty plugin set and
+		// no way to tell. The step's own work is already done and tmux retries
+		// the plugins through TPM at startup, so the failure is reported as a
+		// warning and the success line is withheld.
 		SendLog(stepID, "Installing Tmux plugins...")
-		system.RunWithLogs(filepath.Join(homeDir, ".tmux/plugins/tpm/bin/install_plugins"), nil, func(line string) {
+		result := system.RunWithLogs(filepath.Join(homeDir, ".tmux/plugins/tpm/bin/install_plugins"), nil, func(line string) {
 			SendLog(stepID, line)
 		})
-		SendLog(stepID, "✓ Tmux configured")
+		if result.Error != nil {
+			SendLog(stepID, fmt.Sprintf("Warning: could not install the Tmux plugins: %v", result.Error))
+		} else {
+			SendLog(stepID, "✓ Tmux configured")
+		}
 
 	case "zellij":
 		if !system.CommandExists("zellij") {
