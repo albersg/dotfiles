@@ -42,6 +42,18 @@ import (
 // panel summary is placed first and keeps its rows: when the spare rows cannot
 // hold both, the facts win and the creature is the one that gives way.
 //
+// THE TRAINER'S FLOOR IS A STATED EXCEPTION. The trainer composes its own rows
+// rather than going through frameWithPanels, and at or below trainerFloorHeight
+// (the documented 80x24 floor) trainerCompanionRows reserves the legacy one-row
+// mini whatever the ladder would have tried. That rung is not an accident: the
+// trainer's one-column body at the floor fills the frame and leaves exactly ONE
+// spare slot, so the three-row compact rung has nowhere to stand, and the 80x24
+// trainer goldens are pinned to the one-row mini. Above the floor the trainer
+// runs this same ladder unchanged. TestTrainerCompanionFloorIsADocumentedException
+// pins that reading -- one row at the floor, a taller rung above it -- so the
+// exception is a stated rule with a guard rather than a deviation from the
+// documented ladder.
+//
 // The gaze is composed rather than drawn: every frame table holds one neutral
 // frame per state, and companionGazeRows moves the pupil pair one column left or
 // right and, where the art has a second eye row, up to it. Those two cells are the
@@ -2285,6 +2297,12 @@ func (m Model) companionRow(stage int) string {
 // composition, so it supplies the rows already spent and the legend's height;
 // the ladder and renderer remain shared. At the documented floor only the legacy
 // one-row slot is available, preserving the 80x24 layout exactly.
+//
+// That forced mini is the ladder's one stated exception, described where the
+// ladder is stated (the package comment above): the trainer's floor body leaves
+// exactly one spare row, so the compact rung cannot be drawn there, and the
+// 80x24 goldens are pinned to the mini. Above trainerFloorHeight this function
+// does not touch the height and the shared ladder chooses the rung.
 func (m Model) trainerCompanionRows(stage, precedingRows, footerRows int) []string {
 	height := m.companionHeightNow()
 	if m.Height <= trainerFloorHeight {
