@@ -667,7 +667,7 @@ dotfiles --non-interactive --shell=<shell> [options]
 | Flag | Values | Description |
 |------|--------|-------------|
 | `--shell` | `fish`, `zsh`, `nushell` | Shell to install (required) |
-| `--terminal` | `alacritty`, `wezterm`, `kitty`, `ghostty`, `none` | Terminal emulator |
+| `--terminal` | `alacritty`, `wezterm`, `ghostty`, `none`, `kitty` (macOS only) | Terminal emulator |
 | `--wm` | `tmux`, `zellij`, `herdr`, `none` | Window manager |
 | `--nvim` | | Install Neovim configuration |
 | `--font` | | Install Nerd Font |
@@ -772,7 +772,7 @@ The installer includes educational content to help you understand each tool:
 | **macOS** | 10.15+ |
 | **Linux** | Ubuntu 20.04+, Debian, Fedora/RHEL, Arch |
 | **Termux** | Android terminal emulator |
-| **Homebrew** | Will be installed if missing (macOS/Linux, except Fedora) |
+| **Homebrew** | Will be installed if missing (macOS/Linux, except Fedora and Arch, which keep `dnf` and `pacman`) |
 | **Git and curl** | Git for cloning the repository; curl for downloading packages and installers |
 | **Internet** | For downloading packages |
 
