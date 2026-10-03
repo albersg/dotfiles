@@ -4,9 +4,11 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strings"
 	"testing"
 
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // TestEveryScreenIsCoveredByAFrameGuard guards the class of defect where a screen
@@ -137,6 +139,215 @@ func screenConstantsInDeclarationOrder(t *testing.T) []string {
 type screenCase struct {
 	name  string
 	model Model
+}
+
+// measuredTerminalSizes is the grid a measurement of every screen ran against:
+// twelve terminals from the 60x20 the trainer documents as too small through the
+// 80x24 floor and the widths the responsive layout was designed on. It is the
+// grid the frame guards never covered as a class -- each sized its own case and
+// checked one axis -- which is how four screens shipped overflowing or clipping
+// at sizes nobody rendered.
+var measuredTerminalSizes = []struct {
+	name          string
+	width, height int
+}{
+	{"80x24", 80, 24},
+	{"90x28", 90, 28},
+	{"100x25", 100, 25},
+	{"100x30", 100, 30},
+	{"120x24", 120, 24},
+	{"120x34", 120, 34},
+	{"140x44", 140, 44},
+	{"160x50", 160, 50},
+	{"200x60", 200, 60},
+	{"227x62", 227, 62},
+	{"80x30", 80, 30},
+	{"60x20", 60, 20},
+}
+
+// TestEveryScreenFitsEveryTerminalSize is the class guard for the defect the
+// per-screen guards could not see: a screen whose height and width fit the one
+// terminal it was measured at but not another. The frame guards sized their own
+// case each (the 80x24 floor, then 160x50 and 227x62), so nothing rendered the
+// sizes between them, and a screen could render 50 rows in a 44-row terminal or
+// 76 columns in a 60-column one without a single test complaining.
+//
+// It renders every screen the existing guards already enumerate -- the
+// installer's states and the trainer's -- at every measured size and asserts the
+// two things the terminal itself enforces without saying so: no screen draws more
+// rows than the terminal has, and no visible line is wider than the terminal. A
+// line is measured after its escape sequences are stripped, with each wide rune
+// counted as the two cells it occupies.
+//
+// The case count is pinned rather than derived: the point of this guard is that
+// every screen is in it, so a screen silently dropping out of the enumeration has
+// to fail here instead of shrinking the measurement.
+func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
+	const measuredScreens = 53 // 47 installer states plus the trainer's 6
+
+	cases := terminalFitCases()
+	if len(cases) != measuredScreens {
+		t.Fatalf("the guard enumerates %d screens, want the measured %d: a screen that is not rendered here can overflow its terminal unmeasured",
+			len(cases), measuredScreens)
+	}
+
+	checked := 0
+	for _, c := range cases {
+		c := c
+		for _, size := range measuredTerminalSizes {
+			size := size
+			t.Run(c.name+"/"+size.name, func(t *testing.T) {
+				m := c.build(t)
+				m.Width, m.Height = size.width, size.height
+				assertScreenFitsTerminal(t, c.name, size.width, size.height, m.View())
+			})
+			checked++
+		}
+	}
+
+	if want := len(cases) * len(measuredTerminalSizes); checked != want {
+		t.Fatalf("the guard rendered %d screen x size cases, want %d", checked, want)
+	}
+	t.Logf("rendered %d screens at %d sizes: %d screen x size cases", len(cases), len(measuredTerminalSizes), checked)
+}
+
+// terminalFitCase is one screen this guard renders at every measured size. The
+// builder takes the subtest's *testing.T so the per-case isolation (HOME, the
+// pinned greeting time) is scoped to the case and not to the whole guard.
+type terminalFitCase struct {
+	name  string
+	build func(t *testing.T) Model
+}
+
+// terminalFitCases is the enumeration the guard renders: the installer's states
+// and the trainer's, taken from the same lists the frame guards already iterate.
+// Nothing new is invented here -- a screen the guards do not enumerate is caught
+// by TestEveryScreenIsCoveredByAFrameGuard, not silently left out of this one.
+func terminalFitCases() []terminalFitCase {
+	cases := make([]terminalFitCase, 0, len(installerFrameScreenNames)+len(trainerLeakScreenNames))
+
+	for _, name := range installerFrameScreenNames {
+		name := name
+		cases = append(cases, terminalFitCase{name, func(t *testing.T) Model {
+			return installerFrameCase(t, name)
+		}})
+	}
+	for _, name := range trainerLeakScreenNames {
+		name := name
+		cases = append(cases, terminalFitCase{name, func(t *testing.T) Model {
+			return trainerLeakFrameCase(t, name)
+		}})
+	}
+
+	return cases
+}
+
+// assertScreenFitsTerminal measures one rendered screen the way a terminal does.
+// The escapes are stripped before the width is taken, so the cell count is the
+// visible ink rather than the bytes: lipgloss.Width counts a wide rune as the two
+// columns it occupies, and a colour change adds nothing. A screen shorter than
+// its terminal is fine; one that is taller or wider is not, because the terminal
+// takes the excess away without a marker.
+func assertScreenFitsTerminal(t *testing.T, name string, width, height int, view string) {
+	t.Helper()
+
+	if rows := renderedRowCount(view); rows > height {
+		t.Errorf("%s at %dx%d renders %d rows, want <= %d: the bottom of the screen falls off the terminal (OVERFLOW+%d)",
+			name, width, height, rows, height, rows-height)
+	}
+
+	widest, widestLine := 0, ""
+	for _, line := range strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n") {
+		if w := lipgloss.Width(line); w > widest {
+			widest, widestLine = w, line
+		}
+	}
+	if widest > width {
+		t.Errorf("%s at %dx%d draws a %d-column line, want <= %d: it is clipped silently at the terminal edge (WIDTH+%d): %q",
+			name, width, height, widest, width, widest-width, widestLine)
+	}
+
+	if widest == 0 && renderedRowCount(view) == 0 {
+		// A screen that renders nothing at all would pass both assertions while
+		// measuring nothing, so it is a failure rather than a silent pass.
+		t.Errorf("%s at %dx%d rendered an empty screen, so the guard measured nothing", name, width, height)
+	}
+}
+
+// TestTrainerCompanionFloorIsADocumentedException pins the one place the
+// companion ladder steps off its documented order. The ladder says the tallest
+// sprite the spare rows can hold -- full, else compact, else mini -- but the
+// trainer forces the one-row mini at or below trainerFloorHeight, where the
+// tracker's ladder-only reading calls the compact three-row rung. That reading
+// is now answered in the package comment where the ladder is stated: the floor
+// body leaves exactly one spare slot and the 80x24 goldens are pinned to the
+// mini. This guard holds the two halves of that answer -- one row at the floor,
+// a taller rung above it -- so a future change cannot quietly widen the
+// exception or drop the documented one-row floor face.
+func TestTrainerCompanionFloorIsADocumentedException(t *testing.T) {
+	// The ladder itself still documents the compact rung above the floor; if this
+	// stops holding, the exception's justification has changed and this guard
+	// should be re-read rather than silently adjusted.
+	if rung := companionHeight(companionCompactHeight); rung != companionCompactHeight {
+		t.Fatalf("the shared ladder returns %d rows for %d spare, want the compact rung %d: the trainer floor exception is written against that ladder",
+			rung, companionCompactHeight, companionCompactHeight)
+	}
+
+	floorSizes := []struct {
+		name          string
+		width, height int
+	}{
+		{"80x24", trainerFrameWidth, trainerFrameHeight},
+		{"120x24", 120, trainerFrameHeight},
+		{"60x20", 60, 20},
+	}
+
+	for _, name := range trainerLeakScreenNames {
+		name := name
+		for _, size := range floorSizes {
+			size := size
+			t.Run(name+"/"+size.name, func(t *testing.T) {
+				m := trainerLeakFrameCase(t, name)
+				m.Width, m.Height = size.width, size.height
+				m.Animating, m.PixelSprite = true, false
+				m.ink = companionInkFor(true)
+
+				_, rows := trainerViewCompanionArt(m.View())
+				if rows == 0 {
+					// A trainer screen that leaves the floor no spare row shows no
+					// creature, which is the ladder's own "else nothing" step.
+					return
+				}
+				if rows != companionMiniHeight {
+					t.Errorf("%s at %s draws %d companion rows, want the documented floor face of %d: the trainer floor exception is one row, not a taller rung",
+						name, size.name, rows, companionMiniHeight)
+				}
+			})
+		}
+	}
+
+	// Above the floor the exception does not apply: the trainer hands the height
+	// back to the shared ladder, so its screen draws more than the floor's one row.
+	m := trainerLeakFrameCase(t, "trainer-lesson")
+	m.Width, m.Height = 227, 62
+	m.Animating, m.PixelSprite = true, false
+	m.ink = companionInkFor(true)
+	if _, rows := trainerViewCompanionArt(m.View()); rows <= companionMiniHeight {
+		t.Errorf("the trainer above the floor draws %d companion rows, want more than the floor's %d: the exception has leaked above trainerFloorHeight",
+			rows, companionMiniHeight)
+	}
+
+	// The lesson is the trainer screen the floor must draw the creature on, so
+	// the exception is not vacuous: if this ever stops drawing, the floor face the
+	// package comment states no longer exists.
+	floor := trainerLeakFrameCase(t, "trainer-lesson")
+	floor.Width, floor.Height = trainerFrameWidth, trainerFrameHeight
+	floor.Animating, floor.PixelSprite = true, false
+	floor.ink = companionInkFor(true)
+	if _, rows := trainerViewCompanionArt(floor.View()); rows != companionMiniHeight {
+		t.Errorf("trainer-lesson at %dx%d draws %d companion rows, want the documented floor face of %d",
+			trainerFrameWidth, trainerFrameHeight, rows, companionMiniHeight)
+	}
 }
 
 // screensTheInstallerStatesNeverReach builds the trainer's screens at the frame

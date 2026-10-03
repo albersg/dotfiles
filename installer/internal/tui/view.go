@@ -113,10 +113,16 @@ func renderHint(h installerHint) string {
 	return AccentKeyStyle.Render(h.keys) + " " + HelpVerbStyle.Render(h.verb)
 }
 
-// footerHints packs hints into at most two rows within inner columns, the rows
-// the frame's footer may spend. The previous slice's budget is one row when it
-// fits and two at 80 columns, and it never reaches three: a screen that would
-// need a third has too many hints, not a taller footer.
+// footerMaxRows is the most rows the frame's footer may spend, whatever a screen
+// lists. It is a constant because the packing cap and a screen's own body budget
+// have to agree: a screen that reserved one footer row while the footer packed
+// two drew one row past the frame.
+const footerMaxRows = 2
+
+// footerHints packs hints into at most footerMaxRows rows within inner columns,
+// the rows the frame's footer may spend. The previous slice's budget is one row
+// when it fits and two at 80 columns, and it never reaches three: a screen that
+// would need a third has too many hints, not a taller footer.
 func footerHints(inner int, hints []installerHint) []string {
 	var rows []string
 	var row []installerHint
@@ -146,8 +152,8 @@ func footerHints(inner int, hints []installerHint) []string {
 		width += w
 	}
 	flush()
-	if len(rows) > 2 {
-		rows = rows[:2]
+	if len(rows) > footerMaxRows {
+		rows = rows[:footerMaxRows]
 	}
 	return rows
 }
@@ -174,16 +180,62 @@ func installerBodyRows(height, footerRows int) int {
 // the screen's vital sign in the meter tone on the right, justified across the
 // inner width. A screen with nothing to report passes an empty vital and gets
 // no filler.
+//
+// The header is ONE row, so the name and the vital have to share the inner width,
+// with at least a one-column gap while there is room for one. The installer's
+// headers are short enough that they always did; the trainer's were not -- a
+// lesson's vital packs a meter, the score, the streak and a countdown -- and
+// nothing capped the sum, so a 60-column terminal drew a 72- to 78-column header
+// and the terminal clipped the tail silently. The vital gives way first: the name
+// says which screen this is, while the vital repeats counts the body already
+// carries.
 func headerRow(name, vital string, inner int) string {
+	if inner > 0 && lipgloss.Width(name) > inner {
+		name = truncate(name, inner)
+	}
+	nameWidth := lipgloss.Width(name)
 	left := BrandStyle.Render(name)
 	if vital == "" {
 		return left
 	}
-	gap := inner - lipgloss.Width(name) - lipgloss.Width(vital)
+
+	available := inner - nameWidth - 1
+	if available < 0 {
+		// The name alone leaves no room for a gap, let alone a vital; the name is
+		// the fact and stays, the vital is dropped.
+		return left
+	}
+	if lipgloss.Width(vital) > available {
+		vital = truncateHeaderVital(vital, available)
+	}
+
+	gap := inner - nameWidth - lipgloss.Width(vital)
 	if gap < 1 {
 		gap = 1
 	}
 	return left + strings.Repeat(" ", gap) + vital
+}
+
+// truncateHeaderVital shortens a header's vital to width columns without
+// splitting its escape sequences, and ends with the shared cut marker in a style
+// whose own reset retires whatever colour the cut left active. It is the header's
+// counterpart to truncate: that one measures a string one rune at a time, which
+// is safe for the plain lines a body is counted in but would split the escaped
+// vital the trainer packs, so the header goes through lipgloss's truncation and
+// then marks the cut. The marker carries a meter tone rather than a bare glyph,
+// so its reset is always the line's last escape.
+func truncateHeaderVital(vital string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(vital) <= width {
+		return vital
+	}
+	if width <= lipgloss.Width(cutMarker) {
+		return MeterStyle.Render(cutMarker)
+	}
+	return lipgloss.NewStyle().MaxWidth(width-lipgloss.Width(cutMarker)).Render(vital) +
+		MeterStyle.Render(cutMarker)
 }
 
 // placeBodyTopMarginMax caps how far placeBody shifts a short body down: the
@@ -883,6 +935,21 @@ func renderEmblem(art string) []string {
 	return out
 }
 
+// wordmarkWidth is the columns the ASCII wordmark occupies: the widest row of
+// dotfilesText. It is measured from the art rather than written down, so an edit
+// to the wordmark cannot leave the splash's fit check stale. The splash keeps the
+// wordmark only while the body it will occupy is at least this wide; below that,
+// CenterHorizontally word-wraps each row (lipgloss wraps when a style is given a
+// width), which doubled the six-row wordmark into twelve and pushed the bottom
+// rule and the help footer off the terminal.
+func wordmarkWidth() int {
+	w := 0
+	for _, line := range strings.Split(strings.Trim(dotfilesText, "\n"), "\n") {
+		w = max(w, lipgloss.Width(line))
+	}
+	return w
+}
+
 // renderWordmark draws a multi-line wordmark one row at a time through the
 // title style, so the frame counts six rows rather than one six-row string.
 func renderWordmark(text string) []string {
@@ -937,8 +1004,18 @@ func (m Model) renderWelcome() string {
 
 	// Emblem plus wordmark. Only the colouring changed: the glyphs and the
 	// full/compact threshold are the measured decisions the geometry tests pin.
+	//
+	// The wordmark only fits where the body has as many columns as the art does.
+	// The two-column left column can be narrower than it -- 61 columns at a
+	// 140-column terminal -- and CenterHorizontally word-wraps a line wider than
+	// the width it is given, so the sixth-row-each wordmark doubled to twelve rows
+	// and took the bottom rule and the help footer off the screen. Where the
+	// wordmark cannot fit, the compact lockup is the one that can: the wordmark is
+	// dropped rather than the emblem, and the two-column floor below stays exactly
+	// as the layout tests pin it, because raising that floor would re-lay every
+	// screen at 124-150 columns instead of this one splash.
 	var body []string
-	if m.Height >= welcomeFullLockupHeight {
+	if m.Height >= welcomeFullLockupHeight && bodyWidth >= wordmarkWidth() {
 		body = append(body, renderEmblem(logo)...)
 		body = append(body, "")
 		body = append(body, renderWordmark(dotfilesText)...)
@@ -1262,9 +1339,16 @@ func (m Model) renderMenu(description string) string {
 	}
 	start, end := listWindow(m.Cursor, visible, len(rows))
 
+	// The description is one row of the menu's fixed body. A description wider
+	// than the frame -- the Herdr one is 65 columns -- makes lipgloss widen the
+	// whole block and the terminal clips the whole screen, not just the
+	// description, so it is cut to the inner width like every other single-row
+	// line. It is truncated rather than wrapped because menuBodyFixed counts one
+	// description row; a wrapped description would spend rows the menu's window
+	// and its visible-count arithmetic have already given to the list.
 	body := []string{
 		BrandStyle.Render(m.GetScreenTitle()),
-		MutedStyle.Render(description),
+		MutedStyle.Render(truncate(description, contentWidth(m))),
 		"",
 	}
 	body = append(body, rows[start:end]...)
@@ -1389,11 +1473,15 @@ const lazyVimTopicBodyFixed = 3
 
 // lazyVimTopicRows is the content rows the topic shows: the frame minus the
 // screen's own chrome. The view and the scroll keys both ask for it, so the
-// window the keys scroll is exactly the window the screen draws. It reserves a
-// one-row footer, which is what the navigate-page-return hints take at 80
-// columns.
+// window the keys scroll is exactly the window the screen draws -- which is why
+// it has to reserve the footer the frame will actually draw. It reserved ONE row
+// while the navigate-page-return hints pack into two at 60 columns, so the body
+// was a row too tall and the frame's last footer row was clipped. Because the
+// scroll handler shares this function and has no width to compute the exact
+// packing with, it reserves the footer's worst case, footerMaxRows; the frame
+// caps the footer at that many rows, so the body can never exceed the frame.
 func lazyVimTopicRows(height int) int {
-	rows := installerBodyRows(height, 1) - lazyVimTopicBodyFixed
+	rows := installerBodyRows(height, footerMaxRows) - lazyVimTopicBodyFixed
 	if rows < 1 {
 		rows = 1
 	}
