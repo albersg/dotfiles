@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -832,6 +833,38 @@ func TestBackupConfirmScreenE2E(t *testing.T) {
 	})
 }
 
+// seedBackupHome points HOME at a directory that holds the backups a restore
+// test talks about, so the scan Init runs on the startup path finds the same
+// backups the test seeds into the model.
+//
+// It is the mirror image of isolateGoldenTest's empty HOME, and it exists for
+// the same reason: the test inherited a real HOME. A restore test builds a model
+// whose AvailableBackups are seeded before the program starts, but NewModel's Init
+// runs system.ListBackups and the async loadBackupsMsg replaces that field with
+// whatever the scan found. On a developer machine HOME often holds real
+// .dotfiles-backup-* directories, so the replacement still left a non-empty list
+// and the tests passed by accident; on a CI runner HOME holds none, so the seeded
+// backups were erased, the list went empty, and the reach to the confirm screen
+// never happened. A HOME holding exactly the backups the test declares makes the
+// scan and the seed agree on every machine. Each argument is one backup's file
+// list.
+func seedBackupHome(t *testing.T, backups ...[]string) {
+	t.Helper()
+	home := t.TempDir()
+	for i, files := range backups {
+		dir := filepath.Join(home, fmt.Sprintf(".dotfiles-backup-test-%02d", i))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("seed backup home: %v", err)
+		}
+		for _, name := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+				t.Fatalf("seed backup home: %v", err)
+			}
+		}
+	}
+	t.Setenv("HOME", home)
+}
+
 // TestRestoreBackupScreenE2E tests restore backup screen behavior
 func TestRestoreBackupScreenE2E(t *testing.T) {
 	t.Run("shows available backups", func(t *testing.T) {
@@ -860,6 +893,10 @@ func TestRestoreBackupScreenE2E(t *testing.T) {
 	})
 
 	t.Run("can select backup and go to confirm", func(t *testing.T) {
+		// HOME must hold the backup the model is seeded with: the startup scan
+		// replaces AvailableBackups, and an empty HOME erases the list and the
+		// reach with it. See seedBackupHome.
+		seedBackupHome(t, []string{"nvim"})
 		m := NewModel()
 		m.Width = 80
 		m.Height = 24
@@ -893,6 +930,9 @@ func TestRestoreBackupScreenE2E(t *testing.T) {
 // TestRestoreConfirmScreenE2E tests restore confirm screen behavior
 func TestRestoreConfirmScreenE2E(t *testing.T) {
 	t.Run("shows restore, delete, cancel options", func(t *testing.T) {
+		// Same reason as the reach above: the startup scan owns AvailableBackups
+		// once the program is running, so HOME has to hold the backup.
+		seedBackupHome(t, []string{"nvim", "fish", "zsh"})
 		m := NewModel()
 		m.Width = 80
 		m.Height = 24
@@ -920,6 +960,9 @@ func TestRestoreConfirmScreenE2E(t *testing.T) {
 	})
 
 	t.Run("escape returns to backup list", func(t *testing.T) {
+		// Same reason: Esc lands on the list the startup scan will own, so HOME
+		// has to hold a backup or the list is empty when the test reads it.
+		seedBackupHome(t, []string{"nvim"})
 		m := NewModel()
 		m.Width = 80
 		m.Height = 24

@@ -519,3 +519,29 @@ terminal-initialization bytes, so restore tests must wait for the next positive 
 key (including Ctrl-C). The assertions over the finished output are still right; stopping on a bare quit
 can beat the first render on a slow runner and leave that output empty. Wait for the frame, synchronize
 on the transition repaint as needed, then finish and assert on the accumulated finished transcript.
+
+### The restore failures were the test's HOME, not a race
+
+The three failures are now reproduced locally and deterministically, and they were never a timing
+flake. The prescribed commands (`go test ./internal/tui -run TestRestore -count=50`, then the same
+under `GOMAXPROCS=1`, `taskset -c 0` and eight spinning `yes` processes) passed 50/50 on this host,
+because this host's `$HOME` holds three real `.dotfiles-backup-*` directories. Pointing `$HOME` at an
+empty directory - the CI condition - turned all three red in every one of five iterations:
+`can_select_backup_and_go_to_confirm` stopped on `WaitFor: condition not met after 2s`, while
+`shows_restore,_delete,_cancel_options` and `escape_returns_to_backup_list` failed their finished-output
+assertions. The mechanism is `Init`'s asynchronous `loadBackupsMsg`, which runs
+`m.AvailableBackups = msg.backups` unconditionally and so replaces the backups a test seeded into its
+model with `system.ListBackups()`'s scan of the real `$HOME`. On a developer machine that scan finds
+real backups, the seeded fixture was silently replaced by a non-empty list, and the tests passed for
+the wrong reason; on a CI runner the scan finds none, the list goes empty, `Enter` no longer leaves
+`ScreenRestoreBackup`, and the confirm screen is never reached. The fix keeps the finished-transcript
+assertion (option a) and adds the missing fixture in the test file: `seedBackupHome` gives each restore
+test a `t.TempDir()` `HOME` holding exactly the backups it declares, so the scan and the seed agree on
+every machine and the asynchronous replacement is harmless. With an empty outer `HOME` the three tests
+now pass 50/50, the same 50/50 under `GOMAXPROCS=1`/`taskset -c 0` with eight `yes` processes, and the
+exact CI command (`go test ./... -skip Golden -count=1`) passes in all four packages; `gofmt -l`
+returns no paths and `go vet ./...` is clean. No golden moved, no production file changed, and the other
+restore tests are untouched. What remains CI's to decide is only whether this was the whole difference
+between the runner and this host: if the branch still fails, inspect the runner's `$HOME` - what the
+startup scan finds there is what decides these tests - and whether the outer environment differs in
+some other way the restore tests still inherit.
