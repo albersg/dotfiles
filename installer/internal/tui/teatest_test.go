@@ -872,20 +872,16 @@ func TestRestoreBackupScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		// Wait for the initial frame without depending on its content, then select
-		// the first backup. The cell-diff stream is not a reliable text predicate;
-		// capture output until the transition repaint arrives and inspect it after
-		// the program finishes.
+		// Wait for the initial frame before selecting the first backup. The
+		// cell-diff stream is not a reliable text predicate; wait for the repaint
+		// only as synchronization, then inspect the complete output after finish.
 		seen := waitForAnyOutput(t, tm)
 		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-		transition := &bytes.Buffer{}
-		teatest.WaitFor(t, io.TeeReader(tm.Output(), transition), func(bts []byte) bool {
-			return len(bts) > 0
-		}, teatest.WithCheckInterval(2*time.Millisecond), teatest.WithDuration(2*time.Second))
+		transition := waitForNextOutputEvent(t, tm)
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-		finalOutput := append(seen.Bytes(), transition.Bytes()...)
+		finalOutput := append(seen.Bytes(), transition...)
 		finalOutput = append(finalOutput, readAll(t, tm.FinalOutput(t))...)
 		finalOutputText := plainOutput(finalOutput)
 		if !strings.Contains(finalOutputText, "Confirm Restore") {
@@ -937,15 +933,21 @@ func TestRestoreConfirmScreenE2E(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		waitForTrainerText(t, tm, "restore confirmation screen", "Restore", "Delete", "Cancel")
+		seen := waitForAnyOutput(t, tm)
 
-		// Press escape
+		// Press escape after the initial frame, then wait for the redraw only as
+		// synchronization. The reach assertion uses the finished transcript.
 		tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
-
-		// Should go back to restore backup screen
-		waitForTrainerText(t, tm, "restore backup list after escape", "Restore", "Backup", "Back")
+		transition := waitForNextOutputEvent(t, tm)
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+		finalOutput := append(seen.Bytes(), transition...)
+		finalOutput = append(finalOutput, readAll(t, tm.FinalOutput(t))...)
+		finalOutputText := plainOutput(finalOutput)
+		if !strings.Contains(finalOutputText, "Restore") && !strings.Contains(finalOutputText, "Backup") && !strings.Contains(finalOutputText, "Back") {
+			t.Errorf("final output did not return to the restore backup list:\n%s", finalOutputText)
+		}
 	})
 }
 

@@ -513,3 +513,9 @@ across escape sequences, and earlier waits consume bytes. The restore navigation
 option tests now finish the program and assert on the captured output plus `FinalOutput`, rather than
 searching for screen text in the diff stream. Local runs validate the new assertions, but only CI can
 establish whether the former diff-stream failure reproduces there.
+
+The first length-positive output event is not necessarily the first rendered frame: it can contain only
+terminal-initialization bytes, so restore tests must wait for the next positive event before sending any
+key (including Ctrl-C). The assertions over the finished output are still right; stopping on a bare quit
+can beat the first render on a slow runner and leave that output empty. Wait for the frame, synchronize
+on the transition repaint as needed, then finish and assert on the accumulated finished transcript.
