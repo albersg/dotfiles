@@ -1629,6 +1629,22 @@ func TestInstallerScreensFitWideTerminals(t *testing.T) {
 	}
 }
 
+// cutMarkerColumn returns the display column at which the first truncation
+// marker in line begins, or -1 when the line carries none. It walks display
+// columns rather than bytes because the body and the panel both hold wide and
+// combining glyphs, and the marker's column is what locates a cut inside the
+// body's column when the panel continues the same line.
+func cutMarkerColumn(line string) int {
+	col := 0
+	for _, r := range line {
+		if string(r) == cutMarker {
+			return col
+		}
+		col += lipgloss.Width(string(r))
+	}
+	return -1
+}
+
 // TestComposedScreensLoseNothingToTheirPanel pins the one thing the two-column
 // composition may never do to the body it places beside a panel: shorten it.
 //
@@ -1642,15 +1658,27 @@ func TestInstallerScreensFitWideTerminals(t *testing.T) {
 // sentence is 28 columns and never reaches the column edge.
 //
 // The guard renders each composing screen at every two-column size, with the
-// host that makes the welcome sentence long, and fails on any line in the body's
-// own column that ends with the truncation marker. A cut in that column is the
+// host that makes the welcome sentence long, and fails on any line whose body
+// column carries the truncation marker. A cut in that column is the
 // signal that the panel took a fact from the body; the panel's own column is
 // allowed to wrap and to say how many rows it could not show.
+//
+// The marker is found by walking the line's display columns, not by asking
+// whether the line ends with it. composeColumns (view.go) builds every row as
+// truncate(left, l.Left) + gutter + panel, so a body cut lands mid-line whenever
+// the panel also has a fact on that row; only a cut on a row whose panel column
+// is blank puts the marker at the end. The suffix check had that one shape, and
+// the failure has two: it was blind to every selection screen, whose plan panel
+// fills those rows, and was passing there for the wrong reason. The selection
+// family is in the table below because the wizard's own questions draw through
+// renderSelection, the same path welcome draws through, and they must lose
+// nothing to the panel either.
 func TestComposedScreensLoseNothingToTheirPanel(t *testing.T) {
 	hosts := []struct {
-		name   string
-		host   *system.SystemInfo
-		screen Screen
+		name    string
+		host    *system.SystemInfo
+		screen  Screen
+		choices UserChoices
 	}{
 		{name: "welcome, a plain Linux host", screen: ScreenWelcome, host: goldenSystemInfo()},
 		{name: "welcome, a WSL host with Homebrew already installed", screen: ScreenWelcome, host: &system.SystemInfo{
@@ -1658,6 +1686,30 @@ func TestComposedScreensLoseNothingToTheirPanel(t *testing.T) {
 			IsWSL: true, WSLVersion: 2, UserShell: "zsh", HomeDir: "/home/testuser", HasBrew: true,
 		}},
 		{name: "main menu", screen: ScreenMainMenu, host: goldenSystemInfo()},
+		// The wizard's own questions all draw through renderSelection, so the same
+		// two-column arithmetic narrows their descriptions. The terminal note is the
+		// longest on any screen; the others carry one too and are listed so the class
+		// is covered rather than the single instance.
+		{name: "OS select", screen: ScreenOSSelect, host: goldenSystemInfo()},
+		{name: "terminal select", screen: ScreenTerminalSelect, host: goldenSystemInfo()},
+		{name: "terminal select, a WSL host", screen: ScreenTerminalSelect, host: &system.SystemInfo{
+			OS: system.OSDebian, OSName: "Debian/Ubuntu", Arch: "x86_64",
+			IsWSL: true, WSLVersion: 2, UserShell: "zsh", HomeDir: "/home/testuser",
+		}},
+		{
+			name:   "terminal select, a host where Alacritty builds from source",
+			screen: ScreenTerminalSelect,
+			host: &system.SystemInfo{
+				OS: system.OSDebian, OSName: "Debian/Ubuntu", Arch: "x86_64",
+				UserShell: "zsh", HomeDir: "/home/testuser",
+			},
+			choices: UserChoices{OS: "linux"},
+		},
+		{name: "font select", screen: ScreenFontSelect, host: goldenSystemInfo()},
+		{name: "shell select", screen: ScreenShellSelect, host: goldenSystemInfo()},
+		{name: "multiplexer select", screen: ScreenWMSelect, host: goldenSystemInfo()},
+		{name: "Neovim select", screen: ScreenNvimSelect, host: goldenSystemInfo()},
+		{name: "Ghostty warning", screen: ScreenGhosttyWarning, host: goldenSystemInfo()},
 	}
 
 	sizes := []struct {
@@ -1679,6 +1731,7 @@ func TestComposedScreensLoseNothingToTheirPanel(t *testing.T) {
 				m.Screen = c.screen
 				m.Width, m.Height = size.width, size.height
 				m.SystemInfo = c.host
+				m.Choices = c.choices
 
 				l := layoutFor(m)
 				if !l.TwoColumn {
@@ -1701,15 +1754,16 @@ func TestComposedScreensLoseNothingToTheirPanel(t *testing.T) {
 				// gutter and the panel sit to the right of it. A marker inside the
 				// body's column is a fact the panel's arrival took away.
 				pad := (size.width - l.Inner) / 2
+				bodyLeftEdge := pad + l.Leading
 				bodyRightEdge := pad + l.Leading + l.Left
 				for i, raw := range strings.Split(view, "\n") {
-					line := strings.TrimRight(raw, " ")
-					if !strings.HasSuffix(line, cutMarker) {
+					col := cutMarkerColumn(strings.TrimRight(raw, " "))
+					if col < 0 {
 						continue
 					}
-					if col := lipgloss.Width(line); col <= bodyRightEdge {
-						t.Errorf("%s at %s cuts a body line in the panel's own column at row %d: %q (the body has %d columns, the cut landed at %d); the panel must not take a fact from the body",
-							c.name, size.name, i+1, line, l.Left, col)
+					if col >= bodyLeftEdge && col < bodyRightEdge {
+						t.Errorf("%s at %s cuts a body line in the panel's own column at row %d: %q (the body has %d columns from column %d, the cut landed at %d); the panel must not take a fact from the body",
+							c.name, size.name, i+1, raw, l.Left, bodyLeftEdge, col)
 					}
 				}
 			})
