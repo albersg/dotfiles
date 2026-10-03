@@ -28,6 +28,17 @@ type needsExecProcessMsg struct {
 // This suspends the TUI and gives full terminal control to the process
 func runInteractiveStep(stepID string, m *Model) tea.Cmd {
 	return func() tea.Msg {
+		// --dry-run gates this path exactly as executeStep gates the
+		// non-interactive one. runNextStep routes interactive steps here instead
+		// of through executeStep, so without this check a documented no-op run
+		// performed a real Homebrew install, sudo package installs and chsh.
+		// Report the skip the same way executeStep does and then finish the step
+		// so the run continues with the same state transitions.
+		if dryRun() {
+			SendLog(stepID, fmt.Sprintf("DRY RUN: skipping step %q", stepID))
+			return execFinishedMsg{stepID: stepID, err: nil}
+		}
+
 		script, err := getInteractiveScript(stepID, m)
 		if err != nil {
 			return execFinishedMsg{stepID: stepID, err: fmt.Errorf("failed to get script for %s: %w", stepID, err)}
