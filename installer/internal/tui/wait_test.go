@@ -27,6 +27,30 @@ func waitForTrainerOutput(t *testing.T, tm *teatest.TestModel, waitingFor string
 	return output
 }
 
+// waitForNextOutputEvent waits for the next length-positive output event. The
+// first event can be terminal initialization alone, so callers that need the
+// initial rendered frame should wait for two successive events with
+// waitForAnyOutput. The consumed bytes are returned for a later final-output check.
+func waitForNextOutputEvent(t *testing.T, tm *teatest.TestModel) []byte {
+	t.Helper()
+	return waitForTrainerOutput(t, tm, "any output", func(output []byte) bool {
+		return len(output) > 0
+	})
+}
+
+// waitForAnyOutput waits for the first output and the following output event. The
+// first can be terminal initialization alone; waiting for another length-positive
+// chunk lets the initial frame render without relying on a particular screen label.
+// Both consumed chunks are retained so a caller can include them in its output check.
+func waitForAnyOutput(t *testing.T, tm *teatest.TestModel) *bytes.Buffer {
+	t.Helper()
+	seen := &bytes.Buffer{}
+	for range 2 {
+		seen.Write(waitForNextOutputEvent(t, tm))
+	}
+	return seen
+}
+
 func waitForTrainerText(t *testing.T, tm *teatest.TestModel, waitingFor string, alternatives ...string) []byte {
 	t.Helper()
 	return waitForTrainerOutput(t, tm, waitingFor, func(output []byte) bool {
