@@ -898,6 +898,29 @@ func TestStepBackupConfigs(t *testing.T) {
 	})
 }
 
+// TestBackupDeleteFailureIsReported covers update.go:1696: the error from
+// deleting a backup was discarded and the screen advanced as if the backup were
+// gone. os.RemoveAll fails on a path carrying a NUL byte for every user, root
+// included, so the deletion is made to fail without a seam and the test does not
+// depend on the permissions of the user running it.
+func TestBackupDeleteFailureIsReported(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenRestoreConfirm
+	m.AvailableBackups = []system.BackupInfo{{Path: "undelatable\x00backup"}}
+	m.SelectedBackup = 0
+	m.Cursor = 1 // Delete
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := res.(Model)
+
+	if got.Screen != ScreenError {
+		t.Fatalf("a failed backup deletion advanced to %v as if it had succeeded", got.Screen)
+	}
+	if !strings.Contains(got.ErrorMsg, "Failed to delete backup") {
+		t.Errorf("the failure does not say the deletion failed: %q", got.ErrorMsg)
+	}
+}
+
 // Helper functions
 func simulateKeyPress(m Model, key string) (Model, interface{}) {
 	var msg tea.Msg

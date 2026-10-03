@@ -244,8 +244,16 @@ cp "%s" "%s/.config/wezterm/wezterm.lua"`, homeDir, filepath.Join(repoDir, repoA
 			installCmd = `sudo dnf copr enable -y pgdev/ghostty
 sudo dnf install -y ghostty`
 		} else {
-			// Debian uses install script
-			installCmd = `curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh | bash`
+			// Debian, Ubuntu and macOS use the upstream install script. It is
+			// downloaded to a file and then run instead of being piped into bash:
+			// a pipe reports the consumer's status, so a failed curl left bash
+			// with an empty script and `set -e` had nothing to abort on, while
+			// the step still reported a configured terminal. The download keeps
+			// curl's exit status, which is what the script's `set -e` aborts on.
+			installCmd = fmt.Sprintf(`ghostty_installer="$(mktemp)"
+trap 'rm -f "$ghostty_installer"' EXIT
+curl -fsSL %q -o "$ghostty_installer"
+/bin/bash "$ghostty_installer"`, ghosttyInstallerURL)
 		}
 		configCmd = fmt.Sprintf(`mkdir -p "%s/.config/ghostty"
 cp -r "%s"/* "%s/.config/ghostty/"`, homeDir, filepath.Join(repoDir, repoAssetGhostty), homeDir)
