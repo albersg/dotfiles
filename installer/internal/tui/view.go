@@ -1034,8 +1034,17 @@ func (m Model) renderSelection() string {
 
 	// The description can be several sentences (the WSL terminal note is the
 	// longest) and used to be left to the frame edge, which clipped it mid-word.
+	// It has to wrap to the width it will actually be drawn at: composeColumns
+	// truncates the left column to the layout's Left, so wrapping to the frame's
+	// full content width leaves the tail of every long line to be cut off. The
+	// full condition matters -- two columns with no panel truncate nothing, so
+	// wrapping to Left there would spend width the description could have used.
+	descriptionWidth := contentWidth(m)
+	if l := layoutFor(m); l.TwoColumn && len(m.panelsFor()) > 0 {
+		descriptionWidth = l.Left
+	}
 	for _, line := range strings.Split(m.GetScreenDescription(), "\n") {
-		for _, row := range wrapText(line, contentWidth(m), 0) {
+		for _, row := range wrapText(line, descriptionWidth, 0) {
 			body = append(body, MutedStyle.Render(row))
 		}
 	}
