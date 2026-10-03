@@ -45,7 +45,7 @@ A complete development environment configuration including:
 | **Operating system** | macOS 10.15+; Linux (Ubuntu 20.04+, Debian, Fedora/RHEL, Arch); WSL2; or Termux |
 | **Git and curl** | The installer clones this repository while it runs |
 | **Internet** | To clone the repository and download packages |
-| **Homebrew** | Installed automatically when missing, on macOS and Linux, except on Fedora and Termux |
+| **Homebrew** | Installed automatically when missing, on macOS and Linux, except on Fedora and Arch, which keep their native package managers (`dnf` and `pacman`), and on Termux |
 
 ### Option 1: Homebrew (Recommended)
 
@@ -114,9 +114,10 @@ dotfiles --non-interactive --shell=zsh --wm=herdr --nvim
 ```
 
 `--shell` is required and takes `fish`, `zsh` or `nushell`. `--terminal` takes
-`alacritty`, `wezterm`, `kitty`, `ghostty` or `none`. `--wm` takes `tmux`, `zellij`,
-`herdr` or `none`. `--nvim` and `--font` are opt-in. `dotfiles --help` lists the rest,
-including `--backup=false` and the `DOTFILES_VERBOSE=1` environment variable.
+`alacritty`, `wezterm`, `ghostty` or `none`, plus `kitty` on macOS only. `--wm`
+takes `tmux`, `zellij`, `herdr` or `none`. `--nvim` and `--font` are opt-in.
+`dotfiles --help` lists the rest, including `--backup=false` and the
+`DOTFILES_VERBOSE=1` environment variable.
 
 ### After installing
 
@@ -137,7 +138,7 @@ repository again, so it picks up the current configurations.
 | macOS | Intel (x86_64) | Homebrew, Direct Download | Homebrew |
 | Linux (Ubuntu/Debian) | x86_64, ARM64 | Homebrew, Direct Download | Homebrew |
 | Linux (Fedora/RHEL) | x86_64, ARM64 | Direct Download | dnf |
-| Linux (Arch) | x86_64 | Homebrew, Direct Download | Homebrew |
+| Linux (Arch) | x86_64 | Direct Download | pacman |
 | Windows | WSL | Direct Download (see docs) | Homebrew |
 | Android | Termux (ARM64) | Build locally (see above) | pkg |
 

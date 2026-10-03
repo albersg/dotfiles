@@ -2,6 +2,9 @@ package main
 
 import (
 	"flag"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -71,4 +74,62 @@ func TestHelpDocumentsTheDisplayGates(t *testing.T) {
 				"when the terminal does not draw the installer well.", gate)
 		}
 	}
+}
+
+// dotfilesEnvNameRE matches the environment variables the help documents.
+var dotfilesEnvNameRE = regexp.MustCompile(`DOTFILES_[A-Z0-9_]+`)
+
+// TestBrandingDocListsEveryHelpEnvironmentVariable guards the class of defect
+// where the help documents a switch and the branding guide's variable table
+// omits it. The table presented four names as the inventory while the help
+// documented `DOTFILES_ANIM`, `DOTFILES_MOUSE`, `DOTFILES_SPRITE` and
+// `DOTFILES_SYNC`, so a reader looking up the variable the help had just named
+// found nothing.
+//
+// The names come from the help text itself, so a variable cannot be documented
+// to a user without the branding guide being asked for it. Internal variables
+// the help does not name are deliberately out of scope: the guide should list
+// what a user sets, not every string the source reads.
+func TestBrandingDocListsEveryHelpEnvironmentVariable(t *testing.T) {
+	names := dotfilesEnvNameRE.FindAllString(helpText, -1)
+	if len(names) == 0 {
+		t.Fatal("the help documents no DOTFILES_* variable, so this guard proves nothing")
+	}
+
+	doc, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "BRANDING.md"))
+	if err != nil {
+		t.Fatalf("read docs/BRANDING.md: %v", err)
+	}
+
+	seen := make(map[string]bool, len(names))
+	var missing []string
+	for _, name := range names {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		if !strings.Contains(string(doc), name) {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("docs/BRANDING.md does not name %d of the %d environment variables dotfiles --help documents: %v\n"+
+			"A reader who follows the help to the branding guide finds no entry for the switch they were just told about.",
+			len(missing), len(seen), missing)
+	}
+}
+
+// repoRoot resolves the repository checkout from the package directory, so the
+// tests read the very documents the repository ships.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "installer")); err != nil {
+		t.Fatalf("repository root not found at %s: %v", root, err)
+	}
+	return root
 }
