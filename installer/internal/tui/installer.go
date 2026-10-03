@@ -695,10 +695,23 @@ func weztermInstallCommands(si *system.SystemInfo) []string {
 	}
 }
 
+// terminalConfigSource resolves a terminal asset inside the checkout created by
+// the clone step for this run. The terminal step used to read its sources from
+// the literal "dotfiles" directory under the working directory, which only
+// resolved when the installer happened to run from a directory that contained a
+// checkout of that name. Resolving through the recorded checkout keeps the copy
+// independent of the working directory.
+func terminalConfigSource(m *Model, asset string) (string, error) {
+	repoDir, err := m.repoDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(repoDir, asset), nil
+}
+
 func stepInstallTerminal(m *Model) error {
 	terminal := m.Choices.Terminal
 	homeDir := os.Getenv("HOME")
-	repoDir := "dotfiles"
 	stepID := "terminal"
 
 	switch terminal {
@@ -804,7 +817,13 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Alacritty config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, repoAssetAlacritty), filepath.Join(homeDir, ".config/alacritty/alacritty.toml")); err != nil {
+		alacrittySource, err := terminalConfigSource(m, repoAssetAlacritty)
+		if err != nil {
+			return wrapStepError("terminal", "Install Alacritty",
+				"Failed to copy Alacritty configuration",
+				err)
+		}
+		if err := system.CopyFile(alacrittySource, filepath.Join(homeDir, ".config/alacritty/alacritty.toml")); err != nil {
 			return wrapStepError("terminal", "Install Alacritty",
 				"Failed to copy Alacritty configuration",
 				err)
@@ -837,7 +856,13 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create WezTerm config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, repoAssetWezterm), filepath.Join(homeDir, ".config/wezterm/wezterm.lua")); err != nil {
+		weztermSource, err := terminalConfigSource(m, repoAssetWezterm)
+		if err != nil {
+			return wrapStepError("terminal", "Install WezTerm",
+				"Failed to copy WezTerm configuration",
+				err)
+		}
+		if err := system.CopyFile(weztermSource, filepath.Join(homeDir, ".config/wezterm/wezterm.lua")); err != nil {
 			return wrapStepError("terminal", "Install WezTerm",
 				"Failed to copy WezTerm configuration",
 				err)
@@ -875,7 +900,13 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Kitty config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, repoAssetKitty), filepath.Join(homeDir, ".config", "kitty")); err != nil {
+		kittySource, err := terminalConfigSource(m, repoAssetKitty)
+		if err != nil {
+			return wrapStepError("terminal", "Install Kitty",
+				"Failed to copy Kitty configuration",
+				err)
+		}
+		if err := system.CopyDir(kittySource, filepath.Join(homeDir, ".config", "kitty")); err != nil {
 			return wrapStepError("terminal", "Install Kitty",
 				"Failed to copy Kitty configuration",
 				err)
@@ -919,7 +950,13 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to create Ghostty config directory",
 				err)
 		}
-		if err := system.CopyDir(filepath.Join(repoDir, repoAssetGhostty), filepath.Join(homeDir, ".config", "ghostty")); err != nil {
+		ghosttySource, err := terminalConfigSource(m, repoAssetGhostty)
+		if err != nil {
+			return wrapStepError("terminal", "Install Ghostty",
+				"Failed to copy Ghostty configuration",
+				err)
+		}
+		if err := system.CopyDir(ghosttySource, filepath.Join(homeDir, ".config", "ghostty")); err != nil {
 			return wrapStepError("terminal", "Install Ghostty",
 				"Failed to copy Ghostty configuration",
 				err)

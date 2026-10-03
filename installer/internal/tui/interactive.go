@@ -168,6 +168,12 @@ func getDepsScript(m *Model) (string, error) {
 func getTerminalScript(m *Model) (string, error) {
 	terminal := m.Choices.Terminal
 	homeDir := os.Getenv("HOME")
+	// Terminal configuration is copied from the checkout created by the clone
+	// step for this run, not from a "dotfiles" directory under the working
+	// directory. The checkout is recorded on the model before this script runs,
+	// so the cp lines below resolve to the freshly cloned files and `set -e`
+	// cannot abort on a path that was never there.
+	repoDir := m.RepoDir
 
 	var installCmd string
 	var configCmd string
@@ -214,7 +220,7 @@ cd -
 echo "✓ Alacritty built and installed from source"`
 		}
 		configCmd = fmt.Sprintf(`mkdir -p "%s/.config/alacritty"
-cp "dotfiles/alacritty.toml" "%s/.config/alacritty/alacritty.toml"`, homeDir, homeDir)
+cp "%s" "%s/.config/alacritty/alacritty.toml"`, homeDir, filepath.Join(repoDir, repoAssetAlacritty), homeDir)
 
 	case "wezterm":
 		if system.CommandExists("wezterm") {
@@ -227,7 +233,7 @@ cp "dotfiles/alacritty.toml" "%s/.config/alacritty/alacritty.toml"`, homeDir, ho
 			installCmd = strings.Join(weztermInstallCommands(m.SystemInfo), "\n")
 		}
 		configCmd = fmt.Sprintf(`mkdir -p "%s/.config/wezterm"
-cp "dotfiles/.wezterm.lua" "%s/.config/wezterm/wezterm.lua"`, homeDir, homeDir)
+cp "%s" "%s/.config/wezterm/wezterm.lua"`, homeDir, filepath.Join(repoDir, repoAssetWezterm), homeDir)
 
 	case "ghostty":
 		if system.CommandExists("ghostty") {
@@ -242,7 +248,7 @@ sudo dnf install -y ghostty`
 			installCmd = `curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh | bash`
 		}
 		configCmd = fmt.Sprintf(`mkdir -p "%s/.config/ghostty"
-cp -r dotfiles/dotfiles-ghostty/* "%s/.config/ghostty/"`, homeDir, homeDir)
+cp -r "%s"/* "%s/.config/ghostty/"`, homeDir, filepath.Join(repoDir, repoAssetGhostty), homeDir)
 
 	default:
 		return "", nil
