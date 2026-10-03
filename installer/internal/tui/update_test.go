@@ -1,6 +1,11 @@
 package tui
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -430,4 +435,188 @@ func TestCtrlCQuits(t *testing.T) {
 			t.Error("Should return quit command")
 		}
 	})
+}
+
+// osConstant is one platform constant the system package declares, with the
+// value its position in the contiguous iota run gives it.
+type osConstant struct {
+	name  string
+	value system.OSType
+}
+
+// osConstantsInDeclarationOrder reads the system package's detect.go and
+// returns every OSType constant with the value its position in the declaration
+// run gives it.
+//
+// The guard below derives the list rather than naming it, which is the whole
+// point: a platform added to the system package appears in the loop and fails
+// until somebody decides the option its cursor starts on. A hand-written list
+// would go on passing while the new platform silently inherited a default.
+func osConstantsInDeclarationOrder(t *testing.T) []osConstant {
+	t.Helper()
+
+	path := filepath.Join(repoRoot(t), "installer", "internal", "system", "detect.go")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	var constants []osConstant
+	blocks := 0
+	ast.Inspect(file, func(n ast.Node) bool {
+		decl, ok := n.(*ast.GenDecl)
+		if !ok || decl.Tok != token.CONST || len(decl.Specs) == 0 {
+			return true
+		}
+		first, ok := decl.Specs[0].(*ast.ValueSpec)
+		if !ok {
+			return true
+		}
+		if id, ok := first.Type.(*ast.Ident); !ok || id.Name != "OSType" {
+			return true
+		}
+		blocks++
+		for i, spec := range decl.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			if i == 0 {
+				if len(value.Values) != 1 {
+					t.Fatalf("the OSType block's first constant has %d values, want the iota run", len(value.Values))
+				}
+				if id, ok := value.Values[0].(*ast.Ident); !ok || id.Name != "iota" {
+					t.Fatalf("the OSType block does not start at iota, so a name cannot be mapped to its value")
+				}
+			} else if len(value.Values) != 0 {
+				t.Fatalf("%s has an explicit value inside the OSType block, so the block is no longer a "+
+					"contiguous run and the name-to-value mapping this guard relies on is wrong",
+					value.Names[0].Name)
+			}
+			for _, name := range value.Names {
+				constants = append(constants, osConstant{name: name.Name, value: system.OSType(len(constants))})
+			}
+		}
+		return true
+	})
+
+	if blocks != 1 {
+		t.Fatalf("detect.go declares %d OSType constant blocks, want exactly 1", blocks)
+	}
+	if len(constants) == 0 {
+		t.Fatal("detect.go declares no OSType constants, so this guard proves nothing")
+	}
+	return constants
+}
+
+// TestWizardStartsOnTheDetectedPlatform guards the class of defect where the OS
+// step preselected a platform by testing one constant and letting an else stand
+// for macOS. Debian, Ubuntu, Arch, Fedora, Termux and WSL all opened the wizard
+// with the cursor on macOS under a description that named the right platform.
+//
+// The platforms are derived from the system package, so adding one is a visible
+// decision: the new constant reaches expectedOption, the lookup fails, and the
+// message says which option to choose.
+func TestWizardStartsOnTheDetectedPlatform(t *testing.T) {
+	expectedOption := map[string]string{
+		"OSMac":    "macOS",
+		"OSLinux":  "Linux",
+		"OSArch":   "Linux",
+		"OSDebian": "Linux",
+		"OSFedora": "Linux",
+		"OSWSL":    "Linux",
+		"OSTermux": "Termux",
+		// Detection failed. The menu must start somewhere and there is no
+		// "unknown" entry, so the cursor takes the first entry; the description
+		// still reads "Detected: OSUnknown" rather than claiming macOS.
+		"OSUnknown": "macOS",
+	}
+
+	for _, c := range osConstantsInDeclarationOrder(t) {
+		want, decided := expectedOption[c.name]
+		if !decided {
+			t.Errorf("platform %s has no OS menu option decided for the wizard's starting cursor. "+
+				"Add it to expectedOption in this test with the option the cursor should sit on, and map it in "+
+				"osOptionIndex (update.go); a new platform must not inherit a default.", c.name)
+			continue
+		}
+
+		t.Run(c.name, func(t *testing.T) {
+			m := Model{
+				Screen:     ScreenMainMenu,
+				SystemInfo: &system.SystemInfo{OS: c.value, OSName: c.name},
+			}
+
+			// Enter on the main menu's first entry opens the wizard's OS step.
+			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			got := updated.(Model)
+			if got.Screen != ScreenOSSelect {
+				t.Fatalf("enter on the main menu did not open the OS step: screen = %v", got.Screen)
+			}
+
+			options := got.GetCurrentOptions()
+			if got.Cursor < 0 || got.Cursor >= len(options) {
+				t.Fatalf("the cursor is at %d, outside the %d OS options %v", got.Cursor, len(options), options)
+			}
+			if options[got.Cursor] != want {
+				t.Errorf("with platform %s detected the wizard starts on %q, want %q: %v",
+					c.name, options[got.Cursor], want, options)
+			}
+		})
+	}
+}
+
+// TestShellScreenStartsOnTheDetectedShell pins the shell half of the same
+// defect: the description named the detected shell while the cursor sat on
+// Fish. The cursor now starts on the detected shell when the menu lists it, and
+// the description says what the cursor means rather than asserting a fact the
+// cursor contradicts.
+func TestShellScreenStartsOnTheDetectedShell(t *testing.T) {
+	cases := []struct {
+		shell string
+		want  string
+	}{
+		{"fish", "Fish"},
+		{"zsh", "Zsh"},
+		{"nushell", "Nushell"},
+		{"nu", "Nushell"},
+		{"", "Fish"},        // nothing detected
+		{"unknown", "Fish"}, // detection found nothing
+		{"bash", "Fish"},    // detected, but the menu does not list it
+	}
+
+	for _, c := range cases {
+		name := c.shell
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := Model{
+				Screen:     ScreenFontSelect,
+				Cursor:     0, // install the font; ENTER advances to the shell step
+				SystemInfo: &system.SystemInfo{OS: system.OSLinux, UserShell: c.shell},
+			}
+
+			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			got := updated.(Model)
+			if got.Screen != ScreenShellSelect {
+				t.Fatalf("the font step did not lead to the shell step: screen = %v", got.Screen)
+			}
+
+			options := got.GetCurrentOptions()
+			if got.Cursor < 0 || got.Cursor >= len(options) {
+				t.Fatalf("the cursor is at %d, outside the %d shell options %v", got.Cursor, len(options), options)
+			}
+			if options[got.Cursor] != c.want {
+				t.Errorf("with shell %q detected the shell step starts on %q, want %q: %v",
+					c.shell, options[got.Cursor], c.want, options)
+			}
+
+			description := got.GetScreenDescription()
+			if c.shell != "" && c.shell != "unknown" && !strings.Contains(description, c.shell) {
+				t.Errorf("the shell step description %q does not name the detected shell %q", description, c.shell)
+			}
+		})
+	}
 }
