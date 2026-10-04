@@ -179,6 +179,10 @@ Launch it from the main menu: **Vim Mastery Trainer**
 | [Docker Testing](docs/docker-testing.md) | E2E testing with Docker containers |
 | [Contributing](docs/contributing.md) | Development setup, skills system, E2E tests, release process |
 
+### Before you push
+
+Run `make preflight`. It runs here, in CI's order, what CI would otherwise report after a full cycle - `gofmt`, `go vet`, `go build` and the `--help` smoke test, the Go test suite, `shellcheck`, the branding audit and a gitleaks scan of the commits your branch adds - and prints the CI job each step mirrors. It stops at the first failure with the failing command named and exits non-zero, and it names the jobs it cannot run locally (the Docker E2E matrix, Termux, and the macOS toolchain). It needs `go`, `git`, `ripgrep`, `shellcheck` and `gitleaks`; `brew bundle` installs the last three. The step-to-job mapping lives in [scripts/preflight.sh](scripts/preflight.sh).
+
 ---
 
 ## Tools Overview
