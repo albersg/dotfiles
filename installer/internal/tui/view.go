@@ -1070,6 +1070,24 @@ func (m Model) renderWelcome() string {
 	return m.frame(m.headerName(), "", centered, []installerHint{hintStart, hintQuit})
 }
 
+// mainMenuTrainerNotice is the one line the main menu shows for a trainer save
+// warning the player carried here. renderMainMenu would otherwise drop
+// TrainerMessage: the trainer's own screens render it, the main menu did not, so
+// a failed save on the way back told the player about lost progress on a screen
+// they had already left. It is a status line and not a log -- the next key clears
+// it (handleKeyPress) -- and it is wrapped to a single row so a long path in the
+// error cannot grow the menu past its frame.
+func (m Model) mainMenuTrainerNotice() string {
+	if m.TrainerMessage == "" {
+		return ""
+	}
+	rows := wrapText(m.TrainerMessage, contentWidth(m), 1)
+	if len(rows) == 0 {
+		return ""
+	}
+	return WarningStyle.Render(rows[0])
+}
+
 func (m Model) renderMainMenu() string {
 	// Title. The toolbox emoji that used to open it was the one thing on the
 	// first screen that a terminal without an emoji font drew as a box.
@@ -1085,6 +1103,9 @@ func (m Model) renderMainMenu() string {
 		MutedStyle.Render("What would you like to do?"),
 		"",
 	)
+	if notice := m.mainMenuTrainerNotice(); notice != "" {
+		body = append(body, notice)
+	}
 	body = append(body, m.menuRows(m.GetCurrentOptions(), m.Cursor)...)
 
 	// The main menu is the screen that asks what is about to happen, so it offers

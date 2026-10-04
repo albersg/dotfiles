@@ -333,8 +333,10 @@ pins the frame they are on, and both are absent with the animation gate off.
 The companion's size is **a function of terminal height and sprite mode only**. Spare rows and the
 selected item never choose a smaller creature. `TestCompanionVolumeSpriteIsTheLadderTopSteps` prints
 and asserts the rung at each boundary: pixel mode selects the shaded volume at **12 rows at height
-34+**, **8 rows at height 30–33**, then the glyph rung; glyph mode selects **5 rows at height 25+**
-and **3 rows at height 24 or below**. These are rung sizes, not screen reservations.
+48+**, **8 rows at height 32–47**, then the glyph rung; glyph mode selects **5 rows at height 25+**
+and **3 rows at height 24 or below**. `companionHeightShare = 4` bounds the rung to a quarter of the
+terminal height, which is why the volume rungs start at 48 and 32: the 12-row rung used to start at
+34, where it took 35% of the screen. These are rung sizes, not screen reservations.
 
 The trainer reserves its rung by reducing the code window's available rows; framed installer screens
 do not reserve body rows. They draw the creature in existing rows their body did not need. Across the
