@@ -430,6 +430,130 @@ func TestPlanForLeavesOutAStepWhoseChoiceIsOpen(t *testing.T) {
 	}
 }
 
+// TestWizardPanelShowsNoSelectionInsteadOfAPlan pins the answer to an open
+// question: when the cursor is noSelection -- PR #143 opens a step with nothing
+// highlighted rather than inventing macOS -- the panel must not preview a plan
+// for a choice nobody made. The old path ran the out-of-range cursor through
+// wizardHighlightedChoice's default, which meant "Linux", so the panel showed a
+// Linux plan with no Selected row: no detection claim, but an invented answer.
+func TestWizardPanelShowsNoSelectionInsteadOfAPlan(t *testing.T) {
+	l := narrowPanelLayout()
+	cases := []struct {
+		name   string
+		screen Screen
+		info   *system.SystemInfo
+		opts   UserChoices
+	}{
+		{"an undetected OS step", ScreenOSSelect, &system.SystemInfo{OS: system.OSUnknown}, UserChoices{}},
+		{"an undetected shell step", ScreenShellSelect, &system.SystemInfo{OS: system.OSLinux}, UserChoices{OS: "linux"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := Model{Screen: c.screen, Cursor: noSelection, SystemInfo: c.info, Choices: c.opts}
+			rows := m.contextPanelFacts(l)
+			assertPanelFits(t, rows, l.Right, 40)
+			flat := panelFlat(rows)
+			for _, invented := range []string{"Steps", "Step ", "Install Dependencies", "on Linux"} {
+				if strings.Contains(flat, invented) {
+					t.Errorf("the panel of an unanswered question previews a plan (%q):\n%s", invented, panelText(rows))
+				}
+			}
+			if !strings.Contains(flat, noChoiceNote) {
+				t.Errorf("the panel does not say the question is unanswered, want %q:\n%s", noChoiceNote, panelText(rows))
+			}
+			if headline := m.contextHeadline(); headline != "" {
+				t.Errorf("the narrow summary answers an unanswered question with %q, want no line", headline)
+			}
+			// The choice reader must not invent a platform for a cursor with no row
+			// under it either: the panel guard is the user-facing half, this is the
+			// data half. The shell case has a recorded Linux choice, so only the OS
+			// case can tell an invented answer from a recorded one.
+			if c.screen == ScreenOSSelect {
+				if opts, _ := m.wizardHighlightedChoice(); opts.OS != c.opts.OS {
+					t.Errorf("wizardHighlightedChoice changed the recorded OS %q to %q for a cursor with no row under it", c.opts.OS, opts.OS)
+				}
+			}
+		})
+	}
+}
+
+// TestMainMenuShowsTheTrainerSaveWarningItCarried pins the landing half of the
+// ten trainer save sites: escape from the trainer menu and q on it both save and
+// then go to the main menu, and a failed save leaves the warning in
+// TrainerMessage. The trainer's own screens render that field; the main menu did
+// not, so the player who lost progress was told on a screen they had already
+// left. The warning is shown as one line there, and it fits.
+func TestMainMenuShowsTheTrainerSaveWarningItCarried(t *testing.T) {
+	for _, site := range []struct {
+		name string
+		key  tea.KeyMsg
+	}{
+		{"escape from the trainer menu", tea.KeyMsg{Type: tea.KeyEsc}},
+		{"q on the trainer menu", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}},
+	} {
+		t.Run(site.name, func(t *testing.T) {
+			m := failingTrainerSaveModel(t)
+			m.Screen = ScreenTrainerMenu
+
+			res, _ := m.Update(site.key)
+			got := res.(Model)
+			if got.Screen != ScreenMainMenu {
+				t.Fatalf("the key did not land on the main menu: screen = %v", got.Screen)
+			}
+			if !strings.Contains(got.TrainerMessage, trainerSaveWarning) {
+				t.Fatalf("the save warning was lost before it reached the main menu: %q", got.TrainerMessage)
+			}
+
+			view := ansiEscape.ReplaceAllString(got.View(), "")
+			if !strings.Contains(view, trainerSaveWarning) {
+				t.Errorf("the main menu does not show the trainer save warning the player was carried to:\n%s", view)
+			}
+			if rows := renderedRowCount(view); rows > got.Height {
+				t.Errorf("the warning grew the main menu to %d rows in a %d-row terminal:\n%s", rows, got.Height, view)
+			}
+		})
+	}
+}
+
+// TestMainMenuTrainerSaveWarningClearsOnTheNextKey pins the transient half: the
+// warning is a status line the main menu shows once, not a log it accumulates.
+// The next key clears it, the way a key clears TrainerMessage on the trainer's own
+// screens.
+func TestMainMenuTrainerSaveWarningClearsOnTheNextKey(t *testing.T) {
+	m := failingTrainerSaveModel(t)
+	m.Screen = ScreenTrainerMenu
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	landed := res.(Model)
+	if !strings.Contains(landed.TrainerMessage, trainerSaveWarning) {
+		t.Fatalf("setup: the warning did not reach the main menu: %q", landed.TrainerMessage)
+	}
+
+	next, _ := landed.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if got := next.(Model).TrainerMessage; got != "" {
+		t.Errorf("the next key left the trainer save warning on the main menu: %q", got)
+	}
+}
+
+// TestTrainerMenuQuitDoesNotCarryAStaleMessageToTheMainMenu pins the clear q does
+// before its save: the main menu shows a save warning, not whatever the trainer
+// was last saying. Without the clear, a successful save would carry the trainer's
+// ordinary feedback onto the main menu as if it were about the save.
+func TestTrainerMenuQuitDoesNotCarryAStaleMessageToTheMainMenu(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // a writable home, so the save succeeds
+	m := NewModel()
+	m.Screen = ScreenTrainerMenu
+	m.TrainerStats = trainer.NewUserStats()
+	m.TrainerModules = trainer.GetAllModules()
+	m.TrainerMessage = "🔒 Module locked! Complete previous boss first."
+
+	res, _ := m.handleTrainerMenuKeys("q")
+	got := res.(Model)
+	if got.TrainerMessage != "" {
+		t.Errorf("q carried the trainer's stale message onto the main menu: %q", got.TrainerMessage)
+	}
+}
+
 // TestInitDetectsExistingConfigsForTheMainMenu pins the startup scan end to end:
 // Init's command reads the config paths, and the message it produces puts them
 // on the model, so the main menu's panel can say what the run will overwrite

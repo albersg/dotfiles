@@ -519,6 +519,17 @@ func companionSpriteWidth(height int) int {
 	return 0
 }
 
+// companionHeightShare is the share of the terminal a rung may take, as a
+// divisor: the sprite is decoration in the rows the body did not need, so a rung
+// is only drawn where it fits without taking more than a quarter of the
+// terminal. The thresholds are the height at which each rung's own row count
+// reaches that share -- the twelve-row volume at 48 rows, the eight-row one at 32
+// -- so the boundaries come from the bound rather than from a taste for round
+// numbers, and a taller sprite cannot crowd out the screen it decorates. The
+// glyph cat's five rows already fit the bound at the height its own step names,
+// so its threshold is unchanged.
+const companionHeightShare = 4
+
 // companionHeightNow is the ladder with the volumetric sprite's two steps on top:
 // the full sprite where the frame can hold it and the run may draw it, else the
 // smaller one on the same terms, else the glyph ladder. The glyph ladder is
@@ -529,9 +540,9 @@ func companionSpriteWidth(height int) int {
 func (m Model) companionHeightNow() int {
 	if m.PixelSprite {
 		switch {
-		case m.Height >= 34:
+		case m.Height >= companionVolumeFullHeight*companionHeightShare:
 			return companionVolumeFullHeight
-		case m.Height >= 30:
+		case m.Height >= companionVolumeSmallHeight*companionHeightShare:
 			return companionVolumeSmallHeight
 		}
 	}

@@ -476,6 +476,13 @@ var menuEasterEggForms = [...]string{"dd", ":q", "vim"}
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// A trainer save warning carried onto the main menu is transient like the
+	// trainer's own messages: the next key clears it, so the line is shown once
+	// where the player landed and the main menu never becomes a log.
+	if m.Screen == ScreenMainMenu {
+		m.TrainerMessage = ""
+	}
+
 	// On the main menu, printable characters only remain buffered while they
 	// extend one of the three known forms. A mismatch clears the prefix and falls
 	// through to the ordinary handler below with this same key.
@@ -2126,7 +2133,11 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "q":
-		// Save stats and go back to main menu
+		// Save stats and go back to main menu. The message is cleared first so a
+		// failed save can leave only its warning, the way escape already does:
+		// otherwise a stale trainer message would be carried onto the main menu and
+		// shown as if it were about the save.
+		m.TrainerMessage = ""
 		saveTrainerStats(&m)
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0

@@ -712,6 +712,67 @@ func TestCompanionHeightFollowsTheLadder(t *testing.T) {
 	}
 }
 
+// maxCompanionShare is the fraction of the terminal a rung may take: the sprite
+// is decoration in the rows the body did not need, so it may not take more than
+// a quarter of the terminal's height. It is written here as the number the guard
+// asserts against rather than read from companionHeightNow, so the guard pins
+// the bound instead of agreeing with whatever the ladder happens to do.
+const maxCompanionShare = 4
+
+// TestCompanionRungIsNeverMoreThanAQuarterOfTheHeight walks every height the
+// ladder can be asked about, in both modes, and prints the share at each one. The
+// ladder the volumes shipped with put the twelve-row sprite at 34 rows (35%) and
+// the eight-row one at 30 (27%), which is what the proportion complaint is about;
+// the thresholds now derive from this bound rather than from a taste for round
+// numbers. The boundaries are pinned beside the table so the ladder cannot slide
+// while still satisfying the bound it was built from.
+func TestCompanionRungIsNeverMoreThanAQuarterOfTheHeight(t *testing.T) {
+	for height := 20; height <= 62; height++ {
+		for _, pixel := range []bool{false, true} {
+			m := Model{Width: 227, Height: height, Animating: true, PixelSprite: pixel}
+			rung := m.companionHeightNow()
+			if rung*maxCompanionShare > height {
+				t.Errorf("at height %d (pixel=%t) the rung takes %d rows, %d%% of the terminal, want at most %d%%",
+					height, pixel, rung, 100*rung/height, 100/maxCompanionShare)
+			}
+		}
+	}
+
+	// The thresholds themselves: the volume rung a height draws is the tallest one
+	// whose share bound the height satisfies, and the glyph rung below it is the
+	// old ladder untouched.
+	bounds := []struct {
+		height     int
+		pixel      bool
+		wantHeight int
+	}{
+		{31, true, companionFullHeight},
+		{32, true, companionVolumeSmallHeight},
+		{47, true, companionVolumeSmallHeight},
+		{48, true, companionVolumeFullHeight},
+		{62, true, companionVolumeFullHeight},
+		{24, true, companionCompactHeight},
+		{25, true, companionFullHeight},
+		{24, false, companionCompactHeight},
+		{25, false, companionFullHeight},
+	}
+	for _, b := range bounds {
+		m := Model{Width: 227, Height: b.height, Animating: true, PixelSprite: b.pixel}
+		if got := m.companionHeightNow(); got != b.wantHeight {
+			t.Errorf("height %d pixel=%t selected rung %d, want %d", b.height, b.pixel, got, b.wantHeight)
+		}
+	}
+
+	// The table a reader can re-derive: the share at every height the report names.
+	for _, height := range []int{24, 25, 30, 34, 40, 44, 50, 62} {
+		for _, pixel := range []bool{false, true} {
+			m := Model{Width: 227, Height: height, Animating: true, PixelSprite: pixel}
+			rung := m.companionHeightNow()
+			t.Logf("height %2d pixel=%-5t rung %2d rows = %d%% of the terminal", height, pixel, rung, 100*rung/height)
+		}
+	}
+}
+
 // --- the state the model is in ---------------------------------------------
 
 // TestCompanionStateFollowsTheModelAndItsPrecedence pins the whole state machine
@@ -3183,8 +3244,11 @@ func TestCompanionStartleTremblesThenHolds(t *testing.T) {
 
 // TestCompanionVolumeSpriteIsTheLadderTopSteps pins the rung to terminal height,
 // never to the rows a screen happened to leave: volume-full, volume-small, glyph
-// cat, then compact glyph art. A terminal that cannot use volume falls through to
-// the glyph rung, and the compact floor remains drawable without colour.
+// cat, then compact glyph art. The thresholds are the height at which a rung's
+// own row count reaches the quarter-of-the-terminal bound (companionHeightShare),
+// so the twelve-row sprite starts at 48 rows and the eight-row one at 32. A
+// terminal that cannot use volume falls through to the glyph rung, and the
+// compact floor remains drawable without colour.
 func TestCompanionVolumeSpriteIsTheLadderTopSteps(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -3192,10 +3256,11 @@ func TestCompanionVolumeSpriteIsTheLadderTopSteps(t *testing.T) {
 		sprite     bool
 		wantHeight int
 	}{
-		{"height 34 selects volume-full", 34, true, companionVolumeFullHeight},
+		{"height 48 selects volume-full", 48, true, companionVolumeFullHeight},
+		{"height 47 selects volume-small", 47, true, companionVolumeSmallHeight},
 		{"height 33 selects volume-small", 33, true, companionVolumeSmallHeight},
-		{"height 30 selects volume-small", 30, true, companionVolumeSmallHeight},
-		{"height 29 falls through to glyph cat", 29, true, companionFullHeight},
+		{"height 32 selects volume-small", 32, true, companionVolumeSmallHeight},
+		{"height 31 falls through to glyph cat", 31, true, companionFullHeight},
 		{"height 25 selects glyph cat", 25, false, companionFullHeight},
 		{"gate off selects glyph cat", 40, false, companionFullHeight},
 		{"height 24 selects compact glyph art", 24, true, companionCompactHeight},
@@ -3776,9 +3841,9 @@ func assertCompanionBlockContract(t *testing.T, positions map[string]int, name s
 	want := companionFullHeight
 	if pixel {
 		switch {
-		case height >= 34:
+		case height >= companionVolumeFullHeight*companionHeightShare:
 			want = companionVolumeFullHeight
-		case height >= 30:
+		case height >= companionVolumeSmallHeight*companionHeightShare:
 			want = companionVolumeSmallHeight
 		default:
 			want = companionFullHeight

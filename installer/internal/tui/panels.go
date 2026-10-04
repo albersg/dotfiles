@@ -622,6 +622,11 @@ func isWizardChoiceScreen(screen Screen) bool {
 // restore panel with no backups -- gets no line rather than an invented one.
 func (m Model) contextHeadline() string {
 	if isWizardChoiceScreen(m.Screen) {
+		// An unanswered question has no line: the summary answers "what would
+		// this choice do", and there is no choice yet.
+		if !m.wizardHasSelection() {
+			return ""
+		}
 		opts, _ := m.wizardHighlightedChoice()
 		return planHeadlineFor(m.previewPlanFor(opts))
 	}
@@ -1019,12 +1024,31 @@ func (m Model) previewPlanFor(opts planOptions) ([]InstallStep, string) {
 	}
 }
 
+// wizardHasSelection reports whether the wizard's cursor is on a row of the
+// question it is showing. A step PR #143 opened with noSelection has no row
+// marked, and neither would a cursor past the end of the options; both mean there
+// is nothing under the cursor for the panel to describe.
+func (m Model) wizardHasSelection() bool {
+	return m.Cursor >= 0 && m.Cursor < len(m.GetCurrentOptions())
+}
+
+// noChoiceNote is the wizard panel's line while a question has nothing under the
+// cursor: the panel describes the choice under the cursor and the plan it would
+// lead to, and with no row marked there is no choice to describe, so it says so
+// rather than previewing a plan nobody selected.
+const noChoiceNote = "No option selected yet"
+
 // wizardChoicePanelFacts is a wizard question's panel: the choice under the
 // cursor, then the plan that choice would lead to, with the step the run is on
 // marked. The choice is read from the cursor rather than from the model's
 // recorded answers, because the question is still open and the panel describes
-// what the player is about to pick.
+// what the player is about to pick. With nothing under the cursor there is no
+// choice to describe -- and no plan to preview, because the plan would be for a
+// host nobody picked -- so the panel says the question is still unanswered.
 func (m Model) wizardChoicePanelFacts(l layout) []string {
+	if !m.wizardHasSelection() {
+		return []string{MutedStyle.Render(noChoiceNote)}
+	}
 	opts, name := m.wizardHighlightedChoice()
 	steps, hostNote := m.previewPlanFor(opts)
 	rows := selectedPanelRow(name, l.Right)
@@ -1047,13 +1071,16 @@ func (m Model) wizardHighlightedChoice() (planOptions, string) {
 
 	switch m.Screen {
 	case ScreenOSSelect:
+		// The row the cursor is on, and only that row: a cursor with no row under
+		// it -- the noSelection PR #143 opens an undetected step with -- leaves the
+		// recorded answer alone instead of answering "Linux" for the player.
 		switch m.Cursor {
-		case 0:
+		case osOptionMac:
 			opts.OS = "mac"
-		case 2:
-			opts.OS = "termux"
-		default:
+		case osOptionLinux:
 			opts.OS = "linux"
+		case osOptionTermux:
+			opts.OS = "termux"
 		}
 	case ScreenTerminalSelect:
 		if term, ok := installedChoice(name, "alacritty", "wezterm", "kitty", "ghostty", "none"); ok {

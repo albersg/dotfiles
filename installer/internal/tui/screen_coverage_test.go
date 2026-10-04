@@ -211,6 +211,31 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 	t.Logf("rendered %d screens at %d sizes: %d screen x size cases", len(cases), len(measuredTerminalSizes), checked)
 }
 
+// TestCompanionCoverageAcrossTerminalSizes measures how many screen x size cases
+// draw a creature at all. The rung is chosen by the terminal, but a frame whose
+// body fills it refuses to overwrite content (placeCompanion), so a too-tall rung
+// leaves more screens showing no creature than it needs to. The count is logged
+// rather than asserted: it is the evidence behind the ladder's quarter-of-the-height
+// bound, re-derivable on any machine, not a target to tune the art against.
+func TestCompanionCoverageAcrossTerminalSizes(t *testing.T) {
+	cases := terminalFitCases()
+	total, drawn := 0, 0
+	for _, c := range cases {
+		for _, size := range measuredTerminalSizes {
+			m := c.build(t)
+			m.Width, m.Height = size.width, size.height
+			m.Animating, m.PixelSprite = true, true
+			m.ink = companionInkFor(true)
+			if _, rows := trainerViewCompanionArt(m.View()); rows > 0 {
+				drawn++
+			}
+			total++
+		}
+	}
+	t.Logf("companion coverage: %d of %d screen x size cases (%.0f%%) draw a creature; %d draw none",
+		drawn, total, 100*float64(drawn)/float64(total), total-drawn)
+}
+
 // terminalFitCase is one screen this guard renders at every measured size. The
 // builder takes the subtest's *testing.T so the per-case isolation (HOME, the
 // pinned greeting time) is scoped to the case and not to the whole guard.
