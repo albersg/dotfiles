@@ -141,10 +141,13 @@ func TestWelcomePanelWrapsLongValuesRatherThanClipping(t *testing.T) {
 }
 
 // TestWillHappenPanelMarksWhereTheRunStarts pins the plan panel when the model
-// holds a plan: the count, every step's name, the ▸ the menus already use for
-// "here" on the step the run starts at, and that step's description and no
-// others'. While nothing has run, that is the first step; mid-run it is the step
-// that is running, because that is the next action.
+// holds a plan: the count, the ▸ the menus already use for "here" on the step
+// the run starts at, and that step's name and description. The panel is a glance,
+// so the steps after the next one are counted rather than listed -- their names
+// and descriptions live on the installing screen, where each step is read as it
+// runs -- but the count says how many there are and the marked step says which
+// one is next. While nothing has run, that is the first step; mid-run it is the
+// step that is running, because that is the next action.
 func TestWillHappenPanelMarksWhereTheRunStarts(t *testing.T) {
 	l := narrowPanelLayout()
 	steps := []InstallStep{
@@ -153,16 +156,17 @@ func TestWillHappenPanelMarksWhereTheRunStarts(t *testing.T) {
 		{Name: "Clone Repository", Description: "Downloads your dotfiles repository."},
 	}
 
-	// assertOnlyThisDescription is the rule the panel exists for: the names are
-	// all readable, and exactly the current step carries its paragraph. The
-	// descriptions wrap inside the narrow column, so a present sentence is
-	// asserted on the flat text.
-	assertOnlyThisDescription := func(t *testing.T, text, flat string, current int) {
+	// assertOnlyThisStep is the rule the panel exists for: the count says how many
+	// steps there are, the marked step is named, and exactly that step carries its
+	// paragraph. The descriptions wrap inside the narrow column, so a present
+	// sentence is asserted on the flat text.
+	assertOnlyThisStep := func(t *testing.T, text, flat string, current int) {
 		t.Helper()
-		for _, step := range steps {
-			if !strings.Contains(flat, step.Name) {
-				t.Errorf("the plan panel does not show the step %q:\n%s", step.Name, text)
-			}
+		if !strings.Contains(flat, "Steps 3") {
+			t.Errorf("the plan panel does not count the steps:\n%s", text)
+		}
+		if !strings.Contains(flat, steps[current].Name) {
+			t.Errorf("the plan panel does not name the step the run is on (%q):\n%s", steps[current].Name, text)
 		}
 		for i, step := range steps {
 			has := strings.Contains(flat, step.Description)
@@ -179,10 +183,7 @@ func TestWillHappenPanelMarksWhereTheRunStarts(t *testing.T) {
 		text := panelText(rows)
 		flat := panelFlat(rows)
 
-		assertOnlyThisDescription(t, text, flat, 0)
-		if !strings.Contains(flat, "Steps 3") {
-			t.Errorf("the plan panel does not count the steps:\n%s", text)
-		}
+		assertOnlyThisStep(t, text, flat, 0)
 		if got := strings.Count(text, "▸"); got != 1 {
 			t.Errorf("the plan panel marks %d steps as where the run starts, want exactly one:\n%s", got, text)
 		}
@@ -201,7 +202,7 @@ func TestWillHappenPanelMarksWhereTheRunStarts(t *testing.T) {
 		assertPanelFits(t, rows, l.Right, 40)
 		text := panelText(rows)
 
-		assertOnlyThisDescription(t, text, panelFlat(rows), 1)
+		assertOnlyThisStep(t, text, panelFlat(rows), 1)
 		if !strings.Contains(text, "▸ 2") {
 			t.Errorf("the plan panel does not mark the running step:\n%s", text)
 		}
@@ -312,6 +313,12 @@ func TestWillHappenPanelOmitsTheSectionsItHasNotScanned(t *testing.T) {
 // plan the run would execute, built by the wizard's own builder from the
 // detected host. It labels which host it is describing, because the OS question
 // has not been asked yet.
+// TestWillHappenPanelPreviewsThePlan pins the fix for the empty panel: on the
+// main menu, before the wizard has built the plan, the panel still shows the
+// plan the run would execute, built by the wizard's own builder from the
+// detected host. It labels which host it is describing, because the OS question
+// has not been asked yet. The plan is a glance: the count and the step the run
+// would start at, not a row per step.
 func TestWillHappenPanelPreviewsThePlan(t *testing.T) {
 	l := narrowPanelLayout()
 	m := Model{SystemInfo: goldenSystemInfo()}
@@ -325,13 +332,16 @@ func TestWillHappenPanelPreviewsThePlan(t *testing.T) {
 		"on Linux (detected)",
 		"Steps 8",
 		"Install Dependencies",
-		"Clone Repository",
-		"Install Homebrew",
-		"Set Default Shell",
-		"Cleanup",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the previewed plan does not show %q:\n%s", want, text)
+		}
+	}
+	// The steps after the next one are counted rather than listed: the panel is a
+	// glance and the installing screen is where each step's name is read.
+	for _, later := range []string{"Clone Repository", "Install Homebrew", "Set Default Shell", "Cleanup"} {
+		if strings.Contains(flat, later) {
+			t.Errorf("the previewed plan lists %q though the panel shows the next step only:\n%s", later, text)
 		}
 	}
 	if got := strings.Count(text, "▸"); got != 1 {
@@ -2015,15 +2025,20 @@ func TestWizardChoicePanelDescribesTheChoiceUnderTheCursor(t *testing.T) {
 			cursor int
 			want   string
 		}{
-			{0, "Install fish"},
-			{1, "Install zsh"},
-			{2, "Install nushell"},
+			{0, "Selected Fish"},
+			{1, "Selected Zsh"},
+			{2, "Selected Nushell"},
 		} {
 			m := Model{Screen: ScreenShellSelect, SystemInfo: goldenSystemInfo(), Choices: UserChoices{OS: "linux"}}
 			m.Cursor = c.cursor
 			flat := panelFlat(m.mainMenuPanel(l, 200))
 			if !strings.Contains(flat, c.want) {
-				t.Errorf("the shell panel at cursor %d does not show %q:\n%s", c.cursor, c.want, flat)
+				t.Errorf("the shell panel at cursor %d does not name the choice %q:\n%s", c.cursor, c.want, flat)
+			}
+			// The panel still answers what the choice would do: the plan's count is on
+			// screen and the step the run would start at is named.
+			if !strings.Contains(flat, "Steps") || !strings.Contains(flat, "Install Dependencies") {
+				t.Errorf("the shell panel at cursor %d lost the plan:\n%s", c.cursor, flat)
 			}
 		}
 	})

@@ -1400,6 +1400,9 @@ func TestCompanionTakesTheSpareRowAboveTheFooterRule(t *testing.T) {
 		// whatever was left over, so the same screen drew a different animal as its
 		// content changed; now it draws the rung the terminal calls for, or nothing
 		// at all, and never a smaller creature than the one every other screen shows.
+		// The plan panel's screens go one step further: they reserve the block before
+		// placing the body, so the body yields rather than the creature, and the
+		// summary always keeps its row.
 		panels := []panel{
 			testPanel(panelMachine, "Machine", "Linux · x86_64", "OS  Linux"),
 			testPanel(panelPlan, "Plan", "8 steps", "Steps  8"),
@@ -1411,11 +1414,19 @@ func TestCompanionTakesTheSpareRowAboveTheFooterRule(t *testing.T) {
 			t.Fatal("this terminal height has no creature at all, so the test proves nothing")
 		}
 
-		// `spare` is the rows the body leaves blank. At the rung itself there is room
-		// for the creature but no row left for the summary above it: the summary wins,
-		// because a fact beats a decoration. With room to spare the creature draws the
+		// `spare` is the rows the body leaves blank. One spare row cannot hold the
+		// summary and the rung, and a body that tall cannot yield them either, so
+		// the summary keeps the row and the creature is not drawn. At the rung and
+		// above it the body yields the block, both fit, and the creature draws the
 		// SAME rung - not a bigger one, and not a smaller one.
-		for _, spare := range []int{rung, rung + 4} {
+		for _, c := range []struct {
+			spare, want int
+		}{
+			{1, 0},
+			{rung, rung},
+			{rung + 4, rung},
+		} {
+			spare, want := c.spare, c.want
 			m := Model{Width: 100, Height: 24, Animating: true}
 			l := layoutFor(m)
 			rows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.panelHints(panels, hints)))
@@ -1433,10 +1444,6 @@ func TestCompanionTakesTheSpareRowAboveTheFooterRule(t *testing.T) {
 
 			if !summary {
 				t.Errorf("with %d spare row(s) the panel summary is gone:\n%s", spare, view)
-			}
-			want := 0
-			if spare > rung {
-				want = rung
 			}
 			if got := len(companionOwnedRows(strings.Split(view, "\n"))); got != want {
 				t.Errorf("with %d spare row(s) the sprite owns %d rows, want %d: the creature draws the "+
