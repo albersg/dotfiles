@@ -154,6 +154,21 @@ func (m Model) panelsFor() []panel {
 	return nil
 }
 
+// panelsOfferPlan reports whether a screen draws the plan panel. The plan panel
+// is the one that lists a whole plan, so it is the panel whose screens reserve
+// the creature's block: the plan's rows and the creature compete for the same
+// frame, and the plan yields rather than the creature. The machine, live and tip
+// panels are short enough that they never crowd it, and reserving for them would
+// move bodies that do not need it.
+func panelsOfferPlan(panels []panel) bool {
+	for _, p := range panels {
+		if p.ID == panelPlan {
+			return true
+		}
+	}
+	return false
+}
+
 // machinePanel is the machine panel's registry entry. Its facts and headline are
 // the same pure reads the panel has always done, wrapped so the frame can name
 // the panel without knowing what it holds.
@@ -578,13 +593,12 @@ const mainMenuPanelLabel = "What will happen"
 // questions draw the same panel through contextPanelFacts, so the two screens
 // cannot describe the selection differently.
 //
-// It is a glance, not a document: the steps are their names rather than eight
-// bodies of prose, because the names are what a reader scans and the paragraphs
-// are not. The description is kept for the step the run starts at -- or, once a
-// run is in progress, for the step it is on -- because that is the immediate
-// next action and its detail is the part worth reading here. The other steps'
-// descriptions are not lost: they are on the installing screen, next to the step
-// that is running, which is where a description is read rather than skimmed.
+// It is a glance, not a document: the panel names how many steps there are and
+// the one the run starts at -- or, once a run is in progress, the step it is on
+// -- with that step's description, because the next action is the part worth
+// reading here. The other steps' names and descriptions are not lost: they are on
+// the installing screen, next to the step that is running, which is where a plan
+// is read rather than skimmed.
 //
 // Nothing is invented: every value comes from a field the model already holds,
 // and a fact the model does not have renders no row rather than a zero or a
@@ -758,8 +772,17 @@ func (m Model) planPanelFacts(l layout) []string {
 }
 
 // planPanelRows renders the plan body: the host note when the plan is being
-// previewed for a host, the step count and the numbered steps with the one the
-// run is on marked, the configs the run would overwrite, and the newest backup.
+// previewed for a host, the step count and the step the run is on with its
+// description, the configs the run would overwrite, and the newest backup.
+//
+// The step list is a glance, not the whole plan: it names how many steps there
+// are and the one the run will act on next, which is the step a reader is about
+// to act on and the only description worth spending rows on here. The other
+// steps' names are not lost -- the count says how many there are, and the
+// installing screen shows each step with its description as it runs, which is
+// where a plan is read rather than skimmed. The destructive facts stay whole:
+// the overwrite list and the newest backup are never dropped to save rows,
+// because a reader must not be surprised by what the run is about to replace.
 func (m Model) planPanelRows(steps []InstallStep, hostNote string, l layout) []string {
 	var rows []string
 	if hostNote != "" {
@@ -767,7 +790,7 @@ func (m Model) planPanelRows(steps []InstallStep, hostNote string, l layout) []s
 	}
 	if len(steps) > 0 {
 		rows = append(rows, panelFact("Steps", strconv.Itoa(len(steps)), l.Right)...)
-		rows = append(rows, stepPanelRows(steps, currentStepIndex(steps), l.Right)...)
+		rows = append(rows, nextStepRow(steps, currentStepIndex(steps), l.Right)...)
 	}
 	if len(m.ExistingConfigs) > 0 {
 		rows = append(rows, panelFact("Overwrites", configCount(len(m.ExistingConfigs)), l.Right)...)
@@ -949,36 +972,63 @@ func stepCount(n int) string {
 // the names start on one column and the digits form a straight edge whether the
 // plan has nine steps or ninety, and marking a step shifts neither. A name or
 // description wider than the column wraps under itself rather than being cut.
+//
+// The plan panel no longer spends a row per step; it draws the count and the one
+// step the run is on through nextStepRow below, and this full list is the shape
+// the installing rail and the tests still pin.
 func stepPanelRows(steps []InstallStep, start, width int) []string {
-	const markerWidth, gap = 2, 2
 	numberWidth := len(strconv.Itoa(len(steps)))
+	var rows []string
+	for i, step := range steps {
+		rows = append(rows, stepRow(step, i+1, numberWidth, i == start, width)...)
+	}
+	return rows
+}
+
+// nextStepRow renders the one step the plan panel spends rows on: the step the
+// run starts at, or the step it is on once a run is in progress. It is the same
+// row the full list draws -- the ▸ marker, the number in the list's own column,
+// the name, and the description under it -- so the panel and the installing
+// screen name the next action the same way. The number keeps its place in the
+// plan, so "▸ 3" still means the third step of the eight the count above names.
+func nextStepRow(steps []InstallStep, start, width int) []string {
+	if start < 0 || start >= len(steps) {
+		return nil
+	}
+	return stepRow(steps[start], start+1, len(strconv.Itoa(len(steps))), true, width)
+}
+
+// stepRow renders one numbered step: the marker and number head, the name
+// wrapped under the value column, and the description under the name when the
+// step is the marked one. It is split out of stepPanelRows so the one-row glance
+// and the full list cannot drift apart on the marker, the number column or the
+// wrap width.
+func stepRow(step InstallStep, number, numberWidth int, marked bool, width int) []string {
+	const markerWidth, gap = 2, 2
 	indentWidth := markerWidth + numberWidth + gap
 	valueWidth := max(1, width-indentWidth)
 	indent := strings.Repeat(" ", indentWidth)
 
-	var rows []string
-	for i, step := range steps {
-		marker := "  "
-		if i == start {
-			marker = AccentKeyStyle.Render("▸ ")
-		}
-		head := marker + MeterStyle.Render(fmt.Sprintf("%*d", numberWidth, i+1)) + "  "
+	marker := "  "
+	if marked {
+		marker = AccentKeyStyle.Render("▸ ")
+	}
+	head := marker + MeterStyle.Render(fmt.Sprintf("%*d", numberWidth, number)) + "  "
 
-		name := wrapText(step.Name, valueWidth, 0)
-		if len(name) == 0 {
-			name = []string{""}
-		}
-		rows = append(rows, head+InkStyle.Render(name[0]))
-		for _, line := range name[1:] {
-			rows = append(rows, indent+InkStyle.Render(line))
-		}
+	name := wrapText(step.Name, valueWidth, 0)
+	if len(name) == 0 {
+		name = []string{""}
+	}
+	rows := []string{head + InkStyle.Render(name[0])}
+	for _, line := range name[1:] {
+		rows = append(rows, indent+InkStyle.Render(line))
+	}
 
-		// The description belongs to the step that is about to run, and to no
-		// other: it is the one step the reader will act on next.
-		if i == start && step.Description != "" {
-			for _, line := range wrapText(step.Description, valueWidth, 0) {
-				rows = append(rows, indent+MutedStyle.Render(line))
-			}
+	// The description belongs to the step that is about to run, and to no other:
+	// it is the one step the reader will act on next.
+	if marked && step.Description != "" {
+		for _, line := range wrapText(step.Description, valueWidth, 0) {
+			rows = append(rows, indent+MutedStyle.Render(line))
 		}
 	}
 	return rows

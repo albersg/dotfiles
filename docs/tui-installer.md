@@ -231,10 +231,11 @@ same pure builder from the detected host, and names the host it is describing
 (`on Linux (detected)`) because the operating-system question has not been asked yet.
 
 A panel is a glance, not a document. On the **Start Installation** selection the main menu's panel
-numbers the steps, gives the `▸` marker its own column and right-aligns the numbers, so the step
-names start on one column and the digits form a straight edge whether the plan has eight steps or
-eighty, and it keeps the description of the step the run starts at — or, once a run is in progress,
-the step it is on — because that is the next action. **The other steps' descriptions are
+names how many steps the plan has and the single step the run starts at — or, once a run is in
+progress, the step it is on — with the `▸` marker in its own column and the number right-aligned so
+the step names start on one column, because the next action is the only one the reader acts on now.
+The plan's other steps are not listed here at all: listing them cost the creature its rows on
+screens where both cannot fit, and the rung never shrinks to fit. **The other steps' descriptions are
 deliberately left out**: they are read on the installing screen, beside the step that is running,
 which is where a description is read rather than skimmed.
 

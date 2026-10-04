@@ -279,6 +279,22 @@ func placeBody(body []string, rows int) []string {
 	return out
 }
 
+// placeBodyAboveCompanion places a screen's body in the rows above the
+// companion's reserved block, leaving the last `reserve` rows blank for the
+// creature and its summary. It is the fallback for a frame where the centred body
+// (placeBody) lands in the block: the body moves up only as far as the block
+// needs, and a body too tall for the rows left is left where placeBody put it,
+// because a body that does not fit cannot be made to fit by moving it. The
+// creature's own row does not move either way -- it is always the last rows of
+// the frame -- so the block stays a function of the terminal and not of content.
+func placeBodyAboveCompanion(body []string, rows, reserve int) []string {
+	if reserve <= 0 || len(body) > rows-reserve {
+		return placeBody(body, rows)
+	}
+	out := placeBody(body, rows-reserve)
+	return append(out, make([]string, reserve)...)
+}
+
 // composeColumns places a screen's body in the left column and the panel it was
 // given in the right one, the gutter columns apart, and indents the whole
 // composition by the leading margin, so a terminal wider than the composition
@@ -337,19 +353,13 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	footer := footerHints(inner, hints)
 	rows := installerBodyRows(m.Height, len(footer))
 
-	if l.TwoColumn && len(panels) > 0 {
-		body = composeColumns(body, m.panelColumn(panels, l, rows), l)
-	}
-	placed := placeBody(body, rows)
-
 	// The panel summary of a narrow terminal and the companion both live in the
 	// rows the body did not need, and they are placed together so neither can
 	// displace the other or a body row. The summary keeps its rows first -- the
 	// facts beat a decoration -- and the companion takes the rows nearest the
-	// footer that are left, at the tallest height those rows can hold: a screen
-	// whose body fills its frame shows no companion at all, exactly as it shows no
-	// summary, and a screen with one row to spare shows the facts rather than the
-	// creature.
+	// footer that are left, at the rung the terminal selected: a screen whose body
+	// fills its frame shows no companion at all, exactly as it shows no summary,
+	// and a screen with one row to spare shows the facts rather than the creature.
 	var summary []string
 	if !l.TwoColumn && len(panels) > 1 {
 		summary = m.rotatorLines(panels, inner)
@@ -359,6 +369,40 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	// facts and is dropped entirely when the frame leaves it no room.
 	if burst := m.celebrationRows(inner); len(burst) > 0 {
 		summary = append(summary, burst...)
+	}
+
+	// The creature's block is reserved before the panel and the body are placed.
+	// The rung comes from the terminal, not from the rows this screen happens to
+	// leave, so a body centred through the block would push the creature off a
+	// frame that can hold it. Reserving the block lets the panel yield instead: a
+	// panel taller than the rows left for it clips with its own count, and the
+	// body is placed above the block rather than through it. Only a screen that
+	// draws the plan panel reserves it -- the plan is the panel whose rows and the
+	// creature compete for the same frame, and the plan yields rather than the
+	// creature -- so the machine, live and tip panels keep their own placement.
+	sprite := m.companionSprite(inner, m.companionHeightNow())
+	reserve := 0
+	if len(sprite) > 0 && panelsOfferPlan(panels) {
+		reserve = len(sprite) + len(summary)
+	}
+
+	if l.TwoColumn && len(panels) > 0 {
+		budget := rows
+		if reserve > 0 && rows-reserve > 0 {
+			budget = rows - reserve
+		}
+		body = composeColumns(body, m.panelColumn(panels, l, budget), l)
+	}
+
+	// The centred body is tried first so a screen the creature already fits keeps
+	// its rendering unchanged. Only when the block lands on the body is the body
+	// moved up, and only as far as the block needs: the creature still draws at the
+	// frame's bottom, never at a row that depends on this screen's content.
+	placed := placeBody(body, rows)
+	if reserve > 0 {
+		if _, ok := companionBlockStart(placed, summary, len(sprite)); !ok {
+			placed = placeBodyAboveCompanion(body, rows, reserve)
+		}
 	}
 	placed = m.placeCompanion(placed, summary, inner)
 

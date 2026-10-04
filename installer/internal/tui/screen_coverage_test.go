@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -425,4 +426,130 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{"trainer-result", result},
 		{"trainer-boss-result", bossResult},
 	}
+}
+
+// TestMainMenuPlanPanelLeavesRoomForTheCompanion is the guard for the reported
+// defect: on the main menu's Start Installation option the plan panel is tall
+// enough that the frame's spare rows cannot hold both it and the creature, so
+// the pet disappears at the sizes where the panel crowds it out.
+//
+// It renders the main menu and its restore variant at the same twelve sizes the
+// frame guards use, and asserts the pair the report is about:
+//
+//   - the creature draws wherever the terminal selects a rung (the ladder is a
+//     pure function of the terminal, so a selected rung the frame refuses is the
+//     defect, not a smaller creature);
+//   - the panel still answers what will happen: the plan's step count is on
+//     screen, and where the panel has a second column the destructive facts it
+//     holds (the overwrites and the newest backup) are on screen too.
+//
+// The two are not always possible together: at a short terminal the summary's
+// own row plus the rung can exceed the rows the body did not need. Those sizes
+// are recorded with their numbers rather than silently dropped, so a size that
+// cannot hold both is a measured finding and a size that can is held to the
+// assertion.
+func TestMainMenuPlanPanelLeavesRoomForTheCompanion(t *testing.T) {
+	// The sizes where the body, the selected rung and the panel summary genuinely
+	// cannot fit together, with the numbers that say so. A size enters this list
+	// only with its arithmetic checked below; the guard still checks that its panel
+	// answers, so a listed size cannot hide a lost plan.
+	type impossibleCase struct {
+		body, rung, summary, budget int
+	}
+	impossible := map[string]impossibleCase{
+		// The restore variant adds the seventh menu option, so its body is one row
+		// taller than the plain main menu's ten. 11 + 3 + 1 = 15 rows in a 14-row
+		// frame: the summary keeps its row (a fact beats a decoration), and there is
+		// no room left for the creature.
+		"main-menu-restore/60x20": {body: 11, rung: 3, summary: 1, budget: 14},
+	}
+
+	for _, name := range []string{"main-menu", "main-menu-restore"} {
+		for _, size := range measuredTerminalSizes {
+			size := size
+			t.Run(name+"/"+size.name, func(t *testing.T) {
+				m := installerFrameCase(t, name)
+				m.Width, m.Height = size.width, size.height
+				m.Animating, m.PixelSprite = true, true
+				m.ink = companionInkFor(true)
+
+				view := m.View()
+				if rows := renderedRowCount(view); rows != m.Height {
+					t.Errorf("the frame renders %d rows at %s, want the terminal's %d: reserving the creature's block must not grow the frame",
+						rows, size.name, m.Height)
+				}
+				l := layoutFor(m)
+				budget := installerBodyRows(m.Height, footerRowCount(l.Inner, m.panelHints(m.panelsFor(), mainMenuHints())))
+				panelRows := len(m.panelColumn(m.panelsFor(), l, budget))
+				if !l.TwoColumn {
+					panelRows = len(m.rotatorLines(m.panelsFor(), l.Inner))
+				}
+				rung := m.companionHeightNow()
+				_, drawn := trainerViewCompanionArt(view)
+				t.Logf("%-18s %-7s two=%-5v budget=%2d panel=%2d rung=%2d drawn=%2d",
+					name, size.name, l.TwoColumn, budget, panelRows, rung, drawn)
+
+				if !planPanelAnswers(m, view) {
+					t.Errorf("the panel no longer answers what will happen at %s: the plan's step count is not on screen", size.name)
+				}
+				if l.TwoColumn && !mainMenuDestructiveFactsVisible(m, view) {
+					t.Errorf("the two-column panel dropped a destructive fact at %s:\n%s", size.name, ansiEscape.ReplaceAllString(view, ""))
+				}
+
+				if c, known := impossible[name+"/"+size.name]; known {
+					if c.body+c.rung+c.summary <= c.budget {
+						t.Errorf("%s is recorded as unable to hold both, but %d body + %d rung + %d summary = %d fits the %d-row budget",
+							size.name, c.body, c.rung, c.summary, c.body+c.rung+c.summary, c.budget)
+					}
+					if drawn != 0 {
+						t.Errorf("%s is recorded as unable to hold both but drew %d creature rows", size.name, drawn)
+					}
+					return
+				}
+				if rung < 1 {
+					t.Skipf("no rung is selected at %s, so the guard proves nothing", size.name)
+				}
+				if drawn == 0 {
+					t.Errorf("no creature is drawn at %s though the rung is %d: budget=%d panel=%d\n%s",
+						size.name, rung, budget, panelRows, ansiEscape.ReplaceAllString(view, ""))
+				} else if drawn != rung {
+					t.Errorf("the creature draws %d rows at %s, want the selected rung %d", drawn, size.name, rung)
+				}
+			})
+		}
+	}
+}
+
+// mainMenuHints is the footer the main menu hands the frame, so the guard's row
+// budget is the frame's own.
+func mainMenuHints() []installerHint {
+	return []installerHint{hintUp, hintDown, hintSelect, hintQuit}
+}
+
+// planPanelAnswers reports whether the rendered screen still states the plan's
+// step count. It reads the visible words, so it holds on a terminal with no
+// colour and on both the two-column panel and the narrow summary.
+func planPanelAnswers(m Model, view string) bool {
+	steps, _ := m.previewPlan()
+	if len(steps) == 0 {
+		return false
+	}
+	flat := strings.Join(strings.Fields(ansiEscape.ReplaceAllString(view, "")), " ")
+	return strings.Contains(flat, stepCount(len(steps))) ||
+		strings.Contains(flat, fmt.Sprintf("Steps %d", len(steps)))
+}
+
+// mainMenuDestructiveFactsVisible reports whether the panel still names the
+// facts a reader must not be surprised by: the configs the run will overwrite and
+// the newest backup it holds. It asserts only on the two-column panel, where
+// those rows live; the narrow summary has one line and says the count.
+func mainMenuDestructiveFactsVisible(m Model, view string) bool {
+	flat := strings.Join(strings.Fields(ansiEscape.ReplaceAllString(view, "")), " ")
+	if len(m.ExistingConfigs) > 0 && !strings.Contains(flat, "Overwrites") {
+		return false
+	}
+	if _, ok := newestBackup(m.AvailableBackups); ok && !strings.Contains(flat, "Newest backup") {
+		return false
+	}
+	return true
 }

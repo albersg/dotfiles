@@ -2340,10 +2340,13 @@ func (m Model) trainerCompanionRows(stage, precedingRows, footerRows int) []stri
 // cannot hold both. Nothing is dropped from a body to make room for a pet, and
 // nothing is dropped from the summary either: the summary is the facts the panel
 // was showing and the creature is decoration, so the summary's rows come off the
-// spare rows first and the ladder picks the tallest sprite the rest can hold. When
-// even the one-row art does not fit, the summary keeps its rows and the companion
-// is not drawn. When both fit, the companion takes the rows nearest the footer and
-// the summary sits above it, so neither displaces the other.
+// spare rows first and the sprite the terminal's rung selected is drawn only if
+// the rows it and the summary need are blank. When even that does not fit, the
+// summary keeps its rows and the companion is not drawn. When both fit, the
+// companion takes the rows nearest the footer and the summary sits above it, so
+// neither displaces the other. The frame reserves the block before placing the
+// body (see frameWithPanels), so this refusal is the last resort for a screen
+// whose body genuinely fills the frame, not the ordinary case.
 func (m Model) placeCompanion(placed, summary []string, stage int) []string {
 	height := m.companionHeightNow()
 	// Nothing to draw means nothing to reserve: the summary keeps the row the
@@ -2359,31 +2362,46 @@ func (m Model) placeCompanion(placed, summary []string, stage int) []string {
 	// state whose art is one row tall - a celebration face - needs one row, and
 	// demanding the rung's rows instead would silently drop it from a frame that
 	// has room for exactly what it draws.
-	blockHeight := len(sprite)
-	blockStart := len(placed) - blockHeight
-	if blockStart < 0 {
+	blockStart, ok := companionBlockStart(placed, summary, len(sprite))
+	if !ok {
 		return placeRotator(placed, summary)
 	}
 	out := append([]string(nil), placed...)
 	for i, line := range summary {
-		row := blockStart - len(summary) + i
-		if row < 0 || out[row] != "" {
-			return placeRotator(placed, summary)
-		}
-		out[row] = line
-	}
-	// The block has to be rows the body did not need. The rung is chosen by the
-	// terminal now rather than by the space this screen happens to leave, so a
-	// block that lands on content is possible for the first time - and a fact
-	// still beats a decoration: the creature is not drawn at all rather than
-	// painted over a row the screen is stating something in.
-	for row := blockStart; row < len(placed); row++ {
-		if out[row] != "" {
-			return placeRotator(placed, summary)
-		}
+		out[blockStart-len(summary)+i] = line
 	}
 	copy(out[blockStart:], sprite)
 	return out
+}
+
+// companionBlockStart is the row the creature's sprite starts at when the block
+// and the summary above it are blank rows of placed, or false when they are not.
+// The block is the sprite's own rows -- not the rung's -- so a one-row
+// celebration face is not dropped from a frame that has room for exactly what it
+// draws, and the check is shared with frameWithPanels so the reservation and the
+// placement cannot disagree about where the block is.
+func companionBlockStart(placed, summary []string, blockHeight int) (int, bool) {
+	if blockHeight <= 0 || blockHeight > len(placed) {
+		return 0, false
+	}
+	blockStart := len(placed) - blockHeight
+	for i := range summary {
+		row := blockStart - len(summary) + i
+		if row < 0 || placed[row] != "" {
+			return 0, false
+		}
+	}
+	// The block has to be rows the body did not need. The rung is chosen by the
+	// terminal rather than by the space this screen happens to leave, so a block
+	// that lands on content is possible - and a fact still beats a decoration: the
+	// creature is not drawn at all rather than painted over a row the screen is
+	// stating something in.
+	for row := blockStart; row < len(placed); row++ {
+		if placed[row] != "" {
+			return 0, false
+		}
+	}
+	return blockStart, true
 }
 
 // companionSpareRows counts the blank rows at the bottom of a frame: the rows the
