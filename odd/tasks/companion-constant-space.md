@@ -6,7 +6,7 @@ The companion in the Vim Trainer still uses the old small pet, while the install
 
 ## Contract
 
-The desired rung is determined by terminal height and the model's pixel/glyph mode, never by screen, selection, or spare rows. Pixel mode selects 12 rows at height 34+, 8 rows at 30–33, and the glyph table below 30. Glyph mode selects 5 rows at height 25+ and 3 rows at 24 or below. Art is bottom-aligned in its reserved block.
+The desired rung is determined by terminal height and the model's pixel/glyph mode, never by screen, selection, or spare rows. Pixel mode selects 12 rows at height 48+, 8 rows at 32–47, and the glyph table below 32; `companionHeightShare = 4` bounds the rung to a quarter of the height, and those thresholds replaced 34+/30–33 because the 12-row rung took 35% of a 34-row screen. Glyph mode selects 5 rows at height 25+ and 3 rows at 24 or below. Art is bottom-aligned in its reserved block.
 
 At 80x24, framed screens preserve their current rendering. The trainer preserves its one-row mini at that floor; above the floor it reserves the selected rung or fails the frame guard. The trainer's code window absorbs the reservation down to its one-row minimum. The sprite's 32-column width must fit at the 80-column floor. No golden may be regenerated for this change; a moved framed golden is a finding.
 
@@ -21,7 +21,7 @@ At 80x24, framed screens preserve their current rendering. The trainer preserves
 
 ## Measurements
 
-`TestCompanionVolumeSpriteIsTheLadderTopSteps` prints the selected terminal rung: pixel mode at heights 34 and 33 selects 12 and 8 rows; height 30 also selects 8, height 29 falls through to the 5-row glyph cat, glyph mode at height 25 selects 5 rows, and height 24 selects the 3-row compact glyph rung. With pixel mode off at height 40, the rung is 5 rows.
+`TestCompanionVolumeSpriteIsTheLadderTopSteps` prints the selected terminal rung: pixel mode at heights 48 and 47 selects 12 and 8 rows; height 32 also selects 8, height 31 falls through to the 5-row glyph cat, glyph mode at height 25 selects 5 rows, and height 24 selects the 3-row compact glyph rung. With pixel mode off at height 40, the rung is 5 rows. `TestCompanionRungIsNeverMoreThanAQuarterOfTheHeight` pins the share at each height (at 34 it is 23.5%, was 35.3%; at 30 it is 16.7%, was 26.7%), and `TestCompanionCoverageAcrossTerminalSizes` logs how many of the 636 screen × size cases draw a creature: 461 draw, 175 do not, where the old boundaries left 213 without one.
 
 `TestCompanionCostHasTwoRegimes` at 227 columns reports: rest writes 0 bytes; walking uses 12 sprite rows and changes up to 12 lines per moving tick, 19 moving frames, 136,135 bytes total and 7,488 bytes in the widest changed lines (58.5 KB/s at 8 fps).
 
