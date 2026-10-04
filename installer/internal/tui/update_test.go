@@ -527,13 +527,15 @@ func TestWizardStartsOnTheDetectedPlatform(t *testing.T) {
 		"OSFedora": "Linux",
 		"OSWSL":    "Linux",
 		"OSTermux": "Termux",
-		// Detection failed. The menu must start somewhere and there is no
-		// "unknown" entry, so the cursor takes the first entry; the description
-		// still reads "Detected: OSUnknown" rather than claiming macOS.
-		"OSUnknown": "macOS",
 	}
 
 	for _, c := range osConstantsInDeclarationOrder(t) {
+		if _, known := osOptionIndex(c.value); !known {
+			// A platform the mapping does not know is not a "start on the
+			// detected option" case: it must start on none.
+			// TestWizardDoesNotPresentAnUndetectedPlatform guards it.
+			continue
+		}
 		want, decided := expectedOption[c.name]
 		if !decided {
 			t.Errorf("platform %s has no OS menu option decided for the wizard's starting cursor. "+
@@ -571,7 +573,8 @@ func TestWizardStartsOnTheDetectedPlatform(t *testing.T) {
 // defect: the description named the detected shell while the cursor sat on
 // Fish. The cursor now starts on the detected shell when the menu lists it, and
 // the description says what the cursor means rather than asserting a fact the
-// cursor contradicts.
+// cursor contradicts. A shell the menu does not list is not a "start on the
+// detected shell" case: TestShellStepDoesNotPresentAnUndetectedShell covers it.
 func TestShellScreenStartsOnTheDetectedShell(t *testing.T) {
 	cases := []struct {
 		shell string
@@ -581,9 +584,6 @@ func TestShellScreenStartsOnTheDetectedShell(t *testing.T) {
 		{"zsh", "Zsh"},
 		{"nushell", "Nushell"},
 		{"nu", "Nushell"},
-		{"", "Fish"},        // nothing detected
-		{"unknown", "Fish"}, // detection found nothing
-		{"bash", "Fish"},    // detected, but the menu does not list it
 	}
 
 	for _, c := range cases {
@@ -614,8 +614,113 @@ func TestShellScreenStartsOnTheDetectedShell(t *testing.T) {
 			}
 
 			description := got.GetScreenDescription()
-			if c.shell != "" && c.shell != "unknown" && !strings.Contains(description, c.shell) {
+			if !strings.Contains(description, c.shell) {
 				t.Errorf("the shell step description %q does not name the detected shell %q", description, c.shell)
+			}
+		})
+	}
+}
+
+// TestWizardDoesNotPresentAnUndetectedPlatform guards the class of defect that
+// issue #141 describes: osOptionIndex returning ok=false stopped the mapping
+// from silently meaning macOS, but the call site still filled the gap with
+// Cursor = 0, which is macOS. A platform the mapping does not know -- or a value
+// outside the declared block -- must open the OS step with nothing highlighted
+// and require an explicit choice, so no row reads as a detection that did not
+// happen.
+func TestWizardDoesNotPresentAnUndetectedPlatform(t *testing.T) {
+	type undetected struct {
+		name string
+		info *system.SystemInfo
+	}
+	var cases []undetected
+	for _, c := range osConstantsInDeclarationOrder(t) {
+		if _, known := osOptionIndex(c.value); known {
+			continue
+		}
+		cases = append(cases, undetected{name: c.name, info: &system.SystemInfo{OS: c.value, OSName: c.name}})
+	}
+	// A value outside the declared block exercises the mapping's tail return,
+	// not only its OSUnknown case.
+	cases = append(cases, undetected{name: "outside-the-block", info: &system.SystemInfo{OS: system.OSType(-1), OSName: "Unknown"}})
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := Model{Screen: ScreenMainMenu, SystemInfo: c.info}
+
+			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			got := updated.(Model)
+			if got.Screen != ScreenOSSelect {
+				t.Fatalf("enter on the main menu did not open the OS step: screen = %v", got.Screen)
+			}
+
+			options := got.GetCurrentOptions()
+			if got.Cursor >= 0 {
+				t.Fatalf("with no platform detected the OS step opens on %q, a row under the cursor that "+
+					"reads as the installer's answer; nothing should be highlighted: %v", options[got.Cursor], options)
+			}
+			got.Width, got.Height = 80, 24
+			if view := ansiEscape.ReplaceAllString(got.View(), ""); strings.Contains(view, "▸") {
+				t.Errorf("the OS step draws a highlighted row though detection found nothing:\n%s", view)
+			}
+			if desc := got.GetScreenDescription(); !strings.Contains(desc, "not detected") {
+				t.Errorf("the OS step does not state that detection found nothing: %q", desc)
+			}
+
+			// An explicit choice is required before the wizard may continue.
+			after, _ := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			next := after.(Model)
+			if next.Screen != ScreenOSSelect || next.Choices.OS != "" {
+				t.Errorf("Enter answered the OS question without a choice: screen = %v, OS = %q",
+					next.Screen, next.Choices.OS)
+			}
+		})
+	}
+}
+
+// TestShellStepDoesNotPresentAnUndetectedShell is the shell half of the same
+// class guard: a detected login shell the menu does not list (bash, dash), an
+// empty detection, and the sentinel "unknown" must open the shell step with
+// nothing highlighted and require an explicit choice, rather than leaving the
+// cursor on Fish under a line about the detected shell.
+func TestShellStepDoesNotPresentAnUndetectedShell(t *testing.T) {
+	for _, shell := range []string{"", "unknown", "bash", "dash"} {
+		if _, known := shellOptionIndex(shell); known {
+			t.Fatalf("shell %q is listed by the menu, so it is not an undetected case", shell)
+		}
+		name := shell
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := Model{
+				Screen:     ScreenFontSelect,
+				Cursor:     0, // install the font; ENTER advances to the shell step
+				SystemInfo: &system.SystemInfo{OS: system.OSLinux, UserShell: shell},
+			}
+
+			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			got := updated.(Model)
+			if got.Screen != ScreenShellSelect {
+				t.Fatalf("the font step did not lead to the shell step: screen = %v", got.Screen)
+			}
+
+			options := got.GetCurrentOptions()
+			if got.Cursor >= 0 {
+				t.Fatalf("with shell %q undetected the shell step opens on %q, a row under the cursor that "+
+					"reads as the installer's answer; nothing should be highlighted: %v", shell, options[got.Cursor], options)
+			}
+			got.Width, got.Height = 80, 24
+			if view := ansiEscape.ReplaceAllString(got.View(), ""); strings.Contains(view, "▸") {
+				t.Errorf("the shell step draws a highlighted row though the detected shell %q is not listed:\n%s", shell, view)
+			}
+
+			// An explicit choice is required before the wizard may continue.
+			after, _ := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			next := after.(Model)
+			if next.Screen != ScreenShellSelect || next.Choices.Shell != "" {
+				t.Errorf("Enter answered the shell question without a choice: screen = %v, shell = %q",
+					next.Screen, next.Choices.Shell)
 			}
 		})
 	}

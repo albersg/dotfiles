@@ -792,6 +792,13 @@ const (
 	osOptionTermux = 2
 )
 
+// noSelection is the cursor value a detection-driven step starts on when
+// detection named nothing. No row is marked, so the screen cannot present a
+// default as the installer's answer: menuRows treats every row as unselected,
+// and every reader of the cursor -- the choice panels, the companion -- already
+// treats a negative cursor as "nothing under it".
+const noSelection = -1
+
 // osOptionIndex returns the OS menu option the wizard's cursor should start on
 // for a detected platform.
 //
@@ -820,6 +827,38 @@ func osOptionIndex(detected system.OSType) (index int, ok bool) {
 	return 0, false
 }
 
+// osChoiceOptionIndex returns the OS menu option that matches a choice the
+// wizard already recorded ("mac", "linux" or "termux"). The bool is false while
+// the question is open, so a caller cannot mistake no answer for macOS.
+func osChoiceOptionIndex(choice string) (index int, ok bool) {
+	switch choice {
+	case "mac":
+		return osOptionMac, true
+	case "linux":
+		return osOptionLinux, true
+	case "termux":
+		return osOptionTermux, true
+	}
+	return 0, false
+}
+
+// osCursor is where the OS step's cursor starts. A platform the user already
+// chose wins, so stepping back to the question keeps their answer; otherwise
+// the detected platform is used. When neither is a platform the menu lists the
+// step opens with noSelection rather than a highlighted macOS: a row under the
+// cursor reads as the installer's answer, and detection gave none.
+func (m Model) osCursor() int {
+	if index, ok := osChoiceOptionIndex(m.Choices.OS); ok {
+		return index
+	}
+	if m.SystemInfo != nil {
+		if index, ok := osOptionIndex(m.SystemInfo.OS); ok {
+			return index
+		}
+	}
+	return noSelection
+}
+
 // The shell step's option positions (model.go, ScreenShellSelect), named for the
 // same reason as the OS positions above.
 const (
@@ -845,8 +884,9 @@ func shellOptionIndex(shell string) (index int, ok bool) {
 
 // shellCursor is where the shell step's cursor starts. A shell the user already
 // chose wins, so stepping back to the screen keeps their answer; otherwise the
-// detected login shell is used; when neither is a shell the menu lists, the
-// cursor takes the first entry.
+// detected login shell is used. When neither is a shell the menu lists the step
+// opens with noSelection, so a shell detection did not name is never shown as
+// the installer's answer.
 func (m Model) shellCursor() int {
 	if index, ok := shellOptionIndex(m.Choices.Shell); ok {
 		return index
@@ -856,7 +896,7 @@ func (m Model) shellCursor() int {
 			return index
 		}
 	}
-	return 0
+	return noSelection
 }
 
 // enterShellSelect moves to the shell step with the cursor on the detected
@@ -899,15 +939,11 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		switch {
 		case strings.Contains(selected, "Start Installation"):
 			m.Screen = ScreenOSSelect
-			// Start the cursor on the detected platform. Every platform the
-			// system package declares is mapped by osOptionIndex; when detection
-			// named nothing the menu keeps its first entry, which is a positional
-			// default rather than a claim that the host is macOS.
-			if index, ok := osOptionIndex(m.SystemInfo.OS); ok {
-				m.Cursor = index
-			} else {
-				m.Cursor = 0
-			}
+			// Start on the platform the user already chose, or the one detection
+			// found. When detection named nothing -- or a platform the mapping does
+			// not know -- the step opens with nothing highlighted, because a row
+			// under the cursor reads as the installer's answer.
+			m.Cursor = m.osCursor()
 		case strings.Contains(selected, "Learn About Tools"):
 			m.Screen = ScreenLearnTerminals
 			m.PrevScreen = ScreenMainMenu
@@ -983,7 +1019,10 @@ func (m Model) goBackInstallStep() (tea.Model, tea.Cmd) {
 
 	case ScreenTerminalSelect:
 		m.Screen = ScreenOSSelect
-		m.Cursor = 0
+		// Keep the platform the user chose rather than reopening the question on
+		// macOS; with no choice recorded this falls back to detection, then to
+		// nothing highlighted.
+		m.Cursor = m.osCursor()
 		// Reset terminal choice
 		m.Choices.Terminal = ""
 
@@ -998,13 +1037,15 @@ func (m Model) goBackInstallStep() (tea.Model, tea.Cmd) {
 		// WSL: go back to OS selection (skipped terminal and font)
 		if m.SystemInfo.IsTermux || m.SystemInfo.IsWSL {
 			m.Screen = ScreenOSSelect
+			m.Cursor = m.osCursor()
 		} else if m.Choices.Terminal == "none" {
 			// If we skipped font selection (terminal = none), go back to terminal
 			m.Screen = ScreenTerminalSelect
+			m.Cursor = 0
 		} else {
 			m.Screen = ScreenFontSelect
+			m.Cursor = 0
 		}
-		m.Cursor = 0
 		m.Choices.Shell = ""
 
 	case ScreenWMSelect:
@@ -1022,7 +1063,10 @@ func (m Model) goBackInstallStep() (tea.Model, tea.Cmd) {
 
 func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
-	if m.Cursor >= len(options) {
+	// A step that opened with noSelection is waiting for an explicit choice:
+	// Enter must not answer for the user, and indexing a negative cursor would
+	// be a panic rather than a refusal.
+	if m.Cursor < 0 || m.Cursor >= len(options) {
 		return m, nil
 	}
 

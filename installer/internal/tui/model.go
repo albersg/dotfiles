@@ -648,6 +648,15 @@ func (m Model) GetScreenTitle() string {
 func (m Model) GetScreenDescription() string {
 	switch m.Screen {
 	case ScreenOSSelect:
+		// A platform the mapping does not know has no menu entry to sit on, so
+		// the screen says detection found nothing instead of printing an
+		// "unknown" under a highlighted macOS.
+		if m.SystemInfo == nil {
+			return "Platform not detected — select your operating system"
+		}
+		if _, ok := osOptionIndex(m.SystemInfo.OS); !ok {
+			return "Platform not detected — select your operating system"
+		}
 		detected := m.SystemInfo.OSName
 		if m.SystemInfo.IsWSL && m.SystemInfo.OSName != "WSL" {
 			detected += " (WSL)"
@@ -671,9 +680,10 @@ func (m Model) GetScreenDescription() string {
 		// The line names the detected shell and says what the cursor is doing: it
 		// starts on the detected shell when the menu lists it. The old line stated
 		// the current shell and left the cursor on Fish, so the two contradicted
-		// each other whenever the account did not already use Fish.
+		// each other whenever the account did not already use Fish. When nothing
+		// was detected the line says so rather than leaving the cursor on Fish.
 		if m.SystemInfo == nil || m.SystemInfo.UserShell == "" || m.SystemInfo.UserShell == "unknown" {
-			return "Select your shell — the cursor starts on the detected shell when the menu lists it"
+			return "No current shell detected — choose the shell you want"
 		}
 		return "Current shell: " + m.SystemInfo.UserShell + " — the cursor starts on it when the menu lists it"
 	case ScreenWMSelect:
