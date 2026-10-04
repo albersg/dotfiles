@@ -215,49 +215,23 @@ gh run view <id> --json jobs \
 
 ## Release Process
 
-### 1. Build Binaries
+Releases are cut from `main`. Preparing one is a pull request like any other: it
+updates `CHANGELOG.md` and `.downstream/version.json`, and `main` requires review
+and a green CI run, so a release PR passes the same gate as any other change
+before the tag exists.
 
-```bash
-cd installer
-GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dotfiles-installer-darwin-amd64 ./cmd/dotfiles
-GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dotfiles-installer-darwin-arm64 ./cmd/dotfiles
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dotfiles-installer-linux-amd64 ./cmd/dotfiles
-GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dotfiles-installer-linux-arm64 ./cmd/dotfiles
-```
+The mechanics are documented once, so there is no second copy to drift:
 
-### 2. Create Tag and Release
+- [Release checklist](release-checklist.md) - what must be true **before** the
+  tag: the tree is clean, `make preflight` is green, `main` equals `origin/main`,
+  no open issue the release claims to close, and `CHANGELOG.md` is written.
+- [Releasing](RELEASING.md) - the runbook that follows the tag: what
+  `.github/workflows/release.yml` builds from it, how the draft release is
+  published, and how the Homebrew formula is updated.
 
-```bash
-git tag v{VERSION}
-git push origin v{VERSION}
-
-gh release create v{VERSION} \
-  installer/dotfiles-installer-darwin-amd64 \
-  installer/dotfiles-installer-darwin-arm64 \
-  installer/dotfiles-installer-linux-amd64 \
-  installer/dotfiles-installer-linux-arm64 \
-  --title "v{VERSION}" \
-  --notes "## Changes
-- Feature/fix description"
-```
-
-### 3. Update Homebrew Formula
-
-```bash
-# Get SHA256 for each binary
-shasum -a 256 installer/dotfiles-installer-*
-
-# Update homebrew-tap/Formula/dotfiles.rb with new version and hashes
-# Commit to both repos
-```
-
-### Version Guidelines
-
-| Change Type | Version Bump | Example |
-|-------------|--------------|---------|
-| New platform/major feature | Minor (x.Y.0) | v2.7.0 |
-| Bug fixes, improvements | Patch (x.y.Z) | v2.6.2 |
-| Breaking changes | Major (X.0.0) | v3.0.0 |
+Do not build the binaries or create the release by hand: the release workflow
+builds the four `dotfiles-<os>-<arch>` assets from the pushed tag and creates the
+draft release itself, so a hand-built artifact is not the released one.
 
 ## Code Style
 

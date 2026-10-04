@@ -4,10 +4,21 @@ How a downstream release is cut. Everything below is derived from reading
 `.github/workflows/release.yml` end to end - each claim names the line it comes from, so a change to
 the workflow can be checked against this page instead of against habit.
 
-`docs/RELEASES.md` is the older procedure page and still holds the versioning policy. Where the two
-disagree, this page is the one that matches the workflow. This page and `docs/release-checklist.md`
-split the work: the checklist is what must be true *before* a tag exists, this page is the sequence
-that follows.
+Which change earns which number is the versioning policy below. This page and
+`docs/release-checklist.md` split the work: the checklist is what must be true *before* a tag
+exists, this page is the sequence that follows.
+
+## Versioning
+
+The project follows [Semantic Versioning](https://semver.org/):
+
+- **Breaking changes**: MAJOR version bump.
+- **New features (backward compatible)**: MINOR version bump.
+- **Bug fixes**: PATCH version bump.
+
+Downstream versions are independent of upstream tags; the first downstream release was `v0.1.0`. The
+tag names the release and nothing in the working tree holds the version, so the policy decides the
+number the tag carries and the workflow injects that tag into the binary (see the next section).
 
 ## The tag is the release
 
@@ -219,5 +230,4 @@ gh release view v0.4.0 --json isDraft,assets --jq '{isDraft, assets: [.assets[] 
 ## Related
 
 - `docs/release-checklist.md` - what must be true before the tag exists.
-- `docs/RELEASES.md` - versioning policy and the older procedure text.
 - `.github/workflows/release.yml` - the source of every claim above.
