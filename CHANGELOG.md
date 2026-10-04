@@ -4,9 +4,21 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [v0.4.0] — 2026-10-04
 
-- Added the main-menu easter eggs `vim` (Vim Trainer), `:q` (quit), and `dd` (a brief selected-row gag).
+This is the release where **the installer stops reporting successes it did not have, and fits the
+terminal it is actually drawn into**. The wizard preselects the platform it detected, and on a host
+whose platform it does not know it preselects nothing rather than macOS (#135, #143). Four places
+that logged success whatever happened - a Ghostty download that failed, a tmux plugin install that
+failed, a backup that failed to delete and ten trainer saves that failed - now report the failure
+(#137), and `--dry-run` no longer runs `sudo`, Homebrew and `chsh` for real (#134). The frame guard
+that had been missing measured 636 screen-and-size cases and caught the four screens that still
+overflowed or clipped their frame (#139), and the screens that wrapped their text to a width they
+never got now wrap to the column they are drawn in (#133). The cycle's verification work ships with
+it: the last 47 sleeps in the suite became waits for the facts each test was about to assume
+(#116, #118, #122), the restore tests stopped depending on the runner's `HOME` (#131), a pull request
+stopped waiting eight to nine minutes for checks that were never gating anything (#82), and
+`make preflight` runs the checks that can run locally in 34.8 s against roughly 400 s in CI (#145).
 
 This cycle finishes the Vim trainer's buffer engine and its two new modules, and gives the installer
 an interface that fits the terminal it claims and reads on a light one. The WSL configuration is also
@@ -72,6 +84,93 @@ periodic idle events rather than repainting its own rows on every frame.
   is detected and nothing is at risk; the sequences are emitted only when stdout is a terminal, so a
   piped or redirected run keeps its bytes, and `DOTFILES_SYNC=0` turns the mode off for a multiplexer
   that mishandles it.
+- **Four places that logged success whatever happened now report the failure.** The Ghostty step ran
+  `curl … | /bin/bash`, which expands a failed download to the empty string, runs nothing and exits
+  zero - the exact shape the Homebrew step's own comment had already named - and then logged "Ghostty
+  configured"; both Ghostty paths now download to a file, check `curl` and run that file. The tmux
+  plugin install discarded its result and logged "✓ Tmux configured" unconditionally, and now
+  withholds the success line on failure (it still returns success and warns, because a pre-existing
+  test outside that change asserts the step does not fail on a missing plugin seed - a decision,
+  stated rather than hidden). A backup that failed to delete advanced as if it had been removed, and
+  now reaches `ScreenError` like the restore branch beside it. Ten trainer save sites ignored the
+  error while the profile reset beside them checked it, so a read-only `HOME` lost the player's
+  progress without a word; all ten go through one `saveTrainerStats` helper that reports on the
+  trainer's message line, with the warning ordered to win. Each site is guarded by its own test, and
+  the Ghostty and tmux tests are `HOME`-sandboxed because a red run of them wrote
+  `~/.config/ghostty/config` on the development machine. (#137)
+- **`--dry-run` no longer performs the interactive steps for real.** The guard lived inside
+  `executeStep`, and the TUI routes the interactive steps around it, so a flag documented as
+  installing nothing ran `sudo` package installs, a real Homebrew install and a real `chsh` for the
+  `deps`, `homebrew`, `terminal`, `wslconfig` and `setshell` steps. The interactive path now returns
+  the same skipped result `executeStep` returns, with a `DRY RUN: skipping step "…"` log line, so the
+  walkthrough still runs and changes nothing. The old test called `executeStep` directly and the E2E
+  dry-run matrix is `--non-interactive`, which is why neither saw it; the new test drives the
+  interactive dispatch. (#134)
+- **The wizard preselects the platform it detected, and never falls through to macOS.** The
+  preselection compared the detected platform with the generic `system.OSLinux` constant and used an
+  `else` for everything else, so Debian, Ubuntu, Arch, Fedora, Termux and WSL - each with its own
+  constant - all landed on the macOS row, under a title that said `Detected: Debian/Ubuntu (WSL)`.
+  `osOptionIndex` now maps every platform explicitly with no `default`, and a class-level guard
+  derives the platform constants from the `system` package so adding one forces a decision instead of
+  a default. (#135) A second round found the same default one level up: the caller assigned the
+  cursor to option 0 - macOS - when the mapping reported an unknown platform. An unrecognised
+  platform and an unrecognised shell now open with nothing highlighted, say so (`Platform not detected
+  - select your operating system`) and refuse `Enter` until the reader chooses, because a placeholder
+  that reads as a selection is the shape this defect was born from. (#143)
+- **The terminal step copies its configuration from the checkout instead of a `cwd`-relative
+  `dotfiles/`.** There is no `dotfiles/` directory in this repository and the clone step checks out
+  into a private temporary directory, so the copy source resolved only by accident, if at all, and
+  the interactive script repeated the same hard-coded path under `set -e`. Both paths now resolve
+  each asset through `m.repoDir()`. (#132)
+- **The selection screens wrap to the width they are drawn at.** Their descriptions were wrapped to
+  the whole terminal while the two-column composer truncates every left-hand line to its column, so at
+  124x24 a 97-cell note was wrapped at 120 columns and cut at 56: the tail of every long line was
+  silently discarded, in the screens whose own comment claimed the clipping had been fixed. The guard
+  knew one of the two ways a cut appears - a suffix marker - and the panel's own wrap marker made a
+  mid-line cut invisible, so it now walks each line's display columns and fails when the marker falls
+  inside the body's own range. (#133)
+- **Every screen is now measured against every terminal it ships to.** The frame guards iterated a
+  hand-written list of states, so four defects shared one cause and nothing was checking it:
+  `TestEveryScreenFitsEveryTerminalSize` renders 53 screens at 12 sizes - 636 cases, and the test pins
+  that count - and asserts each frame's rows and its widest visible line against the terminal, counting
+  a wide rune as two cells. It caught the welcome screen dropping its bottom rule and help footer off a
+  44-row terminal (lipgloss `Style.Width` word-wraps, so centring doubled the wordmark once the left
+  column narrowed), the trainer header letting its title be cut to the frame, the LazyVim topic
+  reserving one footer row where the footer packs two, and the `keymaps` description widening its block
+  until the terminal clipped it. The trainer's one-row companion rung at the 80x24 floor stays a
+  documented exception, now stated where the ladder is stated and pinned by its own test. (#139)
+- **The installer's titles say what happened.** Routing three screens through the one place titles come
+  from was right, and the values they inherited were vaguer than the text they replaced: a failed
+  install said `Error` where it had said `Installation Failed`, and the installing screen said
+  `Installing...` where it had said `Installing dotfiles`. They now read `Installation failed`,
+  `Installing dotfiles` and `Installation complete`. (#44)
+- **The Vim trainer stops accepting wrong answers, miscounting practice and losing progress.** An
+  answer the simulator cannot fully parse is rejected, and an operator or text-object answer must
+  match the selection it produces, through one notion of fully consumed input; the practice counters
+  have a single owner, so one submission is counted once; the space key is exempted by one predicate
+  over the screens where it selects and stays ordinary input on the exercise screens; leaving a
+  lesson, practice session or boss with `esc` persists stats and reports an abandoned boss instead of
+  dropping them; control keys the simulator cannot parse are ignored rather than inserted as the
+  literal text `ctrl+a`; and a boss answer is recorded through the canonical recorders, so a spent
+  life and the attempt count have one owner and one window cannot cost two lives. (#34)
+- **The trainer's hints say something the exercise's description does not, and the hint line is
+  guarded.** A hint revealed with `Tab` used to repeat the mission — the mission read "Move to the
+  start of 'userName' using w (word)" and the hint read "w moves to the start of the next word" — so
+  asking for it cost a keypress and taught nothing, which is the defect a player reported. Every hint
+  now adds the mechanism its mission leaves out: the count, flag or range the command takes, the part
+  of it the mission does not name, how it compares with the command it is easiest to confuse it with,
+  or what follows from it. One hundred and twenty-one hint lines were rewritten across the nine
+  modules and the change-and-repeat boss fight, and no judging, solution set or lesson count changed.
+  `TestShippedHintsAddWhatTheirMissionDoesNot` sweeps every shipped hint for one of those additions,
+  and `hintEchoRewrites` pins the exact echoes that were withdrawn so a later edit cannot restore
+  them. The hint line itself is now guarded: `trainerHintLabel` is the one place that builds
+  "💡 Hint: …", and it returns nothing when the exercise carries no hint, so a hint that was
+  legitimately dropped no longer renders a bare label — and the five content tests that required every
+  lesson to have a hint were reshaped, because a hint is optional under the mission/hint rule and the
+  guard over a hint that *is* present is the one that matters. The hint copy the Change & Repeat boss
+  steps already carried was unreachable — the boss screen had no key that could show it — so the boss
+  screen now reveals its step's hint on `Tab` on the same terms, and its legend advertises the key
+  without costing a row.
 
 ### Changed
 
@@ -178,6 +277,48 @@ periodic idle events rather than repainting its own rows on every frame.
 - **The install step and the interactive script render the same bytes.** Both routes go through one
   shared render helper, so the non-interactive step and the shell script a guided run executes can no
   longer disagree about what `.wslconfig` contains.
+- **The suite waits for the facts it was about to assume instead of sleeping past them.** The last 47
+  sleeps - 13 became waits for output to arrive, 22 waits for the screen the test opens, and 12 moves
+  that needed no wait at all - are gone, and the trainer's own file, which held 36 of them, now waits
+  on conditions through `teatest.WaitFor`. A first attempt replaced the library's 14 existing waiters
+  with a home-made reader that read the stream differently and timed out over output the library would
+  have matched; restoring them, with the shared helper delegating to the library, is kept in the branch
+  history as the reason the fix is short. (#116, #118, #122)
+- **The slowest guard renders its screens in parallel, and counts what it covers.** The constant-space
+  guard rendered about eight hundred screens one after another on a single idle core. The models are
+  still built sequentially, because the helpers call `t.Setenv` and that is legal only on the test's own
+  goroutine; the renders - the expensive part, and pure per model - go through a bounded pool over an
+  indexed slice so each result keeps the identity its failure message needs, and the assertions run in
+  order over what came back. The test now asserts its own counts, 848 rendered screens and 848
+  comparisons, so a change that quietly covers less fails there instead of saving time. (#120)
+- **The restore tests waited on the runner's `HOME`, not on a race.** Seven attempts blamed timing: the
+  startup backup scan replaces the model's seeded backups with a real scan of `$HOME` and has no guard,
+  so on a runner whose home holds no `.dotfiles-backup-*` directories the list emptied, `Enter` stopped
+  leaving the screen and the confirm screen became unreachable - while on a machine with three real
+  backups the tests passed for the wrong reason. Each restore test now points `$HOME` at a `t.TempDir()`
+  holding exactly the backups it declares. (#131)
+- **A pull request no longer waits eight to nine minutes for checks that were not gating anything.**
+  The E2E workflow cancelled unconditionally on a group shared by every push to `main`, so the next
+  merge killed the previous commit's matrix: a merged commit whose only full installation was cancelled
+  five seconds in, and never re-ran. Both workflows now cancel on pull requests only, because waiting
+  behind the previous run costs minutes while abandoning a merged commit's check costs the check. The
+  gates that only serialised - `linux-e2e` waiting on `go-tests`, `build` on `go-validate` and
+  `branding-audit`, none of which consumes another's output - were removed for the same reason. (#82)
+- **The E2E image cache was implemented, measured and deliberately not shipped.** Three runs of the same
+  ubuntu job put the image build at 32.5 s of a roughly 400 s job, and the warm cache build took 42.2 s
+  against the 32.5 s with no cache at all, so the cache was not being reused; even a hit is bounded by
+  under ten per cent of the job, while the cold run paid 193 s to write it. The cache is out, with the
+  figures and the untested `mode=max` hypothesis in `odd/tasks/ci-efficiency.md`. (#84)
+- **The E2E shell check fails when the shell is missing.** `test_shell_functional` asked whether fish and
+  zsh worked and had no branch for their absence: it recorded no verdict and the suite counted it as a
+  pass. Both absences are failures now, and the coverage ledger names the new guard. (#116)
+- **Two guards for classes the previous checks could not see.** The frame guards iterated a hand-written
+  list of states, so a screen added to `model.go` was measured by nothing and the omission stayed
+  invisible because the guards stayed green either way; the list now derives from the screens the source
+  declares, and the count is asserted. (#94) And the installer's promise that nothing it means is
+  carried by colour alone - Termux is supported, a 16-colour profile is supported, a piped run has no
+  colour at all - is now checked by rendering five pairs of models with every escape sequence removed
+  and requiring each pair to neither draw the same characters nor differ only in trailing padding. (#98)
 
 ### Added
 
@@ -265,27 +406,50 @@ periodic idle events rather than repainting its own rows on every frame.
   (`Good morning`, `Good afternoon`, `Good evening`) greets the reader without replacing any existing
   copy. The greeting is a pure function of the time the model was created with, never of the clock
   read while drawing, so a snapshot pins it instead of flaking at the hour.
+- **The main menu answers to `vim`, `:q` and `dd`.** `vim` opens the Vim Trainer, `:q` quits, and `dd`
+  briefly removes the selected row as Vim would. (#114)
+- **The Vim trainer scores real time, shows a countdown and times the boss fights.** The game state
+  stamps when an exercise is presented and exposes the elapsed seconds through an injected clock, so
+  the scorer no longer receives a hardcoded `10.0`; the screens show the time remaining before the hint
+  and reveal it when the deadline passes, and expiry is a hint rather than a failure, because the
+  exercise stays open and answerable. Boss steps run their own clock: an unanswered step costs exactly
+  one life through the same recorder a wrong answer uses, shows the solution and re-arms, a won step
+  grants the boss's bonus time to the step that follows, and a spent life is the single owner of the
+  window re-arm, so one deadline cannot cost two. (#36)
+- **The Vim trainer reports its progress and can clear it on request.** Every module entry shows the
+  lessons completed against the total, its mastered count and its boss state, and the selected entry
+  adds its commands and its most-often-missed exercises, with mastery moved to one predicate shared
+  with weighted practice selection. `shift+R` arms a whole-profile reset and a second press clears it,
+  while any other key cancels and `esc` leaves everything alone; the lowercase `r` still resets one
+  module. (#38)
+- **The installer provisions the Pi agent skills and the OfficeCLI binary.** `security-audit`,
+  `archify` and `officecli` are installed under `~/.pi/agent/skills/`, each from an immutable commit
+  and each checked against a hard-coded SHA-256 before anything is staged, so a mismatch or a failed
+  transfer fails the step without touching the destination; extraction refuses archive entries that
+  would escape the staging directory, and a destination that already exists is reported and left
+  untouched, so a locally modified or newer skill survives an installer run. The pinned files come
+  from the raw host rather than the rate-limited contents API, which settles a `403` that had turned
+  the ubuntu E2E job red (#56). OfficeCLI is installed from one versioned release asset per platform,
+  verified the same way, instead of the project's unpinned shell installer (commit `37e71c1`).
+- **The installer's welcome emblem is a faceted gem, and it is the same mark in the Neovim
+  configuration.** The emblem and the compact lockup a short terminal gets are redrawn as a cut stone
+  in the installer's welcome screen and in the Neovim dashboard, so the two no longer disagree about
+  what the mark is (commit `3f4961f`).
+- **`make preflight` runs the checks that can run locally, in CI's order.** Seven steps - `gofmt`,
+  `go vet`, a build with the `--help` smoke test, the whole Go suite, `shellcheck`, the branding audit
+  with `ci.yml`'s own exclusion globs, and `gitleaks` over the commits the branch adds - each naming the
+  CI job it mirrors, measured at 34.8 s locally against roughly 400 s in CI. A missing tool stops the
+  run rather than skipping a check, the script builds into a temporary directory so a run leaves the
+  checkout clean, and the footer names what it cannot run: the Docker E2E matrix, Termux, the E2E
+  image-list job and the macOS toolchain. A green preflight is not 14 of 14, and it says so. (#145)
 
-### Fixed
+### Removed
 
-- **The trainer's hints say something the exercise's description does not, and the hint line is
-  guarded.** A hint revealed with `Tab` used to repeat the mission — the mission read "Move to the
-  start of 'userName' using w (word)" and the hint read "w moves to the start of the next word" — so
-  asking for it cost a keypress and taught nothing, which is the defect a player reported. Every hint
-  now adds the mechanism its mission leaves out: the count, flag or range the command takes, the part
-  of it the mission does not name, how it compares with the command it is easiest to confuse it with,
-  or what follows from it. One hundred and twenty-one hint lines were rewritten across the nine
-  modules and the change-and-repeat boss fight, and no judging, solution set or lesson count changed.
-  `TestShippedHintsAddWhatTheirMissionDoesNot` sweeps every shipped hint for one of those additions,
-  and `hintEchoRewrites` pins the exact echoes that were withdrawn so a later edit cannot restore
-  them. The hint line itself is now guarded: `trainerHintLabel` is the one place that builds
-  "💡 Hint: …", and it returns nothing when the exercise carries no hint, so a hint that was
-  legitimately dropped no longer renders a bare label — and the five content tests that required every
-  lesson to have a hint were reshaped, because a hint is optional under the mission/hint rule and the
-  guard over a hint that *is* present is the one that matters. The hint copy the Change & Repeat boss
-  steps already carried was unreachable — the boss screen had no key that could show it — so the boss
-  screen now reveals its step's hint on `Tab` on the same terms, and its legend advertises the key
-  without costing a row.
+- **The deprecated Neovim Gemini CLI integration is gone.** `jonroosevelt/gemini-cli.nvim` is removed
+  and replaced by `mceazy2700/antigravity-cli.nvim`, which ships disabled like every other AI plugin,
+  because the configuration enables one assistant at a time and the `<leader>a` key is shared by all of
+  them. The plugin it replaced called `setup()` at load time on top of the config function the file
+  declared, so it ran its own setup twice. (#79)
 
 ## [v0.3.0] — 2026-09-22
 
