@@ -213,7 +213,9 @@ $cpus = (Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfLogi
 If interop is unavailable on the machine where you run the installer, set
 `DOTFILES_WSL_HOST_CPUS` (logical CPUs) and `DOTFILES_WSL_HOST_MEMORY_MB` (MiB)
 to the values you read here; both must be set and valid before they replace the
-query.
+query. They are overrides you set on purpose, not installer internals;
+[docs/BRANDING.md](BRANDING.md) lists them with every other `DOTFILES_*` name the
+installer reads or writes.
 
 ---
 

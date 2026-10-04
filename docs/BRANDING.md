@@ -14,22 +14,48 @@ This documentation covers the branding conventions for the dotfiles downstream d
 
 ### Environment Variables
 
-All installer environment variables use the `DOTFILES_` prefix. The table lists the
-variables a user sets from outside the program. Internal wiring uses the same prefix
-without appearing here — for example the `DOTFILES_WSL_HOST_CPUS` and
-`DOTFILES_WSL_HOST_MEMORY_MB` overrides read by `installer/internal/system/host.go` —
-and `dotfiles --help` is the source of truth for the user-facing set.
+All installer environment variables use the `DOTFILES_` prefix. This section is the
+inventory of every such name the installer reads or writes, grouped by who sets it.
+`dotfiles --help` documents the subset that also has a flag, and it is not the whole
+set: the installer reads overrides no flag reaches, and it writes names of its own.
+The tables below carry them all, and `installer/cmd/dotfiles/help_test.go` derives the
+names from the installer's own source and fails when one is missing here.
+
+#### Switches a user sets
 
 | Variable | Purpose |
 |----------|---------|
-| `DOTFILES_DRY_RUN` | Simulate installation without changes |
-| `DOTFILES_TEST_MODE` | Run in test mode (temp directory) |
-| `DOTFILES_VERBOSE` | Enable verbose logging |
+| `DOTFILES_DRY_RUN` | Simulate installation without changes; `--dry-run` sets it |
+| `DOTFILES_VERBOSE` | `=1` prints every command the installer runs |
 | `DOTFILES_ANIM` | `=0` stops the animation and the tip rotation; the same as `--no-anim` |
 | `DOTFILES_MOUSE` | `=0` stops reading the pointer; `=1` asks for it in Termux, where it is off by default |
 | `DOTFILES_SPRITE` | `=0` draws the glyph cat instead of the shaded sprite; the same as `--no-sprite` |
 | `DOTFILES_SYNC` | `=0` stops bracketing each frame in synchronized output |
-| `DOTFILES_SHELL_STARTED` | Internal: prevents nested shell auto-start |
+| `DOTFILES_SKIP_DEPS` | `=1` skips the dependency step; the step's own failure message names this variable |
+| `DOTFILES_SKIP_TOOLSET` | `=1` skips the toolset step, the ~60 Brewfile entries a container or CI run does not need |
+
+#### Overrides for non-standard layouts
+
+These exist for hosts the defaults do not describe. `docs/manual-installation.md`
+tells a WSL user without interop to set the two host overrides.
+
+| Variable | Purpose |
+|----------|---------|
+| `DOTFILES_WSL_HOST_CPUS` | Sets the host's logical CPU count and skips the interop query; both host overrides must be present and valid |
+| `DOTFILES_WSL_HOST_MEMORY_MB` | Sets the host's memory in MiB on the same terms as `DOTFILES_WSL_HOST_CPUS` |
+| `DOTFILES_WSL_WINDOWS_HOME` | Points the Windows profile lookup at a Windows drive mounted somewhere other than `/mnt/c` |
+| `DOTFILES_WSL_USERS_DIR` | Points the Windows users mount the profile lookup scans away from the default `/mnt/c/Users` |
+| `DOTFILES_WSL_CONF_PATH` | Points the `wsl.conf` destination away from `/etc/wsl.conf` for a distribution that keeps the file elsewhere |
+
+#### Names the installer reads or writes that are not user switches
+
+| Variable | Purpose |
+|----------|---------|
+| `DOTFILES_TEST_MODE` | The binary exports it as `1` for `--test`; nothing reads it back, so setting it from outside has no effect |
+| `DOTFILES_SHELL_STARTED` | The installer writes it into your shell rc; it stops a second shell from auto-starting the installer |
+| `DOTFILES_REPO_REF` | Test harness hook: selects the revision the container end-to-end suite clones |
+| `DOTFILES_BINFMT_DIR` | Test hook: points the interop check at a fixture directory instead of `/proc/sys/fs/binfmt_misc` |
+| `DOTFILES_ALPINE_RELEASE` | Test hook: points the Alpine/musl probe at a fixture instead of `/etc/alpine-release` |
 
 ### Package Directories
 
