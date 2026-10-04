@@ -2,9 +2,14 @@ package main
 
 import (
 	"flag"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -108,7 +113,7 @@ func TestBrandingDocListsEveryHelpEnvironmentVariable(t *testing.T) {
 			continue
 		}
 		seen[name] = true
-		if !strings.Contains(string(doc), name) {
+		if !docNamesEnvironmentVariable(string(doc), name) {
 			missing = append(missing, name)
 		}
 	}
@@ -117,6 +122,116 @@ func TestBrandingDocListsEveryHelpEnvironmentVariable(t *testing.T) {
 			"A reader who follows the help to the branding guide finds no entry for the switch they were just told about.",
 			len(missing), len(seen), missing)
 	}
+}
+
+// installerEnvLiteralRE matches a Go string literal that is exactly one installer
+// environment variable name. Matching the whole literal is what keeps a name the
+// installer merely interpolates into a string, such as the `# DOTFILES_DEFAULT_SHELL`
+// placeholder or the shell snippet carrying `$DOTFILES_SHELL_STARTED`, out of the
+// derived set.
+var installerEnvLiteralRE = regexp.MustCompile(`^DOTFILES_[A-Z0-9_]+$`)
+
+// TestBrandingDocNamesEveryInstallerEnvironmentVariable guards the class of defect
+// where the installer reads or writes a DOTFILES_* name and the branding guide's
+// inventory does not carry it. The guide presented its table as the user-facing set
+// while the installer also read `DOTFILES_SKIP_DEPS`, `DOTFILES_SKIP_TOOLSET`, the
+// WSL layout overrides and `DOTFILES_REPO_REF`, and it mislabelled two variables
+// that `docs/manual-installation.md` tells the reader to set.
+//
+// The names come from the installer's own source rather than from a written-out
+// list, so a variable cannot be added without the guide being asked for it. The
+// guide decides how to present each one - a switch to set, an override, or a hook
+// to leave alone - but it has to name them all.
+//
+// The set is what the installer names as environment variables in its own code. A
+// name it only writes into a snippet it hands to the user's shell is not derived
+// here, and the guide names one of those (`DOTFILES_SHELL_STARTED`) anyway.
+func TestBrandingDocNamesEveryInstallerEnvironmentVariable(t *testing.T) {
+	names := installerEnvNamesFromSource(t)
+	if len(names) < 10 {
+		t.Fatalf("found only %d environment variable names in the installer source, so this "+
+			"guard proves nothing: %v", len(names), names)
+	}
+
+	doc, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "BRANDING.md"))
+	if err != nil {
+		t.Fatalf("read docs/BRANDING.md: %v", err)
+	}
+
+	var missing []string
+	for _, name := range names {
+		if !docNamesEnvironmentVariable(string(doc), name) {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("docs/BRANDING.md does not name %d of the %d environment variables the installer "+
+			"reads or writes: %v\n"+
+			"A reader who follows the source to the branding guide finds no entry, and cannot tell whether "+
+			"the variable is a switch to set or a hook to ignore.", len(missing), len(names), missing)
+	}
+}
+
+// docNamesEnvironmentVariable reports whether the document carries the name as a
+// whole variable. The boundaries are what stop a longer name from satisfying a
+// shorter one: `DOTFILES_SKIP_TOOLSET_X` must not count as `DOTFILES_SKIP_TOOLSET`,
+// or the guide could quietly drop a row and still pass this guard.
+func docNamesEnvironmentVariable(doc, name string) bool {
+	re := regexp.MustCompile(`(^|[^A-Z0-9_])` + regexp.QuoteMeta(name) + `([^A-Z0-9_]|$)`)
+	return re.MatchString(doc)
+}
+
+// installerEnvNamesFromSource parses the installer's non-test Go sources and
+// returns every distinct string literal that is exactly a DOTFILES_* variable name,
+// in sorted order. It reads the packages the binary is built from - installer/cmd
+// and installer/internal - so the answer tracks the code rather than a copy.
+func installerEnvNamesFromSource(t *testing.T) []string {
+	t.Helper()
+
+	root := repoRoot(t)
+	seen := map[string]bool{}
+	for _, dir := range []string{
+		filepath.Join(root, "installer", "cmd"),
+		filepath.Join(root, "installer", "internal"),
+	} {
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			file, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+			if parseErr != nil {
+				return parseErr
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				lit, ok := n.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				value, unquoteErr := strconv.Unquote(lit.Value)
+				if unquoteErr != nil {
+					return true
+				}
+				if installerEnvLiteralRE.MatchString(value) {
+					seen[value] = true
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("scan %s: %v", dir, err)
+		}
+	}
+
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // repoRoot resolves the repository checkout from the package directory, so the
