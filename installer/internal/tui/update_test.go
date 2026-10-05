@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -730,19 +731,29 @@ func TestShellStepDoesNotPresentAnUndetectedShell(t *testing.T) {
 // The utilities section
 // ---------------------------------------------------------------------------
 
-// utilitiesModel builds the utilities section with the detected desktop pinned,
-// so a behaviour test does not depend on the machine that runs it.
+// utilitiesModel builds the utilities section with the detected desktop pinned
+// on both sides, so a behaviour test never depends on the machine that runs it.
+//
+// Writing the false side explicitly is the point: NewModel detects against the
+// host, and `defaults` is always on PATH on macOS, so a model whose switch was
+// merely left unset was offered a theme on a macOS runner and not on a Linux
+// one. A test about "no desktop" has to say the model has no desktop, rather
+// than assume the host has none.
 func utilitiesModel(t *testing.T, detected bool) Model {
 	t.Helper()
+
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+
 	m := NewModel()
 	m.Screen = ScreenUtilities
 	m.Cursor = 0
 	if detected {
-		target, ok := themeSwitchByID("gnome")
-		if !ok {
-			t.Fatal("the theme switch table no longer holds the gnome entry")
-		}
 		m.ThemeSwitch, m.ThemeSwitchFound = target, true
+	} else {
+		m.ThemeSwitch, m.ThemeSwitchFound = themeSwitch{}, false
 	}
 	return m
 }
@@ -806,17 +817,94 @@ func TestUtilitiesOffersTheThemeRowsOnlyWhenADesktopIsDetected(t *testing.T) {
 
 	t.Run("no detected desktop offers no theme row at all", func(t *testing.T) {
 		m := utilitiesModel(t, false)
-		options := m.GetCurrentOptions()
-		for _, opt := range options {
-			if strings.Contains(opt, "theme") {
-				t.Errorf("options = %v, want no theme row on a host with no desktop", options)
-				break
-			}
+		if m.ThemeSwitchFound || m.ThemeSwitch.ID != "" {
+			t.Fatalf("this case needs a model with no detected desktop, got %+v: the assertion below would then be "+
+				"about the host rather than about the rule", m.ThemeSwitch)
 		}
-		if !anyOptionContains(options, "Back") {
-			t.Errorf("options = %v, want the way back", options)
+		if anyOptionContains(m.GetCurrentOptions(), "theme") {
+			t.Errorf("options = %v, want no theme row on a host with no desktop", m.GetCurrentOptions())
+		}
+		if !anyOptionContains(m.GetCurrentOptions(), "Back") {
+			t.Errorf("options = %v, want the way back", m.GetCurrentOptions())
 		}
 	})
+}
+
+// TestUtilitiesUnavailableIsAboutTheModelNotTheHost reproduces the platform
+// failure CI found on macOS without needing a mac, so the next person can see it
+// on Linux.
+//
+// It makes the ambient detection find a switch -- a fake gsettings on PATH and a
+// GNOME session -- and then builds the section with the model's own fields set
+// to "no desktop". The assertions must still hold, because they read the model
+// and never the host. The old test left those fields unset and read the host
+// instead: that passed on a Linux runner and failed on the macOS runner, where
+// `defaults` is always present, which is the failure this pins.
+func TestUtilitiesUnavailableIsAboutTheModelNotTheHost(t *testing.T) {
+	dir := t.TempDir()
+	for _, tool := range []string{"gsettings", "defaults"} {
+		path := filepath.Join(dir, tool)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("XDG_CURRENT_DESKTOP", "GNOME")
+	t.Setenv("DESKTOP_SESSION", "gnome")
+
+	// The ambient detection really does find a switch, or this test proves
+	// nothing about reading the model instead of the host.
+	if _, ok := currentThemeSwitch(&system.SystemInfo{}); !ok {
+		t.Fatal("the ambient detection found no switch, so this test cannot show that the assertions are about the model")
+	}
+
+	m := utilitiesModel(t, false)
+	if m.ThemeSwitchFound || m.ThemeSwitch.ID != "" {
+		t.Fatal("utilitiesModel(false) kept the ambient detection, so the assertions below would be about this host")
+	}
+	if anyOptionContains(m.GetCurrentOptions(), "theme") {
+		t.Errorf("options = %v, want no theme row when the model has no detected desktop", m.GetCurrentOptions())
+	}
+	if plain := ansiEscape.ReplaceAllString(m.View(), ""); !strings.Contains(plain, "No desktop theme switch is available here") {
+		t.Errorf("the section does not say why it offers nothing:\n%s", plain)
+	}
+}
+
+// TestUtilitiesAreOfferedOnMacOSWithDefaults is the case the other tests cannot
+// see on a Linux runner, and the one a macOS runner produced: `defaults` is
+// always present on darwin, so the pure rule finds a switch there and the
+// section must offer it. It links the two halves that make the offer - the rule
+// that detects the macOS target from darwin inputs, and the model that shows the
+// rows for a detected switch - so neither can silently stop being true, and the
+// inputs are passed in rather than read from the host, so this holds on every
+// runner.
+func TestUtilitiesAreOfferedOnMacOSWithDefaults(t *testing.T) {
+	hasDefaults := func(name string) bool { return name == "defaults" }
+
+	target, ok := detectThemeSwitch("darwin", "", "", hasDefaults)
+	if !ok {
+		t.Fatal("darwin with defaults on PATH no longer detects a theme switch, so macOS is offered nothing")
+	}
+	if target.ID != "macos" {
+		t.Fatalf("the detected desktop = %q, want macos", target.ID)
+	}
+
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.ThemeSwitch, m.ThemeSwitchFound = target, true
+
+	options := m.GetCurrentOptions()
+	if !anyOptionContains(options, "dark theme") || !anyOptionContains(options, "light theme") {
+		t.Errorf("options = %v, want both theme rows on a detected macOS desktop", options)
+	}
+
+	plain := ansiEscape.ReplaceAllString(m.View(), "")
+	if strings.Contains(plain, "No desktop theme switch is available here") {
+		t.Errorf("the macOS section says no switch is available while one was detected:\n%s", plain)
+	}
+	if !strings.Contains(plain, "macOS") {
+		t.Errorf("the macOS section does not name the desktop it detected:\n%s", plain)
+	}
 }
 
 // TestUtilitiesUnavailableSaysSoAndFitsTheFrame pins the honest degradation: on a
@@ -825,6 +913,9 @@ func TestUtilitiesOffersTheThemeRowsOnlyWhenADesktopIsDetected(t *testing.T) {
 // terminals the installer claims to support.
 func TestUtilitiesUnavailableSaysSoAndFitsTheFrame(t *testing.T) {
 	m := utilitiesModel(t, false)
+	if m.ThemeSwitchFound {
+		t.Fatal("this case needs a model with no detected desktop, so the assertion is about the rule and not about the host")
+	}
 
 	for _, size := range []struct {
 		name          string

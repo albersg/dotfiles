@@ -710,6 +710,15 @@ func TestDetectThemeSwitchIsNarrowAndHonest(t *testing.T) {
 // TestThemeSwitchIsNotOfferedOnTermuxOrAnUnknownHost pins the two facts
 // detection cannot see from the session alone: Termux has no desktop, and a host
 // whose platform was never detected has nothing to describe.
+//
+// It is host-independent on purpose, and the reason is the one the macOS runner
+// exposed: both refusals happen in the wrapper, before the rule ever asks the
+// PATH for a tool. A desktop-shaped environment is set anyway so the test says
+// what it means -- even a GNOME session is refused on Termux -- but no assertion
+// here reads the runner's PATH, so `defaults` being present on macOS cannot
+// change the answer. The other half, that the same GNOME session with gsettings
+// present does detect the gnome target, is the "a GNOME session with gsettings"
+// row of TestDetectThemeSwitchIsNarrowAndHonest, so this test is not vacuous.
 func TestThemeSwitchIsNotOfferedOnTermuxOrAnUnknownHost(t *testing.T) {
 	t.Setenv("XDG_CURRENT_DESKTOP", "GNOME")
 
