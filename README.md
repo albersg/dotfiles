@@ -131,7 +131,7 @@ repository again, so it picks up the current configurations.
 ### Utilities
 
 The installer also has a **Utilities** section for the small jobs that are not part of an
-installation. Press `u` on the main menu to open it.
+installation. Open it from the main menu's **Utilities** row, or press `u` as a shortcut.
 
 **Switch the desktop's theme.** The first utility changes the system light/dark theme through
 the desktop's own tool — `gsettings` on GNOME, `plasma-apply-colorscheme` on KDE Plasma,

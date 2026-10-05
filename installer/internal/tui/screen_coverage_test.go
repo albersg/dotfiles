@@ -556,11 +556,13 @@ func TestMainMenuPlanPanelLeavesRoomForTheCompanion(t *testing.T) {
 		body, rung, summary, budget int
 	}
 	impossible := map[string]impossibleCase{
-		// The restore variant adds the seventh menu option, so its body is one row
-		// taller than the plain main menu's ten. 11 + 3 + 1 = 15 rows in a 14-row
-		// frame: the summary keeps its row (a fact beats a decoration), and there is
-		// no room left for the creature.
-		"main-menu-restore/60x20": {body: 11, rung: 3, summary: 1, budget: 14},
+		// Both variants now spend four chrome rows (the title, the greeting, the
+		// question and the blank under it) plus their options, and the Utilities
+		// row is one of them. In a 14-row frame the summary keeps its row (a fact
+		// beats a decoration) and there is no room left for the creature: 11 + 3 +
+		// 1 = 15 for the plain menu, 12 + 3 + 1 = 16 with the restore row.
+		"main-menu/60x20":         {body: 11, rung: 3, summary: 1, budget: 14},
+		"main-menu-restore/60x20": {body: 12, rung: 3, summary: 1, budget: 14},
 	}
 
 	for _, name := range []string{"main-menu", "main-menu-restore"} {

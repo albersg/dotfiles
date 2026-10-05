@@ -662,6 +662,11 @@ func (m Model) contextHeadline() string {
 			return ""
 		}
 		return backupCount(len(m.AvailableBackups)) + " to restore"
+	case choiceUtilities:
+		if !m.ThemeSwitchFound {
+			return ""
+		}
+		return m.ThemeSwitch.Name + " theme switch"
 	case choiceExit:
 		return "nothing changes"
 	}
@@ -680,6 +685,7 @@ const (
 	choiceLazyVim
 	choiceTrainer
 	choiceRestore
+	choiceUtilities
 	choiceExit
 )
 
@@ -708,6 +714,8 @@ func (m Model) mainMenuSelection() (mainMenuChoice, string) {
 		return choiceTrainer, name
 	case strings.Contains(label, "Restore from Backup"):
 		return choiceRestore, name
+	case strings.Contains(label, "Utilities"):
+		return choiceUtilities, name
 	case strings.Contains(label, "Exit"):
 		return choiceExit, name
 	default:
@@ -732,6 +740,8 @@ func (m Model) mainMenuPanelFacts(l layout) []string {
 		rows = append(rows, trainerCurriculumFacts(l)...)
 	case choiceRestore:
 		rows = append(rows, m.backupPanelFacts(l)...)
+	case choiceUtilities:
+		rows = append(rows, m.utilitiesPanelFacts(l)...)
 	case choiceExit:
 		rows = append(rows, exitPanelFacts(l)...)
 	default:
@@ -931,6 +941,26 @@ func exitPanelFacts(l layout) []string {
 	var rows []string
 	for _, line := range wrapText("Nothing on this machine changes.", l.Right, 0) {
 		rows = append(rows, InkStyle.Render(line))
+	}
+	return rows
+}
+
+// utilitiesPanelFacts is what the plan panel says for the Utilities row. The
+// section changes nothing until a row inside it is chosen, so the panel names
+// the switch this host offers -- or says plainly that there is none -- together
+// with the undo it can offer. Both are read from the model's own detection,
+// never from the host, so the panel and the section cannot disagree.
+func (m Model) utilitiesPanelFacts(l layout) []string {
+	if !m.ThemeSwitchFound {
+		var rows []string
+		for _, line := range wrapText("No desktop theme switch is available here.", l.Right, 0) {
+			rows = append(rows, InkStyle.Render(line))
+		}
+		return rows
+	}
+	rows := panelFact("Switch", m.ThemeSwitch.Name, l.Right)
+	if m.themeUndoAvailable() {
+		rows = append(rows, panelFact("Undo", "available", l.Right)...)
 	}
 	return rows
 }

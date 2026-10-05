@@ -252,7 +252,7 @@ func TestHandleMainMenuWithRestore(t *testing.T) {
 		m.AvailableBackups = []system.BackupInfo{
 			{Path: "/test/backup1"},
 		}
-		// Options: Start, Learn, Keymaps, LazyVim, Vim Trainer, Restore, Exit
+		// Options: Start, Learn, Keymaps, LazyVim, Vim Trainer, Restore, Utilities, Exit
 		// Restore is at index 5
 		m.Cursor = 5
 
@@ -268,9 +268,9 @@ func TestHandleMainMenuWithRestore(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenMainMenu
 		m.AvailableBackups = []system.BackupInfo{} // No backups
-		// Options without restore: Start, Learn, Keymaps, LazyVim, Vim Trainer, Exit
-		// Exit is at index 5
-		m.Cursor = 5
+		// Options without restore: Start, Learn, Keymaps, LazyVim, Vim Trainer, Utilities, Exit
+		// Exit is at index 6
+		m.Cursor = 6
 
 		_, cmd := m.handleMainMenuKeys("enter")
 
@@ -777,6 +777,93 @@ func TestUtilitiesOpensFromTheMainMenuKey(t *testing.T) {
 	}
 	if m.MenuKeyBuffer != "" {
 		t.Errorf("the key left menu buffer %q", m.MenuKeyBuffer)
+	}
+}
+
+// TestMainMenuOffersUtilitiesAsAVisibleRow pins the discoverability fix: the
+// utilities section is a row on the main menu, not only the `u` shortcut, so a
+// user who never reads the key list can still find it. The row sits immediately
+// above Exit, and Exit stays last, because quitting lives at the bottom of the
+// menu whether or not a section was added above it. Both backup states are
+// checked because the restore row moves every index below it.
+func TestMainMenuOffersUtilitiesAsAVisibleRow(t *testing.T) {
+	for _, withBackups := range []bool{false, true} {
+		name := "no backups"
+		if withBackups {
+			name = "with backups"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := NewModel()
+			m.Screen = ScreenMainMenu
+			if withBackups {
+				m.AvailableBackups = []system.BackupInfo{testBackupInfo()}
+			}
+
+			options := m.GetCurrentOptions()
+			utilities := -1
+			for i, opt := range options {
+				if strings.Contains(opt, "Utilities") {
+					utilities = i
+					break
+				}
+			}
+			if utilities < 0 {
+				t.Fatalf("the menu offers no Utilities row, so the section is reachable only by the u key: %v", options)
+			}
+			if last := options[len(options)-1]; !strings.Contains(last, "Exit") {
+				t.Errorf("the menu's last row is %q, want Exit last", last)
+			}
+			if utilities != len(options)-2 {
+				t.Errorf("Utilities is row %d of %d, want the row immediately above Exit", utilities, len(options))
+			}
+
+			m.Cursor = utilities
+			next, _ := m.handleMainMenuKeys("enter")
+			m = next.(Model)
+			if m.Screen != ScreenUtilities {
+				t.Errorf("selecting the Utilities row landed on %v, want ScreenUtilities", m.Screen)
+			}
+		})
+	}
+}
+
+// TestMainMenuUtilitiesRowFitsTheMeasuredFloor pins the row budget the extra
+// menu row has to live within. It prints what the main menu spends at the two
+// sizes the fit guards measure first -- the 80x24 floor and the 60x20 the trainer
+// documents as too small -- so the numbers in the review report can be
+// re-derived instead of trusted, and it asserts the same frame the class guard
+// asserts.
+func TestMainMenuUtilitiesRowFitsTheMeasuredFloor(t *testing.T) {
+	hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
+	for _, size := range []struct {
+		name          string
+		width, height int
+	}{
+		{"80x24", 80, 24},
+		{"60x20", 60, 20},
+	} {
+		size := size
+		t.Run(size.name, func(t *testing.T) {
+			m := NewModel()
+			m.Screen = ScreenMainMenu
+			m.Width, m.Height = size.width, size.height
+
+			// The frame's own hints, panel hint included: the main menu offers
+			// panels, so [Tab] packs the footer to two rows at 60 columns and the
+			// body budget is the frame's 14, not the 15 a shorter footer suggests.
+			frameHints := m.panelHints(m.panelsFor(), hints)
+			budget := installerBodyRows(m.Height, footerRowCount(contentWidth(m), frameHints))
+			options := len(m.GetCurrentOptions())
+			bodyRows := 3 + options // the title, the question and the blank under it
+			if m.greeting() != "" {
+				bodyRows++
+			}
+			view := m.View()
+			t.Logf("%s: %d menu rows spend %d body rows of a %d-row budget (%d spare before the panel and creature); frame renders %d of %d rows",
+				size.name, options, bodyRows, budget, budget-bodyRows, renderedRowCount(view), size.height)
+
+			assertScreenFitsTerminal(t, "main-menu", size.width, size.height, view)
+		})
 	}
 }
 
