@@ -136,7 +136,7 @@ steps, from the same place, so a documented no-op run runs no `gsettings`, no
 ### The dotfiles theme switch
 
 The other utility changes the **dotfiles' own theme** — the palette this repository ships across its
-terminals, its prompt, `bat` and Herdr — not the desktop's light/dark mode. The Utilities section
+terminals, its prompt, `bat`, `fish`, tmux and Herdr — not the desktop's light/dark mode. The Utilities section
 offers it through a single **Change the dotfiles theme** row, which opens the theme list; the themes
 live there so the section reads as a list of jobs rather than a list of themes. That palette used to be
 written by hand in six files, so the same colour was maintained in each of them and a drift between
@@ -149,13 +149,14 @@ A theme is a definition file, so adding a theme adds a row and the list is never
 Everforest and Kagawa today, which the repository holds only as fish theme files) is reported with
 its reason and is never offered, so a switch can never apply half a theme and call it unified. A
 complete theme names the tools it cannot paint, and **each row does too**: a row reads
-`Apply the dotfiles theme (not fish, Neovim, tmux)`, so the tools a switch would leave on the old
+`Apply the dotfiles theme (not Neovim)`, so the tools a switch would leave on the old
 palette are named where the choice is made. The switch writes the four terminals, Starship, the
-zsh/p10k prompt, Herdr, the `BAT_THEME` selection and (where the plugin ships one) Neovim. fish is
-**generated but not switched on purpose**: its active theme is the user's own `fish_config` state in
-`fish_variables`, which this repository does not own, so it is named rather than written. tmux has no
-repository-owned theme at all (only the `tmux-kanagawa` plugin names one, and Kanagawa is partial), so
-it is named too.
+zsh/p10k prompt, Herdr, the `BAT_THEME` selection, fish's `config.fish` palette block, tmux's style
+block and (where the plugin ships one) Neovim. fish is switched through the file this repository
+owns, never through the user's `fish_config` state in `fish_variables`: the block sets fish's colour
+variables in the global scope, which fish returns over a universal one, and the switch records and
+restores the exact bytes like every other block. tmux gets its own generated style block after the
+TPM run line instead of depending on the `tmux-kanagawa` plugin, whose Kanagawa palette is partial.
 
 **It only edits files dotfiles own.** Each generated block carries a `dotfiles-managed-config:`
 marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same

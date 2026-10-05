@@ -92,38 +92,36 @@ end
 alias fzfbat='fzf --preview="bat --theme=gruvbox-dark --color=always {}"'
 alias fzfnvim='nvim (fzf --preview="bat --theme=gruvbox-dark --color=always {}")'
 
-set -l foreground F3F6F9 normal
-set -l selection 263356 normal
-set -l comment 8394A3 brblack
-set -l red CB7C94 red
-set -l orange DEBA87 orange
-set -l yellow FFE066 yellow
-set -l green B7CC85 green
-set -l purple A3B5D6 purple
-set -l cyan 7AA89F cyan
-set -l pink FF8DD7 magenta
+# dotfiles-managed-config: fish
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
+# ┌──────────────────────────────────────────────────────────────────────────────┐
+# │                                DOTFILES THEME                                │
+# └──────────────────────────────────────────────────────────────────────────────┘
+# The fish palette. Generated from themes/dotfiles.toml; edit the definition, not this
+# block. These are global variables, so they also win over a universal colour the
+# user chose once through fish_config; the switch never writes the user's own
+# state in fish_variables.
+set -g fish_color_normal f3f6f9
+set -g fish_color_command b7cc85
+set -g fish_color_keyword ff8dd7
+set -g fish_color_quote ffe066
+set -g fish_color_redirection f3f6f9
+set -g fish_color_end 7aa89f
+set -g fish_color_error cb7c94
+set -g fish_color_param 7fb4ca
+set -g fish_color_comment 8a8fa3
+set -g fish_color_selection --background=263356
+set -g fish_color_search_match --background=263356
+set -g fish_color_operator b7cc85
+set -g fish_color_escape ff8dd7
+set -g fish_color_autosuggestion 8a8fa3
 
-# Syntax Highlighting Colors
-set -g fish_color_normal $foreground
-set -g fish_color_command $cyan
-set -g fish_color_keyword $pink
-set -g fish_color_quote $yellow
-set -g fish_color_redirection $foreground
-set -g fish_color_end $orange
-set -g fish_color_error $red
-set -g fish_color_param $purple
-set -g fish_color_comment $comment
-set -g fish_color_selection --background=$selection
-set -g fish_color_search_match --background=$selection
-set -g fish_color_operator $green
-set -g fish_color_escape $pink
-set -g fish_color_autosuggestion $comment
-
-# Completion Pager Colors
-set -g fish_pager_color_progress $comment
-set -g fish_pager_color_prefix $cyan
-set -g fish_pager_color_completion $foreground
-set -g fish_pager_color_description $comment
+# Completion pager colours.
+set -g fish_pager_color_progress 8a8fa3
+set -g fish_pager_color_prefix b7cc85
+set -g fish_pager_color_completion f3f6f9
+set -g fish_pager_color_description 8a8fa3
+# <<< dotfiles-theme <<<
 
 # Files in this directory belong to the user, not to this managed config: the
 # installer replaces config.fish on updates, so local edits written here are

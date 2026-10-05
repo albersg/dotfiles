@@ -145,14 +145,16 @@ every installation step. See the [TUI Installer Guide](docs/tui-installer.md#uti
 the exact files it touches.
 
 **Switch the dotfiles' own theme.** The dotfiles ship one palette — the one the terminals, the
-prompt, `bat` and Herdr all read — and that palette is now defined once in [`themes/`](themes/)
+prompt, `bat`, `fish`, tmux and Herdr all read — and that palette is now defined once in [`themes/`](themes/)
 rather than written by hand in each config. A theme is a file there, so adding one adds a row to the
 theme list, which the Utilities section's **Change the dotfiles theme** row opens. The
 switch applies a complete theme (a definition with every canonical role: today **dotfiles** and
-**Catppuccin Mocha**) to the terminal, Starship, shell-prompt, Herdr, bat and Neovim configs this
+**Catppuccin Mocha**) to the terminal, Starship, shell-prompt, Herdr, bat, fish, tmux and Neovim
+configs this
 repository owns, records the exact bytes it replaced in the same `theme.json`, and can put them back
-with a dedicated undo row. Each theme row names the tools it leaves out (today fish and tmux, plus
-Neovim for dotfiles), so nothing is left on the old palette without being said. A theme missing roles
+with a dedicated undo row. Each theme row names the tools it leaves out (today Neovim for dotfiles;
+Catppuccin Mocha leaves out nothing), so nothing is left on the old palette without being said. A
+theme missing roles
 is reported as partial and never offered. The definitions are read from a checkout on disk, never from
 the binary: `$DOTFILES_DIR` first, then the clone this run makes, then the working directory and its
 parents, then `~/dotfiles` and `~/.dotfiles`. Launching the installer from inside the checkout shows

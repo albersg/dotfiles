@@ -1147,11 +1147,10 @@ func TestUtilitiesLongNoticeStillFitsTheFrame(t *testing.T) {
 
 // TestUtilitiesThemeRowsAreDerivedAndNameExclusions covers the utilities
 // section's dotfiles-theme rows: one per complete definition, each naming the
-// tools it cannot paint, and none for a partial theme.
 // TestThemePickerRowsAreDerivedAndNameExclusions covers the theme picker's
-// rows: one per complete definition, each naming the tools it cannot paint, and
-// none for a partial theme. The list is derived from the definitions, never
-// typed.
+// rows: one per complete definition, each naming the tools it cannot paint when
+// it cannot paint some, and none for a partial theme. The list is derived from
+// the definitions, never typed.
 func TestThemePickerRowsAreDerivedAndNameExclusions(t *testing.T) {
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
@@ -1186,14 +1185,13 @@ func TestThemePickerRowsAreDerivedAndNameExclusions(t *testing.T) {
 			continue
 		}
 		_, uncovered := themeCoverage(def)
-		if len(uncovered) == 0 {
-			t.Errorf("theme %q leaves nothing out, so this guard proves nothing", def.ID)
-			continue
-		}
 		for _, tool := range uncovered {
 			if !strings.Contains(row, tool) {
 				t.Errorf("the row for %q does not name %q, which it leaves out: %q", def.ID, tool, row)
 			}
+		}
+		if len(uncovered) == 0 && strings.Contains(row, "(not ") {
+			t.Errorf("theme %q covers every tool, but its row names exclusions: %q", def.ID, row)
 		}
 		if !strings.Contains(row, def.Name) {
 			t.Errorf("the row for %q does not name the theme: %q", def.ID, row)
@@ -1232,18 +1230,36 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 	// not only what the model holds.
 	m.Screen = ScreenThemePicker
 	opts := m.GetCurrentOptions()
-	rows := 0
+	rows, naming := 0, 0
 	for _, opt := range opts {
 		if !strings.HasPrefix(opt, "Apply the ") {
 			continue
 		}
 		rows++
-		if !strings.Contains(opt, "(not ") {
-			t.Errorf("the theme row %q does not name the tools it leaves out", opt)
+		def, ok := m.dotfilesThemeForRow(opt)
+		if !ok {
+			t.Errorf("the theme row %q does not resolve to a definition", opt)
+			continue
+		}
+		_, uncovered := themeCoverage(def)
+		if len(uncovered) == 0 {
+			if strings.Contains(opt, "(not ") {
+				t.Errorf("the theme row %q names exclusions for a theme that covers every tool", opt)
+			}
+			continue
+		}
+		naming++
+		for _, tool := range uncovered {
+			if !strings.Contains(opt, tool) {
+				t.Errorf("the theme row %q does not name %q, which it leaves out", opt, tool)
+			}
 		}
 	}
 	if rows == 0 {
 		t.Fatalf("the picker shows no theme row without a clone: %v", opts)
+	}
+	if naming == 0 {
+		t.Fatalf("no theme row named a tool it leaves out, so this guard proves nothing: %v", opts)
 	}
 
 	// Render the picker and look for each row and its exclusion list in the capture.
