@@ -303,6 +303,16 @@ type Model struct {
 	// the section is left. An error is shown here too: the theme switch is not an
 	// install step, so it does not take the run to the failure screen.
 	ThemeNotice string
+	// DotfilesThemes are the theme definitions read from the repository checkout,
+	// and DotfilesThemesErr is why they could not be read. The section offers a
+	// row per complete definition; an empty list with no error means the checkout
+	// does not exist yet, which the section says in its own body.
+	DotfilesThemes    []themeDefinition
+	DotfilesThemesErr string
+	// DotfilesThemeRecord is the last dotfiles-theme change, read from the same
+	// theme.json. It is what makes the section's Undo row appear, and it is nil
+	// when there is nothing to put back.
+	DotfilesThemeRecord *dotfilesThemeRecord
 }
 
 // NewModel creates a new Model with initial state
@@ -492,6 +502,15 @@ func (m Model) GetCurrentOptions() []string {
 		}
 		if m.themeUndoAvailable() {
 			opts = append(opts, "Undo the last theme change")
+		}
+		if themes := m.dotfilesThemeOptions(); len(themes) > 0 || m.DotfilesThemeRecord != nil {
+			if len(opts) > 0 {
+				opts = append(opts, m.menuSeparator())
+			}
+			opts = append(opts, themes...)
+			if m.DotfilesThemeRecord != nil {
+				opts = append(opts, dotfilesThemeUndoRow)
+			}
 		}
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())

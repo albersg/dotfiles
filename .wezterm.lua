@@ -72,8 +72,10 @@ config.use_dead_keys = false
 config.send_composed_key_when_left_alt_is_pressed = false
 config.send_composed_key_when_right_alt_is_pressed = false
 
+-- dotfiles-managed-config: wezterm
+-- >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 -- ┌──────────────────────────────────────────────────────────────────────────────┐
--- │                           DOTFILES THEME                                    │
+-- │                                DOTFILES THEME                                │
 -- └──────────────────────────────────────────────────────────────────────────────┘
 
 config.colors = {
@@ -114,6 +116,7 @@ config.colors = {
 		"#f3f6f9", -- white
 	},
 }
+-- <<< dotfiles-theme <<<
 
 -- ┌──────────────────────────────────────────────────────────────────────────────┐
 -- │                            WINDOWS (WSL)                                     │

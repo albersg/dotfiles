@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -45,6 +46,20 @@ type (
 		backups []system.BackupInfo
 	}
 
+	// dotfilesThemesLoadedMsg carries the theme definitions read from the
+	// repository checkout onto the model.
+	dotfilesThemesLoadedMsg struct {
+		themes []themeDefinition
+		err    error
+	}
+
+	// dotfilesThemeChangedMsg is the result of applying or undoing the dotfiles
+	// theme. A failure stays on the section as a notice, like the desktop switch.
+	dotfilesThemeChangedMsg struct {
+		notice string
+		err    error
+	}
+
 	// trainerStatsLoadedMsg carries the trainer's persisted stats onto the startup
 	// path, so the main menu's "Your trainer" panel can describe real progress
 	// before the player has opened the trainer.
@@ -78,6 +93,9 @@ type (
 	// directory and see no record on any host.
 	themeRecordLoadedMsg struct {
 		record *themeRecord
+		// dotfiles is the dotfiles-theme half of the same record, read at the same
+		// time so the section can offer its undo without a second file read.
+		dotfiles *dotfilesThemeRecord
 	}
 
 	// themeChangedMsg carries the result of a switch or an undo back to Update,
@@ -206,13 +224,55 @@ func loadLastInstallCmd() tea.Cmd {
 	}
 }
 
+// loadDotfilesThemesCmd reads the theme definitions from the checkout the clone
+// step created. It is issued when the utilities section is first opened, not at
+// startup, because before a clone there is nothing to read and the section says
+// so rather than showing a switch that cannot work.
+func loadDotfilesThemesCmd(repoDir string) tea.Cmd {
+	return func() tea.Msg {
+		if repoDir == "" {
+			return dotfilesThemesLoadedMsg{err: fmt.Errorf("the repository has not been cloned yet")}
+		}
+		defs, err := loadThemeDefinitions(repoDir)
+		return dotfilesThemesLoadedMsg{themes: defs, err: err}
+	}
+}
+
+// dotfilesThemesCmdIfNeeded reads the definitions the first time the utilities
+// section is opened. It returns no command when they are already read or when
+// there is no checkout to read them from.
+func (m *Model) dotfilesThemesCmdIfNeeded() tea.Cmd {
+	if m.DotfilesThemes != nil || m.RepoDir == "" {
+		return nil
+	}
+	return loadDotfilesThemesCmd(m.RepoDir)
+}
+
+// applyDotfilesThemeCmd runs one dotfiles-theme switch off the update loop,
+// behind the same dry-run gate as the desktop switch.
+func applyDotfilesThemeCmd(def themeDefinition) tea.Cmd {
+	return func() tea.Msg {
+		homeDir := os.Getenv("HOME")
+		_, notice, err := applyDotfilesTheme(homeDir, def)
+		return dotfilesThemeChangedMsg{notice: notice, err: err}
+	}
+}
+
+// undoDotfilesThemeCmd puts the recorded blocks back off the update loop.
+func undoDotfilesThemeCmd(rec dotfilesThemeRecord) tea.Cmd {
+	return func() tea.Msg {
+		notice, err := undoDotfilesTheme(rec)
+		return dotfilesThemeChangedMsg{notice: notice, err: err}
+	}
+}
+
 // loadThemeRecordCmd reads the record of the last theme change on the startup
 // path. It is the read half of the state file writeThemeRecord writes, and the
 // utilities section's undo row is offered only when this finds a record for the
 // desktop this host is on.
 func loadThemeRecordCmd() tea.Cmd {
 	return func() tea.Msg {
-		return themeRecordLoadedMsg{record: readThemeRecord()}
+		return themeRecordLoadedMsg{record: readThemeRecord(), dotfiles: readDotfilesThemeRecord()}
 	}
 }
 
@@ -430,6 +490,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ThemeRecord == nil {
 			m.ThemeRecord = msg.record
 		}
+		if m.DotfilesThemeRecord == nil {
+			m.DotfilesThemeRecord = msg.dotfiles
+		}
 		return m, nil
 
 	case themeChangedMsg:
@@ -443,6 +506,28 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.record != nil {
 			m.ThemeRecord = msg.record
 		}
+		m.ThemeNotice = msg.notice
+		return m, nil
+
+	case dotfilesThemesLoadedMsg:
+		if msg.err != nil {
+			m.DotfilesThemesErr = msg.err.Error()
+			return m, nil
+		}
+		m.DotfilesThemes = msg.themes
+		m.DotfilesThemesErr = ""
+		return m, nil
+
+	case dotfilesThemeChangedMsg:
+		// The dotfiles switch is not an install step either, so a failure is a
+		// notice on the section rather than a failed run.
+		if msg.err != nil {
+			m.ThemeNotice = msg.err.Error()
+			return m, nil
+		}
+		// The record is what makes the change reversible, so it is re-read after
+		// every successful change: an apply leaves one, an undo clears it.
+		m.DotfilesThemeRecord = readDotfilesThemeRecord()
 		m.ThemeNotice = msg.notice
 		return m, nil
 
@@ -1002,6 +1087,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.ThemeNotice = ""
+		return m, m.dotfilesThemesCmdIfNeeded()
 	case "enter", " ":
 		selected := options[m.Cursor]
 		switch {
@@ -1032,6 +1118,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
 			m.ThemeNotice = ""
+			return m, m.dotfilesThemesCmdIfNeeded()
 		case strings.Contains(selected, "Restore from Backup") && hasRestoreOption:
 			m.Screen = ScreenRestoreBackup
 			m.Cursor = 0
@@ -1080,6 +1167,12 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			return m, applyThemeCmd(m.ThemeSwitch, true)
 		case strings.Contains(selected, "light theme"):
 			return m, applyThemeCmd(m.ThemeSwitch, false)
+		case strings.HasPrefix(selected, "Apply the "):
+			if def, ok := m.dotfilesThemeForRow(selected); ok {
+				return m, applyDotfilesThemeCmd(def)
+			}
+		case selected == dotfilesThemeUndoRow && m.DotfilesThemeRecord != nil:
+			return m, undoDotfilesThemeCmd(*m.DotfilesThemeRecord)
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
 		case strings.Contains(selected, "Back"):

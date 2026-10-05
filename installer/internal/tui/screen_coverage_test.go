@@ -474,6 +474,23 @@ func utilitiesFrameCase(t *testing.T) Model {
 	}
 	m.ThemeSwitch, m.ThemeSwitchFound = target, true
 	m.ThemeRecord = &themeRecord{Target: target.ID, Value: "default", WasDark: false, ToDark: true}
+
+	// The dotfiles theme rows are part of the section, so the guards measure them
+	// too. The definitions are read from the repository rather than invented, so
+	// the exclusion lists drawn in the rows are the real ones.
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m.DotfilesThemes = defs
+	// Put the cursor on a theme row so the frame guards measure the live preview
+	// too: the preview is a row, and a row can overflow a frame.
+	for i, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, "Apply the ") {
+			m.Cursor = i
+			break
+		}
+	}
 	return m
 }
 

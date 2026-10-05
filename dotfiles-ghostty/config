@@ -72,8 +72,10 @@ keybind = shift+enter=text:\x1b\r
 keybind = alt+s=write_screen_file:paste
 
 
+# dotfiles-managed-config: ghostty
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 # ┌──────────────────────────────────────────────────────────────────────────────┐
-# │                           DOTFILES THEME                                     │
+# │                                DOTFILES THEME                                │
 # └──────────────────────────────────────────────────────────────────────────────┘
 
 # --- Base Colors ---
@@ -102,3 +104,4 @@ palette = 12=#a3d4d5
 palette = 13=#ffaeea
 palette = 14=#7fb4ca
 palette = 15=#f3f6f9
+# <<< dotfiles-theme <<<

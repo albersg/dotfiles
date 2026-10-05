@@ -28,8 +28,9 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - **Neovim Keymaps Reference**: Built-in keymap browser organized by category
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
-- **Utilities**: The small system jobs that are not part of an installation, starting with a
-  reversible system light/dark theme switch, in its own main-menu row
+- **Utilities**: The small jobs that are not part of an installation, starting with a
+  reversible system light/dark theme switch and the reversible dotfiles-theme switch, in its own
+  main-menu row
 - **Progress Tracking**: Real-time installation progress with a frame-width progress bar whose
   filled part carries a travelling highlight during long steps, a percentage, the step the run is on
   with its name, the elapsed time and an estimate of what is left measured from the run's own clock,
@@ -130,6 +131,48 @@ to switch.
 **`--dry-run` skips it.** The switch and the undo are gated on the same flag as the installation
 steps, from the same place, so a documented no-op run runs no `gsettings`, no
 `plasma-apply-colorscheme` and no `defaults`, and writes no record.
+
+### The dotfiles theme switch
+
+The other utility changes the **dotfiles' own theme** — the palette this repository ships across its
+terminals, its prompt, `bat` and Herdr — not the desktop's light/dark mode. That palette used to be
+written by hand in six files, so the same colour was maintained in each of them and a drift between
+two was invisible. It is defined **once** now, one file per theme under [`themes/`](../themes/), and
+the terminal blocks are generated from that definition; a generated block that stops matching its
+definition fails a guard rather than being found on screen.
+
+A theme is a definition file, so adding a theme adds a row and the list is never typed by hand. A
+**complete** theme defines every canonical role and is offered; a **partial** one (Kanagawa,
+Everforest and Kagawa today, which the repository holds only as fish theme files) is reported with
+its reason and is never offered, so a switch can never apply half a theme and call it unified. A
+complete theme names the tools it cannot paint, and **each row does too**: a row reads
+`Apply the dotfiles theme (not fish, Neovim, tmux)`, so the tools a switch would leave on the old
+palette are named where the choice is made. The switch writes the four terminals, Starship, the
+zsh/p10k prompt, Herdr, the `BAT_THEME` selection and (where the plugin ships one) Neovim. fish is
+**generated but not switched on purpose**: its active theme is the user's own `fish_config` state in
+`fish_variables`, which this repository does not own, so it is named rather than written. tmux has no
+repository-owned theme at all (only the `tmux-kanagawa` plugin names one, and Kanagawa is partial), so
+it is named too.
+
+**It only edits files dotfiles own.** Each generated block carries a `dotfiles-managed-config:`
+marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same
+rule `preserve-user-configs` applies to the shell startup files.
+
+**It is reversible.** Before writing, the switch records the exact bytes each file held in the same
+`$XDG_STATE_HOME/dotfiles/theme.json` the desktop switch uses (the two halves coexist in that one
+file), so **Undo the last dotfiles theme change** restores each file byte-for-byte. A definition
+missing a role is refused rather than written half-empty, and if a later file cannot be written the
+ones already changed are put back. **`--dry-run` skips it**, exactly as it skips the desktop switch
+and the installation steps.
+
+**Before the repository is cloned there is nothing to offer.** The theme definitions live in the
+checkout, so the section reads them when it is first opened and, until a checkout exists, says the
+dotfiles theme is not switchable yet instead of drawing rows that would fail.
+
+**The preview writes nothing.** While the cursor is on a theme row the section paints that theme's
+**real palette** — a swatch per role, and its own title in the theme's accent — built from the same
+definition the apply writes, so it cannot show a colour the switch would not write. Nothing is applied
+while the cursor moves: the preview restyles the section only.
 
 The welcome screen and the main menu greet you by the time of day (`Good morning`, `Good afternoon`,
 `Good evening`) in one added dim line, so no existing copy is replaced. The greeting is a pure

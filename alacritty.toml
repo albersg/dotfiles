@@ -51,8 +51,10 @@ TERM = "xterm-256color"
 enabled = []
 
 
+# dotfiles-managed-config: alacritty
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 # ┌──────────────────────────────────────────────────────────────────────────────┐
-# │                           DOTFILES THEME                                    │
+# │                                DOTFILES THEME                                │
 # └──────────────────────────────────────────────────────────────────────────────┘
 
 # --- Base Colors ---
@@ -89,3 +91,4 @@ blue    = "#a3d4d5"
 magenta = "#ffaeea"
 cyan    = "#7fb4ca"
 white   = "#f3f6f9"
+# <<< dotfiles-theme <<<

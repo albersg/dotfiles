@@ -9,9 +9,11 @@ name = "vesper"
 
 auto_switch = false
 
+# dotfiles-managed-config: herdr
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 # Token overrides on top of that theme, so the chrome Herdr draws agrees with the
-# terminal palette (dotfiles-ghostty, dotfiles-kitty, alacritty.toml) and with
-# the zsh prompt, which all read the same values from dotfiles-zsh/.zshrc.
+# terminal palette (Alacritty, Kitty, WezTerm, Ghostty) and with the zsh prompt,
+# which all read the same values from themes/dotfiles.toml.
 [theme.custom]
 # "reset" is the terminal's own background. Without it Herdr paints its own
 # near-black behind every pane, which is a second black sitting next to the
@@ -22,10 +24,10 @@ panel_bg = "reset"
 selection_bg = "#263356"
 
 [ui]
-# Herdr's accent for highlights, borders and navigation UI. #7fb4ca is the
-# palette blue, the one the zsh prompt already uses for the directory, replacing
-# #6FA0AF, which came from no palette in this repository.
+# Herdr's accent for highlights, borders and navigation UI: the palette's blue,
+# the one the zsh prompt already uses for the directory.
 accent = "#7fb4ca"
+# <<< dotfiles-theme <<<
 
 show_agent_labels_on_pane_borders = true
 agent_panel_sort = "spaces"

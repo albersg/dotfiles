@@ -6,12 +6,16 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 func TestHandleBackupConfirmKeys(t *testing.T) {
@@ -1138,4 +1142,237 @@ func TestUtilitiesLongNoticeStillFitsTheFrame(t *testing.T) {
 			t.Errorf("the notice at %s was trimmed without the visible marker", size.name)
 		}
 	}
+}
+
+// TestUtilitiesThemeRowsAreDerivedAndNameExclusions covers the utilities
+// section's dotfiles-theme rows: one per complete definition, each naming the
+// tools it cannot paint, and none for a partial theme.
+func TestUtilitiesThemeRowsAreDerivedAndNameExclusions(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.DotfilesThemes = defs
+
+	opts := m.GetCurrentOptions()
+	var rows []string
+	for _, option := range opts {
+		if strings.HasPrefix(option, "Apply the ") {
+			rows = append(rows, option)
+		}
+	}
+	if want := offeredThemeIDs(defs); len(rows) != len(want) {
+		t.Errorf("the section offers %d theme row(s) %v, the complete themes are %v", len(rows), rows, want)
+	}
+
+	for _, def := range defs {
+		row := dotfilesThemeRow(def)
+		if !def.Complete() {
+			if slicesContains(opts, row) {
+				t.Errorf("a partial theme %q is offered as a row: %q", def.ID, row)
+			}
+			continue
+		}
+		if !slicesContains(opts, row) {
+			t.Errorf("the section has no row for the complete theme %q", def.ID)
+			continue
+		}
+		_, uncovered := themeCoverage(def)
+		if len(uncovered) == 0 {
+			t.Errorf("theme %q leaves nothing out, so this guard proves nothing", def.ID)
+			continue
+		}
+		for _, tool := range uncovered {
+			if !strings.Contains(row, tool) {
+				t.Errorf("the row for %q does not name %q, which it leaves out: %q", def.ID, tool, row)
+			}
+		}
+		if !strings.Contains(row, def.Name) {
+			t.Errorf("the row for %q does not name the theme: %q", def.ID, row)
+		}
+	}
+}
+
+// TestUtilitiesSaysTheThemeIsUnavailableWithoutACheckout covers the honest state
+// before the repository is cloned: no theme row, and the reason in the body.
+func TestUtilitiesSaysTheThemeIsUnavailableWithoutACheckout(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.DotfilesThemes = nil
+	m.RepoDir = ""
+
+	for _, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, "Apply the ") {
+			t.Errorf("a theme row is offered with no checkout: %q", option)
+		}
+	}
+	description := strings.Join(m.utilitiesDescription(), " ")
+	if !strings.Contains(description, "not switchable") {
+		t.Errorf("the section does not say the theme is unavailable: %q", description)
+	}
+	if !strings.Contains(description, "cloned") {
+		t.Errorf("the section does not name the reason: %q", description)
+	}
+
+	// With a checkout, entering the section reads the definitions; without one,
+	// there is nothing to read.
+	m.RepoDir = "/does/not/matter"
+	if cmd := m.dotfilesThemesCmdIfNeeded(); cmd == nil {
+		t.Error("entering the section with a checkout issued no read")
+	}
+	m.DotfilesThemes = nil
+	m.RepoDir = ""
+	if cmd := m.dotfilesThemesCmdIfNeeded(); cmd != nil {
+		t.Error("entering the section with no checkout issued a read")
+	}
+	m.DotfilesThemes = []themeDefinition{{ID: "already"}}
+	if cmd := m.dotfilesThemesCmdIfNeeded(); cmd != nil {
+		t.Error("entering the section read the definitions twice")
+	}
+}
+
+// TestTheThemeRowMapsBackToItsDefinition covers the handler's lookup: the row
+// labels are what the handler switches on, so a label that does not map back to
+// a definition would be a row that does nothing.
+func TestTheThemeRowMapsBackToItsDefinition(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m := Model{DotfilesThemes: defs}
+
+	for _, id := range offeredThemeIDs(defs) {
+		def, ok := themeByID(defs, id)
+		if !ok {
+			t.Fatalf("the offered theme %q has no definition", id)
+		}
+		got, ok := m.dotfilesThemeForRow(dotfilesThemeRow(def))
+		if !ok || got.ID != def.ID {
+			t.Errorf("the row for %q maps to %q, ok=%v", def.ID, got.ID, ok)
+		}
+	}
+	if _, ok := m.dotfilesThemeForRow("Apply the nonexistent theme"); ok {
+		t.Error("an unknown row mapped to a definition")
+	}
+}
+
+// slicesContains is a local helper so this file needs no extra import.
+func slicesContains(haystack []string, needle string) bool {
+	for _, item := range haystack {
+		if item == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// TestTheThemePreviewShowsTheValuesTheApplyWouldWrite covers the live preview:
+// while the cursor is on a theme row the section paints that theme's own values,
+// and every value it paints is a value the apply block writes, so the preview
+// cannot show a colour the switch would not.
+func TestTheThemePreviewShowsTheValuesTheApplyWouldWrite(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.DotfilesThemes = defs
+	m.Width, m.Height = 120, 40
+
+	idx := -1
+	for i, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, "Apply the ") {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("the section offers no theme row, so the preview cannot be checked")
+	}
+	m.Cursor = idx
+
+	def, ok := m.previewThemeDef()
+	if !ok {
+		t.Fatal("the cursor on a theme row selected no preview theme")
+	}
+
+	// The preview paints a real background per swatch, so the guard reads the
+	// sequences back. lipgloss converts an 8-bit channel through 16 bits, which
+	// can round a channel by one, so the comparison allows one step and no more:
+	// a preview holding a different palette would be off by far more. Truecolour
+	// is forced because a test renderer has no colour profile by default.
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previousProfile) })
+
+	lines := m.themePreviewLines()
+	if len(lines) == 0 {
+		t.Fatal("the section rendered no preview for the theme under the cursor")
+	}
+	swatchRE := regexp.MustCompile(`\x1b\[48;2;(\d+);(\d+);(\d+)m`)
+	matches := swatchRE.FindAllStringSubmatch(lines[0], -1)
+
+	var roles []string
+	for _, role := range themePreviewSwatchRoles {
+		if def.Palette[role] != "" {
+			roles = append(roles, role)
+		}
+	}
+	if len(matches) != len(roles) {
+		t.Fatalf("the preview paints %d swatch(es), the theme has %d roles to paint: %q", len(matches), len(roles), lines[0])
+	}
+	for i, role := range roles {
+		want := def.Palette[role]
+		r, _ := strconv.ParseInt(want[1:3], 16, 0)
+		g, _ := strconv.ParseInt(want[3:5], 16, 0)
+		b, _ := strconv.ParseInt(want[5:7], 16, 0)
+		for channel, pair := range map[string][2]int{"r": {int(r), atoiOrZero(matches[i][1])}, "g": {int(g), atoiOrZero(matches[i][2])}, "b": {int(b), atoiOrZero(matches[i][3])}} {
+			if diff := pair[0] - pair[1]; diff > 1 || diff < -1 {
+				t.Errorf("the preview swatch for %s (%s) has %s %d, want %d", role, want, channel, pair[1], pair[0])
+			}
+		}
+	}
+	painted := len(matches)
+
+	block, err := renderAlacrittyTheme(def)
+	if err != nil {
+		t.Fatalf("render the apply block: %v", err)
+	}
+	for _, role := range themePreviewSwatchRoles {
+		hex := def.Palette[role]
+		if hex == "" {
+			continue
+		}
+		if !strings.Contains(block, hex) {
+			t.Errorf("the apply would not write %s = %s, which the preview painted", role, hex)
+		}
+	}
+	t.Logf("the preview paints %d roles of %q, and the apply writes every one of them", painted, def.ID)
+
+	// With the cursor off the theme rows there is no preview: the section must not
+	// paint a theme the cursor is not on.
+	for i, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, "Apply the ") {
+			continue
+		}
+		m.Cursor = i
+		if _, ok := m.previewThemeDef(); ok {
+			t.Errorf("the row %q selected a preview theme", option)
+		}
+	}
+}
+
+// atoiOrZero parses a decimal channel, treating a malformed one as zero so the
+// comparison reports a difference rather than panicking.
+func atoiOrZero(value string) int {
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return -1
+	}
+	return n
 }
