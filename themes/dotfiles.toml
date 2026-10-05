@@ -117,3 +117,16 @@ crust = "#06080f"
 [bat]
 name = "dotfiles"
 file = "dotfiles.tmTheme"
+
+# --- syntax roles ---
+# The installer's own code display: a keyword tint and a string tint, each with a
+# light and a dark member because the chrome is adaptive (it asks the terminal
+# whether its background is dark). The values are the two pairs styles.go has
+# always carried; they are declared here so styles.go is a consumer and not an
+# eighth copy of a palette, and TestTheDefaultStylesMatchTheDotfilesDefinition
+# pins both fields.
+[syntax]
+keyword_light = "#7a3e9e"
+keyword_dark = "#c99ad6"
+string_light = "#8a6a00"
+string_dark = "#dfbd76"

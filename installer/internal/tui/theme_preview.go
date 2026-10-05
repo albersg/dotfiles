@@ -26,6 +26,17 @@ func themePreviewColor(hex string) lipgloss.AdaptiveColor {
 	return lipgloss.AdaptiveColor{Light: hex, Dark: hex}
 }
 
+// themePreviewAdaptive is the colour a preview paints for a role that has a
+// light and a dark member. When the definition has no light member (a theme whose
+// light flavour this repository does not ship) the dark value is used for both,
+// which is a known readability limit rather than an invented colour.
+func themePreviewAdaptive(light, dark string) lipgloss.AdaptiveColor {
+	if light == "" {
+		light = dark
+	}
+	return lipgloss.AdaptiveColor{Light: light, Dark: dark}
+}
+
 // themePreviewColors derives the installer's palette from a theme definition.
 // Every value comes from the definition; where a semantic role has no terminal
 // role of its own the prompt table supplies it, and where the definition has
@@ -53,23 +64,24 @@ func themePreviewColors(def themeDefinition) (uiColors, error) {
 	//   Success       green
 	//   Info          blue
 	//   BorderActive  blue
-	//   SyntaxKeyword prompt mauve, else magenta   the installer's two syntax
-	//   SyntaxString  prompt peach, else yellow    tints, mapped to the theme
+	//   SyntaxKeyword [syntax] keyword   the theme's own code-display tints
+	//   SyntaxString  [syntax] string
 	semantic := map[string]string{
-		"background":     role("base"),
-		"text":           role("text"),
-		"text_muted":     prompt("subtext0", "bright_black"),
-		"primary":        role("blue"),
-		"secondary":      prompt("mauve", "bright_blue"),
-		"accent":         role("cursor"),
-		"error":          role("red"),
-		"warning":        prompt("peach", "yellow"),
-		"success":        role("green"),
-		"info":           role("blue"),
-		"border_active":  role("blue"),
-		"syntax_keyword": prompt("mauve", "magenta"),
-		"syntax_string":  prompt("peach", "yellow"),
+		"background":    role("base"),
+		"text":          role("text"),
+		"text_muted":    prompt("subtext0", "bright_black"),
+		"primary":       role("blue"),
+		"secondary":     prompt("mauve", "bright_blue"),
+		"accent":        role("cursor"),
+		"error":         role("red"),
+		"warning":       prompt("peach", "yellow"),
+		"success":       role("green"),
+		"info":          role("blue"),
+		"border_active": role("blue"),
 	}
+
+	keywordDark := def.Syntax["keyword_dark"]
+	stringDark := def.Syntax["string_dark"]
 
 	colors := uiColors{
 		Background:    themePreviewColor(semantic["background"]),
@@ -83,13 +95,18 @@ func themePreviewColors(def themeDefinition) (uiColors, error) {
 		Success:       themePreviewColor(semantic["success"]),
 		Info:          themePreviewColor(semantic["info"]),
 		BorderActive:  themePreviewColor(semantic["border_active"]),
-		SyntaxKeyword: themePreviewColor(semantic["syntax_keyword"]),
-		SyntaxString:  themePreviewColor(semantic["syntax_string"]),
+		SyntaxKeyword: themePreviewAdaptive(def.Syntax["keyword_light"], keywordDark),
+		SyntaxString:  themePreviewAdaptive(def.Syntax["string_light"], stringDark),
 	}
 
 	for name, value := range semantic {
 		if !themeHexRE.MatchString(value) {
 			return uiColors{}, fmt.Errorf("theme %q cannot be previewed: %s has no colour (%q)", def.ID, name, value)
+		}
+	}
+	for name, value := range map[string]string{"keyword": keywordDark, "string": stringDark} {
+		if !themeHexRE.MatchString(value) {
+			return uiColors{}, fmt.Errorf("theme %q cannot be previewed: its [syntax] %s has no colour (%q)", def.ID, name, value)
 		}
 	}
 	return colors, nil
