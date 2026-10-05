@@ -1244,13 +1244,14 @@ func (m Model) utilitiesDescription() []string {
 		}
 	}
 
-	// The dotfiles' own theme. Read from the repository checkout, so before a
-	// clone the section says it cannot be switched yet instead of showing rows
-	// that would fail.
+	// The dotfiles' own theme. Its definitions are resolved from $DOTFILES_DIR,
+	// the clone, the working directory and its parents, then ~/dotfiles and
+	// ~/.dotfiles; when none of them holds themes/*.toml the section says it
+	// cannot be switched here instead of showing rows that would fail.
 	if len(m.DotfilesThemes) == 0 {
 		reason := m.DotfilesThemesErr
 		if reason == "" {
-			reason = "the repository has not been cloned yet"
+			reason = "no repository holding theme definitions was found in $DOTFILES_DIR, the clone, the working directory or its parents, ~/dotfiles or ~/.dotfiles"
 		}
 		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
 		return paragraphs
