@@ -516,6 +516,92 @@ func (m Model) themeUndoAvailable() bool {
 // repository root the installer clones.
 const themesDirName = "themes"
 
+// dotfilesDirEnv is the environment variable that names a repository checkout
+// when the installer is not launched from one. It is a new interface: before
+// this, only the clone the installer itself created could supply the theme
+// definitions, so a user who keeps the checkout anywhere else could never see
+// them. $DOTFILES_DIR answers first, before any guess, and the checkout's
+// themes/*.toml is read from disk - the definitions are never packaged into the
+// binary.
+const dotfilesDirEnv = "DOTFILES_DIR"
+
+// themeDefinitionDirs returns the repository roots that are tried for
+// themes/*.toml, in the order they win. The order is the contract:
+//
+//  1. $DOTFILES_DIR, when it is set: a user naming a checkout is answered
+//     before any guess.
+//  2. the clone this run made (m.RepoDir), when it exists.
+//  3. the working directory and every parent that holds themes/*.toml, nearest
+//     first: launching the installer from inside the checkout is the normal
+//     case, and the checkout may be several levels above the working directory.
+//  4. ~/dotfiles, then ~/.dotfiles: the conventional locations.
+//
+// A candidate without themes/*.toml is skipped; the first one that has it wins
+// and no later candidate is read. The order is documented in
+// docs/tui-installer.md, because a search order that is not written down is
+// magic.
+func themeDefinitionDirs(repoDir string) []string {
+	var dirs []string
+	if env := strings.TrimSpace(os.Getenv(dotfilesDirEnv)); env != "" {
+		dirs = append(dirs, env)
+	}
+	if repoDir != "" {
+		dirs = append(dirs, repoDir)
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		dirs = append(dirs, themeDirsFromWorkdir(cwd)...)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, "dotfiles"), filepath.Join(home, ".dotfiles"))
+	}
+	return dirs
+}
+
+// themeDirsFromWorkdir walks from dir up to the filesystem root and returns
+// every directory that holds themes/*.toml, nearest first. An ancestor without
+// a themes/ directory is skipped rather than stopping the walk, because a
+// checkout is normally several levels above the working directory.
+func themeDirsFromWorkdir(dir string) []string {
+	var dirs []string
+	for {
+		if hasThemeDefinitions(dir) {
+			dirs = append(dirs, dir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dirs
+		}
+		dir = parent
+	}
+}
+
+// hasThemeDefinitions reports whether dir holds a themes/ directory with at
+// least one .toml definition.
+func hasThemeDefinitions(dir string) bool {
+	entries, err := os.ReadDir(filepath.Join(dir, themesDirName))
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".toml") {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveThemeDefinitionsDir returns the first candidate that holds
+// themes/*.toml, or the honest failure when none does. It is the one place the
+// search order is applied.
+func resolveThemeDefinitionsDir(repoDir string) (string, error) {
+	for _, dir := range themeDefinitionDirs(repoDir) {
+		if hasThemeDefinitions(dir) {
+			return dir, nil
+		}
+	}
+	return "", fmt.Errorf("no repository holding theme definitions was found in $%s, the clone, the working directory or its parents, ~/dotfiles or ~/.dotfiles", dotfilesDirEnv)
+}
+
 // themePaletteRoles is the canonical role set, in render order. A theme is
 // complete when it defines every one of them; anything less is partial and is
 // reported rather than offered, so a switch can never apply half a theme and

@@ -1275,6 +1275,175 @@ func tempThemeRepo(t *testing.T) string {
 	return dir
 }
 
+// themeRootWith writes one minimal definition under root/themes and returns the
+// root. A resolution test tells which candidate won by the id it reads back;
+// the definition is partial on purpose, because resolution is about finding a
+// checkout, not about offering a theme.
+func themeRootWith(t *testing.T, id string) string {
+	t.Helper()
+
+	return writeThemeAt(t, t.TempDir(), id)
+}
+
+// themeIDsIn loads root's definitions and returns their ids, so a resolution
+// test proves the winning candidate's files were actually read.
+func themeIDsIn(t *testing.T, root string) []string {
+	t.Helper()
+
+	defs, err := loadThemeDefinitions(root)
+	if err != nil {
+		t.Fatalf("load the definitions from %s: %v", root, err)
+	}
+	ids := make([]string, 0, len(defs))
+	for _, def := range defs {
+		ids = append(ids, def.ID)
+	}
+	return ids
+}
+
+// TestThemeResolutionTriesDotfilesDirFirst pins candidate 1: $DOTFILES_DIR is
+// named by the user, so it is answered before the clone or the working tree.
+func TestThemeResolutionTriesDotfilesDirFirst(t *testing.T) {
+	envRoot := themeRootWith(t, "from-env")
+	cloneRoot := themeRootWith(t, "from-clone")
+	cwdRoot := themeRootWith(t, "from-cwd")
+	t.Setenv("DOTFILES_DIR", envRoot)
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(cwdRoot)
+
+	got, err := resolveThemeDefinitionsDir(cloneRoot)
+	if err != nil {
+		t.Fatalf("resolve with three candidates present: %v", err)
+	}
+	if got != envRoot {
+		t.Fatalf("resolved %q, want $DOTFILES_DIR first (%q)", got, envRoot)
+	}
+	if ids := themeIDsIn(t, got); len(ids) != 1 || ids[0] != "from-env" {
+		t.Errorf("read definitions %v, want the $DOTFILES_DIR theme", ids)
+	}
+}
+
+// TestThemeResolutionUsesTheCloneBeforeTheWorkdir pins candidate 2: when no
+// directory is named, the clone this run made wins over the working tree.
+func TestThemeResolutionUsesTheCloneBeforeTheWorkdir(t *testing.T) {
+	cloneRoot := themeRootWith(t, "from-clone")
+	cwdRoot := themeRootWith(t, "from-cwd")
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(cwdRoot)
+
+	got, err := resolveThemeDefinitionsDir(cloneRoot)
+	if err != nil {
+		t.Fatalf("resolve with a clone and a working tree: %v", err)
+	}
+	if got != cloneRoot {
+		t.Fatalf("resolved %q, want the clone first (%q)", got, cloneRoot)
+	}
+	if ids := themeIDsIn(t, got); len(ids) != 1 || ids[0] != "from-clone" {
+		t.Errorf("read definitions %v, want the clone's theme", ids)
+	}
+}
+
+// TestThemeResolutionUsesTheWorkdirAndItsParents pins candidate 3: with no
+// clone, the working directory and its ancestors are walked from the nearest
+// theme-bearing directory upward, because launching the installer from inside
+// the checkout is the normal case.
+func TestThemeResolutionUsesTheWorkdirAndItsParents(t *testing.T) {
+	root := themeRootWith(t, "from-workdir")
+	deep := filepath.Join(root, "installer", "internal", "tui")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(deep)
+
+	got, err := resolveThemeDefinitionsDir("")
+	if err != nil {
+		t.Fatalf("resolve from inside a checkout: %v", err)
+	}
+	if got != root {
+		t.Fatalf("resolved %q, want the workdir's ancestor (%q)", got, root)
+	}
+	if ids := themeIDsIn(t, got); len(ids) != 1 || ids[0] != "from-workdir" {
+		t.Errorf("read definitions %v, want the workdir's theme", ids)
+	}
+}
+
+// TestThemeResolutionFallsBackToHomeDotfiles pins candidate 4: with no clone
+// and no checkout above the working directory, ~/dotfiles is tried.
+func TestThemeResolutionFallsBackToHomeDotfiles(t *testing.T) {
+	home := t.TempDir()
+	homeRoot := writeThemeAt(t, filepath.Join(home, "dotfiles"), "from-home-dotfiles")
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+
+	got, err := resolveThemeDefinitionsDir("")
+	if err != nil {
+		t.Fatalf("resolve from home: %v", err)
+	}
+	if got != homeRoot {
+		t.Fatalf("resolved %q, want ~/dotfiles (%q)", got, homeRoot)
+	}
+	if ids := themeIDsIn(t, got); len(ids) != 1 || ids[0] != "from-home-dotfiles" {
+		t.Errorf("read definitions %v, want ~/dotfiles theme", ids)
+	}
+}
+
+// TestThemeResolutionFallsBackToHiddenHomeDotfiles pins candidate 5: ~/.dotfiles
+// is tried after ~/dotfiles when the visible one is absent.
+func TestThemeResolutionFallsBackToHiddenHomeDotfiles(t *testing.T) {
+	home := t.TempDir()
+	homeRoot := writeThemeAt(t, filepath.Join(home, ".dotfiles"), "from-hidden-dotfiles")
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+
+	got, err := resolveThemeDefinitionsDir("")
+	if err != nil {
+		t.Fatalf("resolve from hidden home: %v", err)
+	}
+	if got != homeRoot {
+		t.Fatalf("resolved %q, want ~/.dotfiles (%q)", got, homeRoot)
+	}
+	if ids := themeIDsIn(t, got); len(ids) != 1 || ids[0] != "from-hidden-dotfiles" {
+		t.Errorf("read definitions %v, want ~/.dotfiles theme", ids)
+	}
+}
+
+// TestThemeResolutionReportsWhenNothingIsFound pins the honest state: no
+// candidate holds themes/*.toml, so resolution fails and names what it looked
+// for rather than returning an empty directory.
+func TestThemeResolutionReportsWhenNothingIsFound(t *testing.T) {
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	got, err := resolveThemeDefinitionsDir("")
+	if err == nil {
+		t.Fatalf("resolved %q with no candidate present, want a failure", got)
+	}
+	if !strings.Contains(err.Error(), "theme definitions") {
+		t.Errorf("the failure does not name what it looked for: %v", err)
+	}
+}
+
+// writeThemeAt writes one minimal definition under root/themes and returns root,
+// for the home fallbacks where the root's own name is part of the assertion.
+func writeThemeAt(t *testing.T, root, id string) string {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Join(root, themesDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "[theme]\nid = \"" + id + "\"\npartial = true\npartial_reason = \"fixture\"\n\n[palette]\nbase = \"#000000\"\n"
+	if err := os.WriteFile(filepath.Join(root, themesDirName, id+".toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 // artifactByName finds an active artifact by tool, failing the test when it is
 // gone so a renamed tool cannot silently empty a switch test.
 func artifactByName(t *testing.T, tool string) themeArtifact {

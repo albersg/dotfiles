@@ -224,25 +224,30 @@ func loadLastInstallCmd() tea.Cmd {
 	}
 }
 
-// loadDotfilesThemesCmd reads the theme definitions from the checkout the clone
-// step created. It is issued when the utilities section is first opened, not at
-// startup, because before a clone there is nothing to read and the section says
-// so rather than showing a switch that cannot work.
+// loadDotfilesThemesCmd reads the theme definitions from the first repository
+// candidate that holds themes/*.toml. It is issued when the utilities section is
+// first opened. It no longer waits for the clone step: launching the installer
+// from inside the checkout is the normal case, and the checkout is found by
+// looking at $DOTFILES_DIR, the clone, the working directory and its parents,
+// then ~/dotfiles and ~/.dotfiles. The order lives in resolveThemeDefinitionsDir
+// and is documented in docs/tui-installer.md.
 func loadDotfilesThemesCmd(repoDir string) tea.Cmd {
 	return func() tea.Msg {
-		if repoDir == "" {
-			return dotfilesThemesLoadedMsg{err: fmt.Errorf("the repository has not been cloned yet")}
+		dir, err := resolveThemeDefinitionsDir(repoDir)
+		if err != nil {
+			return dotfilesThemesLoadedMsg{err: err}
 		}
-		defs, err := loadThemeDefinitions(repoDir)
+		defs, err := loadThemeDefinitions(dir)
 		return dotfilesThemesLoadedMsg{themes: defs, err: err}
 	}
 }
 
 // dotfilesThemesCmdIfNeeded reads the definitions the first time the utilities
-// section is opened. It returns no command when they are already read or when
-// there is no checkout to read them from.
+// section is opened. It returns no command only when they have already been
+// read: the checkout is found by resolution, not by the clone step, so an empty
+// RepoDir is no longer a reason to skip the read.
 func (m *Model) dotfilesThemesCmdIfNeeded() tea.Cmd {
-	if m.DotfilesThemes != nil || m.RepoDir == "" {
+	if m.DotfilesThemes != nil {
 		return nil
 	}
 	return loadDotfilesThemesCmd(m.RepoDir)

@@ -165,9 +165,18 @@ missing a role is refused rather than written half-empty, and if a later file ca
 ones already changed are put back. **`--dry-run` skips it**, exactly as it skips the desktop switch
 and the installation steps.
 
-**Before the repository is cloned there is nothing to offer.** The theme definitions live in the
-checkout, so the section reads them when it is first opened and, until a checkout exists, says the
-dotfiles theme is not switchable yet instead of drawing rows that would fail.
+**Where the definitions are read from.** The definitions live in the checkout, never in the binary,
+and the installer reads the first of these directories that holds `themes/*.toml`:
+
+1. `$DOTFILES_DIR`, when it is set — the way to point the installer at a checkout it was not
+   launched from.
+2. the clone this run made, when there is one.
+3. the working directory and each of its parents, nearest first — launching the installer from inside
+   the checkout is the normal case.
+4. `~/dotfiles`, then `~/.dotfiles`.
+
+When none of them holds `themes/*.toml`, the section says the dotfiles theme is not switchable here
+and names the search, instead of drawing rows that would fail.
 
 **The preview writes nothing, and it says so.** While the cursor is on a theme row the **whole
 interface is repainted** in that theme's colours — the header, the rules, every row and marker, the

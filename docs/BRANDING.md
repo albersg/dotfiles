@@ -41,6 +41,7 @@ tells a WSL user without interop to set the two host overrides.
 
 | Variable | Purpose |
 |----------|---------|
+| `DOTFILES_DIR` | Points the installer at a repository checkout other than the one it was launched from; a new interface introduced with the dotfiles theme switch, so Utilities can read `themes/*.toml` before any clone |
 | `DOTFILES_WSL_HOST_CPUS` | Sets the host's logical CPU count and skips the interop query; both host overrides must be present and valid |
 | `DOTFILES_WSL_HOST_MEMORY_MB` | Sets the host's memory in MiB on the same terms as `DOTFILES_WSL_HOST_CPUS` |
 | `DOTFILES_WSL_WINDOWS_HOME` | Points the Windows profile lookup at a Windows drive mounted somewhere other than `/mnt/c` |

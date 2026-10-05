@@ -1196,9 +1196,61 @@ func TestUtilitiesThemeRowsAreDerivedAndNameExclusions(t *testing.T) {
 	}
 }
 
-// TestUtilitiesSaysTheThemeIsUnavailableWithoutACheckout covers the honest state
-// before the repository is cloned: no theme row, and the reason in the body.
-func TestUtilitiesSaysTheThemeIsUnavailableWithoutACheckout(t *testing.T) {
+// TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo is the user's case: the
+// installer is launched from inside the repository, before any clone, and
+// opening Utilities must show the theme rows and their exclusion lists. The
+// definitions live in the checkout the run is launched from; a clone created by
+// this run is not a prerequisite for seeing them.
+func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
+	root := repoRoot(t)
+	t.Chdir(root)
+	t.Setenv("DOTFILES_DIR", "")
+
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.RepoDir = "" // no clone this run
+	m.DotfilesThemes = nil
+
+	cmd := m.dotfilesThemesCmdIfNeeded()
+	if cmd == nil {
+		t.Fatal("opening Utilities from inside the repository issued no theme read, so no row can appear")
+	}
+	next, _ := m.Update(cmd())
+	m = next.(Model)
+
+	opts := m.GetCurrentOptions()
+	rows := 0
+	for _, opt := range opts {
+		if !strings.HasPrefix(opt, "Apply the ") {
+			continue
+		}
+		rows++
+		if !strings.Contains(opt, "(not ") {
+			t.Errorf("the theme row %q does not name the tools it leaves out", opt)
+		}
+	}
+	if rows == 0 {
+		t.Fatalf("the section shows no theme row without a clone: %v", opts)
+	}
+
+	// The rows are what the user sees, not only what the model holds: render the
+	// section and look for each row and its exclusion list in the capture.
+	m.Width, m.Height = 200, 60
+	plain := ansiEscape.ReplaceAllString(m.View(), "")
+	for _, opt := range opts {
+		if strings.HasPrefix(opt, "Apply the ") && !strings.Contains(plain, opt) {
+			t.Errorf("the rendered section does not show the theme row %q", opt)
+		}
+	}
+	if !strings.Contains(plain, "(not ") {
+		t.Error("the rendered section does not show a theme's exclusion list")
+	}
+}
+
+// TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository covers the honest
+// state when no candidate holds themes/*.toml: no theme row, and the reason in
+// the body.
+func TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenUtilities
 	m.DotfilesThemes = nil
@@ -1206,27 +1258,22 @@ func TestUtilitiesSaysTheThemeIsUnavailableWithoutACheckout(t *testing.T) {
 
 	for _, option := range m.GetCurrentOptions() {
 		if strings.HasPrefix(option, "Apply the ") {
-			t.Errorf("a theme row is offered with no checkout: %q", option)
+			t.Errorf("a theme row is offered before a read: %q", option)
 		}
 	}
 	description := strings.Join(m.utilitiesDescription(), " ")
 	if !strings.Contains(description, "not switchable") {
 		t.Errorf("the section does not say the theme is unavailable: %q", description)
 	}
-	if !strings.Contains(description, "cloned") {
+	if !strings.Contains(description, "theme definitions") {
 		t.Errorf("the section does not name the reason: %q", description)
 	}
 
-	// With a checkout, entering the section reads the definitions; without one,
-	// there is nothing to read.
-	m.RepoDir = "/does/not/matter"
+	// Entering the section reads once. The read no longer waits for the clone
+	// step: the checkout may be the one the installer was launched from, so an
+	// empty RepoDir is no reason to skip the read.
 	if cmd := m.dotfilesThemesCmdIfNeeded(); cmd == nil {
-		t.Error("entering the section with a checkout issued no read")
-	}
-	m.DotfilesThemes = nil
-	m.RepoDir = ""
-	if cmd := m.dotfilesThemesCmdIfNeeded(); cmd != nil {
-		t.Error("entering the section with no checkout issued a read")
+		t.Error("entering the section issued no read")
 	}
 	m.DotfilesThemes = []themeDefinition{{ID: "already"}}
 	if cmd := m.dotfilesThemesCmdIfNeeded(); cmd != nil {

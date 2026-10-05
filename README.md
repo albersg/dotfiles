@@ -152,8 +152,11 @@ switch applies a complete theme (a definition with every canonical role: today *
 repository owns, records the exact bytes it replaced in the same `theme.json`, and can put them back
 with a dedicated undo row. Each theme row names the tools it leaves out (today fish and tmux, plus
 Neovim for dotfiles), so nothing is left on the old palette without being said. A theme missing roles
-is reported as partial and never offered. The definitions come from the cloned checkout, so before a
-clone the section says the switch is not available yet rather than drawing a row that fails. Move the
+is reported as partial and never offered. The definitions are read from a checkout on disk, never from
+the binary: `$DOTFILES_DIR` first, then the clone this run makes, then the working directory and its
+parents, then `~/dotfiles` and `~/.dotfiles`. Launching the installer from inside the checkout shows
+the rows immediately; when none of those holds definitions the section says the switch is not
+available here rather than drawing a row that fails. Move the
 cursor onto a theme row and **the whole installer repaints itself in that theme's colours** — a live
 preview built from the same definition the apply writes, labelled `Preview (nothing applied)` — and
 leaving the row puts the default chrome back; nothing is written while the cursor moves. It only rewrites files carrying the `dotfiles-managed-config:`

@@ -228,7 +228,6 @@ fixing two of them falls outside this change.
   disabling the preview selection fails the repaint guard, removing the restore leaves `Primary` at
   the theme's blue, and changing a `styles.go` default fails the pin.
 - **No golden moved**; the full suite and `make preflight` are green.
-
 ## Update: E - the syntax tints are theme roles
 
 - `themes/*.toml` gained a `[syntax]` table with four keys: `keyword_light`, `keyword_dark`,
@@ -249,3 +248,49 @@ fixing two of them falls outside this change.
   fish, bat, Neovim) carries the installer's syntax tints; they are chrome-only.
 - Teeth: changing `keyword_dark` in `themes/dotfiles.toml` fails the defaults guard naming `styles.go`;
   putting the mauve approximation back fails the preview guard.
+
+## Update: the definitions are found without a clone (visibility fix)
+
+- **Defect.** B read the definitions from `m.RepoDir`, the checkout the **clone step** creates, so
+  before an install `m.RepoDir` was empty and `dotfilesThemesCmdIfNeeded` returned no read at all
+  (`if m.DotfilesThemes != nil || m.RepoDir == ""`). A user who launches the installer from inside
+  their checkout — the normal case — saw no theme row until they had installed. A feature that cannot
+  be seen does not exist.
+- **Fix.** The definitions are resolved, in order, from the first directory that holds
+  `themes/*.toml`: 1. `$DOTFILES_DIR` (a new interface: the user names a checkout), 2. the clone this
+  run made, 3. the working directory and its parents (nearest first), 4. `~/dotfiles`, `~/.dotfiles`.
+  When none holds definitions the section keeps the honest "not switchable here" message and names
+  the search. The definitions remain repository files; nothing is packaged into the binary.
+- **Guards.** `TestThemeResolutionTriesDotfilesDirFirst`,
+  `TestThemeResolutionUsesTheCloneBeforeTheWorkdir`,
+  `TestThemeResolutionUsesTheWorkdirAndItsParents`,
+  `TestThemeResolutionFallsBackToHomeDotfiles`,
+  `TestThemeResolutionFallsBackToHiddenHomeDotfiles`,
+  `TestThemeResolutionReportsWhenNothingIsFound`, and the user's case
+  `TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo`, which renders the section and asserts the
+  rows and their exclusion lists are visible. Teeth: restoring the `RepoDir == ""` guard makes the
+  user-case test fail with "opening Utilities from inside the repository issued no theme read".
+- The order is documented in `docs/tui-installer.md`, beside the dotfiles theme switch.
+- **The documentation guard caught it the same day.** `TestBrandingDocNamesEveryInstallerEnvironmentVariable`
+  (`installer/cmd/dotfiles/help_test.go`, from #140) derives every `DOTFILES_*`
+  literal from the installer source and failed on `DOTFILES_DIR` as soon as it was introduced, before
+  anyone had to remember to document it. The fix is one row in `docs/BRANDING.md` under *Overrides for
+  non-standard layouts*: the variable is an override the user sets, not an installer switch. That the
+  guard stopped the work is the feature working, not friction.
+
+## Update: the macOS golden flake, diagnosed and fixed
+
+- PR #161's macOS smoke test failed on `TestMainMenuGolden` with a transcript that held only the
+  terminal's initialisation and teardown sequences. It was not a content change: the golden file was
+  byte-identical, the failing `got` contained no frame at all, and the main-menu render never touches a
+  theme definition.
+- **The golden did not depend on the working directory.** `NewModel`, `Init` and the main-menu render do
+  not call the theme resolver; it is reached only when Utilities is entered (update.go). The snapshot is
+  the same wherever the checkout lives, which is why every other golden and every other machine passed.
+- **The cause was a test race.** `waitForAnyOutput` quits after the first two length-positive output
+  events; the terminal's initialisation is one of them and the first frame can arrive in several, so on a
+  loaded macOS runner Ctrl+C won before the frame was drawn.
+- **Fix:** `waitForGoldenFrame` waits for the frame's own marker before quitting, and the six
+  `teatest`-driven golden tests use it through `goldenTranscript`. `TestGoldenFrameWaitsForTheScreen`
+  reproduces the race with a staged reader (init, partial repaint, frame): it fails deterministically
+  while the wait accepts "any output" and passes when it waits for the frame. No golden file changed.
