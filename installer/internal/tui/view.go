@@ -839,6 +839,15 @@ func (m Model) View() string {
 		return ""
 	}
 
+	// The live preview repaints the whole interface in the theme under the cursor.
+	// It writes nothing and is restored before View returns, so a screen with no
+	// preview active renders byte-for-byte the default chrome.
+	if def, ok := m.previewThemeDef(); ok {
+		if restore, err := applyPreviewTheme(def); err == nil {
+			defer restore()
+		}
+	}
+
 	var s strings.Builder
 
 	switch m.Screen {
@@ -1165,7 +1174,7 @@ func (m Model) renderUtilities() string {
 	// The live preview: while the cursor is on a theme row, the section shows
 	// that theme's real palette. It writes nothing; the values come from the same
 	// definition the apply would write.
-	preview := m.themePreviewLines()
+	preview := m.themePreviewLines(width)
 
 	// The rows the title, the blank above the menu, the menu, the preview and the
 	// notice spend, taken off the frame's body before the description is wrapped,
@@ -1273,26 +1282,55 @@ func (m Model) previewThemeDef() (themeDefinition, bool) {
 	return m.dotfilesThemeForRow(options[m.Cursor])
 }
 
-// themePreviewLines is the one preview row: a swatch for each role the theme
-// holds, painted in the theme's real colour, and the theme's name. It is built
-// from the same definition the apply writes, so the preview cannot show a colour
-// the switch would not write.
-func (m Model) themePreviewLines() []string {
+// themePreviewLines is the one preview row: a label that says the colours are a
+// preview and that nothing has been applied, then a swatch for each role the
+// theme holds, painted in the theme's real colour. It is built from the same
+// definition the apply writes, so the preview cannot show a colour the switch
+// would not, and it is trimmed to the width it is drawn at by dropping whole
+// swatches rather than splitting a styled cell mid-sequence.
+func (m Model) themePreviewLines(width int) []string {
 	def, ok := m.previewThemeDef()
 	if !ok {
 		return nil
 	}
 
+	label := "Preview (nothing applied) — " + def.Name + ":"
+	if lipgloss.Width(label) > width {
+		label = truncateRunes(label, width)
+	}
+
 	var b strings.Builder
-	b.WriteString(MutedStyle.Render("Preview " + def.Name + ":"))
+	b.WriteString(MutedStyle.Render(label))
 	for _, role := range themePreviewSwatchRoles {
 		hex := def.Palette[role]
 		if hex == "" {
 			continue
 		}
+		if lipgloss.Width(b.String())+2 > width {
+			break
+		}
 		b.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(hex)).Render("  "))
 	}
 	return []string{b.String()}
+}
+
+// truncateRunes cuts s to at most width columns without splitting a rune, so a
+// narrow terminal trims the label instead of drawing past the frame.
+func truncateRunes(s string, width int) string {
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		w := lipgloss.Width(string(r))
+		if used+w > width {
+			break
+		}
+		b.WriteRune(r)
+		used += w
+	}
+	return b.String()
 }
 
 // dotfilesThemeRow is the menu row for one theme. It names the tools the theme

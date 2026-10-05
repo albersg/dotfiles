@@ -1310,7 +1310,7 @@ func TestTheThemePreviewShowsTheValuesTheApplyWouldWrite(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(previousProfile) })
 
-	lines := m.themePreviewLines()
+	lines := m.themePreviewLines(120)
 	if len(lines) == 0 {
 		t.Fatal("the section rendered no preview for the theme under the cursor")
 	}
@@ -1375,4 +1375,180 @@ func atoiOrZero(value string) int {
 		return -1
 	}
 	return n
+}
+
+// TestThePreviewRepaintsTheWholeInterface covers piece D: with the cursor on a
+// theme row the whole chrome takes that theme's colours, and the default chrome
+// is back before View returns.
+func TestThePreviewRepaintsTheWholeInterface(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	catppuccin, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previousProfile) })
+
+	// The SGR parameters lipgloss emits for the theme's blue, read from a probe
+	// rather than computed from the hex: lipgloss converts an 8-bit channel through
+	// 16 bits, which can shift a channel by one. The parameters are matched rather
+	// than the whole sequence because a bold style prefixes them with "1;".
+	probe := lipgloss.NewStyle().Foreground(lipgloss.Color(catppuccin.Palette["blue"])).Render("x")
+	sequence := strings.TrimSuffix(strings.TrimPrefix(probe[:strings.Index(probe, "m")+1], "\x1b["), "m")
+
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.DotfilesThemes = defs
+	m.Width, m.Height = 120, 40
+	// A detected desktop puts the switch rows first, so the cursor can sit off a
+	// theme row and no preview is active.
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	m.ThemeSwitch, m.ThemeSwitchFound = target, true
+
+	plain := m.View()
+	if strings.Contains(plain, sequence) {
+		t.Fatal("the default chrome already carries the theme's blue, so this guard proves nothing")
+	}
+
+	idx := -1
+	for i, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, "Apply the Catppuccin Mocha") {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("the section offers no catppuccin row")
+	}
+	m.Cursor = idx
+	previewed := m.View()
+
+	if !strings.Contains(previewed, sequence) {
+		t.Error("the previewed interface is not painted in the theme's blue")
+	}
+	if previewed == plain {
+		t.Error("the preview did not repaint the interface")
+	}
+
+	// The chrome is restored before View returns: the next render off the theme
+	// row is byte-for-byte the one from before the preview.
+	if got := Primary.Dark; got != defaultUIColors().Primary.Dark {
+		t.Errorf("the preview left Primary at %q, want %q", got, defaultUIColors().Primary.Dark)
+	}
+	m.Cursor = 0
+	if m.View() != plain {
+		t.Error("the preview changed the default chrome")
+	}
+}
+
+// TestThePreviewWritesNothing covers the first condition: the preview paints and
+// records nothing.
+func TestThePreviewWritesNothing(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.DotfilesThemes = defs
+	m.Width, m.Height = 120, 40
+	for i, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, "Apply the ") {
+			m.Cursor = i
+			break
+		}
+	}
+	m.View()
+
+	if rec := readDotfilesThemeRecord(); rec != nil {
+		t.Errorf("the preview wrote a record: %+v", rec)
+	}
+	entries, err := os.ReadDir(stateHome)
+	if err != nil {
+		t.Fatalf("read the state directory: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("the preview wrote into the state directory: %v", entries)
+	}
+}
+
+// TestTheDefaultStylesMatchTheDotfilesDefinition pins styles.go's defaults
+// against themes/dotfiles.toml, so the chrome is a consumer of the definition
+// and not a second hand-written copy of the palette.
+func TestTheDefaultStylesMatchTheDotfilesDefinition(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, "dotfiles")
+	if !ok {
+		t.Fatal("the dotfiles definition is missing")
+	}
+
+	colors := defaultUIColors()
+	pairs := []struct {
+		name string
+		got  lipgloss.AdaptiveColor
+		want string
+	}{
+		{"Background", colors.Background, def.Palette["base"]},
+		{"Text", colors.Text, def.Palette["text"]},
+		{"TextMuted", colors.TextMuted, def.Prompt["subtext0"]},
+		{"Primary", colors.Primary, def.Palette["blue"]},
+		{"Secondary", colors.Secondary, def.Prompt["mauve"]},
+		{"Accent", colors.Accent, def.Palette["cursor"]},
+		{"Error", colors.Error, def.Palette["red"]},
+		{"Warning", colors.Warning, def.Prompt["peach"]},
+		{"Success", colors.Success, def.Palette["green"]},
+		{"Info", colors.Info, def.Palette["blue"]},
+		{"BorderActive", colors.BorderActive, def.Palette["blue"]},
+	}
+	for _, pair := range pairs {
+		if pair.want == "" {
+			t.Errorf("themes/dotfiles.toml no longer holds the role behind %s", pair.name)
+			continue
+		}
+		if !strings.EqualFold(pair.got.Dark, pair.want) {
+			t.Errorf("the default %s is %s, themes/dotfiles.toml says %s: styles.go has its own copy",
+				pair.name, pair.got.Dark, pair.want)
+		}
+	}
+	// These two are the installer's own tints, not terminal palette roles: they
+	// are logged so nobody mistakes them for one.
+	t.Logf("installer-only syntax tints (no role in themes/*.toml): keyword %s, string %s",
+		colors.SyntaxKeyword.Dark, colors.SyntaxString.Dark)
+}
+
+// TestAPartialThemeCannotBePreviewed covers the honest edge: a definition with no
+// canonical palette cannot paint the interface, so the preview refuses it rather
+// than inventing colours.
+func TestAPartialThemeCannotBePreviewed(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	checked := 0
+	for _, def := range defs {
+		if def.Complete() {
+			continue
+		}
+		if _, err := themePreviewColors(def); err == nil {
+			t.Errorf("theme %q has no canonical palette yet it previewed", def.ID)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no partial theme was checked, so this guard proves nothing")
+	}
 }

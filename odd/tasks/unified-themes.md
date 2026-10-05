@@ -202,3 +202,29 @@ fixing two of them falls outside this change.
 - **A, B and C are all implemented.** Remaining known gaps: fish is generated but not switched (user
   state by decision), tmux has no repository-owned theme, and the desktop light/dark switch is
   unchanged.
+
+## Update: D - the preview repaints the whole interface
+
+- **styles.go is now built from one palette.** Every colour name and every style is assigned by
+  `applyUIColors(uiColors)`, and the package vars are that build's output. The default calls it with
+  `defaultUIColors()`; the preview calls it with the highlighted theme's colours
+  (`theme_preview.go`), so the chrome and the preview cannot drift and there is no second copy of a
+  palette in Go.
+- **The whole interface repaints.** `View()` applies the preview for the duration of one render and
+  restores the previous palette before it returns, so a screen with no preview active is byte-for-byte
+  the default chrome and leaving the theme row puts the default back.
+- **It says so.** The preview row reads `Preview (nothing applied) — <name>` followed by a swatch per
+  role, so a repainted installer cannot be mistaken for one already changed.
+- **Nothing is written.** The preview only reassigns in-memory styles.
+- **The defaults are pinned to the definition.** `TestTheDefaultStylesMatchTheDotfilesDefinition`
+  checks `styles.go`'s Dark entries against `themes/dotfiles.toml` (base/text/blue/cursor/red/green
+  plus the prompt's subtext0, mauve and peach). Two installer-only tints remain and are named in the
+  guard: `SyntaxKeyword #C99AD6`, `SyntaxString #DFBD76` have no role in `themes/*.toml`, so the
+  preview maps them onto the theme's magenta and peach instead; the README records them as
+  installer-only.
+- Guards and teeth: the repaint, the restore, the no-write rule and the defaults are all covered
+  (`TestThePreviewRepaintsTheWholeInterface`, `TestThePreviewWritesNothing`,
+  `TestTheDefaultStylesMatchTheDotfilesDefinition`, `TestAPartialThemeCannotBePreviewed`). Teeth:
+  disabling the preview selection fails the repaint guard, removing the restore leaves `Primary` at
+  the theme's blue, and changing a `styles.go` default fails the pin.
+- **No golden moved**; the full suite and `make preflight` are green.

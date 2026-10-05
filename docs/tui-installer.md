@@ -169,10 +169,14 @@ and the installation steps.
 checkout, so the section reads them when it is first opened and, until a checkout exists, says the
 dotfiles theme is not switchable yet instead of drawing rows that would fail.
 
-**The preview writes nothing.** While the cursor is on a theme row the section paints that theme's
-**real palette** — a swatch per role, and its own title in the theme's accent — built from the same
-definition the apply writes, so it cannot show a colour the switch would not write. Nothing is applied
-while the cursor moves: the preview restyles the section only.
+**The preview writes nothing, and it says so.** While the cursor is on a theme row the **whole
+interface is repainted** in that theme's colours — the header, the rules, every row and marker, the
+footers and the frame — because every style is built from one palette and the preview rebuilds that
+palette from the definition. A label beside the swatches reads `Preview (nothing applied) — <name>`,
+so a repainted installer cannot be mistaken for one whose theme has changed. Leaving the theme row
+puts the default chrome back: with no preview active the interface is byte-for-byte what it always
+was. The palette comes from `themes/*.toml` — the chrome holds no second copy of it — and a theme
+with no canonical palette is refused rather than previewed with invented colours.
 
 The welcome screen and the main menu greet you by the time of day (`Good morning`, `Good afternoon`,
 `Good evening`) in one added dim line, so no existing copy is replaced. The greeting is a pure

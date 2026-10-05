@@ -153,7 +153,10 @@ repository owns, records the exact bytes it replaced in the same `theme.json`, a
 with a dedicated undo row. Each theme row names the tools it leaves out (today fish and tmux, plus
 Neovim for dotfiles), so nothing is left on the old palette without being said. A theme missing roles
 is reported as partial and never offered. The definitions come from the cloned checkout, so before a
-clone the section says the switch is not available yet rather than drawing a row that fails. It only rewrites files carrying the `dotfiles-managed-config:`
+clone the section says the switch is not available yet rather than drawing a row that fails. Move the
+cursor onto a theme row and **the whole installer repaints itself in that theme's colours** — a live
+preview built from the same definition the apply writes, labelled `Preview (nothing applied)` — and
+leaving the row puts the default chrome back; nothing is written while the cursor moves. It only rewrites files carrying the `dotfiles-managed-config:`
 ownership marker; a file you wrote is left exactly as it is. `--dry-run` skips it too. See
 [`themes/README.md`](themes/README.md).
 
