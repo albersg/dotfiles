@@ -1839,6 +1839,15 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 		},
 		{
 			cursor: 6,
+			name:   "Utilities",
+			want: []string{
+				"Selected Utilities",
+				"No desktop theme switch is available here.",
+			},
+			absent: []string{"Steps", "Overwrites", "Newest backup", "Backups", "Modules", "Topics", "Terminals"},
+		},
+		{
+			cursor: 7,
 			name:   "Exit",
 			want: []string{
 				"Selected Exit",
@@ -1867,6 +1876,43 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestMainMenuUtilitiesPanelNamesTheDetectedSwitch pins the detected half of the
+// Utilities panel: the section offers the theme switch only when the model's
+// detection found one, so the panel names it -- and the undo once a record for
+// that same desktop exists -- and says nothing about switches the model does not
+// hold.
+func TestMainMenuUtilitiesPanelNamesTheDetectedSwitch(t *testing.T) {
+	l := narrowPanelLayout()
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+
+	m := contextualMainMenuModel()
+	m.Cursor = 6 // Utilities, above Exit
+	m.ThemeSwitch, m.ThemeSwitchFound = target, true
+
+	flat := panelFlat(m.mainMenuPanel(l, 200))
+	if !strings.Contains(flat, "Selected Utilities") {
+		t.Errorf("the panel does not name the option:\n%s", panelText(m.mainMenuPanel(l, 200)))
+	}
+	if !strings.Contains(flat, "Switch") || !strings.Contains(flat, "GNOME") {
+		t.Errorf("the panel does not name the detected switch:\n%s", panelText(m.mainMenuPanel(l, 200)))
+	}
+	if strings.Contains(flat, "No desktop theme switch") {
+		t.Errorf("the panel says there is no switch while one was detected:\n%s", panelText(m.mainMenuPanel(l, 200)))
+	}
+	if strings.Contains(flat, "Undo") {
+		t.Errorf("the panel offers an undo with no record for the detected desktop:\n%s", panelText(m.mainMenuPanel(l, 200)))
+	}
+
+	m.ThemeRecord = &themeRecord{Target: "gnome", Value: "default"}
+	flat = panelFlat(m.mainMenuPanel(l, 200))
+	if !strings.Contains(flat, "Undo") || !strings.Contains(flat, "available") {
+		t.Errorf("the panel does not say the undo is available with a record:\n%s", panelText(m.mainMenuPanel(l, 200)))
 	}
 }
 

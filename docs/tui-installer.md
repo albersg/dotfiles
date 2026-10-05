@@ -28,6 +28,8 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - **Neovim Keymaps Reference**: Built-in keymap browser organized by category
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
+- **Utilities**: The small system jobs that are not part of an installation, starting with a
+  reversible system light/dark theme switch, in its own main-menu row
 - **Progress Tracking**: Real-time installation progress with a frame-width progress bar whose
   filled part carries a travelling highlight during long steps, a percentage, the step the run is on
   with its name, the elapsed time and an estimate of what is left measured from the run's own clock,
@@ -84,17 +86,21 @@ From the main menu you can access:
 - **Neovim Keymaps**: Browse all configured keybindings
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
+- **Utilities**: The small jobs that are not part of an installation, starting with a reversible
+  system light/dark theme switch
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
-On the main menu, `vim` opens the Vim Trainer, `u` opens the Utilities section, `:q` quits, and `dd` briefly sweeps away the selected row before it returns.
+On the main menu, the **Utilities** row opens the Utilities section and `u` opens it too as a
+shortcut, `vim` opens the Vim Trainer, `:q` quits, and `dd` briefly sweeps away the selected row
+before it returns.
 
 ### Utilities
 
 The **Utilities** section holds the small jobs that are not part of an installation. It is reached
-from the main menu with the `u` key rather than through a menu row: the main menu's rows and footer
-are pinned by snapshots and by guards that index them, and a section reached by a key moves nothing a
-reader already knows. The key is listed beside the main menu's other keys, like `vim`.
+from the main menu by its own **Utilities** row, just above **Exit**, and `u` is kept as a shortcut
+for anyone who learned it. The row is the discoverable route: a section reachable only by an
+undocumented key is a section most users never find.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
@@ -252,7 +258,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; the switch this host offers and whether the undo is available for **Utilities**, or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |

@@ -995,11 +995,10 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor++
 		}
 	case "u":
-		// The utilities section is reached by this key rather than by a row: the
-		// main menu's rows and footer are pinned by snapshots and by guards that
-		// index them, and a section that changes nothing a user already reads
-		// does not need to move them. It is documented beside the other
-		// main-menu keys, like `vim`.
+		// The shortcut to the section the Utilities row opens. It stays because a
+		// key costs nothing and someone who has learned it should not lose it; the
+		// row is how everyone else finds the section. It is documented beside the
+		// other main-menu keys, like `vim`.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.ThemeNotice = ""
@@ -1027,6 +1026,12 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 		case strings.Contains(selected, "Vim Trainer"):
 			return m.startTrainer()
+		case strings.Contains(selected, "Utilities"):
+			// The row and the `u` key reach the same section: the row is how a
+			// user finds it, the key is the shortcut for someone who has.
+			m.Screen = ScreenUtilities
+			m.Cursor = 0
+			m.ThemeNotice = ""
 		case strings.Contains(selected, "Restore from Backup") && hasRestoreOption:
 			m.Screen = ScreenRestoreBackup
 			m.Cursor = 0

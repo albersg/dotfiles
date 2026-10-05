@@ -63,9 +63,8 @@ const (
 	ScreenKeymapsHerdr    // Herdr keymaps
 	ScreenKeymapsHerdrCat // Herdr keymap category
 	// Utilities section. Appended at the end for the same reason. It is reached
-	// from the main menu by a key, not by a menu row: the main menu's rows and
-	// footer are pinned by snapshots and by guards that index them, and a section
-	// that changes nothing a user already reads does not need to move them.
+	// from the main menu both by its own row, just above Exit, and by the `u`
+	// shortcut.
 	ScreenUtilities // System utilities, starting with the theme switch
 )
 
@@ -453,6 +452,10 @@ func (m Model) GetCurrentOptions() []string {
 		if len(m.AvailableBackups) > 0 {
 			opts = append(opts, "🔄 Restore from Backup")
 		}
+		// Utilities sits immediately above Exit so Exit stays the last row: the
+		// section is a visible destination like the others, and quitting keeps
+		// the place muscle memory puts it.
+		opts = append(opts, "🧰 Utilities")
 		opts = append(opts, "❌ Exit")
 		return opts
 	case ScreenKeymapsMenu:
