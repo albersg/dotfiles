@@ -4,6 +4,44 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.5.0] — 2026-10-05
+
+The release where the installer offers something beyond installing, and where the creature it draws survives
+the screens it is drawn on. A utilities section joins the menu, and the small-terminal ladder gains a
+volumetric rung so the cat is the 3D one on a laptop terminal as well as on a wide pane.
+
+### Added
+
+- **A utilities section**, reached from a visible `🧰 Utilities` row or the `u` key. Its first utility switches
+  the desktop's light/dark theme through the desktop's own tool (GNOME `gsettings`, KDE
+  `plasma-apply-colorscheme`, macOS `defaults`), never by editing that store itself. It records the value it
+  replaced so the change can be undone, refuses to change a setting it could not restore, offers nothing on a
+  host without a desktop, and is skipped by `--dry-run` like every other step (#153, #154).
+- **A volumetric rung for small terminals.** The shaded creature now draws at 25-31 rows, where only the ASCII
+  cat drew before; heights 20-24 keep the compact glyph deliberately, because a four-row volume loses the eye
+  and a visible cat beats no creature at all (#152).
+- The Utilities screen joins the frame and coverage guards, which now measure 648 screen x size cases and 39 of
+  39 declared screens (#153).
+
+### Fixed
+
+- **The main menu's plan panel no longer crowds the creature out.** "What will happen" now names how many steps
+  the plan has and the step the run is on, instead of spending a row per step, and the frame reserves the
+  creature's block on the screens that draw the panel. At 100x25 the menu draws five rows where it drew none,
+  and at 60x20 three where it drew none (#151).
+- **The companion's rung is bounded to a quarter of the terminal height.** At 34 rows it took 35% of the screen;
+  it now takes 23.5%, and 461 of 636 measured cases draw a creature against 423 before (#148).
+- The wizard's plan panel no longer previews a plan when nothing has been selected (#148).
+- A failed trainer progress save is now reported where the player lands, not on a screen they have left (#148).
+
+### Changed
+
+- **The release procedure has one home**: `docs/RELEASING.md`, derived from the workflow itself, plus
+  `docs/release-checklist.md`, with a guard that derives the artifact names from `release.yml` and rejects the
+  shapes the old documents used. `docs/RELEASES.md` was removed after its links were repointed (#149, #150).
+- The local preflight added in this cycle runs the pull-request checks in about 35 seconds where CI needs about
+  400 (#145).
+
 ## [v0.4.0] — 2026-10-04
 
 This is the release where **the installer stops reporting successes it did not have, and fits the
