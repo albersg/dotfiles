@@ -105,7 +105,7 @@ const (
 	// companionCellWidth is the widest cell any height draws, and the one the walk
 	// uses to bound the stage. Fixing the walk on the widest cell rather than on
 	// the drawn one means no height can walk its sprite past the edge of the stage:
-	// the narrower glyph cells and the smaller volumetric one stop short of the right
+	// the narrower glyph cells and the smaller volumetric ones stop short of the right
 	// edge instead of reaching it, which is invisible, where the full volumetric
 	// sprite reaching past it would cross the frame's margin.
 	companionCellWidth = companionVolumeFullWidth
@@ -519,23 +519,36 @@ func companionSpriteWidth(height int) int {
 	return 0
 }
 
+// companionGlyphFullMinHeight is the terminal height at which the glyph ladder
+// picks its full five-row cat. The mini volume is also five rows, so it takes over
+// exactly that rung and shares this threshold rather than the quarter-bound: the
+// mini replaces the five-row glyph cat from 25 to 31, and below 25 the frame has
+// room only for the three-row compact head. A five-row volume cannot replace the
+// compact head at 20-24 because the smallest volume whose eye survives the realism
+// assertions is five rows (four loses the pupil), and forcing it there would drop
+// the creature on the screens that only had room for three. A visible glyph cat is
+// better than no pet, so 20-24 keeps the compact glyph even with the encoder on.
+const companionGlyphFullMinHeight = 25
+
 // companionHeightShare is the share of the terminal a rung may take, as a
 // divisor: the sprite is decoration in the rows the body did not need, so a rung
 // is only drawn where it fits without taking more than a quarter of the
 // terminal. The thresholds are the height at which each rung's own row count
-// reaches that share -- the twelve-row volume at 48 rows, the eight-row one at 32
-// -- so the boundaries come from the bound rather than from a taste for round
+// reaches that share -- the twelve-row volume at 48 rows and the eight-row one at
+// 32 -- so those boundaries come from the bound rather than from a taste for round
 // numbers, and a taller sprite cannot crowd out the screen it decorates. The
-// glyph cat's five rows already fit the bound at the height its own step names,
-// so its threshold is unchanged.
+// glyph cat's five rows already fit the bound at the height its own step names, so
+// its threshold is unchanged; the miniature volume shares that same threshold
+// (companionGlyphFullMinHeight) because it is the same five rows.
 const companionHeightShare = 4
 
-// companionHeightNow is the ladder with the volumetric sprite's two steps on top:
-// the full sprite where the frame can hold it and the run may draw it, else the
-// smaller one on the same terms, else the glyph ladder. The glyph ladder is
-// untouched below them, which is what keeps the floor a floor: a terminal without
-// true colour, a run with the sprite switched off and a frame with fewer than the
-// small sprite's rows all get the cat the glyph ladder picks, and every step
+// companionHeightNow is the ladder with the volumetric sprite's three steps on
+// top: the full sprite where the frame can hold it and the run may draw it, else
+// the smaller one on the same terms, else the mini one where the glyph cat's full
+// rung would have been, else the glyph ladder. The glyph ladder is untouched below
+// them, which is what keeps the floor a floor: a terminal without true colour, a
+// run with the sprite switched off and the heights where the frame has room only
+// for the compact head all get the cat the glyph ladder picks, and every step
 // degrades into the next rather than disappearing.
 func (m Model) companionHeightNow() int {
 	if m.PixelSprite {
@@ -544,9 +557,11 @@ func (m Model) companionHeightNow() int {
 			return companionVolumeFullHeight
 		case m.Height >= companionVolumeSmallHeight*companionHeightShare:
 			return companionVolumeSmallHeight
+		case m.Height >= companionGlyphFullMinHeight:
+			return companionVolumeMiniHeight
 		}
 	}
-	if m.Height >= 25 {
+	if m.Height >= companionGlyphFullMinHeight {
 		return companionFullHeight
 	}
 	return companionCompactHeight
@@ -739,23 +754,33 @@ func companionGazeRows(rows []string, eyes companionEyes, gaze companionGaze) []
 // rather than the body around it. The nose and the mouth are the two marks on the
 // muzzle that make the head a face.
 //
-// Two sizes, and the ladder now tries them in order: the full sprite at
+// Three sizes, and the ladder tries them in order: the full sprite at
 // companionVolumeFullHeight rows, else the small one at companionVolumeSmallHeight,
-// else the glyph cat's five, three and one, else nothing. The small one is not a crop
-// of the full one and not a redrawing of it: it is the same field sampled on a smaller
-// grid, so the two steps differ in resolution and not in shape, and a frame that cannot
-// spare the full sprite's rows loses size rather than the creature. Both need true
-// colour, because the shading is the drawing: on a sixteen-colour terminal those cells
-// are blocks in whatever the terminal maps five near-neighbours to, so the gate refuses
+// else the mini one at companionVolumeMiniHeight, else the glyph cat's five, three
+// and one, else nothing. Each smaller one is not a crop of the larger and not a
+// redrawing of it: it is the same field sampled on a smaller grid, so the steps
+// differ in resolution and not in shape, and a frame that cannot spare the full
+// sprite's rows loses size rather than the creature. All three need true colour,
+// because the shading is the drawing: on a sixteen-colour terminal those cells are
+// blocks in whatever the terminal maps five near-neighbours to, so the gate refuses
 // the whole tier and the glyph cat draws instead -- a sixteen-colour terminal and a
 // colourless one lose the volume, not the companion.
 
-// companionVolumeFullHeight and companionVolumeSmallHeight are the two heights the
-// ladder can pick above the glyph cat, in the order it tries them, and the pixel grid
-// each is drawn on. A pixel is one column and half a row -- the half-block glyph the
-// encoder draws with carries two pixels vertically, which is what makes a pixel square
-// on a terminal whose cells are twice as tall as they are wide -- so the rows here are
-// the pixels and the height is half of them.
+// companionVolumeFullHeight, companionVolumeSmallHeight and companionVolumeMiniHeight
+// are the three heights the ladder can pick above the glyph cat, in the order it tries
+// them, and the pixel grid each is drawn on. A pixel is one column and half a row -- the
+// half-block glyph the encoder draws with carries two pixels vertically, which is what
+// makes a pixel square on a terminal whose cells are twice as tall as they are wide -- so
+// the rows here are the pixels and the height is half of them. The mini rung exists so
+// the small screens that already showed the five-row glyph cat show the volume instead;
+// it is the same five rows as that rung, so it takes over exactly where the glyph cat's
+// full rung was chosen (companionGlyphFullMinHeight), and below that the frame has room
+// only for the three-row compact head. Five is the smallest grid whose eye and tail
+// survive the realism pass's structural assertions
+// (TestCompanionAnatomyHoldsAtEveryRung), and it is also the row count the glyph cat's
+// own full rung uses, so the two tables share a height and companionSprite disambiguates
+// them by mode: the volume draws only where the encoder is on, and the glyph cat
+// otherwise.
 const (
 	companionVolumeFullHeight  = 12
 	companionVolumeFullWidth   = 32
@@ -763,13 +788,16 @@ const (
 	companionVolumeSmallHeight = 8
 	companionVolumeSmallWidth  = 24
 	companionVolumeSmallRows   = 16
+	companionVolumeMiniHeight  = 5
+	companionVolumeMiniWidth   = 14
+	companionVolumeMiniRows    = 10
 )
 
 // companionVolumeSize is one rung of that ladder: the pixel grid one frame is sampled
 // on, and the radius of the eye's light disc in pixels. The eye's radius is the one
-// part of the drawing that is not derived from the scale, because the small rung's
+// part of the drawing that is not derived from the scale, because the smaller rungs'
 // scale puts the world's eye below a pixel and a disc with no pixels left is not an
-// eye: the floor is what keeps the gaze readable at both sizes.
+// eye: the floor is what keeps the gaze readable at every size.
 type companionVolumeSize struct {
 	width, rows       int
 	eyeRadius         float64
@@ -784,6 +812,8 @@ func companionVolumeSizeFor(height int) (companionVolumeSize, bool) {
 		return companionVolumeSize{width: companionVolumeFullWidth, rows: companionVolumeFullRows, eyeRadius: 1.5, eyeWidth: 3, eyeRows: 4}, true
 	case companionVolumeSmallHeight:
 		return companionVolumeSize{width: companionVolumeSmallWidth, rows: companionVolumeSmallRows, eyeRadius: 1.1, eyeWidth: 2, eyeRows: 2}, true
+	case companionVolumeMiniHeight:
+		return companionVolumeSize{width: companionVolumeMiniWidth, rows: companionVolumeMiniRows, eyeRadius: 1.0, eyeWidth: 2, eyeRows: 2}, true
 	}
 	return companionVolumeSize{}, false
 }
@@ -2266,12 +2296,17 @@ func (m Model) companionSprite(stage, height int) []string {
 	if !m.Animating {
 		return nil
 	}
+	// A height the volume and the glyph tables share -- the mini volume is the same
+	// row count as the glyph cat's full rung -- is disambiguated by the mode here:
+	// the volume only draws where the encoder is on, and the glyph art otherwise.
+	if m.PixelSprite {
+		if size, ok := companionVolumeSizeFor(height); ok {
+			return m.companionVolumeRows(stage, size)
+		}
+	}
 	width := companionSpriteWidth(height)
 	if width == 0 || stage < width {
 		return nil
-	}
-	if size, ok := companionVolumeSizeFor(height); ok {
-		return m.companionVolumeRows(stage, size)
 	}
 	pos := min(max(m.CompanionPos, 0), stage-width)
 	state := m.companionStateNow()

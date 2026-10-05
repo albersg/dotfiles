@@ -40,7 +40,7 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
   row rather than a lie, and with animation off the panel says the sampling is off instead of
   freezing a chart
 - **A Companion**: A creature walks the rows above the footer — a shaded volume where the terminal can
-  shade and the body leaves twelve rows or eight, and the glyph cat at five, three or one everywhere else
+  shade and the body leaves twelve, eight or five rows, and the glyph cat at five, three or one where it cannot
   — follows the mouse pointer with its gaze where the terminal reports one, blinks, yawns before it sleeps
   when you stop typing, reacts to failures and to destructive choices, and celebrates with a two-second
   burst of particles when the run finishes
@@ -334,16 +334,32 @@ pins the frame they are on, and both are absent with the animation gate off.
 The companion's size is **a function of terminal height and sprite mode only**. Spare rows and the
 selected item never choose a smaller creature. `TestCompanionVolumeSpriteIsTheLadderTopSteps` prints
 and asserts the rung at each boundary: pixel mode selects the shaded volume at **12 rows at height
-48+**, **8 rows at height 32–47**, then the glyph rung; glyph mode selects **5 rows at height 25+**
-and **3 rows at height 24 or below**. `companionHeightShare = 4` bounds the rung to a quarter of the
-terminal height, which is why the volume rungs start at 48 and 32: the 12-row rung used to start at
-34, where it took 35% of the screen. These are rung sizes, not screen reservations.
+48+**, **8 rows at height 32–47**, and **5 rows at height 25–31**; glyph mode selects **5 rows at
+height 25+** and **3 rows at height 24 or below**. `companionHeightShare = 4` bounds the rung to a
+quarter of the terminal height, which is why the volume rungs start at 48 and 32: the 12-row rung
+used to start at 34, where it took 35% of the screen. These are rung sizes, not screen reservations.
+
+The 5-row mini volume is the smallest grid that survives the anatomy assertions below
+(`TestCompanionAnatomyHoldsAtEveryRung`), and it is the same five rows as the glyph cat's full rung,
+so it **takes over exactly that rung**, at the same 25-row threshold, and nowhere else. Heights
+**20–24 keep the compact three-row glyph head even with the encoder on**: a five-row volume does not
+fit the rows those frames leave, a four-row volume loses the eye (the smallest honest volume is five
+rows), and dropping the creature is worse than an ASCII one. That is a decision, not an oversight —
+a visible glyph cat is the floor, and `companionSprite` disambiguates the shared five-row height by
+mode.
+
+At the **80×24 floor** the framed screens keep the creature they had: 35 of the 53 measured screens
+draw a creature, exactly the number `main` drew before the mini volume existed. `TestCompanionCoverageAcrossTerminalSizes`
+now asserts that floor and the 636-case total (**461 of 636** with the encoder on) and fails if either
+falls below the pre-mini baseline. The screens that show no creature at 80×24 are the ones whose body
+leaves fewer rows than the compact head needs, which is what the follow-up panel work targets.
 
 The trainer reserves its rung by reducing the code window's available rows; framed installer screens
-do not reserve body rows. They draw the creature in existing rows their body did not need. Across the
-framed screens shipped here, those rows hold the selected rung, so their layout and goldens stay
-unchanged. The sprite is bottom-anchored in those rows. If an unusual frame cannot fit it without
-covering content, no creature is drawn: it never shrinks to fit, and a fact always beats decoration.
+do not reserve body rows. They draw the creature in existing rows their body did not need. With the
+encoder off the framed goldens are unchanged; with it on, a screen whose body leaves fewer rows than
+the rung draws no creature rather than shrinking. The sprite is bottom-anchored in those rows. If an
+unusual frame cannot fit it without covering content, no creature is drawn: it never shrinks to fit,
+and a fact always beats decoration.
 At the 80x24 floor, the compact rung's celebration expression remains the shipped one-row face so the
 end-of-run burst and the face both fit; `TestCompleteCelebrationGolden` pins that output without a
 snapshot update.
@@ -401,17 +417,19 @@ measurement; wider terminals cost more per line.
 
 Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` on Linux/amd64
 measured **2,179,233–4,199,595 ns/op, 359,912–359,928 B/op and 1087 allocs/op** across three
-Linux/amd64 runs. The benchmark now enforces ceilings of **10,000,000 ns/op, 450,000 B/op and
+Linux/amd64 runs. The mini rung is the one the 80×24 floor draws; `BenchmarkCompanionVolumeMiniFrame`
+measures it against the same ceilings and reported **701,671–724,544 ns/op, 112,483–112,496 B/op and
+545 allocs/op** across three Linux/amd64 runs. The benchmark now enforces ceilings of **10,000,000 ns/op, 450,000 B/op and
 1,400 allocs/op**. The time ceiling is over twice the slowest of those shared-host measurements to
 leave room for host scheduling and Go-version variance; the byte and allocation ceilings leave about
 25% headroom over the stable measured allocation footprint. A fivefold allocation regression exceeds
 the byte and allocation ceilings. These limits are a regression guard, not a promise of latency on
-other hosts; rerun `go test ./internal/tui -run '^$' -bench '^BenchmarkCompanionVolumeFrame$' -benchmem`
+other hosts; rerun `go test ./internal/tui -run '^$' -bench '^BenchmarkCompanionVolume(Frame|MiniFrame)$' -benchmem`
 to remeasure. This measurement also does not include a raster-buffer optimization: roughly **293 KB
 per frame** was measured and declared as future optimization work, not implemented here.
 
 `TestCompanionRenderedPosesStayInsideTheirReservedBlock` checks the rendered rows themselves for
-both sprite modes: the 12-row and 8-row volume rungs, the 5-row and 3-row glyph rungs, and the
+both sprite modes: the 12-row, 8-row and 5-row volume rungs, the 5-row and 3-row glyph rungs, and the
 one-row trainer floor. It covers all four walk poses, breath/ear/tail idle events, all three hop
 phases, left/up and right/down gaze extremes, and blink. Every pose must own exactly the terminal's
 rung rows in the same rendered position (above the frame rule on framed screens), with no additional
