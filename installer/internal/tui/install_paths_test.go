@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -1047,15 +1048,30 @@ func TestEveryThemeReportsTheToolsItWouldLeaveOut(t *testing.T) {
 		t.Logf("%s: covers %v; leaves out %v", def.ID, covered, uncovered)
 	}
 
-	// No theme in this change has an artifact for all twelve tools, so a guard
-	// that let a complete theme claim full coverage would be lying.
+	// The exclusion list is the honest half of a switch: a theme that cannot
+	// paint a tool names it. These are the lists this coverage change produces,
+	// pinned so shrinking the list (the goal) or growing it is a visible decision
+	// rather than a side effect. dotfiles names no Neovim colorscheme, so Neovim is
+	// the one tool it leaves out; catppuccin-mocha now paints every tool whose
+	// colours this repository owns, fish (derived from its canonical palette) and
+	// tmux (its own generated style block) included.
+	wantLeftOut := map[string][]string{
+		"dotfiles":         {"Neovim"},
+		"catppuccin-mocha": nil,
+	}
 	for _, id := range offeredThemeIDs(defs) {
 		def, ok := themeByID(defs, id)
 		if !ok {
 			t.Fatalf("the offered theme %q has no definition", id)
 		}
-		if _, uncovered := themeCoverage(def); len(uncovered) == 0 {
-			t.Errorf("theme %q reports no tool left out, but no theme covers every tool", def.ID)
+		want, ok := wantLeftOut[id]
+		if !ok {
+			t.Fatalf("the offered theme %q is not in this guard's expected-exclusions table", id)
+		}
+		_, uncovered := themeCoverage(def)
+		if strings.Join(uncovered, ", ") != strings.Join(want, ", ") {
+			t.Errorf("theme %q leaves out %v, want %v: the exclusion list shrank or grew without this guard being updated",
+				id, uncovered, want)
 		}
 	}
 }
@@ -1248,6 +1264,150 @@ func TestThemeGeneratorRefusesAMissingRole(t *testing.T) {
 	if _, err := renderStarshipPaletteTable(incomplete); err == nil {
 		t.Error("the Starship palette table rendered from a definition with one role")
 	}
+}
+
+// themeHexTokenRE matches a colour token a generated block may carry: a
+// #rrggbb value or a bare six-digit hex, which is how the fish config writes
+// one. It is only used to scan generated blocks for invented colours.
+var themeHexTokenRE = regexp.MustCompile(`#?[0-9a-fA-F]{6}`)
+
+// TestGeneratedThemeBlocksInventNoColour covers the provenance rule at the
+// renderer: every colour a generated block emits must be one the definition
+// already holds, either as a canonical palette role or as one of its fish roles.
+// A renderer that filled a role by eye fails here, which is the guard the tmux
+// and fish blocks could otherwise pass while carrying a colour of their own.
+func TestGeneratedThemeBlocksInventNoColour(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	owned := func(def themeDefinition, token string) bool {
+		value := strings.ToLower(strings.TrimPrefix(token, "#"))
+		for _, hex := range def.Palette {
+			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
+				return true
+			}
+		}
+		for _, hex := range def.Fish {
+			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
+				return true
+			}
+		}
+		for _, hex := range def.Prompt {
+			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
+				return true
+			}
+		}
+		return false
+	}
+
+	tools := map[string]bool{}
+	checked := 0
+	for _, id := range offeredThemeIDs(defs) {
+		def, _ := themeByID(defs, id)
+		for _, art := range themeActiveArtifacts {
+			block, err := themeArtifactBlock(art, def)
+			if err != nil {
+				continue
+			}
+			tools[art.Tool] = true
+			for _, line := range strings.Split(block, "\n") {
+				// A comment may cite a historical colour (the p10k block records the
+				// Kanagawa values it used to hold); only emitted lines are checked.
+				if art.Comment != "" && strings.HasPrefix(strings.TrimSpace(line), art.Comment) {
+					continue
+				}
+				for _, token := range themeHexTokenRE.FindAllString(line, -1) {
+					if !owned(def, token) {
+						t.Errorf("the %s block for %q emits %s, which themes/%s.toml does not hold: a generated block may not invent a colour",
+							art.Tool, id, token, id)
+					}
+					checked++
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no generated colour was checked, so this guard proves nothing")
+	}
+	for _, tool := range []string{"fish", "tmux"} {
+		if !tools[tool] {
+			t.Errorf("no %s block was rendered for any offered theme, so the guard does not cover it", tool)
+		}
+	}
+	t.Logf("checked %d generated colour tokens across %d tool(s)", checked, len(tools))
+}
+
+// TestTheFishDerivationMatchesTheDotfilesTable pins the equivalence the
+// derivation claims: the [fish] table themes/dotfiles.toml records is the
+// mechanical mapping, so deriving it (as a theme with no [fish] table, such as
+// catppuccin-mocha, must) produces the same values. A change to either side that
+// breaks the equivalence fails here instead of silently giving two themes two
+// different fish palettes.
+func TestTheFishDerivationMatchesTheDotfilesTable(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, "dotfiles")
+	if !ok {
+		t.Fatal("the dotfiles definition is missing")
+	}
+	if len(def.Fish) == 0 {
+		t.Fatal("the dotfiles definition carries no [fish] table, so this guard proves nothing")
+	}
+
+	checked := 0
+	for role, paletteRole := range themeFishDerivation {
+		want := strings.TrimPrefix(def.Palette[paletteRole], "#")
+		if want == "" {
+			t.Errorf("the derivation names palette role %q, which themes/dotfiles.toml does not define", paletteRole)
+			continue
+		}
+		if got := def.Fish[role]; got != want {
+			t.Errorf("fish role %q is %q in themes/dotfiles.toml but %q derived from palette role %q", role, got, want, paletteRole)
+		}
+		checked++
+	}
+	if checked != len(themeFishRoles) {
+		t.Errorf("the derivation covers %d fish role(s), want %d", checked, len(themeFishRoles))
+	}
+	t.Logf("the fish derivation matches themes/dotfiles.toml for all %d fish roles", checked)
+}
+
+// TestTmuxThemeBlockLoadsAfterPlugins pins the ordering decision behind the tmux
+// switch. tmux runs `run-shell` synchronously: measurement shows the server does
+// not finish reading tmux.conf until the command returns, so TPM has already
+// sourced the kanagawa plugin's own styles by the time the generated block is
+// read. The block must therefore sit after that `run` line; before it, the
+// plugin would win and the applied palette would not be seen.
+func TestTmuxThemeBlockLoadsAfterPlugins(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "dotfiles-tmux/tmux.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runLine, blockLine := -1, -1
+	for i, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "tpm/tpm") {
+			runLine = i
+		}
+		if strings.Contains(line, themeBeginTag("")) {
+			blockLine = i
+		}
+	}
+	if runLine < 0 {
+		t.Fatal("tmux.conf no longer runs TPM, so this guard proves nothing about plugin ordering")
+	}
+	if blockLine < 0 {
+		t.Fatal("tmux.conf carries no generated theme block to order")
+	}
+	if blockLine < runLine {
+		t.Errorf("the tmux theme block is at line %d, before the plugin run at line %d: the plugin's async styles would overwrite it",
+			blockLine+1, runLine+1)
+	}
+	t.Logf("tmux theme block at line %d, plugin run at line %d", blockLine+1, runLine+1)
 }
 
 // tempThemeRepo copies themes/*.toml into a temporary root, so a switch test
@@ -1498,7 +1658,7 @@ func TestDotfilesThemeSwitchIsReversible(t *testing.T) {
 		t.Fatal("the catppuccin-mocha definition is missing")
 	}
 
-	before := installThemeFiles(t, home, "alacritty", "kitty")
+	before := installThemeFiles(t, home, "alacritty", "kitty", "fish", "tmux")
 
 	rec, notice, err := applyDotfilesTheme(home, target)
 	if err != nil {
@@ -1514,7 +1674,35 @@ func TestDotfilesThemeSwitchIsReversible(t *testing.T) {
 		t.Errorf("the record holds %d file(s), the switch wrote %d", len(rec.Files), len(before))
 	}
 
-	base := strings.TrimPrefix(target.Palette["base"], "#")
+	// Every file the switch rewrote must carry at least one of the new theme's own
+	// colours. Checking for the base colour alone would fail on the fish block,
+	// which derives its roles from other palette entries and holds no base value.
+	values := map[string]bool{}
+	add := func(hex string) {
+		if hex == "" || hex == "none" {
+			return
+		}
+		values[strings.ToLower(strings.TrimPrefix(hex, "#"))] = true
+	}
+	for _, hex := range target.Palette {
+		add(hex)
+	}
+	for _, hex := range target.Fish {
+		add(hex)
+	}
+	for _, hex := range target.Prompt {
+		add(hex)
+	}
+	carriesTheme := func(content []byte) bool {
+		lower := strings.ToLower(string(content))
+		for value := range values {
+			if strings.Contains(lower, value) {
+				return true
+			}
+		}
+		return false
+	}
+
 	for path, was := range before {
 		got, err := os.ReadFile(path)
 		if err != nil {
@@ -1523,8 +1711,8 @@ func TestDotfilesThemeSwitchIsReversible(t *testing.T) {
 		if bytes.Equal(got, was) {
 			t.Errorf("%s was not changed by the switch", path)
 		}
-		if !strings.Contains(strings.ToLower(string(got)), base) {
-			t.Errorf("%s does not carry the catppuccin base colour %s", path, base)
+		if !carriesTheme(got) {
+			t.Errorf("%s carries none of the catppuccin-mocha colours", path)
 		}
 	}
 
@@ -1558,7 +1746,7 @@ func TestDotfilesThemeSwitchSkipsOnDryRun(t *testing.T) {
 	}
 	target, _ := themeByID(defs, "catppuccin-mocha")
 
-	before := installThemeFiles(t, home, "alacritty", "kitty")
+	before := installThemeFiles(t, home, "alacritty", "kitty", "fish", "tmux")
 
 	rec, notice, err := applyDotfilesTheme(home, target)
 	if err != nil {
