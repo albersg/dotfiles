@@ -146,7 +146,8 @@ the exact files it touches.
 
 **Switch the dotfiles' own theme.** The dotfiles ship one palette — the one the terminals, the
 prompt, `bat`, `fish`, tmux and Herdr all read — and that palette is now defined once in [`themes/`](themes/)
-rather than written by hand in each config. A theme is a file there, so adding one adds a row. The
+rather than written by hand in each config. A theme is a file there, so adding one adds a row to the
+theme list, which the Utilities section's **Change the dotfiles theme** row opens. The
 switch applies a complete theme (a definition with every canonical role: today **dotfiles** and
 **Catppuccin Mocha**) to the terminal, Starship, shell-prompt, Herdr, bat, fish, tmux and Neovim
 configs this

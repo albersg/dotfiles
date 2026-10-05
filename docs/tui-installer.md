@@ -87,8 +87,9 @@ From the main menu you can access:
 - **Neovim Keymaps**: Browse all configured keybindings
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
-- **Utilities**: The small jobs that are not part of an installation, starting with a reversible
-  system light/dark theme switch
+- **Utilities**: The small jobs that are not part of an installation: a reversible
+  system light/dark theme switch and the reversible dotfiles-theme switch, whose list of themes is
+  one level in behind the **Change the dotfiles theme** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -135,7 +136,9 @@ steps, from the same place, so a documented no-op run runs no `gsettings`, no
 ### The dotfiles theme switch
 
 The other utility changes the **dotfiles' own theme** — the palette this repository ships across its
-terminals, its prompt, `bat`, `fish`, tmux and Herdr — not the desktop's light/dark mode. That palette used to be
+terminals, its prompt, `bat`, `fish`, tmux and Herdr — not the desktop's light/dark mode. The Utilities section
+offers it through a single **Change the dotfiles theme** row, which opens the theme list; the themes
+live there so the section reads as a list of jobs rather than a list of themes. That palette used to be
 written by hand in six files, so the same colour was maintained in each of them and a drift between
 two was invisible. It is defined **once** now, one file per theme under [`themes/`](../themes/), and
 the terminal blocks are generated from that definition; a generated block that stops matching its
@@ -979,6 +982,34 @@ go test ./... -v
 cd installer
 go test ./internal/tui/... -update
 ```
+
+### The terminal-title race in the framed goldens (a known pre-existing flake)
+
+If a macOS run fails a `teatest` golden (`--- golden`) **only sometimes**, and the
+diff is about the OSC window-title sequence `\x1b]2;<title>\x07` and not about a
+frame row, it is this: the title is written by `tea.SetWindowTitle` from
+`Init`, so bubbletea emits it as soon as it handles the message, while the first
+frame is buffered and flushed by the renderer's own ticker. Under load the title
+can land **after** the frame, or not at all before the capture quits. All three
+orderings are the same screen.
+
+It is a race in the golden *infrastructure*, not in the change under test. It was
+reproduced on `origin/main` at `9093262` — before the themed-picker work — with
+the same diff and the same rate, and routing the capture through the then-current
+`waitForGoldenFrame` did **not** fix it, because the capture already waited for the
+frame; the title's *arrival time* was the only variable.
+
+Every `teatest` golden now compares through `requireGoldenCapture`, which strips
+the title from both sides and restores the golden's own at its pinned offset, so
+the title's position is ignored while the frame bytes are still compared one by
+one, a changed row still fails, and a live title whose text differs still fails.
+A title that never arrived is restored from the golden. `TestGoldenCaptureIgnoresTheTerminalTitlePosition`
+holds both halves. `-update` still works: the comparison goes through
+`teatest.RequireEqualOutput`.
+
+Reproduction: 12 concurrent `yes > /dev/null`, then
+`go test ./internal/tui -run TestCompanionGoldenPinsThePixelSpriteAndItsGaze -count=60`.
+Before the fix it failed ~3–4 times per 40 loaded runs; after it, **60/60 pass**.
 
 ### Project Structure
 

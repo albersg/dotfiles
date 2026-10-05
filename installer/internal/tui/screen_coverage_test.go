@@ -184,7 +184,7 @@ var measuredTerminalSizes = []struct {
 // every screen is in it, so a screen silently dropping out of the enumeration has
 // to fail here instead of shrinking the measurement.
 func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
-	const measuredScreens = 54 // 47 installer states, the utilities section, and the trainer's 6
+	const measuredScreens = 55 // 47 installer states, the utilities section, the theme picker, and the trainer's 6
 
 	cases := terminalFitCases()
 	if len(cases) != measuredScreens {
@@ -287,8 +287,9 @@ func terminalFitCases() []terminalFitCase {
 	}
 	// The utilities section is entered from the main menu by a key rather than by
 	// one of the installer's states, so it is measured here the way the trainer's
-	// screens are.
+	// screens are. The theme picker is one level in from it, for the same reason.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
+	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
 
 	return cases
 }
@@ -453,6 +454,7 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{"trainer-result", result},
 		{"trainer-boss-result", bossResult},
 		{utilitiesCaseName, utilitiesFrameCase(t)},
+		{themePickerCaseName, themePickerFrameCase(t)},
 	}
 }
 
@@ -475,16 +477,40 @@ func utilitiesFrameCase(t *testing.T) Model {
 	m.ThemeSwitch, m.ThemeSwitchFound = target, true
 	m.ThemeRecord = &themeRecord{Target: target.ID, Value: "default", WasDark: false, ToDark: true}
 
-	// The dotfiles theme rows are part of the section, so the guards measure them
-	// too. The definitions are read from the repository rather than invented, so
-	// the exclusion lists drawn in the rows are the real ones.
+	// The dotfiles theme is one row in the section now: the themes themselves
+	// live on the picker, which is measured by its own case below.
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
 		t.Fatalf("load the theme definitions: %v", err)
 	}
 	m.DotfilesThemes = defs
-	// Put the cursor on a theme row so the frame guards measure the live preview
-	// too: the preview is a row, and a row can overflow a frame.
+	for i, option := range m.GetCurrentOptions() {
+		if option == utilitiesThemeRow {
+			m.Cursor = i
+			break
+		}
+	}
+	return m
+}
+
+// themePickerCaseName is the name the frame guards know the theme picker by.
+const themePickerCaseName = "theme-picker"
+
+// themePickerFrameCase builds the theme picker with the definitions read from
+// the repository and a record to undo, so the guards measure the list, its
+// exclusion lists, the undo row and the live preview. The cursor is put on a
+// theme row so the preview row is measured too: the preview is a row, and a row
+// can overflow a frame.
+func themePickerFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenThemePicker)
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: "dotfiles"}
 	for i, option := range m.GetCurrentOptions() {
 		if strings.HasPrefix(option, "Apply the ") {
 			m.Cursor = i
@@ -540,6 +566,46 @@ func TestUtilitiesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 		}
 		if widest > size.width {
 			t.Errorf("utilities at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		}
+	}
+}
+
+// TestThemePickerFrameFitIsMeasuredAtEverySize prints the theme picker's measured
+// frame at the twelve terminals the fit guard uses, so the size it is drawn at is
+// a number a reader can re-derive rather than a claim. The assertions repeat the
+// guard's two rules on purpose: this is the case that carries the numbers, and a
+// measurement that is only logged cannot fail.
+func TestThemePickerFrameFitIsMeasuredAtEverySize(t *testing.T) {
+	for _, size := range measuredTerminalSizes {
+		m := themePickerFrameCase(t)
+		m.Width, m.Height = size.width, size.height
+		view := m.View()
+
+		rows := renderedRowCount(view)
+		widest := 0
+		for _, line := range strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n") {
+			widest = max(widest, lipgloss.Width(line))
+		}
+		t.Logf("theme picker at %s: %d of %d rows, %d of %d columns", size.name, rows, size.height, widest, size.width)
+
+		if rows > size.height {
+			t.Errorf("the theme picker at %s renders %d rows, want <= %d", size.name, rows, size.height)
+		}
+		if widest > size.width {
+			t.Errorf("the theme picker at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		}
+
+		// The rows are the data, so they win the budget: at every size, including
+		// the 60x20 floor, each theme row, the undo row and the way back are on
+		// screen. The description is what gives way when the frame is short.
+		plain := ansiEscape.ReplaceAllString(view, "")
+		for _, option := range m.GetCurrentOptions() {
+			if strings.HasPrefix(option, menuSeparatorPrefix) {
+				continue
+			}
+			if !strings.Contains(plain, option) {
+				t.Errorf("the theme picker at %s dropped the row %q: the data must survive the short frame", size.name, option)
+			}
 		}
 	}
 }
