@@ -70,3 +70,57 @@ the `Change the dotfiles theme` row on Utilities and then the rows on the picker
 The desktop light/dark switch, its rows and its undo; the theme definitions, generators and ownership
 markers; `applyDotfilesTheme`/`undoDotfilesTheme`; the main-menu row and every other screen; no new
 dependency.
+
+## Follow-up: PR #164's macOS golden failure, diagnosed and fixed
+
+The `macOS smoke test` went red on `TestCompanionGoldenPinsThePixelSpriteAndItsGaze` with a `--- golden`
+diff. It was **not** the theme-picker work and **not** the empty-frame race fixed in `e3ed85c`. It is a
+race in the golden infrastructure itself, and it is recorded here because the next person who sees a
+`--- golden` on macOS at 3am should find this before questioning their own change.
+
+### Root cause
+
+The OSC terminal-title sequence (`\x1b]2;<title>\x07`) is written when bubbletea handles the
+`setWindowTitleMsg` produced by `tea.SetWindowTitle` in `Init`; the first frame is buffered and flushed
+by the renderer's own ticker. The two are independent, so under load the title can appear:
+
+1. before the frame (what the pinned golden records),
+2. after the frame (the observed failure), or
+3. not at all before the capture quits (the `SetWindowTitle` message lost to Ctrl-C).
+
+All three are the same screen. The diff in case 2 is exactly two hunks, both about the title's
+position; every frame byte is identical.
+
+### Why the previous fix did not cover it
+
+The golden was **already a frame-waiting golden**: it used an inline `teatest.WaitFor(... "Main Menu")`
+whose predicate is byte-for-byte `waitForGoldenFrame`'s. The commit that added the helper said so:
+*"The companion goldens already did the equivalent."* So the list of six refactored goldens was
+correctly scoped to the ones still on `waitForAnyOutput`; there was no weaker golden left out. Routing
+this capture through `goldenTranscript`/`waitForGoldenFrame` was tested and **still flaked**, because
+the wait guarantees the frame is present, not that the title arrives before it.
+
+### Evidence
+
+- Real branch (`d65cc89`), 12× `yes >/dev/null`, pixel golden: FAIL 3/40, 3/160, 4/20.
+- Base `9093262` (extracted read-only with `git archive`, no branch change): FAIL 3/40, same diff.
+- Base + `goldenTranscript`: FAIL 3/40 — the existing remedy does not fix it.
+- Base + title normalization: 60/60 pass.
+- The six fixed goldens (`Animating=false`) never flaked under the same load; the pixel golden's larger
+  first frame is what makes it lose the race most often.
+
+### Fix
+
+`requireGoldenCapture` (teatest_test.go) is now the single comparison every teatest golden goes through.
+It strips the OSC title from both sides and restores the golden's own title at its pinned offset, so the
+title's arrival time is ignored while the frame bytes are still compared one by one. A live title whose
+text differs still fails; a missing one is restored from the golden. It reuses `readGoldenBytes` and
+`normalizeGoldenBytes` and still compares through `teatest.RequireEqualOutput`, so `-update` keeps
+working. All ten teatest-driven goldens (the four companion + the six fixed) go through it, so the
+latent race is covered in every one of them. **No golden was regenerated.**
+
+Teeth: `TestGoldenCaptureIgnoresTheTerminalTitlePosition` stages start → frame → title-last and requires
+the match, then a title that never arrived, then a negative control where a frame row differs (must
+fail) and a different title text (must fail).
+
+Rate under load (12× `yes`, `-count=60` on the pixel golden): **before ~3–4/40, after 60/60.**

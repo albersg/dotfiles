@@ -982,6 +982,34 @@ cd installer
 go test ./internal/tui/... -update
 ```
 
+### The terminal-title race in the framed goldens (a known pre-existing flake)
+
+If a macOS run fails a `teatest` golden (`--- golden`) **only sometimes**, and the
+diff is about the OSC window-title sequence `\x1b]2;<title>\x07` and not about a
+frame row, it is this: the title is written by `tea.SetWindowTitle` from
+`Init`, so bubbletea emits it as soon as it handles the message, while the first
+frame is buffered and flushed by the renderer's own ticker. Under load the title
+can land **after** the frame, or not at all before the capture quits. All three
+orderings are the same screen.
+
+It is a race in the golden *infrastructure*, not in the change under test. It was
+reproduced on `origin/main` at `9093262` — before the themed-picker work — with
+the same diff and the same rate, and routing the capture through the then-current
+`waitForGoldenFrame` did **not** fix it, because the capture already waited for the
+frame; the title's *arrival time* was the only variable.
+
+Every `teatest` golden now compares through `requireGoldenCapture`, which strips
+the title from both sides and restores the golden's own at its pinned offset, so
+the title's position is ignored while the frame bytes are still compared one by
+one, a changed row still fails, and a live title whose text differs still fails.
+A title that never arrived is restored from the golden. `TestGoldenCaptureIgnoresTheTerminalTitlePosition`
+holds both halves. `-update` still works: the comparison goes through
+`teatest.RequireEqualOutput`.
+
+Reproduction: 12 concurrent `yes > /dev/null`, then
+`go test ./internal/tui -run TestCompanionGoldenPinsThePixelSpriteAndItsGaze -count=60`.
+Before the fix it failed ~3–4 times per 40 loaded runs; after it, **60/60 pass**.
+
 ### Project Structure
 
 ```

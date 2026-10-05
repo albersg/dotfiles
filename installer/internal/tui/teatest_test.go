@@ -235,7 +235,7 @@ func TestMainMenuGolden(t *testing.T) {
 	m.Height = 24
 	m.Screen = ScreenMainMenu
 
-	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Main Menu"))
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Main Menu"))
 }
 
 // TestMainMenuGoldenIsIndependentOfTheWorkingDirectory answers the question the
@@ -261,9 +261,9 @@ func TestMainMenuGoldenIsIndependentOfTheWorkingDirectory(t *testing.T) {
 	m.Height = 24
 	m.Screen = ScreenMainMenu
 
-	got := normalizeGoldenBytes(goldenTranscript(t, m, 80, 24, "Main Menu"))
-	if !bytes.Equal(want, got) {
-		t.Fatalf("the main menu rendered differently away from the checkout:\nwant %q\ngot  %q", want, got)
+	got := goldenTranscript(t, m, 80, 24, "Main Menu")
+	if !goldenCapturesEqual(got, want) {
+		t.Fatalf("the main menu rendered differently away from the checkout:\nwant %q\ngot  %q", want, normalizeGoldenBytes(got))
 	}
 }
 
@@ -282,6 +282,123 @@ func readGoldenBytes(t *testing.T, name string) []byte {
 // normalizeGoldenBytes makes a \r\n comparison the same as the golden package's.
 func normalizeGoldenBytes(data []byte) []byte {
 	return bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+}
+
+// terminalTitleRE matches the OSC window-title sequence bubbletea writes for
+// tea.SetWindowTitle: ESC ] 2 ; <title> BEL.
+var terminalTitleRE = regexp.MustCompile("\x1b\\]2;[^\x07]*\x07")
+
+// normalizeTerminalTitle rebuilds a capture with its terminal-title sequence at
+// the offset the pinned golden carries it at, so the title's position in the
+// stream cannot decide the comparison.
+//
+// The title is the terminal's chrome, not the screen's content. The program asks
+// for it with tea.SetWindowTitle from Init, and bubbletea writes it the moment it
+// handles the message, while the first frame is buffered and flushed by the
+// renderer's own ticker. Under load the title may therefore land after the frame
+// instead of before it, and on the loaded runner it was even still pending when
+// the capture quit, so the stream carried no title at all. Neither is a
+// difference in what the screen drew, so this normalization is legitimate: the
+// frame bytes are still compared one by one, a changed row still fails, and a
+// live title is still checked against the golden's - only its arrival time is
+// ignored. When the capture carries no title the golden's own is restored, so an
+// absent title compares equal while a different one does not.
+func normalizeTerminalTitle(got, golden []byte) []byte {
+	goldenTitle := terminalTitleRE.Find(golden)
+	if goldenTitle == nil {
+		return terminalTitleRE.ReplaceAll(got, nil)
+	}
+	title := terminalTitleRE.Find(got)
+	if title == nil {
+		// The title command lost to the quit; restore the golden's own bytes so
+		// an absent title is not a content difference.
+		title = goldenTitle
+	}
+	stripped := terminalTitleRE.ReplaceAll(got, nil)
+	// The offset the golden puts the title at, measured on the title-free bytes.
+	at := len(terminalTitleRE.ReplaceAll(golden[:bytes.Index(golden, goldenTitle)], nil))
+	if at > len(stripped) {
+		at = len(stripped)
+	}
+	out := make([]byte, 0, len(stripped)+len(title))
+	out = append(out, stripped[:at]...)
+	out = append(out, title...)
+	out = append(out, stripped[at:]...)
+	return out
+}
+
+// goldenCapturesEqual reports whether a capture matches its golden once the
+// terminal title's position is ignored.
+func goldenCapturesEqual(got, golden []byte) bool {
+	golden = normalizeGoldenBytes(golden)
+	got = normalizeGoldenBytes(got)
+	return bytes.Equal(normalizeTerminalTitle(got, golden), golden)
+}
+
+// requireGoldenCapture compares a teatest capture against its pinned golden,
+// ignoring where the terminal title sits in the stream. It reuses the package's
+// golden helpers (readGoldenBytes, normalizeGoldenBytes, waitForGoldenFrame) and
+// still compares through teatest.RequireEqualOutput, so -update keeps working.
+// This is the single point every teatest golden goes through, so the title race
+// cannot come back in one snapshot while the others stay covered.
+func requireGoldenCapture(t *testing.T, got []byte) {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join("testdata", t.Name()+".golden"))
+	if err != nil {
+		// No pinned golden yet: the golden package creates it with -update and
+		// reports the missing file otherwise, exactly as it always has.
+		teatest.RequireEqualOutput(t, got)
+		return
+	}
+	golden := normalizeGoldenBytes(raw)
+	teatest.RequireEqualOutput(t, normalizeTerminalTitle(normalizeGoldenBytes(got), golden))
+}
+
+// TestGoldenCaptureIgnoresTheTerminalTitlePosition is the teeth for the macOS
+// golden flake: the terminal title races the first frame, so a capture may carry
+// it before the frame (as the pin does), after it, or not at all, and the
+// comparison must accept all three while still rejecting a changed frame.
+func TestGoldenCaptureIgnoresTheTerminalTitlePosition(t *testing.T) {
+	frame := []byte("Main Menu\n  Start Installation\n")
+	golden := append([]byte("\x1b[?25l\x1b[?2004h\x1b]2;dotfiles Installer\x07"), frame...)
+
+	// The staged reader hands the title over only after the frame, which is the
+	// loaded-runner ordering that failed on macOS.
+	reader := &stagedOutputReader{chunks: [][]byte{
+		[]byte("\x1b[?25l\x1b[?2004h"),
+		frame,
+		[]byte("\x1b]2;dotfiles Installer\x07"),
+	}}
+	seen := waitForGoldenFrame(t, reader, "Main Menu")
+	if _, err := io.Copy(seen, reader); err != nil {
+		t.Fatalf("draining the title that arrived after the frame: %v", err)
+	}
+	late := seen.Bytes()
+	if !goldenCapturesEqual(late, golden) {
+		t.Error("a capture whose title arrived after the frame did not match its golden: the normalization is not applied")
+	}
+
+	// The other observed ordering: the title command was still pending when the
+	// capture quit, so the stream has none. An absent title is chrome, not a
+	// missing row.
+	absent := terminalTitleRE.ReplaceAll(late, nil)
+	if !goldenCapturesEqual(absent, golden) {
+		t.Error("a capture whose title never arrived did not match its golden")
+	}
+
+	// The negative control: a changed frame row must still fail, or the test
+	// would only prove that the comparison stopped comparing.
+	changed := bytes.Replace(late, []byte("Start Installation"), []byte("Start Instalation"), 1)
+	if goldenCapturesEqual(changed, golden) {
+		t.Error("a capture with a changed frame row matched its golden: the normalization is hiding content")
+	}
+
+	// A live title whose text differs is still a difference.
+	renamed := bytes.Replace(late, []byte("dotfiles Installer"), []byte("dotfiles Setup"), 1)
+	if goldenCapturesEqual(renamed, golden) {
+		t.Error("a capture with a different terminal title matched its golden")
+	}
 }
 
 // TestMainMenuWideGolden pins the two-column composition at 160x50, the first
@@ -311,7 +428,7 @@ func TestMainMenuWideGolden(t *testing.T) {
 	m.Height = 50
 	m.Screen = ScreenMainMenu
 
-	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 160, 50, "Main Menu"))
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Main Menu"))
 }
 
 // TestCompanionGoldenFramesTheCreatureAtTickZero pins the companion's frame 0:
@@ -356,7 +473,7 @@ func TestCompanionGoldenFramesTheCreatureAtTickZero(t *testing.T) {
 	if _, err := io.Copy(seen, tm.Output()); err != nil {
 		t.Fatalf("reading the rest of the output failed: %v", err)
 	}
-	teatest.RequireEqualOutput(t, seen.Bytes())
+	requireGoldenCapture(t, seen.Bytes())
 }
 
 // TestCompanionGoldenPinsTheFullSpriteAndItsGaze snapshots the five-row cat at
@@ -392,7 +509,7 @@ func TestCompanionGoldenPinsTheFullSpriteAndItsGaze(t *testing.T) {
 	if _, err := io.Copy(seen, tm.Output()); err != nil {
 		t.Fatalf("reading the rest of the output failed: %v", err)
 	}
-	teatest.RequireEqualOutput(t, seen.Bytes())
+	requireGoldenCapture(t, seen.Bytes())
 }
 
 // TestCompanionGoldenPinsTheCompactSpriteAndItsGaze is the same snapshot one
@@ -429,7 +546,7 @@ func TestCompanionGoldenPinsTheCompactSpriteAndItsGaze(t *testing.T) {
 	if _, err := io.Copy(seen, tm.Output()); err != nil {
 		t.Fatalf("reading the rest of the output failed: %v", err)
 	}
-	teatest.RequireEqualOutput(t, seen.Bytes())
+	requireGoldenCapture(t, seen.Bytes())
 }
 
 // TestOSSelectGolden tests OS selection screen against golden file
@@ -442,7 +559,7 @@ func TestOSSelectGolden(t *testing.T) {
 	m.Height = 24
 	m.Screen = ScreenOSSelect
 
-	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Select Your Operating System"))
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Select Your Operating System"))
 }
 
 // TestNavigationFlowE2E tests navigating from welcome through menu like Playwright would
@@ -610,7 +727,7 @@ func TestBackupScreenGolden(t *testing.T) {
 	m.Screen = ScreenBackupConfirm
 	m.ExistingConfigs = []string{".config/nvim", ".zshrc", ".tmux.conf"}
 
-	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Existing Configs Detected"))
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Existing Configs Detected"))
 }
 
 // TestErrorScreenGolden tests the error screen render
@@ -623,7 +740,7 @@ func TestErrorScreenGolden(t *testing.T) {
 	m.Screen = ScreenError
 	m.ErrorMsg = "Test error: something went wrong during installation"
 
-	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Installation failed"))
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Installation failed"))
 }
 
 // TestCompleteScreenGolden tests the completion screen render
@@ -642,7 +759,7 @@ func TestCompleteScreenGolden(t *testing.T) {
 		InstallNvim: true,
 	}
 
-	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Installation complete"))
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Installation complete"))
 }
 
 // TestWelcomeLivePanelGolden pins the live machine panel -- the CPU and memory
@@ -2334,7 +2451,7 @@ func TestCompanionGoldenPinsThePixelSpriteAndItsGaze(t *testing.T) {
 	if _, err := io.Copy(seen, tm.Output()); err != nil {
 		t.Fatalf("reading the rest of the output failed: %v", err)
 	}
-	teatest.RequireEqualOutput(t, seen.Bytes())
+	requireGoldenCapture(t, seen.Bytes())
 }
 
 // =============================================================================
