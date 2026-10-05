@@ -38,6 +38,29 @@ background/foreground, `cursor`/`cursor_text` the cursor pair, and `selection`/`
 selection pair. The prompt's own roles are derived from these mechanically (its "muted" is
 `bright_black`, its "surface" is `selection`) rather than stored twice.
 
+### The syntax roles
+
+`[syntax]` holds the installer's own code-display tints: a keyword colour and a string colour, each
+with a light and a dark member, because the chrome is adaptive (it asks the terminal whether its
+background is dark, the same detection the default palette uses).
+
+- **dotfiles** — `keyword_light #7a3e9e`, `keyword_dark #c99ad6`, `string_light #8a6a00`,
+  `string_dark #dfbd76`: transcribed from the two pairs `styles.go` already carried. `styles.go` now
+  reads them and `TestTheDefaultStylesMatchTheDotfilesDefinition` pins **both** members, so these are
+  theme roles and the guard no longer has to name an exception.
+- **Catppuccin Mocha** — `keyword_dark #cba6f7`, `string_dark #a6e3a1`, both already in this
+  repository's `starship.toml` `[palettes.catppuccin_mocha]` table. The choice follows **Catppuccin's
+own convention**, which paints keywords *mauve* and strings *green*; neither value is invented.
+- **Kanagawa, Everforest, Kagawa** — empty, like the rest of their canonical palette.
+
+**A readability limit, stated rather than hidden.** Catppuccin Mocha ships no light member here: the
+repository holds only Mocha, and the light flavour (Latte) is not in it, so a light value would be an
+invented colour. The preview therefore uses the dark value on a light terminal as well, and Mocha's
+mauve `#cba6f7` and green `#a6e3a1` are light colours drawn for a dark background, so they are
+low-contrast on white. That is a property of the theme, not of the preview — the default chrome keeps
+its own darker light members — and it is the honest alternative to fabricating a Latte value. The
+preview guard logs it so it stays visible.
+
 ## The five themes
 
 | Theme | File | State | Source of its values |
