@@ -80,12 +80,12 @@ func defaultUIColors() uiColors {
 
 		BorderActive: lipgloss.AdaptiveColor{Light: "#2E6E8E", Dark: "#7FB4CA"},
 
-		// Syntax colours (for code display). These are the installer's own tints,
-		// not terminal palette roles: themes/*.toml has no purple or gold syntax
-		// pair, so the live preview maps them onto the theme's magenta and peach
-		// roles instead, and the two values stay here as the only place they are set.
-		SyntaxKeyword: lipgloss.AdaptiveColor{Light: "#7A3E9E", Dark: "#C99AD6"}, // Purple
-		SyntaxString:  lipgloss.AdaptiveColor{Light: "#8A6A00", Dark: "#DFBD76"}, // Gold
+		// Syntax colours (for code display). The two pairs are declared in
+		// themes/dotfiles.toml's [syntax] table and pinned there by
+		// TestTheDefaultStylesMatchTheDotfilesDefinition, so they are theme roles now
+		// and not two values this file owns.
+		SyntaxKeyword: lipgloss.AdaptiveColor{Light: "#7A3E9E", Dark: "#C99AD6"},
+		SyntaxString:  lipgloss.AdaptiveColor{Light: "#8A6A00", Dark: "#DFBD76"},
 	}
 }
 

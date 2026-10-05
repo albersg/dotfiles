@@ -651,6 +651,12 @@ type themeDefinition struct {
 	// that does not exist.
 	Bat     string
 	BatFile string
+	// Syntax holds the installer's own code-display tints: keyword_light,
+	// keyword_dark, string_light, string_dark. They are adaptive (a light and a
+	// dark member) because the chrome asks the terminal which background it has,
+	// and a theme that ships no light flavour leaves the light member empty rather
+	// than having one invented.
+	Syntax map[string]string
 	// Prompt holds the prompt's own roles (Catppuccin's naming: mauve, peach,
 	// subtext0, overlay0, ...), which Starship reads and the terminal palette does
 	// not contain. A role the repository has no value for is left empty, and the
@@ -694,7 +700,7 @@ var themeFishHexRE = regexp.MustCompile(`^[0-9a-fA-F]{6}$`)
 // this test pins - and it rejects anything it does not understand rather than
 // ignoring it.
 func parseThemeDefinition(data []byte) (themeDefinition, error) {
-	def := themeDefinition{Palette: map[string]string{}, Fish: map[string]string{}, Prompt: map[string]string{}}
+	def := themeDefinition{Palette: map[string]string{}, Fish: map[string]string{}, Prompt: map[string]string{}, Syntax: map[string]string{}}
 	section := ""
 
 	for _, raw := range strings.Split(string(data), "\n") {
@@ -735,6 +741,8 @@ func parseThemeDefinition(data []byte) (themeDefinition, error) {
 			def.Fish[key] = value
 		case "prompt":
 			def.Prompt[key] = value
+		case "syntax":
+			def.Syntax[key] = value
 		case "nvim":
 			if key == "name" {
 				def.Nvim = value
@@ -775,6 +783,14 @@ func parseThemeDefinition(data []byte) (themeDefinition, error) {
 		// "none" is Starship's own "no colour", so it is a value it accepts.
 		if value != "none" && !themeHexRE.MatchString(value) {
 			return def, fmt.Errorf("prompt role %q is neither a #rrggbb colour nor \"none\": %q", role, value)
+		}
+	}
+	for role, value := range def.Syntax {
+		if value == "" {
+			continue
+		}
+		if !themeHexRE.MatchString(value) {
+			return def, fmt.Errorf("syntax role %q is not a #rrggbb colour: %q", role, value)
 		}
 	}
 	if !def.Complete() && !def.Partial {

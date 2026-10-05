@@ -45,3 +45,8 @@ pager_progress = "727169"
 pager_prefix = "7aa89f"
 pager_completion = "dcd7ba"
 pager_description = "727169"
+
+# --- syntax roles ---
+# No syntax colours: this theme has no canonical palette in the repository, so it
+# cannot paint the installer's chrome either. Left empty rather than filled in.
+[syntax]

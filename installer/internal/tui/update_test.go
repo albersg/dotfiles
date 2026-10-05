@@ -1560,6 +1560,8 @@ func TestTheDefaultStylesMatchTheDotfilesDefinition(t *testing.T) {
 		{"Success", colors.Success, def.Palette["green"]},
 		{"Info", colors.Info, def.Palette["blue"]},
 		{"BorderActive", colors.BorderActive, def.Palette["blue"]},
+		{"SyntaxKeyword", colors.SyntaxKeyword, def.Syntax["keyword_dark"]},
+		{"SyntaxString", colors.SyntaxString, def.Syntax["string_dark"]},
 	}
 	for _, pair := range pairs {
 		if pair.want == "" {
@@ -1571,10 +1573,82 @@ func TestTheDefaultStylesMatchTheDotfilesDefinition(t *testing.T) {
 				pair.name, pair.got.Dark, pair.want)
 		}
 	}
-	// These two are the installer's own tints, not terminal palette roles: they
-	// are logged so nobody mistakes them for one.
-	t.Logf("installer-only syntax tints (no role in themes/*.toml): keyword %s, string %s",
-		colors.SyntaxKeyword.Dark, colors.SyntaxString.Dark)
+	// The syntax tints are adaptive, so their light members are pinned too: the
+	// whole pair is a theme role now, not just the dark one.
+	lightPairs := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"SyntaxKeyword (light)", colors.SyntaxKeyword.Light, def.Syntax["keyword_light"]},
+		{"SyntaxString (light)", colors.SyntaxString.Light, def.Syntax["string_light"]},
+	}
+	for _, pair := range lightPairs {
+		if pair.want == "" {
+			t.Errorf("themes/dotfiles.toml no longer holds %s", pair.name)
+			continue
+		}
+		if !strings.EqualFold(pair.got, pair.want) {
+			t.Errorf("the default %s is %s, themes/dotfiles.toml says %s: styles.go has its own copy",
+				pair.name, pair.got, pair.want)
+		}
+	}
+}
+
+// TestThePreviewPaintsTheThemesSyntaxRoles covers piece E's proof: the preview
+// reads the theme's [syntax] roles, not the nearest ANSI role it used to
+// approximate them with.
+func TestThePreviewPaintsTheThemesSyntaxRoles(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	dotfiles, ok := themeByID(defs, "dotfiles")
+	if !ok {
+		t.Fatal("the dotfiles definition is missing")
+	}
+	colors, err := themePreviewColors(dotfiles)
+	if err != nil {
+		t.Fatalf("derive the preview colours: %v", err)
+	}
+	if !strings.EqualFold(colors.SyntaxKeyword.Dark, dotfiles.Syntax["keyword_dark"]) {
+		t.Errorf("the preview paints keywords %s, the definition says %s", colors.SyntaxKeyword.Dark, dotfiles.Syntax["keyword_dark"])
+	}
+	if !strings.EqualFold(colors.SyntaxString.Dark, dotfiles.Syntax["string_dark"]) {
+		t.Errorf("the preview paints strings %s, the definition says %s", colors.SyntaxString.Dark, dotfiles.Syntax["string_dark"])
+	}
+	if !strings.EqualFold(colors.SyntaxKeyword.Light, dotfiles.Syntax["keyword_light"]) {
+		t.Errorf("the preview paints keywords %s on a light terminal, the definition says %s",
+			colors.SyntaxKeyword.Light, dotfiles.Syntax["keyword_light"])
+	}
+	// The old approximation mapped keywords onto the prompt's mauve; the real
+	// role is a different purple, so a preview that still approximated would
+	// carry the mauve value here.
+	if strings.EqualFold(colors.SyntaxKeyword.Dark, dotfiles.Prompt["mauve"]) {
+		t.Errorf("the preview still paints the prompt's mauve (%s) for keywords instead of the definition's role",
+			dotfiles.Prompt["mauve"])
+	}
+
+	// A theme with no light flavour uses its dark value for both members rather
+	// than an invented light one.
+	catppuccin, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+	catColors, err := themePreviewColors(catppuccin)
+	if err != nil {
+		t.Fatalf("derive the catppuccin preview colours: %v", err)
+	}
+	if catppuccin.Syntax["keyword_light"] != "" {
+		t.Errorf("this guard expects catppuccin-mocha to ship no light keyword, it has %q", catppuccin.Syntax["keyword_light"])
+	}
+	if catColors.SyntaxKeyword.Light != catColors.SyntaxKeyword.Dark {
+		t.Errorf("with no light member the preview should use the dark one, got light %s dark %s",
+			catColors.SyntaxKeyword.Light, catColors.SyntaxKeyword.Dark)
+	}
+	t.Logf("catppuccin-mocha has no light syntax member (Latte is not in the repository), so the preview uses %s on a light terminal too",
+		catColors.SyntaxKeyword.Dark)
 }
 
 // TestAPartialThemeCannotBePreviewed covers the honest edge: a definition with no

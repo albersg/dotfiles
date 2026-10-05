@@ -228,6 +228,26 @@ fixing two of them falls outside this change.
   disabling the preview selection fails the repaint guard, removing the restore leaves `Primary` at
   the theme's blue, and changing a `styles.go` default fails the pin.
 - **No golden moved**; the full suite and `make preflight` are green.
+## Update: E - the syntax tints are theme roles
+
+- `themes/*.toml` gained a `[syntax]` table with four keys: `keyword_light`, `keyword_dark`,
+  `string_light`, `string_dark`.
+- **dotfiles**: the two pairs `styles.go` already carried, transcribed
+  (`keyword #7a3e9e/#c99ad6`, `string #8a6a00/#dfbd76`). **Catppuccin Mocha**:
+  `keyword_dark #cba6f7`, `string_dark #a6e3a1`, both already in the repository's
+  `[palettes.catppuccin_mocha]`, chosen by Catppuccin's own convention (keywords mauve, strings
+  green). **Kanagawa, Everforest, Kagawa**: empty, like the rest of their palette.
+- `styles.go`'s defaults are pinned by `TestTheDefaultStylesMatchTheDotfilesDefinition`, which now
+  covers **both members** of both roles; the guard no longer logs an exception, because there is none.
+- `theme_preview.go` reads `[syntax]` instead of approximating with the prompt's mauve and peach. The
+  approximation is gone; `TestThePreviewPaintsTheThemesSyntaxRoles` fails if it comes back.
+- **A readability limit is recorded:** Catppuccin Mocha has no light member here (the repository ships
+  only Mocha, not Latte), so the preview uses the dark value on a light terminal too, where Mocha's
+  mauve and green are low-contrast. A property of the theme, stated in `themes/README.md`.
+- **No block generator needed a change:** no generated file (terminals, Starship, zsh/p10k, Herdr,
+  fish, bat, Neovim) carries the installer's syntax tints; they are chrome-only.
+- Teeth: changing `keyword_dark` in `themes/dotfiles.toml` fails the defaults guard naming `styles.go`;
+  putting the mauve approximation back fails the preview guard.
 
 ## Update: the definitions are found without a clone (visibility fix)
 

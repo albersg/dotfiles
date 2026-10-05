@@ -55,3 +55,8 @@ pager_description = "727169"
 # --- Neovim colorscheme name ---
 [nvim]
 name = "kanagawa"
+
+# --- syntax roles ---
+# No syntax colours: this theme has no canonical palette in the repository, so it
+# cannot paint the installer's chrome either. Left empty rather than filled in.
+[syntax]
