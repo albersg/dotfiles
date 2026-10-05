@@ -1,15 +1,24 @@
 package tui
 
 import (
+	"bytes"
+	"flag"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 )
+
+// updateThemeArtifacts regenerates the shipped blocks from themes/*.toml. It is
+// the only writer of those blocks besides the installer itself; running the
+// guard without it is what fails on drift.
+var updateThemeArtifacts = flag.Bool("update-theme-artifacts", false,
+	"regenerate the shipped theme blocks from themes/*.toml")
 
 // repoRoot resolves the repository checkout from the package directory, so the
 // tests exercise the very files the installer ships.
@@ -929,4 +938,615 @@ func TestReadThemeRecordTreatsAPartialFileAsNoRecord(t *testing.T) {
 	if rec := readThemeRecord(); rec != nil {
 		t.Errorf("a record naming no desktop read as %+v", rec)
 	}
+}
+
+// --- The unified dotfiles theme ---------------------------------------------
+//
+// The guards below cover the rule the unified theme exists for: the list is
+// derived from themes/*.toml and never typed, a theme the repository cannot fill
+// is reported rather than offered, and a shipped block that stops matching its
+// definition fails here instead of being found by putting two terminals side by
+// side.
+
+// themeIDsOnDisk reads themes/*.toml directly, so the derivation guard compares
+// the loader against the files rather than against itself.
+func themeIDsOnDisk(t *testing.T) []string {
+	t.Helper()
+
+	dir := filepath.Join(repoRoot(t), "themes")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+
+	var ids []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".toml") {
+			continue
+		}
+		ids = append(ids, strings.TrimSuffix(name, ".toml"))
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// TestThemeListIsDerivedFromDefinitions covers the rule that adding a theme is
+// adding a definition file: the menu's list is read from themes/*.toml, and
+// this fails when the two lists disagree.
+func TestThemeListIsDerivedFromDefinitions(t *testing.T) {
+	onDisk := themeIDsOnDisk(t)
+	if len(onDisk) < 2 {
+		t.Fatalf("themes/ holds %d definitions, so this guard proves nothing", len(onDisk))
+	}
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	got := make([]string, len(defs))
+	for i, def := range defs {
+		got[i] = def.ID
+	}
+	sort.Strings(got)
+
+	if !reflect.DeepEqual(got, onDisk) {
+		t.Errorf("the theme list is %v but themes/ holds %v: the list is typed somewhere instead of derived", got, onDisk)
+	}
+	t.Logf("themes derived from themes/*.toml: %v", got)
+}
+
+// TestOnlyCompleteThemesAreOffered covers the honest-degradation rule: a theme
+// missing canonical roles is partial, is reported with its reason, and is never
+// offered as a switch.
+func TestOnlyCompleteThemesAreOffered(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	var complete, partial []string
+	for _, def := range defs {
+		if def.Complete() {
+			complete = append(complete, def.ID)
+			continue
+		}
+		if !def.Partial {
+			t.Errorf("theme %q misses %v but is not marked partial", def.ID, def.missingRoles())
+		}
+		if def.PartialReason == "" {
+			t.Errorf("theme %q is partial without saying why", def.ID)
+		}
+		partial = append(partial, def.ID)
+	}
+	if len(complete) == 0 {
+		t.Fatal("no theme defines every canonical role, so the switch would offer nothing")
+	}
+
+	if offered, want := offeredThemeIDs(defs), complete; !reflect.DeepEqual(offered, want) {
+		t.Errorf("the menu offers %v, the complete themes are %v: a partial theme must never be offered", offered, want)
+	}
+	t.Logf("complete themes (offered): %v; partial themes (reported, not offered): %v", complete, partial)
+}
+
+// TestEveryThemeReportsTheToolsItWouldLeaveOut covers the copy the menu shows
+// before a switch: every theme names the tools it cannot paint, so a change
+// that would leave a tool on the old palette is visible before it happens.
+func TestEveryThemeReportsTheToolsItWouldLeaveOut(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	for _, def := range defs {
+		covered, uncovered := themeCoverage(def)
+		if def.Complete() && len(covered) == 0 {
+			t.Errorf("the complete theme %q covers no tool at all", def.ID)
+		}
+		t.Logf("%s: covers %v; leaves out %v", def.ID, covered, uncovered)
+	}
+
+	// No theme in this change has an artifact for all twelve tools, so a guard
+	// that let a complete theme claim full coverage would be lying.
+	for _, id := range offeredThemeIDs(defs) {
+		def, ok := themeByID(defs, id)
+		if !ok {
+			t.Fatalf("the offered theme %q has no definition", id)
+		}
+		if _, uncovered := themeCoverage(def); len(uncovered) == 0 {
+			t.Errorf("theme %q reports no tool left out, but no theme covers every tool", def.ID)
+		}
+	}
+}
+
+// TestShippedThemeBlocksMatchTheirDefinition is the drift guard: every value a
+// definition claims must still be present in the shipped block it came from. A
+// hand edit that changes a digit in one of the six copies fails here.
+func TestShippedThemeBlocksMatchTheirDefinition(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	checked := 0
+	for id, blocks := range themeSourceBlocks {
+		def, ok := themeByID(defs, id)
+		if !ok {
+			t.Errorf("themeSourceBlocks names %q, which no definition defines", id)
+			continue
+		}
+		for _, block := range blocks {
+			data, err := os.ReadFile(filepath.Join(repoRoot(t), block.Path))
+			if err != nil {
+				t.Errorf("read %s: %v", block.Path, err)
+				continue
+			}
+			for _, role := range block.Roles {
+				value := def.Palette[role]
+				if value == "" {
+					t.Errorf("theme %q has no value for %q, so %s cannot be checked", id, role, block.Path)
+					continue
+				}
+				if !themeValueInFile(value, string(data)) {
+					t.Errorf("%s (%s) no longer carries %s = %s from themes/%s.toml; regenerate the block from the definition instead of editing it by hand",
+						block.Path, block.Tool, role, value, id)
+				}
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no shipped block was checked, so this guard proves nothing")
+	}
+	t.Logf("checked %d shipped role values against %d theme definitions", checked, len(defs))
+}
+
+// TestGeneratedThemeArtifactsMatchTheirDefinition is the generation guard: each
+// shipped file's block must be byte-for-byte what the generator produces from
+// themes/dotfiles.toml. Run with -update-theme-artifacts to regenerate; running
+// without it is what fails when somebody edits a generated block by hand.
+func TestGeneratedThemeArtifactsMatchTheirDefinition(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	if _, ok := themeByID(defs, defaultThemeID); !ok {
+		t.Fatalf("the committed files hold %q, which themes/ does not define", defaultThemeID)
+	}
+
+	checked := 0
+	for _, art := range themeActiveArtifacts {
+		// A file whose committed value is another theme (Neovim's colorscheme is
+		// Kanagawa) is checked against the theme it actually holds.
+		themeID := art.DefaultTheme
+		if themeID == "" {
+			themeID = defaultThemeID
+		}
+		def, ok := themeByID(defs, themeID)
+		if !ok {
+			t.Errorf("%s holds %q, which themes/ does not define", art.Path, themeID)
+			continue
+		}
+		path := filepath.Join(repoRoot(t), art.Path)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("read %s: %v", art.Path, err)
+			continue
+		}
+		block, err := themeArtifactBlock(art, def)
+		if err != nil {
+			t.Errorf("render the %s block: %v", art.Tool, err)
+			continue
+		}
+		updated, adopted := replaceThemeBlock(string(data), block, art.Block)
+		if !adopted {
+			updated, adopted = adoptThemeBlock(string(data), art, block)
+			if !adopted {
+				t.Errorf("%s carries neither generated block markers nor a DOTFILES THEME block to adopt", art.Path)
+				continue
+			}
+			if !*updateThemeArtifacts {
+				t.Errorf("%s has not been adopted yet: run the guard with -update-theme-artifacts once to wrap its block in markers", art.Path)
+				continue
+			}
+		}
+		checked++
+
+		if *updateThemeArtifacts {
+			if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+				t.Errorf("write %s: %v", art.Path, err)
+			}
+			continue
+		}
+		if updated != string(data) {
+			t.Errorf("%s no longer matches themes/%s.toml: regenerate it with "+
+				"go test ./internal/tui -run TestGeneratedThemeArtifactsMatchTheirDefinition -update-theme-artifacts",
+				art.Path, themeID)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no theme artifact was checked, so this guard proves nothing")
+	}
+	if *updateThemeArtifacts {
+		t.Logf("regenerated %d theme artifacts", checked)
+	} else {
+		t.Logf("%d shipped theme artifacts match their definitions byte-for-byte", checked)
+	}
+}
+
+// TestThemeGeneratorUsesTheDefinition covers the other half of the generation
+// guard: the block a tool gets is the definition's colours and not the default
+// theme's. Without it, a generator that ignored its argument would pass the
+// byte-for-byte guard above.
+func TestThemeGeneratorUsesTheDefinition(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	var rendered int
+	for _, art := range themeActiveArtifacts {
+		dotfiles, ok := themeByID(defs, "dotfiles")
+		if !ok {
+			t.Fatal("the dotfiles definition is missing")
+		}
+		catppuccin, ok := themeByID(defs, "catppuccin-mocha")
+		if !ok {
+			t.Fatal("the catppuccin-mocha definition is missing")
+		}
+
+		one, err := themeArtifactBlock(art, dotfiles)
+		if err != nil {
+			// An artifact a theme cannot paint (Neovim under dotfiles, which names
+			// no colorscheme) is reported by the coverage guard, not here.
+			continue
+		}
+		two, err := themeArtifactBlock(art, catppuccin)
+		if err != nil {
+			continue
+		}
+		if one == two {
+			t.Errorf("the %s block is the same for dotfiles and catppuccin-mocha, so the generator ignores the definition", art.Tool)
+		}
+		// The block must carry at least one of the theme's own colours, unless it is
+		// the palette-selection line, which names the palette and holds no colour.
+		if themeHexRE.MatchString(two) {
+			carries := false
+			for _, value := range catppuccin.Palette {
+				if strings.Contains(strings.ToLower(two), strings.ToLower(value)) ||
+					strings.Contains(strings.ToLower(two), strings.ToLower(strings.TrimPrefix(value, "#"))) {
+					carries = true
+					break
+				}
+			}
+			if !carries {
+				t.Errorf("the %s block for catppuccin-mocha carries none of its colours", art.Tool)
+			}
+		}
+		rendered++
+	}
+	if rendered == 0 {
+		t.Fatal("no theme artifact was rendered, so this guard proves nothing")
+	}
+}
+
+// TestThemeGeneratorRefusesAMissingRole covers the honest-degradation edge: a
+// definition that misses a role cannot be rendered, rather than emitting an
+// empty colour into a tool's config.
+func TestThemeGeneratorRefusesAMissingRole(t *testing.T) {
+	incomplete := themeDefinition{ID: "half", Palette: map[string]string{"base": "#000000"}, Prompt: map[string]string{}}
+	for _, art := range themeActiveArtifacts {
+		if art.Block == "palette" {
+			// The palette-selection line names the palette; it needs no colour.
+			continue
+		}
+		if _, err := themeArtifactBlock(art, incomplete); err == nil {
+			t.Errorf("the %s renderer produced a block from a definition with one role", art.Tool)
+		}
+	}
+	if _, err := renderStarshipPaletteTable(incomplete); err == nil {
+		t.Error("the Starship palette table rendered from a definition with one role")
+	}
+}
+
+// tempThemeRepo copies themes/*.toml into a temporary root, so a switch test
+// runs against the real definitions without reading the working tree.
+func tempThemeRepo(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "themes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(repoRoot(t), "themes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), "themes", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "themes", entry.Name()), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// artifactByName finds an active artifact by tool, failing the test when it is
+// gone so a renamed tool cannot silently empty a switch test.
+func artifactByName(t *testing.T, tool string) themeArtifact {
+	t.Helper()
+	for _, art := range themeActiveArtifacts {
+		if art.Tool == tool {
+			return art
+		}
+	}
+	t.Fatalf("no theme artifact for %q", tool)
+	return themeArtifact{}
+}
+
+// installThemeFiles copies two generated files into a temporary home and returns
+// their contents before the switch, keyed by path.
+func installThemeFiles(t *testing.T, home string, tools ...string) map[string][]byte {
+	t.Helper()
+
+	before := map[string][]byte{}
+	for _, tool := range tools {
+		art := artifactByName(t, tool)
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), art.Path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dst := themeInstalledPath(art, home)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before[dst] = data
+	}
+	return before
+}
+
+// TestDotfilesThemeSwitchIsReversible covers the core contract: the switch
+// writes the theme into every owned file, records what was there, and puts the
+// exact bytes back.
+func TestDotfilesThemeSwitchIsReversible(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	before := installThemeFiles(t, home, "alacritty", "kitty")
+
+	rec, notice, err := applyDotfilesTheme(home, target)
+	if err != nil {
+		t.Fatalf("apply the theme: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the switch returned no record, so the change is not reversible")
+	}
+	if strings.Contains(notice, "DRY RUN") {
+		t.Fatalf("a real run reported a dry run: %q", notice)
+	}
+	if len(rec.Files) != len(before) {
+		t.Errorf("the record holds %d file(s), the switch wrote %d", len(rec.Files), len(before))
+	}
+
+	base := strings.TrimPrefix(target.Palette["base"], "#")
+	for path, was := range before {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(got, was) {
+			t.Errorf("%s was not changed by the switch", path)
+		}
+		if !strings.Contains(strings.ToLower(string(got)), base) {
+			t.Errorf("%s does not carry the catppuccin base colour %s", path, base)
+		}
+	}
+
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the theme: %v", err)
+	}
+	for path, want := range before {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s was not restored byte-for-byte", path)
+		}
+	}
+	if rec := readDotfilesThemeRecord(); rec != nil {
+		t.Errorf("the record was not cleared after the undo: %+v", rec)
+	}
+}
+
+// TestDotfilesThemeSwitchSkipsOnDryRun covers the gate PR #134 established: a
+// dry run changes nothing, on disk or in the record.
+func TestDotfilesThemeSwitchSkipsOnDryRun(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "1")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	before := installThemeFiles(t, home, "alacritty", "kitty")
+
+	rec, notice, err := applyDotfilesTheme(home, target)
+	if err != nil {
+		t.Fatalf("a dry run returned an error: %v", err)
+	}
+	if rec != nil {
+		t.Errorf("a dry run recorded a change: %+v", rec)
+	}
+	if !strings.Contains(notice, "DRY RUN") {
+		t.Errorf("a dry run's notice does not say so: %q", notice)
+	}
+	for path, want := range before {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("a dry run wrote %s", path)
+		}
+	}
+	if rec := readDotfilesThemeRecord(); rec != nil {
+		t.Errorf("a dry run wrote a record: %+v", rec)
+	}
+}
+
+// TestDotfilesThemeSwitchRefusesAnUnownedFile covers the preserve-user-configs
+// rule: a file with no ownership marker is left exactly as the user wrote it.
+func TestDotfilesThemeSwitchRefusesAnUnownedFile(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	art := artifactByName(t, "alacritty")
+	dst := themeInstalledPath(art, home)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	user := []byte("# my own alacritty config\nbackground = \"#000000\"\n")
+	if err := os.WriteFile(dst, user, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := applyDotfilesTheme(home, target); err == nil {
+		t.Fatal("the switch rewrote a file that carries no ownership marker")
+	} else if !strings.Contains(err.Error(), "not owned") {
+		t.Errorf("the refusal does not name the ownership rule: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, user) {
+		t.Error("the unowned file was changed")
+	}
+}
+
+// TestGeneratedPerThemeFilesMatchTheirDefinition covers the per-theme whole-file
+// artifacts (the fish theme files and the bat .tmTheme files): each must be
+// byte-for-byte what its definition produces. Run with -update-theme-artifacts
+// to regenerate.
+func TestGeneratedPerThemeFilesMatchTheirDefinition(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	checked := 0
+	for _, file := range themeThemeFiles {
+		def, ok := themeByID(defs, file.Theme)
+		if !ok {
+			t.Errorf("themeThemeFiles names %q, which no definition defines", file.Theme)
+			continue
+		}
+		want, err := file.Render(def)
+		if err != nil {
+			t.Errorf("render the %s per-theme file: %v", file.Theme, err)
+			continue
+		}
+		path := filepath.Join(repoRoot(t), file.Path)
+		got, readErr := os.ReadFile(path)
+
+		if *updateThemeArtifacts {
+			if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+				t.Errorf("write %s: %v", file.Path, err)
+			}
+			checked++
+			continue
+		}
+		if readErr != nil {
+			t.Errorf("read %s: %v", file.Path, readErr)
+			continue
+		}
+		if string(got) != want {
+			t.Errorf("%s no longer matches themes/%s.toml: regenerate it with "+
+				"go test ./internal/tui -run TestGeneratedPerThemeFilesMatchTheirDefinition -update-theme-artifacts",
+				file.Path, file.Theme)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no per-theme file was checked, so this guard proves nothing")
+	}
+	if *updateThemeArtifacts {
+		t.Logf("regenerated %d per-theme files", checked)
+	} else {
+		t.Logf("%d per-theme files match their definitions byte-for-byte", checked)
+	}
+}
+
+// TestTheRemovedStarshipPaletteIsRecreatable covers the condition on deleting
+// the unused [palettes.catppuccin_mocha] table: the generator must be able to
+// rebuild it from the definition, so nothing was lost. It pins all 26 values the
+// deleted table held.
+func TestTheRemovedStarshipPaletteIsRecreatable(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	catppuccin, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	table, err := renderStarshipPaletteTable(catppuccin)
+	if err != nil {
+		t.Fatalf("rebuild the deleted Starship table: %v", err)
+	}
+	if !strings.Contains(table, "[palettes.catppuccin-mocha]") {
+		t.Errorf("the rebuilt table is not named as the deleted one was:\n%s", table)
+	}
+
+	// Every role the template can hold, and the values the deleted file held.
+	for _, role := range themePromptRoles {
+		if catppuccin.Prompt[role] == "" {
+			t.Errorf("the definition no longer holds prompt role %q, so the deleted table cannot be rebuilt", role)
+			continue
+		}
+		if !strings.Contains(table, role+" = ") {
+			t.Errorf("the rebuilt table has no %q key", role)
+		}
+	}
+	deleted := []string{
+		"#f5e0dc", "#f2cdcd", "#f5c2e7", "#cba6f7", "#f38ba8", "#eba0ac", "#fab387",
+		"#f9e2af", "#a6e3a1", "#94e2d5", "#89dceb", "#74c7ec", "#89b4fa", "#b4befe",
+		"#cdd6f4", "#bac2de", "#a6adc8", "#9399b2", "#7f849c", "#6c7086", "#585b70",
+		"#45475a", "#313244", "#1e1e2e", "#181825", "#11111b",
+	}
+	for _, value := range deleted {
+		if !strings.Contains(table, value) {
+			t.Errorf("the rebuilt table no longer holds %s, which the deleted one did", value)
+		}
+	}
+	t.Logf("the deleted [palettes.catppuccin_mocha] table rebuilds from themes/catppuccin-mocha.toml with all %d values", len(deleted))
 }

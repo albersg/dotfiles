@@ -1,0 +1,57 @@
+# Kanagawa: a PARTIAL theme, recorded honestly.
+#
+# The repository does not hold a Kanagawa palette. What it holds is:
+#
+#   dotfiles-fish/fish/themes/Kanagawa.theme   eight fish roles
+#   dotfiles-nvim/nvim/lua/plugins/colorscheme.lua   the NAME "kanagawa"
+#   dotfiles-tmux/tmux.conf                    the NAME "kanagawa", variant dragon
+#
+# The names are the plugin's data, not ours: kanagawa.nvim and tmux-kanagawa
+# ship their own palettes, and this repository cannot read or verify them. The
+# eight fish roles are fish's own roles (normal, command, keyword, ...), not the
+# canonical terminal roles, so they cannot fill base/text/cursor/selection or
+# the 16 ANSI colours.
+#
+# Filling those roles would mean transcribing a published palette the repository
+# does not ship, and no such transcription exists here, so they are left EMPTY.
+# themes/README.md names exactly which tools a Kanagawa switch would leave out.
+# Per this repository's rule, a theme with missing canonical roles is reported
+# as partial and is NOT offered as a switch.
+
+[theme]
+id = "kanagawa"
+name = "Kanagawa"
+partial = true
+partial_reason = "no canonical palette in the repository: only fish roles (dotfiles-fish/fish/themes/Kanagawa.theme) and plugin theme names (nvim, tmux). The 16 ANSI roles and the terminal base/text/cursor/selection roles do not exist here."
+provenance = "dotfiles-fish/fish/themes/Kanagawa.theme (fish roles only); nvim and tmux name the plugin's theme"
+
+[palette]
+
+# --- fish roles ---
+# Transcribed from dotfiles-fish/fish/themes/Kanagawa.theme, with the two
+# malformed values the hand-written file carried corrected:
+#   fish_color_selection --background=2D4FG67  ->  2d4f67  ("G" is not a hex digit)
+#   fish_pager_color_description 727269        ->  727169
+[fish]
+normal = "dcd7ba"
+command = "7aa89f"
+keyword = "d27e99"
+quote = "c0a36e"
+redirection = "dcd7ba"
+end = "ff9e64"
+error = "c34043"
+param = "957fb8"
+comment = "727169"
+selection = "2d4f67"
+search_match = "2d4f67"
+operator = "76946a"
+escape = "d27e99"
+autosuggestion = "727169"
+pager_progress = "727169"
+pager_prefix = "7aa89f"
+pager_completion = "dcd7ba"
+pager_description = "727169"
+
+# --- Neovim colorscheme name ---
+[nvim]
+name = "kanagawa"

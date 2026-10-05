@@ -1,4 +1,6 @@
+# dotfiles-managed-config: fish
 # name: Everforest Fish shell theme
+# generated from themes/everforest.toml; edit the definition, not this file
 
 fish_color_normal d3c6aa
 fish_color_command 7fbbb3

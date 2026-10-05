@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -285,12 +286,29 @@ func quoteThemeValue(value string) string {
 // was made on, the setting that was there before it, and when it was made. It is
 // what the undo reads, so it is written only after the desktop's own tool has
 // reported success.
+//
+// Dotfiles is the dotfiles' own theme switch, recorded in the same file rather
+// than a second one: the two switches are independent, so each write keeps the
+// other's half.
 type themeRecord struct {
 	Target    string    `json:"target"`
 	Value     string    `json:"value"`
 	WasDark   bool      `json:"was_dark"`
 	ToDark    bool      `json:"to_dark"`
 	AppliedAt time.Time `json:"applied_at"`
+	// Dotfiles is the last dotfiles-theme change: the theme applied and the
+	// exact bytes each file held before it, which is what makes the change
+	// reversible byte-for-byte.
+	Dotfiles *dotfilesThemeRecord `json:"dotfiles,omitempty"`
+}
+
+// dotfilesThemeRecord is one dotfiles-theme change. Files maps an installed
+// file's path to its full previous content, so the undo restores the file
+// exactly rather than regenerating it.
+type dotfilesThemeRecord struct {
+	Theme     string            `json:"theme"`
+	Files     map[string]string `json:"files"`
+	AppliedAt time.Time         `json:"applied_at"`
 }
 
 // themeStateFile is the record's name inside the installer's state directory. It
@@ -327,27 +345,46 @@ func writeThemeRecord(rec themeRecord) error {
 	return os.WriteFile(path, data, stateFileMode)
 }
 
-// readThemeRecord returns the setting this installer last replaced, or nil when
-// there is none. A missing file, an unreadable one, a corrupt one and one that
-// names no desktop all read as "no record": a restore must never be built from
-// half a file.
-func readThemeRecord() *themeRecord {
+// readThemeFile returns the whole record, desktop half and dotfiles half. A
+// missing, unreadable or corrupt file reads as the zero record: a restore must
+// never be built from half a file.
+func readThemeFile() themeRecord {
 	path := themeStatePath()
 	if path == "" {
-		return nil
+		return themeRecord{}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return themeRecord{}
 	}
 	var rec themeRecord
 	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil
+		return themeRecord{}
 	}
+	return rec
+}
+
+// readThemeRecord returns the setting this installer last replaced on the
+// desktop, or nil when there is none.
+func readThemeRecord() *themeRecord {
+	rec := readThemeFile()
 	if rec.Target == "" {
 		return nil
 	}
 	return &rec
+}
+
+// readDotfilesThemeRecord returns the last dotfiles-theme change, or nil.
+func readDotfilesThemeRecord() *dotfilesThemeRecord {
+	return readThemeFile().Dotfiles
+}
+
+// writeDotfilesThemeRecord stores a dotfiles-theme change in the one record
+// file, keeping the desktop half that is already there.
+func writeDotfilesThemeRecord(next *dotfilesThemeRecord) error {
+	rec := readThemeFile()
+	rec.Dotfiles = next
+	return writeThemeRecord(rec)
 }
 
 // runThemeCommand is the one seam the theme utility runs a command through. It
@@ -395,13 +432,12 @@ func applyTheme(target themeSwitch, dark bool) (*themeRecord, string, error) {
 		return nil, "", fmt.Errorf("the %s tool failed to switch the theme: %w", target.Name, result.Error)
 	}
 
-	rec := themeRecord{
-		Target:    target.ID,
-		Value:     previous,
-		WasDark:   wasDark,
-		ToDark:    dark,
-		AppliedAt: time.Now(),
-	}
+	rec := readThemeFile()
+	rec.Target = target.ID
+	rec.Value = previous
+	rec.WasDark = wasDark
+	rec.ToDark = dark
+	rec.AppliedAt = time.Now()
 	if err := writeThemeRecord(rec); err != nil {
 		return nil, "", fmt.Errorf("the theme changed but the setting it replaced could not be recorded, "+
 			"so it cannot be undone: %w", err)
@@ -433,13 +469,12 @@ func undoTheme(target themeSwitch, rec themeRecord) (*themeRecord, string, error
 		return nil, "", fmt.Errorf("the %s tool failed to put the previous setting back: %w", target.Name, result.Error)
 	}
 
-	next := themeRecord{
-		Target:    target.ID,
-		Value:     current,
-		WasDark:   currentDark,
-		ToDark:    rec.WasDark,
-		AppliedAt: time.Now(),
-	}
+	next := readThemeFile()
+	next.Target = target.ID
+	next.Value = current
+	next.WasDark = currentDark
+	next.ToDark = rec.WasDark
+	next.AppliedAt = time.Now()
 	if err := writeThemeRecord(next); err != nil {
 		return nil, "", fmt.Errorf("the previous setting was restored but the new record could not be saved: %w", err)
 	}
@@ -452,6 +487,1808 @@ func undoTheme(target themeSwitch, rec themeRecord) (*themeRecord, string, error
 // it anyway and a row that fails is worse than no row.
 func (m Model) themeUndoAvailable() bool {
 	return m.ThemeSwitchFound && m.ThemeRecord != nil && m.ThemeRecord.Target == m.ThemeSwitch.ID
+}
+
+// ============================================================================
+// THE DOTFILES THEME: ONE DEFINITION, EVERY PART
+// ============================================================================
+//
+// The desktop switch above changes the desktop's light/dark mode. This section
+// is the other one: the dotfiles' own theme - the palette this repository ships
+// across its terminals, its prompt, bat, fish and Herdr.
+//
+// The palette used to be hand-written in five files (alacritty.toml,
+// .wezterm.lua, dotfiles-kitty/kitty.conf, starship.toml, dotfiles-zsh/.p10k.zsh,
+// and again in dotfiles-zsh/.zshrc), so the same colour was maintained by hand
+// in six places and any drift between them was invisible until two terminals
+// were put side by side. The definition is themes/*.toml now: one file per
+// theme, the blocks are generated from it, and the guards in
+// install_paths_test.go fail when a shipped block stops matching its
+// definition. Adding a theme is adding a definition file; nothing here is
+// typed by hand.
+//
+// No colour is invented. A role either exists in the repository already (the
+// six hand-written blocks, the Catppuccin ghostty file, the fish theme files)
+// or the role is left empty and the theme is reported partial. See
+// themes/README.md for the provenance of every value.
+
+// themesDirName is the directory of theme definitions, relative to the
+// repository root the installer clones.
+const themesDirName = "themes"
+
+// themePaletteRoles is the canonical role set, in render order. A theme is
+// complete when it defines every one of them; anything less is partial and is
+// reported rather than offered, so a switch can never apply half a theme and
+// call it unified.
+var themePaletteRoles = []string{
+	"base",
+	"text",
+	"cursor",
+	"cursor_text",
+	"selection",
+	"selection_text",
+	"black",
+	"red",
+	"green",
+	"yellow",
+	"blue",
+	"magenta",
+	"cyan",
+	"white",
+	"bright_black",
+	"bright_red",
+	"bright_green",
+	"bright_yellow",
+	"bright_blue",
+	"bright_magenta",
+	"bright_cyan",
+	"bright_white",
+}
+
+// themeDefinition is one themes/*.toml file: the theme's id and display name,
+// whether it is partial and why, where its values come from, and the palette.
+// A missing role is the empty string, never a guess.
+type themeDefinition struct {
+	ID            string
+	Name          string
+	Partial       bool
+	PartialReason string
+	Provenance    string
+	Palette       map[string]string
+	// Nvim is the Neovim colorscheme name this theme selects. It is empty for a
+	// theme whose plugin ships no colorscheme, and Neovim is then reported rather
+	// than pointed at a name that does not exist.
+	Nvim string
+	// Bat is the name bat selects this theme by (the .tmTheme's own name), and
+	// BatFile is the generated .tmTheme's file name. They are empty for a theme
+	// with no bat theme, and bat is then reported rather than pointed at a name
+	// that does not exist.
+	Bat     string
+	BatFile string
+	// Prompt holds the prompt's own roles (Catppuccin's naming: mauve, peach,
+	// subtext0, overlay0, ...), which Starship reads and the terminal palette does
+	// not contain. A role the repository has no value for is left empty, and the
+	// tool that needs it is then reported instead of extrapolated.
+	Prompt map[string]string
+	// Fish holds the fish shell theme's own roles, which are not the canonical
+	// terminal roles (fish_color_normal, fish_pager_color_prefix, ...). They are
+	// transcribed from the repository's fish theme files, or derived from the
+	// canonical palette for a theme that ships no fish file.
+	Fish map[string]string
+}
+
+// missingRoles is the roles the definition does not define.
+func (d themeDefinition) missingRoles() []string {
+	var missing []string
+	for _, role := range themePaletteRoles {
+		if d.Palette[role] == "" {
+			missing = append(missing, role)
+		}
+	}
+	return missing
+}
+
+// Complete reports whether the theme defines every canonical role, which is
+// what makes it applicable to every tool without leaving one on the old
+// palette.
+func (d themeDefinition) Complete() bool { return len(d.missingRoles()) == 0 }
+
+// themeHexRE is the shape a colour value has to have. A value that is not a
+// hex colour is a definition error, not a tool's problem: it is caught when the
+// definitions are loaded rather than when a block is written.
+var themeHexRE = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// themeFishHexRE is the same shape without the leading '#', which is how the
+// fish theme files write a colour.
+var themeFishHexRE = regexp.MustCompile(`^[0-9a-fA-F]{6}$`)
+
+// parseThemeDefinition reads the small TOML subset the definitions use: [theme]
+// and [palette] tables, key = "value" pairs, comments. It is deliberately not a
+// general parser - a new dependency is not worth it for five files whose shape
+// this test pins - and it rejects anything it does not understand rather than
+// ignoring it.
+func parseThemeDefinition(data []byte) (themeDefinition, error) {
+	def := themeDefinition{Palette: map[string]string{}, Fish: map[string]string{}, Prompt: map[string]string{}}
+	section := ""
+
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.Trim(line, "[]")
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return def, fmt.Errorf("cannot parse line %q", line)
+		}
+		key = strings.TrimSpace(key)
+		value = themeValueToken(value)
+
+		switch section {
+		case "theme":
+			switch key {
+			case "id":
+				def.ID = value
+			case "name":
+				def.Name = value
+			case "partial":
+				def.Partial = value == "true"
+			case "partial_reason":
+				def.PartialReason = value
+			case "provenance":
+				def.Provenance = value
+			default:
+				return def, fmt.Errorf("unknown [theme] key %q", key)
+			}
+		case "palette":
+			def.Palette[key] = value
+		case "fish":
+			def.Fish[key] = value
+		case "prompt":
+			def.Prompt[key] = value
+		case "nvim":
+			if key == "name" {
+				def.Nvim = value
+			}
+		case "bat":
+			switch key {
+			case "name":
+				def.Bat = value
+			case "file":
+				def.BatFile = value
+			}
+		default:
+			return def, fmt.Errorf("key %q is outside any known table", key)
+		}
+	}
+
+	for role, value := range def.Palette {
+		if value == "" {
+			delete(def.Palette, role)
+			continue
+		}
+		if !slices.Contains(themePaletteRoles, role) {
+			return def, fmt.Errorf("palette role %q is not a canonical role", role)
+		}
+		if !themeHexRE.MatchString(value) {
+			return def, fmt.Errorf("palette role %q is not a #rrggbb colour: %q", role, value)
+		}
+	}
+	if def.ID == "" {
+		return def, fmt.Errorf("the definition names no id")
+	}
+	for role, value := range def.Fish {
+		if !themeFishHexRE.MatchString(value) {
+			return def, fmt.Errorf("fish role %q is not a six-digit hex colour: %q", role, value)
+		}
+	}
+	for role, value := range def.Prompt {
+		// "none" is Starship's own "no colour", so it is a value it accepts.
+		if value != "none" && !themeHexRE.MatchString(value) {
+			return def, fmt.Errorf("prompt role %q is neither a #rrggbb colour nor \"none\": %q", role, value)
+		}
+	}
+	if !def.Complete() && !def.Partial {
+		return def, fmt.Errorf("the definition misses roles but is not marked partial: %v", def.missingRoles())
+	}
+	if def.Partial && def.PartialReason == "" {
+		return def, fmt.Errorf("the definition is partial without saying why")
+	}
+	return def, nil
+}
+
+// themeValueToken pulls the value out of a `key = value` line, dropping a
+// trailing comment. A quoted value is read to its closing quote, so a '#'
+// inside a citation is not mistaken for a comment.
+func themeValueToken(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if quote := value[0]; quote == '"' || quote == '\'' {
+		if end := strings.IndexByte(value[1:], quote); end >= 0 {
+			return value[1 : 1+end]
+		}
+		return value[1:]
+	}
+	if i := strings.IndexByte(value, '#'); i >= 0 {
+		value = strings.TrimSpace(value[:i])
+	}
+	return value
+}
+
+// loadThemeDefinitions reads every themes/*.toml under the repository checkout.
+// The file name is the id, so the menu, the definitions and the guard cannot
+// disagree about what a theme is called.
+func loadThemeDefinitions(repoDir string) ([]themeDefinition, error) {
+	dir := filepath.Join(repoDir, themesDirName)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read theme definitions: %w", err)
+	}
+
+	var defs []themeDefinition
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".toml") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		def, err := parseThemeDefinition(data)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", entry.Name(), err)
+		}
+		if want := strings.TrimSuffix(entry.Name(), ".toml"); def.ID != want {
+			return nil, fmt.Errorf("themes/%s defines id %q; the file name is the id", entry.Name(), def.ID)
+		}
+		if def.Name == "" {
+			def.Name = def.ID
+		}
+		defs = append(defs, def)
+	}
+	if len(defs) == 0 {
+		return nil, fmt.Errorf("no theme definition found in %s", dir)
+	}
+	return defs, nil
+}
+
+// themeByID finds a definition by id.
+func themeByID(defs []themeDefinition, id string) (themeDefinition, bool) {
+	for _, def := range defs {
+		if def.ID == id {
+			return def, true
+		}
+	}
+	return themeDefinition{}, false
+}
+
+// offeredThemeIDs is the list the menu offers: the complete themes, in the
+// order the definitions were read. A partial theme is reported, never offered.
+func offeredThemeIDs(defs []themeDefinition) []string {
+	var ids []string
+	for _, def := range defs {
+		if def.Complete() {
+			ids = append(ids, def.ID)
+		}
+	}
+	return ids
+}
+
+// themeTool is one tool the switch can theme, and the roles it needs.
+type themeTool struct {
+	ID   string
+	Name string
+	// Needs are the canonical palette roles the tool cannot be painted without.
+	Needs []string
+	// PromptNeeds are the prompt roles (Catppuccin naming) the tool needs on top;
+	// Starship's palette table is written in those, not in ANSI roles.
+	PromptNeeds []string
+	// Available reports whether the definition can paint this tool through a name
+	// rather than a palette (Neovim's colorscheme). A nil Available means the
+	// artifact itself is the whole question.
+	Available func(themeDefinition) bool
+}
+
+// themeTools is every tool whose colours this repository owns, in the order the
+// switch reports them. Needs names the roles the tool cannot be painted
+// without: a theme missing one of them reports the tool as not switchable
+// rather than applying a half palette.
+var themeTools = []themeTool{
+	{ID: "alacritty", Name: "Alacritty", Needs: themePaletteRoles},
+	{ID: "kitty", Name: "Kitty", Needs: themePaletteRoles},
+	{ID: "wezterm", Name: "WezTerm", Needs: themePaletteRoles},
+	{ID: "ghostty", Name: "Ghostty", Needs: themePaletteRoles},
+	{ID: "starship", Name: "Starship", Needs: themePaletteRoles, PromptNeeds: themePromptRequired},
+	{ID: "zsh", Name: "the zsh line editor", Needs: themePaletteRoles},
+	{ID: "p10k", Name: "the p10k prompt", Needs: themePaletteRoles},
+	{ID: "herdr", Name: "Herdr", Needs: []string{"selection", "blue"}},
+	// fish, bat, Neovim and tmux are driven by a file or a plugin name rather
+	// than by the canonical palette: fish and bat read a shipped theme file, and
+	// Neovim and tmux name a theme their plugin ships. Their artifact is what
+	// decides whether a theme can paint them, so they need no role list here.
+	{ID: "fish", Name: "fish"},
+	{ID: "bat", Name: "bat", Available: func(d themeDefinition) bool { return d.Bat != "" && d.BatFile != "" }},
+	{ID: "nvim", Name: "Neovim", Available: func(d themeDefinition) bool { return d.Nvim != "" }},
+	{ID: "tmux", Name: "tmux"},
+}
+
+// themeToolArtifacts is which tools each theme has a generated block for. It is
+// data rather than a rule because it records what this change produces: a theme
+// with no artifact for a tool cannot be applied to it, and pretending otherwise
+// is the button that does nothing. A tool absent here is reported as not
+// switchable for that theme.
+//
+// Generation is implemented for the four terminal emulators, which are the files
+// that carried the palette by hand. The remaining tools (Starship, the zsh/p10k
+// prompt, Herdr, fish, bat, Neovim and tmux) are declared in the definitions but
+// have no generated artifact yet, so they are reported as left out rather than
+// claimed. Extending this table is what extends the switch.
+var themeToolArtifacts = map[string][]string{
+	"dotfiles":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "bat"},
+	"catppuccin-mocha": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "nvim", "bat"},
+	"kanagawa":         {"nvim"},
+	"everforest":       {},
+	"kagawa":           {},
+}
+
+// themeCoverage splits the tools into the ones a theme can paint and the ones
+// it cannot, with the reason being either a missing role or a missing artifact.
+// The menu reports the second list, so a reader is told which tools would stay
+// on the old palette before anything changes.
+func themeCoverage(def themeDefinition) (covered, uncovered []string) {
+	artifacts := themeToolArtifacts[def.ID]
+	for _, tool := range themeTools {
+		if !slices.Contains(artifacts, tool.ID) {
+			uncovered = append(uncovered, tool.Name)
+			continue
+		}
+		missing := false
+		for _, role := range tool.Needs {
+			if def.Palette[role] == "" {
+				missing = true
+				break
+			}
+		}
+		if !missing {
+			for _, role := range tool.PromptNeeds {
+				if def.Prompt[role] == "" {
+					missing = true
+					break
+				}
+			}
+		}
+		if !missing && tool.Available != nil && !tool.Available(def) {
+			missing = true
+		}
+		if missing {
+			uncovered = append(uncovered, tool.Name)
+			continue
+		}
+		covered = append(covered, tool.Name)
+	}
+	return covered, uncovered
+}
+
+// themeSourceBlock is a shipped file a definition claims to come from.
+type themeSourceBlock struct {
+	Tool string
+	Path string
+	// Roles is the palette roles this file is expected to carry. It is per file
+	// because the files do not all carry every role: the prompt reads ten, Herdr
+	// reads two. A role missing from its file is drift.
+	Roles []string
+}
+
+// themeSourceBlocks names the files each theme's values have to keep matching.
+// The guard in install_paths_test.go reads these and fails when a shipped block
+// no longer contains its definition's value, which is the drift that the six
+// hand-written copies used to hide.
+var themeSourceBlocks = map[string][]themeSourceBlock{
+	"dotfiles": {
+		{Tool: "Alacritty", Path: "alacritty.toml", Roles: themePaletteRoles},
+		{Tool: "Kitty", Path: "dotfiles-kitty/kitty.conf", Roles: themePaletteRoles},
+		{Tool: "WezTerm", Path: ".wezterm.lua", Roles: themePaletteRoles},
+		{Tool: "Starship", Path: "starship.toml", Roles: []string{"base", "text", "red", "green", "yellow", "blue", "magenta", "cyan", "bright_black"}},
+		{Tool: "zsh", Path: "dotfiles-zsh/.zshrc", Roles: []string{"base", "text", "red", "green", "yellow", "blue", "magenta", "cyan", "bright_black"}},
+		{Tool: "p10k", Path: "dotfiles-zsh/.p10k.zsh", Roles: []string{"base", "text", "red", "green", "yellow", "blue", "magenta", "cyan", "bright_black"}},
+		{Tool: "Herdr", Path: "dotfiles-herdr/config.toml", Roles: []string{"selection", "blue"}},
+	},
+	"catppuccin-mocha": {
+		{Tool: "Ghostty", Path: "dotfiles-ghostty/themes/catppuccin-mocha.conf", Roles: []string{"base", "text", "cursor", "cursor_text", "selection", "selection_text", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"}},
+	},
+}
+
+// themeValueInFile reports whether a palette value appears in a shipped file.
+// The comparison is case-insensitive and ignores the leading '#', because the
+// files write the same colour as #06080f, 06080f and #F3F6F9 across the tools,
+// and the drift that matters is a changed digit, not a changed spelling.
+func themeValueInFile(value, file string) bool {
+	needle := strings.ToLower(strings.TrimPrefix(value, "#"))
+	return strings.Contains(strings.ToLower(file), needle)
+}
+
+// ----------------------------------------------------------------------------
+// Generating the shipped blocks from the definition
+// ----------------------------------------------------------------------------
+//
+// The blocks below are generated from themes/*.toml and rewritten by the
+// installer when a theme is applied. The committed files hold defaultThemeID.
+// A block is delimited by two marker lines so it can be found and replaced
+// without parsing the tool's own file format, and it carries the ownership
+// marker the preserve-user-configs rule reads, so a switch refuses to write a
+// file this repository does not own.
+
+// defaultThemeID is the theme the committed files hold: the dotfiles palette.
+const defaultThemeID = "dotfiles"
+
+const (
+	// themeBlockBeginTag and themeBlockEndTag bracket a generated block. The text
+	// after the tag is the theme id, so a reader (and the switch) can tell which
+	// theme a file currently holds. A file that holds two generated regions (the
+	// Starship palette line and its table) names them, so the two cannot be
+	// confused.
+	themeBlockBeginTag = ">>> dotfiles-theme"
+	themeBlockEndTag   = "<<< dotfiles-theme"
+)
+
+// themeBeginTag and themeEndTag are the markers for one named block. An empty
+// name is the file's single block.
+func themeBeginTag(block string) string {
+	if block == "" {
+		return themeBlockBeginTag + ":"
+	}
+	return themeBlockBeginTag + "-" + block + ":"
+}
+
+// themeEndTag is the closing marker for one named block.
+func themeEndTag(block string) string {
+	if block == "" {
+		return themeBlockEndTag + " <<<"
+	}
+	return themeBlockEndTag + "-" + block + " <<<"
+}
+
+// themeArtifact is one file whose theme block is generated from a definition.
+type themeArtifact struct {
+	Tool    string
+	Path    string
+	Comment string
+	// DefaultTheme is the theme the committed file holds. Empty means
+	// defaultThemeID; Neovim's committed colorscheme is Kanagawa, not dotfiles.
+	DefaultTheme string
+	// Block names the generated region inside the file. It is empty for a file
+	// with one block; Starship has two (its palette line and its palette table),
+	// and naming them keeps the two markers apart.
+	Block string
+	// AdoptStart is the line the existing hand-written block begins at, used once
+	// to wrap it in markers. Empty means the DOTFILES THEME box title.
+	AdoptStart string
+	// NotBoxed marks a block with no box header, so adoption starts at the
+	// AdoptStart line rather than walking back to a box corner.
+	NotBoxed bool
+	// AdoptEnd is the line the existing block ends at. Empty means end of file;
+	// a boxed block ends before the next box, a box-less one includes this line.
+	AdoptEnd string
+	// AdoptEndKeep means the AdoptEnd line is NOT part of the block: the region
+	// ends just before it, where the following line is the next section's header.
+	AdoptEndKeep bool
+	Render       func(themeDefinition) (string, error)
+}
+
+// themeActiveArtifacts are the files that hold the currently applied theme.
+// They are regenerated in place by the switch and by the -update guard.
+var themeActiveArtifacts = []themeArtifact{
+	{Tool: "alacritty", Path: "alacritty.toml", Comment: "#", Render: renderAlacrittyTheme},
+	{Tool: "kitty", Path: "dotfiles-kitty/kitty.conf", Comment: "#", Render: renderKittyTheme},
+	{Tool: "wezterm", Path: ".wezterm.lua", Comment: "--", AdoptEnd: "WINDOWS (WSL)", Render: renderWeztermTheme},
+	{Tool: "ghostty", Path: "dotfiles-ghostty/config", Comment: "#", Render: renderGhosttyTheme},
+	{Tool: "herdr", Path: "dotfiles-herdr/config.toml", Comment: "#", AdoptStart: "# Token overrides on top of that theme", NotBoxed: true, AdoptEnd: "accent =", Render: renderHerdrTheme},
+	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palette", AdoptStart: `palette = "dotfiles"`, NotBoxed: true, AdoptEnd: `palette = "dotfiles"`, Render: renderStarshipPaletteLine},
+	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palettes", AdoptStart: "[palettes.catppuccin_mocha]", NotBoxed: true, AdoptEnd: `crust = "#06080f"`, Render: renderStarshipPaletteTable},
+	{Tool: "zsh", Path: "dotfiles-zsh/.zshrc", Comment: "#", AdoptStart: "# ─── Palette", NotBoxed: true, AdoptEnd: `Gd=${PALETTE_YELLOW_SGR}"`, Render: renderZshTheme},
+	{Tool: "p10k", Path: "dotfiles-zsh/.p10k.zsh", Comment: "#", AdoptStart: "  # ── Palette", NotBoxed: true, AdoptEnd: `typeset -g PALETTE_CYAN=`, Render: renderP10kTheme},
+	{Tool: "nvim", Path: "dotfiles-nvim/nvim/lua/plugins/colorscheme.lua", Comment: "--", DefaultTheme: "kanagawa", AdoptStart: `colorscheme = "kanagawa"`, NotBoxed: true, AdoptEnd: `colorscheme = "kanagawa"`, Render: renderNvimColorscheme},
+	{Tool: "bat", Path: "dotfiles-zsh/.zshrc", Comment: "#", Block: "bat", NotBoxed: true, AdoptStart: "# --- bat ", AdoptEnd: "# --- zsh-autosuggestions", AdoptEndKeep: true, Render: renderBatSelection},
+}
+
+// themeHex returns a role's value and refuses a definition that misses it, so a
+// renderer can never emit an empty colour.
+func themeHex(def themeDefinition, role string) (string, error) {
+	value := def.Palette[role]
+	if value == "" {
+		return "", fmt.Errorf("theme %q defines no %q, so its %s block cannot be generated", def.ID, role, role)
+	}
+	return value, nil
+}
+
+// themeArtifactBlock is the marked, generated block for one artifact.
+func themeArtifactBlock(art themeArtifact, def themeDefinition) (string, error) {
+	body, err := art.Render(def)
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s dotfiles-managed-config: %s\n", art.Comment, art.Tool)
+	fmt.Fprintf(&b, "%s %s %s (generated from themes/%s.toml; edit the definition, not this block) >>>\n", art.Comment, themeBeginTag(art.Block), def.ID, def.ID)
+	b.WriteString(body)
+	if !strings.HasSuffix(body, "\n") {
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "%s %s\n", art.Comment, themeEndTag(art.Block))
+	return b.String(), nil
+}
+
+// replaceThemeBlock swaps the lines between the two markers for block. It
+// reports false when the file carries no markers, which is how the guard says a
+// file has not been adopted yet.
+func replaceThemeBlock(content, block, blockName string) (string, bool) {
+	beginTag := themeBeginTag(blockName)
+	endTag := themeEndTag(blockName)
+	lines := strings.Split(content, "\n")
+	begin, end := -1, -1
+	for i, line := range lines {
+		if begin < 0 && strings.Contains(line, beginTag) {
+			begin = i
+			continue
+		}
+		if begin >= 0 && strings.Contains(line, endTag) {
+			end = i
+			break
+		}
+	}
+	if begin < 0 || end < 0 {
+		return content, false
+	}
+	// The ownership marker sits immediately above the begin marker and belongs to
+	// the block, so it is replaced with it rather than left behind and duplicated.
+	if begin > 0 && strings.Contains(lines[begin-1], "dotfiles-managed-config:") {
+		begin--
+	}
+
+	out := make([]string, 0, len(lines))
+	out = append(out, lines[:begin]...)
+	out = append(out, strings.Split(strings.TrimRight(block, "\n"), "\n")...)
+	out = append(out, lines[end+1:]...)
+	return strings.Join(out, "\n"), true
+}
+
+// adoptThemeBlock wraps a file's existing hand-written block in the two markers,
+// so the next -update can replace the content between them. It is the one-time
+// bridge from hand-written to generated; it finds the block by its box header
+// and its per-file end anchor rather than by parsing the tool's format.
+func adoptThemeBlock(content string, art themeArtifact, block string) (string, bool) {
+	lines := strings.Split(content, "\n")
+
+	startNeedle := art.AdoptStart
+	if startNeedle == "" {
+		startNeedle = "DOTFILES THEME"
+	}
+	start := -1
+	for i, line := range lines {
+		if strings.Contains(line, startNeedle) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return content, false
+	}
+	if !art.NotBoxed {
+		for start > 0 && !strings.Contains(lines[start], "┌") {
+			start--
+		}
+		if !strings.Contains(lines[start], "┌") {
+			return content, false
+		}
+	}
+
+	end := len(lines)
+	if art.AdoptEnd != "" {
+		for i := start; i < len(lines); i++ {
+			if !strings.Contains(lines[i], art.AdoptEnd) {
+				continue
+			}
+			if art.NotBoxed {
+				if art.AdoptEndKeep {
+					// The block ends before this line, which is the next section.
+					end = i
+					for end > start && strings.TrimSpace(lines[end-1]) == "" {
+						end--
+					}
+				} else {
+					// The block owns this line, so the region ends after it.
+					end = i + 1
+				}
+				break
+			}
+			// Walk back over the next section's own box to its top line, so the
+			// block is replaced and the following box is left whole. The blank
+			// line that separated them is dropped; the block supplies its own.
+			end = i
+			for end > start && !strings.Contains(lines[end], "┌") {
+				end--
+			}
+			break
+		}
+	}
+
+	out := make([]string, 0, len(lines))
+	out = append(out, lines[:start]...)
+	out = append(out, strings.Split(strings.TrimRight(block, "\n"), "\n")...)
+	if !art.NotBoxed && end < len(lines) {
+		// Keep the blank line that separated the block from the next section.
+		out = append(out, "")
+	}
+	out = append(out, lines[end:]...)
+	return strings.Join(out, "\n"), true
+}
+
+// themeBlockID reads the theme id out of a marked block, so the switch can tell
+// what a file currently holds before it changes it.
+func themeBlockID(content, blockName string) (string, bool) {
+	beginTag := themeBeginTag(blockName)
+	for _, line := range strings.Split(content, "\n") {
+		i := strings.Index(line, beginTag)
+		if i < 0 {
+			continue
+		}
+		rest := strings.TrimSpace(line[i+len(beginTag):])
+		if id, _, ok := strings.Cut(rest, " "); ok {
+			return id, true
+		}
+		if rest != "" {
+			return rest, true
+		}
+	}
+	return "", false
+}
+
+// themeBox is the three-line header every generated block opens with, so the
+// files keep the shape a reader already knows.
+func themeBox(comment, title string) string {
+	const inner = 78
+	return comment + " ┌" + strings.Repeat("─", inner) + "┐\n" +
+		comment + " │" + padCentre(title, inner) + "│\n" +
+		comment + " └" + strings.Repeat("─", inner) + "┘"
+}
+
+// padCentre centres title in width columns, padding with spaces.
+func padCentre(title string, width int) string {
+	if len(title) >= width {
+		return title[:width]
+	}
+	left := (width - len(title)) / 2
+	right := width - len(title) - left
+	return strings.Repeat(" ", left) + title + strings.Repeat(" ", right)
+}
+
+// renderAlacrittyTheme renders the [colors.*] block of alacritty.toml.
+func renderAlacrittyTheme(def themeDefinition) (string, error) {
+	role := func(name string) string {
+		value, _ := themeHex(def, name)
+		return value
+	}
+	for _, name := range themePaletteRoles {
+		if _, err := themeHex(def, name); err != nil {
+			return "", err
+		}
+	}
+
+	return fmt.Sprintf(`%s
+
+# --- Base Colors ---
+[colors.primary]
+background = "%s"
+foreground = "%s"
+
+[colors.cursor]
+cursor = "%s"
+text = "%s"
+
+[colors.selection]
+background = "%s"
+text = "%s"
+
+# --- Normal Colors ---
+[colors.normal]
+black   = "%s"
+red     = "%s"
+green   = "%s"
+yellow  = "%s"
+blue    = "%s"
+magenta = "%s"
+cyan    = "%s"
+white   = "%s"
+
+# --- Bright Colors ---
+[colors.bright]
+black   = "%s"
+red     = "%s"
+green   = "%s"
+yellow  = "%s"
+blue    = "%s"
+magenta = "%s"
+cyan    = "%s"
+white   = "%s"`,
+		themeBox("#", "DOTFILES THEME"),
+		role("base"), role("text"), role("cursor"), role("cursor_text"), role("selection"), role("selection_text"),
+		role("black"), role("red"), role("green"), role("yellow"), role("blue"), role("magenta"), role("cyan"), role("white"),
+		role("bright_black"), role("bright_red"), role("bright_green"), role("bright_yellow"), role("bright_blue"), role("bright_magenta"), role("bright_cyan"), role("bright_white")), nil
+}
+
+// renderKittyTheme renders the flat colour keys of kitty.conf.
+func renderKittyTheme(def themeDefinition) (string, error) {
+	for _, name := range themePaletteRoles {
+		if _, err := themeHex(def, name); err != nil {
+			return "", err
+		}
+	}
+	role := func(name string) string {
+		value, _ := themeHex(def, name)
+		return value
+	}
+
+	return fmt.Sprintf(`%s
+
+# --- Base Colors ---
+background            %s
+foreground            %s
+cursor                %s
+selection_background  %s
+selection_foreground  %s
+url_color             %s
+
+# --- Tabs ---
+active_tab_background   %s
+active_tab_foreground   %s
+inactive_tab_background %s
+inactive_tab_foreground %s
+
+# --- Normal Colors ---
+color0  %s
+color1  %s
+color2  %s
+color3  %s
+color4  %s
+color5  %s
+color6  %s
+color7  %s
+
+# --- Bright Colors ---
+color8  %s
+color9  %s
+color10 %s
+color11 %s
+color12 %s
+color13 %s
+color14 %s
+color15 %s`,
+		themeBox("#", "DOTFILES THEME"),
+		role("base"), role("text"), role("cursor"), role("selection"), role("selection_text"), role("blue"),
+		role("selection"), role("text"), role("base"), role("bright_black"),
+		role("black"), role("red"), role("green"), role("yellow"), role("blue"), role("magenta"), role("cyan"), role("white"),
+		role("bright_black"), role("bright_red"), role("bright_green"), role("bright_yellow"), role("bright_blue"), role("bright_magenta"), role("bright_cyan"), role("bright_white")), nil
+}
+
+// renderGhosttyTheme renders the config keys of dotfiles-ghostty/config. Ghostty
+// writes background and foreground without the leading '#' and the palette with
+// it, which is the shape the file already had.
+func renderGhosttyTheme(def themeDefinition) (string, error) {
+	for _, name := range themePaletteRoles {
+		if _, err := themeHex(def, name); err != nil {
+			return "", err
+		}
+	}
+	role := func(name string) string {
+		value, _ := themeHex(def, name)
+		return value
+	}
+	bare := func(name string) string { return strings.TrimPrefix(role(name), "#") }
+
+	return fmt.Sprintf(`%s
+
+# --- Base Colors ---
+background = %s
+foreground = %s
+cursor-color = %s
+selection-background = %s
+selection-foreground = %s
+
+# --- Normal Colors ---
+palette = 0=#%s
+palette = 1=#%s
+palette = 2=#%s
+palette = 3=#%s
+palette = 4=#%s
+palette = 5=#%s
+palette = 6=#%s
+palette = 7=#%s
+
+# --- Bright Colors ---
+palette = 8=#%s
+palette = 9=#%s
+palette = 10=#%s
+palette = 11=#%s
+palette = 12=#%s
+palette = 13=#%s
+palette = 14=#%s
+palette = 15=#%s`,
+		themeBox("#", "DOTFILES THEME"),
+		bare("base"), bare("text"), bare("cursor"), bare("selection"), bare("selection_text"),
+		bare("black"), bare("red"), bare("green"), bare("yellow"), bare("blue"), bare("magenta"), bare("cyan"), bare("white"),
+		bare("bright_black"), bare("bright_red"), bare("bright_green"), bare("bright_yellow"), bare("bright_blue"), bare("bright_magenta"), bare("bright_cyan"), bare("bright_white")), nil
+}
+
+// renderWeztermTheme renders the config.colors tables of .wezterm.lua.
+func renderWeztermTheme(def themeDefinition) (string, error) {
+	for _, name := range themePaletteRoles {
+		if _, err := themeHex(def, name); err != nil {
+			return "", err
+		}
+	}
+	role := func(name string) string {
+		value, _ := themeHex(def, name)
+		return value
+	}
+
+	return fmt.Sprintf(`%s
+
+config.colors = {
+	-- Base Colors
+	foreground = "%s",
+	background = "%s",
+
+	-- Cursor
+	cursor_bg = "%s",
+	cursor_fg = "%s",
+	cursor_border = "%s",
+
+	-- Selection
+	selection_fg = "%s",
+	selection_bg = "%s",
+
+	-- Normal Colors
+	ansi = {
+		"%s", -- black
+		"%s", -- red
+		"%s", -- green
+		"%s", -- yellow
+		"%s", -- blue
+		"%s", -- magenta
+		"%s", -- cyan
+		"%s", -- white
+	},
+
+	-- Bright Colors
+	brights = {
+		"%s", -- black
+		"%s", -- red
+		"%s", -- green
+		"%s", -- yellow
+		"%s", -- blue
+		"%s", -- magenta
+		"%s", -- cyan
+		"%s", -- white
+	},
+}`,
+		themeBox("--", "DOTFILES THEME"),
+		role("text"), role("base"),
+		role("cursor"), role("cursor_text"), role("cursor"),
+		role("selection_text"), role("selection"),
+		role("black"), role("red"), role("green"), role("yellow"), role("blue"), role("magenta"), role("cyan"), role("white"),
+		role("bright_black"), role("bright_red"), role("bright_green"), role("bright_yellow"), role("bright_blue"), role("bright_magenta"), role("bright_cyan"), role("bright_white")), nil
+}
+
+// themeInstalledPath is where a tool's config lands in the user's home, which is
+// the file the switch rewrites. It mirrors the destinations stepInstallTerminal
+// copies to, so the two cannot drift.
+func themeInstalledPath(art themeArtifact, homeDir string) string {
+	switch art.Tool {
+	case "alacritty":
+		return filepath.Join(homeDir, ".config/alacritty/alacritty.toml")
+	case "kitty":
+		return filepath.Join(homeDir, ".config/kitty/kitty.conf")
+	case "wezterm":
+		return filepath.Join(homeDir, ".config/wezterm/wezterm.lua")
+	case "ghostty":
+		return filepath.Join(homeDir, ".config/ghostty/config")
+	case "herdr":
+		return filepath.Join(homeDir, ".config/herdr/config.toml")
+	case "starship":
+		return filepath.Join(homeDir, ".config/starship.toml")
+	case "zsh":
+		return filepath.Join(homeDir, ".zshrc")
+	case "p10k":
+		return filepath.Join(homeDir, ".p10k.zsh")
+	case "nvim":
+		return filepath.Join(homeDir, ".config/nvim/lua/plugins/colorscheme.lua")
+	}
+	return ""
+}
+
+// themeOwnershipMarker is the standalone line the preserve-user-configs rule
+// reads: a file that carries it belongs to dotfiles and may be rewritten, and
+// one that does not is left exactly as the user wrote it.
+const themeOwnershipMarker = "dotfiles-managed-config:"
+
+// applyDotfilesTheme switches every installed terminal file to the theme,
+// recording the exact bytes each one held so the change can be undone. It is
+// gated on dryRun() exactly as executeStep is, refuses a file this repository
+// does not own, and restores anything it already wrote if a later write fails.
+// It never invents a file: a tool that is not installed is skipped.
+func applyDotfilesTheme(homeDir string, def themeDefinition) (*dotfilesThemeRecord, string, error) {
+	if dryRun() {
+		SendLog("utilities", fmt.Sprintf("DRY RUN: skipping the switch to the %s theme", def.Name))
+		return nil, fmt.Sprintf("DRY RUN: the %s theme was not applied.", def.Name), nil
+	}
+
+	previous := map[string]string{}
+	var written []string
+	restoreWritten := func() {
+		for _, path := range written {
+			_ = os.WriteFile(path, []byte(previous[path]), 0o644)
+		}
+	}
+
+	for _, art := range themeActiveArtifacts {
+		path := themeInstalledPath(art, homeDir)
+		if path == "" {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			restoreWritten()
+			return nil, "", fmt.Errorf("could not read %s, so nothing was changed: %w", path, err)
+		}
+		if !strings.Contains(string(data), themeOwnershipMarker) {
+			restoreWritten()
+			return nil, "", fmt.Errorf("%s is not owned by dotfiles (it carries no %q marker), so it was left exactly as it is",
+				path, themeOwnershipMarker)
+		}
+
+		block, err := themeArtifactBlock(art, def)
+		if err != nil {
+			restoreWritten()
+			return nil, "", err
+		}
+		updated, ok := replaceThemeBlock(string(data), block, art.Block)
+		if !ok {
+			// An owned file with no generated block: nothing to rewrite here.
+			continue
+		}
+		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+			restoreWritten()
+			return nil, "", fmt.Errorf("could not write %s, so the files already changed were put back: %w", path, err)
+		}
+		previous[path] = string(data)
+		written = append(written, path)
+	}
+
+	if len(written) == 0 {
+		return nil, "", fmt.Errorf("no installed theme block was found, so nothing was changed")
+	}
+
+	next := &dotfilesThemeRecord{Theme: def.ID, Files: previous, AppliedAt: time.Now()}
+	if err := writeDotfilesThemeRecord(next); err != nil {
+		restoreWritten()
+		return nil, "", fmt.Errorf("the theme changed but the blocks it replaced could not be recorded, "+
+			"so it cannot be undone; the files were put back: %w", err)
+	}
+	return next, fmt.Sprintf("The %s theme is applied to %d file(s). The blocks it replaced are recorded; use Undo to put them back.",
+		def.Name, len(written)), nil
+}
+
+// undoDotfilesTheme puts back the exact bytes each file held before the change,
+// then clears the record. It is gated on dryRun() like applyDotfilesTheme.
+func undoDotfilesTheme(rec dotfilesThemeRecord) (string, error) {
+	if dryRun() {
+		SendLog("utilities", "DRY RUN: skipping the undo of the last dotfiles theme change")
+		return "DRY RUN: the last dotfiles theme change was not undone.", nil
+	}
+	if len(rec.Files) == 0 {
+		return "", fmt.Errorf("the record holds no file, so there is nothing to put back")
+	}
+
+	for path, content := range rec.Files {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return "", fmt.Errorf("could not put %s back: %w", path, err)
+		}
+	}
+	if err := writeDotfilesThemeRecord(nil); err != nil {
+		return "", fmt.Errorf("the files were put back but the record could not be cleared: %w", err)
+	}
+	return fmt.Sprintf("The previous theme blocks are back in %d file(s).", len(rec.Files)), nil
+}
+
+// renderHerdrTheme renders the [theme.custom] overrides and the [ui] accent of
+// dotfiles-herdr/config.toml. Herdr's [theme] name is left as the built-in base
+// it is: [theme.custom] is an override layer, and the tokens this repository
+// owns are the ones generated here.
+func renderHerdrTheme(def themeDefinition) (string, error) {
+	selection, err := themeHex(def, "selection")
+	if err != nil {
+		return "", err
+	}
+	blue, err := themeHex(def, "blue")
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(`# Token overrides on top of that theme, so the chrome Herdr draws agrees with the
+# terminal palette (Alacritty, Kitty, WezTerm, Ghostty) and with the zsh prompt,
+# which all read the same values from themes/%s.toml.
+[theme.custom]
+# "reset" is the terminal's own background. Without it Herdr paints its own
+# near-black behind every pane, which is a second black sitting next to the
+# terminal's.
+panel_bg = "reset"
+# The value the terminal uses for a text selection, so selecting inside a pane
+# and selecting inside the terminal look like the same operation.
+selection_bg = "%s"
+
+[ui]
+# Herdr's accent for highlights, borders and navigation UI: the palette's blue,
+# the one the zsh prompt already uses for the directory.
+accent = "%s"`, def.ID, selection, blue), nil
+}
+
+// renderFishTheme renders a whole fish theme file. The fish roles are not the
+// canonical ones, so a theme carries them in its [fish] table; a theme with any
+// of them missing is refused rather than emitted with a hole.
+func renderFishTheme(def themeDefinition) (string, error) {
+	for _, role := range themeFishRoles {
+		if def.Fish[role] == "" {
+			return "", fmt.Errorf("theme %q defines no fish %q, so its fish theme cannot be generated", def.ID, role)
+		}
+	}
+
+	return fmt.Sprintf(`# dotfiles-managed-config: fish
+# name: %s Fish shell theme
+# generated from themes/%s.toml; edit the definition, not this file
+
+fish_color_normal %s
+fish_color_command %s
+fish_color_keyword %s
+fish_color_quote %s
+fish_color_redirection %s
+fish_color_end %s
+fish_color_error %s
+fish_color_param %s
+fish_color_comment %s
+fish_color_selection --background=%s
+fish_color_search_match --background=%s
+fish_color_operator %s
+fish_color_escape %s
+fish_color_autosuggestion %s
+
+# Completion Pager Colors
+fish_pager_color_progress %s
+fish_pager_color_prefix %s
+fish_pager_color_completion %s
+fish_pager_color_description %s`,
+		def.Name, def.ID,
+		def.Fish["normal"], def.Fish["command"], def.Fish["keyword"], def.Fish["quote"],
+		def.Fish["redirection"], def.Fish["end"], def.Fish["error"], def.Fish["param"],
+		def.Fish["comment"], def.Fish["selection"], def.Fish["search_match"], def.Fish["operator"],
+		def.Fish["escape"], def.Fish["autosuggestion"], def.Fish["pager_progress"], def.Fish["pager_prefix"],
+		def.Fish["pager_completion"], def.Fish["pager_description"]), nil
+}
+
+// themeFishRoles is every fish role a generated fish theme file needs, in the
+// order the file writes them.
+var themeFishRoles = []string{
+	"normal", "command", "keyword", "quote", "redirection", "end", "error",
+	"param", "comment", "selection", "search_match", "operator", "escape",
+	"autosuggestion", "pager_progress", "pager_prefix", "pager_completion", "pager_description",
+}
+
+// themeThemeFile is a whole-file artifact, one per theme: the fish theme files
+// are named after the theme they hold, so they are generated for every theme
+// that has fish roles rather than swapped in place like the active artifacts.
+type themeThemeFile struct {
+	Theme  string
+	Path   string
+	Render func(themeDefinition) (string, error)
+}
+
+// themeThemeFiles are the per-theme files generated from the definitions. The
+// paths keep the repository's own capitalisation.
+var themeThemeFiles = []themeThemeFile{
+	{Theme: "dotfiles", Path: "dotfiles-fish/fish/themes/dotfiles.theme", Render: renderFishTheme},
+	{Theme: "everforest", Path: "dotfiles-fish/fish/themes/Everforest.theme", Render: renderFishTheme},
+	{Theme: "kanagawa", Path: "dotfiles-fish/fish/themes/Kanagawa.theme", Render: renderFishTheme},
+	{Theme: "kagawa", Path: "dotfiles-fish/fish/themes/Kagawa.theme", Render: renderFishTheme},
+	{Theme: "dotfiles", Path: "dotfiles-bat/themes/dotfiles.tmTheme", Render: renderBatTheme},
+	{Theme: "catppuccin-mocha", Path: "dotfiles-bat/themes/catppuccin-mocha.tmTheme", Render: renderBatTheme},
+}
+
+// themePromptRoles is every prompt role the definitions may declare, in render
+// order. They are Catppuccin's naming, not the terminal's.
+var themePromptRoles = []string{
+	"text", "red", "green", "yellow", "blue", "mauve", "pink", "teal", "peach",
+	"subtext0", "overlay0", "rosewater", "flamingo", "maroon", "lavender",
+	"subtext1", "overlay2", "overlay1", "surface2", "surface1", "surface0",
+	"base", "mantle", "crust", "sky", "sapphire",
+}
+
+// themePromptRequired is the subset Starship's palette table must have. sky and
+// sapphire are extra Catppuccin roles the repository has values for but the
+// table does not use: they are generated when a definition carries them and are
+// not required, so a theme without them is not reported as missing Starship.
+var themePromptRequired = []string{
+	"text", "red", "green", "yellow", "blue", "mauve", "pink", "teal", "peach",
+	"subtext0", "overlay0", "rosewater", "flamingo", "maroon", "lavender",
+	"subtext1", "overlay2", "overlay1", "surface2", "surface1", "surface0",
+	"base", "mantle", "crust",
+}
+
+// renderStarshipPaletteLine renders the palette = "<id>" selection.
+func renderStarshipPaletteLine(def themeDefinition) (string, error) {
+	return fmt.Sprintf("palette = %q", def.ID), nil
+}
+
+// renderStarshipPaletteTable renders the active theme's [palettes.<id>] table.
+// The role names are Starship's (Catppuccin's naming), so a definition missing
+// one of the required prompt roles is refused rather than filled.
+func renderStarshipPaletteTable(def themeDefinition) (string, error) {
+	var missing []string
+	for _, role := range themePromptRequired {
+		if def.Prompt[role] == "" {
+			missing = append(missing, role)
+		}
+	}
+	if len(missing) > 0 {
+		return "", fmt.Errorf("theme %q defines no prompt role %v, so its Starship palette cannot be generated", def.ID, missing)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "[palettes.%s]\n", def.ID)
+	for _, role := range themePromptRoles {
+		value := def.Prompt[role]
+		if value == "" {
+			continue
+		}
+		if value == "none" {
+			fmt.Fprintf(&b, "%s = \"none\"\n", role)
+			continue
+		}
+		fmt.Fprintf(&b, "%s = %q\n", role, value)
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// themeShellRoles maps the canonical palette onto the names the zsh prompt uses.
+// surface is the terminal's selection colour and muted is its bright black: the
+// prompt has no ANSI roles of its own, it reads these six plus the two extras.
+var themeShellRoles = []struct{ Name, Role string }{
+	{"BASE", "base"},
+	{"SURFACE", "selection"},
+	{"TEXT", "text"},
+	{"MUTED", "bright_black"},
+	{"RED", "red"},
+	{"GREEN", "green"},
+	{"YELLOW", "yellow"},
+	{"BLUE", "blue"},
+	{"MAGENTA", "magenta"},
+	{"CYAN", "cyan"},
+}
+
+// themeSGR turns #rrggbb into the 24-bit foreground SGR sequence zsh and
+// LS_COLORS take. The index form the file used before addressed the terminal's
+// colour cube, which a custom palette never redefines.
+func themeSGR(hex string, background bool) (string, error) {
+	if !themeHexRE.MatchString(hex) {
+		return "", fmt.Errorf("%q is not a #rrggbb colour", hex)
+	}
+	r, err := strconv.ParseInt(hex[1:3], 16, 0)
+	if err != nil {
+		return "", err
+	}
+	g, err := strconv.ParseInt(hex[3:5], 16, 0)
+	if err != nil {
+		return "", err
+	}
+	b, err := strconv.ParseInt(hex[5:7], 16, 0)
+	if err != nil {
+		return "", err
+	}
+	kind := 38
+	if background {
+		kind = 48
+	}
+	return fmt.Sprintf("%d;2;%d;%d;%d", kind, r, g, b), nil
+}
+
+// renderZshTheme renders the whole palette region of dotfiles-zsh/.zshrc: the
+// PALETTE_* variables, their *_SGR twins, PALETTE_ESC, and the LS_COLORS and
+// EZA_COLORS tables. It is generated whole rather than partly, because a value
+// left outside the region would be a seventh hand-written copy.
+//
+// The LS_COLORS and EZA_COLORS mappings (which extension or key takes which
+// role) are fixed here because they are structure, not palette data: every
+// colour they name is one of the PALETTE_*_SGR variables defined above them, so
+// a theme switch moves them all. No hand-written value outside the palette was
+// found, which is why the region is reproducible in full.
+func renderZshTheme(def themeDefinition) (string, error) {
+	values := map[string]string{}
+	sgrs := map[string]string{}
+	for _, role := range themeShellRoles {
+		hex := def.Palette[role.Role]
+		if hex == "" {
+			return "", fmt.Errorf("theme %q defines no %q, so its zsh palette cannot be generated", def.ID, role.Role)
+		}
+		sgr, err := themeSGR(hex, false)
+		if err != nil {
+			return "", err
+		}
+		values[role.Name] = hex
+		sgrs[role.Name] = sgr
+	}
+	surfaceBg, err := themeSGR(values["SURFACE"], true)
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	b.WriteString("# ─── Palette ─────────────────────────────────────────────────────────────────\n")
+	b.WriteString("# One palette, defined once in themes/" + def.ID + ".toml. The terminal\n")
+	b.WriteString("# emulators set the same values, so everything painted inside them resolves to\n")
+	b.WriteString("# the same colours instead of each tool falling back to its own defaults.\n#\n")
+	purpose := []struct{ Name, Purpose string }{
+		{"BASE", "background"},
+		{"SURFACE", "selection, de-emphasised punctuation"},
+		{"TEXT", "foreground"},
+		{"MUTED", "comments, hints, autosuggestions"},
+		{"RED", "errors, archives, orphan links"},
+		{"GREEN", "success, commands, executables"},
+		{"YELLOW", "warnings, strings, documents"},
+		{"BLUE", "accent: directories, headers"},
+		{"MAGENTA", "constants, images, devices"},
+		{"CYAN", "operators, symlinks, media"},
+	}
+	for _, p := range purpose {
+		fmt.Fprintf(&b, "#   %-8s %s   %s\n", strings.ToLower(p.Name), values[p.Name], p.Purpose)
+	}
+	b.WriteString("#\n")
+	b.WriteString("# Every entry is declared twice because the consumers disagree on the format:\n")
+	b.WriteString("# the prompt and the line editor take hex, while LS_COLORS and EZA_COLORS take\n")
+	b.WriteString("# an SGR sequence. Zsh expands both at file-read time, so the indirection costs\n")
+	b.WriteString("# nothing at startup, and having one list is what stops the two forms drifting.\n")
+	b.WriteString("#\n")
+	b.WriteString("# The 24-bit form is not a style preference. The index form addresses entries\n")
+	b.WriteString("# 16-255 of the terminal's colour cube, which a custom theme never redefines, so\n")
+	b.WriteString("# those values would render as unrelated hues.\n")
+	for _, role := range themeShellRoles {
+		first := fmt.Sprintf("typeset -g PALETTE_%s=\"%s\"", role.Name, values[role.Name])
+		pad := " "
+		if len(first) < 40 {
+			pad = strings.Repeat(" ", 40-len(first))
+		}
+		fmt.Fprintf(&b, "%s%sPALETTE_%s_SGR=\"%s\"\n", first, pad, role.Name, sgrs[role.Name])
+	}
+	b.WriteString("# The only value that needs the background form rather than the foreground one.\n")
+	fmt.Fprintf(&b, "typeset -g PALETTE_SURFACE_BG_SGR=\"%s\"\n", surfaceBg)
+	b.WriteString("# A bare escape, so the strings that need a literal sequence can be built from\n")
+	b.WriteString("# the palette instead of repeating its digits.\n")
+	b.WriteString("typeset -g PALETTE_ESC=$'\\e'\n")
+	b.WriteString(zshLsColorsBlock)
+	b.WriteString(zshEzaColorsBlock)
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// zshLsColorsBlock is the LS_COLORS table. Every colour is a PALETTE_*_SGR
+// variable, so the mapping is structure and the values are the palette's.
+const zshLsColorsBlock = `
+# --- File listings: GNU ls reads LS_COLORS, eza reads it as its base layer ----
+export LS_COLORS="rs=0:\
+di=${PALETTE_BLUE_SGR}:\
+ln=${PALETTE_CYAN_SGR}:\
+mh=${PALETTE_MUTED_SGR}:\
+pi=${PALETTE_YELLOW_SGR}:so=${PALETTE_YELLOW_SGR}:do=${PALETTE_YELLOW_SGR}:\
+bd=${PALETTE_MAGENTA_SGR}:cd=${PALETTE_MAGENTA_SGR}:\
+or=${PALETTE_RED_SGR};1:mi=${PALETTE_RED_SGR};1:ca=${PALETTE_RED_SGR}:\
+su=${PALETTE_RED_SGR};${PALETTE_SURFACE_BG_SGR}:sg=${PALETTE_RED_SGR};${PALETTE_SURFACE_BG_SGR}:\
+tw=${PALETTE_GREEN_SGR};${PALETTE_SURFACE_BG_SGR}:ow=${PALETTE_GREEN_SGR};${PALETTE_SURFACE_BG_SGR}:\
+st=${PALETTE_BLUE_SGR};${PALETTE_SURFACE_BG_SGR}:\
+ex=${PALETTE_GREEN_SGR}:\
+*.tar=${PALETTE_RED_SGR}:*.tgz=${PALETTE_RED_SGR}:*.tbz2=${PALETTE_RED_SGR}:*.txz=${PALETTE_RED_SGR}:*.zst=${PALETTE_RED_SGR}:\
+*.zip=${PALETTE_RED_SGR}:*.7z=${PALETTE_RED_SGR}:*.rar=${PALETTE_RED_SGR}:\
+*.gz=${PALETTE_RED_SGR}:*.bz2=${PALETTE_RED_SGR}:*.xz=${PALETTE_RED_SGR}:\
+*.png=${PALETTE_MAGENTA_SGR}:*.jpg=${PALETTE_MAGENTA_SGR}:*.jpeg=${PALETTE_MAGENTA_SGR}:*.gif=${PALETTE_MAGENTA_SGR}:*.webp=${PALETTE_MAGENTA_SGR}:*.svg=${PALETTE_MAGENTA_SGR}:*.ico=${PALETTE_MAGENTA_SGR}:\
+*.mp4=${PALETTE_MAGENTA_SGR}:*.mkv=${PALETTE_MAGENTA_SGR}:*.mov=${PALETTE_MAGENTA_SGR}:*.webm=${PALETTE_MAGENTA_SGR}:\
+*.mp3=${PALETTE_CYAN_SGR}:*.flac=${PALETTE_CYAN_SGR}:*.wav=${PALETTE_CYAN_SGR}:*.ogg=${PALETTE_CYAN_SGR}:*.m4a=${PALETTE_CYAN_SGR}:\
+*.pdf=${PALETTE_YELLOW_SGR}:*.md=${PALETTE_YELLOW_SGR}:*.txt=${PALETTE_YELLOW_SGR}:*.rst=${PALETTE_YELLOW_SGR}:\
+*.sh=${PALETTE_GREEN_SGR}:*.bash=${PALETTE_GREEN_SGR}:*.zsh=${PALETTE_GREEN_SGR}:*.fish=${PALETTE_GREEN_SGR}:\
+*.py=${PALETTE_GREEN_SGR}:*.go=${PALETTE_GREEN_SGR}:*.rs=${PALETTE_GREEN_SGR}:*.js=${PALETTE_GREEN_SGR}:*.ts=${PALETTE_GREEN_SGR}:\
+*.json=${PALETTE_GREEN_SGR}:*.yaml=${PALETTE_GREEN_SGR}:*.yml=${PALETTE_GREEN_SGR}:*.toml=${PALETTE_GREEN_SGR}:\
+*.db=${PALETTE_BLUE_SGR}:*.sqlite=${PALETTE_BLUE_SGR}:*.sql=${PALETTE_BLUE_SGR}:\
+*.log=${PALETTE_MUTED_SGR}:*.lock=${PALETTE_MUTED_SGR}"`
+
+// zshEzaColorsBlock is the EZA_COLORS table, the same shape as LS_COLORS.
+const zshEzaColorsBlock = `
+
+# --- eza metadata ------------------------------------------------------------
+# eza paints permissions, owner, size and date from its own defaults (bold
+# yellow, red, green, blue) which fight with the file names and with every other
+# tool in the terminal. Metadata is de-emphasised here and colour is left to
+# carry meaning: the names, the git state, and the security bits in the
+# permission column.
+export EZA_COLORS="\
+oc=${PALETTE_MUTED_SGR}:\
+ur=${PALETTE_MUTED_SGR}:uw=${PALETTE_MUTED_SGR}:ux=${PALETTE_MUTED_SGR}:ue=${PALETTE_MUTED_SGR}:\
+gr=${PALETTE_MUTED_SGR}:gw=${PALETTE_MUTED_SGR}:gx=${PALETTE_MUTED_SGR}:\
+tr=${PALETTE_MUTED_SGR}:tw=${PALETTE_MUTED_SGR}:tx=${PALETTE_MUTED_SGR}:\
+su=${PALETTE_YELLOW_SGR};1:sf=${PALETTE_YELLOW_SGR};1:xa=${PALETTE_MAGENTA_SGR}:\
+sn=${PALETTE_CYAN_SGR}:nb=${PALETTE_CYAN_SGR}:nk=${PALETTE_CYAN_SGR}:nm=${PALETTE_CYAN_SGR}:ng=${PALETTE_CYAN_SGR}:nt=${PALETTE_CYAN_SGR}:\
+sb=${PALETTE_MUTED_SGR}:ub=${PALETTE_MUTED_SGR}:uk=${PALETTE_MUTED_SGR}:um=${PALETTE_MUTED_SGR}:ug=${PALETTE_MUTED_SGR}:ut=${PALETTE_MUTED_SGR}:\
+df=${PALETTE_MUTED_SGR}:ds=${PALETTE_MUTED_SGR}:lc=${PALETTE_MUTED_SGR}:lm=${PALETTE_MUTED_SGR}:\
+uu=${PALETTE_BLUE_SGR}:un=${PALETTE_MUTED_SGR}:uR=${PALETTE_RED_SGR}:\
+gu=${PALETTE_BLUE_SGR}:gn=${PALETTE_MUTED_SGR}:gR=${PALETTE_RED_SGR}:\
+xx=${PALETTE_SURFACE_SGR}:\
+da=${PALETTE_MUTED_SGR}:in=${PALETTE_MUTED_SGR}:bl=${PALETTE_MUTED_SGR}:\
+hd=${PALETTE_BLUE_SGR};1:lp=${PALETTE_CYAN_SGR}:cc=${PALETTE_RED_SGR}:bO=${PALETTE_RED_SGR};4:\
+sp=${PALETTE_MAGENTA_SGR}:mp=${PALETTE_MAGENTA_SGR}:\
+im=${PALETTE_MAGENTA_SGR}:vi=${PALETTE_MAGENTA_SGR}:mu=${PALETTE_CYAN_SGR}:lo=${PALETTE_CYAN_SGR}:\
+cr=${PALETTE_YELLOW_SGR}:do=${PALETTE_YELLOW_SGR}:co=${PALETTE_RED_SGR}:tm=${PALETTE_MUTED_SGR}:cm=${PALETTE_MUTED_SGR}:\
+ga=${PALETTE_GREEN_SGR}:gm=${PALETTE_YELLOW_SGR}:gd=${PALETTE_RED_SGR}:gv=${PALETTE_MAGENTA_SGR}:\
+gt=${PALETTE_YELLOW_SGR}:gi=${PALETTE_MUTED_SGR}:gc=${PALETTE_RED_SGR};1:\
+Gm=${PALETTE_BLUE_SGR};1:Go=${PALETTE_CYAN_SGR}:Gc=${PALETTE_GREEN_SGR}:Gd=${PALETTE_YELLOW_SGR}"`
+
+// renderP10kTheme renders the p10k prompt's palette fallbacks. They are the same
+// ten roles the zsh line editor reads, written as ${VAR:-default} so the prompt
+// still works when .p10k.zsh is sourced on its own.
+func renderP10kTheme(def themeDefinition) (string, error) {
+	values := map[string]string{}
+	for _, role := range themeShellRoles {
+		hex := def.Palette[role.Role]
+		if hex == "" {
+			return "", fmt.Errorf("theme %q defines no %q, so its p10k palette cannot be generated", def.ID, role.Role)
+		}
+		values[role.Name] = hex
+	}
+
+	var b strings.Builder
+	b.WriteString("  # ── Palette ────────────────────────────────────────────────────────────────\n")
+	b.WriteString("  # Every colour below comes from the palette declared once in themes/" + def.ID + ".toml,\n")
+	b.WriteString("  # which is what keeps the prompt from drifting away from the listings and the\n")
+	b.WriteString("  # line editor, which read the same values. The fallbacks keep this file working\n")
+	b.WriteString("  # when it is sourced on its own, without .zshrc.\n")
+	b.WriteString("  #\n")
+	b.WriteString("  # The block this used to carry held a Kanagawa palette (background #1f1f28,\n")
+	b.WriteString("  # red #c34043, green #76946a, blue #7e9cd8) while the terminal emulators\n")
+	b.WriteString("  # defined different values, so the prompt and the terminal disagreed.\n")
+	for _, role := range themeShellRoles {
+		fmt.Fprintf(&b, "  typeset -g PALETTE_%s=${PALETTE_%s:-\"%s\"}\n", role.Name, role.Name, values[role.Name])
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// renderBatSelection renders the BAT_THEME selection in dotfiles-zsh/.zshrc. It
+// is the switch's half of bat: the theme files are generated too, and the
+// installer copies every shipped .tmTheme into bat's directory and rebuilds its
+// cache, so the name below resolves. The file check keeps a machine where that
+// has not happened yet from turning every bat call into "Unknown theme".
+func renderBatSelection(def themeDefinition) (string, error) {
+	if def.Bat == "" || def.BatFile == "" {
+		return "", fmt.Errorf("theme %q names no bat theme, so its selection cannot be generated", def.ID)
+	}
+	return fmt.Sprintf(`# --- bat --------------------------------------------------------------------
+# The theme bat uses. Generated from themes/%s.toml; the .tmTheme files ship with
+# these dotfiles and the installer builds each into bat's cache, so the name below
+# resolves. The file check keeps a machine where that has not happened yet from
+# turning every bat call into "Unknown theme".
+if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/bat/themes/%s" ]]; then
+    export BAT_THEME="%s"
+else
+    export BAT_THEME="Catppuccin Mocha"
+fi`, def.ID, def.BatFile, def.Bat), nil
+}
+
+// renderNvimColorscheme renders the LazyVim colorscheme selection. Neovim's
+// theme comes from a plugin, so the definition names the colorscheme rather than
+// a palette; a theme whose plugin ships none is refused.
+func renderNvimColorscheme(def themeDefinition) (string, error) {
+	if def.Nvim == "" {
+		return "", fmt.Errorf("theme %q names no Neovim colorscheme, so Neovim cannot be themed with it", def.ID)
+	}
+	return fmt.Sprintf("        colorscheme = %q,", def.Nvim), nil
+}
+
+// themeBatTemplate is the bat .tmTheme, keyed by palette role. The syntax
+// mapping (which scope takes which role) is fixed here because it is structure,
+// not palette data; every colour it emits is a role the definition holds, so
+// there is no hand-written colour left in the generated file. The one backtick
+// in the file is parked behind [[BT]] so the template can live in a Go raw
+// string; the renderer puts it back.
+const themeBatTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The {{id}} theme for bat.
+
+  Every colour is one of the ten the terminal emulators in this repository
+  define, so syntax highlighting inside the terminal cannot disagree with the
+  prompt, the file listings or Herdr. The mapping is by role, not by taste:
+
+    muted   {{muted}}   comments, punctuation, invisible characters
+    yellow  {{yellow}}   strings
+    magenta {{magenta}}   numbers and language constants, preprocessor directives
+    blue    {{blue}}   keywords, storage, types, tags, headings
+    cyan    {{cyan}}   operators, escapes, attribute names, class names
+    green   {{green}}   function names, markdown code spans
+    red     {{red}}   variables, invalid syntax, deletions
+    text    {{text}}   everything else
+
+  No background is set on purpose. The terminal paints one and it is partly
+  transparent, so a themed background would sit on top of it as a panel with a
+  second black.
+
+  Regenerate-to-install: [[BT]]bat cache --build[[BT]] after any change here.
+-->
+<plist version="1.0">
+<dict>
+	<key>name</key>
+	<string>{{batname}}</string>
+	<key>settings</key>
+	<array>
+		<dict>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{text}}</string>
+				<key>caret</key>
+				<string>{{blue}}</string>
+				<key>selection</key>
+				<string>{{selection}}</string>
+				<key>selectionForeground</key>
+				<string>{{text}}</string>
+				<key>lineHighlight</key>
+				<string>{{selection}}</string>
+				<key>invisibles</key>
+				<string>{{muted}}</string>
+			</dict>
+		</dict>
+
+		<!-- Comments and the punctuation that should recede with them. -->
+		<dict>
+			<key>name</key>
+			<string>Comment</string>
+			<key>scope</key>
+			<string>comment, punctuation.definition.comment</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{muted}}</string>
+				<key>fontStyle</key>
+				<string>italic</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Punctuation</string>
+			<key>scope</key>
+			<string>punctuation, punctuation.separator, punctuation.terminator, meta.brace</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{muted}}</string>
+			</dict>
+		</dict>
+
+		<!-- Strings: one colour for the whole family. -->
+		<dict>
+			<key>name</key>
+			<string>String</string>
+			<key>scope</key>
+			<string>string, punctuation.definition.string</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{yellow}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>String escape</string>
+			<key>scope</key>
+			<string>constant.character.escape, constant.other.placeholder</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{cyan}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>String interpolation</string>
+			<key>scope</key>
+			<string>punctuation.section.embedded, punctuation.definition.template-expression</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{red}}</string>
+			</dict>
+		</dict>
+
+		<!-- Numbers and the language constants sit together. -->
+		<dict>
+			<key>name</key>
+			<string>Constant</string>
+			<key>scope</key>
+			<string>constant.numeric, constant.language, constant.other, support.constant, variable.language</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{magenta}}</string>
+			</dict>
+		</dict>
+
+		<!-- Keywords, storage and types carry the accent. -->
+		<dict>
+			<key>name</key>
+			<string>Keyword</string>
+			<key>scope</key>
+			<string>keyword, keyword.control, keyword.other, storage, storage.type, storage.modifier</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{blue}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Operator</string>
+			<key>scope</key>
+			<string>keyword.operator, keyword.operator.assignment, keyword.operator.arithmetic</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{cyan}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Preprocessor</string>
+			<key>scope</key>
+			<string>meta.preprocessor, keyword.control.import, keyword.control.directive</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{magenta}}</string>
+			</dict>
+		</dict>
+
+		<!-- Names: functions green, types cyan, tags accent. -->
+		<dict>
+			<key>name</key>
+			<string>Function</string>
+			<key>scope</key>
+			<string>entity.name.function, support.function, meta.function-call, entity.name.function.macro</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{green}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Type</string>
+			<key>scope</key>
+			<string>entity.name.type, entity.name.class, entity.name.struct, support.class, support.type, entity.other.inherited-class</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{cyan}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Tag</string>
+			<key>scope</key>
+			<string>entity.name.tag, punctuation.definition.tag</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{blue}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Attribute</string>
+			<key>scope</key>
+			<string>entity.other.attribute-name, meta.object-literal.key, support.type.property-name</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{green}}</string>
+			</dict>
+		</dict>
+
+		<!-- Variables, the one place a fourth tone is needed. -->
+		<dict>
+			<key>name</key>
+			<string>Variable</string>
+			<key>scope</key>
+			<string>variable, variable.other, variable.parameter, variable.function, entity.name.variable</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{red}}</string>
+			</dict>
+		</dict>
+
+		<!-- Markdown and documentation. -->
+		<dict>
+			<key>name</key>
+			<string>Heading</string>
+			<key>scope</key>
+			<string>markup.heading, markup.heading punctuation.definition.heading</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{blue}}</string>
+				<key>fontStyle</key>
+				<string>bold</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Bold</string>
+			<key>scope</key>
+			<string>markup.bold</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{text}}</string>
+				<key>fontStyle</key>
+				<string>bold</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Italic</string>
+			<key>scope</key>
+			<string>markup.italic</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{text}}</string>
+				<key>fontStyle</key>
+				<string>italic</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Raw block</string>
+			<key>scope</key>
+			<string>markup.raw, markup.raw.block, markup.inline.raw</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{green}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Link</string>
+			<key>scope</key>
+			<string>markup.underline.link, string.other.link</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{cyan}}</string>
+				<key>fontStyle</key>
+				<string>underline</string>
+			</dict>
+		</dict>
+
+		<!-- Diff. -->
+		<dict>
+			<key>name</key>
+			<string>Diff insert</string>
+			<key>scope</key>
+			<string>markup.inserted, markup.inserted.diff</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{green}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Diff delete</string>
+			<key>scope</key>
+			<string>markup.deleted, markup.deleted.diff</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{red}}</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Diff change</string>
+			<key>scope</key>
+			<string>markup.changed, markup.changed.diff</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{yellow}}</string>
+			</dict>
+		</dict>
+
+		<!-- Errors. -->
+		<dict>
+			<key>name</key>
+			<string>Invalid</string>
+			<key>scope</key>
+			<string>invalid, invalid.illegal, invalid.broken</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{red}}</string>
+				<key>fontStyle</key>
+				<string>bold</string>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>`
+
+// themeBatRoles maps the bat template's tokens onto palette roles. The mapping is
+// the file's own documented one:
+//
+//	muted   #8a8fa3   comments, punctuation, invisible characters
+//	yellow  #ffe066   strings
+//	magenta #ff8dd7   numbers and language constants, preprocessor directives
+//	blue    #7fb4ca   keywords, storage, types, tags, headings
+//	cyan    #7aa89f   operators, escapes, attribute names, class names
+//	green   #b7cc85   function names, markdown code spans
+//	red     #cb7c94   variables, invalid syntax, deletions
+//	text    #f3f6f9   everything else
+//	selection #263356 the selection and line-highlight backgrounds
+//
+// It is data because it is not obvious: a reader cannot tell from a scope name
+// which role it takes, so the mapping is written down once here.
+var themeBatRoles = []struct{ Token, Role string }{
+	{"muted", "bright_black"},
+	{"yellow", "yellow"},
+	{"magenta", "magenta"},
+	{"blue", "blue"},
+	{"cyan", "cyan"},
+	{"green", "green"},
+	{"red", "red"},
+	{"text", "text"},
+	{"selection", "selection"},
+}
+
+// renderBatTheme renders a bat .tmTheme from the definition. Every colour it
+// emits is a role the definition holds; a definition missing one is refused
+// rather than emitted with a hole, and the syntax mapping is themeBatRoles above.
+func renderBatTheme(def themeDefinition) (string, error) {
+	pairs := []string{"{{id}}", def.ID}
+	if def.Bat == "" {
+		return "", fmt.Errorf("theme %q names no bat theme, so its bat theme cannot be generated", def.ID)
+	}
+	pairs = append(pairs, "{{batname}}", def.Bat)
+	for _, role := range themeBatRoles {
+		value := def.Palette[role.Role]
+		if value == "" {
+			return "", fmt.Errorf("theme %q defines no %q, so its bat theme cannot be generated", def.ID, role.Role)
+		}
+		pairs = append(pairs, "{{"+role.Token+"}}", value)
+	}
+	// The one backtick the template parks behind [[BT]].
+	pairs = append(pairs, "[[BT]]", "`")
+	return strings.NewReplacer(pairs...).Replace(themeBatTemplate), nil
 }
 
 // stepExecutors is the dispatch table for the non-interactive executor. Each
@@ -2438,8 +4275,9 @@ func stepInstallShell(m *Model) error {
 		// binary can come from a branch that already carries this file, and a
 		// missing theme must not abort the whole shell step. TestRepoAssetsExist is
 		// what guarantees the repository contains it.
-		batThemeSrc := filepath.Join(repoDir, repoAssetBatTheme)
-		if _, err := os.Stat(batThemeSrc); err != nil {
+		batThemesSrcDir := filepath.Join(repoDir, "dotfiles-bat", "themes")
+		batThemeEntries, readErr := os.ReadDir(batThemesSrcDir)
+		if readErr != nil {
 			SendLog(stepID, "Skipping the bat theme: this checkout predates it")
 		} else {
 			batConfigDir := filepath.Join(homeDir, ".config", "bat")
@@ -2449,10 +4287,20 @@ func stepInstallShell(m *Model) error {
 					"Failed to create the bat themes directory",
 					err)
 			}
-			if err := system.CopyFile(batThemeSrc, filepath.Join(batThemesDir, "dotfiles.tmTheme")); err != nil {
-				return wrapStepError("shell", "Install Zsh",
-					"Failed to copy the bat theme",
-					err)
+			// Every shipped .tmTheme is copied, not just the dotfiles one: the theme
+			// switch selects between them by name, so a theme the machine does not have
+			// built would be an "Unknown theme" at the moment it was chosen.
+			batInstalled := 0
+			for _, entry := range batThemeEntries {
+				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tmTheme") {
+					continue
+				}
+				if err := system.CopyFile(filepath.Join(batThemesSrcDir, entry.Name()), filepath.Join(batThemesDir, entry.Name())); err != nil {
+					return wrapStepError("shell", "Install Zsh",
+						"Failed to copy the bat theme",
+						err)
+				}
+				batInstalled++
 			}
 			// bat reads a theme from its cache, not from the themes directory, so the
 			// cache has to be rebuilt for the copy above to have any effect. The rebuild
@@ -2470,7 +4318,7 @@ func stepInstallShell(m *Model) error {
 			}); result.Error != nil {
 				SendLog(stepID, fmt.Sprintf("Warning: could not rebuild the bat cache: %v", result.Error))
 			} else {
-				SendLog(stepID, "✓ bat theme installed")
+				SendLog(stepID, fmt.Sprintf("✓ %d bat theme(s) installed", batInstalled))
 			}
 		}
 		// Oh My Zsh manages its own checkout. Writing a vendored copy over an

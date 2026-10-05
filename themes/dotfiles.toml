@@ -1,0 +1,119 @@
+# The dotfiles theme: this repository's own palette, defined once.
+#
+# Every value below is transcribed verbatim from the repository's own
+# hand-written DOTFILES THEME blocks, which are the historical source of truth:
+#
+#   alacritty.toml            [colors.*]
+#   wezterm.lua / .wezterm.lua   config.colors tables
+#   dotfiles-kitty/kitty.conf    flat colour keys
+#   dotfiles-ghostty/config      inline palette
+#   starship.toml             [palettes.dotfiles]
+#   dotfiles-zsh/.zshrc       PALETTE_* variables
+#   dotfiles-zsh/.p10k.zsh    PALETTE_* fallbacks
+#   dotfiles-herdr/config.toml   [theme.custom] and [ui] accent
+#
+# No value here was invented or extrapolated. The role names are the canonical
+# ones themes/README.md defines; the mapping from each block to a role is the
+# terminal's own ANSI role for that colour (palette N -> the role of colour N).
+
+[theme]
+id = "dotfiles"
+name = "dotfiles"
+provenance = "alacritty.toml, wezterm.lua, dotfiles-kitty/kitty.conf, dotfiles-ghostty/config, starship.toml, dotfiles-zsh/.zshrc, dotfiles-zsh/.p10k.zsh, dotfiles-herdr/config.toml"
+
+[palette]
+# --- terminal base ---
+base = "#06080f"            # alacritty background / kitty background
+text = "#f3f6f9"            # alacritty foreground / kitty foreground
+cursor = "#e0c15a"          # alacritty cursor / kitty cursor
+cursor_text = "#06080f"     # alacritty cursor text
+selection = "#263356"       # alacritty selection background
+selection_text = "#f3f6f9"  # alacritty selection text
+
+# --- ANSI normal (colours 0-7) ---
+black = "#06080f"           # alacritty normal black / kitty color0
+red = "#cb7c94"             # alacritty normal red / kitty color1
+green = "#b7cc85"           # alacritty normal green / kitty color2
+yellow = "#ffe066"          # alacritty normal yellow / kitty color3
+blue = "#7fb4ca"            # alacritty normal blue / kitty color4
+magenta = "#ff8dd7"         # alacritty normal magenta / kitty color5
+cyan = "#7aa89f"            # alacritty normal cyan / kitty color6
+white = "#f3f6f9"           # alacritty normal white / kitty color7
+
+# --- ANSI bright (colours 8-15) ---
+bright_black = "#8a8fa3"    # alacritty bright black / kitty color8
+bright_red = "#de8fa8"      # alacritty bright red / kitty color9
+bright_green = "#d1e8a9"    # alacritty bright green / kitty color10
+bright_yellow = "#fff7b1"   # alacritty bright yellow / kitty color11
+bright_blue = "#a3d4d5"     # alacritty bright blue / kitty color12
+bright_magenta = "#ffaeea"  # alacritty bright magenta / kitty color13
+bright_cyan = "#7fb4ca"     # alacritty bright cyan / kitty color14
+bright_white = "#f3f6f9"    # alacritty bright white / kitty color15
+
+# --- fish roles ---
+# The mechanical mapping from the canonical palette to fish's own role names.
+# fish does not read the terminal's ANSI slots for these, so each is named here
+# and every value is one the canonical palette already holds:
+#   normal/redirection/pager_completion = text   command/pager_prefix/operator = green
+#   keyword/escape = magenta   quote = yellow   end = cyan   error = red   param = blue
+#   comment/autosuggestion/pager_progress/pager_description = bright_black
+#   selection/search_match = selection
+[fish]
+normal = "f3f6f9"
+command = "b7cc85"
+keyword = "ff8dd7"
+quote = "ffe066"
+redirection = "f3f6f9"
+end = "7aa89f"
+error = "cb7c94"
+param = "7fb4ca"
+comment = "8a8fa3"
+selection = "263356"
+search_match = "263356"
+operator = "b7cc85"
+escape = "ff8dd7"
+autosuggestion = "8a8fa3"
+pager_progress = "8a8fa3"
+pager_prefix = "b7cc85"
+pager_completion = "f3f6f9"
+pager_description = "8a8fa3"
+
+# --- prompt roles ---
+# Starship's palette table is written in Catppuccin's role naming, not the
+# terminal's, and nine of these do not appear in the canonical palette at all
+# (mauve, peach, subtext0, overlay0, maroon, lavender, overlay2, overlay1,
+# surface2). They are declared here from what the repository already holds in
+# starship.toml [palettes.dotfiles]; none is extrapolated from a nearest ANSI
+# role. sky and sapphire are absent because this repository has no value for
+# them, and the table does not use them.
+[prompt]
+text = "#f3f6f9"
+red = "#cb7c94"
+green = "#b7cc85"
+yellow = "#ffe066"
+blue = "#7fb4ca"
+mauve = "#a3b5d6"
+pink = "#ff8dd7"
+teal = "#7aa89f"
+peach = "#deba87"
+subtext0 = "#5c6170"
+overlay0 = "#232a40"
+rosewater = "#e0c15a"
+flamingo = "#ff8dd7"
+maroon = "#c4746e"
+lavender = "#b99bf2"
+subtext1 = "#8a8fa3"
+overlay2 = "#313342"
+overlay1 = "#191e28"
+surface2 = "#27345c"
+surface1 = "#232a40"
+surface0 = "#191e28"
+base = "none"
+mantle = "#06080f"
+crust = "#06080f"
+
+# --- bat theme name and file ---
+# The name bat selects it by (the .tmTheme's own name) and the file it ships as.
+[bat]
+name = "dotfiles"
+file = "dotfiles.tmTheme"

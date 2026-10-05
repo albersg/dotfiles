@@ -62,11 +62,12 @@ if [[ $- == *i* ]]; then
     # Commands to run in interactive sessions can go here
 fi
 
+# dotfiles-managed-config: zsh
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 # ─── Palette ─────────────────────────────────────────────────────────────────
-# One palette, defined once. The terminal emulators set the same values
-# (dotfiles-ghostty, dotfiles-kitty, alacritty.toml), so everything painted
-# inside them resolves to the same colours instead of each tool falling back to
-# its own defaults.
+# One palette, defined once in themes/dotfiles.toml. The terminal
+# emulators set the same values, so everything painted inside them resolves to
+# the same colours instead of each tool falling back to its own defaults.
 #
 #   base     #06080f   background
 #   surface  #263356   selection, de-emphasised punctuation
@@ -84,10 +85,9 @@ fi
 # an SGR sequence. Zsh expands both at file-read time, so the indirection costs
 # nothing at startup, and having one list is what stops the two forms drifting.
 #
-# The 24-bit form is not a style preference. The index form this file used
-# before (38;5;67, 38;5;132, 38;5;144) addresses entries 16-255 of the
-# terminal's colour cube, which a custom theme never redefines, so those values
-# rendered as unrelated hues on any machine using this configuration.
+# The 24-bit form is not a style preference. The index form addresses entries
+# 16-255 of the terminal's colour cube, which a custom theme never redefines, so
+# those values would render as unrelated hues.
 typeset -g PALETTE_BASE="#06080f"       PALETTE_BASE_SGR="38;2;6;8;15"
 typeset -g PALETTE_SURFACE="#263356"    PALETTE_SURFACE_SGR="38;2;38;51;86"
 typeset -g PALETTE_TEXT="#f3f6f9"       PALETTE_TEXT_SGR="38;2;243;246;249"
@@ -155,26 +155,24 @@ cr=${PALETTE_YELLOW_SGR}:do=${PALETTE_YELLOW_SGR}:co=${PALETTE_RED_SGR}:tm=${PAL
 ga=${PALETTE_GREEN_SGR}:gm=${PALETTE_YELLOW_SGR}:gd=${PALETTE_RED_SGR}:gv=${PALETTE_MAGENTA_SGR}:\
 gt=${PALETTE_YELLOW_SGR}:gi=${PALETTE_MUTED_SGR}:gc=${PALETTE_RED_SGR};1:\
 Gm=${PALETTE_BLUE_SGR};1:Go=${PALETTE_CYAN_SGR}:Gc=${PALETTE_GREEN_SGR}:Gd=${PALETTE_YELLOW_SGR}"
+# <<< dotfiles-theme <<<
 
 # Icons need a space to breathe next to the name.
 export EZA_ICON_SPACING=2
 
+# dotfiles-managed-config: bat
+# >>> dotfiles-theme-bat: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 # --- bat --------------------------------------------------------------------
-# The theme is generated from the palette above and shipped with these dotfiles,
-# because none of the themes bat ships can match a custom palette: each was drawn
-# for its own background and its own accent colours, so any of them puts colours
-# on screen that the terminal never defines.
-#
-# A theme has to be built into bat's cache before it can be selected, and it is the
-# installer that copies the file and runs `bat cache --build`. On a machine where
-# that has not happened yet, naming it would make every bat invocation print
-# "Unknown theme" and fall back anyway, so the closest shipped theme is used until
-# the file is present.
+# The theme bat uses. Generated from themes/dotfiles.toml; the .tmTheme files ship with
+# these dotfiles and the installer builds each into bat's cache, so the name below
+# resolves. The file check keeps a machine where that has not happened yet from
+# turning every bat call into "Unknown theme".
 if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/bat/themes/dotfiles.tmTheme" ]]; then
     export BAT_THEME="dotfiles"
 else
     export BAT_THEME="Catppuccin Mocha"
 fi
+# <<< dotfiles-theme-bat <<<
 
 # --- zsh-autosuggestions ------------------------------------------------------
 # The default highlight is `fg=8`, the terminal's bright black, which on this

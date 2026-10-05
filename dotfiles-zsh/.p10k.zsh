@@ -1711,15 +1711,17 @@
   #
   # This works even with POWERLEVEL9K_DISABLE_HOT_RELOAD=true.
   #
+# dotfiles-managed-config: p10k
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
   # ── Palette ────────────────────────────────────────────────────────────────
-  # Every colour below comes from the palette declared once in
-  # dotfiles-zsh/.zshrc, which is what keeps the prompt from drifting away from
-  # the listings and the line editor, which read the same values. The fallbacks
-  # keep this file working when it is sourced on its own, without .zshrc.
+  # Every colour below comes from the palette declared once in themes/dotfiles.toml,
+  # which is what keeps the prompt from drifting away from the listings and the
+  # line editor, which read the same values. The fallbacks keep this file working
+  # when it is sourced on its own, without .zshrc.
   #
-  # The block this replaces carried Kanagawa's palette (background #1f1f28,
+  # The block this used to carry held a Kanagawa palette (background #1f1f28,
   # red #c34043, green #76946a, blue #7e9cd8) while the terminal emulators
-  # define different values, so the prompt and the terminal disagreed.
+  # defined different values, so the prompt and the terminal disagreed.
   typeset -g PALETTE_BASE=${PALETTE_BASE:-"#06080f"}
   typeset -g PALETTE_SURFACE=${PALETTE_SURFACE:-"#263356"}
   typeset -g PALETTE_TEXT=${PALETTE_TEXT:-"#f3f6f9"}
@@ -1730,6 +1732,7 @@
   typeset -g PALETTE_BLUE=${PALETTE_BLUE:-"#7fb4ca"}
   typeset -g PALETTE_MAGENTA=${PALETTE_MAGENTA:-"#ff8dd7"}
   typeset -g PALETTE_CYAN=${PALETTE_CYAN:-"#7aa89f"}
+# <<< dotfiles-theme <<<
 
   # No background of its own. The block above painted #1f1f28 behind the prompt
   # while the terminal paints #06080f, so the prompt showed a lighter band the

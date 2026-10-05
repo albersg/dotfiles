@@ -839,6 +839,15 @@ func (m Model) View() string {
 		return ""
 	}
 
+	// The live preview repaints the whole interface in the theme under the cursor.
+	// It writes nothing and is restored before View returns, so a screen with no
+	// preview active renders byte-for-byte the default chrome.
+	if def, ok := m.previewThemeDef(); ok {
+		if restore, err := applyPreviewTheme(def); err == nil {
+			defer restore()
+		}
+	}
+
 	var s strings.Builder
 
 	switch m.Screen {
@@ -1162,18 +1171,31 @@ func (m Model) renderUtilities() string {
 		notice = append(notice, lines...)
 	}
 
-	// The rows the title, the blank above the menu, the menu and the notice
-	// spend, taken off the frame's body before the description is wrapped, so the
-	// description can never be the row that overflows.
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
-	descBudget := bodyRows - (2 + len(menu)) - len(notice)
+	// The live preview: while the cursor is on a theme row, the section shows
+	// that theme's real palette. It writes nothing; the values come from the same
+	// definition the apply would write.
+	preview := m.themePreviewLines(width)
 
-	body := []string{BrandStyle.Render(m.GetScreenTitle())}
+	// The rows the title, the blank above the menu, the menu, the preview and the
+	// notice spend, taken off the frame's body before the description is wrapped,
+	// so the description can never be the row that overflows.
+	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	descBudget := bodyRows - (2 + len(menu)) - len(notice) - len(preview)
+
+	title := BrandStyle.Render(m.GetScreenTitle())
+	if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
+		// The preview repaints the section's own title in the theme's accent, so
+		// the palette is seen and not only read.
+		title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.GetScreenTitle())
+	}
+
+	body := []string{title}
 	for _, line := range m.utilitiesDescriptionLines(width, descBudget) {
 		body = append(body, MutedStyle.Render(line))
 	}
 	body = append(body, "")
 	body = append(body, menu...)
+	body = append(body, preview...)
 	body = append(body, notice...)
 
 	return m.frame(m.headerName(), "", body, hints)
@@ -1206,23 +1228,142 @@ func (m Model) utilitiesDescriptionLines(width, budget int) []string {
 // account of why there is nothing to offer here. The file it names is the
 // installer's own record; the desktop's store belongs to the desktop's tool.
 func (m Model) utilitiesDescription() []string {
+	var paragraphs []string
 	if !m.ThemeSwitchFound {
-		return []string{
-			"No desktop theme switch is available here. Switching needs a GNOME, KDE Plasma or macOS " +
-				"session with the tool that changes its theme on PATH; a server, Termux or a plain " +
-				"terminal has none, so no switch is offered.",
+		paragraphs = append(paragraphs,
+			"No desktop theme switch is available here. Switching needs a GNOME, KDE Plasma or macOS "+
+				"session with the tool that changes its theme on PATH; a server, Termux or a plain "+
+				"terminal has none, so no switch is offered.")
+	} else {
+		paragraphs = append(paragraphs,
+			fmt.Sprintf("Switch the desktop's theme through %s's own tool. The setting that was there is "+
+				"recorded before it changes, so the switch can be undone.", m.ThemeSwitch.Name))
+		if m.ThemeSwitch.Writes != "" {
+			paragraphs = append(paragraphs, fmt.Sprintf("It writes %s, and its own record in theme.json "+
+				"beside the installer's other state.", m.ThemeSwitch.Writes))
 		}
 	}
 
-	paragraphs := []string{
-		fmt.Sprintf("Switch the desktop's theme through %s's own tool. The setting that was there is "+
-			"recorded before it changes, so the switch can be undone.", m.ThemeSwitch.Name),
+	// The dotfiles' own theme. Read from the repository checkout, so before a
+	// clone the section says it cannot be switched yet instead of showing rows
+	// that would fail.
+	if len(m.DotfilesThemes) == 0 {
+		reason := m.DotfilesThemesErr
+		if reason == "" {
+			reason = "the repository has not been cloned yet"
+		}
+		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
+		return paragraphs
 	}
-	if m.ThemeSwitch.Writes != "" {
-		paragraphs = append(paragraphs, fmt.Sprintf("It writes %s, and its own record in theme.json "+
-			"beside the installer's other state.", m.ThemeSwitch.Writes))
-	}
+	paragraphs = append(paragraphs, "The dotfiles' own theme is defined once in themes/. A row applies it to every "+
+		"tool it can paint and names the tools it leaves out.")
 	return paragraphs
+}
+
+// dotfilesThemeUndoRow is the row that puts back the blocks the last dotfiles
+// theme change replaced. It is named distinctly from the desktop switch's undo
+// row so the two are not confused on the same screen.
+const dotfilesThemeUndoRow = "Undo the last dotfiles theme change"
+
+// themePreviewSwatchRoles is the palette roles the live preview paints, in the
+// order it paints them. They are the roles every offered theme has.
+var themePreviewSwatchRoles = []string{
+	"base", "selection", "text", "red", "green", "yellow", "blue", "magenta", "cyan",
+}
+
+// previewThemeDef is the theme the cursor is on, when it is on a theme row. The
+// preview restyles only what it can reach from the model: the values are the
+// definition's own, never a second copy kept for drawing.
+func (m Model) previewThemeDef() (themeDefinition, bool) {
+	options := m.GetCurrentOptions()
+	if m.Cursor < 0 || m.Cursor >= len(options) {
+		return themeDefinition{}, false
+	}
+	return m.dotfilesThemeForRow(options[m.Cursor])
+}
+
+// themePreviewLines is the one preview row: a label that says the colours are a
+// preview and that nothing has been applied, then a swatch for each role the
+// theme holds, painted in the theme's real colour. It is built from the same
+// definition the apply writes, so the preview cannot show a colour the switch
+// would not, and it is trimmed to the width it is drawn at by dropping whole
+// swatches rather than splitting a styled cell mid-sequence.
+func (m Model) themePreviewLines(width int) []string {
+	def, ok := m.previewThemeDef()
+	if !ok {
+		return nil
+	}
+
+	label := "Preview (nothing applied) — " + def.Name + ":"
+	if lipgloss.Width(label) > width {
+		label = truncateRunes(label, width)
+	}
+
+	var b strings.Builder
+	b.WriteString(MutedStyle.Render(label))
+	for _, role := range themePreviewSwatchRoles {
+		hex := def.Palette[role]
+		if hex == "" {
+			continue
+		}
+		if lipgloss.Width(b.String())+2 > width {
+			break
+		}
+		b.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(hex)).Render("  "))
+	}
+	return []string{b.String()}
+}
+
+// truncateRunes cuts s to at most width columns without splitting a rune, so a
+// narrow terminal trims the label instead of drawing past the frame.
+func truncateRunes(s string, width int) string {
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		w := lipgloss.Width(string(r))
+		if used+w > width {
+			break
+		}
+		b.WriteRune(r)
+		used += w
+	}
+	return b.String()
+}
+
+// dotfilesThemeRow is the menu row for one theme. It names the tools the theme
+// cannot paint, so the exclusion list is drawn where the choice is made rather
+// than only in the guard's log.
+func dotfilesThemeRow(def themeDefinition) string {
+	_, uncovered := themeCoverage(def)
+	if len(uncovered) == 0 {
+		return "Apply the " + def.Name + " theme"
+	}
+	return "Apply the " + def.Name + " theme (not " + strings.Join(uncovered, ", ") + ")"
+}
+
+// dotfilesThemeForRow finds the theme a row names, so the handler switches on the
+// definition rather than on a label it re-parses.
+func (m Model) dotfilesThemeForRow(row string) (themeDefinition, bool) {
+	for _, def := range m.DotfilesThemes {
+		if def.Complete() && dotfilesThemeRow(def) == row {
+			return def, true
+		}
+	}
+	return themeDefinition{}, false
+}
+
+// dotfilesThemeOptions is one row per complete theme, in the definitions' order.
+func (m Model) dotfilesThemeOptions() []string {
+	var rows []string
+	for _, def := range m.DotfilesThemes {
+		if def.Complete() {
+			rows = append(rows, dotfilesThemeRow(def))
+		}
+	}
+	return rows
 }
 
 func (m Model) renderMainMenu() string {

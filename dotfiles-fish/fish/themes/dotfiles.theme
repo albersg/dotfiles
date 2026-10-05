@@ -1,0 +1,24 @@
+# dotfiles-managed-config: fish
+# name: dotfiles Fish shell theme
+# generated from themes/dotfiles.toml; edit the definition, not this file
+
+fish_color_normal f3f6f9
+fish_color_command b7cc85
+fish_color_keyword ff8dd7
+fish_color_quote ffe066
+fish_color_redirection f3f6f9
+fish_color_end 7aa89f
+fish_color_error cb7c94
+fish_color_param 7fb4ca
+fish_color_comment 8a8fa3
+fish_color_selection --background=263356
+fish_color_search_match --background=263356
+fish_color_operator b7cc85
+fish_color_escape ff8dd7
+fish_color_autosuggestion 8a8fa3
+
+# Completion Pager Colors
+fish_pager_color_progress 8a8fa3
+fish_pager_color_prefix b7cc85
+fish_pager_color_completion f3f6f9
+fish_pager_color_description 8a8fa3

@@ -144,6 +144,22 @@ is told so rather than offered a switch that would fail. `--dry-run` skips the u
 every installation step. See the [TUI Installer Guide](docs/tui-installer.md#utilities) for
 the exact files it touches.
 
+**Switch the dotfiles' own theme.** The dotfiles ship one palette — the one the terminals, the
+prompt, `bat` and Herdr all read — and that palette is now defined once in [`themes/`](themes/)
+rather than written by hand in each config. A theme is a file there, so adding one adds a row. The
+switch applies a complete theme (a definition with every canonical role: today **dotfiles** and
+**Catppuccin Mocha**) to the terminal, Starship, shell-prompt, Herdr, bat and Neovim configs this
+repository owns, records the exact bytes it replaced in the same `theme.json`, and can put them back
+with a dedicated undo row. Each theme row names the tools it leaves out (today fish and tmux, plus
+Neovim for dotfiles), so nothing is left on the old palette without being said. A theme missing roles
+is reported as partial and never offered. The definitions come from the cloned checkout, so before a
+clone the section says the switch is not available yet rather than drawing a row that fails. Move the
+cursor onto a theme row and **the whole installer repaints itself in that theme's colours** — a live
+preview built from the same definition the apply writes, labelled `Preview (nothing applied)` — and
+leaving the row puts the default chrome back; nothing is written while the cursor moves. It only rewrites files carrying the `dotfiles-managed-config:`
+ownership marker; a file you wrote is left exactly as it is. `--dry-run` skips it too. See
+[`themes/README.md`](themes/README.md).
+
 ---
 
 ## Supported Platforms

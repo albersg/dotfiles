@@ -1,0 +1,91 @@
+# Catppuccin Mocha, transcribed from what this repository already ships.
+#
+# The repository holds this palette in two places, and both are used verbatim:
+#
+#   dotfiles-ghostty/themes/catppuccin-mocha.conf   the terminal mapping:
+#       palette 0-15, background, foreground, cursor-colour, cursor-text,
+#       selection-background, selection-foreground
+#   starship.toml  [palettes.catppuccin_mocha]      the named palette (26 roles)
+#
+# The canonical roles are taken from the ghostty file's terminal mapping, which
+# is the repository's own Catppuccin terminal definition. Nothing here is
+# invented and nothing is fetched from the network. Note that this repository's
+# ghostty file deliberately overrides Catppuccin's black with #27272a (its own
+# "ORIGINAL - palette = 0=#45475a" comment records the upstream value); the
+# repository's value wins, because it is the one this repository ships.
+
+[theme]
+id = "catppuccin-mocha"
+name = "Catppuccin Mocha"
+provenance = "dotfiles-ghostty/themes/catppuccin-mocha.conf, starship.toml [palettes.catppuccin_mocha]"
+
+[palette]
+# --- terminal base ---
+base = "#1e1e2e"            # catppuccin-mocha.conf background
+text = "#cdd6f4"            # catppuccin-mocha.conf foreground
+cursor = "#f5e0dc"          # catppuccin-mocha.conf cursor-colour
+cursor_text = "#1e1e2e"     # catppuccin-mocha.conf cursor-text
+selection = "#353749"       # catppuccin-mocha.conf selection-background
+selection_text = "#cdd6f4"  # catppuccin-mocha.conf selection-foreground
+
+# --- ANSI normal (colours 0-7) ---
+black = "#27272a"           # catppuccin-mocha.conf palette 0 (repo override)
+red = "#f38ba8"             # catppuccin-mocha.conf palette 1
+green = "#a6e3a1"           # catppuccin-mocha.conf palette 2
+yellow = "#f9e2af"          # catppuccin-mocha.conf palette 3
+blue = "#89b4fa"            # catppuccin-mocha.conf palette 4
+magenta = "#f5c2e7"         # catppuccin-mocha.conf palette 5
+cyan = "#94e2d5"            # catppuccin-mocha.conf palette 6
+white = "#bac2de"           # catppuccin-mocha.conf palette 7
+
+# --- ANSI bright (colours 8-15) ---
+bright_black = "#585b70"    # catppuccin-mocha.conf palette 8
+bright_red = "#f38ba8"      # catppuccin-mocha.conf palette 9
+bright_green = "#a6e3a1"    # catppuccin-mocha.conf palette 10
+bright_yellow = "#f9e2af"   # catppuccin-mocha.conf palette 11
+bright_blue = "#89b4fa"     # catppuccin-mocha.conf palette 12
+bright_magenta = "#f5c2e7"  # catppuccin-mocha.conf palette 13
+bright_cyan = "#94e2d5"     # catppuccin-mocha.conf palette 14
+bright_white = "#a6adc8"    # catppuccin-mocha.conf palette 15
+
+# --- prompt roles ---
+# Transcribed from starship.toml [palettes.catppuccin_mocha], which already holds
+# the full Catppuccin Mocha prompt palette. sky and sapphire are declared too
+# because the repository has their values; the generated Starship table emits
+# them when present.
+[prompt]
+rosewater = "#f5e0dc"
+flamingo = "#f2cdcd"
+pink = "#f5c2e7"
+mauve = "#cba6f7"
+red = "#f38ba8"
+maroon = "#eba0ac"
+peach = "#fab387"
+yellow = "#f9e2af"
+green = "#a6e3a1"
+teal = "#94e2d5"
+sky = "#89dceb"
+sapphire = "#74c7ec"
+blue = "#89b4fa"
+lavender = "#b4befe"
+text = "#cdd6f4"
+subtext1 = "#bac2de"
+subtext0 = "#a6adc8"
+overlay2 = "#9399b2"
+overlay1 = "#7f849c"
+overlay0 = "#6c7086"
+surface2 = "#585b70"
+surface1 = "#45475a"
+surface0 = "#313244"
+base = "#1e1e2e"
+mantle = "#181825"
+crust = "#11111b"
+
+# --- Neovim colorscheme name ---
+[nvim]
+name = "catppuccin"
+
+# --- bat theme name and file ---
+[bat]
+name = "Catppuccin Mocha"
+file = "catppuccin-mocha.tmTheme"
