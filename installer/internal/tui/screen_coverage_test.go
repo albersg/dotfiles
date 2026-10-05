@@ -211,15 +211,26 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 	t.Logf("rendered %d screens at %d sizes: %d screen x size cases", len(cases), len(measuredTerminalSizes), checked)
 }
 
+// The companion coverage main measured before the mini volume rung existed. The
+// mini is the same five rows as the glyph cat's full rung and takes over exactly that
+// band, so with the encoder on the floor must draw at least as many creatures as it
+// did on main: a taller rung that pushes the compact glyph cat out of a screen it
+// used to fit is the regression this pins. mainCompanionCoverage80x24 came from the
+// 53 measured screens at 80x24; mainCompanionCoverageTotal is the 636-case total.
+const (
+	mainCompanionCoverage80x24 = 35
+	mainCompanionCoverageTotal = 461
+)
+
 // TestCompanionCoverageAcrossTerminalSizes measures how many screen x size cases
-// draw a creature at all. The rung is chosen by the terminal, but a frame whose
-// body fills it refuses to overwrite content (placeCompanion), so a too-tall rung
-// leaves more screens showing no creature than it needs to. The count is logged
-// rather than asserted: it is the evidence behind the ladder's quarter-of-the-height
-// bound, re-derivable on any machine, not a target to tune the art against.
+// draw a creature at all, and pins the floor against the pre-mini baseline. The rung
+// is chosen by the terminal, but a frame whose body fills it refuses to overwrite
+// content (placeCompanion), so a too-tall rung leaves more screens showing no
+// creature than it needs to. The total is logged, and the two baselines are
+// asserted: coverage must never drop below what main drew.
 func TestCompanionCoverageAcrossTerminalSizes(t *testing.T) {
 	cases := terminalFitCases()
-	total, drawn := 0, 0
+	total, drawn, at80x24 := 0, 0, 0
 	for _, c := range cases {
 		for _, size := range measuredTerminalSizes {
 			m := c.build(t)
@@ -228,12 +239,22 @@ func TestCompanionCoverageAcrossTerminalSizes(t *testing.T) {
 			m.ink = companionInkFor(true)
 			if _, rows := trainerViewCompanionArt(m.View()); rows > 0 {
 				drawn++
+				if size.name == "80x24" {
+					at80x24++
+				}
 			}
 			total++
 		}
 	}
-	t.Logf("companion coverage: %d of %d screen x size cases (%.0f%%) draw a creature; %d draw none",
-		drawn, total, 100*float64(drawn)/float64(total), total-drawn)
+	t.Logf("companion coverage: %d of %d screen x size cases (%.0f%%) draw a creature; %d draw none; %d of %d draw at 80x24",
+		drawn, total, 100*float64(drawn)/float64(total), total-drawn, at80x24, len(cases))
+	if at80x24 < mainCompanionCoverage80x24 {
+		t.Errorf("at 80x24 only %d of %d screens draw a creature, want at least the %d main drew: the mini rung must replace the five-row glyph cat, not displace the compact head",
+			at80x24, len(cases), mainCompanionCoverage80x24)
+	}
+	if drawn < mainCompanionCoverageTotal {
+		t.Errorf("companion coverage is %d of %d, below the %d main drew: a rung grew past the rows the body leaves", drawn, total, mainCompanionCoverageTotal)
+	}
 }
 
 // terminalFitCase is one screen this guard renders at every measured size. The

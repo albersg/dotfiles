@@ -414,6 +414,14 @@ func TestCompanionArtIsRowsOfPrintableASCII(t *testing.T) {
 		t.Errorf("the walk bounds itself on %d columns but the widest cell is %d",
 			companionCellWidth, companionVolumeFullWidth)
 	}
+	// The mini volume shares its row count with the glyph cat's full rung, so the
+	// height resolves through companionSpriteWidth for both art sets. The two cells
+	// must be the same width, or the glyph path would place the cat in the volume's
+	// cell and the fallback would drift sideways by the difference.
+	if companionVolumeMiniWidth != companionFullWidth {
+		t.Errorf("the mini volume is %d columns and the glyph cat's full rung is %d; the shared height needs one cell width",
+			companionVolumeMiniWidth, companionFullWidth)
+	}
 	for _, height := range companionHeights() {
 		if cell := companionSpriteWidth(height); cell > companionCellWidth {
 			t.Errorf("height %d draws a %d-column cell, wider than the %d the walk allows",
@@ -746,13 +754,15 @@ func TestCompanionRungIsNeverMoreThanAQuarterOfTheHeight(t *testing.T) {
 		pixel      bool
 		wantHeight int
 	}{
-		{31, true, companionFullHeight},
+		{31, true, companionVolumeMiniHeight},
 		{32, true, companionVolumeSmallHeight},
 		{47, true, companionVolumeSmallHeight},
 		{48, true, companionVolumeFullHeight},
 		{62, true, companionVolumeFullHeight},
+		{25, true, companionVolumeMiniHeight},
 		{24, true, companionCompactHeight},
-		{25, true, companionFullHeight},
+		{20, true, companionCompactHeight},
+		{19, true, companionCompactHeight},
 		{24, false, companionCompactHeight},
 		{25, false, companionFullHeight},
 	}
@@ -2455,11 +2465,11 @@ func companionGazes() []companionGaze {
 	return []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {Y: 1}, {X: -1, Y: -1}, {X: 1, Y: -1}, {X: -1, Y: 1}, {X: 1, Y: 1}}
 }
 
-// companionVolumeRungs is the volume's two sizes, in the ladder's own order: the full
-// sprite first and the small one after it.
+// companionVolumeRungs is the volume's three sizes, in the ladder's own order: the full
+// sprite first, the small one after it, then the mini one.
 func companionVolumeRungs() []companionVolumeSize {
-	rungs := make([]companionVolumeSize, 0, 2)
-	for _, height := range []int{companionVolumeFullHeight, companionVolumeSmallHeight} {
+	rungs := make([]companionVolumeSize, 0, 3)
+	for _, height := range []int{companionVolumeFullHeight, companionVolumeSmallHeight, companionVolumeMiniHeight} {
 		if size, ok := companionVolumeSizeFor(height); ok {
 			rungs = append(rungs, size)
 		}
@@ -2618,6 +2628,82 @@ func TestCompanionAnatomyIsStructural(t *testing.T) {
 			t.Errorf("tail pixel count grows from base to tip at column %d: %d after %d", x, counts[x], previous)
 		}
 		previous = counts[x]
+	}
+}
+
+// TestCompanionAnatomyHoldsAtEveryRung is the structural guard for the smaller
+// volume rungs. The world-space anatomy -- ears above the skull, the haunch the
+// largest mass, four legs reaching the ground -- is what a person names a cat by,
+// and it must survive at every resolution the ladder can pick, not only the full
+// one. The tail taper is checked on the raster at each rung too: the tail is the
+// part that disappears first as the grid shrinks, and a rung whose tail is a blob
+// is the point at which the volume stops being the creature the realism pass
+// asserts and the glyph cat becomes the honest choice.
+func TestCompanionAnatomyHoldsAtEveryRung(t *testing.T) {
+	for _, size := range companionVolumeRungs() {
+		size := size
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.rows), func(t *testing.T) {
+			pose := companionPoseFor(companionIdleState, 0, companionGaze{}, 0, size)
+			skullTop := pose.head.y + pose.head.b
+			for i, ear := range pose.ears {
+				top := math.Max(ear.points[0][1], math.Max(ear.points[1][1], ear.points[2][1]))
+				if top <= skullTop {
+					t.Errorf("ear %d maximum %.3f is not above skull maximum %.3f", i, top, skullTop)
+				}
+			}
+
+			area := func(blob companionBlob) float64 { return blob.a * blob.b }
+			if area(pose.haunch) <= math.Max(area(pose.chest), area(pose.body)) || area(pose.haunch) <= area(pose.neck) {
+				t.Errorf("haunch %.4f is not largest (chest %.4f body %.4f neck %.4f)",
+					area(pose.haunch), area(pose.chest), area(pose.body), area(pose.neck))
+			}
+			for i, leg := range pose.legs {
+				if leg.y1-leg.r > 0.01 {
+					t.Errorf("leg %d stops at y=%.3f and does not reach ground line y=0", i, leg.y1-leg.r)
+				}
+			}
+
+			// Rasterize the tail primitives alone, as TestCompanionAnatomyIsStructural
+			// does, so the torso cannot hide a taper at the root.
+			scale := companionVolumeScale(size)
+			counts := make([]int, size.width)
+			for py := 0; py < size.rows; py++ {
+				for px := 0; px < size.width; px++ {
+					x, y := companionWorldX(px, size, scale), companionWorldY(py, size, scale)
+					for _, segment := range pose.tail {
+						if segment.field(x, y) >= companionSurface {
+							counts[px]++
+							break
+						}
+					}
+				}
+			}
+			base, tip := companionPixelOf(-0.70, 0.60, size, scale)[0], companionPixelOf(-0.96, 1.16, size, scale)[0]
+			if base < tip {
+				base, tip = tip, base
+			}
+			if base == tip {
+				t.Fatalf("the tail's base and tip collapse onto column %d at %dx%d, so there is no tail to taper", base, size.width, size.rows)
+			}
+			previous := counts[base]
+			for x := base - 1; x >= tip; x-- {
+				if counts[x] > previous {
+					t.Errorf("tail pixel count grows from base to tip at column %d: %d after %d", x, counts[x], previous)
+				}
+				previous = counts[x]
+			}
+			if counts[base] <= counts[tip] {
+				t.Errorf("the base column carries %d tail pixels and the tip %d, so the tail does not narrow from base to tip", counts[base], counts[tip])
+			}
+			span := 0
+			for x := tip; x <= base; x++ {
+				if counts[x] > 0 {
+					span++
+				}
+			}
+			t.Logf("%dx%d tail: base column %d carries %d pixels, tip column %d carries %d, drawn across %d columns",
+				size.width, size.rows, base, counts[base], tip, counts[tip], span)
+		})
 	}
 }
 
@@ -3242,13 +3328,89 @@ func TestCompanionStartleTremblesThenHolds(t *testing.T) {
 	}
 }
 
+// TestCompanionSmallTerminalDrawsTheVolume pins the small-volume band after the
+// correction: the mini volume replaces the glyph cat's full five-row rung exactly,
+// so heights 25-31 draw the volume and nothing below does. At 20-24 the frame has
+// room only for the compact three-row head and the smallest honest volume is five
+// rows (four loses the eye), so those heights keep the glyph cat even with the
+// encoder on: a visible ASCII cat is better than no pet. The no-encoder fallback is
+// checked at the same heights.
+func TestCompanionSmallTerminalDrawsTheVolume(t *testing.T) {
+	halfBlocks := func(rows []string) int {
+		blocks := 0
+		for _, row := range rows {
+			if strings.ContainsAny(ansiEscape.ReplaceAllString(row, ""), "\u2580\u2584\u2588") {
+				blocks++
+			}
+		}
+		return blocks
+	}
+
+	for height := companionGlyphFullMinHeight; height <= companionVolumeSmallHeight*companionHeightShare-1; height++ {
+		m := Model{Width: 160, Height: height, Animating: true, PixelSprite: true, ink: companionInkFor(true)}
+		m.Screen = ScreenMainMenu
+		rung := m.companionHeightNow()
+		size, volumetric := companionVolumeSizeFor(rung)
+		if !volumetric {
+			t.Fatalf("height %d with the encoder selected rung %d, which is the glyph cat and not a volume", height, rung)
+		}
+		if rung*companionHeightShare > height {
+			t.Fatalf("height %d selected rung %d, which takes more than a quarter of the terminal", height, rung)
+		}
+		if blocks := halfBlocks(m.companionSprite(companionStageWidth(m), rung)); blocks != rung {
+			t.Errorf("height %d selected the %d-row volume (%dx%d) but drew %d rows of half blocks",
+				height, rung, size.width, size.rows, blocks)
+		}
+	}
+
+	// The 20-24 band keeps the compact glyph head even with the encoder on. This is
+	// the deliberate floor: a five-row volume does not fit the rows those screens
+	// leave, and dropping the creature is worse than an ASCII one.
+	for height := 20; height < companionGlyphFullMinHeight; height++ {
+		m := Model{Width: 160, Height: height, Animating: true, PixelSprite: true, ink: companionInkFor(true)}
+		m.Screen = ScreenMainMenu
+		if rung := m.companionHeightNow(); rung != companionCompactHeight {
+			t.Errorf("height %d with the encoder selected rung %d, want the compact glyph head %d", height, rung, companionCompactHeight)
+		}
+		if blocks := halfBlocks(m.companionSprite(companionStageWidth(m), m.companionHeightNow())); blocks != 0 {
+			t.Errorf("height %d with the encoder drew %d rows of half blocks, want the glyph cat", height, blocks)
+		}
+	}
+
+	// With the encoder unavailable the shared height draws the glyph cat, not an
+	// empty block.
+	m := Model{Width: 160, Height: 25, Animating: true, PixelSprite: false, ink: companionInkFor(true)}
+	m.Screen = ScreenMainMenu
+	if rung := m.companionHeightNow(); rung != companionFullHeight {
+		t.Errorf("without the encoder height 25 selected rung %d, want the glyph cat's %d rows", rung, companionFullHeight)
+	}
+	if blocks := halfBlocks(m.companionSprite(companionStageWidth(m), m.companionHeightNow())); blocks != 0 {
+		t.Errorf("without the encoder height 25 drew %d rows of half blocks, want the glyph cat", blocks)
+	}
+
+	// The real frame at the documented 80x24 floor: the mini band starts at 25, so
+	// the floor still draws the compact glyph head on the option screens, with and
+	// without the encoder. The companion must not disappear there.
+	m = installerFrameCase(t, "os-select")
+	m.Width, m.Height = 80, 24
+	m.Animating, m.PixelSprite = true, true
+	m.ink = companionInkFor(true)
+	if blocks := halfBlocks(strings.Split(m.View(), "\n")); blocks != 0 {
+		t.Errorf("os-select at 80x24 with the encoder drew %d rows of half blocks, want the compact glyph cat", blocks)
+	}
+	if _, rows := trainerViewCompanionArt(m.View()); rows != companionCompactHeight {
+		t.Errorf("os-select at 80x24 with the encoder draws %d companion rows, want the compact glyph head %d", rows, companionCompactHeight)
+	}
+}
+
 // TestCompanionVolumeSpriteIsTheLadderTopSteps pins the rung to terminal height,
-// never to the rows a screen happened to leave: volume-full, volume-small, glyph
-// cat, then compact glyph art. The thresholds are the height at which a rung's
-// own row count reaches the quarter-of-the-terminal bound (companionHeightShare),
-// so the twelve-row sprite starts at 48 rows and the eight-row one at 32. A
-// terminal that cannot use volume falls through to the glyph rung, and the
-// compact floor remains drawable without colour.
+// never to the rows a screen happened to leave: volume-full, volume-small, the
+// mini volume, glyph cat, then compact glyph art. The twelve- and eight-row
+// boundaries come from the quarter-of-the-terminal bound; the mini volume is the
+// same five rows as the glyph cat's full rung, so it takes over at that rung's own
+// threshold (companionGlyphFullMinHeight, 25). A terminal that cannot use volume
+// falls through to the glyph rung, and the compact floor remains drawable without
+// colour.
 func TestCompanionVolumeSpriteIsTheLadderTopSteps(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -3260,10 +3422,13 @@ func TestCompanionVolumeSpriteIsTheLadderTopSteps(t *testing.T) {
 		{"height 47 selects volume-small", 47, true, companionVolumeSmallHeight},
 		{"height 33 selects volume-small", 33, true, companionVolumeSmallHeight},
 		{"height 32 selects volume-small", 32, true, companionVolumeSmallHeight},
-		{"height 31 falls through to glyph cat", 31, true, companionFullHeight},
-		{"height 25 selects glyph cat", 25, false, companionFullHeight},
+		{"height 31 selects volume-mini", 31, true, companionVolumeMiniHeight},
+		{"height 25 selects volume-mini", 25, true, companionVolumeMiniHeight},
+		{"height 24 keeps the compact glyph head", 24, true, companionCompactHeight},
+		{"height 20 keeps the compact glyph head", 20, true, companionCompactHeight},
+		{"height 19 falls through to compact glyph art", 19, true, companionCompactHeight},
+		{"height 25 without the encoder selects glyph cat", 25, false, companionFullHeight},
 		{"gate off selects glyph cat", 40, false, companionFullHeight},
-		{"height 24 selects compact glyph art", 24, true, companionCompactHeight},
 	}
 
 	for _, tt := range tests {
@@ -3288,7 +3453,11 @@ func TestCompanionVolumeSpriteIsTheLadderTopSteps(t *testing.T) {
 					blocks++
 				}
 			}
-			_, volume := companionVolumeSizeFor(tt.wantHeight)
+			// A height the volume and the glyph tables share names the volume only
+			// where the encoder draws it; the glyph cases here pin that the same
+			// height is still the cat when the sprite is off.
+			_, isVolume := companionVolumeSizeFor(tt.wantHeight)
+			volume := tt.sprite && isVolume
 			if volume && blocks != tt.wantHeight {
 				t.Errorf("the sprite draws %d rows of half blocks, want %d", blocks, tt.wantHeight)
 			}
@@ -3465,7 +3634,23 @@ func TestCompanionVolumeReadsAsACreature(t *testing.T) {
 		t.Logf("the small sprite, which is the same field on fewer rows and columns:\n%s",
 			companionVolumeText(companionVolumeGrid(companionIdleState, 0, companionGaze{X: 1}, small)))
 	}
+	if mini, ok := companionVolumeSizeFor(companionVolumeMiniHeight); ok {
+		t.Logf("the mini sprite, the floor where the glyph cat used to draw:\n%s",
+			companionVolumeText(companionVolumeGrid(companionIdleState, 0, companionGaze{X: 1}, mini)))
+	}
 }
+
+// The companion volume frame's enforced ceilings, shared by the full and mini rung
+// benchmarks. Linux/amd64 runs of the full rung measured 0.67-4.20 ms/op (the high
+// end is shared-host noise), about 360 KB/op and 1088 allocs/op. The 10 ms / 450 KB /
+// 1400 ceiling leaves >2x time headroom and ~25% allocation headroom for machine and
+// Go-version variance, while making a 5x regression fail instead of ship. The mini
+// rung is a smaller grid, so it must fit the same ceilings with room to spare.
+const (
+	maxCompanionVolumeNanosPerOp  = 10_000_000
+	maxCompanionVolumeBytesPerOp  = 450_000
+	maxCompanionVolumeAllocsPerOp = 1400
+)
 
 // BenchmarkCompanionVolumeFrame measures what drawing the volume costs in the render path:
 // one View of a walking model with a live pointer, which is the worst case a live run
@@ -3486,23 +3671,48 @@ func BenchmarkCompanionVolumeFrame(b *testing.B) {
 	b.StopTimer()
 	runtime.ReadMemStats(&after)
 
-	// Linux/amd64 runs measured 0.67–4.20 ms/op (the high end is shared-host
-	// noise), about 360 KB/op and 1088 allocs/op. The 10 ms / 450 KB / 1400
-	// ceiling leaves >2x time headroom and ~25% allocation headroom for machine
-	// and Go-version variance, while making a 5x regression fail instead of ship.
-	const maxNanosPerOp = 10_000_000
-	const maxBytesPerOp = 450_000
-	const maxAllocsPerOp = 1400
-	b.Logf("enforced companion volume frame ceilings: %d ns/op, %d B/op, %d allocs/op", maxNanosPerOp, maxBytesPerOp, maxAllocsPerOp)
+	b.Logf("enforced companion volume frame ceilings: %d ns/op, %d B/op, %d allocs/op", maxCompanionVolumeNanosPerOp, maxCompanionVolumeBytesPerOp, maxCompanionVolumeAllocsPerOp)
 	elapsed := b.Elapsed().Nanoseconds()
-	if elapsed/int64(max(b.N, 1)) > maxNanosPerOp {
-		b.Fatalf("companion volume frame cost %d ns/op exceeds %d ns/op ceiling", elapsed/int64(max(b.N, 1)), maxNanosPerOp)
+	if elapsed/int64(max(b.N, 1)) > maxCompanionVolumeNanosPerOp {
+		b.Fatalf("companion volume frame cost %d ns/op exceeds %d ns/op ceiling", elapsed/int64(max(b.N, 1)), maxCompanionVolumeNanosPerOp)
 	}
 	allocated := after.TotalAlloc - before.TotalAlloc
 	bytesPerOp := allocated / uint64(max(b.N, 1))
 	allocsPerOp := (after.Mallocs - before.Mallocs) / uint64(max(b.N, 1))
-	if bytesPerOp > maxBytesPerOp || allocsPerOp > maxAllocsPerOp {
-		b.Fatalf("companion volume frame cost %d B/op, %d allocs/op exceeds %d B/op, %d allocs/op ceiling", bytesPerOp, allocsPerOp, maxBytesPerOp, maxAllocsPerOp)
+	if bytesPerOp > maxCompanionVolumeBytesPerOp || allocsPerOp > maxCompanionVolumeAllocsPerOp {
+		b.Fatalf("companion volume frame cost %d B/op, %d allocs/op exceeds %d B/op, %d allocs/op ceiling", bytesPerOp, allocsPerOp, maxCompanionVolumeBytesPerOp, maxCompanionVolumeAllocsPerOp)
+	}
+}
+
+// BenchmarkCompanionVolumeMiniFrame is the same frame at the mini rung, the one the
+// 80x24 floor draws now. It was the rung nobody had measured, and it must fit the
+// same ceilings the full rung enforces: a smaller grid is cheaper, not exempt.
+func BenchmarkCompanionVolumeMiniFrame(b *testing.B) {
+	m := Model{Width: 160, Height: 25, Animating: true, PixelSprite: true, Hovering: true, ink: companionInkFor(true)}
+	m.Screen = ScreenMainMenu
+	m.CompanionPos = 40
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for i := 0; i < b.N; i++ {
+		m.AnimTick = i
+		_ = m.View()
+	}
+	b.StopTimer()
+	runtime.ReadMemStats(&after)
+
+	b.Logf("enforced companion volume frame ceilings: %d ns/op, %d B/op, %d allocs/op", maxCompanionVolumeNanosPerOp, maxCompanionVolumeBytesPerOp, maxCompanionVolumeAllocsPerOp)
+	elapsed := b.Elapsed().Nanoseconds()
+	if elapsed/int64(max(b.N, 1)) > maxCompanionVolumeNanosPerOp {
+		b.Fatalf("companion mini volume frame cost %d ns/op exceeds %d ns/op ceiling", elapsed/int64(max(b.N, 1)), maxCompanionVolumeNanosPerOp)
+	}
+	allocated := after.TotalAlloc - before.TotalAlloc
+	bytesPerOp := allocated / uint64(max(b.N, 1))
+	allocsPerOp := (after.Mallocs - before.Mallocs) / uint64(max(b.N, 1))
+	if bytesPerOp > maxCompanionVolumeBytesPerOp || allocsPerOp > maxCompanionVolumeAllocsPerOp {
+		b.Fatalf("companion mini volume frame cost %d B/op, %d allocs/op exceeds %d B/op, %d allocs/op ceiling", bytesPerOp, allocsPerOp, maxCompanionVolumeBytesPerOp, maxCompanionVolumeAllocsPerOp)
 	}
 }
 
@@ -3519,6 +3729,7 @@ func TestCompanionRenderedPosesStayInsideTheirReservedBlock(t *testing.T) {
 	}{
 		{"volume full", 50, true, false, companionVolumeFullHeight},
 		{"volume small", 33, true, false, companionVolumeSmallHeight},
+		{"volume mini", 31, true, false, companionVolumeMiniHeight},
 		{"glyph full", 29, false, false, companionFullHeight},
 		{"glyph compact", 24, false, false, companionCompactHeight},
 		{"glyph trainer floor", trainerFloorHeight, false, true, companionMiniHeight},
@@ -3725,9 +3936,10 @@ func TestCompanionLightTerms(t *testing.T) {
 // TestCompanionBlockDependsOnlyOnTheTerminal guards the companion's reserved
 // block against content-driven sizing. Every framed screen and each of the six
 // trainer screens is rendered in two content states at each size, in both pixel
-// and glyph modes. At the 80x24 floor the menu and trainer intentionally retain
-// their separately pinned legacy blocks; above it every screen must use the
-// mode's terminal-height rung at the same row position.
+// and glyph modes. At the 80x24 floor the trainer keeps its pinned one-row block
+// and the framed screens keep the rung the ladder picks at that height for their
+// mode; above it every screen must use the mode's terminal-height rung at the same
+// row position.
 func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 	sizes := []struct {
 		width, height int
@@ -3845,10 +4057,12 @@ func assertCompanionBlockContract(t *testing.T, positions map[string]int, name s
 			want = companionVolumeFullHeight
 		case height >= companionVolumeSmallHeight*companionHeightShare:
 			want = companionVolumeSmallHeight
+		case height >= companionGlyphFullMinHeight:
+			want = companionVolumeMiniHeight
 		default:
-			want = companionFullHeight
+			want = companionCompactHeight
 		}
-	} else if height < 25 {
+	} else if height < companionGlyphFullMinHeight {
 		want = companionCompactHeight
 	}
 	if rows != want {
