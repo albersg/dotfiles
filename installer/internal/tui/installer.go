@@ -909,10 +909,11 @@ var themeTools = []themeTool{
 	{ID: "zsh", Name: "the zsh line editor", Needs: themePaletteRoles},
 	{ID: "p10k", Name: "the p10k prompt", Needs: themePaletteRoles},
 	{ID: "herdr", Name: "Herdr", Needs: []string{"selection", "blue"}},
-	// fish, bat, Neovim and tmux are driven by a file or a plugin name rather
-	// than by the canonical palette: fish and bat read a shipped theme file, and
-	// Neovim and tmux name a theme their plugin ships. Their artifact is what
-	// decides whether a theme can paint them, so they need no role list here.
+	// fish, bat, Neovim and tmux are driven by a file or a theme name rather than
+	// by the canonical palette: fish and bat read a generated file, Neovim names a
+	// colorscheme its plugin ships, and tmux gets this repository's palette applied
+	// to its own style options. Their artifact is what decides whether a theme can
+	// paint them, so they need no role list here.
 	{ID: "fish", Name: "fish"},
 	{ID: "bat", Name: "bat", Available: func(d themeDefinition) bool { return d.Bat != "" && d.BatFile != "" }},
 	{ID: "nvim", Name: "Neovim", Available: func(d themeDefinition) bool { return d.Nvim != "" }},
@@ -925,17 +926,17 @@ var themeTools = []themeTool{
 // is the button that does nothing. A tool absent here is reported as not
 // switchable for that theme.
 //
-// Generation is implemented for the four terminal emulators, which are the files
-// that carried the palette by hand. The remaining tools (Starship, the zsh/p10k
-// prompt, Herdr, fish, bat, Neovim and tmux) are declared in the definitions but
-// have no generated artifact yet, so they are reported as left out rather than
-// claimed. Extending this table is what extends the switch.
+// Generation is implemented for every tool the switch names. fish's block is its
+// own config file, generated from the definition's [fish] table or derived from
+// its canonical palette; tmux's is the palette applied to tmux's style options;
+// Neovim's is the colorscheme line, present only for a theme whose plugin ships
+// one. Extending this table is what extends the switch.
 var themeToolArtifacts = map[string][]string{
-	"dotfiles":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "bat"},
-	"catppuccin-mocha": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "nvim", "bat"},
-	"kanagawa":         {"nvim"},
-	"everforest":       {},
-	"kagawa":           {},
+	"dotfiles":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "bat", "fish", "tmux"},
+	"catppuccin-mocha": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "nvim", "bat", "fish", "tmux"},
+	"kanagawa":         {"nvim", "fish"},
+	"everforest":       {"fish"},
+	"kagawa":           {"fish"},
 }
 
 // themeCoverage splits the tools into the ones a theme can paint and the ones
@@ -999,6 +1000,8 @@ var themeSourceBlocks = map[string][]themeSourceBlock{
 		{Tool: "zsh", Path: "dotfiles-zsh/.zshrc", Roles: []string{"base", "text", "red", "green", "yellow", "blue", "magenta", "cyan", "bright_black"}},
 		{Tool: "p10k", Path: "dotfiles-zsh/.p10k.zsh", Roles: []string{"base", "text", "red", "green", "yellow", "blue", "magenta", "cyan", "bright_black"}},
 		{Tool: "Herdr", Path: "dotfiles-herdr/config.toml", Roles: []string{"selection", "blue"}},
+		{Tool: "fish", Path: "dotfiles-fish/fish/config.fish", Roles: []string{"text", "green", "magenta", "yellow", "cyan", "red", "blue", "bright_black", "selection"}},
+		{Tool: "tmux", Path: "dotfiles-tmux/tmux.conf", Roles: []string{"base", "text", "blue", "bright_black", "yellow", "red", "green", "selection"}},
 	},
 	"catppuccin-mocha": {
 		{Tool: "Ghostty", Path: "dotfiles-ghostty/themes/catppuccin-mocha.conf", Roles: []string{"base", "text", "cursor", "cursor_text", "selection", "selection_text", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"}},
@@ -1096,6 +1099,14 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "p10k", Path: "dotfiles-zsh/.p10k.zsh", Comment: "#", AdoptStart: "  # ── Palette", NotBoxed: true, AdoptEnd: `typeset -g PALETTE_CYAN=`, Render: renderP10kTheme},
 	{Tool: "nvim", Path: "dotfiles-nvim/nvim/lua/plugins/colorscheme.lua", Comment: "--", DefaultTheme: "kanagawa", AdoptStart: `colorscheme = "kanagawa"`, NotBoxed: true, AdoptEnd: `colorscheme = "kanagawa"`, Render: renderNvimColorscheme},
 	{Tool: "bat", Path: "dotfiles-zsh/.zshrc", Comment: "#", Block: "bat", NotBoxed: true, AdoptStart: "# --- bat ", AdoptEnd: "# --- zsh-autosuggestions", AdoptEndKeep: true, Render: renderBatSelection},
+	// fish's own config file is the artifact: its palette lives there as global
+	// variables, so the switch rewrites a file this repository owns instead of
+	// writing the user's theme state in fish_variables.
+	{Tool: "fish", Path: "dotfiles-fish/fish/config.fish", Comment: "#", NotBoxed: true, AdoptStart: "set -l foreground F3F6F9 normal", AdoptEnd: "set -g fish_pager_color_description $comment", Render: renderFishConfig},
+	// tmux gets its own style block rather than depending on the kanagawa plugin.
+	// The block is committed after the TPM run line; TestTmuxThemeBlockLoadsAfterPlugins
+	// pins that order.
+	{Tool: "tmux", Path: "dotfiles-tmux/tmux.conf", Comment: "#", NotBoxed: true, AdoptStart: "# DOTFILES THEME", AdoptEnd: "# DOTFILES THEME", Render: renderTmuxTheme},
 }
 
 // themeHex returns a role's value and refuses a definition that misses it, so a
@@ -1510,6 +1521,10 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".p10k.zsh")
 	case "nvim":
 		return filepath.Join(homeDir, ".config/nvim/lua/plugins/colorscheme.lua")
+	case "fish":
+		return filepath.Join(homeDir, ".config/fish/config.fish")
+	case "tmux":
+		return filepath.Join(homeDir, ".tmux.conf")
 	}
 	return ""
 }
@@ -1691,6 +1706,176 @@ var themeFishRoles = []string{
 	"normal", "command", "keyword", "quote", "redirection", "end", "error",
 	"param", "comment", "selection", "search_match", "operator", "escape",
 	"autosuggestion", "pager_progress", "pager_prefix", "pager_completion", "pager_description",
+}
+
+// themeFishDerivation is the mechanical mapping from the canonical palette to
+// fish's own role names, written down as code so a theme that ships no [fish]
+// table (catppuccin-mocha) is derived from its palette rather than left out or
+// filled by eye. Every palette role it names already holds a value the
+// definition was given, so a derived fish colour is never an invented one; it is
+// the same mapping the dotfiles definition records in its [fish] table.
+var themeFishDerivation = map[string]string{
+	"normal":            "text",
+	"command":           "green",
+	"keyword":           "magenta",
+	"quote":             "yellow",
+	"redirection":       "text",
+	"end":               "cyan",
+	"error":             "red",
+	"param":             "blue",
+	"comment":           "bright_black",
+	"selection":         "selection",
+	"search_match":      "selection",
+	"operator":          "green",
+	"escape":            "magenta",
+	"autosuggestion":    "bright_black",
+	"pager_progress":    "bright_black",
+	"pager_prefix":      "green",
+	"pager_completion":  "text",
+	"pager_description": "bright_black",
+}
+
+// themeFishRolesFor returns the fish roles a definition paints. A definition
+// that carries a complete [fish] table (the partial themes transcribed from their
+// own files) uses it; one that does not derives each role from its canonical
+// palette. A theme missing either half is refused rather than emitted with a
+// hole, which is what lets the menu report fish honestly instead of drawing a
+// half palette.
+func themeFishRolesFor(def themeDefinition) (map[string]string, error) {
+	complete := true
+	for _, role := range themeFishRoles {
+		if def.Fish[role] == "" {
+			complete = false
+			break
+		}
+	}
+	if complete {
+		return def.Fish, nil
+	}
+
+	derived := make(map[string]string, len(themeFishRoles))
+	for _, role := range themeFishRoles {
+		paletteRole := themeFishDerivation[role]
+		value := def.Palette[paletteRole]
+		if value == "" {
+			return nil, fmt.Errorf("theme %q defines neither fish role %q nor palette role %q, so its fish colours cannot be generated",
+				def.ID, role, paletteRole)
+		}
+		derived[role] = strings.TrimPrefix(value, "#")
+	}
+	return derived, nil
+}
+
+// renderFishConfig renders the fish palette block of dotfiles-fish/fish/config.fish.
+// fish's active theme is otherwise the user's own state: fish keeps the colour
+// variables a `fish_config theme choose` writes in fish_variables, which this
+// repository does not own and the switch must not rewrite. Expressing the palette
+// in the config file the repository does own is what makes the fish switch
+// reversible, and the global scope is what makes it win over a universal choice
+// made once through fish_config.
+func renderFishConfig(def themeDefinition) (string, error) {
+	roles, err := themeFishRolesFor(def)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(`%s
+# The fish palette. Generated from themes/%s.toml; edit the definition, not this
+# block. These are global variables, so they also win over a universal colour the
+# user chose once through fish_config; the switch never writes the user's own
+# state in fish_variables.
+set -g fish_color_normal %s
+set -g fish_color_command %s
+set -g fish_color_keyword %s
+set -g fish_color_quote %s
+set -g fish_color_redirection %s
+set -g fish_color_end %s
+set -g fish_color_error %s
+set -g fish_color_param %s
+set -g fish_color_comment %s
+set -g fish_color_selection --background=%s
+set -g fish_color_search_match --background=%s
+set -g fish_color_operator %s
+set -g fish_color_escape %s
+set -g fish_color_autosuggestion %s
+
+# Completion pager colours.
+set -g fish_pager_color_progress %s
+set -g fish_pager_color_prefix %s
+set -g fish_pager_color_completion %s
+set -g fish_pager_color_description %s`,
+		themeBox("#", "DOTFILES THEME"),
+		def.ID,
+		roles["normal"], roles["command"], roles["keyword"], roles["quote"],
+		roles["redirection"], roles["end"], roles["error"], roles["param"],
+		roles["comment"], roles["selection"], roles["search_match"], roles["operator"],
+		roles["escape"], roles["autosuggestion"], roles["pager_progress"], roles["pager_prefix"],
+		roles["pager_completion"], roles["pager_description"]), nil
+}
+
+// renderTmuxTheme renders tmux's own style options from the canonical palette.
+// tmux's only theme in this repository is the name of the kanagawa plugin, and
+// Kanagawa is partial, so this block invents no theme: it is this repository's
+// palette applied to tmux's status bar, windows, panes and copy-mode. The block
+// is placed after the TPM run line (pinned by TestTmuxThemeBlockLoadsAfterPlugins)
+// because tmux runs run-shell synchronously: the plugin styles are already
+// written when this block is read, so these options win.
+func renderTmuxTheme(def themeDefinition) (string, error) {
+	for _, name := range []string{"base", "text", "blue", "bright_black", "yellow", "red", "green", "selection"} {
+		if _, err := themeHex(def, name); err != nil {
+			return "", err
+		}
+	}
+	hex := func(name string) string {
+		value, _ := themeHex(def, name)
+		return value
+	}
+
+	return fmt.Sprintf(`%s
+# tmux's own style options, painted from themes/%s.toml. tmux's theme in this
+# repository used to be only the kanagawa plugin's name, and Kanagawa is partial,
+# so this is the palette applied to tmux itself rather than a second theme.
+# It sits after the TPM run line on purpose: tmux runs run-shell
+# synchronously, so the plugins TPM sources have already written their styles
+# when this block is read, and these options win.
+set -g status-style "fg=%s,bg=%s"
+set -g status-left-style "fg=%s,bg=%s,bold"
+set -g status-right-style "fg=%s,bg=%s"
+set -g message-style "fg=%s,bg=%s"
+set -g message-command-style "fg=%s,bg=%s"
+setw -g window-status-style "fg=%s,bg=%s"
+setw -g window-status-current-style "fg=%s,bg=%s,bold"
+setw -g window-status-activity-style "fg=%s,bg=%s"
+setw -g window-status-bell-style "fg=%s,bg=%s"
+setw -g window-status-last-style "fg=%s,bg=%s"
+setw -g pane-border-style "fg=%s"
+setw -g pane-active-border-style "fg=%s"
+setw -g copy-mode-match-style "fg=%s,bg=%s"
+setw -g copy-mode-current-match-style "fg=%s,bg=%s"
+set -g mode-style "fg=%s,bg=%s"
+set -g display-panes-colour "%s"
+set -g display-panes-active-colour "%s"
+set -g clock-mode-colour "%s"`,
+		themeBox("#", "DOTFILES THEME"),
+		def.ID,
+		hex("text"), hex("base"),
+		hex("base"), hex("blue"),
+		hex("bright_black"), hex("base"),
+		hex("base"), hex("yellow"),
+		hex("base"), hex("yellow"),
+		hex("bright_black"), hex("base"),
+		hex("base"), hex("blue"),
+		hex("yellow"), hex("base"),
+		hex("red"), hex("base"),
+		hex("green"), hex("base"),
+		hex("bright_black"),
+		hex("blue"),
+		hex("text"), hex("selection"),
+		hex("base"), hex("yellow"),
+		hex("text"), hex("selection"),
+		hex("bright_black"),
+		hex("blue"),
+		hex("blue")), nil
 }
 
 // themeThemeFile is a whole-file artifact, one per theme: the fish theme files

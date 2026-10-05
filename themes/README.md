@@ -1,7 +1,7 @@
 # The dotfiles themes: one definition, every part
 
 This directory is the single source of truth for the dotfiles' own theme — the palette the
-repository ships across its terminals, its shell prompt, `bat`, `fish` and Herdr. Before this
+repository ships across its terminals, its shell prompt, `bat`, `fish`, tmux and Herdr. Before this
 directory existed the same palette was written by hand in **six** files (`alacritty.toml`,
 `.wezterm.lua`, `dotfiles-kitty/kitty.conf`, `dotfiles-ghostty/config`, `starship.toml`,
 `dotfiles-zsh/.zshrc` and its `.p10k.zsh` fallbacks), so the same colour was maintained by hand in
@@ -67,29 +67,34 @@ preview guard logs it so it stays visible.
 |---|---|---|---|
 | dotfiles | `dotfiles.toml` | **complete** | the repository's six hand-written blocks, verbatim |
 | Catppuccin Mocha | `catppuccin-mocha.toml` | **complete** | `dotfiles-ghostty/themes/catppuccin-mocha.conf` + `starship.toml` `[palettes.catppuccin_mocha]` |
-| Kanagawa | `kanagawa.toml` | partial | `dotfiles-fish/fish/themes/Kanagawa.theme` (eight fish roles); nvim and tmux name the plugin's theme |
+| Kanagawa | `kanagawa.toml` | partial | `dotfiles-fish/fish/themes/Kanagawa.theme` (eight fish roles); nvim names the plugin's theme |
 | Everforest | `everforest.toml` | partial | `dotfiles-fish/fish/themes/Everforest.theme` (eight fish roles) |
 | Kagawa | `kagawa.toml` | partial | none of its own — see the defect below |
 
 ### Complete (offered)
 
 **dotfiles** covers **[Alacritty, Kitty, WezTerm, Ghostty, Starship, Herdr, the zsh line editor, the
-p10k prompt, bat]** and leaves out **[fish, Neovim, tmux]**. **Catppuccin Mocha** covers the same nine
-plus **Neovim** and leaves out **[fish, tmux]** (no Catppuccin tmux plugin, and Neovim has no
-dotfiles colorscheme).
+p10k prompt, bat, fish, tmux]** and leaves out **[Neovim]** — it names no colorscheme of its own.
+**Catppuccin Mocha** covers every tool whose colours this repository owns, the same eleven plus
+**Neovim**, whose `catppuccin` colorscheme the plugin it already ships provides, and leaves out
+nothing.
 
 Generated blocks: the four terminals, Herdr, Starship (both its `palette` line and its
 `[palettes.<id>]` table), the zsh palette region including the `*_SGR` twins and the
 `LS_COLORS`/`EZA_COLORS` tables, the p10k fallbacks, the `BAT_THEME` selection, the four fish theme
-files, and the bat `.tmTheme` files. Neovim's colorscheme line is generated for the themes whose
-plugin ships one.
+files, the fish palette block in `dotfiles-fish/fish/config.fish`, the tmux style block in
+`dotfiles-tmux/tmux.conf`, and the bat `.tmTheme` files. Neovim's colorscheme line is generated for
+the themes whose plugin ships one.
 
-**fish is generated but not switched, deliberately.** Its theme files are produced from the
-definitions, but which one is active is **the user's own state**: fish keeps its choice in
-`fish_variables`, which this repository does not own. Writing it would be editing the user's
-settings, which the `preserve-user-configs` rule forbids. If fish is ever switched, it will be an
-explicit decision with its own restore path. Until then fish is named in the exclusion list rather
-than claimed.
+**fish is switched, through the file this repository owns.** Its theme files are produced from the
+definitions, but which one is active is **the user's own state**: fish keeps the colour variables a
+`fish_config theme choose` writes in `fish_variables`, which this repository does not own. Writing
+it would be editing the user's settings, which the `preserve-user-configs` rule forbids. The switch
+therefore paints fish the way it paints every other tool: it rewrites a marked block in
+`dotfiles-fish/fish/config.fish`, a file the repository does own, and records the exact bytes so the
+change is reversible. The block sets the fish colour variables in the **global** scope, which fish
+returns over a universal one, so the palette is seen even after a `fish_config theme choose` the user
+ran earlier. `fish_variables` is never written.
 
 - **dotfiles** — complete (22/22 canonical roles) and complete for the prompt too (all 24 required
   `[prompt]` roles).
@@ -129,16 +134,24 @@ switchable for the tool that needs it, never extrapolated.
   `themes/catppuccin-mocha.toml`'s `[prompt]` table into
   `[palettes.catppuccin-mocha]` and pins all 26 values the deleted table held. If that guard ever
   fails, the deletion lost content and must be reverted.
-- **`tmux` has no repository-owned theme.** Its theme is the `tmux-kanagawa` plugin's name, and
-  Kanagawa is partial (0 of 22 roles), so no tmux theme is offered or invented. It stays named in the
-  exclusion list.
+- **`tmux` has a repository-owned theme now.** Its only theme used to be the `tmux-kanagawa`
+  plugin's name, and Kanagawa is partial (0 of 22 roles), so nothing could be generated from it. tmux
+  accepts colours of its own, though, so the switch paints tmux's own style options — status bar,
+  active and inactive windows, panes, copy mode, display panes and the clock — from the definition,
+  in a marked block in `dotfiles-tmux/tmux.conf`. No second palette is invented: every colour is a
+  role the definition already holds. The block is placed **after** the
+  `run '~/.tmux/plugins/tpm/tpm'` line, because measurement shows tmux runs `run-shell`
+  synchronously: the server does not finish reading `tmux.conf` until the command returns, so the
+  plugins TPM sources have already written their styles by the time the block is read, and the block
+  wins. When the kanagawa plugin is installed, its window colours are therefore overridden by this
+  block rather than by disabling the plugin.
 
 ### Partial (reported, never offered)
 
 - **Kanagawa** — `dotfiles-fish/fish/themes/Kanagawa.theme` holds only fish's own role names
-  (`fish_color_normal`, `fish_color_command`, …), and nvim and tmux name the plugin's theme. The
+  (`fish_color_normal`, `fish_color_command`, …), and nvim names the plugin's theme. The
   terminal roles (`base`, `cursor`, `selection`, the 16 ANSI colours) do not exist in this
-  repository, so they are left empty. A Kanagawa switch would leave eight of the eleven tools on the
+  repository, so they are left empty. A Kanagawa switch would leave nine of the twelve tools on the
   old palette, which is why it is reported instead of offered.
 - **Everforest** — one fish file, nothing else.
 - **Kagawa** — nothing of its own.
@@ -171,10 +184,18 @@ The guards live in `installer/internal/tui/install_paths_test.go`:
 - `TestThemeGeneratorUsesTheDefinition` and `TestThemeGeneratorRefusesAMissingRole` — the block a
   tool gets is its own theme's colours, and a definition missing a role is refused rather than
   emitted half-empty.
+- `TestGeneratedThemeBlocksInventNoColour` — every colour a generated block emits must be one the
+  definition already holds, in its `[palette]`, `[fish]` or `[prompt]` table. A renderer that fills a
+  role by eye fails here.
+- `TestTheFishDerivationMatchesTheDotfilesTable` — the code mapping that derives a fish palette from
+  the canonical roles must still produce the values `themes/dotfiles.toml` records in its `[fish]`
+  table, so a theme without one (Catppuccin Mocha) gets the same palette by derivation.
+- `TestTmuxThemeBlockLoadsAfterPlugins` — the tmux block must sit after the TPM `run` line, which is
+  what makes it win over the kanagawa plugin.
 
 The same parser the guards use (`loadThemeDefinitions`) is what the installer reads at run time, so
 there is one definition and one reader.
 
-The four generated files carry `# dotfiles-managed-config: <tool>` — the ownership marker the
+Every generated file carries `# dotfiles-managed-config: <tool>` — the ownership marker the
 `preserve-user-configs` rule reads — and a `>>> dotfiles-theme: <id> >>>` … `<<< dotfiles-theme <<<`
 pair around the generated block, so a switch can find and replace exactly its own region.
