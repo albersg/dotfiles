@@ -3,6 +3,7 @@ package tui
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 )
@@ -57,6 +59,399 @@ func dryRun() bool {
 	default:
 		return true
 	}
+}
+
+// ============================================================================
+// THE UTILITIES SECTION: THE SYSTEM THEME SWITCH
+// ============================================================================
+//
+// The utilities section's first utility changes the desktop's light/dark theme
+// through the desktop's own tool. It is deliberately narrow: it supports the
+// desktops whose theme can be read back exactly as it can be written, because a
+// switch this installer cannot put back is a switch that destroys a setting the
+// user chose.
+//
+// Two things are written, and the copy says so:
+//
+//   - the desktop's own setting, through the desktop's own tool (GNOME's
+//     color-scheme through gsettings, Plasma's colour scheme through
+//     plasma-apply-colorscheme, macOS's global appearance preference through
+//     defaults). The installer does not own that store and never edits it
+//     itself.
+//   - the value that was there before the change, in the installer's own state
+//     file, theme.json beside last-install.json. That file is what makes the
+//     change undoable, and it is the only file the installer writes for this.
+//
+// Nothing here runs while a screen draws: the detected switch is decided when
+// the model is built and the record is read on the startup path, and the switch
+// itself runs inside a tea.Cmd. Both entry points are gated on dryRun() exactly
+// as executeStep is.
+
+// themeSwitch is one desktop's reversible light/dark switch: the command that
+// reads the setting that is there, the two commands that set it, how the read
+// output is understood, and how a recorded value is written back. It is data
+// rather than code so detection can name the switch it found and a test can
+// enumerate the whole table.
+//
+// Interpret is what keeps the utility safe. It turns the read command's output
+// into the value to put back, whether that value means the dark theme, and
+// whether it is a value this installer can carry to a shell at all. When it
+// reports false the utility refuses: it will not change a setting it could not
+// restore.
+type themeSwitch struct {
+	ID    string
+	Name  string
+	Read  string
+	Dark  string
+	Light string
+	// Writes names the desktop's own store the switch changes, so the section can
+	// tell the reader what it touches instead of saying "your theme".
+	Writes    string
+	Interpret func(output string, readFailed bool) (value string, dark bool, ok bool)
+	Restore   func(value string) string
+}
+
+// themeSwitches is the desktops the utilities section can switch, in the order
+// detection tries them. A desktop is only in the table when its setting can be
+// read back in full: a writer without a reader cannot honour the undo.
+var themeSwitches = []themeSwitch{
+	{
+		ID:    "gnome",
+		Name:  "GNOME",
+		Read:  "gsettings get org.gnome.desktop.interface color-scheme",
+		Dark:  "gsettings set org.gnome.desktop.interface color-scheme prefer-dark",
+		Light: "gsettings set org.gnome.desktop.interface color-scheme default",
+		// The GNOME theme preference is one key in the dconf database, which is
+		// why this is the desktop the switch supports first.
+		Writes: "the GNOME color-scheme preference, which gsettings stores in the dconf database (~/.config/dconf/user)",
+		Interpret: func(output string, readFailed bool) (string, bool, bool) {
+			value := bareThemeValue(output)
+			if readFailed || !safeThemeValue(value) {
+				return "", false, false
+			}
+			return value, strings.Contains(strings.ToLower(value), "dark"), true
+		},
+		Restore: func(value string) string {
+			return "gsettings set org.gnome.desktop.interface color-scheme " + quoteThemeValue(value)
+		},
+	},
+	{
+		ID:     "kde",
+		Name:   "KDE Plasma",
+		Read:   "kreadconfig6 --file kdeglobals --group General --key ColorScheme",
+		Dark:   "plasma-apply-colorscheme BreezeDark",
+		Light:  "plasma-apply-colorscheme BreezeLight",
+		Writes: "the Plasma colour scheme, which plasma-apply-colorscheme writes to ~/.config/kdeglobals",
+		Interpret: func(output string, readFailed bool) (string, bool, bool) {
+			// A Plasma user's scheme is often a custom one with a space in its
+			// name, so a value with spaces is carried rather than refused; the
+			// restore command quotes it.
+			value := strings.TrimSpace(output)
+			if readFailed || !safeThemeValue(value) {
+				return "", false, false
+			}
+			return value, strings.Contains(strings.ToLower(value), "dark"), true
+		},
+		Restore: func(value string) string {
+			return "plasma-apply-colorscheme " + quoteThemeValue(value)
+		},
+	},
+	{
+		ID:    "macos",
+		Name:  "macOS",
+		Read:  "defaults read -g AppleInterfaceStyle",
+		Dark:  "defaults write -g AppleInterfaceStyle Dark",
+		Light: "defaults delete -g AppleInterfaceStyle",
+		// macOS stores the appearance preference in the global preferences file.
+		// A deleted key is the default (light), and the read command fails when it
+		// is absent, which is the reading this interprets as light.
+		Writes: "the global appearance preference, which defaults stores in ~/Library/Preferences/.GlobalPreferences.plist",
+		Interpret: func(output string, readFailed bool) (string, bool, bool) {
+			value := strings.TrimSpace(output)
+			if readFailed {
+				// No key is the light theme, which is a state this can restore with
+				// `defaults delete`.
+				return "", false, true
+			}
+			if !safeThemeValue(value) {
+				return "", false, false
+			}
+			return value, strings.Contains(strings.ToLower(value), "dark"), true
+		},
+		Restore: func(value string) string {
+			if value == "" {
+				return "defaults delete -g AppleInterfaceStyle"
+			}
+			return "defaults write -g AppleInterfaceStyle " + quoteThemeValue(value)
+		},
+	},
+}
+
+// themeSwitchByID finds a switch by the id the record stores, so the undo can
+// refuse a record written by a desktop this host is not on.
+func themeSwitchByID(id string) (themeSwitch, bool) {
+	for _, target := range themeSwitches {
+		if target.ID == id {
+			return target, true
+		}
+	}
+	return themeSwitch{}, false
+}
+
+// currentThemeSwitch detects the switch this host offers. It is the wrapper that
+// knows what the host is; detectThemeSwitch below is the pure rule, so the rule
+// can be tested without an environment. Termux and an undetected host are
+// refused here rather than by the rule, because only SystemInfo knows them.
+func currentThemeSwitch(info *system.SystemInfo) (themeSwitch, bool) {
+	if info == nil || info.IsTermux {
+		return themeSwitch{}, false
+	}
+	return detectThemeSwitch(runtime.GOOS,
+		os.Getenv("XDG_CURRENT_DESKTOP"), os.Getenv("DESKTOP_SESSION"),
+		system.CommandExists)
+}
+
+// detectThemeSwitch is the detection rule: the session has to name a desktop
+// this table supports, and the tools that make that desktop's change both
+// possible and undoable have to be on PATH. Plasma needs its reader as well as
+// its writer, which is why kreadconfig6 is required with
+// plasma-apply-colorscheme and not treated as a nicety.
+func detectThemeSwitch(goos, desktop, session string, has func(string) bool) (themeSwitch, bool) {
+	if goos == "darwin" && has("defaults") {
+		return mustThemeSwitch("macos")
+	}
+	named := strings.ToLower(desktop + " " + session)
+	switch {
+	case has("gsettings") && strings.Contains(named, "gnome"):
+		return mustThemeSwitch("gnome")
+	case has("plasma-apply-colorscheme") && has("kreadconfig6") && strings.Contains(named, "kde"):
+		return mustThemeSwitch("kde")
+	}
+	return themeSwitch{}, false
+}
+
+// mustThemeSwitch looks an entry up by the id the rule names. The table is a
+// constant, so a missing entry is a programming error rather than a host's
+// answer; the panic keeps the bound-checked lookup out of detection's signature
+// instead of silently returning a switch with no commands.
+func mustThemeSwitch(id string) (themeSwitch, bool) {
+	target, ok := themeSwitchByID(id)
+	if !ok {
+		panic("theme switch table has no entry " + id)
+	}
+	return target, true
+}
+
+// bareThemeValue strips the single pair of quotes gsettings prints around its
+// GVariant strings, so the value the record holds is the setting and not the
+// tool's own punctuation. Every other tool prints a bare value, which this
+// returns unchanged.
+func bareThemeValue(output string) string {
+	value := strings.TrimSpace(output)
+	if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
+		return value[1 : len(value)-1]
+	}
+	return value
+}
+
+// safeThemeValue reports whether a reading is one the restore command can carry
+// to a shell as a single argument. Letters, digits, spaces and the punctuation
+// real theme and colour-scheme names use are allowed; anything else -- a quote, a
+// dollar, a backtick, a semicolon -- means the reading is not understood and the
+// utility refuses to change a setting it could not put back.
+func safeThemeValue(value string) bool {
+	if value == "" || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == ' ' || r == '.' || r == '_' || r == '-' || r == '+':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// quoteThemeValue wraps a reading in single quotes so the restore command
+// carries it as one argument. The value has already passed safeThemeValue, so
+// there is no quote inside it for this to break on.
+func quoteThemeValue(value string) string {
+	return "'" + value + "'"
+}
+
+// themeRecord is the installer's memory of one theme switch: which desktop it
+// was made on, the setting that was there before it, and when it was made. It is
+// what the undo reads, so it is written only after the desktop's own tool has
+// reported success.
+type themeRecord struct {
+	Target    string    `json:"target"`
+	Value     string    `json:"value"`
+	WasDark   bool      `json:"was_dark"`
+	ToDark    bool      `json:"to_dark"`
+	AppliedAt time.Time `json:"applied_at"`
+}
+
+// themeStateFile is the record's name inside the installer's state directory. It
+// sits beside last-install.json, in the directory the XDG base-directory
+// specification reserves for state a program keeps between runs.
+const themeStateFile = "theme.json"
+
+// themeStatePath is the exact file the installer reads and writes. It is named
+// once here so the writer, the reader and the prose cannot disagree.
+func themeStatePath() string {
+	dir := stateDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, themeStateFile)
+}
+
+// writeThemeRecord records a completed switch. Unlike the last-install record
+// this write is not best effort: the record is what makes the change undoable,
+// so a switch whose record could not be saved is reported rather than left
+// looking reversible when it is not.
+func writeThemeRecord(rec themeRecord) error {
+	path := themeStatePath()
+	if path == "" {
+		return fmt.Errorf("could not determine the state directory")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), stateDirMode); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, stateFileMode)
+}
+
+// readThemeRecord returns the setting this installer last replaced, or nil when
+// there is none. A missing file, an unreadable one, a corrupt one and one that
+// names no desktop all read as "no record": a restore must never be built from
+// half a file.
+func readThemeRecord() *themeRecord {
+	path := themeStatePath()
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var rec themeRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return nil
+	}
+	if rec.Target == "" {
+		return nil
+	}
+	return &rec
+}
+
+// runThemeCommand is the one seam the theme utility runs a command through. It
+// is a variable so a test can drive every branch -- the reading, the switch and
+// the restore -- without a desktop, a PATH shim or a real gsettings.
+var runThemeCommand = system.Run
+
+// readThemeValue asks the desktop's own tool what the setting is, and interprets
+// the answer through the switch's own rule. A value the switch cannot understand
+// or cannot safely put back is reported as not ok, and the caller then refuses to
+// change anything.
+func readThemeValue(target themeSwitch) (value string, dark, ok bool) {
+	result := runThemeCommand(target.Read, &system.ExecOptions{Timeout: themeCommandTimeout})
+	return target.Interpret(result.Output, result.Error != nil)
+}
+
+// themeCommandTimeout bounds each theme command. These tools answer in
+// milliseconds; the bound exists so a stuck one cannot hang the screen.
+const themeCommandTimeout = 10 * time.Second
+
+// applyTheme switches the desktop's theme and records the setting it replaced.
+// It is gated on dryRun() exactly as executeStep is: --dry-run documents a run
+// that changes nothing, so the flag has to stop this path too rather than only
+// the installation steps.
+func applyTheme(target themeSwitch, dark bool) (*themeRecord, string, error) {
+	verb := "light"
+	command := target.Light
+	if dark {
+		verb = "dark"
+		command = target.Dark
+	}
+	if dryRun() {
+		SendLog("utilities", fmt.Sprintf("DRY RUN: skipping the switch to the %s theme", verb))
+		return nil, fmt.Sprintf("DRY RUN: the %s theme was not changed.", verb), nil
+	}
+
+	previous, wasDark, ok := readThemeValue(target)
+	if !ok {
+		return nil, "", fmt.Errorf("could not read the current %s setting, so it was left exactly as it is: "+
+			"this installer only changes a theme it can put back", target.Name)
+	}
+
+	result := runThemeCommand(command, &system.ExecOptions{Timeout: themeCommandTimeout})
+	if result.Error != nil {
+		return nil, "", fmt.Errorf("the %s tool failed to switch the theme: %w", target.Name, result.Error)
+	}
+
+	rec := themeRecord{
+		Target:    target.ID,
+		Value:     previous,
+		WasDark:   wasDark,
+		ToDark:    dark,
+		AppliedAt: time.Now(),
+	}
+	if err := writeThemeRecord(rec); err != nil {
+		return nil, "", fmt.Errorf("the theme changed but the setting it replaced could not be recorded, "+
+			"so it cannot be undone: %w", err)
+	}
+	return &rec, fmt.Sprintf("The %s theme is on. The setting it replaced is recorded; use Undo to put it back.", verb), nil
+}
+
+// undoTheme puts the recorded setting back. It reads the current value first, so
+// the undo is itself reversible: the record it leaves holds the value the undo
+// replaced, which is why the row is named "Undo the last theme change" rather
+// than "restore". It is gated on dryRun() for the same reason applyTheme is.
+func undoTheme(target themeSwitch, rec themeRecord) (*themeRecord, string, error) {
+	if rec.Target != target.ID {
+		return nil, "", fmt.Errorf("the recorded change was made on the %s desktop, not on %s", rec.Target, target.Name)
+	}
+	if dryRun() {
+		SendLog("utilities", "DRY RUN: skipping the undo of the last theme change")
+		return nil, "DRY RUN: the last theme change was not undone.", nil
+	}
+
+	current, currentDark, ok := readThemeValue(target)
+	if !ok {
+		return nil, "", fmt.Errorf("could not read the current %s setting, so it was left exactly as it is", target.Name)
+	}
+
+	command := target.Restore(rec.Value)
+	result := runThemeCommand(command, &system.ExecOptions{Timeout: themeCommandTimeout})
+	if result.Error != nil {
+		return nil, "", fmt.Errorf("the %s tool failed to put the previous setting back: %w", target.Name, result.Error)
+	}
+
+	next := themeRecord{
+		Target:    target.ID,
+		Value:     current,
+		WasDark:   currentDark,
+		ToDark:    rec.WasDark,
+		AppliedAt: time.Now(),
+	}
+	if err := writeThemeRecord(next); err != nil {
+		return nil, "", fmt.Errorf("the previous setting was restored but the new record could not be saved: %w", err)
+	}
+	return &next, "The previous setting is back. Undo again puts the last one back.", nil
+}
+
+// themeUndoAvailable reports whether the section may offer the undo row: there
+// has to be a detected switch and a record written for that same desktop. An
+// old record from another desktop is not offered, because the undo would refuse
+// it anyway and a row that fails is worse than no row.
+func (m Model) themeUndoAvailable() bool {
+	return m.ThemeSwitchFound && m.ThemeRecord != nil && m.ThemeRecord.Target == m.ThemeSwitch.ID
 }
 
 // stepExecutors is the dispatch table for the non-interactive executor. Each

@@ -87,7 +87,43 @@ From the main menu you can access:
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
-On the main menu, `vim` opens the Vim Trainer, `:q` quits, and `dd` briefly sweeps away the selected row before it returns.
+On the main menu, `vim` opens the Vim Trainer, `u` opens the Utilities section, `:q` quits, and `dd` briefly sweeps away the selected row before it returns.
+
+### Utilities
+
+The **Utilities** section holds the small jobs that are not part of an installation. It is reached
+from the main menu with the `u` key rather than through a menu row: the main menu's rows and footer
+are pinned by snapshots and by guards that index them, and a section reached by a key moves nothing a
+reader already knows. The key is listed beside the main menu's other keys, like `vim`.
+
+The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
+the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
+can write it, because a switch that cannot be put back would destroy a setting the user chose:
+
+| Desktop | Detected by | The switch runs | The store it changes |
+|---------|-------------|-----------------|----------------------|
+| GNOME | `XDG_CURRENT_DESKTOP`/`DESKTOP_SESSION` naming GNOME, with `gsettings` on `PATH` | `gsettings get`/`set org.gnome.desktop.interface color-scheme` | the GNOME color-scheme key in the dconf database (`~/.config/dconf/user`) |
+| KDE Plasma | the desktop naming KDE, with both `plasma-apply-colorscheme` and `kreadconfig6` on `PATH` | `kreadconfig6` to read, `plasma-apply-colorscheme BreezeDark`/`BreezeLight` to switch | the Plasma colour scheme in `~/.config/kdeglobals` |
+| macOS | `defaults` on `PATH` | `defaults read`/`write`/`delete -g AppleInterfaceStyle` | the global appearance preference in `~/Library/Preferences/.GlobalPreferences.plist` |
+
+**Nothing is destroyed and every change is reversible.** Before it changes anything the utility reads
+the setting that is there and writes it to the installer's own state file,
+`$XDG_STATE_HOME/dotfiles/theme.json` — or `~/.local/state/dotfiles/theme.json` when `XDG_STATE_HOME`
+is unset. That file is the only file the installer writes for this; the desktop's own store belongs
+to the desktop's tool and is never edited directly. The **Undo the last theme change** row puts the
+recorded value back, and it records the value it is itself replacing, so undo can always be run
+again. A setting the tool reports in a form the restore command cannot safely carry (a value with a
+quote, a `$` or a backtick in it) is left exactly as it is and the reason is shown on the screen,
+because an unrecoverable change is worse than no change.
+
+**A host with no desktop is told so.** On a server, in Termux, in a bare terminal, or on a desktop
+whose tool is missing, the section offers no switch row at all and says in its own body why. It never
+shows a row that would fail when it is pressed. Termux is refused outright: it has no desktop theme
+to switch.
+
+**`--dry-run` skips it.** The switch and the undo are gated on the same flag as the installation
+steps, from the same place, so a documented no-op run runs no `gsettings`, no
+`plasma-apply-colorscheme` and no `defaults`, and writes no record.
 
 The welcome screen and the main menu greet you by the time of day (`Good morning`, `Good afternoon`,
 `Good evening`) in one added dim line, so no existing copy is replaced. The greeting is a pure
@@ -274,6 +310,13 @@ data (Neovim, then Tmux, Zellij, Ghostty and Herdr, each in its own declared ord
 trainer's own lessons in module order, with the lessons whose mission does not fit the tip's two
 rows left out so a tip is never cut — so two runs on the same machine show the same sequence. The
 panel advances one tip per ten seconds; with animation off it stays on the first tip.
+
+**The installer records the theme it changed too.** The Utilities section writes the setting it
+replaced to `$XDG_STATE_HOME/dotfiles/theme.json` — or `~/.local/state/dotfiles/theme.json` — so the
+**Undo the last theme change** row can put it back. Unlike the last-install record this write is not
+best effort: the record is what makes the change undoable, so a switch whose record cannot be saved
+is reported rather than left looking reversible when it is not. It is read once on the startup path
+and written only when a switch or an undo succeeds.
 
 **The installer records when it last ran.** When a run completes, the installer writes a small
 record, best effort, to

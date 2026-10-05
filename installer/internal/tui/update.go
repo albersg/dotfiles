@@ -71,6 +71,23 @@ type (
 		stepID string
 		err    error
 	}
+
+	// themeRecordLoadedMsg carries the setting this installer last replaced onto
+	// the startup path, the way the last-install record is loaded. It is loaded
+	// here rather than built into the model so a snapshot can pin the state
+	// directory and see no record on any host.
+	themeRecordLoadedMsg struct {
+		record *themeRecord
+	}
+
+	// themeChangedMsg carries the result of a switch or an undo back to Update,
+	// which is the only place the section's notice and record are written. The
+	// command runs off the update loop, the way every external command does.
+	themeChangedMsg struct {
+		record *themeRecord
+		notice string
+		err    error
+	}
 )
 
 // stepRecordedState is the state one installation step records for the steps
@@ -130,6 +147,7 @@ func (m Model) Init() tea.Cmd {
 		detectConfigsCmd(),
 		loadTrainerStatsCmd(),
 		loadLastInstallCmd(),
+		loadThemeRecordCmd(),
 	}
 	// The slow animation tick is armed only when the run may animate. With
 	// animation off nothing is scheduled and the counter stays at zero.
@@ -185,6 +203,16 @@ func loadTrainerStatsCmd() tea.Cmd {
 func loadLastInstallCmd() tea.Cmd {
 	return func() tea.Msg {
 		return lastInstallLoadedMsg{record: readLastInstall()}
+	}
+}
+
+// loadThemeRecordCmd reads the record of the last theme change on the startup
+// path. It is the read half of the state file writeThemeRecord writes, and the
+// utilities section's undo row is offered only when this finds a record for the
+// desktop this host is on.
+func loadThemeRecordCmd() tea.Cmd {
+	return func() tea.Msg {
+		return themeRecordLoadedMsg{record: readThemeRecord()}
 	}
 }
 
@@ -394,6 +422,28 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.LastInstall == nil {
 			m.LastInstall = msg.record
 		}
+		return m, nil
+
+	case themeRecordLoadedMsg:
+		// The theme record follows the same rule as the last-install one: the
+		// startup read fills a model the writer did not already fill.
+		if m.ThemeRecord == nil {
+			m.ThemeRecord = msg.record
+		}
+		return m, nil
+
+	case themeChangedMsg:
+		// The theme switch is not an install step, so a failure stays on the
+		// section as a notice: the run is not failed, and there is nothing to
+		// retry from another screen.
+		if msg.err != nil {
+			m.ThemeNotice = msg.err.Error()
+			return m, nil
+		}
+		if msg.record != nil {
+			m.ThemeRecord = msg.record
+		}
+		m.ThemeNotice = msg.notice
 		return m, nil
 
 	case configsDetectedMsg:
@@ -640,6 +690,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenLazyVimTopic:
 		return m.handleLazyVimTopicKeys(key)
+
+	case ScreenUtilities:
+		return m.handleUtilitiesKeys(key)
 
 	case ScreenBackupConfirm:
 		return m.handleBackupConfirmKeys(key)
@@ -941,6 +994,15 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		if m.Cursor < len(options)-1 {
 			m.Cursor++
 		}
+	case "u":
+		// The utilities section is reached by this key rather than by a row: the
+		// main menu's rows and footer are pinned by snapshots and by guards that
+		// index them, and a section that changes nothing a user already reads
+		// does not need to move them. It is documented beside the other
+		// main-menu keys, like `vim`.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.ThemeNotice = ""
 	case "enter", " ":
 		selected := options[m.Cursor]
 		switch {
@@ -975,6 +1037,73 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// handleUtilitiesKeys drives the utilities section. It only ever changes the
+// screen, the cursor or the notice: the switch itself is a command, so a slow
+// desktop tool cannot block the update loop, and the dry-run gate it runs behind
+// is the same one executeStep uses.
+func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "esc", "backspace":
+		m.Screen = ScreenMainMenu
+		m.Cursor = 0
+		m.ThemeNotice = ""
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		switch {
+		case strings.Contains(selected, "dark theme"):
+			return m, applyThemeCmd(m.ThemeSwitch, true)
+		case strings.Contains(selected, "light theme"):
+			return m, applyThemeCmd(m.ThemeSwitch, false)
+		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
+			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
+		case strings.Contains(selected, "Back"):
+			m.Screen = ScreenMainMenu
+			m.Cursor = 0
+			m.ThemeNotice = ""
+		}
+	}
+
+	return m, nil
+}
+
+// applyThemeCmd runs one theme switch off the update loop. The gate on
+// --dry-run is inside applyTheme, like the one inside executeStep, so the flag
+// stops the command whether it is reached through this command or called
+// directly.
+func applyThemeCmd(target themeSwitch, dark bool) tea.Cmd {
+	return func() tea.Msg {
+		rec, notice, err := applyTheme(target, dark)
+		return themeChangedMsg{record: rec, notice: notice, err: err}
+	}
+}
+
+// undoThemeCmd runs one undo off the update loop, behind the same gate.
+func undoThemeCmd(target themeSwitch, rec themeRecord) tea.Cmd {
+	return func() tea.Msg {
+		next, notice, err := undoTheme(target, rec)
+		return themeChangedMsg{record: next, notice: notice, err: err}
+	}
 }
 
 func (m Model) handleSelectionKeys(key string) (tea.Model, tea.Cmd) {

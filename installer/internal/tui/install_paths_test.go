@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -611,5 +612,321 @@ func TestShippedZshrcUsesAbsoluteWSLgWaylandSocket(t *testing.T) {
 	}
 	if got := found[0].value; got != waylandSocket {
 		t.Errorf("WAYLAND_DISPLAY = %q, want the absolute WSLg socket %q", got, waylandSocket)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The utilities section: the system theme switch
+// ---------------------------------------------------------------------------
+
+// withThemeCommandMock replaces the one seam the theme utility runs its commands
+// through, so a test can drive every branch without a desktop, a PATH shim or a
+// real gsettings. The results are handed back in call order; a call past the end
+// of the list succeeds with no output. It returns the commands the utility ran,
+// in order, which is what proves what was and was not executed.
+func withThemeCommandMock(t *testing.T, results ...*system.ExecResult) *[]string {
+	t.Helper()
+
+	original := runThemeCommand
+	calls := []string{}
+	i := 0
+	runThemeCommand = func(command string, opts *system.ExecOptions) *system.ExecResult {
+		calls = append(calls, command)
+		var result *system.ExecResult
+		if i < len(results) {
+			result = results[i]
+		}
+		i++
+		if result == nil {
+			result = &system.ExecResult{}
+		}
+		result.Command = command
+		return result
+	}
+	t.Cleanup(func() { runThemeCommand = original })
+	return &calls
+}
+
+// TestDetectThemeSwitchIsNarrowAndHonest pins the detection rule: a desktop is
+// offered only when both the session says which desktop it is and the tool that
+// switches it is actually on PATH. The table includes the near misses on purpose
+// - a GNOME session without gsettings, a Plasma session without the reader that
+// makes the change reversible - because offering a switch that cannot be undone
+// is the failure this rule exists to prevent.
+func TestDetectThemeSwitchIsNarrowAndHonest(t *testing.T) {
+	hasAll := func(names ...string) func(string) bool {
+		present := map[string]bool{}
+		for _, name := range names {
+			present[name] = true
+		}
+		return func(name string) bool { return present[name] }
+	}
+
+	tests := []struct {
+		name          string
+		goos          string
+		desktop       string
+		session       string
+		tools         []string
+		wantID        string
+		wantDetection bool
+	}{
+		{"a GNOME session with gsettings", "linux", "GNOME", "", []string{"gsettings"}, "gnome", true},
+		{"a GNOME session without gsettings", "linux", "GNOME", "", nil, "", false},
+		{"a Plasma 6 session", "linux", "KDE", "plasma6", []string{"plasma-apply-colorscheme", "kreadconfig6"}, "kde", true},
+		{"a Plasma session without the reader", "linux", "KDE", "plasma6", []string{"plasma-apply-colorscheme"}, "", false},
+		{"macOS", "darwin", "", "", []string{"defaults"}, "macos", true},
+		{"macOS without defaults", "darwin", "", "", nil, "", false},
+		{"a bare server with the tools installed", "linux", "", "", []string{"gsettings", "plasma-apply-colorscheme", "kreadconfig6"}, "", false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			target, ok := detectThemeSwitch(tt.goos, tt.desktop, tt.session, hasAll(tt.tools...))
+			if ok != tt.wantDetection {
+				t.Fatalf("detectThemeSwitch = %v, want %v", ok, tt.wantDetection)
+			}
+			if target.ID != tt.wantID {
+				t.Errorf("detected target = %q, want %q", target.ID, tt.wantID)
+			}
+			if !ok {
+				return
+			}
+			for field, value := range map[string]string{
+				"Read": target.Read, "Dark": target.Dark, "Light": target.Light,
+			} {
+				if strings.TrimSpace(value) == "" {
+					t.Errorf("the %s target's %s command is empty, so the utility cannot run", target.ID, field)
+				}
+			}
+			if target.Restore("Breeze Dark") == "" {
+				t.Errorf("the %s target cannot build a restore command", target.ID)
+			}
+		})
+	}
+}
+
+// TestThemeSwitchIsNotOfferedOnTermuxOrAnUnknownHost pins the two facts
+// detection cannot see from the session alone: Termux has no desktop, and a host
+// whose platform was never detected has nothing to describe.
+//
+// It is host-independent on purpose, and the reason is the one the macOS runner
+// exposed: both refusals happen in the wrapper, before the rule ever asks the
+// PATH for a tool. A desktop-shaped environment is set anyway so the test says
+// what it means -- even a GNOME session is refused on Termux -- but no assertion
+// here reads the runner's PATH, so `defaults` being present on macOS cannot
+// change the answer. The other half, that the same GNOME session with gsettings
+// present does detect the gnome target, is the "a GNOME session with gsettings"
+// row of TestDetectThemeSwitchIsNarrowAndHonest, so this test is not vacuous.
+func TestThemeSwitchIsNotOfferedOnTermuxOrAnUnknownHost(t *testing.T) {
+	t.Setenv("XDG_CURRENT_DESKTOP", "GNOME")
+
+	if _, ok := currentThemeSwitch(&system.SystemInfo{IsTermux: true}); ok {
+		t.Error("a theme switch was offered on Termux, which has no desktop theme to switch")
+	}
+	if _, ok := currentThemeSwitch(nil); ok {
+		t.Error("a theme switch was offered with no detected host")
+	}
+}
+
+// TestThemeStatePathLivesUnderTheStateDirectory pins the record's location: the
+// installer owns it, so it lives with the other state file rather than in a
+// configuration directory the user is invited to edit.
+func TestThemeStatePathLivesUnderTheStateDirectory(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	want := filepath.Join(stateHome, "dotfiles", "theme.json")
+	if got := themeStatePath(); got != want {
+		t.Errorf("themeStatePath() = %q, want %q", got, want)
+	}
+}
+
+// TestThemeSwitchRecordsTheSettingItReplaces is the reversibility contract: the
+// switch reads the setting that is there, applies the new one, and stores what
+// it replaced in its own record so the change can be undone. The commands are
+// asserted in order, so a version that applied before reading cannot pass.
+func TestThemeSwitchRecordsTheSettingItReplaces(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	calls := withThemeCommandMock(t,
+		&system.ExecResult{Output: "'default'\n"},
+		&system.ExecResult{},
+	)
+
+	rec, notice, err := applyTheme(target, true)
+	if err != nil {
+		t.Fatalf("applyTheme: %v", err)
+	}
+	if notice == "" {
+		t.Error("a successful switch said nothing about what it changed")
+	}
+	if want := []string{target.Read, target.Dark}; !reflect.DeepEqual(*calls, want) {
+		t.Errorf("commands = %v, want %v", *calls, want)
+	}
+	if rec == nil || rec.Target != "gnome" || rec.Value != "default" || rec.WasDark || !rec.ToDark {
+		t.Fatalf("record = %+v, want the gnome target with the replaced value \"default\" and ToDark true", rec)
+	}
+	stored := readThemeRecord()
+	if stored == nil || stored.Value != "default" || stored.Target != "gnome" {
+		t.Errorf("stored record = %+v, want the deprecated value \"default\" for gnome", stored)
+	}
+}
+
+// TestThemeUndoPutsTheRecordedSettingBack is the other half of reversibility:
+// the undo re-applies exactly the value the record holds, and it records the
+// value it is itself replacing, so the utility can always be run again.
+func TestThemeUndoPutsTheRecordedSettingBack(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	calls := withThemeCommandMock(t,
+		&system.ExecResult{Output: "'prefer-dark'\n"},
+		&system.ExecResult{},
+	)
+	rec := themeRecord{Target: "gnome", Value: "default", WasDark: false, ToDark: true}
+
+	next, _, err := undoTheme(target, rec)
+	if err != nil {
+		t.Fatalf("undoTheme: %v", err)
+	}
+	wantRestore := "gsettings set org.gnome.desktop.interface color-scheme 'default'"
+	if got := (*calls)[len(*calls)-1]; got != wantRestore {
+		t.Errorf("undo ran %q, want %q", got, wantRestore)
+	}
+	if next == nil || next.Value != "prefer-dark" || !next.WasDark {
+		t.Errorf("record after undo = %+v, want the value the undo replaced (\"prefer-dark\", WasDark true)", next)
+	}
+}
+
+// TestThemeSwitchRefusesAValueItCannotPutBack covers the case that makes the
+// utility safe: a setting the tool reports in a form the restore command cannot
+// safely carry back is left exactly as it was, and the reason is reported rather
+// than swallowed.
+func TestThemeSwitchRefusesAValueItCannotPutBack(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	calls := withThemeCommandMock(t, &system.ExecResult{Output: "'$(touch /tmp/pwned)'\n"})
+
+	if _, _, err := applyTheme(target, true); err == nil {
+		t.Error("a value the restore command cannot carry was accepted")
+	}
+	if len(*calls) != 1 {
+		t.Errorf("commands = %v, want only the read: nothing may be written when the value cannot be put back", *calls)
+	}
+	if readThemeRecord() != nil {
+		t.Error("a refused switch wrote a record")
+	}
+}
+
+// TestThemeSwitchSurfacesAReadFailureAsAnError keeps the honest failure: when the
+// tool cannot be read, the utility says so instead of changing a setting it could
+// not undo.
+func TestThemeSwitchSurfacesAReadFailureAsAnError(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	calls := withThemeCommandMock(t, &system.ExecResult{Error: &system.ExecError{Command: target.Read, ExitCode: 1}})
+
+	if _, _, err := applyTheme(target, true); err == nil {
+		t.Error("an unreadable setting was switched anyway")
+	}
+	if len(*calls) != 1 {
+		t.Errorf("commands = %v, want only the read", *calls)
+	}
+}
+
+// TestThemeUndoRefusesARecordFromAnotherDesktop pins that a record is only
+// usable against the desktop that wrote it: a machine that changed desktops must
+// not have an old value written into the new desktop through a mismatched tool.
+func TestThemeUndoRefusesARecordFromAnotherDesktop(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	calls := withThemeCommandMock(t)
+
+	if _, _, err := undoTheme(target, themeRecord{Target: "macos", Value: "Dark"}); err == nil {
+		t.Error("a record written by another desktop was applied")
+	}
+	if len(*calls) != 0 {
+		t.Errorf("commands = %v, want none", *calls)
+	}
+}
+
+// TestDryRunSkipsTheThemeUtility is the regression guard for the defect --dry-run
+// exists to prevent: the interactive path ran for real under a flag that
+// documents a no-op run. The switch and the undo are gated exactly as
+// executeStep is, so under the flag neither runs a command nor writes a record.
+func TestDryRunSkipsTheThemeUtility(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "1")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	calls := withThemeCommandMock(t)
+
+	if _, _, err := applyTheme(target, true); err != nil {
+		t.Fatalf("dry run switch returned an error: %v", err)
+	}
+	if _, _, err := undoTheme(target, themeRecord{Target: "gnome", Value: "default"}); err != nil {
+		t.Fatalf("dry run undo returned an error: %v", err)
+	}
+
+	if len(*calls) != 0 {
+		t.Errorf("a dry run ran %d theme command(s): %v", len(*calls), *calls)
+	}
+	if readThemeRecord() != nil {
+		t.Error("a dry run wrote a theme record")
+	}
+}
+
+// TestReadThemeRecordTreatsAPartialFileAsNoRecord pins the same rule the last
+// install record follows: a file that cannot be read, cannot be parsed or names
+// no desktop is not a record, because a restore must never be built from half a
+// file.
+func TestReadThemeRecordTreatsAPartialFileAsNoRecord(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	if rec := readThemeRecord(); rec != nil {
+		t.Errorf("a missing record read as %+v", rec)
+	}
+
+	path := themeStatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rec := readThemeRecord(); rec != nil {
+		t.Errorf("a corrupt record read as %+v", rec)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"value":"default"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rec := readThemeRecord(); rec != nil {
+		t.Errorf("a record naming no desktop read as %+v", rec)
 	}
 }
