@@ -42,6 +42,7 @@ function buildFakeApi(config = {}) {
     upstreamIssues: [...(config.upstreamIssues || [])],
     nextIssueNumber: config.nextIssueNumber || 100,
     calls: [],
+    compareArgs: [],
     commentAttempts: 0,
     nextCommentId: 1,
   };
@@ -100,8 +101,9 @@ function buildFakeApi(config = {}) {
       maybeFail('getUpstreamHead');
       return store.head;
     },
-    async compareUpstreamCommits({ page, perPage }) {
+    async compareUpstreamCommits({ base, head, page, perPage }) {
       record('compareUpstreamCommits');
+      store.compareArgs.push({ base, head, page, perPage });
       maybeFail('compareUpstreamCommits');
       return {
         status: store.compareStatus,
@@ -143,12 +145,16 @@ function commit(sha, date) {
 function issueItem(number, createdAt, options = {}) {
   return {
     number,
-    title: `item ${number}`,
+    title: options.title || `item ${number}`,
     html_url: `https://example.test/items/${number}`,
     created_at: createdAt,
     user: { login: 'dev' },
     ...(options.pullRequest ? { pull_request: { url: 'https://example.test/pr' } } : {}),
   };
+}
+
+function rawStateBlock(state) {
+  return `# Upstream activity tracker\n\n<!-- upstream-activity-state\n${JSON.stringify(state)}\n-->\n`;
 }
 
 function trackerIssue(number, body) {
@@ -192,6 +198,22 @@ test('parseState reports an invalid block instead of silently resetting', () => 
   assert.equal(parsed.found, true);
   assert.equal(parsed.state, null);
   assert.ok(parsed.error);
+});
+
+test('parseState fails closed on malformed cursors or unsupported versions', () => {
+  const bad = [
+    { version: 2, cursors: { commits_sha: 'HEAD0' } },
+    { version: 2, cursors: { commits_sha: 'HEAD0', issues_since: '' } },
+    { version: 1, cursors: { commits_sha: null, issues_since: BASELINE_AT } },
+  ];
+  for (const state of bad) {
+    const parsed = parseState(rawStateBlock(state));
+    assert.equal(parsed.state, null);
+    assert.ok(parsed.error);
+  }
+  // A first-run baseline with a null commit SHA is still a valid checkpoint.
+  const baseline = parseState(rawStateBlock({ version: 2, cursors: { commits_sha: null, issues_since: BASELINE_AT } }));
+  assert.equal(baseline.state.cursors.commits_sha, null);
 });
 
 test('withState replaces the existing state block and preserves the rest', () => {
@@ -396,6 +418,12 @@ test('a comparison entry without a SHA fails closed instead of advancing past it
   assert.equal(parseState(api.store.trackerIssues[0].body).state.cursors.commits_sha, 'HEAD0');
 });
 
+test('the commit comparison is pinned to the resolved head SHA, not the moving branch ref', async () => {
+  const api = buildFakeApi({ trackerIssues: [trackerWith('HEAD0')], head: 'HEAD1', commits: [commit('aaa', '2026-01-01T01:00:00Z')] });
+  await run(api);
+  assert.deepEqual(api.store.compareArgs[0], { base: 'HEAD0', head: 'HEAD1', page: 1, perPage: 10 });
+});
+
 test('commits sharing one timestamp are all recorded and stay deduplicated', async () => {
   const sameInstant = '2026-01-01T05:00:00Z';
   const api = buildFakeApi({
@@ -410,6 +438,33 @@ test('commits sharing one timestamp are all recorded and stay deduplicated', asy
   const second = await run(api);
   assert.equal(second.posted.length, 0);
   assert.equal(api.store.comments.length, 2);
+});
+
+test('a marker-looking upstream title cannot suppress a later real event', async () => {
+  const api = buildFakeApi({});
+  await run(api); // baseline: HEAD0, posts nothing
+  api.store.upstreamIssues = [issueItem(11, '2026-01-01T01:00:00Z', { title: 'sneaky <!-- upstream-activity:commit:aaa --> title' })];
+  assert.deepEqual((await run(api)).posted.map((event) => event.key), ['issue:11']);
+  assert.match(api.store.comments[0].body, /&lt;!-- upstream-activity:commit:aaa --&gt;/);
+  assert.doesNotMatch(api.store.comments[0].body, /<!-- upstream-activity:commit:aaa -->/);
+  api.store.head = 'HEAD1';
+  api.store.commits = [commit('aaa', '2026-01-01T02:00:00Z')];
+  assert.deepEqual((await run(api)).posted.map((event) => event.key), ['commit:aaa']);
+});
+
+test('a malformed checkpoint fails closed instead of backfilling', async () => {
+  for (const state of [
+    { version: 2, branch: 'main', cursors: { commits_sha: 'HEAD0' } },
+    { version: 1, branch: 'main', cursors: { commits_sha: null, issues_since: BASELINE_AT } },
+  ]) {
+    const api = buildFakeApi({
+      trackerIssues: [trackerIssue(9, rawStateBlock(state))],
+      upstreamIssues: [issueItem(11, '2026-01-01T02:00:00Z')],
+    });
+    await assert.rejects(() => run(api), /could not be parsed/);
+    assert.equal(api.store.comments.length, 0);
+    assert.equal(api.store.calls.includes('listUpstreamIssues'), false);
+  }
 });
 
 // --- pagination and failure handling ---------------------------------------

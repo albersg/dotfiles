@@ -36,7 +36,7 @@
 const STATE_START = '<!-- upstream-activity-state';
 const STATE_END = '-->';
 const STATE_PATTERN = /<!-- upstream-activity-state\s*\n([\s\S]*?)\n-->/;
-const MARKER_PATTERN = /<!-- upstream-activity:([a-z]+):([^\s>]+) -->/g;
+const MARKER_LINE_PATTERN = /<!-- upstream-activity:(commit|issue|pr):([^\s>]+) -->\s*$/;
 const STATE_VERSION = 2;
 
 const EVENT_LABEL = {
@@ -60,15 +60,31 @@ function stateBlockFor(state) {
 function parseState(body) {
   const match = STATE_PATTERN.exec(body || '');
   if (!match) return { found: false, state: null, error: null };
+  let state;
   try {
-    const state = JSON.parse(match[1]);
-    if (!state || typeof state !== 'object' || typeof state.cursors !== 'object') {
-      return { found: true, state: null, error: 'state block is missing a cursors object' };
-    }
-    return { found: true, state, error: null };
+    state = JSON.parse(match[1]);
   } catch (error) {
     return { found: true, state: null, error: error.message };
   }
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return { found: true, state: null, error: 'state block is not an object' };
+  }
+  if (state.version !== STATE_VERSION) {
+    return { found: true, state: null, error: `unsupported state version ${JSON.stringify(state.version)}` };
+  }
+  const cursors = state.cursors;
+  if (!cursors || typeof cursors !== 'object' || Array.isArray(cursors)) {
+    return { found: true, state: null, error: 'state block is missing a cursors object' };
+  }
+  if (typeof cursors.issues_since !== 'string' || cursors.issues_since === '') {
+    return { found: true, state: null, error: 'state block is missing a valid issues_since cursor' };
+  }
+  // `null` is the valid first-run baseline; otherwise the commit cursor must be
+  // a non-empty SHA string so a malformed value cannot silently skip commits.
+  if (cursors.commits_sha !== null && (typeof cursors.commits_sha !== 'string' || cursors.commits_sha === '')) {
+    return { found: true, state: null, error: 'state block has an invalid commits_sha cursor' };
+  }
+  return { found: true, state, error: null };
 }
 
 function withState(body, state) {
@@ -170,7 +186,10 @@ function selectNewIssues(items, cursor) {
 }
 
 function formatComment(event) {
-  const lines = [`#### New upstream ${EVENT_LABEL[event.type]}: ${event.title}`];
+  // Upstream-controlled titles (issue/PR titles, commit subjects) are untrusted:
+  // neutralize marker delimiters so a title can never look like a recorded marker.
+  const title = String(event.title).replace(/<!--/g, '&lt;!--').replace(/-->/g, '--&gt;');
+  const lines = [`#### New upstream ${EVENT_LABEL[event.type]}: ${title}`];
   if (event.type === 'commit') {
     lines.push(`- SHA: \`${event.sha}\``);
   } else {
@@ -187,13 +206,10 @@ function formatComment(event) {
 function collectMarkers(comments) {
   const markers = new Set();
   for (const comment of comments) {
-    const body = comment?.body || '';
-    MARKER_PATTERN.lastIndex = 0;
-    let match = MARKER_PATTERN.exec(body);
-    while (match) {
-      markers.add(`<!-- upstream-activity:${match[1]}:${match[2]} -->`);
-      match = MARKER_PATTERN.exec(body);
-    }
+    // Only an exact, standalone terminal marker counts, so marker-looking text
+    // earlier in a comment (e.g. a title) can never suppress a real event.
+    const match = MARKER_LINE_PATTERN.exec(String(comment?.body || ''));
+    if (match) markers.add(`<!-- upstream-activity:${match[1]}:${match[2]} -->`);
   }
   return markers;
 }
@@ -287,7 +303,7 @@ async function runActivityTracker(config) {
     } else {
       const firstPage = await api.compareUpstreamCommits({
         base: savedHead,
-        head: upstreamBranch,
+        head: headSha,
         page: 1,
         perPage: pageSize,
       });
@@ -301,7 +317,7 @@ async function runActivityTracker(config) {
             if (page === 1) return Array.isArray(firstPage.commits) ? firstPage.commits : [];
             const data = await api.compareUpstreamCommits({
               base: savedHead,
-              head: upstreamBranch,
+              head: headSha,
               page,
               perPage: pageSize,
             });
