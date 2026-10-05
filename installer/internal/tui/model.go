@@ -62,6 +62,11 @@ const (
 	// the existing screens stable.
 	ScreenKeymapsHerdr    // Herdr keymaps
 	ScreenKeymapsHerdrCat // Herdr keymap category
+	// Utilities section. Appended at the end for the same reason. It is reached
+	// from the main menu by a key, not by a menu row: the main menu's rows and
+	// footer are pinned by snapshots and by guards that index them, and a section
+	// that changes nothing a user already reads does not need to move them.
+	ScreenUtilities // System utilities, starting with the theme switch
 )
 
 // InstallStep represents a single installation step
@@ -284,6 +289,21 @@ type Model struct {
 	TrainerCodeScrollFor string
 	// Leader key mode (like Vim's <space> leader)
 	LeaderMode bool // True when waiting for next key after <space>
+
+	// ThemeSwitch is the desktop's reversible light/dark switch, and
+	// ThemeSwitchFound says whether this host has one. Both are decided once when
+	// the model is built, so the utilities section reads the answer off the model
+	// and never probes the machine while drawing.
+	ThemeSwitch      themeSwitch
+	ThemeSwitchFound bool
+	// ThemeRecord is the setting this installer last replaced, read from its own
+	// state file on the startup path. It is nil when there is no record, and the
+	// section then offers no undo row rather than one that would fail.
+	ThemeRecord *themeRecord
+	// ThemeNotice is the one-line result of the last switch or undo, cleared when
+	// the section is left. An error is shown here too: the theme switch is not an
+	// install step, so it does not take the run to the failure screen.
+	ThemeNotice string
 }
 
 // NewModel creates a new Model with initial state
@@ -340,6 +360,9 @@ func NewModel() Model {
 		TrainerMessage:     "",
 		TrainerValidation:  nil,
 	}
+	// The desktop's theme switch is detected once here, the way the host itself
+	// is, so no screen probes the environment or PATH while it draws.
+	m.ThemeSwitch, m.ThemeSwitchFound = currentThemeSwitch(m.SystemInfo)
 	// The gaze is settled once here, so a model that never sees a key, a resize or
 	// a pointer event still draws eyes that are looking at what it starts on, and
 	// the first tick does not have to move them.
@@ -455,6 +478,22 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "ℹ️ Learn about multiplexers"}
 	case ScreenNvimSelect:
 		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "ℹ️ Learn about Neovim", "⌨️ View Keymaps", "📖 LazyVim Guide"}
+	case ScreenUtilities:
+		// Only what exists is offered: the switch rows need a detected desktop and
+		// the undo row needs a record this installer wrote for that same desktop.
+		// A host with none of them gets the explanation in the screen's own body
+		// and the way back, not a row that fails when it is pressed.
+		opts := []string{}
+		if m.ThemeSwitchFound {
+			opts = append(opts, "Switch to the dark theme", "Switch to the light theme")
+		}
+		if m.themeUndoAvailable() {
+			opts = append(opts, "Undo the last theme change")
+		}
+		if len(opts) > 0 {
+			opts = append(opts, m.menuSeparator())
+		}
+		return append(opts, "← Back")
 	case ScreenBackupConfirm:
 		return []string{
 			"✅ Install with Backup (recommended)",
@@ -639,6 +678,8 @@ func (m Model) GetScreenTitle() string {
 		return "🎮 Vim Trainer - Result"
 	case ScreenTrainerBossResult:
 		return "🎮 Vim Trainer - Boss Battle Complete"
+	case ScreenUtilities:
+		return "🧰 Utilities"
 	default:
 		return ""
 	}

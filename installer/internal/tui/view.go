@@ -406,6 +406,8 @@ func (m Model) headerName() string {
 		return "LazyVim"
 	case ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm:
 		return "Backups"
+	case ScreenUtilities:
+		return "Utilities"
 	default:
 		return "dotfiles"
 	}
@@ -842,6 +844,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderRestoreBackup())
 	case ScreenRestoreConfirm:
 		s.WriteString(m.renderRestoreConfirm())
+	case ScreenUtilities:
+		s.WriteString(m.renderUtilities())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
 	case ScreenComplete:
@@ -1086,6 +1090,95 @@ func (m Model) mainMenuTrainerNotice() string {
 		return ""
 	}
 	return WarningStyle.Render(rows[0])
+}
+
+// utilitiesNoticeRows is the most rows the utilities section's result line may
+// spend. Two is enough for one sentence at the 60-column end of the supported
+// range; more than that is a cut, and the cut is marked.
+const utilitiesNoticeRows = 2
+
+// renderUtilities draws the utilities section: what it can change on this host,
+// what the change touches, the rows the host offers, and the result of the last
+// one. It sizes its own description to the rows the frame leaves, so a narrow
+// terminal trims the prose out loud rather than pushing the footer off screen.
+func (m Model) renderUtilities() string {
+	width := contentWidth(m)
+	hints := []installerHint{hintUp, hintDown, hintSelect, hintBack}
+	menu := m.menuRows(m.GetCurrentOptions(), m.Cursor)
+
+	var notice []string
+	if m.ThemeNotice != "" {
+		notice = append(notice, "")
+		lines := wrapText(m.ThemeNotice, width, 0)
+		if len(lines) > utilitiesNoticeRows {
+			hidden := len(lines) - utilitiesNoticeRows + 1
+			lines = lines[:utilitiesNoticeRows-1]
+			lines = append(lines, fmt.Sprintf("… and %d more", hidden))
+		}
+		notice = append(notice, lines...)
+	}
+
+	// The rows the title, the blank above the menu, the menu and the notice
+	// spend, taken off the frame's body before the description is wrapped, so the
+	// description can never be the row that overflows.
+	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	descBudget := bodyRows - (2 + len(menu)) - len(notice)
+
+	body := []string{BrandStyle.Render(m.GetScreenTitle())}
+	for _, line := range m.utilitiesDescriptionLines(width, descBudget) {
+		body = append(body, MutedStyle.Render(line))
+	}
+	body = append(body, "")
+	body = append(body, menu...)
+	body = append(body, notice...)
+
+	return m.frame(m.headerName(), "", body, hints)
+}
+
+// utilitiesDescriptionLines is the section's prose wrapped to the width it will
+// be drawn at and clipped to the rows the frame leaves. A description longer
+// than its budget keeps the lines that fit and says how many it could not show,
+// the same rule the panel and list bodies follow.
+func (m Model) utilitiesDescriptionLines(width, budget int) []string {
+	if budget < 1 {
+		// No room for prose at all. The rows below the description still say what
+		// the section offers, so this is a cut rather than a failure.
+		return nil
+	}
+
+	var lines []string
+	for _, paragraph := range m.utilitiesDescription() {
+		lines = append(lines, wrapText(paragraph, width, 0)...)
+	}
+	if len(lines) > budget {
+		hidden := len(lines) - budget + 1
+		lines = append(lines[:budget-1], fmt.Sprintf("… and %d more", hidden))
+	}
+	return lines
+}
+
+// utilitiesDescription is what the section says about itself, in the installer's
+// own voice: which desktop it found and what that change touches, or the honest
+// account of why there is nothing to offer here. The file it names is the
+// installer's own record; the desktop's store belongs to the desktop's tool.
+func (m Model) utilitiesDescription() []string {
+	if !m.ThemeSwitchFound {
+		return []string{
+			"No desktop theme switch is available here. Switching needs a GNOME, KDE Plasma or macOS " +
+				"session with the tool that changes its theme on PATH; a server, Termux or a plain " +
+				"terminal has none, so no switch is offered.",
+		}
+	}
+
+	paragraphs := []string{
+		fmt.Sprintf("Switch the desktop's theme through %s's own tool. The setting that was there is "+
+			"recorded before it changes, so the switch can be undone.", m.ThemeSwitch.Name),
+	}
+	if m.ThemeSwitch.Writes != "" {
+		paragraphs = append(paragraphs, fmt.Sprintf("It writes %s, and its own record in theme.json "+
+			"beside the installer's other state.", m.ThemeSwitch.Writes))
+	}
+	return paragraphs
 }
 
 func (m Model) renderMainMenu() string {

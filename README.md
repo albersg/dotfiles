@@ -128,6 +128,22 @@ To update later, install the newer installer and run it again: `brew upgrade dot
 on the Homebrew path, or download the current binary otherwise. A later run clones this
 repository again, so it picks up the current configurations.
 
+### Utilities
+
+The installer also has a **Utilities** section for the small jobs that are not part of an
+installation. Press `u` on the main menu to open it.
+
+**Switch the desktop's theme.** The first utility changes the system light/dark theme through
+the desktop's own tool — `gsettings` on GNOME, `plasma-apply-colorscheme` on KDE Plasma,
+`defaults` on macOS — and it only offers a desktop whose setting it can read back exactly as
+it can write it. Before it changes anything it records the setting that was there in
+`$XDG_STATE_HOME/dotfiles/theme.json` (or `~/.local/state/dotfiles/theme.json`), so
+**Undo the last theme change** can put it back; a setting it cannot safely restore is left
+alone and the reason is shown. A host with no desktop — a server, Termux, a bare terminal —
+is told so rather than offered a switch that would fail. `--dry-run` skips the utility, like
+every installation step. See the [TUI Installer Guide](docs/tui-installer.md#utilities) for
+the exact files it touches.
+
 ---
 
 ## Supported Platforms

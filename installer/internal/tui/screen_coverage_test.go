@@ -183,7 +183,7 @@ var measuredTerminalSizes = []struct {
 // every screen is in it, so a screen silently dropping out of the enumeration has
 // to fail here instead of shrinking the measurement.
 func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
-	const measuredScreens = 53 // 47 installer states plus the trainer's 6
+	const measuredScreens = 54 // 47 installer states, the utilities section, and the trainer's 6
 
 	cases := terminalFitCases()
 	if len(cases) != measuredScreens {
@@ -263,6 +263,10 @@ func terminalFitCases() []terminalFitCase {
 			return trainerLeakFrameCase(t, name)
 		}})
 	}
+	// The utilities section is entered from the main menu by a key rather than by
+	// one of the installer's states, so it is measured here the way the trainer's
+	// screens are.
+	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 
 	return cases
 }
@@ -375,11 +379,13 @@ func TestTrainerCompanionFloorIsADocumentedException(t *testing.T) {
 	}
 }
 
-// screensTheInstallerStatesNeverReach builds the trainer's screens at the frame
-// the repository claims to support. The trainer composes its own rows and is
-// entered from its own menu, so none of these appear among the installer's
-// states; the fit assertion is the same one the installer's states use, which is
-// what makes this a frame guard rather than a second, weaker check.
+// screensTheInstallerStatesNeverReach builds the screens no installer state
+// reaches at the frame the repository claims to support: the trainer's screens,
+// which compose their own rows and are entered from their own menu, and the
+// utilities section, which is entered from the main menu by a key. None of these
+// appear among the installer's states; the fit assertion is the same one the
+// installer's states use, which is what makes this a frame guard rather than a
+// second, weaker check.
 func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -424,5 +430,77 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{"trainer-boss", boss},
 		{"trainer-result", result},
 		{"trainer-boss-result", bossResult},
+		{utilitiesCaseName, utilitiesFrameCase(t)},
+	}
+}
+
+// utilitiesCaseName is the name the frame guards know the utilities section by.
+const utilitiesCaseName = "utilities"
+
+// utilitiesFrameCase builds the utilities section with a desktop detected and a
+// record to undo, so the guards measure the screen carrying its utility rows
+// rather than the empty state a runner with no desktop would produce. The
+// detection is forced rather than read from the host: a guard that measured
+// whatever desktop the runner happened to have would change with the machine.
+func utilitiesFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenUtilities)
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	m.ThemeSwitch, m.ThemeSwitchFound = target, true
+	m.ThemeRecord = &themeRecord{Target: target.ID, Value: "default", WasDark: false, ToDark: true}
+	return m
+}
+
+// TestUtilitiesUnavailableFitsEveryTerminalSize measures the other half of the
+// utilities section at the same twelve terminals: the state a server, Termux or
+// a bare terminal sees, where the section names the situation and offers no
+// switch row. The available state is the guard case above; this one exists
+// because the copy that explains the absence is itself rows, and rows can
+// overflow a frame.
+func TestUtilitiesUnavailableFitsEveryTerminalSize(t *testing.T) {
+	checked := 0
+	for _, size := range measuredTerminalSizes {
+		size := size
+		t.Run(size.name, func(t *testing.T) {
+			m := installerFrameModel(t, ScreenUtilities)
+			m.ThemeSwitch, m.ThemeSwitchFound = themeSwitch{}, false
+			m.Width, m.Height = size.width, size.height
+			assertScreenFitsTerminal(t, "utilities-unavailable", size.width, size.height, m.View())
+		})
+		checked++
+	}
+	if checked != len(measuredTerminalSizes) {
+		t.Fatalf("the guard rendered %d sizes, want %d", checked, len(measuredTerminalSizes))
+	}
+}
+
+// TestUtilitiesFrameFitIsMeasuredAtEverySize prints the utilities section's
+// measured frame at the twelve terminals the fit guard uses, so the size it is
+// drawn at is a number a reader can re-derive rather than a claim. The
+// assertions repeat the guard's two rules on purpose: this is the case that
+// carries the numbers, and a measurement that is only logged cannot fail.
+func TestUtilitiesFrameFitIsMeasuredAtEverySize(t *testing.T) {
+	for _, size := range measuredTerminalSizes {
+		m := utilitiesFrameCase(t)
+		m.Width, m.Height = size.width, size.height
+		view := m.View()
+
+		rows := renderedRowCount(view)
+		widest := 0
+		for _, line := range strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n") {
+			widest = max(widest, lipgloss.Width(line))
+		}
+		t.Logf("utilities at %s: %d of %d rows, %d of %d columns", size.name, rows, size.height, widest, size.width)
+
+		if rows > size.height {
+			t.Errorf("utilities at %s renders %d rows, want <= %d", size.name, rows, size.height)
+		}
+		if widest > size.width {
+			t.Errorf("utilities at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		}
 	}
 }

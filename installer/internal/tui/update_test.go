@@ -725,3 +725,239 @@ func TestShellStepDoesNotPresentAnUndetectedShell(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// The utilities section
+// ---------------------------------------------------------------------------
+
+// utilitiesModel builds the utilities section with the detected desktop pinned,
+// so a behaviour test does not depend on the machine that runs it.
+func utilitiesModel(t *testing.T, detected bool) Model {
+	t.Helper()
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.Cursor = 0
+	if detected {
+		target, ok := themeSwitchByID("gnome")
+		if !ok {
+			t.Fatal("the theme switch table no longer holds the gnome entry")
+		}
+		m.ThemeSwitch, m.ThemeSwitchFound = target, true
+	}
+	return m
+}
+
+// TestUtilitiesOpensFromTheMainMenuKey pins the way in: the main menu carries a
+// key for the section. The key is a navigation key rather than an easter egg, so
+// it opens the section before any prefix state can swallow it.
+func TestUtilitiesOpensFromTheMainMenuKey(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+	m.Cursor = 4
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = next.(Model)
+
+	if m.Screen != ScreenUtilities {
+		t.Fatalf("screen after u = %v, want ScreenUtilities", m.Screen)
+	}
+	if m.Cursor != 0 {
+		t.Errorf("cursor after entering the section = %d, want 0", m.Cursor)
+	}
+	if m.MenuKeyBuffer != "" {
+		t.Errorf("the key left menu buffer %q", m.MenuKeyBuffer)
+	}
+}
+
+// TestUtilitiesOffersTheThemeRowsOnlyWhenADesktopIsDetected is the "detect
+// before offering" rule: the two switch rows exist only when a desktop and its
+// tool were found, and the undo row only when this installer has a record for
+// that same desktop.
+func TestUtilitiesOffersTheThemeRowsOnlyWhenADesktopIsDetected(t *testing.T) {
+	t.Run("a detected desktop offers the switch rows", func(t *testing.T) {
+		m := utilitiesModel(t, true)
+		options := m.GetCurrentOptions()
+		if !anyOptionContains(options, "dark theme") || !anyOptionContains(options, "light theme") {
+			t.Errorf("options = %v, want both theme rows", options)
+		}
+		if anyOptionContains(options, "Undo") {
+			t.Errorf("options = %v, want no undo row with no record", options)
+		}
+		if !anyOptionContains(options, "Back") {
+			t.Errorf("options = %v, want the way back", options)
+		}
+	})
+
+	t.Run("a record for the detected desktop offers the undo row", func(t *testing.T) {
+		m := utilitiesModel(t, true)
+		m.ThemeRecord = &themeRecord{Target: "gnome", Value: "default"}
+		if !anyOptionContains(m.GetCurrentOptions(), "Undo") {
+			t.Errorf("options = %v, want the undo row when a record exists for the detected desktop", m.GetCurrentOptions())
+		}
+	})
+
+	t.Run("a record for another desktop offers no undo row", func(t *testing.T) {
+		m := utilitiesModel(t, true)
+		m.ThemeRecord = &themeRecord{Target: "macos", Value: "Dark"}
+		if anyOptionContains(m.GetCurrentOptions(), "Undo") {
+			t.Errorf("options = %v, want no undo row for another desktop's record", m.GetCurrentOptions())
+		}
+	})
+
+	t.Run("no detected desktop offers no theme row at all", func(t *testing.T) {
+		m := utilitiesModel(t, false)
+		options := m.GetCurrentOptions()
+		for _, opt := range options {
+			if strings.Contains(opt, "theme") {
+				t.Errorf("options = %v, want no theme row on a host with no desktop", options)
+				break
+			}
+		}
+		if !anyOptionContains(options, "Back") {
+			t.Errorf("options = %v, want the way back", options)
+		}
+	})
+}
+
+// TestUtilitiesUnavailableSaysSoAndFitsTheFrame pins the honest degradation: on a
+// server, in Termux or in a bare terminal the section names the situation
+// instead of offering a row that would fail, and the screen still fits the
+// terminals the installer claims to support.
+func TestUtilitiesUnavailableSaysSoAndFitsTheFrame(t *testing.T) {
+	m := utilitiesModel(t, false)
+
+	for _, size := range []struct {
+		name          string
+		width, height int
+	}{
+		{"80x24", 80, 24},
+		{"60x20", 60, 20},
+		{"160x50", 160, 50},
+	} {
+		m.Width, m.Height = size.width, size.height
+		view := m.View()
+		plain := ansiEscape.ReplaceAllString(view, "")
+		if !strings.Contains(plain, "No desktop theme switch is available here") {
+			t.Errorf("the unavailable section at %s does not say why: %q", size.name, plain)
+		}
+		assertScreenFitsTerminal(t, "utilities-unavailable", size.width, size.height, view)
+	}
+}
+
+// TestUtilitiesEscapeReturnsToTheMainMenu pins the way out the footer promises.
+func TestUtilitiesEscapeReturnsToTheMainMenu(t *testing.T) {
+	m := utilitiesModel(t, true)
+	next, _ := m.handleUtilitiesKeys("esc")
+	m = next.(Model)
+
+	if m.Screen != ScreenMainMenu {
+		t.Errorf("screen after esc = %v, want ScreenMainMenu", m.Screen)
+	}
+	if m.Cursor != 0 {
+		t.Errorf("cursor after leaving = %d, want 0", m.Cursor)
+	}
+}
+
+// TestUtilitiesIdleKeyChangesNothing pins that the section only acts on enter:
+// an ordinary key must not switch the theme or leave the screen.
+func TestUtilitiesIdleKeyChangesNothing(t *testing.T) {
+	m := utilitiesModel(t, true)
+	next, cmd := m.handleUtilitiesKeys("x")
+	m = next.(Model)
+
+	if m.Screen != ScreenUtilities || m.Cursor != 0 {
+		t.Errorf("an idle key moved to screen %v cursor %d", m.Screen, m.Cursor)
+	}
+	if cmd != nil {
+		t.Error("an idle key returned a command")
+	}
+}
+
+// TestUtilitiesSelectingASwitchRunsTheThemeCommand pins the wiring from the row
+// to the command: enter on the dark row returns the command that switches the
+// detected desktop's theme, through the same seam the disk tests drive.
+func TestUtilitiesSelectingASwitchRunsTheThemeCommand(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	calls := withThemeCommandMock(t,
+		&system.ExecResult{Output: "'default'\n"},
+		&system.ExecResult{},
+	)
+
+	m := utilitiesModel(t, true)
+	next, cmd := m.handleUtilitiesKeys("enter")
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("selecting the dark row returned no command")
+	}
+
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+
+	if len(*calls) == 0 || (*calls)[0] != target.Read {
+		t.Fatalf("commands = %v, want the read first", *calls)
+	}
+	if m.ThemeRecord == nil || m.ThemeRecord.Value != "default" {
+		t.Errorf("model record after the switch = %+v, want the replaced value recorded", m.ThemeRecord)
+	}
+	if m.ThemeNotice == "" {
+		t.Error("the section said nothing after a successful switch")
+	}
+	if m.Screen != ScreenUtilities {
+		t.Errorf("screen after a switch = %v, want to stay on the section", m.Screen)
+	}
+}
+
+// TestUtilitiesKeepsTheFrameFreeOfActiveColour applies the render-leak rule to
+// the new screen: no line may end with a style still active, or the tone bleeds
+// through every cell after it.
+func TestUtilitiesKeepsTheFrameFreeOfActiveColour(t *testing.T) {
+	for _, detected := range []bool{true, false} {
+		m := utilitiesModel(t, detected)
+		if detected {
+			m.ThemeRecord = &themeRecord{Target: "gnome", Value: "default"}
+		}
+		m.ThemeNotice = "Theme set to dark."
+		for _, size := range []struct{ width, height int }{{80, 24}, {60, 20}, {160, 50}, {227, 62}} {
+			m.Width, m.Height = size.width, size.height
+			checkRenderedLineStyles(t, "utilities", size.width, size.height, m.View())
+		}
+	}
+}
+
+// anyOptionContains reports whether any option in the list contains want.
+func anyOptionContains(options []string, want string) bool {
+	for _, opt := range options {
+		if strings.Contains(opt, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestUtilitiesLongNoticeStillFitsTheFrame protects the notice budget: the
+// section trims a long result line out loud rather than letting it push the
+// footer off the screen, which is the same rule the panel and list bodies follow.
+func TestUtilitiesLongNoticeStillFitsTheFrame(t *testing.T) {
+	m := utilitiesModel(t, true)
+	m.ThemeRecord = &themeRecord{Target: "gnome", Value: "default"}
+	m.ThemeNotice = strings.Repeat("The tool could not read the current setting, so nothing was changed. ", 6)
+
+	for _, size := range []struct {
+		name          string
+		width, height int
+	}{
+		{"80x24", 80, 24},
+		{"60x20", 60, 20},
+	} {
+		m.Width, m.Height = size.width, size.height
+		view := m.View()
+		assertScreenFitsTerminal(t, "utilities-long-notice", size.width, size.height, view)
+		if plain := ansiEscape.ReplaceAllString(view, ""); !strings.Contains(plain, "… and ") {
+			t.Errorf("the notice at %s was trimmed without the visible marker", size.name)
+		}
+	}
+}
