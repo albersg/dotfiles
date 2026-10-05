@@ -257,3 +257,20 @@ fixing two of them falls outside this change.
   anyone had to remember to document it. The fix is one row in `docs/BRANDING.md` under *Overrides for
   non-standard layouts*: the variable is an override the user sets, not an installer switch. That the
   guard stopped the work is the feature working, not friction.
+
+## Update: the macOS golden flake, diagnosed and fixed
+
+- PR #161's macOS smoke test failed on `TestMainMenuGolden` with a transcript that held only the
+  terminal's initialisation and teardown sequences. It was not a content change: the golden file was
+  byte-identical, the failing `got` contained no frame at all, and the main-menu render never touches a
+  theme definition.
+- **The golden did not depend on the working directory.** `NewModel`, `Init` and the main-menu render do
+  not call the theme resolver; it is reached only when Utilities is entered (update.go). The snapshot is
+  the same wherever the checkout lives, which is why every other golden and every other machine passed.
+- **The cause was a test race.** `waitForAnyOutput` quits after the first two length-positive output
+  events; the terminal's initialisation is one of them and the first frame can arrive in several, so on a
+  loaded macOS runner Ctrl+C won before the frame was drawn.
+- **Fix:** `waitForGoldenFrame` waits for the frame's own marker before quitting, and the six
+  `teatest`-driven golden tests use it through `goldenTranscript`. `TestGoldenFrameWaitsForTheScreen`
+  reproduces the race with a staged reader (init, partial repaint, frame): it fails deterministically
+  while the wait accepts "any output" and passes when it waits for the frame. No golden file changed.

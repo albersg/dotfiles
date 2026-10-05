@@ -128,6 +128,81 @@ func readAll(t *testing.T, r io.Reader) []byte {
 	return bts
 }
 
+// stagedOutputReader yields one chunk per Read call and reports io.EOF after
+// each, the way teatest's live output buffer does between flushes. It lets a test
+// control when the frame arrives, so the "quit before the frame" race is
+// reproducible instead of depending on a slow runner.
+type stagedOutputReader struct {
+	chunks [][]byte
+	next   int
+}
+
+func (s *stagedOutputReader) Read(p []byte) (int, error) {
+	if s.next >= len(s.chunks) {
+		return 0, io.EOF
+	}
+	n := copy(p, s.chunks[s.next])
+	s.next++
+	return n, io.EOF
+}
+
+// waitForGoldenFrame reads r until the frame carrying marker has arrived, and
+// returns everything it read. The marker is the contract: a golden may not be
+// captured from output that does not yet hold the screen.
+func waitForGoldenFrame(t *testing.T, r io.Reader, marker string) *bytes.Buffer {
+	t.Helper()
+
+	seen := &bytes.Buffer{}
+	teatest.WaitFor(t, io.TeeReader(r, seen), func(bts []byte) bool {
+		return bytes.Contains(bts, []byte(marker))
+	}, teatest.WithCheckInterval(2*time.Millisecond), teatest.WithDuration(2*time.Second))
+	return seen
+}
+
+// goldenTranscript drives a golden model through teatest and returns the
+// transcript the golden compares against. It waits for the frame the snapshot is
+// about to be on screen, identified by marker, before quitting.
+//
+// The wait is the fix for the macOS golden flake. The terminal's initialisation
+// is one output event and the first frame can arrive in several, so a test that
+// quits after "any output" stops the program before it has drawn anything and
+// snapshots an empty screen. TestMainMenuGolden failed exactly that way: the
+// transcript held the initialisation and teardown sequences with no frame. A wait
+// on content the frame must contain cannot return an empty one.
+func goldenTranscript(t *testing.T, m Model, width, height int, marker string) []byte {
+	t.Helper()
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(width, height))
+
+	seen := waitForGoldenFrame(t, tm.Output(), marker)
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if _, err := io.Copy(seen, tm.Output()); err != nil {
+		t.Fatalf("reading the rest of the output failed: %v", err)
+	}
+	return seen.Bytes()
+}
+
+// TestGoldenFrameWaitsForTheScreen is the regression for the macOS golden flake:
+// the terminal's initialisation and a partial repaint are not the frame, and a
+// capture that quits on the first output byte snapshots an empty screen. The
+// reader hands the frame over only after the two decoy chunks, so a wait on
+// content the frame must contain cannot return before it.
+func TestGoldenFrameWaitsForTheScreen(t *testing.T) {
+	reader := &stagedOutputReader{chunks: [][]byte{
+		[]byte("\x1b[?25l\x1b[?2004h\x1b]2;dotfiles Installer\x07"),
+		[]byte(" \x1b[K"),
+		[]byte("Main Menu\n  Start Installation\n"),
+	}}
+
+	got := waitForGoldenFrame(t, reader, "Main Menu").Bytes()
+	if !bytes.Contains(got, []byte("Main Menu")) {
+		t.Fatalf("the capture returned before the frame arrived, with only the terminal's own output: %q", got)
+	}
+}
+
 // TestWelcomeScreenGolden tests the welcome screen render against golden file.
 //
 // It renders the model rather than driving a program: this screen shows the live
@@ -160,16 +235,53 @@ func TestMainMenuGolden(t *testing.T) {
 	m.Height = 24
 	m.Screen = ScreenMainMenu
 
-	tm := teatest.NewTestModel(t, m,
-		teatest.WithInitialTermSize(80, 24),
-	)
+	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Main Menu"))
+}
 
-	seen := waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+// TestMainMenuGoldenIsIndependentOfTheWorkingDirectory answers the question the
+// macOS flake raised: if the snapshot read the theme definitions from the working
+// directory, the same code would render differently in two checkouts. This points
+// the working directory at a temporary tree that has no themes/ in it or in any
+// parent, captures the same screen, and requires the exact bytes already pinned by
+// TestMainMenuGolden. It is red the moment the main-menu render starts depending
+// on where the checkout lives.
+func TestMainMenuGoldenIsIndependentOfTheWorkingDirectory(t *testing.T) {
+	skipIfTermux(t)
 
-	out := append(seen.Bytes(), readAll(t, tm.Output())...)
-	teatest.RequireEqualOutput(t, out)
+	// The golden lives beside the package; read it before the working directory
+	// moves, so the comparison is against the pinned bytes and not wherever the
+	// process happens to be.
+	want := readGoldenBytes(t, "TestMainMenuGolden")
+
+	t.Chdir(t.TempDir())
+
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenMainMenu
+
+	got := normalizeGoldenBytes(goldenTranscript(t, m, 80, 24, "Main Menu"))
+	if !bytes.Equal(want, got) {
+		t.Fatalf("the main menu rendered differently away from the checkout:\nwant %q\ngot  %q", want, got)
+	}
+}
+
+// readGoldenBytes reads a pinned golden with the same line-ending normalisation
+// the golden package applies, so a comparison outside RequireEqual still matches.
+func readGoldenBytes(t *testing.T, name string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join("testdata", name+".golden"))
+	if err != nil {
+		t.Fatalf("read the %s golden: %v", name, err)
+	}
+	return normalizeGoldenBytes(data)
+}
+
+// normalizeGoldenBytes makes a \r\n comparison the same as the golden package's.
+func normalizeGoldenBytes(data []byte) []byte {
+	return bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 }
 
 // TestMainMenuWideGolden pins the two-column composition at 160x50, the first
@@ -199,16 +311,7 @@ func TestMainMenuWideGolden(t *testing.T) {
 	m.Height = 50
 	m.Screen = ScreenMainMenu
 
-	tm := teatest.NewTestModel(t, m,
-		teatest.WithInitialTermSize(160, 50),
-	)
-
-	seen := waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	out := append(seen.Bytes(), readAll(t, tm.Output())...)
-	teatest.RequireEqualOutput(t, out)
+	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 160, 50, "Main Menu"))
 }
 
 // TestCompanionGoldenFramesTheCreatureAtTickZero pins the companion's frame 0:
@@ -339,16 +442,7 @@ func TestOSSelectGolden(t *testing.T) {
 	m.Height = 24
 	m.Screen = ScreenOSSelect
 
-	tm := teatest.NewTestModel(t, m,
-		teatest.WithInitialTermSize(80, 24),
-	)
-
-	seen := waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	out := append(seen.Bytes(), readAll(t, tm.Output())...)
-	teatest.RequireEqualOutput(t, out)
+	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Select Your Operating System"))
 }
 
 // TestNavigationFlowE2E tests navigating from welcome through menu like Playwright would
@@ -516,16 +610,7 @@ func TestBackupScreenGolden(t *testing.T) {
 	m.Screen = ScreenBackupConfirm
 	m.ExistingConfigs = []string{".config/nvim", ".zshrc", ".tmux.conf"}
 
-	tm := teatest.NewTestModel(t, m,
-		teatest.WithInitialTermSize(80, 24),
-	)
-
-	seen := waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	out := append(seen.Bytes(), readAll(t, tm.Output())...)
-	teatest.RequireEqualOutput(t, out)
+	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Existing Configs Detected"))
 }
 
 // TestErrorScreenGolden tests the error screen render
@@ -538,16 +623,7 @@ func TestErrorScreenGolden(t *testing.T) {
 	m.Screen = ScreenError
 	m.ErrorMsg = "Test error: something went wrong during installation"
 
-	tm := teatest.NewTestModel(t, m,
-		teatest.WithInitialTermSize(80, 24),
-	)
-
-	seen := waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	out := append(seen.Bytes(), readAll(t, tm.Output())...)
-	teatest.RequireEqualOutput(t, out)
+	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Installation failed"))
 }
 
 // TestCompleteScreenGolden tests the completion screen render
@@ -566,16 +642,7 @@ func TestCompleteScreenGolden(t *testing.T) {
 		InstallNvim: true,
 	}
 
-	tm := teatest.NewTestModel(t, m,
-		teatest.WithInitialTermSize(80, 24),
-	)
-
-	seen := waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	out := append(seen.Bytes(), readAll(t, tm.Output())...)
-	teatest.RequireEqualOutput(t, out)
+	teatest.RequireEqualOutput(t, goldenTranscript(t, m, 80, 24, "Installation complete"))
 }
 
 // TestWelcomeLivePanelGolden pins the live machine panel -- the CPU and memory
