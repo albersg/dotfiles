@@ -87,8 +87,9 @@ From the main menu you can access:
 - **Neovim Keymaps**: Browse all configured keybindings
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
-- **Utilities**: The small jobs that are not part of an installation, starting with a reversible
-  system light/dark theme switch
+- **Utilities**: The small jobs that are not part of an installation: a reversible
+  system light/dark theme switch and the reversible dotfiles-theme switch, whose list of themes is
+  one level in behind the **Change the dotfiles theme** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -135,7 +136,9 @@ steps, from the same place, so a documented no-op run runs no `gsettings`, no
 ### The dotfiles theme switch
 
 The other utility changes the **dotfiles' own theme** — the palette this repository ships across its
-terminals, its prompt, `bat` and Herdr — not the desktop's light/dark mode. That palette used to be
+terminals, its prompt, `bat` and Herdr — not the desktop's light/dark mode. The Utilities section
+offers it through a single **Change the dotfiles theme** row, which opens the theme list; the themes
+live there so the section reads as a list of jobs rather than a list of themes. That palette used to be
 written by hand in six files, so the same colour was maintained in each of them and a drift between
 two was invisible. It is defined **once** now, one file per theme under [`themes/`](../themes/), and
 the terminal blocks are generated from that definition; a generated block that stops matching its

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1147,14 +1148,18 @@ func TestUtilitiesLongNoticeStillFitsTheFrame(t *testing.T) {
 // TestUtilitiesThemeRowsAreDerivedAndNameExclusions covers the utilities
 // section's dotfiles-theme rows: one per complete definition, each naming the
 // tools it cannot paint, and none for a partial theme.
-func TestUtilitiesThemeRowsAreDerivedAndNameExclusions(t *testing.T) {
+// TestThemePickerRowsAreDerivedAndNameExclusions covers the theme picker's
+// rows: one per complete definition, each naming the tools it cannot paint, and
+// none for a partial theme. The list is derived from the definitions, never
+// typed.
+func TestThemePickerRowsAreDerivedAndNameExclusions(t *testing.T) {
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
 		t.Fatalf("load the theme definitions: %v", err)
 	}
 
 	m := NewModel()
-	m.Screen = ScreenUtilities
+	m.Screen = ScreenThemePicker
 	m.DotfilesThemes = defs
 
 	opts := m.GetCurrentOptions()
@@ -1198,9 +1203,10 @@ func TestUtilitiesThemeRowsAreDerivedAndNameExclusions(t *testing.T) {
 
 // TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo is the user's case: the
 // installer is launched from inside the repository, before any clone, and
-// opening Utilities must show the theme rows and their exclusion lists. The
-// definitions live in the checkout the run is launched from; a clone created by
-// this run is not a prerequisite for seeing them.
+// opening Utilities must offer the way into the theme list, which must show the
+// theme rows and their exclusion lists. The definitions live in the checkout the
+// run is launched from; a clone created by this run is not a prerequisite for
+// seeing them.
 func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 	root := repoRoot(t)
 	t.Chdir(root)
@@ -1218,6 +1224,13 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 	next, _ := m.Update(cmd())
 	m = next.(Model)
 
+	if !slices.Contains(m.GetCurrentOptions(), utilitiesThemeRow) {
+		t.Fatalf("the utilities section shows no %q row without a clone: %v", utilitiesThemeRow, m.GetCurrentOptions())
+	}
+
+	// Step into the list the row opens and check its rows are what the user sees,
+	// not only what the model holds.
+	m.Screen = ScreenThemePicker
 	opts := m.GetCurrentOptions()
 	rows := 0
 	for _, opt := range opts {
@@ -1230,20 +1243,19 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 		}
 	}
 	if rows == 0 {
-		t.Fatalf("the section shows no theme row without a clone: %v", opts)
+		t.Fatalf("the picker shows no theme row without a clone: %v", opts)
 	}
 
-	// The rows are what the user sees, not only what the model holds: render the
-	// section and look for each row and its exclusion list in the capture.
+	// Render the picker and look for each row and its exclusion list in the capture.
 	m.Width, m.Height = 200, 60
 	plain := ansiEscape.ReplaceAllString(m.View(), "")
 	for _, opt := range opts {
 		if strings.HasPrefix(opt, "Apply the ") && !strings.Contains(plain, opt) {
-			t.Errorf("the rendered section does not show the theme row %q", opt)
+			t.Errorf("the rendered picker does not show the theme row %q", opt)
 		}
 	}
 	if !strings.Contains(plain, "(not ") {
-		t.Error("the rendered section does not show a theme's exclusion list")
+		t.Error("the rendered picker does not show a theme's exclusion list")
 	}
 }
 
@@ -1327,7 +1339,7 @@ func TestTheThemePreviewShowsTheValuesTheApplyWouldWrite(t *testing.T) {
 	}
 
 	m := NewModel()
-	m.Screen = ScreenUtilities
+	m.Screen = ScreenThemePicker
 	m.DotfilesThemes = defs
 	m.Width, m.Height = 120, 40
 
@@ -1339,7 +1351,7 @@ func TestTheThemePreviewShowsTheValuesTheApplyWouldWrite(t *testing.T) {
 		}
 	}
 	if idx < 0 {
-		t.Fatal("the section offers no theme row, so the preview cannot be checked")
+		t.Fatal("the picker offers no theme row, so the preview cannot be checked")
 	}
 	m.Cursor = idx
 
@@ -1449,16 +1461,13 @@ func TestThePreviewRepaintsTheWholeInterface(t *testing.T) {
 	sequence := strings.TrimSuffix(strings.TrimPrefix(probe[:strings.Index(probe, "m")+1], "\x1b["), "m")
 
 	m := NewModel()
-	m.Screen = ScreenUtilities
+	m.Screen = ScreenThemePicker
 	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: "dotfiles"}
 	m.Width, m.Height = 120, 40
-	// A detected desktop puts the switch rows first, so the cursor can sit off a
-	// theme row and no preview is active.
-	target, ok := themeSwitchByID("gnome")
-	if !ok {
-		t.Fatal("the theme switch table no longer holds the gnome entry")
-	}
-	m.ThemeSwitch, m.ThemeSwitchFound = target, true
+	// With a record there is an undo row, so the cursor can sit on the way back
+	// and no preview is active.
+	m.Cursor = len(m.GetCurrentOptions()) - 1
 
 	plain := m.View()
 	if strings.Contains(plain, sequence) {
@@ -1473,7 +1482,7 @@ func TestThePreviewRepaintsTheWholeInterface(t *testing.T) {
 		}
 	}
 	if idx < 0 {
-		t.Fatal("the section offers no catppuccin row")
+		t.Fatal("the picker offers no catppuccin row")
 	}
 	m.Cursor = idx
 	previewed := m.View()
@@ -1490,7 +1499,7 @@ func TestThePreviewRepaintsTheWholeInterface(t *testing.T) {
 	if got := Primary.Dark; got != defaultUIColors().Primary.Dark {
 		t.Errorf("the preview left Primary at %q, want %q", got, defaultUIColors().Primary.Dark)
 	}
-	m.Cursor = 0
+	m.Cursor = len(m.GetCurrentOptions()) - 1
 	if m.View() != plain {
 		t.Error("the preview changed the default chrome")
 	}
@@ -1507,14 +1516,19 @@ func TestThePreviewWritesNothing(t *testing.T) {
 		t.Fatalf("load the theme definitions: %v", err)
 	}
 	m := NewModel()
-	m.Screen = ScreenUtilities
+	m.Screen = ScreenThemePicker
 	m.DotfilesThemes = defs
 	m.Width, m.Height = 120, 40
+	found := false
 	for i, option := range m.GetCurrentOptions() {
 		if strings.HasPrefix(option, "Apply the ") {
 			m.Cursor = i
+			found = true
 			break
 		}
+	}
+	if !found {
+		t.Fatal("the picker offers no theme row, so the preview cannot be exercised")
 	}
 	m.View()
 
@@ -1671,5 +1685,172 @@ func TestAPartialThemeCannotBePreviewed(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("no partial theme was checked, so this guard proves nothing")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The intermediate "Change the dotfiles theme" level
+// ---------------------------------------------------------------------------
+
+// changeThemeRow is the utilities row that opens the theme picker. The list of
+// themes lives one level in, so the section is a list of jobs rather than a list
+// of themes.
+const changeThemeRow = "Change the dotfiles theme"
+
+// TestUtilitiesOffersAChangeThemeRowInsteadOfTheThemes pins the new level: the
+// utilities section offers one row that opens the theme list, and it does not
+// list the themes itself any more.
+func TestUtilitiesOffersAChangeThemeRowInsteadOfTheThemes(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	m := utilitiesModel(t, true)
+	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: "dotfiles"}
+
+	var changeRows, applyRows int
+	for _, opt := range m.GetCurrentOptions() {
+		if opt == changeThemeRow {
+			changeRows++
+		}
+		if strings.HasPrefix(opt, "Apply the ") {
+			applyRows++
+		}
+	}
+	if changeRows != 1 {
+		t.Errorf("the utilities section shows %d %q row(s), want exactly 1: %v", changeRows, changeThemeRow, m.GetCurrentOptions())
+	}
+	if applyRows != 0 {
+		t.Errorf("the utilities section still lists %d theme row(s); the list belongs one level in: %v", applyRows, m.GetCurrentOptions())
+	}
+}
+
+// TestThemePickerListsTheDerivedThemesAndUndo pins what the new level holds: the
+// complete themes derived from the definitions, the undo row when a change is
+// recorded, and the way back. A partial theme is never offered.
+func TestThemePickerListsTheDerivedThemesAndUndo(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: "dotfiles"}
+
+	got := m.GetCurrentOptions()
+	want := append([]string{}, m.dotfilesThemeOptions()...)
+	want = append(want, m.menuSeparator(), dotfilesThemeUndoRow, m.menuSeparator(), "← Back")
+	if !slices.Equal(got, want) {
+		t.Errorf("the picker lists %v, want the derived themes, the undo and the way back %v", got, want)
+	}
+
+	if len(m.dotfilesThemeOptions()) != len(offeredThemeIDs(defs)) {
+		t.Errorf("the picker derives %d theme row(s), the complete themes are %v",
+			len(m.dotfilesThemeOptions()), offeredThemeIDs(defs))
+	}
+	for _, def := range defs {
+		if !def.Complete() && slices.Contains(got, dotfilesThemeRow(def)) {
+			t.Errorf("the picker offers the partial theme %q", def.ID)
+		}
+	}
+}
+
+// TestThemePickerIsOpenedByTheChangeThemeRow covers the step in: choosing the
+// utilities row lands on the picker with its own cursor reset.
+func TestThemePickerIsOpenedByTheChangeThemeRow(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	m := utilitiesModel(t, true)
+	m.DotfilesThemes = defs
+
+	idx := -1
+	for i, opt := range m.GetCurrentOptions() {
+		if opt == changeThemeRow {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("the utilities section offers no %q row: %v", changeThemeRow, m.GetCurrentOptions())
+	}
+	m.Cursor = idx
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.Screen != ScreenThemePicker {
+		t.Fatalf("choosing %q landed on %v, want ScreenThemePicker", changeThemeRow, m.Screen)
+	}
+	if m.Cursor != 0 {
+		t.Errorf("the picker opened at cursor %d, want 0", m.Cursor)
+	}
+}
+
+// TestThemePickerEscapeReturnsToTheUtilities pins the way out of the new level.
+func TestThemePickerEscapeReturnsToTheUtilities(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.Cursor = 1
+	m.ThemeNotice = "something"
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+	if m.Screen != ScreenUtilities {
+		t.Errorf("esc left the picker on %v, want ScreenUtilities", m.Screen)
+	}
+	if m.Cursor != 0 {
+		t.Errorf("cursor after leaving the picker = %d, want 0", m.Cursor)
+	}
+	if m.ThemeNotice != "" {
+		t.Errorf("the notice survived leaving the picker: %q", m.ThemeNotice)
+	}
+}
+
+// TestThemePickerAppliesTheThemeUnderTheCursor covers the switch the picker
+// calls: enter on a theme row returns the same apply command the utilities
+// section used, and the result stays on the picker as a notice. The dry-run gate
+// is set so the guard exercises the wiring without writing to the user's files.
+func TestThemePickerAppliesTheThemeUnderTheCursor(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "1")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+
+	idx := -1
+	for i, opt := range m.GetCurrentOptions() {
+		if strings.HasPrefix(opt, "Apply the ") {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("the picker offers no theme row: %v", m.GetCurrentOptions())
+	}
+	m.Cursor = idx
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("choosing a theme returned no command, so the row is not wired to the switch")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if m.Screen != ScreenThemePicker {
+		t.Errorf("applying a theme left the picker on %v", m.Screen)
+	}
+	if !strings.Contains(m.ThemeNotice, "DRY RUN") {
+		t.Errorf("the notice after applying = %q, want the dry-run result of the switch", m.ThemeNotice)
 	}
 }

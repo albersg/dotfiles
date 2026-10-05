@@ -784,6 +784,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenUtilities:
 		return m.handleUtilitiesKeys(key)
 
+	case ScreenThemePicker:
+		return m.handleThemePickerKeys(key)
+
 	case ScreenBackupConfirm:
 		return m.handleBackupConfirmKeys(key)
 
@@ -880,6 +883,12 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenRestoreBackup, ScreenRestoreConfirm:
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
+	case ScreenThemePicker:
+		// The theme list is one level in from the utilities section, so Esc steps
+		// back there rather than all the way to the main menu.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.ThemeNotice = ""
 	// Trainer screens
 	case ScreenTrainerMenu:
 		// Save stats and return to main menu. Escape also cancels an armed
@@ -1172,16 +1181,65 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			return m, applyThemeCmd(m.ThemeSwitch, true)
 		case strings.Contains(selected, "light theme"):
 			return m, applyThemeCmd(m.ThemeSwitch, false)
+		case selected == utilitiesThemeRow:
+			// The theme list is one level in: the section opens the picker rather
+			// than listing the themes itself.
+			m.Screen = ScreenThemePicker
+			m.Cursor = 0
+			m.ThemeNotice = ""
+		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
+			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
+		case strings.Contains(selected, "Back"):
+			m.Screen = ScreenMainMenu
+			m.Cursor = 0
+			m.ThemeNotice = ""
+		}
+	}
+
+	return m, nil
+}
+
+// handleThemePickerKeys drives the dotfiles theme list. Like the utilities
+// section it only ever changes the screen, the cursor or the notice: applying and
+// undoing are commands, so a slow filesystem cannot block the update loop. The
+// preview follows the cursor and writes nothing, which is why moving it costs no
+// command here.
+func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "esc", "backspace":
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.ThemeNotice = ""
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		switch {
 		case strings.HasPrefix(selected, "Apply the "):
 			if def, ok := m.dotfilesThemeForRow(selected); ok {
 				return m, applyDotfilesThemeCmd(def)
 			}
 		case selected == dotfilesThemeUndoRow && m.DotfilesThemeRecord != nil:
 			return m, undoDotfilesThemeCmd(*m.DotfilesThemeRecord)
-		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
-			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
 		case strings.Contains(selected, "Back"):
-			m.Screen = ScreenMainMenu
+			m.Screen = ScreenUtilities
 			m.Cursor = 0
 			m.ThemeNotice = ""
 		}

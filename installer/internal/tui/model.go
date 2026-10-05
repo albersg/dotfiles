@@ -66,6 +66,10 @@ const (
 	// from the main menu both by its own row, just above Exit, and by the `u`
 	// shortcut.
 	ScreenUtilities // System utilities, starting with the theme switch
+	// Theme picker. The utilities section opens it from its single "Change the
+	// dotfiles theme" row, and the list of themes lives here so the section is a
+	// list of jobs rather than a list of themes.
+	ScreenThemePicker // The dotfiles themes, previewed and applied
 )
 
 // InstallStep represents a single installation step
@@ -503,14 +507,27 @@ func (m Model) GetCurrentOptions() []string {
 		if m.themeUndoAvailable() {
 			opts = append(opts, "Undo the last theme change")
 		}
-		if themes := m.dotfilesThemeOptions(); len(themes) > 0 || m.DotfilesThemeRecord != nil {
+		if len(m.dotfilesThemeOptions()) > 0 || m.DotfilesThemeRecord != nil {
 			if len(opts) > 0 {
 				opts = append(opts, m.menuSeparator())
 			}
-			opts = append(opts, themes...)
-			if m.DotfilesThemeRecord != nil {
-				opts = append(opts, dotfilesThemeUndoRow)
+			opts = append(opts, utilitiesThemeRow)
+		}
+		if len(opts) > 0 {
+			opts = append(opts, m.menuSeparator())
+		}
+		return append(opts, "← Back")
+	case ScreenThemePicker:
+		// The list of themes lives here, one level in from the utilities section,
+		// and it is derived, never typed: one row per complete definition, in the
+		// definitions' order. The undo row appears only when this installer has a
+		// record to put back, and the way back is always the last row.
+		opts := m.dotfilesThemeOptions()
+		if m.DotfilesThemeRecord != nil {
+			if len(opts) > 0 {
+				opts = append(opts, m.menuSeparator())
 			}
+			opts = append(opts, dotfilesThemeUndoRow)
 		}
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
@@ -702,6 +719,8 @@ func (m Model) GetScreenTitle() string {
 		return "🎮 Vim Trainer - Boss Battle Complete"
 	case ScreenUtilities:
 		return "🧰 Utilities"
+	case ScreenThemePicker:
+		return "🎨 Change the dotfiles theme"
 	default:
 		return ""
 	}
