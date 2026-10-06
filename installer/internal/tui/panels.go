@@ -945,24 +945,133 @@ func exitPanelFacts(l layout) []string {
 	return rows
 }
 
+// utilitiesPanelEntry is one utility as the panel describes it: the short label
+// the panel's own column can hold, the fact it states, the line it says instead
+// when the utility is not offered, and whether the section offers it. The label
+// is the panel's, but it describes the section's row, which is named in the
+// entry's comment so the two cannot drift into two names for one job.
+type utilitiesPanelEntry struct {
+	label   string
+	value   string
+	absent  string
+	offered bool
+}
+
 // utilitiesPanelFacts is what the plan panel says for the Utilities row. The
 // section changes nothing until a row inside it is chosen, so the panel names
-// the switch this host offers -- or says plainly that there is none -- together
-// with the undo it can offer. Both are read from the model's own detection,
-// never from the host, so the panel and the section cannot disagree.
+// what each utility holds, or says plainly that this host does not offer it.
+//
+// Every row comes from utilitiesPanelEntries, which derives them from the same
+// model state the section's own options are built from, never from the host and
+// never from a list typed here: the panel's size is len(entries), so a utility
+// the section offers shows up in the panel or is visibly missing from that one
+// function. A second list beside the section is the defect the palette's sixth
+// hand-written copy already paid for.
 func (m Model) utilitiesPanelFacts(l layout) []string {
-	if !m.ThemeSwitchFound {
-		var rows []string
-		for _, line := range wrapText("No desktop theme switch is available here.", l.Right, 0) {
-			rows = append(rows, InkStyle.Render(line))
+	var rows []string
+	for _, entry := range m.utilitiesPanelEntries() {
+		if !entry.offered {
+			for _, line := range wrapText(entry.absent, l.Right, 0) {
+				rows = append(rows, InkStyle.Render(line))
+			}
+			continue
 		}
-		return rows
-	}
-	rows := panelFact("Switch", m.ThemeSwitch.Name, l.Right)
-	if m.themeUndoAvailable() {
-		rows = append(rows, panelFact("Undo", "available", l.Right)...)
+		rows = append(rows, panelFact(entry.label, entry.value, l.Right)...)
 	}
 	return rows
+}
+
+// utilitiesPanelEntries derives the panel's rows, one entry per utility the
+// section lists, in the section's own order. Each entry reads the model fields
+// the section reads for the same row -- ThemeSwitchFound,
+// themeUndoAvailable, DotfilesThemeRecord, dotfilesThemeOptions and WSLState --
+// so the panel and the section cannot disagree about what is offered.
+func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
+	entries := []utilitiesPanelEntry{
+		// The section's "Switch to the dark theme" and "Switch to the light
+		// theme" rows, which are one fact: which switch this host has.
+		{
+			label:   "Switch",
+			value:   m.ThemeSwitch.Name,
+			absent:  "No desktop theme switch is available here.",
+			offered: m.ThemeSwitchFound,
+		},
+	}
+
+	// The section's "Undo the last theme change" row, offered under the same
+	// condition the section offers it: a detected switch and a record written
+	// for that same desktop.
+	if m.themeUndoAvailable() {
+		entries = append(entries, utilitiesPanelEntry{label: "Undo", value: "available", offered: true})
+	}
+
+	// The section's utilitiesThemeRow, whose theme list lives one level in on
+	// the picker. It is offered exactly when the section offers it: there are
+	// themes to apply, or there is a dotfiles-theme record to put back.
+	themes := m.dotfilesThemeOptions()
+	switch {
+	case len(themes) > 0:
+		entries = append(entries, utilitiesPanelEntry{
+			label:   "Themes",
+			value:   themeCountLabel(len(themes)),
+			offered: true,
+		})
+		if m.DotfilesThemeRecord != nil {
+			entries = append(entries, utilitiesPanelEntry{label: "Themes undo", value: "available", offered: true})
+		}
+	case m.DotfilesThemeRecord != nil:
+		// A record with no definitions read is an undo and nothing to list, so the
+		// one entry says exactly that rather than a second row repeating it.
+		entries = append(entries, utilitiesPanelEntry{label: "Themes", value: "undo available", offered: true})
+	default:
+		entries = append(entries, utilitiesPanelEntry{
+			label:  "Themes",
+			absent: "The dotfiles' own theme is not switchable here.",
+		})
+	}
+
+	// The section's utilitiesWSLRow. It is offered only where there is a
+	// .wslconfig to edit, and the value is the recommendation the screen would
+	// start from -- read from the plan the section holds, never recomputed here.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "WSL resources",
+		value:   wslPanelValue(m.WSLState),
+		absent:  "The WSL resources are not adjustable here.",
+		offered: m.WSLState.Available,
+	})
+
+	return entries
+}
+
+// themeCountLabel names how many themes can be applied, in the singular when
+// there is one, because "1 themes" reads as a count nobody looked at.
+func themeCountLabel(n int) string {
+	if n == 1 {
+		return "1 theme"
+	}
+	return fmt.Sprintf("%d themes", n)
+}
+
+// wslPanelValue is what the Utilities panel says the WSL resource row holds: the
+// values the section would recommend for this host, built from the plan the
+// section already holds rather than from a second calculation. A host whose
+// capacities were not read says so instead of printing zeroes as limits, and the
+// units come from the same label helper the screen uses.
+func wslPanelValue(state wslResourceState) string {
+	var parts []string
+	if state.Plan.MemoryMB > 0 {
+		parts = append(parts, "memory "+wslUnitLabel(state.Plan.MemoryMB, "MB"))
+	}
+	if state.Plan.Processors > 0 {
+		parts = append(parts, "processors "+wslUnitLabel(state.Plan.Processors, ""))
+	}
+	if state.Plan.SwapMB > 0 {
+		parts = append(parts, "swap "+wslUnitLabel(state.Plan.SwapMB, "MB"))
+	}
+	if len(parts) == 0 {
+		return "capacities not read"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // planHeadline is the plan said in one short line: how many steps the run would

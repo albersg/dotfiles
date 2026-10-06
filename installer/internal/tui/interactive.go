@@ -443,7 +443,7 @@ func getWSLConfigScript(m *Model) (string, error) {
 	// script at a temporary copy. The template itself is never handed to the
 	// shell: only rendered content, and only through a file the script deletes
 	// after copying it.
-	rendered, _, _, err := renderedRepoWSLConfig(repoDir)
+	rendered, _, _, err := mergedRepoWSLConfig(repoDir)
 	if err != nil {
 		return "", fmt.Errorf("rendering .wslconfig for this host: %w", err)
 	}

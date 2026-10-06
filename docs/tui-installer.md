@@ -88,8 +88,9 @@ From the main menu you can access:
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
 - **Utilities**: The small jobs that are not part of an installation: a reversible
-  system light/dark theme switch and the reversible dotfiles-theme switch, whose list of themes is
-  one level in behind the **Change the dotfiles theme** row
+  system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
+  one level in behind the **Change the dotfiles theme** row, and the WSL resources, one level in
+  behind the **Adjust the WSL resources** row on a WSL host
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -239,6 +240,49 @@ The welcome screen and the main menu greet you by the time of day (`Good morning
 `Good evening`) in one added dim line, so no existing copy is replaced. The greeting is a pure
 function of the time the model was created with, never of the clock read while drawing, so a
 snapshot pins it instead of flaking on the hour.
+
+### The WSL resources
+
+The third utility is **the WSL resources**: the memory, processors and swap the WSL 2 VM may use,
+seen and changed from the installer. It is offered **only on a WSL host**, behind the
+**Adjust the WSL resources** row; on Linux, macOS and Termux the section offers no such row and its
+body says why, because `.wslconfig` is a Windows file that only WSL reads.
+
+The installation already writes this file: the WSL step renders
+[`dotfiles-wsl/.wslconfig.tmpl`](../dotfiles-wsl/.wslconfig.tmpl) for the Windows host the installer
+is running on, so a freshly installed machine comes out with values that fit it. The utility is the
+**second way into the same file**, not a second calculation: both routes call `PlanWSLResources` for
+the values, `wslConfigContent` for the content and `writeWSLConfig` for the write, and the guard
+`TestWSLResourceUtilityAndTheInstallerAgreeByteForByte` fails if either route grows its own copy.
+
+**The recommended values come from the host.** The same detector the step uses reads the Windows
+host's total RAM and logical processor count through interop, and the screen prints those numbers
+beside the recommendation so it can be checked against the machine:
+
+| Key | Recommended from |
+|-----|------------------|
+| `memory` | half the host's RAM, rounded down to 512 MB, capped so Windows keeps at least 2 GiB, omitted below 1 GiB |
+| `processors` | every logical CPU the host reports |
+| `swap` | a quarter of the planned memory, rounded down to 512 MB |
+
+The rows start on what the file holds today where it sets a key, and on the recommendation where it
+does not. **←/→** (`h`/`l`, `-`/`+`) move the value under the cursor by one step — 512 MB for memory
+and swap, one CPU for processors — and **`r`** puts every row back on the recommendation. A value
+shown as **not set** is left exactly as the file has it: the utility updates the keys the template
+manages and never deletes one, so a limit it cannot compute is never thrown away.
+
+**Only the managed keys are touched.** The merge updates the keys the shipped template renders, in
+place, under their own section. Everything else in the user's `.wslconfig` — networking settings,
+experimental flags, keys of their own, comments, the order of their lines — is kept byte for byte,
+and the previous file is copied beside itself as `<path>.bak-dotfiles-<timestamp>` before the write.
+The three routes into the file (the non-interactive step, the interactive script and the utility)
+all merge this way, so a machine installed today already has its own keys preserved.
+
+**The change is honest about when it applies.** WSL reads `.wslconfig` when the VM starts, so the
+screen says that nothing takes effect until `wsl --shutdown` is run on Windows and the terminal is
+reopened — and it does not run it, because that would close the session the user is working in.
+**`--dry-run` skips the write**, leaving no file, no backup and no record, exactly as it skips every
+installation step.
 
 ### Installation Flow
 

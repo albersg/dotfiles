@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -520,6 +521,7 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{"trainer-boss-result", bossResult},
 		{utilitiesCaseName, utilitiesFrameCase(t)},
 		{themePickerCaseName, themePickerFrameCase(t)},
+		{wslResourcesCaseName, wslResourcesFrameCase(t)},
 	}
 }
 
@@ -634,6 +636,73 @@ func TestUtilitiesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 		}
 		if widest > size.width {
 			t.Errorf("utilities at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		}
+	}
+}
+
+// wslResourcesCaseName is the name the frame guards know the WSL resource screen
+// by.
+const wslResourcesCaseName = "wsl-resources"
+
+// wslResourcesFrameCase builds the WSL resource screen on a WSL host with a host
+// capacity, a recommendation and a file to read, so the guards measure the rows
+// and the prose rather than the still-reading state. The host is forced rather
+// than detected: a guard that measured the runner's own machine would change
+// with the machine.
+func wslResourcesFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenWSLResources)
+	m.SystemInfo = &system.SystemInfo{OS: system.OSWSL, IsWSL: true, OSName: "WSL"}
+	m.WSLState = wslResourceState{
+		Resolved:  true,
+		Available: true,
+		Path:      "/mnt/c/Users/alber/.wslconfig",
+		RepoDir:   repoRoot(t),
+		Host:      system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
+		Plan:      WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Current:   WSLResources{MemoryMB: 4096, SwapMB: 1024},
+		HasFile:   true,
+		Draft:     WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+	}
+	m.Cursor = wslResourceRowMemory
+	return m
+}
+
+// TestWSLResourcesFrameFitIsMeasuredAtEverySize prints the WSL resource screen's
+// measured frame at the twelve terminals the fit guard uses, so the size it is
+// drawn at is a number a reader can re-derive rather than a claim. The rows are
+// the data, so they win the budget: at every size each managed value, the write
+// row and the way back are on screen, and the prose is what gives way.
+func TestWSLResourcesFrameFitIsMeasuredAtEverySize(t *testing.T) {
+	for _, size := range measuredTerminalSizes {
+		m := wslResourcesFrameCase(t)
+		m.Width, m.Height = size.width, size.height
+		view := m.View()
+
+		plain := ansiEscape.ReplaceAllString(view, "")
+		rows := renderedRowCount(view)
+		widest := 0
+		for _, line := range strings.Split(plain, "\n") {
+			widest = max(widest, lipgloss.Width(line))
+		}
+		t.Logf("wsl-resources at %s: %d of %d rows, %d of %d columns", size.name, rows, size.height, widest, size.width)
+
+		if rows > size.height {
+			t.Errorf("wsl-resources at %s renders %d rows, want <= %d", size.name, rows, size.height)
+		}
+		if widest > size.width {
+			t.Errorf("wsl-resources at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		}
+
+		for _, option := range m.GetCurrentOptions() {
+			if strings.HasPrefix(option, menuSeparatorPrefix) {
+				continue
+			}
+			if !strings.Contains(plain, option) {
+				t.Errorf("wsl-resources at %s dropped the row %q: the data must survive the short frame",
+					size.name, option)
+			}
 		}
 	}
 }
