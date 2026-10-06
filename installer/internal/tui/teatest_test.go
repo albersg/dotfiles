@@ -203,6 +203,44 @@ func TestGoldenFrameWaitsForTheScreen(t *testing.T) {
 	}
 }
 
+// TestMainMenuFrameWaitSurvivesASplitFrame is the regression for the macOS smoke
+// failure of TestMainMenuWithRestoreOption. The option's text can straddle the
+// event boundaries the reader sees, because the ANSI compressor forwards a
+// flushed frame rune by rune and the reader can drain the buffer between two
+// runes. A wait for two length-positive events then returns a transcript that
+// stops mid-option. A wait for the frame's own content does not. The staged
+// reader reproduces the split deterministically, so the race does not need a
+// loaded runner to show itself.
+func TestMainMenuFrameWaitSurvivesASplitFrame(t *testing.T) {
+	chunks := [][]byte{
+		[]byte("\x1b[?25l\x1b[?2004h\x1b]2;dotfiles Installer\x07"),
+		[]byte("  Main Menu\n  ...\n  \u25b8 \U0001F680 Start Instal"),
+		[]byte("lation\n  \u274c Exit\n  [Space q] quit\n"),
+	}
+
+	// The old "two length-positive events" wait is not a frame barrier: it stops
+	// at the second chunk, with the option cut in half. This assertion keeps the
+	// staged split honest -- if it stopped reproducing the race the guard would
+	// prove nothing.
+	twoEvents := &bytes.Buffer{}
+	oldReader := &stagedOutputReader{chunks: chunks}
+	for range 2 {
+		chunk := make([]byte, 4096)
+		n, _ := oldReader.Read(chunk)
+		twoEvents.Write(chunk[:n])
+	}
+	if bytes.Contains(twoEvents.Bytes(), []byte("Start Installation")) {
+		t.Fatalf("the staged split did not reproduce the race, so this guard proves nothing: %q", twoEvents.Bytes())
+	}
+
+	// The frame wait reads through the footer, so everything above it -- the
+	// option included -- is in the transcript.
+	got := waitForGoldenFrame(t, &stagedOutputReader{chunks: chunks}, "[Space q] quit").Bytes()
+	if !bytes.Contains(got, []byte("Start Installation")) {
+		t.Fatalf("the frame wait returned before the option was whole: %q", got)
+	}
+}
+
 // TestWelcomeScreenGolden tests the welcome screen render against golden file.
 //
 // It renders the model rather than driving a program: this screen shows the live
@@ -1220,6 +1258,12 @@ func TestMainMenuWithRestoreOption(t *testing.T) {
 
 	t.Run("main menu renders without restore when no backups", func(t *testing.T) {
 		m := NewModel()
+		// Pin HOME and XDG_STATE_HOME so the frame cannot inherit a real
+		// ~/.dotfiles-backup-* or state file from the machine running the test.
+		// Without this the "no backups" subtest grows a restore row and passes
+		// for the wrong reason on a developer's host, which is the defect #131
+		// already paid for in the goldens.
+		isolateGoldenTest(t, &m)
 		m.Width = 80
 		m.Height = 24
 		m.Screen = ScreenMainMenu
@@ -1229,8 +1273,15 @@ func TestMainMenuWithRestoreOption(t *testing.T) {
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		// Get output and verify standard menu items exist
-		out := waitForAnyOutput(t, tm).Bytes()
+		// Wait for the frame, not for two length-positive output events. The
+		// terminal's initialisation is one event and the ANSI compressor
+		// forwards a flushed frame rune by rune, so the reader can drain it
+		// mid-frame; a two-event wait then returns before the option is drawn.
+		// That race, not the layout, is what failed the macOS smoke run -- the
+		// same class e3ed85c fixed for the goldens. The footer is the frame's
+		// last row, so waiting for it proves the whole frame, option included,
+		// was buffered before the assertion reads it.
+		out := waitForGoldenFrame(t, tm.Output(), "[Space q] quit").Bytes()
 		if !bytes.Contains(out, []byte("Start Installation")) {
 			t.Error("Should show Start Installation option")
 		}
