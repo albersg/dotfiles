@@ -387,14 +387,21 @@ func TestTheRecommendationComesFromTheHost(t *testing.T) {
 	}
 }
 
-// TestTheInteractiveRoutePreservesTheUsersOwnKeys pins the third route into the
-// file: the interactive install copies the bytes renderedRepoWSLConfig returns
-// straight over the destination from its shell script, so the merge has to
-// happen before that copy. Without it the interactive route -- which is the route
-// a TUI install actually takes, because /etc/wsl.conf needs sudo -- would
-// overwrite keys the user set, while the step and the utilities section kept
-// them. The guard reads the bytes the script is pointed at rather than running
-// the shell, so it checks the content the same way the existing route guard does.
+// TestTheInteractiveRoutePreservesTheUsersOwnKeys pins one property, and it is
+// the whole reason the merge lives where it lives: **the interactive route
+// preserves the keys the user wrote**.
+//
+// It has to, because that route never writes through Go: the generated script
+// copies the bytes mergedRepoWSLConfig returns straight over the destination, so
+// those bytes are the file the machine ends up with. Without the merge inside
+// that function the interactive route -- which is the route a TUI install
+// actually takes, because /etc/wsl.conf needs sudo -- would overwrite keys the
+// user set, while the non-interactive step and the utilities section kept them.
+// The merge cannot be moved to the point of writing instead: there is no Go
+// write on this route to move it to.
+//
+// The guard reads the bytes the script is pointed at rather than running the
+// shell, so it checks the content the same way the existing route guard does.
 func TestTheInteractiveRoutePreservesTheUsersOwnKeys(t *testing.T) {
 	t.Setenv(envBinfmtDir, t.TempDir())
 
@@ -426,5 +433,137 @@ func TestTheInteractiveRoutePreservesTheUsersOwnKeys(t *testing.T) {
 	}
 	if strings.Contains(got, "memory=32GB") {
 		t.Errorf("the interactive route would keep the superseded memory key:\n%s", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The main menu's panel, for the Utilities row
+// ---------------------------------------------------------------------------
+
+// utilitiesPanelFlat renders the main-menu panel with the cursor on the
+// Utilities row -- the frame that describes the section -- and returns its rows
+// as one escape-free string. The cursor is found by label rather than by index,
+// because the menu's rows move when a backup exists.
+func utilitiesPanelFlat(t *testing.T, m Model) string {
+	t.Helper()
+
+	m.Screen = ScreenMainMenu
+	m.Cursor = -1
+	for i, option := range m.GetCurrentOptions() {
+		if strings.Contains(option, "Utilities") {
+			m.Cursor = i
+			break
+		}
+	}
+	if m.Cursor < 0 {
+		t.Fatal("the main menu no longer holds a Utilities row")
+	}
+	return panelFlat(m.mainMenuPanel(narrowPanelLayout(), 200))
+}
+
+// TestUtilitiesPanelNamesTheWSLResourcesWithTheHostsValues pins the panel's half
+// of the section's contract: the Utilities panel describes the section, so a user
+// reading the panel before opening it sees the row the section offers and what
+// the values on it would be -- the recommendation already derived from this host,
+// not a number invented beside it.
+func TestUtilitiesPanelNamesTheWSLResourcesWithTheHostsValues(t *testing.T) {
+	m := contextualMainMenuModel()
+	m.WSLState = wslResourceTestState(t)
+
+	flat := utilitiesPanelFlat(t, m)
+	for _, want := range []string{
+		"WSL resources",
+		"memory 8192 MB",
+		"processors 8",
+		"swap 2048 MB",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the Utilities panel does not name %q:\n%s", want, flat)
+		}
+	}
+	if strings.Contains(flat, "not adjustable") {
+		t.Errorf("the panel says the WSL resources are not adjustable while the section offers them:\n%s", flat)
+	}
+}
+
+// TestUtilitiesPanelSaysWhenTheWSLResourcesAreNotOffered pins the other half: on
+// a host with no .wslconfig the panel says the utility is not adjustable rather
+// than leaving a hole or naming a row the section does not draw. The long reason
+// (which names the platform) stays in the section's own body; the panel is a
+// summary and says the short version.
+func TestUtilitiesPanelSaysWhenTheWSLResourcesAreNotOffered(t *testing.T) {
+	m := contextualMainMenuModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSLinux, OSName: "Linux"}
+	m.WSLState = wslResourceState{Resolved: true}
+
+	flat := utilitiesPanelFlat(t, m)
+	if !strings.Contains(flat, "The WSL resources are not adjustable here.") {
+		t.Errorf("the panel does not say the WSL resources are unavailable:\n%s", flat)
+	}
+	if strings.Contains(flat, "memory ") {
+		t.Errorf("the panel names values for a utility the section does not offer:\n%s", flat)
+	}
+}
+
+// TestUtilitiesPanelFactsAreDerivedFromTheModelState is the panel's derivation
+// guard. Every fact has to come from the field the section reads, so turning that
+// field on changes the panel and turning it off takes the fact away: a fact typed
+// into the panel instead -- the second list this repository already paid for once
+// -- cannot survive this, and a utility added to the section has nowhere to be
+// named but utilitiesPanelEntries.
+func TestUtilitiesPanelFactsAreDerivedFromTheModelState(t *testing.T) {
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+
+	empty := contextualMainMenuModel()
+	empty.SystemInfo = &system.SystemInfo{OS: system.OSLinux, OSName: "Linux"}
+	emptyFlat := utilitiesPanelFlat(t, empty)
+	t.Logf("utilities panel, nothing offered:\n%s", emptyFlat)
+	for _, absent := range []string{
+		"No desktop theme switch is available here.",
+		"The dotfiles' own theme is not switchable here.",
+		"The WSL resources are not adjustable here.",
+	} {
+		if !strings.Contains(emptyFlat, absent) {
+			t.Errorf("an empty model's panel does not declare %q:\n%s", absent, emptyFlat)
+		}
+	}
+
+	withSwitch := contextualMainMenuModel()
+	withSwitch.ThemeSwitch, withSwitch.ThemeSwitchFound = target, true
+	switchFlat := utilitiesPanelFlat(t, withSwitch)
+	t.Logf("utilities panel, a detected switch:\n%s", switchFlat)
+	if !strings.Contains(switchFlat, "Switch") || !strings.Contains(switchFlat, "GNOME") {
+		t.Errorf("the panel did not pick up the detected switch:\n%s", switchFlat)
+	}
+
+	withRecord := contextualMainMenuModel()
+	withRecord.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: "dotfiles"}
+	recordFlat := utilitiesPanelFlat(t, withRecord)
+	t.Logf("utilities panel, a dotfiles-theme record:\n%s", recordFlat)
+	if !strings.Contains(recordFlat, "Themes") || !strings.Contains(recordFlat, "undo available") {
+		t.Errorf("the panel did not pick up the dotfiles-theme record:\n%s", recordFlat)
+	}
+
+	withWSL := contextualMainMenuModel()
+	withWSL.WSLState = wslResourceTestState(t)
+	wslFlat := utilitiesPanelFlat(t, withWSL)
+	t.Logf("utilities panel, WSL resource state:\n%s", wslFlat)
+	if !strings.Contains(wslFlat, "WSL resources") || !strings.Contains(wslFlat, "8192 MB") {
+		t.Errorf("the panel did not pick up the WSL resource state:\n%s", wslFlat)
+	}
+
+	// The four panels are four different answers to the same question, which is
+	// what makes them facts about the model rather than text about the section.
+	seen := map[string]string{
+		emptyFlat:  "an empty model",
+		switchFlat: "a detected switch",
+		recordFlat: "a dotfiles-theme record",
+		wslFlat:    "WSL resource state",
+	}
+	if len(seen) != 4 {
+		t.Errorf("two of the four model states produced the same panel, so a fact is not read from the model: %d distinct panels", len(seen))
 	}
 }

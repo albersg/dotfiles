@@ -122,21 +122,27 @@ func stepInstallWSLConfig(m *Model) error {
 	return nil
 }
 
-// renderedRepoWSLConfig reads the shipped template, detects the Windows host,
-// renders the machine-derived keys for it, and merges the result over the
-// .wslconfig this machine already has.
+// mergedRepoWSLConfig reads the shipped template, detects the Windows host,
+// renders the machine-derived keys for it, and **merges** the result over the
+// .wslconfig this machine already has: the user's own keys, comments and
+// sections come out of the returned bytes exactly as they went in, and only the
+// keys the template manages are updated. The name says so on purpose -- a caller
+// that wants a pure render wants RenderWSLConfig, not this.
 //
-// The merge happens here as well as in the step because the interactive route
-// copies these bytes straight over the destination (getWSLConfigScript's
-// install_artifact, interactive.go): the interactive install, the
-// non-interactive step and the utilities section all preserve the user's own
-// keys, or none of them does. The destination is resolved the same way the
-// interactive script resolves it and the same way the utilities section resolves
-// it, so all three name one file.
+// The merge lives here, at the content that is handed to the writer, and not at
+// the point of writing, because the interactive route does not write through Go
+// at all: getWSLConfigScript copies exactly these bytes over the destination from
+// its shell script (interactive.go's install_artifact). Merging here is what
+// makes the interactive install, the non-interactive step and the utilities
+// section preserve the same keys; merging only in one writer would leave the
+// interactive route -- the route a TUI install actually takes, because
+// /etc/wsl.conf needs sudo -- overwriting settings the user set.
 //
+// The destination is resolved the same way the interactive script resolves it
+// and the same way the utilities section resolves it, so all three name one file.
 // The host and the plan come back with the bytes so the caller can report where
 // the values came from.
-func renderedRepoWSLConfig(repoDir string) ([]byte, system.HostResources, WSLResources, error) {
+func mergedRepoWSLConfig(repoDir string) ([]byte, system.HostResources, WSLResources, error) {
 	// A destination that cannot be resolved leaves nothing to merge with; the
 	// interactive script skips the .wslconfig write in that case anyway, and the
 	// step reports the lookup failure itself.
