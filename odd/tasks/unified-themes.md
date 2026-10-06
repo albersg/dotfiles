@@ -294,3 +294,35 @@ fixing two of them falls outside this change.
   `teatest`-driven golden tests use it through `goldenTranscript`. `TestGoldenFrameWaitsForTheScreen`
   reproduces the race with a staged reader (init, partial repaint, frame): it fails deterministically
   while the wait accepts "any output" and passes when it waits for the frame. No golden file changed.
+
+## Update: the refresh that makes a pre-marker machine usable (F)
+
+- **The defect.** On a machine installed by an older checkout the managed files carry
+  neither the `dotfiles-managed-config:` marker nor a generated block, and some have
+  drifted. `applyDotfilesTheme` refuses every one of them (it cannot tell an old dotfiles
+  file from one the user wrote), so the theme switch is unusable there and "reinstall" is
+  not an answer.
+- **The fix.** The theme picker now offers **Refresh outdated theme files**. It detects the
+  installed theme files that are not in the generated form (no marker, no block, or a block
+  that no longer matches its definition) and opens a **review** naming every file it would
+  touch, why, and where each file that may be the user's will be preserved first. Nothing is
+  written before the review is confirmed; Cancel leaves everything.
+- **Preserve-user-configs is honoured.** An unowned file is copied first to the install
+  steps' own places (`~/.zshrc.d/`, `~/.config/fish/dotfiles.d/`) or to
+  `<path>.bak-dotfiles-<timestamp>` beside itself, and the result names the exact path. The
+  previous bytes go into the same `theme.json` the switch writes, so **Undo the last
+  dotfiles theme change** restores every file byte-for-byte.
+- **Honest degradation.** A file that cannot be refreshed (unreadable, not regular, or a
+  content that is not a recognizable block) is named and skipped; the rest of the refresh
+  carries on. `--dry-run` writes no file, no preserve copy and no record.
+- **Tests (one per case).** `TestThemeRefreshBringsAnOldManagedFileUpToDate`,
+  `TestThemeRefreshPreservesUserContentAndSaysWhere`, `TestThemeRefreshIsReversible`,
+  `TestThemeRefreshSkipsOnDryRun`, `TestThemeRefreshSkipsAnUnrefreshableFileAndContinues`,
+  and the picker wiring in `TestThemePickerOffersTheRefreshRow`,
+  `TestThemeRefreshNamesTheFilesBeforeWriting`, `TestThemeRefreshCancelLeavesTheFilesAlone`.
+  The refresh review is measured by the terminal matrix as its own screen case
+  (`measuredScreens` 55 -> 56). Teeth: making `refreshThemeFiles` a no-op fails the old-file
+  and the reversible guards again.
+- **No golden moved.** The only assertion rows that changed are the theme picker's own
+  option list (`TestThemePickerListsTheDerivedThemesAndUndo`), which now holds the refresh
+  row between the themes and the undo row.

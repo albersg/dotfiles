@@ -162,8 +162,12 @@ the rows immediately; when none of those holds definitions the section says the 
 available here rather than drawing a row that fails. Move the
 cursor onto a theme row and **the whole installer repaints itself in that theme's colours** — a live
 preview built from the same definition the apply writes, labelled `Preview (nothing applied)` — and
-leaving the row puts the default chrome back; nothing is written while the cursor moves. It only rewrites files carrying the `dotfiles-managed-config:`
-ownership marker; a file you wrote is left exactly as it is. `--dry-run` skips it too. See
+leaving the row puts the default chrome back; nothing is written while the cursor moves. A file installed before those markers existed — the case on a machine set up by an older checkout — is brought
+forward by the **Refresh outdated theme files** row, which names every file it would touch and where
+an unowned one is preserved (into `~/.zshrc.d/` or `~/.config/fish/dotfiles.d/`, or beside itself as
+`<path>.bak-dotfiles-<timestamp>`) before anything is written, records the previous bytes so Undo puts
+each file back, and skips a file it cannot recognize while carrying on with the rest. It only rewrites files carrying the `dotfiles-managed-config:`
+ownership marker, or files the refresh has adopted; a file you wrote is left exactly as it is. `--dry-run` skips it too. See
 [`themes/README.md`](themes/README.md).
 
 ---

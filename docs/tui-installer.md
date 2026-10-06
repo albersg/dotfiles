@@ -191,6 +191,27 @@ puts the default chrome back: with no preview active the interface is byte-for-b
 was. The palette comes from `themes/*.toml` — the chrome holds no second copy of it — and a theme
 with no canonical palette is refused rather than previewed with invented colours.
 
+**Refreshing files installed before the markers.** A machine installed by an older checkout holds
+files with neither the `dotfiles-managed-config:` marker nor a generated block, and some of them have
+drifted since. The switch refuses those files — it cannot tell an old dotfiles file from one the user
+wrote — so without a way to bring them forward the theme feature is unusable on that machine. The
+picker therefore offers **Refresh outdated theme files**. Choosing it first **detects** the installed
+theme files that are not in the generated form (no marker, no block, or a block that no longer
+matches its definition) and opens a **review** that names every file it would touch, why it is out of
+date, and where each file that may be the user's will be preserved first. **Nothing is written until
+the review is confirmed**, and Cancel leaves every file exactly as it is. A file that cannot be
+refreshed (unreadable, not a regular file, or a content that is not a recognizable dotfiles theme
+block) is named in the review and skipped, and the rest of the refresh carries on; one bad file never
+aborts the batch.
+
+**The preserve-user-configs rule is not negotiated.** Before an unowned file is replaced it is copied
+to the same place the install steps use — `~/.zshrc.d/` for `.zshrc`, `~/.config/fish/dotfiles.d/` for
+`config.fish` — and every other file is copied beside itself as `<path>.bak-dotfiles-<timestamp>`.
+The result names the exact path each file was preserved at. The previous bytes are recorded in the
+same `theme.json` the switch writes, so **Undo the last dotfiles theme change** puts every refreshed
+file back byte-for-byte. The refresh is gated on `--dry-run` like every other writer, and a dry run
+writes no file, no preserve copy and no record.
+
 The welcome screen and the main menu greet you by the time of day (`Good morning`, `Good afternoon`,
 `Good evening`) in one added dim line, so no existing copy is replaced. The greeting is a pure
 function of the time the model was created with, never of the clock read while drawing, so a

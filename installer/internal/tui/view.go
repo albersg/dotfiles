@@ -1283,6 +1283,12 @@ func (m Model) utilitiesDescription() []string {
 // theme cannot paint are named on its row. It is the same honest account the
 // utilities section gave when the list lived there.
 func (m Model) themePickerDescription() []string {
+	if m.ThemeRefreshReview {
+		if m.ThemeRefreshDone {
+			return m.ThemeRefreshResult
+		}
+		return themeRefreshReviewParagraphs(m.ThemeRefreshCandidates)
+	}
 	if len(m.DotfilesThemes) == 0 {
 		reason := m.DotfilesThemesErr
 		if reason == "" {
@@ -1299,6 +1305,36 @@ func (m Model) themePickerDescription() []string {
 // theme change replaced. It is named distinctly from the desktop switch's undo
 // row so the two are not confused on the same screen.
 const dotfilesThemeUndoRow = "Undo the last dotfiles theme change"
+
+// themeRefreshRow is the row that detects the installed theme files that are
+// not up to date. It only opens the review; nothing is written until the
+// confirmation on that review is chosen.
+const themeRefreshRow = "Refresh outdated theme files"
+
+// themeRefreshCancelRow is the safe default of the review: it leaves every file
+// exactly as it is.
+const themeRefreshCancelRow = "Cancel"
+
+// themeRefreshConfirmRow is the review's confirmation, naming how many files it
+// would write.
+func themeRefreshConfirmRow(candidates []themeRefreshCandidate) string {
+	n := 0
+	for _, cand := range candidates {
+		if cand.Problem == "" {
+			n++
+		}
+	}
+	return fmt.Sprintf("Yes, refresh %d file(s)", n)
+}
+
+// resetThemeRefresh clears the review state. It is called when the picker is
+// left or a review is dismissed, so a later visit starts from a clean list.
+func (m *Model) resetThemeRefresh() {
+	m.ThemeRefreshCandidates = nil
+	m.ThemeRefreshReview = false
+	m.ThemeRefreshDone = false
+	m.ThemeRefreshResult = nil
+}
 
 // utilitiesThemeRow is the utilities section's single row for the dotfiles'
 // own theme. The themes themselves live one level in, on the theme picker, so

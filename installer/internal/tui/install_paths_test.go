@@ -1907,3 +1907,302 @@ func TestTheRemovedStarshipPaletteIsRecreatable(t *testing.T) {
 	}
 	t.Logf("the deleted [palettes.catppuccin_mocha] table rebuilds from themes/catppuccin-mocha.toml with all %d values", len(deleted))
 }
+
+// legacyThemeFile is the shape an installer from before the ownership marker
+// left on disk: the generated body with its marker and its two tags removed. It
+// is the file the refresh has to adopt without mistaking it for the user's.
+func legacyThemeFile(t *testing.T, art themeArtifact, def themeDefinition) string {
+	t.Helper()
+
+	block, err := themeArtifactBlock(art, def)
+	if err != nil {
+		t.Fatalf("render the %s block: %v", art.Tool, err)
+	}
+	var kept []string
+	for _, line := range strings.Split(block, "\n") {
+		if strings.Contains(line, themeOwnershipMarker) {
+			continue
+		}
+		if strings.Contains(line, themeBeginTag(art.Block)) {
+			continue
+		}
+		if strings.Contains(line, themeEndTag(art.Block)) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+// writeThemeFileAt writes a fixture file, making the parent directories.
+func writeThemeFileAt(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestThemeRefreshBringsAnOldManagedFileUpToDate is the user's case: the file
+// was installed by a checkout that predates the ownership marker and the
+// generated block, so the theme switch refuses it and the feature is unusable.
+// The refresh must adopt the old file and bring it up to date.
+func TestThemeRefreshBringsAnOldManagedFileUpToDate(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, defaultThemeID)
+	if !ok {
+		t.Fatalf("%s is not defined", defaultThemeID)
+	}
+
+	art := artifactByName(t, "alacritty")
+	dst := themeInstalledPath(art, home)
+	old := legacyThemeFile(t, art, def)
+	writeThemeFileAt(t, dst, old)
+
+	// The exact user-visible failure: the switch refuses the file because it
+	// carries neither the ownership marker nor a generated block.
+	if _, _, err := applyDotfilesTheme(home, def); err == nil {
+		t.Fatal("the switch accepted the unmarked file, so the fixture does not reproduce the user's case")
+	}
+
+	candidates := findThemeRefreshCandidates(home, defs)
+	if len(candidates) != 1 {
+		t.Fatalf("detection returned %d candidate(s), want the one outdated file: %+v", len(candidates), candidates)
+	}
+	if c := candidates[0]; c.Path != dst {
+		t.Errorf("detection named %q, want %q", c.Path, dst)
+	} else if c.Problem != "" {
+		t.Fatalf("the outdated file was reported unfixable: %s", c.Problem)
+	}
+
+	rec, paragraphs, _, err := refreshThemeFiles(home, defs, candidates)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if rec == nil || len(rec.Files) != 1 {
+		t.Fatalf("refresh recorded %+v, want the one file it replaced", rec)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), themeOwnershipMarker) {
+		t.Errorf("the refreshed file carries no ownership marker:\n%s", got)
+	}
+	if !strings.Contains(string(got), themeBeginTag(art.Block)) {
+		t.Errorf("the refreshed file carries no generated block:\n%s", got)
+	}
+	plain := ansiEscape.ReplaceAllString(strings.Join(paragraphs, "\n"), "")
+	if !strings.Contains(plain, dst) {
+		t.Errorf("the refresh result does not name %s:\n%s", dst, plain)
+	}
+}
+
+// TestThemeRefreshPreservesUserContentAndSaysWhere covers the rule that is not
+// negotiated: a file that may hold the user's own content is copied to the
+// installer's usual place first, and the result says where it went.
+func TestThemeRefreshPreservesUserContentAndSaysWhere(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	art := artifactByName(t, "zsh")
+	dst := themeInstalledPath(art, home)
+	user := "# ─── Palette ─────────────────────────────────────────────────────────────────\n" +
+		"typeset -g PALETTE_BASE=\"#06080f\"\n" +
+		"Gd=${PALETTE_YELLOW_SGR}\"\n" +
+		"# my own zsh aliases\nalias ll='ls -la'\n"
+	writeThemeFileAt(t, dst, user)
+
+	candidates := findThemeRefreshCandidates(home, defs)
+	if len(candidates) != 1 || candidates[0].Path != dst {
+		t.Fatalf("detection returned %+v, want the one outdated %s", candidates, dst)
+	}
+
+	_, paragraphs, _, err := refreshThemeFiles(home, defs, candidates)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	dropIn := filepath.Join(home, ".zshrc.d")
+	entries, err := os.ReadDir(dropIn)
+	if err != nil {
+		t.Fatalf("the preserved file is not in %s: %v", dropIn, err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("%s holds %d entries, want the one preserved file", dropIn, len(entries))
+	}
+	preserved := filepath.Join(dropIn, entries[0].Name())
+	back, err := os.ReadFile(preserved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(back) != user {
+		t.Errorf("the preserved copy is not byte-for-byte the user's file:\n--- got ---\n%s\n--- want ---\n%s", back, user)
+	}
+	if got, _ := os.ReadFile(dst); !strings.Contains(string(got), themeOwnershipMarker) {
+		t.Error("the user's .zshrc was not refreshed after it was preserved")
+	}
+	plain := ansiEscape.ReplaceAllString(strings.Join(paragraphs, "\n"), "")
+	if !strings.Contains(plain, preserved) {
+		t.Errorf("the result does not say where the file was preserved (%s):\n%s", preserved, plain)
+	}
+}
+
+// TestThemeRefreshIsReversible covers the record: the previous bytes are stored
+// the same way the switch stores them, so Undo puts the file back byte-for-byte.
+func TestThemeRefreshIsReversible(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, _ := themeByID(defs, defaultThemeID)
+	art := artifactByName(t, "alacritty")
+	dst := themeInstalledPath(art, home)
+	old := legacyThemeFile(t, art, def)
+	writeThemeFileAt(t, dst, old)
+
+	candidates := findThemeRefreshCandidates(home, defs)
+	rec, _, _, err := refreshThemeFiles(home, defs, candidates)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the refresh returned no record, so it is not reversible")
+	}
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the refresh: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != old {
+		t.Errorf("undo did not restore the file byte-for-byte")
+	}
+	if readDotfilesThemeRecord() != nil {
+		t.Error("the record was not cleared after the undo")
+	}
+}
+
+// TestThemeRefreshSkipsOnDryRun covers the write gate: a dry run changes
+// nothing, on disk or in the record.
+func TestThemeRefreshSkipsOnDryRun(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "1")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, _ := themeByID(defs, defaultThemeID)
+	art := artifactByName(t, "alacritty")
+	dst := themeInstalledPath(art, home)
+	old := legacyThemeFile(t, art, def)
+	writeThemeFileAt(t, dst, old)
+
+	candidates := findThemeRefreshCandidates(home, defs)
+	rec, _, notice, err := refreshThemeFiles(home, defs, candidates)
+	if err != nil {
+		t.Fatalf("a dry run returned an error: %v", err)
+	}
+	if rec != nil {
+		t.Errorf("a dry run recorded a change: %+v", rec)
+	}
+	if !strings.Contains(notice, "DRY RUN") {
+		t.Errorf("a dry run's notice does not say so: %q", notice)
+	}
+	if got, _ := os.ReadFile(dst); string(got) != old {
+		t.Error("a dry run wrote the file")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(home, ".zshrc.d")); len(entries) != 0 {
+		t.Errorf("a dry run created %d preserved file(s)", len(entries))
+	}
+	if readDotfilesThemeRecord() != nil {
+		t.Error("a dry run wrote a record")
+	}
+}
+
+// TestThemeRefreshSkipsAnUnrefreshableFileAndContinues covers honest
+// degradation: a file that cannot be refreshed is named and skipped, and the
+// files around it are still refreshed. It never aborts the whole refresh.
+func TestThemeRefreshSkipsAnUnrefreshableFileAndContinues(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, _ := themeByID(defs, defaultThemeID)
+
+	goodArt := artifactByName(t, "alacritty")
+	goodDst := themeInstalledPath(goodArt, home)
+	goodOld := legacyThemeFile(t, goodArt, def)
+	writeThemeFileAt(t, goodDst, goodOld)
+
+	// One unrefreshable file because its content is not a recognizable block.
+	badArt := artifactByName(t, "herdr")
+	badDst := themeInstalledPath(badArt, home)
+	badContent := "# unrelated configuration\nsome_setting = true\n"
+	writeThemeFileAt(t, badDst, badContent)
+
+	// One unrefreshable because it is not a regular file at all.
+	dirArt := artifactByName(t, "ghostty")
+	dirDst := themeInstalledPath(dirArt, home)
+	if err := os.MkdirAll(dirDst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates := findThemeRefreshCandidates(home, defs)
+	if len(candidates) != 3 {
+		t.Fatalf("detection returned %d candidate(s), want the refreshable file and the two unfixable ones: %+v", len(candidates), candidates)
+	}
+
+	rec, paragraphs, notice, err := refreshThemeFiles(home, defs, candidates)
+	if err != nil {
+		t.Fatalf("a refresh with an unfixable file returned an error: %v", err)
+	}
+	if rec == nil || len(rec.Files) != 1 {
+		t.Fatalf("the refreshable file was not refreshed alongside the failures: %+v", rec)
+	}
+	if got, _ := os.ReadFile(goodDst); !strings.Contains(string(got), themeOwnershipMarker) {
+		t.Error("the refreshable file was not brought up to date")
+	}
+	if got, _ := os.ReadFile(badDst); string(got) != badContent {
+		t.Error("the unrecognizable file was changed")
+	}
+	if info, err := os.Stat(dirDst); err != nil || !info.IsDir() {
+		t.Error("the directory that is not a regular file was changed")
+	}
+	plain := ansiEscape.ReplaceAllString(strings.Join(paragraphs, "\n"), "")
+	for _, path := range []string{badDst, dirDst} {
+		if !strings.Contains(plain, path) {
+			t.Errorf("the result does not name the unfixable file %s:\n%s", path, plain)
+		}
+	}
+	if !strings.Contains(notice, "could not") {
+		t.Errorf("the notice does not say a file could not be refreshed: %q", notice)
+	}
+}

@@ -211,10 +211,11 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 }
 
 // measuredScreens is the number of screen cases every matrix guard renders: the
-// 47 installer states, the utilities section, the theme picker, and the trainer's
-// 6. It is pinned rather than derived so a screen silently dropping out of the
-// enumeration fails more than one guard.
-const measuredScreens = 55 // 47 installer states + utilities + theme-picker + the trainer's 6
+// 47 installer states, the utilities section, the theme picker, the refresh
+// review that picker opens, and the trainer's 6. It is pinned rather than
+// derived so a screen silently dropping out of the enumeration fails more than
+// one guard.
+const measuredScreens = 56 // 47 installer states + utilities + theme-picker + theme-refresh + the trainer's 6
 
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
@@ -348,9 +349,11 @@ func terminalFitCases() []terminalFitCase {
 	}
 	// The utilities section is entered from the main menu by a key rather than by
 	// one of the installer's states, so it is measured here the way the trainer's
-	// screens are. The theme picker is one level in from it, for the same reason.
+	// screens are. The theme picker is one level in from it, for the same reason,
+	// and its refresh review is a second state of that picker.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
+	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
 
 	return cases
 }
@@ -557,6 +560,9 @@ func utilitiesFrameCase(t *testing.T) Model {
 // themePickerCaseName is the name the frame guards know the theme picker by.
 const themePickerCaseName = "theme-picker"
 
+// themeRefreshCaseName is the name the frame guards know the refresh review by.
+const themeRefreshCaseName = "theme-refresh"
+
 // themePickerFrameCase builds the theme picker with the definitions read from
 // the repository and a record to undo, so the guards measure the list, its
 // exclusion lists, the undo row and the live preview. The cursor is put on a
@@ -636,6 +642,31 @@ func TestUtilitiesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 // a number a reader can re-derive rather than a claim. The assertions repeat the
 // guard's two rules on purpose: this is the case that carries the numbers, and a
 // measurement that is only logged cannot fail.
+// themeRefreshReviewFrameCase builds the refresh review with a short list of
+// files and one that cannot be refreshed, so the guards measure the review's
+// own rows: the banner, the exact file list, the preserved destinations and the
+// confirmation. The long paths are the actual home paths the section names.
+func themeRefreshReviewFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenThemePicker)
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m.DotfilesThemes = defs
+	m.ThemeRefreshCandidates = []themeRefreshCandidate{
+		{Tool: "zsh", Path: "/home/testuser/.zshrc", Reason: "no dotfiles ownership marker",
+			Preserve: "/home/testuser/.zshrc.d", PreserveLabel: "your current file is preserved first in /home/testuser/.zshrc.d/"},
+		{Tool: "herdr", Path: "/home/testuser/.config/herdr/config.toml", Reason: "no dotfiles ownership marker",
+			PreserveLabel: "your current file is preserved first as /home/testuser/.config/herdr/config.toml.bak-dotfiles-<stamp>"},
+		{Tool: "ghostty", Path: "/home/testuser/.config/ghostty/config", Problem: "its content is not a recognizable dotfiles theme block"},
+	}
+	m.ThemeRefreshReview = true
+	m.Cursor = 0
+	return m
+}
+
 func TestThemePickerFrameFitIsMeasuredAtEverySize(t *testing.T) {
 	for _, size := range measuredTerminalSizes {
 		m := themePickerFrameCase(t)
