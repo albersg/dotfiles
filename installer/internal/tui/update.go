@@ -47,10 +47,13 @@ type (
 	}
 
 	// dotfilesThemesLoadedMsg carries the theme definitions read from the
-	// repository checkout onto the model.
+	// repository checkout onto the model, with the directory they were read from so
+	// the switch can compare an installed file against the file the repository
+	// ships there.
 	dotfilesThemesLoadedMsg struct {
-		themes []themeDefinition
-		err    error
+		themes  []themeDefinition
+		repoDir string
+		err     error
 	}
 
 	// dotfilesThemeChangedMsg is the result of applying or undoing the dotfiles
@@ -238,7 +241,7 @@ func loadDotfilesThemesCmd(repoDir string) tea.Cmd {
 			return dotfilesThemesLoadedMsg{err: err}
 		}
 		defs, err := loadThemeDefinitions(dir)
-		return dotfilesThemesLoadedMsg{themes: defs, err: err}
+		return dotfilesThemesLoadedMsg{themes: defs, repoDir: dir, err: err}
 	}
 }
 
@@ -254,11 +257,13 @@ func (m *Model) dotfilesThemesCmdIfNeeded() tea.Cmd {
 }
 
 // applyDotfilesThemeCmd runs one dotfiles-theme switch off the update loop,
-// behind the same dry-run gate as the desktop switch.
-func applyDotfilesThemeCmd(def themeDefinition) tea.Cmd {
+// behind the same dry-run gate as the desktop switch. The repository directory
+// the definitions were read from is what lets the switch recognise an installed
+// file whose content still matches what the repository ships.
+func (m Model) applyDotfilesThemeCmd(def themeDefinition) tea.Cmd {
 	return func() tea.Msg {
 		homeDir := os.Getenv("HOME")
-		_, notice, err := applyDotfilesTheme(homeDir, def)
+		_, notice, err := applyDotfilesTheme(homeDir, m.DotfilesRepoDir, def)
 		return dotfilesThemeChangedMsg{notice: notice, err: err}
 	}
 }
@@ -520,6 +525,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.DotfilesThemes = msg.themes
+		m.DotfilesRepoDir = msg.repoDir
 		m.DotfilesThemesErr = ""
 		return m, nil
 
@@ -1234,7 +1240,7 @@ func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
 		switch {
 		case strings.HasPrefix(selected, "Apply the "):
 			if def, ok := m.dotfilesThemeForRow(selected); ok {
-				return m, applyDotfilesThemeCmd(def)
+				return m, m.applyDotfilesThemeCmd(def)
 			}
 		case selected == dotfilesThemeUndoRow && m.DotfilesThemeRecord != nil:
 			return m, undoDotfilesThemeCmd(*m.DotfilesThemeRecord)

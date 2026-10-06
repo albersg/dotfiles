@@ -1660,7 +1660,7 @@ func TestDotfilesThemeSwitchIsReversible(t *testing.T) {
 
 	before := installThemeFiles(t, home, "alacritty", "kitty", "fish", "tmux")
 
-	rec, notice, err := applyDotfilesTheme(home, target)
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
 	if err != nil {
 		t.Fatalf("apply the theme: %v", err)
 	}
@@ -1748,7 +1748,7 @@ func TestDotfilesThemeSwitchSkipsOnDryRun(t *testing.T) {
 
 	before := installThemeFiles(t, home, "alacritty", "kitty", "fish", "tmux")
 
-	rec, notice, err := applyDotfilesTheme(home, target)
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
 	if err != nil {
 		t.Fatalf("a dry run returned an error: %v", err)
 	}
@@ -1795,7 +1795,7 @@ func TestDotfilesThemeSwitchRefusesAnUnownedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := applyDotfilesTheme(home, target); err == nil {
+	if _, _, err := applyDotfilesTheme(home, repoRoot(t), target); err == nil {
 		t.Fatal("the switch rewrote a file that carries no ownership marker")
 	} else if !strings.Contains(err.Error(), "not owned") {
 		t.Errorf("the refusal does not name the ownership rule: %v", err)
@@ -1807,6 +1807,271 @@ func TestDotfilesThemeSwitchRefusesAnUnownedFile(t *testing.T) {
 	if !bytes.Equal(got, user) {
 		t.Error("the unowned file was changed")
 	}
+}
+
+// installThemeFileWithoutOwnershipMarker writes the file the repository ships
+// for tool into home with the ownership-marker line removed, which is the state
+// an install from before the marker leaves behind. It returns the bytes written.
+func installThemeFileWithoutOwnershipMarker(t *testing.T, home, tool string) []byte {
+	t.Helper()
+
+	art := artifactByName(t, tool)
+	shipped, err := os.ReadFile(filepath.Join(repoRoot(t), art.Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(shipped), themeOwnershipMarker) {
+		t.Fatalf("the repository's %s file carries no ownership marker, so this fixture proves nothing", tool)
+	}
+
+	var kept []string
+	for _, line := range strings.Split(string(shipped), "\n") {
+		if strings.Contains(line, themeOwnershipMarker) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	content := []byte(strings.Join(kept, "\n"))
+	if strings.Contains(string(content), themeOwnershipMarker) {
+		t.Fatalf("stripping the marker from the repository's %s file left one behind", tool)
+	}
+
+	dst := themeInstalledPath(art, home)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
+// TestThemeAdoptionAcceptsAFileThatMatchesTheRepository covers case (a): an
+// installed file with no ownership marker whose content is what the repository
+// ships (the repository version without the marker) is adopted, and the theme can
+// then be applied to it. An install from before the marker leaves exactly this
+// file, and refusing it is what left the user unable to change the theme.
+func TestThemeAdoptionAcceptsAFileThatMatchesTheRepository(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	installThemeFileWithoutOwnershipMarker(t, home, "herdr")
+	art := artifactByName(t, "herdr")
+	dst := themeInstalledPath(art, home)
+
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to an unmarked file whose content matches the repository: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the adopted file was not recorded, so the change is not reversible")
+	}
+	if !strings.Contains(notice, "Adopted") {
+		t.Errorf("the notice does not say a file was adopted: %q", notice)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), themeOwnershipMarker) {
+		t.Error("the adopted file did not get the ownership marker")
+	}
+	if !strings.Contains(string(got), target.Palette["selection"]) {
+		t.Errorf("the adopted file does not carry the %s selection colour %s", target.Name, target.Palette["selection"])
+	}
+}
+
+// TestThemeAdoptionUndoRemovesTheMarker covers case (c): undo of an adoption
+// leaves the file byte-for-byte as it was before the adoption - that is, with no
+// ownership marker. That byte-for-byte return is what makes adoption honest
+// rather than a matter of trusting the installer.
+func TestThemeAdoptionUndoRemovesTheMarker(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	before := installThemeFileWithoutOwnershipMarker(t, home, "herdr")
+	art := artifactByName(t, "herdr")
+	dst := themeInstalledPath(art, home)
+
+	rec, _, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to an adoptable file: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the adoption returned no record, so it cannot be undone")
+	}
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the adopted file: %v", err)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, before) {
+		t.Errorf("undo did not restore the file byte-for-byte\n got: %q\nwant: %q", got, before)
+	}
+	if strings.Contains(string(got), themeOwnershipMarker) {
+		t.Error("undo left the ownership marker behind on a file that had none before")
+	}
+}
+
+// TestThemeAdoptionUndoRestoresAFileWithTwoBlocks covers the file two artifacts
+// share: Starship has two generated blocks (its palette line and its palette
+// table) in one file, and .zshrc carries the zsh block and the bat block. The
+// first artifact records the file's original bytes; the second must not overwrite
+// that record with the state the first one left, or undo cannot reach the file's
+// original bytes and the adoption is not reversible.
+func TestThemeAdoptionUndoRestoresAFileWithTwoBlocks(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	before := installThemeFileWithoutOwnershipMarker(t, home, "starship")
+	art := artifactByName(t, "starship")
+	dst := themeInstalledPath(art, home)
+
+	rec, _, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to an adoptable file with two blocks: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the adoption returned no record, so it cannot be undone")
+	}
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the adopted file: %v", err)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, before) {
+		t.Errorf("undo did not restore the two-block file byte-for-byte, so the second block overwrote the recorded original")
+	}
+}
+
+// TestThemeAdoptionDoesNotTouchAnOwnedFile covers case (d): a file that already
+// carries the ownership marker is applied to as before, and adoption does not run
+// a second time or write a duplicate marker line.
+func TestThemeAdoptionDoesNotTouchAnOwnedFile(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	installThemeFiles(t, home, "herdr")
+	art := artifactByName(t, "herdr")
+	dst := themeInstalledPath(art, home)
+
+	_, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to an already-owned file: %v", err)
+	}
+	if strings.Contains(notice, "Adopted") {
+		t.Errorf("an already-owned file was reported as adopted: %q", notice)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(got), themeOwnershipMarker); n != 1 {
+		t.Errorf("the ownership marker appears %d times after the apply, want exactly 1", n)
+	}
+}
+
+// TestThemeInstalledFileIsOursProvesByContent covers the rule the adoption rests
+// on: the proof is the bytes, not the path. A file identical to what the
+// repository ships without the marker is ours (proof 1), a file carrying a
+// generated block marker is ours (proof 2), and anything else is not ours even
+// when it sits at exactly the path a managed file lives at.
+func TestThemeInstalledFileIsOursProvesByContent(t *testing.T) {
+	root := t.TempDir()
+	shipped := "# dotfiles-managed-config: x\nbody = 1\n"
+	if err := os.WriteFile(filepath.Join(root, "x.conf"), []byte(shipped), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art := themeArtifact{Tool: "x", Path: "x.conf", Comment: "#"}
+
+	// Proof 1: the repository version without the marker. The shipped fixture
+	// carries no generated block, so this proof has to stand on its own.
+	if !themeInstalledFileIsOurs(root, art, "body = 1\n") {
+		t.Error("a file identical to the shipped file without the marker was not recognised as ours")
+	}
+	// Proof 2: a generated block marker only this repository's generator writes.
+	blockTag := themeBeginTag("")
+	if !themeInstalledFileIsOurs(root, art, "# "+blockTag+" x (generated) >>>\nbody = 1\n") {
+		t.Error("a file carrying the generated block marker was not recognised as ours")
+	}
+	// Neither proof: a file the user wrote proves nothing, marker path or not.
+	if themeInstalledFileIsOurs(root, art, "# my own file\nbody = 2\n") {
+		t.Error("a file that proves nothing was recognised as ours")
+	}
+	// No repository to compare against leaves only proof 2, so an unmarked file
+	// with no block marker stays refused rather than being adopted on faith.
+	if themeInstalledFileIsOurs("", art, "body = 1\n") {
+		t.Error("an unmarked file was adopted with no shipped file to compare against")
+	}
+}
+
+// TestThemeAdoptionCoversEveryShippedArtifact guards the class: for every file
+// the switch can rewrite, the file the repository ships must still be adoptable
+// once only its ownership-marker line is removed. That is the shape an install
+// from before the marker leaves behind, so if a future renderer ships an artifact
+// whose block is not recognisable, an old installation silently goes back to
+// being unable to change the theme.
+func TestThemeAdoptionCoversEveryShippedArtifact(t *testing.T) {
+	root := repoRoot(t)
+	checked := 0
+	for _, art := range themeActiveArtifacts {
+		shipped, err := os.ReadFile(filepath.Join(root, art.Path))
+		if err != nil {
+			t.Errorf("read %s: %v", art.Path, err)
+			continue
+		}
+		if !strings.Contains(string(shipped), themeOwnershipMarker) {
+			t.Errorf("%s ships no ownership marker, so this guard proves nothing for it", art.Path)
+			continue
+		}
+		if !themeInstalledFileIsOurs(root, art, stripThemeOwnershipMarkers(string(shipped))) {
+			t.Errorf("%s is not adoptable after only its marker is removed, so an install from before the marker could not change the theme", art.Path)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no shipped artifact was checked, so this guard proves nothing")
+	}
+	t.Logf("%d shipped artifact(s) are adoptable after only the marker is removed", checked)
 }
 
 // TestGeneratedPerThemeFilesMatchTheirDefinition covers the per-theme whole-file

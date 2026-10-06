@@ -163,7 +163,10 @@ available here rather than drawing a row that fails. Move the
 cursor onto a theme row and **the whole installer repaints itself in that theme's colours** — a live
 preview built from the same definition the apply writes, labelled `Preview (nothing applied)` — and
 leaving the row puts the default chrome back; nothing is written while the cursor moves. It only rewrites files carrying the `dotfiles-managed-config:`
-ownership marker; a file you wrote is left exactly as it is. `--dry-run` skips it too. See
+ownership marker; a file you wrote is left exactly as it is. A managed file that predates the marker
+is adopted first — and only when its content proves it is ours (it is what the repository ships, or it
+carries a generated block marker) — which writes that marker line and nothing else and is undone
+byte-for-byte. `--dry-run` skips it too. See
 [`themes/README.md`](themes/README.md).
 
 ---

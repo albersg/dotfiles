@@ -162,6 +162,16 @@ TPM run line instead of depending on the `tmux-kanagawa` plugin, whose Kanagawa 
 marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same
 rule `preserve-user-configs` applies to the shell startup files.
 
+**A file with no marker is adopted only when its content proves it is ours.** An installation older
+than the marker leaves managed files without it, and refusing them made the switch unusable on a
+machine that already had dotfiles installed. Before refusing, the switch asks the *content* — never
+the path — whether the file is ours: it is if it carries a generated block marker
+(`>>> dotfiles-theme...`), or if, with the ownership-marker lines removed, it is byte-identical to the
+file the repository ships. Adoption writes the marker line and nothing else, records the bytes from
+before adoption in the same `theme.json`, and says so on screen and in the log; **Undo** takes the
+marker back out and leaves the file byte-for-byte as it was. A file whose content does not prove
+ownership is still refused, unchanged.
+
 **It is reversible.** Before writing, the switch records the exact bytes each file held in the same
 `$XDG_STATE_HOME/dotfiles/theme.json` the desktop switch uses (the two halves coexist in that one
 file), so **Undo the last dotfiles theme change** restores each file byte-for-byte. A definition
