@@ -1,29 +1,68 @@
-# Everforest: a PARTIAL theme, recorded honestly.
+# Everforest, transcribed from the published palette of sainnhe/everforest.
 #
-# The repository holds one Everforest file:
+# The repository has held one Everforest file since before the theme library
+# existed:
 #
 #   dotfiles-fish/fish/themes/Everforest.theme   eight fish roles
 #
-# No terminal, prompt, bat or herdr Everforest palette exists in this
-# repository. The eight fish roles are fish's own roles, not the canonical
-# terminal roles, so base/text/cursor/selection and the 16 ANSI colours stay
-# EMPTY rather than being extrapolated by eye.
+# No terminal, prompt, bat or herdr Everforest palette was in it, which is why
+# the theme was partial. The twenty-two canonical roles below are a transcription
+# of the published Everforest "dark, medium" palette and the terminal mapping
+# that ships with it; every value is a named palette colour of that theme. The
+# fish roles the repository already held are kept verbatim.
 #
-# themes/README.md names exactly which tools an Everforest switch would leave
-# out. With the canonical roles missing the theme is partial and is NOT offered.
+# Source: sainnhe/everforest - https://github.com/sainnhe/everforest
+#
+#   base      bg0   #2d353b    cursor       fg    #d3c6aa
+#   text      fg    #d3c6aa    cursor_text  bg0   #2d353b
+#   selection bg3   #475258    selection_text fg  #d3c6aa
+#
+#   normal      black bg3 #475258   red red #e67e80   green green #a7c080
+#               yellow yellow #dbbc7f   blue blue #7fbbb3
+#               magenta purple #d699b6   cyan aqua #83c092   white fg #d3c6aa
+#   bright      black grey0 #7a8478   red red #e67e80   green green #a7c080
+#               yellow yellow #dbbc7f   blue blue #7fbbb3
+#               magenta purple #d699b6   cyan aqua #83c092   white fg #d3c6aa
+#
+# Everforest ships hard, medium and soft backgrounds. The repository's fish file
+# is the medium dark variant (fg #d3c6aa), so the definition is that one.
 
 [theme]
 id = "everforest"
 name = "Everforest"
-partial = true
-partial_reason = "no canonical palette in the repository: only fish roles (dotfiles-fish/fish/themes/Everforest.theme). The 16 ANSI roles and the terminal base/text/cursor/selection roles do not exist here."
-provenance = "dotfiles-fish/fish/themes/Everforest.theme (fish roles only)"
+provenance = "sainnhe/everforest (dark medium palette and its terminal mapping); fish roles from dotfiles-fish/fish/themes/Everforest.theme"
 
 [palette]
+# --- terminal base ---
+base = "#2d353b"            # bg0, the dark medium background
+text = "#d3c6aa"            # fg, the dark medium foreground
+cursor = "#d3c6aa"          # fg, the cursor
+cursor_text = "#2d353b"     # bg0 under the cursor
+selection = "#475258"       # bg3, the selection background
+selection_text = "#d3c6aa"  # fg on a selection
+
+# --- ANSI normal (colours 0-7) ---
+black = "#475258"           # bg3
+red = "#e67e80"             # red
+green = "#a7c080"           # green
+yellow = "#dbbc7f"          # yellow
+blue = "#7fbbb3"            # blue
+magenta = "#d699b6"         # purple
+cyan = "#83c092"            # aqua
+white = "#d3c6aa"           # fg
+
+# --- ANSI bright (colours 8-15) ---
+bright_black = "#7a8478"    # grey0
+bright_red = "#e67e80"      # red
+bright_green = "#a7c080"    # green
+bright_yellow = "#dbbc7f"   # yellow
+bright_blue = "#7fbbb3"     # blue
+bright_magenta = "#d699b6"  # purple
+bright_cyan = "#83c092"     # aqua
+bright_white = "#d3c6aa"    # fg
 
 # --- fish roles ---
-# Transcribed from dotfiles-fish/fish/themes/Everforest.theme. Values are
-# fish's own role names, which is why they live here rather than in [palette].
+# Transcribed verbatim from dotfiles-fish/fish/themes/Everforest.theme.
 [fish]
 normal = "d3c6aa"
 command = "7fbbb3"
@@ -45,6 +84,11 @@ pager_completion = "d3c6aa"
 pager_description = "859289"
 
 # --- syntax roles ---
-# No syntax colours: this theme has no canonical palette in the repository, so it
-# cannot paint the installer's chrome either. Left empty rather than filled in.
+# The installer's own code-display tints. The repository holds no Everforest
+# syntax convention beyond the fish file, so the two are that file's keyword and
+# quote roles: purple #d699b6 for keywords, yellow #dbbc7f for strings. Only the
+# dark member is declared, because this repository ships no Everforest light
+# flavour; the preview uses the dark value on a light terminal too.
 [syntax]
+keyword_dark = "#d699b6"
+string_dark = "#dbbc7f"

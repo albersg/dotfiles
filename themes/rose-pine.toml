@@ -1,0 +1,70 @@
+# Rosé Pine, transcribed from the published palette of rose-pine/rose-pine.
+#
+# The user asked for "uno morado-rosa" (a purple-pink one). Rosé Pine is that
+# theme: its signature is the muted purple surface with love/pink and iris
+# accents. This file is a transcription of the published palette and the
+# terminal mapping the project ships; nothing is extrapolated.
+#
+# Source: rosé pine - https://rosepinetheme.com, https://github.com/rose-pine/rose-pine
+#
+#   base           #191724    text      #e0def4    overlay   #26233a
+#   surface        #1f1d2e    subtle    #908caa    muted     #6e6a86
+#   love           #eb6f92    gold      #f6c177    rose      #ebbcba
+#   pine           #31748f    foam      #9ccfd8    iris      #c4a7e7
+#   highlight low  #21202e    highlight med #403d52    highlight high #524f67
+#
+# The terminal mapping follows the project's own terminal port: normal black is
+# the overlay, cyan is rose, and the selection is highlight-medium. Rosé Pine's
+# syntax convention paints keywords iris and strings gold; both are named palette
+# colours of the theme.
+#
+# After the repository's own palette this is the darkest base in the library
+# (#191724 against Catppuccin Mocha's #1e1e2e), so it is also the answer to the
+# user's "uno más oscuro". Its published companion, Rosé Pine Moon, was
+# considered and left out: its base (#232136) is *lighter* than this one, so it
+# does not answer "más oscuro", and the Utilities section fits six complete
+# themes at the 60x20 floor (a seventh overflows the frame guard).
+# themes/README.md records both halves of that decision.
+
+[theme]
+id = "rose-pine"
+name = "Rosé Pine"
+provenance = "rose-pine/rose-pine (published palette and terminal mapping), https://rosepinetheme.com"
+
+[palette]
+# --- terminal base ---
+base = "#191724"            # base
+text = "#e0def4"            # text
+cursor = "#e0def4"          # text, the cursor the terminal port uses
+cursor_text = "#191724"     # base under the cursor
+selection = "#403d52"       # highlight medium
+selection_text = "#e0def4"  # text on a selection
+
+# --- ANSI normal (colours 0-7) ---
+black = "#26233a"           # overlay
+red = "#eb6f92"             # love
+green = "#31748f"           # pine
+yellow = "#f6c177"          # gold
+blue = "#9ccfd8"            # foam
+magenta = "#c4a7e7"         # iris
+cyan = "#ebbcba"            # rose
+white = "#e0def4"           # text
+
+# --- ANSI bright (colours 8-15) ---
+bright_black = "#6e6a86"    # muted
+bright_red = "#eb6f92"      # love
+bright_green = "#31748f"    # pine
+bright_yellow = "#f6c177"   # gold
+bright_blue = "#9ccfd8"     # foam
+bright_magenta = "#c4a7e7"  # iris
+bright_cyan = "#ebbcba"     # rose
+bright_white = "#e0def4"    # text
+
+# --- syntax roles ---
+# Rosé Pine's own syntax convention: keywords take iris, strings take gold. Both
+# are named palette colours of the theme. Only the dark member is declared; the
+# repository ships no Rosé Pine light flavour, so the preview uses the dark value
+# on a light terminal too.
+[syntax]
+keyword_dark = "#c4a7e7"
+string_dark = "#f6c177"

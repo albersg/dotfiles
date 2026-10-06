@@ -92,14 +92,14 @@ file = "catppuccin-mocha.tmTheme"
 
 # --- syntax roles ---
 # Catppuccin's own convention for syntax: upstream paints keywords mauve and
-# strings green. Both values are already in this repository's
-# [palettes.catppuccin_mocha] table (mauve #cba6f7, green #a6e3a1), so nothing is
-# extrapolated.
-#
-# There is no Light member. The repository ships only Catppuccin Mocha, and the
-# light flavour (Latte) is not in it, so a light value would have to be invented.
-# The preview therefore uses the dark value on a light terminal too, which is a
-# known readability limit rather than a hidden one; themes/README.md records it.
+# strings green. The two flavours now in the repository pair up: the light
+# member is the Latte value (mauve #8839ef, green #40a02b) and the dark member is
+# the Mocha value (mauve #cba6f7, green #a6e3a1), which is exactly the flavour
+# pairing Catppuccin defines. All four are named palette colours of the two
+# published flavours, so nothing is extrapolated; themes/README.md records the
+# pairing.
 [syntax]
+keyword_light = "#8839ef"
 keyword_dark = "#cba6f7"
+string_light = "#40a02b"
 string_dark = "#a6e3a1"

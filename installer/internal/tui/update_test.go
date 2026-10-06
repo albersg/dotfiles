@@ -1660,36 +1660,52 @@ func TestThePreviewPaintsTheThemesSyntaxRoles(t *testing.T) {
 			dotfiles.Prompt["mauve"])
 	}
 
-	// A theme with no light flavour uses its dark value for both members rather
-	// than an invented light one.
+	// Catppuccin pairs Mocha with Latte: now that Latte is in the repository the
+	// light member is Latte's value and the preview uses it on a light terminal,
+	// so the old no-light-member readability limit is gone.
 	catppuccin, ok := themeByID(defs, "catppuccin-mocha")
 	if !ok {
 		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+	latte, ok := themeByID(defs, "catppuccin-latte")
+	if !ok {
+		t.Fatal("the catppuccin-latte definition is missing")
 	}
 	catColors, err := themePreviewColors(catppuccin)
 	if err != nil {
 		t.Fatalf("derive the catppuccin preview colours: %v", err)
 	}
-	if catppuccin.Syntax["keyword_light"] != "" {
-		t.Errorf("this guard expects catppuccin-mocha to ship no light keyword, it has %q", catppuccin.Syntax["keyword_light"])
+	if catppuccin.Syntax["keyword_light"] == "" {
+		t.Error("catppuccin-mocha ships no light keyword, so the pairing with Latte was lost")
 	}
-	if catColors.SyntaxKeyword.Light != catColors.SyntaxKeyword.Dark {
-		t.Errorf("with no light member the preview should use the dark one, got light %s dark %s",
-			catColors.SyntaxKeyword.Light, catColors.SyntaxKeyword.Dark)
+	if !strings.EqualFold(catppuccin.Syntax["keyword_light"], latte.Prompt["mauve"]) {
+		t.Errorf("catppuccin-mocha's light keyword is %q, Latte's mauve is %q: the flavour pairing was lost",
+			catppuccin.Syntax["keyword_light"], latte.Prompt["mauve"])
 	}
-	t.Logf("catppuccin-mocha has no light syntax member (Latte is not in the repository), so the preview uses %s on a light terminal too",
-		catColors.SyntaxKeyword.Dark)
+	if !strings.EqualFold(catppuccin.Syntax["string_light"], latte.Prompt["green"]) {
+		t.Errorf("catppuccin-mocha's light string is %q, Latte's green is %q: the flavour pairing was lost",
+			catppuccin.Syntax["string_light"], latte.Prompt["green"])
+	}
+	if !strings.EqualFold(catColors.SyntaxKeyword.Light, catppuccin.Syntax["keyword_light"]) {
+		t.Errorf("the preview paints light keywords %s, the definition says %s",
+			catColors.SyntaxKeyword.Light, catppuccin.Syntax["keyword_light"])
+	}
+	if strings.EqualFold(catColors.SyntaxKeyword.Light, catColors.SyntaxKeyword.Dark) {
+		t.Errorf("the preview uses the dark keyword (%s) on a light terminal although a light member exists",
+			catColors.SyntaxKeyword.Light)
+	}
 }
 
 // TestAPartialThemeCannotBePreviewed covers the honest edge: a definition with no
 // canonical palette cannot paint the interface, so the preview refuses it rather
-// than inventing colours.
+// than inventing colours. Every shipped theme is complete now, so the refusal is
+// also exercised with a built fixture, which keeps the guard's teeth instead of
+// letting it pass because the repository happens to hold no partial theme.
 func TestAPartialThemeCannotBePreviewed(t *testing.T) {
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
 		t.Fatalf("load the theme definitions: %v", err)
 	}
-	checked := 0
 	for _, def := range defs {
 		if def.Complete() {
 			continue
@@ -1697,10 +1713,16 @@ func TestAPartialThemeCannotBePreviewed(t *testing.T) {
 		if _, err := themePreviewColors(def); err == nil {
 			t.Errorf("theme %q has no canonical palette yet it previewed", def.ID)
 		}
-		checked++
 	}
-	if checked == 0 {
-		t.Fatal("no partial theme was checked, so this guard proves nothing")
+
+	partial := themeDefinition{
+		ID:      "partial-fixture",
+		Palette: map[string]string{"base": "#000000", "text": "#ffffff"},
+		Prompt:  map[string]string{},
+		Syntax:  map[string]string{},
+	}
+	if _, err := themePreviewColors(partial); err == nil {
+		t.Error("a definition with two canonical roles previewed, so the refusal is not enforced")
 	}
 }
 

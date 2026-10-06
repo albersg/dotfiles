@@ -1192,11 +1192,24 @@ func (m Model) renderThemeScreen(paragraphs []string) string {
 	// definition the apply would write.
 	preview := m.themePreviewLines(width)
 
-	// The rows the title, the blank above the menu, the menu, the preview and the
-	// notice spend, taken off the frame's body before the description is wrapped,
-	// so the description can never be the row that overflows.
+	// The rows the title, the blank above the menu, the preview and the notice
+	// spend are fixed; the menu and the description share what is left. The menu is
+	// the data, so it takes its share first: when the list is longer than the frame
+	// leaves it is windowed around the cursor instead of being allowed to run off
+	// the bottom, and the description takes only what the menu did not need. That
+	// is what keeps the number of themes from being bounded by the frame -- the
+	// list scrolls, the frame stays the frame.
 	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
-	descBudget := bodyRows - (2 + len(menu)) - len(notice) - len(preview)
+	available := bodyRows - (2 + len(preview) + len(notice))
+	if available < 1 {
+		available = 1
+	}
+	menuBudget, descBudget := available, 0
+	if len(menu) <= available {
+		menuBudget = len(menu)
+		descBudget = available - len(menu)
+	}
+	start, end := listWindow(m.Cursor, menuBudget, len(menu))
 
 	title := BrandStyle.Render(m.GetScreenTitle())
 	if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
@@ -1210,11 +1223,19 @@ func (m Model) renderThemeScreen(paragraphs []string) string {
 		body = append(body, MutedStyle.Render(line))
 	}
 	body = append(body, "")
-	body = append(body, menu...)
+	body = append(body, menu[start:end]...)
 	body = append(body, preview...)
 	body = append(body, notice...)
 
-	return m.frame(m.headerName(), "", body, hints)
+	// The header's vital names the slice of a windowed list that is on screen, so
+	// a list longer than the frame says so instead of appearing to end where the
+	// screen does. A list that fits has nothing to report and gets no filler, the
+	// same rule the keymap menus and the restore list follow.
+	vital := ""
+	if end-start < len(menu) {
+		vital = scrollVital("Showing", start+1, end, len(menu))
+	}
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 // descriptionLines is a screen's prose wrapped to the width it will be drawn at

@@ -145,10 +145,14 @@ the terminal blocks are generated from that definition; a generated block that s
 definition fails a guard rather than being found on screen.
 
 A theme is a definition file, so adding a theme adds a row and the list is never typed by hand. A
-**complete** theme defines every canonical role and is offered; a **partial** one (Kanagawa,
-Everforest and Kagawa today, which the repository holds only as fish theme files) is reported with
-its reason and is never offered, so a switch can never apply half a theme and call it unified. A
-complete theme names the tools it cannot paint, and **each row does too**: a row reads
+**complete** theme defines every canonical role **and** the `[syntax]` members the preview reads, so
+it can be applied *and* shown, and is offered; a **partial** one is reported with its reason and is
+never offered, so a switch can never apply half a theme and call it unified. The library ships six
+complete themes — dotfiles, Catppuccin Mocha, Catppuccin Latte, Kanagawa, Everforest and Rosé Pine —
+transcribed from the repository's own blocks or from the published palettes named in
+[`themes/README.md`](../themes/README.md). Kagawa was retired: its only file was a byte-for-byte copy
+of Kanagawa's and no published Kagawa palette exists, so it is no longer a theme. A complete theme
+names the tools it cannot paint, and **each row does too**: a row reads
 `Apply the dotfiles theme (not Neovim)`, so the tools a switch would leave on the old
 palette are named where the choice is made. The switch writes the four terminals, Starship, the
 zsh/p10k prompt, Herdr, the `BAT_THEME` selection, fish's `config.fish` palette block, tmux's style
@@ -157,6 +161,14 @@ owns, never through the user's `fish_config` state in `fish_variables`: the bloc
 variables in the global scope, which fish returns over a universal one, and the switch records and
 restores the exact bytes like every other block. tmux gets its own generated style block after the
 TPM run line instead of depending on the `tmux-kanagawa` plugin, whose Kanagawa palette is partial.
+
+**The list scrolls, so the frame is not the limit on how many themes there can be.** The picker
+draws as many rows as the frame leaves and windows the rest around the cursor, so a theme added to
+`themes/` cannot push the list off the bottom of a short terminal. Moving the cursor to a theme the
+first screen cannot show scrolls it into view, and the header names the slice that is on screen
+(`Showing 3-14 of 20`) so a long list does not look like a list that ends where the screen does. The
+undo row and the way back are reached the same way, and the row under the cursor is always drawn:
+when the list is long only the description gives up its rows, never a theme, the undo or the way back.
 
 **It only edits files dotfiles own.** Each generated block carries a `dotfiles-managed-config:`
 marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same
