@@ -971,10 +971,39 @@ The TUI installer is built with:
 
 ### Running Tests
 
+Two speeds, both wrapping `scripts/preflight.sh`:
+
+| Command | What it runs | When |
+|---------|--------------|------|
+| `make check` | `gofmt`, `go vet`, and the tests for the packages this branch changes, with Go's test cache on | After every edit (the inner loop) |
+| `make preflight` | The full local gate: format, vet, build, the whole Go suite uncached, `shellcheck`, the branding audit and a gitleaks scan, each labelled with the CI job it mirrors | Once, before pushing |
+
+`make check` derives the changed packages from `git diff` against the merge-base
+with `main` (committed, staged, unstaged and untracked `.go` files under
+`installer/`), so it runs the tests that touch the change and skips the rest. It
+leaves Go's test cache on: a package that did not change is not re-run. The full
+suite runs in CI on every push, which is the matrix of record; `make preflight` is
+that same suite once, before the push, so a CI cycle is not spent on a failure a
+local run would have caught.
+
+**Do not add `-count=1` to the inner loop.** It disables Go's test cache, which is
+exactly the work `make check` exists to avoid. Keep it for one thing only:
+reproducing a failure, where a cached result would hide the run you are trying to
+watch.
+
 ```bash
 cd installer
-go test ./... -v
+go test ./... -v                                # all packages, cache on
+go test ./internal/tui -run TestX -count=1 -v   # reproduce one failure, uncached
 ```
+
+The terminal matrix guards share one render pass. `terminalFrames`
+(`screen_coverage_test.go`) builds each screen case once and renders it once per
+measured terminal; the fit guard and the companion-coverage guard both read those
+frames rather than building and drawing the same 55 screens at the same 12
+terminals again. The pass renders with the companion animating, which is the
+strictest frame, so a screen that overflows only with the creature on fails the
+fit guard instead of escaping it.
 
 ### Updating Golden Files
 
