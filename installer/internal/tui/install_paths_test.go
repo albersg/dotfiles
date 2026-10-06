@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
@@ -1113,63 +1115,83 @@ func TestNoInventedThemeRoleSlipsIn(t *testing.T) {
 	}
 }
 
-// TestEveryThemeReportsTheToolsItWouldLeaveOut covers the copy the menu shows
-// before a switch: every theme names the tools it cannot paint, so a change
-// that would leave a tool on the old palette is visible before it happens.
-func TestEveryThemeReportsTheToolsItWouldLeaveOut(t *testing.T) {
+// TestEveryOfferedThemePaintsEveryTool is the requirement as a guard: every
+// theme the menu offers paints **every** tool the switch names, so no theme
+// leaves anything on the old palette. The list it reads is the coverage data, so
+// a theme that loses a role table, an artifact or a name is named here with the
+// tool it stopped painting rather than failing as "something is wrong".
+//
+// Its teeth are the definitions: dropping a [bat] table (or an [nvim] name, or a
+// theme's place in the artifact table) makes this fail with the theme and the
+// tool, which is the case the requirement is about. Nothing is pinned by hand,
+// so an exclusion cannot come back unnoticed either.
+func TestEveryOfferedThemePaintsEveryTool(t *testing.T) {
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
 		t.Fatalf("load the theme definitions: %v", err)
 	}
 
-	for _, def := range defs {
-		covered, uncovered := themeCoverage(def)
-		if def.Complete() && len(covered) == 0 {
-			t.Errorf("the complete theme %q covers no tool at all", def.ID)
-		}
-		t.Logf("%s: covers %v; leaves out %v", def.ID, covered, uncovered)
+	offered := offeredThemeIDs(defs)
+	if len(offered) == 0 {
+		t.Fatal("no theme is offered, so this guard proves nothing")
+	}
+	if len(themeTools) == 0 {
+		t.Fatal("the switch names no tool, so this guard proves nothing")
 	}
 
-	// The exclusion list is the honest half of a switch: a theme that cannot
-	// paint a tool names it. These are the lists this coverage change produces,
-	// pinned so shrinking the list (the goal) or growing it is a visible decision
-	// rather than a side effect. dotfiles names no Neovim colorscheme, so Neovim is
-	// the one tool it leaves out; catppuccin-mocha now paints every tool whose
-	// colours this repository owns, fish (derived from its canonical palette) and
-	// tmux (its own generated style block) included. The four themes the library
-	// added carry their own lists: a theme left out of a tool's artifact table is
-	// named there.
-	wantLeftOut := map[string][]string{
-		"dotfiles":         {"Neovim"},
-		"catppuccin-mocha": nil,
-		"catppuccin-latte": {"fish", "bat", "Neovim", "tmux"},
-		"kanagawa":         {"Starship", "bat", "tmux"},
-		"everforest":       {"Starship", "bat", "Neovim", "tmux"},
-		"rose-pine":        {"Starship", "fish", "bat", "Neovim", "tmux"},
+	names := make([]string, len(themeTools))
+	for i, tool := range themeTools {
+		names[i] = tool.Name
 	}
-	for _, id := range offeredThemeIDs(defs) {
+	for _, id := range offered {
 		def, ok := themeByID(defs, id)
 		if !ok {
 			t.Fatalf("the offered theme %q has no definition", id)
 		}
-		want, ok := wantLeftOut[id]
+		covered, uncovered := themeCoverage(def)
+		if len(uncovered) > 0 {
+			t.Errorf("theme %q leaves out %s: every offered theme must paint every tool (%s)",
+				id, strings.Join(uncovered, ", "), strings.Join(names, ", "))
+		}
+		if len(covered) != len(themeTools) {
+			t.Errorf("theme %q covers %d of the %d tools the switch names: %v",
+				id, len(covered), len(themeTools), covered)
+		}
+		t.Logf("%s: covers %d of %d tools; leaves out %v", id, len(covered), len(themeTools), uncovered)
+	}
+
+	// The row the menu draws reads the same coverage, so the guard cannot pass
+	// while a row still names a tool it leaves out. A theme that covered
+	// everything but still printed an exclusion would be a reader being told
+	// something untrue.
+	for _, id := range offered {
+		def, ok := themeByID(defs, id)
 		if !ok {
-			t.Fatalf("the offered theme %q is not in this guard's expected-exclusions table", id)
+			continue
 		}
-		_, uncovered := themeCoverage(def)
-		if strings.Join(uncovered, ", ") != strings.Join(want, ", ") {
-			t.Errorf("theme %q leaves out %v, want %v: the exclusion list shrank or grew without this guard being updated",
-				id, uncovered, want)
+		if row := dotfilesThemeRow(def); strings.Contains(row, "(not ") {
+			t.Errorf("the row for %q still names an exclusion though it leaves out no tool: %q", id, row)
 		}
+	}
+
+	// A partial theme is still reported, never offered, and never counted here.
+	for _, def := range defs {
+		if def.Complete() {
+			continue
+		}
+		t.Logf("partial theme %q is reported and not offered: %v", def.ID, def.missingRequiredRoles())
 	}
 }
 
 // TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme is the applicability
 // half of the completion rule: a theme the menu offers must actually render a
-// block for every tool it claims to cover. A definition marked complete but
-// missing a role a generator reads would otherwise be offered and then fail on
-// apply. It exercises every offered theme, including the transcribed ones, so
-// "the generators exist" is proved for the new palettes rather than assumed.
+// block for every tool it claims to cover, and every tool the switch names must
+// have a generator to render it with. A definition marked complete but missing a
+// role a generator reads would otherwise be offered and then fail on apply. It
+// exercises every offered theme, including the transcribed ones, so "the
+// generators exist" is proved for every palette rather than assumed, and it walks
+// the switch's own tool list rather than a table of artifacts so a tool cannot be
+// named by the menu with nothing behind it.
 func TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme(t *testing.T) {
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
@@ -1184,20 +1206,30 @@ func TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme(t *testing.T) {
 			t.Fatalf("the offered theme %q has no definition", id)
 		}
 		covered, _ := themeCoverage(def)
-		for _, art := range themeActiveArtifacts {
-			if !slices.Contains(themeToolArtifacts[id], art.Tool) {
+		for _, tool := range themeTools {
+			if !slices.Contains(covered, tool.Name) {
 				continue
 			}
-			block, err := themeArtifactBlock(art, def)
-			if err != nil {
-				t.Errorf("theme %q covers %s but cannot render its block: %v", id, art.Tool, err)
-				continue
+			generated := false
+			for _, art := range themeActiveArtifacts {
+				if art.Tool != tool.ID {
+					continue
+				}
+				block, err := themeArtifactBlock(art, def)
+				if err != nil {
+					t.Errorf("theme %q covers %s but cannot render its block: %v", id, tool.Name, err)
+					continue
+				}
+				if strings.TrimSpace(block) == "" {
+					t.Errorf("theme %q covers %s but rendered an empty block", id, tool.Name)
+					continue
+				}
+				generated = true
+				checked++
 			}
-			if strings.TrimSpace(block) == "" {
-				t.Errorf("theme %q covers %s but rendered an empty block", id, art.Tool)
-				continue
+			if !generated {
+				t.Errorf("theme %q covers %s but the switch generates no block for it", id, tool.Name)
 			}
-			checked++
 		}
 		if len(covered) == 0 {
 			t.Errorf("the offered theme %q covers no tool", id)
@@ -1207,6 +1239,343 @@ func TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme(t *testing.T) {
 		t.Fatal("no tool block was generated, so this guard proves nothing")
 	}
 	t.Logf("generated %d covered-tool blocks across %d offered themes", checked, len(offered))
+}
+
+// TestThePromptDerivationCoversEveryRequiredRole pins the map the prompt's
+// derived roles come from: every role Starship's table needs has to name a
+// canonical palette role, and that role has to be one the definitions hold. A
+// role missing from the map would silently drop out of a generated table, and a
+// role naming a palette role no theme has would be the invented value the rule
+// forbids.
+func TestThePromptDerivationCoversEveryRequiredRole(t *testing.T) {
+	paletteRoles := map[string]bool{}
+	for _, role := range themePaletteRoles {
+		paletteRoles[role] = true
+	}
+
+	covered := 0
+	for _, role := range themePromptRequired {
+		paletteRole, ok := themePromptDerivation[role]
+		if !ok {
+			t.Errorf("prompt role %q has no palette role in themePromptDerivation, so a theme with no [prompt] table cannot be painted", role)
+			continue
+		}
+		if !paletteRoles[paletteRole] {
+			t.Errorf("prompt role %q derives from %q, which is not one of the canonical palette roles", role, paletteRole)
+			continue
+		}
+		covered++
+	}
+	if covered != len(themePromptRequired) {
+		t.Errorf("the derivation covers %d of the %d prompt roles Starship needs", covered, len(themePromptRequired))
+	}
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	for _, id := range offeredThemeIDs(defs) {
+		def, _ := themeByID(defs, id)
+		roles, err := themePromptRolesFor(def)
+		if err != nil {
+			t.Errorf("theme %q cannot supply the prompt roles: %v", id, err)
+			continue
+		}
+		for _, role := range themePromptRequired {
+			if roles[role] == "" {
+				t.Errorf("theme %q has no value for the prompt role %q, so its Starship table would be a hole", id, role)
+			}
+		}
+		// The derived values are logged so their provenance can be audited without
+		// opening the definition: each one is a palette value this theme already
+		// holds, chosen by the mapping above rather than by eye.
+		if len(def.Prompt) == 0 {
+			t.Logf("%s derives its prompt roles from its palette: mauve=%s pink=%s teal=%s peach=%s subtext0=%s overlay0=%s rosewater=%s",
+				id, roles["mauve"], roles["pink"], roles["teal"], roles["peach"], roles["subtext0"], roles["overlay0"], roles["rosewater"])
+		}
+	}
+}
+
+// TestThePromptDerivationAgreesWithThePreview pins the one thing two readings of
+// the same prompt roles could disagree about. The installer's own preview already
+// reads three of them with a palette fallback (subtext0 -> bright_black, mauve ->
+// bright_blue, peach -> yellow); the Starship table has to read them the same
+// way, or the prompt and the interface would call two different colours "muted".
+func TestThePromptDerivationAgreesWithThePreview(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	checked := 0
+	for _, def := range defs {
+		if len(def.Prompt) > 0 {
+			// The definition declares the roles itself, so there is nothing derived
+			// for the preview to disagree with.
+			continue
+		}
+		roles, err := themePromptRolesFor(def)
+		if err != nil {
+			t.Errorf("theme %q cannot derive its prompt roles: %v", def.ID, err)
+			continue
+		}
+		colors, err := themePreviewColors(def)
+		if err != nil {
+			t.Errorf("theme %q cannot be previewed: %v", def.ID, err)
+			continue
+		}
+
+		pairs := []struct{ Prompt, Palette string }{
+			{"subtext0", "bright_black"},
+			{"mauve", "bright_blue"},
+			{"peach", "yellow"},
+		}
+		for _, pair := range pairs {
+			if got, want := roles[pair.Prompt], def.Palette[pair.Palette]; got != want {
+				t.Errorf("theme %q derives the prompt role %q as %s, want the palette role %s = %s",
+					def.ID, pair.Prompt, got, pair.Palette, want)
+			}
+		}
+		readings := []struct {
+			What    string
+			Preview lipgloss.AdaptiveColor
+			Role    string
+		}{
+			{"text_muted", colors.TextMuted, "bright_black"},
+			{"secondary", colors.Secondary, "bright_blue"},
+			{"warning", colors.Warning, "yellow"},
+		}
+		for _, reading := range readings {
+			if reading.Preview != themePreviewColor(def.Palette[reading.Role]) {
+				t.Errorf("theme %q: the preview's %s does not read %s, which the Starship derivation uses",
+					def.ID, reading.What, reading.Role)
+			}
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no theme derives its prompt roles, so this guard proves nothing")
+	}
+	t.Logf("the prompt derivation agrees with the preview for %d theme(s)", checked)
+}
+
+// TestTheNeovimColorschemeNamesResolve is the Neovim half of the completion
+// rule: an offered theme's [nvim] name has to resolve to something the machine
+// will have - a colorscheme the repository's Neovim plugin install provides, or a
+// generated file this repository ships under dotfiles-nvim/nvim/colors/ whose own
+// name is the name the definition selects. A name that resolves to nothing would
+// be a row that says it paints Neovim while the switch leaves it on the old
+// colorscheme.
+func TestTheNeovimColorschemeNamesResolve(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	generated, plugin := 0, 0
+	for _, id := range offeredThemeIDs(defs) {
+		def, ok := themeByID(defs, id)
+		if !ok {
+			t.Fatalf("the offered theme %q has no definition", id)
+		}
+		if def.Nvim == "" {
+			t.Errorf("theme %q is offered but names no Neovim colorscheme", id)
+			continue
+		}
+		if slices.Contains(themeNvimPluginColorschemes, def.Nvim) {
+			plugin++
+			continue
+		}
+
+		path := themeNvimGeneratedFile(id)
+		if path == "" {
+			t.Errorf("theme %q names the Neovim colorscheme %q, which neither the repository's plugin install nor a generated file provides",
+				id, def.Nvim)
+			continue
+		}
+		// The file has to be one the installer copies, or it never reaches the
+		// machine the switch runs on.
+		if !strings.HasPrefix(path, repoAssetNvim+"/") {
+			t.Errorf("the generated colorscheme %s is not under %s, which is the directory the Neovim step installs", path, repoAssetNvim)
+		}
+		if want := def.Nvim + ".lua"; filepath.Base(path) != want {
+			t.Errorf("theme %q selects the colorscheme %q but ships %s: the file name is what :colorscheme resolves",
+				id, def.Nvim, path)
+		}
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), path))
+		if err != nil {
+			t.Errorf("read the generated colorscheme %s: %v", path, err)
+			continue
+		}
+		if !strings.Contains(string(data), `vim.g.colors_name = "`+def.Nvim+`"`) {
+			t.Errorf("the generated colorscheme %s does not name itself %q, so the file and the selection disagree", path, def.Nvim)
+		}
+		generated++
+	}
+	if generated == 0 {
+		t.Fatal("no offered theme ships a generated colorscheme, so this guard proves nothing")
+	}
+	if plugin == 0 {
+		t.Fatal("no offered theme is painted by a plugin colorscheme, so the other half of this guard proves nothing")
+	}
+	t.Logf("%d offered theme(s) select a generated colorscheme, %d select a plugin's", generated, plugin)
+}
+
+// TestTheGeneratedColorschemeDeclaresTheBackgroundItsBaseImplies pins the one
+// derived non-colour in a generated colorscheme: Neovim's own `background` is
+// read from the theme's base role, so Catppuccin Latte - the one light theme in
+// the library - declares a light background and the others declare a dark one. A
+// constant would paint Latte's groups as if the terminal behind them were dark,
+// and the guard refuses a constant by requiring both answers.
+func TestTheGeneratedColorschemeDeclaresTheBackgroundItsBaseImplies(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	light, dark, checked := 0, 0, 0
+	for _, id := range offeredThemeIDs(defs) {
+		def, _ := themeByID(defs, id)
+		if themeNvimGeneratedFile(id) == "" {
+			continue
+		}
+		rendered, err := renderNvimTheme(def)
+		if err != nil {
+			t.Errorf("render the %s colorscheme: %v", id, err)
+			continue
+		}
+		want := "dark"
+		if themeBaseIsLight(def) {
+			want, light = "light", light+1
+		} else {
+			dark++
+		}
+		if !strings.Contains(rendered, `vim.o.background = "`+want+`"`) {
+			t.Errorf("the %s colorscheme does not declare background = %q for its base %s", id, want, def.Palette["base"])
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no colorscheme was checked, so this guard proves nothing")
+	}
+	if light == 0 || dark == 0 {
+		t.Errorf("the background rule produced %d light and %d dark colorscheme(s): a constant would pass this guard", light, dark)
+	}
+	t.Logf("%d generated colorscheme(s) checked: %d light, %d dark", checked, light, dark)
+}
+
+// TestTheBatThemesTheSwitchOffersAreGeneratedAtInstallTime is the bat half of the
+// completion rule. bat selects a theme by a name its themes directory has to
+// hold, and only two .tmTheme files are under version control, so a theme that
+// names one of the others would leave bat on "Catppuccin Mocha" unless the
+// installer writes it. This drives the same helper the shell step calls and
+// checks the file, its name, and the name inside it.
+func TestTheBatThemesTheSwitchOffersAreGeneratedAtInstallTime(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	dir := t.TempDir()
+
+	generated, err := generateBatThemesFromDefinitions(repoRoot(t), dir)
+	if err != nil {
+		t.Fatalf("generate the bat themes: %v", err)
+	}
+
+	named, shipped := 0, 0
+	for _, id := range offeredThemeIDs(defs) {
+		def, _ := themeByID(defs, id)
+		if def.Bat == "" || def.BatFile == "" {
+			t.Errorf("the offered theme %q names no bat theme, so bat would stay on the old one", id)
+			continue
+		}
+		named++
+		got, err := os.ReadFile(filepath.Join(dir, def.BatFile))
+		if err != nil {
+			t.Errorf("theme %q names the bat theme %q but the installer generated no %s: %v", id, def.Bat, def.BatFile, err)
+			continue
+		}
+		want, err := renderBatTheme(def)
+		if err != nil {
+			t.Errorf("render the %s bat theme: %v", id, err)
+			continue
+		}
+		if string(got) != want {
+			t.Errorf("the generated %s is not what themes/%s.toml produces", def.BatFile, id)
+		}
+		if !strings.Contains(string(got), "<string>"+def.Bat+"</string>") {
+			t.Errorf("the generated %s does not carry the name %q the switch exports as BAT_THEME", def.BatFile, def.Bat)
+		}
+		if _, err := os.Stat(filepath.Join(repoRoot(t), "dotfiles-bat", "themes", def.BatFile)); err == nil {
+			shipped++
+		}
+	}
+	if named == 0 {
+		t.Fatal("no theme names a bat theme, so this guard proves nothing")
+	}
+	if generated != named {
+		t.Errorf("the installer generated %d bat theme(s) for the %d theme(s) that name one", generated, named)
+	}
+	if shipped == named {
+		t.Fatal("every bat theme is also under version control, so this guard proves nothing about the generated ones")
+	}
+	t.Logf("%d bat theme(s) generated from the definitions; %d of them are also under version control", generated, shipped)
+}
+
+// TestTheBatSelectionNamesTheFileBatRegisters pins the name the switch exports as
+// BAT_THEME. bat registers a custom .tmTheme under its **file** name, not under
+// the `<key>name</key>` the file carries: measured with bat 0.26.1, a fresh cache
+// built from `dotfiles-bat/themes/` lists `catppuccin-mocha` beside its own
+// bundled "Catppuccin Mocha", `BAT_THEME=catppuccin-mocha` paints the repository's
+// blue keyword and `BAT_THEME="Catppuccin Mocha"` paints the bundled theme's
+// mauve. The selection is therefore the file's stem, and this guard refuses a
+// definition whose `[bat] name` would be exported in its place - the defect that
+// made Catppuccin Mocha paint bat's own bundled theme rather than the file this
+// repository ships - as well as two themes whose files share a name, which bat
+// would collapse into one entry.
+func TestTheBatSelectionNamesTheFileBatRegisters(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	selected := map[string]string{}
+	differing := []string{}
+	for _, id := range offeredThemeIDs(defs) {
+		def, _ := themeByID(defs, id)
+		name, err := batSelectionName(def)
+		if err != nil {
+			t.Errorf("theme %q cannot be selected in bat: %v", id, err)
+			continue
+		}
+		if want := strings.TrimSuffix(filepath.Base(def.BatFile), ".tmTheme"); name != want {
+			t.Errorf("theme %q exports BAT_THEME=%q, but bat registers %s as %q", id, name, def.BatFile, want)
+		}
+		if other, dup := selected[name]; dup {
+			t.Errorf("themes %q and %q both export BAT_THEME=%q: bat would keep one of the two files", other, id, name)
+		}
+		selected[name] = id
+		if def.Bat != name {
+			differing = append(differing, id+": [bat] name "+def.Bat+" vs file "+def.BatFile)
+		}
+
+		block, err := renderBatSelection(def)
+		if err != nil {
+			t.Errorf("render the bat selection for %q: %v", id, err)
+			continue
+		}
+		if !strings.Contains(block, "export BAT_THEME=\""+name+"\"") {
+			t.Errorf("the bat selection block for %q does not export BAT_THEME=%q", id, name)
+		}
+		if def.BatFile != "" && !strings.Contains(block, "bat/themes/"+def.BatFile) {
+			t.Errorf("the bat selection block for %q does not check for %s", id, def.BatFile)
+		}
+	}
+	if len(selected) == 0 {
+		t.Fatal("no offered theme names a bat theme, so this guard proves nothing")
+	}
+	t.Logf("%d theme(s) select their bat theme by the file's name; %d of them carry a [bat] name that differs from it: %v",
+		len(selected), len(differing), differing)
 }
 
 // TestShippedThemeBlocksMatchTheirDefinition is the drift guard: every value a
@@ -1399,10 +1768,13 @@ func TestThemeGeneratorRefusesAMissingRole(t *testing.T) {
 	}
 }
 
-// themeHexTokenRE matches a colour token a generated block may carry: a
-// #rrggbb value or a bare six-digit hex, which is how the fish config writes
-// one. It is only used to scan generated blocks for invented colours.
-var themeHexTokenRE = regexp.MustCompile(`#?[0-9a-fA-F]{6}`)
+// themeHexTokenRE matches a whole colour token a generated block or file may
+// carry: a #rrggbb value or a bare six-digit hex, which is how the fish config
+// writes one. The word boundaries matter: a six-letter word spelt with hex digits
+// - "bedded", inside bat's `embedded` scope name - is not a colour, and reading
+// it as one would fail a generated file for a colour it never emitted. It is only
+// used to scan generated output for invented colours.
+var themeHexTokenRE = regexp.MustCompile(`(?i)\b[0-9a-f]{6}\b`)
 
 // TestGeneratedThemeBlocksInventNoColour covers the provenance rule at the
 // renderer: every colour a generated block emits must be one the definition
@@ -1469,7 +1841,48 @@ func TestGeneratedThemeBlocksInventNoColour(t *testing.T) {
 			t.Errorf("no %s block was rendered for any offered theme, so the guard does not cover it", tool)
 		}
 	}
-	t.Logf("checked %d generated colour tokens across %d tool(s)", checked, len(tools))
+
+	// The per-theme files (fish's theme files, bat's .tmTheme files and the
+	// generated Neovim colorschemes) are whole files, so their comment lines are
+	// skipped by the shape a comment has in them rather than by a tool's marker:
+	// the rule is the same, an emitted colour has to be one the definition holds.
+	perTheme := 0
+	for _, file := range themeThemeFiles {
+		def, ok := themeByID(defs, file.Theme)
+		if !ok {
+			t.Errorf("themeThemeFiles names %q, which no definition defines", file.Theme)
+			continue
+		}
+		rendered, err := file.Render(def)
+		if err != nil {
+			t.Errorf("render the %s file for %q: %v", file.Tool, file.Theme, err)
+			continue
+		}
+		tools[file.Tool] = true
+		for _, line := range strings.Split(rendered, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "--") || strings.HasPrefix(trimmed, "<!--") {
+				continue
+			}
+			for _, token := range themeHexTokenRE.FindAllString(line, -1) {
+				if !owned(def, token) {
+					t.Errorf("the generated %s file %s for %q emits %s, which themes/%s.toml does not hold: a generated file may not invent a colour",
+						file.Tool, file.Path, file.Theme, token, file.Theme)
+				}
+				checked++
+				perTheme++
+			}
+		}
+	}
+	if perTheme == 0 {
+		t.Fatal("no per-theme file emitted a colour, so this guard proves nothing about them")
+	}
+	for _, tool := range []string{"bat", "nvim"} {
+		if !tools[tool] {
+			t.Errorf("no per-theme %s file was checked, so the guard does not cover it", tool)
+		}
+	}
+	t.Logf("checked %d generated colour tokens across %d tool(s), %d of them in per-theme files", checked, len(tools), perTheme)
 }
 
 // TestTheFishDerivationMatchesTheDotfilesTable pins the equivalence the
@@ -2233,6 +2646,14 @@ func TestGeneratedPerThemeFilesMatchTheirDefinition(t *testing.T) {
 		got, readErr := os.ReadFile(path)
 
 		if *updateThemeArtifacts {
+			// A per-theme file can be the first thing in its directory (the Neovim
+			// colorschemes live in dotfiles-nvim/nvim/colors/), so the update path
+			// creates it: a guard that cannot regenerate a file whose directory is not
+			// in the checkout yet would need a hand-made empty directory to work.
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Errorf("create %s: %v", filepath.Dir(file.Path), err)
+				continue
+			}
 			if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
 				t.Errorf("write %s: %v", file.Path, err)
 			}

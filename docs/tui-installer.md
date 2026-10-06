@@ -151,16 +151,36 @@ never offered, so a switch can never apply half a theme and call it unified. The
 complete themes — dotfiles, Catppuccin Mocha, Catppuccin Latte, Kanagawa, Everforest and Rosé Pine —
 transcribed from the repository's own blocks or from the published palettes named in
 [`themes/README.md`](../themes/README.md). Kagawa was retired: its only file was a byte-for-byte copy
-of Kanagawa's and no published Kagawa palette exists, so it is no longer a theme. A complete theme
-names the tools it cannot paint, and **each row does too**: a row reads
-`Apply the dotfiles theme (not Neovim)`, so the tools a switch would leave on the old
-palette are named where the choice is made. The switch writes the four terminals, Starship, the
-zsh/p10k prompt, Herdr, the `BAT_THEME` selection, fish's `config.fish` palette block, tmux's style
-block and (where the plugin ships one) Neovim. fish is switched through the file this repository
-owns, never through the user's `fish_config` state in `fish_variables`: the block sets fish's colour
-variables in the global scope, which fish returns over a universal one, and the switch records and
-restores the exact bytes like every other block. tmux gets its own generated style block after the
-TPM run line instead of depending on the `tmux-kanagawa` plugin, whose Kanagawa palette is partial.
+of Kanagawa's and no published Kagawa palette exists, so it is no longer a theme.
+
+**Every offered theme paints every tool the switch names**, and that is a guard rather than a
+promise: the twelve tools are the four terminals, Starship, the zsh line editor, the p10k prompt,
+Herdr, fish, bat, Neovim and tmux, and `TestEveryOfferedThemePaintsEveryTool` fails naming the theme
+and the tool the moment a definition loses what a tool needs. A row still names the tools a theme
+cannot paint — a row reads `Apply the <name> theme (not <tools>)` where there is something to name —
+but for all six themes that list is empty. Where a tool reads roles the canonical palette does not
+carry — Starship's prompt roles, fish's eighteen, bat's scopes, tmux's style options, Neovim's
+highlight groups — the values are **derived from the theme's own palette by the fixed mapping
+written down in [`themes/README.md`](../themes/README.md)**, so a derived colour is a colour the
+theme already holds and nothing is chosen by eye. A role that is neither declared nor derivable is
+reported rather than filled.
+
+The switch writes the four terminals, Starship, the zsh/p10k prompt, Herdr, the `BAT_THEME`
+selection, fish's `config.fish` palette block, tmux's style block and Neovim's colorscheme selection.
+fish is switched through the file this repository owns, never through the user's `fish_config` state
+in `fish_variables`: the block sets fish's colour variables in the global scope, which fish returns
+over a universal one, and the switch records and restores the exact bytes like every other block.
+tmux gets its own generated style block after the TPM run line instead of depending on the
+`tmux-kanagawa` plugin, whose Kanagawa palette is partial. Neovim is selected by name: `catppuccin`
+and `kanagawa` are the two colorschemes the repository's own plugin install provides, and the other
+four themes ship a colorscheme generated from their definition under `dotfiles-nvim/nvim/colors/` —
+pointing Latte at the Catppuccin plugin's own name would paint Mocha's flavour, because the plugin's
+`flavour` is pinned to `mocha` in this configuration. bat selects a theme by a name its own themes
+directory has to hold, so the shell step generates a `.tmTheme` for **every** theme that names one
+before it rebuilds bat's cache — and the name the switch exports is the file's own name, because that
+is what bat registers a custom theme under (measured against bat 0.26.1; the `<key>name</key>` inside
+the file is not the selection key, and a theme that exported it selected a bundled theme of the same
+name in five of the six cases).
 
 **It only edits files dotfiles own.** Each generated block carries a `dotfiles-managed-config:`
 marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same

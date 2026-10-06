@@ -112,8 +112,19 @@ base = "none"
 mantle = "#06080f"
 crust = "#06080f"
 
+# --- Neovim colorscheme name ---
+# The repository's Neovim plugin install ships no colorscheme for this palette,
+# so the colorscheme is generated from this definition into
+# dotfiles-nvim/nvim/colors/dotfiles.lua and the name below is its file name.
+# The switch selects it through the generated colorscheme line in
+# dotfiles-nvim/nvim/lua/plugins/colorscheme.lua.
+[nvim]
+name = "dotfiles"
+
 # --- bat theme name and file ---
-# The name bat selects it by (the .tmTheme's own name) and the file it ships as.
+# The name the .tmTheme carries inside itself and the file it ships as. bat
+# registers a custom theme under the file's own name and the switch selects it by
+# that name, not by this one (measured against bat 0.26.1).
 [bat]
 name = "dotfiles"
 file = "dotfiles.tmTheme"

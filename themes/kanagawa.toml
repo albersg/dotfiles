@@ -94,6 +94,15 @@ pager_description = "727169"
 [nvim]
 name = "kanagawa"
 
+# --- bat theme name and file ---
+# The name the .tmTheme carries inside itself and the file it ships as. bat
+# registers a custom theme under the file's own name and the switch selects it by
+# that name, not by this one (measured against bat 0.26.1); the file is generated
+# from this definition by the installer's shell step.
+[bat]
+name = "Kanagawa"
+file = "kanagawa.tmTheme"
+
 # --- syntax roles ---
 # The installer's own code-display tints. The repository holds no Kanagawa
 # syntax convention beyond the fish file, so the two are that file's keyword and

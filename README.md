@@ -152,10 +152,15 @@ opens. The switch applies a complete theme (a definition with every canonical ro
 members the preview reads: **dotfiles**, **Catppuccin Mocha**, **Catppuccin Latte**, **Kanagawa**,
 **Everforest** and **Rosé Pine**) to the terminal, Starship, shell-prompt, Herdr, bat, fish, tmux and
 Neovim configs this repository owns, records the exact bytes it replaced in the same `theme.json`,
-and can put them back with a dedicated undo row. Each theme row names the tools it leaves out (fish
-and tmux where the theme cannot paint them, plus bat and Neovim for some), so nothing is left on the
-old palette without being said. A theme missing roles — or the syntax the preview needs to show it —
-is reported as partial and never offered. The definitions are read from a checkout on disk, never from
+and can put them back with a dedicated undo row. Every one of the six paints every tool the switch
+names — the four terminals, Starship, the shell prompt, Herdr, fish, bat, tmux and Neovim — and a
+guard holds that list empty: a theme that could not paint one would name it on its row rather than
+leaving it on the old palette silently, and a theme missing roles, or the syntax the preview needs
+to show it, is reported as partial and never offered. Where a tool reads roles the palette does not
+carry (Starship's prompt roles, fish's eighteen, bat's scopes, tmux's style options, Neovim's
+highlight groups) the values are derived from the theme's own palette by the fixed mapping recorded
+in [`themes/README.md`](themes/README.md), so a derived colour is one the theme already holds. The
+definitions are read from a checkout on disk, never from
 the binary: `$DOTFILES_DIR` first, then the clone this run makes, then the working directory and its
 parents, then `~/dotfiles` and `~/.dotfiles`. Launching the installer from inside the checkout shows
 the rows immediately; when none of those holds definitions the section says the switch is not

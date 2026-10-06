@@ -60,6 +60,22 @@ bright_magenta = "#c4a7e7"  # iris
 bright_cyan = "#ebbcba"     # rose
 bright_white = "#e0def4"    # text
 
+# --- Neovim colorscheme name ---
+# The repository's Neovim plugin install ships no Rosé Pine colorscheme, so the
+# colorscheme is generated from this definition into
+# dotfiles-nvim/nvim/colors/rose-pine.lua and the name below is its file name.
+[nvim]
+name = "rose-pine"
+
+# --- bat theme name and file ---
+# The name the .tmTheme carries inside itself and the file it ships as. bat
+# registers a custom theme under the file's own name and the switch selects it by
+# that name, not by this one (measured against bat 0.26.1); the file is generated
+# from this definition by the installer's shell step.
+[bat]
+name = "Rosé Pine"
+file = "rose-pine.tmTheme"
+
 # --- syntax roles ---
 # Rosé Pine's own syntax convention: keywords take iris, strings take gold. Both
 # are named palette colours of the theme. Only the dark member is declared; the
