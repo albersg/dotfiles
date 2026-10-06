@@ -222,7 +222,12 @@ Launch it from the main menu: **Vim Mastery Trainer**
 
 ### Before you push
 
-Run `make preflight`. It runs here, in CI's order, what CI would otherwise report after a full cycle - `gofmt`, `go vet`, `go build` and the `--help` smoke test, the Go test suite, `shellcheck`, the branding audit and a gitleaks scan of the commits your branch adds - and prints the CI job each step mirrors. It stops at the first failure with the failing command named and exits non-zero, and it names the jobs it cannot run locally (the Docker E2E matrix, Termux, and the macOS toolchain). It needs `go`, `git`, `ripgrep`, `shellcheck` and `gitleaks`; `brew bundle` installs the last three. The step-to-job mapping lives in [scripts/preflight.sh](scripts/preflight.sh).
+There are two local checks, and they answer different questions.
+
+- **`make check`** is the inner loop. It runs `gofmt`, `go vet`, and the tests for the packages this branch changes, with Go's test cache left on. Run it after every edit: it is the check that tells you quickly whether what you just wrote still builds and still passes.
+- **`make preflight`** is the full gate. It runs here, in CI's order, what CI would otherwise report after a full cycle - `gofmt`, `go vet`, `go build` and the `--help` smoke test, the whole Go test suite, `shellcheck`, the branding audit and a gitleaks scan of the commits your branch adds - and prints the CI job each step mirrors. Run it once, before pushing. CI still runs the full matrix on the push itself; `make preflight` is what keeps a CI cycle from being spent on a failure a local run would have caught.
+
+Both live in [scripts/preflight.sh](scripts/preflight.sh). `make preflight` stops at the first failure with the failing command named and exits non-zero, and it names the jobs it cannot run locally (the Docker E2E matrix, Termux, and the macOS toolchain). It needs `go`, `git`, `ripgrep`, `shellcheck` and `gitleaks`; `brew bundle` installs the last three. `make check` needs only `go`, `gofmt` and `git`.
 
 ---
 
