@@ -70,6 +70,12 @@ const (
 	// dotfiles theme" row, and the list of themes lives here so the section is a
 	// list of jobs rather than a list of themes.
 	ScreenThemePicker // The dotfiles themes, previewed and applied
+	// WSL resources. The utilities section opens it from its own row, one level
+	// in for the same reason: the section is a list of jobs. It shows the memory,
+	// processors and swap the user's .wslconfig holds beside the values
+	// recommended from the Windows host, and writes them back through the same
+	// builder and writer the installation step uses.
+	ScreenWSLResources // The WSL memory, processors and swap, seen and set
 )
 
 // InstallStep represents a single installation step
@@ -319,6 +325,14 @@ type Model struct {
 	// theme.json. It is what makes the section's Undo row appear, and it is nil
 	// when there is nothing to put back.
 	DotfilesThemeRecord *dotfilesThemeRecord
+	// WSLState is what the WSL resource utility draws and writes: where the
+	// user's .wslconfig is, what the Windows host can give, what was recommended
+	// from it, what the file holds and the draft being edited. It is read in a
+	// command, because detecting the host runs powershell.exe.
+	WSLState wslResourceState
+	// WSLNotice is the one-line result of the last write, cleared when the screen
+	// is left, exactly as ThemeNotice is.
+	WSLNotice string
 	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
 	// no detection has run. The review names it before anything is written.
 	ThemeRefreshCandidates []themeRefreshCandidate
@@ -527,10 +541,21 @@ func (m Model) GetCurrentOptions() []string {
 			}
 			opts = append(opts, utilitiesThemeRow)
 		}
+		// The WSL resources are offered only where there is a .wslconfig to edit.
+		// Everywhere else the section's own body names the reason, so the gap is
+		// declared rather than left for the user to guess at.
+		if m.WSLState.Available {
+			if len(opts) > 0 {
+				opts = append(opts, m.menuSeparator())
+			}
+			opts = append(opts, utilitiesWSLRow)
+		}
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
 		}
 		return append(opts, "← Back")
+	case ScreenWSLResources:
+		return m.wslResourceRows()
 	case ScreenThemePicker:
 		// The list of themes lives here, one level in from the utilities section,
 		// and it is derived, never typed: one row per complete definition, in the
@@ -748,6 +773,8 @@ func (m Model) GetScreenTitle() string {
 		return "🧰 Utilities"
 	case ScreenThemePicker:
 		return "🎨 Change the dotfiles theme"
+	case ScreenWSLResources:
+		return "🖥️ WSL resources"
 	default:
 		return ""
 	}
