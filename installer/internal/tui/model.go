@@ -319,6 +319,18 @@ type Model struct {
 	// theme.json. It is what makes the section's Undo row appear, and it is nil
 	// when there is nothing to put back.
 	DotfilesThemeRecord *dotfilesThemeRecord
+	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
+	// no detection has run. The review names it before anything is written.
+	ThemeRefreshCandidates []themeRefreshCandidate
+	// ThemeRefreshReview is true while the picker is showing the refresh review:
+	// the candidate list with its confirmation, or the result once it has run.
+	ThemeRefreshReview bool
+	// ThemeRefreshDone is true once a refresh has run, so the review shows the
+	// result rather than the confirmation.
+	ThemeRefreshDone bool
+	// ThemeRefreshResult is the review's result paragraphs: what was refreshed,
+	// where the user's files were preserved, and what could not be refreshed.
+	ThemeRefreshResult []string
 }
 
 // NewModel creates a new Model with initial state
@@ -522,14 +534,27 @@ func (m Model) GetCurrentOptions() []string {
 	case ScreenThemePicker:
 		// The list of themes lives here, one level in from the utilities section,
 		// and it is derived, never typed: one row per complete definition, in the
-		// definitions' order. The undo row appears only when this installer has a
-		// record to put back, and the way back is always the last row.
+		// definitions' order. The refresh and the undo are grouped under one
+		// separator, and the way back is always the last row.
+		if m.ThemeRefreshReview {
+			if m.ThemeRefreshDone {
+				return []string{"← Back"}
+			}
+			return []string{themeRefreshConfirmRow(m.ThemeRefreshCandidates), themeRefreshCancelRow}
+		}
 		opts := m.dotfilesThemeOptions()
+		var actions []string
+		if len(m.DotfilesThemes) > 0 {
+			actions = append(actions, themeRefreshRow)
+		}
 		if m.DotfilesThemeRecord != nil {
+			actions = append(actions, dotfilesThemeUndoRow)
+		}
+		if len(actions) > 0 {
 			if len(opts) > 0 {
 				opts = append(opts, m.menuSeparator())
 			}
-			opts = append(opts, dotfilesThemeUndoRow)
+			opts = append(opts, actions...)
 		}
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
