@@ -1258,11 +1258,14 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 	if rows == 0 {
 		t.Fatalf("the picker shows no theme row without a clone: %v", opts)
 	}
-	if naming == 0 {
-		t.Fatalf("no theme row named a tool it leaves out, so this guard proves nothing: %v", opts)
-	}
 
-	// Render the picker and look for each row and its exclusion list in the capture.
+	// Render the picker and look for each row, and for the exclusion list of any
+	// theme that has one, in the capture. Nothing here is pinned to a theme that
+	// leaves a tool out: when every theme covers every tool - the requirement this
+	// library is held to - this asserts the rows are drawn and that no stale
+	// exclusion list is, and when a theme does leave a tool out the capture has to
+	// show it. A guard that demanded an exclusion list would keep the fix from
+	// being able to remove the last one.
 	m.Width, m.Height = 200, 60
 	plain := ansiEscape.ReplaceAllString(m.View(), "")
 	for _, opt := range opts {
@@ -1270,8 +1273,11 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 			t.Errorf("the rendered picker does not show the theme row %q", opt)
 		}
 	}
-	if !strings.Contains(plain, "(not ") {
-		t.Error("the rendered picker does not show a theme's exclusion list")
+	if naming > 0 && !strings.Contains(plain, "(not ") {
+		t.Errorf("the rendered picker shows no exclusion list though %d theme row(s) name one", naming)
+	}
+	if naming == 0 && strings.Contains(plain, "(not ") {
+		t.Error("the rendered picker shows an exclusion list though no theme row names one")
 	}
 }
 

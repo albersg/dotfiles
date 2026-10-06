@@ -86,6 +86,9 @@ crust = "#11111b"
 name = "catppuccin"
 
 # --- bat theme name and file ---
+# The name the .tmTheme carries inside itself and the file it ships as. bat
+# registers a custom theme under the file's own name and the switch selects it by
+# that name, not by this one (measured against bat 0.26.1).
 [bat]
 name = "Catppuccin Mocha"
 file = "catppuccin-mocha.tmTheme"

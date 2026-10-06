@@ -23,11 +23,19 @@ A value comes from one of two places, and both are cited:
    value is a role the published palette itself names; the source is named with
    its project, its URL and the palette roles it holds.
 
-**A role the published palette does not define stays empty.** It is never
-extrapolated by eye. A theme that misses the twenty-two canonical roles or the
-`[syntax]` members the preview reads is `partial` and is **not** offered as a
-switch; the menu reports it and names the tools it would leave on the old
-palette.
+**A role is declared, or derived from the theme's own palette, or reported.** A
+tool rarely reads the canonical roles: Starship's table is written in
+Catppuccin's naming, fish has eighteen role names of its own, bat maps scopes to
+roles, tmux paints its own style options and Neovim has highlight groups. A
+definition that declares one of those tables (`[prompt]`, `[fish]`, `[bat]`,
+`[nvim]`) is used as it is. A definition that does not has each role **derived
+from its own canonical palette by the fixed mapping in "Derived roles" below** -
+the same thing fish already did for Catppuccin Mocha - so a derived value is a
+palette value the theme holds and nothing is chosen by eye. A role that is
+neither declared nor derivable is **reported**: the theme leaves that tool on the
+old palette and the row says which. A theme that misses the twenty-two canonical
+roles or the `[syntax]` members the preview reads is `partial` and is **not**
+offered as a switch at all.
 
 There is no network fetch. The transcriptions are committed here, one file per
 theme, and the README of each records where its values come from.
@@ -87,6 +95,132 @@ rather than having a light value invented for it.
 - **Rosé Pine** — `keyword_dark #c4a7e7` (iris), `string_dark #f6c177` (gold):
   Rosé Pine's own syntax convention, both named palette colours. No light member.
 
+## Derived roles: the fixed mapping, per tool
+
+No tool reads the canonical roles, and not every definition carries the tool's own
+table. Where a table is there (`[prompt]`, `[fish]`, `[bat]`, `[nvim]`) it is the
+value. Where it is not, the value is **derived from the theme's own palette by
+the mapping below**: a derived colour is always one the definition already holds,
+which is what makes it the theme's colour rather than an invented one.
+`TestGeneratedThemeBlocksInventNoColour` refuses any emitted colour the definition
+does not hold, in a generated block or in a generated file, so the rule is
+enforced rather than promised.
+
+### fish - eighteen roles (`themeFishDerivation`)
+
+| fish role | palette role | fish role | palette role |
+|---|---|---|---|
+| normal | text | comment | bright_black |
+| command | green | selection | selection |
+| keyword | magenta | search_match | selection |
+| quote | yellow | operator | green |
+| redirection | text | escape | magenta |
+| end | cyan | autosuggestion | bright_black |
+| error | red | pager_progress | bright_black |
+| param | blue | pager_prefix | green |
+| pager_completion | text | pager_description | bright_black |
+
+`themes/dotfiles.toml` records the same mapping in its `[fish]` table and
+`TestTheFishDerivationMatchesTheDotfilesTable` pins the equivalence, so the
+derivation is the recorded mapping rather than a second opinion. Catppuccin Mocha,
+Catppuccin Latte and Rosé Pine ship no `[fish]` table and take this one; Kanagawa
+and Everforest ship their own, transcribed from the repository's fish files, and
+take those.
+
+### Starship's prompt roles - twenty-four (`themePromptDerivation`)
+
+Starship's palette table is written in Catppuccin's role naming, and only five of
+the roles below are terminal roles (text, red, green, yellow, blue): the rest
+name surfaces, muted text and accents the canonical palette has no role for.
+
+| prompt role | palette role | prompt role | palette role |
+|---|---|---|---|
+| text | text | subtext0 | bright_black |
+| red | red | subtext1 | white |
+| green | green | overlay0, overlay1, overlay2 | selection |
+| yellow | yellow | surface0, surface1, surface2 | selection |
+| blue | blue | rosewater | cursor |
+| mauve | bright_blue | flamingo | bright_red |
+| pink | magenta | maroon | red |
+| teal | cyan | lavender | bright_magenta |
+| peach | yellow | base, mantle, crust | base |
+
+The prompt's own "muted" is `bright_black` and its "surface" is `selection`,
+which is the same reading the installer's preview uses for the roles it falls
+back on; `TestThePromptDerivationAgreesWithThePreview` pins the agreement, so the
+prompt and the interface cannot call two different colours "muted". `sky` and
+`sapphire` are optional (Catppuccin's own extras): the two Catppuccin definitions
+carry them and the generated table emits them, and a theme without them is not
+reported as missing Starship.
+
+### bat - nine scopes to roles (`themeBatRoles`)
+
+| `.tmTheme` token | palette role | what it paints |
+|---|---|---|
+| muted | bright_black | comments, punctuation, invisible characters |
+| yellow | yellow | strings |
+| magenta | magenta | numbers, language constants, preprocessor directives |
+| blue | blue | keywords, storage, types, tags, headings |
+| cyan | cyan | operators, escapes, attribute names, class names |
+| green | green | function names |
+| red | red | variables, invalid syntax, deletions |
+| text | text | everything else |
+| selection | selection | the selection and line-highlight backgrounds |
+
+`[bat] name` is the name the `.tmTheme` carries inside itself and `[bat] file` is
+its file name. **bat selects a custom theme by the file name, not by the name
+inside it** (measured below), so `BAT_THEME` is the file's stem, and the file
+check in the generated block is what keeps a machine where the theme is not
+installed from selecting a theme it does not have.
+
+### tmux - every style option takes a palette role (`renderTmuxTheme`)
+
+| tmux option | roles |
+|---|---|
+| status-style | text on base |
+| status-left-style | base on blue, bold |
+| status-right-style | bright_black on base |
+| message-style, message-command-style | base on yellow |
+| window-status-style | bright_black on base |
+| window-status-current-style | base on blue, bold |
+| window-status-activity-style | yellow on base |
+| window-status-bell-style | red on base |
+| window-status-last-style | green on base |
+| pane-border-style | bright_black |
+| pane-active-border-style | blue |
+| copy-mode-match-style | text on selection |
+| copy-mode-current-match-style | base on yellow |
+| mode-style | text on selection |
+| display-panes-colour | bright_black |
+| display-panes-active-colour | blue |
+| clock-mode-colour | blue |
+
+### Neovim - highlight groups to palette roles (`themeNvimGroups`)
+
+The generated colorscheme paints 96 groups. Which palette role each group's
+foreground and background takes is the table in
+`installer/internal/tui/installer.go`, and the generated file lists every
+group with its value. Grouped by role, the mapping is this:
+
+| palette role | what takes it |
+|---|---|
+| text | body text (Normal, NormalNC, NormalFloat, MsgArea, Identifier), the focused StatusLine and tab, Pmenu's text |
+| base | the background of the chrome, floating borders, EndOfBuffer, the unfocused status line and tab line, the diff backgrounds |
+| bright_black | Comment and SpecialComment (italic), line numbers, SignColumn, FoldColumn, NonText, SpecialKey, Whitespace, Ignore, PmenuThumb, DiagnosticHint |
+| selection | CursorLine, CursorColumn, ColorColumn, Visual, Folded, MatchParen's background, Pmenu's background, the tab-line selection, QuickFixLine, PmenuSbar, the LspReference backgrounds |
+| cursor / cursor_text | Cursor, lCursor, TermCursor |
+| blue | Statement, Conditional, Repeat, Label, Keyword, Type, StorageClass, Structure, Typedef, Underlined, Directory, Title, FloatTitle, PmenuSel's background, DiffText |
+| yellow | String, Character, Search, CursorLineNr, WarningMsg, Todo's background, DiffChange, Changed, DiagnosticWarn |
+| magenta | Constant, Number, Boolean, Float, PreProc, Include, Define, Macro, PreCondit |
+| cyan | Operator, Special, SpecialChar, Delimiter, MatchParen's foreground, DiagnosticInfo |
+| green | Function, Tag, DiffAdd, IncSearch, CurSearch, MoreMsg, Question, Added, DiagnosticOk |
+| red | Error, ErrorMsg, Exception, Debug, DiffDelete, Removed, DiagnosticError |
+| the ANSI roles | the sixteen `g:terminal_color_N` values, in canonical order from black to bright_white |
+
+The one derived non-colour is Neovim's own `background`: the colorscheme declares
+`light` when the theme's base is lighter than mid grey and `dark` otherwise, which
+is what makes Catppuccin Latte a light colorscheme and the other five dark ones.
+
 ## The six themes
 
 | Theme | File | State | Source of its values |
@@ -98,36 +232,46 @@ rather than having a light value invented for it.
 | Everforest | `everforest.toml` | **complete** | sainnhe/everforest, the dark-medium palette and its terminal mapping; fish roles from the repository |
 | Rosé Pine | `rose-pine.toml` | **complete** | rose-pine/rose-pine, the published palette and its terminal mapping |
 
-### Complete (offered)
+### Complete (offered): every theme paints every tool
 
-- **dotfiles** covers **[Alacritty, Kitty, WezTerm, Ghostty, Starship, Herdr, the
-  zsh line editor, the p10k prompt, bat, fish, tmux]** and leaves out **[Neovim]**:
-  it names no colorscheme of its own.
-- **Catppuccin Mocha** covers every tool whose colours this repository owns, the
-  same eleven plus **Neovim**, whose `catppuccin` colorscheme the plugin it
-  already ships provides, and leaves out **nothing**.
-- **Catppuccin Latte** covers **[Alacritty, Kitty, WezTerm, Ghostty, Starship,
-  Herdr, the zsh line editor, the p10k prompt]** and leaves out **[fish, bat,
-  Neovim, tmux]**: Latte ships no `[bat]` file and no Neovim colorscheme of its
-  own, and the repository's Neovim install hard-codes Mocha's flavour, so Neovim
-  is named rather than pointed at a name that would not switch it.
-- **Kanagawa** covers **[Alacritty, Kitty, WezTerm, Ghostty, Herdr, the zsh line
-  editor, the p10k prompt, Neovim, fish]** and leaves out **[Starship, bat,
-  tmux]**: it holds no `[prompt]` table and no `[bat]` name.
-- **Everforest** covers **[Alacritty, Kitty, WezTerm, Ghostty, Herdr, the zsh line
-  editor, the p10k prompt, fish]** and leaves out **[Starship, bat, Neovim,
-  tmux]**: it holds no `[prompt]` table and no `[bat]` name.
-- **Rosé Pine** covers **[Alacritty, Kitty, WezTerm, Ghostty, Herdr, the zsh line
-  editor, the p10k prompt]** and leaves out **[Starship, fish, bat, Neovim,
-  tmux]**: it holds no `[prompt]`, `[fish]` or `[bat]` table and no Neovim name.
+| Theme | Leaves out |
+|---|---|
+| dotfiles | **nothing** |
+| Catppuccin Mocha | **nothing** |
+| Catppuccin Latte | **nothing** |
+| Kanagawa | **nothing** |
+| Everforest | **nothing** |
+| Rosé Pine | **nothing** |
+
+The twelve tools are Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line
+editor, the p10k prompt, Herdr, fish, bat, Neovim and tmux; they are `themeTools`
+in `installer/internal/tui/installer.go`. Coverage is the generator's own answer -
+fish asks whether it can derive the fish roles at all, bat whether it can render
+the `.tmTheme`, tmux whether it can render its style block, Neovim whether the
+name it selects resolves - so a theme can only leave a tool out for something it
+is missing, and `TestEveryOfferedThemePaintsEveryTool` fails with the theme's own
+name and the tool it stopped painting when one loses it.
+
+Which roles are **declared** in the definition and which are **derived** by the
+mappings above:
+
+| Theme | Starship | fish | bat | tmux | Neovim |
+|---|---|---|---|---|---|
+| dotfiles | declared `[prompt]` | declared `[fish]` | declared `[bat]` | derived | generated colorscheme |
+| Catppuccin Mocha | declared `[prompt]` | derived | declared `[bat]` | derived | the `catppuccin` plugin |
+| Catppuccin Latte | declared `[prompt]` | derived | declared `[bat]` | derived | generated colorscheme |
+| Kanagawa | derived | declared `[fish]` | declared `[bat]` | derived | the `kanagawa` plugin |
+| Everforest | derived | declared `[fish]` | declared `[bat]` | derived | generated colorscheme |
+| Rosé Pine | derived | derived | declared `[bat]` | derived | generated colorscheme |
 
 Generated blocks: the four terminals, Herdr, Starship (both its `palette` line
 and its `[palettes.<id>]` table), the zsh palette region including the `*_SGR`
 twins and the `LS_COLORS`/`EZA_COLORS` tables, the p10k fallbacks, the `BAT_THEME`
-selection, the fish theme files, the fish palette block in
-`dotfiles-fish/fish/config.fish`, the tmux style block in
-`dotfiles-tmux/tmux.conf`, and the bat `.tmTheme` files. Neovim's colorscheme
-line is generated for the themes whose plugin ships one.
+selection, the fish palette block in `dotfiles-fish/fish/config.fish`, the tmux
+style block in `dotfiles-tmux/tmux.conf`, the Neovim colorscheme line, the fish
+theme files, the bat `.tmTheme` files and the Neovim colorschemes. Which of those
+are files the repository ships and which are written by the installer is under
+"The per-theme files" below.
 
 **fish is switched, through the file this repository owns.** Its theme files are produced from the
 definitions, but which one is active is **the user's own state**: fish keeps the colour variables a
@@ -139,26 +283,49 @@ change is reversible. The block sets the fish colour variables in the **global**
 returns over a universal one, so the palette is seen even after a `fish_config theme choose` the user
 ran earlier. `fish_variables` is never written.
 
-**The per-theme files that exist are the ones the repository already shipped.** A
-new theme gets a generated block in the active files (the terminals, the prompt,
-Herdr and bat's selection) when it is applied, and those are produced by the
-generators rather than written by hand. A new theme gets a fish theme file or a
-`.tmTheme` file only when the repository also ships that file for it; none of the
-new themes does, so they name fish and bat as left out instead of claiming a file
-that does not exist.
+### The per-theme files: shipped, or generated by the installer
 
-A complete theme is *offered*; the tools it cannot paint are *named*. The menu
-must draw that list.
+There are three per-theme kinds of file, and each is generated from the same
+definition:
+
+- **The fish theme files** (`dotfiles-fish/fish/themes/*.theme`) are shipped for
+  the themes the repository already had one for, and the whole set is pinned
+  byte-for-byte by `TestGeneratedPerThemeFilesMatchTheirDefinition`. They are not
+  how the switch paints fish: fish is painted through the marked block in
+  `dotfiles-fish/fish/config.fish`, which every theme has, which is why
+  Catppuccin Mocha paints fish while shipping no fish theme file.
+- **The bat `.tmTheme` files** are two under version control, and one for every
+  theme that names a bat theme is generated at install time
+  (`generateBatThemesFromDefinitions`, called by the shell step) into bat's own
+  themes directory, before the cache rebuild that makes it selectable. bat
+  selects a theme by a name that directory has to hold, so a theme whose file is
+  missing would leave bat on "Catppuccin Mocha" however the row read.
+- **The Neovim colorschemes** (`dotfiles-nvim/nvim/colors/*.lua`) are generated
+  for the themes whose plugin install ships no colorscheme for them: `dotfiles`,
+  `catppuccin-latte`, `everforest` and `rose-pine`. Catppuccin Mocha and Kanagawa
+  keep the names their plugins already provide. The definition's `[nvim] name` is
+  the file's own name, which is what `:colorscheme` resolves and what
+  `TestTheNeovimColorschemeNamesResolve` checks.
+
+Every one of them is byte-for-byte what its definition produces, pinned by the
+same guard: a hand edit fails rather than living on as a second palette. Neovim's
+colorscheme declares `light` or `dark` from its own base, so Catppuccin Latte is a
+light colorscheme rather than a dark one with light colours.
+
+A complete theme is *offered*; a tool it cannot paint is *named*. For every theme
+in the library that list is empty now, and the guard is what holds it there.
 
 ### Two tables, not one
 
 The definition has a `[palette]` table (the terminal's 22 roles) and a `[prompt]`
 table (Catppuccin's naming: `mauve`, `peach`, `subtext0`, `overlay0`, `maroon`,
 `lavender`, `overlay2`, `overlay1`, `surface2`, ...). Two tables are more honest
-than one: nine of the prompt roles are not terminal roles at all, and a single
-table would invite filling them from a nearest ANSI colour. A prompt role is
-filled only when the palette holds its value; a theme missing one is reported as
-not switchable for the tool that needs it, never extrapolated.
+than one: most of the prompt roles are not terminal roles at all, and a single
+table would invite filling them from a nearest ANSI colour. A prompt role a
+definition declares is used as it is; one it does not declare is derived from its
+palette by the mapping above, never extrapolated by eye, and
+`TestThePromptDerivationCoversEveryRequiredRole` refuses a derivation that would
+leave one of the twenty-four empty.
 
 ### Findings recorded while generating
 
@@ -168,14 +335,76 @@ not switchable for the tool that needs it, never extrapolated.
   region is generated whole rather than partly.
 - **`bat` is generated and switched.** `dotfiles.tmTheme` and
   `catppuccin-mocha.tmTheme` are produced from the definitions, and the
-  `BAT_THEME` selection in `.zshrc` is a generated region too. The installer
-  copies every shipped `.tmTheme` and rebuilds bat's cache, so choosing a theme
-  cannot land on an "Unknown theme". The syntax-to-role mapping is written down
-  in the generator (`themeBatRoles`), because a scope name does not say which
-  role it takes.
-- **A generated bat file's own name is a role too.** The `.tmTheme`'s
-  `<key>name</key>` is what `BAT_THEME` must match, so it is generated from the
-  definition (`[bat] name`) rather than left as a second literal.
+  `BAT_THEME` selection in `.zshrc` is a generated region too. The syntax-to-role
+  mapping is written down in the generator (`themeBatRoles`), because a scope name
+  does not say which role it takes.
+- **`bat` is generated for every theme at install time, not only shipped.** The
+  completion rule needs the bat half to be real: bat selects a theme by a name
+  `~/.config/bat/themes/` has to hold, and only two `.tmTheme` files are under
+  version control, so a switch to one of the other four would have landed on
+  "Unknown theme" and fallen back to Catppuccin Mocha. The shell step now writes
+  a `.tmTheme` for **every** theme that names one from the same definition the
+  switch reads (`generateBatThemesFromDefinitions`), before the cache rebuild, and
+  `TestTheBatThemesTheSwitchOffersAreGeneratedAtInstallTime` drives that helper
+  and checks the file, its name and the name inside it. The two committed files
+  are still written by it, with the bytes the guard pins, so the installed set is
+  the definitions' set rather than "the shipped files plus whatever was added
+  last".
+- **bat selects a custom theme by its file name, and the selection used to export
+  the wrong one.** `[bat] name` is the `.tmTheme`'s own `<key>name</key>` and it is
+  generated from the definition rather than left as a second literal, but it is
+  **not** the selection key: bat registers a theme directory's `.tmTheme` under its
+  file stem. Measured with bat 0.26.1 - a cache built from `dotfiles-bat/themes/`
+  lists `catppuccin-mocha` beside its own bundled `Catppuccin Mocha`,
+  `BAT_THEME=catppuccin-mocha` paints the repository's blue keyword (`#89b4fa`),
+  and `BAT_THEME="Catppuccin Mocha"` paints the bundled theme's mauve
+  (`#cba6f7`). The switch exported `[bat] name`, so five of the six themes named a
+  theme bat had not registered: only `dotfiles` worked, because its file stem
+  happens to equal its name. `BAT_THEME` is the file's stem now
+  (`batSelectionName`), and `TestTheBatSelectionNamesTheFileBatRegisters` refuses a
+  theme whose selection is not its file's name, or two themes whose files share
+  one.
+- **Neovim's colorscheme is generated for the themes whose plugin ships none.**
+  `dotfiles-nvim/nvim/colors/{dotfiles,catppuccin-latte,everforest,rose-pine}.lua`
+  are produced from the definitions by `renderNvimTheme`, and `[nvim] name` is
+  each file's own name, so `:colorscheme` resolves to a file this repository
+  ships and `TestTheNeovimColorschemeNamesResolve` checks that a name never
+  resolves to nothing. Catppuccin Mocha keeps the `catppuccin` plugin's name and
+  Kanagawa keeps `kanagawa`'s. **Latte is generated rather than pointed at the
+  plugin's flavour**: the repository's Neovim configuration pins Catppuccin's
+  `flavour = "mocha"`, so the plugin's own name would paint Mocha's palette under
+  a Latte name, and the generated file is the one whose contents are checkable
+  here. The four files parse and execute (measured with `luac -p` and by running
+  each against a stubbed `vim`, 96 groups, 16 terminal colours each) and a real
+  Neovim loads every one of them: `nvim --headless -u NONE --cmd 'set
+  rtp+=dotfiles-nvim/nvim' -c 'colorscheme <id>'` reports the theme's own
+  `g:colors_name`, background and `Normal`/`String`/`Comment` values, Catppuccin
+  Latte's being light and the others dark.
+- **Neovim's `background` is the only derived non-colour.** The generated
+  colorscheme declares `light` when the theme's base is lighter than mid grey and
+  `dark` otherwise (`themeBaseIsLight`), which is a rule about a value the
+  definition holds. Catppuccin Latte is the one light theme,
+  `TestTheGeneratedColorschemeDeclaresTheBackgroundItsBaseImplies` requires both
+  answers to exist, and a constant would fail it.
+- **The prompt roles are derived, and agree with the preview.** Starship's table
+  is written in Catppuccin's naming and nineteen of its roles have no terminal
+  equivalent, so a theme with no `[prompt]` table (Kanagawa, Everforest, Rosé
+  Pine) derives each one from its palette by `themePromptDerivation`. The three
+  roles the installer's own preview already fell back on (subtext0 ->
+  bright_black, mauve -> bright_blue, peach -> yellow) read the same way,
+  `TestThePromptDerivationAgreesWithThePreview` pins that, and
+  `TestThePromptDerivationCoversEveryRequiredRole` refuses a derivation that
+  would leave one of the twenty-four empty. The values each theme derives are
+  logged by that guard, so the provenance can be audited from the test output.
+- **There is no per-theme artifact table any more.** `themeToolArtifacts` used to
+  record which tools each theme had a generator for, and a tool missing from it
+  was reported as left out. Completion removed the need for the table: the
+  definitions are that list now, and `themeCoverage` asks each tool's own
+  generator (fish's role derivation, bat's renderer, tmux's renderer, Neovim's
+  name resolution). A theme that loses what a tool needs is named by the guard
+  with the theme and the tool, and a tool the menu names can no longer have
+  nothing behind it: `TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme`
+  walks the switch's own tool list and requires a rendered block for each.
 - **The deleted `[palettes.catppuccin_mocha]` table is recreatable.** Removing
   dead data is only legitimate while the generator can rebuild it:
   `TestTheRemovedStarshipPaletteIsRecreatable` renders
@@ -248,6 +477,11 @@ Nothing is fetched at run time.
 - **Both:** the `[syntax]` tables that take a fish file's keyword/quote roles
   (kanagawa, everforest), and the Catppuccin pairing that takes one member from
   each of the two flavours.
+- **Derived, from the theme's own palette:** every role a definition does not
+  declare - fish's eighteen, Starship's twenty-four, bat's nine tokens, tmux's
+  style options and Neovim's highlight groups - by the fixed mapping in "Derived
+  roles" above. No value is invented: a derived value is one the definition
+  already holds.
 
 ## Kagawa was retired: it was never a theme
 
@@ -265,10 +499,30 @@ and the theme list no longer holds it. The generated fish file
 `dotfiles-fish/fish/themes/Kagawa.theme` is deleted in the same change, so the
 repository no longer ships a Kagawa file for a theme that no longer exists.
 
-## Two defects recorded here rather than hidden
+## Defects recorded here rather than hidden
 
 - **~~`Kagawa.theme` is a copy of `Kanagawa.theme`.~~** Resolved by retiring
   Kagawa (above).
+- **The `BAT_THEME` selection named the wrong key.** bat registers a custom
+  `.tmTheme` under its **file name**, and the switch exported `[bat] name` (the
+  `<key>name</key>` inside the file). Five of the six themes therefore selected a
+  theme bat had not registered: `Catppuccin Mocha` and `Catppuccin Latte` silently
+  selected bat's own bundled themes of those names, and the other three selected
+  nothing this repository shipped. Found by measuring with bat 0.26.1 while
+  closing the coverage matrix, fixed in `renderBatSelection`/`batSelectionName`,
+  and pinned by `TestTheBatSelectionNamesTheFileBatRegisters`. No committed file
+  moved: the default theme's name and its file name are the same string.
+- **The `.tmTheme`'s own comment is not valid XML.** The generated file's header
+  comment tells a reader to run `bat cache --build`, and an XML comment may not
+  contain `--`. `xml.etree` refuses both committed `.tmTheme` files on that line,
+  and the four generated ones inherit it. bat 0.26.1 accepts them (measured: the
+  theme is listed and paints), so this is a strictness defect rather than a broken
+  file, and it is **not fixed here**: the template lives in
+  `installer/internal/tui/installer.go` but the two committed files that would
+  have to be regenerated are outside this change's edit surface, and
+  `TestGeneratedPerThemeFilesMatchTheirDefinition` would fail until they were
+  written. Rewording the comment so it contains no `--` (for example "regenerate
+  with bat's own cache build") is the fix for whoever touches that template next.
 - **The hand-written fish files carried malformed colours.**
   `Kanagawa.theme` (and its copy `Kagawa.theme`) wrote
   `fish_color_selection --background=2D4FG67` (`G` is not a hex digit) and
@@ -292,8 +546,33 @@ The guards live in `installer/internal/tui/install_paths_test.go` and
 - `TestNoInventedThemeRoleSlipsIn` — **new**: a palette role outside the
   canonical twenty-two and a `[syntax]` role outside the four the preview reads
   are both refused at load time, and every definition must cite a provenance.
-- `TestEveryThemeReportsTheToolsItWouldLeaveOut` — every theme names the tools it
-  cannot paint.
+- `TestEveryOfferedThemePaintsEveryTool` — **the requirement as a guard**: for
+  every theme the menu offers, `themeCoverage` leaves no tool out, and it fails
+  with the theme's own name and the tool it stopped painting. It also refuses a
+  row that still prints an exclusion for a theme that has none. Teeth: removing a
+  `[bat]` table (or an `[nvim]` name) makes it fail naming that theme and that
+  tool.
+- `TestThePromptDerivationCoversEveryRequiredRole` — every prompt role Starship
+  needs names a canonical palette role the definitions hold, no offered theme is
+  left without a value, and the values each theme derives are logged for audit.
+- `TestThePromptDerivationAgreesWithThePreview` — the three prompt roles the
+  installer's preview falls back on read the same palette roles the Starship
+  derivation does, so the prompt and the interface cannot disagree about "muted".
+- `TestTheNeovimColorschemeNamesResolve` — every offered theme's `[nvim]` name is
+  either a colorscheme the repository's plugin install provides or a generated
+  file this repository ships under `dotfiles-nvim/nvim/colors/`, the file's own
+  name is the selected name, and the file is inside the directory the Neovim step
+  installs.
+- `TestTheGeneratedColorschemeDeclaresTheBackgroundItsBaseImplies` — the derived
+  `background` follows the base's luminance, and the guard requires at least one
+  light and one dark answer, so a constant fails it.
+- `TestTheBatThemesTheSwitchOffersAreGeneratedAtInstallTime` — the helper the
+  shell step calls writes a `.tmTheme` for every theme that names one, with the
+  name the switch exports as `BAT_THEME` inside it, and the guard requires some of
+  them not to be under version control.
+- `TestTheBatSelectionNamesTheFileBatRegisters` — `BAT_THEME` is the file's own
+  name, which is the name bat registers a custom `.tmTheme` under, and no two
+  themes share one.
 - `TestShippedThemeBlocksMatchTheirDefinition` — every value a definition claims
   must still be present in the shipped block it came from.
 - `TestGeneratedThemeArtifactsMatchTheirDefinition` and
@@ -305,13 +584,19 @@ The guards live in `installer/internal/tui/install_paths_test.go` and
   `TestThemeGeneratorRefusesAMissingRole` — the block a tool gets is its own
   theme's colours, and a definition missing a role is refused rather than emitted
   half-empty.
-- `TestGeneratedThemeBlocksInventNoColour` — every colour a generated block emits
-  must be one the definition already holds, in its `[palette]`, `[fish]` or
-  `[prompt]` table. A renderer that fills a role by eye fails here.
+- `TestGeneratedThemeBlocksInventNoColour` — every colour a generated **block or
+  per-theme file** emits must be one the definition already holds, in its
+  `[palette]`, `[fish]` or `[prompt]` table. A renderer that fills a role by eye
+  fails here. Its colour token requires a whole word, so bat's `embedded` scope
+  name ("bedded" is spelt with hex digits) is not read as a colour.
 - `TestTheFishDerivationMatchesTheDotfilesTable` — the code mapping that derives a
   fish palette from the canonical roles must still produce the values
   `themes/dotfiles.toml` records in its `[fish]` table, so a theme without one
   (Catppuccin Mocha) gets the same palette by derivation.
+- `TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme` — walks the switch's own
+  tool list and requires a rendered block for every tool a theme covers, so a tool
+  the menu names cannot have nothing behind it, and a definition missing a role a
+  generator reads is caught before the row is pressed.
 - `TestTmuxThemeBlockLoadsAfterPlugins` — the tmux block must sit after the TPM
   `run` line, which is what makes it win over the kanagawa plugin.
 - `TestThePreviewPaintsTheThemesSyntaxRoles` — the preview reads the theme's

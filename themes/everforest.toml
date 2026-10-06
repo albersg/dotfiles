@@ -83,6 +83,22 @@ pager_prefix = "7fbbb3"
 pager_completion = "d3c6aa"
 pager_description = "859289"
 
+# --- Neovim colorscheme name ---
+# The repository's Neovim plugin install ships no Everforest colorscheme, so the
+# colorscheme is generated from this definition into
+# dotfiles-nvim/nvim/colors/everforest.lua and the name below is its file name.
+[nvim]
+name = "everforest"
+
+# --- bat theme name and file ---
+# The name the .tmTheme carries inside itself and the file it ships as. bat
+# registers a custom theme under the file's own name and the switch selects it by
+# that name, not by this one (measured against bat 0.26.1); the file is generated
+# from this definition by the installer's shell step.
+[bat]
+name = "Everforest"
+file = "everforest.tmTheme"
+
 # --- syntax roles ---
 # The installer's own code-display tints. The repository holds no Everforest
 # syntax convention beyond the fish file, so the two are that file's keyword and

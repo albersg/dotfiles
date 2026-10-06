@@ -88,6 +88,24 @@ base = "#eff1f5"
 mantle = "#e6e9ef"
 crust = "#dce0e8"
 
+# --- Neovim colorscheme name ---
+# The repository's Neovim configuration pins the Catppuccin plugin's flavour to
+# mocha, so naming the plugin's own scheme here would paint Mocha's flavour under
+# a Latte name. The colorscheme is generated from this definition instead, into
+# dotfiles-nvim/nvim/colors/catppuccin-latte.lua, and the name below is its file
+# name; every colour in it is a role this file already holds.
+[nvim]
+name = "catppuccin-latte"
+
+# --- bat theme name and file ---
+# The name the .tmTheme carries inside itself and the file it ships as. bat
+# registers a custom theme under the file's own name and the switch selects it by
+# that name, not by this one (measured against bat 0.26.1); the file is generated
+# from this definition by the installer's shell step.
+[bat]
+name = "Catppuccin Latte"
+file = "catppuccin-latte.tmTheme"
+
 # --- syntax roles ---
 # Catppuccin's own convention for syntax: keywords mauve, strings green. Latte
 # and Mocha pair up, so the light member is Latte's value (mauve #8839ef, green

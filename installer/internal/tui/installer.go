@@ -665,10 +665,11 @@ type themeDefinition struct {
 	// theme whose plugin ships no colorscheme, and Neovim is then reported rather
 	// than pointed at a name that does not exist.
 	Nvim string
-	// Bat is the name bat selects this theme by (the .tmTheme's own name), and
-	// BatFile is the generated .tmTheme's file name. They are empty for a theme
-	// with no bat theme, and bat is then reported rather than pointed at a name
-	// that does not exist.
+	// Bat is the name the .tmTheme carries inside itself (its <key>name</key>), and
+	// BatFile is the generated .tmTheme's file name, which is also the name bat
+	// registers it under and the switch selects it by (batSelectionName). They are
+	// empty for a theme with no bat theme, and bat is then reported rather than
+	// pointed at a name that does not exist.
 	Bat     string
 	BatFile string
 	// Syntax holds the installer's own code-display tints: keyword_light,
@@ -941,9 +942,14 @@ type themeTool struct {
 }
 
 // themeTools is every tool whose colours this repository owns, in the order the
-// switch reports them. Needs names the roles the tool cannot be painted
-// without: a theme missing one of them reports the tool as not switchable
-// rather than applying a half palette.
+// switch reports them. A tool is painted when the definition gives its generator
+// everything it needs: Needs names the canonical roles, PromptNeeds the prompt
+// roles, and Available asks the generator itself about the roles a tool reads
+// through a name or a file (fish's own roles, bat's theme name, Neovim's
+// colorscheme). There is no second table saying which theme may paint which
+// tool: the definitions are that table, so a theme that cannot paint a tool says
+// so through the role it is missing rather than through a list somebody forgot
+// to extend.
 var themeTools = []themeTool{
 	{ID: "alacritty", Name: "Alacritty", Needs: themePaletteRoles},
 	{ID: "kitty", Name: "Kitty", Needs: themePaletteRoles},
@@ -954,47 +960,35 @@ var themeTools = []themeTool{
 	{ID: "p10k", Name: "the p10k prompt", Needs: themePaletteRoles},
 	{ID: "herdr", Name: "Herdr", Needs: []string{"selection", "blue"}},
 	// fish, bat, Neovim and tmux are driven by a file or a theme name rather than
-	// by the canonical palette: fish and bat read a generated file, Neovim names a
-	// colorscheme its plugin ships, and tmux gets this repository's palette applied
-	// to its own style options. Their artifact is what decides whether a theme can
-	// paint them, so they need no role list here.
-	{ID: "fish", Name: "fish"},
-	{ID: "bat", Name: "bat", Available: func(d themeDefinition) bool { return d.Bat != "" && d.BatFile != "" }},
-	{ID: "nvim", Name: "Neovim", Available: func(d themeDefinition) bool { return d.Nvim != "" }},
-	{ID: "tmux", Name: "tmux"},
+	// by the canonical palette alone: fish and bat read a generated file, Neovim
+	// names a colorscheme, and tmux gets this repository's palette applied to its
+	// own style options. Each asks its own generator, so a definition the generator
+	// would refuse (no fish roles to derive from, no [bat] name, no colorscheme) is
+	// reported here rather than on the row that applies it.
+	{ID: "fish", Name: "fish", Available: func(d themeDefinition) bool {
+		_, err := themeFishRolesFor(d)
+		return err == nil
+	}},
+	{ID: "bat", Name: "bat", Available: func(d themeDefinition) bool {
+		_, err := renderBatTheme(d)
+		return err == nil
+	}},
+	{ID: "nvim", Name: "Neovim", Available: themeNvimAvailable},
+	{ID: "tmux", Name: "tmux", Available: func(d themeDefinition) bool {
+		_, err := renderTmuxTheme(d)
+		return err == nil
+	}},
 }
 
-// themeToolArtifacts is which tools each theme has a generated block for. It is
-// data rather than a rule because it records what this change produces: a theme
-// with no artifact for a tool cannot be applied to it, and pretending otherwise
-// is the button that does nothing. A tool absent here is reported as not
-// switchable for that theme.
-//
-// Generation is implemented for every tool the switch names. fish's block is its
-// own config file, generated from the definition's [fish] table or derived from
-// its canonical palette; tmux's is the palette applied to tmux's style options;
-// Neovim's is the colorscheme line, present only for a theme whose plugin ships
-// one. Extending this table is what extends the switch.
-var themeToolArtifacts = map[string][]string{
-	"dotfiles":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "bat", "fish", "tmux"},
-	"catppuccin-mocha": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "nvim", "bat", "fish", "tmux"},
-	"catppuccin-latte": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k"},
-	"kanagawa":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k", "nvim", "fish"},
-	"everforest":       {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k", "fish"},
-	"rose-pine":        {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k"},
-}
-
-// themeCoverage splits the tools into the ones a theme can paint and the ones
-// it cannot, with the reason being either a missing role or a missing artifact.
-// The menu reports the second list, so a reader is told which tools would stay
-// on the old palette before anything changes.
+// themeCoverage splits the tools into the ones a theme can paint and the ones it
+// cannot, the reason always being something the definition is missing: a
+// canonical role, a prompt role it can neither declare nor derive, or the name
+// or file a tool reads. The menu reports the second list, so a reader is told
+// which tools would stay on the old palette before anything changes. The list is
+// empty for every theme the library offers, and
+// TestEveryOfferedThemePaintsEveryTool is what holds it there.
 func themeCoverage(def themeDefinition) (covered, uncovered []string) {
-	artifacts := themeToolArtifacts[def.ID]
 	for _, tool := range themeTools {
-		if !slices.Contains(artifacts, tool.ID) {
-			uncovered = append(uncovered, tool.Name)
-			continue
-		}
 		missing := false
 		for _, role := range tool.Needs {
 			if def.Palette[role] == "" {
@@ -1002,11 +996,16 @@ func themeCoverage(def themeDefinition) (covered, uncovered []string) {
 				break
 			}
 		}
-		if !missing {
-			for _, role := range tool.PromptNeeds {
-				if def.Prompt[role] == "" {
-					missing = true
-					break
+		if !missing && len(tool.PromptNeeds) > 0 {
+			roles, err := themePromptRolesFor(def)
+			if err != nil {
+				missing = true
+			} else {
+				for _, role := range tool.PromptNeeds {
+					if roles[role] == "" {
+						missing = true
+						break
+					}
 				}
 			}
 		}
@@ -2515,20 +2514,35 @@ set -g clock-mode-colour "%s"`,
 // themeThemeFile is a whole-file artifact, one per theme: the fish theme files
 // are named after the theme they hold, so they are generated for every theme
 // that has fish roles rather than swapped in place like the active artifacts.
+// Tool says which tool the file belongs to, so coverage can ask whether a theme
+// has a shipped file without re-parsing the path.
 type themeThemeFile struct {
+	Tool   string
 	Theme  string
 	Path   string
 	Render func(themeDefinition) (string, error)
 }
 
-// themeThemeFiles are the per-theme files generated from the definitions. The
-// paths keep the repository's own capitalisation.
+// themeThemeFiles are the per-theme files generated from the definitions for the
+// tools whose artifact is a whole file rather than a block inside a file the
+// switch rewrites: fish's own theme files, bat's .tmTheme files, and the Neovim
+// colorschemes this repository has to generate for the themes whose plugin ships
+// none. The paths keep the repository's own capitalisation.
+//
+// The bat entries are deliberately the two the repository ships under version
+// control; the installer generates a .tmTheme for every theme that names one at
+// install time (generateBatThemesFromDefinitions), so a theme with no committed
+// .tmTheme still paints bat.
 var themeThemeFiles = []themeThemeFile{
-	{Theme: "dotfiles", Path: "dotfiles-fish/fish/themes/dotfiles.theme", Render: renderFishTheme},
-	{Theme: "everforest", Path: "dotfiles-fish/fish/themes/Everforest.theme", Render: renderFishTheme},
-	{Theme: "kanagawa", Path: "dotfiles-fish/fish/themes/Kanagawa.theme", Render: renderFishTheme},
-	{Theme: "dotfiles", Path: "dotfiles-bat/themes/dotfiles.tmTheme", Render: renderBatTheme},
-	{Theme: "catppuccin-mocha", Path: "dotfiles-bat/themes/catppuccin-mocha.tmTheme", Render: renderBatTheme},
+	{Tool: "fish", Theme: "dotfiles", Path: "dotfiles-fish/fish/themes/dotfiles.theme", Render: renderFishTheme},
+	{Tool: "fish", Theme: "everforest", Path: "dotfiles-fish/fish/themes/Everforest.theme", Render: renderFishTheme},
+	{Tool: "fish", Theme: "kanagawa", Path: "dotfiles-fish/fish/themes/Kanagawa.theme", Render: renderFishTheme},
+	{Tool: "bat", Theme: "dotfiles", Path: "dotfiles-bat/themes/dotfiles.tmTheme", Render: renderBatTheme},
+	{Tool: "bat", Theme: "catppuccin-mocha", Path: "dotfiles-bat/themes/catppuccin-mocha.tmTheme", Render: renderBatTheme},
+	{Tool: "nvim", Theme: "dotfiles", Path: "dotfiles-nvim/nvim/colors/dotfiles.lua", Render: renderNvimTheme},
+	{Tool: "nvim", Theme: "catppuccin-latte", Path: "dotfiles-nvim/nvim/colors/catppuccin-latte.lua", Render: renderNvimTheme},
+	{Tool: "nvim", Theme: "everforest", Path: "dotfiles-nvim/nvim/colors/everforest.lua", Render: renderNvimTheme},
+	{Tool: "nvim", Theme: "rose-pine", Path: "dotfiles-nvim/nvim/colors/rose-pine.lua", Render: renderNvimTheme},
 }
 
 // themePromptRoles is every prompt role the definitions may declare, in render
@@ -2551,29 +2565,129 @@ var themePromptRequired = []string{
 	"base", "mantle", "crust",
 }
 
+// themePromptDerivation is the mechanical mapping from the canonical palette to
+// the prompt's own role names, written down as code for the same reason the fish
+// derivation is: Starship's palette table is written in Catppuccin's naming, and
+// only five of the roles it needs are terminal roles (text, red, green, yellow,
+// blue), so a theme whose published palette ships no [prompt] table (Kanagawa,
+// Everforest, Rosé Pine) must derive the rest to paint the prompt. Deriving each
+// role from a palette role the definition already holds means every derived
+// prompt colour is a colour of that theme; no value is chosen here.
+//
+// The three roles the installer's own preview falls back to read the same way
+// (theme_preview.go: subtext0 -> bright_black, mauve -> bright_blue, peach ->
+// yellow), so the Starship table and the preview cannot disagree about what a
+// muted or accent role is. TestThePromptDerivationAgreesWithThePreview pins it.
+//
+//	prompt role  palette role     why
+//	text         text             body text
+//	red          red              ANSI 1
+//	green        green            ANSI 2
+//	yellow       yellow           ANSI 3
+//	blue         blue             ANSI 4
+//	mauve        bright_blue      the light purple the preview also reads
+//	pink         magenta          ANSI 5, the pink of the terminal mapping
+//	teal         cyan             ANSI 6, the teal/aqua slot
+//	peach        yellow           the warm accent the preview also reads
+//	subtext0     bright_black     the muted text slot (the prompt's "muted")
+//	subtext1     white            one step above muted
+//	overlay0     selection        the surface tone (the prompt's "surface")
+//	overlay1     selection        the same one surface
+//	overlay2     selection        the same one surface
+//	surface0     selection        the same one surface
+//	surface1     selection        the same one surface
+//	surface2     selection        the same one surface
+//	rosewater    cursor           the theme's one non-ANSI accent: its cursor
+//	flamingo     bright_red       ANSI 9
+//	maroon       red              ANSI 1
+//	lavender     bright_magenta   ANSI 13
+//	base         base             the background
+//	mantle       base             the same one background
+//	crust        base             the same one background
+var themePromptDerivation = map[string]string{
+	"text":      "text",
+	"red":       "red",
+	"green":     "green",
+	"yellow":    "yellow",
+	"blue":      "blue",
+	"mauve":     "bright_blue",
+	"pink":      "magenta",
+	"teal":      "cyan",
+	"peach":     "yellow",
+	"subtext0":  "bright_black",
+	"subtext1":  "white",
+	"overlay0":  "selection",
+	"overlay1":  "selection",
+	"overlay2":  "selection",
+	"surface0":  "selection",
+	"surface1":  "selection",
+	"surface2":  "selection",
+	"rosewater": "cursor",
+	"flamingo":  "bright_red",
+	"maroon":    "red",
+	"lavender":  "bright_magenta",
+	"base":      "base",
+	"mantle":    "base",
+	"crust":     "base",
+}
+
+// themePromptRolesFor returns the prompt roles a definition paints. A role the
+// definition declares itself (dotfiles and the two Catppuccin flavours carry the
+// table the repository or the published palette holds) is used as it is; a role
+// it does not declare is derived from its canonical palette by
+// themePromptDerivation. A role that can neither be read nor derived is refused
+// rather than emitted as a hole, which is what lets the menu report Starship
+// honestly instead of drawing a half palette.
+//
+// The optional Catppuccin extras (sky, sapphire) are kept when a definition
+// carries them and are not required: the generated Starship table emits them when
+// present, and a theme without them is not reported as missing Starship.
+func themePromptRolesFor(def themeDefinition) (map[string]string, error) {
+	roles := make(map[string]string, len(def.Prompt))
+	for _, role := range themePromptRequired {
+		if value := def.Prompt[role]; value != "" {
+			roles[role] = value
+			continue
+		}
+		paletteRole, mapped := themePromptDerivation[role]
+		if !mapped {
+			return nil, fmt.Errorf("theme %q needs prompt role %q and the derivation names no palette role for it", def.ID, role)
+		}
+		value := def.Palette[paletteRole]
+		if value == "" {
+			return nil, fmt.Errorf("theme %q defines neither prompt role %q nor palette role %q, so its Starship palette cannot be generated",
+				def.ID, role, paletteRole)
+		}
+		roles[role] = value
+	}
+	for role, value := range def.Prompt {
+		if _, ok := roles[role]; !ok {
+			roles[role] = value
+		}
+	}
+	return roles, nil
+}
+
 // renderStarshipPaletteLine renders the palette = "<id>" selection.
 func renderStarshipPaletteLine(def themeDefinition) (string, error) {
 	return fmt.Sprintf("palette = %q", def.ID), nil
 }
 
 // renderStarshipPaletteTable renders the active theme's [palettes.<id>] table.
-// The role names are Starship's (Catppuccin's naming), so a definition missing
-// one of the required prompt roles is refused rather than filled.
+// The role names are Starship's (Catppuccin's naming): a role the definition
+// declares is its own value, a role it does not is derived from its palette by
+// themePromptRolesFor, and a role neither can supply is refused rather than
+// filled.
 func renderStarshipPaletteTable(def themeDefinition) (string, error) {
-	var missing []string
-	for _, role := range themePromptRequired {
-		if def.Prompt[role] == "" {
-			missing = append(missing, role)
-		}
-	}
-	if len(missing) > 0 {
-		return "", fmt.Errorf("theme %q defines no prompt role %v, so its Starship palette cannot be generated", def.ID, missing)
+	roles, err := themePromptRolesFor(def)
+	if err != nil {
+		return "", err
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "[palettes.%s]\n", def.ID)
 	for _, role := range themePromptRoles {
-		value := def.Prompt[role]
+		value := roles[role]
 		if value == "" {
 			continue
 		}
@@ -2792,14 +2906,35 @@ func renderP10kTheme(def themeDefinition) (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
+// batSelectionName is the value BAT_THEME has to hold for a definition: the stem
+// of its [bat] file, because that is the name bat registers a custom .tmTheme
+// under. The <key>name</key> inside the file is **not** the selection key -
+// measured with bat 0.26.1, whose cache lists a theme directory's
+// catppuccin-mocha.tmTheme as "catppuccin-mocha" beside its own bundled
+// "Catppuccin Mocha", paints the repository's blue keyword for
+// BAT_THEME=catppuccin-mocha, and paints the bundled theme's mauve for
+// BAT_THEME="Catppuccin Mocha". Exporting [bat] name therefore reached bat's own
+// bundled Catppuccin Mocha rather than the file this repository ships;
+// TestTheBatSelectionNamesTheFileBatRegisters pins the file's name instead.
+func batSelectionName(def themeDefinition) (string, error) {
+	if def.BatFile == "" {
+		return "", fmt.Errorf("theme %q names no bat theme file, so its bat selection cannot be generated", def.ID)
+	}
+	return strings.TrimSuffix(filepath.Base(def.BatFile), ".tmTheme"), nil
+}
+
 // renderBatSelection renders the BAT_THEME selection in dotfiles-zsh/.zshrc. It
 // is the switch's half of bat: the theme files are generated too, and the
 // installer copies every shipped .tmTheme into bat's directory and rebuilds its
 // cache, so the name below resolves. The file check keeps a machine where that
 // has not happened yet from turning every bat call into "Unknown theme".
 func renderBatSelection(def themeDefinition) (string, error) {
-	if def.Bat == "" || def.BatFile == "" {
+	if def.Bat == "" {
 		return "", fmt.Errorf("theme %q names no bat theme, so its selection cannot be generated", def.ID)
+	}
+	selected, err := batSelectionName(def)
+	if err != nil {
+		return "", err
 	}
 	return fmt.Sprintf(`# --- bat --------------------------------------------------------------------
 # The theme bat uses. Generated from themes/%s.toml; the .tmTheme files ship with
@@ -2810,7 +2945,7 @@ if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/bat/themes/%s" ]]; then
     export BAT_THEME="%s"
 else
     export BAT_THEME="Catppuccin Mocha"
-fi`, def.ID, def.BatFile, def.Bat), nil
+fi`, def.ID, def.BatFile, selected), nil
 }
 
 // renderNvimColorscheme renders the LazyVim colorscheme selection. Neovim's
@@ -2821,6 +2956,275 @@ func renderNvimColorscheme(def themeDefinition) (string, error) {
 		return "", fmt.Errorf("theme %q names no Neovim colorscheme, so Neovim cannot be themed with it", def.ID)
 	}
 	return fmt.Sprintf("        colorscheme = %q,", def.Nvim), nil
+}
+
+// themeNvimPluginColorschemes are the Neovim colorschemes the repository's own
+// plugin install provides, so a definition that names one of them is painted by
+// the plugin and needs no generated file. The repository's nvim configuration
+// installs exactly these two (dotfiles-nvim/nvim/lua/plugins/colorscheme.lua).
+// Its Catppuccin spec pins flavour = "mocha", which is why Catppuccin Latte
+// names a colorscheme this repository generates instead of pointing at the
+// plugin: the plugin's own opts would paint Mocha's flavour under a Latte name.
+var themeNvimPluginColorschemes = []string{"catppuccin", "kanagawa"}
+
+// themeNvimGeneratedFile returns the Neovim colorscheme file this repository
+// ships for a theme, or "" when it ships none. It is read from themeThemeFiles
+// rather than from disk on purpose: coverage is a property of the definitions
+// and what this change generates, so the menu and the guard answer the same
+// question without either of them opening a file.
+func themeNvimGeneratedFile(theme string) string {
+	for _, file := range themeThemeFiles {
+		if file.Tool == "nvim" && file.Theme == theme {
+			return file.Path
+		}
+	}
+	return ""
+}
+
+// themeNvimAvailable reports whether a definition can paint Neovim: it has to
+// name a colorscheme, and that name has to resolve - either to a colorscheme the
+// repository's plugin install provides, or to a file this repository generates
+// and ships under dotfiles-nvim/nvim/colors/.
+func themeNvimAvailable(def themeDefinition) bool {
+	if def.Nvim == "" {
+		return false
+	}
+	if slices.Contains(themeNvimPluginColorschemes, def.Nvim) {
+		return true
+	}
+	return themeNvimGeneratedFile(def.ID) != ""
+}
+
+// themeBaseIsLight reports whether a theme's background is a light colour, so
+// the generated Neovim colorscheme declares the background Neovim's own default
+// groups expect. It reads the theme's own base role and compares its relative
+// luminance with mid grey: that is a rule about a value the definition already
+// holds, not a second colour, and it is what makes Catppuccin Latte a light
+// colorscheme and the other five dark ones.
+func themeBaseIsLight(def themeDefinition) bool {
+	base := strings.TrimPrefix(def.Palette["base"], "#")
+	if len(base) != 6 {
+		return false
+	}
+	value, err := strconv.ParseUint(base, 16, 32)
+	if err != nil {
+		return false
+	}
+	r := float64((value>>16)&0xff) / 255
+	g := float64((value>>8)&0xff) / 255
+	b := float64(value&0xff) / 255
+	return 0.2126*r+0.7152*g+0.0722*b > 0.5
+}
+
+// themeNvimGroups is every highlight group the generated Neovim colorscheme
+// paints, and which palette role each of its slots takes. It is data for the
+// same reason themeBatRoles is: a group name does not say which role it takes,
+// and writing the mapping down once is what keeps Neovim and bat agreeing about
+// what a comment, a string or a keyword looks like. Fg and Bg name palette
+// roles; an empty one is a slot the group does not paint, and Attr is the style
+// Neovim adds on top.
+var themeNvimGroups = []struct{ Group, Fg, Bg, Attr string }{
+	{"Normal", "text", "base", ""},
+	{"NormalNC", "text", "base", ""},
+	{"NormalFloat", "text", "base", ""},
+	{"FloatBorder", "bright_black", "base", ""},
+	{"FloatTitle", "blue", "base", "bold"},
+	{"MsgArea", "text", "base", ""},
+	{"Cursor", "cursor_text", "cursor", ""},
+	{"lCursor", "cursor_text", "cursor", ""},
+	{"TermCursor", "cursor_text", "cursor", ""},
+	{"CursorLine", "", "selection", ""},
+	{"CursorColumn", "", "selection", ""},
+	{"ColorColumn", "", "selection", ""},
+	{"CursorLineNr", "yellow", "", "bold"},
+	{"LineNr", "bright_black", "", ""},
+	{"SignColumn", "bright_black", "", ""},
+	{"FoldColumn", "bright_black", "", ""},
+	{"Folded", "bright_black", "selection", ""},
+	{"NonText", "bright_black", "", ""},
+	{"SpecialKey", "bright_black", "", ""},
+	{"Whitespace", "bright_black", "", ""},
+	{"EndOfBuffer", "base", "", ""},
+	{"WinSeparator", "bright_black", "base", ""},
+	{"Visual", "", "selection", ""},
+	{"VisualNOS", "", "selection", ""},
+	{"Search", "base", "yellow", ""},
+	{"IncSearch", "base", "green", ""},
+	{"CurSearch", "base", "green", ""},
+	{"MatchParen", "cyan", "selection", "bold"},
+	{"Pmenu", "text", "selection", ""},
+	{"PmenuSel", "base", "blue", "bold"},
+	{"PmenuSbar", "", "selection", ""},
+	{"PmenuThumb", "", "bright_black", ""},
+	{"StatusLine", "text", "selection", ""},
+	{"StatusLineNC", "bright_black", "base", ""},
+	{"TabLine", "bright_black", "base", ""},
+	{"TabLineSel", "text", "selection", "bold"},
+	{"TabLineFill", "", "base", ""},
+	{"Title", "blue", "", "bold"},
+	{"Directory", "blue", "", ""},
+	{"ErrorMsg", "red", "base", ""},
+	{"WarningMsg", "yellow", "", ""},
+	{"MoreMsg", "green", "", ""},
+	{"ModeMsg", "text", "", "bold"},
+	{"Question", "green", "", ""},
+	{"WildMenu", "base", "blue", "bold"},
+	{"QuickFixLine", "", "selection", ""},
+	{"Comment", "bright_black", "", "italic"},
+	{"SpecialComment", "bright_black", "", "italic"},
+	{"Constant", "magenta", "", ""},
+	{"String", "yellow", "", ""},
+	{"Character", "yellow", "", ""},
+	{"Number", "magenta", "", ""},
+	{"Boolean", "magenta", "", ""},
+	{"Float", "magenta", "", ""},
+	{"Identifier", "text", "", ""},
+	{"Function", "green", "", ""},
+	{"Statement", "blue", "", ""},
+	{"Conditional", "blue", "", ""},
+	{"Repeat", "blue", "", ""},
+	{"Label", "blue", "", ""},
+	{"Operator", "cyan", "", ""},
+	{"Keyword", "blue", "", ""},
+	{"Exception", "red", "", ""},
+	{"PreProc", "magenta", "", ""},
+	{"Include", "magenta", "", ""},
+	{"Define", "magenta", "", ""},
+	{"Macro", "magenta", "", ""},
+	{"PreCondit", "magenta", "", ""},
+	{"Type", "blue", "", ""},
+	{"StorageClass", "blue", "", ""},
+	{"Structure", "blue", "", ""},
+	{"Typedef", "blue", "", ""},
+	{"Special", "cyan", "", ""},
+	{"SpecialChar", "cyan", "", ""},
+	{"Tag", "green", "", ""},
+	{"Delimiter", "cyan", "", ""},
+	{"Debug", "red", "", ""},
+	{"Underlined", "blue", "", "underline"},
+	{"Ignore", "bright_black", "", ""},
+	{"Error", "red", "base", ""},
+	{"Todo", "base", "yellow", "bold"},
+	{"DiffAdd", "green", "base", ""},
+	{"DiffChange", "yellow", "base", ""},
+	{"DiffDelete", "red", "base", ""},
+	{"DiffText", "blue", "base", "bold"},
+	{"Added", "green", "", ""},
+	{"Changed", "yellow", "", ""},
+	{"Removed", "red", "", ""},
+	{"DiagnosticError", "red", "", ""},
+	{"DiagnosticWarn", "yellow", "", ""},
+	{"DiagnosticInfo", "cyan", "", ""},
+	{"DiagnosticHint", "bright_black", "", ""},
+	{"DiagnosticOk", "green", "", ""},
+	{"LspReferenceText", "", "selection", ""},
+	{"LspReferenceRead", "", "selection", ""},
+	{"LspReferenceWrite", "", "selection", ""},
+}
+
+// themeNvimTerminalRoles are the palette roles Neovim's own :terminal reads, in
+// the order the terminal's colour numbers run: g:terminal_color_0 is the
+// canonical black and g:terminal_color_15 the canonical bright white.
+var themeNvimTerminalRoles = []string{
+	"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+	"bright_black", "bright_red", "bright_green", "bright_yellow",
+	"bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+}
+
+// themeNvimTemplate is the colorscheme file's fixed frame: what it is, where it
+// is selected, and the two loops that fill it. The braces are placeholders the
+// renderer replaces, so the template holds no colour of its own.
+const themeNvimTemplate = `-- dotfiles-managed-config: nvim
+-- name: {{colorscheme}}
+-- generated from themes/{{id}}.toml; edit the definition, not this file
+--
+-- The Neovim colorscheme for the {{display}} palette. Every colour below is a
+-- role themes/{{id}}.toml holds: a highlight group's slot is mapped to a palette
+-- role by a table written down once, in installer/internal/tui/installer.go
+-- (themeNvimGroups) and in themes/README.md, so no value here was chosen by eye.
+-- The switch selects this file through the colorscheme line it generates in
+-- lua/plugins/colorscheme.lua, and the file is found because ~/.config/nvim is on
+-- Neovim's runtimepath ahead of any plugin.
+--
+-- The background is the theme's own: its base role, the colour the terminals in
+-- this repository paint behind everything, and "{{background}}" because that base
+-- is {{backgroundness}}.
+
+vim.cmd("highlight clear")
+if vim.fn.exists("syntax_on") == 1 then
+  vim.cmd("syntax reset")
+end
+
+vim.o.termguicolors = true
+vim.o.background = "{{background}}"
+vim.g.colors_name = "{{colorscheme}}"
+
+local set = function(group, opts)
+  vim.api.nvim_set_hl(0, group, opts)
+end
+
+{{groups}}
+
+-- The terminal's own sixteen colours, so a :terminal inside Neovim paints the
+-- same palette the terminal around it does.
+{{terminal}}
+`
+
+// renderNvimTheme renders a whole Neovim colorscheme from the definition. Neovim
+// has no plugin for every theme in the library, so the colorscheme is generated
+// rather than named: each highlight group takes a palette role through
+// themeNvimGroups, and a definition that misses one is refused instead of emitted
+// with a hole.
+func renderNvimTheme(def themeDefinition) (string, error) {
+	if def.Nvim == "" {
+		return "", fmt.Errorf("theme %q names no Neovim colorscheme, so its colorscheme cannot be generated", def.ID)
+	}
+
+	var groups strings.Builder
+	for _, group := range themeNvimGroups {
+		var slots []string
+		for _, slot := range []struct{ Key, Role string }{{"fg", group.Fg}, {"bg", group.Bg}} {
+			if slot.Role == "" {
+				continue
+			}
+			value, err := themeHex(def, slot.Role)
+			if err != nil {
+				return "", err
+			}
+			slots = append(slots, fmt.Sprintf("%s = %q", slot.Key, value))
+		}
+		if group.Attr != "" {
+			slots = append(slots, group.Attr+" = true")
+		}
+		if len(slots) == 0 {
+			return "", fmt.Errorf("theme %q: the Neovim group %q maps to no palette role", def.ID, group.Group)
+		}
+		fmt.Fprintf(&groups, "set(%q, { %s })\n", group.Group, strings.Join(slots, ", "))
+	}
+
+	var terminal strings.Builder
+	for i, role := range themeNvimTerminalRoles {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&terminal, "vim.g.terminal_color_%d = %q\n", i, value)
+	}
+
+	background, backgroundness := "dark", "darker than mid grey"
+	if themeBaseIsLight(def) {
+		background, backgroundness = "light", "lighter than mid grey"
+	}
+
+	return strings.NewReplacer(
+		"{{id}}", def.ID,
+		"{{display}}", def.Name,
+		"{{colorscheme}}", def.Nvim,
+		"{{background}}", background,
+		"{{backgroundness}}", backgroundness,
+		"{{groups}}", strings.TrimRight(groups.String(), "\n"),
+		"{{terminal}}", strings.TrimRight(terminal.String(), "\n"),
+	).Replace(themeNvimTemplate), nil
 }
 
 // themeBatTemplate is the bat .tmTheme, keyed by palette role. The syntax
@@ -4985,6 +5389,42 @@ func ensureFnmDefaultAlias(stepID string) {
 	SendLog(stepID, "✓ fnm `default` alias ready")
 }
 
+// generateBatThemesFromDefinitions writes a bat .tmTheme for every definition
+// that names one into dir, so a theme whose file the checkout does not ship still
+// paints bat: bat reads the file from its themes directory and selects it by the
+// name inside it, and the definition is the same one the switch reads, so the
+// generated file and the selected name cannot disagree. A checkout with no
+// themes/ directory - one that predates the theme library - has no definitions to
+// generate and returns zero, and the copied files are then all bat can have.
+func generateBatThemesFromDefinitions(repoDir, dir string) (int, error) {
+	defs, err := loadThemeDefinitions(repoDir)
+	if err != nil {
+		return 0, nil
+	}
+
+	generated := 0
+	for _, def := range defs {
+		if def.Bat == "" || def.BatFile == "" {
+			continue
+		}
+		// The file name comes from a definition, so it is checked before it is used
+		// to build a path: a name that is not a plain file name under dir is refused
+		// rather than written.
+		if def.BatFile != filepath.Base(def.BatFile) || !strings.HasSuffix(def.BatFile, ".tmTheme") {
+			return generated, fmt.Errorf("theme %q names the bat theme file %q, which is not a plain .tmTheme file name", def.ID, def.BatFile)
+		}
+		content, err := renderBatTheme(def)
+		if err != nil {
+			return generated, err
+		}
+		if err := os.WriteFile(filepath.Join(dir, def.BatFile), []byte(content), 0o644); err != nil {
+			return generated, err
+		}
+		generated++
+	}
+	return generated, nil
+}
+
 func stepInstallShell(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	shell := m.Choices.Shell
@@ -5221,6 +5661,30 @@ func stepInstallShell(m *Model) error {
 						err)
 				}
 				batInstalled++
+			}
+			// The themes whose .tmTheme this checkout does not ship are generated here
+			// from their definitions, so every theme the switch offers paints bat and
+			// the installed set is the definitions' set rather than "the shipped files
+			// plus whatever was added last". The two files under version control are
+			// written by this too, with the bytes the guard pins.
+			generated, err := generateBatThemesFromDefinitions(repoDir, batThemesDir)
+			if err != nil {
+				// Best effort, like the cache rebuild below: the copied themes are
+				// installed and usable, and a theme that could not be generated is named
+				// in the log rather than aborting the whole shell step.
+				SendLog(stepID, fmt.Sprintf("Warning: a bat theme could not be generated from the theme definitions: %v", err))
+			} else if generated > 0 {
+				SendLog(stepID, fmt.Sprintf("Generated %d bat theme(s) from themes/*.toml", generated))
+			}
+			// Count what is there rather than what was copied: the number the installer
+			// reports is the number of themes bat can select.
+			if present, err := os.ReadDir(batThemesDir); err == nil {
+				batInstalled = 0
+				for _, entry := range present {
+					if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".tmTheme") {
+						batInstalled++
+					}
+				}
 			}
 			// bat reads a theme from its cache, not from the themes directory, so the
 			// cache has to be rebuilt for the copy above to have any effect. The rebuild
