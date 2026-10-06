@@ -1,31 +1,69 @@
-# Kanagawa: a PARTIAL theme, recorded honestly.
+# Kanagawa, transcribed from the published palette of rebelot/kanagawa.nvim.
 #
-# The repository does not hold a Kanagawa palette. What it holds is:
+# The repository has named this theme in three configs since before the theme
+# library existed:
 #
-#   dotfiles-fish/fish/themes/Kanagawa.theme   eight fish roles
-#   dotfiles-nvim/nvim/lua/plugins/colorscheme.lua   the NAME "kanagawa"
-#   dotfiles-tmux/tmux.conf                    the NAME "kanagawa", variant dragon
+#   dotfiles-nvim/nvim/lua/plugins/colorscheme.lua   the plugin rebelot/kanagawa.nvim, theme "wave"
+#   dotfiles-tmux/tmux.conf                          the tmux-kanagawa plugin, variant "dragon"
+#   dotfiles-fish/fish/themes/Kanagawa.theme         eight fish roles
 #
-# The names are the plugin's data, not ours: kanagawa.nvim and tmux-kanagawa
-# ship their own palettes, and this repository cannot read or verify them. The
-# eight fish roles are fish's own roles (normal, command, keyword, ...), not the
-# canonical terminal roles, so they cannot fill base/text/cursor/selection or
-# the 16 ANSI colours.
+# The twenty-two canonical roles below are a transcription of the published
+# Kanagawa palette and the terminal mapping the plugin ships for it. Every value
+# is a named palette colour of that theme; nothing is extrapolated. The fish
+# roles and the Neovim colorscheme name are the values the repository already
+# held, kept verbatim.
 #
-# Filling those roles would mean transcribing a published palette the repository
-# does not ship, and no such transcription exists here, so they are left EMPTY.
-# themes/README.md names exactly which tools a Kanagawa switch would leave out.
-# Per this repository's rule, a theme with missing canonical roles is reported
-# as partial and is NOT offered as a switch.
+# Source: rebelot/kanagawa.nvim - https://github.com/rebelot/kanagawa.nvim
+#
+#   base      sumiInk3      #1f1f28    cursor       oldWhite     #c8c093
+#   text      fujiWhite     #dcd7ba    cursor_text  sumiInk3     #1f1f28
+#   selection waveBlue2     #2d4f67    selection_text fujiWhite  #dcd7ba
+#
+#   normal      black sumiInk0 #16161d   red autumnRed #c34043   green autumnGreen #76946a
+#               yellow autumnYellow #dca561   blue crystalBlue #7e9cd8
+#               magenta oniViolet #957fb8   cyan waveAqua1 #6a9589   white oldWhite #c8c093
+#   bright      black fujiGray #727169   red samuraiRed #e82424   green springGreen #98bb6c
+#               yellow carpYellow #e6c384   blue springBlue #7fb4ca
+#               magenta springViolet1 #938aa9   cyan waveAqua2 #7aa89f   white fujiWhite #dcd7ba
+#
+# The plugin also ships a "dragon" variant, which the tmux plugin selects; this
+# definition is the "wave" palette the fish theme and the nvim plugin use, so a
+# switch keeps the two tools agreeing instead of picking one variant over the
+# other.
 
 [theme]
 id = "kanagawa"
 name = "Kanagawa"
-partial = true
-partial_reason = "no canonical palette in the repository: only fish roles (dotfiles-fish/fish/themes/Kanagawa.theme) and plugin theme names (nvim, tmux). The 16 ANSI roles and the terminal base/text/cursor/selection roles do not exist here."
-provenance = "dotfiles-fish/fish/themes/Kanagawa.theme (fish roles only); nvim and tmux name the plugin's theme"
+provenance = "rebelot/kanagawa.nvim (wave palette and its terminal mapping); fish roles from dotfiles-fish/fish/themes/Kanagawa.theme"
 
 [palette]
+# --- terminal base ---
+base = "#1f1f28"            # sumiInk3, the wave background
+text = "#dcd7ba"            # fujiWhite, the wave foreground
+cursor = "#c8c093"          # oldWhite, the cursor
+cursor_text = "#1f1f28"     # sumiInk3 under the cursor
+selection = "#2d4f67"       # waveBlue2, the selection background
+selection_text = "#dcd7ba"  # fujiWhite on a selection
+
+# --- ANSI normal (colours 0-7) ---
+black = "#16161d"           # sumiInk0
+red = "#c34043"             # autumnRed
+green = "#76946a"           # autumnGreen
+yellow = "#dca561"          # autumnYellow
+blue = "#7e9cd8"            # crystalBlue
+magenta = "#957fb8"         # oniViolet
+cyan = "#6a9589"            # waveAqua1
+white = "#c8c093"           # oldWhite
+
+# --- ANSI bright (colours 8-15) ---
+bright_black = "#727169"    # fujiGray
+bright_red = "#e82424"      # samuraiRed
+bright_green = "#98bb6c"    # springGreen
+bright_yellow = "#e6c384"   # carpYellow
+bright_blue = "#7fb4ca"     # springBlue
+bright_magenta = "#938aa9"  # springViolet1
+bright_cyan = "#7aa89f"     # waveAqua2
+bright_white = "#dcd7ba"    # fujiWhite
 
 # --- fish roles ---
 # Transcribed from dotfiles-fish/fish/themes/Kanagawa.theme, with the two
@@ -57,6 +95,11 @@ pager_description = "727169"
 name = "kanagawa"
 
 # --- syntax roles ---
-# No syntax colours: this theme has no canonical palette in the repository, so it
-# cannot paint the installer's chrome either. Left empty rather than filled in.
+# The installer's own code-display tints. The repository holds no Kanagawa
+# syntax convention beyond the fish file, so the two are that file's keyword and
+# quote roles: sakuraPink #d27e99 for keywords, boatYellow2 #c0a36e for strings.
+# Only the dark member is declared, because this repository ships no Kanagawa
+# light flavour; the preview uses the dark value on a light terminal too.
 [syntax]
+keyword_dark = "#d27e99"
+string_dark = "#c0a36e"

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -1031,6 +1032,87 @@ func TestOnlyCompleteThemesAreOffered(t *testing.T) {
 	t.Logf("complete themes (offered): %v; partial themes (reported, not offered): %v", complete, partial)
 }
 
+// TestOnlyThemesThatCanBePreviewedAreOffered covers the completion rule the
+// task made explicit: offering a theme means it can be applied *and* shown, so
+// a theme must carry the two [syntax] members the preview reads. A definition
+// with all twenty-two terminal roles but no syntax cannot be previewed and is
+// therefore not complete and not offered. The guard has teeth: leaving syntax
+// out of Complete() offers the fixture below, which the preview refuses.
+func TestOnlyThemesThatCanBePreviewedAreOffered(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	offered := offeredThemeIDs(defs)
+	for _, id := range offered {
+		def, ok := themeByID(defs, id)
+		if !ok {
+			t.Fatalf("the offered theme %q has no definition", id)
+		}
+		for _, role := range themeSyntaxRequired {
+			if def.Syntax[role] == "" {
+				t.Errorf("theme %q is offered but defines no [syntax] %s, so it cannot be previewed", id, role)
+			}
+		}
+		if _, err := themePreviewColors(def); err != nil {
+			t.Errorf("theme %q is offered but cannot be previewed: %v", id, err)
+		}
+	}
+	if len(offered) == 0 {
+		t.Fatal("no theme is offered, so this guard proves nothing")
+	}
+
+	// Every canonical role, and nothing in [syntax]: applicable but not showable.
+	full := themeDefinition{ID: "no-syntax", Palette: map[string]string{}, Prompt: map[string]string{}, Syntax: map[string]string{}}
+	for _, role := range themePaletteRoles {
+		full.Palette[role] = "#112233"
+	}
+	if full.Complete() {
+		t.Error("a definition with every terminal role and no [syntax] reported itself complete")
+	}
+	if ids := offeredThemeIDs([]themeDefinition{full}); len(ids) != 0 {
+		t.Errorf("the menu offers %v, which the preview would refuse", ids)
+	}
+
+	// The two members the preview reads are what closes the gap.
+	full.Syntax = map[string]string{"keyword_dark": "#cba6f7", "string_dark": "#a6e3a1"}
+	if !full.Complete() {
+		t.Error("a definition with the two [syntax] members the preview reads is not complete")
+	}
+	if ids := offeredThemeIDs([]themeDefinition{full}); len(ids) != 1 {
+		t.Errorf("the menu offers %v, want the now-showable theme", ids)
+	}
+}
+
+// TestNoInventedThemeRoleSlipsIn covers the other half of the rule: a colour has
+// to belong to a role this program knows about, and a definition has to say
+// where its values come from. A palette role outside the canonical set and a
+// syntax role outside the four the code display reads are both refused at load
+// time rather than painted; a definition that names no provenance is refused by
+// the guard below, so nothing lands without a cited source.
+func TestNoInventedThemeRoleSlipsIn(t *testing.T) {
+	inventedPalette := "[theme]\nid = \"invented\"\npartial = true\npartial_reason = \"fixture\"\n\n[palette]\nbase = \"#000000\"\nmauve = \"#000000\"\n"
+	if _, err := parseThemeDefinition([]byte(inventedPalette)); err == nil {
+		t.Error("a palette role outside the canonical twenty-two was accepted")
+	}
+
+	inventedSyntax := "[theme]\nid = \"invented\"\npartial = true\npartial_reason = \"fixture\"\n\n[syntax]\nkeyword_dark = \"#000000\"\nkeyword_extra = \"#000000\"\n"
+	if _, err := parseThemeDefinition([]byte(inventedSyntax)); err == nil {
+		t.Error("a [syntax] role outside the four the preview reads was accepted")
+	}
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	for _, def := range defs {
+		if strings.TrimSpace(def.Provenance) == "" {
+			t.Errorf("theme %q names no provenance, so its colours have no cited source", def.ID)
+		}
+	}
+}
+
 // TestEveryThemeReportsTheToolsItWouldLeaveOut covers the copy the menu shows
 // before a switch: every theme names the tools it cannot paint, so a change
 // that would leave a tool on the old palette is visible before it happens.
@@ -1054,10 +1136,16 @@ func TestEveryThemeReportsTheToolsItWouldLeaveOut(t *testing.T) {
 	// rather than a side effect. dotfiles names no Neovim colorscheme, so Neovim is
 	// the one tool it leaves out; catppuccin-mocha now paints every tool whose
 	// colours this repository owns, fish (derived from its canonical palette) and
-	// tmux (its own generated style block) included.
+	// tmux (its own generated style block) included. The four themes the library
+	// added carry their own lists: a theme left out of a tool's artifact table is
+	// named there.
 	wantLeftOut := map[string][]string{
 		"dotfiles":         {"Neovim"},
 		"catppuccin-mocha": nil,
+		"catppuccin-latte": {"fish", "bat", "Neovim", "tmux"},
+		"kanagawa":         {"Starship", "bat", "tmux"},
+		"everforest":       {"Starship", "bat", "Neovim", "tmux"},
+		"rose-pine":        {"Starship", "fish", "bat", "Neovim", "tmux"},
 	}
 	for _, id := range offeredThemeIDs(defs) {
 		def, ok := themeByID(defs, id)
@@ -1074,6 +1162,51 @@ func TestEveryThemeReportsTheToolsItWouldLeaveOut(t *testing.T) {
 				id, uncovered, want)
 		}
 	}
+}
+
+// TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme is the applicability
+// half of the completion rule: a theme the menu offers must actually render a
+// block for every tool it claims to cover. A definition marked complete but
+// missing a role a generator reads would otherwise be offered and then fail on
+// apply. It exercises every offered theme, including the transcribed ones, so
+// "the generators exist" is proved for the new palettes rather than assumed.
+func TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	checked := 0
+	offered := offeredThemeIDs(defs)
+	for _, id := range offered {
+		def, ok := themeByID(defs, id)
+		if !ok {
+			t.Fatalf("the offered theme %q has no definition", id)
+		}
+		covered, _ := themeCoverage(def)
+		for _, art := range themeActiveArtifacts {
+			if !slices.Contains(themeToolArtifacts[id], art.Tool) {
+				continue
+			}
+			block, err := themeArtifactBlock(art, def)
+			if err != nil {
+				t.Errorf("theme %q covers %s but cannot render its block: %v", id, art.Tool, err)
+				continue
+			}
+			if strings.TrimSpace(block) == "" {
+				t.Errorf("theme %q covers %s but rendered an empty block", id, art.Tool)
+				continue
+			}
+			checked++
+		}
+		if len(covered) == 0 {
+			t.Errorf("the offered theme %q covers no tool", id)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no tool block was generated, so this guard proves nothing")
+	}
+	t.Logf("generated %d covered-tool blocks across %d offered themes", checked, len(offered))
 }
 
 // TestShippedThemeBlocksMatchTheirDefinition is the drift guard: every value a

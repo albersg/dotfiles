@@ -631,6 +631,26 @@ var themePaletteRoles = []string{
 	"bright_white",
 }
 
+// themeSyntaxRoles is every [syntax] role the installer's own code display
+// knows: a keyword tint and a string tint, each with a light and a dark member.
+// A key outside this set is refused at load time rather than painted, so a
+// typo cannot land as an invented syntax role.
+var themeSyntaxRoles = []string{
+	"keyword_light",
+	"keyword_dark",
+	"string_light",
+	"string_dark",
+}
+
+// themeSyntaxRequired is the subset a theme has to define to be shown. The
+// preview reads the dark member; a theme whose published palette ships no light
+// flavour leaves the light member empty (the preview falls back to the dark
+// one) rather than having a light value invented for it.
+var themeSyntaxRequired = []string{
+	"keyword_dark",
+	"string_dark",
+}
+
 // themeDefinition is one themes/*.toml file: the theme's id and display name,
 // whether it is partial and why, where its values come from, and the palette.
 // A missing role is the empty string, never a guess.
@@ -669,7 +689,7 @@ type themeDefinition struct {
 	Fish map[string]string
 }
 
-// missingRoles is the roles the definition does not define.
+// missingRoles is the terminal roles the definition does not define.
 func (d themeDefinition) missingRoles() []string {
 	var missing []string
 	for _, role := range themePaletteRoles {
@@ -680,10 +700,31 @@ func (d themeDefinition) missingRoles() []string {
 	return missing
 }
 
-// Complete reports whether the theme defines every canonical role, which is
-// what makes it applicable to every tool without leaving one on the old
-// palette.
-func (d themeDefinition) Complete() bool { return len(d.missingRoles()) == 0 }
+// missingSyntaxRoles is the [syntax] roles the definition does not define.
+func (d themeDefinition) missingSyntaxRoles() []string {
+	var missing []string
+	for _, role := range themeSyntaxRequired {
+		if d.Syntax[role] == "" {
+			missing = append(missing, role)
+		}
+	}
+	return missing
+}
+
+// missingRequiredRoles is every role a theme needs to be applicable and
+// showable: the twenty-two canonical terminal roles and the [syntax] members the
+// preview reads. The two are checked together so a definition missing either is
+// reported the same way.
+func (d themeDefinition) missingRequiredRoles() []string {
+	return append(d.missingRoles(), d.missingSyntaxRoles()...)
+}
+
+// Complete reports whether the theme can be applied to every tool without
+// leaving one on the old palette *and* previewed in the installer: the
+// twenty-two canonical roles and the [syntax] tints the preview reads. A theme
+// that can be applied but not shown is not offered, because a row whose
+// selection cannot repaint the interface would be half a feature.
+func (d themeDefinition) Complete() bool { return len(d.missingRequiredRoles()) == 0 }
 
 // themeHexRE is the shape a colour value has to have. A value that is not a
 // hex colour is a definition error, not a tool's problem: it is caught when the
@@ -789,12 +830,15 @@ func parseThemeDefinition(data []byte) (themeDefinition, error) {
 		if value == "" {
 			continue
 		}
+		if !slices.Contains(themeSyntaxRoles, role) {
+			return def, fmt.Errorf("syntax role %q is not a known syntax role", role)
+		}
 		if !themeHexRE.MatchString(value) {
 			return def, fmt.Errorf("syntax role %q is not a #rrggbb colour: %q", role, value)
 		}
 	}
 	if !def.Complete() && !def.Partial {
-		return def, fmt.Errorf("the definition misses roles but is not marked partial: %v", def.missingRoles())
+		return def, fmt.Errorf("the definition misses roles but is not marked partial: %v", def.missingRequiredRoles())
 	}
 	if def.Partial && def.PartialReason == "" {
 		return def, fmt.Errorf("the definition is partial without saying why")
@@ -934,9 +978,10 @@ var themeTools = []themeTool{
 var themeToolArtifacts = map[string][]string{
 	"dotfiles":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "bat", "fish", "tmux"},
 	"catppuccin-mocha": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "nvim", "bat", "fish", "tmux"},
-	"kanagawa":         {"nvim", "fish"},
-	"everforest":       {"fish"},
-	"kagawa":           {"fish"},
+	"catppuccin-latte": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k"},
+	"kanagawa":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k", "nvim", "fish"},
+	"everforest":       {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k", "fish"},
+	"rose-pine":        {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k"},
 }
 
 // themeCoverage splits the tools into the ones a theme can paint and the ones
@@ -2429,7 +2474,6 @@ var themeThemeFiles = []themeThemeFile{
 	{Theme: "dotfiles", Path: "dotfiles-fish/fish/themes/dotfiles.theme", Render: renderFishTheme},
 	{Theme: "everforest", Path: "dotfiles-fish/fish/themes/Everforest.theme", Render: renderFishTheme},
 	{Theme: "kanagawa", Path: "dotfiles-fish/fish/themes/Kanagawa.theme", Render: renderFishTheme},
-	{Theme: "kagawa", Path: "dotfiles-fish/fish/themes/Kagawa.theme", Render: renderFishTheme},
 	{Theme: "dotfiles", Path: "dotfiles-bat/themes/dotfiles.tmTheme", Render: renderBatTheme},
 	{Theme: "catppuccin-mocha", Path: "dotfiles-bat/themes/catppuccin-mocha.tmTheme", Render: renderBatTheme},
 }
