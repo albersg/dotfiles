@@ -2368,13 +2368,12 @@ func TestThemeRefreshBringsAnOldManagedFileUpToDate(t *testing.T) {
 	old := legacyThemeFile(t, art, def)
 	writeThemeFileAt(t, dst, old)
 
-	// The user's case, and main's content-based adoption does not cover it: the
-	// file predates the marker and has drifted from what the repository ships, so
-	// neither content proof holds and the switch still refuses it. The repoDir is
-	// passed because the adoption proof reads the shipped file from it.
-	if _, _, err := applyDotfilesTheme(home, repoRoot(t), def); err == nil {
-		t.Fatal("the switch accepted the drifted unmarked file, so the fixture does not reproduce the user's case")
-	}
+	// The file predates the marker and the generated block, which is the state an
+	// install from an older checkout leaves behind. The switch can now adopt its
+	// region in place (the third ownership proof); the refresh is still the path
+	// that preserves a file that may be the user's - into the sourced drop-in
+	// directory here - before it replaces it, and records the previous bytes so
+	// Undo puts them back. This test keeps that path covered.
 
 	candidates := findThemeRefreshCandidates(home, defs)
 	if len(candidates) != 1 {

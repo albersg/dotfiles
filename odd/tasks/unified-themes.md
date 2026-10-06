@@ -391,3 +391,43 @@ fixing two of them falls outside this change.
 - **No golden moved.** The only assertion rows that changed are the theme picker's own
   option list (`TestThemePickerListsTheDerivedThemesAndUndo`), which now holds the refresh
   row between the themes and the undo row.
+
+## Update: the ownership proof has two degrees, and a region is the second (G)
+
+- **The defect the user hit.** Changing the theme failed with
+  `~/.config/herdr/config.toml is not owned by dotfiles (it carries no "dotfiles-managed-config:" marker, ...)`.
+  Their five installed files (`herdr config.toml`, `.zshrc`, `.p10k.zsh`, `config.fish`,
+  `starship.toml`) have **no marker**, **no generated block** and are **not byte-identical** to
+  what the repository ships today, so content-based adoption (F's predecessor) refused every one,
+  even though each file still carried the hand-written region whose anchors the generator knows.
+- **Two degrees of ownership, not one.** The switch now distinguishes:
+  1. **The whole file is ours** — a generated block begin marker (`>>> dotfiles-theme...`), or
+     byte-identity to what the repository ships with the marker lines removed. Adoption adds the
+     marker line and nothing else, exactly as before.
+  2. **Only a region is ours** — the file does not match the repository (it has drifted, or it
+     holds the user's own keys) but it still carries the region anchors
+     (`AdoptStart`/`AdoptEnd`): the zsh `PALETTE_*`/SGR region, the p10k fallback block, the
+     Starship palette line and table, Herdr's `[theme.custom]`, fish's colours, the bat/tmux/Neovim
+     blocks. `adoptThemeBlock` rewrites **only the bytes between the anchors**; every other byte of
+     the file is left exactly as it was. The original is recorded in the same `theme.json`, so
+     **Undo** restores it byte-for-byte.
+  3. **Neither degree holds** — still refused, unchanged.
+- **The refusal now has a sign on it.** It names the file, every proof that was attempted (the
+  ownership marker, the generated block, the region anchors, the byte-for-byte match) and the two
+  ways forward (`reinstall`, or leave the file out of the theme change). `unownedThemeFileError`.
+- **No preserve copy for the shell startup files, on purpose.** A `~/.zshrc.d/` or
+  `~/.config/fish/dotfiles.d/` copy is sourced *after* the managed file, so writing one for a region
+  adoption would put the old palette back at the next shell start. The recorded original plus Undo
+  is the safety; the foreign bytes survive in place and the guard proves it. The refresh remains the
+  path that preserves a whole file before replacing it.
+- **Tests.** `TestThemeRegionAdoptionRewritesOnlyTheManagedRegion` (the user's exact case — the RED
+  before the fix was the old refusal), `TestThemeRegionAdoptionLeavesForeignContentIntact` (the
+  guard: the exact prefix/suffix bytes around the region survive), and
+  `TestThemeRegionAdoptionCoversTheUsersFiveFiles` (the five real legacy shapes, each with the
+  user's own bytes around the region, then Undo restores all five byte-for-byte).
+  `TestThemeRefusalNamesTheProbesAndTheWayForward` pins the message. Teeth: the prefix/suffix
+  comparisons fail the moment the adoption writes outside the anchors.
+- **No golden moved.** The change is in `applyDotfilesTheme`'s loop and a new error helper; no screen
+  or snapshot moved. `TestThemeRefreshBringsAnOldManagedFileUpToDate` no longer asserts that the
+  switch refuses an anchor-bearing legacy file (it now adopts its region); the refresh path it
+  covers is unchanged.
