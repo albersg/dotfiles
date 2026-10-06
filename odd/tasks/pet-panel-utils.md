@@ -13,6 +13,7 @@ Four asks from the user, in their own words:
 - The rung is now **bounded to a quarter of the terminal height** (`companionHeightShare = 4`, PR #148): volume-full at 48+, volume-small at 32–47, glyph below.
 - **NO GOLDEN MAY MOVE** unless the movement is explained line by line before it is accepted; a moved framed golden is a finding, not a chore.
 - **Termux and 80x24 are the floor**: no emoji-only meaning, no truecolor assumption, and the frame must fit (the guard `TestEveryScreenFitsEveryTerminalSize` measures 53 screens × 12 sizes).
+- **Every utility has an installation route and a menu route, and the two share one implementation; a guard proves they agree.** A utility that also runs during an installation (today the WSL resources: `dotfiles-wsl/.wslconfig.tmpl` is rendered at install time *and* editable from the menu) must not grow a second calculation or a second writer. One function computes the recommended values, one function builds the content, one function writes it, and `TestWSLResourceUtilityAndTheInstallerAgreeByteForByte` mounts the file by both routes from the same host and the same pre-existing file and fails unless the bytes are identical. This repository already paid for the alternative once — the palette hand-written in six places, and the sixth copy that fell behind — so the rule is inherited by every later utility: the terminal probe, the startup audit, the doctor.
 - A guard that can see the class beats a test that can see the instance. A number in prose comes from a test that prints it.
 
 ## Tasks
@@ -22,7 +23,14 @@ Four asks from the user, in their own words:
 | 1 | A small volumetric rung: the 3D creature at the heights where only the glyph cat draws today | `companion.go` (encoder + ladder), `companion_test.go` | rendered rows per rung at each height; the glyph fallback's last height named; cost at that rung measured |
 | 2 | The main-menu plan panel stops crowding the creature out | `panels.go`, `view.go`, `panels_test.go` | the measured rows of panel + body + rung at 80x24, 100x25, 120x34, 160x50, before and after |
 | 3 | A utilities section reached from the menu, with at least one real utility (system theme) | `model.go` (screen + menu), `view.go`, `installer.go` (step), tests | the screen's frame fit at 12 sizes; the step's dry-run behaviour; what it changes on disk, named |
+| 4 | The WSL resources as a menu utility, sharing the install step's calculation and writer | `wslconfig.go` (plan + merge + write), `wsl.go` (step + utility I/O), `model.go`/`update.go`/`view.go` (screen + row), `util_screen_test.go`, `wslconfig_test.go`, `screen_coverage_test.go` | the row offered on WSL and absent elsewhere with the reason stated; the host numbers and the recommendation on screen; the two routes byte-identical for one host and one pre-existing file, with the guard's teeth shown; the user's own keys preserved and the previous file backed up; the dry-run skip; the frame measured at 12 sizes |
 
 ## Open questions the user must settle only if the answer changes what is built
 
 - Task 3 changes files **outside the installer's own configuration** (a system theme). If the theme switch is to be offered, it must be reversible and must never destroy a value the user set — the same rule as `preserve-user-configs.md`. Which file(s) and which mechanism is the implementer's decision, but the reversibility is not optional.
+
+## Open questions left by task 4
+
+- **The main menu's Utilities panel does not name the WSL resource row.** `utilitiesPanelFacts` (`panels.go`) still describes only the desktop theme switch, and `panels.go` was outside task 4's edit surfaces, so the panel and the section are momentarily two accounts of one section. Naming the WSL utility there is the follow-up.
+- **The three keys the utility adjusts are memory, processors and swap.** The rest of the template (`networkingMode`, `dnsTunneling`, `localhostForwarding`, `autoMemoryReclaim`, `sparseVhd`) is managed by a write but is not editable on screen: changing it from a menu would change how WSL networks and reclaims memory, which is a different decision than sizing the VM, and it was not asked for.
+- **Removing a key is not offered.** A key the plan omits is left as the file has it, so the utility cannot delete a limit; adding removal is only safe if it can distinguish "the host is unknown" from "the user means to unset this", which is a separate design.

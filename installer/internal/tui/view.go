@@ -3,10 +3,12 @@ package tui
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -84,6 +86,11 @@ var (
 	hintRetry   = installerHint{"[r]", "retry"}
 	hintStart   = installerHint{"[Enter]", "start"}
 	hintExit    = installerHint{"[Enter]", "exit"}
+	// hintAdjust and hintRecommended are the WSL resource screen's own keys: the
+	// arrows move the value under the cursor by one step, and `r` puts every row
+	// back on the host's recommendation.
+	hintAdjust      = installerHint{"[←/→]", "adjust"}
+	hintRecommended = installerHint{"[r]", "recommended"}
 	// hintTab cycles the panels of a screen that offers more than one. It is only
 	// ever added to a screen that has something to cycle, so the footer never
 	// advertises a key that does nothing.
@@ -451,6 +458,10 @@ func (m Model) headerName() string {
 	case ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm:
 		return "Backups"
 	case ScreenUtilities:
+		return "Utilities"
+	case ScreenWSLResources:
+		// The WSL resource screen is one level in from the utilities section, and
+		// its header says so rather than reading as a section of its own.
 		return "Utilities"
 	default:
 		return "dotfiles"
@@ -901,6 +912,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderUtilities())
 	case ScreenThemePicker:
 		s.WriteString(m.renderThemePicker())
+	case ScreenWSLResources:
+		s.WriteString(m.renderWSLResources())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
 	case ScreenComplete:
@@ -1156,29 +1169,42 @@ const utilitiesNoticeRows = 2
 // what the change touches, the rows the host offers, and the result of the last
 // one. The themes themselves live one level in, on the theme picker.
 func (m Model) renderUtilities() string {
-	return m.renderThemeScreen(m.utilitiesDescription())
+	return m.renderThemeScreen(m.utilitiesDescription(), m.ThemeNotice,
+		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+}
+
+// renderWSLResources draws the WSL resource screen: the host's capacities, the
+// recommendation derived from them, what the file holds now, the three editable
+// values and the write row. It is the same shape as the other utilities screens,
+// so it uses the same budget arithmetic; the arrows are the extra keys, and they
+// are in the legend rather than in prose.
+func (m Model) renderWSLResources() string {
+	return m.renderThemeScreen(m.wslResourceDescription(), m.WSLNotice,
+		[]installerHint{hintUp, hintDown, hintAdjust, hintRecommended, hintSelect, hintBack})
 }
 
 // renderThemePicker draws the dotfiles theme list: the complete themes, each
 // naming the tools it leaves out, the undo row when there is a change to put
 // back, and the live preview of the theme under the cursor.
 func (m Model) renderThemePicker() string {
-	return m.renderThemeScreen(m.themePickerDescription())
+	return m.renderThemeScreen(m.themePickerDescription(), m.ThemeNotice,
+		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
 }
 
 // renderThemeScreen draws a screen whose body is a description, a menu, the live
-// preview and the last notice, sized to the frame. The utilities section and the
-// theme picker are the same shape, so the budget arithmetic - the one that keeps
-// a narrow terminal from pushing the footer off screen - lives in one place.
-func (m Model) renderThemeScreen(paragraphs []string) string {
+// preview and the last notice, sized to the frame. The utilities section, the
+// theme picker and the WSL resource screen are the same shape, so the budget
+// arithmetic - the one that keeps a narrow terminal from pushing the footer off
+// screen - lives in one place. The notice and the hints are parameters rather
+// than fields so a screen's footer says what that screen's keys do.
+func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints []installerHint) string {
 	width := contentWidth(m)
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintBack}
 	menu := m.menuRows(m.GetCurrentOptions(), m.Cursor)
 
 	var notice []string
-	if m.ThemeNotice != "" {
+	if screenNotice != "" {
 		notice = append(notice, "")
-		lines := wrapText(m.ThemeNotice, width, 0)
+		lines := wrapText(screenNotice, width, 0)
 		if len(lines) > utilitiesNoticeRows {
 			hidden := len(lines) - utilitiesNoticeRows + 1
 			lines = lines[:utilitiesNoticeRows-1]
@@ -1258,6 +1284,17 @@ func (m Model) utilitiesDescription() []string {
 			paragraphs = append(paragraphs, fmt.Sprintf("It writes %s, and its own record in theme.json "+
 				"beside the installer's other state.", m.ThemeSwitch.Writes))
 		}
+	}
+
+	// The WSL resources. It is offered only where a .wslconfig exists, and the
+	// section says why when it does not, so the gap is declared rather than left
+	// to read as an oversight.
+	if reason := m.wslResourcesUnavailableReason(); reason != "" {
+		paragraphs = append(paragraphs, reason)
+	} else {
+		paragraphs = append(paragraphs, fmt.Sprintf("%s shows the memory, processors and swap your %s holds today, the values "+
+			"recommended from this host's real capacities, and writes back only the keys the dotfiles' template manages.",
+			utilitiesWSLRow, m.WSLState.Path))
 	}
 
 	// The dotfiles' own theme. Its definitions are resolved from $DOTFILES_DIR,
@@ -1340,6 +1377,147 @@ func (m *Model) resetThemeRefresh() {
 // own theme. The themes themselves live one level in, on the theme picker, so
 // the section reads as a list of jobs rather than a list of themes.
 const utilitiesThemeRow = "Change the dotfiles theme"
+
+// utilitiesWSLRow is the section's row for the WSL resources. It is offered only
+// where there is a .wslconfig to edit, and the section's body names the reason
+// everywhere else.
+const utilitiesWSLRow = "Adjust the WSL resources"
+
+// The rows the arrow keys act on. The indices are part of the screen's contract:
+// the key handler adjusts the value under the cursor by its index, and the frame
+// guards measure the list this function returns.
+const (
+	wslResourceRowMemory = iota
+	wslResourceRowProcessors
+	wslResourceRowSwap
+)
+
+// wslWriteRow is the one row that touches the file.
+const wslWriteRow = "Write the .wslconfig"
+
+// wslValueLabel renders one value for the screen. Zero is named rather than
+// printed as a zero, which would read as a real limit; the caller says which
+// zero it is, because a value the plan omits and a value a row has not set read
+// differently to a person even though they are the same number here.
+func wslValueLabel(value int, unit, zero string) string {
+	if value <= 0 {
+		return zero
+	}
+	if unit == "" {
+		return strconv.Itoa(value)
+	}
+	return fmt.Sprintf("%d %s", value, unit)
+}
+
+// wslResourceRows builds the WSL resource screen's rows from its state: one row
+// per managed key carrying the draft value, the write row, and the way back. The
+// values are the draft's, so the rows always show what the write would apply.
+func (m Model) wslResourceRows() []string {
+	draft := m.WSLState.Draft
+	return []string{
+		"Memory: " + wslValueLabel(draft.MemoryMB, "MB", wslDraftZero),
+		"Processors: " + wslValueLabel(draft.Processors, "", wslDraftZero),
+		"Swap: " + wslValueLabel(draft.SwapMB, "MB", wslDraftZero),
+		m.menuSeparator(),
+		wslWriteRow,
+		m.menuSeparator(),
+		"← Back",
+	}
+}
+
+// wslDraftZero is how a row says it holds no value: the key is left exactly as
+// the file has it, because the utility updates the keys the template manages and
+// never deletes one.
+const wslDraftZero = "not set (left as it is)"
+
+// wslOmittedZero is how the recommendation names a key the template omits.
+const wslOmittedZero = "omitted (WSL decides)"
+
+// wslResourceDescription is what the WSL resource screen says about itself: the
+// capacities the recommendation came from, the recommendation and the
+// proportions it follows, what the file holds today, what a write preserves, and
+// the one step the screen deliberately does not take.
+func (m Model) wslResourceDescription() []string {
+	state := m.WSLState
+	if reason := m.wslResourcesUnavailableReason(); reason != "" {
+		return []string{reason}
+	}
+
+	paragraphs := []string{wslHostParagraph(state.Host)}
+
+	plan := state.Plan
+	paragraphs = append(paragraphs, fmt.Sprintf(
+		"Recommended for this host: memory %s, processors %s and swap %s. The proportions are the ones the installation "+
+			"step uses, taken from the shipped template rather than typed here: memory is half the host's RAM rounded down to "+
+			"%d MB, but never so much that Windows keeps less than 2 GiB; processors are every logical CPU the host reports; "+
+			"swap is a quarter of that memory, rounded down to the same step.",
+		wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB"),
+		wslMemoryStepMB))
+	paragraphs = append(paragraphs, wslCurrentParagraph(state))
+
+	paragraphs = append(paragraphs,
+		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig - networking, experimental "+
+			"flags, keys of your own - is kept exactly as it is, and the previous file is backed up beside it as "+
+			".wslconfig.bak-dotfiles-<stamp> before the write.")
+
+	paragraphs = append(paragraphs,
+		"WSL reads .wslconfig when the VM starts, so nothing here takes effect until you run `wsl --shutdown` on Windows and "+
+			"reopen the terminal. This screen does not run it: that would close the session you are working in.")
+
+	return paragraphs
+}
+
+// wslUnitLabel renders one planned value for prose, where a zero is a key the
+// template decided to omit rather than a row the user has not set.
+func wslUnitLabel(value int, unit string) string {
+	return wslValueLabel(value, unit, wslOmittedZero)
+}
+
+// wslHostParagraph names the capacities the recommendation came from, so the
+// numbers on screen can be checked against the machine they describe.
+func wslHostParagraph(host system.HostResources) string {
+	if host.MemoryBytes == 0 && host.LogicalCPUs == 0 {
+		return "The Windows host's capacities could not be read, so there is nothing to recommend. Set DOTFILES_WSL_HOST_MEMORY_MB " +
+			"and DOTFILES_WSL_HOST_CPUS to name them, or set the values by hand below."
+	}
+	return fmt.Sprintf("Windows reports %d MiB of RAM and %d logical processors; both numbers come from the same host detector the "+
+		"installation step reads them through.", host.MemoryBytes/bytesPerMiB, host.LogicalCPUs)
+}
+
+// wslCurrentParagraph says what the user's own file holds today, so the screen
+// separates what is there from what is suggested.
+func wslCurrentParagraph(state wslResourceState) string {
+	if !state.HasFile {
+		return fmt.Sprintf("There is no .wslconfig at %s yet; writing one creates it.", state.Path)
+	}
+	current := state.Current
+	return fmt.Sprintf("Your .wslconfig at %s holds memory=%s, processors=%s and swap=%s today. A key that is absent is "+
+		"omitted rather than guessed at: WSL's own proportional default applies to it.",
+		state.Path, wslResourceLabel(current.MemoryMB, "MB"), wslResourceLabel(current.Processors, ""),
+		wslResourceLabel(current.SwapMB, "MB"))
+}
+
+// wslResourcesUnavailableReason says why the section offers no WSL resource row,
+// and is empty when it does. The reason is always stated: a gap the user cannot
+// see the reason for is the failure this exists to prevent, and on a machine
+// that is not Windows the answer is simply that this is not Windows.
+func (m Model) wslResourcesUnavailableReason() string {
+	if m.SystemInfo == nil || !m.SystemInfo.IsWSL {
+		host := "this machine"
+		if m.SystemInfo != nil && m.SystemInfo.OSName != "" {
+			host = m.SystemInfo.OSName
+		}
+		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file read only by WSL, and %s does not run it. "+
+			"The utility is offered only on a WSL host.", host)
+	}
+	if !m.WSLState.Resolved {
+		return "WSL resources are not adjustable here yet: reading the Windows profile and the host's capacities."
+	}
+	if !m.WSLState.Available {
+		return fmt.Sprintf("WSL resources are not adjustable here: %s.", m.WSLState.Reason)
+	}
+	return ""
+}
 
 // themePreviewSwatchRoles is the palette roles the live preview paints, in the
 // order it paints them. They are the roles every offered theme has.

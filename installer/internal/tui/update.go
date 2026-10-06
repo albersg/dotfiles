@@ -125,6 +125,23 @@ type (
 		notice string
 		err    error
 	}
+
+	// wslResourceLoadedMsg carries the WSL resource read onto the section: the
+	// destination, the host capacities, the recommendation derived from them and
+	// the managed values the file holds. It is read in a command because detecting
+	// the host runs powershell.exe.
+	wslResourceLoadedMsg struct {
+		state wslResourceState
+	}
+
+	// wslResourceWrittenMsg carries the result of a .wslconfig write back to
+	// Update, which is where the screen's notice is set. wrote says whether the
+	// write happened, so a dry run leaves the draft alone.
+	wslResourceWrittenMsg struct {
+		notice string
+		wrote  bool
+		err    error
+	}
 )
 
 // stepRecordedState is the state one installation step records for the steps
@@ -270,6 +287,39 @@ func (m *Model) dotfilesThemesCmdIfNeeded() tea.Cmd {
 		return nil
 	}
 	return loadDotfilesThemesCmd(m.RepoDir)
+}
+
+// loadWSLResourceStateCmd reads the WSL resource state off the update loop: the
+// Windows profile lookup, the host query and the file read all touch the
+// machine, and a screen must never block on interop.
+func loadWSLResourceStateCmd(repoDir string, isWSL bool) tea.Cmd {
+	return func() tea.Msg {
+		return wslResourceLoadedMsg{state: loadWSLResourceState(repoDir, isWSL)}
+	}
+}
+
+// wslResourceStateCmdIfNeeded reads the WSL resource state the first time the
+// utilities section is opened, the way the theme definitions are read. It
+// returns no command only when the read has already finished, so the section's
+// own state -- available or not -- is what it draws.
+func (m *Model) wslResourceStateCmdIfNeeded() tea.Cmd {
+	if m.WSLState.Resolved {
+		return nil
+	}
+	return loadWSLResourceStateCmd(m.RepoDir, m.SystemInfo != nil && m.SystemInfo.IsWSL)
+}
+
+// wslResourceWriteCmd runs one .wslconfig write off the update loop, through the
+// same content builder and the same writer the installation step uses. The state
+// travels with it, so what is written is exactly what the screen showed, and the
+// answer carries whether it wrote: a dry run must not re-read the file, which
+// would silently discard the draft the user was editing.
+func (m Model) wslResourceWriteCmd() tea.Cmd {
+	state := m.WSLState
+	return func() tea.Msg {
+		notice, wrote, err := writeWSLResourceDraft(state, "utilities")
+		return wslResourceWrittenMsg{notice: notice, wrote: wrote, err: err}
+	}
 }
 
 // applyDotfilesThemeCmd runs one dotfiles-theme switch off the update loop,
@@ -562,6 +612,33 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.DotfilesRepoDir = msg.repoDir
 		m.DotfilesThemesErr = ""
 		return m, nil
+
+	case wslResourceLoadedMsg:
+		// The read fills the state once. A second read arriving after the screen
+		// has been written would roll the draft back to what the file held, so the
+		// first answer is the one that stands.
+		if !m.WSLState.Resolved {
+			m.WSLState = msg.state
+		}
+		return m, nil
+
+	case wslResourceWrittenMsg:
+		// The write is not an install step: a failure stays on the screen as a
+		// notice, exactly as a theme switch failure does.
+		if msg.err != nil {
+			m.WSLNotice = msg.err.Error()
+			return m, nil
+		}
+		m.WSLNotice = msg.notice
+		if !msg.wrote {
+			// A dry run changed nothing, so the draft the user was editing is what
+			// the screen keeps showing.
+			return m, nil
+		}
+		// What the file holds has changed, so the read half is refreshed from the
+		// file the write left behind rather than from what the screen remembered.
+		m.WSLState.Resolved = false
+		return m, m.wslResourceStateCmdIfNeeded()
 
 	case dotfilesThemeChangedMsg:
 		// The dotfiles switch is not an install step either, so a failure is a
@@ -877,6 +954,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenThemePicker:
 		return m.handleThemePickerKeys(key)
 
+	case ScreenWSLResources:
+		return m.handleWSLResourceKeys(key)
+
 	case ScreenBackupConfirm:
 		return m.handleBackupConfirmKeys(key)
 
@@ -979,6 +1059,12 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.ThemeNotice = ""
+	case ScreenWSLResources:
+		// The WSL resource screen is one level in too, and leaving it clears the
+		// write's notice so a later visit does not open on a stale result.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.WSLNotice = ""
 	// Trainer screens
 	case ScreenTrainerMenu:
 		// Save stats and return to main menu. Escape also cancels an armed
@@ -1191,7 +1277,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.ThemeNotice = ""
-		return m, m.dotfilesThemesCmdIfNeeded()
+		return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
 	case "enter", " ":
 		selected := options[m.Cursor]
 		switch {
@@ -1222,7 +1308,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
 			m.ThemeNotice = ""
-			return m, m.dotfilesThemesCmdIfNeeded()
+			return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
 		case strings.Contains(selected, "Restore from Backup") && hasRestoreOption:
 			m.Screen = ScreenRestoreBackup
 			m.Cursor = 0
@@ -1279,12 +1365,86 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 			m.ThemeNotice = ""
 			m.resetThemeRefresh()
+		case selected == utilitiesWSLRow:
+			// The WSL resources are one level in for the same reason. The read is
+			// started when the section opens, so this only resets the view.
+			m.Screen = ScreenWSLResources
+			m.Cursor = 0
+			m.WSLNotice = ""
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
 		case strings.Contains(selected, "Back"):
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 			m.ThemeNotice = ""
+		}
+	}
+
+	return m, nil
+}
+
+// handleWSLResourceKeys drives the WSL resource screen. It only ever changes the
+// cursor, the draft or the notice: the write is a command, so a slow filesystem
+// cannot block the update loop, and the dry-run gate it runs behind is the one
+// the installation step runs behind.
+//
+// The arrow keys (and h/l) move the value under the cursor by one step, `r` puts
+// every row back on the host's recommendation, and the write row is the only row
+// that touches the file.
+func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	adjust := func(value, step, delta int) int { return wslAdjustValue(value, step, delta) }
+	applyToCursor := func(delta int) {
+		switch m.Cursor {
+		case wslResourceRowMemory:
+			m.WSLState.Draft.MemoryMB = adjust(m.WSLState.Draft.MemoryMB, wslMemoryStepMB, delta)
+		case wslResourceRowProcessors:
+			m.WSLState.Draft.Processors = adjust(m.WSLState.Draft.Processors, 1, delta)
+		case wslResourceRowSwap:
+			m.WSLState.Draft.SwapMB = adjust(m.WSLState.Draft.SwapMB, wslMemoryStepMB, delta)
+		}
+	}
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "left", "h", "-":
+		applyToCursor(-1)
+		m.WSLNotice = ""
+	case "right", "l", "+":
+		applyToCursor(1)
+		m.WSLNotice = ""
+	case "r":
+		// The recommendation is one key away rather than a number to remember.
+		m.WSLState.Draft = m.WSLState.Plan
+		m.WSLNotice = ""
+	case "esc", "backspace":
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.WSLNotice = ""
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		switch {
+		case options[m.Cursor] == wslWriteRow:
+			return m, m.wslResourceWriteCmd()
+		case strings.Contains(options[m.Cursor], "Back"):
+			m.Screen = ScreenUtilities
+			m.Cursor = 0
+			m.WSLNotice = ""
 		}
 	}
 

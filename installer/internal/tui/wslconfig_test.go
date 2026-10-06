@@ -281,3 +281,163 @@ func TestShippedWSLConfigTemplatePreservesFixedSettings(t *testing.T) {
 		})
 	}
 }
+
+// renderedFixture is the shipped template rendered for one plan, which is the
+// content a fresh install writes and the content the utilities screen starts
+// from. Round-tripping it through the merge must be the identity: a file this
+// repository wrote is never reformatted behind the user's back.
+func renderedFixture(t *testing.T, plan WSLResources) []byte {
+	t.Helper()
+
+	shipped, err := os.ReadFile(filepath.Join(repoRoot(t), repoAssetWSLConfig))
+	if err != nil {
+		t.Fatalf("reading the shipped WSL template: %v", err)
+	}
+	rendered, err := RenderWSLConfig(string(shipped), plan)
+	if err != nil {
+		t.Fatalf("rendering the shipped template: %v", err)
+	}
+	return rendered
+}
+
+// TestMergeWSLConfigKeepsEverythingItDoesNotManage is the preservation guard: the
+// user's .wslconfig can hold keys, comments and sections this installer knows
+// nothing about, and a write may only touch the keys the template manages. It
+// also pins the fresh-install case, where an empty destination receives the
+// render byte for byte.
+func TestMergeWSLConfigKeepsEverythingItDoesNotManage(t *testing.T) {
+	plan := WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048}
+	rendered := renderedFixture(t, plan)
+
+	tests := []struct {
+		name     string
+		existing string
+		kept     []string
+		applied  []string
+	}{
+		{
+			name:     "a file the repository itself wrote is not reformatted",
+			existing: string(rendered),
+			kept:     []string{"# Settings apply across all Linux distros", "[wsl2]", "[experimental]"},
+			applied:  []string{"memory=8192MB", "processors=8", "swap=2048MB", "sparseVhd=true"},
+		},
+		{
+			name: "the user's own keys, comments and sections survive",
+			existing: "[wsl2]\n" +
+				"# my own kernel\n" +
+				"kernel=C:\\\\kernel\n" +
+				"memory=32GB\n" +
+				"[experimental]\n" +
+				"useWindowsDnsCache=true\n" +
+				"[interop]\n" +
+				"enabled=false\n",
+			kept:    []string{"# my own kernel", "kernel=C:\\\\kernel", "useWindowsDnsCache=true", "[interop]", "enabled=false"},
+			applied: []string{"memory=8192MB", "processors=8", "swap=2048MB", "networkingMode=mirrored"},
+		},
+		{
+			// A key outside a section is not the setting WSL reads, so it is not the
+			// managed one either: the merge leaves it where it is and writes the
+			// managed keys under their own section instead of guessing.
+			name:     "a file with no section at all still receives the managed ones",
+			existing: "memory=4GB\n",
+			kept:     []string{"memory=4GB"},
+			applied:  []string{"[wsl2]", "memory=8192MB", "processors=8", "swap=2048MB", "[experimental]"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			got := string(MergeWSLConfig([]byte(tt.existing), rendered))
+
+			for _, want := range append(append([]string{}, tt.kept...), tt.applied...) {
+				if !strings.Contains(got, want) {
+					t.Errorf("the merge dropped or failed to apply %q:\n%s", want, got)
+				}
+			}
+			if strings.Contains(got, "memory=32GB") {
+				t.Errorf("the superseded memory key is still there:\n%s", got)
+			}
+			if tt.name == "a file the repository itself wrote is not reformatted" && got != tt.existing {
+				t.Errorf("the merge reformatted a file the repository wrote:\n--- want ---\n%s\n--- got ---\n%s", tt.existing, got)
+			}
+		})
+	}
+
+	// A fresh install: nothing there yet, so the render is the whole answer.
+	if got := string(MergeWSLConfig(nil, rendered)); got != string(rendered) {
+		t.Errorf("an empty destination was not given the render unchanged:\n%s", got)
+	}
+}
+
+// TestMergeWSLConfigLeavesWhatTheTemplateOmits pins the safety half of the merge:
+// an unknown host renders no memory, processors or swap, and a key the template
+// omits is left exactly as the file has it rather than deleted. A limit this
+// installer cannot compute must never be thrown away.
+func TestMergeWSLConfigLeavesWhatTheTemplateOmits(t *testing.T) {
+	omitted := renderedFixture(t, WSLResources{})
+	existing := "[wsl2]\nmemory=32GB\nprocessors=16\n"
+
+	got := string(MergeWSLConfig([]byte(existing), omitted))
+	for _, want := range []string{"memory=32GB", "processors=16"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("an omitted key was deleted from the user's file: %q is gone:\n%s", want, got)
+		}
+	}
+}
+
+// TestParseWSLConfigValues pins the read half the screen shows: the three keys
+// under [wsl2], in the units WSL accepts, and 0 -- "not set" -- for anything the
+// parser cannot read rather than a limit the file does not impose.
+func TestParseWSLConfigValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines string
+		want  WSLResources
+	}{
+		{"the template's own form", "[wsl2]\nmemory=8192MB\nprocessors=8\nswap=2048MB\n", WSLResources{8192, 8, 2048}},
+		{"gigabytes are read as such", "[wsl2]\nmemory=32GB\nswap=1GB\n", WSLResources{MemoryMB: 32768, SwapMB: 1024}},
+		{"an absent key is not set", "[wsl2]\nnetworkingMode=mirrored\n", WSLResources{}},
+		{"a value under another section is not the WSL limit", "[experimental]\nmemory=64GB\n", WSLResources{}},
+		{"a comment is not a key", "[wsl2]\n# memory=64GB\nmemory=4096MB\n", WSLResources{MemoryMB: 4096}},
+		{"an inline comment is not part of the value", "[wsl2]\nmemory=4096MB # half\n", WSLResources{MemoryMB: 4096}},
+		{"an unreadable value is not set", "[wsl2]\nmemory=plenty\nprocessors=many\n", WSLResources{}},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ParseWSLConfigValues([]byte(tt.lines)); got != tt.want {
+				t.Errorf("ParseWSLConfigValues = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWSLAdjustValue pins the editing arithmetic, including the two edges the
+// screen promises: the first step up from "not set" lands on the step itself, and
+// nothing can reach a negative value.
+func TestWSLAdjustValue(t *testing.T) {
+	tests := []struct {
+		name        string
+		value, step int
+		delta       int
+		want        int
+	}{
+		{"a step up", 8192, wslMemoryStepMB, 1, 8704},
+		{"a step down", 8192, wslMemoryStepMB, -1, 7680},
+		{"the first step from not set", 0, wslMemoryStepMB, 1, wslMemoryStepMB},
+		{"down from not set stays not set", 0, wslMemoryStepMB, -1, 0},
+		{"down past the step is not set again", 512, wslMemoryStepMB, -1, 0},
+		{"one processor at a time", 8, 1, -1, 7},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if got := wslAdjustValue(tt.value, tt.step, tt.delta); got != tt.want {
+				t.Errorf("wslAdjustValue(%d, %d, %d) = %d, want %d", tt.value, tt.step, tt.delta, got, tt.want)
+			}
+		})
+	}
+}

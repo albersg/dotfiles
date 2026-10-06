@@ -79,26 +79,16 @@ func stepInstallWSLConfig(m *Model) error {
 			"Failed to locate the cloned repository", err)
 	}
 
-	// The machine-derived keys come from the Windows host. The template is
-	// rendered once here, and the interactive route is handed the same bytes, so
-	// the two routes cannot disagree about the file they install.
-	rendered, host, plan, err := renderedRepoWSLConfig(repoDir)
-	if err != nil {
-		return wrapStepError(wslStepID, "Configure WSL",
-			"Failed to render .wslconfig for this host", err)
-	}
-	logWSLResourcePlan(host, plan)
-
-	// .wslconfig is a Windows file: it belongs in the Windows user profile. The
-	// lookup can legitimately fail (interop disabled, unusual mount layout) and
-	// that must not stop the in-distribution half of this step.
+	// The machine-derived keys come from the Windows host. The content is built
+	// once, by the same builder the utilities section calls, and written by the
+	// same writer, so the two routes cannot disagree about the file they install.
 	profileDir, profileErr := windowsUserProfile()
 	if profileErr != nil {
 		SendLog(wslStepID, fmt.Sprintf(
 			"Skipping .wslconfig: %v. Set %s to override the lookup.", profileErr, envWSLWindowsHome))
 	} else {
 		destination := filepath.Join(profileDir, ".wslconfig")
-		if err := applyArtifactContent(rendered, destination, wslStepID); err != nil {
+		if err := installRepoWSLConfig(repoDir, destination, wslStepID); err != nil {
 			return wrapStepError(wslStepID, "Configure WSL",
 				"Failed to install .wslconfig into the Windows user profile", err)
 		}
@@ -132,27 +122,46 @@ func stepInstallWSLConfig(m *Model) error {
 	return nil
 }
 
-// renderedRepoWSLConfig reads the shipped template, detects the Windows host and
-// renders the machine-derived keys for it.
+// renderedRepoWSLConfig reads the shipped template, detects the Windows host,
+// renders the machine-derived keys for it, and merges the result over the
+// .wslconfig this machine already has.
 //
-// The host and the plan are returned alongside the bytes so the caller can
-// report where the values came from. Both installation routes render through
-// this one function, so the step and the interactive script cannot disagree
-// about the content they install.
+// The merge happens here as well as in the step because the interactive route
+// copies these bytes straight over the destination (getWSLConfigScript's
+// install_artifact, interactive.go): the interactive install, the
+// non-interactive step and the utilities section all preserve the user's own
+// keys, or none of them does. The destination is resolved the same way the
+// interactive script resolves it and the same way the utilities section resolves
+// it, so all three name one file.
+//
+// The host and the plan come back with the bytes so the caller can report where
+// the values came from.
 func renderedRepoWSLConfig(repoDir string) ([]byte, system.HostResources, WSLResources, error) {
-	templateText, err := os.ReadFile(filepath.Join(repoDir, repoAssetWSLConfig))
-	if err != nil {
-		return nil, system.HostResources{}, WSLResources{}, err
+	// A destination that cannot be resolved leaves nothing to merge with; the
+	// interactive script skips the .wslconfig write in that case anyway, and the
+	// step reports the lookup failure itself.
+	destination := ""
+	if path, err := wslConfigDestination(); err == nil {
+		destination = path
 	}
+	return wslConfigContentForHost(repoDir, destination)
+}
 
-	host := system.DetectHostResources()
-	plan := PlanWSLResources(host)
-
-	rendered, err := RenderWSLConfig(string(templateText), plan)
+// installRepoWSLConfig builds the .wslconfig for this host and installs it at
+// dst. It is the installation route into the shared content builder and the
+// shared writer, and the utilities section's write goes through the same two
+// functions: one render, one merge, one writer, two entries.
+func installRepoWSLConfig(repoDir, dst, stepID string) error {
+	content, host, plan, err := wslConfigContentForHost(repoDir, dst)
 	if err != nil {
-		return nil, host, plan, err
+		return err
 	}
-	return rendered, host, plan, nil
+	logWSLResourcePlan(host, plan)
+
+	if _, err := writeWSLConfig(content, dst, stepID); err != nil {
+		return err
+	}
+	return nil
 }
 
 // logWSLResourcePlan reports the machine-derived part of the rendered
@@ -494,4 +503,131 @@ func writeWithSudo(data []byte, dst, stepID string) error {
 		return fmt.Errorf("%s was not written correctly", dst)
 	}
 	return nil
+}
+
+// ============================================================================
+// THE UTILITIES SECTION: THE SAME FILE, REACHED FROM THE MENU
+// ============================================================================
+//
+// The installation step above applies .wslconfig as part of a normal install, so
+// a freshly installed machine already comes out right. This section is the other
+// way in: it shows the managed values the file holds today beside the values
+// recommended from the real Windows host, lets the user change memory,
+// processors and swap, and writes them back through the same content builder and
+// the same writer the step uses. Everything below is reading or reporting; the
+// calculation (PlanWSLResources) and the write (writeWSLConfig) are shared.
+
+// wslResourceState is everything the utility draws and writes: where the file
+// is, what the host can give, what was recommended from it, what the file holds
+// now, and the draft the user is editing.
+//
+// It is read in a command rather than in View, because detecting the host runs
+// powershell.exe and a screen must never block on interop.
+type wslResourceState struct {
+	// Resolved reports whether the read finished. Until it has, the section says
+	// it is still reading rather than claiming there is nothing to offer.
+	Resolved bool
+	// Available reports whether the utility is offered at all.
+	Available bool
+	// Reason is why it is not offered, in the section's own words.
+	Reason string
+	// Path is the user's .wslconfig, the file WSL reads.
+	Path string
+	// RepoDir is the checkout holding the shipped template the write renders.
+	RepoDir string
+	// Host is what Windows reported, and Plan is the recommendation derived from
+	// it by PlanWSLResources -- the same call the installation step makes.
+	Host system.HostResources
+	Plan WSLResources
+	// Current is what the file sets today; a zero field is a key the file omits.
+	Current WSLResources
+	// HasFile reports whether there is a .wslconfig to read at all.
+	HasFile bool
+	// Draft is what the rows edit and the write applies.
+	Draft WSLResources
+}
+
+// wslConfigDestination resolves the .wslconfig the utility edits: the same
+// Windows user profile the installation step installs into, through the same
+// lookup and the same override.
+func wslConfigDestination() (string, error) {
+	profileDir, err := windowsUserProfile()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(profileDir, ".wslconfig"), nil
+}
+
+// resolveWSLTemplateDir finds the checkout that holds the shipped WSL template,
+// using the same search order the theme definitions use: $DOTFILES_DIR, the
+// clone, the working directory and its parents, ~/dotfiles and ~/.dotfiles. The
+// utility is reached from the menu, so it cannot assume the clone step ran.
+func resolveWSLTemplateDir(repoDir string) (string, error) {
+	for _, dir := range themeDefinitionDirs(repoDir) {
+		if _, err := os.Stat(filepath.Join(dir, repoAssetWSLConfig)); err == nil {
+			return dir, nil
+		}
+	}
+	return "", fmt.Errorf("no repository holding %s was found in $%s, the clone, the working directory or its parents, ~/dotfiles or ~/.dotfiles",
+		repoAssetWSLConfig, dotfilesDirEnv)
+}
+
+// loadWSLResourceState reads everything the utility needs. The unavailable
+// answers are all resolved here, into a reason the section states in its own
+// body: a utility that is missing without saying why is the failure this shape
+// exists to prevent.
+func loadWSLResourceState(repoDir string, isWSL bool) wslResourceState {
+	st := wslResourceState{Resolved: true}
+
+	if !isWSL {
+		st.Reason = ".wslconfig is a Windows file read only by WSL"
+		return st
+	}
+
+	path, err := wslConfigDestination()
+	if err != nil {
+		st.Reason = err.Error()
+		return st
+	}
+	st.Path = path
+
+	resolvedRepo, err := resolveWSLTemplateDir(repoDir)
+	if err != nil {
+		st.Reason = err.Error()
+		return st
+	}
+	st.RepoDir = resolvedRepo
+
+	st.Host = system.DetectHostResources()
+	st.Plan = PlanWSLResources(st.Host)
+
+	if existing, readErr := os.ReadFile(path); readErr == nil {
+		st.HasFile = true
+		st.Current = ParseWSLConfigValues(existing)
+	}
+
+	st.Draft = wslDraftFrom(st.Current, st.Plan)
+	st.Available = true
+	return st
+}
+
+// writeWSLResourceDraft writes the draft through the shared content builder and
+// the shared writer, and says what it did. It recomputes nothing: the plan on
+// screen came from PlanWSLResources and the file is built by wslConfigContent,
+// which is what makes the two routes one implementation. wrote reports whether
+// the file was actually written, which a dry run never is.
+func writeWSLResourceDraft(st wslResourceState, stepID string) (notice string, wrote bool, err error) {
+	content, err := wslConfigContent(st.RepoDir, st.Draft, st.Path)
+	if err != nil {
+		return "", false, err
+	}
+
+	wrote, err = writeWSLConfig(content, st.Path, stepID)
+	if err != nil {
+		return "", false, err
+	}
+	if !wrote {
+		return fmt.Sprintf("DRY RUN: %s was not changed.", st.Path), false, nil
+	}
+	return fmt.Sprintf("%s written. Run `wsl --shutdown` on Windows and reopen the terminal to apply it.", st.Path), true, nil
 }
