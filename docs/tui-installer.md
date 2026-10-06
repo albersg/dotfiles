@@ -174,15 +174,29 @@ when the list is long only the description gives up its rows, never a theme, the
 marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same
 rule `preserve-user-configs` applies to the shell startup files.
 
-**A file with no marker is adopted only when its content proves it is ours.** An installation older
-than the marker leaves managed files without it, and refusing them made the switch unusable on a
-machine that already had dotfiles installed. Before refusing, the switch asks the *content* — never
-the path — whether the file is ours: it is if it carries a generated block marker
-(`>>> dotfiles-theme...`), or if, with the ownership-marker lines removed, it is byte-identical to the
-file the repository ships. Adoption writes the marker line and nothing else, records the bytes from
-before adoption in the same `theme.json`, and says so on screen and in the log; **Undo** takes the
-marker back out and leaves the file byte-for-byte as it was. A file whose content does not prove
-ownership is still refused, unchanged.
+**A file with no marker is adopted when its content or its region proves it is ours.** An
+installation older than the marker leaves managed files without it, and refusing them made the
+switch unusable on a machine that already had dotfiles installed. Before refusing, the switch asks
+the *content* — never the path — whether the file is ours, and it recognises two degrees:
+
+- **The whole file.** It carries a generated block marker (`>>> dotfiles-theme...`), or, with the
+  ownership-marker lines removed, it is byte-identical to the file the repository ships. Adoption
+  writes the marker line and nothing else; the bytes from before adoption go into the same
+  `theme.json`, and **Undo** takes the marker back out.
+- **Only a region.** The file does not match what the repository ships — it has drifted, or it holds
+  the user's own keys — but it still carries the anchors the generator knows (the zsh `PALETTE_*`/SGR
+  region, the p10k fallback block, the Starship palette line and table, Herdr's `[theme.custom]`,
+  fish's colours, the bat/tmux/Neovim blocks). The switch rewrites **only the bytes between those
+  anchors** and leaves every other byte of the file exactly as it was, then records the original so
+  **Undo** restores it byte-for-byte. No preserve copy is written for the shell startup files on
+  purpose: a `~/.zshrc.d` or `~/.config/fish/dotfiles.d` copy is sourced *after* the managed file,
+  so it would put the old palette back at the next shell start. The refresh below is the path that
+  preserves a whole file before it replaces it.
+
+A file that proves neither degree is still refused, unchanged — and the refusal **names the file,
+every proof that was attempted** (the ownership marker, the generated block, the region anchors, the
+byte-for-byte match) and **what the user can do**: reinstall so dotfiles writes its marked files, or
+leave that file out of the theme change.
 
 **It is reversible.** Before writing, the switch records the exact bytes each file held in the same
 `$XDG_STATE_HOME/dotfiles/theme.json` the desktop switch uses (the two halves coexist in that one
@@ -214,11 +228,12 @@ was. The palette comes from `themes/*.toml` — the chrome holds no second copy 
 with no canonical palette is refused rather than previewed with invented colours.
 
 **Refreshing files installed before the markers.** A machine installed by an older checkout holds
-files with neither the `dotfiles-managed-config:` marker nor a generated block, and some of them have
-drifted from what the repository ships since. Adoption (above) accepts a non-drifted one, but content
-alone cannot prove a drifted file, so the switch refuses those — and without a way to bring them
-forward the theme feature is unusable on that machine. The
-picker therefore offers **Refresh outdated theme files**. Choosing it first **detects** the installed
+files with neither the `dotfiles-managed-config:` marker nor a generated block. Adoption (above)
+accepts one whose whole content matches the repository, and the region proof accepts one that still
+carries the anchors the generator knows; a file that carries neither is refused. The picker
+therefore offers **Refresh outdated theme files** for the case the switch leaves out — a file whose
+content is not a recognizable region — and because the refresh is the path that preserves a file
+that may be the user's before it replaces it. Choosing it first **detects** the installed
 theme files that are not in the generated form (no marker, no block, or a block that no longer
 matches its definition) and opens a **review** that names every file it would touch, why it is out of
 date, and where each file that may be the user's will be preserved first. **Nothing is written until

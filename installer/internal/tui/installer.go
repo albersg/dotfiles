@@ -1657,17 +1657,53 @@ func adoptThemeFile(art themeArtifact, content string) (string, bool) {
 	return strings.Join(out, "\n"), true
 }
 
+// unownedThemeFileError is the refusal for a file that is neither wholly ours
+// nor carries our region, so its bytes prove nothing. It names the file, every
+// proof the switch attempted, and the two ways forward: a refusal that says only
+// "not owned" is a closed door with no sign on it.
+func unownedThemeFileError(path string, art themeArtifact) error {
+	anchorStart := art.AdoptStart
+	if anchorStart == "" {
+		anchorStart = "DOTFILES THEME"
+	}
+	anchorEnd := art.AdoptEnd
+	if anchorEnd == "" {
+		anchorEnd = "end of file"
+	}
+	proofs := []string{
+		fmt.Sprintf("no %q ownership marker", themeOwnershipMarker),
+		fmt.Sprintf("no generated theme block (%s)", themeBeginTag(art.Block)),
+		fmt.Sprintf("no dotfiles region anchors (%q ... %q)", anchorStart, anchorEnd),
+		"its bytes are not identical to the file this repository ships",
+	}
+	return fmt.Errorf(
+		"%s is not owned by dotfiles, so it was left exactly as it is; "+
+			"checked: %s; "+
+			"what you can do: reinstall so dotfiles installs its marked files, or leave this file out of the theme change",
+		path, strings.Join(proofs, "; "))
+}
+
 // applyDotfilesTheme switches every installed terminal file to the theme,
 // recording the exact bytes each one held so the change can be undone. It is
 // gated on dryRun() exactly as executeStep is, refuses a file this repository
 // does not own, and restores anything it already wrote if a later write fails.
 // It never invents a file: a tool that is not installed is skipped.
 //
-// A file with no ownership marker is not refused outright: when its content
-// proves it is ours (themeInstalledFileIsOurs) it is adopted first, which writes
-// the marker line and nothing else, and the bytes from before adoption are what
-// the record holds, so undo takes the marker back out. A file whose content
-// proves nothing is still refused and left exactly as it is.
+// A file with no ownership marker is not refused outright, because there are two
+// more degrees of ownership below the marker, and they are not the same thing:
+//
+//  1. the whole file is ours - themeInstalledFileIsOurs proves it by a generated
+//     block begin marker or by byte-identity to what the repository ships (minus
+//     the marker lines). It is adopted first, which writes the marker line and
+//     nothing else, and the bytes from before adoption are what the record
+//     holds, so undo takes the marker back out.
+//  2. only a region inside a foreign file is ours: the file carries the anchors
+//     the generator knows, but its bytes elsewhere (or inside) have drifted, so
+//     no whole-file proof holds. Only the bytes between the anchors are
+//     rewritten; every other byte of the file is left exactly as it was, and the
+//     original is recorded so undo restores it byte-for-byte.
+//
+// A file that proves neither degree is still refused and left exactly as it is.
 func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfilesThemeRecord, string, error) {
 	if dryRun() {
 		SendLog("utilities", fmt.Sprintf("DRY RUN: skipping the switch to the %s theme", def.Name))
@@ -1677,6 +1713,7 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 	previous := map[string]string{}
 	var written []string
 	var adopted []string
+	var regionAdopted []string
 	themed := 0
 	// record keeps the first bytes read for a path. Several artifacts can share
 	// one file (Starship's two blocks, .zshrc's zsh and bat blocks), and a later
@@ -1712,16 +1749,12 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 		original := string(data)
 		content := original
 		owned := strings.Contains(original, themeOwnershipMarker)
-		if !owned {
-			// The file carries no ownership marker. It may still be ours: its
-			// content can prove it, and only then is it adopted - adding the marker
-			// line and nothing else. A file whose content proves nothing is left
-			// exactly as the user wrote it, which is the rule's whole point.
-			if !themeInstalledFileIsOurs(repoDir, art, original) {
-				restoreWritten()
-				return nil, "", fmt.Errorf("%s is not owned by dotfiles (it carries no %q marker, and its content does not match the file this repository ships), so it was left exactly as it is",
-					path, themeOwnershipMarker)
-			}
+		if !owned && themeInstalledFileIsOurs(repoDir, art, original) {
+			// The whole file is ours: it carries a generated block begin marker, or,
+			// with the ownership-marker lines removed, it is what the repository
+			// ships. Only then is the marker line added, and nothing else; the bytes
+			// recorded are the ones from before adoption, so undo takes the marker
+			// back out and leaves the file exactly as it was.
 			adoptedContent, ok := adoptThemeFile(art, original)
 			if !ok {
 				restoreWritten()
@@ -1731,11 +1764,9 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 				restoreWritten()
 				return nil, "", fmt.Errorf("could not write the ownership marker into %s, so the files already changed were put back: %w", path, err)
 			}
-			// The bytes recorded are the ones from before adoption, so undo takes the
-			// marker back out and leaves the file exactly as it was.
+			content = adoptedContent
 			record(path, original)
 			adopted = append(adopted, path)
-			content = adoptedContent
 		}
 
 		block, err := themeArtifactBlock(art, def)
@@ -1745,16 +1776,30 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 		}
 		updated, ok := replaceThemeBlock(content, block, art.Block)
 		if !ok {
-			// An owned file with no generated block has nothing to rewrite here. An
-			// adopted one is still recorded, so undo takes its marker out.
-			continue
+			// The file predates the generated block. If it still carries the
+			// hand-written region's anchors - the zsh palette, the p10k fallbacks,
+			// Herdr's [theme.custom], the Starship tables, fish's colours - adopt
+			// only that region: the bytes between the anchors are rewritten and every
+			// other byte of the file is left exactly as it was.
+			region, regionOK := adoptThemeBlock(content, art, block)
+			if !regionOK {
+				if owned || slices.Contains(adopted, path) {
+					// An owned file with no generated block has nothing to rewrite here;
+					// an adopted one is already recorded, so undo takes it back.
+					continue
+				}
+				restoreWritten()
+				return nil, "", unownedThemeFileError(path, art)
+			}
+			updated = region
 		}
 		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
 			restoreWritten()
 			return nil, "", fmt.Errorf("could not write %s, so the files already changed were put back: %w", path, err)
 		}
-		if owned {
-			record(path, original)
+		record(path, original)
+		if !owned && !slices.Contains(adopted, path) {
+			regionAdopted = append(regionAdopted, path)
 		}
 		themed++
 	}
@@ -1773,13 +1818,21 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 
 	// Adoption is said out loud, once per file and once in the notice: an
 	// installer that writes a config without saying so is what the ownership rule
-	// exists to prevent.
+	// exists to prevent. The two degrees of ownership are named apart: a whole
+	// file adopted by content, and a foreign file whose dotfiles region was
+	// rewritten in place.
 	for _, path := range adopted {
 		SendLog("utilities", fmt.Sprintf("Adopted %s: it carried no ownership marker, so only the marker line was added (its content proved it is dotfiles'); Undo takes it back out.", path))
 	}
+	for _, path := range regionAdopted {
+		SendLog("utilities", fmt.Sprintf("Adopted the dotfiles region in %s: the bytes between its anchors were rewritten and the rest of the file was left untouched; Undo puts it back.", path))
+	}
 	notice := ""
 	if len(adopted) > 0 {
-		notice = fmt.Sprintf("Adopted %d file(s) whose content proved they are dotfiles', adding the ownership marker and nothing else. ", len(adopted))
+		notice += fmt.Sprintf("Adopted %d file(s) whose whole content proved they are dotfiles', adding the ownership marker and nothing else. ", len(adopted))
+	}
+	if len(regionAdopted) > 0 {
+		notice += fmt.Sprintf("Adopted %d file(s) whose dotfiles region was rewritten in place, leaving the rest of each file untouched. ", len(regionAdopted))
 	}
 	notice += fmt.Sprintf("The %s theme is applied to %d file(s). The blocks it replaced are recorded; use Undo to put them back.",
 		def.Name, themed)

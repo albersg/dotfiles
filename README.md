@@ -164,13 +164,16 @@ cursor onto a theme row and **the whole installer repaints itself in that theme'
 preview built from the same definition the apply writes, labelled `Preview (nothing applied)` — and
 leaving the row puts the default chrome back; nothing is written while the cursor moves. It only rewrites files carrying the `dotfiles-managed-config:`
 ownership marker; a file you wrote is left exactly as it is. A managed file that predates the marker
-is adopted first — and only when its content proves it is ours (it is what the repository ships, or it
-carries a generated block marker) — which writes that marker line and nothing else and is undone
-byte-for-byte. A file whose content has drifted from what the repository ships defeats both proofs;
-the **Refresh outdated theme files** row brings it forward — naming every file it would touch and
-where an unowned one is preserved (into `~/.zshrc.d/` or `~/.config/fish/dotfiles.d/`, or beside
-itself as `<path>.bak-dotfiles-<timestamp>`) before anything is written — records the previous bytes
-so Undo puts each file back, and skips a file it cannot recognize while carrying on with the rest.
+is adopted first: when its whole content proves it is ours (it is what the repository ships, or it
+carries a generated block marker) only that marker line is added, and when only a region is ours —
+the file has drifted but still carries the anchors the generator knows — **only the bytes between
+those anchors are rewritten and the rest of the file is left untouched**; either way Undo puts the
+original back byte-for-byte, and a file that proves neither is refused with a message that names the
+proofs it tried and the way forward. The **Refresh outdated theme files** row brings an old file
+forward as a named, preserved change — it names every file it would touch and where an unowned one is
+preserved (into `~/.zshrc.d/` or `~/.config/fish/dotfiles.d/`, or beside itself as
+`<path>.bak-dotfiles-<timestamp>`) before anything is written — records the previous bytes so Undo
+puts each file back, and skips a file it cannot recognize while carrying on with the rest.
 `--dry-run` skips it too. See
 [`themes/README.md`](themes/README.md).
 
