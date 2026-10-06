@@ -30,32 +30,40 @@ func TestNoRenderedLineLeavesAColourActive(t *testing.T) {
 		{80, 24}, {100, 30}, {124, 24}, {160, 50}, {227, 62},
 	}
 
-	checked := 0
+	// Build each model once and resize it per terminal: View has a value receiver,
+	// so a resize cannot leave state behind, and the build (two temporary
+	// directories per model) is what made this guard build the same 53 models five
+	// times each.
+	cases := make([]leakScreenCase, 0, len(installerFrameScreenNames)+len(trainerLeakScreenNames))
 	for _, name := range installerFrameScreenNames {
-		for _, size := range sizes {
-			m := installerFrameCase(t, name)
-			m.Width, m.Height = size.width, size.height
-			m.Animating = true
-			m.PixelSprite = true
-			checkRenderedLineStyles(t, name, size.width, size.height, m.View())
-			checked++
-		}
+		cases = append(cases, leakScreenCase{name, installerFrameCase(t, name)})
 	}
-
 	for _, name := range trainerLeakScreenNames {
+		cases = append(cases, leakScreenCase{name, trainerLeakFrameCase(t, name)})
+	}
+
+	checked := 0
+	for _, c := range cases {
+		m := c.model
+		m.Animating = true
+		m.PixelSprite = true
 		for _, size := range sizes {
-			m := trainerLeakFrameCase(t, name)
 			m.Width, m.Height = size.width, size.height
-			m.Animating = true
-			m.PixelSprite = true
-			checkRenderedLineStyles(t, name, size.width, size.height, m.View())
+			checkRenderedLineStyles(t, c.name, size.width, size.height, m.View())
 			checked++
 		}
 	}
 
-	if checked == 0 {
-		t.Fatal("no screens were checked, so this guard proves nothing")
+	if want := len(cases) * len(sizes); checked != want {
+		t.Fatalf("the guard checked %d screen x size cases, want %d: a screen dropping out of the enumeration must fail here", checked, want)
 	}
+}
+
+// leakScreenCase is one screen the colour-leak guard renders at every size, built
+// once so the guard can resize it instead of rebuilding it per terminal.
+type leakScreenCase struct {
+	name  string
+	model Model
 }
 
 func checkRenderedLineStyles(t *testing.T, name string, width, height int, view string) {

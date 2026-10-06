@@ -13,8 +13,15 @@
 # Works on Linux and macOS: no GNU-only flags, no bash 4 syntax.
 #
 # Usage:
-#   make preflight
-#   scripts/preflight.sh
+#   make preflight            # the full gate, once before pushing
+#   scripts/preflight.sh      # same
+#   make check                # the inner loop, after every edit
+#   scripts/preflight.sh --check
+#
+# `--check` runs the same format and vet checks as the full gate, then only the
+# tests for the packages this branch changes, with Go's test cache left on. It is
+# the inner loop: fast enough to run after every edit. The full gate is the one
+# that runs the whole suite uncached and is run once before pushing.
 
 set -euo pipefail
 
@@ -39,6 +46,104 @@ step() {
 pass() {
   printf '      result : PASS\n'
 }
+
+# The packages this branch changes, as `go test` arguments relative to installer/.
+# A package is "changed" when a .go file under it is committed ahead of the base
+# branch, modified in the working tree, staged, or untracked. The base is the
+# merge-base with origin/main (or main), so committed work on a branch counts too.
+# A directory that is not a Go package is dropped rather than handed to go test.
+changed_go_packages() {
+  base=''
+  for ref in origin/main main; do
+    if git rev-parse --verify --quiet "$ref^{commit}" >/dev/null 2>&1; then
+      base=$(git merge-base "$ref" HEAD 2>/dev/null || true)
+      if [ -n "$base" ]; then
+        break
+      fi
+    fi
+  done
+
+  files=$(
+    {
+      git diff --name-only --diff-filter=ACMR HEAD 2>/dev/null || true
+      if [ -n "$base" ]; then
+        git diff --name-only --diff-filter=ACMR "$base" HEAD 2>/dev/null || true
+      fi
+      git ls-files --others --exclude-standard 2>/dev/null || true
+    } | sort -u
+  )
+
+  dirs=$(
+    printf '%s\n' "$files" \
+      | sed -n 's#^installer/\(.*\)/[^/]*\.go$#\1#p' \
+      | sort -u
+  )
+
+  pkgs=''
+  for dir in $dirs; do
+    if (cd installer && go list "./$dir" >/dev/null 2>&1); then
+      pkgs="$pkgs ./$dir"
+    fi
+  done
+  printf '%s' "$pkgs"
+}
+
+MODE=full
+case "${1:-}" in
+  --check) MODE=check ;;
+  '') ;;
+  *)
+    printf 'usage: %s [--check]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+
+if [ "$MODE" = check ]; then
+  printf 'dotfiles check (inner loop) - %s\n' "$REPO_ROOT"
+
+  for tool in go gofmt git; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      printf '\nCHECK CANNOT RUN: not installed: %s\n' "$tool" >&2
+      exit 1
+    fi
+  done
+
+  printf '\n[1/3] gofmt\n      command: cd installer && gofmt -l .\n'
+  if ! unformatted=$(cd installer && gofmt -l .); then
+    printf 'CHECK FAILED: gofmt -l .\n' >&2
+    exit 1
+  fi
+  if [ -n "$unformatted" ]; then
+    printf "Files not gofmt'd:\n%s\n" "$unformatted" >&2
+    printf "CHECK FAILED: gofmt check: run 'gofmt -w .' inside installer/\n" >&2
+    exit 1
+  fi
+  printf '      result : PASS\n'
+
+  printf '\n[2/3] go vet\n      command: cd installer && go vet ./...\n'
+  if ! (cd installer && go vet ./...); then
+    printf 'CHECK FAILED: go vet ./...\n' >&2
+    exit 1
+  fi
+  printf '      result : PASS\n'
+
+  printf '\n[3/3] go test (packages this branch changes)\n'
+  changed=$(changed_go_packages)
+  if [ -z "$changed" ]; then
+    printf '      no changed Go package under installer/, so there is nothing to test\n'
+  else
+    printf '      command: cd installer && go test%s\n' "$changed"
+    if ! (cd installer && go test $changed); then
+      printf 'CHECK FAILED: go test%s\n' "$changed" >&2
+      exit 1
+    fi
+  fi
+  printf '      result : PASS\n'
+
+  printf '\nCHECK PASSED - the inner loop only. Run the full gate once before pushing:\n'
+  printf '  make preflight\n'
+  exit 0
+fi
 
 printf 'dotfiles preflight - %s\n' "$REPO_ROOT"
 

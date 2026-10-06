@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -1129,15 +1130,36 @@ func TestEveryThemeReportsTheToolsItWouldLeaveOut(t *testing.T) {
 		t.Logf("%s: covers %v; leaves out %v", def.ID, covered, uncovered)
 	}
 
-	// No theme in this change has an artifact for all twelve tools, so a guard
-	// that let a complete theme claim full coverage would be lying.
+	// The exclusion list is the honest half of a switch: a theme that cannot
+	// paint a tool names it. These are the lists this coverage change produces,
+	// pinned so shrinking the list (the goal) or growing it is a visible decision
+	// rather than a side effect. dotfiles names no Neovim colorscheme, so Neovim is
+	// the one tool it leaves out; catppuccin-mocha now paints every tool whose
+	// colours this repository owns, fish (derived from its canonical palette) and
+	// tmux (its own generated style block) included. The four themes the library
+	// added carry their own lists: a theme left out of a tool's artifact table is
+	// named there.
+	wantLeftOut := map[string][]string{
+		"dotfiles":         {"Neovim"},
+		"catppuccin-mocha": nil,
+		"catppuccin-latte": {"fish", "bat", "Neovim", "tmux"},
+		"kanagawa":         {"Starship", "bat", "tmux"},
+		"everforest":       {"Starship", "bat", "Neovim", "tmux"},
+		"rose-pine":        {"Starship", "fish", "bat", "Neovim", "tmux"},
+	}
 	for _, id := range offeredThemeIDs(defs) {
 		def, ok := themeByID(defs, id)
 		if !ok {
 			t.Fatalf("the offered theme %q has no definition", id)
 		}
-		if _, uncovered := themeCoverage(def); len(uncovered) == 0 {
-			t.Errorf("theme %q reports no tool left out, but no theme covers every tool", def.ID)
+		want, ok := wantLeftOut[id]
+		if !ok {
+			t.Fatalf("the offered theme %q is not in this guard's expected-exclusions table", id)
+		}
+		_, uncovered := themeCoverage(def)
+		if strings.Join(uncovered, ", ") != strings.Join(want, ", ") {
+			t.Errorf("theme %q leaves out %v, want %v: the exclusion list shrank or grew without this guard being updated",
+				id, uncovered, want)
 		}
 	}
 }
@@ -1375,6 +1397,150 @@ func TestThemeGeneratorRefusesAMissingRole(t *testing.T) {
 	if _, err := renderStarshipPaletteTable(incomplete); err == nil {
 		t.Error("the Starship palette table rendered from a definition with one role")
 	}
+}
+
+// themeHexTokenRE matches a colour token a generated block may carry: a
+// #rrggbb value or a bare six-digit hex, which is how the fish config writes
+// one. It is only used to scan generated blocks for invented colours.
+var themeHexTokenRE = regexp.MustCompile(`#?[0-9a-fA-F]{6}`)
+
+// TestGeneratedThemeBlocksInventNoColour covers the provenance rule at the
+// renderer: every colour a generated block emits must be one the definition
+// already holds, either as a canonical palette role or as one of its fish roles.
+// A renderer that filled a role by eye fails here, which is the guard the tmux
+// and fish blocks could otherwise pass while carrying a colour of their own.
+func TestGeneratedThemeBlocksInventNoColour(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	owned := func(def themeDefinition, token string) bool {
+		value := strings.ToLower(strings.TrimPrefix(token, "#"))
+		for _, hex := range def.Palette {
+			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
+				return true
+			}
+		}
+		for _, hex := range def.Fish {
+			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
+				return true
+			}
+		}
+		for _, hex := range def.Prompt {
+			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
+				return true
+			}
+		}
+		return false
+	}
+
+	tools := map[string]bool{}
+	checked := 0
+	for _, id := range offeredThemeIDs(defs) {
+		def, _ := themeByID(defs, id)
+		for _, art := range themeActiveArtifacts {
+			block, err := themeArtifactBlock(art, def)
+			if err != nil {
+				continue
+			}
+			tools[art.Tool] = true
+			for _, line := range strings.Split(block, "\n") {
+				// A comment may cite a historical colour (the p10k block records the
+				// Kanagawa values it used to hold); only emitted lines are checked.
+				if art.Comment != "" && strings.HasPrefix(strings.TrimSpace(line), art.Comment) {
+					continue
+				}
+				for _, token := range themeHexTokenRE.FindAllString(line, -1) {
+					if !owned(def, token) {
+						t.Errorf("the %s block for %q emits %s, which themes/%s.toml does not hold: a generated block may not invent a colour",
+							art.Tool, id, token, id)
+					}
+					checked++
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no generated colour was checked, so this guard proves nothing")
+	}
+	for _, tool := range []string{"fish", "tmux"} {
+		if !tools[tool] {
+			t.Errorf("no %s block was rendered for any offered theme, so the guard does not cover it", tool)
+		}
+	}
+	t.Logf("checked %d generated colour tokens across %d tool(s)", checked, len(tools))
+}
+
+// TestTheFishDerivationMatchesTheDotfilesTable pins the equivalence the
+// derivation claims: the [fish] table themes/dotfiles.toml records is the
+// mechanical mapping, so deriving it (as a theme with no [fish] table, such as
+// catppuccin-mocha, must) produces the same values. A change to either side that
+// breaks the equivalence fails here instead of silently giving two themes two
+// different fish palettes.
+func TestTheFishDerivationMatchesTheDotfilesTable(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, "dotfiles")
+	if !ok {
+		t.Fatal("the dotfiles definition is missing")
+	}
+	if len(def.Fish) == 0 {
+		t.Fatal("the dotfiles definition carries no [fish] table, so this guard proves nothing")
+	}
+
+	checked := 0
+	for role, paletteRole := range themeFishDerivation {
+		want := strings.TrimPrefix(def.Palette[paletteRole], "#")
+		if want == "" {
+			t.Errorf("the derivation names palette role %q, which themes/dotfiles.toml does not define", paletteRole)
+			continue
+		}
+		if got := def.Fish[role]; got != want {
+			t.Errorf("fish role %q is %q in themes/dotfiles.toml but %q derived from palette role %q", role, got, want, paletteRole)
+		}
+		checked++
+	}
+	if checked != len(themeFishRoles) {
+		t.Errorf("the derivation covers %d fish role(s), want %d", checked, len(themeFishRoles))
+	}
+	t.Logf("the fish derivation matches themes/dotfiles.toml for all %d fish roles", checked)
+}
+
+// TestTmuxThemeBlockLoadsAfterPlugins pins the ordering decision behind the tmux
+// switch. tmux runs `run-shell` synchronously: measurement shows the server does
+// not finish reading tmux.conf until the command returns, so TPM has already
+// sourced the kanagawa plugin's own styles by the time the generated block is
+// read. The block must therefore sit after that `run` line; before it, the
+// plugin would win and the applied palette would not be seen.
+func TestTmuxThemeBlockLoadsAfterPlugins(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "dotfiles-tmux/tmux.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runLine, blockLine := -1, -1
+	for i, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "tpm/tpm") {
+			runLine = i
+		}
+		if strings.Contains(line, themeBeginTag("")) {
+			blockLine = i
+		}
+	}
+	if runLine < 0 {
+		t.Fatal("tmux.conf no longer runs TPM, so this guard proves nothing about plugin ordering")
+	}
+	if blockLine < 0 {
+		t.Fatal("tmux.conf carries no generated theme block to order")
+	}
+	if blockLine < runLine {
+		t.Errorf("the tmux theme block is at line %d, before the plugin run at line %d: the plugin's async styles would overwrite it",
+			blockLine+1, runLine+1)
+	}
+	t.Logf("tmux theme block at line %d, plugin run at line %d", blockLine+1, runLine+1)
 }
 
 // tempThemeRepo copies themes/*.toml into a temporary root, so a switch test
@@ -1625,9 +1791,9 @@ func TestDotfilesThemeSwitchIsReversible(t *testing.T) {
 		t.Fatal("the catppuccin-mocha definition is missing")
 	}
 
-	before := installThemeFiles(t, home, "alacritty", "kitty")
+	before := installThemeFiles(t, home, "alacritty", "kitty", "fish", "tmux")
 
-	rec, notice, err := applyDotfilesTheme(home, target)
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
 	if err != nil {
 		t.Fatalf("apply the theme: %v", err)
 	}
@@ -1641,7 +1807,35 @@ func TestDotfilesThemeSwitchIsReversible(t *testing.T) {
 		t.Errorf("the record holds %d file(s), the switch wrote %d", len(rec.Files), len(before))
 	}
 
-	base := strings.TrimPrefix(target.Palette["base"], "#")
+	// Every file the switch rewrote must carry at least one of the new theme's own
+	// colours. Checking for the base colour alone would fail on the fish block,
+	// which derives its roles from other palette entries and holds no base value.
+	values := map[string]bool{}
+	add := func(hex string) {
+		if hex == "" || hex == "none" {
+			return
+		}
+		values[strings.ToLower(strings.TrimPrefix(hex, "#"))] = true
+	}
+	for _, hex := range target.Palette {
+		add(hex)
+	}
+	for _, hex := range target.Fish {
+		add(hex)
+	}
+	for _, hex := range target.Prompt {
+		add(hex)
+	}
+	carriesTheme := func(content []byte) bool {
+		lower := strings.ToLower(string(content))
+		for value := range values {
+			if strings.Contains(lower, value) {
+				return true
+			}
+		}
+		return false
+	}
+
 	for path, was := range before {
 		got, err := os.ReadFile(path)
 		if err != nil {
@@ -1650,8 +1844,8 @@ func TestDotfilesThemeSwitchIsReversible(t *testing.T) {
 		if bytes.Equal(got, was) {
 			t.Errorf("%s was not changed by the switch", path)
 		}
-		if !strings.Contains(strings.ToLower(string(got)), base) {
-			t.Errorf("%s does not carry the catppuccin base colour %s", path, base)
+		if !carriesTheme(got) {
+			t.Errorf("%s carries none of the catppuccin-mocha colours", path)
 		}
 	}
 
@@ -1685,9 +1879,9 @@ func TestDotfilesThemeSwitchSkipsOnDryRun(t *testing.T) {
 	}
 	target, _ := themeByID(defs, "catppuccin-mocha")
 
-	before := installThemeFiles(t, home, "alacritty", "kitty")
+	before := installThemeFiles(t, home, "alacritty", "kitty", "fish", "tmux")
 
-	rec, notice, err := applyDotfilesTheme(home, target)
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
 	if err != nil {
 		t.Fatalf("a dry run returned an error: %v", err)
 	}
@@ -1734,7 +1928,7 @@ func TestDotfilesThemeSwitchRefusesAnUnownedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := applyDotfilesTheme(home, target); err == nil {
+	if _, _, err := applyDotfilesTheme(home, repoRoot(t), target); err == nil {
 		t.Fatal("the switch rewrote a file that carries no ownership marker")
 	} else if !strings.Contains(err.Error(), "not owned") {
 		t.Errorf("the refusal does not name the ownership rule: %v", err)
@@ -1746,6 +1940,271 @@ func TestDotfilesThemeSwitchRefusesAnUnownedFile(t *testing.T) {
 	if !bytes.Equal(got, user) {
 		t.Error("the unowned file was changed")
 	}
+}
+
+// installThemeFileWithoutOwnershipMarker writes the file the repository ships
+// for tool into home with the ownership-marker line removed, which is the state
+// an install from before the marker leaves behind. It returns the bytes written.
+func installThemeFileWithoutOwnershipMarker(t *testing.T, home, tool string) []byte {
+	t.Helper()
+
+	art := artifactByName(t, tool)
+	shipped, err := os.ReadFile(filepath.Join(repoRoot(t), art.Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(shipped), themeOwnershipMarker) {
+		t.Fatalf("the repository's %s file carries no ownership marker, so this fixture proves nothing", tool)
+	}
+
+	var kept []string
+	for _, line := range strings.Split(string(shipped), "\n") {
+		if strings.Contains(line, themeOwnershipMarker) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	content := []byte(strings.Join(kept, "\n"))
+	if strings.Contains(string(content), themeOwnershipMarker) {
+		t.Fatalf("stripping the marker from the repository's %s file left one behind", tool)
+	}
+
+	dst := themeInstalledPath(art, home)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
+// TestThemeAdoptionAcceptsAFileThatMatchesTheRepository covers case (a): an
+// installed file with no ownership marker whose content is what the repository
+// ships (the repository version without the marker) is adopted, and the theme can
+// then be applied to it. An install from before the marker leaves exactly this
+// file, and refusing it is what left the user unable to change the theme.
+func TestThemeAdoptionAcceptsAFileThatMatchesTheRepository(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	installThemeFileWithoutOwnershipMarker(t, home, "herdr")
+	art := artifactByName(t, "herdr")
+	dst := themeInstalledPath(art, home)
+
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to an unmarked file whose content matches the repository: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the adopted file was not recorded, so the change is not reversible")
+	}
+	if !strings.Contains(notice, "Adopted") {
+		t.Errorf("the notice does not say a file was adopted: %q", notice)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), themeOwnershipMarker) {
+		t.Error("the adopted file did not get the ownership marker")
+	}
+	if !strings.Contains(string(got), target.Palette["selection"]) {
+		t.Errorf("the adopted file does not carry the %s selection colour %s", target.Name, target.Palette["selection"])
+	}
+}
+
+// TestThemeAdoptionUndoRemovesTheMarker covers case (c): undo of an adoption
+// leaves the file byte-for-byte as it was before the adoption - that is, with no
+// ownership marker. That byte-for-byte return is what makes adoption honest
+// rather than a matter of trusting the installer.
+func TestThemeAdoptionUndoRemovesTheMarker(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	before := installThemeFileWithoutOwnershipMarker(t, home, "herdr")
+	art := artifactByName(t, "herdr")
+	dst := themeInstalledPath(art, home)
+
+	rec, _, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to an adoptable file: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the adoption returned no record, so it cannot be undone")
+	}
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the adopted file: %v", err)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, before) {
+		t.Errorf("undo did not restore the file byte-for-byte\n got: %q\nwant: %q", got, before)
+	}
+	if strings.Contains(string(got), themeOwnershipMarker) {
+		t.Error("undo left the ownership marker behind on a file that had none before")
+	}
+}
+
+// TestThemeAdoptionUndoRestoresAFileWithTwoBlocks covers the file two artifacts
+// share: Starship has two generated blocks (its palette line and its palette
+// table) in one file, and .zshrc carries the zsh block and the bat block. The
+// first artifact records the file's original bytes; the second must not overwrite
+// that record with the state the first one left, or undo cannot reach the file's
+// original bytes and the adoption is not reversible.
+func TestThemeAdoptionUndoRestoresAFileWithTwoBlocks(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	before := installThemeFileWithoutOwnershipMarker(t, home, "starship")
+	art := artifactByName(t, "starship")
+	dst := themeInstalledPath(art, home)
+
+	rec, _, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to an adoptable file with two blocks: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the adoption returned no record, so it cannot be undone")
+	}
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the adopted file: %v", err)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, before) {
+		t.Errorf("undo did not restore the two-block file byte-for-byte, so the second block overwrote the recorded original")
+	}
+}
+
+// TestThemeAdoptionDoesNotTouchAnOwnedFile covers case (d): a file that already
+// carries the ownership marker is applied to as before, and adoption does not run
+// a second time or write a duplicate marker line.
+func TestThemeAdoptionDoesNotTouchAnOwnedFile(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	installThemeFiles(t, home, "herdr")
+	art := artifactByName(t, "herdr")
+	dst := themeInstalledPath(art, home)
+
+	_, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to an already-owned file: %v", err)
+	}
+	if strings.Contains(notice, "Adopted") {
+		t.Errorf("an already-owned file was reported as adopted: %q", notice)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(got), themeOwnershipMarker); n != 1 {
+		t.Errorf("the ownership marker appears %d times after the apply, want exactly 1", n)
+	}
+}
+
+// TestThemeInstalledFileIsOursProvesByContent covers the rule the adoption rests
+// on: the proof is the bytes, not the path. A file identical to what the
+// repository ships without the marker is ours (proof 1), a file carrying a
+// generated block marker is ours (proof 2), and anything else is not ours even
+// when it sits at exactly the path a managed file lives at.
+func TestThemeInstalledFileIsOursProvesByContent(t *testing.T) {
+	root := t.TempDir()
+	shipped := "# dotfiles-managed-config: x\nbody = 1\n"
+	if err := os.WriteFile(filepath.Join(root, "x.conf"), []byte(shipped), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art := themeArtifact{Tool: "x", Path: "x.conf", Comment: "#"}
+
+	// Proof 1: the repository version without the marker. The shipped fixture
+	// carries no generated block, so this proof has to stand on its own.
+	if !themeInstalledFileIsOurs(root, art, "body = 1\n") {
+		t.Error("a file identical to the shipped file without the marker was not recognised as ours")
+	}
+	// Proof 2: a generated block marker only this repository's generator writes.
+	blockTag := themeBeginTag("")
+	if !themeInstalledFileIsOurs(root, art, "# "+blockTag+" x (generated) >>>\nbody = 1\n") {
+		t.Error("a file carrying the generated block marker was not recognised as ours")
+	}
+	// Neither proof: a file the user wrote proves nothing, marker path or not.
+	if themeInstalledFileIsOurs(root, art, "# my own file\nbody = 2\n") {
+		t.Error("a file that proves nothing was recognised as ours")
+	}
+	// No repository to compare against leaves only proof 2, so an unmarked file
+	// with no block marker stays refused rather than being adopted on faith.
+	if themeInstalledFileIsOurs("", art, "body = 1\n") {
+		t.Error("an unmarked file was adopted with no shipped file to compare against")
+	}
+}
+
+// TestThemeAdoptionCoversEveryShippedArtifact guards the class: for every file
+// the switch can rewrite, the file the repository ships must still be adoptable
+// once only its ownership-marker line is removed. That is the shape an install
+// from before the marker leaves behind, so if a future renderer ships an artifact
+// whose block is not recognisable, an old installation silently goes back to
+// being unable to change the theme.
+func TestThemeAdoptionCoversEveryShippedArtifact(t *testing.T) {
+	root := repoRoot(t)
+	checked := 0
+	for _, art := range themeActiveArtifacts {
+		shipped, err := os.ReadFile(filepath.Join(root, art.Path))
+		if err != nil {
+			t.Errorf("read %s: %v", art.Path, err)
+			continue
+		}
+		if !strings.Contains(string(shipped), themeOwnershipMarker) {
+			t.Errorf("%s ships no ownership marker, so this guard proves nothing for it", art.Path)
+			continue
+		}
+		if !themeInstalledFileIsOurs(root, art, stripThemeOwnershipMarkers(string(shipped))) {
+			t.Errorf("%s is not adoptable after only its marker is removed, so an install from before the marker could not change the theme", art.Path)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no shipped artifact was checked, so this guard proves nothing")
+	}
+	t.Logf("%d shipped artifact(s) are adoptable after only the marker is removed", checked)
 }
 
 // TestGeneratedPerThemeFilesMatchTheirDefinition covers the per-theme whole-file

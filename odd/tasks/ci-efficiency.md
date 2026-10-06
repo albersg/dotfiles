@@ -545,3 +545,115 @@ restore tests are untouched. What remains CI's to decide is only whether this wa
 between the runner and this host: if the branch still fails, inspect the runner's `$HOME` - what the
 startup scan finds there is what decides these tests - and whether the outer environment differs in
 some other way the restore tests still inherit.
+
+## Phase 2, fourth pass: the test-loop render matrix, measured, and a two-speed check
+
+`internal/tui` had gone from roughly thirty seconds to five minutes. The cause was not a wait and not
+the product code: three matrix guards each built the same 55 screen models at the same 12 terminals
+and rendered them, and two of those guards rendered the same frames twice. The build is the expensive
+half - every fixture points `HOME` and `XDG_STATE_HOME` at fresh temporary directories - and
+`-count=1`, which the briefs asked for on every run, disables the Go test cache that would otherwise
+skip the packages nothing touched.
+
+### Before and after, measured on this host
+
+`go test ./internal/tui/ -count=1`. The host is shared with other worktrees, so wall clock is noisy;
+CPU time is the figure this change is responsible for.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Package wall clock | 295.4 s | 216.8 s |
+| Package CPU (user+sys) | 100.5 s | 62.1 s |
+| `TestCompanionBlockDependsOnlyOnTheTerminal` | 54.4 s | 54.4 s (untouched; see below) |
+| `TestCompanionCoverageAcrossTerminalSizes` | 44.3 s | reads the shared pass |
+| `TestEveryScreenFitsEveryTerminalSize` | 42.4 s | reads the shared pass |
+| `TestNoRenderedLineLeavesAColourActive` | 18.0 s | ~4 s (each case built once) |
+
+Renders and builds, counted from the guards themselves:
+
+| Quantity | Before | After |
+| --- | ---: | ---: |
+| Matrix renders (fit + companion coverage) | 660 + 660 = 1320 | 660 (one pass, read by both) |
+| Colour-leak renders | 265 | 265 |
+| **Total matrix renders** | **1585** | **925** |
+| **Matrix model builds** | **1585** | **108** |
+
+### What was fused
+
+`terminalFrames` (`screen_coverage_test.go`) builds each of the 55 cases once and renders it once per
+measured terminal with the companion animating; the fit guard and the companion-coverage guard both
+read those frames. `View()` has a value receiver, so resizing one built model per terminal cannot
+leave state behind, and the pass is cached for the test binary, so the second guard reuses the first
+one's bytes. The pass is the strictest frame (companion on), so the fit guard now fails on a screen
+that overflows only with the creature - it cannot miss one the old static render would have passed.
+`TestNoRenderedLineLeavesAColourActive` builds each of its 53 cases once and resizes it per terminal
+instead of rebuilding per size.
+
+No assertion was removed or weakened. The two coverage floors (`mainCompanionCoverage80x24`,
+`mainCompanionCoverageTotal`) still hold (the pass measured 36/55 at 80x24 and 480/660 overall), the
+fit guard still pins 55 screens, and the colour-leak guard's `checked == 0` check was replaced by a
+hard pin that fails if any of the 53 screens drops out of its 5-size sweep.
+
+### What was deliberately not optimised, and why
+
+- **`TestCompanionBlockDependsOnlyOnTheTerminal` (54 s).** It lives in `companion_test.go`, outside
+  this front's edit surface. A previous pass parallelised only its `View()` calls; its 848 model
+  builds are still sequential, and each one pays the fixture helper's two `t.TempDir()` calls.
+  Removing that means caching or cloning models across calls, which risks the isolation every other
+  caller of `installerFrameCase` relies on. Left for the owner of that file, with the measurement
+  above.
+- **Sampling the matrices.** A fixed sample would trade counted coverage for time. The guards exist
+  to cover every screen at every terminal, and the fusion already removed the repetition, so no
+  sample was taken. The existing asserted floors remain the only sampled claims.
+- **`TestAllUserSelectionPaths` (22 s).** Not a matrix render, and not this front's.
+
+### A two-speed local loop
+
+`make preflight` was the only local command and it ran the whole suite uncached. The inner loop now
+has its own command:
+
+| Command | Runs | When |
+| --- | --- | --- |
+| `make check` | `gofmt`, `go vet`, and the tests for the packages this branch changes, with Go's test cache on | after every edit |
+| `make preflight` | the full gate, unchanged: 7 steps, whole suite with `-count=1` | once, before pushing |
+
+`scripts/preflight.sh --check` derives the changed packages from `git diff` against the merge-base
+with `main` (committed, staged, unstaged and untracked `.go` files under `installer/`). The full path
+is untouched and keeps `-count=1`: that is the reproduce-the-whole-suite-once command. `-count=1`
+was removed from the inner loop, where disabling the cache was the work the loop exists to avoid.
+README's "Before you push" and `docs/tui-installer.md`'s "Running Tests" state the two commands and
+when each runs.
+
+### Teeth, pasted from real runs
+
+`make check` fails on a dirty `gofmt`:
+
+```text
+Files not gofmt'd:
+internal/tui/screen_coverage_test.go
+CHECK FAILED: gofmt check: run 'gofmt -w .' inside installer/
+```
+
+on a broken `go vet`:
+
+```text
+internal/tui/screen_coverage_test.go:192:25: fmt.Printf format %d has arg "not a number" of wrong type string
+CHECK FAILED: go vet ./...
+```
+
+and on a broken test:
+
+```text
+--- FAIL: TestEveryScreenFitsEveryTerminalSize (5.48s)
+    screen_coverage_test.go:208: the guard rendered 660 screen x size cases, want 672
+FAIL
+FAIL	github.com/albersg/dotfiles/installer/internal/tui	268.437s
+CHECK FAILED: go test ./internal/tui
+make: *** [Makefile:10: check] Error 1
+```
+
+Measured with the teeth restored: `make check` on a change to `internal/tui` ends
+`ok ... 235.967s`; `make preflight` ends `PREFLIGHT PASSED - 7/7 steps`, with the suite step reporting
+`ok .../internal/tui 243.576s`. Both are dominated by the 54 s guard this front cannot touch, and both
+are wall-clock figures from a host shared with other worktrees, so they are evidence of this host's
+runs rather than a controlled claim about an idle one.

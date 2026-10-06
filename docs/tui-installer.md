@@ -87,8 +87,9 @@ From the main menu you can access:
 - **Neovim Keymaps**: Browse all configured keybindings
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
-- **Utilities**: The small jobs that are not part of an installation, starting with a reversible
-  system light/dark theme switch
+- **Utilities**: The small jobs that are not part of an installation: a reversible
+  system light/dark theme switch and the reversible dotfiles-theme switch, whose list of themes is
+  one level in behind the **Change the dotfiles theme** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -135,7 +136,9 @@ steps, from the same place, so a documented no-op run runs no `gsettings`, no
 ### The dotfiles theme switch
 
 The other utility changes the **dotfiles' own theme** — the palette this repository ships across its
-terminals, its prompt, `bat` and Herdr — not the desktop's light/dark mode. That palette used to be
+terminals, its prompt, `bat`, `fish`, tmux and Herdr — not the desktop's light/dark mode. The Utilities section
+offers it through a single **Change the dotfiles theme** row, which opens the theme list; the themes
+live there so the section reads as a list of jobs rather than a list of themes. That palette used to be
 written by hand in six files, so the same colour was maintained in each of them and a drift between
 two was invisible. It is defined **once** now, one file per theme under [`themes/`](../themes/), and
 the terminal blocks are generated from that definition; a generated block that stops matching its
@@ -150,16 +153,28 @@ transcribed from the repository's own blocks or from the published palettes name
 [`themes/README.md`](../themes/README.md). Kagawa was retired: its only file was a byte-for-byte copy
 of Kanagawa's and no published Kagawa palette exists, so it is no longer a theme. A complete theme
 names the tools it cannot paint, and **each row does too**: a row reads
-`Apply the dotfiles theme (not fish, Neovim, tmux)`, so the tools a switch would leave on the old
+`Apply the dotfiles theme (not Neovim)`, so the tools a switch would leave on the old
 palette are named where the choice is made. The switch writes the four terminals, Starship, the
-zsh/p10k prompt, Herdr, the `BAT_THEME` selection and (where the plugin ships one) Neovim. fish is
-**generated but not switched on purpose**: its active theme is the user's own `fish_config` state in
-`fish_variables`, which this repository does not own, so it is named rather than written. tmux has no
-repository-owned theme at all (only the `tmux-kanagawa` plugin names one), so it is named too.
+zsh/p10k prompt, Herdr, the `BAT_THEME` selection, fish's `config.fish` palette block, tmux's style
+block and (where the plugin ships one) Neovim. fish is switched through the file this repository
+owns, never through the user's `fish_config` state in `fish_variables`: the block sets fish's colour
+variables in the global scope, which fish returns over a universal one, and the switch records and
+restores the exact bytes like every other block. tmux gets its own generated style block after the
+TPM run line instead of depending on the `tmux-kanagawa` plugin, whose Kanagawa palette is partial.
 
 **It only edits files dotfiles own.** Each generated block carries a `dotfiles-managed-config:`
 marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same
 rule `preserve-user-configs` applies to the shell startup files.
+
+**A file with no marker is adopted only when its content proves it is ours.** An installation older
+than the marker leaves managed files without it, and refusing them made the switch unusable on a
+machine that already had dotfiles installed. Before refusing, the switch asks the *content* — never
+the path — whether the file is ours: it is if it carries a generated block marker
+(`>>> dotfiles-theme...`), or if, with the ownership-marker lines removed, it is byte-identical to the
+file the repository ships. Adoption writes the marker line and nothing else, records the bytes from
+before adoption in the same `theme.json`, and says so on screen and in the log; **Undo** takes the
+marker back out and leaves the file byte-for-byte as it was. A file whose content does not prove
+ownership is still refused, unchanged.
 
 **It is reversible.** Before writing, the switch records the exact bytes each file held in the same
 `$XDG_STATE_HOME/dotfiles/theme.json` the desktop switch uses (the two halves coexist in that one
@@ -970,10 +985,39 @@ The TUI installer is built with:
 
 ### Running Tests
 
+Two speeds, both wrapping `scripts/preflight.sh`:
+
+| Command | What it runs | When |
+|---------|--------------|------|
+| `make check` | `gofmt`, `go vet`, and the tests for the packages this branch changes, with Go's test cache on | After every edit (the inner loop) |
+| `make preflight` | The full local gate: format, vet, build, the whole Go suite uncached, `shellcheck`, the branding audit and a gitleaks scan, each labelled with the CI job it mirrors | Once, before pushing |
+
+`make check` derives the changed packages from `git diff` against the merge-base
+with `main` (committed, staged, unstaged and untracked `.go` files under
+`installer/`), so it runs the tests that touch the change and skips the rest. It
+leaves Go's test cache on: a package that did not change is not re-run. The full
+suite runs in CI on every push, which is the matrix of record; `make preflight` is
+that same suite once, before the push, so a CI cycle is not spent on a failure a
+local run would have caught.
+
+**Do not add `-count=1` to the inner loop.** It disables Go's test cache, which is
+exactly the work `make check` exists to avoid. Keep it for one thing only:
+reproducing a failure, where a cached result would hide the run you are trying to
+watch.
+
 ```bash
 cd installer
-go test ./... -v
+go test ./... -v                                # all packages, cache on
+go test ./internal/tui -run TestX -count=1 -v   # reproduce one failure, uncached
 ```
+
+The terminal matrix guards share one render pass. `terminalFrames`
+(`screen_coverage_test.go`) builds each screen case once and renders it once per
+measured terminal; the fit guard and the companion-coverage guard both read those
+frames rather than building and drawing the same 55 screens at the same 12
+terminals again. The pass renders with the companion animating, which is the
+strictest frame, so a screen that overflows only with the creature on fails the
+fit guard instead of escaping it.
 
 ### Updating Golden Files
 
@@ -981,6 +1025,34 @@ go test ./... -v
 cd installer
 go test ./internal/tui/... -update
 ```
+
+### The terminal-title race in the framed goldens (a known pre-existing flake)
+
+If a macOS run fails a `teatest` golden (`--- golden`) **only sometimes**, and the
+diff is about the OSC window-title sequence `\x1b]2;<title>\x07` and not about a
+frame row, it is this: the title is written by `tea.SetWindowTitle` from
+`Init`, so bubbletea emits it as soon as it handles the message, while the first
+frame is buffered and flushed by the renderer's own ticker. Under load the title
+can land **after** the frame, or not at all before the capture quits. All three
+orderings are the same screen.
+
+It is a race in the golden *infrastructure*, not in the change under test. It was
+reproduced on `origin/main` at `9093262` — before the themed-picker work — with
+the same diff and the same rate, and routing the capture through the then-current
+`waitForGoldenFrame` did **not** fix it, because the capture already waited for the
+frame; the title's *arrival time* was the only variable.
+
+Every `teatest` golden now compares through `requireGoldenCapture`, which strips
+the title from both sides and restores the golden's own at its pinned offset, so
+the title's position is ignored while the frame bytes are still compared one by
+one, a changed row still fails, and a live title whose text differs still fails.
+A title that never arrived is restored from the golden. `TestGoldenCaptureIgnoresTheTerminalTitlePosition`
+holds both halves. `-update` still works: the comparison goes through
+`teatest.RequireEqualOutput`.
+
+Reproduction: 12 concurrent `yes > /dev/null`, then
+`go test ./internal/tui -run TestCompanionGoldenPinsThePixelSpriteAndItsGaze -count=60`.
+Before the fix it failed ~3–4 times per 40 loaded runs; after it, **60/60 pass**.
 
 ### Project Structure
 

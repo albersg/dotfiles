@@ -899,6 +899,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderRestoreConfirm())
 	case ScreenUtilities:
 		s.WriteString(m.renderUtilities())
+	case ScreenThemePicker:
+		s.WriteString(m.renderThemePicker())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
 	case ScreenComplete:
@@ -1152,9 +1154,23 @@ const utilitiesNoticeRows = 2
 
 // renderUtilities draws the utilities section: what it can change on this host,
 // what the change touches, the rows the host offers, and the result of the last
-// one. It sizes its own description to the rows the frame leaves, so a narrow
-// terminal trims the prose out loud rather than pushing the footer off screen.
+// one. The themes themselves live one level in, on the theme picker.
 func (m Model) renderUtilities() string {
+	return m.renderThemeScreen(m.utilitiesDescription())
+}
+
+// renderThemePicker draws the dotfiles theme list: the complete themes, each
+// naming the tools it leaves out, the undo row when there is a change to put
+// back, and the live preview of the theme under the cursor.
+func (m Model) renderThemePicker() string {
+	return m.renderThemeScreen(m.themePickerDescription())
+}
+
+// renderThemeScreen draws a screen whose body is a description, a menu, the live
+// preview and the last notice, sized to the frame. The utilities section and the
+// theme picker are the same shape, so the budget arithmetic - the one that keeps
+// a narrow terminal from pushing the footer off screen - lives in one place.
+func (m Model) renderThemeScreen(paragraphs []string) string {
 	width := contentWidth(m)
 	hints := []installerHint{hintUp, hintDown, hintSelect, hintBack}
 	menu := m.menuRows(m.GetCurrentOptions(), m.Cursor)
@@ -1171,7 +1187,7 @@ func (m Model) renderUtilities() string {
 		notice = append(notice, lines...)
 	}
 
-	// The live preview: while the cursor is on a theme row, the section shows
+	// The live preview: while the cursor is on a theme row, the screen shows
 	// that theme's real palette. It writes nothing; the values come from the same
 	// definition the apply would write.
 	preview := m.themePreviewLines(width)
@@ -1184,13 +1200,13 @@ func (m Model) renderUtilities() string {
 
 	title := BrandStyle.Render(m.GetScreenTitle())
 	if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
-		// The preview repaints the section's own title in the theme's accent, so
+		// The preview repaints the screen's own title in the theme's accent, so
 		// the palette is seen and not only read.
 		title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.GetScreenTitle())
 	}
 
 	body := []string{title}
-	for _, line := range m.utilitiesDescriptionLines(width, descBudget) {
+	for _, line := range descriptionLines(paragraphs, width, descBudget) {
 		body = append(body, MutedStyle.Render(line))
 	}
 	body = append(body, "")
@@ -1201,19 +1217,19 @@ func (m Model) renderUtilities() string {
 	return m.frame(m.headerName(), "", body, hints)
 }
 
-// utilitiesDescriptionLines is the section's prose wrapped to the width it will
-// be drawn at and clipped to the rows the frame leaves. A description longer
-// than its budget keeps the lines that fit and says how many it could not show,
-// the same rule the panel and list bodies follow.
-func (m Model) utilitiesDescriptionLines(width, budget int) []string {
+// descriptionLines is a screen's prose wrapped to the width it will be drawn at
+// and clipped to the rows the frame leaves. A description longer than its budget
+// keeps the lines that fit and says how many it could not show, the same rule the
+// panel and list bodies follow.
+func descriptionLines(paragraphs []string, width, budget int) []string {
 	if budget < 1 {
 		// No room for prose at all. The rows below the description still say what
-		// the section offers, so this is a cut rather than a failure.
+		// the screen offers, so this is a cut rather than a failure.
 		return nil
 	}
 
 	var lines []string
-	for _, paragraph := range m.utilitiesDescription() {
+	for _, paragraph := range paragraphs {
 		lines = append(lines, wrapText(paragraph, width, 0)...)
 	}
 	if len(lines) > budget {
@@ -1256,15 +1272,38 @@ func (m Model) utilitiesDescription() []string {
 		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
 		return paragraphs
 	}
-	paragraphs = append(paragraphs, "The dotfiles' own theme is defined once in themes/. A row applies it to every "+
-		"tool it can paint and names the tools it leaves out.")
+	paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is defined once in themes/. \"%s\" opens "+
+		"the list of complete themes; each theme names the tools it leaves out, and a theme is applied "+
+		"only when one is chosen there.", utilitiesThemeRow))
 	return paragraphs
+}
+
+// themePickerDescription is what the theme list says about itself: the palette
+// is defined once, a theme is applied only when one is chosen, and the tools a
+// theme cannot paint are named on its row. It is the same honest account the
+// utilities section gave when the list lived there.
+func (m Model) themePickerDescription() []string {
+	if len(m.DotfilesThemes) == 0 {
+		reason := m.DotfilesThemesErr
+		if reason == "" {
+			reason = "no repository holding theme definitions was found in $DOTFILES_DIR, the clone, the working directory or its parents, ~/dotfiles or ~/.dotfiles"
+		}
+		return []string{fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason)}
+	}
+	return []string{"The dotfiles' own theme is defined once in themes/. Choosing a theme applies it to every " +
+		"tool it can paint and names the tools it leaves out. Moving the cursor previews a theme without " +
+		"applying anything; the switch records what it replaces, so it can be undone."}
 }
 
 // dotfilesThemeUndoRow is the row that puts back the blocks the last dotfiles
 // theme change replaced. It is named distinctly from the desktop switch's undo
 // row so the two are not confused on the same screen.
 const dotfilesThemeUndoRow = "Undo the last dotfiles theme change"
+
+// utilitiesThemeRow is the utilities section's single row for the dotfiles'
+// own theme. The themes themselves live one level in, on the theme picker, so
+// the section reads as a list of jobs rather than a list of themes.
+const utilitiesThemeRow = "Change the dotfiles theme"
 
 // themePreviewSwatchRoles is the palette roles the live preview paints, in the
 // order it paints them. They are the roles every offered theme has.

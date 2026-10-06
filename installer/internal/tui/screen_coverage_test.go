@@ -173,43 +173,107 @@ var measuredTerminalSizes = []struct {
 // sizes between them, and a screen could render 50 rows in a 44-row terminal or
 // 76 columns in a 60-column one without a single test complaining.
 //
-// It renders every screen the existing guards already enumerate -- the
-// installer's states and the trainer's -- at every measured size and asserts the
-// two things the terminal itself enforces without saying so: no screen draws more
-// rows than the terminal has, and no visible line is wider than the terminal. A
-// line is measured after its escape sequences are stripped, with each wide rune
-// counted as the two cells it occupies.
+// It reads the shared matrix pass (terminalFrames) and asserts the two things the
+// terminal itself enforces without saying so: no screen draws more rows than the
+// terminal has, and no visible line is wider than the terminal. A line is measured
+// after its escape sequences are stripped, with each wide rune counted as the two
+// cells it occupies.
+//
+// The pass renders with the companion animating, which is the strictest frame: the
+// creature is drawn in rows the body did not need, so a screen that fits with it on
+// fits without it, and one that overflowed only with it on is a defect this guard
+// now catches rather than one it could miss.
 //
 // The case count is pinned rather than derived: the point of this guard is that
 // every screen is in it, so a screen silently dropping out of the enumeration has
 // to fail here instead of shrinking the measurement.
 func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
-	const measuredScreens = 54 // 47 installer states, the utilities section, and the trainer's 6
+	frames := terminalFrames(t)
 
-	cases := terminalFitCases()
-	if len(cases) != measuredScreens {
+	if screens := len(frames) / len(measuredTerminalSizes); screens != measuredScreens {
 		t.Fatalf("the guard enumerates %d screens, want the measured %d: a screen that is not rendered here can overflow its terminal unmeasured",
-			len(cases), measuredScreens)
+			screens, measuredScreens)
 	}
 
 	checked := 0
-	for _, c := range cases {
-		c := c
-		for _, size := range measuredTerminalSizes {
-			size := size
-			t.Run(c.name+"/"+size.name, func(t *testing.T) {
-				m := c.build(t)
-				m.Width, m.Height = size.width, size.height
-				assertScreenFitsTerminal(t, c.name, size.width, size.height, m.View())
-			})
-			checked++
-		}
+	for _, f := range frames {
+		f := f
+		t.Run(f.caseName+"/"+f.sizeName, func(t *testing.T) {
+			assertScreenFitsTerminal(t, f.caseName, f.width, f.height, f.view)
+		})
+		checked++
 	}
 
-	if want := len(cases) * len(measuredTerminalSizes); checked != want {
+	if want := measuredScreens * len(measuredTerminalSizes); checked != want {
 		t.Fatalf("the guard rendered %d screen x size cases, want %d", checked, want)
 	}
-	t.Logf("rendered %d screens at %d sizes: %d screen x size cases", len(cases), len(measuredTerminalSizes), checked)
+	t.Logf("rendered %d screens at %d sizes: %d screen x size cases, read from the shared matrix pass", measuredScreens, len(measuredTerminalSizes), checked)
+}
+
+// measuredScreens is the number of screen cases every matrix guard renders: the
+// 47 installer states, the utilities section, the theme picker, and the trainer's
+// 6. It is pinned rather than derived so a screen silently dropping out of the
+// enumeration fails more than one guard.
+const measuredScreens = 55 // 47 installer states + utilities + theme-picker + the trainer's 6
+
+// terminalMatrixFrame is one frame of the single render pass the matrix guards
+// share: one screen case rendered at one measured terminal with the companion
+// animating. Before the pass existed, the fit guard and the companion-coverage
+// guard each built the same 55 models 660 times and rendered the same frames
+// twice. The build is the expensive half -- each one points HOME and XDG_STATE_HOME
+// at fresh temporary directories -- so the repetition, not the drawing, was what
+// took this package from tens of seconds to minutes.
+type terminalMatrixFrame struct {
+	caseName string
+	sizeName string
+	width    int
+	height   int
+	view     string
+}
+
+// sharedTerminalFrames holds the one pass every matrix guard reads. It is built
+// lazily by the first guard that asks for it. The guards run one after another, so
+// there is no concurrency to guard, and building it inside a test keeps the fixture
+// builders -- which call t.Setenv -- on the test goroutine. It is never reset, so
+// the second guard reuses the bytes the first one rendered.
+var sharedTerminalFrames []terminalMatrixFrame
+
+// terminalFrames renders every case at every measured terminal once, for every
+// matrix guard to read. Each case's model is built once and resized per terminal
+// instead of rebuilt per (case, terminal): View has a value receiver, so a resize
+// cannot leave state behind, and the build is the part worth removing. The
+// animation flags and the dark ink are set here rather than per guard so the frames
+// are the strictest, fully-animated ones.
+func terminalFrames(t *testing.T) []terminalMatrixFrame {
+	t.Helper()
+
+	if sharedTerminalFrames != nil {
+		return sharedTerminalFrames
+	}
+
+	cases := terminalFitCases()
+	want := len(cases) * len(measuredTerminalSizes)
+	frames := make([]terminalMatrixFrame, 0, want)
+	for _, c := range cases {
+		m := c.build(t)
+		m.Animating, m.PixelSprite = true, true
+		m.ink = companionInkFor(true)
+		for _, size := range measuredTerminalSizes {
+			m.Width, m.Height = size.width, size.height
+			frames = append(frames, terminalMatrixFrame{
+				caseName: c.name,
+				sizeName: size.name,
+				width:    size.width,
+				height:   size.height,
+				view:     m.View(),
+			})
+		}
+	}
+	if len(frames) != want {
+		t.Fatalf("the shared matrix rendered %d frames, want %d", len(frames), want)
+	}
+	sharedTerminalFrames = frames
+	return sharedTerminalFrames
 }
 
 // The companion coverage main measured before the mini volume rung existed. The
@@ -227,31 +291,28 @@ const (
 // draw a creature at all, and pins the floor against the pre-mini baseline. The rung
 // is chosen by the terminal, but a frame whose body fills it refuses to overwrite
 // content (placeCompanion), so a too-tall rung leaves more screens showing no
-// creature than it needs to. The total is logged, and the two baselines are
-// asserted: coverage must never drop below what main drew.
+// creature than it needs to. It reads the same shared pass the fit guard reads, so
+// the two never build or render the same frame twice. The total is logged, and the
+// two baselines are asserted: coverage must never drop below what main drew.
 func TestCompanionCoverageAcrossTerminalSizes(t *testing.T) {
-	cases := terminalFitCases()
+	frames := terminalFrames(t)
+	screens := len(frames) / len(measuredTerminalSizes)
+
 	total, drawn, at80x24 := 0, 0, 0
-	for _, c := range cases {
-		for _, size := range measuredTerminalSizes {
-			m := c.build(t)
-			m.Width, m.Height = size.width, size.height
-			m.Animating, m.PixelSprite = true, true
-			m.ink = companionInkFor(true)
-			if _, rows := trainerViewCompanionArt(m.View()); rows > 0 {
-				drawn++
-				if size.name == "80x24" {
-					at80x24++
-				}
+	for _, f := range frames {
+		if _, rows := trainerViewCompanionArt(f.view); rows > 0 {
+			drawn++
+			if f.sizeName == "80x24" {
+				at80x24++
 			}
-			total++
 		}
+		total++
 	}
 	t.Logf("companion coverage: %d of %d screen x size cases (%.0f%%) draw a creature; %d draw none; %d of %d draw at 80x24",
-		drawn, total, 100*float64(drawn)/float64(total), total-drawn, at80x24, len(cases))
+		drawn, total, 100*float64(drawn)/float64(total), total-drawn, at80x24, screens)
 	if at80x24 < mainCompanionCoverage80x24 {
 		t.Errorf("at 80x24 only %d of %d screens draw a creature, want at least the %d main drew: the mini rung must replace the five-row glyph cat, not displace the compact head",
-			at80x24, len(cases), mainCompanionCoverage80x24)
+			at80x24, screens, mainCompanionCoverage80x24)
 	}
 	if drawn < mainCompanionCoverageTotal {
 		t.Errorf("companion coverage is %d of %d, below the %d main drew: a rung grew past the rows the body leaves", drawn, total, mainCompanionCoverageTotal)
@@ -287,8 +348,9 @@ func terminalFitCases() []terminalFitCase {
 	}
 	// The utilities section is entered from the main menu by a key rather than by
 	// one of the installer's states, so it is measured here the way the trainer's
-	// screens are.
+	// screens are. The theme picker is one level in from it, for the same reason.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
+	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
 
 	return cases
 }
@@ -453,6 +515,7 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{"trainer-result", result},
 		{"trainer-boss-result", bossResult},
 		{utilitiesCaseName, utilitiesFrameCase(t)},
+		{themePickerCaseName, themePickerFrameCase(t)},
 	}
 }
 
@@ -475,16 +538,40 @@ func utilitiesFrameCase(t *testing.T) Model {
 	m.ThemeSwitch, m.ThemeSwitchFound = target, true
 	m.ThemeRecord = &themeRecord{Target: target.ID, Value: "default", WasDark: false, ToDark: true}
 
-	// The dotfiles theme rows are part of the section, so the guards measure them
-	// too. The definitions are read from the repository rather than invented, so
-	// the exclusion lists drawn in the rows are the real ones.
+	// The dotfiles theme is one row in the section now: the themes themselves
+	// live on the picker, which is measured by its own case below.
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
 		t.Fatalf("load the theme definitions: %v", err)
 	}
 	m.DotfilesThemes = defs
-	// Put the cursor on a theme row so the frame guards measure the live preview
-	// too: the preview is a row, and a row can overflow a frame.
+	for i, option := range m.GetCurrentOptions() {
+		if option == utilitiesThemeRow {
+			m.Cursor = i
+			break
+		}
+	}
+	return m
+}
+
+// themePickerCaseName is the name the frame guards know the theme picker by.
+const themePickerCaseName = "theme-picker"
+
+// themePickerFrameCase builds the theme picker with the definitions read from
+// the repository and a record to undo, so the guards measure the list, its
+// exclusion lists, the undo row and the live preview. The cursor is put on a
+// theme row so the preview row is measured too: the preview is a row, and a row
+// can overflow a frame.
+func themePickerFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenThemePicker)
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: "dotfiles"}
 	for i, option := range m.GetCurrentOptions() {
 		if strings.HasPrefix(option, "Apply the ") {
 			m.Cursor = i
@@ -540,6 +627,46 @@ func TestUtilitiesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 		}
 		if widest > size.width {
 			t.Errorf("utilities at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		}
+	}
+}
+
+// TestThemePickerFrameFitIsMeasuredAtEverySize prints the theme picker's measured
+// frame at the twelve terminals the fit guard uses, so the size it is drawn at is
+// a number a reader can re-derive rather than a claim. The assertions repeat the
+// guard's two rules on purpose: this is the case that carries the numbers, and a
+// measurement that is only logged cannot fail.
+func TestThemePickerFrameFitIsMeasuredAtEverySize(t *testing.T) {
+	for _, size := range measuredTerminalSizes {
+		m := themePickerFrameCase(t)
+		m.Width, m.Height = size.width, size.height
+		view := m.View()
+
+		rows := renderedRowCount(view)
+		widest := 0
+		for _, line := range strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n") {
+			widest = max(widest, lipgloss.Width(line))
+		}
+		t.Logf("theme picker at %s: %d of %d rows, %d of %d columns", size.name, rows, size.height, widest, size.width)
+
+		if rows > size.height {
+			t.Errorf("the theme picker at %s renders %d rows, want <= %d", size.name, rows, size.height)
+		}
+		if widest > size.width {
+			t.Errorf("the theme picker at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		}
+
+		// The rows are the data, so they win the budget: at every size, including
+		// the 60x20 floor, each theme row, the undo row and the way back are on
+		// screen. The description is what gives way when the frame is short.
+		plain := ansiEscape.ReplaceAllString(view, "")
+		for _, option := range m.GetCurrentOptions() {
+			if strings.HasPrefix(option, menuSeparatorPrefix) {
+				continue
+			}
+			if !strings.Contains(plain, option) {
+				t.Errorf("the theme picker at %s dropped the row %q: the data must survive the short frame", size.name, option)
+			}
 		}
 	}
 }

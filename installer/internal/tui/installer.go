@@ -953,10 +953,11 @@ var themeTools = []themeTool{
 	{ID: "zsh", Name: "the zsh line editor", Needs: themePaletteRoles},
 	{ID: "p10k", Name: "the p10k prompt", Needs: themePaletteRoles},
 	{ID: "herdr", Name: "Herdr", Needs: []string{"selection", "blue"}},
-	// fish, bat, Neovim and tmux are driven by a file or a plugin name rather
-	// than by the canonical palette: fish and bat read a shipped theme file, and
-	// Neovim and tmux name a theme their plugin ships. Their artifact is what
-	// decides whether a theme can paint them, so they need no role list here.
+	// fish, bat, Neovim and tmux are driven by a file or a theme name rather than
+	// by the canonical palette: fish and bat read a generated file, Neovim names a
+	// colorscheme its plugin ships, and tmux gets this repository's palette applied
+	// to its own style options. Their artifact is what decides whether a theme can
+	// paint them, so they need no role list here.
 	{ID: "fish", Name: "fish"},
 	{ID: "bat", Name: "bat", Available: func(d themeDefinition) bool { return d.Bat != "" && d.BatFile != "" }},
 	{ID: "nvim", Name: "Neovim", Available: func(d themeDefinition) bool { return d.Nvim != "" }},
@@ -969,17 +970,17 @@ var themeTools = []themeTool{
 // is the button that does nothing. A tool absent here is reported as not
 // switchable for that theme.
 //
-// Generation is implemented for the four terminal emulators, which are the files
-// that carried the palette by hand. The remaining tools (Starship, the zsh/p10k
-// prompt, Herdr, fish, bat, Neovim and tmux) are declared in the definitions but
-// have no generated artifact yet, so they are reported as left out rather than
-// claimed. Extending this table is what extends the switch.
+// Generation is implemented for every tool the switch names. fish's block is its
+// own config file, generated from the definition's [fish] table or derived from
+// its canonical palette; tmux's is the palette applied to tmux's style options;
+// Neovim's is the colorscheme line, present only for a theme whose plugin ships
+// one. Extending this table is what extends the switch.
 var themeToolArtifacts = map[string][]string{
-	"dotfiles":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "bat"},
-	"catppuccin-mocha": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "nvim", "bat"},
+	"dotfiles":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "bat", "fish", "tmux"},
+	"catppuccin-mocha": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k", "nvim", "bat", "fish", "tmux"},
 	"catppuccin-latte": {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "starship", "zsh", "p10k"},
-	"kanagawa":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k", "nvim"},
-	"everforest":       {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k"},
+	"kanagawa":         {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k", "nvim", "fish"},
+	"everforest":       {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k", "fish"},
 	"rose-pine":        {"alacritty", "kitty", "wezterm", "ghostty", "herdr", "zsh", "p10k"},
 }
 
@@ -1044,6 +1045,8 @@ var themeSourceBlocks = map[string][]themeSourceBlock{
 		{Tool: "zsh", Path: "dotfiles-zsh/.zshrc", Roles: []string{"base", "text", "red", "green", "yellow", "blue", "magenta", "cyan", "bright_black"}},
 		{Tool: "p10k", Path: "dotfiles-zsh/.p10k.zsh", Roles: []string{"base", "text", "red", "green", "yellow", "blue", "magenta", "cyan", "bright_black"}},
 		{Tool: "Herdr", Path: "dotfiles-herdr/config.toml", Roles: []string{"selection", "blue"}},
+		{Tool: "fish", Path: "dotfiles-fish/fish/config.fish", Roles: []string{"text", "green", "magenta", "yellow", "cyan", "red", "blue", "bright_black", "selection"}},
+		{Tool: "tmux", Path: "dotfiles-tmux/tmux.conf", Roles: []string{"base", "text", "blue", "bright_black", "yellow", "red", "green", "selection"}},
 	},
 	"catppuccin-mocha": {
 		{Tool: "Ghostty", Path: "dotfiles-ghostty/themes/catppuccin-mocha.conf", Roles: []string{"base", "text", "cursor", "cursor_text", "selection", "selection_text", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"}},
@@ -1141,6 +1144,14 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "p10k", Path: "dotfiles-zsh/.p10k.zsh", Comment: "#", AdoptStart: "  # ── Palette", NotBoxed: true, AdoptEnd: `typeset -g PALETTE_CYAN=`, Render: renderP10kTheme},
 	{Tool: "nvim", Path: "dotfiles-nvim/nvim/lua/plugins/colorscheme.lua", Comment: "--", DefaultTheme: "kanagawa", AdoptStart: `colorscheme = "kanagawa"`, NotBoxed: true, AdoptEnd: `colorscheme = "kanagawa"`, Render: renderNvimColorscheme},
 	{Tool: "bat", Path: "dotfiles-zsh/.zshrc", Comment: "#", Block: "bat", NotBoxed: true, AdoptStart: "# --- bat ", AdoptEnd: "# --- zsh-autosuggestions", AdoptEndKeep: true, Render: renderBatSelection},
+	// fish's own config file is the artifact: its palette lives there as global
+	// variables, so the switch rewrites a file this repository owns instead of
+	// writing the user's theme state in fish_variables.
+	{Tool: "fish", Path: "dotfiles-fish/fish/config.fish", Comment: "#", NotBoxed: true, AdoptStart: "set -l foreground F3F6F9 normal", AdoptEnd: "set -g fish_pager_color_description $comment", Render: renderFishConfig},
+	// tmux gets its own style block rather than depending on the kanagawa plugin.
+	// The block is committed after the TPM run line; TestTmuxThemeBlockLoadsAfterPlugins
+	// pins that order.
+	{Tool: "tmux", Path: "dotfiles-tmux/tmux.conf", Comment: "#", NotBoxed: true, AdoptStart: "# DOTFILES THEME", AdoptEnd: "# DOTFILES THEME", Render: renderTmuxTheme},
 }
 
 // themeHex returns a role's value and refuses a definition that misses it, so a
@@ -1555,6 +1566,10 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".p10k.zsh")
 	case "nvim":
 		return filepath.Join(homeDir, ".config/nvim/lua/plugins/colorscheme.lua")
+	case "fish":
+		return filepath.Join(homeDir, ".config/fish/config.fish")
+	case "tmux":
+		return filepath.Join(homeDir, ".tmux.conf")
 	}
 	return ""
 }
@@ -1564,12 +1579,96 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 // one that does not is left exactly as the user wrote it.
 const themeOwnershipMarker = "dotfiles-managed-config:"
 
+// themeOwnershipMarkerLine is the exact line adoption writes into a file whose
+// content proved it is ours. It is the same line themeArtifactBlock writes above
+// the generated block, so an adopted file and a generated one are the same shape
+// to replaceThemeBlock, and it is the only line adoption adds.
+func themeOwnershipMarkerLine(art themeArtifact) string {
+	return art.Comment + " " + themeOwnershipMarker + " " + art.Tool
+}
+
+// stripThemeOwnershipMarkers removes every ownership-marker line from content,
+// so two versions of a file can be compared without the one line this repository
+// adds to a file it owns.
+func stripThemeOwnershipMarkers(content string) string {
+	var kept []string
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, themeOwnershipMarker) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+// themeInstalledFileIsOurs reports whether an installed file's content proves it
+// belongs to dotfiles, so the switch may adopt it rather than refuse it. The
+// proof is content, never the path: a file called ~/.config/herdr/config.toml is
+// not ours for being there. Two proofs are accepted:
+//
+//  1. the file carries a generated block begin marker (">>> dotfiles-theme...",
+//     named or not) that only this repository's generator writes; or
+//  2. with the ownership-marker lines removed it is byte-identical to the file
+//     the repository ships for this artifact - the repository version without
+//     the marker.
+//
+// Anything else is left exactly as it is. repoDir may be empty, in which case
+// only proof 1 is available because there is no shipped file to compare with.
+func themeInstalledFileIsOurs(repoDir string, art themeArtifact, installed string) bool {
+	if strings.Contains(installed, themeBeginTag(art.Block)) {
+		return true
+	}
+	if repoDir == "" {
+		return false
+	}
+	shipped, err := os.ReadFile(filepath.Join(repoDir, art.Path))
+	if err != nil {
+		return false
+	}
+	return stripThemeOwnershipMarkers(installed) == stripThemeOwnershipMarkers(string(shipped))
+}
+
+// adoptThemeFile writes the ownership marker into a file whose content proved it
+// is ours, and nothing else: no content line is touched. The marker goes above
+// the generated block so replaceThemeBlock finds it with the block; a proven file
+// with no generated block gets it on the first line. It returns false when the
+// file already carries the marker, so adoption can never add it twice.
+func adoptThemeFile(art themeArtifact, content string) (string, bool) {
+	if strings.Contains(content, themeOwnershipMarker) {
+		return content, false
+	}
+
+	marker := themeOwnershipMarkerLine(art)
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, themeBeginTag(art.Block)) {
+			continue
+		}
+		out := make([]string, 0, len(lines)+1)
+		out = append(out, lines[:i]...)
+		out = append(out, marker)
+		out = append(out, lines[i:]...)
+		return strings.Join(out, "\n"), true
+	}
+
+	out := make([]string, 0, len(lines)+1)
+	out = append(out, marker)
+	out = append(out, lines...)
+	return strings.Join(out, "\n"), true
+}
+
 // applyDotfilesTheme switches every installed terminal file to the theme,
 // recording the exact bytes each one held so the change can be undone. It is
 // gated on dryRun() exactly as executeStep is, refuses a file this repository
 // does not own, and restores anything it already wrote if a later write fails.
 // It never invents a file: a tool that is not installed is skipped.
-func applyDotfilesTheme(homeDir string, def themeDefinition) (*dotfilesThemeRecord, string, error) {
+//
+// A file with no ownership marker is not refused outright: when its content
+// proves it is ours (themeInstalledFileIsOurs) it is adopted first, which writes
+// the marker line and nothing else, and the bytes from before adoption are what
+// the record holds, so undo takes the marker back out. A file whose content
+// proves nothing is still refused and left exactly as it is.
+func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfilesThemeRecord, string, error) {
 	if dryRun() {
 		SendLog("utilities", fmt.Sprintf("DRY RUN: skipping the switch to the %s theme", def.Name))
 		return nil, fmt.Sprintf("DRY RUN: the %s theme was not applied.", def.Name), nil
@@ -1577,6 +1676,20 @@ func applyDotfilesTheme(homeDir string, def themeDefinition) (*dotfilesThemeReco
 
 	previous := map[string]string{}
 	var written []string
+	var adopted []string
+	themed := 0
+	// record keeps the first bytes read for a path. Several artifacts can share
+	// one file (Starship's two blocks, .zshrc's zsh and bat blocks), and a later
+	// artifact reads the file an earlier one already wrote, so it must not
+	// overwrite the record: undo has to reach the file's original bytes.
+	record := func(path, original string) {
+		if _, ok := previous[path]; !ok {
+			previous[path] = original
+		}
+		if !slices.Contains(written, path) {
+			written = append(written, path)
+		}
+	}
 	restoreWritten := func() {
 		for _, path := range written {
 			_ = os.WriteFile(path, []byte(previous[path]), 0o644)
@@ -1596,10 +1709,33 @@ func applyDotfilesTheme(homeDir string, def themeDefinition) (*dotfilesThemeReco
 			restoreWritten()
 			return nil, "", fmt.Errorf("could not read %s, so nothing was changed: %w", path, err)
 		}
-		if !strings.Contains(string(data), themeOwnershipMarker) {
-			restoreWritten()
-			return nil, "", fmt.Errorf("%s is not owned by dotfiles (it carries no %q marker), so it was left exactly as it is",
-				path, themeOwnershipMarker)
+		original := string(data)
+		content := original
+		owned := strings.Contains(original, themeOwnershipMarker)
+		if !owned {
+			// The file carries no ownership marker. It may still be ours: its
+			// content can prove it, and only then is it adopted - adding the marker
+			// line and nothing else. A file whose content proves nothing is left
+			// exactly as the user wrote it, which is the rule's whole point.
+			if !themeInstalledFileIsOurs(repoDir, art, original) {
+				restoreWritten()
+				return nil, "", fmt.Errorf("%s is not owned by dotfiles (it carries no %q marker, and its content does not match the file this repository ships), so it was left exactly as it is",
+					path, themeOwnershipMarker)
+			}
+			adoptedContent, ok := adoptThemeFile(art, original)
+			if !ok {
+				restoreWritten()
+				return nil, "", fmt.Errorf("%s could not be adopted, so nothing was changed", path)
+			}
+			if err := os.WriteFile(path, []byte(adoptedContent), 0o644); err != nil {
+				restoreWritten()
+				return nil, "", fmt.Errorf("could not write the ownership marker into %s, so the files already changed were put back: %w", path, err)
+			}
+			// The bytes recorded are the ones from before adoption, so undo takes the
+			// marker back out and leaves the file exactly as it was.
+			record(path, original)
+			adopted = append(adopted, path)
+			content = adoptedContent
 		}
 
 		block, err := themeArtifactBlock(art, def)
@@ -1607,20 +1743,24 @@ func applyDotfilesTheme(homeDir string, def themeDefinition) (*dotfilesThemeReco
 			restoreWritten()
 			return nil, "", err
 		}
-		updated, ok := replaceThemeBlock(string(data), block, art.Block)
+		updated, ok := replaceThemeBlock(content, block, art.Block)
 		if !ok {
-			// An owned file with no generated block: nothing to rewrite here.
+			// An owned file with no generated block has nothing to rewrite here. An
+			// adopted one is still recorded, so undo takes its marker out.
 			continue
 		}
 		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
 			restoreWritten()
 			return nil, "", fmt.Errorf("could not write %s, so the files already changed were put back: %w", path, err)
 		}
-		previous[path] = string(data)
-		written = append(written, path)
+		if owned {
+			record(path, original)
+		}
+		themed++
 	}
 
-	if len(written) == 0 {
+	if themed == 0 {
+		restoreWritten()
 		return nil, "", fmt.Errorf("no installed theme block was found, so nothing was changed")
 	}
 
@@ -1630,8 +1770,20 @@ func applyDotfilesTheme(homeDir string, def themeDefinition) (*dotfilesThemeReco
 		return nil, "", fmt.Errorf("the theme changed but the blocks it replaced could not be recorded, "+
 			"so it cannot be undone; the files were put back: %w", err)
 	}
-	return next, fmt.Sprintf("The %s theme is applied to %d file(s). The blocks it replaced are recorded; use Undo to put them back.",
-		def.Name, len(written)), nil
+
+	// Adoption is said out loud, once per file and once in the notice: an
+	// installer that writes a config without saying so is what the ownership rule
+	// exists to prevent.
+	for _, path := range adopted {
+		SendLog("utilities", fmt.Sprintf("Adopted %s: it carried no ownership marker, so only the marker line was added (its content proved it is dotfiles'); Undo takes it back out.", path))
+	}
+	notice := ""
+	if len(adopted) > 0 {
+		notice = fmt.Sprintf("Adopted %d file(s) whose content proved they are dotfiles', adding the ownership marker and nothing else. ", len(adopted))
+	}
+	notice += fmt.Sprintf("The %s theme is applied to %d file(s). The blocks it replaced are recorded; use Undo to put them back.",
+		def.Name, themed)
+	return next, notice, nil
 }
 
 // undoDotfilesTheme puts back the exact bytes each file held before the change,
@@ -1736,6 +1888,176 @@ var themeFishRoles = []string{
 	"normal", "command", "keyword", "quote", "redirection", "end", "error",
 	"param", "comment", "selection", "search_match", "operator", "escape",
 	"autosuggestion", "pager_progress", "pager_prefix", "pager_completion", "pager_description",
+}
+
+// themeFishDerivation is the mechanical mapping from the canonical palette to
+// fish's own role names, written down as code so a theme that ships no [fish]
+// table (catppuccin-mocha) is derived from its palette rather than left out or
+// filled by eye. Every palette role it names already holds a value the
+// definition was given, so a derived fish colour is never an invented one; it is
+// the same mapping the dotfiles definition records in its [fish] table.
+var themeFishDerivation = map[string]string{
+	"normal":            "text",
+	"command":           "green",
+	"keyword":           "magenta",
+	"quote":             "yellow",
+	"redirection":       "text",
+	"end":               "cyan",
+	"error":             "red",
+	"param":             "blue",
+	"comment":           "bright_black",
+	"selection":         "selection",
+	"search_match":      "selection",
+	"operator":          "green",
+	"escape":            "magenta",
+	"autosuggestion":    "bright_black",
+	"pager_progress":    "bright_black",
+	"pager_prefix":      "green",
+	"pager_completion":  "text",
+	"pager_description": "bright_black",
+}
+
+// themeFishRolesFor returns the fish roles a definition paints. A definition
+// that carries a complete [fish] table (the partial themes transcribed from their
+// own files) uses it; one that does not derives each role from its canonical
+// palette. A theme missing either half is refused rather than emitted with a
+// hole, which is what lets the menu report fish honestly instead of drawing a
+// half palette.
+func themeFishRolesFor(def themeDefinition) (map[string]string, error) {
+	complete := true
+	for _, role := range themeFishRoles {
+		if def.Fish[role] == "" {
+			complete = false
+			break
+		}
+	}
+	if complete {
+		return def.Fish, nil
+	}
+
+	derived := make(map[string]string, len(themeFishRoles))
+	for _, role := range themeFishRoles {
+		paletteRole := themeFishDerivation[role]
+		value := def.Palette[paletteRole]
+		if value == "" {
+			return nil, fmt.Errorf("theme %q defines neither fish role %q nor palette role %q, so its fish colours cannot be generated",
+				def.ID, role, paletteRole)
+		}
+		derived[role] = strings.TrimPrefix(value, "#")
+	}
+	return derived, nil
+}
+
+// renderFishConfig renders the fish palette block of dotfiles-fish/fish/config.fish.
+// fish's active theme is otherwise the user's own state: fish keeps the colour
+// variables a `fish_config theme choose` writes in fish_variables, which this
+// repository does not own and the switch must not rewrite. Expressing the palette
+// in the config file the repository does own is what makes the fish switch
+// reversible, and the global scope is what makes it win over a universal choice
+// made once through fish_config.
+func renderFishConfig(def themeDefinition) (string, error) {
+	roles, err := themeFishRolesFor(def)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(`%s
+# The fish palette. Generated from themes/%s.toml; edit the definition, not this
+# block. These are global variables, so they also win over a universal colour the
+# user chose once through fish_config; the switch never writes the user's own
+# state in fish_variables.
+set -g fish_color_normal %s
+set -g fish_color_command %s
+set -g fish_color_keyword %s
+set -g fish_color_quote %s
+set -g fish_color_redirection %s
+set -g fish_color_end %s
+set -g fish_color_error %s
+set -g fish_color_param %s
+set -g fish_color_comment %s
+set -g fish_color_selection --background=%s
+set -g fish_color_search_match --background=%s
+set -g fish_color_operator %s
+set -g fish_color_escape %s
+set -g fish_color_autosuggestion %s
+
+# Completion pager colours.
+set -g fish_pager_color_progress %s
+set -g fish_pager_color_prefix %s
+set -g fish_pager_color_completion %s
+set -g fish_pager_color_description %s`,
+		themeBox("#", "DOTFILES THEME"),
+		def.ID,
+		roles["normal"], roles["command"], roles["keyword"], roles["quote"],
+		roles["redirection"], roles["end"], roles["error"], roles["param"],
+		roles["comment"], roles["selection"], roles["search_match"], roles["operator"],
+		roles["escape"], roles["autosuggestion"], roles["pager_progress"], roles["pager_prefix"],
+		roles["pager_completion"], roles["pager_description"]), nil
+}
+
+// renderTmuxTheme renders tmux's own style options from the canonical palette.
+// tmux's only theme in this repository is the name of the kanagawa plugin, and
+// Kanagawa is partial, so this block invents no theme: it is this repository's
+// palette applied to tmux's status bar, windows, panes and copy-mode. The block
+// is placed after the TPM run line (pinned by TestTmuxThemeBlockLoadsAfterPlugins)
+// because tmux runs run-shell synchronously: the plugin styles are already
+// written when this block is read, so these options win.
+func renderTmuxTheme(def themeDefinition) (string, error) {
+	for _, name := range []string{"base", "text", "blue", "bright_black", "yellow", "red", "green", "selection"} {
+		if _, err := themeHex(def, name); err != nil {
+			return "", err
+		}
+	}
+	hex := func(name string) string {
+		value, _ := themeHex(def, name)
+		return value
+	}
+
+	return fmt.Sprintf(`%s
+# tmux's own style options, painted from themes/%s.toml. tmux's theme in this
+# repository used to be only the kanagawa plugin's name, and Kanagawa is partial,
+# so this is the palette applied to tmux itself rather than a second theme.
+# It sits after the TPM run line on purpose: tmux runs run-shell
+# synchronously, so the plugins TPM sources have already written their styles
+# when this block is read, and these options win.
+set -g status-style "fg=%s,bg=%s"
+set -g status-left-style "fg=%s,bg=%s,bold"
+set -g status-right-style "fg=%s,bg=%s"
+set -g message-style "fg=%s,bg=%s"
+set -g message-command-style "fg=%s,bg=%s"
+setw -g window-status-style "fg=%s,bg=%s"
+setw -g window-status-current-style "fg=%s,bg=%s,bold"
+setw -g window-status-activity-style "fg=%s,bg=%s"
+setw -g window-status-bell-style "fg=%s,bg=%s"
+setw -g window-status-last-style "fg=%s,bg=%s"
+setw -g pane-border-style "fg=%s"
+setw -g pane-active-border-style "fg=%s"
+setw -g copy-mode-match-style "fg=%s,bg=%s"
+setw -g copy-mode-current-match-style "fg=%s,bg=%s"
+set -g mode-style "fg=%s,bg=%s"
+set -g display-panes-colour "%s"
+set -g display-panes-active-colour "%s"
+set -g clock-mode-colour "%s"`,
+		themeBox("#", "DOTFILES THEME"),
+		def.ID,
+		hex("text"), hex("base"),
+		hex("base"), hex("blue"),
+		hex("bright_black"), hex("base"),
+		hex("base"), hex("yellow"),
+		hex("base"), hex("yellow"),
+		hex("bright_black"), hex("base"),
+		hex("base"), hex("blue"),
+		hex("yellow"), hex("base"),
+		hex("red"), hex("base"),
+		hex("green"), hex("base"),
+		hex("bright_black"),
+		hex("blue"),
+		hex("text"), hex("selection"),
+		hex("base"), hex("yellow"),
+		hex("text"), hex("selection"),
+		hex("bright_black"),
+		hex("blue"),
+		hex("blue")), nil
 }
 
 // themeThemeFile is a whole-file artifact, one per theme: the fish theme files

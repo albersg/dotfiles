@@ -294,3 +294,64 @@ fixing two of them falls outside this change.
   `teatest`-driven golden tests use it through `goldenTranscript`. `TestGoldenFrameWaitsForTheScreen`
   reproduces the race with a staged reader (init, partial repaint, frame): it fails deterministically
   while the wait accepts "any output" and passes when it waits for the frame. No golden file changed.
+
+## Update: a file installed before the ownership marker can be adopted
+
+- **Defect the user hit.** Changing the theme failed with
+  `~/.config/herdr/config.toml is not owned by dotfiles (it carries no "dotfiles-managed-config:" marker), so it was left exactly as it is`.
+  The rule is right and stays; what was missing was a way to adopt a file that
+  *is* ours but was installed before the marker existed. The switch refused it and
+  left the machine that already had dotfiles installed unable to change the theme.
+- **Adoption is proven by content, never by path.** Before refusing, the switch asks whether the file
+  is ours: (1) it carries a generated block begin marker (`>>> dotfiles-theme...`, named or not) that
+  only this repository's generator writes, or (2) with the ownership-marker lines removed it is
+  byte-identical to the file the repository ships (the repository version without the marker). Anything
+  else is still refused, unchanged — a file at `~/.config/herdr/config.toml` is not ours for being
+  there. `themeInstalledFileIsOurs`, `stripThemeOwnershipMarkers`, `adoptThemeFile`.
+- **Adoption writes the marker line and nothing else**: no content line is touched. The bytes from
+  before adoption are what `theme.json` records, so **Undo** writes the file back byte-for-byte
+  **without** the marker. The adoption is recorded through the same `dotfilesThemeRecord.Files` map, so
+  no record format changed and the undo path needed no change.
+- **Adoption is said out loud**: a `SendLog` line per adopted file and a notice sentence that leads the
+  picker's result (`Adopted N file(s) whose content proved they are dotfiles', adding the ownership
+  marker and nothing else.`). An installer that writes a config without saying so is what the rule
+  exists to prevent.
+- **A latent bug the adoption exposed and this change fixes.** Several artifacts share one file
+  (Starship's palette line and palette table are two artifacts on `~/.config/starship.toml`; `.zshrc`
+  carries the zsh block and the bat block). The loop recorded each artifact's `previous[path]`, and the
+  second artifact reads the file the first one already wrote, so the record was overwritten with the
+  intermediate state and **Undo could not reach the file's original bytes**. `TestThemeAdoptionUndoRestoresAFileWithTwoBlocks`
+  fails on the old bookkeeping; a `record` helper now keeps the first bytes read per path and dedupes
+  the written set. This made the adoption's byte-for-byte return true for Starship, not only for the
+  single-block files the earlier tests used.
+- **The repository directory is threaded to the switch** so proof (2) can read the shipped file:
+  `resolveThemeDefinitionsDir`'s winner is kept on the model (`Model.DotfilesRepoDir`, set from
+  `dotfilesThemesLoadedMsg.repoDir`) and `applyDotfilesTheme(homeDir, repoDir, def)` reads
+  `repoDir/<artifact path>` for the comparison. No new dependency, no new state file.
+- **Tests (one per case, plus teeth):**
+  `TestThemeAdoptionAcceptsAFileThatMatchesTheRepository` (a: adopted, theme applied),
+  `TestDotfilesThemeSwitchRefusesAnUnownedFile` (b: a user file still refused, unchanged),
+  `TestThemeAdoptionUndoRemovesTheMarker` (c: undo restores byte-for-byte without the marker),
+  `TestThemeAdoptionDoesNotTouchAnOwnedFile` (d: a marked file is not re-adopted, marker not
+  duplicated), `TestThemeInstalledFileIsOursProvesByContent` (both proofs and the refusal, with no
+  repo to compare against), and `TestThemeAdoptionCoversEveryShippedArtifact` (all 13 shipped
+  artifacts are adoptable after only their marker is removed). Teeth: returning `false` from
+  `themeInstalledFileIsOurs` makes case (a) fail again with the exact refusal.
+
+### Which installed files lack the marker, and does adoption cover them
+
+| State of the installed file | Adoption covers it? |
+|---|---|
+| Installed **after** the marker (a normal install today) | Already marked; no adoption needed. |
+| Installed **before the marker** but with the generated block (the marker-only drift) | **Yes, every one of the 13 rewrite targets** — guarded by `TestThemeAdoptionCoversEveryShippedArtifact`. |
+| Installed **before the generated block existed** (this machine: herdr, starship, .zshrc, .p10k.zsh, colorscheme.lua, config.fish, all dated 2026-09-19) | **No.** Their content is not what the repository ships today and carries no block marker, so both proofs fail and they are still refused. They need a **reinstall**, which refreshes managed files with the marker (herdr by `CopyFile`; `.zshrc`/`config.fish` by `ReplaceUserConfig`, which preserves the old file to a drop-in first). |
+
+- **The honest gap, stated rather than hidden.** Content alone cannot prove ownership of a file whose
+  shipped content has since drifted, and inventing a looser proof (a subset match, a provenance
+  comment) would adopt user files. So a pre-generation installation still gets the refusal on its
+  first stale file and must reinstall once. Adoption unblocks the marker-only drift, not the stale
+  install.
+- **A related, separate gap noticed while checking**: a file that carries the ownership marker but no
+  generated block (installs between the shell marker, 2026-10-01, and the block generator, 2026-10-05)
+  is treated as owned and **skipped** by the block replacement, so the theme is not applied to it until
+  a reinstall writes the block. Not changed here; recorded so it is not rediscovered.
