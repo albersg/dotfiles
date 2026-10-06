@@ -63,6 +63,22 @@ type (
 		err    error
 	}
 
+	// themeRefreshDetectedMsg carries the files the refresh found out of date. A
+	// failure stays on the picker as a notice, like the switch's own failures.
+	themeRefreshDetectedMsg struct {
+		candidates []themeRefreshCandidate
+		err        error
+	}
+
+	// themeRefreshDoneMsg carries the result of a refresh: the record that makes
+	// it reversible, the paragraphs the review shows, and the short notice.
+	themeRefreshDoneMsg struct {
+		record     *dotfilesThemeRecord
+		paragraphs []string
+		notice     string
+		err        error
+	}
+
 	// trainerStatsLoadedMsg carries the trainer's persisted stats onto the startup
 	// path, so the main menu's "Your trainer" panel can describe real progress
 	// before the player has opened the trainer.
@@ -273,6 +289,24 @@ func undoDotfilesThemeCmd(rec dotfilesThemeRecord) tea.Cmd {
 	return func() tea.Msg {
 		notice, err := undoDotfilesTheme(rec)
 		return dotfilesThemeChangedMsg{notice: notice, err: err}
+	}
+}
+
+// detectThemeRefreshCmd lists the installed theme files that are not up to date
+// off the update loop. It only reads: the review it opens is what names the
+// files before any of them is written.
+func detectThemeRefreshCmd(homeDir string, defs []themeDefinition) tea.Cmd {
+	return func() tea.Msg {
+		return themeRefreshDetectedMsg{candidates: findThemeRefreshCandidates(homeDir, defs)}
+	}
+}
+
+// refreshThemeFilesCmd runs the confirmed refresh off the update loop, behind
+// the same dry-run gate as the switch.
+func refreshThemeFilesCmd(homeDir string, defs []themeDefinition, candidates []themeRefreshCandidate) tea.Cmd {
+	return func() tea.Msg {
+		rec, paragraphs, notice, err := refreshThemeFiles(homeDir, defs, candidates)
+		return themeRefreshDoneMsg{record: rec, paragraphs: paragraphs, notice: notice, err: err}
 	}
 }
 
@@ -540,6 +574,56 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// every successful change: an apply leaves one, an undo clears it.
 		m.DotfilesThemeRecord = readDotfilesThemeRecord()
 		m.ThemeNotice = msg.notice
+		return m, nil
+
+	case themeRefreshDetectedMsg:
+		// Detection opens the review. Nothing is written here or in the command:
+		// the review is the list the user confirms.
+		if msg.err != nil {
+			m.ThemeNotice = msg.err.Error()
+			return m, nil
+		}
+		m.ThemeRefreshCandidates = msg.candidates
+		m.ThemeNotice = ""
+		refreshable := 0
+		for _, cand := range msg.candidates {
+			if cand.Problem == "" {
+				refreshable++
+			}
+		}
+		if refreshable == 0 {
+			if len(msg.candidates) == 0 {
+				m.ThemeRefreshReview, m.ThemeRefreshDone = false, false
+				m.ThemeRefreshResult = nil
+				m.ThemeNotice = "Every installed theme file is already up to date."
+				return m, nil
+			}
+			// Nothing can be refreshed, but the files that could not are still
+			// named rather than silently dropped.
+			var problems []string
+			for _, cand := range msg.candidates {
+				problems = append(problems, cand.Path+" — "+cand.Problem)
+			}
+			m.ThemeRefreshReview, m.ThemeRefreshDone = true, true
+			m.ThemeRefreshResult = themeRefreshResultParagraphs(nil, nil, problems)
+			m.Cursor = 0
+			return m, nil
+		}
+		m.ThemeRefreshReview, m.ThemeRefreshDone = true, false
+		m.ThemeRefreshResult = nil
+		m.Cursor = 1 // Cancel is the safe default.
+		return m, nil
+
+	case themeRefreshDoneMsg:
+		if msg.err != nil {
+			m.ThemeNotice = msg.err.Error()
+			return m, nil
+		}
+		m.DotfilesThemeRecord = readDotfilesThemeRecord()
+		m.ThemeRefreshReview, m.ThemeRefreshDone = true, true
+		m.ThemeRefreshResult = msg.paragraphs
+		m.ThemeNotice = msg.notice
+		m.Cursor = 0
 		return m, nil
 
 	case configsDetectedMsg:
@@ -1189,10 +1273,12 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			return m, applyThemeCmd(m.ThemeSwitch, false)
 		case selected == utilitiesThemeRow:
 			// The theme list is one level in: the section opens the picker rather
-			// than listing the themes itself.
+			// than listing the themes itself. A previous refresh review is cleared so
+			// a later visit starts from the list.
 			m.Screen = ScreenThemePicker
 			m.Cursor = 0
 			m.ThemeNotice = ""
+			m.resetThemeRefresh()
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
 		case strings.Contains(selected, "Back"):
@@ -1211,6 +1297,10 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 // preview follows the cursor and writes nothing, which is why moving it costs no
 // command here.
 func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
+	if m.ThemeRefreshReview {
+		return m.handleThemeRefreshKeys(key)
+	}
+
 	options := m.GetCurrentOptions()
 
 	switch key {
@@ -1232,6 +1322,7 @@ func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.ThemeNotice = ""
+		m.resetThemeRefresh()
 	case "enter", " ":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
@@ -1242,12 +1333,53 @@ func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
 			if def, ok := m.dotfilesThemeForRow(selected); ok {
 				return m, m.applyDotfilesThemeCmd(def)
 			}
+		case selected == themeRefreshRow:
+			return m, detectThemeRefreshCmd(os.Getenv("HOME"), m.DotfilesThemes)
 		case selected == dotfilesThemeUndoRow && m.DotfilesThemeRecord != nil:
 			return m, undoDotfilesThemeCmd(*m.DotfilesThemeRecord)
 		case strings.Contains(selected, "Back"):
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
 			m.ThemeNotice = ""
+			m.resetThemeRefresh()
+		}
+	}
+
+	return m, nil
+}
+
+// handleThemeRefreshKeys drives the refresh review: the confirmation before
+// anything is written, and the result after. Cancel and esc leave every file as
+// it is; the only command it returns is the confirmed refresh.
+func (m Model) handleThemeRefreshKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+		}
+	case "esc", "backspace":
+		m.resetThemeRefresh()
+		m.ThemeNotice = ""
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		switch {
+		case m.ThemeRefreshDone:
+			// The result's only row is the way back to the list.
+			m.resetThemeRefresh()
+			m.ThemeNotice = ""
+		case selected == themeRefreshCancelRow:
+			m.resetThemeRefresh()
+		case strings.HasPrefix(selected, "Yes, refresh"):
+			return m, refreshThemeFilesCmd(os.Getenv("HOME"), m.DotfilesThemes, m.ThemeRefreshCandidates)
 		}
 	}
 

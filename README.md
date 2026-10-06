@@ -166,7 +166,12 @@ leaving the row puts the default chrome back; nothing is written while the curso
 ownership marker; a file you wrote is left exactly as it is. A managed file that predates the marker
 is adopted first — and only when its content proves it is ours (it is what the repository ships, or it
 carries a generated block marker) — which writes that marker line and nothing else and is undone
-byte-for-byte. `--dry-run` skips it too. See
+byte-for-byte. A file whose content has drifted from what the repository ships defeats both proofs;
+the **Refresh outdated theme files** row brings it forward — naming every file it would touch and
+where an unowned one is preserved (into `~/.zshrc.d/` or `~/.config/fish/dotfiles.d/`, or beside
+itself as `<path>.bak-dotfiles-<timestamp>`) before anything is written — records the previous bytes
+so Undo puts each file back, and skips a file it cannot recognize while carrying on with the rest.
+`--dry-run` skips it too. See
 [`themes/README.md`](themes/README.md).
 
 ---

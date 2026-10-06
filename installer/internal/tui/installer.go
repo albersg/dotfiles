@@ -1763,6 +1763,405 @@ func undoDotfilesTheme(rec dotfilesThemeRecord) (string, error) {
 	return fmt.Sprintf("The previous theme blocks are back in %d file(s).", len(rec.Files)), nil
 }
 
+// ----------------------------------------------------------------------------
+// Refreshing the managed files that predate the markers
+// ----------------------------------------------------------------------------
+//
+// A machine installed before the generated blocks and the ownership marker
+// carry files the switch cannot touch: they have neither marker nor block, so
+// applyDotfilesTheme refuses them, and telling the user to reinstall is not an
+// answer. The refresh adopts those files into the generated form. It is
+// deliberately narrow, and it never runs by surprise:
+//
+//   - detection only reads, and names the files it would touch and where an
+//     unowned one would be preserved before the user confirms anything;
+//   - a file that may hold the user's own content is copied first, to the same
+//     place the install steps use (~/.zshrc.d, ~/.config/fish/dotfiles.d) or to
+//     the .bak-dotfiles-<stamp> the installer already writes;
+//   - the previous bytes are recorded in the same theme.json the switch uses,
+//     so Undo puts each file back byte-for-byte;
+//   - it is gated on dryRun() like every other writer;
+//   - a file that cannot be refreshed (unreadable, not regular, unrecognizable)
+//     is named and skipped, and the rest of the refresh carries on.
+
+// themeRefreshCandidate is one installed file the refresh would bring up to
+// date. It is the list the review names before anything is written.
+type themeRefreshCandidate struct {
+	Tool string
+	Path string
+	// Reason is why the file is not up to date: no ownership marker, no generated
+	// block, or a block that no longer matches its definition.
+	Reason string
+	// Preserve is the drop-in directory an unowned file is copied into first, or
+	// empty when it is preserved beside itself as <path>.bak-dotfiles-<stamp>.
+	Preserve string
+	// PreserveLabel is the sentence the review shows for where the file goes,
+	// with <stamp> standing in for the timestamp chosen at write time.
+	PreserveLabel string
+	// Problem, when set, is why this file cannot be refreshed. It is still named,
+	// so the user is told rather than left wondering.
+	Problem string
+}
+
+// themeInstalledFile is one installed path and the generated artifacts that live
+// in it. A path can hold more than one (starship's palette line and its table,
+// the zsh palette and the bat selection), so the file is read and written once
+// and every artifact is applied to the same content.
+type themeInstalledFile struct {
+	Path      string
+	Artifacts []themeArtifact
+}
+
+// themeInstalledFiles groups the active artifacts by the file they land in, in
+// the order the artifacts are declared, so a shared file is not read twice.
+func themeInstalledFiles(homeDir string) []themeInstalledFile {
+	var files []themeInstalledFile
+	index := map[string]int{}
+	for _, art := range themeActiveArtifacts {
+		path := themeInstalledPath(art, homeDir)
+		if path == "" {
+			continue
+		}
+		if i, ok := index[path]; ok {
+			files[i].Artifacts = append(files[i].Artifacts, art)
+			continue
+		}
+		index[path] = len(files)
+		files = append(files, themeInstalledFile{Path: path, Artifacts: []themeArtifact{art}})
+	}
+	return files
+}
+
+// themeRefreshTarget picks the definition a refresh should write into one
+// artifact. A file that already names a theme keeps it; a file from before the
+// markers gets the artifact's own default (the committed theme, or Neovim's
+// Kanagawa), never an arbitrary one.
+func themeRefreshTarget(content string, art themeArtifact, defs []themeDefinition) (themeDefinition, bool) {
+	if id, ok := themeBlockID(content, art.Block); ok {
+		if def, found := themeByID(defs, id); found {
+			if _, err := themeArtifactBlock(art, def); err == nil {
+				return def, true
+			}
+		}
+	}
+	id := art.DefaultTheme
+	if id == "" {
+		id = defaultThemeID
+	}
+	def, found := themeByID(defs, id)
+	if !found {
+		return themeDefinition{}, false
+	}
+	if _, err := themeArtifactBlock(art, def); err != nil {
+		return themeDefinition{}, false
+	}
+	return def, true
+}
+
+// themeRefreshContent replaces an artifact's generated block, or adopts the
+// hand-written block of a file that predates the markers. It reports false when
+// neither anchor exists, which is the file's content being unrecognizable.
+func themeRefreshContent(content string, art themeArtifact, def themeDefinition) (string, bool) {
+	block, err := themeArtifactBlock(art, def)
+	if err != nil {
+		return content, false
+	}
+	if updated, ok := replaceThemeBlock(content, block, art.Block); ok {
+		return updated, true
+	}
+	if updated, ok := adoptThemeBlock(content, art, block); ok {
+		return updated, true
+	}
+	return content, false
+}
+
+// themeFileRefreshPlan applies every artifact a file holds and reports the
+// updated content, whether anything changed, and why the file cannot be
+// refreshed when no artifact's anchor was found. An artifact whose anchor is
+// absent is left as it is: a minimal hand-written file need not carry every
+// region the generators write today.
+func themeFileRefreshPlan(content string, arts []themeArtifact, defs []themeDefinition) (updated string, changed bool, problem string) {
+	updated = content
+	found := false
+	for _, art := range arts {
+		def, ok := themeRefreshTarget(updated, art, defs)
+		if !ok {
+			continue
+		}
+		next, ok := themeRefreshContent(updated, art, def)
+		if !ok {
+			continue
+		}
+		found = true
+		if next != updated {
+			changed = true
+			updated = next
+		}
+	}
+	if !found {
+		return content, false, "its content is not a recognizable dotfiles theme block"
+	}
+	return updated, changed, ""
+}
+
+// themeFileRefreshReason names why a stale file is stale. A missing marker is
+// reported first because it is the reason the switch refuses the file.
+func themeFileRefreshReason(content string, arts []themeArtifact) string {
+	if !strings.Contains(content, themeOwnershipMarker) {
+		return "no dotfiles ownership marker"
+	}
+	for _, art := range arts {
+		if _, ok := themeBlockID(content, art.Block); !ok {
+			return "no generated theme block"
+		}
+	}
+	return "its generated theme block is out of date"
+}
+
+// themeFilePreserveDir is the sourced drop-in directory an unowned file is
+// copied into before it is replaced, or empty when it is preserved beside
+// itself. The zsh and fish directories are the ones the install steps use, so a
+// refreshed .zshrc and a refreshed config.fish land where the shell already
+// sources them.
+func themeFilePreserveDir(arts []themeArtifact, homeDir string) string {
+	for _, art := range arts {
+		switch art.Tool {
+		case "zsh":
+			return filepath.Join(homeDir, ".zshrc.d")
+		case "fish":
+			return filepath.Join(homeDir, ".config", "fish", "dotfiles.d")
+		}
+	}
+	return ""
+}
+
+// themeFilePreserveLabel is the review's sentence for where a file goes, with
+// <stamp> standing in for the timestamp the writer picks.
+func themeFilePreserveLabel(arts []themeArtifact, homeDir, path string) string {
+	if dir := themeFilePreserveDir(arts, homeDir); dir != "" {
+		return "your current file is preserved first in " + dir + "/"
+	}
+	return "your current file is preserved first as " + path + ".bak-dotfiles-<stamp>"
+}
+
+// preserveThemeFile copies an unowned file to the place the install steps use
+// before the refresh replaces it, and returns where it went. The drop-in dirs
+// are shared with the shell install; everything else is preserved beside itself
+// as the .bak the installer already writes.
+func preserveThemeFile(file themeInstalledFile, homeDir, content string) (string, error) {
+	first := file.Artifacts[0]
+	if dir := themeFilePreserveDir(file.Artifacts, homeDir); dir != "" {
+		ext := ".zsh"
+		if first.Tool == "fish" {
+			ext = ".fish"
+		}
+		marker := first.Comment + " " + themeOwnershipMarker + " " + first.Tool
+		return system.PreserveUserConfig(file.Path, marker, dir, "dotfiles-user-config", ext)
+	}
+	stamp := time.Now().Format("20060102-150405")
+	backup := fmt.Sprintf("%s.bak-dotfiles-%s", file.Path, stamp)
+	if err := os.WriteFile(backup, []byte(content), 0o600); err != nil {
+		return "", err
+	}
+	return backup, nil
+}
+
+// findThemeRefreshCandidates lists the installed theme files that are not in the
+// generated form. It only reads: the decision to write is the user's, on the
+// review this list feeds.
+func findThemeRefreshCandidates(homeDir string, defs []themeDefinition) []themeRefreshCandidate {
+	var out []themeRefreshCandidate
+	for _, file := range themeInstalledFiles(homeDir) {
+		tool := file.Artifacts[0].Tool
+		info, err := os.Stat(file.Path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			out = append(out, themeRefreshCandidate{Tool: tool, Path: file.Path, Problem: "cannot inspect it: " + err.Error()})
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			out = append(out, themeRefreshCandidate{Tool: tool, Path: file.Path, Problem: "it is not a regular file"})
+			continue
+		}
+		data, err := os.ReadFile(file.Path)
+		if err != nil {
+			out = append(out, themeRefreshCandidate{Tool: tool, Path: file.Path, Problem: "cannot read it: " + err.Error()})
+			continue
+		}
+		content := string(data)
+		_, changed, problem := themeFileRefreshPlan(content, file.Artifacts, defs)
+		if problem != "" {
+			out = append(out, themeRefreshCandidate{Tool: tool, Path: file.Path, Problem: problem})
+			continue
+		}
+		if !changed {
+			continue
+		}
+		cand := themeRefreshCandidate{Tool: tool, Path: file.Path, Reason: themeFileRefreshReason(content, file.Artifacts)}
+		if !strings.Contains(content, themeOwnershipMarker) {
+			cand.Preserve = themeFilePreserveDir(file.Artifacts, homeDir)
+			cand.PreserveLabel = themeFilePreserveLabel(file.Artifacts, homeDir, file.Path)
+		}
+		out = append(out, cand)
+	}
+	return out
+}
+
+// refreshThemeFiles brings the candidates the user confirmed up to date. It
+// acts only on the files the review named, preserves each unowned file first,
+// records the previous bytes, and never lets one file's failure abort the rest.
+// It is gated on dryRun() like applyDotfilesTheme.
+func refreshThemeFiles(homeDir string, defs []themeDefinition, candidates []themeRefreshCandidate) (*dotfilesThemeRecord, []string, string, error) {
+	if dryRun() {
+		SendLog("utilities", "DRY RUN: skipping the refresh of outdated theme files")
+		return nil, nil, "DRY RUN: no theme file was refreshed.", nil
+	}
+
+	byPath := map[string]themeInstalledFile{}
+	for _, file := range themeInstalledFiles(homeDir) {
+		byPath[file.Path] = file
+	}
+
+	previous := map[string]string{}
+	var written, preserved, failed, refreshed []string
+	restoreWritten := func() {
+		for _, path := range written {
+			_ = os.WriteFile(path, []byte(previous[path]), 0o644)
+		}
+	}
+
+	for _, cand := range candidates {
+		if cand.Problem != "" {
+			failed = append(failed, cand.Path+" — "+cand.Problem)
+			continue
+		}
+		file, ok := byPath[cand.Path]
+		if !ok {
+			failed = append(failed, cand.Path+" — it is no longer an installed theme file")
+			continue
+		}
+		data, err := os.ReadFile(file.Path)
+		if err != nil {
+			failed = append(failed, file.Path+" — cannot read it: "+err.Error())
+			continue
+		}
+		original := string(data)
+		updated, changed, problem := themeFileRefreshPlan(original, file.Artifacts, defs)
+		if problem != "" {
+			failed = append(failed, file.Path+" — "+problem)
+			continue
+		}
+		if !changed {
+			continue
+		}
+		if !strings.Contains(original, themeOwnershipMarker) {
+			where, err := preserveThemeFile(file, homeDir, original)
+			if err != nil {
+				failed = append(failed, file.Path+" — could not preserve it first: "+err.Error())
+				continue
+			}
+			preserved = append(preserved, where)
+		}
+		if err := os.WriteFile(file.Path, []byte(updated), 0o644); err != nil {
+			failed = append(failed, file.Path+" — could not write it: "+err.Error())
+			continue
+		}
+		previous[file.Path] = original
+		written = append(written, file.Path)
+		refreshed = append(refreshed, file.Path)
+	}
+
+	notice := "No theme file needed refreshing; every file was left as it is."
+	switch {
+	case len(written) > 0 && len(failed) > 0:
+		notice = fmt.Sprintf("Refreshed %d theme file(s); %d could not be refreshed.", len(written), len(failed))
+	case len(written) > 0:
+		notice = fmt.Sprintf("Refreshed %d theme file(s). Use Undo to put them back.", len(written))
+	case len(failed) > 0:
+		notice = fmt.Sprintf("No theme file was refreshed; %d could not be refreshed.", len(failed))
+	}
+
+	if len(written) == 0 {
+		return nil, themeRefreshResultParagraphs(nil, nil, failed), notice, nil
+	}
+
+	rec := &dotfilesThemeRecord{Theme: "refresh", Files: previous, AppliedAt: time.Now()}
+	if err := writeDotfilesThemeRecord(rec); err != nil {
+		restoreWritten()
+		return nil, nil, "", fmt.Errorf("the files were refreshed but the bytes they replaced could not be recorded, "+
+			"so the change cannot be undone; the files were put back: %w", err)
+	}
+	return rec, themeRefreshResultParagraphs(refreshed, preserved, failed), notice, nil
+}
+
+// themeRefreshResultParagraphs is what the review says once a refresh has run:
+// which files were refreshed, where the user's own files were preserved, and
+// which files were left alone and why.
+func themeRefreshResultParagraphs(refreshed, preserved, failed []string) []string {
+	var paragraphs []string
+	if len(refreshed) > 0 {
+		paragraphs = append(paragraphs, fmt.Sprintf("Refreshed %d theme file(s):", len(refreshed)))
+		for _, path := range refreshed {
+			paragraphs = append(paragraphs, "  • "+path)
+		}
+	}
+	if len(preserved) > 0 {
+		paragraphs = append(paragraphs, "Your previous files were preserved at:")
+		for _, path := range preserved {
+			paragraphs = append(paragraphs, "  • "+path)
+		}
+	}
+	if len(failed) > 0 {
+		paragraphs = append(paragraphs, fmt.Sprintf("%d file(s) could not be refreshed and were left alone:", len(failed)))
+		for _, failure := range failed {
+			paragraphs = append(paragraphs, "  • "+failure)
+		}
+	}
+	if len(refreshed) > 0 {
+		paragraphs = append(paragraphs, "The previous bytes are recorded, so Undo puts each file back exactly as it was.")
+	}
+	return paragraphs
+}
+
+// themeRefreshReviewParagraphs is what the review says before anything is
+// written: exactly which files a refresh would touch, why, and where each file
+// that may be the user's would be preserved first.
+func themeRefreshReviewParagraphs(candidates []themeRefreshCandidate) []string {
+	var refreshable, blocked []themeRefreshCandidate
+	for _, cand := range candidates {
+		if cand.Problem != "" {
+			blocked = append(blocked, cand)
+			continue
+		}
+		refreshable = append(refreshable, cand)
+	}
+
+	var paragraphs []string
+	if len(refreshable) > 0 {
+		paragraphs = append(paragraphs, "Refresh will bring these managed files that are not up to date. Nothing has been written yet:")
+		for _, cand := range refreshable {
+			line := "  • " + cand.Path + " — " + cand.Reason
+			if cand.PreserveLabel != "" {
+				line += "; " + cand.PreserveLabel
+			} else {
+				line += "; it carries the dotfiles marker, so it is refreshed in place"
+			}
+			paragraphs = append(paragraphs, line)
+		}
+		paragraphs = append(paragraphs, "The previous bytes are recorded before anything is written, so Undo can put them back. "+
+			"Choose “Yes, refresh” to write; choose Cancel to leave every file as it is.")
+	}
+	if len(blocked) > 0 {
+		paragraphs = append(paragraphs, "These files cannot be refreshed and are left exactly as they are:")
+		for _, cand := range blocked {
+			paragraphs = append(paragraphs, "  • "+cand.Path+" — "+cand.Problem)
+		}
+	}
+	return paragraphs
+}
+
 // renderHerdrTheme renders the [theme.custom] overrides and the [ui] accent of
 // dotfiles-herdr/config.toml. Herdr's [theme] name is left as the built-in base
 // it is: [theme.custom] is an override layer, and the tokens this repository
