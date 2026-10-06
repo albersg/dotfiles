@@ -162,6 +162,14 @@ variables in the global scope, which fish returns over a universal one, and the 
 restores the exact bytes like every other block. tmux gets its own generated style block after the
 TPM run line instead of depending on the `tmux-kanagawa` plugin, whose Kanagawa palette is partial.
 
+**The list scrolls, so the frame is not the limit on how many themes there can be.** The picker
+draws as many rows as the frame leaves and windows the rest around the cursor, so a theme added to
+`themes/` cannot push the list off the bottom of a short terminal. Moving the cursor to a theme the
+first screen cannot show scrolls it into view, and the header names the slice that is on screen
+(`Showing 3-14 of 20`) so a long list does not look like a list that ends where the screen does. The
+undo row and the way back are reached the same way, and the row under the cursor is always drawn:
+when the list is long only the description gives up its rows, never a theme, the undo or the way back.
+
 **It only edits files dotfiles own.** Each generated block carries a `dotfiles-managed-config:`
 marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same
 rule `preserve-user-configs` applies to the shell startup files.

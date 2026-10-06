@@ -350,3 +350,72 @@ the match, then a title that never arrived, then a negative control where a fram
 fail) and a different title text (must fail).
 
 Rate under load (12× `yes`, `-count=60` on the pixel golden): **before ~3–4/40, after 60/60.**
+
+### T3b — the list scales: the frame is no longer the theme limit (complete)
+
+**The defect, measured.** The picker drew every row it had. The guard that failed first was not the
+row count, though: with the repository's six themes the row budget still fits, and what failed was
+`TestThemePickerFrameFitIsMeasuredAtEverySize` reading a long exclusion row (`Apply the Catppuccin
+Latte theme (not fish, bat, Neovim, tmux)`) as **dropped** because the row measure had cut it. The row
+count is the deeper limit the same guard exposed: once the list grows past the frame, the frame -- not
+the palette -- caps how many themes can be offered, which the synthetic 24-theme guard below measures
+as 36 rows drawn with 16 clipped at 60x20.
+
+#### The mechanism, and why this one
+
+The picker reuses the mechanism the repository already had for long lists: **`listWindow`**, the
+cursor-centred window the keymap menus, the restore list and the installing rail already use. The body
+budget is split so the menu -- the data -- takes its share first and the description takes only what is
+left; when the list is longer than that share it is windowed around `m.Cursor`, so the highlighted row
+is always inside the window by construction. No stored scroll offset was added, and no new key was
+bound: the cursor already walks the list, and `listWindow` derives the window from it, so the view and
+the keys cannot disagree. The visible slice is named in the frame's header with the existing
+`scrollVital` (`Showing 3-14 of 20`), the same indicator the keymap and restore lists use, so a long
+list does not look like a list that ends where the screen does. Reusing the existing window kept the
+change to `renderThemeScreen` and its guard; the handlers, the options and the preview did not move.
+
+#### Reachable rows, measured (24 complete themes: 28 menu entries, 26 data rows)
+
+| Terminal | First screen | Frame before | Frame after | Data rows reachable |
+|----------|--------------|--------------|-------------|---------------------|
+| 60x20    | 12 themes    | 36 rows (16 clipped) | 20 rows exactly | all 26, by cursor |
+| 80x24    | 16 themes    | 36 rows (12 clipped) | 24 rows exactly | all 26, by cursor |
+
+Before the fix the cursor could still move through every row, but the frame drew 36 rows and the
+terminal took the excess away without a marker, so the rows below the fold were not actually visible.
+After the fix every theme, the undo row and the way back are reached by moving the cursor, and the
+selected row is always drawn.
+
+#### Guards
+
+`TestThemePickerScrollsToEveryRowAtTheSmallTerminals` (screen_coverage_test.go) builds 24 complete
+definitions (more than either floor holds) and walks the whole list with the real key handler at 60x20
+and 80x24. At every step it asserts: the frame renders **exactly** its terminal's rows and columns; the
+row under the cursor is the one carrying the `▸` marker; the preview row is drawn for every theme row,
+including the ones off the first screen; and at step 0 the list is genuinely windowed (fewer theme rows
+on screen than built) and the header carries the visible-range count. After the walk it asserts every
+non-separator option was under the cursor. The synthetic definitions carry the canonical palette *and*
+the `[syntax]` members, so they pass the merged branch's `Complete()` -- without the syntax they would
+be partial and not offered, and the guard would pass vacuously.
+
+`TestThemePickerFrameFitIsMeasuredAtEverySize` changed its **property** rather than its numbers: it no
+longer demands that every row fit the frame at once, but that **every row is reachable by moving the
+cursor and the frame still fits exactly**. That is a change of property, not a lowered guard: a row
+that cannot be reached, or a frame that grows to hold one, still fails.
+
+**Teeth (RED).** With the windowing disabled the guard fails at both sizes: `renders 36 rows, want
+exactly 20/24` and `the first screen shows 24 theme rows, want fewer than the 24 built`, and the header
+carries no visible-range count. With the window restored it passes.
+
+#### Goldens
+
+**No golden moved.** `git diff --stat installer/internal/tui/testdata/` is empty; all golden tests
+pass, including `TestMainMenuGolden`, `TestMainMenuWideGolden` and the four companion/creature goldens.
+With the repository's six themes the list still fits every measured terminal, so `renderThemeScreen`
+renders byte-identical bytes there and the companion-coverage baselines are unchanged.
+
+#### Not changed
+
+The theme definitions, generators and ownership markers; the apply/undo commands; the preview; the
+handlers and the option derivation (`dotfilesThemeOptions()` still offers only complete themes); the
+main-menu row and every other screen; no new dependency.

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -649,25 +650,203 @@ func TestThemePickerFrameFitIsMeasuredAtEverySize(t *testing.T) {
 		}
 		t.Logf("theme picker at %s: %d of %d rows, %d of %d columns", size.name, rows, size.height, widest, size.width)
 
-		if rows > size.height {
-			t.Errorf("the theme picker at %s renders %d rows, want <= %d", size.name, rows, size.height)
+		if rows != size.height {
+			t.Errorf("the theme picker at %s renders %d rows, want exactly %d", size.name, rows, size.height)
 		}
-		if widest > size.width {
-			t.Errorf("the theme picker at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		if widest != size.width {
+			t.Errorf("the theme picker at %s draws %d columns, want exactly %d", size.name, widest, size.width)
 		}
 
-		// The rows are the data, so they win the budget: at every size, including
-		// the 60x20 floor, each theme row, the undo row and the way back are on
-		// screen. The description is what gives way when the frame is short.
-		plain := ansiEscape.ReplaceAllString(view, "")
-		for _, option := range m.GetCurrentOptions() {
+		// The property this guard holds changed with the list. Before, every row had
+		// to fit the frame at once; now the picker windows a longer list around the
+		// cursor (listWindow), so the property is reachability: every theme row, the
+		// undo row and the way back are reached by moving the cursor, the row under
+		// the cursor is the one drawn, and the frame still fits the terminal exactly.
+		// A row that cannot be reached, or a frame that grows to hold one, fails.
+		options := m.GetCurrentOptions()
+		visited := make([]bool, len(options))
+		for i, option := range options {
 			if strings.HasPrefix(option, menuSeparatorPrefix) {
 				continue
 			}
-			if !strings.Contains(plain, option) {
-				t.Errorf("the theme picker at %s dropped the row %q: the data must survive the short frame", size.name, option)
+			m.Cursor = i
+			plain := ansiEscape.ReplaceAllString(m.View(), "")
+			label := truncate(option, layoutFor(m).RowMeasure-2)
+			selected := ""
+			for _, line := range strings.Split(plain, "\n") {
+				if strings.Contains(line, "▸") {
+					selected = line
+					break
+				}
+			}
+			if selected == "" {
+				t.Fatalf("the theme picker at %s: no row carries the cursor marker (cursor %d of %d)", size.name, i, len(options)-1)
+			}
+			if !strings.Contains(selected, label) {
+				t.Errorf("the theme picker at %s: the row under the cursor is not %q (cursor %d): %q", size.name, label, i, selected)
+			}
+			visited[i] = true
+		}
+		for i, option := range options {
+			if strings.HasPrefix(option, menuSeparatorPrefix) {
+				continue
+			}
+			if !visited[i] {
+				t.Errorf("the theme picker at %s: the row %q (index %d) was never reached by the cursor", size.name, option, i)
 			}
 		}
+	}
+}
+
+// themePickerScrollModel builds the picker with count complete themes and a
+// recorded change, so its list holds the themes, the undo row and the way back,
+// and the cursor starts on the first theme row with its preview live.
+func themePickerScrollModel(t *testing.T, count int) Model {
+	t.Helper()
+	m := installerFrameModel(t, ScreenThemePicker)
+	m.DotfilesThemes = scrollThemeDefinitions(count)
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: "scroll-00"}
+	m.Cursor = 0
+	return m
+}
+
+// scrollThemeDefinitions builds count complete definitions with distinct names so
+// the picker derives count theme rows. The guard needs more themes than either
+// floor can hold, and the repository ships six, so the extra ones are built here
+// rather than added to themes/. They carry the canonical palette and the
+// [syntax] members the preview reads, so they are complete and offered; with no
+// artifact table they name every tool they cannot paint, which is exactly what a
+// definition the repository does not ship would say.
+func scrollThemeDefinitions(count int) []themeDefinition {
+	palette := make(map[string]string, len(themePaletteRoles))
+	for _, role := range themePaletteRoles {
+		palette[role] = "#336699"
+	}
+	syntax := make(map[string]string, len(themeSyntaxRequired))
+	for _, role := range themeSyntaxRequired {
+		syntax[role] = "#336699"
+	}
+	defs := make([]themeDefinition, 0, count)
+	for i := 0; i < count; i++ {
+		defs = append(defs, themeDefinition{
+			ID:      fmt.Sprintf("scroll-%02d", i),
+			Name:    fmt.Sprintf("Scroll Theme %02d", i),
+			Palette: palette,
+			Syntax:  syntax,
+		})
+	}
+	return defs
+}
+
+// TestThemePickerScrollsToEveryRowAtTheSmallTerminals is the guard for the
+// defect a growing theme list exposed: the picker drew every row it had, so the
+// frame -- not the palette -- was the limit on how many themes could be offered,
+// and one row too many ran off the bottom of a 60x20 terminal.
+//
+// It builds more complete themes than either floor can hold, then walks the
+// cursor through the whole list with the real key handler and asserts, at every
+// step and both sizes, that the frame still fits the terminal exactly, that the
+// row under the cursor is the one drawn with the marker, that the preview follows
+// the cursor onto every theme row, and that a windowed list names the slice it is
+// showing. Between them those assertions prove every theme, the undo row and the
+// way back are reachable and visible however long the list grows.
+func TestThemePickerScrollsToEveryRowAtTheSmallTerminals(t *testing.T) {
+	const themeCount = 24 // more than either floor can hold, preview included
+	sizes := []struct {
+		name          string
+		width, height int
+	}{
+		{"60x20", 60, 20},
+		{"80x24", 80, 24},
+	}
+
+	for _, size := range sizes {
+		size := size
+		t.Run(size.name, func(t *testing.T) {
+			m := themePickerScrollModel(t, themeCount)
+			m.Width, m.Height = size.width, size.height
+			options := m.GetCurrentOptions()
+
+			visited := map[int]bool{}
+			for step := 0; ; step++ {
+				view := m.View()
+				plain := ansiEscape.ReplaceAllString(view, "")
+
+				// The frame still fits the terminal exactly, even while the list is
+				// windowed: the list scrolls, the frame does not grow.
+				if rows := renderedRowCount(view); rows != size.height {
+					t.Errorf("%s at step %d renders %d rows, want exactly %d: the frame must not grow with the list",
+						size.name, step, rows, size.height)
+				}
+				widest := 0
+				for _, line := range strings.Split(plain, "\n") {
+					widest = max(widest, lipgloss.Width(line))
+				}
+				if widest != size.width {
+					t.Errorf("%s at step %d draws %d columns, want exactly %d", size.name, step, widest, size.width)
+				}
+
+				// The row under the cursor is the one carrying the marker, so a
+				// scrolled window can never hide the selection.
+				label := truncate(options[m.Cursor], layoutFor(m).RowMeasure-2)
+				selected := ""
+				for _, line := range strings.Split(plain, "\n") {
+					if strings.Contains(line, "▸") {
+						selected = line
+						break
+					}
+				}
+				if selected == "" {
+					t.Fatalf("%s at step %d: no row carries the cursor marker, so the highlighted row is off screen (cursor %d of %d)",
+						size.name, step, m.Cursor, len(options)-1)
+				}
+				if !strings.Contains(selected, label) {
+					t.Errorf("%s at step %d: the highlighted row is not %q (cursor %d): %q",
+						size.name, step, label, m.Cursor, selected)
+				}
+				visited[m.Cursor] = true
+
+				// The preview follows the cursor onto every theme row, including the
+				// ones the first screen cannot show.
+				if strings.HasPrefix(options[m.Cursor], "Apply the ") {
+					if !strings.Contains(plain, "Preview (nothing applied)") {
+						t.Errorf("%s at step %d: the cursor is on the theme row %q but no preview row is drawn",
+							size.name, step, options[m.Cursor])
+					}
+				}
+
+				if step == 0 {
+					// The guard is not vacuous: the list really is longer than the
+					// first screen, and it says so with a visible-range count.
+					visible := strings.Count(plain, "Apply the ")
+					t.Logf("%s: windowed first screen shows %d theme rows; %d menu entries total", size.name, visible, len(options))
+					if visible >= themeCount {
+						t.Fatalf("%s: the first screen shows %d theme rows, want fewer than the %d built: the guard is not exercising a windowed list",
+							size.name, visible, themeCount)
+					}
+					if !strings.Contains(plain, fmt.Sprintf("of %d", len(options))) {
+						t.Errorf("%s: the windowed list draws no visible-range count in the header: %q", size.name, plain)
+					}
+				}
+
+				before := m.Cursor
+				next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+				m = next.(Model)
+				if m.Cursor == before {
+					break
+				}
+			}
+
+			// Every datum was reached by the cursor, not only the first screen's.
+			for i, option := range options {
+				if strings.HasPrefix(option, menuSeparatorPrefix) {
+					continue
+				}
+				if !visited[i] {
+					t.Errorf("%s: the row %q (index %d) was never under the cursor while walking the list", size.name, option, i)
+				}
+			}
+		})
 	}
 }
 
