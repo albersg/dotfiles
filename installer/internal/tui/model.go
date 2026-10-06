@@ -308,10 +308,12 @@ type Model struct {
 	// install step, so it does not take the run to the failure screen.
 	ThemeNotice string
 	// DotfilesThemes are the theme definitions read from the repository checkout,
-	// and DotfilesThemesErr is why they could not be read. The section offers a
-	// row per complete definition; an empty list with no error means the checkout
-	// does not exist yet, which the section says in its own body.
+	// DotfilesRepoDir is the directory they were read from (the same checkout), and
+	// DotfilesThemesErr is why they could not be read. The section offers a row per
+	// complete definition; an empty list with no error means the checkout does not
+	// exist yet, which the section says in its own body.
 	DotfilesThemes    []themeDefinition
+	DotfilesRepoDir   string
 	DotfilesThemesErr string
 	// DotfilesThemeRecord is the last dotfiles-theme change, read from the same
 	// theme.json. It is what makes the section's Undo row appear, and it is nil
