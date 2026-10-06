@@ -1,0 +1,100 @@
+# Catppuccin Latte, transcribed from the published Catppuccin palette.
+#
+# The user asked for "uno más claro" (a lighter one), and Latte is the light
+# flavour of the Catppuccin family the repository already ships in Mocha. Mocha's
+# own [syntax] table used to say its light member "would have to be invented"
+# because Latte was not in the repository; Latte is here now, so that value is a
+# transcription rather than an invention.
+#
+# Source: catppuccin/catppuccin - https://github.com/catppuccin/catppuccin
+#
+#   base      #eff1f5    text      #4c4f69    surface0   #ccd0da
+#   mantle    #e6e9ef    subtext1  #5c5f77    surface1   #bcc0cc
+#   crust     #dce0e8    subtext0  #6c6f85    surface2   #acb0be
+#   overlay2  #7c7f93    overlay1  #8c8fa1    overlay0   #9ca0b0
+#   rosewater #dc8a78    flamingo  #dd7878    pink       #ea76cb
+#   mauve     #8839ef    red       #d20f39    maroon     #e64553
+#   peach     #fe640b    yellow    #df8e1d    green      #40a02b
+#   teal      #179299    sky       #04a5e5    sapphire   #209fb5
+#   blue      #1e66f5    lavender  #7287fd
+#
+# The terminal mapping is Catppuccin's own Latte mapping: the cursor is
+# rosewater, the selection is surface0, normal black is subtext1 and normal white
+# is surface2, which is how the project's terminal ports define it.
+
+[theme]
+id = "catppuccin-latte"
+name = "Catppuccin Latte"
+provenance = "catppuccin/catppuccin (published Latte palette and terminal mapping)"
+
+[palette]
+# --- terminal base ---
+base = "#eff1f5"            # base
+text = "#4c4f69"            # text
+cursor = "#dc8a78"          # rosewater
+cursor_text = "#eff1f5"     # base under the cursor
+selection = "#ccd0da"       # surface0
+selection_text = "#4c4f69"  # text on a selection
+
+# --- ANSI normal (colours 0-7) ---
+black = "#5c5f77"           # subtext1
+red = "#d20f39"             # red
+green = "#40a02b"           # green
+yellow = "#df8e1d"          # yellow
+blue = "#1e66f5"            # blue
+magenta = "#ea76cb"         # pink
+cyan = "#179299"            # teal
+white = "#acb0be"           # surface2
+
+# --- ANSI bright (colours 8-15) ---
+bright_black = "#6c6f85"    # subtext0
+bright_red = "#d20f39"      # red
+bright_green = "#40a02b"    # green
+bright_yellow = "#df8e1d"   # yellow
+bright_blue = "#1e66f5"     # blue
+bright_magenta = "#ea76cb"  # pink
+bright_cyan = "#179299"     # teal
+bright_white = "#bcc0cc"    # surface1
+
+# --- prompt roles ---
+# Transcribed from the published Latte palette, in the Catppuccin role naming
+# Starship's palette table uses. This is the same twenty-six roles the Mocha
+# definition holds, with Latte's values.
+[prompt]
+rosewater = "#dc8a78"
+flamingo = "#dd7878"
+pink = "#ea76cb"
+mauve = "#8839ef"
+red = "#d20f39"
+maroon = "#e64553"
+peach = "#fe640b"
+yellow = "#df8e1d"
+green = "#40a02b"
+teal = "#179299"
+sky = "#04a5e5"
+sapphire = "#209fb5"
+blue = "#1e66f5"
+lavender = "#7287fd"
+text = "#4c4f69"
+subtext1 = "#5c5f77"
+subtext0 = "#6c6f85"
+overlay2 = "#7c7f93"
+overlay1 = "#8c8fa1"
+overlay0 = "#9ca0b0"
+surface2 = "#acb0be"
+surface1 = "#bcc0cc"
+surface0 = "#ccd0da"
+base = "#eff1f5"
+mantle = "#e6e9ef"
+crust = "#dce0e8"
+
+# --- syntax roles ---
+# Catppuccin's own convention for syntax: keywords mauve, strings green. Latte
+# and Mocha pair up, so the light member is Latte's value (mauve #8839ef, green
+# #40a02b) and the dark member is Mocha's (mauve #cba6f7, green #a6e3a1). All
+# four are named palette colours of the two published flavours.
+[syntax]
+keyword_light = "#8839ef"
+keyword_dark = "#cba6f7"
+string_light = "#40a02b"
+string_dark = "#a6e3a1"

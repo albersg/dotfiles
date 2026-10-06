@@ -147,12 +147,14 @@ the exact files it touches.
 **Switch the dotfiles' own theme.** The dotfiles ship one palette — the one the terminals, the
 prompt, `bat` and Herdr all read — and that palette is now defined once in [`themes/`](themes/)
 rather than written by hand in each config. A theme is a file there, so adding one adds a row. The
-switch applies a complete theme (a definition with every canonical role: today **dotfiles** and
-**Catppuccin Mocha**) to the terminal, Starship, shell-prompt, Herdr, bat and Neovim configs this
-repository owns, records the exact bytes it replaced in the same `theme.json`, and can put them back
-with a dedicated undo row. Each theme row names the tools it leaves out (today fish and tmux, plus
-Neovim for dotfiles), so nothing is left on the old palette without being said. A theme missing roles
-is reported as partial and never offered. The definitions are read from a checkout on disk, never from
+switch applies a complete theme (a definition with every canonical role and the `[syntax]` members
+the preview reads: **dotfiles**, **Catppuccin Mocha**, **Catppuccin Latte**, **Kanagawa**,
+**Everforest** and **Rosé Pine**) to the terminal, Starship, shell-prompt, Herdr, bat and Neovim
+configs this repository owns, records the exact bytes it replaced in the same `theme.json`, and can
+put them back with a dedicated undo row. Each theme row names the tools it leaves out (fish and tmux
+for all of them, plus bat and Neovim for some), so nothing is left on the old palette without being
+said. A theme missing roles — or the syntax the preview needs to show it — is reported as partial and
+never offered. The definitions are read from a checkout on disk, never from
 the binary: `$DOTFILES_DIR` first, then the clone this run makes, then the working directory and its
 parents, then `~/dotfiles` and `~/.dotfiles`. Launching the installer from inside the checkout shows
 the rows immediately; when none of those holds definitions the section says the switch is not
