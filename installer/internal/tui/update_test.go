@@ -1787,9 +1787,9 @@ func TestThemePickerListsTheDerivedThemesAndUndo(t *testing.T) {
 
 	got := m.GetCurrentOptions()
 	want := append([]string{}, m.dotfilesThemeOptions()...)
-	want = append(want, m.menuSeparator(), dotfilesThemeUndoRow, m.menuSeparator(), "← Back")
+	want = append(want, m.menuSeparator(), themeRefreshRow, dotfilesThemeUndoRow, m.menuSeparator(), "← Back")
 	if !slices.Equal(got, want) {
-		t.Errorf("the picker lists %v, want the derived themes, the undo and the way back %v", got, want)
+		t.Errorf("the picker lists %v, want the derived themes, the refresh, the undo and the way back %v", got, want)
 	}
 
 	if len(m.dotfilesThemeOptions()) != len(offeredThemeIDs(defs)) {
@@ -1896,5 +1896,135 @@ func TestThemePickerAppliesTheThemeUnderTheCursor(t *testing.T) {
 	}
 	if !strings.Contains(m.ThemeNotice, "DRY RUN") {
 		t.Errorf("the notice after applying = %q, want the dry-run result of the switch", m.ThemeNotice)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Refreshing the managed files that predate the markers
+// ---------------------------------------------------------------------------
+
+// pickerWithRefreshFixture parks the picker on the refresh row with one old
+// managed file in a temporary home, so the detection and confirmation flow can
+// be driven the way a user drives it.
+func pickerWithRefreshFixture(t *testing.T) (Model, string, string) {
+	t.Helper()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, defaultThemeID)
+	if !ok {
+		t.Fatalf("%s is not defined", defaultThemeID)
+	}
+
+	art := artifactByName(t, "alacritty")
+	dst := themeInstalledPath(art, home)
+	old := legacyThemeFile(t, art, def)
+	writeThemeFileAt(t, dst, old)
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	for i, option := range m.GetCurrentOptions() {
+		if option == themeRefreshRow {
+			m.Cursor = i
+			break
+		}
+	}
+	return m, dst, old
+}
+
+// TestThemePickerOffersTheRefreshRow covers the way in: the list the switch
+// lives in also offers the refresh, so a machine that predates the markers has
+// a route to the feature without reinstalling.
+func TestThemePickerOffersTheRefreshRow(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	if !slices.Contains(m.GetCurrentOptions(), themeRefreshRow) {
+		t.Errorf("the picker offers no %q row: %v", themeRefreshRow, m.GetCurrentOptions())
+	}
+}
+
+// TestThemeRefreshNamesTheFilesBeforeWriting covers the promise that nothing is
+// refreshed by surprise: detection opens a review that names the files and the
+// preserved destinations, and the file is untouched until the confirmation.
+func TestThemeRefreshNamesTheFilesBeforeWriting(t *testing.T) {
+	m, dst, old := pickerWithRefreshFixture(t)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("choosing the refresh row returned no detection command")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+
+	if !m.ThemeRefreshReview || m.ThemeRefreshDone {
+		t.Fatalf("detection left the review in review=%v done=%v, want the confirmation", m.ThemeRefreshReview, m.ThemeRefreshDone)
+	}
+	if got, _ := os.ReadFile(dst); string(got) != old {
+		t.Error("detection wrote the file before the user confirmed")
+	}
+	plain := ansiEscape.ReplaceAllString(strings.Join(m.themePickerDescription(), "\n"), "")
+	if !strings.Contains(plain, dst) {
+		t.Errorf("the review does not name the file it would touch (%s):\n%s", dst, plain)
+	}
+	if !strings.Contains(plain, ".bak-dotfiles-") {
+		t.Errorf("the review does not say where the unowned file is preserved:\n%s", plain)
+	}
+
+	// Confirming writes the file.
+	m.Cursor = 0
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("confirming the refresh returned no command")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if !m.ThemeRefreshDone {
+		t.Error("the review did not move to its result after the refresh")
+	}
+	if got, _ := os.ReadFile(dst); !strings.Contains(string(got), themeOwnershipMarker) {
+		t.Error("confirming did not refresh the file")
+	}
+}
+
+// TestThemeRefreshCancelLeavesTheFilesAlone covers the safe default: Cancel
+// leaves the review and writes nothing.
+func TestThemeRefreshCancelLeavesTheFilesAlone(t *testing.T) {
+	m, dst, old := pickerWithRefreshFixture(t)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if !m.ThemeRefreshReview {
+		t.Fatal("detection did not open the review, so there is nothing to cancel")
+	}
+
+	m.Cursor = 1 // Cancel is the second row and the safe default.
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd != nil {
+		t.Error("Cancel returned a command, so it is not a no-op")
+	}
+	if m.ThemeRefreshReview {
+		t.Error("Cancel stayed in the review")
+	}
+	if got, _ := os.ReadFile(dst); string(got) != old {
+		t.Error("Cancel wrote the file")
 	}
 }

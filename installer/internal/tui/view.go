@@ -1192,11 +1192,24 @@ func (m Model) renderThemeScreen(paragraphs []string) string {
 	// definition the apply would write.
 	preview := m.themePreviewLines(width)
 
-	// The rows the title, the blank above the menu, the menu, the preview and the
-	// notice spend, taken off the frame's body before the description is wrapped,
-	// so the description can never be the row that overflows.
+	// The rows the title, the blank above the menu, the preview and the notice
+	// spend are fixed; the menu and the description share what is left. The menu is
+	// the data, so it takes its share first: when the list is longer than the frame
+	// leaves it is windowed around the cursor instead of being allowed to run off
+	// the bottom, and the description takes only what the menu did not need. That
+	// is what keeps the number of themes from being bounded by the frame -- the
+	// list scrolls, the frame stays the frame.
 	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
-	descBudget := bodyRows - (2 + len(menu)) - len(notice) - len(preview)
+	available := bodyRows - (2 + len(preview) + len(notice))
+	if available < 1 {
+		available = 1
+	}
+	menuBudget, descBudget := available, 0
+	if len(menu) <= available {
+		menuBudget = len(menu)
+		descBudget = available - len(menu)
+	}
+	start, end := listWindow(m.Cursor, menuBudget, len(menu))
 
 	title := BrandStyle.Render(m.GetScreenTitle())
 	if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
@@ -1210,11 +1223,19 @@ func (m Model) renderThemeScreen(paragraphs []string) string {
 		body = append(body, MutedStyle.Render(line))
 	}
 	body = append(body, "")
-	body = append(body, menu...)
+	body = append(body, menu[start:end]...)
 	body = append(body, preview...)
 	body = append(body, notice...)
 
-	return m.frame(m.headerName(), "", body, hints)
+	// The header's vital names the slice of a windowed list that is on screen, so
+	// a list longer than the frame says so instead of appearing to end where the
+	// screen does. A list that fits has nothing to report and gets no filler, the
+	// same rule the keymap menus and the restore list follow.
+	vital := ""
+	if end-start < len(menu) {
+		vital = scrollVital("Showing", start+1, end, len(menu))
+	}
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 // descriptionLines is a screen's prose wrapped to the width it will be drawn at
@@ -1283,6 +1304,12 @@ func (m Model) utilitiesDescription() []string {
 // theme cannot paint are named on its row. It is the same honest account the
 // utilities section gave when the list lived there.
 func (m Model) themePickerDescription() []string {
+	if m.ThemeRefreshReview {
+		if m.ThemeRefreshDone {
+			return m.ThemeRefreshResult
+		}
+		return themeRefreshReviewParagraphs(m.ThemeRefreshCandidates)
+	}
 	if len(m.DotfilesThemes) == 0 {
 		reason := m.DotfilesThemesErr
 		if reason == "" {
@@ -1299,6 +1326,36 @@ func (m Model) themePickerDescription() []string {
 // theme change replaced. It is named distinctly from the desktop switch's undo
 // row so the two are not confused on the same screen.
 const dotfilesThemeUndoRow = "Undo the last dotfiles theme change"
+
+// themeRefreshRow is the row that detects the installed theme files that are
+// not up to date. It only opens the review; nothing is written until the
+// confirmation on that review is chosen.
+const themeRefreshRow = "Refresh outdated theme files"
+
+// themeRefreshCancelRow is the safe default of the review: it leaves every file
+// exactly as it is.
+const themeRefreshCancelRow = "Cancel"
+
+// themeRefreshConfirmRow is the review's confirmation, naming how many files it
+// would write.
+func themeRefreshConfirmRow(candidates []themeRefreshCandidate) string {
+	n := 0
+	for _, cand := range candidates {
+		if cand.Problem == "" {
+			n++
+		}
+	}
+	return fmt.Sprintf("Yes, refresh %d file(s)", n)
+}
+
+// resetThemeRefresh clears the review state. It is called when the picker is
+// left or a review is dismissed, so a later visit starts from a clean list.
+func (m *Model) resetThemeRefresh() {
+	m.ThemeRefreshCandidates = nil
+	m.ThemeRefreshReview = false
+	m.ThemeRefreshDone = false
+	m.ThemeRefreshResult = nil
+}
 
 // utilitiesThemeRow is the utilities section's single row for the dotfiles'
 // own theme. The themes themselves live one level in, on the theme picker, so

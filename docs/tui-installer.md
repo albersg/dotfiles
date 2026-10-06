@@ -182,6 +182,14 @@ is what bat registers a custom theme under (measured against bat 0.26.1; the `<k
 the file is not the selection key, and a theme that exported it selected a bundled theme of the same
 name in five of the six cases).
 
+**The list scrolls, so the frame is not the limit on how many themes there can be.** The picker
+draws as many rows as the frame leaves and windows the rest around the cursor, so a theme added to
+`themes/` cannot push the list off the bottom of a short terminal. Moving the cursor to a theme the
+first screen cannot show scrolls it into view, and the header names the slice that is on screen
+(`Showing 3-14 of 20`) so a long list does not look like a list that ends where the screen does. The
+undo row and the way back are reached the same way, and the row under the cursor is always drawn:
+when the list is long only the description gives up its rows, never a theme, the undo or the way back.
+
 **It only edits files dotfiles own.** Each generated block carries a `dotfiles-managed-config:`
 marker, and the switch refuses a file without one, leaving it exactly as the user wrote it — the same
 rule `preserve-user-configs` applies to the shell startup files.
@@ -224,6 +232,28 @@ so a repainted installer cannot be mistaken for one whose theme has changed. Lea
 puts the default chrome back: with no preview active the interface is byte-for-byte what it always
 was. The palette comes from `themes/*.toml` — the chrome holds no second copy of it — and a theme
 with no canonical palette is refused rather than previewed with invented colours.
+
+**Refreshing files installed before the markers.** A machine installed by an older checkout holds
+files with neither the `dotfiles-managed-config:` marker nor a generated block, and some of them have
+drifted from what the repository ships since. Adoption (above) accepts a non-drifted one, but content
+alone cannot prove a drifted file, so the switch refuses those — and without a way to bring them
+forward the theme feature is unusable on that machine. The
+picker therefore offers **Refresh outdated theme files**. Choosing it first **detects** the installed
+theme files that are not in the generated form (no marker, no block, or a block that no longer
+matches its definition) and opens a **review** that names every file it would touch, why it is out of
+date, and where each file that may be the user's will be preserved first. **Nothing is written until
+the review is confirmed**, and Cancel leaves every file exactly as it is. A file that cannot be
+refreshed (unreadable, not a regular file, or a content that is not a recognizable dotfiles theme
+block) is named in the review and skipped, and the rest of the refresh carries on; one bad file never
+aborts the batch.
+
+**The preserve-user-configs rule is not negotiated.** Before an unowned file is replaced it is copied
+to the same place the install steps use — `~/.zshrc.d/` for `.zshrc`, `~/.config/fish/dotfiles.d/` for
+`config.fish` — and every other file is copied beside itself as `<path>.bak-dotfiles-<timestamp>`.
+The result names the exact path each file was preserved at. The previous bytes are recorded in the
+same `theme.json` the switch writes, so **Undo the last dotfiles theme change** puts every refreshed
+file back byte-for-byte. The refresh is gated on `--dry-run` like every other writer, and a dry run
+writes no file, no preserve copy and no record.
 
 The welcome screen and the main menu greet you by the time of day (`Good morning`, `Good afternoon`,
 `Good evening`) in one added dim line, so no existing copy is replaced. The greeting is a pure
