@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"encoding/xml"
 	"flag"
 	"io"
 	"os"
@@ -1520,6 +1521,48 @@ func TestTheBatThemesTheSwitchOffersAreGeneratedAtInstallTime(t *testing.T) {
 		t.Fatal("every bat theme is also under version control, so this guard proves nothing about the generated ones")
 	}
 	t.Logf("%d bat theme(s) generated from the definitions; %d of them are also under version control", generated, shipped)
+}
+
+// TestGeneratedBatThemesAreValidXML pins that every .tmTheme the generator emits
+// is well-formed XML, not merely a file bat tolerates. bat's own parser accepts a
+// comment whose body contains "--", and XML forbids it, so a text search for the
+// sequence is not enough - it would have to know which lines are comments. The
+// guard hands each rendered file to encoding/xml, whose strict comment rule
+// (`invalid sequence "--" not allowed in comments`) refuses it. Every theme that
+// names a bat theme is checked, so the four .tmTheme files the installer
+// generates at run time rather than shipping are covered too.
+func TestGeneratedBatThemesAreValidXML(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	checked := 0
+	for _, def := range defs {
+		if def.Bat == "" || def.BatFile == "" {
+			continue
+		}
+		rendered, err := renderBatTheme(def)
+		if err != nil {
+			t.Errorf("render the %s bat theme: %v", def.ID, err)
+			continue
+		}
+		// A plist's root is a dict; decoding into an empty struct still consumes the
+		// whole document, so a syntax error anywhere - including "--" inside the
+		// header comment - is reported rather than skipped.
+		var document struct {
+			XMLName xml.Name
+		}
+		if err := xml.Unmarshal([]byte(rendered), &document); err != nil {
+			t.Errorf("the generated %s is not valid XML: %v", def.BatFile, err)
+			continue
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no bat theme was checked, so this guard proves nothing")
+	}
+	t.Logf("%d generated bat theme(s) parse as XML", checked)
 }
 
 // TestTheBatSelectionNamesTheFileBatRegisters pins the name the switch exports as

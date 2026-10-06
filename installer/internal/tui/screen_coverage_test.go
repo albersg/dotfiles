@@ -1050,6 +1050,36 @@ func mainMenuHints() []installerHint {
 	return []installerHint{hintUp, hintDown, hintSelect, hintQuit}
 }
 
+// TestMainMenuShowsStartInstallationAtEveryTerminalSize pins, as a pure layout
+// fact, the property the macOS smoke test asserts: at every terminal the frame
+// guards measure, the main menu draws its first option on screen. The menu grew
+// recently -- the Utilities row, then the rows the panel summary and the
+// creature reserve -- so a size where "Start Installation" fell off the bottom
+// would be a menu defect, not a test defect. The failed macOS run of
+// TestMainMenuWithRestoreOption looked like that defect but was the output-wait
+// race; this guard keeps the two distinguishable.
+func TestMainMenuShowsStartInstallationAtEveryTerminalSize(t *testing.T) {
+	for _, name := range []string{"main-menu", "main-menu-restore"} {
+		for _, size := range measuredTerminalSizes {
+			size := size
+			t.Run(name+"/"+size.name, func(t *testing.T) {
+				m := installerFrameCase(t, name)
+				m.Width, m.Height = size.width, size.height
+				// The companion is the strictest frame: it draws in the rows the body
+				// did not need, and the option must survive it.
+				m.Animating, m.PixelSprite = true, true
+				m.ink = companionInkFor(true)
+
+				view := ansiEscape.ReplaceAllString(m.View(), "")
+				if !strings.Contains(view, "Start Installation") {
+					t.Errorf("the main menu at %s (%s) does not draw its first option: the body, the panel summary and the creature took the row:\n%s",
+						size.name, name, view)
+				}
+			})
+		}
+	}
+}
+
 // planPanelAnswers reports whether the rendered screen still states the plan's
 // step count. It reads the visible words, so it holds on a terminal with no
 // colour and on both the two-column panel and the narrow summary.

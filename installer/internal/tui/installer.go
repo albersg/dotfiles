@@ -3255,7 +3255,8 @@ const themeBatTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   transparent, so a themed background would sit on top of it as a panel with a
   second black.
 
-  Regenerate-to-install: [[BT]]bat cache --build[[BT]] after any change here.
+  Regenerate-to-install: rebuild bat's cache (run [[BT]]bat cache[[BT]] with
+  its build flag) after any change here.
 -->
 <plist version="1.0">
 <dict>

@@ -512,17 +512,16 @@ repository no longer ships a Kagawa file for a theme that no longer exists.
   closing the coverage matrix, fixed in `renderBatSelection`/`batSelectionName`,
   and pinned by `TestTheBatSelectionNamesTheFileBatRegisters`. No committed file
   moved: the default theme's name and its file name are the same string.
-- **The `.tmTheme`'s own comment is not valid XML.** The generated file's header
-  comment tells a reader to run `bat cache --build`, and an XML comment may not
-  contain `--`. `xml.etree` refuses both committed `.tmTheme` files on that line,
-  and the four generated ones inherit it. bat 0.26.1 accepts them (measured: the
-  theme is listed and paints), so this is a strictness defect rather than a broken
-  file, and it is **not fixed here**: the template lives in
-  `installer/internal/tui/installer.go` but the two committed files that would
-  have to be regenerated are outside this change's edit surface, and
-  `TestGeneratedPerThemeFilesMatchTheirDefinition` would fail until they were
-  written. Rewording the comment so it contains no `--` (for example "regenerate
-  with bat's own cache build") is the fix for whoever touches that template next.
+- **~~The `.tmTheme`'s own comment is not valid XML.~~** Resolved. The generated
+  file's header comment told a reader to run `bat cache --build`, and an XML
+  comment may not contain `--`: `xml.etree` refused both committed `.tmTheme`
+  files on that line, and the four generated ones inherited it. bat 0.26.1
+  accepted them (measured: the theme is listed and paints), so it was a strictness
+  defect rather than a broken file. Fixed in `themeBatTemplate`: the comment names
+  `bat cache` and its build flag without the `--` sequence, the two committed
+  files were regenerated from the template with `-update-theme-artifacts`, and
+  `TestGeneratedBatThemesAreValidXML` refuses a later edit that puts a `--` back
+  inside a comment.
 - **The hand-written fish files carried malformed colours.**
   `Kanagawa.theme` (and its copy `Kagawa.theme`) wrote
   `fish_color_selection --background=2D4FG67` (`G` is not a hex digit) and
@@ -573,6 +572,10 @@ The guards live in `installer/internal/tui/install_paths_test.go` and
 - `TestTheBatSelectionNamesTheFileBatRegisters` — `BAT_THEME` is the file's own
   name, which is the name bat registers a custom `.tmTheme` under, and no two
   themes share one.
+- `TestGeneratedBatThemesAreValidXML` — every `.tmTheme` the generator emits (the
+  two committed ones and the four the installer writes at run time) is handed to
+  `encoding/xml`, so a comment bat tolerates but XML forbids (a body containing
+  `--`) fails the guard rather than living on as a strictness defect.
 - `TestShippedThemeBlocksMatchTheirDefinition` — every value a definition claims
   must still be present in the shipped block it came from.
 - `TestGeneratedThemeArtifactsMatchTheirDefinition` and
