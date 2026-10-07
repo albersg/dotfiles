@@ -1315,6 +1315,46 @@ func TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository(t *testing.T) {
 	}
 }
 
+// TestThemeRowNamesAToolTheThemeCannotPaint keeps the exclusion-row rendering
+// covered after the coverage lists grew to their final shape: all six themes in
+// themes/ now paint all twelve tools, so no offered definition reaches
+// dotfilesThemeRow with an uncovered tool and the exclusion branch ("(not ...)")
+// stopped being exercised by real data. Without a guard on that branch it would
+// go dark silently, so this test fabricates the missing state from a real
+// definition whose id has no artifact row: themeCoverage then reports every
+// tool, which is the state the row must name. A definition that cannot paint a
+// tool must still have that tool named in the row the picker draws, so the
+// honest half of a switch does not go dark just because the lists shrank.
+func TestThemeRowNamesAToolTheThemeCannotPaint(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, "dotfiles")
+	if !ok {
+		t.Fatal("the dotfiles definition is missing")
+	}
+	// A synthetic id with no artifact row makes every tool unavailable while the
+	// palette stays complete, so the row has an exclusion list to name.
+	def.ID = "synthetic"
+	if !def.Complete() {
+		t.Fatal("the fixture is not complete, so the picker would not draw its row")
+	}
+	_, uncovered := themeCoverage(def)
+	if len(uncovered) == 0 {
+		t.Fatal("the fixture leaves out no tool, so this guard proves nothing")
+	}
+	row := dotfilesThemeRow(def)
+	for _, tool := range uncovered {
+		if !strings.Contains(row, tool) {
+			t.Errorf("the row %q does not name %q, which the theme cannot paint", row, tool)
+		}
+	}
+	if !strings.Contains(row, "(not ") {
+		t.Errorf("the row %q does not open an exclusion list", row)
+	}
+}
+
 // TestTheThemeRowMapsBackToItsDefinition covers the handler's lookup: the row
 // labels are what the handler switches on, so a label that does not map back to
 // a definition would be a row that does nothing.

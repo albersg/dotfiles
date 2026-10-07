@@ -20,7 +20,8 @@
   transparent, so a themed background would sit on top of it as a panel with a
   second black.
 
-  Regenerate-to-install: `bat cache --build` after any change here.
+  Regenerate-to-install: rebuild bat's cache (run `bat cache` with
+  its build flag) after any change here.
 -->
 <plist version="1.0">
 <dict>

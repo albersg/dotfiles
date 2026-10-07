@@ -142,6 +142,14 @@ type (
 		wrote  bool
 		err    error
 	}
+
+	// shellAuditMeasuredMsg carries a finished measurement back to the screen: the
+	// runs, their median and range, and the functions zprof named or the reason it
+	// named none. The measurement starts the user's shell several times, so it is a
+	// command rather than something a keypress does.
+	shellAuditMeasuredMsg struct {
+		state shellAuditState
+	}
 )
 
 // stepRecordedState is the state one installation step records for the steps
@@ -319,6 +327,18 @@ func (m Model) wslResourceWriteCmd() tea.Cmd {
 	return func() tea.Msg {
 		notice, wrote, err := writeWSLResourceDraft(state, "utilities")
 		return wslResourceWrittenMsg{notice: notice, wrote: wrote, err: err}
+	}
+}
+
+// shellAuditCmd runs one measurement off the update loop. The resolved state
+// travels with it, so what is measured is the shell the screen named, and the
+// answer is the whole state the screen draws from. It changes nothing on the
+// machine: the runs start the login shell and read back what zprof wrote into a
+// directory of the utility's own.
+func (m Model) shellAuditCmd() tea.Cmd {
+	state := m.ShellAudit
+	return func() tea.Msg {
+		return shellAuditMeasuredMsg{state: measureShellAudit(state, defaultShellAuditProbe())}
 	}
 }
 
@@ -648,6 +668,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.WSLState.Resolved = false
 		return m, m.wslResourceStateCmdIfNeeded()
 
+	case shellAuditMeasuredMsg:
+		// The measurement is not an install step and cannot fail as one: every run
+		// it could not complete is already part of the state it brings back, with
+		// its reason. The state replaces the old one whole, so the screen never
+		// shows a mixture of two measurements.
+		m.ShellAudit = msg.state
+		return m, nil
+
 	case dotfilesThemeChangedMsg:
 		// The dotfiles switch is not an install step either, so a failure is a
 		// notice on the section rather than a failed run.
@@ -968,6 +996,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenTerminalCapabilities:
 		return m.handleTerminalCapabilitiesKeys(key)
 
+	case ScreenShellAudit:
+		return m.handleShellAuditKeys(key)
+
 	case ScreenBackupConfirm:
 		return m.handleBackupConfirmKeys(key)
 
@@ -1079,6 +1110,13 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenTerminalCapabilities:
 		// The capability report is read-only and one level in; leaving it steps
 		// back to the section that opened it.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+	case ScreenShellAudit:
+		// The shell startup screen is one level in as well. Leaving it cancels
+		// nothing: a measurement that is still running writes its answer onto the
+		// model regardless, which is what keeps the number from being lost because
+		// the user stepped back while it ran.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	// Trainer screens
@@ -1395,6 +1433,12 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenTerminalCapabilities
 			m.Cursor = 0
 			return m, m.terminalCapabilityCmdIfNeeded()
+		case selected == utilitiesShellAuditRow:
+			// The shell's startup is one level in too. Nothing is measured on the way
+			// in: starting the user's shell five times is a choice, and it is made on
+			// that screen's own row.
+			m.Screen = ScreenShellAudit
+			m.Cursor = 0
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
 		case strings.Contains(selected, "Back"):
@@ -1485,6 +1529,58 @@ func (m Model) handleTerminalCapabilitiesKeys(key string) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	}
+	return m, nil
+}
+
+// handleShellAuditKeys drives the shell startup screen. It only ever changes the
+// screen, the cursor or the one flag that says a measurement is in flight: the
+// measurement itself is a command, because it starts the user's shell several
+// times and a keypress must not block the update loop.
+//
+// The measure row is the only row that does anything. The result rows under it
+// are the data and are inert by design: this screen offers no way to change the
+// shell's configuration, so there is nothing for them to do.
+func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "esc", "backspace":
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		switch {
+		case options[m.Cursor] == utilitiesShellAuditRow:
+			// One measurement at a time: a second press while the first is still
+			// running its five starts would start five more beside it and report
+			// whichever finished last.
+			if m.ShellAudit.Measuring || !m.ShellAudit.Available {
+				return m, nil
+			}
+			m.ShellAudit.Measuring = true
+			return m, m.shellAuditCmd()
+		case strings.Contains(options[m.Cursor], "Back"):
+			m.Screen = ScreenUtilities
+			m.Cursor = 0
+		}
+	}
+
 	return m, nil
 }
 

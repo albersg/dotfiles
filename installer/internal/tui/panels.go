@@ -1040,6 +1040,18 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: m.WSLState.Available,
 	})
 
+	// The section's utilitiesShellAuditRow, the utility that changes nothing. It
+	// is offered wherever the login shell and a terminal were resolved, and the
+	// value is the last measurement the model holds: nothing is measured until the
+	// screen's own row is pressed, so before that the panel says so rather than
+	// printing a number nobody took.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Shell start",
+		value:   shellAuditPanelValue(m.ShellAudit),
+		absent:  "The shell's startup is not measurable here.",
+		offered: m.ShellAudit.Available,
+	})
+
 	// The section's utilitiesTerminalRow. The report is read-only and offered
 	// everywhere, so the panel always names it: before the screen has been
 	// opened the value says the terminal has not been inspected, and afterwards
@@ -1050,8 +1062,23 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		value:   m.TerminalCapabilities.panelValue(),
 		offered: true,
 	})
-
 	return entries
+}
+
+// shellAuditPanelValue is what the Utilities panel says the shell startup row
+// holds. It reads the model's audit state and measures nothing: a panel is drawn
+// on every keypress, and starting the user's shell is not a render.
+func shellAuditPanelValue(st shellAuditState) string {
+	switch {
+	case st.Measuring:
+		return st.Shell + ": measuring"
+	case !st.Measured:
+		return st.Shell + ": not measured yet"
+	case st.Median > 0:
+		return fmt.Sprintf("%s: median %s of %d runs", st.Shell, shellAuditDuration(st.Median), len(st.Samples))
+	default:
+		return st.Shell + ": no start finished"
+	}
 }
 
 // themeCountLabel names how many themes can be applied, in the singular when
