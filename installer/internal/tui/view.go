@@ -463,6 +463,9 @@ func (m Model) headerName() string {
 		// The WSL resource screen is one level in from the utilities section, and
 		// its header says so rather than reading as a section of its own.
 		return "Utilities"
+	case ScreenShellAudit:
+		// The shell's startup screen is one level in from the same section.
+		return "Utilities"
 	default:
 		return "dotfiles"
 	}
@@ -914,6 +917,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderThemePicker())
 	case ScreenWSLResources:
 		s.WriteString(m.renderWSLResources())
+	case ScreenShellAudit:
+		s.WriteString(m.renderShellAudit())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
 	case ScreenComplete:
@@ -1183,6 +1188,15 @@ func (m Model) renderWSLResources() string {
 		[]installerHint{hintUp, hintDown, hintAdjust, hintRecommended, hintSelect, hintBack})
 }
 
+// renderShellAudit draws the shell startup screen: the method the number comes
+// from, the runs and their median, the functions zprof blamed or the reason none
+// can be named, and the one row that starts the measurement. It is the same shape
+// as the other utilities screens, so it uses the same budget arithmetic.
+func (m Model) renderShellAudit() string {
+	return m.renderThemeScreen(m.shellAuditDescription(), m.shellAuditNotice(),
+		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+}
+
 // renderThemePicker draws the dotfiles theme list: the complete themes, each
 // naming the tools it leaves out, the undo row when there is a change to put
 // back, and the live preview of the theme under the cursor.
@@ -1322,6 +1336,14 @@ func (m Model) utilitiesDescription() []string {
 	// the clone, the working directory and its parents, then ~/dotfiles and
 	// ~/.dotfiles; when none of them holds themes/*.toml the section says it
 	// cannot be switched here instead of showing rows that would fail.
+	if reason := m.shellAuditUnavailableReason(); reason != "" {
+		paragraphs = append(paragraphs, reason)
+	} else {
+		paragraphs = append(paragraphs, fmt.Sprintf("%s starts %s the way a terminal does, several times, and "+
+			"reports the median with the range -- and on zsh names the functions zprof blames for it. It changes "+
+			"nothing: no startup file is written and no plugin is disabled.", utilitiesShellAuditRow, m.ShellAudit.Command))
+	}
+
 	if len(m.DotfilesThemes) == 0 {
 		reason := m.DotfilesThemesErr
 		if reason == "" {
@@ -1538,6 +1560,189 @@ func (m Model) wslResourcesUnavailableReason() string {
 		return fmt.Sprintf("WSL resources are not adjustable here: %s.", m.WSLState.Reason)
 	}
 	return ""
+}
+
+// utilitiesShellAuditRow is the section's row for the login shell's startup, and
+// the row on the screen it opens that starts the runs. One label, one constant:
+// the handler matches the row the screen drew. It is offered wherever the shell
+// and a terminal were resolved, and the section's body names the reason
+// everywhere else.
+const utilitiesShellAuditRow = "Measure the shell's startup"
+
+// shellAuditRows builds the shell startup screen's rows from its state: the one
+// row that measures, the last measurement's summary when there is one, and the
+// way back. The result rows are drawn from the state, so the rows and the prose
+// cannot disagree about the number.
+func (m Model) shellAuditRows() []string {
+	rows := []string{utilitiesShellAuditRow}
+	if m.ShellAudit.Measured {
+		rows = append(rows, m.menuSeparator())
+		rows = append(rows, shellAuditSummaryRows(m.ShellAudit)...)
+	}
+	return append(rows, m.menuSeparator(), "← Back")
+}
+
+// shellAuditSummaryRows is the last measurement as rows: the median with the
+// count it covers, the range, the starts that timed out or failed, and the one
+// function zprof put first. The rows are the data, so they win the frame's budget
+// over the prose, and the prose keeps the method and the whole list.
+func shellAuditSummaryRows(st shellAuditState) []string {
+	var rows []string
+	if st.Median > 0 {
+		// The count is on the row because a median without one is not a
+		// measurement: the reader has to be able to see how many starts it covers
+		// and how many did not finish.
+		if len(st.Samples) == st.Runs {
+			rows = append(rows, fmt.Sprintf("Median of %d runs: %s", st.Runs, shellAuditDuration(st.Median)))
+		} else {
+			rows = append(rows, fmt.Sprintf("Median of %d of %d runs: %s", len(st.Samples), st.Runs, shellAuditDuration(st.Median)))
+		}
+		rows = append(rows, fmt.Sprintf("Range: %s to %s", shellAuditDuration(st.Fastest), shellAuditDuration(st.Slowest)))
+	} else {
+		rows = append(rows, "No run finished, so there is no median")
+	}
+
+	// One row for every start that did not finish, because the two ways of not
+	// finishing have one thing in common that matters on the screen: neither has a
+	// duration. The reason each one failed is in the prose below.
+	if st.Timeouts > 0 || st.Failures > 0 {
+		var reasons []string
+		if st.Timeouts > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d timed out at %s", st.Timeouts, shellAuditDuration(st.Timeout)))
+		}
+		if st.Failures > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d could not be started", st.Failures))
+		}
+		rows = append(rows, fmt.Sprintf("%d of %d runs did not finish: %s", st.Timeouts+st.Failures, st.Runs, strings.Join(reasons, ", ")))
+	}
+
+	if len(st.Attribution) == 0 {
+		rows = append(rows, "No function is named; the screen says why")
+	} else {
+		first := st.Attribution[0]
+		rows = append(rows, fmt.Sprintf("Slowest function: %s (%s self, %d call(s))",
+			first.Name, shellAuditZprofTime(shellAuditMillis(first.Self)), first.Calls))
+	}
+
+	return rows
+}
+
+// shellAuditDescription is what the shell startup screen says about itself: the
+// exact method the number comes from, every start that finished, the starts that
+// did not, what zprof blamed or why nothing can be blamed, and the one thing the
+// screen deliberately does not do.
+func (m Model) shellAuditDescription() []string {
+	st := m.ShellAudit
+	if reason := m.shellAuditUnavailableReason(); reason != "" {
+		return []string{reason}
+	}
+
+	paragraphs := []string{fmt.Sprintf("%s is started the way a terminal starts it -- `%s`, each start bounded by %s -- "+
+		"so the number describes the start you wait through when you open a terminal. The measurement is %d such "+
+		"starts, and the median is the middle one: not an average, and not a single run.",
+		st.Shell, st.Command, shellAuditDuration(st.Timeout), st.Runs)}
+
+	if !st.Measured {
+		return append(paragraphs, "Nothing has been measured yet. Choosing the row above starts the runs; each one ends "+
+			"by itself or at the timeout, so the screen cannot be held open by your shell, and it stays usable while "+
+			"they run.")
+	}
+
+	paragraphs = append(paragraphs, fmt.Sprintf("Finished starts: %d of %d. Median %s, fastest %s, slowest %s. Every "+
+		"completed start is listed so the number can be reproduced by hand.%s",
+		len(st.Samples), st.Runs, shellAuditDuration(st.Median), shellAuditDuration(st.Fastest),
+		shellAuditDuration(st.Slowest), shellAuditRunList(st.Samples)))
+
+	if st.Timeouts > 0 {
+		paragraphs = append(paragraphs, fmt.Sprintf("%d of the %d starts did not finish inside %s and were killed at "+
+			"that bound. A start that does not end is reported as a timeout and not as a duration: a hung start has no "+
+			"time to report, and writing one down as a number would be inventing it. Those starts are left out of the "+
+			"median, which is why it covers %d of them.",
+			st.Timeouts, st.Runs, shellAuditDuration(st.Timeout), len(st.Samples)))
+	}
+	if st.Failures > 0 {
+		paragraphs = append(paragraphs, fmt.Sprintf("%d of the %d starts could not be completed (%s), so their time is "+
+			"not part of the median either.", st.Failures, st.Runs, st.Failure))
+	}
+
+	if len(st.Attribution) == 0 {
+		paragraphs = append(paragraphs, st.AttributionReason)
+	} else {
+		paragraphs = append(paragraphs, shellAuditAttributionParagraph(st))
+	}
+
+	return append(paragraphs, "Nothing here is changed: no startup file is written and no plugin is disabled. The "+
+		"utility reports what it found and leaves the decision to you, because a slower function is not by itself a "+
+		"mistake -- and the fix belongs in your own configuration, applied by you.")
+}
+
+// shellAuditRunList names every start that finished, in the order it ran, so the
+// median can be checked against the runs it came from.
+func shellAuditRunList(samples []time.Duration) string {
+	if len(samples) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(samples))
+	for _, sample := range samples {
+		parts = append(parts, shellAuditDuration(sample))
+	}
+	return " The starts, in the order they ran: " + strings.Join(parts, ", ") + "."
+}
+
+// shellAuditAttributionParagraph names the functions zprof blamed, heaviest by
+// their own time first -- the order zprof itself sorted them in -- and says how
+// many it profiled, so the cut is declared rather than silent.
+func shellAuditAttributionParagraph(st shellAuditState) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "zsh/zprof profiled one further start and reported %d functions; these are the heaviest by the time "+
+		"each one spent on itself, in zprof's own order. The self time is the function's own cost: a function whose "+
+		"total is larger than its self time is waiting on the ones it called. The profiled start is a start of its "+
+		"own, so its numbers stand beside the median rather than inside it.", len(st.Attribution))
+
+	shown := len(st.Attribution)
+	if shown > shellAuditNamedFunctions {
+		shown = shellAuditNamedFunctions
+	}
+	for i, fn := range st.Attribution[:shown] {
+		fmt.Fprintf(&b, " %d. %s -- %s total, %s self, %d call(s), %s of the profiled start.",
+			i+1, fn.Name, shellAuditZprofTime(shellAuditMillis(fn.Total)),
+			shellAuditZprofTime(shellAuditMillis(fn.Self)), fn.Calls, fn.Percent)
+	}
+	if len(st.Attribution) > shown {
+		fmt.Fprintf(&b, " %d more were profiled and are not named here.", len(st.Attribution)-shown)
+	}
+	return b.String()
+}
+
+// shellAuditNotice is the footer's result line: what is running, while something
+// is. It is empty the rest of the time, so a finished measurement spends no row
+// on a stale "done".
+func (m Model) shellAuditNotice() string {
+	if !m.ShellAudit.Measuring {
+		return ""
+	}
+	return fmt.Sprintf("Measuring: %d starts of %s, each bounded by %s.",
+		m.ShellAudit.Runs, m.ShellAudit.Shell, shellAuditDuration(m.ShellAudit.Timeout))
+}
+
+// shellAuditUnavailableReason says why the section offers no shell startup row,
+// and is empty when it does. A gap the user cannot see the reason for is the
+// failure this exists to prevent.
+func (m Model) shellAuditUnavailableReason() string {
+	st := m.ShellAudit
+	if !st.Resolved {
+		return "The shell's startup is not measurable here yet: the login shell is still being resolved."
+	}
+	if !st.Available {
+		return fmt.Sprintf("The shell's startup is not measurable here: %s", st.Reason)
+	}
+	return ""
+}
+
+// shellAuditMillis converts a measured duration into zprof's unit, so the two
+// kinds of number the screen shows are formatted by the same two helpers.
+func shellAuditMillis(d time.Duration) float64 {
+	return float64(d) / float64(time.Millisecond)
 }
 
 // themePreviewSwatchRoles is the palette roles the live preview paints, in the

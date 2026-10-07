@@ -227,6 +227,21 @@ copied beside itself as `.wslconfig.bak-dotfiles-<timestamp>` first. WSL reads t
 starts, so the screen says to run `wsl --shutdown` on Windows to apply the change and deliberately
 does not run it; `--dry-run` skips the write.
 
+**Measure the shell's startup.** The fourth utility is the one that **changes nothing**. It starts
+the login shell named by `$SHELL` the way a terminal does — `zsh -i -c exit`, or the same shape for
+your shell — **five times**, and reports the **median** with the **range** and every completed start,
+so the number is a measurement and not a single run: the method travels with it and it can be
+reproduced by hand. Every start is bounded by a **ten-second timeout**, because a startup can hang on
+a plugin that waits for the network and the utility must not hang with it — a start that does not
+finish is reported as a timeout and left out of the median, never written down as `0.0 s`. On zsh one
+further start is taken under `zmodload zsh/zprof`, and the functions zprof blames are named heaviest
+first with the total, the self time and the call count; when `zprof` is unavailable, when the shell is
+not zsh, or when the profiled start reports no table, the screen says **only the total is
+measurable** and gives the reason rather than inventing a culprit. Nothing is written: no startup
+file is touched and no plugin is disabled — the wrappers the profiled start needs live in a
+temporary directory that is removed again, and your own files are sourced from where they already
+were. Where it cannot measure — no `$SHELL`, no terminal — the section says so and why.
+
 ---
 
 ## 🎮 Vim Mastery Trainer

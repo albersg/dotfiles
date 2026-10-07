@@ -217,7 +217,12 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // review that picker opens, and the trainer's 6. It is pinned rather than
 // derived so a screen silently dropping out of the enumeration fails more than
 // one guard.
-const measuredScreens = 56 // 47 installer states + utilities + theme-picker + theme-refresh + the trainer's 6
+// measuredScreens is the number of screen cases every matrix guard renders: the
+// installer's states, the utilities section with the screens it opens one level
+// in, and the trainer's own. It is pinned rather than derived on purpose -- the
+// point of the guard is that every screen is in it -- so a screen added to the
+// package has to be added here and fails loudly until it is.
+const measuredScreens = 57 // 47 installer states + utilities + theme-picker + theme-refresh + shell-audit + the trainer's 6
 
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
@@ -356,6 +361,7 @@ func terminalFitCases() []terminalFitCase {
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
+	cases = append(cases, terminalFitCase{shellAuditCaseName, shellAuditFrameCase})
 
 	return cases
 }
@@ -522,6 +528,7 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{utilitiesCaseName, utilitiesFrameCase(t)},
 		{themePickerCaseName, themePickerFrameCase(t)},
 		{wslResourcesCaseName, wslResourcesFrameCase(t)},
+		{shellAuditCaseName, shellAuditFrameCase(t)},
 	}
 }
 
@@ -704,6 +711,88 @@ func TestWSLResourcesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 					size.name, option)
 			}
 		}
+	}
+}
+
+// shellAuditCaseName is the name the frame guards know the shell startup screen
+// by.
+const shellAuditCaseName = "shell-audit"
+
+// shellAuditFrameCase builds the shell startup screen with a finished
+// measurement, a run that timed out and zprof's table, so the guards measure the
+// rows and the prose rather than the still-unmeasured state. The shell and the
+// numbers are forced rather than read: a guard that measured the runner's own
+// shell would change with the machine.
+func shellAuditFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenShellAudit)
+	m.ShellAudit = shellAuditTestState()
+	m.Cursor = 0
+	return m
+}
+
+// TestShellAuditFrameFitIsMeasuredAtEverySize prints the shell startup screen's
+// measured frame at the twelve terminals the fit guard uses, so the size it is
+// drawn at is a number a reader can re-derive rather than a claim. The rows are
+// the data, so the guard requires each of them on screen at every size: the
+// median and its range, the runs that did not finish, the function the profiler
+// named, the row that measures and the way back.
+func TestShellAuditFrameFitIsMeasuredAtEverySize(t *testing.T) {
+	for _, size := range measuredTerminalSizes {
+		m := shellAuditFrameCase(t)
+		m.Width, m.Height = size.width, size.height
+		view := m.View()
+
+		plain := ansiEscape.ReplaceAllString(view, "")
+		rows := renderedRowCount(view)
+		widest := 0
+		for _, line := range strings.Split(plain, "\n") {
+			widest = max(widest, lipgloss.Width(line))
+		}
+		t.Logf("shell-audit at %s: %d of %d rows, %d of %d columns", size.name, rows, size.height, widest, size.width)
+
+		if rows > size.height {
+			t.Errorf("shell-audit at %s renders %d rows, want <= %d", size.name, rows, size.height)
+		}
+		if widest > size.width {
+			t.Errorf("shell-audit at %s draws %d columns, want <= %d", size.name, widest, size.width)
+		}
+
+		for _, option := range m.GetCurrentOptions() {
+			if strings.HasPrefix(option, menuSeparatorPrefix) {
+				continue
+			}
+			if !strings.Contains(plain, option) {
+				t.Errorf("shell-audit at %s dropped the row %q: the data must survive the short frame",
+					size.name, option)
+			}
+		}
+	}
+}
+
+// TestShellAuditUnavailableFitsEveryTerminalSize measures the other half at the
+// same twelve terminals: the state a server, a container or a run with no
+// terminal attached sees, where the screen names why nothing can be measured
+// rather than offering a row that would fail. The copy that explains the absence
+// is rows too, and rows can overflow a frame.
+func TestShellAuditUnavailableFitsEveryTerminalSize(t *testing.T) {
+	checked := 0
+	for _, size := range measuredTerminalSizes {
+		size := size
+		t.Run(size.name, func(t *testing.T) {
+			m := installerFrameModel(t, ScreenShellAudit)
+			m.ShellAudit = shellAuditState{
+				Resolved: true,
+				Reason:   "the login shell is not named: $SHELL is empty, so there is no shell to open and nothing to measure.",
+			}
+			m.Width, m.Height = size.width, size.height
+			assertScreenFitsTerminal(t, "shell-audit-unavailable", size.width, size.height, m.View())
+		})
+		checked++
+	}
+	if checked != len(measuredTerminalSizes) {
+		t.Fatalf("the guard rendered %d sizes, want %d", checked, len(measuredTerminalSizes))
 	}
 }
 

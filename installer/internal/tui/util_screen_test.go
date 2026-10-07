@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	tea "github.com/charmbracelet/bubbletea"
@@ -519,12 +520,17 @@ func TestUtilitiesPanelFactsAreDerivedFromTheModelState(t *testing.T) {
 
 	empty := contextualMainMenuModel()
 	empty.SystemInfo = &system.SystemInfo{OS: system.OSLinux, OSName: "Linux"}
+	// The shell audit is forced unavailable rather than left to the runner: a run
+	// whose stdout happens to be a terminal would otherwise offer the row and
+	// change this panel with the machine.
+	empty.ShellAudit = shellAuditState{Resolved: true, Reason: "the login shell is not named: $SHELL is empty"}
 	emptyFlat := utilitiesPanelFlat(t, empty)
 	t.Logf("utilities panel, nothing offered:\n%s", emptyFlat)
 	for _, absent := range []string{
 		"No desktop theme switch is available here.",
 		"The dotfiles' own theme is not switchable here.",
 		"The WSL resources are not adjustable here.",
+		"The shell's startup is not measurable here.",
 	} {
 		if !strings.Contains(emptyFlat, absent) {
 			t.Errorf("an empty model's panel does not declare %q:\n%s", absent, emptyFlat)
@@ -555,16 +561,25 @@ func TestUtilitiesPanelFactsAreDerivedFromTheModelState(t *testing.T) {
 		t.Errorf("the panel did not pick up the WSL resource state:\n%s", wslFlat)
 	}
 
-	// The four panels are four different answers to the same question, which is
+	withAudit := contextualMainMenuModel()
+	withAudit.ShellAudit = shellAuditTestState()
+	auditFlat := utilitiesPanelFlat(t, withAudit)
+	t.Logf("utilities panel, a finished shell startup measurement:\n%s", auditFlat)
+	if !strings.Contains(auditFlat, "Shell start") || !strings.Contains(auditFlat, "median") {
+		t.Errorf("the panel did not pick up the shell startup measurement:\n%s", auditFlat)
+	}
+
+	// The five panels are five different answers to the same question, which is
 	// what makes them facts about the model rather than text about the section.
 	seen := map[string]string{
 		emptyFlat:  "an empty model",
 		switchFlat: "a detected switch",
 		recordFlat: "a dotfiles-theme record",
 		wslFlat:    "WSL resource state",
+		auditFlat:  "shell startup state",
 	}
-	if len(seen) != 4 {
-		t.Errorf("two of the four model states produced the same panel, so a fact is not read from the model: %d distinct panels", len(seen))
+	if len(seen) != 5 {
+		t.Errorf("two of the five model states produced the same panel, so a fact is not read from the model: %d distinct panels", len(seen))
 	}
 }
 
@@ -931,5 +946,253 @@ func TestThemeRefusalNamesTheProbesAndTheWayForward(t *testing.T) {
 	}
 	if string(got) != user {
 		t.Error("the refused file was changed")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The utilities section: the shell startup audit
+// ---------------------------------------------------------------------------
+//
+// The utility is the one that changes nothing: it starts the login shell the way
+// a terminal does, several times, reports the median with the range, and names
+// the functions zprof blames -- or says plainly that only the total is
+// measurable. The guards below pin the offer, the method that travels with the
+// number, the timeout reported as a result of its own, and the honest nothing
+// when zprof cannot name anyone.
+
+// shellAuditTestState is the state the screen is drawn from with the shell, the
+// runs and zprof's table pinned, so a guard measures the utility rather than
+// whatever shell the runner happens to have. The numbers are the ones the live
+// check on the machine this was written on reported, with one of the five starts
+// replaced by a timeout so the row for the starts that did not finish is measured
+// too. The summary is computed by the shipped function, so the fixture cannot
+// drift from what a real measurement would hold.
+func shellAuditTestState() shellAuditState {
+	samples := []time.Duration{
+		977 * time.Millisecond,
+		915 * time.Millisecond,
+		872 * time.Millisecond,
+		932 * time.Millisecond,
+	}
+	st := shellAuditState{
+		Resolved:  true,
+		Available: true,
+		Shell:     "zsh",
+		ShellPath: "/usr/bin/zsh",
+		Command:   "zsh -i -c exit",
+		Runs:      shellAuditRuns,
+		Timeout:   shellAuditTimeout,
+		Measured:  true,
+		Samples:   samples,
+		Timeouts:  1,
+		Attribution: []shellAuditFunction{
+			{Name: "compdump", Calls: 1, Total: 725250 * time.Microsecond, Self: 725250 * time.Microsecond, Percent: "42.01%"},
+			{Name: "compdef", Calls: 1027, Total: 306380 * time.Microsecond, Self: 306380 * time.Microsecond, Percent: "17.75%"},
+			{Name: "_omz_source", Calls: 22, Total: 249880 * time.Microsecond, Self: 244600 * time.Microsecond, Percent: "14.48%"},
+			{Name: "compinit", Calls: 1, Total: 1260 * time.Millisecond, Self: 237990 * time.Microsecond, Percent: "73.19%"},
+			{Name: "(anon) [/home/testuser/.p10k.zsh:22]", Calls: 1, Total: 33840 * time.Microsecond, Self: 33520 * time.Microsecond, Percent: "1.96%"},
+			{Name: "compaudit", Calls: 2, Total: 46620 * time.Microsecond, Self: 46620 * time.Microsecond, Percent: "2.70%"},
+		},
+	}
+	st.Median, st.Fastest, st.Slowest = shellAuditSummary(samples)
+	return st
+}
+
+// TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure pins the availability
+// rule: the row is there where the login shell and a terminal were resolved, and
+// the section's own body names the reason everywhere else -- no login shell, no
+// terminal -- rather than leaving a hole the user has to guess at.
+func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      shellAuditState
+		wantRow    bool
+		wantReason string
+	}{
+		{"a shell and a terminal", shellAuditTestState(), true, ""},
+		{
+			"no login shell",
+			shellAuditState{Resolved: true, Reason: "the login shell is not named: $SHELL is empty, so there is no shell to open and nothing to measure."},
+			false, "$SHELL",
+		},
+		{
+			"no terminal",
+			shellAuditState{Resolved: true, Shell: "zsh", Reason: "this run has no terminal attached, so zsh cannot be started the way a terminal starts it."},
+			false, "terminal",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel()
+			m.Screen = ScreenUtilities
+			m.ShellAudit = tt.state
+
+			found := false
+			for _, row := range m.GetCurrentOptions() {
+				if row == utilitiesShellAuditRow {
+					found = true
+				}
+			}
+			if found != tt.wantRow {
+				t.Errorf("the utilities section offers %q = %v, want %v", utilitiesShellAuditRow, found, tt.wantRow)
+			}
+
+			body := strings.Join(m.utilitiesDescription(), " ")
+			if tt.wantRow {
+				if !strings.Contains(body, utilitiesShellAuditRow) || !strings.Contains(body, "zsh -i -c exit") {
+					t.Errorf("the section does not name the row and the command it runs: %q", body)
+				}
+				if strings.Contains(body, "not measurable here") {
+					t.Errorf("the section declared the audit unavailable while it offers the row: %q", body)
+				}
+				return
+			}
+			if !strings.Contains(body, tt.wantReason) || !strings.Contains(body, "not measurable here") {
+				t.Errorf("the section does not declare why the shell's startup cannot be measured: %q", body)
+			}
+		})
+	}
+}
+
+// TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution is the screen's
+// own guard: the number is on screen with the count it covers, the range, the
+// start that did not finish, the command and the bound it was run under, and the
+// function zprof put first -- so the number can be reproduced and the culprit can
+// be acted on.
+func TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution(t *testing.T) {
+	m := installerFrameModel(t, ScreenShellAudit)
+	m.ShellAudit = shellAuditTestState()
+	m.Width, m.Height = 200, 60
+
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	// The prose wraps to the width it is drawn at, so the assertions read it with
+	// its whitespace collapsed: a phrase a line break split is one phrase again,
+	// which is what a reader sees.
+	flat := strings.Join(strings.Fields(view), " ")
+	for _, want := range []string{
+		"zsh -i -c exit",                                  // the exact command
+		"bounded by 10 s",                                 // the timeout every start ran under
+		"The measurement is 5 such starts",                // how many starts the method uses
+		"Median of 4 of 5 runs: 924 ms",                   // the median, with the count it covers
+		"Range: 872 ms to 977 ms",                         // the spread
+		"1 of 5 runs did not finish: 1 timed out at 10 s", // the timeout, as its own result
+		"Slowest function: compdump (725.25 ms self, 1 call(s))",
+		"zsh/zprof profiled one further start",        // how the attribution was taken
+		"in zprof's own order",                        // what the order means
+		"_omz_source",                                 // the list, not only its head
+		"1 more were profiled and are not named here", // the declared cut
+		"The starts, in the order they ran: 977 ms, 915 ms, 872 ms, 932 ms",
+		"Nothing here is changed", // the read-only promise
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the shell startup screen does not show %q:\n%s", want, view)
+		}
+	}
+	// The sixth function zprof reported is past the named cut, and the screen says
+	// so rather than appearing to have listed the whole table.
+	if strings.Contains(flat, "compaudit") {
+		t.Errorf("the screen named a function past the declared cut:\n%s", view)
+	}
+}
+
+// TestScreenShellAuditSaysWhyNoFunctionIsNamed pins the honest half: when zprof
+// cannot blame anyone the screen says so, names no function at all, and keeps the
+// total -- which is the only number it can stand behind.
+func TestScreenShellAuditSaysWhyNoFunctionIsNamed(t *testing.T) {
+	st := shellAuditTestState()
+	st.Shell = "bash"
+	st.Command = "bash -i -c exit"
+	st.Attribution = nil
+	st.AttributionReason = "zprof is zsh's own module, and bash has no equivalent built in, so only the total is measurable here."
+
+	m := installerFrameModel(t, ScreenShellAudit)
+	m.ShellAudit = st
+	m.Width, m.Height = 200, 60
+
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	if !strings.Contains(view, "No function is named") {
+		t.Errorf("the screen does not say that no function is named:\n%s", view)
+	}
+	if !strings.Contains(view, "Median of 4 of 5 runs: 924 ms") {
+		t.Errorf("the total was dropped along with the attribution:\n%s", view)
+	}
+	if !strings.Contains(strings.Join(m.shellAuditDescription(), " "), st.AttributionReason) {
+		t.Errorf("the reason is not on the screen:\n%s", strings.Join(m.shellAuditDescription(), " "))
+	}
+	for _, invented := range []string{"compinit", "compdump", "compdef", "compaudit"} {
+		if strings.Contains(view, invented) {
+			t.Errorf("the screen names %q, which nothing measured:\n%s", invented, view)
+		}
+	}
+}
+
+// TestShellAuditScreenMeasuresOnceAndSaysSo pins the wiring and the re-entrancy
+// rule: the row returns the command, the screen says a measurement is in flight
+// while it runs, a second press starts no second measurement, the answer replaces
+// the state whole, and esc goes back to the section.
+func TestShellAuditScreenMeasuresOnceAndSaysSo(t *testing.T) {
+	m := installerFrameModel(t, ScreenShellAudit)
+	m.ShellAudit = shellAuditTestState()
+	m.Cursor = 0 // the measure row is the first row.
+	if rows := m.GetCurrentOptions(); rows[0] != utilitiesShellAuditRow {
+		t.Fatalf("the first row is %q, want the measure row %q", rows[0], utilitiesShellAuditRow)
+	}
+
+	next, cmd := m.handleShellAuditKeys("enter")
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("the measure row returned no command")
+	}
+	if !m.ShellAudit.Measuring {
+		t.Error("the screen does not report a measurement in flight")
+	}
+	if notice := m.shellAuditNotice(); !strings.Contains(notice, "Measuring:") {
+		t.Errorf("the footer does not say what is running: %q", notice)
+	}
+
+	next, second := m.handleShellAuditKeys("enter")
+	m = next.(Model)
+	if second != nil {
+		t.Error("a second press while a measurement was running started a second one")
+	}
+
+	// The answer replaces the state whole, exactly as a real measurement would.
+	done := shellAuditTestState()
+	updated, _ := m.Update(shellAuditMeasuredMsg{state: done})
+	m = updated.(Model)
+	if !m.ShellAudit.Measured || m.ShellAudit.Measuring {
+		t.Errorf("after the answer: measured=%v measuring=%v, want true and false", m.ShellAudit.Measured, m.ShellAudit.Measuring)
+	}
+
+	next, _ = m.handleShellAuditKeys("esc")
+	m = next.(Model)
+	if m.Screen != ScreenUtilities {
+		t.Errorf("esc left the screen on %v, want ScreenUtilities", m.Screen)
+	}
+}
+
+// TestUtilitiesSectionOpensTheShellAuditWithoutMeasuring pins the other end of
+// the wiring: opening the screen from the section starts nothing, because
+// starting the user's shell five times is a choice made on that screen.
+func TestUtilitiesSectionOpensTheShellAuditWithoutMeasuring(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.ShellAudit = shellAuditTestState()
+	m.Cursor = 0
+	for i, row := range m.GetCurrentOptions() {
+		if row == utilitiesShellAuditRow {
+			m.Cursor = i
+		}
+	}
+
+	next, cmd := m.handleUtilitiesKeys("enter")
+	m = next.(Model)
+	if m.Screen != ScreenShellAudit {
+		t.Fatalf("selecting the row landed on %v, want ScreenShellAudit", m.Screen)
+	}
+	if cmd != nil {
+		t.Error("opening the screen started a measurement")
 	}
 }
