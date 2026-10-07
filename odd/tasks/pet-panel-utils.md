@@ -93,3 +93,13 @@ rules are the same shape.
 - **Where it cannot measure, it says why.** No `$SHELL`, a login shell this machine does not have, or
   a run with no terminal attached: each is named in the section's own body rather than left as a
   hole, and the row is not offered.
+
+## Follow-up: the utilities from any working directory
+
+The user's case — *"Si no estoy en la ruta del dotfiles, no me salen las utilities"* — applied to the
+theme utility: its definitions were read only from a checkout, and the clone an install makes is
+removed when the run finishes. The clone step now copies the definitions into the per-user data
+directory and the resolver reads it last, so the theme row is offered from any working directory. The
+section still says why and where when nothing is found. The shell audit and the terminal report were
+never checkout-bound; the WSL resources remain bound to the shipped template, which is outside this
+follow-up's edit surfaces.

@@ -732,3 +732,20 @@ a longer list now, and Nocturne is that seventh theme with the frame guard green
   `TestThemePickerScrollsToEveryRowAtTheSmallTerminals` are green); a full `git status` shows only the
   edited files and the three new files.
 - No commit, no push.
+
+## Follow-up: the definitions outside the checkout
+
+The user's report — *"Si no estoy en la ruta del dotfiles, no me salen las utilities"* — is the hole
+this task left: the definitions were read only from a checkout (`$DOTFILES_DIR`, the clone, the
+working directory and its parents, `~/dotfiles`, `~/.dotfiles`), the clone this run makes lives in a
+temporary directory the cleanup step removes, and a user who launches the program from their home
+directory is inside none of them. The theme switch was therefore offered only from inside a checkout.
+
+The clone step now copies `themes/*.toml` into `~/.local/share/dotfiles/themes/` (or
+`$XDG_DATA_HOME/dotfiles/themes/`) as the last resolution candidate. Only the files the repository
+ships are written, an identical definition is left as it is, nothing is deleted, and the step says
+where it wrote and how many were already current. Resolution still reads one directory and never
+merges two. The user's case is reproduced by
+`TestThemeResolutionFallsBackToTheInstalledDefinitions` and
+`TestUtilitiesOffersTheThemeRowFromAnInstalledCopyOutsideTheRepo`, whose teeth are the new candidate:
+removing it fails both by name.
