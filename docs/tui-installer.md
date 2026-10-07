@@ -195,6 +195,35 @@ is what bat registers a custom theme under (measured against bat 0.26.1; the `<k
 the file is not the selection key, and a theme that exported it selected a bundled theme of the same
 name in five of the six cases).
 
+**Writing the file is not the same as the tool showing the theme.** A tool that watches its own
+config reloads by itself, but a tool that is already running and only reads its file at startup keeps
+the old palette until something tells it the file changed, and the switch used to report the change
+as *applied* without saying so. After a switch — and after the undo, which changes the same files —
+the screen shows **one line per installed tool**: `✓` when nothing is left, `→` when a running tool
+still holds the old theme, and the exact action that applies it. The installer does the reloads that
+are safe and idempotent — it rebuilds bat's theme cache so a theme the switch selected exists for
+bat, and it sources tmux's config into a server that is **already running** — and it does nothing
+else: it never sends a signal to a terminal, never kills or closes a session, never starts a tmux
+server (`tmux source-file` would start one, so it runs only after `tmux list-sessions` succeeded),
+and never touches a running Herdr, Neovim or shell. Everything it cannot reach is named with where to
+run the action, not reported as done. Every reload command is bounded by a five-second timeout, so a
+hung `tmux` or `bat` cannot hang the screen.
+
+| Tool | Does it pick the change up by itself? | What the switch does |
+|---|---|---|
+| Alacritty | Yes — it watches `alacritty.toml` and reloads live | nothing; reported `✓` |
+| WezTerm | Yes — it watches `wezterm.lua` and reloads live | nothing; reported `✓` |
+| Starship | Yes — it reads `starship.toml` on each prompt | nothing; reported `✓` |
+| Kitty | No — a running window reloads on `Ctrl+Shift+F5` or `kitty @ load-config` | runs `kitty @ load-config` only when the installer runs inside Kitty (`KITTY_LISTEN_ON` is set); otherwise names the key |
+| Ghostty | No — a running window reloads on `Ctrl+Shift+,` (macOS) or `SIGUSR2` | nothing; names the key and the signal |
+| Herdr | No — a running session reloads with `Ctrl+b Shift+r` | nothing; names the key, and never signals a live multiplexer |
+| zsh | No — only a new shell reads `.zshrc` | nothing; names `exec zsh` |
+| p10k | No — `p10k reload` reloads a running prompt | nothing; names `p10k reload` |
+| fish | No — only a new shell reads `config.fish` | nothing; names `exec fish` |
+| bat | No — the theme must be in bat's cache, and `BAT_THEME` is read by a new shell | rebuilds the cache (`bat cache --build` with `BAT_CONFIG_DIR`); names the new shell |
+| Neovim | No — a running editor keeps its colorscheme | nothing; names `:colorscheme <name>` |
+| tmux | Yes, for a server that is already running | runs `tmux source-file <config>` only when `tmux list-sessions` succeeds; otherwise names the command |
+
 **The list scrolls, so the frame is not the limit on how many themes there can be.** The picker
 draws as many rows as the frame leaves and windows the rest around the cursor, so a theme added to
 `themes/` cannot push the list off the bottom of a short terminal. Moving the cursor to a theme the

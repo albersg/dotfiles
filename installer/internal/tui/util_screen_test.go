@@ -1388,3 +1388,218 @@ func TestUtilitiesSectionOpensTheShellAuditWithoutMeasuring(t *testing.T) {
 		t.Error("opening the screen started a measurement")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Bringing the applied theme forward in each tool
+// ---------------------------------------------------------------------------
+//
+// The user's report is the whole reason for this guard: the switch wrote the
+// files and said "applied", but Herdr, tmux, Neovim and the rest went on
+// showing the old theme because nothing told them the file had changed. The
+// screen after a switch must name every tool it painted, what the installer did
+// for it, and what only the user can do. PATH is emptied so the reload step runs
+// no command here: the guard measures the list, never a tmux server the runner
+// happens to have.
+func TestApplyingAThemeListsWhatWasReloadedAndWhatIsLeft(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// One tool that reloads itself (Alacritty), one only the user can reach
+	// (Neovim), and one the installer can reach when a server is running (tmux).
+	installThemeFiles(t, home, "alacritty", "nvim", "tmux")
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, defaultThemeID)
+	if !ok {
+		t.Fatalf("%s is not defined", defaultThemeID)
+	}
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	m.DotfilesRepoDir = repoRoot(t)
+
+	// No tmux or bat on PATH: the reload step must not run a command here.
+	t.Setenv("PATH", t.TempDir())
+
+	msg := m.applyDotfilesThemeCmd(def)()
+	next, _ := m.Update(msg)
+	m = next.(Model)
+
+	if !m.ThemeRefreshReview || !m.ThemeRefreshDone {
+		t.Fatalf("after a switch the picker is in review=%v done=%v, want the per-tool reload list",
+			m.ThemeRefreshReview, m.ThemeRefreshDone)
+	}
+	report := strings.Join(m.themePickerDescription(), "\n")
+	for _, want := range []string{"Alacritty", "Neovim", "tmux"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the reload list does not name %s:\n%s", want, report)
+		}
+	}
+	// The manual steps name where to run them, not just "reload".
+	if !strings.Contains(report, ":colorscheme") {
+		t.Errorf("the reload list does not say what Neovim needs (:colorscheme):\n%s", report)
+	}
+	if !strings.Contains(report, "source-file") {
+		t.Errorf("the reload list does not say what tmux needs (source-file):\n%s", report)
+	}
+}
+
+// reloadStub is the pair of package variables the reload step reads, stubbed so
+// a guard observes the exact commands and the environment without a tmux or bat
+// on the runner. The originals are restored when the test ends.
+type reloadCall struct {
+	command string
+	env     []string
+}
+
+func stubThemeReload(t *testing.T, exists func(string) bool, run func(string, []string) (string, error)) *[]reloadCall {
+	t.Helper()
+	originalRun, originalExists := themeReloadRun, themeReloadCommandExists
+	t.Cleanup(func() {
+		themeReloadRun, themeReloadCommandExists = originalRun, originalExists
+	})
+	calls := &[]reloadCall{}
+	themeReloadCommandExists = exists
+	themeReloadRun = func(command string, env []string) (string, error) {
+		*calls = append(*calls, reloadCall{command: command, env: env})
+		return run(command, env)
+	}
+	return calls
+}
+
+// reloadByTool indexes the reload list by tool so a guard can assert one line.
+func reloadByTool(tools []themeReloadTool) map[string]themeReloadTool {
+	byTool := map[string]themeReloadTool{}
+	for _, tool := range tools {
+		byTool[tool.Tool] = tool
+	}
+	return byTool
+}
+
+// TestReloadThemeToolsRunsOnlyTheSafeCommands is the teeth on the reload step.
+// It observes the exact command strings and the environment, and it refuses the
+// whole class of commands that can end a session: no kill, no signal, no
+// shutdown, no restart. The safe reloads run; every other tool gets a line that
+// names the exact action the user must take.
+func TestReloadThemeToolsRunsOnlyTheSafeCommands(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	installThemeFiles(t, home, "alacritty", "kitty", "herdr", "nvim", "tmux")
+	if err := os.MkdirAll(filepath.Join(home, ".config", "bat"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KITTY_LISTEN_ON", "unix:/tmp/kitty-reload-test")
+
+	calls := stubThemeReload(t, func(cmd string) bool {
+		switch cmd {
+		case "tmux", "bat", "kitty":
+			return true
+		}
+		return false
+	}, func(command string, env []string) (string, error) {
+		if command == "tmux list-sessions" {
+			return "main: 1 windows", nil
+		}
+		return "", nil
+	})
+
+	tools := reloadThemeTools(home)
+
+	joined := ""
+	for _, c := range *calls {
+		joined += c.command + "\n"
+	}
+	for _, want := range []string{"tmux source-file", "bat cache --build", "kitty @ load-config"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the reload step did not run %q; it ran:\n%s", want, joined)
+		}
+	}
+	for _, dangerous := range []string{"kill", "pkill", "shutdown", "reboot", "poweroff", "restart", "reset", "sigusr", "sigterm", "sigkill", "wsl --"} {
+		if strings.Contains(strings.ToLower(joined), dangerous) {
+			t.Errorf("the reload step ran a command containing %q, which can end a session:\n%s", dangerous, joined)
+		}
+	}
+	// bat reads the directory the new theme was written into, not the ambient one.
+	foundBatEnv := false
+	for _, c := range *calls {
+		if c.command != "bat cache --build" {
+			continue
+		}
+		for _, e := range c.env {
+			if e == "BAT_CONFIG_DIR="+filepath.Join(home, ".config", "bat") {
+				foundBatEnv = true
+			}
+		}
+	}
+	if !foundBatEnv {
+		t.Errorf("bat's cache rebuild did not name BAT_CONFIG_DIR; calls: %+v", *calls)
+	}
+
+	byTool := reloadByTool(tools)
+	if got := byTool["tmux"]; !got.Done || !strings.Contains(got.Note, "source-file") {
+		t.Errorf("tmux with a running server = %+v, want done and source-file", got)
+	}
+	if got := byTool["Alacritty"]; !got.Done {
+		t.Errorf("Alacritty = %+v, want done (it watches its file)", got)
+	}
+	if got := byTool["Neovim"]; got.Done || !strings.Contains(got.Note, ":colorscheme") {
+		t.Errorf("Neovim = %+v, want not done and :colorscheme", got)
+	}
+	if got := byTool["Herdr"]; got.Done || !strings.Contains(got.Note, "Ctrl+b Shift+r") {
+		t.Errorf("Herdr = %+v, want a manual reload that names its key", got)
+	}
+	if got := byTool["Kitty"]; !got.Done {
+		t.Errorf("Kitty with a listening socket = %+v, want done", got)
+	}
+}
+
+// TestReloadThemeToolsDoesNotStartATmuxServer pins the other half of the tmux
+// rule: when no server is running, no command is sent, because `tmux
+// source-file` would start one. The tool is named with the command the user can
+// run instead.
+func TestReloadThemeToolsDoesNotStartATmuxServer(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	installThemeFiles(t, home, "tmux")
+
+	calls := stubThemeReload(t, func(cmd string) bool { return cmd == "tmux" },
+		func(command string, env []string) (string, error) {
+			if command == "tmux list-sessions" {
+				return "", os.ErrNotExist
+			}
+			return "", nil
+		})
+
+	tools := reloadThemeTools(home)
+	for _, c := range *calls {
+		if strings.Contains(c.command, "source-file") {
+			t.Errorf("no server was running, yet the reload ran %q", c.command)
+		}
+	}
+	got := reloadByTool(tools)["tmux"]
+	if got.Done {
+		t.Errorf("tmux with no server = %+v, want not done", got)
+	}
+	if !strings.Contains(got.Note, "source-file") {
+		t.Errorf("the no-server line does not name the command to run: %+v", got)
+	}
+}
+
+// TestThemeReloadRunnerTimesOut keeps the promise that a hung tmux or bat cannot
+// hang the screen: the runner kills a command that outlives themeReloadTimeout
+// and returns an error instead of waiting forever.
+func TestThemeReloadRunnerTimesOut(t *testing.T) {
+	start := time.Now()
+	if _, err := themeReloadRun("sleep 30", nil); err == nil {
+		t.Error("a command that outlived the timeout returned no error")
+	}
+	if elapsed := time.Since(start); elapsed > themeReloadTimeout+3*time.Second {
+		t.Errorf("the runner waited %v, want the %v timeout to bound it", elapsed, themeReloadTimeout)
+	}
+}
