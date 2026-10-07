@@ -227,7 +227,7 @@ copied beside itself as `.wslconfig.bak-dotfiles-<timestamp>` first. WSL reads t
 starts, so the screen says to run `wsl --shutdown` on Windows to apply the change and deliberately
 does not run it; `--dry-run` skips the write.
 
-**Measure the shell's startup.** The fourth utility is the one that **changes nothing**. It starts
+**Measure the shell's startup.** The fourth utility **changes nothing**. It starts
 the login shell named by `$SHELL` the way a terminal does — `zsh -i -c exit`, or the same shape for
 your shell — **five times**, and reports the **median** with the **range** and every completed start,
 so the number is a measurement and not a single run: the method travels with it and it can be
