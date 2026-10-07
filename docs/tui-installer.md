@@ -157,10 +157,13 @@ definition fails a guard rather than being found on screen.
 A theme is a definition file, so adding a theme adds a row and the list is never typed by hand. A
 **complete** theme defines every canonical role **and** the `[syntax]` members the preview reads, so
 it can be applied *and* shown, and is offered; a **partial** one is reported with its reason and is
-never offered, so a switch can never apply half a theme and call it unified. The library ships six
-complete themes — dotfiles, Catppuccin Mocha, Catppuccin Latte, Kanagawa, Everforest and Rosé Pine —
-transcribed from the repository's own blocks or from the published palettes named in
-[`themes/README.md`](../themes/README.md). Kagawa was retired: its only file was a byte-for-byte copy
+never offered, so a switch can never apply half a theme and call it unified. The library ships seven
+complete themes — dotfiles, Catppuccin Mocha, Catppuccin Latte, Kanagawa, Everforest, Rosé Pine and
+Nocturne — transcribed from the repository's own blocks or from the published palettes named in
+[`themes/README.md`](../themes/README.md), except Nocturne, which has no published palette to
+transcribe: its values are measured from the user's own reference screenshot (the unmeasured hues
+derived from the measured set by the mapping the same README records). Kagawa was retired: its only
+file was a byte-for-byte copy
 of Kanagawa's and no published Kagawa palette exists, so it is no longer a theme.
 
 **Every offered theme paints every tool the switch names**, and that is a guard rather than a
@@ -168,7 +171,7 @@ promise: the twelve tools are the four terminals, Starship, the zsh line editor,
 Herdr, fish, bat, Neovim and tmux, and `TestEveryOfferedThemePaintsEveryTool` fails naming the theme
 and the tool the moment a definition loses what a tool needs. A row still names the tools a theme
 cannot paint — a row reads `Apply the <name> theme (not <tools>)` where there is something to name —
-but for all six themes that list is empty. Where a tool reads roles the canonical palette does not
+but for all seven themes that list is empty. Where a tool reads roles the canonical palette does not
 carry — Starship's prompt roles, fish's eighteen, bat's scopes, tmux's style options, Neovim's
 highlight groups — the values are **derived from the theme's own palette by the fixed mapping
 written down in [`themes/README.md`](../themes/README.md)**, so a derived colour is a colour the
@@ -183,7 +186,7 @@ over a universal one, and the switch records and restores the exact bytes like e
 tmux gets its own generated style block after the TPM run line instead of depending on the
 `tmux-kanagawa` plugin, whose Kanagawa palette is partial. Neovim is selected by name: `catppuccin`
 and `kanagawa` are the two colorschemes the repository's own plugin install provides, and the other
-four themes ship a colorscheme generated from their definition under `dotfiles-nvim/nvim/colors/` —
+five themes ship a colorscheme generated from their definition under `dotfiles-nvim/nvim/colors/` —
 pointing Latte at the Catppuccin plugin's own name would paint Mocha's flavour, because the plugin's
 `flavour` is pinned to `mocha` in this configuration. bat selects a theme by a name its own themes
 directory has to hold, so the shell step generates a `.tmTheme` for **every** theme that names one

@@ -592,3 +592,143 @@ Nothing is left uncovered, so there is no gap to report. One judgement call is r
 hidden: **Catppuccin Latte's Neovim colorscheme is generated instead of pointing at the Catppuccin
 plugin's own `catppuccin-latte` name**, because this repository's Neovim configuration pins
 `flavour = "mocha"` and the generated file is the one whose bytes can be checked here.
+
+---
+
+# T8 - Nocturne: a theme measured from the user's own terminal
+
+The user showed a screenshot of their terminal (Gentle Shell running, 1701×947) and asked whether any
+theme followed that look. None did - the closest, Rosé Pine, is a brighter plum with lavender text
+and a stronger contrast - so a theme was built and implemented across every tool the switch paints.
+
+No colour is invented. What the screenshot shows was **measured** from its pixels; the hues the
+screenshot does not carry were **derived** from the measured set by one documented mapping.
+
+| role | value | provenance |
+|---|---|---|
+| `base` | `#151316` | measured: the main background |
+| `text` | `#c0c0c0` | measured: the body text (10.2:1 on base) |
+| `cursor` | `#e0c070` | measured: the warm accent |
+| `cursor_text` | `#151316` | measured: the base under the cursor |
+| `selection` | `#202030` | measured: the slate block surface |
+| `selection_text` | `#c0c0c0` | measured: the body text |
+| `black` | `#100a0f` | measured: the side-panel background |
+| `red` | `#cb8686` | derived: hue 0°, saturation 40%, lightness 66% |
+| `green` | `#86cb86` | derived: hue 120°, same |
+| `yellow` | `#e0c070` | measured: the warm accent |
+| `blue` | `#8686cb` | derived: hue 240°, same |
+| `magenta` | `#a08090` | measured: the mauve accent |
+| `cyan` | `#86cbcb` | derived: hue 180°, same |
+| `white` | `#c0c0c0` | measured: the body text |
+| `bright_black` | `#a0a0a0` | measured: the dim text |
+| `bright_red` | `#daa9a9` | derived: the red hue, lightness +10 |
+| `bright_green` | `#a9daa9` | derived: the green hue, +10 |
+| `bright_yellow` | `#e9d29a` | derived: the measured gold, +10 |
+| `bright_blue` | `#a9a9da` | derived: the blue hue, +10 |
+| `bright_magenta` | `#b69daa` | derived: the measured mauve, +10 |
+| `bright_cyan` | `#a9dada` | derived: the cyan hue, +10 |
+| `bright_white` | `#f0f0f0` | measured: the bright text |
+
+The derivation's two numbers are themselves measured: 40% is the midpoint of the two measured
+accents' saturation (mauve 14% and gold 64% average to 39%, rounded), and 66% is the measured warm
+accent's own lightness. `[syntax]` is dark only (`keyword_dark #a08090`, `string_dark #e0c070`) -
+the reference has no light version, so none is invented.
+
+## The registration the task could not be done without
+
+Nocturne's first RED proved the theme was complete except for Neovim: the guard failed naming
+`nocturne` and `Neovim` because `themeNvimAvailable` reads `themeThemeFiles` by design
+(`installer/internal/tui/installer.go:2584`) with no disk fallback, and that list is where a shipped
+colorscheme is registered. `installer/internal/tui/installer.go` was outside the first set of edit
+surfaces, so the work stopped there rather than guessing; the surfaces were widened and the
+registration was added:
+
+```go
+{Tool: "bat", Theme: "nocturne", Path: "dotfiles-bat/themes/nocturne.tmTheme", Render: renderBatTheme},
+{Tool: "nvim", Theme: "nocturne", Path: "dotfiles-nvim/nvim/colors/nocturne.lua", Render: renderNvimTheme},
+```
+
+## The generated files, with the repo's own mechanism
+
+Both committed files were written by the generator, never by hand:
+
+```
+$ cd installer && go test ./internal/tui \
+    -run TestGeneratedPerThemeFilesMatchTheirDefinition -update-theme-artifacts -count=1 -v
+```
+
+It produced `dotfiles-nvim/nvim/colors/nocturne.lua` and `dotfiles-bat/themes/nocturne.tmTheme`, and
+`TestGeneratedPerThemeFilesMatchTheirDefinition` now pins **11** per-theme files byte-for-byte (was
+9). `TestGeneratedThemeBlocksInventNoColour` checks 2182 colour tokens across 12 tools, 870 of them
+in per-theme files, and no emitted colour is one the definition does not hold.
+
+## The red (teeth) and the green
+
+The **RED**, captured before the registration (the same failure returns if the `[nvim]` entry is
+removed, which is the guard's teeth):
+
+```
+# themes/nocturne.toml present, but nocturne not in themeThemeFiles
+install_paths_test.go:1154: theme "nocturne" leaves out Neovim: every offered theme must paint every tool (Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line editor, the p10k prompt, Herdr, fish, bat, Neovim, tmux)
+install_paths_test.go:1158: theme "nocturne" covers 11 of the 12 tools the switch names: [Alacritty Kitty WezTerm Ghostty Starship the zsh line editor the p10k prompt Herdr fish bat tmux]
+install_paths_test.go:1174: the row for "nocturne" still names an exclusion though it leaves out no tool: "Apply the Nocturne theme (not Neovim)"
+install_paths_test.go:1393: theme "nocturne" names the Neovim colorscheme "nocturne", which neither the repository's plugin install nor a generated file provides
+--- FAIL: TestEveryOfferedThemePaintsEveryTool
+--- FAIL: TestTheNeovimColorschemeNamesResolve
+```
+
+The **GREEN**, with the registration and the generated files in place:
+
+```
+install_paths_test.go:1161: nocturne: covers 12 of 12 tools; leaves out []
+--- PASS: TestEveryOfferedThemePaintsEveryTool (0.00s)
+install_paths_test.go:1422: 5 offered theme(s) select a generated colorscheme, 2 select a plugin's
+--- PASS: TestTheNeovimColorschemeNamesResolve (0.00s)
+```
+
+It is now the seventh complete theme and **doce de doce, sin exclusiones**: every offered theme
+paints every tool, and `TestEveryCoveredToolCanBeGeneratedForEveryOfferedTheme` renders 91
+covered-tool blocks across the 7 offered themes.
+
+## The colorscheme, loaded for real
+
+```
+$ luac -p dotfiles-nvim/nvim/colors/nocturne.lua
+luac: parsed OK
+$ nvim --headless -u NONE --cmd 'set rtp+=dotfiles-nvim/nvim' -c 'colorscheme nocturne' -c 'lua ...' -c 'qa!'
+colors_name=nocturne
+background=dark
+termguicolors=true
+Normal={ bg = 1381142, fg = 12632256 }   -- #151316 on #c0c0c0
+String={ fg = 14729328 }                 -- #e0c070 (the measured gold)
+Comment={ fg = 10526880, italic = true }-- #a0a0a0 (the measured dim text)
+Keyword={ fg = 8816331 }                -- #8686cb (the derived blue)
+Function={ fg = 8833926 }               -- #86cb86 (the derived green)
+Error={ bg = 1381142, fg = 13338246 }    -- #cb8686 (the derived red)
+terminal_color_0=#100a0f                 -- measured side-panel background
+terminal_color_15=#f0f0f0                -- measured bright text
+```
+
+Every value is the one the definition holds; nothing was chosen by eye.
+
+## Docs
+
+`themes/README.md` gained the third value source ("measured from a reference, or derived from that
+measurement"), a "Nocturne: measured, not transcribed" note with the derivation table, the measured
+contrast, the dark-only `[syntax]` and the limitation (a reading of a rendered screenshot, not a
+published palette), plus the theme in the seven-theme, coverage and declared/derived tables. Its
+stale claim that "a seventh would overflow the 60×20 theme picker" was corrected: the picker windows
+a longer list now, and Nocturne is that seventh theme with the frame guard green. `README.md` and
+`docs/tui-installer.md` now say seven complete themes and name Nocturne.
+
+## Validation
+
+- `make check` - PASS (gofmt, `go vet ./...`, `go test ./internal/tui`, 13m23s).
+- `go test ./... -count=1 -timeout 30m` in `installer/` - **5020 passing, 0 failing, 1 skipped**,
+  4m17s (cmd/dotfiles 10, internal/system 240, internal/tui 3138 (+1 skip), trainer 1632).
+- `gofmt -l installer/` - clean; `go vet` - clean; `git diff --check` - clean.
+- **No golden moved.** The theme picker gains a row but draws it inside its existing window, so no
+  selector golden changed (`TestThemePickerFrameFitIsMeasuredAtEverySize` and
+  `TestThemePickerScrollsToEveryRowAtTheSmallTerminals` are green); a full `git status` shows only the
+  edited files and the three new files.
+- No commit, no push.

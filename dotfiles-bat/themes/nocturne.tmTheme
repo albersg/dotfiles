@@ -1,0 +1,334 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The nocturne theme for bat.
+
+  Every colour is one of the ten the terminal emulators in this repository
+  define, so syntax highlighting inside the terminal cannot disagree with the
+  prompt, the file listings or Herdr. The mapping is by role, not by taste:
+
+    muted   #a0a0a0   comments, punctuation, invisible characters
+    yellow  #e0c070   strings
+    magenta #a08090   numbers and language constants, preprocessor directives
+    blue    #8686cb   keywords, storage, types, tags, headings
+    cyan    #86cbcb   operators, escapes, attribute names, class names
+    green   #86cb86   function names, markdown code spans
+    red     #cb8686   variables, invalid syntax, deletions
+    text    #c0c0c0   everything else
+
+  No background is set on purpose. The terminal paints one and it is partly
+  transparent, so a themed background would sit on top of it as a panel with a
+  second black.
+
+  Regenerate-to-install: rebuild bat's cache (run `bat cache` with
+  its build flag) after any change here.
+-->
+<plist version="1.0">
+<dict>
+	<key>name</key>
+	<string>Nocturne</string>
+	<key>settings</key>
+	<array>
+		<dict>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#c0c0c0</string>
+				<key>caret</key>
+				<string>#8686cb</string>
+				<key>selection</key>
+				<string>#202030</string>
+				<key>selectionForeground</key>
+				<string>#c0c0c0</string>
+				<key>lineHighlight</key>
+				<string>#202030</string>
+				<key>invisibles</key>
+				<string>#a0a0a0</string>
+			</dict>
+		</dict>
+
+		<!-- Comments and the punctuation that should recede with them. -->
+		<dict>
+			<key>name</key>
+			<string>Comment</string>
+			<key>scope</key>
+			<string>comment, punctuation.definition.comment</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#a0a0a0</string>
+				<key>fontStyle</key>
+				<string>italic</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Punctuation</string>
+			<key>scope</key>
+			<string>punctuation, punctuation.separator, punctuation.terminator, meta.brace</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#a0a0a0</string>
+			</dict>
+		</dict>
+
+		<!-- Strings: one colour for the whole family. -->
+		<dict>
+			<key>name</key>
+			<string>String</string>
+			<key>scope</key>
+			<string>string, punctuation.definition.string</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#e0c070</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>String escape</string>
+			<key>scope</key>
+			<string>constant.character.escape, constant.other.placeholder</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#86cbcb</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>String interpolation</string>
+			<key>scope</key>
+			<string>punctuation.section.embedded, punctuation.definition.template-expression</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#cb8686</string>
+			</dict>
+		</dict>
+
+		<!-- Numbers and the language constants sit together. -->
+		<dict>
+			<key>name</key>
+			<string>Constant</string>
+			<key>scope</key>
+			<string>constant.numeric, constant.language, constant.other, support.constant, variable.language</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#a08090</string>
+			</dict>
+		</dict>
+
+		<!-- Keywords, storage and types carry the accent. -->
+		<dict>
+			<key>name</key>
+			<string>Keyword</string>
+			<key>scope</key>
+			<string>keyword, keyword.control, keyword.other, storage, storage.type, storage.modifier</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#8686cb</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Operator</string>
+			<key>scope</key>
+			<string>keyword.operator, keyword.operator.assignment, keyword.operator.arithmetic</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#86cbcb</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Preprocessor</string>
+			<key>scope</key>
+			<string>meta.preprocessor, keyword.control.import, keyword.control.directive</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#a08090</string>
+			</dict>
+		</dict>
+
+		<!-- Names: functions green, types cyan, tags accent. -->
+		<dict>
+			<key>name</key>
+			<string>Function</string>
+			<key>scope</key>
+			<string>entity.name.function, support.function, meta.function-call, entity.name.function.macro</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#86cb86</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Type</string>
+			<key>scope</key>
+			<string>entity.name.type, entity.name.class, entity.name.struct, support.class, support.type, entity.other.inherited-class</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#86cbcb</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Tag</string>
+			<key>scope</key>
+			<string>entity.name.tag, punctuation.definition.tag</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#8686cb</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Attribute</string>
+			<key>scope</key>
+			<string>entity.other.attribute-name, meta.object-literal.key, support.type.property-name</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#86cb86</string>
+			</dict>
+		</dict>
+
+		<!-- Variables, the one place a fourth tone is needed. -->
+		<dict>
+			<key>name</key>
+			<string>Variable</string>
+			<key>scope</key>
+			<string>variable, variable.other, variable.parameter, variable.function, entity.name.variable</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#cb8686</string>
+			</dict>
+		</dict>
+
+		<!-- Markdown and documentation. -->
+		<dict>
+			<key>name</key>
+			<string>Heading</string>
+			<key>scope</key>
+			<string>markup.heading, markup.heading punctuation.definition.heading</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#8686cb</string>
+				<key>fontStyle</key>
+				<string>bold</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Bold</string>
+			<key>scope</key>
+			<string>markup.bold</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#c0c0c0</string>
+				<key>fontStyle</key>
+				<string>bold</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Italic</string>
+			<key>scope</key>
+			<string>markup.italic</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#c0c0c0</string>
+				<key>fontStyle</key>
+				<string>italic</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Raw block</string>
+			<key>scope</key>
+			<string>markup.raw, markup.raw.block, markup.inline.raw</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#86cb86</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Link</string>
+			<key>scope</key>
+			<string>markup.underline.link, string.other.link</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#86cbcb</string>
+				<key>fontStyle</key>
+				<string>underline</string>
+			</dict>
+		</dict>
+
+		<!-- Diff. -->
+		<dict>
+			<key>name</key>
+			<string>Diff insert</string>
+			<key>scope</key>
+			<string>markup.inserted, markup.inserted.diff</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#86cb86</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Diff delete</string>
+			<key>scope</key>
+			<string>markup.deleted, markup.deleted.diff</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#cb8686</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Diff change</string>
+			<key>scope</key>
+			<string>markup.changed, markup.changed.diff</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#e0c070</string>
+			</dict>
+		</dict>
+
+		<!-- Errors. -->
+		<dict>
+			<key>name</key>
+			<string>Invalid</string>
+			<key>scope</key>
+			<string>invalid, invalid.illegal, invalid.broken</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>#cb8686</string>
+				<key>fontStyle</key>
+				<string>bold</string>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

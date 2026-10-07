@@ -11,7 +11,7 @@ by side. A theme is a file here now.
 
 ## No colour is invented
 
-A value comes from one of two places, and both are cited:
+A value comes from one of three places, and each is cited:
 
 1. **What the repository already ships.** The `dotfiles` palette is transcribed
    from the six hand-written blocks above. `catppuccin-mocha` is transcribed from
@@ -22,6 +22,12 @@ A value comes from one of two places, and both are cited:
    palettes named in each file's header and in the per-theme notes below. Every
    value is a role the published palette itself names; the source is named with
    its project, its URL and the palette roles it holds.
+3. **Measured from a reference, or derived from that measurement.** `nocturne` is
+   the one theme with no published palette behind it: its measured values are the
+   colours read out of the user's own terminal screenshot, and the hues the
+   screenshot does not show are derived from those measured values by the one
+   mapping its header and the note below record. The provenance is declared
+   rather than attributed, because the source is a rendering and not a palette.
 
 **A role is declared, or derived from the theme's own palette, or reported.** A
 tool rarely reads the canonical roles: Starship's table is written in
@@ -94,6 +100,10 @@ rather than having a light value invented for it.
   (yellow): the fish file's keyword and quote roles. No light member.
 - **Rosé Pine** — `keyword_dark #c4a7e7` (iris), `string_dark #f6c177` (gold):
   Rosé Pine's own syntax convention, both named palette colours. No light member.
+- **Nocturne** — `keyword_dark #a08090` (the measured mauve), `string_dark
+  #e0c070` (the measured gold): the two accents the reference itself paints. No
+  light member: the reference has no light version, so none is invented and the
+  preview falls back to the dark member.
 
 ## Derived roles: the fixed mapping, per tool
 
@@ -221,7 +231,7 @@ The one derived non-colour is Neovim's own `background`: the colorscheme declare
 `light` when the theme's base is lighter than mid grey and `dark` otherwise, which
 is what makes Catppuccin Latte a light colorscheme and the other five dark ones.
 
-## The six themes
+## The seven themes
 
 | Theme | File | State | Source of its values |
 |---|---|---|---|
@@ -231,6 +241,7 @@ is what makes Catppuccin Latte a light colorscheme and the other five dark ones.
 | Kanagawa | `kanagawa.toml` | **complete** | rebelot/kanagawa.nvim, the "wave" palette and its terminal mapping; fish roles from the repository |
 | Everforest | `everforest.toml` | **complete** | sainnhe/everforest, the dark-medium palette and its terminal mapping; fish roles from the repository |
 | Rosé Pine | `rose-pine.toml` | **complete** | rose-pine/rose-pine, the published palette and its terminal mapping |
+| Nocturne | `nocturne.toml` | **complete** | measured from the user's reference terminal screenshot; the unmeasured roles derived from that measurement (see "Nocturne: measured, not transcribed") |
 
 ### Complete (offered): every theme paints every tool
 
@@ -242,6 +253,7 @@ is what makes Catppuccin Latte a light colorscheme and the other five dark ones.
 | Kanagawa | **nothing** |
 | Everforest | **nothing** |
 | Rosé Pine | **nothing** |
+| Nocturne | **nothing** |
 
 The twelve tools are Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line
 editor, the p10k prompt, Herdr, fish, bat, Neovim and tmux; they are `themeTools`
@@ -263,6 +275,7 @@ mappings above:
 | Kanagawa | derived | declared `[fish]` | declared `[bat]` | derived | the `kanagawa` plugin |
 | Everforest | derived | declared `[fish]` | declared `[bat]` | derived | generated colorscheme |
 | Rosé Pine | derived | derived | declared `[bat]` | derived | generated colorscheme |
+| Nocturne | derived | derived | declared `[bat]` | derived | generated colorscheme |
 
 Generated blocks: the four terminals, Herdr, Starship (both its `palette` line
 and its `[palettes.<id>]` table), the zsh palette region including the `*_SGR`
@@ -302,8 +315,8 @@ definition:
   missing would leave bat on "Catppuccin Mocha" however the row read.
 - **The Neovim colorschemes** (`dotfiles-nvim/nvim/colors/*.lua`) are generated
   for the themes whose plugin install ships no colorscheme for them: `dotfiles`,
-  `catppuccin-latte`, `everforest` and `rose-pine`. Catppuccin Mocha and Kanagawa
-  keep the names their plugins already provide. The definition's `[nvim] name` is
+  `catppuccin-latte`, `everforest`, `rose-pine` and `nocturne`. Catppuccin Mocha
+  and Kanagawa keep the names their plugins already provide. The definition's `[nvim] name` is
   the file's own name, which is what `:colorscheme` resolves and what
   `TestTheNeovimColorschemeNamesResolve` checks.
 
@@ -365,7 +378,7 @@ leave one of the twenty-four empty.
   theme whose selection is not its file's name, or two themes whose files share
   one.
 - **Neovim's colorscheme is generated for the themes whose plugin ships none.**
-  `dotfiles-nvim/nvim/colors/{dotfiles,catppuccin-latte,everforest,rose-pine}.lua`
+  `dotfiles-nvim/nvim/colors/{dotfiles,catppuccin-latte,everforest,rose-pine,nocturne}.lua`
   are produced from the definitions by `renderNvimTheme`, and `[nvim] name` is
   each file's own name, so `:colorscheme` resolves to a file this repository
   ships and `TestTheNeovimColorschemeNamesResolve` checks that a name never
@@ -374,7 +387,7 @@ leave one of the twenty-four empty.
   plugin's flavour**: the repository's Neovim configuration pins Catppuccin's
   `flavour = "mocha"`, so the plugin's own name would paint Mocha's palette under
   a Latte name, and the generated file is the one whose contents are checkable
-  here. The four files parse and execute (measured with `luac -p` and by running
+  here. The five files parse and execute (measured with `luac -p` and by running
   each against a stubbed `vim`, 96 groups, 16 terminal colours each) and a real
   Neovim loads every one of them: `nvim --headless -u NONE --cmd 'set
   rtp+=dotfiles-nvim/nvim' -c 'colorscheme <id>'` reports the theme's own
@@ -460,9 +473,68 @@ Nothing is fetched at run time.
   black overlay, cyan rose, selection highlight-medium). Keywords take iris and
   strings take gold, Rosé Pine's own syntax convention. **Rosé Pine Moon was
   considered and is not included**: its base (#232136) is lighter than Rosé
-  Pine's (#191724), so it is not the "más oscuro" the user asked for, and the
-  theme picker fits six complete themes at the 60×20 floor — a seventh
-  overflows the frame guard.
+  Pine's (#191724), so it is not the "más oscuro" the user asked for. (An earlier
+  reading of this file said a seventh theme would overflow the 60×20 theme
+  picker. That limit is gone: the picker now windows a longer list around the
+  cursor, so the frame is not what bounds how many themes can be offered —
+  Nocturne is the seventh, and the picker's frame guard passes.)
+
+### Nocturne: measured, not transcribed
+
+Nocturne is the one theme with no published palette behind it. The user showed a
+screenshot of their own terminal (1701×947, a rendered interface) and asked
+whether the library followed that look; none did, so this palette was **measured**
+from the screenshot's pixels. Its provenance is declared rather than attributed,
+and the definition says so.
+
+**Measured** (read out of the screenshot, not chosen): the main background
+`#151316`, the side-panel background `#100a0f`, the panel and chat box
+`#1e1e1e`/`#212223`, the body text `#c0c0c0` with `#a0a0a0` (dim) and `#f0f0f0`
+(bright), the warm accent `#e0c070`, the mauve accent `#a08090`, and the slate
+blocks `#102030`/`#202030`. Every one of those is a value the reference itself
+paints.
+
+**Derived, and how.** The screenshot shows no red, green, cyan or blue, so those
+roles are derived from the measured set by one fixed mapping, in HSL, and written
+as literals — the same kind of documented mapping the tool roles below use:
+
+| derived hue | hue | saturation | lightness |
+|---|---|---|---|
+| red | 0° | 40% | 66% |
+| green | 120° | 40% | 66% |
+| cyan | 180° | 40% | 66% |
+| blue | 240° | 40% | 66% |
+
+40% is the midpoint of the two measured accents' own saturation (the mauve's 14%
+and the gold's 64% average to 39%, rounded), and 66% is the measured warm
+accent's own lightness (`#e0c070` → 66%). Each `bright_*` twin keeps the hue and
+saturation and raises the lightness by ten points, and the two remaining accents
+take the same +10 step: yellow is the measured gold and magenta the measured
+mauve. The derived roles are `red #cb8686`, `green #86cb86`, `cyan #86cbcb`,
+`blue #8686cb`, `bright_red #daa9a9`, `bright_green #a9daa9`, `bright_cyan
+#a9dada`, `bright_blue #a9a9da`, `bright_yellow #e9d29a` and `bright_magenta
+#b69daa`.
+
+**Contrast, measured.** The body text `#c0c0c0` on the base `#151316` is
+**10.2:1** and the warm accent `#e0c070` **10.5:1**; the mauve `#a08090` is
+**5.3:1** and the dim text `#a0a0a0` **7.1:1**. Every derived role was measured
+on the base too: red **6.4:1**, green **9.6:1**, cyan **10.1:1**, and blue
+**5.5:1** — the lowest, and still above the 4.5:1 a normal text colour needs, so
+the low-contrast look does not become an illegible one.
+
+**`[syntax]` is dark only.** The reference has no light version, so Nocturne
+declares only the dark member (`keyword_dark` the measured mauve, `string_dark`
+the measured gold) and no light value is invented for it; the preview falls back
+to the dark member, which is the design's own rule for a theme with no light
+flavour.
+
+**The limitation, stated.** What was measured is a screenshot of a rendered
+interface: it carries gradients, transparency and anti-aliasing, and the terminal
+it shows was itself already running a theme. The values are therefore one reading,
+not an original published palette, and the definition says so rather than
+attributing them to a project. The result is a faithful interpretation of a
+measurement; whether it "looks the same" is the user's call, and no colour beyond
+these measured values and their documented derivation is invented.
 
 ### What is transcription and what is the repository's
 
@@ -477,6 +549,10 @@ Nothing is fetched at run time.
 - **Both:** the `[syntax]` tables that take a fish file's keyword/quote roles
   (kanagawa, everforest), and the Catppuccin pairing that takes one member from
   each of the two flavours.
+- **Measured from a reference, and derived from that measurement:** every role of
+  `nocturne` — the measured values read out of the user's screenshot, and the red,
+  green, cyan, blue and the bright twins derived from them by the mapping above.
+  The definition's header says which role is which.
 - **Derived, from the theme's own palette:** every role a definition does not
   declare - fish's eighteen, Starship's twenty-four, bat's nine tokens, tmux's
   style options and Neovim's highlight groups - by the fixed mapping in "Derived

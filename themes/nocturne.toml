@@ -1,0 +1,104 @@
+# Nocturne: a theme measured from the user's own terminal, not transcribed from
+# a published palette.
+#
+# The user showed a screenshot of their terminal (1701x947, a rendered UI) and
+# asked whether any theme in the library followed that look. None did - the
+# closest, Rose Pine, is a brighter plum with lavender text and a stronger
+# contrast - so this definition was measured from that screenshot.
+#
+# WHAT IS MEASURED (read out of the screenshot's pixels, not chosen):
+#
+#   main background      #151316    the panel's own background
+#   side-panel background#100a0f    the right-hand panel's background
+#   panel / box          #1e1e1e    #212223   (the chat box)
+#   text                 #c0c0c0    with #a0a0a0 (dim) and #f0f0f0 (bright)
+#   warm accent          #e0c070    the gold of the interface
+#   mauve accent         #a08090    the muted rose/mauve
+#   slate blocks         #102030    #202030   (the "block" surfaces)
+#
+# WHAT IS DERIVED, AND HOW. The screenshot shows no red, green, cyan or blue, so
+# those roles are derived from the measured set by one fixed mapping, in HSL, and
+# written here as literals - exactly the way a tool role the definitions do not
+# carry is derived by the mapping themes/README.md records:
+#
+#   hue        the ANSI hue of the role (0 red, 120 green, 180 cyan, 240 blue)
+#   saturation 40%  - the midpoint of the two measured accents' own saturation
+#                     (the mauve's 14% and the gold's 64% average to 39%, rounded)
+#   lightness  66%  - the measured warm accent's own lightness (#e0c070 -> 66%)
+#   bright_*   the same hue and saturation, lightness raised by ten points
+#
+# The two remaining accents keep the measured values and take the same +10 step
+# for their bright half: yellow is the measured gold, magenta the measured mauve.
+#
+# THE LIMITATION, STATED RATHER THAN HIDDEN. What was measured is a screenshot of
+# a rendered interface: it carries gradients, transparency and anti-aliasing, and
+# the terminal it shows was itself already running a theme. The values above are
+# therefore one reading of a rendering, not an original published palette, so the
+# provenance below is declared rather than attributed. The result is a faithful
+# interpretation of a measurement; whether it "looks the same" is the user's call,
+# and no colour beyond these measured values and their documented derivation is
+# invented by this file.
+#
+# Contrast was measured, not assumed: the body text #c0c0c0 on the base #151316 is
+# 10.2:1, and every derived role was placed on the base and measured too (red
+# 6.4:1, green 9.6:1, cyan 10.1:1, blue 5.5:1, and the bright halves higher). The
+# lowest, blue at 5.5:1, still clears the 4.5:1 a normal text colour needs, so the
+# low-contrast look does not become an illegible one.
+
+[theme]
+id = "nocturne"
+name = "Nocturne"
+provenance = "measured from the user's reference terminal screenshot (1701x947); the unmeasured roles derived from the measured set by the mapping recorded in themes/README.md"
+
+[palette]
+# --- terminal base ---
+base = "#151316"            # measured: the main background
+text = "#c0c0c0"            # measured: the body text (10.2:1 on base)
+cursor = "#e0c070"          # measured: the warm accent, this theme's cursor
+cursor_text = "#151316"     # measured: the base under the cursor
+selection = "#202030"       # measured: the slate block surface
+selection_text = "#c0c0c0"  # measured: the body text on a selection
+
+# --- ANSI normal (colours 0-7) ---
+black = "#100a0f"           # measured: the side-panel background, the darkest surface
+red = "#cb8686"             # derived: hue 0, the measured accents' chroma, the accent's lightness
+green = "#86cb86"           # derived: hue 120, same derivation
+yellow = "#e0c070"          # measured: the warm accent
+blue = "#8686cb"            # derived: hue 240, same derivation
+magenta = "#a08090"         # measured: the mauve accent
+cyan = "#86cbcb"            # derived: hue 180, same derivation
+white = "#c0c0c0"           # measured: the body text
+
+# --- ANSI bright (colours 8-15) ---
+bright_black = "#a0a0a0"    # measured: the dim text
+bright_red = "#daa9a9"      # derived: the red hue, lightness +10
+bright_green = "#a9daa9"    # derived: the green hue, lightness +10
+bright_yellow = "#e9d29a"   # derived: the measured gold, lightness +10
+bright_blue = "#a9a9da"     # derived: the blue hue, lightness +10
+bright_magenta = "#b69daa"  # derived: the measured mauve, lightness +10
+bright_cyan = "#a9dada"     # derived: the cyan hue, lightness +10
+bright_white = "#f0f0f0"    # measured: the bright text
+
+# --- Neovim colorscheme name ---
+# The repository's Neovim plugin install ships no Nocturne colorscheme, so the
+# colorscheme is generated from this definition into
+# dotfiles-nvim/nvim/colors/nocturne.lua and the name below is its file name.
+[nvim]
+name = "nocturne"
+
+# --- bat theme name and file ---
+# The name the .tmTheme carries inside itself and the file it ships as. bat
+# registers a custom theme under the file's own name and the switch selects it by
+# that name, not by this one (measured against bat 0.26.1).
+[bat]
+name = "Nocturne"
+file = "nocturne.tmTheme"
+
+# --- syntax roles ---
+# The installer's code display. The screenshot carries no light flavour, so only
+# the dark member is declared and the preview falls back to it rather than having
+# a light value invented: keyword takes the measured mauve and string the measured
+# gold, the two accents the reference itself uses.
+[syntax]
+keyword_dark = "#a08090"
+string_dark = "#e0c070"

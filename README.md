@@ -175,16 +175,16 @@ is told so rather than offered a switch that would fail. `--dry-run` skips the u
 every installation step. See the [TUI Installer Guide](docs/tui-installer.md#utilities) for
 the exact files it touches.
 
-**Switch the dotfiles' own theme.** The dotfiles ship a palette library — six complete themes that
+**Switch the dotfiles' own theme.** The dotfiles ship a palette library — seven complete themes that
 cover every tool the switch paints — and each theme's palette is defined once in
 [`themes/`](themes/) rather than written by hand in each config. A theme is a file there, so adding
 one adds a row to the theme list, which the Utilities section's **Change the dotfiles theme** row
 opens. The switch applies a complete theme (a definition with every canonical role and the `[syntax]`
 members the preview reads: **dotfiles**, **Catppuccin Mocha**, **Catppuccin Latte**, **Kanagawa**,
-**Everforest** and **Rosé Pine**) to the configs this repository owns for all twelve tools, records
+**Everforest**, **Rosé Pine** and **Nocturne**) to the configs this repository owns for all twelve tools, records
 the exact bytes it replaced in the same `theme.json`, and can put them back with a dedicated undo
 row. bat selects its theme by the custom theme file's name, so the switch exports that name rather
-than the one written inside the file. Every one of the six paints every tool the switch names —
+than the one written inside the file. Every one of the seven paints every tool the switch names —
 Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line editor, the p10k prompt, Herdr, fish,
 bat, Neovim and tmux — and a guard keeps it that way: a theme that could not paint one would name it
 on its row rather than leaving it on the old palette silently, and a theme missing roles, or the

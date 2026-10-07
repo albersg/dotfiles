@@ -2577,20 +2577,23 @@ type themeThemeFile struct {
 // colorschemes this repository has to generate for the themes whose plugin ships
 // none. The paths keep the repository's own capitalisation.
 //
-// The bat entries are deliberately the two the repository ships under version
+// The bat entries are deliberately the files the repository ships under version
 // control; the installer generates a .tmTheme for every theme that names one at
 // install time (generateBatThemesFromDefinitions), so a theme with no committed
-// .tmTheme still paints bat.
+// .tmTheme still paints bat. Nocturne's is committed so its generated file is
+// pinned byte-for-byte like the other two, exactly as its colorscheme is.
 var themeThemeFiles = []themeThemeFile{
 	{Tool: "fish", Theme: "dotfiles", Path: "dotfiles-fish/fish/themes/dotfiles.theme", Render: renderFishTheme},
 	{Tool: "fish", Theme: "everforest", Path: "dotfiles-fish/fish/themes/Everforest.theme", Render: renderFishTheme},
 	{Tool: "fish", Theme: "kanagawa", Path: "dotfiles-fish/fish/themes/Kanagawa.theme", Render: renderFishTheme},
 	{Tool: "bat", Theme: "dotfiles", Path: "dotfiles-bat/themes/dotfiles.tmTheme", Render: renderBatTheme},
 	{Tool: "bat", Theme: "catppuccin-mocha", Path: "dotfiles-bat/themes/catppuccin-mocha.tmTheme", Render: renderBatTheme},
+	{Tool: "bat", Theme: "nocturne", Path: "dotfiles-bat/themes/nocturne.tmTheme", Render: renderBatTheme},
 	{Tool: "nvim", Theme: "dotfiles", Path: "dotfiles-nvim/nvim/colors/dotfiles.lua", Render: renderNvimTheme},
 	{Tool: "nvim", Theme: "catppuccin-latte", Path: "dotfiles-nvim/nvim/colors/catppuccin-latte.lua", Render: renderNvimTheme},
 	{Tool: "nvim", Theme: "everforest", Path: "dotfiles-nvim/nvim/colors/everforest.lua", Render: renderNvimTheme},
 	{Tool: "nvim", Theme: "rose-pine", Path: "dotfiles-nvim/nvim/colors/rose-pine.lua", Render: renderNvimTheme},
+	{Tool: "nvim", Theme: "nocturne", Path: "dotfiles-nvim/nvim/colors/nocturne.lua", Render: renderNvimTheme},
 }
 
 // themePromptRoles is every prompt role the definitions may declare, in render
