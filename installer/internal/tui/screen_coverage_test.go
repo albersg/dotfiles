@@ -213,11 +213,6 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 }
 
 // measuredScreens is the number of screen cases every matrix guard renders: the
-// 47 installer states, the utilities section, the theme picker, the refresh
-// review that picker opens, and the trainer's 6. It is pinned rather than
-// derived so a screen silently dropping out of the enumeration fails more than
-// one guard.
-// measuredScreens is the number of screen cases every matrix guard renders: the
 // installer's states, the utilities section with the screens it opens one level
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
@@ -358,7 +353,8 @@ func terminalFitCases() []terminalFitCase {
 	// one of the installer's states, so it is measured here the way the trainer's
 	// screens are. The theme picker is one level in from it, for the same reason,
 	// and its refresh review is a second state of that picker. The capability
-	// report is the section's third destination.
+	// report and the shell audit are destinations in the section, each reached
+	// from its own row.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})

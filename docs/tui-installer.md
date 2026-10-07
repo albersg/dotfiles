@@ -91,7 +91,7 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- the utility that changes nothing -- and the
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the
   read-only terminal capability report behind the **Report the terminal capabilities** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
@@ -331,7 +331,7 @@ installation step.
 ### The shell's startup
 
 The fourth utility is **the shell's startup**, behind the **Measure the shell's startup** row. It is
-the one utility that **changes nothing at all**: no startup file is opened for writing, no plugin is
+a utility that **changes nothing at all**: no startup file is opened for writing, no plugin is
 disabled, and no recommended edit is applied. It answers a question the user lives with every day and
 cannot see — why the terminal takes a second to open — and leaves the decision to them.
 
@@ -381,7 +381,7 @@ differently, and the number would describe a start the user never gets.
 ### The terminal capabilities
 
 The report answers one question -- **what can the terminal this installer is running in do, and what
-does that mean for the themes and the interface** -- and it is the one utility that writes nothing
+does that mean for the themes and the interface** -- and it is a utility that writes nothing
 and changes nothing. It is reached from the section's **Report the terminal capabilities** row and is
 read-only: its only key is the way back.
 
