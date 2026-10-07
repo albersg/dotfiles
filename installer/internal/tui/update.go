@@ -633,6 +633,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.DotfilesThemesErr = ""
 		return m, nil
 
+	case terminalCapabilityMsg:
+		// The report is filled once. It is read-only, so there is no draft to
+		// protect and no write to refresh from; the first answer is the answer.
+		if !m.TerminalCapabilities.Resolved {
+			m.TerminalCapabilities = msg.caps
+		}
+		return m, nil
+
 	case wslResourceLoadedMsg:
 		// The read fills the state once. A second read arriving after the screen
 		// has been written would roll the draft back to what the file held, so the
@@ -985,6 +993,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenWSLResources:
 		return m.handleWSLResourceKeys(key)
 
+	case ScreenTerminalCapabilities:
+		return m.handleTerminalCapabilitiesKeys(key)
+
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
 
@@ -1096,6 +1107,11 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.WSLNotice = ""
+	case ScreenTerminalCapabilities:
+		// The capability report is read-only and one level in; leaving it steps
+		// back to the section that opened it.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
 	case ScreenShellAudit:
 		// The shell startup screen is one level in as well. Leaving it cancels
 		// nothing: a measurement that is still running writes its answer onto the
@@ -1409,6 +1425,14 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenWSLResources
 			m.Cursor = 0
 			m.WSLNotice = ""
+		case selected == utilitiesTerminalRow:
+			// The capability report is one level in as well, and it is read-only.
+			// The probe is armed here -- when the user opens the screen, never at
+			// startup -- and it runs off the update loop behind a bounded query, so
+			// a terminal that never answers cannot freeze the interface.
+			m.Screen = ScreenTerminalCapabilities
+			m.Cursor = 0
+			return m, m.terminalCapabilityCmdIfNeeded()
 		case selected == utilitiesShellAuditRow:
 			// The shell's startup is one level in too. Nothing is measured on the way
 			// in: starting the user's shell five times is a choice, and it is made on
@@ -1492,6 +1516,19 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	return m, nil
+}
+
+// handleTerminalCapabilitiesKeys drives the capability report. The screen is
+// read-only -- it writes nothing and runs nothing -- so the only thing a key
+// does is leave. The probe itself is a command armed when the screen is opened,
+// never work done here.
+func (m Model) handleTerminalCapabilitiesKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "backspace", "enter", " ":
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+	}
 	return m, nil
 }
 

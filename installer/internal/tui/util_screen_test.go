@@ -950,6 +950,198 @@ func TestThemeRefusalNamesTheProbesAndTheWayForward(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// The terminal capability utility
+// ---------------------------------------------------------------------------
+//
+// The utility reports what the terminal can do and what each answer means. The
+// guards below pin its three obligations: the section offers the row and arms
+// the probe only when the screen is opened, the screen shows every answer with
+// its source and its consequence, and the main menu's Utilities panel derives
+// the terminal row from the model rather than from a second list.
+
+// TestTheUtilitiesSectionOffersTheTerminalReportAndProbesOnlyWhenOpened pins the
+// lifecycle rule: the row is in the section, choosing it opens the screen, and
+// the probe is armed there -- not at startup, and not synchronously while the
+// screen is built.
+func TestTheUtilitiesSectionOffersTheTerminalReportAndProbesOnlyWhenOpened(t *testing.T) {
+	// Nothing probes at startup: a fresh model has no report and has not run one.
+	fresh := NewModel()
+	if fresh.TerminalCapabilities.Resolved {
+		t.Fatal("a fresh model already holds a terminal report, so something probed at startup")
+	}
+
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	// Keep the section to just the terminal row so the cursor index is stable.
+	m.WSLState = wslResourceState{Resolved: true, Available: false, Reason: "no .wslconfig"}
+	m.ThemeSwitchFound = false
+
+	cursor := -1
+	for i, row := range m.GetCurrentOptions() {
+		if row == utilitiesTerminalRow {
+			cursor = i
+		}
+	}
+	if cursor < 0 {
+		t.Fatalf("the utilities section does not offer %q: %v", utilitiesTerminalRow, m.GetCurrentOptions())
+	}
+	m.Cursor = cursor
+
+	next, cmd := m.handleUtilitiesKeys("enter")
+	got := next.(Model)
+	if got.Screen != ScreenTerminalCapabilities {
+		t.Fatalf("choosing the terminal row went to %v, want ScreenTerminalCapabilities", got.Screen)
+	}
+	if got.TerminalCapabilities.Resolved {
+		t.Error("the report was resolved synchronously; the probe must run off the update loop")
+	}
+	if cmd == nil {
+		t.Error("choosing the terminal row armed no command, so the report would never be read")
+	}
+}
+
+// TestTerminalCapabilitiesScreenReportsEveryAnswerWithItsSource is the screen's
+// own guard: each capability is named with the answer, where it came from and
+// what it implies, and the one answer the probe cannot determine is shown as
+// unknown with a reason and a manual check.
+func TestTerminalCapabilitiesScreenReportsEveryAnswerWithItsSource(t *testing.T) {
+	m := terminalCapabilitiesFrameCase(t)
+	m.Width, m.Height = 200, 60
+
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	for _, want := range []string{
+		"Colour depth",
+		colorValueTrueColor,
+		"COLORTERM=truecolor",
+		"the themes are painted with their exact colours",
+		"Clipboard (OSC 52)",
+		"supported",
+		"copying reaches the clipboard, including over SSH",
+		"Synchronized output (mode 2026)",
+		"not supported",
+		"flicker or tear",
+		"Nerd Font glyphs",
+		"unknown",
+		"look at the marks on this screen",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the capability report does not show %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Writing") || strings.Contains(view, "Write ") {
+		t.Errorf("the read-only report mentions a write:\n%s", view)
+	}
+}
+
+// TestTerminalCapabilitiesScreenIsReadOnly pins the only key the screen offers:
+// there is nothing to select or write, so every key either does nothing or steps
+// back to the utilities section.
+func TestTerminalCapabilitiesScreenIsReadOnly(t *testing.T) {
+	m := terminalCapabilitiesFrameCase(t)
+	if got := m.GetCurrentOptions(); len(got) != 1 || !strings.Contains(got[0], "Back") {
+		t.Fatalf("the report screen offers %v, want only the way back", got)
+	}
+
+	next, cmd := m.handleTerminalCapabilitiesKeys("x")
+	if cmd != nil {
+		t.Error("an unrelated key armed a command on the read-only screen")
+	}
+	if !next.(Model).TerminalCapabilities.Resolved {
+		t.Error("a key cleared the report")
+	}
+
+	next, _ = m.handleTerminalCapabilitiesKeys("esc")
+	if got := next.(Model).Screen; got != ScreenUtilities {
+		t.Errorf("Esc went to %v, want ScreenUtilities", got)
+	}
+}
+
+// TestUtilitiesPanelTerminalRowComesFromTheReport is the panel's derivation
+// guard for the new row: the value is the report's own colour depth, so turning
+// the field off changes the panel. A fact typed into the panel cannot survive
+// this the way it could not survive the other utilities' guards.
+func TestUtilitiesPanelTerminalRowComesFromTheReport(t *testing.T) {
+	uninspected := contextualMainMenuModel()
+	uninspectedFlat := utilitiesPanelFlat(t, uninspected)
+	if !strings.Contains(uninspectedFlat, "Terminal") || !strings.Contains(uninspectedFlat, "not inspected yet") {
+		t.Errorf("the panel does not name the terminal report before it is inspected:\n%s", uninspectedFlat)
+	}
+
+	inspected := contextualMainMenuModel()
+	inspected.TerminalCapabilities = terminalCapabilities{
+		Resolved: true,
+		Color:    terminalAnswer{State: capabilitySupported, Value: colorValueTrueColor},
+	}
+	inspectedFlat := utilitiesPanelFlat(t, inspected)
+	if !strings.Contains(inspectedFlat, colorValueTrueColor) {
+		t.Errorf("the panel did not pick up the inspected colour depth:\n%s", inspectedFlat)
+	}
+	if strings.Contains(inspectedFlat, "not inspected yet") {
+		t.Errorf("the panel still says the terminal was not inspected:\n%s", inspectedFlat)
+	}
+	if uninspectedFlat == inspectedFlat {
+		t.Error("turning the report on did not change the panel, so the row is not read from the model")
+	}
+}
+
+// TestUtilitiesSectionOffersBothNewUtilitiesAfterTheMerge is the merge's own
+// guard. Two features arrived at the same list from opposite sides -- the
+// read-only terminal capability report and the shell startup audit -- and the
+// merge has to keep both. It renders the section and finds both rows, checks the
+// panel's single entry list offers both, and renders the main menu's Utilities
+// panel and finds both entries, so a merge that dropped one side fails here
+// rather than only shrinking the panel's count.
+func TestUtilitiesSectionOffersBothNewUtilitiesAfterTheMerge(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.Width, m.Height = 120, 40
+	// The shell audit is pinned available rather than left to whatever $SHELL the
+	// runner has, and the WSL resources are forced away so this guard does not
+	// depend on the host either.
+	m.ShellAudit = shellAuditTestState()
+	m.WSLState = wslResourceState{Resolved: true, Available: false, Reason: "no .wslconfig"}
+
+	rows := m.GetCurrentOptions()
+	for _, want := range []string{utilitiesShellAuditRow, utilitiesTerminalRow} {
+		found := false
+		for _, row := range rows {
+			if row == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("the utilities section after the merge does not offer %q: %v", want, rows)
+		}
+	}
+
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	for _, want := range []string{utilitiesShellAuditRow, utilitiesTerminalRow} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the rendered utilities section does not show %q:\n%s", want, view)
+		}
+	}
+
+	// The panel's single entry list offers both, and the panel names both: the
+	// count is len(entries), never a number typed beside it.
+	offered := map[string]bool{}
+	for _, entry := range m.utilitiesPanelEntries() {
+		if entry.offered {
+			offered[entry.label] = true
+		}
+	}
+	flat := utilitiesPanelFlat(t, m)
+	for _, want := range []string{"Shell start", "Terminal"} {
+		if !offered[want] {
+			t.Errorf("utilitiesPanelEntries does not offer %q after the merge", want)
+		}
+		if !strings.Contains(flat, want) {
+			t.Errorf("the Utilities panel does not name %q after the merge:\n%s", want, flat)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // The utilities section: the shell startup audit
 // ---------------------------------------------------------------------------
 //

@@ -90,8 +90,9 @@ From the main menu you can access:
 - **Utilities**: The small jobs that are not part of an installation: a reversible
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
-  behind the **Adjust the WSL resources** row on a WSL host, and the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- the utility that changes nothing
+  behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
+  behind the **Measure the shell's startup** row -- the utility that changes nothing -- and the
+  read-only terminal capability report behind the **Report the terminal capabilities** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -105,6 +106,13 @@ The **Utilities** section holds the small jobs that are not part of an installat
 from the main menu by its own **Utilities** row, just above **Exit**, and `u` is kept as a shortcut
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
+
+It holds three jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
+host), and the read-only **terminal capability report**. The main menu's panel derives one row per
+job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
+is the only list -- so a utility added to the section shows up in the panel or is visibly missing
+from that one function.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
@@ -370,6 +378,39 @@ run — the section offers no row and its own body names the reason. Without a t
 start cannot be reproduced faithfully: job control and the plugins that read the terminal behave
 differently, and the number would describe a start the user never gets.
 
+### The terminal capabilities
+
+The report answers one question -- **what can the terminal this installer is running in do, and what
+does that mean for the themes and the interface** -- and it is the one utility that writes nothing
+and changes nothing. It is reached from the section's **Report the terminal capabilities** row and is
+read-only: its only key is the way back.
+
+It reports four capabilities, each with the answer, **where the answer came from**, and its
+consequence:
+
+| Capability | The answer | Where it comes from | What it implies |
+|------------|-----------|---------------------|-----------------|
+| Colour depth | truecolor (24-bit), 256, 16 or none | the terminal's reply to the `RGB` capability query, else `COLORTERM`, the terminal's own `TERM_PROGRAM` name, or `TERM` | no truecolor means **the themes will look approximate** |
+| Clipboard (OSC 52) | supported, not supported or unknown | the terminal's reply to the `Ms` capability query | without it, copying **does not reach the clipboard over SSH** |
+| Synchronized output (mode 2026) | supported, not supported or unknown | the terminal's reply to a DECRQM query for mode 2026 | without it, **a large redraw may flicker or tear** |
+| Nerd Font glyphs | supported, not supported or unknown | there is no terminal query for it | icons may draw as boxes or question marks if the font is missing |
+
+**Three states, never two, and never an invented "no".** A capability is `supported`,
+`not supported`, or **`unknown`**. `unknown` is a first-class answer: the screen says why the probe
+could not determine it and, where a person can settle it, how to check by hand (copy text and paste
+it elsewhere to test OSC 52, watch a large redraw to test mode 2026, look at the glyphs to test the
+font). The probe never turns silence into a "no": a terminal that does not answer is unknown, not
+unsupported. Whether a Nerd Font is installed cannot be asked of the terminal at all, so that answer
+is always unknown with a manual check.
+
+**Nothing blocks and nothing runs at startup.** The probe runs only when the screen is opened,
+off the update loop, never when the model is built or when the installer starts. The terminal query
+is bounded by a timeout and the read is taken under a read deadline, so a terminal that never answers
+produces an honest empty reply within the timeout rather than a frozen interface; a host with no
+controlling terminal (a container, a service, a run with no TTY) gets the empty reply too and the
+report then says `unknown` with that reason. The screen never writes, so a run that never opens it
+writes not a single query byte.
+
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -492,7 +533,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; the switch this host offers and whether the undo is available for **Utilities**, or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |

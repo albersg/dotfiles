@@ -25,10 +25,33 @@ Four asks from the user, in their own words:
 | 2 | The main-menu plan panel stops crowding the creature out | `panels.go`, `view.go`, `panels_test.go` | the measured rows of panel + body + rung at 80x24, 100x25, 120x34, 160x50, before and after |
 | 3 | A utilities section reached from the menu, with at least one real utility (system theme) | `model.go` (screen + menu), `view.go`, `installer.go` (step), tests | the screen's frame fit at 12 sizes; the step's dry-run behaviour; what it changes on disk, named |
 | 4 | The WSL resources as a menu utility, sharing the install step's calculation and writer | `wslconfig.go` (plan + merge + write), `wsl.go` (step + utility I/O), `model.go`/`update.go`/`view.go` (screen + row), `panels.go` (the panel's derived facts), `util_screen_test.go`, `wslconfig_test.go`, `screen_coverage_test.go` | the row offered on WSL and absent elsewhere with the reason stated; the host numbers and the recommendation on screen; the two routes byte-identical for one host and one pre-existing file, with the guard's teeth shown; the user's own keys preserved and the previous file backed up; the dry-run skip; the frame measured at 12 sizes; the Utilities panel naming the row from the derived entry list |
+| 5 | The terminal capability report: a read-only utility that says what the terminal can do and what it implies, with `unknown` as a first-class answer | `terminal_probe.go` (probe + three-state answers + bounded query), `model.go`/`update.go`/`view.go`/`panels.go` (screen + row + derived panel entry), `terminal_probe_test.go`, `util_screen_test.go`, `screen_coverage_test.go`, `docs/tui-installer.md`, `README.md` | the three states including `unknown` with a reason and a manual check, with the teeth shown; the non-responding-terminal guard proving the bounded read; the source named for every answer; the probe armed only when the screen is opened (never at startup); the frame measured at 12 sizes; the row derived from `utilitiesPanelEntries` |
 
 ## Open questions the user must settle only if the answer changes what is built
 
 - Task 3 changes files **outside the installer's own configuration** (a system theme). If the theme switch is to be offered, it must be reversible and must never destroy a value the user set — the same rule as `preserve-user-configs.md`. Which file(s) and which mechanism is the implementer's decision, but the reversibility is not optional.
+
+## Task 5 notes: the terminal capability report
+
+- **The report is read-only and offered everywhere.** Unlike the WSL row (offered only where there
+  is a `.wslconfig`), the capability report is always offered: there is always a terminal to describe,
+  and where there is none the screen says so. There is therefore no silent absence to explain. The
+  screen writes nothing and runs nothing, so `--dry-run` has nothing to skip.
+- **`unknown` is the zero state.** A capability the probe did not determine is reported as `unknown`
+  with the exact reason and, where a person can settle it, a manual check. The guard
+  `TestUnknownIsItsOwnStateNotAnInventedNo` fails by name if the unknown case is folded into
+  "unsupported".
+- **The bounded read is the whole safety property.** `queryTerminal` writes the DECRQM and XTGETTCAP
+  queries and reads under a read deadline (falling back to a timer for a stream that cannot take
+  one). `TestTerminalQueryDoesNotHangWhenTheTerminalNeverAnswers` measures a silent terminal and
+  fails if the call outlives the timeout. The probe is a `tea.Cmd` armed when the screen is opened,
+  so a run that never visits it writes no query byte.
+- **Residual risk, named rather than hidden.** On a host whose stdin is the controlling terminal,
+  the live query reads the same terminal bubbletea is reading its input from, so a keystroke in the
+  query window could be consumed. The read is bounded and short, and it happens only on the screen
+  the user deliberately opened; a stream that cannot take a deadline is abandoned on the timeout
+  rather than cancelled (a reader cannot be cancelled), which is the price of the bound. A future
+  change could route the query through a dedicated input reader if the race is ever observed.
 
 ## Open questions left by task 4
 
