@@ -1316,7 +1316,7 @@ func TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository(t *testing.T) {
 }
 
 // TestThemeRowNamesAToolTheThemeCannotPaint keeps the exclusion-row rendering
-// covered after the coverage lists grew to their final shape: all six themes in
+// covered after the coverage lists grew to their final shape: all seven themes in
 // themes/ now paint all twelve tools, so no offered definition reaches
 // dotfilesThemeRow with an uncovered tool and the exclusion branch ("(not ...)")
 // stopped being exercised by real data. Without a guard on that branch it would

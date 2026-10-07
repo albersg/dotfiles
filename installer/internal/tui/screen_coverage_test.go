@@ -936,7 +936,7 @@ func themePickerScrollModel(t *testing.T, count int) Model {
 
 // scrollThemeDefinitions builds count complete definitions with distinct names so
 // the picker derives count theme rows. The guard needs more themes than either
-// floor can hold, and the repository ships six, so the extra ones are built here
+// floor can hold, and the repository ships seven, so the extra ones are built here
 // rather than added to themes/. They carry the canonical palette and the
 // [syntax] members the preview reads, so they are complete and offered; with no
 // artifact table they name every tool they cannot paint, which is exactly what a
