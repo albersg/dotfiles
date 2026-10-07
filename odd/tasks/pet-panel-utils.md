@@ -35,3 +35,38 @@ Four asks from the user, in their own words:
 - **The interactive route's merge lives in the content builder, not the writer.** There is no Go writer on that route at all — the generated script copies the bytes `mergedRepoWSLConfig` returns straight over `%USERPROFILE%\\.wslconfig` — so the merge cannot be moved to a write site. The function is named for what it does (`mergedRepoWSLConfig`, not `renderedRepoWSLConfig`) precisely so the next reader does not treat it as a pure render. Residual risk: between the render and the shell's copy there is a window in which a concurrent edit of the file would be lost; the non-interactive step and the utility do not have that window because they read and write the same file in one pass.
 - **The three keys the utility adjusts are memory, processors and swap.** The rest of the template (`networkingMode`, `dnsTunneling`, `localhostForwarding`, `autoMemoryReclaim`, `sparseVhd`) is managed by a write but is not editable on screen: changing it from a menu would change how WSL networks and reclaims memory, which is a different decision than sizing the VM, and it was not asked for.
 - **Removing a key is not offered.** A key the plan omits is left as the file has it, so the utility cannot delete a limit; adding removal is only safe if it can distinguish "the host is unknown" from "the user means to unset this", which is a separate design.
+
+## The shell startup audit, recorded as a later utility
+
+The audit is the next entry in the section and the **first utility that changes nothing**: it starts
+the login shell named by `$SHELL` the way a terminal does, reports the median of those starts, and
+attributes the number with zsh's own `zmodload zsh/zprof`. It is not one of the four asks above; it is
+recorded here because the constraints above were written to be inherited by it, and because its own
+rules are the same shape.
+
+- **Every start is bounded, and a timeout is a result of its own.** A startup can hang on a plugin
+  that waits on the network, and the utility must not hang with it. A start that does not finish is
+  killed, counted and named as a timeout, and left out of the median: a hung start has no duration to
+  report, so writing one down as `0.0 s` would be inventing a number. The guard that hangs without
+  the bound is `TestShellAuditDoesNotHangWhenTheShellDoes`; the bound itself is pinned by
+  `TestShellAuditBoundsEveryStart`.
+- **The number travels with its method.** Five starts -- odd, so the median is a run that really
+  happened -- of the exact command (`zsh -i -c exit`), with the median, the range, the count it
+  covers and every completed start on screen, so it can be reproduced by hand. Five is also the
+  bound on the wait: with every start hitting the timeout the whole measurement is bounded by five
+  times it.
+- **Attribution is zprof's, or it is nothing.** With no `zprof`, with a shell that is not zsh, or
+  with a profiled start that reports no table, the screen says only the total is measurable and gives
+  the reason. No function is named that zprof did not name, and the table is read once -- zprof
+  repeats each row in a per-function detail block, and `TestShellAuditReadsZprofsSummaryTableOnce`
+  is what keeps the second copy off the screen.
+- **Read-only.** The two wrappers and zprof's table live in a directory of the utility's own under
+  the system temporary directory and are removed again; the user's startup files are sourced from
+  where `ZDOTDIR` already pointed, so nothing of theirs is copied, moved or rewritten. Nothing is
+  disabled and no suggested edit is applied.
+- **One list, one entry, one frame guard.** The section's row and the main-menu panel both come from
+  `utilitiesPanelEntries`, and the new screen is measured at the twelve sizes by the same guard the
+  other utilities screens are (`shellAuditCaseName`).
+- **Where it cannot measure, it says why.** No `$SHELL`, a login shell this machine does not have, or
+  a run with no terminal attached: each is named in the section's own body rather than left as a
+  hole, and the row is not offered.

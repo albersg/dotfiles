@@ -89,8 +89,9 @@ From the main menu you can access:
 - **Vim Trainer**: Practice Vim motions with interactive exercises
 - **Utilities**: The small jobs that are not part of an installation: a reversible
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
-  one level in behind the **Change the dotfiles theme** row, and the WSL resources, one level in
-  behind the **Adjust the WSL resources** row on a WSL host
+  one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
+  behind the **Adjust the WSL resources** row on a WSL host, and the shell's startup, one level in
+  behind the **Measure the shell's startup** row -- the utility that changes nothing
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -318,6 +319,56 @@ screen says that nothing takes effect until `wsl --shutdown` is run on Windows a
 reopened — and it does not run it, because that would close the session the user is working in.
 **`--dry-run` skips the write**, leaving no file, no backup and no record, exactly as it skips every
 installation step.
+
+### The shell's startup
+
+The fourth utility is **the shell's startup**, behind the **Measure the shell's startup** row. It is
+the one utility that **changes nothing at all**: no startup file is opened for writing, no plugin is
+disabled, and no recommended edit is applied. It answers a question the user lives with every day and
+cannot see — why the terminal takes a second to open — and leaves the decision to them.
+
+**It measures the way a terminal starts the shell.** The shell named by `$SHELL` is started as
+`zsh -i -c exit` (or the same shape for the login shell this machine has), **five times**, and the
+screen reports the **median** with the **range** beside it, the count it covers, and every completed
+start in the order it ran. Five is odd on purpose, so the median is a run that really happened rather
+than the average of two, and it is enough that one cold start does not decide the answer. The number
+is never a single run and never an average, and the screen says so: the method travels with the
+number, so it can be reproduced by hand.
+
+**Every start is bounded by a ten-second timeout, and a timeout is reported as a timeout.** A
+startup can hang — a plugin that waits on the network, a prompt reading a filesystem that is not
+answering — and the utility must not hang with it. A start that does not finish inside the bound is
+killed, counted, and named on the screen as a timeout; it is **left out of the median**, and the
+reason is that a hung start has no duration to report. Writing one down as `0.0 s` would be inventing
+a number, which is the one thing this utility cannot afford to do.
+
+**It attributes with zsh's own profiler, or says it cannot.** On zsh, one further start is taken with
+`zmodload zsh/zprof` loaded before the startup runs, and the functions zprof reports are listed
+heaviest first — in zprof's own order, by the time each function spent on itself — with the total,
+the self time, the call count and zprof's own percentage. The utility does not diagnose by guessing:
+when `zprof` is not available, when the shell is not zsh, or when the profiled start reports no
+table, the screen says **only the total is measurable** and gives the reason. No function is ever
+named that zprof did not name.
+
+**It is read-only, and it says so.** The profiled start writes two wrapper files and zprof's table
+into a directory of the utility's own under the system temporary directory, and removes it again.
+The user's own startup files are **sourced from where `ZDOTDIR` already pointed** — never copied,
+moved or rewritten — and the run's own environment is what tells the wrapper where they are. The
+screen states plainly that nothing is changed and that the fix belongs in the user's own
+configuration.
+
+**The profiled start is the one that can differ, and the screen says so rather than guessing.** For
+that single run `ZDOTDIR` points at the wrapper's directory, so a startup file that itself refers to
+`$ZDOTDIR` resolves it to the wrapper for that run — the one way the profiled start can behave
+differently from the five measured ones, which run with the environment exactly as it is. If that
+makes the startup fail, the screen reports that zprof named no table instead of a function, which is
+the honest answer: the total is still measured, and no culprit is invented.
+
+**Where it cannot measure, it says why.** With no login shell named (`$SHELL` empty), a login shell
+this machine does not have, or a run with no terminal attached — a server, a container, a redirected
+run — the section offers no row and its own body names the reason. Without a terminal the interactive
+start cannot be reproduced faithfully: job control and the plugins that read the terminal behave
+differently, and the number would describe a start the user never gets.
 
 ### Installation Flow
 

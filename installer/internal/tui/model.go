@@ -76,6 +76,12 @@ const (
 	// recommended from the Windows host, and writes them back through the same
 	// builder and writer the installation step uses.
 	ScreenWSLResources // The WSL memory, processors and swap, seen and set
+	// The shell's startup. The utilities section opens it from its own row, one
+	// level in for the same reason: the section is a list of jobs. It starts the
+	// login shell the way a terminal does, several times, reports the median and
+	// the range, and names the functions zsh's own profiler blames -- or says
+	// plainly that only the total is measurable. It changes nothing at all.
+	ScreenShellAudit // How long the login shell takes to start, and what eats it
 )
 
 // InstallStep represents a single installation step
@@ -333,6 +339,12 @@ type Model struct {
 	// WSLNotice is the one-line result of the last write, cleared when the screen
 	// is left, exactly as ThemeNotice is.
 	WSLNotice string
+	// ShellAudit is what the shell startup utility draws: the login shell, the
+	// method it is measured with, the runs and their median, and the functions
+	// zprof named -- or the reason nothing could be named. Its environment half is
+	// resolved once, here; the measurement runs only when the row is pressed,
+	// because starting the user's shell five times is not a render.
+	ShellAudit shellAuditState
 	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
 	// no detection has run. The review names it before anything is written.
 	ThemeRefreshCandidates []themeRefreshCandidate
@@ -404,6 +416,10 @@ func NewModel() Model {
 	// The desktop's theme switch is detected once here, the way the host itself
 	// is, so no screen probes the environment or PATH while it draws.
 	m.ThemeSwitch, m.ThemeSwitchFound = currentThemeSwitch(m.SystemInfo)
+	// The shell the startup utility would measure is resolved here for the same
+	// reason: which shell, and whether this run can start an interactive one, are
+	// questions a render must not ask. The measurement itself is a keypress away.
+	m.ShellAudit = resolveShellAudit(defaultShellAuditProbe())
 	// The gaze is settled once here, so a model that never sees a key, a resize or
 	// a pointer event still draws eyes that are looking at what it starts on, and
 	// the first tick does not have to move them.
@@ -550,10 +566,21 @@ func (m Model) GetCurrentOptions() []string {
 			}
 			opts = append(opts, utilitiesWSLRow)
 		}
+		// The shell's startup is offered wherever the login shell and a terminal
+		// were both resolved. It is the utility that changes nothing, so it is
+		// offered rather than gated: reading a number is always safe.
+		if m.ShellAudit.Available {
+			if len(opts) > 0 {
+				opts = append(opts, m.menuSeparator())
+			}
+			opts = append(opts, utilitiesShellAuditRow)
+		}
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
 		}
 		return append(opts, "← Back")
+	case ScreenShellAudit:
+		return m.shellAuditRows()
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:
@@ -775,6 +802,8 @@ func (m Model) GetScreenTitle() string {
 		return "🎨 Change the dotfiles theme"
 	case ScreenWSLResources:
 		return "🖥️ WSL resources"
+	case ScreenShellAudit:
+		return "⏱️ The shell's startup"
 	default:
 		return ""
 	}
