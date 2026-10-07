@@ -558,16 +558,17 @@ func themeDefinitionDirs(repoDir string) []string {
 	return dirs
 }
 
-// themeDefinitionsDataDir is the per-user directory the installer copies the
-// theme definitions into, so the theme switch is offered from any working
-// directory and after the temporary clone this run made is cleaned up. It is
-// the XDG data directory -- $XDG_DATA_HOME/dotfiles, falling back to
-// ~/.local/share/dotfiles -- the directory the specification reserves for data
-// a program needs to run, as opposed to the state directory the records live
-// in. The definitions sit under themes/ inside it, the same shape a checkout
-// has, so the reader treats a copy and a checkout the same way. An empty string
-// means neither could be determined, and no copy is then made or searched.
-func themeDefinitionsDataDir() string {
+// dotfilesDataDir is the single per-user data root every runtime asset the
+// installer copies is installed under: $XDG_DATA_HOME/dotfiles, falling back to
+// ~/.local/share/dotfiles. It is the directory the specification reserves for
+// data a program needs to run, as opposed to the state directory the records
+// live in. It is defined once so the two assets installed here -- the theme
+// definitions and the WSL template -- cannot drift into two different trees:
+// each keeps its repository-relative shape inside this root (themes/ and
+// dotfiles-wsl/), so a copy is shaped exactly like a checkout and the readers
+// treat the two the same way. An empty string means neither location could be
+// determined, and no copy is then made or searched.
+func dotfilesDataDir() string {
 	if dir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dir != "" {
 		return filepath.Join(dir, stateAppDir)
 	}
@@ -576,6 +577,17 @@ func themeDefinitionsDataDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".local", "share", stateAppDir)
+}
+
+// themeDefinitionsDataDir is the per-user directory the installer copies the
+// theme definitions into, so the theme switch is offered from any working
+// directory and after the temporary clone this run made is cleaned up. It is
+// dotfilesDataDir, the shared root the installer's runtime assets live under, so
+// it lands on the same tree as the WSL template the clone step also installs;
+// the definitions sit under themes/ inside it, the same shape a checkout has, so
+// the reader treats a copy and a checkout the same way.
+func themeDefinitionsDataDir() string {
+	return dotfilesDataDir()
 }
 
 // themeDefinitionSearchDirs is the full candidate list the theme resolver
@@ -3912,10 +3924,13 @@ func stepCloneRepo(m *Model) error {
 	m.WorkDir = workDir
 	m.RepoDir = repoDir
 	// The clone lives in a temporary directory the cleanup step removes, so the
-	// definitions the theme utility needs are copied out of it now, before any
-	// step that reads the checkout. The copy is what makes the utility offered
-	// from any working directory, not only from inside a checkout.
+	// runtime assets the utilities read -- the theme definitions and the WSL
+	// template -- are copied out of it now, before any step that reads the
+	// checkout. Each copy is what makes its utility offered from any working
+	// directory, not only from inside a checkout, and both land under the same
+	// per-user data root.
 	copyThemeDefinitionsIntoDataDir(stepID, repoDir)
+	copyWSLTemplateIntoDataDir(stepID, repoDir)
 	SendLog(stepID, "✓ Repository cloned successfully")
 	return nil
 }

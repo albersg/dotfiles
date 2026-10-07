@@ -101,5 +101,27 @@ theme utility: its definitions were read only from a checkout, and the clone an 
 removed when the run finishes. The clone step now copies the definitions into the per-user data
 directory and the resolver reads it last, so the theme row is offered from any working directory. The
 section still says why and where when nothing is found. The shell audit and the terminal report were
-never checkout-bound; the WSL resources remain bound to the shipped template, which is outside this
-follow-up's edit surfaces.
+never checkout-bound; the WSL resources were still bound to the shipped template, and the follow-up
+below is what released them.
+
+## Follow-up: the WSL resources from any working directory
+
+The same case also reached the WSL resources: the utility resolved `dotfiles-wsl/.wslconfig.tmpl`
+only from a checkout (`$DOTFILES_DIR`, the clone, the working directory and its parents,
+`~/dotfiles`, `~/.dotfiles`), and the clone an install makes is removed when the run finishes. The
+clone step now copies the template into the per-user data directory — the same root as the theme
+definitions, `$XDG_DATA_HOME/dotfiles` or `~/.local/share/dotfiles`, keeping the `dotfiles-wsl/`
+path — and the resolver reads it last, so a checkout always wins and the row is offered from
+anywhere. Only the one shipped file is written, an identical copy is left as it is, nothing else
+under the data directory is touched and nothing is deleted; when no candidate holds the template the
+section names the search including the copy directory. The user's case is reproduced by
+`TestWSLResourcesAreOfferedFromTheInstalledCopyWithoutACheckout`, whose teeth are the new candidate:
+removing it fails the guard by name. `TestInstallWSLTemplateCopiesOnlyMissingOrDifferent` pins the
+copy rules and `TestWSLTemplateResolutionReportsWhereItLooked` pins the message.
+
+The test that exercised the clone step now pins `HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` to
+`t.TempDir()`, because the clone step is the step that installs runtime assets into the data
+directory: a stray write must land in the test's own tree, never in the runner's real
+`~/.local/share` or `~/.config`. `TestStepCloneInstallsBothRuntimeAssets` is the merge guard: it runs
+the one clone step and asserts the theme definitions and the WSL template are both present under
+the data directory afterwards, so neither copy can be dropped from the step again.

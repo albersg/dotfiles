@@ -331,6 +331,19 @@ is running on, so a freshly installed machine comes out with values that fit it.
 the values, `wslConfigContent` for the content and `writeWSLConfig` for the write, and the guard
 `TestWSLResourceUtilityAndTheInstallerAgreeByteForByte` fails if either route grows its own copy.
 
+**The template is copied out of the clone, so the row works from anywhere.** The clone this run makes
+lives in a temporary directory the cleanup step removes, and a user who launches the program from
+their home directory is not inside a checkout — so without a copy the WSL rows would appear only from
+inside one. The clone step therefore copies `dotfiles-wsl/.wslconfig.tmpl` into the XDG data
+directory's `dotfiles/` (`~/.local/share/dotfiles/`, or `$XDG_DATA_HOME/dotfiles/`), keeping its
+repository-relative path so a copy is shaped exactly like a checkout. Resolution reads that copy
+**last** — after `$DOTFILES_DIR`, the clone, the working directory and its parents, `~/dotfiles` and
+`~/.dotfiles` — so a checkout the user named, cloned or is standing in always wins and a copy is read
+only when no checkout is present. The rules are the installer's own: only the one file the repository
+ships is written, an identical copy is not rewritten, nothing is ever deleted, and when no candidate
+holds the template the section names the search **including the copy directory** rather than drawing
+a row that fails.
+
 **The recommended values come from the host.** The same detector the step uses reads the Windows
 host's total RAM and logical processor count through interop, and the screen prints those numbers
 beside the recommendation so it can be checked against the machine:

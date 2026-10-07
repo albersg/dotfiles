@@ -100,6 +100,137 @@ func TestUtilitiesSectionOffersTheWSLResourcesOnlyOnWSL(t *testing.T) {
 	}
 }
 
+// TestWSLResourcesAreOfferedFromTheInstalledCopyWithoutACheckout is the user's
+// case: the installer has been run once, so it left a copy of the shipped WSL
+// template in the per-user data directory, and the program is now launched from
+// a working directory that is not a checkout, with no clone and nothing under
+// ~/dotfiles. The installed copy is the last candidate, and it is what makes the
+// resources utility offered from anywhere.
+func TestWSLResourcesAreOfferedFromTheInstalledCopyWithoutACheckout(t *testing.T) {
+	// The Windows destination and the host capacities are pinned by the same
+	// fixture the other WSL guards use, so the resolution is exercised without a
+	// Windows host.
+	newWSLLayout(t)
+
+	// A prior install: the shipped template sits where the clone step copies it,
+	// under the per-user data directory.
+	shipped, err := os.ReadFile(filepath.Join(repoRoot(t), repoAssetWSLConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	installed := filepath.Join(dataHome, stateAppDir, repoAssetWSLConfig)
+	if err := os.MkdirAll(filepath.Dir(installed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, shipped, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.SystemInfo = &system.SystemInfo{OS: system.OSWSL, IsWSL: true, OSName: "WSL"}
+	m.Screen = ScreenUtilities
+	m.WSLState = loadWSLResourceState("", true)
+
+	if !m.WSLState.Available {
+		t.Fatalf("the resources utility was not offered without a checkout: %s", m.WSLState.Reason)
+	}
+	if want := filepath.Join(dataHome, stateAppDir); m.WSLState.RepoDir != want {
+		t.Errorf("resolved the template in %q, want the installed copy %q", m.WSLState.RepoDir, want)
+	}
+	found := false
+	for _, row := range m.GetCurrentOptions() {
+		if row == utilitiesWSLRow {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the utilities section does not offer %q from the installed copy", utilitiesWSLRow)
+	}
+}
+
+// TestInstallWSLTemplateCopiesOnlyMissingOrDifferent pins the copy rules the
+// installed template follows: the shipped template is written when it is missing
+// or differs, an identical one is left as it is, and a file the repository does
+// not ship is never touched. Nothing is ever deleted, so a file an earlier run
+// left behind stays.
+func TestInstallWSLTemplateCopiesOnlyMissingOrDifferent(t *testing.T) {
+	repoDir, _, _ := newWSLLayout(t)
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	dest := filepath.Join(dataHome, stateAppDir, repoAssetWSLConfig)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userFile := filepath.Join(filepath.Dir(dest), "mine.conf")
+	if err := os.WriteFile(userFile, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	copied, current, gotDest, err := installWSLTemplate(repoDir)
+	if err != nil {
+		t.Fatalf("install the WSL template: %v", err)
+	}
+	if copied != 1 || current != 0 {
+		t.Errorf("the first copy wrote %d and kept %d, want 1 written and 0 current", copied, current)
+	}
+	if gotDest != dest {
+		t.Errorf("wrote to %q, want %q", gotDest, dest)
+	}
+	shipped, err := os.ReadFile(filepath.Join(repoDir, repoAssetWSLConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(dest); !bytes.Equal(got, shipped) {
+		t.Errorf("the differing shipped template was not refreshed: %q", got)
+	}
+	if got, _ := os.ReadFile(userFile); string(got) != "mine\n" {
+		t.Errorf("a file the repository does not ship was touched: %q", got)
+	}
+
+	// A second run with nothing new writes nothing and says what is current.
+	copied, current, _, err = installWSLTemplate(repoDir)
+	if err != nil {
+		t.Fatalf("install the WSL template a second time: %v", err)
+	}
+	if copied != 0 || current != 1 {
+		t.Errorf("the second copy wrote %d and kept %d, want 0 written and 1 current", copied, current)
+	}
+}
+
+// TestWSLTemplateResolutionReportsWhereItLooked pins the honest failure: with no
+// candidate holding the shipped template, resolution fails and names the
+// installed-copy directory the clone step writes to, so a user who launches the
+// program from anywhere knows where the template was sought rather than being
+// handed an unexplained missing row.
+func TestWSLTemplateResolutionReportsWhereItLooked(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	_, err := resolveWSLTemplateDir("")
+	if err == nil {
+		t.Fatal("expected resolution to fail when nothing holds the template")
+	}
+	if !strings.Contains(err.Error(), repoAssetWSLConfig) {
+		t.Errorf("the failure does not name what it looked for: %v", err)
+	}
+	if want := filepath.Join(dataHome, stateAppDir); !strings.Contains(err.Error(), want) {
+		t.Errorf("the failure does not name the installed-copy directory %q: %v", want, err)
+	}
+}
+
 // TestScreenWSLResourcesShowsTheHostNumbersAndTheRecommendation is the screen's
 // own guard: the values on screen come from the host capacities and the file,
 // and the screen names all three of them plus the one action it does not take.
