@@ -2161,11 +2161,39 @@ func TestThemeResolutionFallsBackToHiddenHomeDotfiles(t *testing.T) {
 	}
 }
 
+// TestThemeResolutionFallsBackToTheInstalledDefinitions is the user's case: the
+// installer was run once, so it left a copy of the definitions in the per-user
+// data directory, and the program is now launched from a working directory that
+// is not a checkout, with no clone and nothing under ~/dotfiles. The copy is the
+// last candidate, and it is what makes the theme switch offered from anywhere.
+func TestThemeResolutionFallsBackToTheInstalledDefinitions(t *testing.T) {
+	dataHome := t.TempDir()
+	installedRoot := writeThemeAt(t, filepath.Join(dataHome, stateAppDir), "from-installed-copy")
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	got, err := resolveThemeDefinitionsDir("")
+	if err != nil {
+		t.Fatalf("resolve from a foreign working directory with only an installed copy: %v", err)
+	}
+	if got != installedRoot {
+		t.Fatalf("resolved %q, want the installed copy (%q)", got, installedRoot)
+	}
+	if ids := themeIDsIn(t, got); len(ids) != 1 || ids[0] != "from-installed-copy" {
+		t.Errorf("read definitions %v, want the installed copy's theme", ids)
+	}
+}
+
 // TestThemeResolutionReportsWhenNothingIsFound pins the honest state: no
 // candidate holds themes/*.toml, so resolution fails and names what it looked
-// for rather than returning an empty directory.
+// for -- including the per-user directory the installer copies the definitions
+// into -- rather than returning an empty directory.
 func TestThemeResolutionReportsWhenNothingIsFound(t *testing.T) {
+	dataHome := t.TempDir()
 	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(t.TempDir())
 
@@ -2175,6 +2203,71 @@ func TestThemeResolutionReportsWhenNothingIsFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "theme definitions") {
 		t.Errorf("the failure does not name what it looked for: %v", err)
+	}
+	// The search has to name where it looked: the installed copy is the candidate
+	// that makes the utility work from anywhere, so an unmentioned hole in it is
+	// the failure this assertion exists to prevent.
+	if want := filepath.Join(dataHome, stateAppDir); !strings.Contains(err.Error(), want) {
+		t.Errorf("the failure does not name the installed-copy directory %q: %v", want, err)
+	}
+}
+
+// TestInstallThemeDefinitionsCopiesOnlyMissingOrDifferent pins the copy rules the
+// installed definitions follow: a shipped definition is written when it is
+// missing or differs, an identical one is left as it is, and a file the
+// repository does not ship is never touched.
+func TestInstallThemeDefinitionsCopiesOnlyMissingOrDifferent(t *testing.T) {
+	repo := themeRootWith(t, "shipped")
+	// A second definition, so the missing-file rule is covered beside the
+	// differing-file one.
+	writeThemeAt(t, repo, "second")
+	shipped, err := os.ReadFile(filepath.Join(repo, themesDirName, "shipped.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	dest := filepath.Join(dataHome, stateAppDir, themesDirName)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userFile := filepath.Join(dest, "mine.toml")
+	if err := os.WriteFile(userFile, []byte("[theme]\nid = \"mine\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dest, "shipped.toml")
+	if err := os.WriteFile(stale, []byte("stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	copied, current, gotDest, err := installThemeDefinitions(repo)
+	if err != nil {
+		t.Fatalf("install the definitions: %v", err)
+	}
+	if copied != 2 || current != 0 {
+		t.Errorf("the first copy wrote %d and kept %d, want 2 written and 0 current", copied, current)
+	}
+	if gotDest != dest {
+		t.Errorf("wrote to %q, want %q", gotDest, dest)
+	}
+	if got, _ := os.ReadFile(stale); !bytes.Equal(got, shipped) {
+		t.Errorf("the differing shipped definition was not refreshed: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dest, "second.toml")); err != nil || len(got) == 0 {
+		t.Errorf("the missing shipped definition was not written: %q, %v", got, err)
+	}
+	if got, _ := os.ReadFile(userFile); string(got) != "[theme]\nid = \"mine\"\n" {
+		t.Errorf("a file the repository does not ship was touched: %q", got)
+	}
+
+	// A second run with nothing new writes nothing and says what is current.
+	copied, current, _, err = installThemeDefinitions(repo)
+	if err != nil {
+		t.Fatalf("install the definitions a second time: %v", err)
+	}
+	if copied != 0 || current != 2 {
+		t.Errorf("the second copy wrote %d and kept %d, want 0 written and 2 current", copied, current)
 	}
 }
 

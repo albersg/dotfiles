@@ -1281,6 +1281,48 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 	}
 }
 
+// TestUtilitiesOffersTheThemeRowFromAnInstalledCopyOutsideTheRepo is the user's
+// case at the screen: the program is launched from a working directory that is
+// not a checkout, and no clone exists this run, but an earlier install left the
+// definitions in the per-user data directory. Opening Utilities must offer the
+// way into the theme list rather than hiding it.
+func TestUtilitiesOffersTheThemeRowFromAnInstalledCopyOutsideTheRepo(t *testing.T) {
+	root := repoRoot(t)
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("DOTFILES_DIR", "")
+	t.Setenv("HOME", t.TempDir())
+
+	// What the clone step does at install time: copy the definitions out of the
+	// checkout before the temporary clone is removed.
+	if _, _, _, err := installThemeDefinitions(root); err != nil {
+		t.Fatalf("install the theme definitions: %v", err)
+	}
+	t.Chdir(t.TempDir())
+
+	m := NewModel()
+	m.Screen = ScreenUtilities
+	m.RepoDir = "" // no clone this run
+	m.DotfilesThemes = nil
+
+	cmd := m.dotfilesThemesCmdIfNeeded()
+	if cmd == nil {
+		t.Fatal("opening Utilities outside the repository issued no theme read")
+	}
+	next, _ := m.Update(cmd())
+	m = next.(Model)
+
+	if !slices.Contains(m.GetCurrentOptions(), utilitiesThemeRow) {
+		t.Fatalf("the utilities section shows no %q row from an installed copy outside the repository: %v",
+			utilitiesThemeRow, m.GetCurrentOptions())
+	}
+	// The read says which copy it used, so the user can see where the list came
+	// from rather than inferring it.
+	if want := filepath.Join(dataHome, stateAppDir); m.DotfilesRepoDir != want {
+		t.Errorf("the definitions were read from %q, want the installed copy %q", m.DotfilesRepoDir, want)
+	}
+}
+
 // TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository covers the honest
 // state when no candidate holds themes/*.toml: no theme row, and the reason in
 // the body.
