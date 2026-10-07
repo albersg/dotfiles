@@ -354,7 +354,9 @@ fixing two of them falls outside this change.
 - **A related, separate gap noticed while checking**: a file that carries the ownership marker but no
   generated block (installs between the shell marker, 2026-10-01, and the block generator, 2026-10-05)
   is treated as owned and **skipped** by the block replacement, so the theme is not applied to it until
-  a reinstall writes the block. Not changed here; recorded so it is not rediscovered.
+  a reinstall writes the block. G's region adoption brings the common case forward; the residual case
+  (a marked file with neither a generated block nor region anchors) is **fixed in the update below**,
+  which names it instead of skipping it.
 
 ## Update: the refresh that makes a pre-marker machine usable (F)
 
@@ -431,3 +433,50 @@ fixing two of them falls outside this change.
   or snapshot moved. `TestThemeRefreshBringsAnOldManagedFileUpToDate` no longer asserts that the
   switch refuses an anchor-bearing legacy file (it now adopts its region); the refresh path it
   covers is unchanged.
+
+
+## Update: a marked file with nothing to rewrite is named, not skipped (H)
+
+- **The condition, after G.** A managed file that carries the `dotfiles-managed-config:` marker but
+  holds no `>>> dotfiles-theme...` block **and** none of the region anchors G rewrites: there is
+  nothing to replace and no region to adopt. (A marked file that still carries its region anchors is
+  no longer this case - G adopts that region; a file with no marker at all is the unowned class G
+  refuses.) The switch reads the file as ours (`owned`), both `replaceThemeBlock` and `adoptThemeBlock`
+  find nothing, and the loop `continue`d with no word.
+- **Said out loud.** `applyDotfilesTheme` collects those paths in `cannotUpdate` and emits one
+  `SendLog` line per file, whether or not the switch applied anything; when it did apply something, a
+  notice heads them. The sentence is `themeCannotUpdateSentence`:
+  *"N managed file(s) carry the ownership marker but no generated block and no region anchors, so they
+  cannot be updated without refreshing them. Reinstall the dotfiles to refresh them (a reinstall
+  writes the block). The file(s) were left exactly as they are: \<paths>."* The per-file log line
+  reads *"\<path> carries the ownership marker but no generated block or region anchors, so it cannot
+  be updated without refreshing it; reinstall the dotfiles to write the block."*
+- **Apply what it can, report what it cannot.** Decision: this residual case does **not** abort the
+  whole switch. Reason: the file is already ours, so leaving it alone is a stale-install limitation,
+  not the safety failure an unowned file is. Aborting would put a machine that already has dotfiles
+  back where adoption was introduced to rescue it; the files that can take the theme are switched
+  safely and reversibly, and every file left behind is named with the remedy. Nothing is applied in
+  silence and no file is left half-changed without a word. The **unowned** file still aborts the whole
+  switch (G's `unownedThemeFileError`): writing a file that is not provably ours is unsafe.
+- **When nothing can be updated**, the switch writes nothing and returns the same sentence as the
+  failure (naming the files and the reinstall) instead of the generic *"no installed theme block was
+  found"*; no record is written.
+- **No new adoption.** The content proofs are untouched. This case is not proved by content on
+  purpose: the content has drifted, and a looser proof would adopt user files.
+- **Tests (in `install_paths_test.go`, with teeth):**
+  `TestThemeSwitchReportsAnOwnedFileWithNoGeneratedBlock` (stale file untouched byte-for-byte, the
+  other file switched, notice names the file, the condition and the reinstall),
+  `TestThemeSwitchNamesEveryFileItCannotUpdate` (two files, both named, counted), and
+  `TestThemeSwitchReportsWhenNothingCanBeUpdated` (only stale file: failure names it, nothing written,
+  no record). The stale fixture carries the marker and no anchors at all, so it is the residual case
+  G cannot adopt. Teeth: without the `cannotUpdate` collection the `continue` is silent and the first
+  test fails on the notice naming the file.
+- **How many files of a normal install fall into this case: zero.** Every one of the 13 rewrite
+  targets ships with both the marker and its generated block (guarded by
+  `TestGeneratedThemeArtifactsMatchTheirDefinition`), so a normal install of today's files has nothing
+  to report. The six 2026-09-19 files measured by the adoption front (herdr, starship, `.zshrc`,
+  `.p10k.zsh`, `colorscheme.lua`, `config.fish`) are **not** this case: they carry no ownership
+  marker at all (`marker=0 block=0`, re-measured on this machine), so they are the *unowned, content
+  drifted* class G adopts by region or refuses. This case is only reachable when a file carries the
+  marker and both its generated block and its region anchors are gone - a hand-removed block, or an
+  install window that wrote the marker without ever writing a block.
