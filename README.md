@@ -195,6 +195,20 @@ copied beside itself as `.wslconfig.bak-dotfiles-<timestamp>` first. WSL reads t
 starts, so the screen says to run `wsl --shutdown` on Windows to apply the change and deliberately
 does not run it; `--dry-run` skips the write.
 
+**Report the terminal capabilities.** The read-only report describes **the terminal this run is
+in** and what each answer means for the theme and the interface: the colour depth (**truecolor**,
+**256**, **16** or **none**), whether **OSC 52** works (what makes a copy reach your clipboard over
+SSH), whether **synchronized output** (DECSET mode 2026) is supported (what stops a redraw tearing),
+and whether a **Nerd Font** is installed. Every answer names **where it came from** — the exact
+environment variable (`COLORTERM`, `TERM`, `TERM_PROGRAM`), the terminal's own reply to a bounded
+query, or **not determined** — and an answer the probe could not determine is reported as **unknown**
+with the reason and, where a person can settle it, a way to check by hand, never as an invented "no".
+If the colour depth is not truecolor the report says the themes will look approximate; if
+synchronized output is not supported it says a large redraw may flicker or tear. The probe runs only
+when you open the screen (never at startup), writes nothing, and its terminal query is bounded by a
+timeout so a terminal that never answers cannot freeze the interface. See the
+[TUI Installer Guide](docs/tui-installer.md#the-terminal-capabilities).
+
 ---
 
 ## Supported Platforms

@@ -459,9 +459,9 @@ func (m Model) headerName() string {
 		return "Backups"
 	case ScreenUtilities:
 		return "Utilities"
-	case ScreenWSLResources:
-		// The WSL resource screen is one level in from the utilities section, and
-		// its header says so rather than reading as a section of its own.
+	case ScreenWSLResources, ScreenTerminalCapabilities:
+		// These screens are one level in from the utilities section, and their
+		// header says so rather than reading as a section of their own.
 		return "Utilities"
 	default:
 		return "dotfiles"
@@ -914,6 +914,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderThemePicker())
 	case ScreenWSLResources:
 		s.WriteString(m.renderWSLResources())
+	case ScreenTerminalCapabilities:
+		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
 	case ScreenComplete:
@@ -1183,6 +1185,41 @@ func (m Model) renderWSLResources() string {
 		[]installerHint{hintUp, hintDown, hintAdjust, hintRecommended, hintSelect, hintBack})
 }
 
+// renderTerminalCapabilities draws the capability report: one row per
+// capability with the answer, where it came from and what it implies, or the
+// one honest line that the probe is still reading. The screen changes nothing,
+// so its only key is the way back.
+func (m Model) renderTerminalCapabilities() string {
+	return m.renderThemeScreen(m.terminalCapabilitiesDescription(), "",
+		[]installerHint{hintBack})
+}
+
+// terminalCapabilitiesDescription is what the screen says: for each capability
+// the answer, its source, its consequence, and -- when the probe could not
+// determine it -- why not and how to check by hand. The rows come from the
+// report's own list, so there is no second copy of the capabilities here.
+func (m Model) terminalCapabilitiesDescription() []string {
+	if !m.TerminalCapabilities.Resolved {
+		return []string{"Reading what this terminal can do and what it means for the themes and the interface…"}
+	}
+
+	paragraphs := []string{
+		"Read-only: nothing here is changed and nothing is written. Each answer names where it came from, " +
+			"and an answer the probe could not determine is reported as unknown with a reason and a manual check.",
+	}
+	for _, row := range m.TerminalCapabilities.rows() {
+		line := fmt.Sprintf("%s: %s — %s. %s", row.Name, row.Answer.Value, row.Answer.Source, row.Implication)
+		if row.Answer.State == capabilityUnknown && row.Answer.Reason != "" {
+			line += " Why unknown: " + row.Answer.Reason + "."
+			if row.Answer.Manual != "" {
+				line += " Check: " + row.Answer.Manual + "."
+			}
+		}
+		paragraphs = append(paragraphs, line)
+	}
+	return paragraphs
+}
+
 // renderThemePicker draws the dotfiles theme list: the complete themes, each
 // naming the tools it leaves out, the undo row when there is a change to put
 // back, and the live preview of the theme under the cursor.
@@ -1318,10 +1355,13 @@ func (m Model) utilitiesDescription() []string {
 			utilitiesWSLRow, m.WSLState.Path))
 	}
 
-	// The dotfiles' own theme. Its definitions are resolved from $DOTFILES_DIR,
-	// the clone, the working directory and its parents, then ~/dotfiles and
-	// ~/.dotfiles; when none of them holds themes/*.toml the section says it
-	// cannot be switched here instead of showing rows that would fail.
+	// The terminal capability report. It is read-only and offered everywhere;
+	// where there is no terminal to read, the screen itself says so rather than
+	// the section leaving a hole. Naming it here is what makes the row findable.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s is read-only: it reports what this terminal can do -- the "+
+		"colour depth, OSC 52, synchronized output and the Nerd Font glyphs -- names the source of every "+
+		"answer, and says unknown with a reason for what it cannot determine.", utilitiesTerminalRow))
+
 	if len(m.DotfilesThemes) == 0 {
 		reason := m.DotfilesThemesErr
 		if reason == "" {
@@ -1403,6 +1443,11 @@ const utilitiesThemeRow = "Change the dotfiles theme"
 // where there is a .wslconfig to edit, and the section's body names the reason
 // everywhere else.
 const utilitiesWSLRow = "Adjust the WSL resources"
+
+// utilitiesTerminalRow is the section's row for the terminal capability report.
+// It is offered everywhere -- there is always a terminal to describe, and where
+// there is none the screen says so -- and it is read-only.
+const utilitiesTerminalRow = "Report the terminal capabilities"
 
 // The rows the arrow keys act on. The indices are part of the screen's contract:
 // the key handler adjusts the value under the cursor by its index, and the frame

@@ -1040,6 +1040,17 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: m.WSLState.Available,
 	})
 
+	// The section's utilitiesTerminalRow. The report is read-only and offered
+	// everywhere, so the panel always names it: before the screen has been
+	// opened the value says the terminal has not been inspected, and afterwards
+	// it is the depth the report found. It sits last so it never displaces a
+	// utility above it on a short frame.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Terminal",
+		value:   m.TerminalCapabilities.panelValue(),
+		offered: true,
+	})
+
 	return entries
 }
 

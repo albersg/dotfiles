@@ -217,7 +217,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // review that picker opens, and the trainer's 6. It is pinned rather than
 // derived so a screen silently dropping out of the enumeration fails more than
 // one guard.
-const measuredScreens = 56 // 47 installer states + utilities + theme-picker + theme-refresh + the trainer's 6
+const measuredScreens = 57 // 47 installer states + utilities + theme-picker + theme-refresh + terminal-capabilities + the trainer's 6
 
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
@@ -352,10 +352,12 @@ func terminalFitCases() []terminalFitCase {
 	// The utilities section is entered from the main menu by a key rather than by
 	// one of the installer's states, so it is measured here the way the trainer's
 	// screens are. The theme picker is one level in from it, for the same reason,
-	// and its refresh review is a second state of that picker.
+	// and its refresh review is a second state of that picker. The capability
+	// report is the section's third destination.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
+	cases = append(cases, terminalFitCase{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase})
 
 	return cases
 }
@@ -522,6 +524,7 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{utilitiesCaseName, utilitiesFrameCase(t)},
 		{themePickerCaseName, themePickerFrameCase(t)},
 		{wslResourcesCaseName, wslResourcesFrameCase(t)},
+		{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase(t)},
 	}
 }
 
@@ -638,6 +641,42 @@ func TestUtilitiesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 			t.Errorf("utilities at %s draws %d columns, want <= %d", size.name, widest, size.width)
 		}
 	}
+}
+
+// terminalCapabilitiesCaseName is the name the frame guards know the terminal
+// capability report by.
+const terminalCapabilitiesCaseName = "terminal-capabilities"
+
+// terminalCapabilitiesFrameCase builds the capability report with every answer
+// determined, so the guards measure the report's rows and the prose rather than
+// the still-reading state. The answers are forced rather than probed: a guard
+// that read the runner's own terminal, or wrote the query to it, would change
+// with the machine and could hang in CI. One answer is left unknown so the
+// unknown branch's reason and manual check are rendered and measured too.
+func terminalCapabilitiesFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenTerminalCapabilities)
+	m.TerminalCapabilities = terminalCapabilities{
+		Resolved: true,
+		Color: terminalAnswer{
+			State:  capabilitySupported,
+			Value:  colorValueTrueColor,
+			Source: "COLORTERM=truecolor",
+		},
+		Clipboard: terminalAnswer{
+			State:  capabilitySupported,
+			Value:  "supported",
+			Source: "the terminal's reply to the Ms capability query",
+		},
+		Sync: terminalAnswer{
+			State:  capabilityUnsupported,
+			Value:  "not supported",
+			Source: "the terminal's reply to the mode 2026 query",
+		},
+		NerdFont: probeNerdFont(),
+	}
+	return m
 }
 
 // wslResourcesCaseName is the name the frame guards know the WSL resource screen

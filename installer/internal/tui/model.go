@@ -76,6 +76,13 @@ const (
 	// recommended from the Windows host, and writes them back through the same
 	// builder and writer the installation step uses.
 	ScreenWSLResources // The WSL memory, processors and swap, seen and set
+	// Terminal capabilities. The utilities section opens it from its own row.
+	// It reports what the terminal the installer is running in can do -- the
+	// colour depth, OSC 52, synchronized output and the Nerd Font glyphs -- from
+	// the environment and from a bounded query, and says unknown with a reason
+	// and a manual check for what it cannot determine. It is read-only: nothing
+	// is written and nothing is run.
+	ScreenTerminalCapabilities // What this terminal can do, and what it means
 )
 
 // InstallStep represents a single installation step
@@ -333,6 +340,11 @@ type Model struct {
 	// WSLNotice is the one-line result of the last write, cleared when the screen
 	// is left, exactly as ThemeNotice is.
 	WSLNotice string
+	// TerminalCapabilities is the terminal capability report: what the terminal
+	// the installer is running in can do, where each answer came from, and what
+	// it implies. It is read by a command only when the capability screen is
+	// opened -- never at startup -- and stored here so the render never probes.
+	TerminalCapabilities terminalCapabilities
 	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
 	// no detection has run. The review names it before anything is written.
 	ThemeRefreshCandidates []themeRefreshCandidate
@@ -550,10 +562,21 @@ func (m Model) GetCurrentOptions() []string {
 			}
 			opts = append(opts, utilitiesWSLRow)
 		}
+		// The terminal capability report is read-only and offered everywhere: there
+		// is always a terminal to describe, and where there is not one the screen's
+		// own body says so rather than the row being silently absent. It sits last
+		// so it never displaces the utilities above it on a short frame.
+		if len(opts) > 0 {
+			opts = append(opts, m.menuSeparator())
+		}
+		opts = append(opts, utilitiesTerminalRow)
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
 		}
 		return append(opts, "← Back")
+	case ScreenTerminalCapabilities:
+		// The report is read-only: there is nothing to select, only the way back.
+		return []string{"← Back"}
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:
@@ -775,6 +798,8 @@ func (m Model) GetScreenTitle() string {
 		return "🎨 Change the dotfiles theme"
 	case ScreenWSLResources:
 		return "🖥️ WSL resources"
+	case ScreenTerminalCapabilities:
+		return "🔌 Terminal capabilities"
 	default:
 		return ""
 	}
