@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -564,18 +565,116 @@ func wslConfigDestination() (string, error) {
 	return filepath.Join(profileDir, ".wslconfig"), nil
 }
 
+// wslTemplateDataDir is the per-user data directory the installer copies the
+// shipped WSL template into, so the resources utility is offered from any
+// working directory and after the temporary clone this run made is removed. It
+// is the XDG data directory -- $XDG_DATA_HOME/dotfiles, falling back to
+// ~/.local/share/dotfiles -- the same root the theme definitions are installed
+// under, because both are repository assets the program needs at run time. The
+// template keeps its repository-relative path (dotfiles-wsl/.wslconfig.tmpl)
+// inside it, so a copy is shaped exactly like a checkout and the resolver reads
+// the two the same way. An empty string means the directory could not be
+// determined, and no copy is then made or searched.
+func wslTemplateDataDir() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dir != "" {
+		return filepath.Join(dir, stateAppDir)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", stateAppDir)
+}
+
+// wslTemplateSearchDirs is the full candidate list the WSL template resolver
+// walks: the repository roots themeDefinitionDirs names, then the per-user data
+// directory the installer copied the template into. The copy is the last
+// candidate on purpose, so a checkout the user named, cloned or is standing in
+// is always answered first and a copy is read only when no checkout is present.
+// Resolution takes the first candidate that holds dotfiles-wsl/.wslconfig.tmpl
+// and never merges two of them, so a stale copy cannot mix half of one
+// checkout's template into another's.
+func wslTemplateSearchDirs(repoDir string) []string {
+	dirs := themeDefinitionDirs(repoDir)
+	if dataDir := wslTemplateDataDir(); dataDir != "" {
+		dirs = append(dirs, dataDir)
+	}
+	return dirs
+}
+
+// wslTemplateNotFoundMessage names every candidate the resolver walked, for the
+// one honest failure the resources utility draws when none of them holds the
+// shipped template. It is built from the same candidates
+// resolveWSLTemplateDir walks, so a directory added to the search cannot go
+// unmentioned here.
+func wslTemplateNotFoundMessage() string {
+	where := "$" + dotfilesDirEnv + ", the clone, the working directory or its parents, ~/dotfiles and ~/.dotfiles"
+	if dataDir := wslTemplateDataDir(); dataDir != "" {
+		where += ", and the installer's own copy under " + dataDir
+	}
+	return fmt.Sprintf("no repository holding %s was found in %s", repoAssetWSLConfig, where)
+}
+
 // resolveWSLTemplateDir finds the checkout that holds the shipped WSL template,
-// using the same search order the theme definitions use: $DOTFILES_DIR, the
-// clone, the working directory and its parents, ~/dotfiles and ~/.dotfiles. The
+// using the same search order the theme definitions use -- $DOTFILES_DIR, the
+// clone, the working directory and its parents, ~/dotfiles and ~/.dotfiles --
+// and then the copy the installer left in the per-user data directory. The
 // utility is reached from the menu, so it cannot assume the clone step ran.
 func resolveWSLTemplateDir(repoDir string) (string, error) {
-	for _, dir := range themeDefinitionDirs(repoDir) {
+	for _, dir := range wslTemplateSearchDirs(repoDir) {
 		if _, err := os.Stat(filepath.Join(dir, repoAssetWSLConfig)); err == nil {
 			return dir, nil
 		}
 	}
-	return "", fmt.Errorf("no repository holding %s was found in $%s, the clone, the working directory or its parents, ~/dotfiles or ~/.dotfiles",
-		repoAssetWSLConfig, dotfilesDirEnv)
+	return "", fmt.Errorf("%s", wslTemplateNotFoundMessage())
+}
+
+// installWSLTemplate copies the repository's shipped WSL template into the
+// per-user data directory the resolver searches, so the resources utility is
+// offered from any working directory and after the temporary clone this run made
+// is removed. The rules are the installer's own: only the one file the
+// repository ships is written, so anything else under the data directory is
+// never touched; a template whose bytes already match is not rewritten; and the
+// counts of what was written and what was already current are returned. Nothing
+// is ever deleted, so a template an earlier run left behind is kept rather than
+// pruned.
+func installWSLTemplate(repoDir string) (copied, current int, dest string, err error) {
+	want, err := os.ReadFile(filepath.Join(repoDir, repoAssetWSLConfig))
+	if err != nil {
+		return 0, 0, "", fmt.Errorf("read the WSL template: %w", err)
+	}
+	root := wslTemplateDataDir()
+	if root == "" {
+		return 0, 0, "", fmt.Errorf("the data directory for the WSL template could not be determined")
+	}
+	dest = filepath.Join(root, repoAssetWSLConfig)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return 0, 0, "", fmt.Errorf("create the WSL template directory: %w", err)
+	}
+	if have, err := os.ReadFile(dest); err == nil && bytes.Equal(have, want) {
+		return 0, 1, dest, nil
+	}
+	if err := os.WriteFile(dest, want, 0o644); err != nil {
+		return 0, 0, dest, err
+	}
+	return 1, 0, dest, nil
+}
+
+// copyWSLTemplateIntoDataDir runs installWSLTemplate for the clone step and says
+// what happened. It is best effort: the checkout the clone left behind already
+// serves this run, so a copy that could not be made is a warning about later
+// runs, not a reason to fail an installation that otherwise succeeded.
+func copyWSLTemplateIntoDataDir(stepID, repoDir string) {
+	if _, err := os.Stat(filepath.Join(repoDir, repoAssetWSLConfig)); err != nil {
+		SendLog(stepID, "Skipping the WSL template: this checkout does not ship it")
+		return
+	}
+	copied, current, dest, err := installWSLTemplate(repoDir)
+	if err != nil {
+		SendLog(stepID, fmt.Sprintf("Warning: the WSL template could not be installed for later runs: %v", err))
+		return
+	}
+	SendLog(stepID, fmt.Sprintf("✓ WSL template installed to %s (%d written, %d already current)", dest, copied, current))
 }
 
 // loadWSLResourceState reads everything the utility needs. The unavailable

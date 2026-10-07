@@ -93,3 +93,24 @@ rules are the same shape.
 - **Where it cannot measure, it says why.** No `$SHELL`, a login shell this machine does not have, or
   a run with no terminal attached: each is named in the section's own body rather than left as a
   hole, and the row is not offered.
+
+## Follow-up: the WSL resources from any working directory
+
+The user's case — *"Si no estoy en la ruta del dotfiles, no me salen las utilities"* — also reached
+the WSL resources: the utility resolved `dotfiles-wsl/.wslconfig.tmpl` only from a checkout
+(`$DOTFILES_DIR`, the clone, the working directory and its parents, `~/dotfiles`, `~/.dotfiles`), and
+the clone an install makes is removed when the run finishes. The clone step now copies the template
+into the per-user data directory — the same root as the theme definitions, `$XDG_DATA_HOME/dotfiles`
+or `~/.local/share/dotfiles`, keeping the `dotfiles-wsl/` path — and the resolver reads it last, so a
+checkout always wins and the row is offered from anywhere. Only the one shipped file is written, an
+identical copy is left as it is, nothing else under the data directory is touched and nothing is
+deleted; when no candidate holds the template the section names the search including the copy
+directory. The user's case is reproduced by
+`TestWSLResourcesAreOfferedFromTheInstalledCopyWithoutACheckout`, whose teeth are the new candidate:
+removing it fails the guard by name. `TestInstallWSLTemplateCopiesOnlyMissingOrDifferent` pins the
+copy rules and `TestWSLTemplateResolutionReportsWhereItLooked` pins the message.
+
+The test that exercised the clone step now pins `HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` to
+`t.TempDir()`, because the clone step is the step that installs runtime assets into the data
+directory: a stray write must land in the test's own tree, never in the runner's real
+`~/.local/share` or `~/.config`.

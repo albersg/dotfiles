@@ -223,7 +223,11 @@ processor count, recommends values from them — half the host's RAM rounded dow
 much that Windows keeps under 2 GiB), every logical CPU, and a quarter of that memory for swap — and
 lets you move each value with **←/→** or put everything back on the recommendation with **`r`**. It
 is the same values and the same writer the installation step uses, not a second calculation, and it
-is offered only where there is a `.wslconfig` to edit: elsewhere the section says why. A write only
+is offered only where there is a `.wslconfig` to edit: elsewhere the section says why. The template
+it renders is read from a checkout when one is present — `$DOTFILES_DIR`, the clone, the working
+directory and its parents, `~/dotfiles` or `~/.dotfiles` — and otherwise from the copy the installer
+leaves under `~/.local/share/dotfiles/` (or `$XDG_DATA_HOME/dotfiles/`), so the row is offered from
+any working directory, not only from inside a checkout. A write only
 touches the keys [`dotfiles-wsl/.wslconfig.tmpl`](dotfiles-wsl/.wslconfig.tmpl) manages — the rest of
 your file, its comments and your own keys are kept exactly as they are — and the previous file is
 copied beside itself as `.wslconfig.bak-dotfiles-<timestamp>` first. WSL reads the file when the VM

@@ -3800,6 +3800,11 @@ func stepCloneRepo(m *Model) error {
 
 	m.WorkDir = workDir
 	m.RepoDir = repoDir
+	// The clone lives in a temporary directory the cleanup step removes, so the
+	// WSL template the resources utility renders is copied out of it now, before
+	// any step that reads the checkout. The copy is what makes the utility
+	// offered from any working directory, not only from inside a checkout.
+	copyWSLTemplateIntoDataDir(stepID, repoDir)
 	SendLog(stepID, "✓ Repository cloned successfully")
 	return nil
 }

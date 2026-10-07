@@ -157,7 +157,15 @@ func TestStepCloneRepository(t *testing.T) {
 
 	t.Run("clone creates a private checkout that cleanup removes", func(t *testing.T) {
 		// The clone must not depend on the current working directory, and cleanup
-		// must only ever remove the directory this run created.
+		// must only ever remove the directory this run created. The clone step also
+		// installs the runtime assets (the WSL template) into the per-user data
+		// directory, so HOME, XDG_DATA_HOME and XDG_STATE_HOME are all pinned to
+		// this test's own temporary tree: a stray write must never land in the
+		// runner's real ~/.local/share or ~/.config.
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+
 		tmpDir := t.TempDir()
 		originalWd, _ := os.Getwd()
 		defer os.Chdir(originalWd)
