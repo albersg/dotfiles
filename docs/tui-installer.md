@@ -228,6 +228,21 @@ every proof that was attempted** (the ownership marker, the generated block, the
 byte-for-byte match) and **what the user can do**: reinstall so dotfiles writes its marked files, or
 leave that file out of the theme change.
 
+**A marked file with nothing to rewrite is named, not skipped in silence.** A managed file can carry
+the `dotfiles-managed-config:` marker yet hold no `>>> dotfiles-theme...` block and none of the region
+anchors the generator knows - a generated block that was removed by hand, for instance. (A marked
+file that still carries its region anchors is not this case: the switch adopts that region, above.)
+The file is ours, so it is not refused, but there is nothing to replace and no region to rewrite.
+Rather than quietly leaving it on the old palette, the switch **names the file and says what fixes
+it**: a reinstall rewrites the block, because that is what writes generated blocks into installed
+files. One line per affected file goes to the log and the result that heads them counts the files, so
+a switch that updated the rest is never reported as a whole one. A file whose content has drifted past
+both proofs above is a different case (no marker at all): it is refused, and the run stops rather than
+writing around it. The marker-but-nothing-to-rewrite case **applies the files it can and reports the
+ones it cannot**, because the file is already ours — refusing the whole switch would put a machine
+that already has dotfiles back where adoption was introduced to rescue it, and leaving the rest
+unchanged would be a worse outcome than a reported, reversible partial switch.
+
 **It is reversible.** Before writing, the switch records the exact bytes each file held in the same
 `$XDG_STATE_HOME/dotfiles/theme.json` the desktop switch uses (the two halves coexist in that one
 file), so **Undo the last dotfiles theme change** restores each file byte-for-byte. A definition

@@ -2599,6 +2599,234 @@ func TestThemeAdoptionDoesNotTouchAnOwnedFile(t *testing.T) {
 	}
 }
 
+// installThemeFileOwnedWithoutBlock writes a managed file that carries the
+// ownership marker but no generated block and no region anchors, which is the one
+// shape neither replaceThemeBlock nor adoptThemeBlock can rewrite: a hand-removed
+// generated block, or an install window that wrote the marker without a block. It
+// returns the bytes written and the path, so a test can prove the file is left
+// untouched.
+func installThemeFileOwnedWithoutBlock(t *testing.T, home, tool string) ([]byte, string) {
+	t.Helper()
+
+	art := artifactByName(t, tool)
+	content := []byte(themeOwnershipMarkerLine(art) + "\n# " + art.Tool + " config from an install that predates the generated block\n")
+	dst := themeInstalledPath(art, home)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return content, dst
+}
+
+// TestThemeSwitchReportsAnOwnedFileWithNoGeneratedBlock covers the residual gap
+// recorded in odd/tasks/unified-themes.md: a file that carries the ownership
+// marker but neither a generated block nor the region anchors is ours, yet neither
+// the block replacement nor region adoption can touch it, and it used to be
+// skipped in silence. The switch must apply the rest of the files and name the one
+// it could not update, with the remedy, instead of reporting a change it did not
+// make.
+func TestThemeSwitchReportsAnOwnedFileWithNoGeneratedBlock(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	staleBefore, stalePath := installThemeFileOwnedWithoutBlock(t, home, "alacritty")
+	goodBefore := installThemeFiles(t, home, "herdr")
+	goodPath := themeInstalledPath(artifactByName(t, "herdr"), home)
+
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme with one unrefreshable file installed: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the switch returned no record for the files it did change")
+	}
+	if len(rec.Files) != 1 {
+		t.Errorf("the record holds %d file(s), want only the one that changed", len(rec.Files))
+	}
+
+	// The file that cannot be updated is left exactly as it was.
+	stale, err := os.ReadFile(stalePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stale, staleBefore) {
+		t.Error("the file with no generated block was changed")
+	}
+	// The rest of the files are applied.
+	good, err := os.ReadFile(goodPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(good, goodBefore[goodPath]) {
+		t.Error("the file that could be switched was not switched")
+	}
+
+	// The switch says which file it could not update, and what refreshes it.
+	if !strings.Contains(notice, stalePath) {
+		t.Errorf("the notice does not name the file it could not update: %q", notice)
+	}
+	if !strings.Contains(notice, "generated block") || !strings.Contains(notice, "ownership marker") {
+		t.Errorf("the notice does not name the condition: %q", notice)
+	}
+	if !strings.Contains(notice, "Reinstall") {
+		t.Errorf("the notice does not say a reinstall refreshes the file: %q", notice)
+	}
+}
+
+// TestThemeSwitchNamesEveryFileItCannotUpdate gives the report one line per
+// affected file: with two unrefreshable managed files the notice names both and
+// counts them, so the single-file case is not the only one covered.
+func TestThemeSwitchNamesEveryFileItCannotUpdate(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	_, firstPath := installThemeFileOwnedWithoutBlock(t, home, "alacritty")
+	_, secondPath := installThemeFileOwnedWithoutBlock(t, home, "kitty")
+	installThemeFiles(t, home, "herdr")
+
+	_, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme with two unrefreshable files installed: %v", err)
+	}
+	for _, path := range []string{firstPath, secondPath} {
+		if !strings.Contains(notice, path) {
+			t.Errorf("the notice does not name %s: %q", path, notice)
+		}
+	}
+	if !strings.Contains(notice, "2 managed file") {
+		t.Errorf("the notice does not count both unrefreshable files: %q", notice)
+	}
+}
+
+// TestThemeSwitchReportsWhenNothingCanBeUpdated covers the all-or-nothing edge:
+// when every installed managed file is unrefreshable, nothing is written and the
+// failure names the files and the remedy instead of the generic "no installed
+// theme block was found", which would leave the user with no idea which file or
+// what to do.
+func TestThemeSwitchReportsWhenNothingCanBeUpdated(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, _ := themeByID(defs, "catppuccin-mocha")
+
+	staleBefore, stalePath := installThemeFileOwnedWithoutBlock(t, home, "alacritty")
+
+	rec, _, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err == nil {
+		t.Fatal("the switch reported success with nothing it could update")
+	}
+	if rec != nil {
+		t.Errorf("the switch returned a record with nothing to record: %+v", rec)
+	}
+	if !strings.Contains(err.Error(), stalePath) {
+		t.Errorf("the failure does not name the file it could not update: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Reinstall") {
+		t.Errorf("the failure does not say a reinstall refreshes the file: %v", err)
+	}
+	stale, readErr := os.ReadFile(stalePath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(stale, staleBefore) {
+		t.Error("the unrefreshable file was changed")
+	}
+	if rec := readDotfilesThemeRecord(); rec != nil {
+		t.Errorf("a failed switch wrote a record: %+v", rec)
+	}
+}
+
+// TestThemeSwitchAppliesAMarkedFileWithAnchors is the boundary the merge created:
+// after region adoption landed, a managed file that carries the ownership marker
+// but lost its generated block no longer divides into "rewrite" and "silent
+// skip". If it still carries the region anchors, the switch adopts that region,
+// so it must NOT be reported as unrefreshable; if it does not, it is named (the
+// sibling TestThemeSwitchReportsAnOwnedFileWithNoGeneratedBlock). This keeps the
+// anchor-bearing branch alive and pins that the two cases stay apart.
+func TestThemeSwitchAppliesAMarkedFileWithAnchors(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	target := applyTarget(t)
+	def, _ := themeByID(mustLoadDefinitions(t), defaultThemeID)
+
+	art := artifactByName(t, "herdr")
+	dst := themeInstalledPath(art, home)
+	// A marked file whose generated block was replaced by the old hand-written
+	// region: the marker is still there, the block is not, the anchors are, and the
+	// marker sits exactly where the block carried it, above the region.
+	original := userForeignPrefix + themeOwnershipMarkerLine(art) + "\n" +
+		legacyThemeFile(t, art, def) + userForeignSuffix
+	writeThemeFileAt(t, dst, original)
+
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to a marked file whose region still carries the anchors: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the region adoption returned no record, so the change is not reversible")
+	}
+	if strings.Contains(notice, "cannot be updated") || strings.Contains(notice, "no generated block") {
+		t.Errorf("the marked anchor-bearing file was reported as unrefreshable: %q", notice)
+	}
+	if !strings.Contains(notice, "applied to 1 file") {
+		t.Errorf("the marked anchor-bearing file was not applied: %q", notice)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), themeBeginTag(art.Block)) {
+		t.Errorf("the marked file was not adopted into the generated form:\n%s", got)
+	}
+	if !strings.Contains(string(got), userForeignPrefix) {
+		t.Error("the user's bytes before the region were lost")
+	}
+	if !strings.HasSuffix(string(got), userForeignSuffix) {
+		t.Error("the user's bytes after the region were lost")
+	}
+	if n := strings.Count(string(got), themeOwnershipMarker); n != 1 {
+		t.Errorf("the ownership marker appears %d times after apply, want exactly 1:\n%s", n, got)
+	}
+
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the region adoption: %v", err)
+	}
+	back, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(back, []byte(original)) {
+		t.Error("undo did not restore the marked file byte-for-byte")
+	}
+}
+
 // TestThemeInstalledFileIsOursProvesByContent covers the rule the adoption rests
 // on: the proof is the bytes, not the path. A file identical to what the
 // repository ships without the marker is ours (proof 1), a file carrying a

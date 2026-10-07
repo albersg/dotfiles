@@ -1244,6 +1244,13 @@ func adoptThemeBlock(content string, art themeArtifact, block string) (string, b
 			return content, false
 		}
 	}
+	// The generated block carries its own ownership-marker line, so when the
+	// marker sits immediately above the region it is consumed by the block rather
+	// than left behind. Without this a marked file that lost its block would gain a
+	// second marker line (the same dedup replaceThemeBlock does on the next run).
+	if start > 0 && strings.Contains(lines[start-1], themeOwnershipMarker) {
+		start--
+	}
 
 	end := len(lines)
 	if art.AdoptEnd != "" {
@@ -1703,6 +1710,13 @@ func unownedThemeFileError(path string, art themeArtifact) error {
 //     original is recorded so undo restores it byte-for-byte.
 //
 // A file that proves neither degree is still refused and left exactly as it is.
+//
+// A managed file that already carries the ownership marker but has neither the
+// generated block nor the region anchors is the one case the two proofs above
+// cannot bring forward - there is nothing to replace and no region to rewrite -
+// and the switch does not skip it in silence: it applies the files it can, names
+// each one it could not update, and says that a reinstall refreshes it. The file
+// is left exactly as it is either way.
 func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfilesThemeRecord, string, error) {
 	if dryRun() {
 		SendLog("utilities", fmt.Sprintf("DRY RUN: skipping the switch to the %s theme", def.Name))
@@ -1713,6 +1727,11 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 	var written []string
 	var adopted []string
 	var regionAdopted []string
+	// cannotUpdate names the marked managed files whose generated block and region
+	// anchors are both missing, so the switch can say which files it could not
+	// update rather than skipping them in silence. It is keyed by path: several
+	// artifacts share one file.
+	var cannotUpdate []string
 	themed := 0
 	// record keeps the first bytes read for a path. Several artifacts can share
 	// one file (Starship's two blocks, .zshrc's zsh and bat blocks), and a later
@@ -1783,8 +1802,13 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 			region, regionOK := adoptThemeBlock(content, art, block)
 			if !regionOK {
 				if owned || slices.Contains(adopted, path) {
-					// An owned file with no generated block has nothing to rewrite here;
-					// an adopted one is already recorded, so undo takes it back.
+					// A marked file with neither a generated block nor region anchors has
+					// nothing to rewrite here. Name it so the switch says so instead of
+					// reporting a change it did not make; an adopted one is already
+					// recorded, so undo takes it back.
+					if owned && !slices.Contains(cannotUpdate, path) {
+						cannotUpdate = append(cannotUpdate, path)
+					}
 					continue
 				}
 				restoreWritten()
@@ -1803,8 +1827,18 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 		themed++
 	}
 
+	// A file that could not be updated is named once per file, whether the switch
+	// applied the rest or nothing at all, so a switch that left files on the old
+	// palette is never reported as a whole one.
+	for _, path := range cannotUpdate {
+		SendLog("utilities", fmt.Sprintf("%s carries the ownership marker but no generated block or region anchors, so it cannot be updated without refreshing it; reinstall the dotfiles to write the block.", path))
+	}
+
 	if themed == 0 {
 		restoreWritten()
+		if len(cannotUpdate) > 0 {
+			return nil, "", fmt.Errorf("%s", themeCannotUpdateSentence(cannotUpdate))
+		}
 		return nil, "", fmt.Errorf("no installed theme block was found, so nothing was changed")
 	}
 
@@ -1827,6 +1861,9 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 		SendLog("utilities", fmt.Sprintf("Adopted the dotfiles region in %s: the bytes between its anchors were rewritten and the rest of the file was left untouched; Undo puts it back.", path))
 	}
 	notice := ""
+	if len(cannotUpdate) > 0 {
+		notice = themeCannotUpdateSentence(cannotUpdate) + " "
+	}
 	if len(adopted) > 0 {
 		notice += fmt.Sprintf("Adopted %d file(s) whose whole content proved they are dotfiles', adding the ownership marker and nothing else. ", len(adopted))
 	}
@@ -1836,6 +1873,17 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 	notice += fmt.Sprintf("The %s theme is applied to %d file(s). The blocks it replaced are recorded; use Undo to put them back.",
 		def.Name, themed)
 	return next, notice, nil
+}
+
+// themeCannotUpdateSentence names the managed files whose generated block and
+// region anchors are both missing, so a file that cannot be updated in place is
+// said out loud. It heads the per-file lines the switch logs, and it is the whole
+// result when none of the installed files could be updated: the remedy is a
+// reinstall, which is what writes the generated block into a file that only
+// carries the ownership marker.
+func themeCannotUpdateSentence(paths []string) string {
+	return fmt.Sprintf("%d managed file(s) carry the ownership marker but no generated block and no region anchors, so they cannot be updated without refreshing them. Reinstall the dotfiles to refresh them (a reinstall writes the block). The file(s) were left exactly as they are: %s.",
+		len(paths), strings.Join(paths, ", "))
 }
 
 // undoDotfilesTheme puts back the exact bytes each file held before the change,
