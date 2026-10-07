@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,7 +206,83 @@ func TestStepCloneRepository(t *testing.T) {
 	})
 }
 
-// TestStepInstallTerminalCopiesFromCheckout is the defect this change fixes:
+// TestStepCloneInstallsBothRuntimeAssets is the guard for the two fixes that met
+// in the clone step: it now installs the theme definitions and the WSL template
+// into the same per-user data directory, and a merge that kept only one of the
+// two copy calls would leave one utility checkout-bound again. The test builds a
+// local upstream carrying one definition and the shipped template, rewrites the
+// clone URL to point at it, runs the one clone step, and asserts both assets are
+// present under the data root the two resolvers search last. The rewrite keeps
+// the guard hermetic: it never reaches the network and never depends on what the
+// default branch happens to ship.
+func TestStepCloneInstallsBothRuntimeAssets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping clone test in short mode")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git is unavailable: %v", err)
+	}
+
+	// A local upstream: the clone step must find themes/*.toml and
+	// dotfiles-wsl/.wslconfig.tmpl in whatever it clones.
+	upstream := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(upstream, themesDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(upstream, filepath.Dir(repoAssetWSLConfig)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	definition := "[theme]\nid = \"fixture\"\n"
+	if err := os.WriteFile(filepath.Join(upstream, themesDirName, "fixture.toml"), []byte(definition), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	template := "[wsl2]\nmemory=4096MB\n"
+	if err := os.WriteFile(filepath.Join(upstream, repoAssetWSLConfig), []byte(template), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "--quiet", "-b", "main"},
+		{"add", "-A"},
+		{"-c", "user.name=guard", "-c", "user.email=guard@example.com", "commit", "--quiet", "-m", "fixture"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", upstream}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("seed the local upstream: %v: %s", err, out)
+		}
+	}
+
+	// Rewrite the fixed clone URL to the local upstream, so the step runs
+	// unmodified but the network is never reached.
+	config := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(config, []byte("[url \""+upstream+"\"]\n\tinsteadOf = "+dotfilesRepoURL+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+
+	dataHome := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DIR", "")
+	t.Chdir(t.TempDir())
+
+	m := NewModel()
+	if err := stepCloneRepo(&m); err != nil {
+		t.Fatalf("clone from the local upstream: %v", err)
+	}
+	defer stepCleanup(&m)
+
+	dataRoot := filepath.Join(dataHome, stateAppDir)
+	installedDefinition := filepath.Join(dataRoot, themesDirName, "fixture.toml")
+	if got, err := os.ReadFile(installedDefinition); err != nil || string(got) != definition {
+		t.Errorf("the clone step did not install the theme definition at %s: %q, %v", installedDefinition, got, err)
+	}
+	installedTemplate := filepath.Join(dataRoot, repoAssetWSLConfig)
+	if got, err := os.ReadFile(installedTemplate); err != nil || string(got) != template {
+		t.Errorf("the clone step did not install the WSL template at %s: %q, %v", installedTemplate, got, err)
+	}
+}
+
 // the terminal step resolved its configuration sources from the literal
 // "dotfiles" directory under the working directory instead of from the checkout
 // the clone step created for this run. The test builds a checkout in a

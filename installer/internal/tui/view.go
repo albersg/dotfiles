@@ -1386,12 +1386,13 @@ func (m Model) utilitiesDescription() []string {
 
 	// The dotfiles' own theme. Its definitions are resolved from $DOTFILES_DIR,
 	// the clone, the working directory and its parents, then ~/dotfiles and
-	// ~/.dotfiles; when none of them holds themes/*.toml the section says it
-	// cannot be switched here instead of showing rows that would fail.
+	// ~/.dotfiles, and last from the per-user copy the installer made; when none
+	// of them holds themes/*.toml the section says it cannot be switched here
+	// instead of showing rows that would fail.
 	if len(m.DotfilesThemes) == 0 {
 		reason := m.DotfilesThemesErr
 		if reason == "" {
-			reason = "no repository holding theme definitions was found in $DOTFILES_DIR, the clone, the working directory or its parents, ~/dotfiles or ~/.dotfiles"
+			reason = themeDefinitionsNotFoundMessage()
 		}
 		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
 		return paragraphs
@@ -1416,7 +1417,7 @@ func (m Model) themePickerDescription() []string {
 	if len(m.DotfilesThemes) == 0 {
 		reason := m.DotfilesThemesErr
 		if reason == "" {
-			reason = "no repository holding theme definitions was found in $DOTFILES_DIR, the clone, the working directory or its parents, ~/dotfiles or ~/.dotfiles"
+			reason = themeDefinitionsNotFoundMessage()
 		}
 		return []string{fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason)}
 	}

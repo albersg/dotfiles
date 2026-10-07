@@ -568,22 +568,14 @@ func wslConfigDestination() (string, error) {
 // wslTemplateDataDir is the per-user data directory the installer copies the
 // shipped WSL template into, so the resources utility is offered from any
 // working directory and after the temporary clone this run made is removed. It
-// is the XDG data directory -- $XDG_DATA_HOME/dotfiles, falling back to
-// ~/.local/share/dotfiles -- the same root the theme definitions are installed
-// under, because both are repository assets the program needs at run time. The
-// template keeps its repository-relative path (dotfiles-wsl/.wslconfig.tmpl)
-// inside it, so a copy is shaped exactly like a checkout and the resolver reads
-// the two the same way. An empty string means the directory could not be
-// determined, and no copy is then made or searched.
+// is dotfilesDataDir, the same root the theme definitions are installed under,
+// because both are repository assets the program needs at run time. The template
+// keeps its repository-relative path (dotfiles-wsl/.wslconfig.tmpl) inside it, so
+// a copy is shaped exactly like a checkout and the resolver reads the two the
+// same way. An empty string means the directory could not be determined, and no
+// copy is then made or searched.
 func wslTemplateDataDir() string {
-	if dir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dir != "" {
-		return filepath.Join(dir, stateAppDir)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".local", "share", stateAppDir)
+	return dotfilesDataDir()
 }
 
 // wslTemplateSearchDirs is the full candidate list the WSL template resolver
