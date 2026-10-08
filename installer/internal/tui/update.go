@@ -1132,10 +1132,32 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
 	// Restore screens
-	case ScreenRestoreBackup, ScreenRestoreConfirm:
+	case ScreenRestoreBackup:
+		// The list is the top of the restore flow, so Esc leaves it for the menu.
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
+	case ScreenRestoreConfirm:
+		// The confirmation is one level in: Esc is the "cancel" the footer names,
+		// and it puts the cursor back on the backup it was opened from. It used to
+		// share the list's case and skip that level.
+		m.Screen = ScreenRestoreBackup
+		m.Cursor = m.SelectedBackup
+	case ScreenUtilities:
+		// The section is reached straight from the menu, so Esc is the "back" its
+		// footer names. It had no case here, which left the section's own esc
+		// branch unreachable and the annotated key dead.
+		m.Screen = ScreenMainMenu
+		m.Cursor = 0
+		m.ThemeNotice = ""
 	case ScreenThemePicker:
+		// The refresh review is a second state of the picker: Esc cancels it and
+		// leaves the files alone, exactly as the review's handler and the "back"
+		// in the footer say. Only the list itself steps back to the section.
+		if m.ThemeRefreshReview {
+			m.resetThemeRefresh()
+			m.ThemeNotice = ""
+			return m, nil
+		}
 		// The theme list is one level in from the utilities section, so Esc steps
 		// back there rather than all the way to the main menu.
 		m.Screen = ScreenUtilities

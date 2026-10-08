@@ -1182,7 +1182,7 @@ func TestTerminalCapabilitiesScreenIsReadOnly(t *testing.T) {
 		t.Error("a key cleared the report")
 	}
 
-	next, _ = m.handleTerminalCapabilitiesKeys("esc")
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if got := next.(Model).Screen; got != ScreenUtilities {
 		t.Errorf("Esc went to %v, want ScreenUtilities", got)
 	}
@@ -1490,7 +1490,7 @@ func TestShellAuditScreenMeasuresOnceAndSaysSo(t *testing.T) {
 		t.Errorf("after the answer: measured=%v measuring=%v, want true and false", m.ShellAudit.Measured, m.ShellAudit.Measuring)
 	}
 
-	next, _ = m.handleShellAuditKeys("esc")
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = next.(Model)
 	if m.Screen != ScreenUtilities {
 		t.Errorf("esc left the screen on %v, want ScreenUtilities", m.Screen)

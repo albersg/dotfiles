@@ -189,7 +189,7 @@ func TestHandleRestoreBackupKeys(t *testing.T) {
 		m.Screen = ScreenRestoreBackup
 		m.Cursor = 0
 
-		result, _ := m.handleRestoreBackupKeys("esc")
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 		newModel := result.(Model)
 
 		if newModel.Screen != ScreenMainMenu {
@@ -237,15 +237,19 @@ func TestHandleRestoreConfirmKeys(t *testing.T) {
 		m.Screen = ScreenRestoreConfirm
 		m.AvailableBackups = []system.BackupInfo{
 			{Path: "/test/backup1"},
+			{Path: "/test/backup2"},
 		}
-		m.SelectedBackup = 0
+		m.SelectedBackup = 1
 		m.Cursor = 0
 
-		result, _ := m.handleRestoreConfirmKeys("esc")
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 		newModel := result.(Model)
 
 		if newModel.Screen != ScreenRestoreBackup {
 			t.Errorf("Expected ScreenRestoreBackup, got %v", newModel.Screen)
+		}
+		if newModel.Cursor != 1 {
+			t.Errorf("Expected the cursor back on the selected backup 1, got %d", newModel.Cursor)
 		}
 	})
 }
@@ -1027,10 +1031,12 @@ func TestUtilitiesUnavailableSaysSoAndFitsTheFrame(t *testing.T) {
 	}
 }
 
-// TestUtilitiesEscapeReturnsToTheMainMenu pins the way out the footer promises.
+// TestUtilitiesEscapeReturnsToTheMainMenu pins the way out the footer promises
+// through the real dispatch: Esc travels the same path a keypress does, so a
+// screen missing from handleEscape cannot pass by calling the handler directly.
 func TestUtilitiesEscapeReturnsToTheMainMenu(t *testing.T) {
 	m := utilitiesModel(t, true)
-	next, _ := m.handleUtilitiesKeys("esc")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = next.(Model)
 
 	if m.Screen != ScreenMainMenu {
@@ -2108,5 +2114,36 @@ func TestThemeRefreshCancelLeavesTheFilesAlone(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(dst); string(got) != old {
 		t.Error("Cancel wrote the file")
+	}
+}
+
+// TestThemeRefreshEscapeCancelsTheReview covers the review's own Esc through the
+// real dispatch: the footer says "back" and the review's handler cancels it, so
+// Esc leaves the review on the picker list rather than stepping past the picker
+// to the utilities section.
+func TestThemeRefreshEscapeCancelsTheReview(t *testing.T) {
+	m, dst, old := pickerWithRefreshFixture(t)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if !m.ThemeRefreshReview {
+		t.Fatal("detection did not open the review, so there is nothing to cancel")
+	}
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+	if cmd != nil {
+		t.Error("Esc in the review returned a command, want none")
+	}
+	if m.ThemeRefreshReview {
+		t.Error("Esc stayed in the review")
+	}
+	if m.Screen != ScreenThemePicker {
+		t.Errorf("Esc left the picker for %v, want the picker list", m.Screen)
+	}
+	if got, _ := os.ReadFile(dst); string(got) != old {
+		t.Error("Esc in the review wrote the file")
 	}
 }
