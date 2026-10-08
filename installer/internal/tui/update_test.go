@@ -1977,13 +1977,104 @@ func TestThemePickerAppliesTheThemeUnderTheCursor(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("choosing a theme returned no command, so the row is not wired to the switch")
 	}
+	// The press answers at once, in the row the result will use.
+	if !m.themeActivityPending() {
+		t.Fatal("the press left no pending line, so the wait before the switch is silent")
+	}
 	next, _ = m.Update(cmd())
 	m = next.(Model)
 	if m.Screen != ScreenThemePicker {
 		t.Errorf("applying a theme left the picker on %v", m.Screen)
 	}
-	if !strings.Contains(m.ThemeNotice, "DRY RUN") {
-		t.Errorf("the notice after applying = %q, want the dry-run result of the switch", m.ThemeNotice)
+	if m.ThemeActivity == nil || m.ThemeActivity.Pending != "" {
+		t.Fatalf("the switch did not land in the pending slot: %+v", m.ThemeActivity)
+	}
+	if got := strings.Join(m.ThemeActivity.Result, "\n"); !strings.Contains(got, "DRY RUN") {
+		t.Errorf("the result after applying = %q, want the dry-run result of the switch", got)
+	}
+	if m.ThemeNotice != "" {
+		t.Errorf("the outcome also filled the notice, so it has a second home: %q", m.ThemeNotice)
+	}
+}
+
+// themePickerRowIndex finds a row in the picker's current list, so a guard drives
+// the screen through the rows a user sees rather than through an index it typed.
+func themePickerRowIndex(t *testing.T, m Model, row string) int {
+	t.Helper()
+	for i, option := range m.GetCurrentOptions() {
+		if option == row {
+			return i
+		}
+	}
+	t.Fatalf("the picker offers no %q row: %v", row, m.GetCurrentOptions())
+	return -1
+}
+
+// TestUndoLeavesTheCursorOnASelectableRow is the undo's half of the one-change
+// rule: an undo removes the undo row it was pressed on, so the index that row
+// had falls on a separator. The cursor must be settled onto a row the frame can
+// still draw, on the same list, rather than left on a rule with no marker -- the
+// focus is where the user can see it and where the next arrow key explains
+// itself. The switch itself is not a navigation here either.
+func TestUndoLeavesTheCursorOnASelectableRow(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	home := os.Getenv("HOME")
+	installThemeFiles(t, home, "alacritty")
+	t.Setenv("PATH", t.TempDir())
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, defaultThemeID)
+	if !ok {
+		t.Fatalf("%s is not defined", defaultThemeID)
+	}
+
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+
+	// Apply once through the row, so a record exists and the undo row appears.
+	m.Cursor = themePickerRowIndex(t, m, dotfilesThemeRow(def))
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	model, _ = m.Update(cmd())
+	m = model.(Model)
+	if m.DotfilesThemeRecord == nil {
+		t.Fatal("the apply recorded nothing, so there is no undo row to press")
+	}
+
+	// Press the undo row.
+	m.Cursor = themePickerRowIndex(t, m, dotfilesThemeUndoRow)
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	if cmd == nil {
+		t.Fatal("pressing the undo row returned no command")
+	}
+	if !m.themeActivityPending() {
+		t.Fatal("the undo press left no pending line")
+	}
+	model, _ = m.Update(cmd())
+	m = model.(Model)
+
+	options := m.GetCurrentOptions()
+	if m.Cursor < 0 || m.Cursor >= len(options) {
+		t.Fatalf("the cursor %d is outside the list of %d rows", m.Cursor, len(options))
+	}
+	if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) {
+		t.Errorf("after an undo the cursor is on a separator, which the frame draws without a marker: %q", options[m.Cursor])
+	}
+	if m.Screen != ScreenThemePicker {
+		t.Errorf("the undo left the picker on %v", m.Screen)
+	}
+	if markerRow(pickerFrameLines(m), "▸") < 0 {
+		t.Errorf("the frame after an undo draws no cursor marker:\n%s", strings.Join(pickerFrameLines(m), "\n"))
+	}
+	if m.ThemeRefreshReview {
+		t.Error("the undo opened the refresh review, which is the panel the user was looking at")
 	}
 }
 

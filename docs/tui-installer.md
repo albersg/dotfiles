@@ -229,6 +229,20 @@ by a five-second timeout, so a hung `tmux`, `herdr` or `bat` cannot hang the scr
 | Neovim | No — a running editor keeps its colorscheme | nothing; names `:colorscheme <name>` |
 | tmux | Yes, for a server that is already running | runs `tmux source-file <config>` only when `tmux list-sessions` succeeds; otherwise names the command |
 
+**Choosing a theme is one change on screen, and the result is told where the press was made.** A
+press answers at once: the rows the reload report will use show what is being applied while it runs
+(`Applying the Catppuccin Mocha theme…`), the list stays drawn under the cursor, and the report lands
+in those same rows once the write and the reloads finish. Nothing navigates to a second view, the row
+under the cursor does not move, the frame does not change height, and the report is not a different
+panel appearing a second later — the defect this replaced. The activity slot takes every row the list
+does not need and the list keeps five rows around the cursor, so the report has room to name its tools
+and the list does not leave the screen; the slot is the same height for the pending line and for the
+report, which is what keeps the row under the cursor still. A switch that is already running leaves the
+list's rows inert until it reports, so a second write cannot start beside the first. The other long
+utility actions say what they are doing in the row their result will use for the same reason: the
+desktop theme switch, the WSL write, the shell audit (`Measuring: ...`) and the terminal probe
+(`Reading what this terminal can do and what it means for the themes and the interface...`).
+
 **The list scrolls, so the frame is not the limit on how many themes there can be.** The picker
 draws as many rows as the frame leaves and windows the rest around the cursor, so a theme added to
 `themes/` cannot push the list off the bottom of a short terminal. Moving the cursor to a theme the

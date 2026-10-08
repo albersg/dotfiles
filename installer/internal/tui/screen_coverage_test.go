@@ -217,7 +217,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 58 // 47 installer states + utilities + theme-picker + theme-refresh + terminal-capabilities + shell-audit + the trainer's 6
+const measuredScreens = 59 // 47 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + the trainer's 6
 
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
@@ -357,6 +357,7 @@ func terminalFitCases() []terminalFitCase {
 	// from its own row.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
+	cases = append(cases, terminalFitCase{themeActivityCaseName, themeActivityFrameCase})
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
 	cases = append(cases, terminalFitCase{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase})
 	cases = append(cases, terminalFitCase{shellAuditCaseName, shellAuditFrameCase})
@@ -569,8 +570,32 @@ func utilitiesFrameCase(t *testing.T) Model {
 // themePickerCaseName is the name the frame guards know the theme picker by.
 const themePickerCaseName = "theme-picker"
 
+// themeActivityCaseName is the name the frame guards know the picker's activity
+// slot by. The slot is the rows the pending line and the result share, carved out
+// of the same body budget the list uses, so it is a state of the picker that has
+// to fit the same twelve terminals the list does.
+const themeActivityCaseName = "theme-activity"
+
 // themeRefreshCaseName is the name the frame guards know the refresh review by.
 const themeRefreshCaseName = "theme-refresh"
+
+// themeActivityFrameCase builds the picker with a switch on screen: a result
+// longer than the slot can hold, so the guard measures the cut as well as the
+// rows, and the list still drawn under it with the cursor on a theme row.
+func themeActivityFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := themePickerFrameCase(t)
+	m.ThemeActivity = &themeActivity{Result: themeReloadResultParagraphs([]themeReloadTool{
+		{Tool: "Alacritty", Done: true, Note: "Alacritty watches its config and reloads it live, so the new colours are already on screen."},
+		{Tool: "WezTerm", Done: true, Note: "WezTerm watches its config and reloads it live, so the new colours are already on screen."},
+		{Tool: "Kitty", Done: true, Note: "Kitty was told about the new colours over its control socket."},
+		{Tool: "Ghostty", Done: false, Note: "Ghostty reads its config once at startup; open a new window or reload it with the key your config binds for that."},
+		{Tool: "Neovim", Done: false, Note: "Neovim opens with the old colours; run :colorscheme dotfiles in the session that is already open."},
+		{Tool: "tmux", Done: false, Note: "tmux keeps its old colours; run tmux source-file ~/.config/tmux/tmux.conf, or prefix + : and source-file."},
+	})}
+	return m
+}
 
 // themePickerFrameCase builds the theme picker with the definitions read from
 // the repository and a record to undo, so the guards measure the list, its

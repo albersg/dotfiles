@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1559,15 +1560,21 @@ func TestApplyingAThemeListsWhatWasReloadedAndWhatIsLeft(t *testing.T) {
 	// No tmux or bat on PATH: the reload step must not run a command here.
 	t.Setenv("PATH", t.TempDir())
 
+	// The switch is started the way a press starts it, so the picker has the
+	// pending line the outcome replaces; the outcome is read from that same slot.
+	m.startThemeActivity("Applying the " + def.Name + " theme…")
 	msg := m.applyDotfilesThemeCmd(def)()
 	next, _ := m.Update(msg)
 	m = next.(Model)
 
-	if !m.ThemeRefreshReview || !m.ThemeRefreshDone {
-		t.Fatalf("after a switch the picker is in review=%v done=%v, want the per-tool reload list",
+	if m.ThemeRefreshReview || m.ThemeRefreshDone {
+		t.Errorf("a plain switch opened the refresh review: review=%v done=%v",
 			m.ThemeRefreshReview, m.ThemeRefreshDone)
 	}
-	report := strings.Join(m.themePickerDescription(), "\n")
+	if m.ThemeActivity == nil || m.ThemeActivity.Pending != "" {
+		t.Fatalf("after a switch the picker's activity is %+v, want the landed result", m.ThemeActivity)
+	}
+	report := strings.Join(m.ThemeActivity.Result, "\n")
 	for _, want := range []string{"Alacritty", "Neovim", "tmux"} {
 		if !strings.Contains(report, want) {
 			t.Errorf("the reload list does not name %s:\n%s", want, report)
@@ -1579,6 +1586,160 @@ func TestApplyingAThemeListsWhatWasReloadedAndWhatIsLeft(t *testing.T) {
 	}
 	if !strings.Contains(report, "source-file") {
 		t.Errorf("the reload list does not say what tmux needs (source-file):\n%s", report)
+	}
+}
+
+// pickerFrameLines is the picker's rendered frame with its escape sequences
+// stripped, one entry per row, so a guard can compare the row a marker sits on
+// and the frame's height across two states of the same screen.
+func pickerFrameLines(m Model) []string {
+	return strings.Split(ansiEscape.ReplaceAllString(m.View(), ""), "\n")
+}
+
+// markerRow is the row a screen drew its cursor marker on, or -1 when it drew
+// none.
+func markerRow(lines []string, marker string) int {
+	for i, line := range lines {
+		if strings.Contains(line, marker) {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestChoosingAThemeIsOneChangeNotTwo is the guard for the defect the user
+// reported: choosing a theme left the list exactly as it was and then, about a
+// second later, replaced the whole panel with the reload result, so one press
+// read as two changes -- the selection, then a different screen. The guard
+// renders the frame the press leaves on screen and the frame the result lands
+// on, and requires the result to be the same panel in the same place: the list
+// still drawn, the row under the cursor on the same line, the pending line and
+// the result in the same rows, the frame neither taller nor shorter. Its teeth
+// are the two halves of the old behaviour -- opening the review view and
+// resetting the cursor -- either of which makes the two frames disagree.
+func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	m := NewModel()
+	// isolateGoldenTest pins HOME and the state directory at fresh temporary
+	// ones; the theme files are installed into the HOME it chose, because that is
+	// the one the switch reads.
+	isolateGoldenTest(t, &m)
+	home := os.Getenv("HOME")
+
+	// One tool that reads its file live, one only the user can reach, and one the
+	// installer reaches when a server is running: the result has more lines than
+	// the pending state held, which is the case the old path needed a second panel
+	// for.
+	installThemeFiles(t, home, "alacritty", "nvim", "tmux")
+	// No tmux on PATH: the reload names it and runs no server command here.
+	t.Setenv("PATH", t.TempDir())
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, defaultThemeID)
+	if !ok {
+		t.Fatalf("%s is not defined", defaultThemeID)
+	}
+
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	m.Width, m.Height = 80, 24
+
+	// The cursor is put on a theme row in the middle of the list, so the window it
+	// is drawn in is the same before and after the undo row the apply records.
+	applyRow := dotfilesThemeRow(def)
+	cursor := -1
+	for i, option := range m.GetCurrentOptions() {
+		if option == applyRow {
+			cursor = i
+			break
+		}
+	}
+	if cursor < 0 {
+		t.Fatalf("the picker offers no %q row: %v", applyRow, m.GetCurrentOptions())
+	}
+	m.Cursor = cursor
+	listBefore := m.dotfilesThemeOptions()
+
+	// The press. The frame it leaves on screen already says what is happening.
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("choosing a theme returned no command, so the row is not wired to the switch")
+	}
+	if !m.themeActivityPending() {
+		t.Fatal("the press left no pending line, so the wait is silent")
+	}
+	pressed := pickerFrameLines(m)
+	pressedCursor := markerRow(pressed, "▸")
+	if pressedCursor < 0 {
+		t.Fatalf("the pressed frame draws no cursor marker:\n%s", strings.Join(pressed, "\n"))
+	}
+	slotRow := markerRow(pressed, "Applying the ")
+	if slotRow < 0 {
+		t.Fatalf("the pressed frame does not say what it is doing:\n%s", strings.Join(pressed, "\n"))
+	}
+
+	// The result. It must be the same panel, one frame later.
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	landed := pickerFrameLines(m)
+
+	if len(pressed) != len(landed) {
+		t.Errorf("the frame is %d rows after the press and %d rows when the result lands, want the same height",
+			len(pressed), len(landed))
+	}
+	if got := renderedRowCount(m.View()); got != m.Height {
+		t.Errorf("the result frame renders %d rows, want exactly %d", got, m.Height)
+	}
+	if got := markerRow(landed, "▸"); got != pressedCursor {
+		t.Errorf("the cursor row moved from line %d to line %d when the result landed:\n%s",
+			pressedCursor, got, strings.Join(landed, "\n"))
+	}
+	// The result replaced the pending line; it did not leave it standing.
+	if strings.Contains(strings.Join(landed, "\n"), "Applying the ") {
+		t.Error("the pending line is still on screen after the result landed")
+	}
+	// The result is in the rows the pending line held, above the list.
+	if slotRow >= pressedCursor {
+		t.Errorf("the activity slot is at line %d, at or below the cursor at %d, so it is not the row above the list",
+			slotRow, pressedCursor)
+	}
+	if strings.TrimSpace(landed[slotRow]) == "" {
+		t.Errorf("the row the pending line held (line %d) is empty after the result landed:\n%s",
+			slotRow, strings.Join(landed, "\n"))
+	}
+	named := false
+	for i := slotRow; i < pressedCursor && i < len(landed); i++ {
+		if strings.Contains(landed[i], "Alacritty") || strings.Contains(landed[i], "Neovim") {
+			named = true
+			break
+		}
+	}
+	if !named {
+		t.Errorf("the result does not name a reloaded tool in the rows the pending line held:\n%s",
+			strings.Join(landed, "\n"))
+	}
+
+	// The list is still the panel: a plain switch is not a navigation.
+	if got := m.dotfilesThemeOptions(); !slices.Equal(got, listBefore) {
+		t.Errorf("the theme list changed when the result landed:\n%v\nthen:\n%v", listBefore, got)
+	}
+	if m.Cursor != cursor {
+		t.Errorf("the cursor moved from %d to %d when the result landed", cursor, m.Cursor)
+	}
+	if m.Screen != ScreenThemePicker {
+		t.Errorf("choosing a theme left the picker on %v", m.Screen)
+	}
+	if m.ThemeRefreshReview || m.ThemeRefreshDone {
+		t.Errorf("a plain switch opened the refresh review: review=%v done=%v",
+			m.ThemeRefreshReview, m.ThemeRefreshDone)
+	}
+	if m.ThemeNotice != "" {
+		t.Errorf("the switch also filled the notice, so the result has a second home: %q", m.ThemeNotice)
 	}
 }
 
