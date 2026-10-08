@@ -99,8 +99,8 @@ return {
       "LazyVim/LazyVim",
       opts = {
 -- dotfiles-managed-config: nvim
--- >>> dotfiles-theme: kanagawa (generated from themes/kanagawa.toml; edit the definition, not this block) >>>
-        colorscheme = "kanagawa",
+-- >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
+        colorscheme = "dotfiles",
 -- <<< dotfiles-theme <<<
       },
     },
