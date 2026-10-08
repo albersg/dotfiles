@@ -749,3 +749,78 @@ merges two. The user's case is reproduced by
 `TestThemeResolutionFallsBackToTheInstalledDefinitions` and
 `TestUtilitiesOffersTheThemeRowFromAnInstalledCopyOutsideTheRepo`, whose teeth are the new candidate:
 removing it fails both by name.
+
+---
+
+# T9 - Applying the theme is not writing the file: bring the change forward per tool
+
+The user, running the real installer: *"Para aplicar los temas, cuando le doy, por ejemplo, herdr, no
+se actualiza, hay que hacer un reload config. ¿Se podría? Con el resto de partes de los dotfiles pasa
+similar o igual? ¿Se podría arreglar en todos los lados?"* They are right, and it is the gap almost
+no theme system closes: **writing the file is not applying the theme.** The switch wrote all twelve
+artefacts and told no tool that anything had changed, so a tool that was already running kept the old
+palette and the screen said "applied".
+
+## The twelve, with the evidence for each
+
+| Tool | Reloads itself? | Can we reload it safely? | What is left for the user | Evidence |
+|---|---|---|---|---|
+| Alacritty | Yes — watches its config and reloads live | Nothing to run | Nothing | Alacritty's live config reload is on by default; `alacritty.toml` does not turn it off (checked: no `live_config_reload` line). Tool documentation. |
+| WezTerm | Yes — watches its config and reloads live | Nothing to run | Nothing | WezTerm reloads the config on file change. `.wezterm.lua` sets no `automatically_reload_config = false`. Tool documentation. |
+| Starship | Yes — reads `starship.toml` at each prompt | Nothing to run | Nothing | Starship is invoked per prompt and re-reads its config; there is no daemon. Tool documentation. |
+| Kitty | No — a running window reloads on a signal or the remote-control command | Yes, when we are inside Kitty: `kitty @ load-config` | `Ctrl+Shift+F5`, or `kitty @ load-config` | `dotfiles-kitty/kitty.conf:56-57`: `allow_remote_control yes`, `listen_on unix:/tmp/kitty`. The command runs only when `KITTY_LISTEN_ON` is set, so it targets the session the installer is in. |
+| Ghostty | No — a running window reloads on a key or a signal | Not without a signal; documented, not run | `Ctrl+Shift+,` (macOS) or `SIGUSR2` | Ghostty reload keybinding/signal. Tool documentation — **not verified in this environment.** |
+| Herdr | No — a running session reloads its config on a key | **No.** Signalling or scripting a live multiplexer can end the session | `Ctrl+b Shift+r`, or restart | `installer/internal/tui/keymaps_herdr.go:35`: `Ctrl+b Shift+r` → "Reload config". **A live Herdr is never touched.** |
+| zsh line editor | No — `.zshrc` runs at shell start | No — it is the user's interactive shell | `exec zsh`, or a new shell | `.zshrc` is sourced at start; an already-open shell does not re-read it. |
+| p10k prompt | No — the prompt is drawn from the loaded config | No — it runs inside the user's shell | `p10k reload`, or a new shell | `dotfiles-zsh/.p10k.zsh:26` ("type `source ~/.p10k.zsh`") and `:1851` (`p10k reload`). |
+| fish | No — `config.fish` runs at shell start | No — it is the user's interactive shell | `exec fish`, or a new shell | `dotfiles-fish/fish/config.fish` is sourced at start. |
+| bat | No — the theme must be **in bat's cache**, and `BAT_THEME` is read by a shell | Yes: `bat cache --build` (idempotent) | Open a new shell so `BAT_THEME` is re-read | bat reads a theme from its cache, not the themes directory: the install step already rebuilds it (`installer.go:5750`), and a stale cache is the defect recorded in `themes/README.md:592`. |
+| Neovim | No — a running editor keeps its colorscheme | No — only `:colorscheme` in that session reaches it | `:colorscheme <name>` | `dotfiles-nvim/nvim/lua/plugins/colorscheme.lua` is read at startup. |
+| tmux | Yes, for a server that is already running | Yes: `tmux source-file <config>`, only after `tmux list-sessions` succeeds | `tmux source-file ~/.tmux.conf` when no server is running | tmux re-reads its config on `source-file`; it does not watch the file. |
+
+## What changed
+
+- `installer/internal/tui/installer.go`: `themeReloadTool` (the per-tool line), `reloadThemeTools`
+  (one line per installed tool, in the artifact table's order) and `reloadThemeToolFor` (the per-tool
+  knowledge). The reload runs only the safe, idempotent commands: `bat cache --build` with
+  `BAT_CONFIG_DIR`, `tmux source-file` after `tmux list-sessions` succeeded, and `kitty @ load-config`
+  when `KITTY_LISTEN_ON` is set. Every command runs through one runner with a five-second timeout.
+- `installer/internal/tui/update.go`: the apply and undo commands collect the list off the update
+  loop and log every line; the result handler puts it on the picker in the existing result view, so
+  each tool gets its own row and the list has the whole body.
+- The screen after a switch (and after an undo) is one line per tool: `✓` needs nothing more, `→`
+  names the exact action. "Applied" no longer stands alone.
+
+## What was deliberately not done, and why
+
+- **No signal to a terminal.** Ghostty reloads on `SIGUSR2` and Kitty on `SIGUSR1`, but sending
+  signals to the process the installer is running inside is exactly the class of action the rule
+  forbids, and getting the wrong pid is unrecoverable. Kitty's remote-control command is used only
+  when the installer knows which socket it is on; Ghostty is documented, not signalled.
+- **No touch of a live Herdr.** It is a running multiplexer; a reload is a keypress in that session.
+  It is named, never signalled or scripted.
+- **No `tmux source-file` without a server.** It would start a server. The command runs only after
+  `tmux list-sessions` succeeds.
+- **No restart, no `kill`, no `wsl --shutdown`-style action, no plugin manager run.** Anything that
+  ends a session is a user action, named on the screen.
+
+## Red first, and the teeth
+
+- **RED:** `TestApplyingAThemeListsWhatWasReloadedAndWhatIsLeft` (in `util_screen_test.go`) drives a
+  real switch into a temporary home and asserts the picker names Alacritty, Neovim and tmux and says
+  what Neovim (`:colorscheme`) and tmux (`source-file`) still need. Observed before the change:
+  `after a switch the picker is in review=false done=false, want the per-tool reload list`. It uses
+  only pre-existing symbols, so it failed on behaviour, not on a missing name.
+- **GREEN:** the same guard passes; the 93 theme/utilities guards are green.
+- **Teeth:** `TestReloadThemeToolsRunsOnlyTheSafeCommands` observes the exact commands and refuses any
+  containing `kill`, `pkill`, `shutdown`, `reboot`, `poweroff`, `restart`, `reset`, `SIGUSR`,
+  `SIGTERM`, `SIGKILL` or `wsl --`; it also pins `BAT_CONFIG_DIR` and the manual lines.
+  `TestReloadThemeToolsDoesNotStartATmuxServer` proves no `source-file` is sent without a server.
+  `TestThemeReloadRunnerTimesOut` proves a `sleep 30` is killed and returns an error, so a hung tmux
+  or bat cannot hang the screen.
+
+## Validation
+
+- `make check` - PASS (see the handoff for the exact commands and results).
+- `go test ./... -count=1 -timeout 30m` in `installer/` - see the handoff.
+- No commit, no push.

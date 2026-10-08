@@ -183,7 +183,10 @@ opens. The switch applies a complete theme (a definition with every canonical ro
 members the preview reads: **dotfiles**, **Catppuccin Mocha**, **Catppuccin Latte**, **Kanagawa**,
 **Everforest**, **Rosé Pine** and **Nocturne**) to the configs this repository owns for all twelve tools, records
 the exact bytes it replaced in the same `theme.json`, and can put them back with a dedicated undo
-row. bat selects its theme by the custom theme file's name, so the switch exports that name rather
+row. Writing a file is not the same as the running tool showing it, so after the switch it brings the
+theme forward where it safely can — rebuilding bat's theme cache and sourcing tmux's config into a
+server that is already running — and it lists every tool it painted with what, if anything, the user
+still has to reload; a tool that is only reachable from a live session is named, never signalled. bat selects its theme by the custom theme file's name, so the switch exports that name rather
 than the one written inside the file. Every one of the seven paints every tool the switch names —
 Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line editor, the p10k prompt, Herdr, fish,
 bat, Neovim and tmux — and a guard keeps it that way: a theme that could not paint one would name it

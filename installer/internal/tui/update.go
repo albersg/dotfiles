@@ -58,8 +58,12 @@ type (
 
 	// dotfilesThemeChangedMsg is the result of applying or undoing the dotfiles
 	// theme. A failure stays on the section as a notice, like the desktop switch.
+	// reload is the per-tool list an apply or undo produced: what the installer
+	// brought forward and what the user still has to do. It is empty for a dry
+	// run, which changes no file and so has nothing to reload.
 	dotfilesThemeChangedMsg struct {
 		notice string
+		reload []themeReloadTool
 		err    error
 	}
 
@@ -349,16 +353,43 @@ func (m Model) shellAuditCmd() tea.Cmd {
 func (m Model) applyDotfilesThemeCmd(def themeDefinition) tea.Cmd {
 	return func() tea.Msg {
 		homeDir := os.Getenv("HOME")
-		_, notice, err := applyDotfilesTheme(homeDir, m.DotfilesRepoDir, def)
-		return dotfilesThemeChangedMsg{notice: notice, err: err}
+		rec, notice, err := applyDotfilesTheme(homeDir, m.DotfilesRepoDir, def)
+		if err != nil {
+			return dotfilesThemeChangedMsg{notice: notice, err: err}
+		}
+		if rec == nil {
+			// A dry run wrote nothing, so no tool is holding a stale file.
+			return dotfilesThemeChangedMsg{notice: notice}
+		}
+		// The files changed; the list says which tool was reached and which was not.
+		reload := reloadThemeTools(homeDir)
+		for _, tool := range reload {
+			SendLog("utilities", fmt.Sprintf("Theme reload: %s — %s", tool.Tool, tool.Note))
+		}
+		return dotfilesThemeChangedMsg{notice: notice, reload: reload}
 	}
 }
 
-// undoDotfilesThemeCmd puts the recorded blocks back off the update loop.
+// undoDotfilesThemeCmd puts the recorded blocks back off the update loop. It
+// reloads the same way an apply does: putting the old bytes back changes the
+// files too, so the tools that were told about the new theme have to be told
+// about the old one.
 func undoDotfilesThemeCmd(rec dotfilesThemeRecord) tea.Cmd {
 	return func() tea.Msg {
 		notice, err := undoDotfilesTheme(rec)
-		return dotfilesThemeChangedMsg{notice: notice, err: err}
+		if err != nil {
+			return dotfilesThemeChangedMsg{notice: notice, err: err}
+		}
+		if dryRun() {
+			// A dry run put nothing back, so no tool is holding a stale file.
+			return dotfilesThemeChangedMsg{notice: notice}
+		}
+		homeDir := os.Getenv("HOME")
+		reload := reloadThemeTools(homeDir)
+		for _, tool := range reload {
+			SendLog("utilities", fmt.Sprintf("Theme reload: %s — %s", tool.Tool, tool.Note))
+		}
+		return dotfilesThemeChangedMsg{notice: notice, reload: reload}
 	}
 }
 
@@ -687,6 +718,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// every successful change: an apply leaves one, an undo clears it.
 		m.DotfilesThemeRecord = readDotfilesThemeRecord()
 		m.ThemeNotice = msg.notice
+		if len(msg.reload) > 0 {
+			// The files changed; the list says which tool was reached and which was
+			// not. It uses the picker's result view -- the same one the refresh uses --
+			// so the list has the whole body and each tool gets its own line.
+			m.ThemeRefreshReview = true
+			m.ThemeRefreshDone = true
+			m.ThemeRefreshResult = themeReloadResultParagraphs(msg.reload)
+			m.Cursor = 0
+		}
 		return m, nil
 
 	case themeRefreshDetectedMsg:

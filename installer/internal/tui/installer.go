@@ -2032,6 +2032,187 @@ func undoDotfilesTheme(rec dotfilesThemeRecord) (string, error) {
 }
 
 // ----------------------------------------------------------------------------
+// Bringing a theme change forward in the tools that read it
+// ----------------------------------------------------------------------------
+//
+// Writing a tool's file is not the same as the tool showing the theme. Some
+// tools watch their file and reload it live, some read it when they next start,
+// and some are only reachable by the person in front of them. The switch runs
+// the reloads it can do safely and idempotently -- rebuilding bat's theme cache
+// and sourcing tmux's config into a server that is already running -- and names
+// every tool it cannot reach with the exact action that applies the theme. It
+// never starts a server, closes a session or signals a terminal, so a tool that
+// is only reachable by a live session (Herdr, Neovim, an already-open shell) is
+// reported, never touched.
+
+// themeReloadTimeout bounds one reload command. A tmux or bat that hangs must
+// not hang the screen: the command runs off the update loop and is killed when
+// the timeout elapses.
+const themeReloadTimeout = 5 * time.Second
+
+// themeReloadTool is one tool's answer to "does the new theme reach it?".
+type themeReloadTool struct {
+	Tool string
+	// Done is true when nothing is left for the user: the installer ran the
+	// reload, or the tool reads the file on its own. It is false when the theme is
+	// on disk but a tool that is already running still shows the old one.
+	Done bool
+	// Note is the tool's line: what was done, or the exact action left and where
+	// to run it.
+	Note string
+}
+
+// themeReloadRun runs one reload command with a bounded timeout and returns its
+// output. It is a variable so a guard can observe the exact commands without a
+// real tmux or bat on the path.
+var themeReloadRun = func(command string, env []string) (string, error) {
+	result := system.Run(command, &system.ExecOptions{Env: env, Timeout: themeReloadTimeout})
+	if result.Error != nil {
+		detail := strings.TrimSpace(result.Stderr)
+		if detail == "" {
+			detail = strings.TrimSpace(result.Output)
+		}
+		if detail != "" {
+			return "", fmt.Errorf("%v: %s", result.Error, detail)
+		}
+		return "", result.Error
+	}
+	return strings.TrimSpace(result.Output), nil
+}
+
+// themeReloadCommandExists is system.CommandExists, indirected so a guard can
+// answer it without touching the runner's PATH.
+var themeReloadCommandExists = system.CommandExists
+
+// themeReloadInstalled reports whether a tool is on this machine. The switch only
+// writes a file that exists, so only a tool whose own config is there was painted
+// and belongs in the reload list. bat is the exception: its selection lives in
+// .zshrc, so it is offered by the bat command or its config directory instead.
+func themeReloadInstalled(tool, path, homeDir string) bool {
+	if tool == "bat" {
+		return themeReloadCommandExists("bat") || system.DirExists(filepath.Join(homeDir, ".config", "bat"))
+	}
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// reloadThemeTools brings the applied theme forward in every installed tool and
+// returns one line per tool, in the artifact table's order. It runs only the
+// reloads that touch no live session and can never start one: bat's cache is
+// rebuilt from the theme files already installed, and tmux's config is sourced
+// into a server that is already running. Everything else is named with the exact
+// action and where to run it.
+func reloadThemeTools(homeDir string) []themeReloadTool {
+	var out []themeReloadTool
+	seen := map[string]bool{}
+	for _, art := range themeActiveArtifacts {
+		if seen[art.Tool] {
+			continue
+		}
+		seen[art.Tool] = true
+		path := themeInstalledPath(art, homeDir)
+		if !themeReloadInstalled(art.Tool, path, homeDir) {
+			continue
+		}
+		out = append(out, reloadThemeToolFor(art, path, homeDir))
+	}
+	return out
+}
+
+// reloadThemeToolFor is the per-tool knowledge: what the installer can do for a
+// tool, and what it must leave to the user. Every manual line names the key, the
+// command and the shell it belongs to, because "reload the tool" is not an
+// instruction.
+func reloadThemeToolFor(art themeArtifact, path, homeDir string) themeReloadTool {
+	switch art.Tool {
+	case "alacritty":
+		return themeReloadTool{Tool: "Alacritty", Done: true,
+			Note: "Alacritty watches its config and reloads it live, so the new colours are already on screen."}
+	case "wezterm":
+		return themeReloadTool{Tool: "WezTerm", Done: true,
+			Note: "WezTerm watches its config and reloads it live, so the new colours are already on screen."}
+	case "starship":
+		return themeReloadTool{Tool: "Starship", Done: true,
+			Note: "Starship reads its config at each prompt, so the next prompt uses the theme."}
+	case "kitty":
+		if os.Getenv("KITTY_LISTEN_ON") != "" && themeReloadCommandExists("kitty") {
+			if _, err := themeReloadRun("kitty @ load-config", nil); err == nil {
+				return themeReloadTool{Tool: "Kitty", Done: true,
+					Note: "reloaded the running Kitty over its own socket (`kitty @ load-config`)."}
+			}
+		}
+		return themeReloadTool{Tool: "Kitty", Done: false,
+			Note: "a Kitty that is already open keeps the old colours: press Ctrl+Shift+F5, or run `kitty @ load-config`. A new window reads the file."}
+	case "ghostty":
+		return themeReloadTool{Tool: "Ghostty", Done: false,
+			Note: "a Ghostty that is already open keeps the old colours: press Ctrl+Shift+, on macOS, or send it SIGUSR2 on Linux. A new window reads the file."}
+	case "herdr":
+		return themeReloadTool{Tool: "Herdr", Done: false,
+			Note: "a Herdr session that is already running keeps the old theme: press Ctrl+b Shift+r to reload its config, or restart it. The installer does not touch a live multiplexer."}
+	case "zsh":
+		return themeReloadTool{Tool: "zsh", Done: false,
+			Note: "a shell that is already open keeps the old palette: open a new shell, or run `exec zsh`."}
+	case "p10k":
+		return themeReloadTool{Tool: "p10k", Done: false,
+			Note: "a prompt that is already drawn keeps the old palette: run `p10k reload` in that shell, or open a new shell."}
+	case "nvim":
+		return themeReloadTool{Tool: "Neovim", Done: false,
+			Note: "a Neovim that is already open keeps the old colorscheme: run `:colorscheme <name>` in it. A new one reads the selection."}
+	case "fish":
+		return themeReloadTool{Tool: "fish", Done: false,
+			Note: "a fish shell that is already open keeps the old palette: open a new shell, or run `exec fish`."}
+	case "bat":
+		if themeReloadCommandExists("bat") {
+			batConfigDir := filepath.Join(homeDir, ".config", "bat")
+			if _, err := themeReloadRun("bat cache --build", []string{"BAT_CONFIG_DIR=" + batConfigDir}); err == nil {
+				return themeReloadTool{Tool: "bat", Done: false,
+					Note: "bat's theme cache was rebuilt, so the new theme exists; open a new shell (or `exec zsh`) so BAT_THEME is read."}
+			}
+		}
+		return themeReloadTool{Tool: "bat", Done: false,
+			Note: "the new theme is not in bat's cache yet: run `bat cache --build`, then open a new shell so BAT_THEME is read."}
+	case "tmux":
+		if themeReloadCommandExists("tmux") {
+			if _, err := themeReloadRun("tmux list-sessions", nil); err == nil {
+				if _, err := themeReloadRun("tmux source-file "+shellSingleQuote(path), nil); err == nil {
+					return themeReloadTool{Tool: "tmux", Done: true,
+						Note: "sourced the config into the tmux server that is already running (`tmux source-file`)."}
+				}
+			}
+		}
+		return themeReloadTool{Tool: "tmux", Done: false,
+			Note: "a tmux that is already running keeps the old style: run `tmux source-file ~/.tmux.conf`. A new server reads the file."}
+	}
+	return themeReloadTool{Tool: art.Tool, Done: false,
+		Note: "what this tool needs in order to read the new theme is not known here; restart it after the change."}
+}
+
+// themeReloadResultParagraphs is what the picker says after a switch: one line
+// per installed tool, marking what the installer did and what is left for the
+// user. It carries the list because "applied" promised more than it delivered --
+// the files changed, but a tool that was already running did not.
+func themeReloadResultParagraphs(tools []themeReloadTool) []string {
+	if len(tools) == 0 {
+		return []string{"The theme is written to every file it owns. No tool that reads one of those files is installed, so there is nothing left to reload."}
+	}
+	paragraphs := []string{
+		"The theme is written to every file it owns. Writing a file is not the same as the tool showing it, so here is each tool the switch painted, what the installer did for it, and what is left:",
+	}
+	for _, tool := range tools {
+		mark := "→"
+		if tool.Done {
+			mark = "✓"
+		}
+		paragraphs = append(paragraphs, fmt.Sprintf("%s %s — %s", mark, tool.Tool, tool.Note))
+	}
+	paragraphs = append(paragraphs, "A tool that is not installed is not listed; a ✓ tool needs nothing more, and a → tool names the action that applies the theme.")
+	return paragraphs
+}
+
+// ----------------------------------------------------------------------------
 // Refreshing the managed files that predate the markers
 // ----------------------------------------------------------------------------
 //
