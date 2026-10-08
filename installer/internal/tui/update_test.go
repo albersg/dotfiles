@@ -1336,6 +1336,10 @@ func TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenUtilities
 	m.DotfilesThemes = nil
+	// The read has finished and failed: no candidate held themes/*.toml. The
+	// failure is written directly because a runner standing inside the checkout
+	// would find the repository's own themes/ and the read would succeed.
+	m.DotfilesThemesErr = themeDefinitionsNotFoundMessage()
 	m.RepoDir = ""
 
 	for _, option := range m.GetCurrentOptions() {
@@ -1360,6 +1364,86 @@ func TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository(t *testing.T) {
 	m.DotfilesThemes = []themeDefinition{{ID: "already"}}
 	if cmd := m.dotfilesThemesCmdIfNeeded(); cmd != nil {
 		t.Error("entering the section read the definitions twice")
+	}
+}
+
+// TestUtilitiesSaysItIsReadingTheThemeDefinitionsWhileTheReadRuns pins the
+// honest half of the section's opening: the definitions are read when the
+// section opens, and until that read answers the section must not claim the
+// theme is not switchable. "Not switchable" is a fact only a finished read can
+// establish, and saying it early is the lie the section used to draw for the
+// instant between the keypress and the answer. The key is driven through the
+// real dispatch, so the state this measures is the one a userpress produces.
+func TestUtilitiesSaysItIsReadingTheThemeDefinitionsWhileTheReadRuns(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+	m.DotfilesThemes = nil
+	m.DotfilesThemesErr = ""
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = next.(Model)
+	if m.Screen != ScreenUtilities {
+		t.Fatalf("u opened %v, want ScreenUtilities", m.Screen)
+	}
+
+	body := strings.Join(m.utilitiesDescription(), " ")
+	if strings.Contains(body, "not switchable") {
+		t.Errorf("the section calls the theme not switchable while it is still reading: %q", body)
+	}
+	if !strings.Contains(body, "Reading the dotfiles' theme definitions") {
+		t.Errorf("the section does not say it is reading the definitions: %q", body)
+	}
+}
+
+// TestALateBackupRowDoesNotMoveTheRowUnderTheCursor pins the no-move half of the
+// rule for the main menu. The backup list is read off the update loop, and when
+// it lands the Restore row is inserted above Utilities. The cursor is an index,
+// so without holding it on the row it named, Enter on Utilities silently became
+// Enter on a row that appeared a moment earlier. The press is driven through the
+// real dispatch, so the assertion is about the key the user actually presses.
+func TestALateBackupRowDoesNotMoveTheRowUnderTheCursor(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+	m.AvailableBackups = nil
+
+	options := m.GetCurrentOptions()
+	utilities := -1
+	for i, option := range options {
+		if strings.Contains(option, "Utilities") {
+			utilities = i
+			break
+		}
+	}
+	if utilities < 0 {
+		t.Fatal("the main menu holds no Utilities row")
+	}
+	m.Cursor = utilities
+
+	next, _ := m.Update(loadBackupsMsg{backups: []system.BackupInfo{{Path: "/tmp/backup"}}})
+	m = next.(Model)
+
+	if got := m.GetCurrentOptions()[m.Cursor]; !strings.Contains(got, "Utilities") {
+		t.Fatalf("a backup row that arrived late moved the cursor to %q, want the Utilities row", got)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.Screen != ScreenUtilities {
+		t.Errorf("enter after the backup row arrived opened %v, want ScreenUtilities", m.Screen)
+	}
+
+	// The row below the insertion point holds too: with the cursor on Exit, the
+	// same late answer must not turn the quit key into a restore.
+	exitModel := NewModel()
+	exitModel.Screen = ScreenMainMenu
+	exitModel.Cursor = len(exitModel.GetCurrentOptions()) - 1
+	next, _ = exitModel.Update(loadBackupsMsg{backups: []system.BackupInfo{{Path: "/tmp/backup"}}})
+	exitModel = next.(Model)
+	if got := exitModel.GetCurrentOptions()[exitModel.Cursor]; !strings.Contains(got, "Exit") {
+		t.Errorf("a backup row that arrived late moved the cursor to %q, want the Exit row", got)
+	}
+	if _, cmd := exitModel.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil {
+		t.Error("enter on Exit after the backup row arrived did not quit")
 	}
 }
 
@@ -2237,4 +2321,99 @@ func TestThemeRefreshEscapeCancelsTheReview(t *testing.T) {
 	if got, _ := os.ReadFile(dst); string(got) != old {
 		t.Error("Esc in the review wrote the file")
 	}
+}
+
+// TestEscapeOnTheMainMenuDoesNotQuit pins the repair of the one screen that
+// broke the rule every other screen follows: Esc means "back", and the main menu
+// is the root, so there is nowhere back to go. It used to quit the whole
+// application -- the most destructive action on an unannounced global key --
+// while the footer announced quit on [Space q] and the documentation said "Go
+// back". The key, the documentation and the footer now agree, and quitting keeps
+// the keys that announce it.
+func TestEscapeOnTheMainMenuDoesNotQuit(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+
+	if m.Quitting {
+		t.Error("Esc on the main menu quit the application, but the documentation says Esc goes back")
+	}
+	if cmd != nil {
+		t.Error("Esc on the main menu returned a command, want none: it is a no-op there")
+	}
+	if m.Screen != ScreenMainMenu {
+		t.Errorf("Esc on the main menu moved to %v, want the main menu", m.Screen)
+	}
+
+	// The teeth: the keys that do announce quitting still quit, so the repair is
+	// not a screen that cannot be left.
+	t.Run("Space q still quits", func(t *testing.T) {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+		next, cmd := next.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+		if !next.(Model).Quitting || cmd == nil {
+			t.Error("Space q no longer quits, so Esc was the only way out and the repair removed it")
+		}
+	})
+	t.Run("Ctrl+C still quits", func(t *testing.T) {
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if !next.(Model).Quitting || cmd == nil {
+			t.Error("Ctrl+C no longer quits")
+		}
+	})
+}
+
+// TestBackspaceMeansWhatEscapeMeans pins the second way to say "back".
+// Backspace is the same key as Esc on every screen where Esc means back, through
+// the real dispatch -- it used to work on only four screens, unannounced, so the
+// same key did two different things and the user could not tell which. The one
+// exception is the trainer's answer line, where Backspace is text: it deletes
+// what was typed, and taking that away to make the map uniform would stop a
+// player correcting an answer.
+func TestBackspaceMeansWhatEscapeMeans(t *testing.T) {
+	t.Run("it goes back where Esc goes back", func(t *testing.T) {
+		cases := []struct {
+			name       string
+			screen     Screen
+			prevScreen Screen
+			want       Screen
+		}{
+			{"the main menu has nowhere to go", ScreenMainMenu, ScreenMainMenu, ScreenMainMenu},
+			{"the learn menu steps to its opener", ScreenLearnTerminals, ScreenMainMenu, ScreenMainMenu},
+			{"the keymaps menu steps to its opener", ScreenKeymapsMenu, ScreenMainMenu, ScreenMainMenu},
+			{"the restore list steps to the menu", ScreenRestoreBackup, ScreenMainMenu, ScreenMainMenu},
+			{"the utilities section steps to the menu", ScreenUtilities, ScreenMainMenu, ScreenMainMenu},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := NewModel()
+				m.Screen = tc.screen
+				m.PrevScreen = tc.prevScreen
+
+				next, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+				got := next.(Model)
+				if got.Screen != tc.want {
+					t.Errorf("%s: Backspace left the screen on %d, want %d (that is where Esc goes)", tc.name, int(got.Screen), int(tc.want))
+				}
+				if got.Quitting {
+					t.Error("Backspace quit the application")
+				}
+			})
+		}
+	})
+
+	t.Run("it deletes text on the trainer's answer line", func(t *testing.T) {
+		m := newTrainerLessonModel(t)
+		m.TrainerInput = "ww"
+
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = next.(Model)
+		if m.TrainerInput != "w" {
+			t.Errorf("TrainerInput = %q after Backspace, want %q: the answer line owns Backspace", m.TrainerInput, "w")
+		}
+		if m.Screen != ScreenTrainerLesson {
+			t.Errorf("Backspace left the lesson for %v, want the lesson: it is text there, not back", m.Screen)
+		}
+	})
 }

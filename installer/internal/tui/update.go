@@ -315,7 +315,7 @@ func loadWSLResourceStateCmd(repoDir string, isWSL bool) tea.Cmd {
 // returns no command only when the read has already finished, so the section's
 // own state -- available or not -- is what it draws.
 func (m *Model) wslResourceStateCmdIfNeeded() tea.Cmd {
-	if m.WSLState.Resolved {
+	if m.WSLState.Resolved && !m.WSLState.Refreshing {
 		return nil
 	}
 	return loadWSLResourceStateCmd(m.RepoDir, m.SystemInfo != nil && m.SystemInfo.IsWSL)
@@ -645,7 +645,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case loadBackupsMsg:
+		// The Restore row is inserted above Utilities when backups exist, so the
+		// index the cursor held before this answer no longer names the same row.
+		// The label is kept and re-found, so a row that arrived late cannot take
+		// the keypress that was aimed at the row that was already there.
+		held := m.selectedOption()
 		m.AvailableBackups = msg.backups
+		m.holdCursorOn(held)
 		return m, nil
 
 	case trainerStatsLoadedMsg:
@@ -709,10 +715,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case wslResourceLoadedMsg:
-		// The read fills the state once. A second read arriving after the screen
-		// has been written would roll the draft back to what the file held, so the
-		// first answer is the one that stands.
-		if !m.WSLState.Resolved {
+		// The first read fills the state once: a later answer arriving after the
+		// screen has been written would roll the draft back to what the file held.
+		// The refresh a write asked for is the one exception -- it is what replaces
+		// the values the write just changed -- so it is accepted too, and the state
+		// it brings clears the refreshing mark by not carrying one.
+		if !m.WSLState.Resolved || m.WSLState.Refreshing {
 			m.WSLState = msg.state
 		}
 		return m, nil
@@ -732,7 +740,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// What the file holds has changed, so the read half is refreshed from the
 		// file the write left behind rather than from what the screen remembered.
-		m.WSLState.Resolved = false
+		// The table the user was reading stays on screen while that read runs: the
+		// refresh updates its values in place instead of replacing the body, so the
+		// press produces one change, not two.
+		m.WSLState.Refreshing = true
 		return m, m.wslResourceStateCmdIfNeeded()
 
 	case shellAuditMeasuredMsg:
@@ -987,6 +998,17 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// ESC goes back from content/learn screens (and cancels leader mode implicitly)
 	if key == "esc" {
+		return m.handleEscape()
+	}
+
+	// Backspace is the second way to say "back": it means exactly what Esc means
+	// on every screen, through this same dispatch, so the two cannot drift apart.
+	// The one place it does not is the trainer's answer line, where backspace is
+	// text -- it deletes the last unit the player typed, and taking that away to
+	// make the map uniform would stop a player correcting an answer. Backspace
+	// used to work on only four screens and to be announced on none, so the same
+	// key did two different things and the user could not tell which.
+	if key == "backspace" && !isTrainerInputScreen(m.Screen) {
 		return m.handleEscape()
 	}
 
@@ -1246,10 +1268,14 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = ""
 		saveTrainerStats(&m)
-	// Main menu - quit
+	// The main menu is the root of the flow, so Esc has nowhere back to go. It
+	// used to quit the whole application, which made this one unannounced global
+	// key the most destructive key in the interface, while the footer announced
+	// quit on [Space q] and the documentation said "Go back". Esc is a no-op here;
+	// quitting keeps its own keys, and the key, the documentation and the footer
+	// now say the same thing.
 	case ScreenMainMenu:
-		m.Quitting = true
-		return m, tea.Quit
+		return m, nil
 	}
 	return m, nil
 }
@@ -1496,7 +1522,7 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "esc", "backspace":
+	case "esc":
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 		m.ThemeNotice = ""
@@ -1603,7 +1629,7 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 		// The recommendation is one key away rather than a number to remember.
 		m.WSLState.Draft = m.WSLState.Plan
 		m.WSLNotice = ""
-	case "esc", "backspace":
+	case "esc":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.WSLNotice = ""
@@ -1633,7 +1659,7 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 // never work done here.
 func (m Model) handleTerminalCapabilitiesKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "backspace", "enter", " ":
+	case "esc", "enter", " ":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	}
@@ -1666,7 +1692,7 @@ func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "esc", "backspace":
+	case "esc":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	case "enter", " ":
@@ -1719,7 +1745,7 @@ func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "esc", "backspace":
+	case "esc":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.ThemeNotice = ""
@@ -1773,7 +1799,7 @@ func (m Model) handleThemeRefreshKeys(key string) (tea.Model, tea.Cmd) {
 		if m.Cursor < len(options)-1 {
 			m.Cursor++
 		}
-	case "esc", "backspace":
+	case "esc":
 		m.resetThemeRefresh()
 		m.ThemeNotice = ""
 	case "enter", " ":
@@ -1841,7 +1867,7 @@ func (m Model) handleSelectionKeys(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "esc", "backspace":
+	case "esc":
 		// Go back to previous installation step
 		return m.goBackInstallStep()
 
@@ -2580,7 +2606,7 @@ func (m Model) handleBackupConfirmKeys(key string) (tea.Model, tea.Cmd) {
 			// Reset choices when canceling
 			m.Choices = UserChoices{}
 		}
-	case "esc", "backspace":
+	case "esc":
 		// Go back to Nvim selection
 		m.Screen = ScreenNvimSelect
 		m.Cursor = 0
@@ -2741,6 +2767,20 @@ func isTrainerScreen(s Screen) bool {
 	switch s {
 	case ScreenTrainerMenu, ScreenTrainerLesson, ScreenTrainerPractice,
 		ScreenTrainerBoss, ScreenTrainerResult, ScreenTrainerBossResult:
+		return true
+	default:
+		return false
+	}
+}
+
+// isTrainerInputScreen reports whether the screen reads backspace as text rather
+// than as the "back" key. The lesson, practice and boss screens own the answer
+// line, so a backspace there deletes the last unit the player typed; everywhere
+// else Backspace means what Esc means. The trainer menu and the two result
+// screens are not input screens: backspace steps back from them like Esc does.
+func isTrainerInputScreen(s Screen) bool {
+	switch s {
+	case ScreenTrainerLesson, ScreenTrainerPractice, ScreenTrainerBoss:
 		return true
 	default:
 		return false

@@ -188,7 +188,7 @@ theme forward where it safely can — rebuilding bat's theme cache, sourcing tmu
 server that is already running, and asking a Herdr the installer is running inside to reload its config
 over that session's own socket — and it lists every tool it painted with what, if anything, the user
 still has to reload; a tool that is only reachable from a live session is named, never signalled. bat selects its theme by the custom theme file's name, so the switch exports that name rather
-than the one written inside the file. Every one of the seven paints every tool the switch names —
+than the one written inside the file. Neovim is named by a colorscheme, and that name resolves on the machine or the line is not written: a generated colorscheme is installed into `~/.config/nvim/colors/<name>.lua` — where Neovim reads it on its runtimepath — before the switch writes the line, and a plugin's colorscheme is named only when the plugin is installed, so the switch never starts Neovim with `E185: Cannot find color scheme`. Every one of the seven paints every tool the switch names —
 Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line editor, the p10k prompt, Herdr, fish,
 bat, Neovim and tmux — and a guard keeps it that way: a theme that could not paint one would name it
 on its row rather than leaving it on the old palette silently, and a theme missing roles, or the

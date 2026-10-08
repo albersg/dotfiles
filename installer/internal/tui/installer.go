@@ -1855,6 +1855,10 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 	// update rather than skipping them in silence. It is keyed by path: several
 	// artifacts share one file.
 	var cannotUpdate []string
+	// nvimUnreachable names why the Neovim colorscheme could not be made reachable
+	// on this machine. It is empty when the line either resolves or was never a
+	// candidate; when it is not empty the line was left out.
+	var nvimUnreachable string
 	themed := 0
 	// record keeps the first bytes read for a path. Several artifacts can share
 	// one file (Starship's two blocks, .zshrc's zsh and bat blocks), and a later
@@ -1939,6 +1943,18 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 			}
 			updated = region
 		}
+		if art.Tool == "nvim" {
+			// The colorscheme line names a colorscheme Neovim has to find, so the
+			// name is made reachable on this machine before the line is written: a
+			// generated colorscheme is installed under ~/.config/nvim/colors, and a
+			// plugin's is only named when the plugin is installed. When it cannot be
+			// reached the line is left out rather than starting Neovim broken, and
+			// the reason is said out loud below.
+			if reason := reachableNvimColorscheme(homeDir, def); reason != "" {
+				nvimUnreachable = reason
+				continue
+			}
+		}
 		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
 			restoreWritten()
 			return nil, "", fmt.Errorf("could not write %s, so the files already changed were put back: %w", path, err)
@@ -1957,10 +1973,17 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 		SendLog("utilities", fmt.Sprintf("%s carries the ownership marker but no generated block or region anchors, so it cannot be updated without refreshing it; reinstall the dotfiles to write the block.", path))
 	}
 
+	if nvimUnreachable != "" {
+		SendLog("utilities", "Neovim was left on its previous colorscheme: "+nvimUnreachable)
+	}
+
 	if themed == 0 {
 		restoreWritten()
 		if len(cannotUpdate) > 0 {
 			return nil, "", fmt.Errorf("%s", themeCannotUpdateSentence(cannotUpdate))
+		}
+		if nvimUnreachable != "" {
+			return nil, "", fmt.Errorf("Neovim was left on its previous colorscheme: %s, and no other installed theme block was found, so nothing was changed", nvimUnreachable)
 		}
 		return nil, "", fmt.Errorf("no installed theme block was found, so nothing was changed")
 	}
@@ -1992,6 +2015,9 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 	}
 	if len(regionAdopted) > 0 {
 		notice += fmt.Sprintf("Adopted %d file(s) whose dotfiles region was rewritten in place, leaving the rest of each file untouched. ", len(regionAdopted))
+	}
+	if nvimUnreachable != "" {
+		notice += fmt.Sprintf("Neovim was left on its previous colorscheme: %s. ", nvimUnreachable)
 	}
 	notice += fmt.Sprintf("The %s theme is applied to %d file(s). The blocks it replaced are recorded; use Undo to put them back.",
 		def.Name, themed)
@@ -3363,6 +3389,122 @@ func themeNvimAvailable(def themeDefinition) bool {
 		return true
 	}
 	return themeNvimGeneratedFile(def.ID) != ""
+}
+
+// nvimColorsDir is the directory Neovim reads a colorscheme this repository
+// generates from: ~/.config/nvim/colors, on the user's own config, which is on
+// the runtimepath ahead of any plugin. Neovim resolves :colorscheme <name> by
+// finding colors/<name>.lua or colors/<name>.vim there, so the file is the
+// machine-side proof the line loads.
+func nvimColorsDir(homeDir string) string {
+	return filepath.Join(homeDir, ".config", "nvim", "colors")
+}
+
+// nvimColorschemeInstalledPath is the file Neovim has to hold for a definition's
+// generated colorscheme to resolve.
+func nvimColorschemeInstalledPath(homeDir string, def themeDefinition) string {
+	if def.Nvim == "" {
+		return ""
+	}
+	return filepath.Join(nvimColorsDir(homeDir), def.Nvim+".lua")
+}
+
+// nvimPluginColorsDirs lists the colors/ directories the plugins installed on
+// this machine put a colorscheme in, under Neovim's data root: lazy.nvim's
+// plugin tree and Vim's native packages. The file name is the colorscheme name
+// :colorscheme resolves, so a file here is the proof a plugin-named colorscheme
+// will load.
+func nvimPluginColorsDirs(homeDir string) []string {
+	dataHome := strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
+	if dataHome == "" {
+		dataHome = filepath.Join(homeDir, ".local", "share")
+	}
+	nvimData := filepath.Join(dataHome, "nvim")
+	var dirs []string
+	if entries, err := os.ReadDir(filepath.Join(nvimData, "lazy")); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				dirs = append(dirs, filepath.Join(nvimData, "lazy", entry.Name(), "colors"))
+			}
+		}
+	}
+	for _, kind := range []string{"start", "opt"} {
+		packed, _ := filepath.Glob(filepath.Join(nvimData, "site", "pack", "*", kind, "*", "colors"))
+		dirs = append(dirs, packed...)
+	}
+	return dirs
+}
+
+// nvimColorschemeFileExists reports whether a colorscheme name has a colors file
+// in any directory Neovim reads on this machine. It is the check the switch runs
+// before it writes a line naming a colorscheme it does not generate itself.
+func nvimColorschemeFileExists(homeDir, name string) bool {
+	if name == "" {
+		return false
+	}
+	dirs := append([]string{nvimColorsDir(homeDir)}, nvimPluginColorsDirs(homeDir)...)
+	for _, dir := range dirs {
+		for _, ext := range []string{".lua", ".vim"} {
+			if _, err := os.Stat(filepath.Join(dir, name+ext)); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// installGeneratedNvimColorscheme writes a definition's generated colorscheme
+// into ~/.config/nvim/colors, so the line the switch writes names a colorscheme
+// Neovim can load. It never clobbers a file this repository did not write: a
+// colors file with no ownership marker belongs to the user, and it still
+// resolves the name, so it is left exactly as it is. The generated files are
+// install assets like bat's .tmTheme files rather than part of the undo record:
+// an undo restores the colorscheme line and leaves the file available, which
+// changes nothing Neovim shows.
+func installGeneratedNvimColorscheme(homeDir string, def themeDefinition) (string, error) {
+	target := nvimColorschemeInstalledPath(homeDir, def)
+	if target == "" {
+		return "", fmt.Errorf("theme %q names no Neovim colorscheme", def.ID)
+	}
+	if existing, err := os.ReadFile(target); err == nil && !strings.Contains(string(existing), themeOwnershipMarker) {
+		return target, nil
+	}
+	content, err := renderNvimTheme(def)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+// reachableNvimColorscheme makes a definition's Neovim colorscheme reachable on
+// this machine and returns the reason when it cannot be. A generated colorscheme
+// is installed under ~/.config/nvim/colors; a plugin's colorscheme is only named
+// when a colors file this machine's Neovim reads proves the plugin is installed.
+// An empty string means :colorscheme on the name the switch is about to write
+// will load rather than raise E185.
+func reachableNvimColorscheme(homeDir string, def themeDefinition) string {
+	if def.Nvim == "" {
+		return fmt.Sprintf("the %s theme names no Neovim colorscheme", def.Name)
+	}
+	if themeNvimGeneratedFile(def.ID) != "" {
+		if _, err := installGeneratedNvimColorscheme(homeDir, def); err != nil {
+			return fmt.Sprintf("its generated colorscheme could not be installed: %v", err)
+		}
+		return ""
+	}
+	if slices.Contains(themeNvimPluginColorschemes, def.Nvim) {
+		if nvimColorschemeFileExists(homeDir, def.Nvim) {
+			return ""
+		}
+		return fmt.Sprintf("the plugin that registers the %s colorscheme is not installed", def.Nvim)
+	}
+	return fmt.Sprintf("no plugin or generated file provides the %s colorscheme", def.Nvim)
 }
 
 // themeBaseIsLight reports whether a theme's background is a light colour, so

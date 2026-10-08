@@ -1186,8 +1186,20 @@ func (m Model) renderUtilities() string {
 // so it uses the same budget arithmetic; the arrows are the extra keys, and they
 // are in the legend rather than in prose.
 func (m Model) renderWSLResources() string {
-	return m.renderThemeScreen(m.wslResourceDescription(), m.WSLNotice,
+	return m.renderThemeScreen(m.wslResourceDescription(), m.wslNoticeLine(),
 		[]installerHint{hintUp, hintDown, hintAdjust, hintRecommended, hintSelect, hintBack})
+}
+
+// wslNoticeLine is the WSL screen's result line: the write's outcome, and while
+// the values are being read back from the file, a mark that the refresh is
+// running. The mark lives in the notice slot rather than the body so the table
+// below it keeps its size and place through the refresh: the outcome lands where
+// the press put it, and the re-read only changes values in place.
+func (m Model) wslNoticeLine() string {
+	if m.WSLState.Refreshing && m.WSLNotice != "" {
+		return "Refreshing the values from the file… " + m.WSLNotice
+	}
+	return m.WSLNotice
 }
 
 // renderTerminalCapabilities draws the capability report: one row per
@@ -1415,6 +1427,16 @@ func activityLines(activity *themeActivity, width, rows int) []string {
 	return lines
 }
 
+// dotfilesThemesPending reports whether the definitions have never finished a
+// read: nothing is held and no failure has been recorded, so a read is the only
+// thing that can be in flight. It is what lets the section say it is reading
+// instead of claiming the theme is not switchable -- a fact only a finished read
+// can establish. A read that ends either way, with definitions or with the
+// reason it could not, is no longer pending.
+func (m Model) dotfilesThemesPending() bool {
+	return m.DotfilesThemes == nil && m.DotfilesThemesErr == ""
+}
+
 // utilitiesDescription is what the section says about itself, in the installer's
 // own voice: which desktop it found and what that change touches, or the honest
 // account of why there is nothing to offer here. The file it names is the
@@ -1468,6 +1490,15 @@ func (m Model) utilitiesDescription() []string {
 	// of them holds themes/*.toml the section says it cannot be switched here
 	// instead of showing rows that would fail.
 	if len(m.DotfilesThemes) == 0 {
+		if m.dotfilesThemesPending() {
+			// The definitions are read when the section opens, so an empty list
+			// with no recorded failure is a read in flight, not a verdict. The
+			// section says only that it is reading: "not switchable" is a claim
+			// about the result, and there is no result yet.
+			paragraphs = append(paragraphs,
+				"Reading the dotfiles' theme definitions from the repository checkout…")
+			return paragraphs
+		}
 		reason := m.DotfilesThemesErr
 		if reason == "" {
 			reason = themeDefinitionsNotFoundMessage()
@@ -1493,6 +1524,9 @@ func (m Model) themePickerDescription() []string {
 		return themeRefreshReviewParagraphs(m.ThemeRefreshCandidates)
 	}
 	if len(m.DotfilesThemes) == 0 {
+		if m.dotfilesThemesPending() {
+			return []string{"Reading the dotfiles' theme definitions from the repository checkout…"}
+		}
 		reason := m.DotfilesThemesErr
 		if reason == "" {
 			reason = themeDefinitionsNotFoundMessage()
@@ -2388,7 +2422,7 @@ func (m Model) lazyVimTopicLines(topic LazyVimTopic) []string {
 	allLines = append(allLines, "") // Empty line
 
 	if topic.CodeExample != "" {
-		allLines = append(allLines, "📝 Example:", "")
+		allLines = append(allLines, "Example:", "")
 		for _, line := range strings.Split(topic.CodeExample, "\n") {
 			allLines = append(allLines, truncate(line, width))
 		}
@@ -2396,7 +2430,7 @@ func (m Model) lazyVimTopicLines(topic LazyVimTopic) []string {
 	}
 
 	if len(topic.Tips) > 0 {
-		allLines = append(allLines, "💡 Tips:")
+		allLines = append(allLines, "Tips:")
 		for _, tip := range topic.Tips {
 			allLines = append(allLines, truncate("  • "+tip, width))
 		}
@@ -2459,7 +2493,7 @@ func (m Model) renderLazyVimTopic() string {
 			strings.HasPrefix(line, "map("), strings.HasPrefix(line, "vim."),
 			strings.HasPrefix(line, "require"):
 			body = append(body, CodeStyle.Render(line))
-		case strings.HasPrefix(line, "📝"), strings.HasPrefix(line, "💡"):
+		case strings.HasPrefix(line, "Example:"), strings.HasPrefix(line, "Tips:"):
 			body = append(body, chip(line))
 		case strings.HasPrefix(line, "  •"):
 			body = append(body, InfoStyle.Render(line))
@@ -2949,7 +2983,7 @@ func (m Model) renderBackupConfirm() string {
 		MutedStyle.Render("The following configs will be overwritten:"),
 		"",
 	}
-	body = append(body, listRows(m.ExistingConfigs, "  ⚠️ ", configRows, width, WarningStyle)...)
+	body = append(body, listRows(m.ExistingConfigs, "  ! ", configRows, width, WarningStyle)...)
 	body = append(body, "")
 	body = append(body, InfoStyle.Render("Creating a backup allows you to restore later if needed."))
 	body = append(body, "")
@@ -2988,7 +3022,7 @@ func (m Model) renderRestoreBackup() string {
 		start, end = listWindow(m.Cursor, listBudget, len(m.AvailableBackups))
 		for i := start; i < end; i++ {
 			backup := m.AvailableBackups[i]
-			label := fmt.Sprintf("📁 %s (%d items)", backup.Timestamp.Format("2006-01-02 15:04:05"), len(backup.Files))
+			label := fmt.Sprintf("%s (%d items)", backup.Timestamp.Format("2006-01-02 15:04:05"), len(backup.Files))
 			body = append(body, m.rowBar(label, i == m.Cursor, ""))
 		}
 	}
@@ -3040,7 +3074,7 @@ func (m Model) renderRestoreConfirm() string {
 	}
 	body = append(body, gutteredBlock(listRows(backup.Files, "• ", fileRows, width-2, InfoStyle))...)
 	body = append(body, "")
-	body = append(body, WarningStyle.Render("⚠️ Restoring will overwrite your current configs!"))
+	body = append(body, WarningStyle.Render("Restoring will overwrite your current configs!"))
 	body = append(body, "")
 	body = append(body, m.menuRows(options, m.Cursor)...)
 

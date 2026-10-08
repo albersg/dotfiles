@@ -21,11 +21,13 @@
 - **Por qué es un problema**: durante ese hueco la pantalla **miente** (dice que la función no existe cuando se está leyendo), y el listado cambia bajo el cursor.
 - **Evidencia**: al entrar se lanza la lectura asíncrona (`update.go:1141-1146`, `update.go:1397-1403` → `tea.Batch(dotfilesThemesCmdIfNeeded(), wslResourceStateCmdIfNeeded())`; `update.go:297-303`). Mientras no llega, `utilitiesDescription` cae en la rama «no switchable» porque `DotfilesThemes` está vacío y `DotfilesThemesErr` también (`view.go:1393-1398`), y `GetCurrentOptions` no ofrece la fila de temas (`model.go:554-591`). El resultado llega en `dotfilesThemesLoadedMsg` (`update.go:657-665`).
 - **Contraste que demuestra que ya saben hacerlo bien**: WSL sí tiene un «*yet: reading...*» honesto (`view.go:1603-1605`) y el panel Live dice «*reading this machine…*» (`metrics.go:175-184`). El tema no tiene ese estado intermedio.
+- **Resuelto** (`fix/no-lies-no-moves`): con `DotfilesThemes == nil` y `DotfilesThemesErr == ""`, `utilitiesDescription` dice *«Reading the dotfiles' theme definitions from the repository checkout…»* (predicado `dotfilesThemesPending`); nunca «not switchable» antes de una lectura terminada. Guard: `TestUtilitiesSaysItIsReadingTheThemeDefinitionsWhileTheReadRuns`.
 
 ### 🟠 A3 — Escribir el `.wslconfig` hace que la pantalla cambie **dos veces** (la primera, a «reading») · impacto MEDIO-ALTO · coste PEQUEÑO-MEDIO · **TERCERO**
 
 - **Qué ve el usuario**: ajusta valores y pulsa `Write the .wslconfig`. Al terminar, el cuerpo **se reemplaza entero** por *«WSL resources are not adjustable here yet: reading the Windows profile and the host's capacities.»*; uno o varios segundos después vuelve la tabla con los valores releídos. Dos cambios visibles.
 - **Evidencia**: pulsación → `wslResourceWriteCmd()` sin cambio de estado (`update.go:1551`, comando en `update.go:329-335`); al llegar `wslResourceWrittenMsg` se pone `m.WSLState.Resolved = false` y se relanza la lectura (`update.go:684-700`, línea `699`); `wslResourceDescription` consume `wslResourcesUnavailableReason` y con `!Resolved` devuelve el texto de «reading» (`view.go:1535`, `view.go:1603-1605`).
+- **Resuelto**: el write ya no borra `Resolved`; marca `WSLState.Refreshing` y la relectura actualiza la tabla en su sitio. El slot del notice dice *«Refreshing the values from the file…»*. Guard: `TestWritingTheWSLConfigKeepsTheTableWhileItRereads`.
 
 ### 🟠 A4 — Aplicar un tema y «Refresh outdated theme files» no dan **ningún** feedback hasta que terminan · impacto MEDIO-ALTO · coste MEDIO
 
@@ -37,6 +39,7 @@
 - **Qué ve el usuario**: la fila *🔄 Restore from Backup* se **inserta en medio** (antes de Utilities/Exit) si aparecen backups; el panel gana una pestaña *Last install*; el plan gana *Overwrites*.
 - **Por qué es un problema**: el usuario puede pulsar Enter esperando *Utilities* y obtener *Restore from Backup* (o *Exit*), porque la lista creció por debajo. «La interfaz bajo el cursor se mueve».
 - **Evidencia**: `GetCurrentOptions` inserta Restore en medio (`model.go:514-526`, línea `523`) y `loadBackupsMsg` sólo asigna cuando llega (`update.go:648`); el panel *Last install* sólo aparece con registro (`panels.go:154-158`); *Overwrites* sólo con `len(m.ExistingConfigs) > 0` (`panels.go:805`), rellenado en `configsDetectedMsg` (`update.go:771-777`).
+- **Resuelto**: `loadBackupsMsg` guarda la etiqueta bajo el cursor y la vuelve a encontrar (`selectedOption`/`holdCursorOn`), así Enter sigue abriendo la fila que estaba ahí. Guard: `TestALateBackupRowDoesNotMoveTheRowUnderTheCursor`.
 
 ### 🟠 A6 — `Esc` en la confirmación de restore salta al menú principal, saltándose la lista · impacto MEDIO · coste PEQUEÑO
 
@@ -49,6 +52,7 @@
 ### 🟡 A8 — El panel de *Utilities* afirma «The dotfiles' own theme is not switchable here.» antes de haber abierto Utilities nunca · impacto MEDIO-BAJO · coste PEQUEÑO
 
 - **Evidencia**: la entrada «absent» del panel (`panels.go:1026-1031`) se usa para `choiceUtilities` (`panels.go:743`), y las definiciones sólo se cargan en `dotfilesThemesCmdIfNeeded` (`update.go:297-303`), que se lanza al **abrir** la sección.
+- **Resuelto**: el panel usa `dotfilesThemesPending` y dice *«The dotfiles' own theme has not been checked yet.»* antes de la primera lectura. Guard: `TestUtilitiesPanelSaysTheThemeHasNotBeenCheckedYet`.
 
 ### 🟡 A9 — `Esc` en el menú principal cierra toda la aplicación, aunque `Esc` se documenta como «volver» · impacto MEDIO-BAJO · coste PEQUEÑO
 
@@ -100,6 +104,22 @@
 ## El patrón sistémico (lo más importante del inventario)
 
 **`handleEscape` no conoce varias pantallas** (A1, A6) → **las ramas `esc` de los handlers son código inalcanzable** → y **los tests llaman a los handlers directamente** (`update_test.go:1030-1037`, `update_test.go:235-244`), **saltándose el despacho real** → **una tecla muerta pasa en verde**. Es la misma clase de defecto que un guard que mide lo que no debe: **el test prueba el handler, no la tecla**.
+
+---
+
+## El patrón de este frente (A2, A3, A5, A8)
+
+**La pantalla no puede decir algo falso, ni moverse bajo el cursor, mientras el trabajo está en curso.** Tres de los cuatro comparten un mecanismo: un estado **«en curso / sin comprobar» en el hueco del resultado**. A2 y A8 usan el mismo predicado `dotfilesThemesPending` para que la sección diga que está leyendo y el panel que no se ha comprobado todavía, en vez de afirmar el resultado antes de tenerlo. A3 marca `WSLState.Refreshing` y mantiene la tabla en pantalla mientras la relectura actualiza sus valores en su sitio, con la marca en el slot del notice. **A5 no es un hueco de contenido sino un problema de identidad del cursor**: la fila que aparece tarde desplaza los índices, así que el arreglo es anclar el cursor a la etiqueta que nombraba (`selectedOption`/`holdCursorOn`) — el mismo principio («no se mueve») por un mecanismo distinto, porque aquí no hay ningún texto que pueda mentir sobre un resultado que aún no existe.
+
+---
+
+## El defecto del colorscheme de Neovim (frente aparte — repo ↔ máquina)
+
+- **Qué ve el usuario**: aplicó el tema **Nocturne** desde el instalador; la línea `opts.colorscheme = "nocturne"` quedó escrita en `~/.config/nvim/lua/plugins/colorscheme.lua`, pero `~/.config/nvim/colors/` **no existía** en su máquina. Neovim arrancaba roto con `E185: Cannot find color scheme` en cada inicio (y el aviso de `lualine` como consecuencia).
+- **Qué nombre escribimos y dónde se buscó**: el interruptor escribió `nocturne` (tema aplicado confirmado por el usuario). En la máquina: `~/.config/nvim/colors/` **inexistente**; en `~/.local/share/nvim/lazy/` había `catppuccin/` y `kanagawa.nvim/`, pero ningún fichero de Nocturne. El fichero del repo `dotfiles-nvim/nvim/colors/nocturne.lua` existe y está bien generado: sólo faltaba la instalación.
+- **Por qué no resolvió**: `nocturne` es un colorscheme **generado**, no de plugin, así que `:colorscheme nocturne` sólo resuelve si el fichero está en un `colors/` del runtimepath. El paso de Neovim copia `dotfiles-nvim/nvim/` (incluido `colors/`), pero el **interruptor de temas** sólo reescribe `colorscheme.lua` y **nunca dejaba el fichero generado en la máquina**. La brecha repo ↔ máquina estaba en el interruptor, no en la instalación.
+- **Por qué el guard no lo cazó**: `TestTheNeovimColorschemeNamesResolve` comprueba que el nombre resuelva **desde el repositorio** (¿hay plugin o fichero generado en `dotfiles-nvim/nvim/colors/`?), no **desde la máquina del usuario**.
+- **Resuelto** (`fix/nvim-colorscheme-reachable`): `reachableNvimColorscheme` (installer.go) instala el colorscheme generado en `~/.config/nvim/colors/<name>.lua` **antes** de escribir la línea, y sólo escribe el nombre de un plugin si hay un `colors/<name>.{lua,vim}` en el árbol de datos de Neovim de la máquina; si ninguno se puede alcanzar, deja la línea fuera y lo dice con el motivo en el aviso. Guard: `TestTheNvimColorschemeLineNamesOnlyAColorschemeTheMachineHas` (rojo primero: la línea se escribía sin el fichero → falla; con el arreglo → verde; quitando la garantía → vuelve a caer). Medido con Neovim real v0.12.5: sin el fichero → `E185: Cannot find color scheme 'nocturne'`; con `~/.config/nvim/colors/nocturne.lua` → `colors_name=nocturne`.
 
 ---
 

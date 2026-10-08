@@ -639,6 +639,94 @@ func TestUtilitiesPanelSaysWhenTheWSLResourcesAreNotOffered(t *testing.T) {
 	}
 }
 
+// TestUtilitiesPanelSaysTheThemeHasNotBeenCheckedYet pins the panel's half of
+// the same rule for the dotfiles theme: the definitions are read only when the
+// section is opened, so before that the panel cannot say whether the theme is
+// switchable. It used to say "not switchable here" -- a fact nobody had
+// established -- and now it says the honest thing instead.
+func TestUtilitiesPanelSaysTheThemeHasNotBeenCheckedYet(t *testing.T) {
+	m := contextualMainMenuModel()
+	m.DotfilesThemes = nil
+	m.DotfilesThemesErr = ""
+
+	flat := utilitiesPanelFlat(t, m)
+	if strings.Contains(flat, "not switchable") {
+		t.Errorf("the panel calls the theme not switchable before it was ever checked:\n%s", flat)
+	}
+	if !strings.Contains(flat, "has not been checked yet") {
+		t.Errorf("the panel does not say the theme has not been checked:\n%s", flat)
+	}
+
+	// The other half of the same rule: once a read has finished and failed, the
+	// panel may state the verdict -- it is no longer "never checked", it is
+	// checked and unavailable.
+	checked := contextualMainMenuModel()
+	checked.DotfilesThemes = nil
+	checked.DotfilesThemesErr = themeDefinitionsNotFoundMessage()
+	checkedFlat := utilitiesPanelFlat(t, checked)
+	if !strings.Contains(checkedFlat, "not switchable") {
+		t.Errorf("the panel does not state a finished failed read as not switchable:\n%s", checkedFlat)
+	}
+	if strings.Contains(checkedFlat, "has not been checked yet") {
+		t.Errorf("the panel still says the theme was never checked after a read finished:\n%s", checkedFlat)
+	}
+}
+
+// TestWritingTheWSLConfigKeepsTheTableWhileItRereads pins the one-change rule
+// for the WSL resources screen. The write starts a re-read from the file it left
+// behind, and the re-read used to replace the whole body -- table and all -- with
+// "not adjustable here yet: reading...", then put the table back seconds later:
+// two visible changes for one press. The table now stays where it was and the
+// screen says it is refreshing in the notice slot, so the one change is the
+// write's own result arriving in the row it was always going to use.
+func TestWritingTheWSLConfigKeepsTheTableWhileItRereads(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenWSLResources
+	m.SystemInfo = &system.SystemInfo{OS: system.OSWSL, IsWSL: true, OSName: "WSL"}
+	m.WSLState = wslResourceTestState(t)
+	m.Width, m.Height = 200, 60
+	for i, option := range m.GetCurrentOptions() {
+		if option == wslWriteRow {
+			m.Cursor = i
+		}
+	}
+
+	// The press names the file in the notice slot before the write starts, and
+	// the answer lands in that same slot.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	next, _ = m.Update(wslResourceWrittenMsg{wrote: true, notice: "wrote the file"})
+	m = next.(Model)
+
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	if strings.Contains(view, "not adjustable here yet") || strings.Contains(view, "reading the Windows profile") {
+		t.Errorf("the write blanked the table while it re-reads:\n%s", view)
+	}
+	if !strings.Contains(view, "Recommended for this host") {
+		t.Errorf("the table left the screen after the write:\n%s", view)
+	}
+	if !strings.Contains(view, "Refreshing") {
+		t.Errorf("the screen does not mark that it is refreshing the values:\n%s", view)
+	}
+
+	// A dry run writes nothing, so it must not claim to be refreshing values it
+	// never read back, and the table stays either way.
+	dry := NewModel()
+	dry.Screen = ScreenWSLResources
+	dry.SystemInfo = &system.SystemInfo{OS: system.OSWSL, IsWSL: true, OSName: "WSL"}
+	dry.WSLState = wslResourceTestState(t)
+	dry.Width, dry.Height = 200, 60
+	next, _ = dry.Update(wslResourceWrittenMsg{wrote: false, notice: "DRY RUN: nothing was changed."})
+	dry = next.(Model)
+	dryView := ansiEscape.ReplaceAllString(dry.View(), "")
+	if strings.Contains(dryView, "Refreshing") {
+		t.Errorf("a dry run claims to refresh values it did not write:\n%s", dryView)
+	}
+	if !strings.Contains(dryView, "Recommended for this host") {
+		t.Errorf("a dry run blanked the table:\n%s", dryView)
+	}
+}
+
 // TestUtilitiesPanelFactsAreDerivedFromTheModelState is the panel's derivation
 // guard. Every fact has to come from the field the section reads, so turning that
 // field on changes the panel and turning it off takes the fact away: a fact typed
@@ -661,7 +749,7 @@ func TestUtilitiesPanelFactsAreDerivedFromTheModelState(t *testing.T) {
 	t.Logf("utilities panel, nothing offered:\n%s", emptyFlat)
 	for _, absent := range []string{
 		"No desktop theme switch is available here.",
-		"The dotfiles' own theme is not switchable here.",
+		"The dotfiles' own theme has not been checked yet.",
 		"The WSL resources are not adjustable here.",
 		"The shell's startup is not measurable here.",
 	} {
