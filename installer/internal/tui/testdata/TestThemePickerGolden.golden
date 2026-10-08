@@ -1,7 +1,7 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
   dotfiles                                                                      
   ────────────────────────────────────────────────────────────────────────────  
-  🎨 Change the dotfiles theme                                                  
+  Change the dotfiles theme                                                     
   The dotfiles' own theme is defined once in themes/. Choosing a theme applies  
   it to every tool it can paint and names the tools it leaves out. Moving the   
   cursor previews a theme without applying anything; the switch records what    

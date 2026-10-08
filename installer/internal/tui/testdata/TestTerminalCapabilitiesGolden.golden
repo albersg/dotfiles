@@ -2,7 +2,7 @@
   Utilities                                                                     
   ────────────────────────────────────────────────────────────────────────────  
                                                                                 
-  🔌 Terminal capabilities                                                      
+  Terminal capabilities                                                         
   Read-only: nothing here is changed and nothing is written. Each answer names  
   where it came from, and an answer the probe could not determine is reported   
   as unknown with a reason and a manual check.                                  

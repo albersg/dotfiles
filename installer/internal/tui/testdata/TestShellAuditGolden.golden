@@ -1,7 +1,7 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
   Utilities                                                                     
   ────────────────────────────────────────────────────────────────────────────  
-  ⏱️ The shell's startup                                                        
+  The shell's startup                                                           
   zsh is started the way a terminal starts it -- `zsh -i -c exit`, each start   
   bounded by 10 s -- so the number describes the start you wait through when    
   you open a terminal. The measurement is 5 such starts, and the median is the  

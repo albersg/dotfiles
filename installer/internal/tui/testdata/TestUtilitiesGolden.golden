@@ -1,7 +1,7 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
   Utilities                                                                     
   ────────────────────────────────────────────────────────────────────────────  
-  🧰 Utilities                                                                  
+  Utilities                                                                     
   No desktop theme switch is available here. Switching needs a GNOME, KDE       
   Plasma or macOS session with the tool that changes its theme on PATH; a       
   server, Termux or a plain terminal has none, so no switch is offered.         

@@ -1,7 +1,7 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
   Utilities                                                                     
   ────────────────────────────────────────────────────────────────────────────  
-  🖥️ WSL resources                                                              
+  WSL resources                                                                 
   Windows reports 16384 MiB of RAM and 8 logical processors; both numbers come  
   from the same host detector the installation step reads them through.         
   Recommended for this host: memory 8192 MB, processors 8 and swap 2048 MB.     

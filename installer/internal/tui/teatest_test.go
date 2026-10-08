@@ -393,6 +393,54 @@ func requireGoldenCapture(t *testing.T, got []byte) {
 	teatest.RequireEqualOutput(t, normalizeTerminalTitle(normalizeGoldenBytes(got), golden))
 }
 
+// TestGoldenCaptureNeverRunsAnInstallationStep is the guard for the rule every
+// capture follows: a golden renders a screen, it never installs. goldenTranscript
+// is the one path every teatest snapshot takes and stepExecutor is the seam the
+// TUI's own install loop runs through. The screen used is the neovim question,
+// where Enter is the key that starts the run, so a capture that ever sent more
+// than its quit key would be caught here rather than on a runner with the
+// privilege to write /etc/wsl.conf. The executor is replaced with a spy, so the
+// guard reads the call and nothing is installed either way.
+func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
+	skipIfTermux(t)
+
+	original := stepExecutor
+	t.Cleanup(func() { stepExecutor = original })
+	var ran []string
+	stepExecutor = func(stepID string, _ *Model) error {
+		ran = append(ran, stepID)
+		return nil
+	}
+
+	// The teeth: pressing the install key on this same screen reaches the spy, so
+	// the capture below passing means the key was not pressed rather than the spy
+	// being on the wrong seam.
+	start := installerFrameCase(t, "nvim-select")
+	next, press := start.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if press == nil {
+		t.Fatal("Enter on the neovim screen returned no command, so the install key is not wired")
+	}
+	_, stepCmd := next.(Model).Update(press())
+	if stepCmd == nil {
+		t.Fatal("the install start returned no step, so the teeth cannot reach the executor")
+	}
+	_ = stepCmd()
+	if len(ran) == 0 {
+		t.Fatal("pressing the install key did not reach the executor, so this guard is watching the wrong seam")
+	}
+	ran = nil
+
+	m := installerFrameCase(t, "nvim-select")
+	m.Animating = false
+	// The transcript is not compared here: this guard is about what the capture did,
+	// not about the bytes it drew.
+	_ = goldenTranscript(t, m, 80, 24, "Neovim Configuration")
+
+	if len(ran) != 0 {
+		t.Fatalf("the capture ran installation steps %v: a golden snapshots a screen and must not install", ran)
+	}
+}
+
 // TestGoldenCaptureIgnoresTheTerminalTitlePosition is the teeth for the macOS
 // golden flake: the terminal title races the first frame, so a capture may carry
 // it before the frame (as the pin does), after it, or not at all, and the
