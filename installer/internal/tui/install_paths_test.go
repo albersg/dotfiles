@@ -1505,6 +1505,117 @@ func TestTheNvimColorschemeLineNamesOnlyAColorschemeTheMachineHas(t *testing.T) 
 	}
 }
 
+// TestTheCommittedNvimColorschemeResolvesWithoutAPlugin reproduces the default
+// half of the warning the user saw: lualine printed "Theme `kanagawa` not
+// found" on a machine without the kanagawa plugin, because the repository's
+// committed Neovim artifact named a colorscheme only that plugin registers. A
+// fresh install copies this file verbatim, so the block it holds is the default
+// every new machine starts on. A default that needs a plugin is a default that
+// breaks, so the committed line must name a colorscheme this repository ships
+// itself: the generated file under dotfiles-nvim/nvim/colors/ travels in the same
+// config copy. Putting kanagawa back into the committed block makes this fail.
+func TestTheCommittedNvimColorschemeResolvesWithoutAPlugin(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	art := artifactByName(t, "nvim")
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), art.Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The default a fresh install gets: stepInstallNvim copies this file verbatim.
+	id, ok := themeBlockID(string(data), art.Block)
+	if !ok {
+		t.Fatalf("%s carries no generated block, so this guard proves nothing about the default", art.Path)
+	}
+	def, ok := themeByID(defs, id)
+	if !ok {
+		t.Fatalf("%s holds %q, which themes/ does not define", art.Path, id)
+	}
+
+	if slices.Contains(themeNvimPluginColorschemes, def.Nvim) {
+		t.Errorf("the committed %s names the %s colorscheme, which a plugin registers: on a machine without that plugin Neovim raises E185 and lualine warns \"Theme %s not found\". The default has to be a colorscheme this repository ships.",
+			art.Path, def.Nvim, def.Nvim)
+	}
+	generated := themeNvimGeneratedFile(def.ID)
+	if generated == "" {
+		t.Fatalf("the default theme %q names %q, which no shipped file provides, so nothing proves it resolves on a fresh machine", def.ID, def.Nvim)
+	}
+	if _, err := os.Stat(filepath.Join(repoRoot(t), generated)); err != nil {
+		t.Errorf("the default colorscheme %q is installed from %s, which this checkout does not have: %v", def.Nvim, generated, err)
+	}
+	t.Logf("the committed nvim colorscheme is %q, shipped by %s", def.Nvim, generated)
+}
+
+// TestTheNvimStatuslineLeavesTheThemeToLazyVim reproduces the other half of the
+// warning. LazyVim's own lualine spec sets `options.theme = "auto"`, which
+// derives the statusline colours from the active colorscheme: lualine reads
+// vim.g.colors_name, loads the named theme when one exists and generates one from
+// the highlight groups otherwise. Naming a theme in this configuration overrides
+// that and makes the statusline depend on the named theme file being present -
+// lualine asserts `Theme <name> not found` and falls back to auto when it is not,
+// which is exactly what the user saw with kanagawa, whose lualine theme ships
+// inside the kanagawa plugin. Removing the line restores the derivation, which
+// cannot drift from the colorscheme; writing it again makes this fail.
+func TestTheNvimStatuslineLeavesTheThemeToLazyVim(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "dotfiles-nvim/nvim/lua/plugins/ui.lua")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i, line := range strings.Split(string(data), "\n") {
+		if !strings.Contains(line, "opts.options.theme") {
+			continue
+		}
+		t.Errorf("dotfiles-nvim/nvim/lua/plugins/ui.lua:%d sets lualine's theme by hand: %s\nLazyVim already sets options.theme = \"auto\", which follows the applied colorscheme. A fixed name is only found when the plugin that provides that lualine theme is installed; otherwise lualine warns \"Theme <name> not found\" and falls back anyway. Leave the line out so the statusline cannot drift from the colorscheme.",
+			i+1, strings.TrimSpace(line))
+	}
+}
+
+// TestTheNvimAdoptionAnchorMatchesTheLineNotTheTheme pins the other half of
+// moving the nvim default off a plugin's colorscheme: the anchor the switch uses
+// to adopt a file written before the generated block existed. The line it
+// rewrites holds whatever theme was applied, so an anchor naming one theme (the
+// old default, kanagawa) adopts that one file and refuses every other. The anchor
+// is the assignment, and this guard adopts a line naming each of them.
+func TestTheNvimAdoptionAnchorMatchesTheLineNotTheTheme(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	art := artifactByName(t, "nvim")
+	if !strings.Contains(art.AdoptStart, "colorscheme") {
+		t.Fatalf("the nvim anchor no longer names the colorscheme line: %q", art.AdoptStart)
+	}
+
+	for _, name := range []string{"kanagawa", "nocturne", "dotfiles"} {
+		home := t.TempDir()
+		dst := themeInstalledPath(art, home)
+		// A file from before the generated block: the plugin spec, the line the
+		// switch rewrites, and nothing else.
+		writeThemeFileAt(t, dst, "    {\n      \"LazyVim/LazyVim\",\n      opts = {\n        colorscheme = \""+name+"\",\n      },\n    },\n")
+
+		target, _ := themeByID(mustLoadDefinitions(t), defaultThemeID)
+		if _, _, err := applyDotfilesTheme(home, repoRoot(t), target); err != nil {
+			t.Errorf("adopting a legacy nvim file naming %q: %v", name, err)
+			continue
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(got), "dotfiles-managed-config: nvim") {
+			t.Errorf("the legacy nvim file naming %q was not adopted:\n%s", name, got)
+		}
+		if !strings.Contains(string(got), `colorscheme = "`+defaultThemeID+`"`) {
+			t.Errorf("the adopted nvim file naming %q does not carry the %s colorscheme:\n%s", name, defaultThemeID, got)
+		}
+	}
+}
+
 // TestTheGeneratedColorschemeDeclaresTheBackgroundItsBaseImplies pins the one
 // derived non-colour in a generated colorscheme: Neovim's own `background` is
 // read from the theme's base role, so Catppuccin Latte - the one light theme in
@@ -1761,8 +1872,8 @@ func TestGeneratedThemeArtifactsMatchTheirDefinition(t *testing.T) {
 
 	checked := 0
 	for _, art := range themeActiveArtifacts {
-		// A file whose committed value is another theme (Neovim's colorscheme is
-		// Kanagawa) is checked against the theme it actually holds.
+		// A file whose committed value is another theme is checked against the theme
+		// it actually holds.
 		themeID := art.DefaultTheme
 		if themeID == "" {
 			themeID = defaultThemeID
