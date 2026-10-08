@@ -1422,6 +1422,89 @@ func TestTheNeovimColorschemeNamesResolve(t *testing.T) {
 	t.Logf("%d offered theme(s) select a generated colorscheme, %d select a plugin's", generated, plugin)
 }
 
+// TestTheNvimColorschemeLineNamesOnlyAColorschemeTheMachineHas reproduces the
+// user's case: a generated theme was applied, the switch wrote the line naming
+// its colorscheme, and the generated file had never reached
+// ~/.config/nvim/colors, so Neovim raised E185 on every start. The line may only
+// be written after the name is made reachable on this machine, and a plugin's
+// colorscheme may only be named when the plugin is installed. Removing either
+// guarantee makes this test fail again.
+func TestTheNvimColorschemeLineNamesOnlyAColorschemeTheMachineHas(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	// nocturne is the theme the user applied: a generated colorscheme, not a
+	// plugin's, so it resolves only if the generated file is on the machine.
+	generated, ok := themeByID(defs, "nocturne")
+	if !ok {
+		t.Fatal("the nocturne definition is missing")
+	}
+	if themeNvimGeneratedFile(generated.ID) == "" {
+		t.Fatalf("nocturne no longer uses a generated colorscheme, so this test no longer reproduces the user's case")
+	}
+
+	// The user's machine exactly: Neovim is installed (its colorscheme.lua is
+	// there) but ~/.config/nvim/colors/ was never written.
+	home := t.TempDir()
+	installThemeFiles(t, home, "nvim")
+	colorsFile := filepath.Join(home, ".config", "nvim", "colors", generated.Nvim+".lua")
+	if _, err := os.Stat(colorsFile); !os.IsNotExist(err) {
+		t.Fatalf("fixture: %s already exists, so this does not reproduce the user's case", colorsFile)
+	}
+
+	if _, _, err := applyDotfilesTheme(home, repoRoot(t), generated); err != nil {
+		t.Fatalf("apply the %s theme: %v", generated.Name, err)
+	}
+
+	installed, err := os.ReadFile(themeInstalledPath(artifactByName(t, "nvim"), home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(installed), `colorscheme = "`+generated.Nvim+`"`) {
+		t.Fatalf("the switch did not write the %s line, so the theme never reaches Neovim:\n%s", generated.Nvim, installed)
+	}
+	data, err := os.ReadFile(colorsFile)
+	if err != nil {
+		t.Fatalf("the line names %q but Neovim cannot find it: %v (this is the E185 the user saw)", generated.Nvim, err)
+	}
+	if !strings.Contains(string(data), `vim.g.colors_name = "`+generated.Nvim+`"`) {
+		t.Errorf("%s does not register itself as %q, so :colorscheme %s would still fail", colorsFile, generated.Nvim, generated.Nvim)
+	}
+
+	// The other half of the rule: a plugin theme whose plugin this machine does
+	// not have is not named, so Neovim is left on the colorscheme it had rather
+	// than started broken.
+	plugin, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+	if themeNvimGeneratedFile(plugin.ID) != "" {
+		t.Fatalf("catppuccin-mocha now uses a generated colorscheme, so the plugin half proves nothing")
+	}
+	pluginHome := t.TempDir()
+	installThemeFiles(t, pluginHome, "nvim", "alacritty")
+	_, notice, err := applyDotfilesTheme(pluginHome, repoRoot(t), plugin)
+	if err != nil {
+		t.Fatalf("apply the %s theme: %v", plugin.Name, err)
+	}
+	pluginInstalled, err := os.ReadFile(themeInstalledPath(artifactByName(t, "nvim"), pluginHome))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(pluginInstalled), `colorscheme = "`+plugin.Nvim+`"`) {
+		t.Errorf("the switch named the %s colorscheme although the plugin is not installed, so Neovim would start broken", plugin.Nvim)
+	}
+	if !strings.Contains(notice, "Neovim") || !strings.Contains(notice, plugin.Nvim) {
+		t.Errorf("the switch did not say why Neovim was left out: %q", notice)
+	}
+}
+
 // TestTheGeneratedColorschemeDeclaresTheBackgroundItsBaseImplies pins the one
 // derived non-colour in a generated colorscheme: Neovim's own `background` is
 // read from the theme's base role, so Catppuccin Latte - the one light theme in
