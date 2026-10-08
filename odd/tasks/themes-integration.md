@@ -770,7 +770,7 @@ palette and the screen said "applied".
 | Starship | Yes — reads `starship.toml` at each prompt | Nothing to run | Nothing | Starship is invoked per prompt and re-reads its config; there is no daemon. Tool documentation. |
 | Kitty | No — a running window reloads on a signal or the remote-control command | Yes, when we are inside Kitty: `kitty @ load-config` | `Ctrl+Shift+F5`, or `kitty @ load-config` | `dotfiles-kitty/kitty.conf:56-57`: `allow_remote_control yes`, `listen_on unix:/tmp/kitty`. The command runs only when `KITTY_LISTEN_ON` is set, so it targets the session the installer is in. |
 | Ghostty | No — a running window reloads on a key or a signal | Not without a signal; documented, not run | `Ctrl+Shift+,` (macOS) or `SIGUSR2` | Ghostty reload keybinding/signal. Tool documentation — **not verified in this environment.** |
-| Herdr | No — a running session reloads its config on a key | **No.** Signalling or scripting a live multiplexer can end the session | `Ctrl+b Shift+r`, or restart | `installer/internal/tui/keymaps_herdr.go:35`: `Ctrl+b Shift+r` → "Reload config". **A live Herdr is never touched.** |
+| Herdr | No — a running session reloads its config on a key, and the key runs a server command | **Yes, from inside it**: `herdr server reload-config` is the command behind the key, and it goes to the session's own socket | `Ctrl+b Shift+r`, or restart | herdr 0.9.3, measured: `herdr --help` lists `herdr server reload-config` ("Reload config in the running server") and `herdr server reload-config --help` is `Usage: herdr server reload-config`. Run inside a session it answers `{"result":{"status":"applied","type":"config_reload"}}` in ~40 ms, exit 0. Run against a socket with no server it answers `server_not_running` and exit 1 — **it never starts a server** — and the socket it used is the one in `HERDR_SOCKET_PATH`, i.e. the session the pane injected, not "the" session. `HERDR_ENV=1` is herdr's own precondition for controlling a session from inside one (`herdr --skill`). No signal, and no keypress sent into a pane (`herdr pane send-keys` exists, and is not needed for this). |
 | zsh line editor | No — `.zshrc` runs at shell start | No — it is the user's interactive shell | `exec zsh`, or a new shell | `.zshrc` is sourced at start; an already-open shell does not re-read it. |
 | p10k prompt | No — the prompt is drawn from the loaded config | No — it runs inside the user's shell | `p10k reload`, or a new shell | `dotfiles-zsh/.p10k.zsh:26` ("type `source ~/.p10k.zsh`") and `:1851` (`p10k reload`). |
 | fish | No — `config.fish` runs at shell start | No — it is the user's interactive shell | `exec fish`, or a new shell | `dotfiles-fish/fish/config.fish` is sourced at start. |
@@ -783,8 +783,9 @@ palette and the screen said "applied".
 - `installer/internal/tui/installer.go`: `themeReloadTool` (the per-tool line), `reloadThemeTools`
   (one line per installed tool, in the artifact table's order) and `reloadThemeToolFor` (the per-tool
   knowledge). The reload runs only the safe, idempotent commands: `bat cache --build` with
-  `BAT_CONFIG_DIR`, `tmux source-file` after `tmux list-sessions` succeeded, and `kitty @ load-config`
-  when `KITTY_LISTEN_ON` is set. Every command runs through one runner with a five-second timeout.
+  `BAT_CONFIG_DIR`, `tmux source-file` after `tmux list-sessions` succeeded, `kitty @ load-config`
+  when `KITTY_LISTEN_ON` is set, and `herdr server reload-config` when `HERDR_ENV=1`. Every command
+  runs through one runner with a five-second timeout.
 - `installer/internal/tui/update.go`: the apply and undo commands collect the list off the update
   loop and log every line; the result handler puts it on the picker in the existing result view, so
   each tool gets its own row and the list has the whole body.
@@ -793,12 +794,16 @@ palette and the screen said "applied".
 
 ## What was deliberately not done, and why
 
-- **No signal to a terminal.** Ghostty reloads on `SIGUSR2` and Kitty on `SIGUSR1`, but sending
-  signals to the process the installer is running inside is exactly the class of action the rule
-  forbids, and getting the wrong pid is unrecoverable. Kitty's remote-control command is used only
-  when the installer knows which socket it is on; Ghostty is documented, not signalled.
-- **No touch of a live Herdr.** It is a running multiplexer; a reload is a keypress in that session.
-  It is named, never signalled or scripted.
+- **No signal to a terminal, and no key sent into a pane.** Ghostty reloads on `SIGUSR2` and Kitty
+  on `SIGUSR1`, but sending signals to the process the installer is running inside is exactly the
+  class of action the rule forbids, and getting the wrong pid is unrecoverable. Kitty's and Herdr's
+  remote commands are used only when the installer knows which session it is in (`KITTY_LISTEN_ON`,
+  `HERDR_ENV=1`); Ghostty is documented, not signalled. Herdr needed no `pane send-keys`: the key
+  the user pressed by hand binds a command the server answers directly.
+- **No Herdr that the installer is not running inside.** `herdr server reload-config` acts on the
+  session whose socket is in `HERDR_SOCKET_PATH`, so from outside a pane it could reload a session
+  the user is not looking at. The marker herdr itself sets, `HERDR_ENV=1`, is the guard; anything
+  else (`0`, `true`, a stale socket) means nothing is sent and the key is named instead.
 - **No `tmux source-file` without a server.** It would start a server. The command runs only after
   `tmux list-sessions` succeeds.
 - **No restart, no `kill`, no `wsl --shutdown`-style action, no plugin manager run.** Anything that
@@ -824,3 +829,47 @@ palette and the screen said "applied".
 - `make check` - PASS (see the handoff for the exact commands and results).
 - `go test ./... -count=1 -timeout 30m` in `installer/` - see the handoff.
 - No commit, no push.
+
+## Update - Herdr does have a safe reload, and it is the key's own command
+
+The user doubted the "no" in the table above, and the doubt was right: **a signal is not a key**, so
+the rule against signalling a live multiplexer says nothing about asking it to do what the key does.
+Measured on **herdr 0.9.3** (`/home/linuxbrew/.linuxbrew/bin/herdr` for the user, a `herdr server`
+running):
+
+- `herdr --help` lists `herdr server reload-config   Reload config.toml in the running server`.
+- `herdr server reload-config --help` is exactly `Usage: herdr server reload-config`.
+- Run inside a session it answers
+  `{"id":"cli:server:reload-config","result":{"diagnostics":[],"status":"applied","type":"config_reload"}}`,
+  exit 0, in ~40 ms.
+- Run with `HERDR_SOCKET_PATH` pointing at a socket with no server it answers
+  `{"id":"cli:server:reload-config","error":{"code":"server_not_running","message":"no herdr server is running at /tmp/nonexistent-herdr-probe.sock; run 'herdr' to start or attach it"}}`,
+  exit 1 - it does **not** start a server, and the path in the message is the one from the
+  environment, which is how the command is scoped to the session the installer is running in.
+- Herdr injects the session's context into every pane it manages: `HERDR_ENV=1`,
+  `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `TERM_PROGRAM=herdr`.
+  `HERDR_ENV=1` is herdr's own precondition for controlling a session from inside one
+  (`herdr --skill`).
+- `herdr pane send-keys <PANE_ID> <KEY>...` exists and was **not** needed: the key the user presses
+  by hand binds a command the server answers directly, which is one request instead of a keypress
+  sent into a pane, and it depends on neither the pane's focus nor its input mode.
+
+The switch now runs `herdr server reload-config` when, and only when, `HERDR_ENV=1` and `herdr` is on
+the `PATH`; the line names `Ctrl+b Shift+r` either way. No signal, no key sent into a pane, no server
+started, no session stopped, and the same five-second timeout bounds it.
+
+**What is not covered: `HERDR_CONFIG_PATH`.** Herdr documents that variable as an override of the
+config file path and this repository always writes `~/.config/herdr/config.toml`. Whether the running
+server or only the client honours the override was not measured (measuring it means starting a second
+server), so a machine that sets it is a known, unmeasured edge: the reload still reloads that
+server's config, and no action on the user's part would bring the theme into a config herdr is not
+reading.
+
+**Guards:** `TestReloadThemeToolsReloadsTheHerdrItRunsInside` (the exact command
+`herdr server reload-config` is sent, the line still names the key),
+`TestReloadThemeToolsLeavesHerdrAloneOutsideItsSession` (no marker, nothing sent, the key is named),
+and `TestReloadThemeToolsRequiresHerdrsOwnSessionMarker` (`0`, `true`, `yes`, `2` are not herdr's
+marker). Teeth observed twice: changing the command string to `herdr server reload-config-TYPO` fails
+the first with `the Herdr reload ran an unexpected command ...`, and dropping the `HERDR_ENV` check
+fails the other two with `with no Herdr session around the installer, the reload step ran "herdr
+server reload-config"`.

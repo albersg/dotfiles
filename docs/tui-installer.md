@@ -205,9 +205,14 @@ are safe and idempotent — it rebuilds bat's theme cache so a theme the switch 
 bat, and it sources tmux's config into a server that is **already running** — and it does nothing
 else: it never sends a signal to a terminal, never kills or closes a session, never starts a tmux
 server (`tmux source-file` would start one, so it runs only after `tmux list-sessions` succeeded),
-and never touches a running Herdr, Neovim or shell. Everything it cannot reach is named with where to
-run the action, not reported as done. Every reload command is bounded by a five-second timeout, so a
-hung `tmux` or `bat` cannot hang the screen.
+and never touches a running Neovim or shell. Herdr is the one live session it does reach, and only
+from **inside** it: when the installer runs in a Herdr pane — herdr sets `HERDR_ENV=1` in every pane
+it manages — it asks that session's server to reload its config with `herdr server reload-config`,
+the command the `Ctrl+b Shift+r` binding runs, over the socket that session injected
+(`HERDR_SOCKET_PATH`). That is a reload request on the session's own socket, not a signal and not a
+keypress sent into a pane, and it is bounded by the same five-second timeout. Everything it cannot
+reach is named with where to run the action, not reported as done. Every reload command is bounded
+by a five-second timeout, so a hung `tmux`, `herdr` or `bat` cannot hang the screen.
 
 | Tool | Does it pick the change up by itself? | What the switch does |
 |---|---|---|
@@ -216,7 +221,7 @@ hung `tmux` or `bat` cannot hang the screen.
 | Starship | Yes — it reads `starship.toml` on each prompt | nothing; reported `✓` |
 | Kitty | No — a running window reloads on `Ctrl+Shift+F5` or `kitty @ load-config` | runs `kitty @ load-config` only when the installer runs inside Kitty (`KITTY_LISTEN_ON` is set); otherwise names the key |
 | Ghostty | No — a running window reloads on `Ctrl+Shift+,` (macOS) or `SIGUSR2` | nothing; names the key and the signal |
-| Herdr | No — a running session reloads with `Ctrl+b Shift+r` | nothing; names the key, and never signals a live multiplexer |
+| Herdr | No — a running session reloads with `Ctrl+b Shift+r`, which runs `herdr server reload-config` | runs `herdr server reload-config` only when the installer runs **inside** Herdr (`HERDR_ENV=1`); it targets the session's own socket, so no signal and no key is sent, and it never touches a session the installer is not in. Otherwise names the key |
 | zsh | No — only a new shell reads `.zshrc` | nothing; names `exec zsh` |
 | p10k | No — `p10k reload` reloads a running prompt | nothing; names `p10k reload` |
 | fish | No — only a new shell reads `config.fish` | nothing; names `exec fish` |

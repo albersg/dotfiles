@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1617,10 +1618,12 @@ func reloadByTool(tools []themeReloadTool) map[string]themeReloadTool {
 // It observes the exact command strings and the environment, and it refuses the
 // whole class of commands that can end a session: no kill, no signal, no
 // shutdown, no restart. The safe reloads run; every other tool gets a line that
-// names the exact action the user must take.
+// names the exact action the user must take. Herdr is on the path here and still
+// sends nothing, because this test clears the session marker its guard requires.
 func TestReloadThemeToolsRunsOnlyTheSafeCommands(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HERDR_ENV", "")
 	installThemeFiles(t, home, "alacritty", "kitty", "herdr", "nvim", "tmux")
 	if err := os.MkdirAll(filepath.Join(home, ".config", "bat"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1629,7 +1632,7 @@ func TestReloadThemeToolsRunsOnlyTheSafeCommands(t *testing.T) {
 
 	calls := stubThemeReload(t, func(cmd string) bool {
 		switch cmd {
-		case "tmux", "bat", "kitty":
+		case "tmux", "bat", "kitty", "herdr":
 			return true
 		}
 		return false
@@ -1683,10 +1686,110 @@ func TestReloadThemeToolsRunsOnlyTheSafeCommands(t *testing.T) {
 		t.Errorf("Neovim = %+v, want not done and :colorscheme", got)
 	}
 	if got := byTool["Herdr"]; got.Done || !strings.Contains(got.Note, "Ctrl+b Shift+r") {
-		t.Errorf("Herdr = %+v, want a manual reload that names its key", got)
+		t.Errorf("Herdr outside its own session = %+v, want a manual reload that names its key", got)
 	}
 	if got := byTool["Kitty"]; !got.Done {
 		t.Errorf("Kitty with a listening socket = %+v, want done", got)
+	}
+}
+
+// TestReloadThemeToolsReloadsTheHerdrItRunsInside pins the user's question:
+// Herdr can be reloaded, and the safe way is the one the key itself uses. Inside
+// a Herdr pane herdr's client injects HERDR_ENV=1, and `herdr server
+// reload-config` asks that session's server -- over that session's socket, named
+// by HERDR_SOCKET_PATH -- to reload its config. No signal, no keypress sent to a
+// pane, no server started. The command string is the assertion: change it and
+// this guard fails.
+func TestReloadThemeToolsReloadsTheHerdrItRunsInside(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	installThemeFiles(t, home, "herdr")
+	t.Setenv("HERDR_ENV", "1")
+
+	calls := stubThemeReload(t,
+		func(cmd string) bool { return cmd == "herdr" },
+		func(command string, env []string) (string, error) {
+			if command != "herdr server reload-config" {
+				return "", errors.New("unexpected command: " + command)
+			}
+			return `{"id":"cli:server:reload-config","result":{"status":"applied","type":"config_reload"}}`, nil
+		})
+
+	got := reloadByTool(reloadThemeTools(home))["Herdr"]
+	if !got.Done {
+		t.Errorf("inside a Herdr session the reload is done, got %+v", got)
+	}
+	sent := false
+	for _, c := range *calls {
+		if c.command == "herdr server reload-config" {
+			sent = true
+		}
+		// The reload is never a signal and never a key sent to a pane: it is the
+		// server-side reload command the key is bound to.
+		if c.command != "herdr server reload-config" {
+			t.Errorf("the Herdr reload ran an unexpected command %q", c.command)
+		}
+	}
+	if !sent {
+		t.Fatalf("the Herdr session was not asked to reload; it ran: %+v", *calls)
+	}
+	// The key stays on the line even when the installer did the reload: the
+	// automation improves the instruction, it does not replace it.
+	if !strings.Contains(got.Note, "Ctrl+b Shift+r") {
+		t.Errorf("the Herdr done line no longer names the key it stands for: %+v", got)
+	}
+}
+
+// TestReloadThemeToolsLeavesHerdrAloneOutsideItsSession is the other half of the
+// rule, and it is why the guard is not merely "is herdr on PATH": run from
+// outside a session the same command reloads whichever session owns the socket in
+// the environment, which is not necessarily the one the user is looking at. With
+// no marker nothing is sent and the line names the key.
+func TestReloadThemeToolsLeavesHerdrAloneOutsideItsSession(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	installThemeFiles(t, home, "herdr")
+	t.Setenv("HERDR_ENV", "")
+
+	calls := stubThemeReload(t,
+		func(cmd string) bool { return cmd == "herdr" },
+		func(command string, env []string) (string, error) { return "", nil })
+
+	got := reloadByTool(reloadThemeTools(home))["Herdr"]
+	if got.Done {
+		t.Errorf("outside a Herdr session nothing can be reloaded, got %+v", got)
+	}
+	if !strings.Contains(got.Note, "Ctrl+b Shift+r") {
+		t.Errorf("the manual Herdr line does not name the key: %+v", got)
+	}
+	for _, c := range *calls {
+		t.Errorf("with no Herdr session around the installer, the reload step ran %q", c.command)
+	}
+}
+
+// TestReloadThemeToolsRequiresHerdrsOwnSessionMarker keeps the guard exact.
+// HERDR_ENV is set to 1 by herdr itself and by nothing else, so a value that
+// merely reads as a yes -- "true", "yes", "0" -- is not herdr's marker and must
+// not be treated as one.
+func TestReloadThemeToolsRequiresHerdrsOwnSessionMarker(t *testing.T) {
+	for _, value := range []string{"0", "true", "yes", "2"} {
+		t.Run(value, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			installThemeFiles(t, home, "herdr")
+			t.Setenv("HERDR_ENV", value)
+
+			calls := stubThemeReload(t,
+				func(cmd string) bool { return cmd == "herdr" },
+				func(command string, env []string) (string, error) { return "", nil })
+
+			if got := reloadByTool(reloadThemeTools(home))["Herdr"]; got.Done {
+				t.Errorf("HERDR_ENV=%s is not herdr's marker, yet the tool was reloaded: %+v", value, got)
+			}
+			for _, c := range *calls {
+				t.Errorf("HERDR_ENV=%s ran %q", value, c.command)
+			}
+		})
 	}
 }
 

@@ -2038,16 +2038,18 @@ func undoDotfilesTheme(rec dotfilesThemeRecord) (string, error) {
 // Writing a tool's file is not the same as the tool showing the theme. Some
 // tools watch their file and reload it live, some read it when they next start,
 // and some are only reachable by the person in front of them. The switch runs
-// the reloads it can do safely and idempotently -- rebuilding bat's theme cache
-// and sourcing tmux's config into a server that is already running -- and names
-// every tool it cannot reach with the exact action that applies the theme. It
-// never starts a server, closes a session or signals a terminal, so a tool that
-// is only reachable by a live session (Herdr, Neovim, an already-open shell) is
-// reported, never touched.
+// the reloads it can do safely and idempotently -- rebuilding bat's theme cache,
+// sourcing tmux's config into a server that is already running, and asking the
+// Herdr session the installer runs inside to reload its own config over that
+// session's socket -- and names every tool it cannot reach with the exact action
+// that applies the theme. It never starts a server, closes a session or signals
+// a terminal: a Herdr reload is the command behind the key, not a keypress sent
+// to a pane and not a signal, so a tool that is only reachable by a live session
+// (Neovim, an already-open shell) is reported, never touched.
 
-// themeReloadTimeout bounds one reload command. A tmux or bat that hangs must
-// not hang the screen: the command runs off the update loop and is killed when
-// the timeout elapses.
+// themeReloadTimeout bounds one reload command. A tmux, Herdr or bat that hangs
+// must not hang the screen: the command runs off the update loop and is killed
+// when the timeout elapses.
 const themeReloadTimeout = 5 * time.Second
 
 // themeReloadTool is one tool's answer to "does the new theme reach it?".
@@ -2101,10 +2103,12 @@ func themeReloadInstalled(tool, path, homeDir string) bool {
 
 // reloadThemeTools brings the applied theme forward in every installed tool and
 // returns one line per tool, in the artifact table's order. It runs only the
-// reloads that touch no live session and can never start one: bat's cache is
-// rebuilt from the theme files already installed, and tmux's config is sourced
-// into a server that is already running. Everything else is named with the exact
-// action and where to run it.
+// reloads that are idempotent and can never start a server: bat's cache is
+// rebuilt from the theme files already installed, tmux's config is sourced into
+// a server that is already running, and a Herdr the installer is running inside
+// is asked to reload its config over that session's own socket (`herdr server
+// reload-config`, the command behind Ctrl+b Shift+r). Everything else is named
+// with the exact action and where to run it.
 func reloadThemeTools(homeDir string) []themeReloadTool {
 	var out []themeReloadTool
 	seen := map[string]bool{}
@@ -2150,8 +2154,19 @@ func reloadThemeToolFor(art themeArtifact, path, homeDir string) themeReloadTool
 		return themeReloadTool{Tool: "Ghostty", Done: false,
 			Note: "a Ghostty that is already open keeps the old colours: press Ctrl+Shift+, on macOS, or send it SIGUSR2 on Linux. A new window reads the file."}
 	case "herdr":
+		// herdr's own precondition for controlling a session from inside one, and
+		// what scopes `server reload-config` to the session the installer is in:
+		// the client injects HERDR_ENV=1 and HERDR_SOCKET_PATH into every pane it
+		// manages. Run from outside, the same command would reload whichever
+		// session owns the socket in the environment, so it runs only from inside.
+		if os.Getenv("HERDR_ENV") == "1" && themeReloadCommandExists("herdr") {
+			if _, err := themeReloadRun("herdr server reload-config", nil); err == nil {
+				return themeReloadTool{Tool: "Herdr", Done: true,
+					Note: "reloaded the running Herdr over its own socket (`herdr server reload-config`) -- the same reload as Ctrl+b Shift+r, with no signal and no keypress sent to a pane."}
+			}
+		}
 		return themeReloadTool{Tool: "Herdr", Done: false,
-			Note: "a Herdr session that is already running keeps the old theme: press Ctrl+b Shift+r to reload its config, or restart it. The installer does not touch a live multiplexer."}
+			Note: "a Herdr session that is already running keeps the old theme: press Ctrl+b Shift+r to reload its config, or restart it. A Herdr is reloaded only from inside it (`HERDR_ENV`), over its own socket, and it is never signalled or restarted by the installer."}
 	case "zsh":
 		return themeReloadTool{Tool: "zsh", Done: false,
 			Note: "a shell that is already open keeps the old palette: open a new shell, or run `exec zsh`."}
