@@ -369,6 +369,26 @@ type Model struct {
 	// ThemeRefreshResult is the review's result paragraphs: what was refreshed,
 	// where the user's files were preserved, and what could not be refreshed.
 	ThemeRefreshResult []string
+	// ThemeActivity is the dotfiles-theme switch the picker is running, or the
+	// one whose result is on screen. Its pending line and its result are drawn in
+	// the same slot, which is what makes choosing a theme one change on screen
+	// instead of a selection now and a different panel a second later. It is nil
+	// when the picker has nothing to report, and the result view of the refresh
+	// review is a different thing entirely.
+	ThemeActivity *themeActivity
+}
+
+// themeActivity is one dotfiles-theme switch on the picker. Pending is the line
+// the screen stands behind while the switch runs; Result is what came of it, in
+// the same rows. Exactly one of them carries the slot at a time, so a switch is
+// drawn at one height from the press to the outcome and the row under the
+// cursor never has to move for the result to appear.
+type themeActivity struct {
+	// Pending is non-empty from the press until the outcome arrives.
+	Pending string
+	// Result is the outcome: the per-tool reload paragraphs, or the one line that
+	// says why the switch failed. It is empty while Pending is set.
+	Result []string
 }
 
 // NewModel creates a new Model with initial state

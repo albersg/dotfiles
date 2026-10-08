@@ -1281,8 +1281,19 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	if available < 1 {
 		available = 1
 	}
+	// The activity slot is carved out first, and the list keeps a fixed floor of
+	// rows beside it. Two things follow from fixing the floor rather than the
+	// slot's own height: the slot takes every row the list does not need, so a
+	// reload result has the whole body to name its tools, and the slot's height
+	// is a function of the frame and the list alone -- not of which of the two
+	// states it is drawing -- so the pending line and the result are the same
+	// height and the cursor row cannot move when the result lands.
 	menuBudget, descBudget := available, 0
-	if len(menu) <= available {
+	activityRows := 0
+	if m.pickerActivity() != nil {
+		menuBudget = min(len(menu), max(1, min(themeActivityMenuRows, available-1)))
+		activityRows = available - menuBudget
+	} else if len(menu) <= available {
 		menuBudget = len(menu)
 		descBudget = available - len(menu)
 	}
@@ -1297,6 +1308,9 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 
 	body := []string{title}
 	for _, line := range descriptionLines(paragraphs, width, descBudget) {
+		body = append(body, MutedStyle.Render(line))
+	}
+	for _, line := range activityLines(m.pickerActivity(), width, activityRows) {
 		body = append(body, MutedStyle.Render(line))
 	}
 	body = append(body, "")
@@ -1333,6 +1347,54 @@ func descriptionLines(paragraphs []string, width, budget int) []string {
 	if len(lines) > budget {
 		hidden := len(lines) - budget + 1
 		lines = append(lines[:budget-1], fmt.Sprintf("… and %d more", hidden))
+	}
+	return lines
+}
+
+// themeActivityMenuRows is the rows the theme list keeps while a switch is
+// running or its result is on screen. The rest of the body goes to the activity
+// slot, so the result has room to name every tool without the list leaving the
+// screen: the row under the cursor stays visible, and the slot is the same
+// height whether it is drawing the pending line or the result.
+const themeActivityMenuRows = 5
+
+// pickerActivity is the picker's activity slot, and nil on every other screen.
+// A switch left running while the user walked away keeps its outcome in the
+// model, but it cannot put its slot on the WSL screen or the section: the slot
+// belongs to the list the press was made on.
+func (m Model) pickerActivity() *themeActivity {
+	if m.Screen != ScreenThemePicker {
+		return nil
+	}
+	return m.ThemeActivity
+}
+
+// activityLines renders the picker's activity in exactly rows rows: the pending
+// line while the switch runs, or the outcome once it lands. It is one function
+// for both states on purpose -- the height comes from the caller, never from
+// which of the two is being drawn -- and a result longer than the rows it was
+// given is cut with a count, the same rule the description and the notice
+// follow.
+func activityLines(activity *themeActivity, width, rows int) []string {
+	if activity == nil || rows < 1 {
+		return nil
+	}
+	paragraphs := activity.Result
+	if len(paragraphs) == 0 && activity.Pending != "" {
+		paragraphs = []string{activity.Pending}
+	}
+	var lines []string
+	for _, paragraph := range paragraphs {
+		lines = append(lines, wrapText(paragraph, width, 0)...)
+	}
+	if len(lines) > rows {
+		hidden := len(lines) - rows + 1
+		lines = append(lines[:rows-1], fmt.Sprintf("… and %d more", hidden))
+	}
+	// The slot is padded rather than left short, so the rows below it stand at
+	// the same line whatever the outcome turned out to be.
+	for len(lines) < rows {
+		lines = append(lines, "")
 	}
 	return lines
 }
@@ -1452,13 +1514,45 @@ func themeRefreshConfirmRow(candidates []themeRefreshCandidate) string {
 	return fmt.Sprintf("Yes, refresh %d file(s)", n)
 }
 
-// resetThemeRefresh clears the review state. It is called when the picker is
-// left or a review is dismissed, so a later visit starts from a clean list.
+// settleThemePickerCursor keeps the cursor on a selectable row after an outcome
+// has changed the list under it. An undo is the case: it removes the undo row it
+// was pressed on, and the index that row had then falls on a separator, which is
+// drawn as a rule with no cursor marker. The cursor steps to the nearest
+// selectable row instead, so the focus is always somewhere it can be seen and
+// explained. It is a no-op when the cursor already points at a selectable row,
+// which is what an apply does.
+func (m *Model) settleThemePickerCursor() {
+	options := m.GetCurrentOptions()
+	selectable := func(i int) bool {
+		return i >= 0 && i < len(options) && !strings.HasPrefix(options[i], menuSeparatorPrefix)
+	}
+	if selectable(m.Cursor) {
+		return
+	}
+	for i := m.Cursor - 1; i >= 0; i-- {
+		if selectable(i) {
+			m.Cursor = i
+			return
+		}
+	}
+	for i := m.Cursor + 1; i < len(options); i++ {
+		if selectable(i) {
+			m.Cursor = i
+			return
+		}
+	}
+}
+
+// resetThemeRefresh clears the review state and the activity slot. It is called
+// when the picker is left or a review is dismissed, so a later visit starts from
+// a clean list; a switch's outcome is a fact about the list the user is standing
+// on, and leaving the list leaves the fact with it.
 func (m *Model) resetThemeRefresh() {
 	m.ThemeRefreshCandidates = nil
 	m.ThemeRefreshReview = false
 	m.ThemeRefreshDone = false
 	m.ThemeRefreshResult = nil
+	m.ThemeActivity = nil
 }
 
 // utilitiesThemeRow is the utilities section's single row for the dotfiles'

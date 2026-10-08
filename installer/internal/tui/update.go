@@ -346,6 +346,42 @@ func (m Model) shellAuditCmd() tea.Cmd {
 	}
 }
 
+// startThemeActivity opens the picker's activity slot with the line the press
+// stands behind. It is the same slot the result will use: the row is drawn at
+// the height the outcome needs from the press on, so the list under the cursor
+// is the same list at the same height when the outcome lands.
+func (m *Model) startThemeActivity(pending string) {
+	m.ThemeNotice = ""
+	m.ThemeActivity = &themeActivity{Pending: pending}
+}
+
+// themeActivityPending says whether a dotfiles-theme switch is running, so the
+// list's rows can stay inert until it reports and a second write cannot start
+// beside the first.
+func (m Model) themeActivityPending() bool {
+	return m.ThemeActivity != nil && m.ThemeActivity.Pending != ""
+}
+
+// finishThemeActivity fills the slot the pending line opened with the outcome,
+// in the same rows. A switch is only ever started from the picker, so a slot
+// that is gone means the picker was left while the switch ran: the outcome then
+// goes where leaving the picker put it, the section's notice, rather than being
+// dropped. The reducer is followed by one paragraph on a success and one line on
+// a failure, which is why the arguments are paragraphs and not a whole view.
+func (m *Model) finishThemeActivity(paragraphs ...string) {
+	if m.ThemeActivity == nil {
+		m.ThemeNotice = strings.Join(paragraphs, " ")
+		return
+	}
+	m.ThemeNotice = ""
+	m.ThemeActivity.Pending = ""
+	m.ThemeActivity.Result = paragraphs
+	// An undo removes the row it was pressed on, so the cursor is settled onto a
+	// row the frame can still draw rather than left on the separator that took
+	// its place. An apply leaves the cursor where it was.
+	m.settleThemePickerCursor()
+}
+
 // applyDotfilesThemeCmd runs one dotfiles-theme switch off the update loop,
 // behind the same dry-run gate as the desktop switch. The repository directory
 // the definitions were read from is what lets the switch recognise an installed
@@ -708,25 +744,25 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case dotfilesThemeChangedMsg:
-		// The dotfiles switch is not an install step either, so a failure is a
-		// notice on the section rather than a failed run.
+		// The dotfiles switch is not an install step, so a failure is told on the
+		// picker rather than taking the run to a failed screen. The outcome is
+		// not a navigation either: it lands in the rows the press put the pending
+		// line in, on the list the user is still standing on, so one press is one
+		// change on screen and the result does not move anything.
 		if msg.err != nil {
-			m.ThemeNotice = msg.err.Error()
+			m.finishThemeActivity(msg.err.Error())
 			return m, nil
 		}
 		// The record is what makes the change reversible, so it is re-read after
 		// every successful change: an apply leaves one, an undo clears it.
 		m.DotfilesThemeRecord = readDotfilesThemeRecord()
-		m.ThemeNotice = msg.notice
 		if len(msg.reload) > 0 {
-			// The files changed; the list says which tool was reached and which was
-			// not. It uses the picker's result view -- the same one the refresh uses --
-			// so the list has the whole body and each tool gets its own line.
-			m.ThemeRefreshReview = true
-			m.ThemeRefreshDone = true
-			m.ThemeRefreshResult = themeReloadResultParagraphs(msg.reload)
-			m.Cursor = 0
+			// The files changed; the slot says which tool was reached and which was
+			// not, one line per tool, in the rows the pending line already held.
+			m.finishThemeActivity(themeReloadResultParagraphs(msg.reload)...)
+			return m, nil
 		}
+		m.finishThemeActivity(msg.notice)
 		return m, nil
 
 	case themeRefreshDetectedMsg:
@@ -1141,6 +1177,7 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.ThemeNotice = ""
+		m.resetThemeRefresh()
 	case ScreenWSLResources:
 		// The WSL resource screen is one level in too, and leaving it clears the
 		// write's notice so a later visit does not open on a stale result.
@@ -1448,8 +1485,13 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 		selected := options[m.Cursor]
 		switch {
 		case strings.Contains(selected, "dark theme"):
+			// The line the result will use says the switch has started, so a tool
+			// that takes a moment to write is not a keypress that seemed to do
+			// nothing.
+			m.ThemeNotice = "Switching the desktop's theme to dark…"
 			return m, applyThemeCmd(m.ThemeSwitch, true)
 		case strings.Contains(selected, "light theme"):
+			m.ThemeNotice = "Switching the desktop's theme to light…"
 			return m, applyThemeCmd(m.ThemeSwitch, false)
 		case selected == utilitiesThemeRow:
 			// The theme list is one level in: the section opens the picker rather
@@ -1480,6 +1522,7 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenShellAudit
 			m.Cursor = 0
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
+			m.ThemeNotice = "Putting the previous desktop theme back…"
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
 		case strings.Contains(selected, "Back"):
 			m.Screen = ScreenMainMenu
@@ -1548,6 +1591,9 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case options[m.Cursor] == wslWriteRow:
+			// The write's own notice names the file before the write starts, so the
+			// wait is visible and the result replaces it in the same rows.
+			m.WSLNotice = fmt.Sprintf("Writing %s…", m.WSLState.Path)
 			return m, m.wslResourceWriteCmd()
 		case strings.Contains(options[m.Cursor], "Back"):
 			m.Screen = ScreenUtilities
@@ -1660,15 +1706,24 @@ func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
+		if m.themeActivityPending() {
+			// One switch at a time. A second press while the first is still
+			// writing would start a second write and the first result would be
+			// replaced by whichever finished last, so the pending row is inert
+			// until it reports.
+			return m, nil
+		}
 		selected := options[m.Cursor]
 		switch {
 		case strings.HasPrefix(selected, "Apply the "):
 			if def, ok := m.dotfilesThemeForRow(selected); ok {
+				m.startThemeActivity(fmt.Sprintf("Applying the %s theme…", def.Name))
 				return m, m.applyDotfilesThemeCmd(def)
 			}
 		case selected == themeRefreshRow:
 			return m, detectThemeRefreshCmd(os.Getenv("HOME"), m.DotfilesThemes)
 		case selected == dotfilesThemeUndoRow && m.DotfilesThemeRecord != nil:
+			m.startThemeActivity("Undoing the last dotfiles theme change…")
 			return m, undoDotfilesThemeCmd(*m.DotfilesThemeRecord)
 		case strings.Contains(selected, "Back"):
 			m.Screen = ScreenUtilities

@@ -125,3 +125,41 @@ directory: a stray write must land in the test's own tree, never in the runner's
 `~/.local/share` or `~/.config`. `TestStepCloneInstallsBothRuntimeAssets` is the merge guard: it runs
 the one clone step and asserts the theme definitions and the WSL template are both present under
 the data directory afterwards, so neither copy can be dropped from the step again.
+
+## Follow-up: choosing a theme is one change, not two
+
+The user's report, in their own words: *"En el aplicar el theme, le das a un tema, y luego, al
+segundo, cambia el panel y sale otro explicando lo que ha cambiado. Lo suyo sería darle, e
+inmediatamente mostrar al usuario lo que sea, no que cambie después de un segundo a otra cosa."*
+
+The sequence was two changes. A press on a theme row returned `applyDotfilesThemeCmd` with the model
+untouched, so the frame after the press was the frame before it. When `dotfilesThemeChangedMsg`
+arrived — after `applyDotfilesTheme` had written the files and `reloadThemeTools` had run its bounded
+commands, up to five seconds each — the reducer set `ThemeRefreshReview` and `ThemeRefreshDone` and
+reset `Cursor` to 0, which replaced the list with the review's result view. The panel the user was
+standing on became a different panel about a second later.
+
+**The fix is one slot, filled from the press.** `themeActivity` holds the pending line and the
+outcome; the press writes the pending line into the model before returning the command, and the
+reducer fills the same slot when the command reports. `renderThemeScreen` carves the activity slot
+out of the body budget first and gives the list a fixed five-row floor (`themeActivityMenuRows`), so
+the slot's height is a function of the frame and the list alone, not of which of the two states it is
+drawing. The list, its window and the row under the cursor are therefore identical in the frame the
+press leaves and the frame the result lands on, and `TestChoosingAThemeIsOneChangeNotTwo` fails on
+either half of the old behaviour — opening the review view, or resetting the cursor. A switch that is
+already running leaves the list's rows inert, so a second write cannot start beside the first. The
+undo takes the same path, with one extra step: it removes the undo row the press was made on, so the
+index that row had falls on a separator and the frame would draw no cursor marker.
+`settleThemePickerCursor` steps the cursor to the nearest selectable row instead,
+`TestUndoLeavesTheCursorOnASelectableRow` fails without it, and `theme-activity` was added to the
+shared twelve-terminal fit matrix so the slot is measured as a state of the picker.
+
+The same class was checked in the section's other long actions. The desktop theme switch and the WSL
+write stayed on their own screen already — their notice slot is their result, and the result replaced
+the pending line there, never the panel — so what they gained is the immediate line: the switch says
+`Switching the desktop's theme to dark…` and the write says `Writing <path>…` before the command
+starts. The shell audit (`ShellAudit.Measuring` → `Measuring: ...`) and the terminal probe
+(`TerminalCapabilities.Resolved` → `Reading what this terminal can do...`) already answered at once,
+which is where the pattern for this fix came from. The refresh detection still opens the review it is
+asked for; that navigation is the pressed row's meaning, not a result that arrives late. Platform
+selection and every cursor move are synchronous and were never in this class.
