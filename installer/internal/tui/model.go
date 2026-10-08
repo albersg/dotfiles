@@ -531,22 +531,25 @@ func (m Model) alacrittyNeedsBuild() bool {
 func (m Model) GetCurrentOptions() []string {
 	switch m.Screen {
 	case ScreenMainMenu:
+		// The rows carry words, never an emoji: a terminal without an emoji font
+		// draws one as a box, which is why the title lost its toolbox glyph. The
+		// rule is the trainer's own, and the emoji guard holds every screen to it.
 		opts := []string{
-			"🚀 Start Installation",
-			"📚 Learn About Tools",
-			"⌨️ Keymaps Reference",
-			"📖 LazyVim Guide",
-			"🎮 Vim Trainer",
+			"Start Installation",
+			"Learn About Tools",
+			"Keymaps Reference",
+			"LazyVim Guide",
+			"Vim Trainer",
 		}
 		// Add restore option if backups exist
 		if len(m.AvailableBackups) > 0 {
-			opts = append(opts, "🔄 Restore from Backup")
+			opts = append(opts, "Restore from Backup")
 		}
 		// Utilities sits immediately above Exit so Exit stays the last row: the
 		// section is a visible destination like the others, and quitting keeps
 		// the place muscle memory puts it.
-		opts = append(opts, "🧰 Utilities")
-		opts = append(opts, "❌ Exit")
+		opts = append(opts, "Utilities")
+		opts = append(opts, "Exit")
 		return opts
 	case ScreenKeymapsMenu:
 		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", m.menuSeparator(), "← Back"}
@@ -557,20 +560,20 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"macOS", "Linux", "Termux"}
 	case ScreenTerminalSelect:
 		if m.Choices.OS == "mac" {
-			return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", "None", m.menuSeparator(), "ℹ️ Learn about terminals"}
+			return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", "None", m.menuSeparator(), "Learn about terminals"}
 		}
-		return []string{"Alacritty", "WezTerm", "Ghostty", "None", m.menuSeparator(), "ℹ️ Learn about terminals"}
+		return []string{"Alacritty", "WezTerm", "Ghostty", "None", m.menuSeparator(), "Learn about terminals"}
 	case ScreenFontSelect:
 		return []string{"Yes, install Iosevka Term Nerd Font", "No, I already have it"}
 	case ScreenShellSelect:
-		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "ℹ️ Learn about shells"}
+		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "Learn about shells"}
 	case ScreenWMSelect:
 		if m.SystemInfo != nil && m.SystemInfo.IsTermux {
-			return []string{"Tmux", "Zellij", "None", m.menuSeparator(), "ℹ️ Learn about multiplexers"}
+			return []string{"Tmux", "Zellij", "None", m.menuSeparator(), "Learn about multiplexers"}
 		}
-		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "ℹ️ Learn about multiplexers"}
+		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "Learn about multiplexers"}
 	case ScreenNvimSelect:
-		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "ℹ️ Learn about Neovim", "⌨️ View Keymaps", "📖 LazyVim Guide"}
+		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "Learn about Neovim", "View Keymaps", "LazyVim Guide"}
 	case ScreenUtilities:
 		// Only what exists is offered: the switch rows need a detected desktop and
 		// the undo row needs a record this installer wrote for that same desktop.
@@ -657,9 +660,9 @@ func (m Model) GetCurrentOptions() []string {
 		return append(opts, "← Back")
 	case ScreenBackupConfirm:
 		return []string{
-			"✅ Install with Backup (recommended)",
-			"⚠️ Install without Backup",
-			"❌ Cancel",
+			"Install with Backup (recommended)",
+			"Install without Backup",
+			"Cancel",
 		}
 	case ScreenRestoreBackup:
 		opts := make([]string, len(m.AvailableBackups)+2)
@@ -672,15 +675,15 @@ func (m Model) GetCurrentOptions() []string {
 		return opts
 	case ScreenRestoreConfirm:
 		return []string{
-			"✅ Yes, restore this backup",
-			"🗑️ Delete this backup",
-			"❌ Cancel",
+			"Yes, restore this backup",
+			"Delete this backup",
+			"Cancel",
 		}
 	case ScreenGhosttyWarning:
 		return []string{
-			"⚠️ Continue with Ghostty anyway",
-			"🔄 Choose a different terminal",
-			"❌ Cancel installation",
+			"Continue with Ghostty anyway",
+			"Choose a different terminal",
+			"Cancel installation",
 		}
 	case ScreenLearnTerminals:
 		return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", m.menuSeparator(), "← Back"}
@@ -689,7 +692,7 @@ func (m Model) GetCurrentOptions() []string {
 	case ScreenLearnWM:
 		return []string{"Tmux", "Zellij", "Herdr", m.menuSeparator(), "← Back"}
 	case ScreenLearnNvim:
-		return []string{"View Features", "View Keymaps", "📖 LazyVim Guide", m.menuSeparator(), "← Back"}
+		return []string{"View Features", "View Keymaps", "LazyVim Guide", m.menuSeparator(), "← Back"}
 	case ScreenKeymaps:
 		categories := make([]string, len(m.KeymapCategories)+2)
 		for i, cat := range m.KeymapCategories {
@@ -762,13 +765,13 @@ func (m Model) GetScreenTitle() string {
 	case ScreenNvimSelect:
 		return "Step 6: Neovim Configuration"
 	case ScreenBackupConfirm:
-		return "⚠️ Existing Configs Detected"
+		return "Existing Configs Detected"
 	case ScreenRestoreBackup:
-		return "🔄 Restore from Backup"
+		return "Restore from Backup"
 	case ScreenRestoreConfirm:
-		return "🔄 Confirm Restore"
+		return "Confirm Restore"
 	case ScreenGhosttyWarning:
-		return "⚠️ Ghostty Compatibility Warning"
+		return "Ghostty Compatibility Warning"
 	case ScreenInstalling:
 		return "Installing dotfiles"
 	case ScreenComplete:
@@ -776,79 +779,82 @@ func (m Model) GetScreenTitle() string {
 	case ScreenError:
 		return "Installation failed"
 	case ScreenLearnTerminals:
-		return "📚 Learn: Terminal Emulators"
+		return "Learn: Terminal Emulators"
 	case ScreenLearnShells:
-		return "📚 Learn: Shells"
+		return "Learn: Shells"
 	case ScreenLearnWM:
-		return "📚 Learn: Window Managers"
+		return "Learn: Window Managers"
 	case ScreenLearnNvim:
-		return "📚 Learn: Neovim"
+		return "Learn: Neovim"
 	case ScreenKeymaps:
-		return "⌨️ Neovim Keymaps Reference"
+		return "Neovim Keymaps Reference"
 	case ScreenKeymapCategory:
 		if m.SelectedCategory < len(m.KeymapCategories) {
-			return "⌨️ " + m.KeymapCategories[m.SelectedCategory].Name
+			return m.KeymapCategories[m.SelectedCategory].Name
 		}
-		return "⌨️ Keymaps"
+		return "Keymaps"
 	case ScreenKeymapsMenu:
-		return "⌨️ Keymaps Reference"
+		return "Keymaps Reference"
 	case ScreenKeymapsTmux:
-		return "⌨️ Tmux Keymaps"
+		return "Tmux Keymaps"
 	case ScreenKeymapsTmuxCat:
 		if m.TmuxSelectedCategory < len(m.TmuxKeymapCategories) {
-			return "⌨️ " + m.TmuxKeymapCategories[m.TmuxSelectedCategory].Name
+			return m.TmuxKeymapCategories[m.TmuxSelectedCategory].Name
 		}
-		return "⌨️ Tmux Keymaps"
+		return "Tmux Keymaps"
 	case ScreenKeymapsZellij:
-		return "⌨️ Zellij Keymaps"
+		return "Zellij Keymaps"
 	case ScreenKeymapsZellijCat:
 		if m.ZellijSelectedCategory < len(m.ZellijKeymapCategories) {
-			return "⌨️ " + m.ZellijKeymapCategories[m.ZellijSelectedCategory].Name
+			return m.ZellijKeymapCategories[m.ZellijSelectedCategory].Name
 		}
-		return "⌨️ Zellij Keymaps"
+		return "Zellij Keymaps"
 	case ScreenKeymapsGhostty:
-		return "⌨️ Ghostty Keymaps"
+		return "Ghostty Keymaps"
 	case ScreenKeymapsGhosttyCat:
 		if m.GhosttySelectedCategory < len(m.GhosttyKeymapCategories) {
-			return "⌨️ " + m.GhosttyKeymapCategories[m.GhosttySelectedCategory].Name
+			return m.GhosttyKeymapCategories[m.GhosttySelectedCategory].Name
 		}
-		return "⌨️ Ghostty Keymaps"
+		return "Ghostty Keymaps"
 	case ScreenKeymapsHerdr:
-		return "⌨️ Herdr Keymaps"
+		return "Herdr Keymaps"
 	case ScreenKeymapsHerdrCat:
 		if m.HerdrSelectedCategory < len(m.HerdrKeymapCategories) {
-			return "⌨️ " + m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
+			return m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
 		}
-		return "⌨️ Herdr Keymaps"
+		return "Herdr Keymaps"
 	case ScreenLearnLazyVim:
-		return "📖 LazyVim Guide"
+		return "LazyVim Guide"
 	case ScreenLazyVimTopic:
 		if m.SelectedLazyVimTopic < len(m.LazyVimTopics) {
-			return "📖 " + m.LazyVimTopics[m.SelectedLazyVimTopic].Title
+			return m.LazyVimTopics[m.SelectedLazyVimTopic].Title
 		}
-		return "📖 LazyVim"
+		return "LazyVim"
+	// The trainer composes its own header, so these titles are never drawn; they
+	// follow the same rule as the rest rather than keeping the emoji the header
+	// does not use.
 	case ScreenTrainerMenu:
-		return "🎮 Vim Trainer - Module Selection"
+		return "Vim Trainer - Module Selection"
 	case ScreenTrainerLesson:
-		return "🎮 Vim Trainer - Lesson"
+		return "Vim Trainer - Lesson"
 	case ScreenTrainerPractice:
-		return "🎮 Vim Trainer - Practice"
+		return "Vim Trainer - Practice"
 	case ScreenTrainerBoss:
-		return "🎮 Vim Trainer - Boss Fight!"
+		return "Vim Trainer - Boss Fight!"
 	case ScreenTrainerResult:
-		return "🎮 Vim Trainer - Result"
+		return "Vim Trainer - Result"
 	case ScreenTrainerBossResult:
-		return "🎮 Vim Trainer - Boss Battle Complete"
+		return "Vim Trainer - Boss Battle Complete"
 	case ScreenUtilities:
-		return "🧰 Utilities"
+		return "Utilities"
 	case ScreenThemePicker:
-		return "🎨 Change the dotfiles theme"
+		return "Change the dotfiles theme"
 	case ScreenWSLResources:
-		return "🖥️ WSL resources"
+		return "WSL resources"
 	case ScreenTerminalCapabilities:
-		return "🔌 Terminal capabilities"
+		return "Terminal capabilities"
 	case ScreenShellAudit:
-		return "⏱️ The shell's startup"
+		return "The shell's startup"
 	default:
 		return ""
 	}

@@ -77,6 +77,113 @@ func TestEveryScreenIsCoveredByAFrameGuard(t *testing.T) {
 		len(declared), len(measured), trainerFrameWidth, trainerFrameHeight)
 }
 
+// TestNoInstallerScreenDrawsAnEmojiBox is the class guard for the rule the
+// repository already stated for the trainer and then broke everywhere else: a
+// terminal without an emoji font draws an emoji as a box, so the interface says
+// its state in words or in a plain glyph. The trainer's lives and module status
+// follow that rule; the main menu's rows and the screen titles kept the emoji,
+// which is the same box on the same terminal.
+//
+// The screen list is derived, not written out: every Screen constant model.go
+// declares is measured here by the frame the shared matrix already rendered, so
+// a screen added later is checked by name instead of shrinking the guard. The
+// trainer is excluded by asking isTrainerScreen, not by leaving it out of a
+// hand-written list: its answer line and its save warning keep the emoji its own
+// tests pin (the hint label, the save warning), so its rule stays the one its own
+// guard holds.
+func TestNoInstallerScreenDrawsAnEmojiBox(t *testing.T) {
+	declared := screenConstantsInDeclarationOrder(t)
+	if len(declared) == 0 {
+		t.Fatal("model.go declares no Screen constants, so this guard proves nothing")
+	}
+
+	// The shared matrix pass has already rendered the installer's states and the
+	// screens no state reaches, at every measured terminal. WSL resources is the
+	// one screen that pass does not carry (screensTheInstallerStatesNeverReach
+	// measures it), so it is rendered here rather than left unmeasured.
+	seen := map[Screen]bool{}
+	frames := 0
+	check := func(name string, screen Screen, view string) {
+		seen[screen] = true
+		frames++
+		if r, found := firstBoxEmoji(view); found {
+			t.Errorf("%s draws %q (%U): a terminal without an emoji font shows a box where this should be a word or a plain glyph",
+				name, r, r)
+		}
+	}
+
+	for _, f := range terminalFrames(t) {
+		if isTrainerScreen(f.screen) {
+			continue
+		}
+		check(f.caseName+" at "+f.sizeName, f.screen, f.view)
+	}
+
+	wsl := wslResourcesFrameCase(t)
+	wsl.Width, wsl.Height = trainerFrameWidth, trainerFrameHeight
+	check(wslResourcesCaseName, wsl.Screen, wsl.View())
+
+	missing := 0
+	for i, name := range declared {
+		screen := Screen(i)
+		if isTrainerScreen(screen) {
+			continue
+		}
+		if !seen[screen] {
+			missing++
+			t.Errorf("no frame guard renders %s, so this guard cannot measure it: add it to a case list", name)
+		}
+	}
+	if missing > 0 {
+		return
+	}
+	if frames == 0 {
+		t.Fatal("the guard measured no screen, so it proves nothing")
+	}
+	t.Logf("measured %d installer frames, the WSL resource screen among them, for emoji; the trainer's screens keep their own guard", frames)
+}
+
+// firstBoxEmoji returns the first rune in s that a terminal without an emoji
+// font draws as a box. It generalizes the trainer's own guard, which checks for
+// the exact emoji it replaced (a red and a black heart): the pictographic emoji
+// blocks, the BMP emoji the installer used to spell its screens with, and the
+// variation selector that turns a text glyph into emoji presentation. The plain
+// glyphs the interface keeps on purpose -- the check and cross, the stars, the
+// hearts, the circles, the row marker and the arrows and rules -- sit outside
+// those ranges or are named here, so a new emoji is caught without flagging the
+// glyphs that were chosen to survive a terminal with no emoji font.
+func firstBoxEmoji(s string) (rune, bool) {
+	for _, r := range s {
+		if isBoxEmojiRune(r) {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+// isBoxEmojiRune reports whether r is one of the emoji the rule covers.
+func isBoxEmojiRune(r rune) bool {
+	switch {
+	case r == 0xFE0F: // variation selector-16: emoji presentation
+		return true
+	case r >= 0x1F000 && r <= 0x1FAFF: // pictographic emoji
+		return true
+	case r >= 0x2300 && r <= 0x23FF: // keyboard, stopwatch, hourglass
+		return true
+	case r >= 0x2600 && r <= 0x27BF: // warning, check, cross, sparkles, hearts, swords
+		switch r {
+		case '\u2605', '\u2606', // black and white star
+			'\u2661', '\u2665', // white and black heart suit
+			'\u2713', '\u2717': // check and ballot cross
+			return false
+		}
+		return true
+	case r >= 0x2B00 && r <= 0x2BFF: // arrows and geometric emoji
+		return true
+	}
+	return false
+}
+
 // screenConstantsInDeclarationOrder reads model.go and returns the names of the
 // Screen constants in the order they are declared, which is also their order by
 // value while the block stays a contiguous iota run. That assumption is checked
@@ -228,6 +335,7 @@ const measuredScreens = 59 // 47 installer states + utilities + theme-picker + t
 // took this package from tens of seconds to minutes.
 type terminalMatrixFrame struct {
 	caseName string
+	screen   Screen
 	sizeName string
 	width    int
 	height   int
@@ -261,10 +369,12 @@ func terminalFrames(t *testing.T) []terminalMatrixFrame {
 		m := c.build(t)
 		m.Animating, m.PixelSprite = true, true
 		m.ink = companionInkFor(true)
+		screen := m.Screen
 		for _, size := range measuredTerminalSizes {
 			m.Width, m.Height = size.width, size.height
 			frames = append(frames, terminalMatrixFrame{
 				caseName: c.name,
+				screen:   screen,
 				sizeName: size.name,
 				width:    size.width,
 				height:   size.height,
