@@ -742,6 +742,41 @@ func (m Model) GetCurrentOptions() []string {
 	}
 }
 
+// selectedOption is the label the cursor names, or "" when the cursor is out of
+// range. The label is a row's stable identity: an index is not, because a row
+// that a background read inserts above the cursor shifts every index below it.
+func (m Model) selectedOption() string {
+	options := m.GetCurrentOptions()
+	if m.Cursor < 0 || m.Cursor >= len(options) {
+		return ""
+	}
+	return options[m.Cursor]
+}
+
+// holdCursorOn points the cursor back at the row it was naming after the option
+// list changed underneath it, so a row that arrives from a background read
+// cannot hand Enter to a different choice. It is a no-op when the row is still
+// where it was, and when the row is gone the cursor is clamped into range rather
+// than left pointing past the end.
+func (m *Model) holdCursorOn(label string) {
+	if label == "" {
+		return
+	}
+	options := m.GetCurrentOptions()
+	for i, option := range options {
+		if option == label {
+			m.Cursor = i
+			return
+		}
+	}
+	if m.Cursor >= len(options) {
+		m.Cursor = len(options) - 1
+	}
+	if m.Cursor < 0 {
+		m.Cursor = 0
+	}
+}
+
 // GetScreenTitle returns the title for the current screen
 func (m Model) GetScreenTitle() string {
 	switch m.Screen {

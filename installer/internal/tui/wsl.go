@@ -534,6 +534,13 @@ type wslResourceState struct {
 	// Resolved reports whether the read finished. Until it has, the section says
 	// it is still reading rather than claiming there is nothing to offer.
 	Resolved bool
+	// Refreshing reports that a write has just succeeded and the values are being
+	// read back from the file it left behind. The first read fills the state once;
+	// this is what tells a later read that it is the refresh the screen asked for
+	// rather than a stale answer to roll the values back with. The table the user
+	// was reading stays on screen while it runs, so the re-read updates values in
+	// place instead of replacing the body.
+	Refreshing bool
 	// Available reports whether the utility is offered at all.
 	Available bool
 	// Reason is why it is not offered, in the section's own words.
