@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+  Utilities                                                                     
+  ────────────────────────────────────────────────────────────────────────────  
+  🧰 Utilities                                                                  
+  No desktop theme switch is available here. Switching needs a GNOME, KDE       
+  Plasma or macOS session with the tool that changes its theme on PATH; a       
+  server, Termux or a plain terminal has none, so no switch is offered.         
+  WSL resources are not adjustable here: .wslconfig is a Windows file read      
+  only by WSL, and Linux does not run it. The utility is offered only on a WSL  
+  host.                                                                         
+  Measure the shell's startup starts zsh -i -c exit the way a terminal does,    
+  several times, and reports the median with the range -- and on zsh names the  
+  functions zprof blames for it. It changes nothing: no startup file is         
+  … and 8 more                                                                  
+                                                                                
+  ▸ Change the dotfiles theme                                                   
+  ────────────────────────────────────────────────────────────────────────────  
+    Measure the shell's startup                                                 
+  ────────────────────────────────────────────────────────────────────────────  
+    Report the terminal capabilities                                            
+  ────────────────────────────────────────────────────────────────────────────  
+    ← Back                                                                      
+  ────────────────────────────────────────────────────────────────────────────  
+  ↑/k up • ↓/j down • [Enter] select • [Esc] back                               [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

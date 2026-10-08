@@ -1270,28 +1270,34 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	preview := m.themePreviewLines(width)
 
 	// The rows the title, the blank above the menu, the preview and the notice
-	// spend are fixed; the menu and the description share what is left. The menu is
-	// the data, so it takes its share first: when the list is longer than the frame
-	// leaves it is windowed around the cursor instead of being allowed to run off
-	// the bottom, and the description takes only what the menu did not need. That
-	// is what keeps the number of themes from being bounded by the frame -- the
-	// list scrolls, the frame stays the frame.
+	// spend are fixed; the menu, the activity slot and the description share what
+	// is left, in that order of priority: the list is the data the user is moving
+	// through, the slot is what says a press is doing something, and the prose is
+	// the only one of the three whose cut costs nothing. When the list is longer
+	// than the frame leaves it, it is windowed around the cursor instead of being
+	// allowed to run off the bottom. That is what keeps the number of themes from
+	// being bounded by the frame -- the list scrolls, the frame stays the frame.
 	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
 	available := bodyRows - (2 + len(preview) + len(notice))
 	if available < 1 {
 		available = 1
 	}
-	// The activity slot is carved out first, and the list keeps a fixed floor of
-	// rows beside it. Two things follow from fixing the floor rather than the
-	// slot's own height: the slot takes every row the list does not need, so a
-	// reload result has the whole body to name its tools, and the slot's height
-	// is a function of the frame and the list alone -- not of which of the two
-	// states it is drawing -- so the pending line and the result are the same
-	// height and the cursor row cannot move when the result lands.
+	// The activity slot is carved out after the list has taken its own size, and
+	// it sits under the list, where the result it is waiting for will land. The
+	// order matters: taking the slot's rows out first would squash the list, which
+	// is the screen the user is still reading and moving through, and putting the
+	// slot above the list would draw the wait where the list belongs.
+	//
+	// The slot's height is measured from the frame and the list alone -- never from
+	// which of the two states it is drawing -- so the list's window, the slot's
+	// rows and the rows the cursor is on are identical from the press to the
+	// result: the frame can neither grow nor shrink, and the cursor row cannot move
+	// when the outcome lands. The floor keeps a place for the outcome on a frame
+	// too short to hold the list whole.
 	menuBudget, descBudget := available, 0
 	activityRows := 0
 	if m.pickerActivity() != nil {
-		menuBudget = min(len(menu), max(1, min(themeActivityMenuRows, available-1)))
+		menuBudget = min(len(menu), max(1, available-themeActivitySlotFloor))
 		activityRows = available - menuBudget
 	} else if len(menu) <= available {
 		menuBudget = len(menu)
@@ -1310,13 +1316,24 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	for _, line := range descriptionLines(paragraphs, width, descBudget) {
 		body = append(body, MutedStyle.Render(line))
 	}
-	for _, line := range activityLines(m.pickerActivity(), width, activityRows) {
-		body = append(body, MutedStyle.Render(line))
-	}
 	body = append(body, "")
 	body = append(body, menu[start:end]...)
+
+	// The activity is drawn under the list, in the rows the result will land in,
+	// and it is drawn with exactly the lines it has: one line while the switch
+	// runs, and the outcome's own lines once it lands. The rows it did not use are
+	// left at the FOOT of the body rather than between the slot and the preview, so
+	// a wait reads as one line under the list and the space it is holding open is a
+	// margin under the screen's content instead of a hole in the middle of it. The
+	// body still measures the same rows either way, which is what keeps the frame
+	// and the rows below the cursor from moving when the outcome arrives.
+	activity := activityLines(m.pickerActivity(), width, activityRows)
+	body = append(body, activity...)
 	body = append(body, preview...)
 	body = append(body, notice...)
+	for i := len(activity); i < activityRows; i++ {
+		body = append(body, "")
+	}
 
 	// The header's vital names the slice of a windowed list that is on screen, so
 	// a list longer than the frame says so instead of appearing to end where the
@@ -1351,12 +1368,15 @@ func descriptionLines(paragraphs []string, width, budget int) []string {
 	return lines
 }
 
-// themeActivityMenuRows is the rows the theme list keeps while a switch is
-// running or its result is on screen. The rest of the body goes to the activity
-// slot, so the result has room to name every tool without the list leaving the
-// screen: the row under the cursor stays visible, and the slot is the same
-// height whether it is drawing the pending line or the result.
-const themeActivityMenuRows = 5
+// themeActivitySlotFloor is the floor the activity slot keeps while a switch is
+// running or its result is on screen, on a frame too short to hold the theme list
+// whole: the list gives those rows up so the press still says what it is doing,
+// and the slot's height stays a function of the frame and the list alone. It is a
+// floor and not a cap -- a frame with room to spare gives the slot every row the
+// list did not need, so the outcome can name its tools. Five rows is the smallest
+// slot a result can be read in: three lines of method, one named tool and the cut
+// marker.
+const themeActivitySlotFloor = 5
 
 // pickerActivity is the picker's activity slot, and nil on every other screen.
 // A switch left running while the user walked away keeps its outcome in the
@@ -1369,12 +1389,13 @@ func (m Model) pickerActivity() *themeActivity {
 	return m.ThemeActivity
 }
 
-// activityLines renders the picker's activity in exactly rows rows: the pending
-// line while the switch runs, or the outcome once it lands. It is one function
-// for both states on purpose -- the height comes from the caller, never from
-// which of the two is being drawn -- and a result longer than the rows it was
-// given is cut with a count, the same rule the description and the notice
-// follow.
+// activityLines renders the picker's activity: the pending line while the switch
+// runs, or the outcome once it lands, cut to rows rows with a count when the
+// outcome is longer than the frame left for it -- the same rule the description
+// and the notice follow. It is one function for both states on purpose: the cut
+// comes from the caller's budget, never from which of the two is being drawn, so
+// the pending line and the result occupy the same rows. The rows the activity did
+// not use are the caller's to place, which is why this returns no padding.
 func activityLines(activity *themeActivity, width, rows int) []string {
 	if activity == nil || rows < 1 {
 		return nil
@@ -1390,11 +1411,6 @@ func activityLines(activity *themeActivity, width, rows int) []string {
 	if len(lines) > rows {
 		hidden := len(lines) - rows + 1
 		lines = append(lines[:rows-1], fmt.Sprintf("… and %d more", hidden))
-	}
-	// The slot is padded rather than left short, so the rows below it stand at
-	// the same line whatever the outcome turned out to be.
-	for len(lines) < rows {
-		lines = append(lines, "")
 	}
 	return lines
 }

@@ -581,7 +581,9 @@ const themeRefreshCaseName = "theme-refresh"
 
 // themeActivityFrameCase builds the picker with a switch on screen: a result
 // longer than the slot can hold, so the guard measures the cut as well as the
-// rows, and the list still drawn under it with the cursor on a theme row.
+// rows, and the list still drawn whole above it with the cursor on a theme row.
+// The slot sits under the list, in the rows the result will land in, so what this
+// case measures is the list's own rows plus the slot's, in one frame.
 func themeActivityFrameCase(t *testing.T) Model {
 	t.Helper()
 

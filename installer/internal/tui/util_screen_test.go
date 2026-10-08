@@ -1617,6 +1617,11 @@ func markerRow(lines []string, marker string) int {
 // the result in the same rows, the frame neither taller nor shorter. Its teeth
 // are the two halves of the old behaviour -- opening the review view and
 // resetting the cursor -- either of which makes the two frames disagree.
+//
+// The slot the pending line and the result share sits UNDER the list, where the
+// result it is waiting for will land, and the list keeps its own size beside it.
+// Both frames below are therefore read against that layout: a wait drawn where
+// the list belongs is the defect this guard would have to catch next.
 func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 	t.Setenv("DOTFILES_DRY_RUN", "0")
 
@@ -1664,6 +1669,15 @@ func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 	m.Cursor = cursor
 	listBefore := m.dotfilesThemeOptions()
 
+	// The frame before the press. The frame's own height is part of the property
+	// across all three states; the cursor row is not, and the reason is stated
+	// rather than hidden: the description is the prose that gives way to the wait,
+	// so the rows above the list change at the press and the list moves up with
+	// them. That was already true before this was fixed -- the old body spent the
+	// same rows on the activity block -- and what the press may NOT do is cut the
+	// list itself, which is asserted below and is the complaint that was reported.
+	before := pickerFrameLines(m)
+
 	// The press. The frame it leaves on screen already says what is happening.
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(Model)
@@ -1677,6 +1691,21 @@ func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 	pressedCursor := markerRow(pressed, "▸")
 	if pressedCursor < 0 {
 		t.Fatalf("the pressed frame draws no cursor marker:\n%s", strings.Join(pressed, "\n"))
+	}
+	if len(pressed) != len(before) {
+		t.Errorf("the frame is %d rows before the press and %d rows after it, want the same height",
+			len(before), len(pressed))
+	}
+	// The wait does not squash the list. Every theme the user was choosing between
+	// is still on screen after the press: the old body gave the activity block
+	// every row the list did not need and the list kept five, so most of the
+	// themes left the screen the moment a row was pressed.
+	pressedFlat := strings.Join(pressed, "\n")
+	for _, option := range listBefore {
+		if !strings.Contains(pressedFlat, option) {
+			t.Errorf("the press cut the theme row %q off the screen, so the wait squashed the list:\n%s",
+				option, pressedFlat)
+		}
 	}
 	slotRow := markerRow(pressed, "Applying the ")
 	if slotRow < 0 {
@@ -1703,9 +1732,9 @@ func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 	if strings.Contains(strings.Join(landed, "\n"), "Applying the ") {
 		t.Error("the pending line is still on screen after the result landed")
 	}
-	// The result is in the rows the pending line held, above the list.
-	if slotRow >= pressedCursor {
-		t.Errorf("the activity slot is at line %d, at or below the cursor at %d, so it is not the row above the list",
+	// The result is in the rows the pending line held, under the list.
+	if slotRow <= pressedCursor {
+		t.Errorf("the activity slot is at line %d, at or above the cursor at %d, so it is not the rows under the list",
 			slotRow, pressedCursor)
 	}
 	if strings.TrimSpace(landed[slotRow]) == "" {
@@ -1713,7 +1742,7 @@ func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 			slotRow, strings.Join(landed, "\n"))
 	}
 	named := false
-	for i := slotRow; i < pressedCursor && i < len(landed); i++ {
+	for i := slotRow; i < len(landed); i++ {
 		if strings.Contains(landed[i], "Alacritty") || strings.Contains(landed[i], "Neovim") {
 			named = true
 			break
