@@ -657,3 +657,75 @@ Measured with the teeth restored: `make check` on a change to `internal/tui` end
 `ok .../internal/tui 243.576s`. Both are dominated by the 54 s guard this front cannot touch, and both
 are wall-clock figures from a host shared with other worktrees, so they are evidence of this host's
 runs rather than a controlled claim about an idle one.
+
+## Phase 2, fifth pass: the isolation never invalidated the cache, measured; the loop stays as it is
+
+The fourth pass removed `-count=1` from the inner loop. A follow-up reading went further: that the
+fixtures' fresh `t.TempDir()` `HOME`/`XDG_STATE_HOME` directories made the suite uncacheable, so the
+cache never hit and the inner loop could not be fast. The tools say otherwise, and the measurement
+agrees. It is written down here so the same change is not proposed again.
+
+### The mechanism: a `t.TempDir()` is invisible to the cache key
+
+Go's test cache records the environment variables and files a test consults and re-hashes their
+values on the next run (`computeTestInputsID`). Three facts in Go 1.27.1 decide this:
+
+- `src/os/env.go:102` - `os.Getenv` logs only the *name*: `testlog.Getenv(key)` is called and the
+  value is returned from `syscall.Getenv` without entering the log.
+- `src/cmd/go/internal/test/test.go:2018` - `computeTestInputsID` re-hashes each logged name with
+  `hashGetenv(name)`, which is an `os.Getenv` in the **`go` command's** process. `t.Setenv` changes
+  only the test binary's environment, so the temporary path never reaches the parent `go`, and the
+  value hashed is the same from run to run.
+- `src/cmd/go/internal/test/test.go:2048-2066` - `stat` and `open` entries are dropped unless the
+  path is inside the package's module root (`search.InDir(name, a.Package.Root) == ""`). Every
+  `t.TempDir()` lives under `/tmp`, outside the module, so nothing it contains is rechecked.
+
+So the suspected invalidation does not happen. The lines that were blamed, with their
+`origin/main` positions:
+
+- `installer/internal/tui/install_paths_test.go:765,799,829,852,872,894,2330,2421,2460,2537,2582,2626,2664,2724,2785,2819,2864,3138,3201,3256,3296,3336`
+  - `t.Setenv("XDG_STATE_HOME", t.TempDir())`
+- `installer/internal/tui/update_test.go:1063,1294,1946,1996` - `t.Setenv("XDG_STATE_HOME"/"HOME", t.TempDir())`
+- `installer/internal/tui/util_screen_test.go:867,925,969,1044` - `t.Setenv("XDG_STATE_HOME", t.TempDir())`
+- `installer/internal/tui/teatest_test.go:108,109` - `t.Setenv("HOME"/"XDG_STATE_HOME", t.TempDir())`
+- `installer/internal/tui/companion_test.go:84`, `homebrew_step_test.go:58`, `fnm_alias_test.go:84,98`
+  - `t.Setenv("HOME", t.TempDir())`
+- `installer/internal/tui/arch_packages_test.go:162-170`, `debian_packages_test.go:128`,
+  `fedora_packages_test.go:172-179` - `home := t.TempDir(); t.Setenv("HOME", home)`
+
+### Measured on this host, cache left on
+
+| Command | First run | Run again |
+| --- | ---: | ---: |
+| `go test ./internal/tui` | `ok ... 227.128s` | `ok ... (cached)` |
+| `go test ./internal/system` | `ok ... 7.461s` | `(cached)` 0.78 s, then 0.83 s |
+| `go test ./internal/tui -run '^TestMainMenuEasterEggsFireOnlyAfterTheirLastCharacter$'` | `ok ... 0.208s` | `(cached)` 1.13 s |
+| `go test -c -o /dev/null ./internal/tui` (build only) | - | 1.08 s (binary already built) |
+| `go vet ./...` | - | 0.25 s (cached) |
+| `go vet ./internal/tui` | - | 0.19 s (cached) |
+
+No test changed, and the `TestMain`/shared-stable-temp-directory idea retired with this: it would
+have shared state between tests and bought no cache hit.
+
+### The real cost, and why the loop was not shortened
+
+- **The tests are the cost, not vet.** `scripts/preflight.sh:136` runs `go test` for each changed
+  package, and an edit anywhere under `internal/tui` makes that the whole package: about 227 s
+  uncached on this host. `scripts/preflight.sh:124` runs `go vet ./...` over the whole repository,
+  but it is cached and measured at 0.25 s, so scoping it to the changed packages would save nothing
+  and would drop vet coverage of dependents. It was left alone.
+- **No honest shortening exists at this surface.** The fused render matrix is already the minimum the
+  guards assert, and the 54 s `TestCompanionBlockDependsOnlyOnTheTerminal` lives in
+  `companion_test.go`, outside this surface. Cutting either trades coverage for time.
+- **The variable that actually moved the wall clock was the host.** On the same host a cache *hit*
+  was measured at 10 m 20 s wall with about 72 s of CPU (`user 15.6 s + sys 56.6 s`): the process was
+  being starved, not failing to find the cache. Named at the time: a `git-remote-https` at ~200 %
+  CPU for hours and a Gradle daemon at ~280 %. `make check` with the cache on is therefore honest
+  only as "cache on, changed packages": on a real `internal/tui` edit it still runs the whole
+  package, and the wall clock depends on what else the machine is doing.
+
+### What changed
+
+Nothing that affects test behavior: no fixture lost its isolation, no golden moved, `make check`
+and `make preflight` are unchanged. The refutation is recorded so the shared-temp-directory idea is
+not re-proposed.
