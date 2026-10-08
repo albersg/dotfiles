@@ -1024,9 +1024,18 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		// one entry says exactly that rather than a second row repeating it.
 		entries = append(entries, utilitiesPanelEntry{label: "Themes", value: "undo available", offered: true})
 	default:
+		// The definitions are read only when the section is opened, so before
+		// that the panel cannot say whether the theme is switchable. It says the
+		// question has not been checked yet rather than answering it with a fact
+		// nobody established; once a read has finished -- with a list or with a
+		// reason -- the panel can state the verdict.
+		absent := "The dotfiles' own theme is not switchable here."
+		if m.dotfilesThemesPending() {
+			absent = "The dotfiles' own theme has not been checked yet."
+		}
 		entries = append(entries, utilitiesPanelEntry{
 			label:  "Themes",
-			absent: "The dotfiles' own theme is not switchable here.",
+			absent: absent,
 		})
 	}
 

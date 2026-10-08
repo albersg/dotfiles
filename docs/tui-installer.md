@@ -188,7 +188,14 @@ tmux gets its own generated style block after the TPM run line instead of depend
 and `kanagawa` are the two colorschemes the repository's own plugin install provides, and the other
 five themes ship a colorscheme generated from their definition under `dotfiles-nvim/nvim/colors/` —
 pointing Latte at the Catppuccin plugin's own name would paint Mocha's flavour, because the plugin's
-`flavour` is pinned to `mocha` in this configuration. bat selects a theme by a name its own themes
+`flavour` is pinned to `mocha` in this configuration. **The line may only name a colorscheme the
+machine can load.** A generated colorscheme is written to `~/.config/nvim/colors/<name>.lua` — the
+directory Neovim reads on its runtimepath ahead of any plugin — before the switch writes the line
+that names it, so the file reaches the machine even when the theme change runs long after the Neovim
+step that copied the config; a colorscheme a plugin would register is named only when a colors file
+for it is present under the machine's Neovim data directory. When neither can be reached the line is
+left out and the screen names the reason, because a name Neovim cannot find starts the editor with
+`E185: Cannot find color scheme` on every launch. bat selects a theme by a name its own themes
 directory has to hold, so the shell step generates a `.tmTheme` for **every** theme that names one
 before it rebuilds bat's cache — and the name the switch exports is the file's own name, because that
 is what bat registers a custom theme under (measured against bat 0.26.1; the `<key>name</key>` inside
@@ -326,7 +333,10 @@ first, and resolution reads one directory and never merges two, so a stale copy 
 checkout's list into another's.
 
 When none of them holds `themes/*.toml`, the section says the dotfiles theme is not switchable here
-and names the search — including the copy directory — instead of drawing rows that would fail.
+and names the search — including the copy directory — instead of drawing rows that would fail. The
+definitions are read when the section is opened, so until that read answers the section says only
+that it is **reading the definitions**, and the main menu's panel says the theme **has not been
+checked yet**; neither claims the theme is not switchable before a finished read has established it.
 
 **The preview writes nothing, and it says so.** While the cursor is on a theme row the **whole
 interface is repainted** in that theme's colours — the header, the rules, every row and marker, the
@@ -418,8 +428,10 @@ all merge this way, so a machine installed today already has its own keys preser
 **The change is honest about when it applies.** WSL reads `.wslconfig` when the VM starts, so the
 screen says that nothing takes effect until `wsl --shutdown` is run on Windows and the terminal is
 reopened — and it does not run it, because that would close the session the user is working in.
-**`--dry-run` skips the write**, leaving no file, no backup and no record, exactly as it skips every
-installation step.
+After a successful write the screen re-reads the file it left behind and updates the values in
+place: the table keeps its size and its place, the notice row says it is refreshing, and one press
+is one visible change. **`--dry-run` skips the write**, leaving no file, no backup and no record,
+exactly as it skips every installation step.
 
 ### The shell's startup
 
@@ -626,7 +638,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |

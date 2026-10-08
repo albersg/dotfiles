@@ -315,7 +315,7 @@ func loadWSLResourceStateCmd(repoDir string, isWSL bool) tea.Cmd {
 // returns no command only when the read has already finished, so the section's
 // own state -- available or not -- is what it draws.
 func (m *Model) wslResourceStateCmdIfNeeded() tea.Cmd {
-	if m.WSLState.Resolved {
+	if m.WSLState.Resolved && !m.WSLState.Refreshing {
 		return nil
 	}
 	return loadWSLResourceStateCmd(m.RepoDir, m.SystemInfo != nil && m.SystemInfo.IsWSL)
@@ -645,7 +645,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case loadBackupsMsg:
+		// The Restore row is inserted above Utilities when backups exist, so the
+		// index the cursor held before this answer no longer names the same row.
+		// The label is kept and re-found, so a row that arrived late cannot take
+		// the keypress that was aimed at the row that was already there.
+		held := m.selectedOption()
 		m.AvailableBackups = msg.backups
+		m.holdCursorOn(held)
 		return m, nil
 
 	case trainerStatsLoadedMsg:
@@ -709,10 +715,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case wslResourceLoadedMsg:
-		// The read fills the state once. A second read arriving after the screen
-		// has been written would roll the draft back to what the file held, so the
-		// first answer is the one that stands.
-		if !m.WSLState.Resolved {
+		// The first read fills the state once: a later answer arriving after the
+		// screen has been written would roll the draft back to what the file held.
+		// The refresh a write asked for is the one exception -- it is what replaces
+		// the values the write just changed -- so it is accepted too, and the state
+		// it brings clears the refreshing mark by not carrying one.
+		if !m.WSLState.Resolved || m.WSLState.Refreshing {
 			m.WSLState = msg.state
 		}
 		return m, nil
@@ -732,7 +740,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// What the file holds has changed, so the read half is refreshed from the
 		// file the write left behind rather than from what the screen remembered.
-		m.WSLState.Resolved = false
+		// The table the user was reading stays on screen while that read runs: the
+		// refresh updates its values in place instead of replacing the body, so the
+		// press produces one change, not two.
+		m.WSLState.Refreshing = true
 		return m, m.wslResourceStateCmdIfNeeded()
 
 	case shellAuditMeasuredMsg:

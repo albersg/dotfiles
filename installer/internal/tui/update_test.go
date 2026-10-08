@@ -1336,6 +1336,10 @@ func TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenUtilities
 	m.DotfilesThemes = nil
+	// The read has finished and failed: no candidate held themes/*.toml. The
+	// failure is written directly because a runner standing inside the checkout
+	// would find the repository's own themes/ and the read would succeed.
+	m.DotfilesThemesErr = themeDefinitionsNotFoundMessage()
 	m.RepoDir = ""
 
 	for _, option := range m.GetCurrentOptions() {
@@ -1360,6 +1364,86 @@ func TestUtilitiesSaysTheThemeIsUnavailableWithoutARepository(t *testing.T) {
 	m.DotfilesThemes = []themeDefinition{{ID: "already"}}
 	if cmd := m.dotfilesThemesCmdIfNeeded(); cmd != nil {
 		t.Error("entering the section read the definitions twice")
+	}
+}
+
+// TestUtilitiesSaysItIsReadingTheThemeDefinitionsWhileTheReadRuns pins the
+// honest half of the section's opening: the definitions are read when the
+// section opens, and until that read answers the section must not claim the
+// theme is not switchable. "Not switchable" is a fact only a finished read can
+// establish, and saying it early is the lie the section used to draw for the
+// instant between the keypress and the answer. The key is driven through the
+// real dispatch, so the state this measures is the one a userpress produces.
+func TestUtilitiesSaysItIsReadingTheThemeDefinitionsWhileTheReadRuns(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+	m.DotfilesThemes = nil
+	m.DotfilesThemesErr = ""
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = next.(Model)
+	if m.Screen != ScreenUtilities {
+		t.Fatalf("u opened %v, want ScreenUtilities", m.Screen)
+	}
+
+	body := strings.Join(m.utilitiesDescription(), " ")
+	if strings.Contains(body, "not switchable") {
+		t.Errorf("the section calls the theme not switchable while it is still reading: %q", body)
+	}
+	if !strings.Contains(body, "Reading the dotfiles' theme definitions") {
+		t.Errorf("the section does not say it is reading the definitions: %q", body)
+	}
+}
+
+// TestALateBackupRowDoesNotMoveTheRowUnderTheCursor pins the no-move half of the
+// rule for the main menu. The backup list is read off the update loop, and when
+// it lands the Restore row is inserted above Utilities. The cursor is an index,
+// so without holding it on the row it named, Enter on Utilities silently became
+// Enter on a row that appeared a moment earlier. The press is driven through the
+// real dispatch, so the assertion is about the key the user actually presses.
+func TestALateBackupRowDoesNotMoveTheRowUnderTheCursor(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+	m.AvailableBackups = nil
+
+	options := m.GetCurrentOptions()
+	utilities := -1
+	for i, option := range options {
+		if strings.Contains(option, "Utilities") {
+			utilities = i
+			break
+		}
+	}
+	if utilities < 0 {
+		t.Fatal("the main menu holds no Utilities row")
+	}
+	m.Cursor = utilities
+
+	next, _ := m.Update(loadBackupsMsg{backups: []system.BackupInfo{{Path: "/tmp/backup"}}})
+	m = next.(Model)
+
+	if got := m.GetCurrentOptions()[m.Cursor]; !strings.Contains(got, "Utilities") {
+		t.Fatalf("a backup row that arrived late moved the cursor to %q, want the Utilities row", got)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.Screen != ScreenUtilities {
+		t.Errorf("enter after the backup row arrived opened %v, want ScreenUtilities", m.Screen)
+	}
+
+	// The row below the insertion point holds too: with the cursor on Exit, the
+	// same late answer must not turn the quit key into a restore.
+	exitModel := NewModel()
+	exitModel.Screen = ScreenMainMenu
+	exitModel.Cursor = len(exitModel.GetCurrentOptions()) - 1
+	next, _ = exitModel.Update(loadBackupsMsg{backups: []system.BackupInfo{{Path: "/tmp/backup"}}})
+	exitModel = next.(Model)
+	if got := exitModel.GetCurrentOptions()[exitModel.Cursor]; !strings.Contains(got, "Exit") {
+		t.Errorf("a backup row that arrived late moved the cursor to %q, want the Exit row", got)
+	}
+	if _, cmd := exitModel.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil {
+		t.Error("enter on Exit after the backup row arrived did not quit")
 	}
 }
 
