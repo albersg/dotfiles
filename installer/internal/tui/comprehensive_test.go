@@ -547,15 +547,27 @@ func TestEscapeKeyBehavior(t *testing.T) {
 		})
 	}
 
-	t.Run("escape from main menu quits", func(t *testing.T) {
+	t.Run("escape from main menu does nothing", func(t *testing.T) {
+		// This subtest used to pin the defect: Esc on the main menu quit the whole
+		// application, the most destructive action on the one global key the footer
+		// did not announce (it announces quit on [Space q], and the documentation
+		// says "Go back"). The main menu is the root, so Esc has nowhere back to go.
+		// TestEscapeOnTheMainMenuDoesNotQuit holds the repair and the quit keys
+		// that still work.
 		m := NewModel()
 		m.Screen = ScreenMainMenu
 
-		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 		newModel := result.(Model)
 
-		if !newModel.Quitting {
-			t.Error("Escape from main menu should quit")
+		if newModel.Quitting {
+			t.Error("Escape from main menu should not quit: the documentation says Esc goes back")
+		}
+		if cmd != nil {
+			t.Error("Escape from main menu returned a command, want none")
+		}
+		if newModel.Screen != ScreenMainMenu {
+			t.Errorf("Escape from main menu moved to %d, want the main menu", int(newModel.Screen))
 		}
 	})
 }

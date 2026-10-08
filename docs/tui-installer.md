@@ -586,8 +586,9 @@ invent one.
 | `↓` / `j` | Move down |
 | `Tab` | Cycle the panels of a screen that offers more than one |
 | `Enter` / `Space` | Select option |
-| `Esc` | Go back |
-| `q` | Quit (when not installing) |
+| `Esc` | Go back (nothing on the main menu: it is the root) |
+| `Backspace` | Go back, the same as `Esc`, except on the trainer's answer line where it deletes the last typed unit |
+| `Space` `q` | Quit (when not installing) |
 | `d` | Toggle details (during installation) |
 | `Ctrl+C` | Force quit |
 

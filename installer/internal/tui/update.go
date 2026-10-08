@@ -1001,6 +1001,17 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEscape()
 	}
 
+	// Backspace is the second way to say "back": it means exactly what Esc means
+	// on every screen, through this same dispatch, so the two cannot drift apart.
+	// The one place it does not is the trainer's answer line, where backspace is
+	// text -- it deletes the last unit the player typed, and taking that away to
+	// make the map uniform would stop a player correcting an answer. Backspace
+	// used to work on only four screens and to be announced on none, so the same
+	// key did two different things and the user could not tell which.
+	if key == "backspace" && !isTrainerInputScreen(m.Screen) {
+		return m.handleEscape()
+	}
+
 	// Tab cycles the panels of a screen that offers more than one, wrapping
 	// around. It is taken here, before the per-screen dispatch, but only when
 	// there is a panel to reach: a screen that offers one panel or none does not
@@ -1257,10 +1268,14 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = ""
 		saveTrainerStats(&m)
-	// Main menu - quit
+	// The main menu is the root of the flow, so Esc has nowhere back to go. It
+	// used to quit the whole application, which made this one unannounced global
+	// key the most destructive key in the interface, while the footer announced
+	// quit on [Space q] and the documentation said "Go back". Esc is a no-op here;
+	// quitting keeps its own keys, and the key, the documentation and the footer
+	// now say the same thing.
 	case ScreenMainMenu:
-		m.Quitting = true
-		return m, tea.Quit
+		return m, nil
 	}
 	return m, nil
 }
@@ -1507,7 +1522,7 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "esc", "backspace":
+	case "esc":
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 		m.ThemeNotice = ""
@@ -1614,7 +1629,7 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 		// The recommendation is one key away rather than a number to remember.
 		m.WSLState.Draft = m.WSLState.Plan
 		m.WSLNotice = ""
-	case "esc", "backspace":
+	case "esc":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.WSLNotice = ""
@@ -1644,7 +1659,7 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 // never work done here.
 func (m Model) handleTerminalCapabilitiesKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "backspace", "enter", " ":
+	case "esc", "enter", " ":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	}
@@ -1677,7 +1692,7 @@ func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "esc", "backspace":
+	case "esc":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	case "enter", " ":
@@ -1730,7 +1745,7 @@ func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "esc", "backspace":
+	case "esc":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.ThemeNotice = ""
@@ -1784,7 +1799,7 @@ func (m Model) handleThemeRefreshKeys(key string) (tea.Model, tea.Cmd) {
 		if m.Cursor < len(options)-1 {
 			m.Cursor++
 		}
-	case "esc", "backspace":
+	case "esc":
 		m.resetThemeRefresh()
 		m.ThemeNotice = ""
 	case "enter", " ":
@@ -1852,7 +1867,7 @@ func (m Model) handleSelectionKeys(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "esc", "backspace":
+	case "esc":
 		// Go back to previous installation step
 		return m.goBackInstallStep()
 
@@ -2591,7 +2606,7 @@ func (m Model) handleBackupConfirmKeys(key string) (tea.Model, tea.Cmd) {
 			// Reset choices when canceling
 			m.Choices = UserChoices{}
 		}
-	case "esc", "backspace":
+	case "esc":
 		// Go back to Nvim selection
 		m.Screen = ScreenNvimSelect
 		m.Cursor = 0
@@ -2752,6 +2767,20 @@ func isTrainerScreen(s Screen) bool {
 	switch s {
 	case ScreenTrainerMenu, ScreenTrainerLesson, ScreenTrainerPractice,
 		ScreenTrainerBoss, ScreenTrainerResult, ScreenTrainerBossResult:
+		return true
+	default:
+		return false
+	}
+}
+
+// isTrainerInputScreen reports whether the screen reads backspace as text rather
+// than as the "back" key. The lesson, practice and boss screens own the answer
+// line, so a backspace there deletes the last unit the player typed; everywhere
+// else Backspace means what Esc means. The trainer menu and the two result
+// screens are not input screens: backspace steps back from them like Esc does.
+func isTrainerInputScreen(s Screen) bool {
+	switch s {
+	case ScreenTrainerLesson, ScreenTrainerPractice, ScreenTrainerBoss:
 		return true
 	default:
 		return false

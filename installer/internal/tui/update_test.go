@@ -2322,3 +2322,98 @@ func TestThemeRefreshEscapeCancelsTheReview(t *testing.T) {
 		t.Error("Esc in the review wrote the file")
 	}
 }
+
+// TestEscapeOnTheMainMenuDoesNotQuit pins the repair of the one screen that
+// broke the rule every other screen follows: Esc means "back", and the main menu
+// is the root, so there is nowhere back to go. It used to quit the whole
+// application -- the most destructive action on an unannounced global key --
+// while the footer announced quit on [Space q] and the documentation said "Go
+// back". The key, the documentation and the footer now agree, and quitting keeps
+// the keys that announce it.
+func TestEscapeOnTheMainMenuDoesNotQuit(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+
+	if m.Quitting {
+		t.Error("Esc on the main menu quit the application, but the documentation says Esc goes back")
+	}
+	if cmd != nil {
+		t.Error("Esc on the main menu returned a command, want none: it is a no-op there")
+	}
+	if m.Screen != ScreenMainMenu {
+		t.Errorf("Esc on the main menu moved to %v, want the main menu", m.Screen)
+	}
+
+	// The teeth: the keys that do announce quitting still quit, so the repair is
+	// not a screen that cannot be left.
+	t.Run("Space q still quits", func(t *testing.T) {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+		next, cmd := next.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+		if !next.(Model).Quitting || cmd == nil {
+			t.Error("Space q no longer quits, so Esc was the only way out and the repair removed it")
+		}
+	})
+	t.Run("Ctrl+C still quits", func(t *testing.T) {
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if !next.(Model).Quitting || cmd == nil {
+			t.Error("Ctrl+C no longer quits")
+		}
+	})
+}
+
+// TestBackspaceMeansWhatEscapeMeans pins the second way to say "back".
+// Backspace is the same key as Esc on every screen where Esc means back, through
+// the real dispatch -- it used to work on only four screens, unannounced, so the
+// same key did two different things and the user could not tell which. The one
+// exception is the trainer's answer line, where Backspace is text: it deletes
+// what was typed, and taking that away to make the map uniform would stop a
+// player correcting an answer.
+func TestBackspaceMeansWhatEscapeMeans(t *testing.T) {
+	t.Run("it goes back where Esc goes back", func(t *testing.T) {
+		cases := []struct {
+			name       string
+			screen     Screen
+			prevScreen Screen
+			want       Screen
+		}{
+			{"the main menu has nowhere to go", ScreenMainMenu, ScreenMainMenu, ScreenMainMenu},
+			{"the learn menu steps to its opener", ScreenLearnTerminals, ScreenMainMenu, ScreenMainMenu},
+			{"the keymaps menu steps to its opener", ScreenKeymapsMenu, ScreenMainMenu, ScreenMainMenu},
+			{"the restore list steps to the menu", ScreenRestoreBackup, ScreenMainMenu, ScreenMainMenu},
+			{"the utilities section steps to the menu", ScreenUtilities, ScreenMainMenu, ScreenMainMenu},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := NewModel()
+				m.Screen = tc.screen
+				m.PrevScreen = tc.prevScreen
+
+				next, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+				got := next.(Model)
+				if got.Screen != tc.want {
+					t.Errorf("%s: Backspace left the screen on %d, want %d (that is where Esc goes)", tc.name, int(got.Screen), int(tc.want))
+				}
+				if got.Quitting {
+					t.Error("Backspace quit the application")
+				}
+			})
+		}
+	})
+
+	t.Run("it deletes text on the trainer's answer line", func(t *testing.T) {
+		m := newTrainerLessonModel(t)
+		m.TrainerInput = "ww"
+
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = next.(Model)
+		if m.TrainerInput != "w" {
+			t.Errorf("TrainerInput = %q after Backspace, want %q: the answer line owns Backspace", m.TrainerInput, "w")
+		}
+		if m.Screen != ScreenTrainerLesson {
+			t.Errorf("Backspace left the lesson for %v, want the lesson: it is text there, not back", m.Screen)
+		}
+	})
+}

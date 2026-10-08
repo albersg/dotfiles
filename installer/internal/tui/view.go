@@ -2406,7 +2406,7 @@ func (m Model) lazyVimTopicLines(topic LazyVimTopic) []string {
 	allLines = append(allLines, "") // Empty line
 
 	if topic.CodeExample != "" {
-		allLines = append(allLines, "📝 Example:", "")
+		allLines = append(allLines, "Example:", "")
 		for _, line := range strings.Split(topic.CodeExample, "\n") {
 			allLines = append(allLines, truncate(line, width))
 		}
@@ -2414,7 +2414,7 @@ func (m Model) lazyVimTopicLines(topic LazyVimTopic) []string {
 	}
 
 	if len(topic.Tips) > 0 {
-		allLines = append(allLines, "💡 Tips:")
+		allLines = append(allLines, "Tips:")
 		for _, tip := range topic.Tips {
 			allLines = append(allLines, truncate("  • "+tip, width))
 		}
@@ -2477,7 +2477,7 @@ func (m Model) renderLazyVimTopic() string {
 			strings.HasPrefix(line, "map("), strings.HasPrefix(line, "vim."),
 			strings.HasPrefix(line, "require"):
 			body = append(body, CodeStyle.Render(line))
-		case strings.HasPrefix(line, "📝"), strings.HasPrefix(line, "💡"):
+		case strings.HasPrefix(line, "Example:"), strings.HasPrefix(line, "Tips:"):
 			body = append(body, chip(line))
 		case strings.HasPrefix(line, "  •"):
 			body = append(body, InfoStyle.Render(line))
@@ -2967,7 +2967,7 @@ func (m Model) renderBackupConfirm() string {
 		MutedStyle.Render("The following configs will be overwritten:"),
 		"",
 	}
-	body = append(body, listRows(m.ExistingConfigs, "  ⚠️ ", configRows, width, WarningStyle)...)
+	body = append(body, listRows(m.ExistingConfigs, "  ! ", configRows, width, WarningStyle)...)
 	body = append(body, "")
 	body = append(body, InfoStyle.Render("Creating a backup allows you to restore later if needed."))
 	body = append(body, "")
@@ -3006,7 +3006,7 @@ func (m Model) renderRestoreBackup() string {
 		start, end = listWindow(m.Cursor, listBudget, len(m.AvailableBackups))
 		for i := start; i < end; i++ {
 			backup := m.AvailableBackups[i]
-			label := fmt.Sprintf("📁 %s (%d items)", backup.Timestamp.Format("2006-01-02 15:04:05"), len(backup.Files))
+			label := fmt.Sprintf("%s (%d items)", backup.Timestamp.Format("2006-01-02 15:04:05"), len(backup.Files))
 			body = append(body, m.rowBar(label, i == m.Cursor, ""))
 		}
 	}
@@ -3058,7 +3058,7 @@ func (m Model) renderRestoreConfirm() string {
 	}
 	body = append(body, gutteredBlock(listRows(backup.Files, "• ", fileRows, width-2, InfoStyle))...)
 	body = append(body, "")
-	body = append(body, WarningStyle.Render("⚠️ Restoring will overwrite your current configs!"))
+	body = append(body, WarningStyle.Render("Restoring will overwrite your current configs!"))
 	body = append(body, "")
 	body = append(body, m.menuRows(options, m.Cursor)...)
 
