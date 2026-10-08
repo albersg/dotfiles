@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -557,6 +558,54 @@ func themeDefinitionDirs(repoDir string) []string {
 	return dirs
 }
 
+// themeDefinitionsDataDir is the per-user directory the installer copies the
+// theme definitions into, so the theme switch is offered from any working
+// directory and after the temporary clone this run made is cleaned up. It is
+// the XDG data directory -- $XDG_DATA_HOME/dotfiles, falling back to
+// ~/.local/share/dotfiles -- the directory the specification reserves for data
+// a program needs to run, as opposed to the state directory the records live
+// in. The definitions sit under themes/ inside it, the same shape a checkout
+// has, so the reader treats a copy and a checkout the same way. An empty string
+// means neither could be determined, and no copy is then made or searched.
+func themeDefinitionsDataDir() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dir != "" {
+		return filepath.Join(dir, stateAppDir)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", stateAppDir)
+}
+
+// themeDefinitionSearchDirs is the full candidate list the theme resolver
+// walks: the repository roots themeDefinitionDirs names, then the per-user data
+// directory the installer copied the definitions into. The copy is the last
+// candidate on purpose, so a checkout the user named, cloned or is standing in
+// is always answered first and a copy is read only when no checkout is present.
+// Resolution takes the first candidate that holds themes/*.toml and never
+// merges two of them, so a stale copy cannot mix half of one checkout's list
+// into another's.
+func themeDefinitionSearchDirs(repoDir string) []string {
+	dirs := themeDefinitionDirs(repoDir)
+	if dataDir := themeDefinitionsDataDir(); dataDir != "" {
+		dirs = append(dirs, dataDir)
+	}
+	return dirs
+}
+
+// themeDefinitionsNotFoundMessage names every candidate the resolver walked, for
+// the one honest failure the utilities section draws when none of them holds
+// themes/*.toml. It is built from the same candidates resolveThemeDefinitionsDir
+// walks, so a directory added to the search cannot go unmentioned here.
+func themeDefinitionsNotFoundMessage() string {
+	where := "$" + dotfilesDirEnv + ", the clone, the working directory or its parents, ~/dotfiles and ~/.dotfiles"
+	if dataDir := themeDefinitionsDataDir(); dataDir != "" {
+		where += ", and the installer's own copy under " + dataDir
+	}
+	return "no repository holding theme definitions was found in " + where
+}
+
 // themeDirsFromWorkdir walks from dir up to the filesystem root and returns
 // every directory that holds themes/*.toml, nearest first. An ancestor without
 // a themes/ directory is skipped rather than stopping the walk, because a
@@ -594,12 +643,74 @@ func hasThemeDefinitions(dir string) bool {
 // themes/*.toml, or the honest failure when none does. It is the one place the
 // search order is applied.
 func resolveThemeDefinitionsDir(repoDir string) (string, error) {
-	for _, dir := range themeDefinitionDirs(repoDir) {
+	for _, dir := range themeDefinitionSearchDirs(repoDir) {
 		if hasThemeDefinitions(dir) {
 			return dir, nil
 		}
 	}
-	return "", fmt.Errorf("no repository holding theme definitions was found in $%s, the clone, the working directory or its parents, ~/dotfiles or ~/.dotfiles", dotfilesDirEnv)
+	return "", fmt.Errorf("%s", themeDefinitionsNotFoundMessage())
+}
+
+// installThemeDefinitions copies the repository's themes/*.toml into the
+// per-user data directory the resolver searches, so the theme switch is offered
+// from any working directory and after the temporary clone this run made is
+// removed. The rules are the installer's own: only the files the repository
+// ships are written, so a file under another name is never touched; a
+// definition whose bytes already match is not rewritten; and the counts of what
+// was written and what was already current are returned, so the clone step can
+// say what it did instead of reporting a copy it did not make. Nothing is ever
+// deleted, so a file an earlier run left behind is kept rather than pruned.
+func installThemeDefinitions(repoDir string) (copied, current int, dest string, err error) {
+	src := filepath.Join(repoDir, themesDirName)
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return 0, 0, "", fmt.Errorf("read theme definitions: %w", err)
+	}
+	root := themeDefinitionsDataDir()
+	if root == "" {
+		return 0, 0, "", fmt.Errorf("the data directory for the theme definitions could not be determined")
+	}
+	dest = filepath.Join(root, themesDirName)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return 0, 0, "", fmt.Errorf("create the theme definitions directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".toml") {
+			continue
+		}
+		want, err := os.ReadFile(filepath.Join(src, entry.Name()))
+		if err != nil {
+			return copied, current, dest, err
+		}
+		path := filepath.Join(dest, entry.Name())
+		if have, err := os.ReadFile(path); err == nil && bytes.Equal(have, want) {
+			current++
+			continue
+		}
+		if err := os.WriteFile(path, want, 0o644); err != nil {
+			return copied, current, dest, err
+		}
+		copied++
+	}
+	return copied, current, dest, nil
+}
+
+// copyThemeDefinitionsIntoDataDir runs installThemeDefinitions for the clone
+// step and says what happened. It is best effort: the checkout the clone left
+// behind already serves this run, so a copy that could not be made is a warning
+// about later runs, not a reason to fail an installation that otherwise
+// succeeded.
+func copyThemeDefinitionsIntoDataDir(stepID, repoDir string) {
+	if !hasThemeDefinitions(repoDir) {
+		SendLog(stepID, "Skipping the theme definitions: this checkout does not ship them")
+		return
+	}
+	copied, current, dest, err := installThemeDefinitions(repoDir)
+	if err != nil {
+		SendLog(stepID, fmt.Sprintf("Warning: the theme definitions could not be installed for later runs: %v", err))
+		return
+	}
+	SendLog(stepID, fmt.Sprintf("✓ Theme definitions installed to %s (%d written, %d already current)", dest, copied, current))
 }
 
 // themePaletteRoles is the canonical role set, in render order. A theme is
@@ -3981,6 +4092,11 @@ func stepCloneRepo(m *Model) error {
 
 	m.WorkDir = workDir
 	m.RepoDir = repoDir
+	// The clone lives in a temporary directory the cleanup step removes, so the
+	// definitions the theme utility needs are copied out of it now, before any
+	// step that reads the checkout. The copy is what makes the utility offered
+	// from any working directory, not only from inside a checkout.
+	copyThemeDefinitionsIntoDataDir(stepID, repoDir)
 	SendLog(stepID, "✓ Repository cloned successfully")
 	return nil
 }

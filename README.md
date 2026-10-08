@@ -197,9 +197,16 @@ highlight groups) the values are derived from the theme's own palette by the fix
 in [`themes/README.md`](themes/README.md), so a derived colour is one the theme already holds. The
 definitions are read from a checkout on disk, never from
 the binary: `$DOTFILES_DIR` first, then the clone this run makes, then the working directory and its
-parents, then `~/dotfiles` and `~/.dotfiles`. Launching the installer from inside the checkout shows
-the rows immediately; when none of those holds definitions the section says the switch is not
-available here rather than drawing a row that fails. Move the
+parents, then `~/dotfiles` and `~/.dotfiles`, and last the per-user copy the installer leaves under
+`~/.local/share/dotfiles/` (or `$XDG_DATA_HOME/dotfiles/`). That copy is made at install time out of
+the temporary clone, because the clone is removed when the run finishes and a user who launches the
+program from their home directory is not inside a checkout; it is refreshed on each install, only
+files the repository ships are written, a definition that already matches is left as it is, and the
+clone step says how many it wrote. Resolution reads the first candidate that holds `themes/*.toml`
+and never merges two, so a stale copy cannot mix two versions into one list. Launching the installer
+from inside the checkout shows the rows immediately; when none of those holds definitions the section
+says the switch is not available here, names the search and the copy directory, rather than drawing a
+row that fails. Move the
 cursor onto a theme row and **the whole installer repaints itself in that theme's colours** — a live
 preview built from the same definition the apply writes, labelled `Preview (nothing applied)` — and
 leaving the row puts the default chrome back; nothing is written while the cursor moves. It only rewrites files carrying the `dotfiles-managed-config:`

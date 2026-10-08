@@ -291,9 +291,23 @@ and the installer reads the first of these directories that holds `themes/*.toml
 3. the working directory and each of its parents, nearest first — launching the installer from inside
    the checkout is the normal case.
 4. `~/dotfiles`, then `~/.dotfiles`.
+5. the per-user copy the installer leaves under `~/.local/share/dotfiles/` (or
+   `$XDG_DATA_HOME/dotfiles/`).
+
+**The per-user copy, and why it exists.** The clone this run makes lives in a temporary directory the
+cleanup step removes, and a user who launches the program from their home directory is not inside a
+checkout — so before this copy existed, the most-used utility was the one that appeared least. The
+clone step therefore copies `themes/*.toml` into the XDG data directory's `dotfiles/themes/`, the
+directory the specification reserves for data a program needs to run. The rules are the installer's
+own: only the files the repository ships are written, so a file under another name is never touched;
+a definition whose bytes already match is not rewritten; nothing is ever deleted; and the step names
+the destination and how many definitions it wrote and how many were already current. The copy is the
+last candidate on purpose, so a checkout the user named, cloned or is standing in is always answered
+first, and resolution reads one directory and never merges two, so a stale copy cannot mix half of one
+checkout's list into another's.
 
 When none of them holds `themes/*.toml`, the section says the dotfiles theme is not switchable here
-and names the search, instead of drawing rows that would fail.
+and names the search — including the copy directory — instead of drawing rows that would fail.
 
 **The preview writes nothing, and it says so.** While the cursor is on a theme row the **whole
 interface is repainted** in that theme's colours — the header, the rules, every row and marker, the
