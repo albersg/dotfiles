@@ -132,10 +132,13 @@ func TestTheAnimationRateIsNamedOnceAndEverythingDerivesFromIt(t *testing.T) {
 			got, want, companionPleasedSeconds, animTicksPerSecond)
 	}
 
-	// The durations the frames are derived from: twenty seconds asleep, about a
-	// second pleased. A rate change must move the frame counts and not these.
-	if companionSleepSeconds != 20 {
-		t.Errorf("the sleep is %d seconds, want 20", companionSleepSeconds)
+	// The durations the frames are derived from: a minute asleep, about a
+	// second pleased. The nap is stated as the named duration it is rather than
+	// as a second copy of the number, so the design lives once -- in the named
+	// duration -- and a rate change must move the frame counts and not these.
+	if want := int(time.Minute / time.Second); companionSleepSeconds != want {
+		t.Errorf("the sleep is %d seconds, want %d: a whole minute at %d frames a second",
+			companionSleepSeconds, want, animTicksPerSecond)
 	}
 	if companionPleasedSeconds != 1 {
 		t.Errorf("the celebration is %d seconds, want 1", companionPleasedSeconds)

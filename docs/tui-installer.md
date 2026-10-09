@@ -44,8 +44,8 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
   freezing a chart
 - **A Companion**: A creature walks the rows above the footer — a shaded volume where the terminal can
   shade and the body leaves twelve, eight or five rows, and the glyph cat at five, three or one where it cannot
-  — follows the mouse pointer with its gaze where the terminal reports one, blinks, yawns before it sleeps
-  when you stop typing, reacts to failures and to destructive choices, and celebrates with a two-second
+  — wanders autonomously after a quiet pause, plays occasionally, blinks, and yawns before it sleeps,
+  reacts to failures and destructive choices, and celebrates with a two-second
   burst of particles when the run finishes
 - **Non-Interactive Mode**: CI/CD friendly installation via CLI flags
 
@@ -845,10 +845,12 @@ changes. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227 c
 
 - **Between events:** the still creature changed **0 bytes across 24 pinned ticks**. It is not accurate
 to claim zero bytes for all idle time: each periodic event repaints the sprite's owned rows.
-- **Walking:** the volume owns **12 sprite rows** and changes up to **12 lines per moving tick**. The
-test reports **19 moving frames out of 19 (2.38 seconds)**, **166586 bytes total**, and **9138 bytes**
-in the widest changed lines (**71.4 KB/s at 8 fps**). The test prints the four periods alongside this
-measurement; wider terminals cost more per line.
+- **Autonomous stroll:** the volume owns **12 sprite rows** and changes up to **12 lines per moving
+tick**. The current run reports **21 moving frames out of 21 (2.62 seconds)**, **176915 bytes total**,
+and **9202 bytes** in the widest changed lines (**71.9 KB/s at 8 fps**). The prior cursor-directed
+walk measurement was **19 frames / 2.38 seconds, 166586 bytes, 9138 widest-line bytes and 71.4
+KB/s**; the autonomous stroll is about **6.2% more total bytes**, **0.7% more widest-line bytes** and
+**0.7% higher rate**. Both stay within the same 12-row ownership bound. Wider terminals cost more per line.
 
 Rendering the volume is the expensive part of that: `BenchmarkCompanionVolumeFrame` on Linux/amd64
 measured **2,179,233–4,199,595 ns/op, 359,912–359,928 B/op and 1087 allocs/op** across three
@@ -866,7 +868,8 @@ per frame** was measured and declared as future optimization work, not implement
 `TestCompanionRenderedPosesStayInsideTheirReservedBlock` checks the rendered rows themselves for
 both sprite modes: the 12-row, 8-row and 5-row volume rungs, the 5-row and 3-row glyph rungs, and the
 one-row trainer floor. It covers all four walk poses, breath/ear/tail idle events, all three hop
-phases, left/up and right/down gaze extremes, and blink. Every pose must own exactly the terminal's
+phases, left/up and right/down gaze extremes, and blink. Autonomous movement uses the existing walk
+poses; it does not alter the sprite raster or any golden. Every pose must own exactly the terminal's
 rung rows in the same rendered position (above the frame rule on framed screens), with no additional
 art row outside that block. `TestCompanionBlockDependsOnlyOnTheTerminal` continues to assert the
 block's terminal-sized position across screens and content states. The cost bound and bounding-box
@@ -935,11 +938,11 @@ carries the same eyes and props, and the one-row art the same state as the frame
 
 | State | What it looks like | When |
 |-------|--------------------|------|
-| Idle | `(  o    o  )` | Awake and standing still: the first frame, and the tick it arrives at the row you pointed at |
+| Idle | `(  o    o  )` | Awake between autonomous play choices; a recent keypress pauses movement |
 | Walking | the paws alternate between legs apart and legs in | The frames it moves: the legs change, which is what reads as motion |
 | Blinking | `(  -    -  )` for one frame, every ten seconds | It is awake and idle. The blink is the tick counter read at a modulus, not a second clock |
 | Yawning | `(  -    -  )` with the mouth open, over the last two seconds before it sleeps | The quiet run is nearly over, so falling asleep reads as a transition rather than a cut |
-| Asleep | `(  -    -  )` and a `z` beside the ears | Twenty seconds with no key pressed |
+| Asleep | `(  -    -  )` and a `z` beside the ears | Sixty seconds without keyboard input |
 | Alert | `(  O    O  )` and a `!` | The selection throws something away |
 | Pleased | `(  ^    ^  )` and `\o/` above the head | About a second after an installation step finishes, or a right answer on a trainer result screen |
 | Flinch | `(  >    <  )` and a `!` | A failure is on screen, or a wrong answer on a trainer result screen |
@@ -949,60 +952,38 @@ row is one of two rows; the five-row cat can look up and the three-row head has 
 The one-row face remains unchanged. Down is not drawn. The two-column dead zone keeps the gaze from
 flickering. These are the glyph-art rules; the volume has its own raster contract below.
 
-**The volume's eyes follow the mouse.** With the pointer live (which is the default; see below), the
-pupil travels over three positions along the eye's vertical long axis (up, level, down); horizontal
-gaze shifts the skull one pixel and tilts the ears one pixel toward the pointer. `companionGazeFor` receives the pointer's
-column clamped to the stage and its row measured against the bottom third of the frame. The turn
-happens on the mouse message itself, not on the next tick. `TestCompanionEyeGazeIsolationAndBlinkPinsTheFaceContract`
-requires central gaze changes to stay in the eye boxes and pins the fixed highlight and blink; the
-`TestCompanionVolumeGazeTurnsTheHeadAndThePupils` permits changes only in the named EYE BOX or HEAD
-OUTLINE BAND. The test pins the sclera side columns at all three vertical pupil positions and the full
-ring at the central position, where the 3×4 box has room above and below the slit. At the two extremes
-the slit reaches the lid edge. Horizontal direction is carried by the head, not by sliding the slit
-sideways. The pupils rest while the pointer is within a two-column dead zone of the creature's own
-cell, so they cannot flicker, and a pointer that lands on the cell it was already on changes nothing
-at all — the renderer sees the same bytes and skips the frame.
+**The gaze is hers, not the user's.** The pupils use the same three vertical positions and the
+head turns horizontally, but mouse movement and menu selection do not steer either the gaze or the
+position. After eight seconds without a key, the creature can choose a look-around, a hop, or a short
+stroll. The private xorshift state lives on the model and is injectable; no package-global `rand` can
+change a golden or depend on test order. A left click remains an explicit optional hop, but merely
+moving the pointer does not wake or redirect her. `TestCompanionDoesNotFollowCursor`,
+`TestCompanionIgnoresPointerMotion` and `TestCompanionAutonomyIsSeededBoundedAndQuiet` pin those
+boundaries and the deterministic behavior.
 
-Where there is no live pointer the creature looks at the selection, which is what it did before the
-pointer existed: the row the cursor is on is a body row above its own, so a menu screen makes it look
-up and, while the selection is off to one side, that way too, and a screen with nothing to point at
-leaves it looking straight ahead. That fallback is why a terminal that refuses mouse reporting, a run
-with the pointer switched off and a Termux session all keep a gaze rather than losing it. The gaze is
-a cell on the model, like the position and the frame, so a snapshot pins it either way.
+**Autonomous movement is deliberately sparse.** A stroll chooses a bounded destination a few cells
+away and advances one whole cell no faster than every three frame ticks. She waits six to fourteen
+seconds between play choices; direction is her own, and a destination at an edge is reflected back
+into the stage rather than clamped into repeated edge movement. Key input cancels a pending stroll and
+starts another eight-second quiet window, so writing/navigation wins. The application has no reliable
+signal for whether someone is reading, so it cannot pause specifically for reading; the long initial
+quiet and sparse play cadence are the available low-noise approximation. She naps after sixty seconds
+without a key.
 
-**A pointer event also wakes it, and a click earns a hop.** There is nothing clever to detect about
-a parked mouse — a parked mouse sends no events at all — so the only pointer event that exists is the
-user moving the mouse, and every one of them is the sudden movement that wakes the cat, which is
-oneko's rule as much as the sleeping face is. A left click is an event of its own: the creature earns
-the same celebration as a finished installation step, then shows anticipation, one terminal row of travel (two raster pixels) and a
-landing squash in three successive frames. All three poses deform the raster inside the terminal-sized
-block; `TestCompanionClickHopsAndCelebrates` and `TestCompanionHopHasThreeRasterPhases` pin the order,
-fixed block and unchanged non-companion rows. A fact row is never borrowed or moved. A wheel is
-ignored: the installer runs in the alternate screen, where there is no scrollback for it to move.
-
-**It walks, follows the selection, sleeps and reacts.** It takes at most one cell per animation
-frame — eight frames a second, the frame tick the animation gate owns — and only when it has somewhere
-to go. Moving the cursor points it at the new row and it walks there over the frames that follow, not
-in the frame you pressed the key in, slowing to a step every other frame over the last three cells so
-the arrival reads as a step rather than as a stop; when it arrives it stops, because a creature with
-nothing to do does nothing. One row of a menu is three cells of walking and no more, so one arrow key
-is a short stroll rather than a dash across a stage that can be 200 columns wide, and a walk from the
-first menu row to the last is about two and a half seconds. Twenty seconds without a key put it to
-sleep and the first key wakes it. It is alert on the screens whose purpose is to restore or overwrite — the backup list,
-the restore confirm, and the screen that installs over the configs it just listed — and on the menu
-rows that name a destructive action (`Restore`, `Delete`, install *without* backup), it is pleased
-for a few ticks after an installation step completes, and it flinches while an error is on screen. On
-the trainer's result screens it reacts to the verdict in the header: pleased on `✓ Correct`,
-flinching on `✗ Incorrect`. The reaction wins over the resting state, so a sleeping companion that
-must flinch flinches.
+**The same frame clock owns every choice.** The gaze, hop, stroll, breath, blink and tip rotation use
+`AnimTick`; the renderer only draws model state. A still creature writes nothing between events, and
+`TestCompanionCostHasTwoRegimes` measures the actual line cost. `TestCompanionTicksChangeOnlyItsOwnRows`
+proves movement changes only the rows the widget owns. The menu cursor is inspected only to recognize a
+destructive action; it never supplies a position or gaze target. Reactions still cover destructive
+choices, installation progress, trainer answers and errors.
 
 Nothing was copied from a third-party mascot: the Go gopher is CC-BY, cowsay's cow is GPL-ish and
 nyancat's cat belongs to its author, so this repository's attribution surface stays empty.
 
-**The frame, the cell and the gaze come from the model, never from the clock.** The frame tick
-advances the counter and takes one step; the renderer only draws. The same model and tick therefore
-produce the same bytes on every run, which is what lets a snapshot pin a frame, a cell and a gaze
-instead of flaking on the clock. A still creature writes nothing between its periodic events; the
+**The frame, the cell and the gaze come from the model, never from the wall clock.** The frame tick
+advances the counter and takes one discrete autonomous step; the renderer only draws. The same model
+and injected random state therefore produce the same bytes, which lets a snapshot pin a frame, a cell
+and a gaze instead of flaking on wall time. A still creature writes nothing between its periodic events; the
 breath, ear twitch, tail-tip flick and blink are model-tick events with periods asserted by
 `TestCompanionIdleEventsHaveIndependentPeriods`. `TestCompanionCostHasTwoRegimes` measures the
 zero-byte interval between events and the walking line cost; `TestCompanionTicksChangeOnlyItsOwnRows`
@@ -1013,18 +994,18 @@ and its tick changes no content row.
 
 Three switches decide what the creature is drawn as, and they are read once, when the model is built;
 the render path reads the model's answers and never the environment. They are independent on purpose:
-the animation is the creature moving at all, the pointer is the mouse being read, and the sprite is
-the drawing being shaded.
+the animation is the creature moving at all, mouse reporting enables only an optional click reaction,
+and the sprite is the drawing being shaded.
 
 | Switch | What it turns off | What is drawn instead |
 |--------|-------------------|-----------------------|
 | `DOTFILES_ANIM=0`, `--no-anim` | the frame tick and the tip rotation | no creature anywhere and the first tip. A frozen pet is not the point |
-| `DOTFILES_MOUSE=0`, `--no-mouse` | reading the mouse; no mouse mode is requested at all | the glyph or pixel cat looking at the selection, and the terminal's own drag-to-select |
-| `DOTFILES_SPRITE=0`, `--no-sprite` | the shaded pixel sprite | the glyph cat at whichever of its three heights the rows allow, with the pointer and the animation untouched |
+| `DOTFILES_MOUSE=0`, `--no-mouse` | mouse reporting; no mouse mode is requested at all | the autonomous glyph or pixel cat, with the terminal's own drag-to-select |
+| `DOTFILES_SPRITE=0`, `--no-sprite` | the shaded pixel sprite | the glyph cat at whichever of its three heights the rows allow, with autonomous animation untouched |
 
-The first two also switch off further down: with the animation off there is nothing to move, so the
-pointer is off too, and with the sprite off true colour is never asked about. Turning the pointer off
-is the one that has a price attached, not a benefit: it gives the terminal's own drag-to-select back.
+The first two also switch off further down: with the animation off there is nothing to move, so mouse
+reporting is off too, and with the sprite off true colour is never asked about. Turning mouse reporting
+off gives the terminal's own drag-to-select back; it does not change the pet's autonomous behavior.
 
 The tip rotation, the companion and the host sampler are driven by one gate. Animation is off when
 any of these is true, and with it off no frame tick and no sampling tick are scheduled, the screen
@@ -1041,25 +1022,24 @@ environment, so a render stays pure.
 
 ### The mouse pointer, and what it costs
 
-The creature's gaze is the one thing in the installer that reads the mouse, and it has **a switch of
-its own** rather than a side of the animation gate, because it costs the user something: a terminal
-that is reporting the mouse gives its own text selection up to the application, so on the installer's
+Mouse reporting is optional and exists only for the explicit left-click hop reaction; pointer motion
+never steers or wakes the pet. It has **a switch of its own** rather than a side of the animation gate,
+because reporting gives the terminal's own text selection up to the application, so on installer
 screens a normal drag no longer selects text — hold the terminal's bypass key (Shift on xterm-family
 terminals, kitty, VTE, Windows Terminal and Alacritty; Option on iTerm2 by default) to select with the
-mouse anyway. The pointer is off when any of these is true:
+mouse anyway. Mouse reporting is off when any of these is true:
 
 - `DOTFILES_MOUSE=0` is set, or `--no-mouse` is passed (the flag sets the variable before the model is
   built, exactly as `--no-anim` does);
 - stdout is not a terminal; or
 - the session is Termux, where the pointer is a finger: Termux turns a drag into a wheel report, so the
-  gaze would cost the user the swipe and give nothing back. `DOTFILES_MOUSE=1` overrides that default
-  for a Termux session with a real mouse attached.
+  click interaction would cost the user the swipe and give nothing back. `DOTFILES_MOUSE=1` overrides
+  that default for a Termux session with a real mouse attached.
 
-With the pointer off **no mouse mode is asked for at all**, so the terminal never enters application
-mouse reporting and its ordinary selection works again; a run that merely ignored the events would
-still have cost the user the drag. With the animation gate off there is nothing to move, so the
-pointer is off too. The two switches are read once, when the model is built, and the model's own field
-decides the program's mouse option, so the option and the model cannot disagree.
+With mouse reporting off **no mouse mode is asked for at all**, so ordinary terminal selection works
+again. With the animation gate off there is nothing to animate, so mouse reporting is off too. Both
+switches are read once, when the model is built, and the model's own field decides the program's mouse
+option, so the option and the model cannot disagree.
 
 The shaded sprite has a switch of its own too, `DOTFILES_SPRITE=0` / `--no-sprite`, and it turns off
 only the pixel sprite: a run whose terminal claims true colour but renders block glyphs badly keeps

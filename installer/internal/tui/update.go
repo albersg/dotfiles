@@ -475,8 +475,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cursor := m.Cursor
 	if _, ok := msg.(tea.KeyMsg); ok {
 		// Any key wakes the companion and restarts the stretch that would put it
-		// back to sleep.
+		// back to sleep. It also gives the user's reading/typing priority over a
+		// pending autonomous stroll.
 		m.CompanionIdle = 0
+		m.pauseCompanionAfterInput()
 	}
 	next, cmd := m.update(msg)
 
@@ -488,7 +490,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		updated.PanelIndex = 0
 	}
 	if updated.Cursor != cursor || updated.Screen != screen {
-		updated.armCompanionFollow()
+		updated.pauseCompanionAfterInput()
 	}
 	return updated, cmd
 }
