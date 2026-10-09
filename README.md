@@ -133,9 +133,28 @@ and the `DOTFILES_VERBOSE=1` environment variable.
 Open a new shell. The installer writes configuration for the shell you chose but cannot
 reload the shell you ran it from.
 
-To update later, install the newer installer and run it again: `brew upgrade dotfiles`
-on the Homebrew path, or download the current binary otherwise. A later run clones this
-repository again, so it picks up the current configurations.
+To update later, ask the installer itself:
+
+```bash
+dotfiles --check-update    # dotfiles v0.5.0 (9f3c2a1, 2026-10-04)
+                           # Up to date with v0.5.1 (2h ago)
+dotfiles --self-update     # installs the published release over this binary
+```
+
+`--check-update` exits `0` when your build is the published one, `1` when a newer release
+exists, and `2` when it could not reach GitHub at all — three different facts, so a script
+never reads a network failure as a green light. `--self-update` (and the utilities
+section's **Update this installer** row) downloads the release asset, checks it against the
+`SHA256SUMS` that release publishes, keeps the binary it replaced as
+`<binary>.previous`, and only then moves the new one into place with a single rename.
+
+One case it refuses, on purpose: if a package manager installed this binary, the file is
+not the installer's to replace. It says so and names the command that does own the update —
+`brew upgrade dotfiles` on the Homebrew path. Replacing a file another program manages is
+how a package manager and an installer start disagreeing about what is installed.
+
+A later run still clones this repository again, so it picks up the current configurations
+whatever the binary's version.
 
 ---
 
@@ -174,6 +193,17 @@ alone and the reason is shown. A host with no desktop — a server, Termux, a ba
 is told so rather than offered a switch that would fail. `--dry-run` skips the utility, like
 every installation step. See the [TUI Installer Guide](docs/tui-installer.md#utilities) for
 the exact files it touches.
+
+**Update this installer.** The installer is a release of its own, and this row's screen
+reads which release is published beside the build you are running: the tag, the commit and
+date your binary was built from, when the answer was read, and the URL it came from. The
+check refreshes once a day in the background and remembers the answer in
+`$XDG_STATE_HOME/dotfiles/update-check.json`, so a start never waits on the network. The
+screen offers **Check for the latest release again** and, when there is a newer release and
+the file is the installer's own to replace, **Download and install the latest release**.
+The refusal described in [After installing](#after-installing) is stated on the screen when
+a package manager owns the file, and a check that could not reach GitHub is reported as
+unknown with its reason rather than as up to date.
 
 **Switch the dotfiles' own theme.** The dotfiles ship a palette library — seven complete themes that
 cover every tool the switch paints — and each theme's palette is defined once in

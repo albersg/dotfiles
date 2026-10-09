@@ -89,6 +89,15 @@ const (
 	// the range, and names the functions zsh's own profiler blames -- or says
 	// plainly that only the total is measurable. It changes nothing at all.
 	ScreenShellAudit // How long the login shell takes to start, and what eats it
+	// This installer's own release. Appended at the end for the same reason as the
+	// screens above. The utilities section opens it from its own row, one level in
+	// so the section stays a list of jobs. It reports which release is published
+	// beside the build that is running, where that answer came from and when it was
+	// read, and can install the published release over this binary after verifying
+	// it against the release's own SHA256SUMS -- unless a package manager owns the
+	// file, in which case it says so and names the command that does own it instead
+	// of writing over a file another program owns.
+	ScreenUpdate // The published release, beside this build
 )
 
 // InstallStep represents a single installation step
@@ -357,6 +366,20 @@ type Model struct {
 	// resolved once, here; the measurement runs only when the row is pressed,
 	// because starting the user's shell five times is not a render.
 	ShellAudit shellAuditState
+	// UpdateCheck is what the installer knows about the latest published release:
+	// the tag, when it was read, and the reason it could not be read. The cached
+	// record is loaded on the startup path, so a start never waits on the network;
+	// the refresh itself runs behind a command on the same gate the drawing uses.
+	// It is named UpdateCheck rather than Update because Update is the model's own
+	// method.
+	UpdateCheck updateState
+	// UpdateTarget is the binary this run would replace if the user asked it to
+	// install the published release, and the asset that would replace it. It is
+	// resolved once, here, for the same reason the desktop's theme switch is: which
+	// file this run is running from, and who owns it, are questions a render must
+	// not ask. UpdateTargetErr is why it could not be resolved at all.
+	UpdateTarget    updateTarget
+	UpdateTargetErr string
 	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
 	// no detection has run. The review names it before anything is written.
 	ThemeRefreshCandidates []themeRefreshCandidate
@@ -452,6 +475,17 @@ func NewModel() Model {
 	// reason: which shell, and whether this run can start an interactive one, are
 	// questions a render must not ask. The measurement itself is a keypress away.
 	m.ShellAudit = resolveShellAudit(defaultShellAuditProbe())
+	// The last release check is read here, from its own state file, exactly as the
+	// last-install record is: one file read, no waiting. The request itself is a
+	// command the run arms from the drawing gate, so the startup path never reaches
+	// the network. The binary this run would replace is resolved here too, so the
+	// update screen can say who owns the file before the user presses anything.
+	m.UpdateCheck = loadUpdateState()
+	target, updateTargetErr := resolveUpdateTarget()
+	m.UpdateTarget = target
+	if updateTargetErr != nil {
+		m.UpdateTargetErr = updateTargetErr.Error()
+	}
 	// The gaze is settled once here, so a model that never sees a key, a resize or
 	// a pointer event still draws eyes that are looking at what it starts on, and
 	// the first tick does not have to move them.
@@ -618,10 +652,23 @@ func (m Model) GetCurrentOptions() []string {
 			opts = append(opts, m.menuSeparator())
 		}
 		opts = append(opts, utilitiesTerminalRow)
+		// This installer's own release is offered once the run has something to say
+		// about it: an answer, a failure, or a check in flight. A run that has never
+		// checked and cannot check leaves the row out rather than opening a screen
+		// with nothing on it, and the check is armed on the startup path for every
+		// interactive run, so the row is there as soon as its answer lands.
+		if m.UpdateCheck.Present() {
+			if len(opts) > 0 {
+				opts = append(opts, m.menuSeparator())
+			}
+			opts = append(opts, utilitiesUpdateRow)
+		}
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
 		}
 		return append(opts, "← Back")
+	case ScreenUpdate:
+		return m.updateRows()
 	case ScreenTerminalCapabilities:
 		// The report is read-only: there is nothing to select, only the way back.
 		return []string{"← Back"}
@@ -890,6 +937,8 @@ func (m Model) GetScreenTitle() string {
 		return "Terminal capabilities"
 	case ScreenShellAudit:
 		return "The shell's startup"
+	case ScreenUpdate:
+		return "Updates"
 	default:
 		return ""
 	}

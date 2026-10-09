@@ -1,9 +1,25 @@
 name: Release
 
+# A tag push is a release. A manual run is how the chain is checked without
+# publishing anything: it builds the same four assets, writes the same
+# SHA256SUMS and the same MANIFEST.txt, and verifies them, and it creates the
+# draft release only when it is asked to. That is what makes the verification
+# step testable -- the same job, the same assertions, with the assets taken from
+# the run instead of from the release.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build as, with its leading v (for example v0.6.0). Required when this run was not started by a tag.'
+        required: false
+        default: ''
+      publish:
+        description: 'Also create or refresh the draft release. Leave this off to build and verify only.'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -12,6 +28,11 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    permissions:
+      # Provenance needs to mint an OIDC token and to store the attestation.
+      id-token: write
+      attestations: write
+      contents: read
     strategy:
       matrix:
         include:
@@ -27,12 +48,36 @@ jobs:
           - goos: linux
             goarch: amd64
             artifact: dotfiles-linux-amd64
+    outputs:
+      # The rest of the run reads the version from here, so a manual run and a
+      # tag push cannot disagree about which version they are building.
+      version: ${{ steps.version.outputs.version }}
     defaults:
       run:
         working-directory: installer
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve the version
+        id: version
+        working-directory: .
+        run: |
+          # A tag push names its own version; a manual run has to be told one,
+          # because nothing in the tree holds it.
+          VERSION="${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}"
+          if [ -z "${VERSION}" ]; then
+            echo "::error::No version to build as. Start this workflow from a v* tag, or give it a version."
+            exit 1
+          fi
+          case "${VERSION}" in
+            v*) ;;
+            *)
+              echo "::error::The version must start with v (got '${VERSION}'). The tag names the release, and dotfiles --version prints it as it is."
+              exit 1
+              ;;
+          esac
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -45,13 +90,34 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          # The commit and the date go into the binary beside the version, so an
+          # installed binary can be checked against the release it came from --
+          # and so the update check can tell what it is running.
           go build \
             -trimpath \
-            -ldflags="-s -w -X main.Version=${VERSION}" \
+            -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${GITHUB_SHA} -X main.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o "${{ matrix.artifact }}" \
             ./cmd/dotfiles
+
+      - name: Smoke the built binary
+        run: |
+          # Only the linux/amd64 asset can be run here; the other three cannot
+          # execute on this runner, and a build whose help does not render is
+          # still worth catching before it is published.
+          if [ "${{ matrix.goos }}/${{ matrix.goarch }}" = "linux/amd64" ]; then
+            "./${{ matrix.artifact }}" --help > /dev/null
+            "./${{ matrix.artifact }}" --version
+          fi
+
+      - name: Attest the provenance of the artifact
+        # The attestation binds these bytes to this workflow, this repository and
+        # this commit, so a download can prove where it came from rather than
+        # only that its checksum matches the file beside it.
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: installer/${{ matrix.artifact }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -77,16 +143,167 @@ jobs:
           done
           cat ../SHA256SUMS
 
-      - name: Upload checksums
+      - name: Generate MANIFEST.txt
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          # The manifest is what makes a download verifiable by hand: it names
+          # the version, the commit and the build time, and then one line per
+          # asset with its own hash. The hashes are the same bytes SHA256SUMS
+          # records, computed here from the artifacts rather than copied.
+          BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            printf '# dotfiles %s\n' "${VERSION}"
+            printf '# built from %s on %s\n' "${GITHUB_SHA}" "${BUILT}"
+            printf '# verify with: sha256sum -c SHA256SUMS\n'
+            printf '\n'
+            find artifacts -type f -name 'dotfiles-*' | sort | while read -r f; do
+              printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$(basename "$f")"
+            done
+          } > MANIFEST.txt
+          cat MANIFEST.txt
+
+      - name: Upload checksums and manifest
         uses: actions/upload-artifact@v4
         with:
           name: SHA256SUMS
-          path: SHA256SUMS
+          path: |
+            SHA256SUMS
+            MANIFEST.txt
+
+  verify:
+    name: Verify the chain
+    runs-on: ubuntu-latest
+    needs: [build, checksums]
+    permissions:
+      contents: read
+      # Reading the attestations the build job minted.
+      attestations: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: verify
+
+      - name: Assemble what would be published
+        run: |
+          mkdir -p dist
+          find verify -type f -name 'dotfiles-*' -exec cp {} dist/ \;
+          cp verify/SHA256SUMS/SHA256SUMS dist/
+          cp verify/SHA256SUMS/MANIFEST.txt dist/
+          ls -la dist/
+
+      - name: Verify the chain
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          # This is the check that was done by hand for v0.5.0, and it is the
+          # reason the job exists: it re-derives the chain from the bytes
+          # instead of trusting the run that produced them.
+          #
+          #   asset  ->  SHA256SUMS  ->  MANIFEST.txt  ->  formula  ->  the binary
+          #
+          cd dist
+
+          echo "== every asset is the one SHA256SUMS records, matched by name =="
+          # The file names its assets as ./<artifact>/<asset>, so each line is
+          # checked against the file whose own name it carries rather than by
+          # position: the order is the filesystem's, not the matrix's.
+          fail=0
+          while read -r hash path; do
+            [ -n "${hash}" ] || continue
+            asset="$(basename "${path}")"
+            if [ ! -f "${asset}" ]; then
+              echo "::error::SHA256SUMS names ${asset}, which the release does not carry"
+              fail=1
+              continue
+            fi
+            actual="$(sha256sum "${asset}" | cut -d' ' -f1)"
+            if [ "${actual}" != "${hash}" ]; then
+              echo "::error::${asset} hashes to ${actual}, but SHA256SUMS records ${hash}"
+              fail=1
+            else
+              echo "ok  ${asset}  ${hash}"
+            fi
+          done < SHA256SUMS
+          [ "${fail}" = 0 ] || exit 1
+
+          echo "== the manifest agrees with SHA256SUMS, asset by asset =="
+          for asset in dotfiles-darwin-arm64 dotfiles-darwin-amd64 dotfiles-linux-arm64 dotfiles-linux-amd64; do
+            from_sums="$(grep -F "./${asset}/${asset}" SHA256SUMS | cut -d' ' -f1)"
+            from_manifest="$(grep -E "^[0-9a-f]{64}  ${asset}$" MANIFEST.txt | cut -d' ' -f1)"
+            if [ -z "${from_sums}" ] || [ -z "${from_manifest}" ]; then
+              echo "::error::${asset} is missing from SHA256SUMS or from MANIFEST.txt"
+              fail=1
+              continue
+            fi
+            if [ "${from_sums}" != "${from_manifest}" ]; then
+              echo "::error::${asset}: SHA256SUMS says ${from_sums} and MANIFEST.txt says ${from_manifest}"
+              fail=1
+            fi
+          done
+          [ "${fail}" = 0 ] || exit 1
+
+          echo "== the manifest names this version and this commit =="
+          grep -qF "${VERSION}" MANIFEST.txt || { echo "::error::MANIFEST.txt does not name ${VERSION}"; exit 1; }
+          grep -qF "${GITHUB_SHA}" MANIFEST.txt || { echo "::error::MANIFEST.txt does not name commit ${GITHUB_SHA}"; exit 1; }
+
+          echo "== the binary reports the version and the commit the manifest records =="
+          # The one asset that can run on this runner: if the linker line ever
+          # stops injecting the identity, this is where it is caught.
+          version_output="$(./dotfiles-linux-amd64 --version)"
+          echo "${version_output}"
+          case "${version_output}" in
+            *"${VERSION}"*) ;;
+            *) echo "::error::dotfiles-linux-amd64 --version printed '${version_output}', which does not name ${VERSION}"; exit 1 ;;
+          esac
+          short_commit="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          case "${version_output}" in
+            *"${short_commit}"*) ;;
+            *) echo "::error::dotfiles-linux-amd64 --version printed '${version_output}', which does not name commit ${short_commit}"; exit 1 ;;
+          esac
+
+          echo "== the formula, when it names this version, names these hashes =="
+          formula="../homebrew-tap/Formula/dotfiles.rb"
+          formula_version="$(sed -n 's/^  version "\(.*\)"/\1/p' "${formula}")"
+          if [ "${formula_version}" != "${VERSION#v}" ]; then
+            # Expected between releases: the tap is updated after publication, so
+            # the formula names the previous version until then. Saying so beats
+            # either failing the release or passing in silence.
+            echo "formula is at ${formula_version}, this release is ${VERSION#v}: the tap step updates the four hashes after publication"
+          else
+            for asset in dotfiles-darwin-arm64 dotfiles-darwin-amd64 dotfiles-linux-arm64 dotfiles-linux-amd64; do
+              expected="$(grep -F "./${asset}/${asset}" SHA256SUMS | cut -d' ' -f1)"
+              if ! grep -qF "${expected}" "${formula}"; then
+                echo "::error::the formula does not carry the hash this release publishes for ${asset} (${expected})"
+                fail=1
+              fi
+            done
+            [ "${fail}" = 0 ] || exit 1
+            echo "ok  the formula carries all four published hashes"
+          fi
+
+      - name: Verify the attestations
+        # The chain proves the bytes agree with each other; the attestation is
+        # what proves which workflow and which commit produced them.
+        run: |
+          for asset in dotfiles-darwin-arm64 dotfiles-darwin-amd64 dotfiles-linux-arm64 dotfiles-linux-amd64; do
+            gh attestation verify "dist/${asset}" --repo "${GITHUB_REPOSITORY}"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     name: Create Draft Release
     runs-on: ubuntu-latest
-    needs: checksums
+    needs: [build, checksums, verify]
+    # A tag push always drafts its release. A manual run only drafts one when it
+    # was asked to -- which is what makes the rest of the workflow runnable
+    # without publishing anything.
+    if: github.ref_type == 'tag' || inputs.publish
     permissions:
       contents: write
     steps:
@@ -105,13 +322,75 @@ jobs:
             cp "$f" dist/
           done
           cp release-assets/SHA256SUMS/SHA256SUMS dist/
+          cp release-assets/SHA256SUMS/MANIFEST.txt dist/
           ls -la dist/
 
       - name: Create Draft Release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          # The generated list is GitHub's own view of what merged; the curated
+          # section of CHANGELOG.md is the better body, so it replaces this one
+          # rather than being replaced by it.
           generate_release_notes: true
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-published:
+    name: Verify what was published
+    runs-on: ubuntu-latest
+    needs: [build, verify, release]
+    permissions:
+      # A draft release is only readable with write access to the repository,
+      # which is why this job does not ask for less.
+      contents: write
+      attestations: read
+    steps:
+      - name: Download the release's own assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          # The draft carries the assets, so a draft is enough to check: what is
+          # downloaded here is what a user will download once it is published.
+          mkdir -p published
+          gh release download "${VERSION}" --dir published --pattern 'dotfiles-*' --pattern 'SHA256SUMS' --pattern 'MANIFEST.txt'
+          ls -la published/
+
+      - name: Verify the published bytes against the published checksums
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          # This is the step that was done by hand for v0.5.0: the assets are
+          # fetched back from the release and hashed again. A run whose artifacts
+          # were right but whose upload was not fails here and nowhere else.
+          cd published
+          fail=0
+          while read -r hash path; do
+            [ -n "${hash}" ] || continue
+            asset="$(basename "${path}")"
+            if [ ! -f "${asset}" ]; then
+              echo "::error::the release carries ${asset} in SHA256SUMS but not as an asset"
+              fail=1
+              continue
+            fi
+            actual="$(sha256sum "${asset}" | cut -d' ' -f1)"
+            if [ "${actual}" != "${hash}" ]; then
+              echo "::error::the published ${asset} hashes to ${actual}, but the published SHA256SUMS records ${hash}"
+              fail=1
+            else
+              echo "ok  ${asset}  ${hash}"
+            fi
+          done < SHA256SUMS
+          [ "${fail}" = 0 ] || exit 1
+          grep -qF "${VERSION}" MANIFEST.txt || { echo "::error::the published MANIFEST.txt does not name ${VERSION}"; exit 1; }
+          grep -qF "${GITHUB_SHA}" MANIFEST.txt || { echo "::error::the published MANIFEST.txt does not name commit ${GITHUB_SHA}"; exit 1; }
+
+      - name: Verify the published attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for asset in published/dotfiles-*; do
+            gh attestation verify "${asset}" --repo "${GITHUB_REPOSITORY}"
+          done

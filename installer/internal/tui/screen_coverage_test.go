@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
@@ -122,6 +123,13 @@ func TestNoInstallerScreenDrawsAnEmojiBox(t *testing.T) {
 	wsl := wslResourcesFrameCase(t)
 	wsl.Width, wsl.Height = trainerFrameWidth, trainerFrameHeight
 	check(wslResourcesCaseName, wsl.Screen, wsl.View())
+
+	// The update screen is carried by the frame guard's own case list
+	// (screensTheInstallerStatesNeverReach), which this pass does not walk, so it
+	// is rendered here rather than left unmeasured.
+	update := updateFrameCase(t)
+	update.Width, update.Height = trainerFrameWidth, trainerFrameHeight
+	check(updateCaseName, update.Screen, update.View())
 
 	missing := 0
 	for i, name := range declared {
@@ -639,7 +647,30 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{wslResourcesCaseName, wslResourcesFrameCase(t)},
 		{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase(t)},
 		{shellAuditCaseName, shellAuditFrameCase(t)},
+		{updateCaseName, updateFrameCase(t)},
 	}
+}
+
+// updateCaseName is the name the frame guards know this installer's own release
+// screen by.
+const updateCaseName = "update"
+
+// updateFrameCase builds the update screen with an answer, an installable target
+// and a notice, so the guards measure the screen carrying its rows -- the install
+// row and the re-check row -- rather than the state a runner with no recorded
+// check would produce. Every field is forced: a guard that read the machine's own
+// update record would measure whatever the last real run left behind.
+func updateFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenUpdate)
+	m.UpdateCheck = updateState{
+		Latest:    "v0.5.1",
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+		Notice:    "Installed over this binary; the binary it replaced is kept at /tmp/dotfiles.previous.",
+	}
+	m.UpdateTarget = updateTarget{Path: "/home/alber/.local/bin/dotfiles", Asset: "dotfiles-linux-amd64"}
+	return m
 }
 
 // utilitiesCaseName is the name the frame guards know the utilities section by.

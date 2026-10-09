@@ -466,6 +466,9 @@ func (m Model) headerName() string {
 	case ScreenShellAudit:
 		// The shell's startup screen is one level in from the same section.
 		return "Utilities"
+	case ScreenUpdate:
+		// The update screen is one level in from the same section.
+		return "Utilities"
 	default:
 		return "dotfiles"
 	}
@@ -921,6 +924,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenUpdate:
+		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
 	case ScreenComplete:
@@ -1177,6 +1182,15 @@ const utilitiesNoticeRows = 2
 // one. The themes themselves live one level in, on the theme picker.
 func (m Model) renderUtilities() string {
 	return m.renderThemeScreen(m.utilitiesDescription(), m.ThemeNotice,
+		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+}
+
+// renderUpdate draws this installer's own release screen: what this build is,
+// what is published, where that answer came from and when it was read, who owns
+// the file an update would replace, and the two rows that act on it. It has no
+// golden of its own and no panel: it is one column of facts and two presses.
+func (m Model) renderUpdate() string {
+	return m.renderThemeScreen(m.updateDescription(), m.UpdateCheck.Notice,
 		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
 }
 
@@ -1484,6 +1498,15 @@ func (m Model) utilitiesDescription() []string {
 		"colour depth, OSC 52, synchronized output and the Nerd Font glyphs -- names the source of every "+
 		"answer, and says unknown with a reason for what it cannot determine.", utilitiesTerminalRow))
 
+	// This installer's own release. The row is offered once the run has something
+	// to report, so the section names it on the same terms: the sentence above it
+	// is what makes the row findable, and it is only written when the row is there.
+	if m.UpdateCheck.Present() {
+		paragraphs = append(paragraphs, fmt.Sprintf("%s is this installer's own release: it reports which release is "+
+			"published beside the build you are running, and can install it over this binary after verifying the "+
+			"download against the release's own SHA256SUMS.", utilitiesUpdateRow))
+	}
+
 	// The dotfiles' own theme. Its definitions are resolved from $DOTFILES_DIR,
 	// the clone, the working directory and its parents, then ~/dotfiles and
 	// ~/.dotfiles, and last from the per-user copy the installer made; when none
@@ -1762,6 +1785,107 @@ func (m Model) wslResourcesUnavailableReason() string {
 // and a terminal were resolved, and the section's body names the reason
 // everywhere else.
 const utilitiesShellAuditRow = "Measure the shell's startup"
+
+// utilitiesUpdateRow is the section's row for this installer's own release. It is
+// offered only once the run has something to report about it -- an answer, a
+// failure, or a check in flight -- so a run that has never checked shows no row
+// rather than one that opens onto nothing.
+const utilitiesUpdateRow = "Update this installer"
+
+// updateCheckRow re-reads the published release. It is offered on every state of
+// the screen, because asking again is what a user does when the answer is old,
+// wrong or missing -- and "the check failed" is exactly when the answer is worth
+// asking for again.
+const updateCheckRow = "Check for the latest release again"
+
+// updateInstallRow installs the published release over this binary. It is offered
+// only when there is a newer release to install and the file is this installer's
+// own to replace; a copy a package manager owns gets the reason instead, in the
+// screen's own words, and never a row that would refuse when it was pressed.
+const updateInstallRow = "Download and install the latest release"
+
+// updateRows is what the update screen offers, derived from the state rather than
+// typed: installing is there when it can be done, asking again is there whenever
+// a check is not already running, and the way back is last.
+func (m Model) updateRows() []string {
+	var rows []string
+	if m.UpdateInstallable() {
+		rows = append(rows, updateInstallRow)
+	}
+	if !m.UpdateCheck.InFlight {
+		rows = append(rows, updateCheckRow)
+	}
+	if len(rows) > 0 {
+		rows = append(rows, m.menuSeparator())
+	}
+	return append(rows, "← Back")
+}
+
+// UpdateInstallable reports whether this run may replace its own binary: a newer
+// release is published, the running file was resolved, and no package manager
+// owns it.
+func (m Model) UpdateInstallable() bool {
+	if m.UpdateTargetErr != "" || !m.UpdateCheck.Newer() {
+		return false
+	}
+	return packageManagerOwner(m.UpdateTarget.Path) == ""
+}
+
+// updateDescription is what the update screen says about itself. Every claim
+// names where it comes from: the build's own identity, the tag the API answered
+// with, when it was read, and -- when nothing could be read -- why not. When a
+// package manager owns the file, the ownership is stated before anything is
+// offered, because that is the whole answer to "can this installer update itself
+// here".
+func (m Model) updateDescription() []string {
+	paragraphs := []string{
+		"The installer is a release of its own: this reads which release is the latest and can install it " +
+			"over this binary. Nothing here touches your configuration.",
+	}
+
+	// The facts, one per line, from the state's own rows, so the screen and the
+	// state cannot disagree about what is known.
+	for _, row := range m.UpdateCheck.displayRows() {
+		if row.Value == "" {
+			continue
+		}
+		paragraphs = append(paragraphs, row.Label+": "+row.Value)
+	}
+
+	if m.UpdateCheck.Failed == "" {
+		if m.UpdateCheck.Present() {
+			paragraphs = append(paragraphs, fmt.Sprintf(
+				"Read from %s, and cached in update-check.json beside the installer's other state for %s, "+
+					"so a start does not have to ask again.", dotfilesReleaseAPIURL, updateCheckTTL))
+		}
+	} else {
+		paragraphs = append(paragraphs, fmt.Sprintf(
+			"That is not an answer, and this screen will not pretend it is one: nothing was read from %s, "+
+				"so which release is the latest is unknown here rather than current. Ask again with %q once "+
+				"the network is back.", dotfilesReleaseAPIURL, updateCheckRow))
+	}
+
+	// Who owns the file an update would replace, and what that means here. It is
+	// the same question the theme switch asks of a config file, asked of a binary.
+	switch owner := packageManagerOwner(m.UpdateTarget.Path); {
+	case m.UpdateTargetErr != "":
+		paragraphs = append(paragraphs, fmt.Sprintf(
+			"This binary is not installable from here: %s.", m.UpdateTargetErr))
+	case owner != "":
+		paragraphs = append(paragraphs, fmt.Sprintf(
+			"This copy lives at %s and was installed by %s, so it is not the installer's to replace. "+
+				"The update belongs to the package manager: run %q. %s reports the same release, and the "+
+				"formula's own checksum is the release's own SHA256SUMS line for that asset.",
+			m.UpdateTarget.Path, owner, homebrewUpgradeCommand, owner))
+	case m.UpdateCheck.Newer():
+		paragraphs = append(paragraphs, fmt.Sprintf(
+			"%s would replace %s after the download is checked against that release's %s. The binary being "+
+				"replaced is kept beside it as %s, so the release you have now can be put back by hand.",
+			updateInstallRow, m.UpdateTarget.Path, releaseSumsAssetName, m.UpdateTarget.Path+updatePreviousSuffix))
+	}
+
+	return paragraphs
+}
 
 // shellAuditRows builds the shell startup screen's rows from its state: the one
 // row that measures, the last measurement's summary when there is one, and the
