@@ -4,6 +4,164 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+This is the release where the installer learns to apply the themes it offers. The library grows to seven
+complete themes, every one of them painting all twelve tools the switch names, and applying one now reloads the
+tools that show it and says what is left instead of reporting "applied" and stopping. The installer also learns
+which release is published and installs it over itself, the companion stops following the cursor and wanders on
+its own, and the ten interface defects an inventory found are fixed in one pass, together with the class that had
+hidden three of them behind unreachable code.
+
+### Added
+
+- **Seven complete themes, every one painting every tool the switch names.** `dotfiles`, `Catppuccin Mocha`,
+  `Catppuccin Latte`, `Rosé Pine`, `Everforest`, `Kanagawa` and `Nocturne` each paint the twelve tools - the four
+  terminals (Alacritty, Kitty, WezTerm, Ghostty), Starship, the zsh line editor, the p10k prompt, Herdr, fish,
+  bat, Neovim and tmux - and the picker's "leaves out" column reads `nada` for all of them (#167, #171, #183).
+  Each theme has one definition in `themes/*.toml` and every artifact is generated from it, so a theme is offered
+  only when it can be applied **and** shown (#159, #160). No colour is invented: a value is either what the
+  repository already ships or a transcription of a published palette, and the roles a tool derives are named per
+  tool in `themes/README.md` (#165, #171). `TestEveryOfferedThemePaintsEveryTool` reads the same coverage the menu
+  reads and fails by naming the theme and the tool it left out; the failure that named `nocturne` and `Neovim` is
+  the guard's own teeth (#171, #190).
+- **A seventh theme, measured rather than transcribed.** `nocturne` follows a screenshot of the user's own
+  terminal: the hues the screenshot carries were measured from its pixels, the ones it does not were derived from
+  the measured set by one documented mapping, and `[syntax]` is dark-only because the reference has no light
+  version. Its generated Neovim colorscheme and bat theme come from the repository's generator, and the definition
+  carries its provenance (#190).
+- **Applying a theme now reloads the tools that show it, and says what is left.** Writing the file is not
+  applying the theme. The switch runs only the safe, idempotent reload commands - `bat cache --build` with
+  `BAT_CONFIG_DIR`, `tmux source-file` only after `tmux list-sessions` succeeds, `kitty @ load-config` only when
+  `KITTY_LISTEN_ON` is set, and `herdr server reload-config` only when `HERDR_ENV=1` - each bounded by a
+  five-second timeout, and the result screen gives one row per tool: `✓` needs nothing more, `→` names the exact
+  action a person still has to take (#194, #200). Herdr's reload is the command behind its own key, measured on
+  herdr 0.9.3 (about 40 ms, exit 0, and `server_not_running` with exit 1 against a socket with no server), because
+  a signal is not a key and the alternative was signalling the process the installer runs inside (#200).
+- **A theme picker one level in.** Utilities offers `Change the dotfiles theme`, which opens the list of complete
+  themes, each naming the tools it leaves out, followed by the undo row and the way back; the live preview moved
+  with the list and is reached only from it (#164). The list windows around the cursor through the repository's
+  existing `listWindow`, and the header names the visible range, so the frame - not the palette - no longer caps
+  how many themes can be offered (#167).
+- **The installer knows which release is published, and installs it over itself.** `--check-update` reads the
+  latest release (exit 0 current, 1 newer, 2 unknown) and `--self-update` replaces the binary through the order
+  the repository already used for OfficeCLI: stage beside the destination, verify the asset against the release's
+  `SHA256SUMS`, make it executable, `rename`, keeping the replaced binary as `<path>.previous`. A failed check is
+  recorded as unknown, never as current, and a binary Homebrew owns is refused with `brew upgrade dotfiles` named
+  (#216). The main menu offers the update as a row once a newer release is installable, and the automatic check
+  now runs on every real open rather than only behind the drawing gate; the row arrives after the first frame, so
+  the cursor is held by the label it named (#222). The release workflow verifies its own chain twice - `verify` on
+  the artifacts it built and `verify-published` on the assets downloaded back - and a manual `workflow_dispatch`
+  (defaulting to `publish: false`) exercises the same job without publishing (#216).
+- **Three more utilities, and the definitions they need outside a checkout.** WSL resources adjusts memory,
+  processors and swap from the menu with the host's numbers and the recommendation on screen, sharing the
+  installer's own calculation and writer rather than growing a second one (#172); the shell startup audit starts
+  the login shell named by `$SHELL` the way a terminal does and reports the median of five bounded starts with
+  zsh's own `zprof` attribution, where a start that does not finish is killed, counted and named as a timeout
+  (#179); the terminal capability report answers what the terminal can do, with `unknown` as its own state
+  carrying a reason and a manual check (#181). The clone step copies the theme definitions and the WSL template
+  into `$XDG_DATA_HOME/dotfiles` (`~/.local/share/dotfiles`), which the resolvers read last, so the utilities are
+  offered from any working directory and not only from inside a checkout (#192, #196).
+- **Two degrees of adopting a file an older version installed.** A whole-file file is adopted as before, by the
+  ownership marker or byte-identity to the shipped file; a file that carries our anchors but has drifted outside
+  them is now adopted by region, rewriting only the bytes between the anchors, leaving every byte outside them
+  untouched and recording the original so Undo restores it byte for byte. When neither degree holds, the refusal
+  names the file, every probe that was made and the way forward (#173). Files that predate the marker can also be
+  refreshed in place and reversibly: the picker names exactly which files it will touch and where each user-owned
+  file will be preserved before it writes anything, and the cursor starts on Cancel (#169).
+- **Goldens for the five utility screens that had none, and a guard that a golden renders and never installs.**
+  The theme picker in three states, Utilities, WSL resources, the shell startup audit and the terminal capability
+  report now have frozen frames, which is how the layout defects below were found by looking rather than by
+  measuring (#212). The same change writes the rule as a guard: a golden renders a screen and never installs, by
+  replacing the TUI's step executor with a spy on the screen where Enter starts a run. On a runner without
+  privilege the old capture stopped at `/etc/wsl.conf`; anywhere with privilege it would have installed (#212).
+- **The companion wanders on its own.** Its position and gaze are no longer governed by the cursor: after eight
+  seconds without input it chooses between pausing, a short stroll, a look around and a small hop, waiting six to
+  fourteen seconds between decisions, moving at most one cell every three ticks and returning to calm on input
+  (#218). The random source is a private, injectable xorshift so the goldens stay repeatable, and the measured
+  cost is about 6% more bytes over the same frames (#218).
+
+### Fixed
+
+- **The keys that lied are real, and the tests can now see a dead one.** Escape did nothing in Utilities, jumped
+  past the picker in the theme refresh review, and in the restore confirmation jumped two levels to the main menu,
+  all while the footer announced `[Esc] back`. They survived because `handleEscape` owns Escape, so the per-screen
+  `esc` branches were unreachable code, and the tests pressed the key by calling those handlers directly. Five
+  tests now drive `Update` with a real `tea.KeyMsg`, the path a keypress takes (#202).
+- **Emoji are gone from the installer, and the rule is enforced where it was not.** The repository banned emoji
+  because a terminal without an emoji font draws a box, and enforced it for the trainer alone while the
+  installer's menus, titles and bodies kept theirs. Options and titles are words now, and where a glyph carried
+  meaning it was replaced rather than deleted. The guard reads the `Screen` constants out of the source, renders
+  the frames the shared terminal matrix already built, and fails by name - measured over 637 frames (#208).
+- Escape on the main menu quit the application while the documentation called it "go back". It is a no-op on the
+  root now, and the key, the documentation and the footer say the same thing; Backspace means exactly what Escape
+  means, in one route through the real dispatch, with the trainer's answer line the written exception (#208).
+- **Choosing a theme changes the screen once, not twice.** A press returned the switch command with the model
+  untouched, so the frame after the press was the frame before it, and the result replaced the panel about a
+  second later. The activity slot is now filled from the press and the result lands in the same slot, and the
+  window around the list is a function of the frame alone, so the row under the cursor, the frame's height and
+  the report's rows do not move between the press and the result (#204).
+- **The interface stops stating facts it has not established, and stops moving the row under the cursor.**
+  Utilities said "not switchable here" from an empty model while the definitions were still being read (it says
+  it is reading now, and the main-menu panel says the theme has not been checked yet); writing the `.wslconfig`
+  no longer replaces the table with "reading" while it re-reads, it keeps the table and marks the refresh; and a
+  release row that arrives late is re-found by the label the cursor named, so a late `Restore from Backup` cannot
+  steal an Enter aimed at Utilities (#206).
+- **Neovim can always resolve the colorscheme the installer writes.** The switch wrote a name without leaving the
+  generated file on the machine, so `:colorscheme nocturne` failed with `E185` because `~/.config/nvim/colors/`
+  did not exist. It now installs the generated colorscheme before writing the line and names a plugin's
+  colorscheme only when the machine's Neovim tree has one; otherwise it leaves the line out and says why (#210).
+  The default theme was the same defect one level down - the committed block asked for the `kanagawa` plugin and
+  the LazyVim statusline named it by hand - so the default is the only colorscheme this repository generates and
+  installs, and the statusline leaves the theme to LazyVim (#214).
+- **`BAT_THEME` named the wrong key, and five of six themes were affected.** `[bat] name` is the `.tmTheme`'s own
+  `<key>name</key>`, but bat registers a custom theme under its **file** name, so only `dotfiles` reached the
+  repository's file while the others painted bat's bundled theme or nothing at all. `batSelectionName` now exports
+  the file's stem, measured with bat 0.26.1 against a cache built in a temporary `XDG_CACHE_HOME` (#171).
+- The generated bat theme is well-formed XML: its header comment carried `bat cache --build`, and `--` cannot
+  appear inside an XML comment, so both committed `.tmTheme` files were rejected by `xml.etree` even though bat
+  rendered them. The guard parses every generated theme through `encoding/xml` and fails when it checked nothing
+  (#175).
+- The theme refresh review names the managed file the switch cannot bring forward instead of skipping it
+  silently (#188).
+
+### Changed
+
+- **Themes whose palettes were missing got them, and Kagawa was retired.** `everforest` and `kanagawa` are
+  transcribed from their published palettes, `catppuccin-latte` is the light flavour, `rose-pine` the purple-pink
+  one (and the darkest new base), and `kagawa` is removed because its only file was a byte-for-byte copy of
+  Kanagawa and no published palette exists behind the name (#167).
+- **The release procedure is one document, and the guard on it got stronger.** `docs/release-checklist.md` is
+  deleted after its links were repointed at `docs/RELEASING.md`, and the guard now requires the runbook to name
+  every job `release.yml` declares and rejects any release document that cites a workflow line number (#216).
+- **The test loop's cost is now recorded, and the claim behind it was wrong.** `make check` runs `gofmt`, `go vet`
+  and the changed packages with Go's cache on, so a rerun of `internal/tui` returns `(cached)`; what costs is host
+  contention, measured at 10m20s of wall time against 72 seconds of CPU. `make preflight` adds the whole suite
+  with `-count=1` by design, and CI is the complete verification (#166, #198).
+- **The inspector screens got a hierarchy instead of a wall of prose.** Each terminal capability is now two
+  units, the answer first and its source after; the shell audit shows the `zprof` attribution before the start
+  list and stops printing the median twice; the WSL values come before the formula that derives them; and the
+  theme picker's header says `Utilities`, like its siblings (#220).
+
+### Removed
+
+- `themes/kagawa.toml`, and the fish theme file that copied Kanagawa under that name (#167).
+- `docs/release-checklist.md`, after its links were repointed at the one runbook (#216).
+- The Utilities entry for the update, which is now a main-menu row; the update screen it opened is compiled but
+  unreachable from the interface, and the Homebrew refusal no longer surfaces in it, though it still stops
+  `--self-update` (#222).
+
+### Notes
+
+- **Declared limits, kept rather than hidden.** At 80x24 the theme picker's report cannot be read in full (the
+  list keeps the rows and the report gets what is left) and the preview strip moves four rows when the result
+  lands; both are the trade the picker was built with (#212). The companion's long pause is an approximation,
+  because there is no "the user is reading" signal in Bubbletea (#218). Homebrew ownership is detected by path
+  prefix and `/Cellar/`, so a Homebrew install whose symlink cannot be resolved is not detected (#216).
+  `verify-published` has never run against a real release - the next release is its first real run - and only the
+  linux/amd64 asset is executed by the workflow: the darwin and arm64 binaries are hashed and attested but never
+  run (#216).
+
 ## [v0.5.0] — 2026-10-05
 
 The release where the installer offers something beyond installing, and where the creature it draws survives
