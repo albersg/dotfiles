@@ -107,10 +107,12 @@ probed for teeth: converting the runbook's `- [ ]` items to `- [x]` and appendin
   main-menu button, offered only when a newer release is actually installable, and the two main-menu
   goldens were regenerated with it. The check now runs on every real open, so the answer arrives on
   its own; the button's late arrival is held by its label so the cursor does not move with it.
-- **`CHANGELOG.md` has no entry for this work.** It is the pre-flight's own item ("the section for this
-  version exists, its heading carries the release date"), and the file was not in this front's
-  surfaces. Its v0.5.0 entry also still names `docs/release-checklist.md` in the past tense of that
-  release; the repository kept the same kind of mention for `docs/RELEASES.md`, so it was left alone.
+- ~~**`CHANGELOG.md` has no entry for this work.**~~ **Done:** the section is written at the top of
+  `CHANGELOG.md` under `## [Unreleased]`, because no one can know the release date before the tag and the
+  runbook is the thing that renames it (the quick path in `docs/RELEASING.md` uses `v0.6.0` as the next
+  version). Writing `## [v0.6.0] — <date>` now would invent the half of the heading the tag decides. The
+  v0.5.0 entry still names `docs/release-checklist.md` in that release's past tense; it is left alone as the
+  same kind of historical mention the repository kept for `docs/RELEASES.md`.
 - **`packageManagerOwner` knows Homebrew by path only.** A Homebrew install whose symlink cannot be
   resolved, or a copy installed by a script and later claimed by a package manager, is not detected.
   The refusal is therefore narrower than the rule.
