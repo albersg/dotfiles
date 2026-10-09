@@ -873,3 +873,96 @@ marker). Teeth observed twice: changing the command string to `herdr server relo
 the first with `the Herdr reload ran an unexpected command ...`, and dropping the `HERDR_ENV` check
 fails the other two with `with no Herdr session around the installer, the reload step ran "herdr
 server reload-config"`.
+
+---
+
+# T10 - The installer wears the theme too: preview vs apply, remembered, and undone
+
+The user, after applying a theme from the Utilities picker: *"the installer also has to have themes,
+and when you finish the theme with the utility, the installer's theme has to update in real time
+too."* The preview already tinted the interface while the cursor was on a theme row, but the tint was
+restored before `View` returned, so **applying a theme left the installer on its default chrome**: the
+repaint was a preview and nothing else.
+
+## Where it reverted
+
+`installer/internal/tui/theme_preview.go:126` (before this change):
+
+```go
+previous := currentUIColors
+applyUIColors(colors)
+return func() { applyUIColors(previous) }, nil   // <- the apply's colours were put back
+```
+
+The only caller was `View`'s preview (`view.go`), which deferred the restore. The successful apply
+handler re-read the record but never repainted, so no code path made the applied theme stay.
+
+## What changed
+
+- **The applied theme is a layer under the preview.** `View` derives the chrome from the model with
+  `appliedThemeColors()` -- the record's theme id looked up in the definitions and run through the
+  same `themePreviewColors` the preview uses -- applies it, then layers the live preview on top and
+  restores both before returning. The record is the one place the applied theme lives; there is no
+  second palette. Because `themePreviewColors` is the one mapping, the preview and the apply cannot
+  show different colours.
+- **It is remembered on reopen.** `themeRecordLoadedMsg` now asks for the definitions when the record
+  names a theme and `DotfilesThemes` is still nil (`m.dotfilesThemesCmdIfNeeded()`), so a run that
+  opens with a theme applied reads `theme.json`, reads the definitions it names, and paints its first
+  frame with the theme that is on -- instead of waiting for the utilities section to be opened. The
+  read is the file the switch already writes, `$XDG_STATE_HOME/dotfiles/theme.json`.
+- **Undo puts the chrome back.** The undo clears the record; the same `view.go` derivation then finds
+  no theme and restores the installer's own adaptive chrome. `dotfiles` is the default chrome, so
+  applying it changes nothing and never replaces the adaptive palette with the definition's single
+  dark value.
+- **True colour only.** `uiThemeRepaintAllowed(profile)` is `pixelSpriteAllowed`'s criterion named for
+  the theme: the 24-bit palette is painted only on a `termenv.TrueColor` terminal. A 256-, sixteen- or
+  no-colour terminal keeps the installer's adaptive chrome rather than approximating a palette the
+  user did not choose.
+- **The labels stay readable.** `uiColors` gained `OnFill`, the ink a filled block draws its label in.
+  The default is the base colour, exactly as `CursorText`/`Paper` named it. For an applied theme,
+  `themeOnFillInk` picks the theme's own base or text with the best worst-case contrast against the
+  primary, warning and success fills; when neither reaches 3:1 -- Catppuccin Latte's mid-tone warning
+  and success fills are the measured case -- it falls back to the installer's own ink, forced to the
+  polarity the base implies, rather than inventing a colour.
+
+## Red first, and the teeth
+
+The **RED** observed before the change (`go test ./internal/tui -run 'TestAnAppliedTheme|TestUndoingATheme|TestThePreviewIsTemporary' -v`):
+
+```
+util_screen_test.go:2179: a run with Catppuccin Mocha applied draws none of its blue (#89b4fa): the applied theme does not reach the interface
+util_screen_test.go:2212: a record with no definitions read returned no command: the theme can never be painted on reopen
+util_screen_test.go:2240: the guard needs the theme applied before the undo
+util_screen_test.go:2292: leaving the preview rows lost the applied Catppuccin Mocha theme
+```
+
+Guards, all in `util_screen_test.go`:
+
+- `TestAnAppliedThemeRepaintsTheInterfaceAndSurvivesLeavingThePicker` -- the applied theme paints the
+  chrome with the cursor off the theme rows.
+- `TestAnAppliedThemeIsRememberedWhenTheProgramReopens` -- the record read asks for the definitions
+  and the first frame is painted.
+- `TestUndoingAThemePutsTheDefaultChromeBack` -- the undo clears the record and the chrome.
+- `TestThePreviewIsTemporaryAndTheAppliedThemeIsNot` -- the preview of another theme is restored to
+  the applied one, not to the default.
+- `TestTheAppliedThemeIsOnlyPaintedInTrueColour` -- a 16-colour terminal draws the default chrome
+  byte-for-byte, true colour does not (the teeth: dropping the gate makes the first differ).
+- `TestEveryAppliedThemeKeepsTheInterfaceReadable` -- the body pair at 4.5:1 and the on-fill labels
+  at 3:1 for every offered theme, with a grey fixture whose base cannot label a fill proving the
+  fallback ink (the teeth).
+
+## The goldens
+
+**No pre-existing golden moved.** The snapshots run with no colour profile, so the default chrome is
+what they already pinned; the applied theme only changes bytes on a true-colour terminal. One new
+golden was added, `TestAppliedThemeGolden`, which forces true colour and fixes the theme explicitly
+(the state directory is a temporary one), so it records the palette the fix paints and can never read
+whatever theme the machine running the tests has applied. The applied chrome is pinned at the 80x24
+floor with the cursor on the way back (no preview active).
+
+## Validation
+
+- `make check` -- PASS (gofmt, `go vet ./...`, `go test ./internal/tui`, 260 s).
+- `gofmt -l installer/` -- clean; `go vet` -- clean; `git diff --check` -- clean.
+- `git status` shows the edited files and the one new golden only; no pre-existing golden changed.
+- No commit, no push.

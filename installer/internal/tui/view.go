@@ -906,9 +906,24 @@ func (m Model) View() string {
 		return ""
 	}
 
-	// The live preview repaints the whole interface in the theme under the cursor.
-	// It writes nothing and is restored before View returns, so a screen with no
-	// preview active renders byte-for-byte the default chrome.
+	// The chrome the model says the run wears. An applied theme is derived from the
+	// record and the definitions every time rather than kept as a second palette, so
+	// the record stays the one place the applied theme lives and cannot drift. It is
+	// only painted on a terminal that can show a 24-bit palette; the default chrome
+	// is restored before View returns, so a run with no theme applied renders
+	// byte-for-byte the default and no palette leaks into the next render.
+	if uiThemeRepaintAllowed(lipgloss.ColorProfile()) {
+		if colors, ok := m.appliedThemeColors(); ok {
+			previous := currentUIColors
+			applyUIColors(colors)
+			defer applyUIColors(previous)
+		}
+	}
+
+	// The live preview is a layer on top of that chrome: it repaints the whole
+	// interface in the theme under the cursor and restores what was underneath
+	// before View returns. It writes nothing, so a screen with no preview active is
+	// byte-for-byte the chrome the run wears.
 	if def, ok := m.previewThemeDef(); ok {
 		if restore, err := applyPreviewTheme(def); err == nil {
 			defer restore()
@@ -2118,6 +2133,28 @@ func shellAuditMillis(d time.Duration) float64 {
 // order it paints them. They are the roles every offered theme has.
 var themePreviewSwatchRoles = []string{
 	"base", "selection", "text", "red", "green", "yellow", "blue", "magenta", "cyan",
+}
+
+// appliedThemeColors is the chrome the run wears: the palette of the theme the
+// record names, read from the definitions. It is derived every time rather than
+// kept as a second palette, so the record is the one place the applied theme
+// lives. A run with no record, one whose definition has not been read yet, or one
+// whose record names the default theme keeps the installer's own adaptive chrome
+// -- the default theme is that chrome, so applying it changes nothing and there
+// is no single dark value elbowing the adaptive one aside.
+func (m Model) appliedThemeColors() (uiColors, bool) {
+	if m.DotfilesThemeRecord == nil || m.DotfilesThemeRecord.Theme == "" || m.DotfilesThemeRecord.Theme == defaultThemeID {
+		return uiColors{}, false
+	}
+	def, ok := themeByID(m.DotfilesThemes, m.DotfilesThemeRecord.Theme)
+	if !ok {
+		return uiColors{}, false
+	}
+	colors, err := themePreviewColors(def)
+	if err != nil {
+		return uiColors{}, false
+	}
+	return colors, true
 }
 
 // previewThemeDef is the theme the cursor is on, when it is on a theme row. The

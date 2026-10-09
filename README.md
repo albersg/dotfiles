@@ -240,7 +240,13 @@ says the switch is not available here, names the search and the copy directory, 
 row that fails. Move the
 cursor onto a theme row and **the whole installer repaints itself in that theme's colours** — a live
 preview built from the same definition the apply writes, labelled `Preview (nothing applied)` — and
-leaving the row puts the default chrome back; nothing is written while the cursor moves. It only rewrites files carrying the `dotfiles-managed-config:`
+leaving the row puts the chrome the run wears back; nothing is written while the cursor moves.
+**Pressing Enter applies the theme and the interface keeps those colours**, and a run that is
+reopened paints its first frame with the theme the record in `theme.json` names, so the applied theme
+is remembered; **Undo puts the interface back to the default chrome**. The applied palette is only
+painted where the terminal reports truecolour — a 256-, sixteen- or no-colour terminal keeps the
+installer's own adaptive chrome — and the labels on the filled blocks stay readable against the
+theme's own palette. It only rewrites files carrying the `dotfiles-managed-config:`
 ownership marker; a file you wrote is left exactly as it is. A managed file that predates the marker
 is adopted first: when its whole content proves it is ours (it is what the repository ships, or it
 carries a generated block marker) only that marker line is added, and when only a region is ours —

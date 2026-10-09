@@ -12,6 +12,9 @@ import (
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/exp/golden"
+	"github.com/muesli/termenv"
 )
 
 // ---------------------------------------------------------------------------
@@ -2101,6 +2104,328 @@ func TestReloadThemeToolsDoesNotStartATmuxServer(t *testing.T) {
 	if !strings.Contains(got.Note, "source-file") {
 		t.Errorf("the no-server line does not name the command to run: %+v", got)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// The installer's own theme
+// ---------------------------------------------------------------------------
+//
+// The user's report: "I apply a theme and the installer stays with the colours
+// it had." The live preview already tinted the interface while the cursor was on
+// a theme row, but the tint was restored before View returned, so an applied
+// theme left the installer on its default chrome. These guards are the fix's
+// teeth: an applied theme paints the interface, it survives leaving the picker
+// and reopening the program, and undoing it puts the default chrome back.
+
+// appliedThemeID is the theme these guards apply: a real definition the
+// repository ships, and one whose blue differs from the default chrome's, so a
+// paint that is still the default cannot pass by coincidence.
+const appliedThemeID = "catppuccin-mocha"
+
+// themeTestDefinitions loads the shipped definitions and returns one by id.
+func themeTestDefinitions(t *testing.T, id string) ([]themeDefinition, themeDefinition) {
+	t.Helper()
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	def, ok := themeByID(defs, id)
+	if !ok {
+		t.Fatalf("the %s definition is missing", id)
+	}
+	return defs, def
+}
+
+// themeBlueSequence is the SGR sequence lipgloss emits for a theme's blue. It is
+// read from a probe rather than computed from the hex, because lipgloss converts
+// an 8-bit channel through 16 bits and can shift it by one. The sequence is the
+// parameters only, so it matches whether or not a bold style prefixes them.
+func themeBlueSequence(t *testing.T, def themeDefinition) string {
+	t.Helper()
+	probe := lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Render("x")
+	end := strings.Index(probe, "m")
+	if end < 0 {
+		t.Fatalf("the renderer emitted no SGR sequence for %s", def.Palette["blue"])
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(probe[:end+1], "\x1b["), "m")
+}
+
+// forceTrueColor makes the renderer take the true-colour path the applied theme
+// is gated on, and restores the profile when the test ends.
+func forceTrueColor(t *testing.T) {
+	t.Helper()
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+}
+
+// TestAnAppliedThemeRepaintsTheInterfaceAndSurvivesLeavingThePicker is the
+// user's symptom as a guard: with a theme applied, the whole interface wears it
+// and keeps wearing it once the cursor has left the theme row. The cursor sits on
+// the way back, where no preview is active, so the only thing that can paint the
+// interface is the applied theme itself.
+func TestAnAppliedThemeRepaintsTheInterfaceAndSurvivesLeavingThePicker(t *testing.T) {
+	forceTrueColor(t)
+	defs, def := themeTestDefinitions(t, appliedThemeID)
+	sequence := themeBlueSequence(t, def)
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: def.ID}
+	m.Width, m.Height = 120, 40
+	m.Cursor = len(m.GetCurrentOptions()) - 1
+
+	if view := m.View(); !strings.Contains(view, sequence) {
+		t.Fatalf("a run with %s applied draws none of its blue (%s): the applied theme does not reach the interface",
+			def.Name, def.Palette["blue"])
+	}
+}
+
+// TestAnAppliedThemeIsRememberedWhenTheProgramReopens proves the read half: the
+// record in theme.json names the applied theme, the startup read of the record
+// asks for the definitions, and once they land the first frame is already
+// painted. Nothing here reads the user's real state: the state directory is a
+// temporary one.
+func TestAnAppliedThemeIsRememberedWhenTheProgramReopens(t *testing.T) {
+	forceTrueColor(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	defs, def := themeTestDefinitions(t, appliedThemeID)
+	sequence := themeBlueSequence(t, def)
+
+	if err := writeDotfilesThemeRecord(&dotfilesThemeRecord{Theme: def.ID}); err != nil {
+		t.Fatalf("record the applied theme: %v", err)
+	}
+
+	m := NewModel()
+	m.Width, m.Height = 120, 40
+	m.Screen = ScreenMainMenu
+
+	// The startup read of the record must carry the theme's name forward, and a
+	// record with no definitions read yet must ask for them: without the names
+	// there is nothing to paint.
+	next, cmd := m.Update(themeRecordLoadedMsg{record: readThemeRecord(), dotfiles: readDotfilesThemeRecord()})
+	m = next.(Model)
+	if m.DotfilesThemeRecord == nil || m.DotfilesThemeRecord.Theme != def.ID {
+		t.Fatalf("the startup read did not carry the applied theme: %+v", m.DotfilesThemeRecord)
+	}
+	if m.DotfilesThemes == nil && cmd == nil {
+		t.Fatal("a record with no definitions read returned no command: the theme can never be painted on reopen")
+	}
+
+	next, _ = m.Update(dotfilesThemesLoadedMsg{themes: defs, repoDir: repoRoot(t)})
+	m = next.(Model)
+
+	if view := m.View(); !strings.Contains(view, sequence) {
+		t.Fatalf("a run that reopens with %s recorded draws none of its blue: the applied theme was not remembered", def.Name)
+	}
+}
+
+// TestUndoingAThemePutsTheDefaultChromeBack proves the third half: the undo
+// clears the record, and the interface stops being painted as soon as it does.
+// The message is the one a real undo carries, so the guard watches the same path
+// the program takes.
+func TestUndoingAThemePutsTheDefaultChromeBack(t *testing.T) {
+	forceTrueColor(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	defs, def := themeTestDefinitions(t, appliedThemeID)
+	sequence := themeBlueSequence(t, def)
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: def.ID}
+	m.Width, m.Height = 120, 40
+	m.Cursor = len(m.GetCurrentOptions()) - 1
+	if view := m.View(); !strings.Contains(view, sequence) {
+		t.Fatal("the guard needs the theme applied before the undo")
+	}
+
+	// An undo leaves no record in theme.json, and the handler re-reads the file.
+	next, _ := m.Update(dotfilesThemeChangedMsg{notice: "The last dotfiles theme change was undone."})
+	m = next.(Model)
+	if m.DotfilesThemeRecord != nil {
+		t.Fatalf("the undo left a record: %+v", m.DotfilesThemeRecord)
+	}
+	if view := m.View(); strings.Contains(view, sequence) {
+		t.Fatalf("the interface is still painted in %s after the undo", def.Name)
+	}
+}
+
+// TestThePreviewIsTemporaryAndTheAppliedThemeIsNot is the distinction the user
+// was noticing: moving the cursor previews another theme and leaving the row
+// restores the applied one, not the default chrome. The applied theme is not
+// the one under the cursor, so the two paints cannot be confused.
+func TestThePreviewIsTemporaryAndTheAppliedThemeIsNot(t *testing.T) {
+	forceTrueColor(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	defs, applied := themeTestDefinitions(t, appliedThemeID)
+	_, previewed := themeTestDefinitions(t, "nocturne")
+	appliedSeq := themeBlueSequence(t, applied)
+	previewSeq := themeBlueSequence(t, previewed)
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: applied.ID}
+	m.Width, m.Height = 120, 40
+
+	idx := -1
+	for i, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, "Apply the "+previewed.Name) {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("the picker offers no %s row", previewed.Name)
+	}
+	m.Cursor = idx
+	if view := m.View(); !strings.Contains(view, previewSeq) {
+		t.Fatalf("the cursor on %s paints none of its blue", previewed.Name)
+	}
+
+	// Off the theme rows the preview is gone and the applied theme is what is
+	// left: the preview must not have replaced it.
+	m.Cursor = len(m.GetCurrentOptions()) - 1
+	after := m.View()
+	if !strings.Contains(after, appliedSeq) {
+		t.Fatalf("leaving the preview rows lost the applied %s theme", applied.Name)
+	}
+	if strings.Contains(after, previewSeq) {
+		t.Fatalf("the %s preview survived the cursor leaving its row", previewed.Name)
+	}
+}
+
+// TestTheAppliedThemeIsOnlyPaintedInTrueColour is the degradation rule as a
+// guard: a 24-bit terminal is painted, and a terminal reporting 256, sixteen or
+// no colours keeps the installer's own adaptive chrome -- the same criterion the
+// companion's volumetric sprite uses. The comparison is against the same model
+// with no record, so a difference is the applied theme and nothing else.
+func TestTheAppliedThemeIsOnlyPaintedInTrueColour(t *testing.T) {
+	if !uiThemeRepaintAllowed(termenv.TrueColor) {
+		t.Error("a true-colour terminal must be allowed to paint the applied theme")
+	}
+	for _, profile := range []termenv.Profile{termenv.ANSI256, termenv.ANSI, termenv.Ascii} {
+		if uiThemeRepaintAllowed(profile) {
+			t.Errorf("a %v terminal must keep the installer's own chrome", profile)
+		}
+	}
+
+	defs, def := themeTestDefinitions(t, appliedThemeID)
+	withTheme := NewModel()
+	withTheme.Screen = ScreenThemePicker
+	withTheme.DotfilesThemes = defs
+	withTheme.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: def.ID}
+	withTheme.Width, withTheme.Height = 120, 40
+	withTheme.Cursor = len(withTheme.GetCurrentOptions()) - 1
+	without := withTheme
+	// The control keeps a record, so the undo row -- and every other structural
+	// effect of having a record -- is present in both models. The only difference
+	// is that the control's theme cannot be resolved, so the gate is the only thing
+	// that can make the two renders differ.
+	without.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: "no-such-theme"}
+
+	// The teeth: on a 16-colour terminal the two models must draw the same bytes,
+	// and on true colour they must not. Dropping the gate makes the first
+	// comparison differ.
+	previous := lipgloss.ColorProfile()
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	if withTheme.View() != without.View() {
+		t.Error("a 16-colour terminal painted the applied theme; it must keep the default chrome")
+	}
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	if withTheme.View() == without.View() {
+		t.Error("a true-colour terminal did not paint the applied theme")
+	}
+}
+
+// TestEveryAppliedThemeKeepsTheInterfaceReadable measures the text/background
+// pairs the installer's chrome draws against every shipped theme. The body text
+// the screen is read through is held to the 4.5:1 normal text needs; the labels
+// on the filled blocks -- the selected row's bar, the cursor and the status
+// blocks -- are held to the 3:1 bold text needs. Every pair comes from
+// themePreviewColors, so the guard measures exactly the palette the applied theme
+// would paint.
+func TestEveryAppliedThemeKeepsTheInterfaceReadable(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	measured := 0
+	for _, def := range defs {
+		if !def.Complete() {
+			continue
+		}
+		colors, err := themePreviewColors(def)
+		if err != nil {
+			t.Errorf("theme %q cannot be painted, so it cannot be offered: %v", def.ID, err)
+			continue
+		}
+		measured++
+
+		if got := themeContrastRatio(colors.Text.Dark, colors.Background.Dark); got < 4.5 {
+			t.Errorf("%s: body text %s on base %s is %.2f:1, want >= 4.5",
+				def.ID, colors.Text.Dark, colors.Background.Dark, got)
+		}
+		for _, fill := range []struct {
+			name  string
+			color lipgloss.AdaptiveColor
+		}{
+			{"primary", colors.Primary},
+			{"warning", colors.Warning},
+			{"success", colors.Success},
+		} {
+			if got := themeContrastRatio(colors.OnFill.Dark, fill.color.Dark); got < uiThemeOnFillFloor {
+				t.Errorf("%s: the label on %s is %.2f:1, want >= %.1f",
+					def.ID, fill.name, got, uiThemeOnFillFloor)
+			}
+		}
+	}
+	if measured < 2 {
+		t.Fatalf("only %d theme(s) measured: the guard would pass on an empty repository", measured)
+	}
+
+	// The teeth: a palette whose own base and text are the same mid grey cannot
+	// label any fill, so the installer's own ink is used instead of an invented
+	// colour. A mapping that always took the base would return grey here.
+	grey := themeDefinition{
+		ID:      "grey-fixture",
+		Palette: map[string]string{"base": "#808080", "text": "#808080", "blue": "#808080", "green": "#808080"},
+		Prompt:  map[string]string{"peach": "#808080"},
+		Syntax:  map[string]string{},
+	}
+	ink := themeOnFillInk(grey, grey.Palette["peach"], grey.Palette["green"], grey.Palette["blue"])
+	if ink.Dark != defaultUIColors().Text.Dark && ink.Dark != defaultUIColors().Text.Light {
+		t.Errorf("an unlabelable palette was given %s, want the installer's own ink", ink.Dark)
+	}
+}
+
+// TestAppliedThemeGolden pins the frame of a run that wears an applied theme, at
+// the 80x24 floor and with 24-bit colour forced, so the snapshot records the
+// palette the fix paints and not the terminal the test happens to run on. The
+// theme is fixed explicitly and the state directory is a temporary one, so the
+// golden can never read whatever theme the machine running the tests has applied:
+// a snapshot that depends on the user's own state is the defect this change is
+// against.
+func TestAppliedThemeGolden(t *testing.T) {
+	skipIfTermux(t)
+	forceTrueColor(t)
+
+	defs, def := themeTestDefinitions(t, appliedThemeID)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 80, 24
+	m.Screen = ScreenThemePicker
+	m.Animating = false
+	m.DotfilesThemes = defs
+	m.DotfilesThemeRecord = &dotfilesThemeRecord{Theme: def.ID}
+	m.Cursor = len(m.GetCurrentOptions()) - 1
+
+	golden.RequireEqual(t, []byte(m.View()))
 }
 
 // TestThemeReloadRunnerTimesOut keeps the promise that a hung tmux or bat cannot

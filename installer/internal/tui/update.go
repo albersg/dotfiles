@@ -689,6 +689,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.DotfilesThemeRecord == nil {
 			m.DotfilesThemeRecord = msg.dotfiles
 		}
+		// The record names the theme the run wears; the definitions are what turns
+		// that name into chrome. A run that opens with a theme applied reads them
+		// here, so the first frame is already painted rather than the utilities
+		// section being the first to find out which theme is on.
+		if m.DotfilesThemeRecord != nil && m.DotfilesThemes == nil {
+			return m, m.dotfilesThemesCmdIfNeeded()
+		}
 		return m, nil
 
 	case themeChangedMsg:
