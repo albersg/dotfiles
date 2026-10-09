@@ -4,7 +4,7 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [v0.6.1] — 2026-10-09
+## [v0.6.2] — 2026-10-09
 
 This is the release where the installer learns to apply the themes it offers. The library grows to seven
 complete themes, every one of them painting all twelve tools the switch names, and applying one now reloads the
