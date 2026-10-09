@@ -195,7 +195,7 @@ that names it, so the file reaches the machine even when the theme change runs l
 step that copied the config; a colorscheme a plugin would register is named only when a colors file
 for it is present under the machine's Neovim data directory. When neither can be reached the line is
 left out and the screen names the reason, because a name Neovim cannot find starts the editor with
-`E185: Cannot find color scheme` on every launch. bat selects a theme by a name its own themes
+`E185: Cannot find color scheme` on every launch. **The default is chosen by the same rule**: the committed colorscheme line names the **dotfiles** palette, whose colorscheme file the Neovim step copies with the rest of the configuration, so it resolves on a fresh machine that installed no theme plugin at all — it used to name Kanagawa, a plugin a machine need not have. The statusline follows from the same side: this configuration never hard-codes lualine's theme, so LazyVim's own `options.theme = "auto"` stands and the theme is derived from whatever colorscheme is active (lualine reads `vim.g.colors_name`), because a hard-coded name is only found when the plugin that ships that lualine theme is installed and lualine otherwise warns `Theme <name> not found` and falls back anyway. bat selects a theme by a name its own themes
 directory has to hold, so the shell step generates a `.tmTheme` for **every** theme that names one
 before it rebuilds bat's cache — and the name the switch exports is the file's own name, because that
 is what bat registers a custom theme under (measured against bat 0.26.1; the `<key>name</key>` inside

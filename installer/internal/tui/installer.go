@@ -1231,7 +1231,11 @@ type themeArtifact struct {
 	Path    string
 	Comment string
 	// DefaultTheme is the theme the committed file holds. Empty means
-	// defaultThemeID; Neovim's committed colorscheme is Kanagawa, not dotfiles.
+	// defaultThemeID, which is what every artifact that does not hold a separate
+	// default uses - Neovim included. A default is what a fresh install starts
+	// on, and a fresh install has only the plugins the configuration declares as
+	// installed, so a default that names a plugin's colorscheme is a default that
+	// breaks on a machine without that plugin.
 	DefaultTheme string
 	// Block names the generated region inside the file. It is empty for a file
 	// with one block; Starship has two (its palette line and its palette table),
@@ -1264,7 +1268,12 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palettes", AdoptStart: "[palettes.catppuccin_mocha]", NotBoxed: true, AdoptEnd: `crust = "#06080f"`, Render: renderStarshipPaletteTable},
 	{Tool: "zsh", Path: "dotfiles-zsh/.zshrc", Comment: "#", AdoptStart: "# ─── Palette", NotBoxed: true, AdoptEnd: `Gd=${PALETTE_YELLOW_SGR}"`, Render: renderZshTheme},
 	{Tool: "p10k", Path: "dotfiles-zsh/.p10k.zsh", Comment: "#", AdoptStart: "  # ── Palette", NotBoxed: true, AdoptEnd: `typeset -g PALETTE_CYAN=`, Render: renderP10kTheme},
-	{Tool: "nvim", Path: "dotfiles-nvim/nvim/lua/plugins/colorscheme.lua", Comment: "--", DefaultTheme: "kanagawa", AdoptStart: `colorscheme = "kanagawa"`, NotBoxed: true, AdoptEnd: `colorscheme = "kanagawa"`, Render: renderNvimColorscheme},
+	// Neovim's committed colorscheme is the dotfiles palette (DefaultTheme
+	// empty), whose file the same config copy installs, so a fresh machine can
+	// always load it. The anchors are the assignment itself, not one theme's
+	// name: the line the switch rewrites holds whatever theme was applied, and a
+	// fixed name would only match one of them.
+	{Tool: "nvim", Path: "dotfiles-nvim/nvim/lua/plugins/colorscheme.lua", Comment: "--", AdoptStart: "colorscheme = ", NotBoxed: true, AdoptEnd: "colorscheme = ", Render: renderNvimColorscheme},
 	{Tool: "bat", Path: "dotfiles-zsh/.zshrc", Comment: "#", Block: "bat", NotBoxed: true, AdoptStart: "# --- bat ", AdoptEnd: "# --- zsh-autosuggestions", AdoptEndKeep: true, Render: renderBatSelection},
 	// fish's own config file is the artifact: its palette lives there as global
 	// variables, so the switch rewrites a file this repository owns instead of
@@ -2324,8 +2333,8 @@ func themeInstalledFiles(homeDir string) []themeInstalledFile {
 
 // themeRefreshTarget picks the definition a refresh should write into one
 // artifact. A file that already names a theme keeps it; a file from before the
-// markers gets the artifact's own default (the committed theme, or Neovim's
-// Kanagawa), never an arbitrary one.
+// markers gets the artifact's own default when it declares a separate one, and
+// the committed theme otherwise - never an arbitrary one.
 func themeRefreshTarget(content string, art themeArtifact, defs []themeDefinition) (themeDefinition, bool) {
 	if id, ok := themeBlockID(content, art.Block); ok {
 		if def, found := themeByID(defs, id); found {

@@ -83,7 +83,12 @@ return {
     event = "VeryLazy", -- Load this plugin on the 'VeryLazy' event
     requires = { "nvim-tree/nvim-web-devicons", opt = true }, -- Optional dependency for icons
     opts = function(_, opts)
-      opts.options.theme = "kanagawa" -- Match the configured colorscheme
+      -- LazyVim already sets lualine's theme to "auto", which derives the
+      -- statusline colours from the active colorscheme (lualine reads
+      -- vim.g.colors_name). Naming a theme here would tie the statusline to that
+      -- theme's own file: lualine raises "Theme <name> not found" and falls back
+      -- to auto when it is missing, which is exactly what a plugin-provided
+      -- lualine theme does on a machine without the plugin.
       opts.options.icons_enabled = true -- Enable icons in the statusline
 
       opts.sections.lualine_a = {
