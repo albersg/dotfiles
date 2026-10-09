@@ -613,56 +613,54 @@ func (m Model) GetCurrentOptions() []string {
 		// the undo row needs a record this installer wrote for that same desktop.
 		// A host with none of them gets the explanation in the screen's own body
 		// and the way back, not a row that fails when it is pressed.
-		opts := []string{}
+		//
+		// The rows are grouped the way the theme picker groups its own: the
+		// desktop's switch is one zone, the utilities are another, and the way back
+		// is set off once at the end. A rule between every row spent three rows on
+		// four choices and made the list read as a different component from the
+		// picker it opens.
+		var switchers []string
 		if m.ThemeSwitchFound {
-			opts = append(opts, "Switch to the dark theme", "Switch to the light theme")
+			switchers = append(switchers, "Switch to the dark theme", "Switch to the light theme")
 		}
 		if m.themeUndoAvailable() {
-			opts = append(opts, "Undo the last theme change")
+			switchers = append(switchers, "Undo the last theme change")
 		}
+
+		var utilities []string
 		if len(m.dotfilesThemeOptions()) > 0 || m.DotfilesThemeRecord != nil {
-			if len(opts) > 0 {
-				opts = append(opts, m.menuSeparator())
-			}
-			opts = append(opts, utilitiesThemeRow)
+			utilities = append(utilities, utilitiesThemeRow)
 		}
 		// The WSL resources are offered only where there is a .wslconfig to edit.
 		// Everywhere else the section's own body names the reason, so the gap is
 		// declared rather than left for the user to guess at.
 		if m.WSLState.Available {
-			if len(opts) > 0 {
-				opts = append(opts, m.menuSeparator())
-			}
-			opts = append(opts, utilitiesWSLRow)
+			utilities = append(utilities, utilitiesWSLRow)
 		}
 		// The shell's startup is offered wherever the login shell and a terminal
 		// were both resolved. It is the utility that changes nothing, so it is
 		// offered rather than gated: reading a number is always safe.
 		if m.ShellAudit.Available {
-			if len(opts) > 0 {
-				opts = append(opts, m.menuSeparator())
-			}
-			opts = append(opts, utilitiesShellAuditRow)
+			utilities = append(utilities, utilitiesShellAuditRow)
 		}
 		// The terminal capability report is read-only and offered everywhere: there
 		// is always a terminal to describe, and where there is not one the screen's
-		// own body says so rather than the row being silently absent. It sits last
-		// so it never displaces the utilities above it on a short frame.
-		if len(opts) > 0 {
-			opts = append(opts, m.menuSeparator())
-		}
-		opts = append(opts, utilitiesTerminalRow)
+		// own body says so rather than the row being silently absent.
+		utilities = append(utilities, utilitiesTerminalRow)
 		// This installer's own release is offered once the run has something to say
 		// about it: an answer, a failure, or a check in flight. A run that has never
 		// checked and cannot check leaves the row out rather than opening a screen
 		// with nothing on it, and the check is armed on the startup path for every
 		// interactive run, so the row is there as soon as its answer lands.
 		if m.UpdateCheck.Present() {
-			if len(opts) > 0 {
-				opts = append(opts, m.menuSeparator())
-			}
-			opts = append(opts, utilitiesUpdateRow)
+			utilities = append(utilities, utilitiesUpdateRow)
 		}
+
+		opts := switchers
+		if len(opts) > 0 && len(utilities) > 0 {
+			opts = append(opts, m.menuSeparator())
+		}
+		opts = append(opts, utilities...)
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
 		}
