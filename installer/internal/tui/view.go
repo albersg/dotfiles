@@ -1172,6 +1172,24 @@ func (m Model) mainMenuTrainerNotice() string {
 	return WarningStyle.Render(rows[0])
 }
 
+// mainMenuUpdateNotice is the one line the main menu shows for the self-update
+// the row under the cursor just ran: the download in progress, the path the
+// replaced binary was kept at, or why nothing was replaced. The result lands on
+// the screen the user is already on, in the same slot the row lives in, rather
+// than taking the run to a result screen -- the lesson the theme switch paid for.
+// Like the trainer's line it is wrapped to a single row, so a long path cannot
+// grow the menu past its frame.
+func (m Model) mainMenuUpdateNotice() string {
+	if m.UpdateCheck.Notice == "" {
+		return ""
+	}
+	rows := wrapText(m.UpdateCheck.Notice, contentWidth(m), 1)
+	if len(rows) == 0 {
+		return ""
+	}
+	return InfoStyle.Render(rows[0])
+}
+
 // utilitiesNoticeRows is the most rows the utilities section's result line may
 // spend. Two is enough for one sentence at the 60-column end of the supported
 // range; more than that is a cut, and the cut is marked.
@@ -1498,15 +1516,6 @@ func (m Model) utilitiesDescription() []string {
 		"colour depth, OSC 52, synchronized output and the Nerd Font glyphs -- names the source of every "+
 		"answer, and says unknown with a reason for what it cannot determine.", utilitiesTerminalRow))
 
-	// This installer's own release. The row is offered once the run has something
-	// to report, so the section names it on the same terms: the sentence above it
-	// is what makes the row findable, and it is only written when the row is there.
-	if m.UpdateCheck.Present() {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s is this installer's own release: it reports which release is "+
-			"published beside the build you are running, and can install it over this binary after verifying the "+
-			"download against the release's own SHA256SUMS.", utilitiesUpdateRow))
-	}
-
 	// The dotfiles' own theme. Its definitions are resolved from $DOTFILES_DIR,
 	// the clone, the working directory and its parents, then ~/dotfiles and
 	// ~/.dotfiles, and last from the per-user copy the installer made; when none
@@ -1786,11 +1795,13 @@ func (m Model) wslResourcesUnavailableReason() string {
 // everywhere else.
 const utilitiesShellAuditRow = "Measure the shell's startup"
 
-// utilitiesUpdateRow is the section's row for this installer's own release. It is
-// offered only once the run has something to report about it -- an answer, a
-// failure, or a check in flight -- so a run that has never checked shows no row
-// rather than one that opens onto nothing.
-const utilitiesUpdateRow = "Update this installer"
+// updateInstallerRow is the main menu's button for this installer's own release.
+// It is offered only when a later release is published and the running file is
+// the installer's own to replace, and pressing it runs the same verified swap
+// `dotfiles --self-update` runs. The check that publishes it is armed when
+// dotfiles opens, so the row arrives on its own rather than waiting for a visit
+// to a utilities section.
+const updateInstallerRow = "Update this installer"
 
 // updateCheckRow re-reads the published release. It is offered on every state of
 // the screen, because asking again is what a user does when the answer is old,
@@ -2180,6 +2191,9 @@ func (m Model) renderMainMenu() string {
 		"",
 	)
 	if notice := m.mainMenuTrainerNotice(); notice != "" {
+		body = append(body, notice)
+	}
+	if notice := m.mainMenuUpdateNotice(); notice != "" {
 		body = append(body, notice)
 	}
 	body = append(body, m.menuRows(m.GetCurrentOptions(), m.Cursor)...)

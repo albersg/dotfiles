@@ -725,24 +725,38 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A finished check replaces the state whole, the way a measurement does.
 		// A failed check is a result here too: the reason travels in the record, so
 		// the screen says why it does not know instead of saying it is current. The
-		// last update's notice survives, because a check is not an update.
+		// last update's notice survives, because a check is not an update. The
+		// cursor is held by the row it was naming before the menu changed: an
+		// answer that offers a newer release inserts a row above Utilities, and an
+		// index-based cursor would otherwise hand the next Enter to the update row.
+		held := m.selectedOption()
 		notice := m.UpdateCheck.Notice
 		m.UpdateCheck = stateFromRecord(msg.record)
 		m.UpdateCheck.Notice = notice
+		m.holdCursorOn(held)
 		return m, nil
 
 	case updateAppliedMsg:
 		// The swap is not an install step, so a failure stays on the screen as a
 		// notice rather than taking the run to a failed screen. A refusal to touch a
 		// binary a package manager owns arrives here as well, with the command that
-		// does own the update in its message.
+		// does own the update in its message. The attempt is over either way, so the
+		// in-flight mark is cleared or a failed press could never be asked for again.
+		m.UpdateCheck.InFlight = false
 		if msg.err != nil {
 			m.UpdateCheck.Notice = msg.err.Error()
 			return m, nil
 		}
+		// The file on disk is now the published release, so the button that offered
+		// it is withdrawn even though this process keeps running the old build until
+		// it restarts. The sentence leads with the outcome, because the main menu
+		// shows only its first row and the tag is the part worth reading there; the
+		// kept path follows, and is read whole on the update screen's own notice.
+		installed := m.UpdateCheck.Latest
+		m.UpdateCheck.Installed = true
 		m.UpdateCheck.Notice = fmt.Sprintf(
-			"Installed over this binary; the binary it replaced is kept at %s. Restart dotfiles to run the new one.",
-			msg.kept)
+			"Updated to %s; the previous binary is kept at %s. Restart dotfiles to run the new release.",
+			installed, msg.kept)
 		return m, nil
 
 	case wslResourceLoadedMsg:
@@ -1275,11 +1289,12 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	case ScreenUpdate:
-		// The update screen is one level in too, and leaving it clears the last
-		// update's notice so a later visit does not open on a stale result. A check
-		// that is still running writes its answer onto the model regardless, which
-		// is what keeps the answer from being lost behind the step back.
-		m.Screen = ScreenUtilities
+		// The update screen steps back to the main menu, which is where its row now
+		// lives. Leaving it clears the last update's notice so a later visit does
+		// not open on a stale result. A check that is still running writes its
+		// answer onto the model regardless, which is what keeps the answer from
+		// being lost behind the step back.
+		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 		m.UpdateCheck.Notice = ""
 	// Trainer screens
@@ -1523,6 +1538,16 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 		case strings.Contains(selected, "Vim Trainer"):
 			return m.startTrainer()
+		case selected == updateInstallerRow:
+			// The row is the button: pressing it runs the same verified swap
+			// `--self-update` runs, off the update loop, and the result appears on
+			// this screen in the notice slot above the menu.
+			if !m.UpdateInstallable() || m.UpdateCheck.InFlight {
+				return m, nil
+			}
+			m.UpdateCheck.InFlight = true
+			m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
+			return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
 		case strings.Contains(selected, "Utilities"):
 			// The row and the `u` key reach the same section: the row is how a
 			// user finds it, the key is the shortcut for someone who has.
@@ -1611,16 +1636,6 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			// that screen's own row.
 			m.Screen = ScreenShellAudit
 			m.Cursor = 0
-		case selected == utilitiesUpdateRow:
-			// This installer's own release is one level in as well. Opening it is a
-			// request for the current answer, so the check is started here rather than
-			// waited for -- it runs off the update loop, so a slow network cannot
-			// freeze the screen it just opened. The row is only offered once the run
-			// has something to report, so this never opens onto nothing.
-			m.Screen = ScreenUpdate
-			m.Cursor = 0
-			m.UpdateCheck.Notice = ""
-			return m, m.startUpdateCheck()
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			m.ThemeNotice = "Putting the previous desktop theme back…"
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
@@ -1797,7 +1812,7 @@ func (m Model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "esc":
-		m.Screen = ScreenUtilities
+		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 		m.UpdateCheck.Notice = ""
 	case "enter", " ":
@@ -1821,7 +1836,7 @@ func (m Model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 			// time, so the last answer to arrive is the answer that was asked for.
 			return m, m.startUpdateCheck()
 		case strings.Contains(options[m.Cursor], "Back"):
-			m.Screen = ScreenUtilities
+			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 			m.UpdateCheck.Notice = ""
 		}

@@ -87,6 +87,11 @@ From the main menu you can access:
 - **Neovim Keymaps**: Browse all configured keybindings
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
+- **Update this installer**: Appears only when a newer release than this build is published
+  and the file is the installer's own to replace. Pressing it downloads the release asset,
+  checks it against that release's `SHA256SUMS`, and installs it over this binary with a
+  single rename, keeping the binary it replaced as `<binary>.previous`; the result is shown on
+  the main menu and the new binary runs after a restart
 - **Utilities**: The small jobs that are not part of an installation: a reversible
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
@@ -644,7 +649,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build for **Update this installer**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |

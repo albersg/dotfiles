@@ -575,6 +575,16 @@ func (m Model) GetCurrentOptions() []string {
 			"LazyVim Guide",
 			"Vim Trainer",
 		}
+		// The update row is offered only when a later release is published and this
+		// file is the installer's own to replace: the button acts, so a run that has
+		// nothing to install shows no row rather than one that opens onto nothing.
+		// It sits above Restore so the action rows stay together, and the cursor is
+		// held by its label when it arrives late -- a background check lands after
+		// the first frame, and an index-based cursor would otherwise hand Enter to
+		// whichever option the insertion pushed under it.
+		if m.UpdateInstallable() {
+			opts = append(opts, updateInstallerRow)
+		}
 		// Add restore option if backups exist
 		if len(m.AvailableBackups) > 0 {
 			opts = append(opts, "Restore from Backup")
@@ -652,17 +662,6 @@ func (m Model) GetCurrentOptions() []string {
 			opts = append(opts, m.menuSeparator())
 		}
 		opts = append(opts, utilitiesTerminalRow)
-		// This installer's own release is offered once the run has something to say
-		// about it: an answer, a failure, or a check in flight. A run that has never
-		// checked and cannot check leaves the row out rather than opening a screen
-		// with nothing on it, and the check is armed on the startup path for every
-		// interactive run, so the row is there as soon as its answer lands.
-		if m.UpdateCheck.Present() {
-			if len(opts) > 0 {
-				opts = append(opts, m.menuSeparator())
-			}
-			opts = append(opts, utilitiesUpdateRow)
-		}
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
 		}
