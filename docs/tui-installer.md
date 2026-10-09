@@ -353,9 +353,30 @@ interface is repainted** in that theme's colours — the header, the rules, ever
 footers and the frame — because every style is built from one palette and the preview rebuilds that
 palette from the definition. A label beside the swatches reads `Preview (nothing applied) — <name>`,
 so a repainted installer cannot be mistaken for one whose theme has changed. Leaving the theme row
-puts the default chrome back: with no preview active the interface is byte-for-byte what it always
-was. The palette comes from `themes/*.toml` — the chrome holds no second copy of it — and a theme
+puts the chrome the run wears back: the preview is a layer, and moving the cursor writes nothing. The
+palette comes from `themes/*.toml` — the chrome holds no second copy of it — and a theme
 with no canonical palette is refused rather than previewed with invented colours.
+
+**Press Enter and the theme stays.** Preview and apply are two different things, and the difference
+is visible: moving the cursor previews, pressing **Enter** applies. On a successful apply the
+interface **keeps that theme's colours in the same press**, with nothing else to do, and a run that
+is **reopened paints its first frame with the theme that is on** — the record written to
+`$XDG_STATE_HOME/dotfiles/theme.json` names the theme, the definitions turn that name into chrome,
+and the chrome is derived from the record every render rather than kept as a second palette, so the
+record stays the one place the applied theme lives. **Undo puts the interface back to the default
+chrome** the same way. The **default chrome is the dotfiles theme**, so applying `dotfiles` changes
+nothing and the adaptive default palette is never replaced by the definition's single dark value.
+
+**The applied theme is only painted where the terminal can show it.** The palette is 24-bit, so it is
+shown only on a terminal that reports **truecolour**, the same rule the companion's volumetric sprite
+uses. A terminal reporting 256, sixteen or no colours keeps the installer's own adaptive chrome,
+which degrades to that terminal instead of approximating a palette the user did not choose; the
+welcome screen's terminal report says the same thing about the themes. And **the applied theme stays
+readable**: the body text is held to 4.5:1 on the theme's base, and the labels drawn on the filled
+blocks — the selected row's bar, the cursor and the status blocks — to 3:1, measured from the theme's
+own palette. A theme whose own base and text cannot label a light theme's mid-tone fills uses the
+installer's own ink for those labels rather than an invented colour, and
+`TestEveryAppliedThemeKeepsTheInterfaceReadable` measures every offered theme.
 
 **Refreshing files installed before the markers.** A machine installed by an older checkout holds
 files with neither the `dotfiles-managed-config:` marker nor a generated block. Adoption (above)

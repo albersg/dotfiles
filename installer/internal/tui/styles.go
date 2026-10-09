@@ -45,6 +45,12 @@ type uiColors struct {
 	BorderActive  lipgloss.AdaptiveColor
 	SyntaxKeyword lipgloss.AdaptiveColor
 	SyntaxString  lipgloss.AdaptiveColor
+	// OnFill is the ink a label drawn on a filled block uses -- the selected row's
+	// bar, the cursor and the status blocks. It is a field of its own rather than
+	// an alias of Background so an applied theme can choose an ink that stays
+	// readable on its own fills; the default is the base colour, exactly as
+	// CursorText and Paper named it before.
+	OnFill lipgloss.AdaptiveColor
 }
 
 // defaultUIColors is the shipped palette. The Dark entries are the dotfiles
@@ -52,7 +58,7 @@ type uiColors struct {
 // against themes/dotfiles.toml, so this block is a consumer and not an eighth
 // hand-written copy of the palette.
 func defaultUIColors() uiColors {
-	return uiColors{
+	c := uiColors{
 		// Base colour. It is also the colour text takes on top of a filled cursor
 		// or selection block, which is why CursorText names it instead of repeating
 		// the hex: three cursor styles used to spell "#06080f" out. On a light
@@ -87,6 +93,11 @@ func defaultUIColors() uiColors {
 		SyntaxKeyword: lipgloss.AdaptiveColor{Light: "#7A3E9E", Dark: "#C99AD6"},
 		SyntaxString:  lipgloss.AdaptiveColor{Light: "#8A6A00", Dark: "#DFBD76"},
 	}
+	// The default chrome's filled blocks draw their label in the base colour: the
+	// dark base is the ink that reads on the pastel fills. An applied theme may
+	// choose otherwise when its own base cannot label a fill.
+	c.OnFill = c.Background
+	return c
 }
 
 // The palette's names, and the semantic roles every screen reaches a colour
@@ -193,10 +204,10 @@ func applyUIColors(c uiColors) {
 	// The semantic roles resolve to the palette entries they may use, so "one
 	// meaning per colour" is enforced by the name a screen asks for rather than by
 	// a comment beside a hex value.
-	CursorText = Background
+	CursorText = c.OnFill
 	Brand = Primary
 	BrandSoft = Primary
-	Paper = Background
+	Paper = c.OnFill
 	Ink = Text
 	InkDim = TextMuted
 	Rule = TextMuted
