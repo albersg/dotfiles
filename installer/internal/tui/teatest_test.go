@@ -111,6 +111,22 @@ func isolateGoldenTest(t *testing.T, m *Model) {
 	m.CreatedAt = goldenGreetingTime
 }
 
+// pinAvailableUpdate puts a newer release and an installable target on a golden
+// model, so the main menu snapshot pins the update row the install gives it. The
+// row is normally offered from the cached record the startup path reads; the
+// goldens point XDG_STATE_HOME at an empty directory, so they set the state
+// directly instead of depending on a file, and the update check itself stays
+// disarmed for every test. The tag is far enough ahead of the dev build that the
+// comparison cannot depend on the version injected into the test binary.
+func pinAvailableUpdate(m *Model) {
+	m.UpdateCheck = updateState{
+		Latest:    "v9.9.9",
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+	}
+	m.UpdateTarget = updateTarget{Path: "/home/alber/.local/bin/dotfiles", Asset: "dotfiles-linux-amd64"}
+	m.UpdateTargetErr = ""
+}
+
 // goldenGreetingTime is the time the golden models were created with. The
 // welcome and main menu greet by the time of day from the model's own creation
 // time, so an unpinned model would render a different word at every hour and on
@@ -269,6 +285,7 @@ func TestMainMenuGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
 	isolateGoldenTest(t, &m)
+	pinAvailableUpdate(&m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenMainMenu
@@ -295,6 +312,7 @@ func TestMainMenuGoldenIsIndependentOfTheWorkingDirectory(t *testing.T) {
 
 	m := NewModel()
 	isolateGoldenTest(t, &m)
+	pinAvailableUpdate(&m)
 	m.Width = 80
 	m.Height = 24
 	m.Screen = ScreenMainMenu
@@ -510,6 +528,7 @@ func TestMainMenuWideGolden(t *testing.T) {
 	isolateGoldenTest(t, &m)
 	m.SystemInfo = goldenSystemInfo()
 	m.ExistingConfigs = system.DetectExistingConfigs()
+	pinAvailableUpdate(&m)
 	m.Width = 160
 	m.Height = 50
 	m.Screen = ScreenMainMenu

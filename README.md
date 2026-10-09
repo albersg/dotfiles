@@ -143,8 +143,9 @@ dotfiles --self-update     # installs the published release over this binary
 
 `--check-update` exits `0` when your build is the published one, `1` when a newer release
 exists, and `2` when it could not reach GitHub at all — three different facts, so a script
-never reads a network failure as a green light. `--self-update` (and the utilities
-section's **Update this installer** row) downloads the release asset, checks it against the
+never reads a network failure as a green light. `--self-update` (and the main menu's
+**Update this installer** button, offered when a newer release is published) downloads the
+release asset, checks it against the
 `SHA256SUMS` that release publishes, keeps the binary it replaced as
 `<binary>.previous`, and only then moves the new one into place with a single rename.
 
@@ -178,6 +179,20 @@ Alongside the installation itself, the TUI ships two features you can come back 
 a **Utilities** section for small, reversible jobs and an interactive **Vim Mastery
 Trainer**. The [TUI Installer Guide](docs/tui-installer.md) covers both in full.
 
+### Updating the installer
+
+The installer is a release of its own. When **dotfiles** opens it checks in the background
+which release is published, remembers the answer in
+`$XDG_STATE_HOME/dotfiles/update-check.json` (or `~/.local/state/dotfiles/`), and offers the
+main menu's **Update this installer** button only when a newer release exists and the file
+is the installer's own to replace. Pressing it downloads the release asset, checks it against
+the `SHA256SUMS` that release publishes, keeps the binary it replaced as
+`<binary>.previous`, and moves the new one into place with a single rename; the result is
+reported on the main menu, where the button was, and the new binary runs after a restart. A
+check that could not reach GitHub is recorded as unknown and never shown as an error or as
+up to date. The refusal described in [After installing](#after-installing) is the whole
+answer when a package manager owns the file, which is why no button is offered there.
+
 ### Utilities
 
 The **Utilities** section holds the small jobs that are not part of an installation.
@@ -193,17 +208,6 @@ alone and the reason is shown. A host with no desktop — a server, Termux, a ba
 is told so rather than offered a switch that would fail. `--dry-run` skips the utility, like
 every installation step. See the [TUI Installer Guide](docs/tui-installer.md#utilities) for
 the exact files it touches.
-
-**Update this installer.** The installer is a release of its own, and this row's screen
-reads which release is published beside the build you are running: the tag, the commit and
-date your binary was built from, when the answer was read, and the URL it came from. The
-check refreshes once a day in the background and remembers the answer in
-`$XDG_STATE_HOME/dotfiles/update-check.json`, so a start never waits on the network. The
-screen offers **Check for the latest release again** and, when there is a newer release and
-the file is the installer's own to replace, **Download and install the latest release**.
-The refusal described in [After installing](#after-installing) is stated on the screen when
-a package manager owns the file, and a check that could not reach GitHub is reported as
-unknown with its reason rather than as up to date.
 
 **Switch the dotfiles' own theme.** The dotfiles ship a palette library — seven complete themes that
 cover every tool the switch paints — and each theme's palette is defined once in

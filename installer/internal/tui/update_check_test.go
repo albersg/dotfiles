@@ -26,8 +26,17 @@ import (
 //
 // The guard that pins the arming logic saves this value, puts it back to true for
 // its own case, and restores it.
+//
+// The same init points the state directory at a fresh temporary one for the
+// whole package, because the model reads the cached record on the startup path
+// and the main menu now draws a row from it. A developer's own update-check.json
+// must not add that row to a test: without this, a menu whose rows are counted by
+// index would pass on CI and fail on the machine that had once run the installer.
 func init() {
 	updateAutoCheckAllowed = func() bool { return false }
+	if dir, err := os.MkdirTemp("", "dotfiles-tui-state-"); err == nil {
+		_ = os.Setenv("XDG_STATE_HOME", dir)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -693,22 +702,23 @@ func TestBuildLabelNamesTheCommitAndTheDate(t *testing.T) {
 // The gate: a start may only ask on its own when the run is a real one
 // ---------------------------------------------------------------------------
 
-func TestAutoUpdateCheckIsArmedOnlyForAnAnimatingRealRun(t *testing.T) {
+func TestAutoUpdateCheckIsArmedForEveryRealRun(t *testing.T) {
 	isolateUpdateState(t)
 	allowed := updateAutoCheckAllowed
 	t.Cleanup(func() { updateAutoCheckAllowed = allowed })
 
 	updateAutoCheckAllowed = func() bool { return true }
-	armed := NewModel()
-	armed.Animating = true
-	if cmd := armed.updateCheckCmdFor(); cmd == nil {
-		t.Error("an animating interactive run was not allowed to check for a release on its own")
-	}
 
-	quiet := NewModel()
-	quiet.Animating = false
-	if cmd := quiet.updateCheckCmdFor(); cmd != nil {
-		t.Error("a run with the drawing off reached the network on its own")
+	// The animation gate must not decide this. DOTFILES_ANIM=0 is the user's own
+	// reported symptom: the check was armed on that gate, so a quiet run never
+	// asked. The check is a command, so arming it here cannot delay the first
+	// frame whatever the gate says.
+	for _, animating := range []bool{true, false} {
+		m := NewModel()
+		m.Animating = animating
+		if cmd := m.updateCheckCmdFor(); cmd == nil {
+			t.Errorf("Animating=%v: the run was not allowed to check for a release on its own", animating)
+		}
 	}
 }
 
@@ -770,27 +780,255 @@ func installableUpdateModel(t *testing.T) Model {
 	return m
 }
 
-func TestUtilitiesSectionOffersTheUpdateRowOnceItHasSomethingToSay(t *testing.T) {
+// TestTheUtilitiesSectionNoLongerOffersTheUpdateRow is the regression for the
+// move: the installer's own release is not a utility any more. The row is a
+// button on the main menu, so the section must not carry it -- not even the
+// sentence that used to announce it -- or the same job would have two homes.
+func TestTheUtilitiesSectionNoLongerOffersTheUpdateRow(t *testing.T) {
+	isolateUpdateState(t)
+
+	m := NewModel()
+	m.Width, m.Height = 100, 40
+	m.Screen = ScreenUtilities
+	m.UpdateCheck = updateState{Latest: "v9.9.9", CheckedAt: time.Now()}
+
+	if updateRowsContain(m.GetCurrentOptions(), updateInstallerRow) {
+		t.Fatalf("the utilities section still offers %q: %v", updateInstallerRow, m.GetCurrentOptions())
+	}
+	for _, entry := range m.utilitiesPanelEntries() {
+		if entry.label == "Update" {
+			t.Error("the utilities panel still carries an Update entry for the installer's own release")
+		}
+	}
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	if strings.Contains(view, updateInstallerRow) {
+		t.Errorf("the rendered utilities section still names %q:\n%s", updateInstallerRow, view)
+	}
+}
+
+// updateReadyModel is the main menu with a newer release published and a binary
+// at a path the installer owns, so the guards measure the button rather than a
+// host that happens to be current.
+func updateReadyModel(t *testing.T) Model {
+	t.Helper()
+
+	m := NewModel()
+	m.Width, m.Height = 100, 40
+	m.Screen = ScreenMainMenu
+	m.UpdateCheck = updateState{
+		Latest:    "v9.9.9",
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+	}
+	m.UpdateTarget = updateTarget{Path: "/home/alber/.local/bin/dotfiles", Asset: "dotfiles-linux-amd64"}
+	m.UpdateTargetErr = ""
+	return m
+}
+
+// TestMainMenuOffersTheUpdateRowOnlyWhenAnUpdateIsAvailable is the offer rule:
+// the main menu carries a button only when there is something for it to do -- a
+// later release is published and this file is the installer's own to replace.
+// A run that is current, or does not know, shows no row rather than one that
+// would refuse when it was pressed.
+func TestMainMenuOffersTheUpdateRowOnlyWhenAnUpdateIsAvailable(t *testing.T) {
 	isolateUpdateState(t)
 
 	quiet := NewModel()
-	quiet.Width, quiet.Height = 100, 40
-	quiet.Screen = ScreenUtilities
-	if updateRowsContain(quiet.GetCurrentOptions(), utilitiesUpdateRow) {
-		t.Fatal("the section offered the update row before this run had anything to report, so it opens onto nothing")
+	quiet.Screen = ScreenMainMenu
+	if updateRowsContain(quiet.GetCurrentOptions(), updateInstallerRow) {
+		t.Fatal("the main menu offered the update row with nothing published")
 	}
 
-	answered := NewModel()
-	answered.Width, answered.Height = 100, 40
-	answered.Screen = ScreenUtilities
-	answered.UpdateCheck = updateState{Latest: "v9.9.9", CheckedAt: time.Now()}
-
-	if !updateRowsContain(answered.GetCurrentOptions(), utilitiesUpdateRow) {
-		t.Fatal("the section did not offer the update row after a check answered")
+	ready := updateReadyModel(t)
+	if !updateRowsContain(ready.GetCurrentOptions(), updateInstallerRow) {
+		t.Fatalf("the main menu did not offer the update row with a newer release: %v", ready.GetCurrentOptions())
 	}
-	view := ansiEscape.ReplaceAllString(answered.View(), "")
-	if !strings.Contains(view, utilitiesUpdateRow) {
-		t.Errorf("the rendered utilities section never names %q:\n%s", utilitiesUpdateRow, view)
+
+	installed := updateReadyModel(t)
+	installed.UpdateCheck.Installed = true
+	if updateRowsContain(installed.GetCurrentOptions(), updateInstallerRow) {
+		t.Error("the update row is still offered after this run installed the published release")
+	}
+
+	// A binary Homebrew owns is not the installer's to replace, so the button is
+	// withdrawn rather than offered and then refused.
+	homebrew := updateReadyModel(t)
+	homebrew.UpdateTarget = updateTarget{Path: "/opt/homebrew/Cellar/dotfiles/0.5.0/bin/dotfiles", Asset: "dotfiles-darwin-arm64"}
+	if updateRowsContain(homebrew.GetCurrentOptions(), updateInstallerRow) {
+		t.Error("the update row was offered over a binary a package manager owns")
+	}
+}
+
+// TestMainMenuUpdateRowFitsTheMeasuredFloor is the fit guard for the row the main
+// menu gained: measured at the 80x24 floor and the 60x20 the trainer documents as
+// too small, with the restore row beside it and the update result already in its
+// notice slot. The row and the notice may not push the menu past the frame on the
+// size where the budget is tightest.
+func TestMainMenuUpdateRowFitsTheMeasuredFloor(t *testing.T) {
+	notice := "Updated to v9.9.9; the previous binary is kept at /home/alber/.local/bin/dotfiles.previous. " +
+		"Restart dotfiles to run the new release."
+
+	for _, size := range []struct {
+		name          string
+		width, height int
+	}{
+		{"80x24", 80, 24},
+		{"60x20", 60, 20},
+	} {
+		size := size
+		t.Run(size.name, func(t *testing.T) {
+			for _, withBackups := range []bool{false, true} {
+				m := updateReadyModel(t)
+				m.Width, m.Height = size.width, size.height
+				if withBackups {
+					m.AvailableBackups = append(m.AvailableBackups, testBackupInfo(), testBackupInfo())
+				}
+				if !updateRowsContain(m.GetCurrentOptions(), updateInstallerRow) {
+					t.Fatalf("the update row is not offered: %v", m.GetCurrentOptions())
+				}
+				assertScreenFitsTerminal(t, "main-menu-update", size.width, size.height, m.View())
+
+				// The result lands in the notice slot above the menu, so that state has
+				// to fit the same frame as the row that produced it.
+				m.UpdateCheck.Notice = notice
+				assertScreenFitsTerminal(t, "main-menu-update-result", size.width, size.height, m.View())
+			}
+		})
+	}
+}
+
+// TestALateUpdateRowKeepsTheCursorOnTheRowItNamed is the A5 lesson applied to the
+// row that arrives after the first frame. The check is asynchronous, so with the
+// cursor already on Utilities its answer inserts a row above it; an index-based
+// cursor would then point at the update row and hand the next Enter to the wrong
+// choice. The label is kept and re-found, so the key that was aimed at Utilities
+// still lands on Utilities.
+func TestALateUpdateRowKeepsTheCursorOnTheRowItNamed(t *testing.T) {
+	isolateUpdateState(t)
+
+	m := NewModel()
+	m.Width, m.Height = 100, 40
+	m.Screen = ScreenMainMenu
+	m.UpdateTarget = updateTarget{Path: "/home/alber/.local/bin/dotfiles", Asset: "dotfiles-linux-amd64"}
+	m.UpdateTargetErr = ""
+
+	utilities := -1
+	for i, option := range m.GetCurrentOptions() {
+		if option == "Utilities" {
+			utilities = i
+			break
+		}
+	}
+	if utilities < 0 {
+		t.Fatalf("the main menu has no Utilities row: %v", m.GetCurrentOptions())
+	}
+	m.Cursor = utilities
+	if got := m.selectedOption(); got != "Utilities" {
+		t.Fatalf("the cursor starts on %q, want Utilities", got)
+	}
+
+	next, _ := m.Update(updateCheckMsg{record: updateRecord{
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+		Latest:    "v9.9.9",
+	}})
+	after, ok := next.(Model)
+	if !ok {
+		t.Fatal("Update did not return a Model")
+	}
+	if got := after.selectedOption(); got != "Utilities" {
+		t.Errorf("the late update row moved the cursor to %q, want Utilities: %v", got, after.GetCurrentOptions())
+	}
+}
+
+// TestPressingTheUpdateRowRunsTheVerifiedSwap is the action rule: the row is a
+// button, and pressing it starts the same verified swap `--self-update` runs --
+// off the update loop -- without taking the run to another screen.
+func TestPressingTheUpdateRowRunsTheVerifiedSwap(t *testing.T) {
+	isolateUpdateState(t)
+	m := updateReadyModel(t)
+
+	row := -1
+	for i, option := range m.GetCurrentOptions() {
+		if option == updateInstallerRow {
+			row = i
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatalf("the update row is not offered: %v", m.GetCurrentOptions())
+	}
+	m.Cursor = row
+
+	next, cmd := m.handleMainMenuKeys("enter")
+	if cmd == nil {
+		t.Fatal("pressing the update row started nothing")
+	}
+	started, ok := next.(Model)
+	if !ok {
+		t.Fatal("the key handler did not return a model")
+	}
+	if started.Screen != ScreenMainMenu {
+		t.Errorf("pressing the row moved to %v, want to stay on the main menu", started.Screen)
+	}
+	if !started.UpdateCheck.InFlight {
+		t.Error("the swap was started but the model does not know it is running")
+	}
+}
+
+// TestTheUpdateResultIsSaidWhereTheUserIs is the result rule the theme switch
+// paid for: the outcome lands in the slot the press came from on the main menu,
+// in one line, instead of replacing the screen with a result view.
+func TestTheUpdateResultIsSaidWhereTheUserIs(t *testing.T) {
+	isolateUpdateState(t)
+	m := updateReadyModel(t)
+
+	next, _ := m.Update(updateAppliedMsg{kept: "/home/alber/.local/bin/dotfiles.previous"})
+	after, ok := next.(Model)
+	if !ok {
+		t.Fatal("Update did not return a Model")
+	}
+	if after.Screen != ScreenMainMenu {
+		t.Errorf("the result took the run to %v, want the main menu", after.Screen)
+	}
+	if !after.UpdateCheck.Installed {
+		t.Error("the published release was installed but the model still offers it")
+	}
+	if after.UpdateCheck.InFlight {
+		t.Error("the update attempt finished but the in-flight mark is still set")
+	}
+	if !strings.Contains(after.UpdateCheck.Notice, ".previous") {
+		t.Errorf("the result does not name the kept binary: %q", after.UpdateCheck.Notice)
+	}
+	view := ansiEscape.ReplaceAllString(after.View(), "")
+	if !strings.Contains(view, "Updated to") {
+		t.Errorf("the main menu does not show the update result:\n%s", view)
+	}
+	if updateRowsContain(after.GetCurrentOptions(), updateInstallerRow) {
+		t.Error("the row is still offered after the update it performed")
+	}
+}
+
+// TestAFailedUpdatePressCanBeAskedForAgain is the error half of the same rule:
+// a refusal or a failed download is a result the menu reports, not a state that
+// leaves the button permanently disabled. The in-flight mark is cleared, so the
+// next press starts another attempt.
+func TestAFailedUpdatePressCanBeAskedForAgain(t *testing.T) {
+	isolateUpdateState(t)
+	m := updateReadyModel(t)
+	m.UpdateCheck.InFlight = true
+
+	next, _ := m.Update(updateAppliedMsg{err: errors.New("dial tcp: no route to host")})
+	after, ok := next.(Model)
+	if !ok {
+		t.Fatal("Update did not return a Model")
+	}
+	if after.UpdateCheck.InFlight {
+		t.Error("the failed attempt left the in-flight mark set, so the button can never be pressed again")
+	}
+	if updateRowsContain(after.GetCurrentOptions(), updateInstallerRow) == false {
+		t.Errorf("the failed attempt withdrew the update row instead of reporting the reason: %v", after.GetCurrentOptions())
+	}
+	if !strings.Contains(ansiEscape.ReplaceAllString(after.View(), ""), "no route to host") {
+		t.Errorf("the main menu does not report why the update failed:\n%s", after.View())
 	}
 }
 

@@ -585,6 +585,7 @@ const mainMenuPanelLabel = "What will happen"
 //   - Vim Trainer: how many modules, lessons and bosses the curriculum ships;
 //   - Restore from Backup: every backup the model holds, with when it was taken
 //     and how many files it carries;
+//   - Update this installer: the published release this build is behind;
 //   - Exit: one line that says quitting changes nothing.
 //
 // The panel's name does not move with the cursor -- the tab row would wander,
@@ -662,6 +663,11 @@ func (m Model) contextHeadline() string {
 			return ""
 		}
 		return backupCount(len(m.AvailableBackups)) + " to restore"
+	case choiceUpdate:
+		if !m.UpdateInstallable() {
+			return ""
+		}
+		return m.UpdateCheck.Latest + " ready"
 	case choiceUtilities:
 		if !m.ThemeSwitchFound {
 			return ""
@@ -685,6 +691,7 @@ const (
 	choiceLazyVim
 	choiceTrainer
 	choiceRestore
+	choiceUpdate
 	choiceUtilities
 	choiceExit
 )
@@ -714,6 +721,8 @@ func (m Model) mainMenuSelection() (mainMenuChoice, string) {
 		return choiceTrainer, name
 	case strings.Contains(label, "Restore from Backup"):
 		return choiceRestore, name
+	case label == updateInstallerRow:
+		return choiceUpdate, name
 	case strings.Contains(label, "Utilities"):
 		return choiceUtilities, name
 	case strings.Contains(label, "Exit"):
@@ -740,6 +749,8 @@ func (m Model) mainMenuPanelFacts(l layout) []string {
 		rows = append(rows, trainerCurriculumFacts(l)...)
 	case choiceRestore:
 		rows = append(rows, m.backupPanelFacts(l)...)
+	case choiceUpdate:
+		rows = append(rows, m.updatePanelFacts(l)...)
 	case choiceUtilities:
 		rows = append(rows, m.utilitiesPanelFacts(l)...)
 	case choiceExit:
@@ -935,6 +946,25 @@ func (m Model) backupPanelFacts(l layout) []string {
 	return rows
 }
 
+// updatePanelFacts is what the panel says for the main menu's update button: the
+// release that is published, the build this run is, and the one thing pressing
+// the row does. Every value comes from the model's own update state, so the panel
+// and the button cannot disagree about which release is being offered.
+func (m Model) updatePanelFacts(l layout) []string {
+	if !m.UpdateInstallable() {
+		return nil
+	}
+	rows := panelFact("Published", m.UpdateCheck.Latest, l.Right)
+	if build := BuildLabel(); build != "" {
+		rows = append(rows, panelFact("This build", build, l.Right)...)
+	}
+	for _, line := range wrapText("Pressing it downloads the release, checks it against that release's own "+
+		"SHA256SUMS and installs it over this binary, keeping the replaced one beside it.", l.Right, 0) {
+		rows = append(rows, InkStyle.Render(line))
+	}
+	return rows
+}
+
 // exitPanelFacts is the one honest line the panel says for Exit: quitting
 // changes nothing. It claims no state, because there is none to read.
 func exitPanelFacts(l layout) []string {
@@ -1072,18 +1102,6 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: true,
 	})
 
-	// The section's utilitiesUpdateRow, offered under exactly the condition the
-	// section offers it: this run holds an answer, a failure or a check in flight.
-	// Nothing is written when it is not offered -- not even an "absent" line --
-	// because a run that has never checked has nothing to report, and the row is
-	// what carries the explanation once it does.
-	if m.UpdateCheck.Present() {
-		entries = append(entries, utilitiesPanelEntry{
-			label:   "Update",
-			value:   m.UpdateCheck.panelValue(),
-			offered: true,
-		})
-	}
 	return entries
 }
 

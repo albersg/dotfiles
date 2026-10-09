@@ -288,6 +288,11 @@ type updateState struct {
 	// InFlight is true while a check is running, so a row can say so instead of
 	// showing the answer it is about to replace.
 	InFlight bool
+	// Installed is true once this run has replaced its own binary with the
+	// published release. The running process is still the old build until it is
+	// restarted, but the file on disk is the published one, so the main menu must
+	// stop offering the update it just performed.
+	Installed bool
 	// Notice is the one-line result of a self-update, cleared when the screen is
 	// left, exactly as ThemeNotice is.
 	Notice string
@@ -490,9 +495,12 @@ func (u updateState) Present() bool {
 func (u updateState) answered() bool { return u.Latest != "" }
 
 // Newer reports whether a later release than this build is published. It is false
-// whenever nothing was read: a build that does not know must not be told to
-// update.
-func (u updateState) Newer() bool { return u.answered() && versionIsNewer(Version, u.Latest) }
+// whenever nothing was read -- a build that does not know must not be told to
+// update -- and false once this run has already installed the published release,
+// even though the running process is still the old build until it restarts.
+func (u updateState) Newer() bool {
+	return u.answered() && !u.Installed && versionIsNewer(Version, u.Latest)
+}
 
 // UpToDate reports whether this build is the published one. It is true only when
 // a tag was read and is not newer, which is the only case in which "up to date"
@@ -818,16 +826,19 @@ func (m *Model) startUpdateCheck() tea.Cmd {
 
 // updateCheckCmdFor returns the check a start may make on its own, or nil.
 //
-// It is nil unless the run is a real one: the gate is the same one the drawing
-// runs on (a run that may not animate is a run whose output is not a terminal),
-// the record must actually be due, and a test run never reaches the network. A
-// run that is not armed has not lost the check: the row is one keypress away, and
-// `dotfiles --check-update` runs it from a script.
+// It is armed for every real run, whether or not the run may animate: the user
+// asked for the check to happen when dotfiles opens, and a run with
+// DOTFILES_ANIM=0 or a piped stdout is still an open. The request is a command,
+// never a call here, so it cannot delay the first frame, and a failed check is
+// recorded rather than shown so a dev build with no network is not handed an
+// error it did not ask for. The record must actually be due, and a test run
+// never reaches the network. `dotfiles --check-update` remains the scriptable
+// form.
 func (m Model) updateCheckCmdFor() tea.Cmd {
 	if !updateAutoCheckAllowed() {
 		return nil
 	}
-	if !m.Animating || m.UpdateCheck.InFlight {
+	if m.UpdateCheck.InFlight {
 		return nil
 	}
 	if !updateCheckDue(updateRecord{CheckedAt: m.UpdateCheck.CheckedAt}, updateClock()) {
@@ -968,21 +979,6 @@ func (u updateState) displayRows() []updateDisplayRow {
 type updateDisplayRow struct {
 	Label string
 	Value string
-}
-
-// panelValue is one short phrase for the utilities panel: which release state this
-// run is in, in the same voice the section's own row uses.
-func (u updateState) panelValue() string {
-	switch {
-	case u.InFlight:
-		return "checking"
-	case u.Newer():
-		return "available"
-	case u.UpToDate():
-		return "up to date"
-	default:
-		return "unknown"
-	}
 }
 
 // sortedUpdateAssets returns the asset names a release carries, derived from the

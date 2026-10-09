@@ -26,7 +26,8 @@ The inventory this started from, all of it re-checked in the tree:
 |---|---|---|
 | The check is a **file read on the startup path** and a **command** for the request | The interface must never wait on the network; the state directory is already the place for state that survives a run (`theme.json`, `last-install.json`) | A first-ever run has no cached answer until its own check lands (about a second), so the utilities row appears when it does -- see the open item below |
 | A failed check is **recorded as unknown, never as current** | "You are up to date" is a claim about GitHub. `Summary()` cannot say it without a tag, and `--check-update` exits 2 for unknown, 1 for newer, 0 for current | Three exit codes to document; a script that ignores them treats unknown as current |
-| The automatic check runs on the **drawing gate** (`Animating`), and never in a test binary | The one existing gate that distinguishes an interactive run from a piped one, and it is what keeps a test from reaching the network and from writing into the machine's real state directory | A run with `DOTFILES_ANIM=0` does not refresh by itself; `--check-update` and the screen's own row do |
+| The automatic check runs on **every real open**, gated only by `updateAutoCheckAllowed()` and the record's own lifetime, and never in a test binary | The user asked for the check when dotfiles opens; the command is off the update loop, so it cannot delay the first frame, and a failed check is recorded rather than shown. The test-only gate keeps a guard from reaching the network or the machine's real state directory | A run with `DOTFILES_ANIM=0` now refreshes like any other; the utility is a **button on the main menu**, and it is silent when the check cannot answer |
+| The update row is a **main-menu button**, offered when a newer release is published and the file is the installer's own, and the cursor is **held by label** when it arrives late | The user asked for it in the main menu, not buried in Utilities; the check answers after the first frame, so an index-based cursor would hand the next Enter to the inserted row (the A5 lesson) | The main-menu goldens gained the row; `TestUtilitiesGolden` did not move, because its state never had an answer to draw |
 | The swap **reuses `verifyFileSHA256`** and the OfficeCLI order, and keeps the replaced binary as `<path>.previous` | One order, already proven in this repository; the previous release stays reachable by hand | A stale `.previous` file is left behind after an update (deliberate) |
 | A binary **Homebrew owns is refused**, with `brew upgrade dotfiles` named | The same ownership question the theme switch asks of a config file (`themeOwnedByUs` / `themeInstallerFileIsOurs`), asked of a binary instead | Detection knows one package manager, by path prefix and `/Cellar/`; anything else it cannot see |
 | `--check-update` and `--self-update` are **two entries to the same functions**, not two implementations | Two routes diverge -- WSL taught this repository that | Two flags, one `main.go` print path each |
@@ -102,10 +103,10 @@ probed for teeth: converting the runbook's `- [ ]` items to `- [x]` and appendin
 
 ## Remaining
 
-- **The utilities row appears when the first check lands, not before it.** On a machine that has never
-  checked, the row is absent for the first second of the first run. Making it unconditional means
-  moving `testdata/TestUtilitiesGolden.golden` (an added menu row changes that frame), which is one
-  regenerated golden and a surface this front did not hold.
+- ~~The utilities row appears when the first check lands, not before it.~~ **Done:** the row is a
+  main-menu button, offered only when a newer release is actually installable, and the two main-menu
+  goldens were regenerated with it. The check now runs on every real open, so the answer arrives on
+  its own; the button's late arrival is held by its label so the cursor does not move with it.
 - **`CHANGELOG.md` has no entry for this work.** It is the pre-flight's own item ("the section for this
   version exists, its heading carries the release date"), and the file was not in this front's
   surfaces. Its v0.5.0 entry also still names `docs/release-checklist.md` in the past tense of that
