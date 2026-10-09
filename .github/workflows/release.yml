@@ -59,6 +59,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve the commit the tag points at
+        # GITHUB_SHA is the commit for a lightweight tag and the tag object for an
+        # annotated one, so resolve through the tag before anything compares it.
+        # An empty answer is a failure rather than a comparison that cannot fail.
+        run: |
+          commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          if [ -z "${commit}" ]; then echo "::error::could not resolve the commit the tag points at"; exit 1; fi
+          echo "COMMIT=${commit}" >> "$GITHUB_ENV"
+          echo "commit: ${commit}"
+        uses: actions/checkout@v4
       - name: Resolve the version
         id: version
         working-directory: .
@@ -183,6 +193,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve the commit the tag points at
+        # GITHUB_SHA is the commit for a lightweight tag and the tag object for an
+        # annotated one, so resolve through the tag before anything compares it.
+        # An empty answer is a failure rather than a comparison that cannot fail.
+        run: |
+          commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          if [ -z "${commit}" ]; then echo "::error::could not resolve the commit the tag points at"; exit 1; fi
+          echo "COMMIT=${commit}" >> "$GITHUB_ENV"
+          echo "commit: ${commit}"
+        uses: actions/checkout@v4
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -310,6 +330,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve the commit the tag points at
+        # GITHUB_SHA is the commit for a lightweight tag and the tag object for an
+        # annotated one, so resolve through the tag before anything compares it.
+        # An empty answer is a failure rather than a comparison that cannot fail.
+        run: |
+          commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          if [ -z "${commit}" ]; then echo "::error::could not resolve the commit the tag points at"; exit 1; fi
+          echo "COMMIT=${commit}" >> "$GITHUB_ENV"
+          echo "commit: ${commit}"
+        uses: actions/checkout@v4
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
