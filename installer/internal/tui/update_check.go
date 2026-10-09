@@ -136,8 +136,14 @@ const (
 
 	// dotfilesReleaseAPIURL answers "which release is the latest". The API is
 	// used rather than the /releases/latest redirect because the answer is then a
-	// tag and not a Location header to parse.
+	// tag and not a Location header to parse. The latest endpoint excludes
+	// pre-releases by definition, which is exactly what the stable channel wants.
 	dotfilesReleaseAPIURL = "https://api.github.com/repos/" + dotfilesReleaseRepo + "/releases/latest"
+
+	// dotfilesReleaseListURL answers "which releases exist", newest first, and it
+	// is the list the dev channel reads: a pre-release is a release in this list
+	// whose prerelease flag is set, and GitHub's latest endpoint cannot return one.
+	dotfilesReleaseListURL = "https://api.github.com/repos/" + dotfilesReleaseRepo + "/releases?per_page=30"
 
 	// dotfilesReleaseURLBase is the download prefix for one release's assets. The
 	// tag is appended, then the asset name.
@@ -265,11 +271,18 @@ func resolveUpdateTarget() (updateTarget, error) {
 // The record, and the answer it holds
 // ---------------------------------------------------------------------------
 
-// updateRecord is the installer's memory of one check: when it was made, the tag
-// that was read, or the reason nothing could be read. Exactly one of Latest and
-// Failed is set for a completed attempt, and neither is set for a record that was
-// never written.
+// updateRecord is the installer's memory of one check: when it was made, the
+// channel it was made on, the tag that was read, or the reason nothing could be
+// read. Exactly one of Latest and Failed is set for a completed attempt, and
+// neither is set for a record that was never written. A record may carry a
+// channel and no answer: that is the remembered choice, written when the user
+// switches channel and before the new check lands.
 type updateRecord struct {
+	// Channel is the channel this check followed: stable or dev. It is written
+	// with every answer, so an answer without its source is not possible. A record
+	// written before channels existed has no channel and reads as stable, which was
+	// the only channel then.
+	Channel   string    `json:"channel,omitempty"`
 	CheckedAt time.Time `json:"checked_at"`
 	Latest    string    `json:"latest,omitempty"`
 	Failed    string    `json:"failed,omitempty"`
@@ -278,6 +291,10 @@ type updateRecord struct {
 // updateState is what the model draws: the record's contents plus the state of
 // the attempt that is running right now.
 type updateState struct {
+	// Channel is the channel the answer came from, and the channel this run is
+	// following. It is empty until a record names one, which is why a run that has
+	// never checked offers no channel row yet.
+	Channel releaseChannel
 	// Latest is the published tag. It is empty when nothing could be read, which
 	// is the difference between "current" and "unknown".
 	Latest string
@@ -325,7 +342,7 @@ func readUpdateRecord() (updateRecord, bool) {
 	if err := json.Unmarshal(data, &rec); err != nil {
 		return updateRecord{}, false
 	}
-	if rec.CheckedAt.IsZero() {
+	if rec.CheckedAt.IsZero() && rec.Channel == "" {
 		return updateRecord{}, false
 	}
 	return rec, true
@@ -392,13 +409,162 @@ func latestReleaseTag(client *http.Client, apiURL string) (string, error) {
 	return strings.TrimSpace(body.TagName), nil
 }
 
+// ---------------------------------------------------------------------------
+// The two channels a run can follow
+// ---------------------------------------------------------------------------
+
+// releaseChannel names which stream of releases a run follows. It is a string
+// type so the record, the flag and the row all spell it the reader's way.
+type releaseChannel string
+
+const (
+	// channelStable is the default: the latest published release. It is what the
+	// check has always read, and GitHub's latest endpoint cannot return a
+	// pre-release, so following it is the same promise as before.
+	channelStable releaseChannel = "stable"
+	// channelDev is the newest pre-release. The release workflow builds its four
+	// assets from the tag a run is started from, so a pre-release is the artifact
+	// the dev channel serves -- and the only one the installer can verify, because
+	// it downloads a published asset rather than compiling one.
+	channelDev releaseChannel = "dev"
+)
+
+// updateChannelFlag is the --channel value main handed in, "" when the flag was
+// not given. An empty value is not "stable": it leaves the choice to the channel
+// the record remembers.
+var updateChannelFlag = ""
+
+// ParseReleaseChannel reads a channel name as the flag, the record and the row
+// spell it. It is exported because --channel is the binary's own flag: main
+// validates the value before a run starts, and an unknown channel is named
+// rather than silently treated as stable. An empty value is the default, stable.
+func ParseReleaseChannel(value string) (releaseChannel, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "stable":
+		return channelStable, nil
+	case "dev":
+		return channelDev, nil
+	}
+	return "", fmt.Errorf("unknown release channel %q: use stable or dev", value)
+}
+
+// SetUpdateChannel records the --channel a run was started with. An empty value
+// clears the flag, so a test can put the package back the way it found it.
+func SetUpdateChannel(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		updateChannelFlag = ""
+		return nil
+	}
+	channel, err := ParseReleaseChannel(value)
+	if err != nil {
+		return err
+	}
+	updateChannelFlag = string(channel)
+	return nil
+}
+
+// recordChannel is the channel a stored record names. A record written before
+// channels existed names none and reads as stable, because it was the only
+// channel then.
+func recordChannel(rec updateRecord) releaseChannel {
+	if channel, err := ParseReleaseChannel(rec.Channel); err == nil {
+		return channel
+	}
+	return channelStable
+}
+
+// chosenChannel resolves the channel a command-line run uses: the flag when it
+// was given, the channel the record remembers otherwise, and stable when neither
+// exists. It is the one place the two entries and the interface agree on which
+// channel is being asked about.
+func chosenChannel() releaseChannel {
+	if updateChannelFlag != "" {
+		if channel, err := ParseReleaseChannel(updateChannelFlag); err == nil {
+			return channel
+		}
+	}
+	if rec, ok := readUpdateRecord(); ok {
+		return recordChannel(rec)
+	}
+	return channelStable
+}
+
+// updateChannel is the channel this run follows: the one the state names, the
+// flag that was given, or stable. The state first, because a check that has
+// landed is the answer the run last asked for.
+func (m Model) updateChannel() releaseChannel {
+	if m.UpdateCheck.Channel != "" {
+		return m.UpdateCheck.Channel
+	}
+	if updateChannelFlag != "" {
+		if channel, err := ParseReleaseChannel(updateChannelFlag); err == nil {
+			return channel
+		}
+	}
+	return channelStable
+}
+
+// toggle is the other channel, which is what pressing the main menu's channel
+// row does.
+func (ch releaseChannel) toggle() releaseChannel {
+	if ch == channelDev {
+		return channelStable
+	}
+	return channelDev
+}
+
+// latestPrereleaseTag reads the newest pre-release's tag from the releases list.
+// The list is ordered newest first and carries drafts only for an authenticated
+// caller, so the first non-draft entry with prerelease set is the answer. A list
+// with no such entry is an error, not an empty answer: it is how the dev channel
+// says there is nothing to serve rather than inventing a release.
+func latestPrereleaseTag(client *http.Client, apiURL string) (string, error) {
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET %s: %s", apiURL, resp.Status)
+	}
+	var body []struct {
+		TagName    string `json:"tag_name"`
+		Prerelease bool   `json:"prerelease"`
+		Draft      bool   `json:"draft"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		return "", err
+	}
+	for _, release := range body {
+		if release.Draft || !release.Prerelease {
+			continue
+		}
+		if tag := strings.TrimSpace(release.TagName); tag != "" {
+			return tag, nil
+		}
+	}
+	return "", fmt.Errorf("GET %s: no pre-release is published", apiURL)
+}
+
+// latestReleaseTagForChannel reads the tag the given channel offers: the latest
+// published release for stable, the newest pre-release for dev. It is the one
+// place the two channels differ, so nothing downstream can serve one channel's
+// answer under the other channel's name.
+func latestReleaseTagForChannel(client *http.Client, channel releaseChannel) (string, error) {
+	if channel == channelDev {
+		return latestPrereleaseTag(client, dotfilesReleaseListURL)
+	}
+	return latestReleaseTag(client, dotfilesReleaseAPIURL)
+}
+
 // refreshUpdateRecord makes one check and stores what it found. It never returns
 // an error: a check that failed is a result -- the reason is what the record
 // holds -- because the caller's job is to report honestly, not to fail a run
 // over a release it could not read.
-func refreshUpdateRecord(client *http.Client, now time.Time) updateRecord {
-	rec := updateRecord{CheckedAt: now}
-	tag, err := latestReleaseTag(client, dotfilesReleaseAPIURL)
+func refreshUpdateRecord(client *http.Client, channel releaseChannel, now time.Time) updateRecord {
+	rec := updateRecord{Channel: string(channel), CheckedAt: now}
+	tag, err := latestReleaseTagForChannel(client, channel)
 	if err != nil {
 		rec.Failed = err.Error()
 	} else {
@@ -524,21 +690,29 @@ func (u updateState) Summary() string {
 		age = " (" + formatUpdateAge(updateClock().Sub(u.CheckedAt)) + ")"
 	}
 
+	// The channel is named only when it is not the default. Stable is what the
+	// check has always read, so naming it every time would be noise; a dev answer
+	// without the word dev is an answer without its source.
+	source := ""
+	if u.Channel == channelDev {
+		source = "dev channel: "
+	}
+
 	switch {
 	case u.InFlight:
-		return "Checking the published release…"
+		return source + "Checking the published release…"
 	case u.Newer():
-		return fmt.Sprintf("%s is published; this build is %s%s", u.Latest, VersionLabel(), age)
+		return source + fmt.Sprintf("%s is published; this build is %s%s", u.Latest, VersionLabel(), age)
 	case u.answered():
 		line := fmt.Sprintf("Up to date with %s", u.Latest)
 		if u.Stale() {
 			line += " — that answer is stale"
 		}
-		return line + age
+		return source + line + age
 	case u.Failed != "":
-		return fmt.Sprintf("Unknown — the published release could not be read: %s%s", u.Failed, age)
+		return source + fmt.Sprintf("Unknown — the published release could not be read: %s%s", u.Failed, age)
 	default:
-		return "Not checked yet — this build does not know what has been published"
+		return source + "Not checked yet — this build does not know what has been published"
 	}
 }
 
@@ -795,7 +969,10 @@ func copyUpdateFile(src, dest string) error {
 // updateCheckMsg carries one finished check. It carries the record rather than an
 // error because a failed check is a result: the message says what was found, and
 // "nothing" comes with its reason.
-type updateCheckMsg struct{ record updateRecord }
+type updateCheckMsg struct {
+	channel releaseChannel
+	record  updateRecord
+}
 
 // updateAppliedMsg carries the outcome of a self-update: the path of the binary
 // that was kept, or why nothing was replaced.
@@ -806,9 +983,9 @@ type updateAppliedMsg struct {
 
 // updateCheckCmd performs one check off the update loop. It is a command and not
 // a call on the startup path because the network must never be waited on.
-func updateCheckCmd() tea.Cmd {
+func updateCheckCmd(channel releaseChannel) tea.Cmd {
 	return func() tea.Msg {
-		return updateCheckMsg{record: refreshUpdateRecord(updateHTTPClient(), updateClock())}
+		return updateCheckMsg{channel: channel, record: refreshUpdateRecord(updateHTTPClient(), channel, updateClock())}
 	}
 }
 
@@ -821,7 +998,7 @@ func (m *Model) startUpdateCheck() tea.Cmd {
 		return nil
 	}
 	m.UpdateCheck.InFlight = true
-	return updateCheckCmd()
+	return updateCheckCmd(m.updateChannel())
 }
 
 // updateCheckCmdFor returns the check a start may make on its own, or nil.
@@ -844,7 +1021,7 @@ func (m Model) updateCheckCmdFor() tea.Cmd {
 	if !updateCheckDue(updateRecord{CheckedAt: m.UpdateCheck.CheckedAt}, updateClock()) {
 		return nil
 	}
-	return updateCheckCmd()
+	return updateCheckCmd(m.updateChannel())
 }
 
 // updateApplyCmd downloads, verifies and swaps the binary off the update loop, so
@@ -866,10 +1043,12 @@ func updateApplyCmd(tag string, target updateTarget) tea.Cmd {
 // set of checks, and two routes diverge.
 
 // UpdateReport is the result of one check, shaped for a command line: the honest
-// sentence, and the two facts a script reads it for.
+// sentence, the channel it came from, and the two facts a script reads it for.
 type UpdateReport struct {
 	// Summary is the one-line answer, the same sentence the interface shows.
 	Summary string
+	// Channel is the channel the answer was read from: stable or dev.
+	Channel string
 	// Known is false when the answer could not be read. A caller must check it
 	// before treating Newer as meaningful: a failed check is not a green light.
 	Known bool
@@ -882,8 +1061,9 @@ type UpdateReport struct {
 // keeps the *automatic* check off the startup path, not what keeps this one from
 // answering.
 func CheckForUpdate() UpdateReport {
-	state := stateFromRecord(refreshUpdateRecord(updateHTTPClient(), updateClock()))
-	return UpdateReport{Summary: state.Summary(), Known: state.answered(), Newer: state.Newer()}
+	channel := chosenChannel()
+	state := stateFromRecord(refreshUpdateRecord(updateHTTPClient(), channel, updateClock()))
+	return UpdateReport{Summary: state.Summary(), Channel: string(channel), Known: state.answered(), Newer: state.Newer()}
 }
 
 // UpdateSelf installs the latest published release over this binary and returns
@@ -905,8 +1085,9 @@ func UpdateSelf() (string, error) {
 	}
 
 	state := loadUpdateState()
-	if !state.answered() || !state.Newer() {
-		state = stateFromRecord(refreshUpdateRecord(updateHTTPClient(), updateClock()))
+	channel := chosenChannel()
+	if !state.answered() || !state.Newer() || state.Channel != channel {
+		state = stateFromRecord(refreshUpdateRecord(updateHTTPClient(), channel, updateClock()))
 	}
 
 	switch {
@@ -936,7 +1117,20 @@ func UpdateSelf() (string, error) {
 // stateFromRecord folds a stored or freshly read record into the state the
 // interface draws.
 func stateFromRecord(rec updateRecord) updateState {
-	return updateState{Latest: rec.Latest, CheckedAt: rec.CheckedAt, Failed: rec.Failed}
+	return updateState{Channel: recordChannel(rec), Latest: rec.Latest, CheckedAt: rec.CheckedAt, Failed: rec.Failed}
+}
+
+// setUpdateChannel changes which channel this run follows. The choice is written
+// to the same record the answers live in before any request, so quitting before
+// the check lands does not forget it; the answer that belonged to the channel
+// being left is dropped, because a stable answer is not a dev answer.
+func (m Model) setUpdateChannel(channel releaseChannel) Model {
+	notice := m.UpdateCheck.Notice
+	m.UpdateCheck = updateState{Channel: channel, Notice: notice}
+	// The write is best effort, exactly as the check's own is: the choice applies
+	// to this run either way, and the next check writes the record whole.
+	_ = writeUpdateRecord(updateRecord{Channel: string(channel)})
+	return m
 }
 
 // updateCheckDisplayRows returns the state's facts as label/value rows for the
@@ -945,6 +1139,12 @@ func stateFromRecord(rec updateRecord) updateState {
 func (u updateState) displayRows() []updateDisplayRow {
 	rows := []updateDisplayRow{
 		{Label: "This build", Value: BuildLabel()},
+	}
+
+	// The channel is a fact like any other: the screen names the source of every
+	// answer it shows. It is left out only when no record has named one.
+	if u.Channel != "" {
+		rows = append(rows, updateDisplayRow{Label: "Channel", Value: string(u.Channel)})
 	}
 
 	switch {

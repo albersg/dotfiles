@@ -731,6 +731,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case updateCheckMsg:
+		// An answer for a channel this run has left is not an answer. The channel
+		// row can be pressed while a check is in flight, so the older check's reply
+		// must not overwrite the state the channel this run now follows owns. A
+		// message with no channel -- none is produced in a real run -- is accepted,
+		// which keeps the interface's own seam honest.
+		if msg.channel != "" && msg.channel != m.updateChannel() {
+			return m, nil
+		}
 		// A finished check replaces the state whole, the way a measurement does.
 		// A failed check is a result here too: the reason travels in the record, so
 		// the screen says why it does not know instead of saying it is current. The
@@ -763,9 +771,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// kept path follows, and is read whole on the update screen's own notice.
 		installed := m.UpdateCheck.Latest
 		m.UpdateCheck.Installed = true
+		source := ""
+		if m.UpdateCheck.Channel == channelDev {
+			source = " (dev channel)"
+		}
 		m.UpdateCheck.Notice = fmt.Sprintf(
-			"Updated to %s; the previous binary is kept at %s. Restart dotfiles to run the new release.",
-			installed, msg.kept)
+			"Updated to %s%s; the previous binary is kept at %s. Restart dotfiles to run the new release.",
+			installed, source, msg.kept)
 		return m, nil
 
 	case wslResourceLoadedMsg:
@@ -1557,6 +1569,13 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.UpdateCheck.InFlight = true
 			m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
 			return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
+		case strings.HasPrefix(selected, updateChannelRowPrefix):
+			// The row is the switch: pressing it changes which stream this run
+			// follows, remembers the choice in the same record the answers live in, and
+			// asks for a fresh answer on the new channel. The cursor stays on the row
+			// because the option list's length does not change when its label does.
+			m = m.setUpdateChannel(m.updateChannel().toggle())
+			return m, m.startUpdateCheck()
 		case strings.Contains(selected, "Utilities"):
 			// The row and the `u` key reach the same section: the row is how a
 			// user finds it, the key is the shortcut for someone who has.
