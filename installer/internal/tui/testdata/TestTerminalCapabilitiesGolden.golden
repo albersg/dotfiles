@@ -1,24 +1,24 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
   Utilities                                                                     
   ────────────────────────────────────────────────────────────────────────────  
-                                                                                
   Terminal capabilities                                                         
-  Read-only: nothing here is changed and nothing is written. Each answer names  
-  where it came from, and an answer the probe could not determine is reported   
-  as unknown with a reason and a manual check.                                  
-  Colour depth: truecolor (24-bit) — COLORTERM=truecolor. the themes are        
-  painted with their exact colours                                              
-  Clipboard (OSC 52): supported — the terminal's reply to the Ms capability     
-  query. copying reaches the clipboard, including over SSH                      
-  Synchronized output (mode 2026): not supported — the terminal's reply to the  
-  mode 2026 query. a large redraw may flicker or tear                           
-  Nerd Font glyphs: unknown — not determined. icons may draw as boxes or        
-  question marks if the Nerd Font is missing Why unknown: no terminal query     
-  reports whether a Nerd Font is installed; the terminal draws the glyphs it    
-  is given. Check: look at the marks on this screen: a box or a question mark   
-  where an icon belongs means the font is missing.                              
+  Read-only: nothing here is changed and nothing is written, and every answer   
+  names where it came from.                                                     
+  Colour depth: truecolor (24-bit)                                              
+  Source: COLORTERM=truecolor — the themes are painted with their exact         
+  colours.                                                                      
+  Clipboard (OSC 52): supported                                                 
+  Source: the terminal's reply to the Ms capability query — copying reaches     
+  the clipboard, including over SSH.                                            
+  Synchronized output (mode 2026): not supported                                
+  Source: the terminal's reply to the mode 2026 query — a large redraw may      
+  flicker or tear.                                                              
+  Nerd Font glyphs: unknown                                                     
+  Source: not determined — icons may draw as boxes or question marks if the     
+  Nerd Font is missing. Why unknown: no terminal query reports whether a Nerd   
+  Font is installed; the terminal draws the glyphs it is given. Check: look at  
+  … and 2 more                                                                  
                                                                                 
   ▸ ← Back                                                                      
-                                                                                
   ────────────────────────────────────────────────────────────────────────────  
   [Esc] back                                                                    [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

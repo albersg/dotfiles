@@ -6,11 +6,11 @@
   bounded by 10 s -- so the number describes the start you wait through when    
   you open a terminal. The measurement is 5 such starts, and the median is the  
   middle one: not an average, and not a single run.                             
-  Finished starts: 4 of 5. Median 924 ms, fastest 872 ms, slowest 977 ms.       
-  Every completed start is listed so the number can be reproduced by hand. The  
-  starts, in the order they ran: 977 ms, 915 ms, 872 ms, 932 ms.                
-  1 of the 5 starts did not finish inside 10 s and were killed at that bound.   
-  … and 20 more                                                                 
+  zsh/zprof profiled one further start and reported 6 functions, heaviest by    
+  the time each spent on itself, in zprof's own order: 1. compdump -- 725.25    
+  ms total, 725.25 ms self, 1 call(s), 42.01% of the profiled start. 2.         
+  compdef -- 306.38 ms total, 306.38 ms self, 1027 call(s), 17.75% of the       
+  … and 18 more                                                                 
                                                                                 
   ▸ Measure the shell's startup                                                 
   ────────────────────────────────────────────────────────────────────────────  

@@ -88,9 +88,13 @@ var (
 	hintExit    = installerHint{"[Enter]", "exit"}
 	// hintAdjust and hintRecommended are the WSL resource screen's own keys: the
 	// arrows move the value under the cursor by one step, and `r` puts every row
-	// back on the host's recommendation.
+	// back on the host's recommendation. hintMove is the same screen's compact
+	// navigation pair: it packs the two cursor hints into one so the screen's six
+	// hints fit on a single footer row at 80 columns, where the separate pairs
+	// wrapped and left the way back alone on a line of its own.
 	hintAdjust      = installerHint{"[←/→]", "adjust"}
 	hintRecommended = installerHint{"[r]", "recommended"}
+	hintMove        = installerHint{"↑/k ↓/j", "move"}
 	// hintTab cycles the panels of a screen that offers more than one. It is only
 	// ever added to a screen that has something to cycle, so the footer never
 	// advertises a key that does nothing.
@@ -411,6 +415,16 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 			placed = placeBodyAboveCompanion(body, rows, reserve)
 		}
 	}
+	// The section's inspector screens hold their title to the rule instead of
+	// centring it. They share one shape -- title, prose, list -- and the title is
+	// the screen's name, so it has to start where its siblings' titles start. A
+	// short report (the capability screen) centred one row lower was the only
+	// screen in the section whose name sat below the others. Only the blank rows
+	// above the body move; the rows below it are untouched, so the creature's
+	// block keeps the rows it had.
+	if m.bodyAnchorsToTheRule() {
+		placed = anchorBodyToTheRule(placed)
+	}
 	placed = m.placeCompanion(placed, summary, inner)
 
 	var b strings.Builder
@@ -426,6 +440,40 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	b.WriteString("\n")
 	b.WriteString(strings.Join(footer, "\n"))
 	return b.String()
+}
+
+// bodyAnchorsToTheRule reports whether a screen's body starts on the first row
+// the frame leaves, rather than being centred in them. The utilities section and
+// the screens one level in from it all carry a title as their first body row, and
+// that title is the screen's name: centring a shorter body drops its name below
+// the names of its siblings, so the same section reads at two heights. Every
+// other screen keeps the centred body the frame has always drawn.
+func (m Model) bodyAnchorsToTheRule() bool {
+	switch m.Screen {
+	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate:
+		return true
+	}
+	return false
+}
+
+// anchorBodyToTheRule moves the blank rows the frame left above a short body to
+// the bottom, so the body starts on the first row. It changes no non-blank row
+// and leaves the same number -- or more -- spare under the body, which is what
+// keeps the creature's block where placeCompanion expects it.
+func anchorBodyToTheRule(rows []string) []string {
+	lead := 0
+	for lead < len(rows) && rows[lead] == "" {
+		lead++
+	}
+	if lead == 0 {
+		return rows
+	}
+	out := append([]string(nil), rows[lead:]...)
+	for len(out) < len(rows) {
+		out = append(out, "")
+	}
+	return out
 }
 
 // headerName is the app or section name the frame's header carries. It is short
@@ -459,9 +507,11 @@ func (m Model) headerName() string {
 		return "Backups"
 	case ScreenUtilities:
 		return "Utilities"
-	case ScreenWSLResources, ScreenTerminalCapabilities:
+	case ScreenWSLResources, ScreenTerminalCapabilities, ScreenThemePicker:
 		// These screens are one level in from the utilities section, and their
-		// header says so rather than reading as a section of their own.
+		// header says so rather than reading as a section of their own. The theme
+		// picker is the same level in as the WSL and capability screens, so it names
+		// the same section instead of falling back to the program name.
 		return "Utilities"
 	case ScreenShellAudit:
 		// The shell's startup screen is one level in from the same section.
@@ -1219,7 +1269,7 @@ func (m Model) renderUpdate() string {
 // are in the legend rather than in prose.
 func (m Model) renderWSLResources() string {
 	return m.renderThemeScreen(m.wslResourceDescription(), m.wslNoticeLine(),
-		[]installerHint{hintUp, hintDown, hintAdjust, hintRecommended, hintSelect, hintBack})
+		[]installerHint{hintMove, hintAdjust, hintRecommended, hintSelect, hintBack})
 }
 
 // wslNoticeLine is the WSL screen's result line: the write's outcome, and while
@@ -1253,18 +1303,23 @@ func (m Model) terminalCapabilitiesDescription() []string {
 	}
 
 	paragraphs := []string{
-		"Read-only: nothing here is changed and nothing is written. Each answer names where it came from, " +
-			"and an answer the probe could not determine is reported as unknown with a reason and a manual check.",
+		"Read-only: nothing here is changed and nothing is written, and every answer names where it came from.",
 	}
 	for _, row := range m.TerminalCapabilities.rows() {
-		line := fmt.Sprintf("%s: %s — %s. %s", row.Name, row.Answer.Value, row.Answer.Source, row.Implication)
+		// The answer is its own row and the explanation is the row after it, so the
+		// three facts of a capability read as three units instead of one paragraph
+		// and the value is the first thing seen. The source and the consequence are
+		// joined by a dash rather than a full stop: the consequence is a lower-case
+		// clause, and a period before it read like a typo in the sentence above.
+		paragraphs = append(paragraphs, fmt.Sprintf("%s: %s", row.Name, row.Answer.Value))
+		detail := fmt.Sprintf("Source: %s — %s.", row.Answer.Source, row.Implication)
 		if row.Answer.State == capabilityUnknown && row.Answer.Reason != "" {
-			line += " Why unknown: " + row.Answer.Reason + "."
+			detail += " Why unknown: " + row.Answer.Reason + "."
 			if row.Answer.Manual != "" {
-				line += " Check: " + row.Answer.Manual + "."
+				detail += " Check: " + row.Answer.Manual + "."
 			}
 		}
-		paragraphs = append(paragraphs, line)
+		paragraphs = append(paragraphs, detail)
 	}
 	return paragraphs
 }
@@ -1470,77 +1525,72 @@ func (m Model) dotfilesThemesPending() bool {
 }
 
 // utilitiesDescription is what the section says about itself, in the installer's
-// own voice: which desktop it found and what that change touches, or the honest
-// account of why there is nothing to offer here. The file it names is the
-// installer's own record; the desktop's store belongs to the desktop's tool.
+// own voice: one short line per job it offers, and the honest reason for each one
+// it does not. The rows are the data the user came for, so each is named in the
+// order it appears and the prose stays short enough to leave them on screen: a
+// wall of paragraphs above a list pushed the list and its own explanations past
+// the cut. The file it names is the installer's own record; the desktop's store
+// belongs to the desktop's tool.
 func (m Model) utilitiesDescription() []string {
 	var paragraphs []string
 	if !m.ThemeSwitchFound {
 		paragraphs = append(paragraphs,
-			"No desktop theme switch is available here. Switching needs a GNOME, KDE Plasma or macOS "+
-				"session with the tool that changes its theme on PATH; a server, Termux or a plain "+
-				"terminal has none, so no switch is offered.")
+			"No desktop theme switch is available here: switching needs a GNOME, KDE Plasma or macOS "+
+				"session with the theme tool on PATH, and this host has none.")
 	} else {
-		paragraphs = append(paragraphs,
-			fmt.Sprintf("Switch the desktop's theme through %s's own tool. The setting that was there is "+
-				"recorded before it changes, so the switch can be undone.", m.ThemeSwitch.Name))
-		if m.ThemeSwitch.Writes != "" {
-			paragraphs = append(paragraphs, fmt.Sprintf("It writes %s, and its own record in theme.json "+
-				"beside the installer's other state.", m.ThemeSwitch.Writes))
-		}
+		paragraphs = append(paragraphs, fmt.Sprintf(
+			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
+				"the setting it replaces in theme.json so the switch can be undone.", m.ThemeSwitch.Name))
 	}
-
-	// The WSL resources. It is offered only where a .wslconfig exists, and the
-	// section says why when it does not, so the gap is declared rather than left
-	// to read as an oversight.
-	if reason := m.wslResourcesUnavailableReason(); reason != "" {
-		paragraphs = append(paragraphs, reason)
-	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s shows the memory, processors and swap your %s holds today, the values "+
-			"recommended from this host's real capacities, and writes back only the keys the dotfiles' template manages.",
-			utilitiesWSLRow, m.WSLState.Path))
-	}
-
-	if reason := m.shellAuditUnavailableReason(); reason != "" {
-		paragraphs = append(paragraphs, reason)
-	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s starts %s the way a terminal does, several times, and "+
-			"reports the median with the range -- and on zsh names the functions zprof blames for it. It changes "+
-			"nothing: no startup file is written and no plugin is disabled.", utilitiesShellAuditRow, m.ShellAudit.Command))
-	}
-
-	// The terminal capability report. It is read-only and offered everywhere;
-	// where there is no terminal to read, the screen itself says so rather than
-	// the section leaving a hole. Naming it here is what makes the row findable.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s is read-only: it reports what this terminal can do -- the "+
-		"colour depth, OSC 52, synchronized output and the Nerd Font glyphs -- names the source of every "+
-		"answer, and says unknown with a reason for what it cannot determine.", utilitiesTerminalRow))
 
 	// The dotfiles' own theme. Its definitions are resolved from $DOTFILES_DIR,
 	// the clone, the working directory and its parents, then ~/dotfiles and
 	// ~/.dotfiles, and last from the per-user copy the installer made; when none
 	// of them holds themes/*.toml the section says it cannot be switched here
 	// instead of showing rows that would fail.
-	if len(m.DotfilesThemes) == 0 {
-		if m.dotfilesThemesPending() {
-			// The definitions are read when the section opens, so an empty list
-			// with no recorded failure is a read in flight, not a verdict. The
-			// section says only that it is reading: "not switchable" is a claim
-			// about the result, and there is no result yet.
-			paragraphs = append(paragraphs,
-				"Reading the dotfiles' theme definitions from the repository checkout…")
-			return paragraphs
-		}
+	switch {
+	case len(m.DotfilesThemes) > 0:
+		paragraphs = append(paragraphs, fmt.Sprintf(
+			"%s opens the list of complete themes; each names the tools it cannot paint, and a theme is "+
+				"applied only when one is chosen there.", utilitiesThemeRow))
+	case m.dotfilesThemesPending():
+		// The definitions are read when the section opens, so an empty list with
+		// no recorded failure is a read in flight, not a verdict. The section says
+		// only that it is reading: "not switchable" is a claim about the result,
+		// and there is no result yet.
+		paragraphs = append(paragraphs, "Reading the dotfiles' theme definitions from the repository checkout…")
+	default:
 		reason := m.DotfilesThemesErr
 		if reason == "" {
 			reason = themeDefinitionsNotFoundMessage()
 		}
 		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
-		return paragraphs
 	}
-	paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is defined once in themes/. \"%s\" opens "+
-		"the list of complete themes; each theme names the tools it leaves out, and a theme is applied "+
-		"only when one is chosen there.", utilitiesThemeRow))
+
+	// The WSL resources, in one line when they are offered and with the reason
+	// when they are not. The section says why, so the gap is declared rather than
+	// left to read as an oversight.
+	if reason := m.wslResourcesUnavailableReason(); reason != "" {
+		paragraphs = append(paragraphs, reason)
+	} else {
+		paragraphs = append(paragraphs, fmt.Sprintf("%s shows the memory, processors and swap %s holds "+
+			"today, recommends values from this host, and writes back only the keys the template manages.",
+			utilitiesWSLRow, m.WSLState.Path))
+	}
+
+	if reason := m.shellAuditUnavailableReason(); reason != "" {
+		paragraphs = append(paragraphs, reason)
+	} else {
+		paragraphs = append(paragraphs, fmt.Sprintf("%s runs %s several times and reports the median with "+
+			"the range; it changes nothing.", utilitiesShellAuditRow, m.ShellAudit.Command))
+	}
+
+	// The terminal capability report. It is read-only and offered everywhere;
+	// where there is no terminal to read, the screen itself says so rather than
+	// the section leaving a hole. Naming it here is what makes the row findable.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s reads the colour depth, OSC 52, synchronized "+
+		"output and the Nerd Font glyphs, and names the source of every answer.", utilitiesTerminalRow))
+
 	return paragraphs
 }
 
@@ -1712,28 +1762,26 @@ func (m Model) wslResourceDescription() []string {
 		return []string{reason}
 	}
 
-	paragraphs := []string{wslHostParagraph(state.Host)}
-
+	// The values come first: the host's capacities, the recommendation, and what
+	// the file holds today, so the three numbers the screen exists for are read
+	// before the derivation that produced them. How to apply the change follows,
+	// then the formula compressed to one sentence, then the file's own rules -- a
+	// short frame cuts the explanation, never the numbers or how to use them.
 	plan := state.Plan
-	paragraphs = append(paragraphs, fmt.Sprintf(
-		"Recommended for this host: memory %s, processors %s and swap %s. The proportions are the ones the installation "+
-			"step uses, taken from the shipped template rather than typed here: memory is half the host's RAM rounded down to "+
-			"%d MB, but never so much that Windows keeps less than 2 GiB; processors are every logical CPU the host reports; "+
-			"swap is a quarter of that memory, rounded down to the same step.",
-		wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB"),
-		wslMemoryStepMB))
-	paragraphs = append(paragraphs, wslCurrentParagraph(state))
-
-	paragraphs = append(paragraphs,
-		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig - networking, experimental "+
-			"flags, keys of your own - is kept exactly as it is, and the previous file is backed up beside it as "+
-			".wslconfig.bak-dotfiles-<stamp> before the write.")
-
-	paragraphs = append(paragraphs,
-		"WSL reads .wslconfig when the VM starts, so nothing here takes effect until you run `wsl --shutdown` on Windows and "+
-			"reopen the terminal. This screen does not run it: that would close the session you are working in.")
-
-	return paragraphs
+	return []string{
+		wslHostParagraph(state.Host),
+		fmt.Sprintf("Recommended for this host: memory %s, processors %s and swap %s.",
+			wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB")),
+		wslCurrentParagraph(state),
+		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal " +
+			"to apply it. This screen does not run it: that would close the session you are working in.",
+		fmt.Sprintf("Memory is half the host's RAM rounded down to %d MB, and never so much that Windows "+
+			"keeps less than 2 GiB; processors are every logical CPU the host reports; swap is a quarter of that memory.",
+			wslMemoryStepMB),
+		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept " +
+			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> " +
+			"before the write.",
+	}
 }
 
 // wslUnitLabel renders one planned value for prose, where a zero is a key the
@@ -1977,27 +2025,29 @@ func (m Model) shellAuditDescription() []string {
 			"they run.")
 	}
 
-	paragraphs = append(paragraphs, fmt.Sprintf("Finished starts: %d of %d. Median %s, fastest %s, slowest %s. Every "+
-		"completed start is listed so the number can be reproduced by hand.%s",
-		len(st.Samples), st.Runs, shellAuditDuration(st.Median), shellAuditDuration(st.Fastest),
-		shellAuditDuration(st.Slowest), shellAuditRunList(st.Samples)))
-
-	if st.Timeouts > 0 {
-		paragraphs = append(paragraphs, fmt.Sprintf("%d of the %d starts did not finish inside %s and were killed at "+
-			"that bound. A start that does not end is reported as a timeout and not as a duration: a hung start has no "+
-			"time to report, and writing one down as a number would be inventing it. Those starts are left out of the "+
-			"median, which is why it covers %d of them.",
-			st.Timeouts, st.Runs, shellAuditDuration(st.Timeout), len(st.Samples)))
-	}
-	if st.Failures > 0 {
-		paragraphs = append(paragraphs, fmt.Sprintf("%d of the %d starts could not be completed (%s), so their time is "+
-			"not part of the median either.", st.Failures, st.Runs, st.Failure))
-	}
-
+	// The attribution comes right after the method, before the runs behind the
+	// number: it is the answer to "why is the start slow", and the median and its
+	// range are already rows below, so the prose does not repeat them. A cut on a
+	// short frame then falls on the runs that support the number rather than on the
+	// one thing the user can act on.
 	if len(st.Attribution) == 0 {
 		paragraphs = append(paragraphs, st.AttributionReason)
 	} else {
 		paragraphs = append(paragraphs, shellAuditAttributionParagraph(st))
+	}
+
+	// The runs behind the median, listed so the number can be reproduced by hand.
+	paragraphs = append(paragraphs, "Every completed start is listed so the number can be reproduced by hand."+
+		shellAuditRunList(st.Samples))
+
+	if st.Timeouts > 0 {
+		paragraphs = append(paragraphs, fmt.Sprintf("A start that did not finish inside %s was killed at that "+
+			"bound and left out of the median: a hung start has no time to report, and writing one down as a "+
+			"number would be inventing it.", shellAuditDuration(st.Timeout)))
+	}
+	if st.Failures > 0 {
+		paragraphs = append(paragraphs, fmt.Sprintf("A start that could not be completed (%s) was left out of "+
+			"the median too.", st.Failure))
 	}
 
 	return append(paragraphs, "Nothing here is changed: no startup file is written and no plugin is disabled. The "+
@@ -2020,13 +2070,13 @@ func shellAuditRunList(samples []time.Duration) string {
 
 // shellAuditAttributionParagraph names the functions zprof blamed, heaviest by
 // their own time first -- the order zprof itself sorted them in -- and says how
-// many it profiled, so the cut is declared rather than silent.
+// many it profiled, so the cut is declared rather than silent. The functions come
+// before the explanation of self time: on a short frame the prose is what is cut,
+// and the named functions are the part the reader can act on.
 func shellAuditAttributionParagraph(st shellAuditState) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "zsh/zprof profiled one further start and reported %d functions; these are the heaviest by the time "+
-		"each one spent on itself, in zprof's own order. The self time is the function's own cost: a function whose "+
-		"total is larger than its self time is waiting on the ones it called. The profiled start is a start of its "+
-		"own, so its numbers stand beside the median rather than inside it.", len(st.Attribution))
+	fmt.Fprintf(&b, "zsh/zprof profiled one further start and reported %d functions, heaviest by the time "+
+		"each spent on itself, in zprof's own order:", len(st.Attribution))
 
 	shown := len(st.Attribution)
 	if shown > shellAuditNamedFunctions {
@@ -2040,6 +2090,9 @@ func shellAuditAttributionParagraph(st shellAuditState) string {
 	if len(st.Attribution) > shown {
 		fmt.Fprintf(&b, " %d more were profiled and are not named here.", len(st.Attribution)-shown)
 	}
+	b.WriteString(" The self time is the function's own cost: a function whose total is larger than its self " +
+		"time is waiting on the ones it called. The profiled start is a start of its own, so its numbers stand " +
+		"beside the median rather than inside it.")
 	return b.String()
 }
 

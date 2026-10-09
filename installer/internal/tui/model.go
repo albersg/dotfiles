@@ -173,10 +173,6 @@ type Model struct {
 	// toward a target that moves, and together with AnimTick it is everything a
 	// snapshot needs to pin a frame and a position.
 	CompanionPos int
-	// CompanionFollow is set by a key that moved the selection or changed the
-	// screen and cleared when the creature reaches the row the cursor points at. It
-	// is what tells a walk that has somewhere to go from a creature standing still.
-	CompanionFollow bool
 	// CompanionMoving records whether the last tick actually moved it, which is
 	// what the walking frames mean: a standing creature draws the idle frame while
 	// the clock keeps running.
@@ -192,26 +188,27 @@ type Model struct {
 	// CompanionGaze is where the creature is looking: the horizontal pupil
 	// position (-1 left, 0 centre, +1 right) and the vertical one (-1 up, 0
 	// level). It lives on the model, like the position and the frame, so a
-	// snapshot can pin a gaze and the pointer task only has to write it from a
-	// mouse message; a render never computes it.
+	// snapshot can pin an autonomous gaze; a render never computes it.
 	CompanionGaze companionGaze
 	// Hovering says whether this run asked the terminal for pointer motion. It is
 	// the mouse's own gate, decided once when the model is built and read from the
 	// model afterwards, so a render never reads the environment and a test can force
 	// either side without touching it.
 	Hovering bool
-	// PointerCol and PointerRow are the last cell the pointer was seen on, in the
-	// terminal's own coordinates, and PointerSet records whether any pointer event
-	// has arrived at all: before the first one the creature looks at the selection,
-	// which is what it did before the pointer existed, and a terminal that refuses
-	// mouse reporting keeps it there for the whole run.
-	PointerCol, PointerRow int
-	PointerSet             bool
 	// CompanionHop counts the frames left of the little jump a click earns. It is
 	// counted on the model, not in the renderer, so a snapshot can pin the jump the
 	// way it pins a frame, and a frame that cannot spare the row draws the creature
 	// on the ground instead of failing.
 	CompanionHop int
+	// CompanionRandom is the creature's private deterministic random state. Tests
+	// can seed it directly; no package-global source can perturb its choices.
+	CompanionRandom uint32
+	// CompanionRoamTarget is the current autonomous destination when
+	// CompanionRoamActive is true. CompanionRoamWait counts down on the shared
+	// animation clock.
+	CompanionRoamTarget int
+	CompanionRoamActive bool
+	CompanionRoamWait   int
 	// PixelSprite says whether this run draws the creature as the shaded pixel sprite
 	// instead of the glyph art. It is the terminal's answer, read once when the model
 	// is built, so a render never asks the terminal anything.
@@ -432,6 +429,8 @@ func NewModel() Model {
 		PixelSprite:             pixelSpriteGate(),
 		ink:                     companionInkFor(lipgloss.HasDarkBackground()),
 		AnimTick:                0,
+		CompanionRandom:         0x6d2b79f5,
+		CompanionRoamTarget:     -1,
 		CreatedAt:               time.Now(),
 		ShowDetails:             false,
 		LogLines:                []string{},
@@ -486,10 +485,7 @@ func NewModel() Model {
 	if updateTargetErr != nil {
 		m.UpdateTargetErr = updateTargetErr.Error()
 	}
-	// The gaze is settled once here, so a model that never sees a key, a resize or
-	// a pointer event still draws eyes that are looking at what it starts on, and
-	// the first tick does not have to move them.
-	m.aimCompanion()
+	// The pet starts with a neutral, self-owned gaze; no user selection is a target.
 	return m
 }
 
@@ -623,45 +619,49 @@ func (m Model) GetCurrentOptions() []string {
 		// the undo row needs a record this installer wrote for that same desktop.
 		// A host with none of them gets the explanation in the screen's own body
 		// and the way back, not a row that fails when it is pressed.
-		opts := []string{}
+		//
+		// The rows are grouped the way the theme picker groups its own: the
+		// desktop's switch is one zone, the utilities are another, and the way back
+		// is set off once at the end. A rule between every row spent three rows on
+		// four choices and made the list read as a different component from the
+		// picker it opens.
+		var switchers []string
 		if m.ThemeSwitchFound {
-			opts = append(opts, "Switch to the dark theme", "Switch to the light theme")
+			switchers = append(switchers, "Switch to the dark theme", "Switch to the light theme")
 		}
 		if m.themeUndoAvailable() {
-			opts = append(opts, "Undo the last theme change")
+			switchers = append(switchers, "Undo the last theme change")
 		}
+
+		var utilities []string
 		if len(m.dotfilesThemeOptions()) > 0 || m.DotfilesThemeRecord != nil {
-			if len(opts) > 0 {
-				opts = append(opts, m.menuSeparator())
-			}
-			opts = append(opts, utilitiesThemeRow)
+			utilities = append(utilities, utilitiesThemeRow)
 		}
 		// The WSL resources are offered only where there is a .wslconfig to edit.
 		// Everywhere else the section's own body names the reason, so the gap is
 		// declared rather than left for the user to guess at.
 		if m.WSLState.Available {
-			if len(opts) > 0 {
-				opts = append(opts, m.menuSeparator())
-			}
-			opts = append(opts, utilitiesWSLRow)
+			utilities = append(utilities, utilitiesWSLRow)
 		}
 		// The shell's startup is offered wherever the login shell and a terminal
 		// were both resolved. It is the utility that changes nothing, so it is
 		// offered rather than gated: reading a number is always safe.
 		if m.ShellAudit.Available {
-			if len(opts) > 0 {
-				opts = append(opts, m.menuSeparator())
-			}
-			opts = append(opts, utilitiesShellAuditRow)
+			utilities = append(utilities, utilitiesShellAuditRow)
 		}
 		// The terminal capability report is read-only and offered everywhere: there
 		// is always a terminal to describe, and where there is not one the screen's
-		// own body says so rather than the row being silently absent. It sits last
-		// so it never displaces the utilities above it on a short frame.
-		if len(opts) > 0 {
+		// own body says so rather than the row being silently absent.
+		utilities = append(utilities, utilitiesTerminalRow)
+		// This installer's own release is not a utility: its row lives on the main
+		// menu, where the screen someone opens first can offer it, so this section
+		// names it in neither its rows nor its own body.
+
+		opts := switchers
+		if len(opts) > 0 && len(utilities) > 0 {
 			opts = append(opts, m.menuSeparator())
 		}
-		opts = append(opts, utilitiesTerminalRow)
+		opts = append(opts, utilities...)
 		if len(opts) > 0 {
 			opts = append(opts, m.menuSeparator())
 		}

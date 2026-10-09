@@ -996,6 +996,11 @@ func TestUtilitiesGolden(t *testing.T) {
 	m.ThemeSwitch, m.ThemeSwitchFound = themeSwitch{}, false
 	m.ShellAudit = shellAuditTestState()
 	m.TerminalCapabilities = terminalCapabilitiesFrameCase(t).TerminalCapabilities
+	// The update state is read from the runner's state directory by NewModel, so
+	// a machine that has run the installer would snapshot a row the committed
+	// frame does not hold. Pin it away for the same reason the other inputs are
+	// pinned: a snapshot may not depend on the machine that rendered it.
+	m.UpdateCheck = updateState{}
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
 		t.Fatalf("load the theme definitions: %v", err)
