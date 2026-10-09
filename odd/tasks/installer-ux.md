@@ -347,3 +347,57 @@ Los frames son el render real a 80×24 (padding de 1 fila arriba, 2 columnas a l
 - **Qué ve el usuario**: la fila del header (arriba a la izquierda) es el **nombre de la sección** en Utilities, WSL, auditoría y sonda (`Utilities`), y el **nombre del programa** en el selector (`dotfiles`). En la sección Utilities el nombre aparece además **dos veces** (`Utilities` en el header y `🧰 Utilities` en el título), con dos estilos distintos.
 - **Por qué es una observación y no un arreglo**: `headerName()` decide ese texto, y cambiarlo mueve los frames de todas las pantallas; no es de este frente.
 - **Evidencia**: los frames de E1–E5 (header `Utilities` + título propio) frente a los del selector (header `dotfiles` + `🎨 Change the dotfiles theme`).
+
+---
+
+## F. El rework visual de la sección Utilities (`feat/ui-rework`)
+
+**Vara**: las siete reglas del encargo (ritmo, jerarquía, alineación, separación de
+unidades, sin repetición, nada se pierde, ancho respetado), medidas sobre los
+frames de 80×24. Los frames quedan congelados en
+`installer/internal/tui/testdata/*.golden`.
+
+**Lo que se cambió, y qué regla aplica**:
+
+- **E1 — Sonda de terminal**: cada capacidad es ahora dos unidades, la respuesta
+  primero y su explicación después (`Color depth: truecolor (24-bit)` y
+  `Source: … — …`). Se fue el `. the themes…` en minúscula tras el punto y el
+  `Why unknown:` pegado a la frase anterior. Reglas 2 (dato antes de la
+  explicación) y 4 (cada respuesta con su etiqueta y su separador).
+- **E2 — Sonda de terminal**: el título arranca en la fila pegada a la regla,
+  como el de Utilities/WSL/auditoría. Se ancla el cuerpo de las pantallas de
+  inspector a la regla (`bodyAnchorsToTheRule`/`anchorBodyToTheRule`): sólo se
+  mueven las filas en blanco de arriba al pie, así que el bloque de la criatura
+  conserva sus filas. Regla 1 (mismo margen) y 3 (alineación).
+- **E3 — Utilities**: la prosa se acorta a una línea corta por fila ofrecida, y
+  los separadores entre cada opción se agrupan como en el selector (una regla
+  antes de `← Back`). El cuerpo pasa de 14 filas de prosa con `… and 8 more` a
+  12 filas sin corte: se leen las descripciones de todas las filas que están en
+  pantalla. Reglas 1, 2 y 6.
+- **E4 — Auditoría del shell**: la atribución de zprof (la respuesta a «¿por qué
+  tarda?») va justo después del método y antes de la lista de arranques, y se
+  quita la frase `Finished starts: …` que repetía el mediano y el rango de las
+  filas. Reglas 2, 5 y 6.
+- **E5 — WSL resources**: los valores van primero (host, recomendación y lo que
+  el fichero tiene hoy), luego cómo aplicarlo (`wsl --shutdown`) y después la
+  fórmula comprimida. El pie cabe en una línea con `↑/k ↓/j move` en lugar de
+  dos hints separados. Reglas 2, 3 y 7.
+- **E8 — Header del selector**: `ScreenThemePicker` pasa a decir `Utilities`,
+  como las demás pantallas de la sección. Regla 3 (consistencia).
+
+**Goldens movidos (7)**: `TestUtilitiesGolden` (prosa, filas y un separador
+antes de `← Back`), `TestWSLResourcesGolden` (orden de la prosa y el pie),
+`TestShellAuditGolden` (orden de la prosa), `TestTerminalCapabilitiesGolden`
+(formato por unidades y título anclado), `TestThemePickerGolden`,
+`TestThemePickerActivityGolden` y `TestThemePickerResultGolden` (sólo el header
+`dotfiles` → `Utilities`). La criatura y el trainer no se movieron.
+
+**Lo que no se tocó y por qué**: E6 y E7 quedan como están — son los límites
+declarados del selector de temas en 80×24 (el informe no cabe entero y la tira de
+preview baja 4 filas al llegar el resultado); son un intercambio consciente, no
+un defecto de este frente. `TestUtilitiesGolden` se hizo determinista fijando
+`m.UpdateCheck` (el modelo leía el estado de la máquina y podía mostrar la fila
+de actualización).
+
+**Guards**: `make check` (gofmt + vet + `go test ./internal/tui`) pasa; la
+cobertura de la criatura y los guards de encaje a doce tamaños pasan.

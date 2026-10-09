@@ -5,12 +5,13 @@
   Windows reports 16384 MiB of RAM and 8 logical processors; both numbers come  
   from the same host detector the installation step reads them through.         
   Recommended for this host: memory 8192 MB, processors 8 and swap 2048 MB.     
-  The proportions are the ones the installation step uses, taken from the       
-  shipped template rather than typed here: memory is half the host's RAM        
-  rounded down to 512 MB, but never so much that Windows keeps less than 2      
-  GiB; processors are every logical CPU the host reports; swap is a quarter of  
-  that memory, rounded down to the same step.                                   
-  … and 10 more                                                                 
+  Your .wslconfig at /mnt/c/Users/alber/.wslconfig holds memory=4096MB,         
+  processors=omitted and swap=1024MB today. A key that is absent is omitted     
+  rather than guessed at: WSL's own proportional default applies to it.         
+  WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows   
+  and reopen the terminal to apply it. This screen does not run it: that would  
+  close the session you are working in.                                         
+  … and 6 more                                                                  
                                                                                 
   ▸ Memory: 8192 MB                                                             
     Processors: 8                                                               
@@ -20,5 +21,4 @@
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
   ────────────────────────────────────────────────────────────────────────────  
-  ↑/k up • ↓/j down • [←/→] adjust • [r] recommended • [Enter] select           
-  [Esc] back                                                                    [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ↑/k ↓/j move • [←/→] adjust • [r] recommended • [Enter] select • [Esc] back   [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
