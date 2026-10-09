@@ -149,6 +149,17 @@ release asset, checks it against the
 `SHA256SUMS` that release publishes, keeps the binary it replaced as
 `<binary>.previous`, and only then moves the new one into place with a single rename.
 
+The check follows one of two channels. The default, **stable**, is the latest published
+release. **dev** is the newest pre-release, which is the artifact the release workflow
+builds from the tag it was started on; the installer cannot build from source, so a
+pre-release is what a build of `main` is served as. Choose a channel with
+`--channel stable|dev` (it applies to `--check-update`, `--self-update` and the TUI) or by
+pressing the main menu's **Update channel** row, which appears once a check has named one.
+The choice is remembered in the same `update-check.json` the answers live in, and every
+answer — including a failed check — records which channel it came from. A `dev` run with
+no network says the check could not be made; it never serves the stable release under a
+`dev` name.
+
 One case it refuses, on purpose: if a package manager installed this binary, the file is
 not the installer's to replace. It says so and names the command that does own the update —
 `brew upgrade dotfiles` on the Homebrew path. Replacing a file another program manages is
@@ -182,7 +193,7 @@ Trainer**. The [TUI Installer Guide](docs/tui-installer.md) covers both in full.
 ### Updating the installer
 
 The installer is a release of its own. When **dotfiles** opens it checks in the background
-which release is published, remembers the answer in
+which release the chosen channel offers, remembers the answer in
 `$XDG_STATE_HOME/dotfiles/update-check.json` (or `~/.local/state/dotfiles/`), and offers the
 main menu's **Update this installer** button only when a newer release exists and the file
 is the installer's own to replace. Pressing it downloads the release asset, checks it against
@@ -192,6 +203,13 @@ reported on the main menu, where the button was, and the new binary runs after a
 check that could not reach GitHub is recorded as unknown and never shown as an error or as
 up to date. The refusal described in [After installing](#after-installing) is the whole
 answer when a package manager owns the file, which is why no button is offered there.
+
+Beside it, the **Update channel** row switches between **stable** (the latest published
+release, the default) and **dev** (the newest pre-release the workflow built from its tag).
+The row appears once the record names a channel — every check writes one, success or failure
+— and pressing it writes the new choice to the same record and asks for a fresh answer from
+that channel. `--channel stable|dev` is the scriptable form, and `--check-update` and
+`--self-update` use the channel they were given.
 
 ### Utilities
 

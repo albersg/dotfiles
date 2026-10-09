@@ -37,6 +37,30 @@ The inventory this started from, all of it re-checked in the tree:
 | `docs/release-checklist.md` was **deleted**, after the links were repointed at the one runbook | The order is the repository's own precedent (commit `477d8a9` retired `docs/RELEASES.md` the same way), so no link is ever broken and the guard never reads a missing file | One historical mention stays in `CHANGELOG.md`'s v0.5.0 entry, where the repository also kept the `docs/RELEASES.md` mention |
 | The pre-flight list moved **into** `RELEASING.md` in reading order (before the tag, then after it) | The split was what let one half drift from `.github/workflows/release.yml` while the other was being read -- the same failure `docs/RELEASES.md` was retired for | One long page |
 
+## The two channels: stable and dev
+
+The check has always read the latest published release. A user asked for a choice between
+"stable" and "dev", and the base already knew everything except how to choose: it reads a
+release, compares versions numerically, verifies the asset against the release's own
+`SHA256SUMS`, replaces atomically, keeps the old binary, and refuses a Homebrew-owned file. The
+channel decides nothing about any of those rules; it decides which tag is asked about.
+
+**dev is the newest pre-release, not a build from source.** The installer carries no compiler
+and only installs an asset it can verify against that release's `SHA256SUMS`; the release
+workflow builds its four assets from a tag (`on: push: tags: v*`), so the only artifact a dev
+channel could serve is a pre-release. A pre-release is therefore the natural dev artifact: the
+same four assets, the same sums file, the same verified swap, tagged on `main`. When no
+pre-release exists, dev says the check could not answer rather than serving the stable release
+under a dev name.
+
+| Decision | Why | Cost, accepted |
+|---|---|---|
+| **stable** stays the default and keeps `/releases/latest`; **dev** reads the `/releases` list and takes the newest non-draft pre-release | GitHub's latest endpoint cannot return a pre-release by definition, so dev has to read the list; stable is byte-for-byte unchanged | One more response shape to test, and a dev answer needs a pre-release to have been published |
+| The choice is remembered in `update-check.json`, in the record's `channel` field | One thing, one place: the state file already holds the answer, so the channel travels with it, and a channel-only record (no answer yet) is readable so a switch before the check lands is not forgotten | `readUpdateRecord` now accepts a record whose only fact is its channel |
+| The record names the channel **every** answer came from, including a failure | An answer without its source is an opinion; the repository already applies this with `unknown` and with "where each answer came from" | `Summary` prefixes `dev channel: ` and the screen draws a `Channel` row; stable stays unnamed because it is the default |
+| Three entries: `--channel stable|dev`, the main menu's **Update channel** row, and the remembered record | The flag is scriptable, the row is discoverable, the record is what survives the run | `--check-update` and `--self-update` read the chosen channel; the TUI resolves the flag over the record, and a cached answer for another channel is dropped |
+| The channel row is offered **once the record names a channel** | Every check writes one, success or failure, so in practice the row is there with the first answer; a run that has never checked shows nothing about a choice it has not made | A fresh run's first second has no row, exactly as the update row already behaves, and the cursor is held by label when it arrives |
+
 ## Tracker convention
 
 The convention lives in [`odd/README.md`](../README.md), which is where a contributor looks for it: one
@@ -73,6 +97,39 @@ automatic check armed everywhere):
 16 guards failed on the stub and pass on the implementation. The one GREEN failure that followed was
 my own assertion comparing "up to date" against "Up to date"; the implementation was right and the
 test was fixed, which is recorded here rather than papered over.
+
+The channel work was written the same way, with a stub whose dev channel read the stable endpoint,
+whose record omitted its channel, whose state never named it, and whose menu offered no row:
+
+```
+--- FAIL: TestDevChannelReadsTheNewestPreReleaseNotTheStableRelease
+    dev tag = "v1.0.0", want the newest pre-release v1.2.0-dev.1: a dev channel that answers with
+      the stable release is the stable channel
+    dev requests = [.../releases/latest], want exactly [.../releases?per_page=30]
+--- FAIL: TestDevChannelSkipsDraftsAndReleasedEntries
+    latestReleaseTagForChannel(dev): GET .../releases/latest: Not Found
+--- FAIL: TestTheRecordNamesTheChannelTheAnswerCameFrom
+    record channel = "", want dev
+    record latest = "", want the dev tag
+    stored channel = "", want dev: an answer without its source is an opinion
+--- FAIL: TestTheStateNamesTheDevChannel
+    state.Channel = "", want dev
+--- FAIL: TestSwitchingToDevDropsTheStableAnswerAndRemembersTheChoice
+    the stable answer "v1.0.0" is still on the state: a stable answer is not a dev answer
+--- FAIL: TestDevChannelWithoutANetworkSaysUnknownNotCurrent
+    Summary() = "Unknown -- ...": want the dev channel named even when the check failed
+    state.Channel = "", want dev even on failure
+--- FAIL: TestCheckForUpdateUsesTheChosenChannel
+    summary = "v1.0.0 is published; ...", want the dev tag in it
+    the dev check read .../releases/latest: the dev channel must read the release list
+--- FAIL: TestMainMenuOffersTheChannelRowAndSwitchesIt
+    the main menu does not offer the channel row: [Start Installation ...]
+```
+
+GREEN: the same guards pass with the implementation, and the whole `internal/tui` and
+`cmd/dotfiles` packages (3294 tests, goldens included) pass without a golden moving -- every
+golden pins an `UpdateCheck` whose channel is empty, and the row is offered only when the state
+names a channel.
 
 The workflow's chain check was run locally against a fixture, using the step's **extracted** shell
 rather than a copy of it:
@@ -116,6 +173,13 @@ probed for teeth: converting the runbook's `- [ ]` items to `- [x]` and appendin
 - **`packageManagerOwner` knows Homebrew by path only.** A Homebrew install whose symlink cannot be
   resolved, or a copy installed by a script and later claimed by a package manager, is not detected.
   The refusal is therefore narrower than the rule.
+- **The dev channel orders pre-releases by their numeric version.** `parseVersion` drops the
+  `-rc1` suffix by design, so `v0.6.0-rc2` is not newer than `v0.6.0-rc1` and a further
+  pre-release of the same version would read as up to date. Comparing the commit the build was
+  made from would fix it; it is not this front.
+- **dev assumes a pre-release is cut from `main`.** The channel reads the newest pre-release and
+  does not check that its tag points at the head of `main`. A pre-release cut from another branch
+  would be served, and a commit on `main` with no pre-release is invisible to it.
 - **The published-asset verification has been rehearsed against a fixture, not against a real
   release.** `verify-published` has never run on GitHub; the next release is its first real run.
 - **Only the linux/amd64 asset is executed.** The darwin and arm64 binaries are hashed and attested but

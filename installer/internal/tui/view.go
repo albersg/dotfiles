@@ -1866,6 +1866,20 @@ const utilitiesShellAuditRow = "Measure the shell's startup"
 // to a utilities section.
 const updateInstallerRow = "Update this installer"
 
+// updateChannelRowPrefix is the main menu's channel row. The label names the
+// channel the run follows, so the row reads as the state it changes, and the
+// prefix is what the handler matches: the label's channel half changes when it is
+// pressed, which a whole-string match could not survive.
+const updateChannelRowPrefix = "Update channel: "
+
+// updateChannelRow is the main menu's channel row for a channel. It is offered
+// once the record names a channel -- which every check writes, success or failure
+// -- so a run that has never checked shows nothing rather than a row about a
+// choice it has not made.
+func updateChannelRow(channel releaseChannel) string {
+	return updateChannelRowPrefix + string(channel)
+}
+
 // updateCheckRow re-reads the published release. It is offered on every state of
 // the screen, because asking again is what a user does when the answer is old,
 // wrong or missing -- and "the check failed" is exactly when the answer is worth

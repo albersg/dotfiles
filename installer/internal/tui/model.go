@@ -480,6 +480,18 @@ func NewModel() Model {
 	// the network. The binary this run would replace is resolved here too, so the
 	// update screen can say who owns the file before the user presses anything.
 	m.UpdateCheck = loadUpdateState()
+	// The channel is resolved from the flag and the record together: --channel
+	// speaks for this run, the record remembers the last choice, and stable is the
+	// default. A cached answer for another channel is not this run's answer, so it
+	// is dropped and the check that follows reads the channel this run chose.
+	if updateChannelFlag != "" {
+		if channel, err := ParseReleaseChannel(updateChannelFlag); err == nil {
+			if m.UpdateCheck.Channel != "" && m.UpdateCheck.Channel != channel {
+				m.UpdateCheck = updateState{}
+			}
+			m.UpdateCheck.Channel = channel
+		}
+	}
 	target, updateTargetErr := resolveUpdateTarget()
 	m.UpdateTarget = target
 	if updateTargetErr != nil {
@@ -580,6 +592,13 @@ func (m Model) GetCurrentOptions() []string {
 		// whichever option the insertion pushed under it.
 		if m.UpdateInstallable() {
 			opts = append(opts, updateInstallerRow)
+		}
+		// The channel row is offered once the record names a channel, which every
+		// check writes, success or failure. It sits beside the update row because the
+		// two answer the same question -- which release this run would install -- and
+		// its label names the state it switches.
+		if m.UpdateCheck.Channel != "" {
+			opts = append(opts, updateChannelRow(m.UpdateCheck.Channel))
 		}
 		// Add restore option if backups exist
 		if len(m.AvailableBackups) > 0 {

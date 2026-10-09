@@ -35,6 +35,7 @@ type cliFlags struct {
 	nonInteractive bool
 	checkUpdate    bool
 	selfUpdate     bool
+	channel        string
 	terminal       string
 	shell          string
 	windowMgr      string
@@ -57,6 +58,7 @@ func registerFlags(fs *flag.FlagSet, flags *cliFlags) {
 	fs.BoolVar(&flags.help, "h", false, "Show help message (shorthand)")
 	fs.BoolVar(&flags.checkUpdate, "check-update", false, "Read the latest published release and report it")
 	fs.BoolVar(&flags.selfUpdate, "self-update", false, "Install the latest published release over this binary")
+	fs.StringVar(&flags.channel, "channel", "", "Release channel to follow: stable (default) or dev")
 	fs.BoolVar(&flags.test, "test", false, "Run in test mode (uses temporary directory)")
 	fs.BoolVar(&flags.test, "t", false, "Run in test mode (shorthand)")
 	fs.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed without doing it")
@@ -96,6 +98,15 @@ func main() {
 	if flags.help {
 		printHelp()
 		os.Exit(0)
+	}
+
+	// The channel is the one choice the update commands and the interface share,
+	// so it is handed to the TUI package before either runs. An unknown channel is
+	// refused here rather than treated as stable: a flag that silently did nothing
+	// would leave the user reading a stable answer under a dev name.
+	if err := tui.SetUpdateChannel(flags.channel); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
 	}
 
 	// The two update commands are the scriptable form of what the utilities
@@ -327,16 +338,20 @@ Flags:
   -t, --test           Run in test mode (uses temporary directory)
   --dry-run            Show what would be installed without doing it
   --non-interactive    Run without TUI, use CLI flags instead
-  --check-update       Read the latest published release and print it beside
-                       this build. Exits 0 when this build is the published
-                       release, 1 when a newer one exists, and 2 when the answer
-                       could not be read at all
-  --self-update        Install the latest published release over this binary.
-                       The download is verified against the release's own
+  --check-update       Read the release the chosen channel offers and print it
+                       beside this build. Exits 0 when this build is that release,
+                       1 when a newer one exists, and 2 when the answer could not
+                       be read at all
+  --self-update        Install the release the chosen channel offers over this
+                       binary. The download is verified against the release's own
                        SHA256SUMS before anything moves, the binary it replaced
                        is kept beside it as dotfiles.previous, and a binary a
                        package manager installed is refused (run
                        brew upgrade dotfiles for that one)
+  --channel=<name>     Channel to follow: stable (the latest published release,
+                       the default) or dev (the newest pre-release). The choice
+                       is remembered in update-check.json and offered again as
+                       the main menu's "Update channel" row
   --no-anim            Disable animations (same as DOTFILES_ANIM=0); animation
                        is also off when stdout is not a terminal or TERM=dumb
   --no-mouse           Do not ask the terminal for pointer motion (same as

@@ -185,7 +185,7 @@ func TestRefreshUpdateRecordStoresTheTagAndTheTime(t *testing.T) {
 	c := newUpdateTestClient(map[string]string{dotfilesReleaseAPIURL: releaseLatestBody("v0.5.1")})
 	now := time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC)
 
-	rec := refreshUpdateRecord(c.client(), now)
+	rec := refreshUpdateRecord(c.client(), channelStable, now)
 
 	if rec.Latest != "v0.5.1" {
 		t.Errorf("Latest = %q, want v0.5.1", rec.Latest)
@@ -212,7 +212,7 @@ func TestRefreshUpdateRecordRecordsAFailureInsteadOfAtag(t *testing.T) {
 	c.failures[dotfilesReleaseAPIURL] = errors.New("dial tcp: no route to host")
 	now := time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC)
 
-	rec := refreshUpdateRecord(c.client(), now)
+	rec := refreshUpdateRecord(c.client(), channelStable, now)
 
 	if rec.Latest != "" {
 		t.Errorf("Latest = %q after a failed check, want empty: an unreachable GitHub is not a version", rec.Latest)
@@ -1176,6 +1176,357 @@ func TestUpdateSelfRefusesABinaryHomebrewOwnsAndNamesTheCommand(t *testing.T) {
 	}
 	if len(c.requests) != 0 {
 		t.Errorf("the refusal made %d requests before deciding: the ownership question is answered from the path", len(c.requests))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The two channels: stable is what shipped, dev is the newest pre-release
+// ---------------------------------------------------------------------------
+//
+// The check has always read the latest published release. That is the stable
+// channel, and it stays the default. The dev channel serves the newest
+// pre-release instead: the release workflow builds its four assets from the tag a
+// run is started from, so a pre-release is the artifact a downloading installer
+// can verify, and it is what a build of main is published as. If no pre-release
+// exists, dev says so rather than serving the stable release under a dev name.
+
+func TestParseReleaseChannelNamesTheTwoChannels(t *testing.T) {
+	cases := []struct {
+		value string
+		want  releaseChannel
+		ok    bool
+	}{
+		{"", channelStable, true},
+		{"stable", channelStable, true},
+		{"STABLE", channelStable, true},
+		{"dev", channelDev, true},
+		{" Dev ", channelDev, true},
+		{"nightly", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.value, func(t *testing.T) {
+			got, err := ParseReleaseChannel(tc.value)
+			if tc.ok && err != nil {
+				t.Fatalf("ParseReleaseChannel(%q): %v", tc.value, err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatalf("ParseReleaseChannel(%q) accepted an unknown channel as %q", tc.value, got)
+			}
+			if tc.ok && got != tc.want {
+				t.Errorf("ParseReleaseChannel(%q) = %q, want %q", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDevChannelReadsTheNewestPreReleaseNotTheStableRelease(t *testing.T) {
+	c := newUpdateTestClient(map[string]string{
+		dotfilesReleaseAPIURL: releaseLatestBody("v1.0.0"),
+		dotfilesReleaseListURL: `[
+			{"tag_name":"v1.1.0","prerelease":false,"draft":false},
+			{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false}
+		]`,
+	})
+
+	tag, err := latestReleaseTagForChannel(c.client(), channelDev)
+	if err != nil {
+		t.Fatalf("the dev channel could not be read: %v", err)
+	}
+	if tag != "v1.2.0-dev.1" {
+		t.Errorf("dev tag = %q, want the newest pre-release v1.2.0-dev.1: a dev channel that answers with the stable release is the stable channel", tag)
+	}
+	if len(c.requests) != 1 || c.requests[0] != dotfilesReleaseListURL {
+		t.Errorf("dev requests = %v, want exactly [%s]: the dev channel reads the release list, not /releases/latest", c.requests, dotfilesReleaseListURL)
+	}
+}
+
+func TestDevChannelSkipsDraftsAndReleasedEntries(t *testing.T) {
+	c := newUpdateTestClient(map[string]string{
+		dotfilesReleaseListURL: `[
+			{"tag_name":"v2.0.0-draft","prerelease":true,"draft":true},
+			{"tag_name":"v1.9.0","prerelease":true,"draft":false}
+		]`,
+	})
+
+	tag, err := latestReleaseTagForChannel(c.client(), channelDev)
+	if err != nil {
+		t.Fatalf("latestReleaseTagForChannel(dev): %v", err)
+	}
+	if tag != "v1.9.0" {
+		t.Errorf("dev tag = %q, want v1.9.0: a draft is not published, so it is not an artifact this channel can serve", tag)
+	}
+}
+
+func TestDevChannelSaysUnknownWhenNoPreReleaseIsPublished(t *testing.T) {
+	c := newUpdateTestClient(map[string]string{
+		dotfilesReleaseListURL: `[{"tag_name":"v1.0.0","prerelease":false,"draft":false}]`,
+	})
+
+	if _, err := latestReleaseTagForChannel(c.client(), channelDev); err == nil {
+		t.Fatal("a release list with no pre-release answered with a tag: dev would serve the stable release under a dev name")
+	}
+}
+
+func TestTheRecordNamesTheChannelTheAnswerCameFrom(t *testing.T) {
+	isolateUpdateState(t)
+	c := newUpdateTestClient(map[string]string{
+		dotfilesReleaseListURL: `[{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false}]`,
+	})
+	now := time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC)
+
+	rec := refreshUpdateRecord(c.client(), channelDev, now)
+
+	if rec.Channel != string(channelDev) {
+		t.Errorf("record channel = %q, want dev", rec.Channel)
+	}
+	if rec.Latest != "v1.2.0-dev.1" {
+		t.Errorf("record latest = %q, want the dev tag", rec.Latest)
+	}
+	back, ok := readUpdateRecord()
+	if !ok {
+		t.Fatal("the record was refreshed but not written")
+	}
+	if back.Channel != string(channelDev) {
+		t.Errorf("stored channel = %q, want dev: an answer without its source is an opinion", back.Channel)
+	}
+}
+
+func TestAChannelChoiceIsRememberedWithoutAnAnswer(t *testing.T) {
+	isolateUpdateState(t)
+	if err := writeUpdateRecord(updateRecord{Channel: string(channelDev)}); err != nil {
+		t.Fatalf("writeUpdateRecord: %v", err)
+	}
+
+	rec, ok := readUpdateRecord()
+	if !ok {
+		t.Fatal("a record that names a channel but carries no answer was unreadable, so the choice is forgotten")
+	}
+	if recordChannel(rec) != channelDev {
+		t.Errorf("remembered channel = %q, want dev", rec.Channel)
+	}
+}
+
+func TestTheStateNamesTheDevChannel(t *testing.T) {
+	state := stateFromRecord(updateRecord{Channel: "dev", CheckedAt: time.Now(), Latest: "v1.2.0-dev.1"})
+
+	if state.Channel != channelDev {
+		t.Fatalf("state.Channel = %q, want dev", state.Channel)
+	}
+	if !strings.Contains(strings.ToLower(state.Summary()), "dev") {
+		t.Errorf("Summary() = %q, want it to name the dev channel: an answer without its source is an opinion", state.Summary())
+	}
+	found := false
+	for _, row := range state.displayRows() {
+		if row.Label == "Channel" && row.Value == string(channelDev) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("displayRows() = %+v, want a Channel row naming dev", state.displayRows())
+	}
+}
+
+func TestSwitchingToDevDropsTheStableAnswerAndRemembersTheChoice(t *testing.T) {
+	isolateUpdateState(t)
+	saved := updateChannelFlag
+	t.Cleanup(func() { updateChannelFlag = saved })
+	updateChannelFlag = ""
+
+	if err := writeUpdateRecord(updateRecord{Channel: "stable", CheckedAt: time.Now(), Latest: "v1.0.0"}); err != nil {
+		t.Fatalf("writeUpdateRecord: %v", err)
+	}
+	m := NewModel()
+	m.UpdateCheck = loadUpdateState()
+	if m.UpdateCheck.Latest != "v1.0.0" {
+		t.Fatalf("setup: cached latest = %q", m.UpdateCheck.Latest)
+	}
+
+	switched := m.setUpdateChannel(channelDev)
+
+	if switched.updateChannel() != channelDev {
+		t.Errorf("channel after the switch = %q, want dev", switched.updateChannel())
+	}
+	if switched.UpdateCheck.Latest != "" {
+		t.Errorf("the stable answer %q is still on the state: a stable answer is not a dev answer", switched.UpdateCheck.Latest)
+	}
+	back, ok := readUpdateRecord()
+	if !ok || recordChannel(back) != channelDev {
+		t.Errorf("the record = %+v, want it to remember dev before the new check lands", back)
+	}
+}
+
+func TestDevChannelWithoutANetworkSaysUnknownNotCurrent(t *testing.T) {
+	isolateUpdateState(t)
+	c := newUpdateTestClient(nil)
+	c.failures[dotfilesReleaseListURL] = errors.New("dial tcp: no route to host")
+
+	rec := refreshUpdateRecord(c.client(), channelDev, time.Now())
+	if rec.Latest != "" {
+		t.Errorf("Latest = %q after a failed dev check, want empty: an unreachable GitHub is not a version", rec.Latest)
+	}
+	state := stateFromRecord(rec)
+	if state.UpToDate() {
+		t.Error("a dev check that could not reach GitHub reported the install as up to date")
+	}
+	if !strings.Contains(strings.ToLower(state.Summary()), "unknown") {
+		t.Errorf("Summary() = %q, want unknown", state.Summary())
+	}
+	if !strings.Contains(strings.ToLower(state.Summary()), "dev") {
+		t.Errorf("Summary() = %q, want the dev channel named even when the check failed", state.Summary())
+	}
+	if state.Channel != channelDev {
+		t.Errorf("state.Channel = %q, want dev even on failure", state.Channel)
+	}
+}
+
+func TestCheckForUpdateUsesTheChosenChannel(t *testing.T) {
+	isolateUpdateState(t)
+	saved := updateChannelFlag
+	t.Cleanup(func() { updateChannelFlag = saved })
+	updateChannelFlag = ""
+
+	c := newUpdateTestClient(map[string]string{
+		dotfilesReleaseAPIURL:  releaseLatestBody("v1.0.0"),
+		dotfilesReleaseListURL: `[{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false}]`,
+	})
+	swapUpdateTransport(t, c)
+	if err := SetUpdateChannel("dev"); err != nil {
+		t.Fatalf("SetUpdateChannel: %v", err)
+	}
+
+	report := CheckForUpdate()
+
+	if report.Channel != string(channelDev) {
+		t.Errorf("report channel = %q, want dev: --check-update must use the channel it was given", report.Channel)
+	}
+	if !report.Known || !report.Newer {
+		t.Fatalf("report = %+v, want a known newer pre-release", report)
+	}
+	if !strings.Contains(report.Summary, "v1.2.0-dev.1") {
+		t.Errorf("summary = %q, want the dev tag in it", report.Summary)
+	}
+	for _, req := range c.requests {
+		if req == dotfilesReleaseAPIURL {
+			t.Errorf("the dev check read %s: the dev channel must read the release list", dotfilesReleaseAPIURL)
+		}
+	}
+}
+
+func TestMainMenuOffersTheChannelRowAndSwitchesIt(t *testing.T) {
+	isolateUpdateState(t)
+	saved := updateChannelFlag
+	t.Cleanup(func() { updateChannelFlag = saved })
+	updateChannelFlag = ""
+
+	m := NewModel()
+	m.Width, m.Height = 100, 40
+	m.Screen = ScreenMainMenu
+	m.UpdateCheck = updateState{Channel: channelStable, CheckedAt: time.Now()}
+
+	if !updateRowsContain(m.GetCurrentOptions(), updateChannelRow(channelStable)) {
+		t.Fatalf("the main menu does not offer the channel row: %v", m.GetCurrentOptions())
+	}
+
+	row := -1
+	for i, option := range m.GetCurrentOptions() {
+		if option == updateChannelRow(channelStable) {
+			row = i
+			break
+		}
+	}
+	m.Cursor = row
+
+	next, _ := m.handleMainMenuKeys("enter")
+	after, ok := next.(Model)
+	if !ok {
+		t.Fatal("the key handler did not return a model")
+	}
+	if after.updateChannel() != channelDev {
+		t.Errorf("channel after the press = %q, want dev", after.updateChannel())
+	}
+	if !updateRowsContain(after.GetCurrentOptions(), updateChannelRow(channelDev)) {
+		t.Errorf("the row does not name the channel it switched to: %v", after.GetCurrentOptions())
+	}
+	back, ok := readUpdateRecord()
+	if !ok || recordChannel(back) != channelDev {
+		t.Errorf("the press did not remember the channel: %+v", back)
+	}
+}
+
+func TestMainMenuOffersNoChannelRowBeforeAChannelIsKnown(t *testing.T) {
+	isolateUpdateState(t)
+	saved := updateChannelFlag
+	t.Cleanup(func() { updateChannelFlag = saved })
+	updateChannelFlag = ""
+
+	m := NewModel()
+	m.Screen = ScreenMainMenu
+	m.UpdateCheck = updateState{}
+
+	for _, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, updateChannelRowPrefix) {
+			t.Fatalf("the main menu offered %q with no channel known: %v", option, m.GetCurrentOptions())
+		}
+	}
+}
+
+func TestACheckAnswerFromTheChannelThisRunLeftDoesNotOverwriteTheState(t *testing.T) {
+	isolateUpdateState(t)
+	saved := updateChannelFlag
+	t.Cleanup(func() { updateChannelFlag = saved })
+	updateChannelFlag = ""
+
+	m := NewModel()
+	m.UpdateCheck = updateState{Channel: channelDev, CheckedAt: time.Now()}
+
+	// A stable answer arrives after the run switched to dev, because the older
+	// check was still in flight when the row was pressed.
+	next, _ := m.Update(updateCheckMsg{
+		channel: channelStable,
+		record:  updateRecord{Channel: "stable", CheckedAt: time.Now(), Latest: "v1.0.0"},
+	})
+	after, ok := next.(Model)
+	if !ok {
+		t.Fatal("Update did not return a Model")
+	}
+	if after.UpdateCheck.Channel != channelDev {
+		t.Errorf("channel = %q, want dev: an answer from a channel this run left must not overwrite the state", after.UpdateCheck.Channel)
+	}
+	if after.UpdateCheck.Latest == "v1.0.0" {
+		t.Error("the stable answer replaced the dev state")
+	}
+}
+
+func TestTheAutomaticCheckReadsTheChannelTheRunFollows(t *testing.T) {
+	isolateUpdateState(t)
+	saved := updateChannelFlag
+	t.Cleanup(func() { updateChannelFlag = saved })
+	updateChannelFlag = ""
+
+	c := newUpdateTestClient(map[string]string{
+		dotfilesReleaseListURL: `[{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false}]`,
+	})
+	swapUpdateTransport(t, c)
+
+	m := NewModel()
+	m.UpdateCheck = updateState{Channel: channelDev}
+	cmd := m.startUpdateCheck()
+	if cmd == nil {
+		t.Fatal("startUpdateCheck returned no command")
+	}
+
+	msg, ok := cmd().(updateCheckMsg)
+	if !ok {
+		t.Fatalf("the command returned %T, want updateCheckMsg", cmd())
+	}
+	if msg.channel != channelDev {
+		t.Errorf("the check was made on channel %q, want dev: the automatic check must read the channel the run follows", msg.channel)
+	}
+	if msg.record.Latest != "v1.2.0-dev.1" {
+		t.Errorf("record latest = %q, want the dev tag", msg.record.Latest)
+	}
+	if !strings.Contains(c.requests[0], "/releases?") {
+		t.Errorf("the automatic dev check read %s, want the release list", c.requests[0])
 	}
 }
 
