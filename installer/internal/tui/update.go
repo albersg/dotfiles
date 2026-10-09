@@ -214,8 +214,7 @@ func (m Model) Init() tea.Cmd {
 		loadTrainerStatsCmd(),
 		loadLastInstallCmd(),
 		loadThemeRecordCmd(),
-	}
-	// The slow animation tick is armed only when the run may animate. With
+	} // The slow animation tick is armed only when the run may animate. With
 	// animation off nothing is scheduled and the counter stays at zero.
 	if cmd := m.animTickCmdFor(); cmd != nil {
 		cmds = append(cmds, cmd)
@@ -224,6 +223,14 @@ func (m Model) Init() tea.Cmd {
 	// sample the machine, so its live panel reports the sampling as off rather
 	// than drawing a stale reading.
 	if cmd := m.metricsTickCmdFor(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	// The last published release is read on that same gate, and on the record's
+	// own lifetime: a run that may not animate -- a piped run, DOTFILES_ANIM=0 --
+	// does not reach the network on its own, and a record younger than
+	// updateCheckTTL means no start asks twice. The check is a command, never a
+	// call here, so the network cannot be waited on.
+	if cmd := m.updateCheckCmdFor(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
@@ -714,6 +721,30 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case updateCheckMsg:
+		// A finished check replaces the state whole, the way a measurement does.
+		// A failed check is a result here too: the reason travels in the record, so
+		// the screen says why it does not know instead of saying it is current. The
+		// last update's notice survives, because a check is not an update.
+		notice := m.UpdateCheck.Notice
+		m.UpdateCheck = stateFromRecord(msg.record)
+		m.UpdateCheck.Notice = notice
+		return m, nil
+
+	case updateAppliedMsg:
+		// The swap is not an install step, so a failure stays on the screen as a
+		// notice rather than taking the run to a failed screen. A refusal to touch a
+		// binary a package manager owns arrives here as well, with the command that
+		// does own the update in its message.
+		if msg.err != nil {
+			m.UpdateCheck.Notice = msg.err.Error()
+			return m, nil
+		}
+		m.UpdateCheck.Notice = fmt.Sprintf(
+			"Installed over this binary; the binary it replaced is kept at %s. Restart dotfiles to run the new one.",
+			msg.kept)
+		return m, nil
+
 	case wslResourceLoadedMsg:
 		// The first read fills the state once: a later answer arriving after the
 		// screen has been written would roll the draft back to what the file held.
@@ -1097,6 +1128,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
 
+	case ScreenUpdate:
+		return m.handleUpdateKeys(key)
+
 	case ScreenBackupConfirm:
 		return m.handleBackupConfirmKeys(key)
 
@@ -1240,6 +1274,14 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// the user stepped back while it ran.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
+	case ScreenUpdate:
+		// The update screen is one level in too, and leaving it clears the last
+		// update's notice so a later visit does not open on a stale result. A check
+		// that is still running writes its answer onto the model regardless, which
+		// is what keeps the answer from being lost behind the step back.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.UpdateCheck.Notice = ""
 	// Trainer screens
 	case ScreenTrainerMenu:
 		// Save stats and return to main menu. Escape also cancels an armed
@@ -1569,6 +1611,16 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			// that screen's own row.
 			m.Screen = ScreenShellAudit
 			m.Cursor = 0
+		case selected == utilitiesUpdateRow:
+			// This installer's own release is one level in as well. Opening it is a
+			// request for the current answer, so the check is started here rather than
+			// waited for -- it runs off the update loop, so a slow network cannot
+			// freeze the screen it just opened. The row is only offered once the run
+			// has something to report, so this never opens onto nothing.
+			m.Screen = ScreenUpdate
+			m.Cursor = 0
+			m.UpdateCheck.Notice = ""
+			return m, m.startUpdateCheck()
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			m.ThemeNotice = "Putting the previous desktop theme back…"
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
@@ -1712,6 +1764,66 @@ func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
 		case strings.Contains(options[m.Cursor], "Back"):
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
+		}
+	}
+
+	return m, nil
+}
+
+// handleUpdateKeys drives this installer's own release screen. Like the other
+// utilities screens it only ever changes the screen, the cursor or the notice:
+// the check and the swap are both commands, so neither the network nor a disk can
+// block the update loop.
+//
+// The refusal is here as well as in the swap itself, and deliberately so: a file a
+// package manager owns gets a sentence and no row at all, so the press that would
+// have been refused is never offered.
+func (m Model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "esc":
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.UpdateCheck.Notice = ""
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		switch {
+		case options[m.Cursor] == updateInstallRow:
+			// The swap is one command: the ownership question, the two downloads, the
+			// checksum and the rename all happen off the update loop, and the row is
+			// only ever drawn when this run may replace its own file.
+			if !m.UpdateInstallable() || m.UpdateCheck.InFlight {
+				return m, nil
+			}
+			m.UpdateCheck.InFlight = true
+			m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
+			return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
+		case options[m.Cursor] == updateCheckRow:
+			// Asking again is always allowed: an answer that is stale, wrong or
+			// missing is exactly what a user asks a second time for. One check at a
+			// time, so the last answer to arrive is the answer that was asked for.
+			return m, m.startUpdateCheck()
+		case strings.Contains(options[m.Cursor], "Back"):
+			m.Screen = ScreenUtilities
+			m.Cursor = 0
+			m.UpdateCheck.Notice = ""
 		}
 	}
 

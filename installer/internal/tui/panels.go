@@ -1071,6 +1071,19 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		value:   m.TerminalCapabilities.panelValue(),
 		offered: true,
 	})
+
+	// The section's utilitiesUpdateRow, offered under exactly the condition the
+	// section offers it: this run holds an answer, a failure or a check in flight.
+	// Nothing is written when it is not offered -- not even an "absent" line --
+	// because a run that has never checked has nothing to report, and the row is
+	// what carries the explanation once it does.
+	if m.UpdateCheck.Present() {
+		entries = append(entries, utilitiesPanelEntry{
+			label:   "Update",
+			value:   m.UpdateCheck.panelValue(),
+			offered: true,
+		})
+	}
 	return entries
 }
 

@@ -12,7 +12,19 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-var Version = "dev"
+// Version, Commit and Date are the build's identity, all three injected at link
+// time by the release workflow:
+//
+//	-ldflags "-X main.Version=<tag> -X main.Commit=<sha> -X main.Date=<rfc3339>"
+//
+// They are handed to the TUI before anything can render or print, so --version,
+// the splash and the update check all read the same three values. A build made by
+// hand leaves all three at their defaults and reports "dev build".
+var (
+	Version = "dev"
+	Commit  = ""
+	Date    = ""
+)
 
 // CLI flags for non-interactive mode
 type cliFlags struct {
@@ -21,6 +33,8 @@ type cliFlags struct {
 	test           bool
 	dryRun         bool
 	nonInteractive bool
+	checkUpdate    bool
+	selfUpdate     bool
 	terminal       string
 	shell          string
 	windowMgr      string
@@ -41,6 +55,8 @@ func registerFlags(fs *flag.FlagSet, flags *cliFlags) {
 	fs.BoolVar(&flags.version, "v", false, "Show version information (shorthand)")
 	fs.BoolVar(&flags.help, "help", false, "Show help message")
 	fs.BoolVar(&flags.help, "h", false, "Show help message (shorthand)")
+	fs.BoolVar(&flags.checkUpdate, "check-update", false, "Read the latest published release and report it")
+	fs.BoolVar(&flags.selfUpdate, "self-update", false, "Install the latest published release over this binary")
 	fs.BoolVar(&flags.test, "test", false, "Run in test mode (uses temporary directory)")
 	fs.BoolVar(&flags.test, "t", false, "Run in test mode (shorthand)")
 	fs.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed without doing it")
@@ -65,19 +81,36 @@ func parseFlags() *cliFlags {
 }
 
 func main() {
-	// Hand the linker-injected build version to the TUI before anything can
-	// render or print, so the splash and the --version flag agree.
-	tui.Version = Version
+	// Hand the linker-injected build identity to the TUI before anything can
+	// render or print, so the splash, --version and the update check all agree
+	// about which build this is.
+	tui.Version, tui.BuildCommit, tui.BuildDate = Version, Commit, Date
 
 	flags := parseFlags()
 
 	if flags.version {
-		fmt.Println("dotfiles " + tui.VersionLabel())
+		fmt.Println("dotfiles " + tui.BuildLabel())
 		os.Exit(0)
 	}
 
 	if flags.help {
 		printHelp()
+		os.Exit(0)
+	}
+
+	// The two update commands are the scriptable form of what the utilities
+	// section offers, and they run the same code: one function, two entries. They
+	// sit above test mode and dry run so a check never depends on either, and the
+	// update itself honours DOTFILES_DRY_RUN inside the TUI package, where the
+	// gate lives.
+	if flags.checkUpdate {
+		os.Exit(reportUpdate())
+	}
+	if flags.selfUpdate {
+		if err := runSelfUpdate(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 
@@ -153,6 +186,38 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error running installer: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// reportUpdate prints what the latest published release is beside this build and
+// returns the exit status a script reads: 0 when this build is the published one,
+// 1 when a newer one exists, 2 when the answer could not be read at all.
+//
+// The third status is the point of the split. "I could not reach GitHub" and
+// "you are up to date" are different facts, and a script that cannot tell them
+// apart would treat a network failure as a green light.
+func reportUpdate() int {
+	report := tui.CheckForUpdate()
+	fmt.Println("dotfiles " + tui.BuildLabel())
+	fmt.Println(report.Summary)
+
+	switch {
+	case !report.Known:
+		return 2
+	case report.Newer:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// runSelfUpdate replaces this binary with the latest published release.
+func runSelfUpdate() error {
+	notice, err := tui.UpdateSelf()
+	if err != nil {
+		return err
+	}
+	fmt.Println(notice)
+	return nil
 }
 
 func runNonInteractive(flags *cliFlags) error {
@@ -262,6 +327,16 @@ Flags:
   -t, --test           Run in test mode (uses temporary directory)
   --dry-run            Show what would be installed without doing it
   --non-interactive    Run without TUI, use CLI flags instead
+  --check-update       Read the latest published release and print it beside
+                       this build. Exits 0 when this build is the published
+                       release, 1 when a newer one exists, and 2 when the answer
+                       could not be read at all
+  --self-update        Install the latest published release over this binary.
+                       The download is verified against the release's own
+                       SHA256SUMS before anything moves, the binary it replaced
+                       is kept beside it as dotfiles.previous, and a binary a
+                       package manager installed is refused (run
+                       brew upgrade dotfiles for that one)
   --no-anim            Disable animations (same as DOTFILES_ANIM=0); animation
                        is also off when stdout is not a terminal or TERM=dumb
   --no-mouse           Do not ask the terminal for pointer motion (same as

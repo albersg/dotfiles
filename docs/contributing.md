@@ -220,14 +220,13 @@ updates `CHANGELOG.md` and `.downstream/version.json`, and `main` requires revie
 and a green CI run, so a release PR passes the same gate as any other change
 before the tag exists.
 
-The mechanics are documented once, so there is no second copy to drift:
-
-- [Release checklist](release-checklist.md) - what must be true **before** the
-  tag: the tree is clean, `make preflight` is green, `main` equals `origin/main`,
-  no open issue the release claims to close, and `CHANGELOG.md` is written.
-- [Releasing](RELEASING.md) - the runbook that follows the tag: what
-  `.github/workflows/release.yml` builds from it, how the draft release is
-  published, and how the Homebrew formula is updated.
+The mechanics are documented once, in [Releasing](RELEASING.md), so there is no second copy to
+drift. That page carries both halves in reading order: the pre-flight list that has to hold
+**before** the tag exists - the tree is clean, `make preflight` is green, `main` equals
+`origin/main`, no open issue the release claims to close, and `CHANGELOG.md` is written - and the
+sequence that follows it: what `.github/workflows/release.yml` builds from the tag, how the chain it
+publishes is verified, how the draft release is published, and the one command that updates the
+Homebrew formula.
 
 Do not build the binaries or create the release by hand: the release workflow
 builds the four `dotfiles-<os>-<arch>` assets from the pushed tag and creates the
