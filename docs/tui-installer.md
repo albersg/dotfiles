@@ -237,18 +237,23 @@ by a five-second timeout, so a hung `tmux`, `herdr` or `bat` cannot hang the scr
 | tmux | Yes, for a server that is already running | runs `tmux source-file <config>` only when `tmux list-sessions` succeeds; otherwise names the command |
 
 **Choosing a theme is one change on screen, and the result is told where the press was made.** A
-press answers at once: the rows the reload report will use show what is being applied while it runs
-(`Applying the Catppuccin Mocha theme…`), the list stays drawn under the cursor, and the report lands
-in those same rows once the write and the reloads finish. Nothing navigates to a second view, the row
-under the cursor does not move, the frame does not change height, and the report is not a different
-panel appearing a second later — the defect this replaced. The activity slot takes every row the list
-does not need and the list keeps five rows around the cursor, so the report has room to name its tools
-and the list does not leave the screen; the slot is the same height for the pending line and for the
-report, which is what keeps the row under the cursor still. A switch that is already running leaves the
-list's rows inert until it reports, so a second write cannot start beside the first. The other long
-utility actions say what they are doing in the row their result will use for the same reason: the
-desktop theme switch, the WSL write, the shell audit (`Measuring: ...`) and the terminal probe
-(`Reading what this terminal can do and what it means for the themes and the interface...`).
+press answers at once: the rows under the list show what is being applied while it runs
+(`Applying the Catppuccin Mocha theme…`), and the report lands in those same rows once the write and
+the reloads finish. Nothing navigates to a second view, the frame does not change height, and the
+report is not a different panel appearing a second later — the defect this replaced. The activity slot
+sits under the list, in the rows the report will use, and it is carved out after the list has taken its
+own size, so the list stays whole and the wait is drawn where it belongs instead of above the list; only
+on a frame too short to hold the list whole does the list give rows up, and never below the five the
+slot needs to name a tool and say how many it could not name. The slot is the same height for the
+pending line and for the report, which is what keeps the row under the cursor still from the press to
+the report, and the rows the pending line does not use are left as a margin at the foot of the body, so
+a wait reads as one line under the list rather than as a hole in the middle of the screen. The
+description above the list is the one thing that gives way at the press, so the list moves up by those
+rows when the press is made and does not move again. A switch that is already running leaves the list's
+rows inert until it reports, so a second write cannot start beside the first. The other long utility
+actions say what they are doing in the row their result will use for the same reason: the desktop theme
+switch, the WSL write, the shell audit (`Measuring: ...`) and the terminal probe (`Reading what this
+terminal can do and what it means for the themes and the interface...`).
 
 **The list scrolls, so the frame is not the limit on how many themes there can be.** The picker
 draws as many rows as the frame leaves and windows the rest around the cursor, so a theme added to
@@ -1325,6 +1330,17 @@ frames rather than building and drawing the same 55 screens at the same 12
 terminals again. The pass renders with the companion animating, which is the
 strictest frame, so a screen that overflows only with the creature on fails the
 fit guard instead of escaping it.
+
+The theme picker, the utilities section, the WSL resources, the shell's startup
+and the terminal capability report each have a frame pinned at the 80x24 floor as
+well: `TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
+with a switch pending, `TestThemePickerResultGolden` with the report landed,
+`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden` and
+`TestTerminalCapabilitiesGolden`. They were guarded by measurements -- rows,
+columns, fit at twelve sizes -- and by behaviour, and a measurement cannot see a
+block drawn above the list it belongs under, a list squashed to five rows to make
+room for it, or a screen that reads as a wall of prose. Looking at the frame is
+what catches those, and the snapshot is how this repository looks at one.
 
 ### Updating Golden Files
 

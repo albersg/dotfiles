@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+  Utilities                                                                     
+  ────────────────────────────────────────────────────────────────────────────  
+  The shell's startup                                                           
+  zsh is started the way a terminal starts it -- `zsh -i -c exit`, each start   
+  bounded by 10 s -- so the number describes the start you wait through when    
+  you open a terminal. The measurement is 5 such starts, and the median is the  
+  middle one: not an average, and not a single run.                             
+  Finished starts: 4 of 5. Median 924 ms, fastest 872 ms, slowest 977 ms.       
+  Every completed start is listed so the number can be reproduced by hand. The  
+  starts, in the order they ran: 977 ms, 915 ms, 872 ms, 932 ms.                
+  1 of the 5 starts did not finish inside 10 s and were killed at that bound.   
+  … and 20 more                                                                 
+                                                                                
+  ▸ Measure the shell's startup                                                 
+  ────────────────────────────────────────────────────────────────────────────  
+    Median of 4 of 5 runs: 924 ms                                               
+    Range: 872 ms to 977 ms                                                     
+    1 of 5 runs did not finish: 1 timed out at 10 s                             
+    Slowest function: compdump (725.25 ms self, 1 call(s))                      
+  ────────────────────────────────────────────────────────────────────────────  
+    ← Back                                                                      
+  ────────────────────────────────────────────────────────────────────────────  
+  ↑/k up • ↓/j down • [Enter] select • [Esc] back                               [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

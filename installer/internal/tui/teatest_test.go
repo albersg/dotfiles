@@ -393,6 +393,54 @@ func requireGoldenCapture(t *testing.T, got []byte) {
 	teatest.RequireEqualOutput(t, normalizeTerminalTitle(normalizeGoldenBytes(got), golden))
 }
 
+// TestGoldenCaptureNeverRunsAnInstallationStep is the guard for the rule every
+// capture follows: a golden renders a screen, it never installs. goldenTranscript
+// is the one path every teatest snapshot takes and stepExecutor is the seam the
+// TUI's own install loop runs through. The screen used is the neovim question,
+// where Enter is the key that starts the run, so a capture that ever sent more
+// than its quit key would be caught here rather than on a runner with the
+// privilege to write /etc/wsl.conf. The executor is replaced with a spy, so the
+// guard reads the call and nothing is installed either way.
+func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
+	skipIfTermux(t)
+
+	original := stepExecutor
+	t.Cleanup(func() { stepExecutor = original })
+	var ran []string
+	stepExecutor = func(stepID string, _ *Model) error {
+		ran = append(ran, stepID)
+		return nil
+	}
+
+	// The teeth: pressing the install key on this same screen reaches the spy, so
+	// the capture below passing means the key was not pressed rather than the spy
+	// being on the wrong seam.
+	start := installerFrameCase(t, "nvim-select")
+	next, press := start.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if press == nil {
+		t.Fatal("Enter on the neovim screen returned no command, so the install key is not wired")
+	}
+	_, stepCmd := next.(Model).Update(press())
+	if stepCmd == nil {
+		t.Fatal("the install start returned no step, so the teeth cannot reach the executor")
+	}
+	_ = stepCmd()
+	if len(ran) == 0 {
+		t.Fatal("pressing the install key did not reach the executor, so this guard is watching the wrong seam")
+	}
+	ran = nil
+
+	m := installerFrameCase(t, "nvim-select")
+	m.Animating = false
+	// The transcript is not compared here: this guard is about what the capture did,
+	// not about the bytes it drew.
+	_ = goldenTranscript(t, m, 80, 24, "Neovim Configuration")
+
+	if len(ran) != 0 {
+		t.Fatalf("the capture ran installation steps %v: a golden snapshots a screen and must not install", ran)
+	}
+}
+
 // TestGoldenCaptureIgnoresTheTerminalTitlePosition is the teeth for the macOS
 // golden flake: the terminal title races the first frame, so a capture may carry
 // it before the frame (as the pin does), after it, or not at all, and the
@@ -825,6 +873,156 @@ func TestInstallingLiveGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := installerFrameCase(t, "installing-live")
 	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// ---------------------------------------------------------------------------
+// The five screens nobody had looked at
+// ---------------------------------------------------------------------------
+//
+// The theme picker, the utilities section, the WSL resources, the shell's
+// startup and the terminal capability report were guarded by measurements --
+// rows, columns, fit at twelve sizes -- and by behaviour, but none of them had a
+// frame pinned anywhere. A measurement cannot see that a block sits above the
+// list it belongs under, that the list was squashed to five rows to make room
+// for it, or that a screen reads as a wall of prose: only looking at the frame
+// can, and a golden is how this repository looks at a frame. These five snapshots
+// are that look, at the 80x24 floor, which is where the room is tightest.
+
+// pickerGoldenMarker is the picker's own title: the wait's contract is the screen
+// the snapshot is about, and the title is the row that says which screen it is.
+const pickerGoldenMarker = "Change the dotfiles theme"
+
+// pickerGoldenModel is the picker with the shipped theme definitions on it, at
+// the 80x24 floor. The definitions are read from the repository, the way the
+// installer reads them, so the snapshot records the list the program really
+// builds rather than a fixture that could outlive it.
+func pickerGoldenModel(t *testing.T) Model {
+	t.Helper()
+
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 80, 24
+	m.Screen = ScreenThemePicker
+	// The frame below the cursor is a pure function of the model, and the gate is
+	// off so no tick can arrive between the frame and the quit: a snapshot may not
+	// depend on the clock.
+	m.Animating = false
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m.DotfilesThemes = defs
+	return m
+}
+
+// TestThemePickerGolden pins the picker with nothing running: the description,
+// the whole list of themes, the refresh row, the way back and the live preview.
+func TestThemePickerGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := pickerGoldenModel(t)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, pickerGoldenMarker))
+}
+
+// TestThemePickerActivityGolden pins the state the user reported as ugly: a
+// switch is running, and the frame has to say so without taking the screen over.
+// The list keeps every theme on it and the pending line sits under the list, in
+// the rows the result will use. The golden is what makes that claim checkable --
+// the frame before this snapshot had the activity block above the list and the
+// list itself cut down to five rows.
+func TestThemePickerActivityGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := pickerGoldenModel(t)
+	m.ThemeActivity = &themeActivity{Pending: "Applying the Nocturne theme…"}
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, pickerGoldenMarker))
+}
+
+// TestThemePickerResultGolden pins the frame the outcome lands on, drawn from
+// the same summary the run writes: one paragraph of method and one line per tool,
+// the first of which is longer than the frame can hold, so the cut and its count
+// are part of the snapshot. The rows the pending line held are the rows this
+// lands in, which is the half of the property the goldens above and here share.
+func TestThemePickerResultGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := pickerGoldenModel(t)
+	m.ThemeActivity = &themeActivity{Result: themeReloadResultParagraphs([]themeReloadTool{
+		{Tool: "Alacritty", Done: true,
+			Note: "Alacritty watches its config and reloads it live, so the new colours are already on screen."},
+		{Tool: "Neovim",
+			Note: "a Neovim that is already open keeps the old colorscheme: run `:colorscheme <name>` in it. A new one reads the selection."},
+		{Tool: "tmux",
+			Note: "a tmux that is already running keeps the old style: run `tmux source-file ~/.tmux.conf`. A new server reads the file."},
+	})}
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, pickerGoldenMarker))
+}
+
+// TestUtilitiesGolden pins the section itself: the rows it offers on a host with
+// a login shell and a terminal to describe, and the prose that explains what each
+// one does. The audit and the capability report are pinned on the model -- a
+// guard that read the runner's own shell and terminal would change with the
+// machine -- the desktop's own theme switch is pinned for the same reason, since
+// it is decided from the platform and the session's environment variables, and
+// the theme definitions are loaded, which is the state the section settles into
+// once its own read lands.
+func TestUtilitiesGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 80, 24
+	m.Screen = ScreenUtilities
+	m.Animating = false
+	m.ThemeSwitch, m.ThemeSwitchFound = themeSwitch{}, false
+	m.ShellAudit = shellAuditTestState()
+	m.TerminalCapabilities = terminalCapabilitiesFrameCase(t).TerminalCapabilities
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m.DotfilesThemes = defs
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
+}
+
+// TestWSLResourcesGolden pins the WSL resource screen on a WSL host: the
+// recommendation from the host's own capacity, the values the file holds, the
+// draft, the write row and the way back. The host and the file are forced, so the
+// snapshot is the screen and not the Windows host it was rendered on.
+func TestWSLResourcesGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := wslResourcesFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "WSL resources"))
+}
+
+// TestShellAuditGolden pins the shell startup report: the method, the median and
+// its range, the start that did not finish, the command the number comes from and
+// the function zprof put first. The numbers are a fixture computed by the shipped
+// summary function, so the frame is the same on every runner.
+func TestShellAuditGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := shellAuditFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "The shell's startup"))
+}
+
+// TestTerminalCapabilitiesGolden pins the capability report: every answer with
+// the source it came from, the one answer that is unknown with the manual check
+// that replaces it, and the read-only promise. The answers are forced rather than
+// probed, so the frame does not become a snapshot of the runner's terminal.
+func TestTerminalCapabilitiesGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := terminalCapabilitiesFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Terminal capabilities"))
 }
 
 // TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
