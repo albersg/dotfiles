@@ -59,16 +59,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve the commit the tag points at
-        # GITHUB_SHA is the commit for a lightweight tag and the tag object for an
-        # annotated one, so resolve through the tag before anything compares it.
-        # An empty answer is a failure rather than a comparison that cannot fail.
-        run: |
-          commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
-          if [ -z "${commit}" ]; then echo "::error::could not resolve the commit the tag points at"; exit 1; fi
-          echo "COMMIT=${commit}" >> "$GITHUB_ENV"
-          echo "commit: ${commit}"
-        uses: actions/checkout@v4
       - name: Resolve the version
         id: version
         working-directory: .
@@ -107,7 +97,7 @@ jobs:
           # and so the update check can tell what it is running.
           go build \
             -trimpath \
-            -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${GITHUB_SHA} -X main.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o "${{ matrix.artifact }}" \
             ./cmd/dotfiles
 
@@ -164,7 +154,7 @@ jobs:
           BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           {
             printf '# dotfiles %s\n' "${VERSION}"
-            printf '# built from %s on %s\n' "${COMMIT}" "${BUILT}"
+            printf '# built from %s on %s\n' "${GITHUB_SHA}" "${BUILT}"
             printf '# verify with: sha256sum -c SHA256SUMS\n'
             printf '\n'
             find artifacts -type f -name 'dotfiles-*' | sort | while read -r f; do
@@ -193,16 +183,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve the commit the tag points at
-        # GITHUB_SHA is the commit for a lightweight tag and the tag object for an
-        # annotated one, so resolve through the tag before anything compares it.
-        # An empty answer is a failure rather than a comparison that cannot fail.
-        run: |
-          commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
-          if [ -z "${commit}" ]; then echo "::error::could not resolve the commit the tag points at"; exit 1; fi
-          echo "COMMIT=${commit}" >> "$GITHUB_ENV"
-          echo "commit: ${commit}"
-        uses: actions/checkout@v4
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -269,7 +249,7 @@ jobs:
 
           echo "== the manifest names this version and this commit =="
           grep -qF "${VERSION}" MANIFEST.txt || { echo "::error::MANIFEST.txt does not name ${VERSION}"; exit 1; }
-          grep -qF "${COMMIT}" MANIFEST.txt || { echo "::error::MANIFEST.txt does not name commit ${GITHUB_SHA}"; exit 1; }
+          grep -qF "${GITHUB_SHA}" MANIFEST.txt || { echo "::error::MANIFEST.txt does not name commit ${GITHUB_SHA}"; exit 1; }
 
           echo "== the binary reports the version and the commit the manifest records =="
           # The one asset that can run on this runner: if the linker line ever
@@ -280,7 +260,7 @@ jobs:
             *"${VERSION}"*) ;;
             *) echo "::error::dotfiles-linux-amd64 --version printed '${version_output}', which does not name ${VERSION}"; exit 1 ;;
           esac
-          short_commit="$(echo "${COMMIT}" | cut -c1-7)"
+          short_commit="$(echo "${GITHUB_SHA}" | cut -c1-7)"
           case "${version_output}" in
             *"${short_commit}"*) ;;
             *) echo "::error::dotfiles-linux-amd64 --version printed '${version_output}', which does not name commit ${short_commit}"; exit 1 ;;
@@ -330,16 +310,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve the commit the tag points at
-        # GITHUB_SHA is the commit for a lightweight tag and the tag object for an
-        # annotated one, so resolve through the tag before anything compares it.
-        # An empty answer is a failure rather than a comparison that cannot fail.
-        run: |
-          commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
-          if [ -z "${commit}" ]; then echo "::error::could not resolve the commit the tag points at"; exit 1; fi
-          echo "COMMIT=${commit}" >> "$GITHUB_ENV"
-          echo "commit: ${commit}"
-        uses: actions/checkout@v4
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -415,7 +385,7 @@ jobs:
           done < SHA256SUMS
           [ "${fail}" = 0 ] || exit 1
           grep -qF "${VERSION}" MANIFEST.txt || { echo "::error::the published MANIFEST.txt does not name ${VERSION}"; exit 1; }
-          grep -qF "${COMMIT}" MANIFEST.txt || { echo "::error::the published MANIFEST.txt does not name commit ${GITHUB_SHA}"; exit 1; }
+          grep -qF "${GITHUB_SHA}" MANIFEST.txt || { echo "::error::the published MANIFEST.txt does not name commit ${GITHUB_SHA}"; exit 1; }
 
       - name: Verify the published attestations
         env:
