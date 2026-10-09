@@ -254,6 +254,9 @@ jobs:
           echo "== the binary reports the version and the commit the manifest records =="
           # The one asset that can run on this runner: if the linker line ever
           # stops injecting the identity, this is where it is caught.
+          # Artifacts do not carry the executable bit through upload and download,
+          # so the binary has to be made runnable before it is run.
+          chmod +x ./dotfiles-linux-amd64
           version_output="$(./dotfiles-linux-amd64 --version)"
           echo "${version_output}"
           case "${version_output}" in
