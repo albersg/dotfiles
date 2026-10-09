@@ -19,11 +19,11 @@ import (
 // The installer's screens are wide and mostly empty below their content: at the
 // 227x62 the layout was measured on, the main menu occupies 8 of 62 rows. The
 // panels fill some of that room with facts; the companion is the one element in
-// it that is not information. It is a small creature that walks the rows the body
-// did not need, toward whatever the cursor points at, looks at it, sleeps when the
-// user stops typing and reacts to what is on screen. It walks only when it has
-// somewhere to go: a creature with nothing to do stands still, so a screen nobody
-// is typing into settles into bytes the renderer never has to repaint.
+// it that is not information. It is a small creature that wanders short distances
+// by choice, looks around and occasionally hops after a long quiet stretch. Recent
+// keyboard input gets visual calm; cursor and pointer motion are not destinations.
+// Long inactivity eventually lets it sleep, while the renderer remains unchanged
+// between the creature's deliberate animation events.
 //
 // The art is drawn here, in the three tables below, and it is deliberately plain
 // ASCII. Termux, a 16-colour terminal and a terminal with no font fallback all
@@ -126,17 +126,17 @@ const (
 	companionBrakeCells  = 3
 	companionBrakeFrames = 2
 
-	// companionFollowCells is how far the creature walks for one row of a menu.
-	// Spreading the menu's whole index across the stage is what threw it thirty-five
-	// cells for one arrow key on a wide terminal; walking a fixed three cells per
-	// row makes one keypress a short stroll and a jump to the last row a walk of a
-	// few seconds. It also keeps the creature near the menu it is following instead
-	// of out in the middle of a 227-column stage on its own.
-	companionFollowCells = 3
+	// companionRoamAfterSeconds gives recent input and the user's attention a long
+	// quiet stretch before autonomous play can begin.
+	companionRoamAfterSeconds = 8
 
-	// companionSleepSeconds is how long without a key puts it to sleep. It is a
-	// duration: the stretch stays twenty seconds if the frame rate ever moves.
-	companionSleepSeconds = 20
+	// companionRoamStepFrames slows cell movement below the 8fps render clock.
+	companionRoamStepFrames = 3
+
+	// companionSleepSeconds is the long quiet period before she naps. Autonomous
+	// play does not reset user-idle time: she can wander without pretending the
+	// user interacted with the screen.
+	companionSleepSeconds = 60
 
 	// companionSleepTicks is that stretch in frames, the value the model's idle
 	// counter is compared against. It is counted on the model, not in the
@@ -181,6 +181,9 @@ const (
 	companionBreathTicks      = companionBreathSeconds * animTicksPerSecond
 	companionEarTwitchTicks   = companionEarTwitchSeconds * animTicksPerSecond
 	companionTailFlickTicks   = companionTailFlickSeconds * animTicksPerSecond
+	companionRoamAfterTicks   = companionRoamAfterSeconds * animTicksPerSecond
+	companionRoamMinWaitTicks = 6 * animTicksPerSecond
+	companionRoamMaxWaitTicks = 14 * animTicksPerSecond
 )
 
 // companionState is the state the creature is drawn in. The reactions come
@@ -226,20 +229,9 @@ type companionGaze struct {
 	X, Y int
 }
 
-// companionGazeDeadZone is how many columns either side of the creature's own
-// cell still count as looking straight at the thing it wants. A pupil pair that
-// followed every column of a fourteen-column body would flicker; two columns is
-// the dead zone the design asks for and it is a constant with a test beside it so
-// it cannot drift.
+// companionGazeDeadZone is retained for the pure gaze geometry helper and tests;
+// autonomous gaze choices are discrete and never resolve a user-controlled cell.
 const companionGazeDeadZone = 2
-
-// companionSelectionRow is the row the selection is on, counted from the
-// creature's own row. A menu row is in the body and the creature walks the last
-// row the body did not need, so the thing it looks at is always above it. It is a
-// named constant rather than a computed row because the placement does not know
-// the body's absolute rows; the pointer task passes its own row here instead and
-// nothing else in the gaze changes.
-const companionSelectionRow = -1
 
 // companionGazeFor turns the cell the creature is looking at into a gaze. It is
 // pure -- no model, no clock, no layout -- so every gaze can be pinned by a test.
@@ -269,106 +261,18 @@ func (m Model) companionAsleepNow() bool {
 	return m.CompanionIdle >= companionSleepTicks
 }
 
-// aimCompanion points the creature's gaze at whatever it should be looking at:
-// the pointer when this run asked the terminal for one and has seen it, and the
-// selection otherwise, which is what the gaze did before the pointer existed. It
-// is called from the places that can change what the creature sees -- the model's
-// own construction, a key that moved the selection or changed the screen, the tick
-// that actually moved the creature, and a pointer event -- so the eyes settle when
-// the thing they look at moves, never on a tick that changed nothing. The render
-// path draws the gaze and never computes it, and a snapshot can pin one.
-func (m *Model) aimCompanion() {
-	stage := companionStageWidth(*m)
-	if col, row, ok := m.companionPointerTarget(stage); ok {
-		m.CompanionGaze = companionGazeFor(col, row, m.CompanionPos)
-		return
-	}
-	target, ok := m.companionTarget(stage)
-	if !ok {
-		m.CompanionGaze = companionGaze{}
-		return
-	}
-	m.CompanionGaze = companionGazeFor(target, companionSelectionRow, m.CompanionPos)
-}
-
-// ============================================================================
-// THE POINTER
-// ============================================================================
-//
-// The gaze follows the pointer when the run asked the terminal for mouse motion,
-// and the selection when it did not. That fallback is the whole reason the pointer
-// is a source of the gaze rather than a replacement for it: a terminal that
-// refuses mouse reporting, a run with the gate off, and a Termux session where the
-// pointer is a finger all keep the creature looking at what is selected instead of
-// losing the gaze entirely.
-//
-// The terminal reports the pointer in its own cell coordinates and knows nothing
-// about the frame, so two numbers from the layout turn one into the other: the
-// frame pads viewPaddingCols columns on the left, which is where the stage starts,
-// and the creature draws in the last rows of the frame, which is the band the
-// vertical gaze is measured against. Neither is resolved against the body's
-// absolute rows, for the reason companionSelectionRow gives -- the placement does
-// not know them, and a gaze that needed them would have to be computed inside the
-// renderer, which is exactly where the creature is not allowed to compute.
-
-// companionGroundShare is the share of the frame's height the creature's ground
-// band takes from the bottom, as a divisor: the band is the bottom third of the
-// screen, and a pointer above it is above the creature. It is a share of the
-// height rather than a row count because the frame's footer and the panel summary
-// move the creature's exact rows and the placement does not know them (see
-// companionSelectionRow); a two-thirds line is below the creature at every size,
-// while a fixed row count is only right at the size it was measured at.
-const companionGroundShare = 3
-
-// companionGroundTop is the first row of that band: the row above it is "above the
-// creature" and the row itself is level with it.
-func companionGroundTop(height int) int {
-	return height * (companionGroundShare - 1) / companionGroundShare
-}
-
-// companionPointerTarget is the cell the pointer is on, in the creature's own
-// coordinates: the column of the stage it points at, clamped to the row the
-// creature can walk, and its row measured against the band the creature draws in,
-// where a negative row means above the creature. It reports false when this run has
-// no live pointer -- the gate is off, or no event has arrived yet -- and the gaze
-// then falls back to the selection.
-func (m Model) companionPointerTarget(stage int) (col, row int, ok bool) {
-	if !m.Hovering || !m.PointerSet {
-		return 0, 0, false
-	}
-	col = m.PointerCol - viewPaddingCols
-	col = min(max(col, 0), max(stage-companionCellWidth, 0))
-	row = m.PointerRow - companionGroundTop(m.Height)
-	return col, row, true
-}
-
-// handleCompanionMouse is the pointer's whole input path: it remembers the cell,
-// wakes the creature, turns the gaze, and treats a left click as an event of its
-// own -- the celebration a finished step earns plus the little jump.
-//
-// Waking on motion is oneko's rule, and there is nothing clever to detect about a
-// parked mouse: a parked mouse sends no events at all, so the only pointer event
-// that exists is the user moving the mouse and every one of them is the sudden
-// movement that wakes the cat. A jittery hand therefore keeps it awake, which is
-// the honest reading of "the user is at the mouse".
-//
-// A wheel is ignored: the installer runs in the alternate screen, where there is no
-// scrollback for it to move, and the creature has nothing to say about it. The
-// events that are not handled here are dropped exactly as they were before the
-// pointer existed.
+// handleCompanionMouse deliberately ignores pointer motion: the user must not
+// steer the creature's position or gaze. A click remains an optional explicit
+// interaction; autonomous play never needs a pointer event.
 func (m Model) handleCompanionMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// tea.MouseMsg is a named copy of the event rather than an alias, so the
-	// predicate that knows what a wheel is lives on the underlying type.
-	if !m.Hovering || tea.MouseEvent(msg).IsWheel() {
+	if !m.Hovering || tea.MouseEvent(msg).IsWheel() || msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		return m, nil
 	}
 	m.CompanionIdle = 0
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		m.CompanionPleased = companionPleasedTicks
-		m.CompanionHop = companionHopTicks
-	}
-	m.PointerCol, m.PointerRow, m.PointerSet = msg.X, msg.Y, true
-	m.aimCompanion()
+	m.CompanionPleased = companionPleasedTicks
+	m.CompanionHop = companionHopTicks
+	m.CompanionRoamActive = false
+	m.CompanionRoamWait = companionRoamAfterTicks
 	return m, nil
 }
 
@@ -2114,8 +2018,8 @@ func (m Model) companionVerdict() (correct, showing bool) {
 // overwrites or discards their files. Two screens are alert on every row -- the
 // one that chooses a backup to restore and the one that confirms the restore --
 // and the screen that confirms the installation overwrites the configs it just
-// listed. Everywhere else the row under the cursor decides, so the main menu is
-// alert on "Restore from Backup" and quiet on the entries that only read.
+// listed. On menus, only the selected row's destructive wording informs this
+// reaction; selection never supplies a movement or gaze target.
 func (m Model) companionAlerting() bool {
 	switch m.Screen {
 	case ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm:
@@ -2143,9 +2047,8 @@ func companionDestructiveRow(row string) bool {
 	return false
 }
 
-// companionSelectedRow is the option the cursor is on, or the empty string when
-// the screen offers no options at all. It reads the same list the screen draws,
-// so the creature reacts to the row the user can actually see selected.
+// companionSelectedRow is read only for the destructive-action reaction. It is
+// not consumed by autonomous movement or gaze.
 func (m Model) companionSelectedRow() string {
 	options := m.GetCurrentOptions()
 	if m.Cursor < 0 || m.Cursor >= len(options) {
@@ -2154,37 +2057,12 @@ func (m Model) companionSelectedRow() string {
 	return options[m.Cursor]
 }
 
-// companionTarget is the cell the cursor points at: the cursor's index times
-// companionFollowCells, capped at the right edge of the stage. Spreading the whole
-// index across the stage is what threw the creature tens of cells for one arrow
-// key on a wide terminal; a fixed three cells a row makes one keypress a short
-// stroll and keeps the creature near the menu it follows. It reports false when
-// there is nothing to point at -- a screen with no menu, like the installing
-// screen or the trainer's exercises -- and the creature then simply stands still.
-func (m Model) companionTarget(stage int) (int, bool) {
-	options := m.GetCurrentOptions()
-	if len(options) < 2 {
-		return 0, false
-	}
-	limit := stage - companionCellWidth
-	if limit < 1 {
-		return 0, false
-	}
-	index := min(max(m.Cursor, 0), len(options)-1)
-	return min(index*companionFollowCells, limit), true
-}
-
-// armCompanionFollow points the companion at the row the cursor is on and turns
-// its gaze with it. A key that moved the selection, or a key that opened another
-// screen, is the event; the walking itself happens on the ticks that follow,
-// which is why moving the cursor visibly moves the creature over the following
-// ticks instead of teleporting it. A screen with nothing to point at leaves it
-// standing still and looking straight ahead.
-func (m *Model) armCompanionFollow() {
-	if _, ok := m.companionTarget(companionStageWidth(*m)); ok {
-		m.CompanionFollow = true
-	}
-	m.aimCompanion()
+// pauseCompanionAfterInput gives the user a calm interval and cancels a pending
+// stroll. Input never sets an autonomous destination.
+func (m *Model) pauseCompanionAfterInput() {
+	m.CompanionMoving = false
+	m.CompanionRoamActive = false
+	m.CompanionRoamWait = companionRoamAfterTicks
 }
 
 // advanceCompanion is the creature's whole clock: it ages the idle stretch, ages
@@ -2209,69 +2087,100 @@ func (m *Model) advanceCompanion() {
 	// kept walking while asleep would contradict its own face; it also means an
 	// idle run settles into a view string that no longer changes, so the renderer
 	// stops repainting anything at all. Its gaze is left where it fell asleep, and
-	// only the pointer -- which wakes it -- turns it again.
+	// only a later autonomous play choice or explicit click can change that.
 	if m.companionAsleepNow() {
 		m.CompanionMoving = false
 		return
 	}
 
-	// The gaze is aimed only when the tick actually moved the creature. The cell it
-	// stands on is half of what the gaze is computed from, so a step can turn the
-	// eyes; a tick that moved nothing must change nothing, or the pupils would
-	// settle a frame after the target did and a still screen would flicker. The
-	// other events that change what it sees -- the model's construction and a key
-	// that moved the cursor or changed the screen -- aim the gaze themselves, and so
-	// does a pointer event.
-	before := m.CompanionPos
-	m.stepCompanion()
-	if m.CompanionPos != before {
-		m.aimCompanion()
-	}
+	// Autonomous play chooses its own movement and gaze on this same frame clock.
+	// User input only resets the quiet window; it never supplies a destination.
+	m.advanceCompanionPlay()
 }
 
-// stepCompanion takes one step toward the row the cursor points at, and does
-// nothing at all when there is nothing to walk toward. Standing still is the
-// default: the creature walks only while the walk is armed, and a creature with
-// nothing to do does nothing.
-func (m *Model) stepCompanion() {
-	stage := companionStageWidth(*m)
-	limit := stage - companionCellWidth
-	if limit < 1 {
-		m.CompanionPos, m.CompanionMoving = 0, false
-		return
+// nextCompanionRandom is a private xorshift stream stored on the model. Tests
+// can seed it directly; unrelated random calls cannot perturb this creature.
+func (m *Model) nextCompanionRandom() uint32 {
+	if m.CompanionRandom == 0 {
+		m.CompanionRandom = 0x6d2b79f5
 	}
-	pos := min(max(m.CompanionPos, 0), limit)
+	x := m.CompanionRandom
+	x ^= x << 13
+	x ^= x >> 17
+	x ^= x << 5
+	m.CompanionRandom = x
+	return x
+}
 
-	// Standing still is the default and the whole of the quiet: the creature walks
-	// only to reach the row the cursor points at, and a creature with nothing to do
-	// does nothing. That is what makes a screen nobody is typing into settle into a
-	// view string that never changes, so the renderer writes no bytes at all while
-	// the user reads -- which is the difference between a pet and a flicker.
-	target, ok := m.companionTarget(stage)
-	if !ok || !m.CompanionFollow {
-		m.CompanionFollow, m.CompanionMoving = false, false
-		return
-	}
-	distance := companionDistance(pos, target)
-	if distance == 0 {
-		m.CompanionFollow, m.CompanionMoving = false, false
-		return
-	}
+// scheduleCompanionPlay leaves a few seconds of stillness between chosen actions.
+func (m *Model) scheduleCompanionPlay() {
+	span := companionRoamMaxWaitTicks - companionRoamMinWaitTicks + 1
+	m.CompanionRoamWait = companionRoamMinWaitTicks + int(m.nextCompanionRandom()%uint32(span))
+	m.CompanionGaze.Y = 0
+}
 
-	// Braking: the last few cells are crossed on every other frame, so the arrival
-	// is a step and not a stop. A step is never more than companionStepCells, so a
-	// long walk takes as many frames as it has cells and can be timed exactly.
-	if distance <= companionBrakeCells && m.AnimTick%companionBrakeFrames == 1 {
+// advanceCompanionPlay makes the pet choose short strolls and small idle games
+// only after user input has been quiet for a while. All choices share AnimTick.
+func (m *Model) advanceCompanionPlay() {
+	if m.CompanionIdle <= companionRoamAfterTicks {
 		m.CompanionMoving = false
 		return
 	}
-	step := min(distance, companionStepCells)
-	if target > pos {
-		pos += step
-	} else {
-		pos -= step
+	stage := companionStageWidth(*m)
+	limit := max(stage-companionCellWidth, 0)
+	m.CompanionPos = min(max(m.CompanionPos, 0), limit)
+
+	if m.CompanionRoamActive {
+		m.CompanionRoamWait = 0
+		if m.AnimTick%companionRoamStepFrames == 0 {
+			if m.CompanionPos < m.CompanionRoamTarget {
+				m.CompanionPos++
+			} else if m.CompanionPos > m.CompanionRoamTarget {
+				m.CompanionPos--
+			}
+		}
+		m.CompanionMoving = m.CompanionPos != m.CompanionRoamTarget
+		if !m.CompanionMoving {
+			m.CompanionRoamActive = false
+			m.scheduleCompanionPlay()
+		}
+		return
 	}
-	m.CompanionPos, m.CompanionMoving = pos, true
+
+	m.CompanionMoving = false
+	if m.CompanionRoamWait > 0 {
+		m.CompanionRoamWait--
+		return
+	}
+	if limit < 1 {
+		m.scheduleCompanionPlay()
+		return
+	}
+	switch m.nextCompanionRandom() % 4 {
+	case 0, 1:
+		distance := 2 + int(m.nextCompanionRandom()%5)
+		direction := -1
+		if m.nextCompanionRandom()%2 == 1 {
+			direction = 1
+		}
+		target := min(max(m.CompanionPos+direction*distance, 0), limit)
+		if target == m.CompanionPos {
+			target = min(max(m.CompanionPos-direction*distance, 0), limit)
+		}
+		if target != m.CompanionPos {
+			m.CompanionRoamTarget = target
+			m.CompanionRoamActive = true
+			m.CompanionGaze.X = direction
+		} else {
+			m.CompanionGaze = companionGaze{}
+		}
+	case 2:
+		m.CompanionGaze = companionGaze{X: int(m.nextCompanionRandom()%3) - 1, Y: int(m.nextCompanionRandom()%3) - 1}
+	case 3:
+		m.CompanionHop = companionHopTicks
+		m.CompanionGaze = companionGaze{X: int(m.nextCompanionRandom()%3) - 1}
+	}
+	m.scheduleCompanionPlay()
 }
 
 // companionDistance is how far apart two cells are, always positive.
