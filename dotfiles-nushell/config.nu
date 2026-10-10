@@ -7,81 +7,84 @@
 # And here is the theme collection
 # https://github.com/nushell/nu_scripts/tree/main/themes
 
+# dotfiles-managed-config: nushell
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 $env.LS_COLORS = (
-    # --- Directories and file types ---
-    "di=38;2;146;162;213:" +       # Directories: lavender blue (#92A2D5)
-    "fi=38;2;201;199;205:" +       # Regular files: light gray (#C9C7CD)
-    "ln=38;2;172;161;207:" +       # Symbolic links: lilac gray (#ACA1CF)
-    "ex=38;2;133;181;186:" +       # Executable files: blue-green (#85B5BA)
-    "or=38;2;234;131;165:" +       # Broken links: intense pink (#EA83A5)
+    # Every file kind nushell paints `ls` output with, each one the palette
+    # role named beside it.
+    "di=38;2;127;180;202:" +  # blue
+    "fi=38;2;243;246;249:" +  # text
+    "ln=38;2;255;141;215:" +  # magenta
+    "ex=38;2;122;168;159:" +  # cyan
+    "or=38;2;203;124;148:" +  # red
 
-    # --- Specific extensions ---
-    "*.txt=38;2;201;199;205:" +    # .txt: light gray (#C9C7CD)
-    "*.jpg=38;2;172;161;207:" +    # .jpg: lilac gray (#ACA1CF)
-    "*.png=38;2;172;161;207:" +    # .png: lilac gray (#ACA1CF)
-    "*.zip=38;2;133;181;186:" +    # .zip: blue-green (#85B5BA)
-    "*.gz=38;2;133;181;186:" +     # .gz: blue-green (#85B5BA)
-    "*.tar=38;2;133;181;186:" +    # .tar: blue-green (#85B5BA)
-    "*.log=38;2;229;158;202:" +    # .log: soft pink (#E29ECA)
-    "*.md=38;2;229;158;202:" +     # .md: soft pink (#E29ECA)
-    "*.py=38;2;133;181;186:" +     # .py: blue-green (#85B5BA)
-    "*.rs=38;2;234;131;165:" +     # .rs: intense pink (#EA83A5)
-    "*.sh=38;2;133;181;186:" +     # .sh: blue-green (#85B5BA)
+    # The specific extensions.
+    "*.txt=38;2;243;246;249:" +  # text
+    "*.jpg=38;2;255;141;215:" +  # magenta
+    "*.png=38;2;255;141;215:" +  # magenta
+    "*.zip=38;2;122;168;159:" +  # cyan
+    "*.gz=38;2;122;168;159:" +  # cyan
+    "*.tar=38;2;122;168;159:" +  # cyan
+    "*.log=38;2;255;141;215:" +  # magenta
+    "*.md=38;2;255;141;215:" +  # magenta
+    "*.py=38;2;122;168;159:" +  # cyan
+    "*.rs=38;2;203;124;148:" +  # red
+    "*.sh=38;2;122;168;159:" +  # cyan
 
-    # --- Default color for other files ---
-    "*=38;2;201;199;205"           # Default: light gray (#C9C7CD)
+    # Everything else.
+    "*=38;2;243;246;249"  # text
 )
 
-
+# The record the configuration selects with `color_config`, so these are the
+# colours the shell draws with. Every one is a role of the theme's own palette.
 let dark_theme = {
-    # --- base elements ---
-    separator: "#54546D"                     # table borders (wave gray)
-    leading_trailing_space_bg: { attr: "n" } # spaces without background
-    header: "#7E9CD8_bold"                   # headers (wave blue + bold)
-    empty: "#957FB8"                         # empty elements (wave purple)
-    bool: "#D27E99"                          # booleans (wave pink)
-    int: "#54546D"                           # integers (wave gray)
-    filesize: "#6A9589"                      # file sizes (wave teal)
-    duration: "#98BB6C"                      # duration (wave green)
-    date: "#E6C384"                          # dates (wave beige)
-    range: "#54546D"                         # ranges (wave gray)
-    float: "#DCA561"                         # floats (wave orange)
-    string: "#54546D"                        # general text (wave gray)
-    nothing: "#7E9CD8"                       # null values (wave blue)
-    binary: "#6A9589"                        # binaries (wave teal)
-    cellpath: "#98BB6C"                      # cell paths (wave green)
-    row_index: "#7E9CD8_bold"                # row indices (wave blue + bold)
-    record: "#957FB8"                        # records (wave purple)
-    list: "#54546D"                          # lists (wave gray)
-    block: "#957FB8_bold"                    # blocks (wave purple + bold)
-    hints: "#98BB6C"                         # hints (wave green)
-    search_result: { fg: "#1F1F28", bg: "#E46876" } # search result (wave red background)
-
-    # --- syntax elements/commands ---
-    shape_and: "#957FB8_bold"                # AND operator (wave purple + bold)
-    shape_binary: "#6A9589_bold"             # binaries (wave teal + bold)
-    shape_block: "#7E9CD8"                   # blocks (wave blue)
-    shape_bool: "#D27E99"                    # booleans (wave pink)
-    shape_closure: "#DCA561"                 # closures (wave orange)
-    shape_custom: "#6A9589"                  # custom commands (wave teal)
-    shape_datetime: "#E6C384_bold"           # dates (wave beige + bold)
-    shape_directory: "#7E9CD8"               # directories (wave blue)
-    shape_external: "#6A9589"                # external commands (wave teal)
-    shape_externalarg: "#957FB8_bold"        # external arguments (wave purple + bold)
-    shape_filepath: "#98BB6C"                # file paths (wave green)
-    shape_flag: "#7E9CD8_bold"               # flags (wave blue + bold)
-    shape_float: "#DCA561"                   # floats (wave orange)
-    shape_garbage: { fg: "#1F1F28", bg: "#DCA561", attr: "b" } # error (wave orange background)
-    shape_globpattern: "#6A9589_bold"        # glob patterns (wave teal + bold)
-    shape_int: "#957FB8"                     # integers (wave purple)
-    shape_internalcall: "#6A9589_bold"       # internal calls (wave teal + bold)
-    shape_keyword: "#7E9CD8"                 # keywords (wave blue)
-    shape_literal: "#E6C384"                 # literals (wave beige)
-    shape_operator: "#E46876"                # operators (wave red)
-    shape_or: "#D27E99_bold"                 # OR operator (wave pink + bold)
-    shape_pipe: "#6A9589"                    # pipes (wave teal)
-    shape_string: "#98BB6C"                  # strings (wave green)
-    shape_variable: "#DCA561"                # variables (wave orange)
+    # Base elements.
+    separator: "#8A8FA3" # bright_black
+    leading_trailing_space_bg: { attr: "n" } # no fg and no bg
+    header: "#7FB4CA_bold" # blue
+    empty: "#FF8DD7" # magenta
+    bool: "#CB7C94" # red
+    int: "#8A8FA3" # bright_black
+    filesize: "#7AA89F" # cyan
+    duration: "#D1E8A9" # bright_green
+    date: "#FFF7B1" # bright_yellow
+    range: "#8A8FA3" # bright_black
+    float: "#FFE066" # yellow
+    string: "#8A8FA3" # bright_black
+    nothing: "#7FB4CA" # blue
+    binary: "#7AA89F" # cyan
+    cellpath: "#D1E8A9" # bright_green
+    row_index: "#7FB4CA_bold" # blue
+    record: "#FF8DD7" # magenta
+    list: "#8A8FA3" # bright_black
+    block: "#FF8DD7_bold" # magenta
+    hints: "#D1E8A9" # bright_green
+    search_result: { fg: "#06080F", bg: "#CB7C94" } # fg base, bg red
+    shape_and: "#FF8DD7_bold" # magenta
+    shape_binary: "#7AA89F_bold" # cyan
+    shape_block: "#7FB4CA" # blue
+    shape_bool: "#CB7C94" # red
+    shape_closure: "#FFE066" # yellow
+    shape_custom: "#7AA89F" # cyan
+    shape_datetime: "#FFF7B1_bold" # bright_yellow
+    shape_directory: "#7FB4CA" # blue
+    shape_external: "#7AA89F" # cyan
+    shape_externalarg: "#FF8DD7_bold" # magenta
+    shape_filepath: "#D1E8A9" # bright_green
+    shape_flag: "#7FB4CA_bold" # blue
+    shape_float: "#FFE066" # yellow
+    shape_garbage: { fg: "#06080F", bg: "#FFE066", attr: "b" } # fg base, bg yellow
+    shape_globpattern: "#7AA89F_bold" # cyan
+    shape_int: "#FF8DD7" # magenta
+    shape_internalcall: "#7AA89F_bold" # cyan
+    shape_keyword: "#7FB4CA" # blue
+    shape_literal: "#FFF7B1" # bright_yellow
+    shape_operator: "#CB7C94" # red
+    shape_or: "#CB7C94_bold" # red
+    shape_pipe: "#7AA89F" # cyan
+    shape_string: "#D1E8A9" # bright_green
+    shape_variable: "#FFE066" # yellow
+# <<< dotfiles-theme <<<
 }
 
 let light_theme = {
@@ -203,8 +206,12 @@ $env.config = {
     }
 
     explore: {
-        status_bar_background: { fg: "#1D1F21", bg: "#C4C9C6" },
-        command_bar_text: { fg: "#C4C9C6" },
+        # These take nushell's own ANSI names rather than a hex value: the terminal
+        # paints `black` and `white` from the palette of whichever theme is applied,
+        # so the bar follows the theme like the `highlight` and `status` lines below
+        # it instead of staying on one palette of its own.
+        status_bar_background: { fg: "black", bg: "white" },
+        command_bar_text: { fg: "white" },
         highlight: { fg: "black", bg: "yellow" },
         status: {
             error: { fg: "white", bg: "red" },

@@ -1,8 +1,8 @@
 # The dotfiles themes: one definition, every part
 
 This directory is the single source of truth for the palettes the repository can
-paint across its terminals, its shell prompt, `bat`, fish, tmux, Herdr and
-Neovim. Before this directory existed the same palette was written by hand in
+paint across its terminals, its shell prompt, `bat`, fish, tmux, Herdr, Neovim
+and nushell. Before this directory existed the same palette was written by hand in
 **six** files (`alacritty.toml`, `.wezterm.lua`, `dotfiles-kitty/kitty.conf`,
 `dotfiles-ghostty/config`, `starship.toml`, `dotfiles-zsh/.zshrc` and its
 `.p10k.zsh` fallbacks), so the same colour was maintained by hand in each of them
@@ -32,7 +32,8 @@ A value comes from one of three places, and each is cited:
 **A role is declared, or derived from the theme's own palette, or reported.** A
 tool rarely reads the canonical roles: Starship's table is written in
 Catppuccin's naming, fish has eighteen role names of its own, bat maps scopes to
-roles, tmux paints its own style options and Neovim has highlight groups. A
+roles, tmux paints its own style options, Neovim has highlight groups and nushell
+has its own `$dark_theme` record and `LS_COLORS` table. A
 definition that declares one of those tables (`[prompt]`, `[fish]`, `[bat]`,
 `[nvim]`) is used as it is. A definition that does not has each role **derived
 from its own canonical palette by the fixed mapping in "Derived roles" below** -
@@ -231,6 +232,79 @@ The one derived non-colour is Neovim's own `background`: the colorscheme declare
 `light` when the theme's base is lighter than mid grey and `dark` otherwise, which
 is what makes Catppuccin Latte a light colorscheme and the other five dark ones.
 
+### nushell - the record and the `LS_COLORS` table (`themeNushellRoles`, `themeNushellLSColours`)
+
+nushell reads its colours from two places in its own `config.nu`: the
+`$dark_theme` record the shipped configuration selects with
+`color_config: $dark_theme`, and the `$env.LS_COLORS` table it paints `ls` output
+from. Neither is a published palette, and nushell was not one of the tools the
+model named until issue #240, so both were eighteen hand-written Kanagawa values
+that appear in no `themes/*.toml` and that no switch repainted. Both are
+generated from the definition now, by the mapping below.
+
+The record's keys, in the record's own order:
+
+| `$dark_theme` key | palette role | `$dark_theme` key | palette role |
+|---|---|---|---|
+| separator | bright_black | search_result | fg base, bg red |
+| leading_trailing_space_bg | no colour (`{ attr: "n" }`) | shape_and | magenta (bold) |
+| header | blue (bold) | shape_binary | cyan (bold) |
+| empty | magenta | shape_block | blue |
+| bool | red | shape_bool | red |
+| int | bright_black | shape_closure | yellow |
+| filesize | cyan | shape_custom | cyan |
+| duration | bright_green | shape_datetime | bright_yellow (bold) |
+| date | bright_yellow | shape_directory | blue |
+| range | bright_black | shape_external | cyan |
+| float | yellow | shape_externalarg | magenta (bold) |
+| string | bright_black | shape_filepath | bright_green |
+| nothing | blue | shape_flag | blue (bold) |
+| binary | cyan | shape_float | yellow |
+| cellpath | bright_green | shape_garbage | fg base, bg yellow (bold) |
+| row_index | blue (bold) | shape_globpattern | cyan (bold) |
+| record | magenta | shape_int | magenta |
+| list | bright_black | shape_internalcall | cyan (bold) |
+| block | magenta (bold) | shape_keyword | blue |
+| hints | bright_green | shape_literal | bright_yellow |
+| | | shape_operator | red |
+| | | shape_or | red (bold) |
+| | | shape_pipe | cyan |
+| | | shape_string | bright_green |
+| | | shape_variable | yellow |
+
+The `LS_COLORS` keys, each one the same palette role it had:
+
+| `LS_COLORS` key | palette role | `LS_COLORS` key | palette role |
+|---|---|---|---|
+| di | blue | *.zip, *.gz, *.tar | cyan |
+| fi | text | *.log, *.md | magenta |
+| ln | magenta | *.py, *.sh | cyan |
+| ex | cyan | *.rs | red |
+| or | red | * | text |
+| *.txt | text | *.jpg, *.png | magenta |
+
+The table is written as the decimal `38;2;r;g;b` triple nushell reads, which is the
+form the shipped file already carried, so the values change and the format does
+not. The `LS_COLORS` half is outside what `TestGeneratedThemeBlocksInventNoColour`
+can read - it scans for `#rrggbb` tokens - so
+`TestNushellIsPaintedByTheThemeSwitch` decodes every triple in the block and
+requires each one to be a value the definition holds, and requires the shipped
+`dotfiles-nushell/config.nu` to carry none of the eighteen Kanagawa values.
+
+**The record's opening line and its closing brace are the file's own** and stay
+outside the marked region, which runs from `$env.LS_COLORS = (` to the record's
+last key (`shape_variable`). The end anchor is that key rather than the `}` line
+on purpose: `}` is not unique in the file, and an anchor that only matched a later
+section (the light theme) would make a file that had lost that section have its
+whole tail rewritten as the region.
+
+**The `explore` block takes nushell's own ANSI names, not a hex value.**
+`$env.config.explore.status_bar_background` and `command_bar_text` held two more
+Kanagawa hexes (`#1D1F21`, `#C4C9C6`), inside the user's own `$env.config`. They
+name `black` and `white` now: nushell resolves those to the terminal's ANSI slots,
+which every offered theme sets, so the bar follows the theme like the
+`highlight` and `status` lines beside it instead of holding a palette of its own.
+
 ## The seven themes
 
 | Theme | File | State | Source of its values |
@@ -255,33 +329,37 @@ is what makes Catppuccin Latte a light colorscheme and the other five dark ones.
 | Rosé Pine | **nothing** |
 | Nocturne | **nothing** |
 
-The twelve tools are Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line
-editor, the p10k prompt, Herdr, fish, bat, Neovim and tmux; they are `themeTools`
-in `installer/internal/tui/installer.go`. Coverage is the generator's own answer -
-fish asks whether it can derive the fish roles at all, bat whether it can render
-the `.tmTheme`, tmux whether it can render its style block, Neovim whether the
-name it selects resolves - so a theme can only leave a tool out for something it
-is missing, and `TestEveryOfferedThemePaintsEveryTool` fails with the theme's own
-name and the tool it stopped painting when one loses it.
+The thirteen tools are Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line
+editor, the p10k prompt, Herdr, fish, bat, Neovim, tmux and nushell; they are
+`themeTools` in `installer/internal/tui/installer.go`. Coverage is the generator's
+own answer - fish asks whether it can derive the fish roles at all, bat whether it
+can render the `.tmTheme`, tmux whether it can render its style block, Neovim
+whether the name it selects resolves, nushell whether it can fill every role the
+record and the `LS_COLORS` table read from the definition - so a theme can only
+leave a tool out for something it is missing, and
+`TestEveryOfferedThemePaintsEveryTool` fails with the theme's own name and the
+tool it stopped painting when one loses it.
 
 Which roles are **declared** in the definition and which are **derived** by the
 mappings above:
 
-| Theme | Starship | fish | bat | tmux | Neovim |
-|---|---|---|---|---|---|
-| dotfiles | declared `[prompt]` | declared `[fish]` | declared `[bat]` | derived | generated colorscheme |
-| Catppuccin Mocha | declared `[prompt]` | derived | declared `[bat]` | derived | the `catppuccin` plugin |
-| Catppuccin Latte | declared `[prompt]` | derived | declared `[bat]` | derived | generated colorscheme |
-| Kanagawa | derived | declared `[fish]` | declared `[bat]` | derived | the `kanagawa` plugin |
-| Everforest | derived | declared `[fish]` | declared `[bat]` | derived | generated colorscheme |
-| Rosé Pine | derived | derived | declared `[bat]` | derived | generated colorscheme |
-| Nocturne | derived | derived | declared `[bat]` | derived | generated colorscheme |
+| Theme | Starship | fish | bat | tmux | Neovim | nushell |
+|---|---|---|---|---|---|---|
+| dotfiles | declared `[prompt]` | declared `[fish]` | declared `[bat]` | derived | generated colorscheme | derived |
+| Catppuccin Mocha | declared `[prompt]` | derived | declared `[bat]` | derived | the `catppuccin` plugin | derived |
+| Catppuccin Latte | declared `[prompt]` | derived | declared `[bat]` | derived | generated colorscheme | derived |
+| Kanagawa | derived | declared `[fish]` | declared `[bat]` | derived | the `kanagawa` plugin | derived |
+| Everforest | derived | declared `[fish]` | declared `[bat]` | derived | generated colorscheme | derived |
+| Rosé Pine | derived | derived | declared `[bat]` | derived | generated colorscheme | derived |
+| Nocturne | derived | derived | declared `[bat]` | derived | generated colorscheme | derived |
 
 Generated blocks: the four terminals, Herdr, Starship (both its `palette` line
 and its `[palettes.<id>]` table), the zsh palette region including the `*_SGR`
 twins and the `LS_COLORS`/`EZA_COLORS` tables, the p10k fallbacks, the `BAT_THEME`
 selection, the fish palette block in `dotfiles-fish/fish/config.fish`, the tmux
-style block in `dotfiles-tmux/tmux.conf`, the Neovim colorscheme line, the fish
+style block in `dotfiles-tmux/tmux.conf`, the colour region of
+`dotfiles-nushell/config.nu` (the `LS_COLORS` table and the `$dark_theme` record),
+the Neovim colorscheme line, the fish
 theme files, the bat `.tmTheme` files and the Neovim colorschemes. Which of those
 are files the repository ships and which are written by the installer is under
 "The per-theme files" below.
@@ -577,6 +655,17 @@ repository no longer ships a Kagawa file for a theme that no longer exists.
 
 ## Defects recorded here rather than hidden
 
+- **~~nushell kept the Kanagawa palette and no row could say so.~~** Resolved
+  (issue #240). `dotfiles-nushell/config.nu` shipped eighteen hand-written colours
+  that appear in no `themes/*.toml`, in the `$dark_theme` record, the
+  `$env.LS_COLORS` table and the `explore` block, and nushell was not one of the
+  tools `themeTools` named. So choosing any theme but Kanagawa repainted every
+  other tool while `nu` stayed on the old palette, and the coverage table - whose
+  row is read from the same list - said "nothing" left out and was silent about
+  the one shell it never painted. Nushell is a tool now, both regions are
+  generated from the definition, the two `explore` hexes take nushell's own ANSI
+  names, and the guards above hold it. No committed golden moved: the theme rows
+  read the same, because every offered theme paints the shell.
 - **~~`Kagawa.theme` is a copy of `Kanagawa.theme`.~~** Resolved by retiring
   Kagawa (above).
 - **The `BAT_THEME` selection named the wrong key.** bat registers a custom
@@ -678,6 +767,23 @@ The guards live in `installer/internal/tui/install_paths_test.go` and
   generator reads is caught before the row is pressed.
 - `TestTmuxThemeBlockLoadsAfterPlugins` — the tmux block must sit after the TPM
   `run` line, which is what makes it win over the kanagawa plugin.
+- `TestNushellIsPaintedByTheThemeSwitch` — **the user's case from issue #240**:
+  nushell is one of the tools the switch names, every offered theme can render its
+  block, the block carries the theme's own colours and none of the eighteen
+  Kanagawa values, and every `38;2;r;g;b` triple in the `LS_COLORS` half is a
+  value the definition holds (the half
+  `TestGeneratedThemeBlocksInventNoColour` cannot read). It also refuses any of
+  the eighteen in the shipped `dotfiles-nushell/config.nu` itself, which is what
+  holds the `explore` block to ANSI names. Teeth: dropping the derivation (or the
+  tool) fails it by name.
+- `TestTheThemeRowCountsNushell` — the picker's row is drawn from `themeCoverage`,
+  so a shell that is not counted cannot be reported either. Teeth: removing
+  nushell from `themeTools` makes the row unable to tell the reader the shell was
+  painted, and the guard says so for every offered theme.
+- `TestNushellRegionAdoptionLeavesTheRestOfTheUserFileIntact` — the region
+  adoption rewrites only the bytes between the two anchors: the user's own PATH
+  line, the rest of their `config.nu` and the record's own closing brace are byte
+  for byte what they were, and Undo restores the whole file exactly.
 - `TestThePreviewPaintsTheThemesSyntaxRoles` — the preview reads the theme's
   `[syntax]` roles, and the Catppuccin light member is Latte's mauve (the flavour
   pairing), used on a light terminal rather than the dark value.

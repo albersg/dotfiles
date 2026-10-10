@@ -1449,7 +1449,7 @@ func TestALateBackupRowDoesNotMoveTheRowUnderTheCursor(t *testing.T) {
 
 // TestThemeRowNamesAToolTheThemeCannotPaint keeps the exclusion-row rendering
 // covered after the coverage lists grew to their final shape: all seven themes in
-// themes/ now paint all twelve tools, so no offered definition reaches
+// themes/ now paint all thirteen tools, so no offered definition reaches
 // dotfilesThemeRow with an uncovered tool and the exclusion branch ("(not ...)")
 // stopped being exercised by real data. Without a guard on that branch it would
 // go dark silently, so this test fabricates the missing state from a real
@@ -1484,6 +1484,48 @@ func TestThemeRowNamesAToolTheThemeCannotPaint(t *testing.T) {
 	}
 	if !strings.Contains(row, "(not ") {
 		t.Errorf("the row %q does not open an exclusion list", row)
+	}
+}
+
+// TestTheThemeRowCountsNushell is the row half of issue #240. The row the picker
+// draws is read from themeCoverage, so a tool that is not in the model is not
+// reported either: the coverage table told its reader nothing was left out while
+// `nu` kept a palette no theme in the library declares. Counting the shell is
+// what makes the row able to tell that truth; the row itself then still reads as
+// one with no exclusion, because every offered theme paints the shell.
+func TestTheThemeRowCountsNushell(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m := Model{DotfilesThemes: defs}
+
+	offered := offeredThemeIDs(defs)
+	if len(offered) == 0 {
+		t.Fatal("no theme is offered, so this guard proves nothing")
+	}
+	counted := 0
+	for _, id := range offered {
+		def, ok := themeByID(defs, id)
+		if !ok {
+			t.Fatalf("the offered theme %q has no definition", id)
+		}
+		covered, uncovered := themeCoverage(def)
+		if !slicesContains(covered, "nushell") {
+			t.Errorf("the %q row does not count nushell, so a shell left on the old palette would be reported nowhere: coverage %v", id, uncovered)
+			continue
+		}
+		counted++
+		row := dotfilesThemeRow(def)
+		if strings.Contains(row, "nushell") {
+			t.Errorf("the row %q names nushell as left out though the theme paints it", row)
+		}
+		if got, ok := m.dotfilesThemeForRow(row); !ok || got.ID != def.ID {
+			t.Errorf("the row %q maps to %q, ok=%v", row, got.ID, ok)
+		}
+	}
+	if counted != len(offered) {
+		t.Errorf("%d of the %d offered themes count nushell", counted, len(offered))
 	}
 }
 

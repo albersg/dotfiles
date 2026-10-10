@@ -157,7 +157,7 @@ steps, from the same place, so a documented no-op run runs no `gsettings`, no
 ### The dotfiles theme switch
 
 The other utility changes the **dotfiles' own theme** — the palette this repository ships across its
-terminals, its prompt, `bat`, `fish`, tmux and Herdr — not the desktop's light/dark mode. The Utilities section
+terminals, its prompt, `bat`, `fish`, tmux, Herdr and nushell — not the desktop's light/dark mode. The Utilities section
 offers it through a single **Change the dotfiles theme** row, which opens the theme list; the themes
 live there so the section reads as a list of jobs rather than a list of themes. That palette used to be
 written by hand in six files, so the same colour was maintained in each of them and a drift between
@@ -178,19 +178,21 @@ file was a byte-for-byte copy
 of Kanagawa's and no published Kagawa palette exists, so it is no longer a theme.
 
 **Every offered theme paints every tool the switch names**, and that is a guard rather than a
-promise: the twelve tools are the four terminals, Starship, the zsh line editor, the p10k prompt,
-Herdr, fish, bat, Neovim and tmux, and `TestEveryOfferedThemePaintsEveryTool` fails naming the theme
-and the tool the moment a definition loses what a tool needs. A row still names the tools a theme
-cannot paint — a row reads `Apply the <name> theme (not <tools>)` where there is something to name —
-but for all seven themes that list is empty. Where a tool reads roles the canonical palette does not
-carry — Starship's prompt roles, fish's eighteen, bat's scopes, tmux's style options, Neovim's
-highlight groups — the values are **derived from the theme's own palette by the fixed mapping
-written down in [`themes/README.md`](../themes/README.md)**, so a derived colour is a colour the
-theme already holds and nothing is chosen by eye. A role that is neither declared nor derivable is
-reported rather than filled.
+promise: the thirteen tools are the four terminals, Starship, the zsh line editor, the p10k prompt,
+Herdr, fish, bat, Neovim, tmux and nushell, and `TestEveryOfferedThemePaintsEveryTool` fails naming
+the theme and the tool the moment a definition loses what a tool needs. A row still names the tools a
+theme cannot paint — a row reads `Apply the <name> theme (not <tools>)` where there is something to
+name — but for all seven themes that list is empty. Where a tool reads roles the canonical palette
+does not carry — Starship's prompt roles, fish's eighteen, bat's scopes, tmux's style options,
+Neovim's highlight groups, nushell's own record and `LS_COLORS` table — the values are **derived from
+the theme's own palette by the fixed mapping written down in
+[`themes/README.md`](../themes/README.md)**, so a derived colour is a colour the theme already holds
+and nothing is chosen by eye. A role that is neither declared nor derivable is reported rather than
+filled.
 
 The switch writes the four terminals, Starship, the zsh/p10k prompt, Herdr, the `BAT_THEME`
-selection, fish's `config.fish` palette block, tmux's style block and Neovim's colorscheme selection.
+selection, fish's `config.fish` palette block, tmux's style block, the colour region of nushell's own
+`config.nu` and Neovim's colorscheme selection.
 fish is switched through the file this repository owns, never through the user's `fish_config` state
 in `fish_variables`: the block sets fish's colour variables in the global scope, which fish returns
 over a universal one, and the switch records and restores the exact bytes like every other block.

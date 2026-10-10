@@ -186,7 +186,7 @@ lista de temas, que abre la fila **Change the dotfiles theme** de la sección Ut
 cambio aplica un tema completo (una definición con todos los roles canónicos y los miembros
 `[syntax]` que lee la vista previa: **dotfiles**, **Catppuccin Mocha**, **Catppuccin
 Latte**, **Kanagawa**, **Everforest** y **Rosé Pine**) a las configuraciones que este
-repositorio posee para las doce herramientas, registra los bytes exactos que reemplazó en
+repositorio posee para las trece herramientas, registra los bytes exactos que reemplazó en
 el mismo `theme.json`, y puede restaurarlos con una fila de deshacer dedicada. bat elige su
 tema por el nombre del archivo de tema personalizado, así que el cambio exporta ese nombre
 y no el que lleva escrito dentro del archivo. Cada uno de los seis pinta cada herramienta

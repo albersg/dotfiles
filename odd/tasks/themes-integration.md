@@ -966,3 +966,152 @@ floor with the cursor on the way back (no preview active).
 - `gofmt -l installer/` -- clean; `go vet` -- clean; `git diff --check` -- clean.
 - `git status` shows the edited files and the one new golden only; no pre-existing golden changed.
 - No commit, no push.
+
+# T9 - nushell takes the theme, and the row can say so (issue #240)
+
+Issue #240 reported a defect of honesty rather than of colour. `themeTools` named
+twelve tools, and `dotfiles-nushell/config.nu` was not one of them: the shell
+shipped eighteen hand-written Kanagawa values that appear in no `themes/*.toml`, so
+choosing any theme but Kanagawa repainted the four terminals, zsh, p10k, Starship,
+bat, tmux, Herdr, fish and Neovim while `nu` kept the old palette. The coverage row
+is read from the same list, so it could not report the shell either, and the
+coverage table's "Leaves out: nothing" was true of the twelve and silent about the
+one shell the switch never painted. `themes/README.md:41-42` already promises that
+a role that can be neither declared nor derived is **reported**; nushell fell
+outside that promise because the tool was outside the model.
+
+## The decision: nushell enters the model, on the derived side
+
+Nushell is a tool now, and it takes **derived** colours rather than a declared
+`[nushell]` table. A table would have meant 45 hand-written values per theme
+(315 across the library) that no published palette names; the derivation is the
+mechanism the other tools already use (fish's eighteen, Starship's twenty-four,
+bat's nine scopes, tmux's style options, Neovim's groups), and the rule the
+library already enforces is that a derived colour is one the definition already
+holds. `TestGeneratedThemeBlocksInventNoColour` extends to the new block, and
+`TestNushellIsPaintedByTheThemeSwitch` decodes the `LS_COLORS` half it cannot read.
+
+Nushell stays out of scope for nothing: the coverage table still reads **nothing**
+for all seven themes, and that claim is now true of thirteen tools.
+
+## Where the colours come from
+
+Two regions in `dotfiles-nushell/config.nu`, both generated from the definition:
+
+| Region | Mapping | Guard |
+|---|---|---|
+| the `$dark_theme` record (`color_config`) | 45 keys to canonical roles (`themeNushellRoles`) | `TestGeneratedThemeBlocksInventNoColour` + `TestNushellIsPaintedByTheThemeSwitch` |
+| the `$env.LS_COLORS` table | 17 keys to canonical roles (`themeNushellLSColours`) | `TestNushellIsPaintedByTheThemeSwitch` decodes every `38;2;r;g;b` triple |
+
+The table is written as the decimal triple nushell reads, which is the form the
+shipped file already carried, so the format did not change and only the colours
+did. The mapping is recorded in `themes/README.md` (two tables, one per region) and
+in the block itself: every key carries a trailing comment naming the role it took.
+
+One further region was not derivable and did not need to be: `$env.config.explore`
+held two more Kanagawa hexes (`#1D1F21`, `#C4C9C6`) inside the user's own
+`$env.config`. They take nushell's own ANSI names (`black`, `white`) instead, which
+the terminal paints from whichever theme is applied - the same mechanism the
+`highlight` and `status` lines beside them already used. After this, `grep` finds
+none of the eighteen values anywhere in the shipped file.
+
+## The region adoption, with the user's own lines kept
+
+The artifact is `{Tool: "nushell", Path: "dotfiles-nushell/config.nu", ...}`, and
+its marked region runs from `$env.LS_COLORS = (` to the record's last key
+(`shape_variable:`). The record's opening line and its closing `}` are the file's
+own and stay outside the markers:
+
+- the end anchor is `shape_variable:` rather than the `}` line on purpose. `}` is
+  not unique in the file, and the only other unique anchor nearby - the light
+  theme's `let light_theme = {` - would make a file that had lost that section have
+  its whole tail rewritten as the region, which is exactly the "do not touch what
+  is not ours" case the rule forbids. This anchor touches at most the record.
+- `TestNushellRegionAdoptionLeavesTheRestOfTheUserFileIntact` is the teeth: a
+  fixture shaped like the user's own `config.nu` (the colour region, a `$env.PATH`
+  line beside it, and their own lines after it) is switched to Catppuccin Mocha. The
+  guard requires the rewritten region to carry the theme's colours, the user's
+  lines and the record's `}` to be byte-for-byte what they were, and **Undo** to
+  restore the whole file exactly. The switch logs the adoption, as it does for
+  every other region.
+- `themeInstalledPath` follows the split the shell step installs into:
+  `~/.config/nushell/config.nu` on Linux, `~/Library/Application\ Support/nushell/config.nu`
+  on macOS.
+- `reloadThemeToolFor` names the shell with the action that applies the theme: "a
+  nushell that is already open keeps the old palette: open a new shell, or run
+  `exec nu`."
+
+## The red, and the teeth
+
+**RED** observed before the implementation (`go test ./internal/tui -run
+'TestNushellIsPaintedByTheThemeSwitch|TestNushellRegionAdoptionLeavesTheRestOfTheUserFileIntact|TestTheThemeRowCountsNushell' -v`):
+
+```
+install_paths_test.go:1246: nushell is not one of the tools the switch names, so no switch repaints it and no row can say it was left behind
+install_paths_test.go:1351: no theme artifact for "nushell"
+update_test.go:1515: the "catppuccin-latte" row does not count nushell, so a shell left on the old palette would be reported nowhere: coverage []
+update_test.go:1515: the "catppuccin-mocha" row does not count nushell, so a shell left on the old palette would be reported nowhere: coverage []
+...
+update_test.go:1528: 0 of the 7 offered themes count nushell
+```
+
+The first two lines are the issue's own symptom: with no tool in the model there is
+no artifact and no row. The row lines are the honesty half: the coverage the row
+reads had nothing to say about the shell.
+
+**GREEN**, after the implementation:
+
+```
+--- PASS: TestNushellIsPaintedByTheThemeSwitch (0.05s)
+    install_paths_test.go:1336: nushell takes the palette of every offered theme; checked 119 LS_COLORS colours
+--- PASS: TestNushellRegionAdoptionLeavesTheRestOfTheUserFileIntact (0.01s)
+--- PASS: TestTheThemeRowCountsNushell (0.01s)
+--- PASS: TestEveryOfferedThemePaintsEveryTool (0.00s)
+    install_paths_test.go:1162: catppuccin-latte: covers 13 of 13 tools; leaves out []
+    ... (all seven log "covers 13 of 13 tools; leaves out []")
+```
+
+The guard's teeth:
+
+- `TestEveryOfferedThemePaintsEveryTool` now counts the shell because the shell is
+  in the model, and all seven themes log `covers 13 of 13 tools; leaves out []`. If
+  a definition lost a role the record reads, the failure names the theme and
+  `nushell`.
+- `TestNushellIsPaintedByTheThemeSwitch` requires the block to carry the theme's own
+  colours and none of the eighteen Kanagawa values the shipped file held, decodes
+  all 119 `LS_COLORS` triples across the seven themes and refuses any that is not a
+  value the definition holds, and refuses any of the eighteen in the shipped
+  `dotfiles-nushell/config.nu` itself. Dropping the derivation, or the tool, fails
+  it by name.
+- `TestTheThemeRowCountsNushell` fails for every offered theme if the shell leaves
+  `themeCoverage`.
+- `TestThemeAdoptionCoversEveryShippedArtifact` and
+  `TestGeneratedThemeArtifactsMatchTheirDefinition` cover the new shipped file: the
+  block is byte-for-byte what the generator produces (regenerate with
+  `-update-theme-artifacts`), and the file is adoptable once only its ownership
+  marker is removed.
+
+## No golden moved, and the table still tells the truth
+
+**No pre-existing golden moved.** The theme rows are drawn from `themeCoverage`, and
+every offered theme paints the shell, so each row still reads `Apply the <name>
+theme` with no exclusion list; `TestAppliedThemeGolden` and the picker goldens are
+unchanged. What changed is the shipped `dotfiles-nushell/config.nu`, whose two
+colour regions and `explore` block are shown in the diff below.
+
+The coverage table in `themes/README.md` said "Leaves out: **nothing**" for all seven
+themes and was silent about nushell. It still says nothing, and now it is true of
+thirteen tools: the paragraph under it names nushell, the tool count reads thirteen,
+and the row-paragraph and the declared/derived table carry a `nushell` column.
+Nothing is declared out of scope, because nothing is.
+
+## Validation
+
+- `nu --no-history --ide-check 200 dotfiles-nushell/config.nu` -- 0 errors, so the
+  generated region is valid nushell (the check also reports nushell's own inferred
+  type for the record).
+- `make check` -- PASS (gofmt, `go vet ./...`, `go test ./internal/tui`, 254 s).
+- `gofmt -l installer/` -- clean; `go vet ./...` -- clean.
+- `git status` -- the four edited Go/doc paths and `dotfiles-nushell/config.nu`
+  only; no pre-existing golden changed.
+- No commit, no push.

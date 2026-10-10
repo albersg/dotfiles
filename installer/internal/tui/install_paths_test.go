@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1181,6 +1182,254 @@ func TestEveryOfferedThemePaintsEveryTool(t *testing.T) {
 			continue
 		}
 		t.Logf("partial theme %q is reported and not offered: %v", def.ID, def.missingRequiredRoles())
+	}
+}
+
+// kanagawaNushellValues are the eighteen colours the shipped
+// dotfiles-nushell/config.nu held that themes/dotfiles.toml does not define, in
+// the order issue #240 lists them. They are the palette the shell kept while
+// every other tool changed, and the guard below refuses any of them in a
+// generated nushell block.
+var kanagawaNushellValues = []string{
+	"1d1f21", "1f1f28", "54546d", "6a9589", "7e9cd8", "85b5ba",
+	"92a2d5", "957fb8", "98bb6c", "aca1cf", "c4c9c6", "c9c7cd",
+	"d27e99", "dca561", "e29eca", "e46876", "e6c384", "ea83a5",
+}
+
+// nushellLSColourRE pulls the SGR triple out of an LS_COLORS entry. nushell
+// paints `ls` output from decimal RGB triples, not from #rrggbb, so the shared
+// "invent no colour" guard cannot read them and they are decoded here.
+var nushellLSColourRE = regexp.MustCompile(`38;2;(\d+);(\d+);(\d+)`)
+
+// nushellRGB renders a #rrggbb colour as the `r;g;b` triple LS_COLORS carries.
+func nushellRGB(t *testing.T, hex string) string {
+	t.Helper()
+
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		t.Fatalf("the definition holds %q, which is not a #rrggbb colour", hex)
+	}
+	parts := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		value, err := strconv.ParseUint(hex[i*2:i*2+2], 16, 8)
+		if err != nil {
+			t.Fatalf("parse %q: %v", hex, err)
+		}
+		parts[i] = strconv.FormatUint(value, 10)
+	}
+	return strings.Join(parts, ";")
+}
+
+// TestNushellIsPaintedByTheThemeSwitch is the user's case from issue #240:
+// choosing any theme but Kanagawa repainted every tool while `nu` kept the
+// Kanagawa palette, and no row could say so because nushell was not one of the
+// tools the model paints. The shell is a tool now, so the same derivation the
+// other tools get has to paint it from the theme's own palette - the theme's
+// record and its LS_COLORS table - and none of the eighteen Kanagawa values the
+// shipped config.nu held may survive a switch.
+//
+// Its teeth are the definitions: a theme that cannot derive the roles the shell
+// reads is named here with the shell, exactly as the coverage guard names it.
+func TestNushellIsPaintedByTheThemeSwitch(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	inModel := false
+	for _, tool := range themeTools {
+		if tool.ID == "nushell" {
+			inModel = true
+		}
+	}
+	if !inModel {
+		t.Fatal("nushell is not one of the tools the switch names, so no switch repaints it and no row can say it was left behind")
+	}
+
+	art := artifactByName(t, "nushell")
+	if path := themeInstalledPath(art, "/home/fixture"); !strings.HasSuffix(path, "nushell/config.nu") {
+		t.Errorf("the switch looks for the shell's colours at %q, which is not nushell's own config.nu", path)
+	}
+
+	// The shipped file is what a fresh install copies, so no theme's own
+	// hand-written value may survive there either. Issue #240 counted eighteen
+	// Kanagawa values in it, and two of them sat in the `explore` block as well as
+	// in the region the generator rewrites; both are gone now, one because the
+	// region is generated and the other because the block takes the terminal's own
+	// ANSI slots (which every theme paints) instead of a colour of its own.
+	shipped, err := os.ReadFile(filepath.Join(repoRoot(t), art.Path))
+	if err != nil {
+		t.Fatalf("read %s: %v", art.Path, err)
+	}
+	for _, value := range kanagawaNushellValues {
+		if regexp.MustCompile(`(?i)\b` + value + `\b`).MatchString(string(shipped)) {
+			t.Errorf("%s still carries the Kanagawa value #%s: every colour the shell reads has to be a palette role or an ANSI slot the terminal paints", art.Path, value)
+		}
+	}
+
+	checked := 0
+	for _, id := range offeredThemeIDs(defs) {
+		def, ok := themeByID(defs, id)
+		if !ok {
+			t.Fatalf("the offered theme %q has no definition", id)
+		}
+		if _, uncovered := themeCoverage(def); slices.Contains(uncovered, "nushell") {
+			t.Errorf("theme %q leaves nushell out: %v", id, uncovered)
+			continue
+		}
+
+		block, err := themeArtifactBlock(art, def)
+		if err != nil {
+			t.Errorf("theme %q covers nushell but cannot render its block: %v", id, err)
+			continue
+		}
+		// The shell must take the theme's own palette rather than the one the shipped
+		// file used to hold. A value the definition itself holds is the theme's own
+		// colour - Kanagawa's theme is Kanagawa - so only the values it does not hold
+		// are refused here; the LS_COLORS triples are checked below.
+		holds := map[string]bool{}
+		for _, hex := range def.Palette {
+			holds[strings.ToLower(strings.TrimPrefix(hex, "#"))] = true
+		}
+		for _, value := range kanagawaNushellValues {
+			if holds[value] {
+				continue
+			}
+			if regexp.MustCompile(`(?i)\b` + value + `\b`).MatchString(block) {
+				t.Errorf("the nushell block for %q still emits the Kanagawa value #%s: the shell has to take the theme's own palette", id, value)
+			}
+		}
+
+		// Every colour the block emits has to be one the definition holds. The theme
+		// record writes #rrggbb, which the shared guard reads; the LS_COLORS table
+		// writes SGR triples, which it cannot, so they are decoded and checked here.
+		owned := map[string]bool{}
+		for _, hex := range def.Palette {
+			owned["38;2;"+nushellRGB(t, hex)] = true
+		}
+		triples := nushellLSColourRE.FindAllString(block, -1)
+		if len(triples) == 0 {
+			t.Errorf("the nushell block for %q paints no LS_COLORS entry, so the table was left on the old palette", id)
+		}
+		for _, triple := range triples {
+			if !owned[triple] {
+				t.Errorf("the nushell block for %q emits the LS_COLORS colour %s, which themes/%s.toml does not hold", id, triple, id)
+			}
+			checked++
+		}
+
+		carries := false
+		lower := strings.ToLower(block)
+		for _, hex := range def.Palette {
+			if strings.Contains(lower, strings.ToLower(hex)) {
+				carries = true
+				break
+			}
+		}
+		if !carries {
+			t.Errorf("the nushell block for %q carries none of the theme's own colours", id)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no LS_COLORS colour was checked, so this guard proves nothing")
+	}
+	t.Logf("nushell takes the palette of every offered theme; checked %d LS_COLORS colours", checked)
+}
+
+// TestNushellRegionAdoptionLeavesTheRestOfTheUserFileIntact covers the two
+// promises the region adoption makes for the shell's own config: only the bytes
+// between the two anchors the generator knows are rewritten, and Undo puts the
+// file back byte-for-byte. The fixture has the shape the user's config.nu has -
+// the colour region, the user's own PATH line beside it, and the rest of the
+// file - because the region adoption is what has to leave that line alone.
+func TestNushellRegionAdoptionLeavesTheRestOfTheUserFileIntact(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	defs, err := loadThemeDefinitions(tempThemeRepo(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	before := []byte(`# the user's own nushell config
+$env.PATH = ($env.PATH | prepend "/home/someone/.local/bin")
+
+$env.LS_COLORS = (
+    "di=38;2;146;162;213:" +
+    "fi=38;2;201;199;205:" +
+    "*=38;2;201;199;205"
+)
+
+let dark_theme = {
+    separator: "#54546D"
+    search_result: { fg: "#1F1F28", bg: "#E46876" }
+    shape_variable: "#DCA561"
+}
+
+# the rest of the user's file
+$env.EDITOR = "nvim"
+`)
+
+	art := artifactByName(t, "nushell")
+	dst := themeInstalledPath(art, home)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec, notice, err := applyDotfilesTheme(home, repoRoot(t), target)
+	if err != nil {
+		t.Fatalf("apply the theme to the user's own config.nu: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("the adopted region was not recorded, so the change is not reversible")
+	}
+	if !strings.Contains(notice, "Adopted") {
+		t.Errorf("the notice does not say the shell's region was adopted: %q", notice)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upper := strings.ToUpper(string(got))
+	for _, want := range []string{target.Palette["blue"], target.Palette["base"]} {
+		if want != "" && !strings.Contains(upper, strings.ToUpper(want)) {
+			t.Errorf("the rewritten region does not carry the %s colour %s", target.Name, want)
+		}
+	}
+	for _, foreign := range []string{
+		"# the user's own nushell config",
+		`$env.PATH = ($env.PATH | prepend "/home/someone/.local/bin")`,
+		"# the rest of the user's file",
+		`$env.EDITOR = "nvim"`,
+	} {
+		if !strings.Contains(string(got), foreign) {
+			t.Errorf("the switch rewrote the user's own line %q", foreign)
+		}
+	}
+	for _, kanagawa := range []string{"#54546D", "#1F1F28", "#E46876", "#DCA561"} {
+		if strings.Contains(upper, kanagawa) {
+			t.Errorf("the adopted region still carries the Kanagawa value %s", kanagawa)
+		}
+	}
+
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the adopted region: %v", err)
+	}
+	restored, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restored, before) {
+		t.Errorf("undo did not restore the user's config.nu byte-for-byte\n got: %s\nwant: %s", restored, before)
 	}
 }
 
