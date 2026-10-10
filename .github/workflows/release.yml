@@ -358,7 +358,7 @@ jobs:
           # The draft carries the assets, so a draft is enough to check: what is
           # downloaded here is what a user will download once it is published.
           mkdir -p published
-          gh release download "${VERSION}" --dir published --pattern 'dotfiles-*' --pattern 'SHA256SUMS' --pattern 'MANIFEST.txt'
+          gh release download "${VERSION}" --repo "${GITHUB_REPOSITORY}" --dir published --pattern 'dotfiles-*' --pattern 'SHA256SUMS' --pattern 'MANIFEST.txt'
           ls -la published/
 
       - name: Verify the published bytes against the published checksums
