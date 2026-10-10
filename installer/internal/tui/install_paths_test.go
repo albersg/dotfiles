@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -62,6 +64,555 @@ func TestRepoAssetsExist(t *testing.T) {
 
 	if len(repoAssets) == 0 {
 		t.Fatal("no repository assets declared")
+	}
+}
+
+// installerHomeJoin is one filepath.Join rooted at the user's home, with the path
+// it resolves to relative to that home. path is empty when the join is built from
+// something other than string literals, which the guard reports rather than
+// skipping: an unresolvable destination is exactly where an unprotected write can
+// hide.
+type installerHomeJoin struct {
+	file string
+	line int
+	path string
+	expr string
+}
+
+// installerHomeJoinRE matches the joins that land in the user's home. The home
+// itself is spelled three ways in this package: the homeDir local the step
+// functions take, the home local the resolution helpers take, and a direct
+// os.Getenv("HOME").
+var installerHomeJoinRE = regexp.MustCompile(`filepath\.Join\((?:(?:homeDir|home)|os\.Getenv\("HOME"\))\s*,\s*([^)]*)\)`)
+
+// installerOwnedHomePaths are the home paths the installer creates, reads or runs
+// that are not user configuration, so the backup step could not restore anything
+// the user wrote there. Every other home path the sources join must be named by
+// ConfigPaths(), which is the map the backup step, the overwrite count and the
+// last-install record all read. The reason is for the reader of a failure.
+var installerOwnedHomePaths = map[string]string{
+	".config":                               "the XDG config root the shell step creates; each namespace inside it is classified by its own entry",
+	".cache/starship":                       "starship's own cache directory",
+	".cache/carapace":                       "carapace's own cache directory",
+	".local/share":                          "the XDG data root; every path under it here is tool data, not configuration",
+	".local/share/atuin":                    "atuin's own data directory, created empty by the shell step",
+	".local/share/fonts":                    "the user's font directory: font files, and the fonts are installed from an archive rather than copied by the installer",
+	".local/share/fnm":                      "fnm's own installation directory",
+	".local/share/fnm/aliases":              "fnm's own alias store, written by fnm itself",
+	".local/bin":                            "where the installer puts the command-line tools it manages (OfficeCLI, agent skills)",
+	".local/state/dotfiles":                 "the installer's own state directory, which is where the last-install record lives",
+	".local/share/dotfiles":                 "the installer's own data root: the WSL template and theme definitions it installs for later runs",
+	".cargo/bin/cargo":                      "the cargo binary the shell step looks for, never written",
+	".termux":                               "Termux's own application directory (its font and properties are Termux's)",
+	".tmux":                                 "the parent of the plugin checkout, created empty",
+	".tmux/plugins":                         "the plugin checkout TPM owns; the multiplexer's configuration is ~/.tmux.conf",
+	".tmux/plugins/tpm":                     "TPM's own clone",
+	".tmux/plugins/tpm/bin/install_plugins": "TPM's own installer, which the multiplexer step runs",
+	".zshrc.d":                              "the drop-in directory the .zshrc preservation writes into; the existing ~/.zshrc is what the map backs up",
+	".config/obsidian":                      "a directory created for the user's notes, with no file written into it",
+	".pi/agent/skills":                      "the agent-skills destination: the step reports an existing skill and leaves it untouched",
+	"dotfiles":                              "a clone location the installer looks for",
+	".dotfiles":                             "a clone location the installer looks for",
+}
+
+// TestEveryHomePathTheInstallerWritesIsClassified is the guard for the class of
+// defect in issue #238. The backup step copies only what ConfigPaths() names, and
+// the overwrite count and the last-install record are built from the same map, so
+// a file the installer writes into $HOME that the map omits is replaced with no
+// copy and with nothing anywhere saying so. ~/.zshenv was exactly that, and the
+// comment eight lines above the write shows the pair was meant to be protected.
+//
+// It reads the installer's own sources rather than a hand-written list, so a new
+// write into $HOME fails here until its destination is either named in the map or
+// classified below as something the backup step could not restore anyway.
+func TestEveryHomePathTheInstallerWritesIsClassified(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPaths := system.ConfigPaths()
+	protected := make([]string, 0, len(configPaths))
+	byKey := make(map[string]string, len(configPaths))
+	for key, path := range configPaths {
+		rel, err := filepath.Rel(home, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			t.Fatalf("ConfigPaths() names %s outside $HOME: %s", key, path)
+		}
+		rel = filepath.ToSlash(rel)
+		protected = append(protected, rel)
+		byKey[key] = rel
+	}
+
+	joins := scanInstallerHomeJoins(t)
+	if len(joins) == 0 {
+		t.Fatal("the scan found no $HOME path in the installer's sources; this guard is not reading the files it claims to")
+	}
+
+	for _, problem := range homePathViolations(joins, protected, byKey) {
+		t.Error(problem)
+	}
+	for _, problem := range staleOwnedHomePaths(joins) {
+		t.Error(problem)
+	}
+}
+
+// staleOwnedHomePaths reports every installer-owned path no join in the sources
+// targets. The table is a classification, so an entry that stopped being written
+// has to stop being excused: a path left in it would silently allow a future
+// write there to go unclassified, and the reason it carries would stop being true
+// without anyone noticing.
+func staleOwnedHomePaths(joins []installerHomeJoin) []string {
+	var problems []string
+
+	for path, reason := range installerOwnedHomePaths {
+		joined := false
+		for _, join := range joins {
+			if join.path == path {
+				joined = true
+				break
+			}
+		}
+		if !joined {
+			problems = append(problems, fmt.Sprintf("installerOwnedHomePaths classifies ~/%s (%s), but no join in the installer targets it; the entry is stale", path, reason))
+		}
+	}
+
+	return problems
+}
+
+// homePathViolations returns the problems the guard reports for a set of joins,
+// as the messages a reader would see. It is separated from the scan so the test
+// below can feed it the exact join a defect adds without editing the sources.
+func homePathViolations(joins []installerHomeJoin, protected []string, byKey map[string]string) []string {
+	var problems []string
+
+	for _, join := range joins {
+		if join.path == "" {
+			problems = append(problems, fmt.Sprintf("%s:%d joins $HOME with %s, which this guard cannot resolve: name the destination with string literals so it can be classified", join.file, join.line, join.expr))
+			continue
+		}
+		if underAnyHomePath(join.path, protected) {
+			continue
+		}
+		if _, ok := installerOwnedHomePaths[join.path]; ok {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("%s:%d writes ~/%s, which ConfigPaths() does not name: the backup step would not copy it and the last-install record would not mention it", join.file, join.line, join.path))
+	}
+
+	// The other direction: a key the map names that no write targets is stale, and
+	// a stale key is worse than useless here, because it is the path nobody writes
+	// that gets backed up while the file that is replaced goes unprotected. That is
+	// how `wezterm` pointed at ~/.wezterm.lua while the terminal step wrote
+	// ~/.config/wezterm/wezterm.lua.
+	for key, rel := range byKey {
+		written := false
+		for _, join := range joins {
+			if join.path != "" && underAnyHomePath(join.path, []string{rel}) {
+				written = true
+				break
+			}
+		}
+		if !written {
+			problems = append(problems, fmt.Sprintf("ConfigPaths() names %s at ~/%s, but no write in the installer targets it; the key is stale", key, rel))
+		}
+	}
+
+	return problems
+}
+
+// TestTheHomePathGuardFailsOnAnUnprotectedWrite pins the guard's teeth. The guard
+// above only proves that today's tree is clean; this proves that the tree with the
+// reported defect fails, that the failure names the file and the path, and that
+// the classification is exact where it has to be: ~/.zshrc.d is not covered by a
+// ~/.zshrc entry, and an allowlisted directory does not cover anything under it,
+// because the allowlist is what says a path is not user configuration.
+func TestTheHomePathGuardFailsOnAnUnprotectedWrite(t *testing.T) {
+	protected := []string{".zshrc", ".config/fish"}
+	byKey := map[string]string{"zsh": ".zshrc", "fish": ".config/fish", "zsh_p10k": ".p10k.zsh"}
+
+	for _, tc := range []struct {
+		name     string
+		join     installerHomeJoin
+		want     string
+		wantNone bool
+	}{
+		{
+			name: "the user's own .zshenv is reported",
+			join: installerHomeJoin{file: "installer.go", line: 6133, path: ".zshenv"},
+			want: "installer.go:6133 writes ~/.zshenv, which ConfigPaths() does not name",
+		},
+		{
+			name:     "a path inside a protected directory is not reported",
+			join:     installerHomeJoin{file: "installer.go", line: 6031, path: ".config/fish/dotfiles.d"},
+			wantNone: true,
+		},
+		{
+			name: "a sibling that shares the protected file's name is reported",
+			join: installerHomeJoin{file: "installer.go", line: 6140, path: ".zshrc.bak"},
+			want: "writes ~/.zshrc.bak",
+		},
+		{
+			name:     "an allowlisted path is not reported",
+			join:     installerHomeJoin{file: "installer.go", line: 5152, path: ".local/share/fonts"},
+			wantNone: true,
+		},
+		{
+			name: "a path under an allowlisted directory is still reported",
+			join: installerHomeJoin{file: "installer.go", line: 9999, path: ".local/share/fonts/new-config.toml"},
+			want: "writes ~/.local/share/fonts/new-config.toml",
+		},
+		{
+			name: "a destination the guard cannot resolve is reported",
+			join: installerHomeJoin{file: "installer.go", line: 4388, expr: "rcFile"},
+			want: "installer.go:4388 joins $HOME with rcFile, which this guard cannot resolve",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			problems := homePathViolations([]installerHomeJoin{tc.join}, protected, nil)
+			if tc.wantNone {
+				if len(problems) != 0 {
+					t.Errorf("the guard reported %v for a classified path", problems)
+				}
+				return
+			}
+			if len(problems) != 1 {
+				t.Fatalf("the guard reported %v, want one problem", problems)
+			}
+			if !strings.Contains(problems[0], tc.want) {
+				t.Errorf("the guard said %q, want it to name %q", problems[0], tc.want)
+			}
+		})
+	}
+
+	t.Run("a config key nothing writes is reported as stale", func(t *testing.T) {
+		problems := homePathViolations([]installerHomeJoin{{file: "installer.go", line: 1702, path: ".zshrc"}}, protected, byKey)
+		stale := false
+		for _, problem := range problems {
+			if strings.Contains(problem, "names zsh_p10k at ~/.p10k.zsh") {
+				stale = true
+			}
+		}
+		if !stale {
+			t.Errorf("a ConfigPaths() key no write targets was not reported: %v", problems)
+		}
+	})
+}
+
+// underAnyHomePath reports whether path is one of roots or a descendant of it.
+// The separator is part of the test on purpose: ~/.zshenv must not count as a
+// descendant of ~/.zshrc, and ~/.config/fish must not count as one of ~/.config.
+func underAnyHomePath(path string, roots []string) bool {
+	for _, root := range roots {
+		if path == root || strings.HasPrefix(path, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// scanInstallerHomeJoins reads every non-test source file in this package and
+// returns the filepath.Join sites rooted at $HOME, resolved to a slash-separated
+// path relative to it. A join whose arguments are not all string literals or
+// string constants comes back with an empty path and the arguments it used.
+func scanInstallerHomeJoins(t *testing.T) []installerHomeJoin {
+	t.Helper()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading the package directory: %v", err)
+	}
+
+	sources := map[string]string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		sources[name] = string(data)
+	}
+
+	// String constants are how a path component is spelled without repeating the
+	// literal; stateAppDir is the one the sources use.
+	constDecl := regexp.MustCompile(`(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"\s*$`)
+	consts := map[string]string{}
+	for _, src := range sources {
+		for _, m := range constDecl.FindAllStringSubmatch(src, -1) {
+			if value, err := strconv.Unquote(`"` + m[2] + `"`); err == nil {
+				consts[m[1]] = value
+			}
+		}
+	}
+
+	var joins []installerHomeJoin
+	files := make([]string, 0, len(sources))
+	for name := range sources {
+		files = append(files, name)
+	}
+	sort.Strings(files)
+	for _, name := range files {
+		for i, line := range strings.Split(sources[name], "\n") {
+			for _, m := range installerHomeJoinRE.FindAllStringSubmatch(line, -1) {
+				join := installerHomeJoin{file: name, line: i + 1, expr: strings.TrimSpace(m[1])}
+				join.path = resolveHomeJoin(m[1], consts)
+				joins = append(joins, join)
+			}
+		}
+	}
+
+	return joins
+}
+
+// resolveHomeJoin turns the arguments of a $HOME-rooted filepath.Join into a
+// slash-separated path relative to that home, or an empty string when any
+// argument is neither a string literal nor a known string constant.
+func resolveHomeJoin(args string, consts map[string]string) string {
+	var parts []string
+	for _, part := range strings.Split(args, ",") {
+		part = strings.TrimSpace(part)
+		if len(part) >= 2 && strings.HasPrefix(part, "\"") && strings.HasSuffix(part, "\"") {
+			value, err := strconv.Unquote(part)
+			if err != nil {
+				return ""
+			}
+			parts = append(parts, value)
+			continue
+		}
+		value, ok := consts[part]
+		if !ok {
+			return ""
+		}
+		parts = append(parts, value)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Trim(strings.Join(parts, "/"), "/")
+}
+
+// TestTheShellStepBacksUpEveryHomeFileItReplaces pins the user's symptom from
+// issue #238 against the steps themselves: ~/.zshenv is read by every zsh
+// invocation, so a user's own file there is the one destructive report that
+// matters most, and the backup step only copies what the detection names. The
+// detection is derived from ConfigPaths(), so a key missing from that map means
+// the file is replaced with no copy at all.
+func TestTheShellStepBacksUpEveryHomeFileItReplaces(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  string
+		rel  string
+	}{
+		{name: ".zshenv", key: "zshenv", rel: ".zshenv"},
+		{name: ".gitconfig-personal", key: "gitconfig-personal", rel: ".gitconfig-personal"},
+		{name: ".gitconfig", key: "gitconfig", rel: ".gitconfig"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			withZshMocks(t, home)
+
+			// The user's own file, with content the repository does not ship.
+			userFile := filepath.Join(home, tc.rel)
+			userContent := "# mine, written by me\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\n"
+			if err := os.WriteFile(userFile, []byte(userContent), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			m := NewModel()
+			m.SystemInfo = &system.SystemInfo{OS: system.OSMac, HasBrew: true}
+			m.Choices = UserChoices{OS: "mac", Shell: "zsh", WindowMgr: "herdr"}
+			m.RepoDir = repoRoot(t)
+
+			// The detection drives the backup step, so it has to name the file.
+			m.ExistingConfigs = system.DetectExistingConfigs()
+			if !slices.Contains(m.ExistingConfigs, tc.key+": "+userFile) {
+				t.Errorf("the detection does not name the user's ~/%s, so the backup step cannot copy it: %v", tc.rel, m.ExistingConfigs)
+			}
+
+			if err := stepBackupConfigs(&m); err != nil {
+				t.Fatalf("the backup step failed: %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(m.BackupDir, tc.key))
+			if err != nil {
+				t.Fatalf("the user's ~/%s was replaced with no copy in the backup: %v", tc.rel, err)
+			}
+			if string(got) != userContent {
+				t.Errorf("the backup holds %q, want the user's own bytes %q", got, userContent)
+			}
+
+			// The shell step is what replaces it, and it still installs the
+			// repository's own file over the user's.
+			if err := stepInstallShell(&m); err != nil {
+				t.Fatalf("the shell step failed: %v", err)
+			}
+			installed, err := os.ReadFile(userFile)
+			if err != nil {
+				t.Fatalf("~/%s was not installed: %v", tc.rel, err)
+			}
+			if string(installed) == userContent {
+				t.Errorf("the shell step left the user's ~/%s in place, so this test no longer covers a replacement", tc.rel)
+			}
+		})
+	}
+}
+
+// TestEveryProgramTheRepositoryShipsIsInstalledExecutable is the guard for the
+// class of defect in issue #241: a repository that ships programs relies on the
+// mode it gives them, and the installer replaced that decision with a constant.
+//
+// The requirement is derived from the repository's own bytes rather than from a
+// list: a file whose first two bytes are "#!" is meant to be run, so it must be
+// executable in the repository and executable once the installer has copied it
+// into the user's home. An asset added later that needs the bit is covered
+// without anyone remembering to add it here, which is the same reason the theme
+// artifacts are generated from their definitions instead of hand-written.
+func TestEveryProgramTheRepositoryShipsIsInstalledExecutable(t *testing.T) {
+	root := repoRoot(t)
+	dest := t.TempDir()
+
+	programs := 0
+	for _, asset := range repoAssets {
+		src := filepath.Join(root, asset)
+		info, err := os.Stat(src)
+		if err != nil {
+			t.Fatalf("the installer copies %s, which does not exist: %v", asset, err)
+		}
+
+		var relative []string
+		if info.IsDir() {
+			if err := filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if entry.IsDir() {
+					return nil
+				}
+				rel, err := filepath.Rel(root, path)
+				if err != nil {
+					return err
+				}
+				relative = append(relative, rel)
+				return nil
+			}); err != nil {
+				t.Fatalf("walking %s: %v", asset, err)
+			}
+		} else {
+			relative = []string{asset}
+		}
+
+		for _, rel := range relative {
+			path := filepath.Join(root, rel)
+			shebang := make([]byte, 2)
+			file, err := os.Open(path)
+			if err != nil {
+				t.Fatalf("reading %s: %v", rel, err)
+			}
+			n, _ := file.Read(shebang)
+			_ = file.Close()
+			// A file shorter than two bytes cannot be a program, and an empty asset is
+			// nothing this guard is about.
+			if n < len(shebang) || string(shebang) != "#!" {
+				continue
+			}
+			programs++
+
+			// First the repository itself: a program that is not executable there is
+			// already broken for anyone who runs it from the checkout, and the installer
+			// cannot invent the bit the repository did not set.
+			if info, err := os.Stat(path); err != nil {
+				t.Fatalf("stat %s: %v", rel, err)
+			} else if info.Mode().Perm()&0o111 == 0 {
+				t.Errorf("%s starts with #! but is %v in the repository: it is a program the checkout cannot run", rel, info.Mode().Perm())
+			}
+
+			// Then the install: copying it the way the installer does must keep the bit,
+			// because these files are invoked as programs, not read as configuration.
+			installed := filepath.Join(dest, rel)
+			if err := system.CopyFile(path, installed); err != nil {
+				t.Fatalf("installing %s: %v", rel, err)
+			}
+			if info, err := os.Stat(installed); err != nil {
+				t.Fatalf("stat %s: %v", installed, err)
+			} else if info.Mode().Perm()&0o111 == 0 {
+				t.Errorf("%s is installed as %v: the program the repository ships cannot be run from the user's home", rel, info.Mode().Perm())
+			}
+		}
+	}
+
+	if programs == 0 {
+		t.Fatal("no file among the installer's assets starts with #!, so this guard proves nothing")
+	}
+}
+
+// TestInstalledAssetsKeepTheRepositorysMode is the assertion issue #241 found
+// missing: nothing in the installer's tests looked at the mode of an installed
+// asset, so a copy that dropped the executable bit could not fail here. Both
+// files are programs the repository ships executable and both are run as
+// programs: bash-env-json by bash-env.nu through the nushell environment, and
+// safe-update.sh through installConfigDir, which is CopyDirPruned.
+func TestInstalledAssetsKeepTheRepositorysMode(t *testing.T) {
+	root := repoRoot(t)
+
+	t.Run("the shell step installs the bash helper executable", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		withPackageCommandMocks(t, nil)
+
+		m := NewModel()
+		m.SystemInfo = &system.SystemInfo{OS: system.OSDebian, HasBrew: true}
+		m.Choices = UserChoices{OS: "linux", Shell: "nushell", WindowMgr: "none"}
+		m.RepoDir = root
+
+		if err := stepInstallShell(&m); err != nil {
+			t.Fatalf("the nushell step failed: %v", err)
+		}
+
+		configDir := filepath.Join(home, ".config")
+		assertInstalledModeMatchesSource(t, filepath.Join(configDir, "bash-env-json"), filepath.Join(root, repoAssetBashEnvJSON))
+		assertInstalledModeMatchesSource(t, filepath.Join(configDir, "bash-env.nu"), filepath.Join(root, repoAssetBashEnvNu))
+	})
+
+	t.Run("the nvim step installs the update script executable", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		withPackageCommandMocks(t, nil)
+
+		m := NewModel()
+		// Termux keeps the optional Claude and OpenCode installers, which shell out to
+		// the network, out of this test.
+		m.SystemInfo = &system.SystemInfo{IsTermux: true}
+		m.Choices = UserChoices{OS: "termux", InstallNvim: true}
+		m.RepoDir = root
+
+		if err := stepInstallNvim(&m); err != nil {
+			t.Fatalf("the nvim step failed: %v", err)
+		}
+
+		assertInstalledModeMatchesSource(t,
+			filepath.Join(home, ".config", "nvim", "scripts", "safe-update.sh"),
+			filepath.Join(root, repoAssetNvim, "scripts", "safe-update.sh"))
+	})
+}
+
+// assertInstalledModeMatchesSource compares an installed file's mode with the
+// mode the repository ships it with, so a copy that happens to be executable for
+// the wrong reason -- a 0755 constant, say -- still fails.
+func assertInstalledModeMatchesSource(t *testing.T, installed, source string) {
+	t.Helper()
+
+	want, err := os.Stat(source)
+	if err != nil {
+		t.Fatalf("the repository copy %s is missing: %v", source, err)
+	}
+	got, err := os.Stat(installed)
+	if err != nil {
+		t.Fatalf("%s was not installed: %v", installed, err)
+	}
+	if got.Mode().Perm() != want.Mode().Perm() {
+		t.Errorf("%s is installed as %v, want the repository's %v", installed, got.Mode().Perm(), want.Mode().Perm())
 	}
 }
 

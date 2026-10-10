@@ -4383,9 +4383,14 @@ func stepInstallHomebrew(m *Model) error {
 	shellConfig := fmt.Sprintf(`eval "$(%s/bin/brew shellenv)"`, brewPrefix)
 
 	SendLog(stepID, "Configuring shell to use Homebrew...")
-	// Add to common shell configs
-	for _, rcFile := range []string{".bashrc", ".zshrc"} {
-		rcPath := filepath.Join(homeDir, rcFile)
+	// Add to common shell configs. Both destinations are spelled out as literals
+	// rather than read from a loop variable, because the guard that checks every
+	// home path the installer writes against ConfigPaths() can only classify a
+	// destination it can resolve (TestEveryHomePathTheInstallerWritesIsClassified).
+	for _, rcPath := range []string{
+		filepath.Join(homeDir, ".bashrc"),
+		filepath.Join(homeDir, ".zshrc"),
+	} {
 		if f, err := os.OpenFile(rcPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 			f.WriteString("\n" + shellConfig + "\n")
 			f.Close()

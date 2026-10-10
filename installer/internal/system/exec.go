@@ -361,7 +361,25 @@ func ReplaceUserConfig(src, dst, managedMarker, dropInDir, prefix, extension str
 	return preservedPath, nil
 }
 
-// CopyFile copies a file from src to dst
+// CopyFile copies a file from src to dst, mode included.
+//
+// The mode comes from the file, not from this routine. The repository ships
+// programs -- bash-env-json, dotfiles-nvim/nvim/scripts/safe-update.sh -- and
+// their executable bit is part of what they are, so a copy that decides the mode
+// itself installs them un-runnable and the failure surfaces as EACCES far from
+// its cause. Directories already kept their mode through MkdirAll; files did
+// not.
+//
+// An existing destination is chmod'ed explicitly, because os.WriteFile applies
+// its mode argument only when it creates the file. Leaving it alone would repair
+// new installs and never the broken one: a machine holding a 0644 copy from an
+// earlier run would keep it, and that leftover is exactly how the missing bit
+// stayed invisible in the first place. The copy contract is "the destination
+// matches the source", and it has to hold for the file that is already there.
+//
+// Only the permission bits are carried. A source's setuid, setgid or sticky bits
+// are not part of "a copy of this file", and installing them into a user's home
+// would grant privileges the repository never handed out.
 func CopyFile(src, dst string) error {
 	info, err := os.Stat(src)
 	if err != nil {
@@ -381,7 +399,11 @@ func CopyFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(dst, input, 0644)
+	perm := info.Mode().Perm()
+	if err := os.WriteFile(dst, input, perm); err != nil {
+		return err
+	}
+	return os.Chmod(dst, perm)
 }
 
 // CopyDir recursively copies a directory using native Go (shell-independent).
@@ -588,14 +610,31 @@ func ConfigPaths() map[string]string {
 		"zellij":    home + "/.config/zellij",
 		"herdr":     home + "/.config/herdr",
 		"alacritty": home + "/.config/alacritty",
-		"wezterm":   home + "/.wezterm.lua",
-		"kitty":     home + "/.config/kitty",
-		"ghostty":   home + "/.config/ghostty",
-		"starship":  home + "/.config/starship.toml",
-		"bat":       home + "/.config/bat",
+		// WezTerm is installed into the XDG directory, so that is the file the
+		// terminal step replaces and the one this key has to name; the loose
+		// ~/.wezterm.lua it used to name is a config WezTerm also reads but this
+		// installer never writes.
+		"wezterm":  home + "/.config/wezterm",
+		"kitty":    home + "/.config/kitty",
+		"ghostty":  home + "/.config/ghostty",
+		"starship": home + "/.config/starship.toml",
+		"bat":      home + "/.config/bat",
 		// Overwritten by the shell step, which copies the repository's version, so
 		// it has to be backed up like every other config the installer replaces.
 		"gitconfig": home + "/.gitconfig",
+		// The rest of the files the installer replaces in the user's home. They are
+		// named here for the same reason as .gitconfig: the backup step copies only
+		// what this map lists, and the overwrite count and the last-install record
+		// are built from the same map, so a path missing here is replaced with no
+		// copy and with nothing on screen or on disk saying it happened (#238).
+		// TestEveryHomePathTheInstallerWritesIsClassified fails when a write in the
+		// installer targets a home path this map does not cover.
+		"gitconfig-personal": home + "/.gitconfig-personal",                 // identity, included by .gitconfig
+		"zshenv":             home + "/.zshenv",                             // read by every zsh invocation
+		"bashrc":             home + "/.bashrc",                             // appended to by the Homebrew and default-shell steps
+		"bash-env-json":      home + "/.config/bash-env-json",               // read by the nushell environment
+		"bash-env-nu":        home + "/.config/bash-env.nu",                 // ditto
+		"nushell_macos":      home + "/Library/Application Support/nushell", // where macOS nushell reads its config
 	}
 }
 
