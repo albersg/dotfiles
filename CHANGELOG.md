@@ -4,6 +4,26 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **nushell takes the theme now, and the coverage table can say so.** The shell's own
+  `dotfiles-nushell/config.nu` shipped eighteen hand-written Kanagawa colours that appear in no
+  `themes/*.toml` - the `$dark_theme` record the configuration selects with `color_config`, the
+  `$env.LS_COLORS` table it paints `ls` output from, and two hexes in the `explore` block - and nushell
+  was not one of the tools `themeTools` named. Choosing any theme but Kanagawa therefore repainted
+  every other tool while `nu` kept the old palette, and the coverage row, which is read from the same
+  list, said "nothing" was left out and was silent about the one shell it never painted (#240).
+  Nushell is the thirteenth tool now and both of its colour regions are generated from the theme's own
+  palette by the mapping recorded in `themes/README.md`, so no colour is invented; the two `explore`
+  hexes take nushell's own ANSI names, which the terminal paints from whichever theme is applied. The
+  switch rewrites only the bytes between the region's two anchors - a `config.nu` that carries the
+  user's own PATH lines keeps them byte for byte - and records the original so **Undo** puts the file
+  back exactly. `TestEveryOfferedThemePaintsEveryTool` now covers the shell (all seven themes paint it),
+  `TestNushellIsPaintedByTheThemeSwitch` decodes every `LS_COLORS` triple and refuses any of the
+  eighteen values, and `TestTheThemeRowCountsNushell` holds the row to the same truth it tells.
+
 ## [v0.6.3] — 2026-10-09
 
 This is the release where the installer learns to apply the themes it offers. The library grows to seven

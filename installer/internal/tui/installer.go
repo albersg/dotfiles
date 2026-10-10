@@ -1101,6 +1101,16 @@ var themeTools = []themeTool{
 		_, err := renderTmuxTheme(d)
 		return err == nil
 	}},
+	// nushell's colours live in the shell's own config.nu, in the LS_COLORS table
+	// nushell paints `ls` output from and the $dark_theme record the shipped
+	// configuration selects with `color_config`. Both are derived from the
+	// definition's own palette by the fixed mapping recorded in
+	// themes/README.md, so the shell cannot stay on a palette no theme declares
+	// while the row says nothing (issue #240).
+	{ID: "nushell", Name: "nushell", Available: func(d themeDefinition) bool {
+		_, err := renderNushellTheme(d)
+		return err == nil
+	}},
 }
 
 // themeCoverage splits the tools into the ones a theme can paint and the ones it
@@ -1169,6 +1179,7 @@ var themeSourceBlocks = map[string][]themeSourceBlock{
 		{Tool: "Herdr", Path: "dotfiles-herdr/config.toml", Roles: []string{"selection", "blue"}},
 		{Tool: "fish", Path: "dotfiles-fish/fish/config.fish", Roles: []string{"text", "green", "magenta", "yellow", "cyan", "red", "blue", "bright_black", "selection"}},
 		{Tool: "tmux", Path: "dotfiles-tmux/tmux.conf", Roles: []string{"base", "text", "blue", "bright_black", "yellow", "red", "green", "selection"}},
+		{Tool: "nushell", Path: "dotfiles-nushell/config.nu", Roles: []string{"base", "blue", "magenta", "cyan", "red", "yellow", "bright_black", "bright_green", "bright_yellow"}},
 	},
 	"catppuccin-mocha": {
 		{Tool: "Ghostty", Path: "dotfiles-ghostty/themes/catppuccin-mocha.conf", Roles: []string{"base", "text", "cursor", "cursor_text", "selection", "selection_text", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"}},
@@ -1283,6 +1294,17 @@ var themeActiveArtifacts = []themeArtifact{
 	// The block is committed after the TPM run line; TestTmuxThemeBlockLoadsAfterPlugins
 	// pins that order.
 	{Tool: "tmux", Path: "dotfiles-tmux/tmux.conf", Comment: "#", NotBoxed: true, AdoptStart: "# DOTFILES THEME", AdoptEnd: "# DOTFILES THEME", Render: renderTmuxTheme},
+	// nushell's own config.nu holds the colour region this repository owns: the
+	// LS_COLORS table nushell paints `ls` output from and the `$dark_theme` record
+	// the configuration selects. The region runs from the table's opening line to
+	// the record's last key; the record's own closing brace, the file's comments,
+	// the light theme below it and the user's own lines are all outside it. The end
+	// anchor is that last key rather than the `}` line, which is not unique in the
+	// file and which would make a file that lost its following section have its
+	// whole tail rewritten as the region.
+	{Tool: "nushell", Path: "dotfiles-nushell/config.nu", Comment: "#", NotBoxed: true,
+		AdoptStart: "$env.LS_COLORS = (", AdoptEnd: "shape_variable:",
+		Render: renderNushellTheme},
 }
 
 // themeHex returns a role's value and refuses a definition that misses it, so a
@@ -1708,6 +1730,13 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".config/fish/config.fish")
 	case "tmux":
 		return filepath.Join(homeDir, ".tmux.conf")
+	case "nushell":
+		// nushell reads its configuration from one directory on macOS and from
+		// XDG's on Linux, which is the split the shell step installs into.
+		if runtime.GOOS == "darwin" {
+			return filepath.Join(homeDir, "Library/Application Support/nushell/config.nu")
+		}
+		return filepath.Join(homeDir, ".config/nushell/config.nu")
 	}
 	return ""
 }
@@ -2214,6 +2243,9 @@ func reloadThemeToolFor(art themeArtifact, path, homeDir string) themeReloadTool
 	case "fish":
 		return themeReloadTool{Tool: "fish", Done: false,
 			Note: "a fish shell that is already open keeps the old palette: open a new shell, or run `exec fish`."}
+	case "nushell":
+		return themeReloadTool{Tool: "nushell", Done: false,
+			Note: "a nushell that is already open keeps the old palette: open a new shell, or run `exec nu`."}
 	case "bat":
 		if themeReloadCommandExists("bat") {
 			batConfigDir := filepath.Join(homeDir, ".config", "bat")
@@ -2911,6 +2943,209 @@ set -g clock-mode-colour "%s"`,
 		hex("bright_black"),
 		hex("blue"),
 		hex("blue")), nil
+}
+
+// ---------------------------------------------------------------------------
+// nushell
+// ---------------------------------------------------------------------------
+//
+// nushell's colours live in the shell's own config.nu, in two regions this
+// repository owns: the `$env.LS_COLORS` table nushell paints `ls` output from,
+// and the `let dark_theme` record the shipped configuration selects with
+// `color_config: $dark_theme`. Neither is a published palette of its own, so
+// both are derived from the definition by the mapping below, exactly as the fish
+// roles and tmux's style options are: every value emitted is a role the
+// definition already holds, and a definition that cannot fill one is refused
+// rather than painted with a hole.
+//
+// The two regions were hand-written Kanagawa values until issue #240: eighteen
+// colours that appear in no themes/*.toml, kept while every other tool changed,
+// and invisible to the coverage row because nushell was not one of the tools the
+// model names. Two guards hold the fix: a generated block may not invent a
+// colour (TestGeneratedThemeBlocksInventNoColour), and the nushell block must
+// carry the definition's own palette and none of those eighteen
+// (TestNushellIsPaintedByTheThemeSwitch).
+
+// themeNushellLSColours is the LS_COLORS table nushell paints `ls` output from,
+// as key -> the canonical role it takes. The keys and their order are the ones
+// the shipped dotfiles-nushell/config.nu already carried, so the fix changes the
+// colours and not which file kinds the shell paints.
+var themeNushellLSColours = []struct{ Key, Role string }{
+	{"di", "blue"},    // directories
+	{"fi", "text"},    // regular files
+	{"ln", "magenta"}, // symbolic links
+	{"ex", "cyan"},    // executables
+	{"or", "red"},     // broken links
+	{"*.txt", "text"},
+	{"*.jpg", "magenta"},
+	{"*.png", "magenta"},
+	{"*.zip", "cyan"},
+	{"*.gz", "cyan"},
+	{"*.tar", "cyan"},
+	{"*.log", "magenta"},
+	{"*.md", "magenta"},
+	{"*.py", "cyan"},
+	{"*.rs", "red"},
+	{"*.sh", "cyan"},
+	{"*", "text"},
+}
+
+// themeNushellRoles is every key of nushell's `let dark_theme` record, in the
+// record's own order, and the canonical role it takes. BgRole is set for the two
+// keys nushell writes as a `{ fg, bg }` record; Attr is nushell's own attribute,
+// appended to a colour as the `_bold` suffix nushell also accepts. A key with no
+// role is one that carries no colour (leading_trailing_space_bg).
+var themeNushellRoles = []struct {
+	Key    string
+	Role   string
+	BgRole string
+	Attr   string
+}{
+	{"separator", "bright_black", "", ""},
+	{"leading_trailing_space_bg", "", "", "n"},
+	{"header", "blue", "", "b"},
+	{"empty", "magenta", "", ""},
+	{"bool", "red", "", ""},
+	{"int", "bright_black", "", ""},
+	{"filesize", "cyan", "", ""},
+	{"duration", "bright_green", "", ""},
+	{"date", "bright_yellow", "", ""},
+	{"range", "bright_black", "", ""},
+	{"float", "yellow", "", ""},
+	{"string", "bright_black", "", ""},
+	{"nothing", "blue", "", ""},
+	{"binary", "cyan", "", ""},
+	{"cellpath", "bright_green", "", ""},
+	{"row_index", "blue", "", "b"},
+	{"record", "magenta", "", ""},
+	{"list", "bright_black", "", ""},
+	{"block", "magenta", "", "b"},
+	{"hints", "bright_green", "", ""},
+	{"search_result", "base", "red", ""},
+	{"shape_and", "magenta", "", "b"},
+	{"shape_binary", "cyan", "", "b"},
+	{"shape_block", "blue", "", ""},
+	{"shape_bool", "red", "", ""},
+	{"shape_closure", "yellow", "", ""},
+	{"shape_custom", "cyan", "", ""},
+	{"shape_datetime", "bright_yellow", "", "b"},
+	{"shape_directory", "blue", "", ""},
+	{"shape_external", "cyan", "", ""},
+	{"shape_externalarg", "magenta", "", "b"},
+	{"shape_filepath", "bright_green", "", ""},
+	{"shape_flag", "blue", "", "b"},
+	{"shape_float", "yellow", "", ""},
+	{"shape_garbage", "base", "yellow", "b"},
+	{"shape_globpattern", "cyan", "", "b"},
+	{"shape_int", "magenta", "", ""},
+	{"shape_internalcall", "cyan", "", "b"},
+	{"shape_keyword", "blue", "", ""},
+	{"shape_literal", "bright_yellow", "", ""},
+	{"shape_operator", "red", "", ""},
+	{"shape_or", "red", "", "b"},
+	{"shape_pipe", "cyan", "", ""},
+	{"shape_string", "bright_green", "", ""},
+	{"shape_variable", "yellow", "", ""},
+}
+
+// themeRGB renders a #rrggbb colour as the decimal `r;g;b` triple LS_COLORS
+// carries, so the table is written the way the shell reads it without a second
+// colour being chosen for it.
+func themeRGB(value string) (string, error) {
+	hex := strings.TrimPrefix(value, "#")
+	if len(hex) != 6 {
+		return "", fmt.Errorf("%q is not a #rrggbb colour", value)
+	}
+	parts := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		n, err := strconv.ParseUint(hex[i*2:i*2+2], 16, 8)
+		if err != nil {
+			return "", fmt.Errorf("%q is not a #rrggbb colour: %w", value, err)
+		}
+		parts[i] = strconv.FormatUint(n, 10)
+	}
+	return strings.Join(parts, ";"), nil
+}
+
+// renderNushellTheme renders the colour region of dotfiles-nushell/config.nu:
+// the LS_COLORS table and the `let dark_theme` record the shipped configuration
+// selects. The record's opening line and its closing brace are the file's own
+// and stay outside the marked region, so the block ends at the record's last
+// key. A definition that misses any role either half reads is refused, so
+// nushell is reported by the coverage row instead of painted with a hole.
+func renderNushellTheme(def themeDefinition) (string, error) {
+	colour := func(role string) (string, error) {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", fmt.Errorf("theme %q cannot paint nushell: %w", def.ID, err)
+		}
+		return strings.ToUpper(value), nil
+	}
+
+	var b strings.Builder
+	b.WriteString("$env.LS_COLORS = (\n")
+	b.WriteString("    # Every file kind nushell paints `ls` output with, each one the palette\n")
+	b.WriteString("    # role named beside it.\n")
+	for i, entry := range themeNushellLSColours {
+		value, err := colour(entry.Role)
+		if err != nil {
+			return "", err
+		}
+		rgb, err := themeRGB(value)
+		if err != nil {
+			return "", fmt.Errorf("theme %q cannot paint nushell: %w", def.ID, err)
+		}
+		switch {
+		case entry.Key == "*":
+			fmt.Fprintf(&b, "\n    # Everything else.\n    \"*=38;2;%s\"  # %s\n", rgb, entry.Role)
+		case i == 0:
+			fmt.Fprintf(&b, "    \"%s=38;2;%s:\" +  # %s\n", entry.Key, rgb, entry.Role)
+		case entry.Key == "*.txt":
+			fmt.Fprintf(&b, "\n    # The specific extensions.\n    \"%s=38;2;%s:\" +  # %s\n", entry.Key, rgb, entry.Role)
+		default:
+			fmt.Fprintf(&b, "    \"%s=38;2;%s:\" +  # %s\n", entry.Key, rgb, entry.Role)
+		}
+	}
+	b.WriteString(")\n\n")
+
+	b.WriteString("# The record the configuration selects with `color_config`, so these are the\n")
+	b.WriteString("# colours the shell draws with. Every one is a role of the theme's own palette.\n")
+	b.WriteString("let dark_theme = {\n")
+	b.WriteString("    # Base elements.\n")
+	for _, entry := range themeNushellRoles {
+		switch {
+		case entry.Role == "":
+			fmt.Fprintf(&b, "    %s: { attr: \"%s\" } # no fg and no bg\n", entry.Key, entry.Attr)
+		case entry.BgRole != "":
+			fg, err := colour(entry.Role)
+			if err != nil {
+				return "", err
+			}
+			bg, err := colour(entry.BgRole)
+			if err != nil {
+				return "", err
+			}
+			attr := ""
+			if entry.Attr != "" {
+				attr = fmt.Sprintf(", attr: \"%s\"", entry.Attr)
+			}
+			fmt.Fprintf(&b, "    %s: { fg: \"%s\", bg: \"%s\"%s } # fg %s, bg %s\n", entry.Key, fg, bg, attr, entry.Role, entry.BgRole)
+		default:
+			value, err := colour(entry.Role)
+			if err != nil {
+				return "", err
+			}
+			suffix := ""
+			if entry.Attr != "" {
+				suffix = "_bold"
+			}
+			fmt.Fprintf(&b, "    %s: \"%s%s\" # %s\n", entry.Key, value, suffix, entry.Role)
+		}
+	}
+	// The record's closing brace is the file's own line and stays outside the
+	// markers, which is why the region's end anchor is the last key rather than a
+	// `}` that is not unique in the file.
+	return b.String(), nil
 }
 
 // themeThemeFile is a whole-file artifact, one per theme: the fish theme files

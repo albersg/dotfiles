@@ -233,7 +233,7 @@ cover every tool the switch paints — and each theme's palette is defined once 
 one adds a row to the theme list, which the Utilities section's **Change the dotfiles theme** row
 opens. The switch applies a complete theme (a definition with every canonical role and the `[syntax]`
 members the preview reads: **dotfiles**, **Catppuccin Mocha**, **Catppuccin Latte**, **Kanagawa**,
-**Everforest**, **Rosé Pine** and **Nocturne**) to the configs this repository owns for all twelve tools, records
+**Everforest**, **Rosé Pine** and **Nocturne**) to the configs this repository owns for all thirteen tools, records
 the exact bytes it replaced in the same `theme.json`, and can put them back with a dedicated undo
 row. Writing a file is not the same as the running tool showing it, so after the switch it brings the
 theme forward where it safely can — rebuilding bat's theme cache, sourcing tmux's config into a
@@ -242,11 +242,11 @@ over that session's own socket — and it lists every tool it painted with what,
 still has to reload; a tool that is only reachable from a live session is named, never signalled. bat selects its theme by the custom theme file's name, so the switch exports that name rather
 than the one written inside the file. Neovim is named by a colorscheme, and that name resolves on the machine or the line is not written: a generated colorscheme is installed into `~/.config/nvim/colors/<name>.lua` — where Neovim reads it on its runtimepath — before the switch writes the line, and a plugin's colorscheme is named only when the plugin is installed, so the switch never starts Neovim with `E185: Cannot find color scheme`. The default is chosen by the same rule: the committed line names the **dotfiles** palette, whose colorscheme file the Neovim step copies with the rest of the config, so a fresh install always has it, where a default naming a plugin's colorscheme only resolves on a machine that installed that plugin. The statusline follows the same rule from the other side: its theme is derived from whatever colorscheme is active (LazyVim sets lualine's `auto`) and never hard-coded, so it cannot report a theme it could not find. Every one of the seven paints every tool the switch names —
 Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line editor, the p10k prompt, Herdr, fish,
-bat, Neovim and tmux — and a guard keeps it that way: a theme that could not paint one would name it
+bat, Neovim, tmux and nushell — and a guard keeps it that way: a theme that could not paint one would name it
 on its row rather than leaving it on the old palette silently, and a theme missing roles, or the
 syntax the preview needs to show it, is reported as partial and never offered. Where a tool reads roles the palette does not
 carry (Starship's prompt roles, fish's eighteen, bat's scopes, tmux's style options, Neovim's
-highlight groups) the values are derived from the theme's own palette by the fixed mapping recorded
+highlight groups, nushell's own record and `LS_COLORS` table) the values are derived from the theme's own palette by the fixed mapping recorded
 in [`themes/README.md`](themes/README.md), so a derived colour is one the theme already holds. The
 definitions are read from a checkout on disk, never from
 the binary: `$DOTFILES_DIR` first, then the clone this run makes, then the working directory and its
