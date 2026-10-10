@@ -4,7 +4,7 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [v0.6.4] — 2026-10-10
 
 ### Fixed
 
@@ -144,6 +144,8 @@ hidden three of them behind unreachable code.
   (#175).
 - The theme refresh review names the managed file the switch cannot bring forward instead of skipping it
   silently (#188).
+
+- **A copied program keeps its executable bit, and every home file the shell step replaces is backed up.** The copy routine decided the mode itself, so `bash-env-json` -- executed by the nushell configuration the same install writes -- and `safe-update.sh` -- run as `argv[0]` by a Neovim command -- were installed un-runnable, and the failure surfaced as `EACCES` far from its cause. The mode now comes from the file, and an existing destination is `chmod`'ed explicitly, because `os.WriteFile` applies its mode only when it creates the file: leaving it alone would repair new installs and never the broken one (#241). `~/.zshenv` was replaced without being in `ConfigPaths()`, so the backup step and the record never saw it and a user's own file was destroyed with no copy and no mention; it is classified now, behind a guard that fails naming any home path the installer writes that the map does not classify (#238).
 
 ### Changed
 
