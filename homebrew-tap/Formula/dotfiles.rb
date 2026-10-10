@@ -1,25 +1,25 @@
 class Dotfiles < Formula
   desc "Interactive TUI installer for dotfiles development environment"
   homepage "https://github.com/albersg/dotfiles"
-  version "0.6.3"
+  version "0.6.4"
   license "MIT"
 
   on_macos do
     on_arm do
       url "https://github.com/albersg/dotfiles/releases/download/v#{version}/dotfiles-darwin-arm64"
-      sha256 "4676b6aa2e3d675fd73bf362ec5cf187aaaec4f676ca380472f1f15fd8c117d3"    end
+      sha256 "6d6fcd27ffe824efa420013e5fa8127caa6bb62661b900f1c60094a4c3ca4069"
     on_intel do
       url "https://github.com/albersg/dotfiles/releases/download/v#{version}/dotfiles-darwin-amd64"
-      sha256 "57f6fa854dcbedb9ebebe14bf2999efcadf1f50296a404f0f31c368e08692d9b"    end
+      sha256 "dc0e2419b9780270dbe01cbe34bed10ae85c722ea63acc5c2f428fc1d823629f"
   end
 
   on_linux do
     on_arm do
       url "https://github.com/albersg/dotfiles/releases/download/v#{version}/dotfiles-linux-arm64"
-      sha256 "f3f5c9c8dcd26e60b6cfee0b4104688f223fa4e98bc9fe4d2e7d49428d8bd243"    end
+      sha256 "a7705b80d482ba8c06fafb0c7f8aae71c025932f08783a11d3cb4aa0cd27b6ec"
     on_intel do
       url "https://github.com/albersg/dotfiles/releases/download/v#{version}/dotfiles-linux-amd64"
-      sha256 "6e42cf5184180370b47c2d95dc1be08845f702e28bbae81e29a15ad0b91c4b61"    end
+      sha256 "9a122cb11afa3d892dd52ac7edbfd0706f28298bff5a73baa8a35e3b5d1d76b8"
   end
 
   def install
@@ -31,7 +31,7 @@ class Dotfiles < Formula
       bin.install "dotfiles-linux-arm64" => "dotfiles"
     elsif OS.linux? && Hardware::CPU.intel?
       bin.install "dotfiles-linux-amd64" => "dotfiles"
-    end
+end
   end
 
   test do
