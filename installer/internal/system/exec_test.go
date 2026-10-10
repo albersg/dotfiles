@@ -369,6 +369,112 @@ func TestCopyDir(t *testing.T) {
 	})
 }
 
+// TestCopyFileCarriesTheSourceMode pins the copy contract that issue #241 broke:
+// a copy has the mode of the file it copies, because the repository ships
+// programs and their bit is part of what they are. os.WriteFile only applies its
+// mode argument when it creates the file, so the destination is chmod'ed too:
+// without that, a machine holding a 0644 copy from an earlier run keeps it, and
+// the file that motivates the fix -- the one already installed -- never gets the
+// bit back.
+func TestCopyFileCarriesTheSourceMode(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		srcMode   os.FileMode
+		dstMode   os.FileMode
+		wantFound os.FileMode
+	}{
+		{name: "an executable is copied executable", srcMode: 0o755, wantFound: 0o755},
+		{name: "a private file stays private", srcMode: 0o600, wantFound: 0o600},
+		{name: "the source's bits are copied, not a constant", srcMode: 0o664, wantFound: 0o664},
+		{name: "an existing non-executable copy is repaired", srcMode: 0o755, dstMode: 0o644, wantFound: 0o755},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			src := filepath.Join(dir, "bash-env-json")
+			dst := filepath.Join(dir, "installed", "bash-env-json")
+			if err := os.WriteFile(src, []byte("#!/usr/bin/env bash\necho hi\n"), tt.srcMode); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(src, tt.srcMode); err != nil {
+				t.Fatal(err)
+			}
+			if tt.dstMode != 0 {
+				if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(dst, []byte("an older install\n"), tt.dstMode); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(dst, tt.dstMode); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if err := CopyFile(src, dst); err != nil {
+				t.Fatalf("CopyFile: %v", err)
+			}
+
+			got, err := os.Stat(dst)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Mode().Perm() != tt.wantFound {
+				t.Errorf("the copy is %v, want the source's %v: the routine decided the mode instead of the file", got.Mode().Perm(), tt.wantFound)
+			}
+		})
+	}
+}
+
+// TestCopyDirCarriesTheModeOfTheFilesInside pins the same contract through every
+// directory copy: CopyDir, CopyDirReport and CopyDirPruned all walk with
+// copyDirTree, which hands every regular file to CopyFile, so the Neovim tree,
+// the fish tree and every backup go through this path. Directories already kept
+// their mode through MkdirAll; files did not, which is exactly the asymmetry the
+// reported defect exploited.
+func TestCopyDirCarriesTheModeOfTheFilesInside(t *testing.T) {
+	srcDir := filepath.Join(t.TempDir(), "src")
+	if err := os.MkdirAll(filepath.Join(srcDir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]os.FileMode{
+		filepath.Join("scripts", "safe-update.sh"): 0o755,
+		"config.toml": 0o644,
+	}
+	for name, mode := range files {
+		path := filepath.Join(srcDir, name)
+		if err := os.WriteFile(path, []byte("#!/usr/bin/env bash\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	copy := map[string]func(src, dst string) error{
+		"CopyDir":       CopyDir,
+		"CopyDirReport": func(src, dst string) error { _, err := CopyDirReport(src, dst); return err },
+		"CopyDirPruned": func(src, dst string) error { _, err := CopyDirPruned(src, dst); return err },
+	}
+	for name, routine := range copy {
+		t.Run(name, func(t *testing.T) {
+			dstDir := filepath.Join(t.TempDir(), "dst")
+			if err := routine(srcDir, dstDir); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+
+			for file, mode := range files {
+				got, err := os.Stat(filepath.Join(dstDir, file))
+				if err != nil {
+					t.Fatalf("%s did not copy %s: %v", name, file, err)
+				}
+				if got.Mode().Perm() != mode {
+					t.Errorf("%s copied %s as %v, want the source's %v", name, file, got.Mode().Perm(), mode)
+				}
+			}
+		})
+	}
+}
+
 func TestConfigPaths(t *testing.T) {
 	t.Run("should return map of config paths", func(t *testing.T) {
 		paths := ConfigPaths()

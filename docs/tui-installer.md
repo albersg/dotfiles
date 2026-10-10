@@ -1172,16 +1172,30 @@ The installer automatically detects existing configurations for:
 |------|-------|
 | Neovim | `~/.config/nvim` |
 | Fish | `~/.config/fish` |
-| Zsh | `~/.zshrc`, `~/.oh-my-zsh` |
-| Nushell | `~/.config/nushell`, `~/Library/Application Support/nushell` |
-| Tmux | `~/.tmux.conf`, `~/.tmux` |
+| Zsh | `~/.zshrc`, `~/.zshenv`, `~/.p10k.zsh`, `~/.oh-my-zsh` |
+| Nushell | `~/.config/nushell`, `~/Library/Application Support/nushell`, `~/.config/bash-env-json`, `~/.config/bash-env.nu` |
+| Git | `~/.gitconfig`, `~/.gitconfig-personal` |
+| Bash | `~/.bashrc` |
+| Tmux | `~/.tmux.conf` |
 | Zellij | `~/.config/zellij` |
 | Herdr | `~/.config/herdr` |
 | Alacritty | `~/.config/alacritty` |
-| WezTerm | `~/.config/wezterm`, `~/.wezterm.lua` |
+| WezTerm | `~/.config/wezterm` |
 | Kitty | `~/.config/kitty` |
 | Ghostty | `~/.config/ghostty` |
 | Starship | `~/.config/starship.toml` |
+| Bat | `~/.config/bat` |
+
+That table is `ConfigPaths()` in `installer/internal/system/exec.go`, and it is the single
+source for three things at once: what the backup step copies, how many configurations the
+plan reports as overwrites, and which paths the last-install record names. A file the
+installer replaces that is missing from the map is replaced with no copy and with nothing on
+screen or on disk mentioning it, which is why
+`TestEveryHomePathTheInstallerWritesIsClassified` reads the installer's own sources and fails
+when a write targets a home path the map does not cover. `~/.zshenv` — read by every zsh
+invocation, and the place PATH additions and locale settings usually live — was exactly that
+case. `~/.bashrc` is appended to rather than replaced, and it is listed because an append
+still changes a file the user wrote.
 
 ### Backup Location
 
