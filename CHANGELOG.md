@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.7.1] — 2026-10-11
+
+### Fixed
+
+- **The pet moves at a speed a person can see.** The report was exact: it did not look like it was moving on its own. The idle held one frame for two seconds, the creature did not start walking until six to fourteen seconds of quiet, and a play bout came every twenty-two, so ten seconds of watching showed one stroll. The idle now steps every quarter second, a stroll starts after two seconds, and a play bout comes every ten. Printed at successive ticks, the idle draws four distinct images in twelve ticks, the walk alternates its legs, and the play bout puts a ball at the creature's side and bats at it; before this, the same twelve ticks drew one image twice over.
+- **The screens carry a frame.** The main menu was a plain list with a rule above it, and the theme reached the content and stopped at the border. Borders, titles, the selected row and the step indicators now take the palette the user chose, so the whole surface reads as one design. The truecolor path is captured separately for the first time: until now every golden was taken on the adaptive chrome, so the themed frames a user with a truecolor terminal actually sees had no golden at all.
+- **Under WSL the installer configures the renderer instead of only naming it.** Issue #236 added the notice and stopped there: the code that would act on it was called only from a test, so nothing put a font where Windows could read it and nothing could write the settings Windows Terminal renders with. The step now copies the faces where Windows resolves them, registers the family per-user, verifies it in the font store, and only then writes the font face and the colour scheme into the reachable `settings.json`. A face named without that verification produces a silent fallback, which is the defect the notice was about.
+- **The font is Meslo, and the family is resolved before it is named.** The installer installed IosevkaTerm and named it everywhere, and three of the four shipped terminal configurations named the Nerd Fonts v2 spelling of a family the v3 archive does not provide, so those terminals fell back silently. The font is now Meslo, whose naming does not follow IosevkaTerm's: the archive was read rather than assumed. The Windows face is resolved at install time from the font store, so a machine that carries its own patched family gets that one, and the public family is installed and registered only when nothing resolves.
+- **The Homebrew formula parses again, so the tap installs.** It had not parsed since the 0.6.4 tap commit: the four `end` tokens closing the on_arm/on_intel pairs had been glued to the end of the `sha256` lines, and the script that rewrote those lines deleted them. `brew install` and `brew upgrade` failed before resolving anything for three releases. The formula is restored and two guards hold it: one asks Ruby to compile the file, which is what brew does before it resolves anything, and one rejects the shape that caused the defect, because the next edit that rewrites such a line will delete its terminator again.
+
+### Changed
+
+- **A guard that fails on correct input is worse than no guard.** The first attempt at the formula guard counted blocks with a regular expression and failed on the correct file, because `elsif` needs no `end` of its own. It asks the interpreter now. The same review found that one of the font guards could pass without reading any file at all, which is the defect it existed to prevent.
+
 ## [v0.7.0] — 2026-10-11
 
 ### Added
