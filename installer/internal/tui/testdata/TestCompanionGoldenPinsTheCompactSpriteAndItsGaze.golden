@@ -5,17 +5,17 @@
                                                                                                     
                                                                                                     
                                                                                                     
-  dotfiles                                                                                          
   Good morning                                                                                      
   What would you like to do?                                                                        
-                                                                                                    
-  ▸ Start Installation                                                                              
-    Learn About Tools                                                                               
-    Keymaps Reference                                                                               
-    LazyVim Guide                                                                                   
-    Vim Trainer                                                                                     
-    Utilities                                                                                       
-    Exit                                                                                            
+  ╭─ dotfiles ───────────────────────────────────────────────────────────────────╮                  
+  │ ▸ Start Installation                                                         │                  
+  │   Learn About Tools                                                          │                  
+  │   Keymaps Reference                                                          │                  
+  │   LazyVim Guide                                                              │                  
+  │   Vim Trainer                                                                │                  
+  │   Utilities                                                                  │                  
+  │   Exit                                                                       │                  
+  ╰──────────────────────────────────────────────────────────────────────────────╯                  
   Plan  8 steps on Linux (detected)                                                                 
      /\_____/\                                                                                      
   (   o   o )                                                                                       
