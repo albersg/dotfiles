@@ -8,7 +8,7 @@
 # │                                   FONT                                       │
 # └──────────────────────────────────────────────────────────────────────────────┘
 
-font-family = IosevkaTerm NF
+font-family = IosevkaTerm Nerd Font
 font-size = 14
 
 
