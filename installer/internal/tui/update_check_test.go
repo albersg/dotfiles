@@ -281,8 +281,10 @@ func TestUnknownAnswerSaysWhyForEveryClassifiedFailure(t *testing.T) {
 		reason string
 	}{
 		{
-			name:   "no network",
-			setup:  func(c *updateTestClient) { c.failures[dotfilesReleaseAPIURL] = errors.New("dial tcp: no route to host") },
+			name: "no network",
+			setup: func(c *updateTestClient) {
+				c.failures[dotfilesReleaseAPIURL] = errors.New("dial tcp: no route to host")
+			},
 			reason: "could not be reached",
 		},
 		{
