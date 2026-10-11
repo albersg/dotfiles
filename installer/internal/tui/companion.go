@@ -184,12 +184,46 @@ const (
 	companionRoamAfterTicks   = companionRoamAfterSeconds * animTicksPerSecond
 	companionRoamMinWaitTicks = 6 * animTicksPerSecond
 	companionRoamMaxWaitTicks = 14 * animTicksPerSecond
+
+	// companionIdleFrameTicks is how long the resting glyph art holds one frame.
+	// A motion that changed every tick would repaint the creature's rows eight
+	// times a second over a screen nobody is touching, which is the cost regime
+	// this repository measured and fixed; the idle, pleased, playing, watching and
+	// flinching sequences therefore advance on this cadence, and a still creature
+	// stays byte-identical between frames so the renderer writes nothing.
+	companionIdleFrameTicks = 2 * animTicksPerSecond
+
+	// companionCelebrateFrameTicks is the cheer's faster cadence: the celebration
+	// counter only lasts companionPleasedTicks, so a three-frame cheer has to step
+	// more than once inside it or the reader would only ever see its first frame.
+	companionCelebrateFrameTicks = 2
+
+	// companionPlayStepTicks is the play sequence's cadence: fast enough that a
+	// whole bout shows its paws batting and its tail swishing rather than one pose.
+	companionPlayStepTicks = 3
+
+	// companionPlayFrameTicks is how long one bout of play lasts, and
+	// companionPlayPeriodTicks is the quiet gap between bouts. The gap is longer
+	// than companionRoamAfterTicks on purpose: a run that has just gone quiet gets
+	// the stroll first, and the pet's own game is what it does between strolls.
+	// The play window is the first companionPlayFrameTicks of each period.
+	companionPlayFrameTicks  = 3 * animTicksPerSecond
+	companionPlayPeriodTicks = companionRoamAfterTicks + 8*animTicksPerSecond
 )
 
 // companionState is the state the creature is drawn in. The reactions come
 // before the resting states, which is the precedence the design states: a
 // reaction wins over the idle state, so a sleeping companion that must flinch
 // flinches.
+//
+// The last five states are the ones the installer's own activity earns. They are
+// read from the model rather than from a timer the renderer would have to keep:
+// watching is a step that is running, charmed is a theme the user just chose,
+// curious is a published release this build does not have, jumping is the hop the
+// clock is in the middle of, and playing is the game the creature starts on its
+// own after a quiet stretch. None of them claims a step finished: the only path
+// to the pleased face is the model's own celebration counter, which the installer
+// arms when a step really completes.
 type companionState int
 
 const (
@@ -201,6 +235,11 @@ const (
 	companionAlertState
 	companionPleasedState
 	companionFlinchingState
+	companionWatchingState
+	companionPlayingState
+	companionJumpingState
+	companionCharmedState
+	companionCuriousState
 )
 
 // companionStateNames names every state, in the order they are declared. A state
@@ -215,6 +254,11 @@ var companionStateNames = map[companionState]string{
 	companionAlertState:     "alert",
 	companionPleasedState:   "pleased",
 	companionFlinchingState: "flinching",
+	companionWatchingState:  "watching",
+	companionPlayingState:   "playing",
+	companionJumpingState:   "jumping",
+	companionCharmedState:   "charmed",
+	companionCuriousState:   "curious",
 }
 
 // ============================================================================
@@ -314,6 +358,12 @@ const (
 	companionFullEarsAsleep  = ` /\______/\  z`
 	companionFullEarsAlert   = ` /\______/\  !`
 	companionFullEarsPleased = ` /\______/\\o/`
+	companionFullEarsWatch   = ` /\______/\  *`
+	companionFullEarsCharm   = ` /\______/\  ~`
+	companionFullEarsAsk     = ` /\______/\  ?`
+	companionFullEarsPlay    = ` /\______/\  o`
+	companionFullEarsAir     = ` /\______/\  ^`
+	companionFullEarsBreath  = `  /\______/\  `
 	companionFullEyeEmpty    = `(          )  `
 	companionFullEyeIdle     = `(  o    o  )  `
 	companionFullEyeShut     = `(  -    -  )  `
@@ -322,24 +372,42 @@ const (
 	companionFullEyeFlinch   = `(  >    <  )  `
 	companionFullMouth       = `(     ^    )  `
 	companionFullMouthYawn   = `(     o    )  `
+	companionFullMouthWork   = `(    ---   )  `
 	companionFullPaws        = ` >  <  >  <   `
 	companionFullPawsStep    = `  >  <  >  <  `
 	companionFullPawsIn      = `  > <  > <    `
+	companionFullPawsCross   = ` > <  >   <   `
+	companionFullPawsStride  = `>  <  >  <    `
+	companionFullPawsBat     = `  > <  >  <   `
+	companionFullPawsTuck    = `  ><    ><    `
+	companionFullPawsLand    = ` >   <  >   < `
 )
 
 // The rows the three-row head is drawn from, on the same terms.
 const (
 	companionCompactEars       = ` /\_____/\    `
+	companionCompactEarsBreath = `  /\_____/\   `
 	companionCompactEyeIdle    = `(  o   o  )   `
 	companionCompactEyeShut    = `(  -   -  )   `
 	companionCompactEyeAsleep  = `(  -   -  )z  `
 	companionCompactEyeAlert   = `(  O   O  )!  `
 	companionCompactEyePleased = `(  ^   ^  )\o/`
 	companionCompactEyeFlinch  = `(  >   <  )!  `
+	companionCompactEyeWatch   = `(  O   o  )*  `
+	companionCompactEyeCharm   = `(  ^   ^  )~  `
+	companionCompactEyeAsk     = `(  O   O  )?  `
+	companionCompactEyePlay    = `(  o   o  )o  `
 	companionCompactMouth      = `  >  ^  <     `
 	companionCompactMouthYawn  = `  >  o  <     `
 	companionCompactMouthStep  = `  >  ^   <    `
 	companionCompactMouthIn    = `  >  ^ <      `
+	companionCompactMouthCross = `  > <   <     `
+	companionCompactMouthWork  = `  > --- <     `
+	companionCompactMouthBat   = `  >  >  <     `
+	companionCompactMouthAir   = `  >  ^  <  ^  `
+	companionCompactMouthLand  = `  >  w  <     `
+	companionCompactMouthCharm = `  >  ~  <     `
+	companionCompactMouthAsk   = `  >  ?  <     `
 )
 
 // companionFullFrames is the whole five-row art: the cat with a body, one frame
@@ -348,14 +416,43 @@ const (
 // draw the same frame and the alternation is visible without colour.
 var companionFullFrames = []companionFrame{
 	{companionIdleState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPaws}, companionFullEyes},
+	// The breath shifts the whole head a column and holds it: the one idle motion
+	// the glyph cat can show without a second eye row to blink or an ear to twitch.
+	{companionIdleState, []string{companionFullEarsBreath, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPaws}, companionFullEyes},
+	{companionWalkingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsStride},
+		companionFullEyes},
 	{companionWalkingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsStep}, companionFullEyes},
 	{companionWalkingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsIn}, companionFullEyes},
+	{companionWalkingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsCross}, companionFullEyes},
 	{companionBlinkingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeShut, companionFullMouth, companionFullPaws}, companionFullEyes},
 	{companionAsleepState, []string{companionFullEarsAsleep, companionFullEyeEmpty, companionFullEyeShut, companionFullMouth, companionFullPaws}, companionFullEyes},
 	{companionYawningState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeShut, companionFullMouthYawn, companionFullPaws}, companionFullEyes},
 	{companionAlertState, []string{companionFullEarsAlert, companionFullEyeEmpty, companionFullEyeAlert, companionFullMouth, companionFullPaws}, companionFullEyes},
+	// The cheer is a sequence: arms up, arms up on the other foot, and arms down.
 	{companionPleasedState, []string{companionFullEarsPleased, companionFullEyeEmpty, companionFullEyePleased, companionFullMouth, companionFullPaws}, companionFullEyes},
+	{companionPleasedState, []string{companionFullEarsPleased, companionFullEyeEmpty, companionFullEyePleased, companionFullMouth, companionFullPawsStep}, companionFullEyes},
+	{companionPleasedState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyePleased, companionFullMouth, companionFullPaws}, companionFullEyes},
 	{companionFlinchingState, []string{companionFullEarsAlert, companionFullEyeEmpty, companionFullEyeFlinch, companionFullMouth, companionFullPaws}, companionFullEyes},
+	{companionFlinchingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeFlinch, companionFullMouth, companionFullPaws}, companionFullEyes},
+	// Watching the installer work: a held look with a blink, and no arms-up
+	// celebration anywhere in it. A step that is running is not a step that is
+	// done, and the art has to stay on the safe side of that distinction.
+	{companionWatchingState, []string{companionFullEarsWatch, companionFullEyeEmpty, companionFullEyeAlert, companionFullMouthWork, companionFullPaws}, companionFullEyes},
+	{companionWatchingState, []string{companionFullEarsWatch, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouthWork, companionFullPaws}, companionFullEyes},
+	// Play: a raised paw batting at the wall, then the same paw back down.
+	{companionPlayingState, []string{companionFullEarsPlay, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsBat}, companionFullEyes},
+	{companionPlayingState, []string{companionFullEarsPlay, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsStep}, companionFullEyes},
+	{companionPlayingState, []string{companionFullEarsPlay, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsIn}, companionFullEyes},
+	// Jump: crouch, the body in the air with its legs tucked, and the landing.
+	{companionJumpingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeShut, companionFullMouth, companionFullPawsIn}, companionFullEyes},
+	{companionJumpingState, []string{companionFullEarsAir, companionFullEyeEmpty, companionFullEyeAlert, companionFullMouthYawn, companionFullPawsTuck}, companionFullEyes},
+	{companionJumpingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsLand}, companionFullEyes},
+	// Charmed: a theme the user chose.
+	{companionCharmedState, []string{companionFullEarsCharm, companionFullEyeEmpty, companionFullEyePleased, companionFullMouth, companionFullPaws}, companionFullEyes},
+	{companionCharmedState, []string{companionFullEarsCharm, companionFullEyeEmpty, companionFullEyePleased, companionFullMouthYawn, companionFullPaws}, companionFullEyes},
+	// Curious: a published release this build does not have, asked as a question.
+	{companionCuriousState, []string{companionFullEarsAsk, companionFullEyeEmpty, companionFullEyeAlert, companionFullMouth, companionFullPaws}, companionFullEyes},
+	{companionCuriousState, []string{companionFullEarsAsk, companionFullEyeEmpty, companionFullEyeAlert, companionFullMouthYawn, companionFullPaws}, companionFullEyes},
 }
 
 // companionCompactFrames is the whole three-row art: the cat's head, with the
@@ -363,14 +460,31 @@ var companionFullFrames = []companionFrame{
 // is horizontal only here.
 var companionCompactFrames = []companionFrame{
 	{companionIdleState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouth}, companionCompactEyes},
+	{companionIdleState, []string{companionCompactEarsBreath, companionCompactEyeIdle, companionCompactMouth}, companionCompactEyes},
 	{companionWalkingState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouthStep}, companionCompactEyes},
 	{companionWalkingState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouthIn}, companionCompactEyes},
+	{companionWalkingState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouthCross}, companionCompactEyes},
 	{companionBlinkingState, []string{companionCompactEars, companionCompactEyeShut, companionCompactMouth}, companionCompactEyes},
 	{companionAsleepState, []string{companionCompactEars, companionCompactEyeAsleep, companionCompactMouth}, companionCompactEyes},
 	{companionYawningState, []string{companionCompactEars, companionCompactEyeShut, companionCompactMouthYawn}, companionCompactEyes},
 	{companionAlertState, []string{companionCompactEars, companionCompactEyeAlert, companionCompactMouth}, companionCompactEyes},
 	{companionPleasedState, []string{companionCompactEars, companionCompactEyePleased, companionCompactMouth}, companionCompactEyes},
+	{companionPleasedState, []string{companionCompactEars, companionCompactEyePleased, companionCompactMouthStep}, companionCompactEyes},
+	{companionPleasedState, []string{companionCompactEars, companionCompactEyePleased, companionCompactMouthIn}, companionCompactEyes},
 	{companionFlinchingState, []string{companionCompactEars, companionCompactEyeFlinch, companionCompactMouth}, companionCompactEyes},
+	{companionFlinchingState, []string{companionCompactEars, companionCompactEyeFlinch, companionCompactMouthYawn}, companionCompactEyes},
+	{companionWatchingState, []string{companionCompactEars, companionCompactEyeWatch, companionCompactMouthWork}, companionCompactEyes},
+	{companionWatchingState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouthWork}, companionCompactEyes},
+	{companionPlayingState, []string{companionCompactEars, companionCompactEyePlay, companionCompactMouth}, companionCompactEyes},
+	{companionPlayingState, []string{companionCompactEars, companionCompactEyePlay, companionCompactMouthBat}, companionCompactEyes},
+	{companionPlayingState, []string{companionCompactEars, companionCompactEyePlay, companionCompactMouthIn}, companionCompactEyes},
+	{companionJumpingState, []string{companionCompactEars, companionCompactEyeShut, companionCompactMouthIn}, companionCompactEyes},
+	{companionJumpingState, []string{companionCompactEars, companionCompactEyeAlert, companionCompactMouthAir}, companionCompactEyes},
+	{companionJumpingState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouthLand}, companionCompactEyes},
+	{companionCharmedState, []string{companionCompactEars, companionCompactEyeCharm, companionCompactMouthCharm}, companionCompactEyes},
+	{companionCharmedState, []string{companionCompactEars, companionCompactEyeCharm, companionCompactMouth}, companionCompactEyes},
+	{companionCuriousState, []string{companionCompactEars, companionCompactEyeAsk, companionCompactMouthAsk}, companionCompactEyes},
+	{companionCuriousState, []string{companionCompactEars, companionCompactEyeAsk, companionCompactMouthYawn}, companionCompactEyes},
 }
 
 // companionMiniFrames is the one-row art the creature shipped with, kept exactly
@@ -380,14 +494,34 @@ var companionCompactFrames = []companionFrame{
 // interior column to move a pupil into, and the walk reads from the leg instead.
 var companionMiniFrames = []companionFrame{
 	{companionIdleState, []string{`(o.o)`}, companionNoEyes},
+	{companionIdleState, []string{`(-.o)`}, companionNoEyes},
 	{companionWalkingState, []string{`(o.o)/`}, companionNoEyes},
 	{companionWalkingState, []string{`(o.o)\`}, companionNoEyes},
+	{companionWalkingState, []string{`(o.o)-`}, companionNoEyes},
+	{companionWalkingState, []string{`/(o.o)`}, companionNoEyes},
 	{companionBlinkingState, []string{`(-.-)`}, companionNoEyes},
 	{companionAsleepState, []string{`(-.-) z`}, companionNoEyes},
 	{companionYawningState, []string{`(-.-) v`}, companionNoEyes},
 	{companionAlertState, []string{`(O.O) !`}, companionNoEyes},
 	{companionPleasedState, []string{`\(o.o)/`}, companionNoEyes},
+	{companionPleasedState, []string{`/(o.o)\`}, companionNoEyes},
 	{companionFlinchingState, []string{`(>.<)`}, companionNoEyes},
+	{companionFlinchingState, []string{`(<.>)`}, companionNoEyes},
+	// Watching the installer work: a busy mark rather than a celebration one.
+	{companionWatchingState, []string{`(o.o)*`}, companionNoEyes},
+	{companionWatchingState, []string{`(o.o)+`}, companionNoEyes},
+	// Play: a paw batting forward and a paw pulling back.
+	{companionPlayingState, []string{`(o.o)>`}, companionNoEyes},
+	{companionPlayingState, []string{`>(o.o)`}, companionNoEyes},
+	{companionPlayingState, []string{`(o.o)<`}, companionNoEyes},
+	// Jump: crouched, then in the air, then flat on the ground.
+	{companionJumpingState, []string{`_(o.o)`}, companionNoEyes},
+	{companionJumpingState, []string{`(o.o)^`}, companionNoEyes},
+	{companionJumpingState, []string{`(o.o)_`}, companionNoEyes},
+	{companionCharmedState, []string{`(^.^)~`}, companionNoEyes},
+	{companionCharmedState, []string{`(^.^) `}, companionNoEyes},
+	{companionCuriousState, []string{`(o.o)?`}, companionNoEyes},
+	{companionCuriousState, []string{`(o.O)!`}, companionNoEyes},
 }
 
 // companionFramesAt is the art at one height, in the ladder's own order. A height
@@ -421,6 +555,32 @@ func companionSpriteWidth(height int) int {
 		return companionMiniWidth
 	}
 	return 0
+}
+
+// companionReservedRows is the height a sprite may draw in at a rung: the glyph
+// tables' own rows, and half the volume's pixel grid, because one terminal row is
+// two pixels of the drawing. It is the reservation the frame guard measures
+// against, and it is the same number the ladder chose.
+func companionReservedRows(height int) int {
+	if size, ok := companionVolumeSizeFor(height); ok {
+		return size.rows / 2
+	}
+	if height <= 0 {
+		return 0
+	}
+	return height
+}
+
+// companionFrameFits reports whether a frame of art fits the height reserved for
+// it. It refuses a frame taller than the reservation and accepts one that is
+// shorter, which is the contract both art tables and both renderers are held to:
+// the sprite is bottom-aligned in its block, so a frame that draws fewer rows than
+// the block is fine, and a frame that draws one row too many would overwrite the
+// rule or a fact below it. It is the guard the render paths consult, and
+// TestCompanionPetFrameNeverExceedsItsReservedSpace gives it teeth by asking it
+// about a frame that is one row too tall.
+func companionFrameFits(frame []string, reserved int) bool {
+	return reserved >= 0 && len(frame) <= reserved
 }
 
 // companionGlyphFullMinHeight is the terminal height at which the glyph ladder
@@ -505,11 +665,46 @@ func companionArtFor(state companionState, height, tick int, gaze companionGaze)
 	if len(set) == 0 {
 		set = frames[:1]
 	}
-	phase := tick % len(set)
-	if phase < 0 {
-		phase += len(set)
-	}
+	phase := companionFramePhase(state, tick, len(set))
 	return companionGazeRows(set[phase].rows, set[phase].eyes, gaze)
+}
+
+// companionFramePeriod is how many animation ticks a state holds one of its
+// frames. A walk and a jump are one frame a tick -- the legs are the motion -- and
+// so is a blink, which is one tick by definition. Every other state holds its
+// frame for companionIdleFrameTicks so a still creature is byte-identical between
+// frames and the renderer writes nothing while it rests; a cheer and a bout of
+// play step faster because their own states do not last long enough for the idle
+// cadence to show more than the first frame.
+func companionFramePeriod(state companionState) int {
+	switch state {
+	case companionWalkingState, companionJumpingState, companionBlinkingState:
+		return 1
+	case companionPleasedState:
+		return companionCelebrateFrameTicks
+	case companionPlayingState:
+		return companionPlayStepTicks
+	default:
+		return companionIdleFrameTicks
+	}
+}
+
+// companionFramePhase is which of a state's frames a tick draws. It is the tick's
+// own arithmetic divided by the state's cadence, never a clock read, so the same
+// model and tick draw the same frame on every host and a snapshot can pin one.
+func companionFramePhase(state companionState, tick, frames int) int {
+	if frames <= 0 {
+		return 0
+	}
+	period := companionFramePeriod(state)
+	if period < 1 {
+		period = 1
+	}
+	phase := tick / period
+	if phase < 0 {
+		phase = 0
+	}
+	return phase % frames
 }
 
 // companionEyeRow is one row's eyes: the two pupil glyphs and the columns they
@@ -1098,6 +1293,19 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 		earBack, tailTip = -0.03, -0.18
 	case companionPleasedState:
 		earLift, tailTip = 0.035, 0.14
+	case companionWatchingState:
+		// Ears up, tail held low: a creature leaning into work it can see but not do.
+		earLift, tailTip = 0.02, -0.10
+	case companionPlayingState:
+		// Tail high and swishing, which is what a cat's play looks like from behind.
+		earLift, tailTip = 0.04, 0.24
+	case companionJumpingState:
+		earLift, tailTip = 0.0, 0.10
+	case companionCharmedState:
+		earLift, tailTip = 0.08, 0.16
+	case companionCuriousState:
+		// Ears pricked forward, tail questioning behind.
+		earLift, tailTip = 0.0, 0.06
 	}
 
 	// The walk's own four poses, one per paw. Every other state plants all four paws
@@ -1108,6 +1316,14 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 			foot := (gait + companionLegPhase[i]) % 4
 			reach[i] = companionStrideReach * companionGaitReach[foot]
 			swing[i] = companionStrideLift * companionGaitLift[foot]
+		}
+	} else if state == companionJumpingState {
+		// Even before the hop clock raises it, a jumping creature has its legs
+		// tucked: that is what separates its stance from the idle one at the same
+		// tick, and it is what makes the air pose read as a jump rather than a hop.
+		for i := range reach {
+			reach[i] = -0.04
+			swing[i] = 0.045
 		}
 	}
 
@@ -1388,9 +1604,9 @@ func companionEyeMarkFor(state companionState) companionEyeMark {
 		return companionEyeShut
 	case companionYawningState:
 		return companionEyeHalfShut
-	case companionAlertState:
+	case companionAlertState, companionWatchingState, companionCuriousState, companionJumpingState:
 		return companionEyeWide
-	case companionPleasedState:
+	case companionPleasedState, companionCharmedState:
 		return companionEyeArc
 	case companionFlinchingState:
 		return companionEyeSquint
@@ -1906,6 +2122,12 @@ func (m Model) companionVolumeRows(stage int, size companionVolumeSize) []string
 	for py := 0; py+1 < size.rows; py += 2 {
 		rows = append(rows, indent+m.ink.row(grid[py], grid[py+1]))
 	}
+	// The frame guard: the volume draws exactly the rows its rung reserved, and a
+	// frame that ever returned more would be refused rather than drawn over the
+	// frame's rule.
+	if !companionFrameFits(rows, companionReservedRows(size.rows/2)) {
+		return nil
+	}
 	return rows
 }
 
@@ -1949,19 +2171,80 @@ func (m Model) companionStateNow() companionState {
 		return companionFlinchingState
 	case m.companionAlerting():
 		return companionAlertState
+	case m.companionCharmed():
+		return companionCharmedState
 	case m.companionPleased():
 		return companionPleasedState
+	case m.companionWatching():
+		return companionWatchingState
 	case m.companionAsleepNow():
 		return companionAsleepState
 	case m.companionYawning():
 		return companionYawningState
 	case m.CompanionMoving:
 		return companionWalkingState
+	case m.CompanionHop > 0:
+		return companionJumpingState
+	case m.companionPlayingNow():
+		return companionPlayingState
+	case m.companionCurious():
+		return companionCuriousState
 	case m.companionBlinking():
 		return companionBlinkingState
 	default:
 		return companionIdleState
 	}
+}
+
+// companionWatching reports whether the installer is in the middle of a step: the
+// installing screen is up and one of its steps is running. It is what the
+// watching face is for, and it is read from the steps rather than from a progress
+// message so the pet cannot show it for a step that is only described. A running
+// step is not a finished one, and the state it selects never draws the pleased
+// face: the only path to that face is a celebration the installer's own step
+// handler armed.
+func (m Model) companionWatching() bool {
+	if m.Screen != ScreenInstalling {
+		return false
+	}
+	for _, step := range m.Steps {
+		if step.Status == StatusRunning {
+			return true
+		}
+	}
+	return false
+}
+
+// companionCharmed reports whether the user has just chosen a theme: the picker is
+// on screen and a change has been recorded. It is a reaction to the choice rather
+// than to the theme, so it leaves when the picker does.
+func (m Model) companionCharmed() bool {
+	return m.Screen == ScreenThemePicker && m.DotfilesThemeRecord != nil
+}
+
+// companionCurious reports whether a later release than this build is published.
+// It is false whenever nothing was read, exactly as updateState.Newer is, so a
+// build that does not know is not told to look up.
+func (m Model) companionCurious() bool {
+	return m.UpdateCheck.Newer()
+}
+
+// companionPlayingNow reports whether the creature is in one of its own bouts of
+// play. A bout is a window of the animation clock that only opens after the quiet
+// stretch that also lets it stroll: the pet's own game is what it does between
+// strolls, not instead of them. It leaves by itself at the end of the window, and
+// it is never entered while the creature is walking or waiting to walk.
+func (m Model) companionPlayingNow() bool {
+	if m.CompanionMoving || m.CompanionRoamActive {
+		return false
+	}
+	if m.CompanionIdle < companionRoamAfterTicks {
+		return false
+	}
+	if m.companionAsleepNow() || m.CompanionHop > 0 {
+		return false
+	}
+	return m.AnimTick%companionPlayPeriodTicks < companionPlayFrameTicks
 }
 
 // companionBlinking reports whether this tick is a blink. It is the tick counter
@@ -2126,6 +2409,13 @@ func (m *Model) advanceCompanionPlay() {
 		m.CompanionMoving = false
 		return
 	}
+	// A step the creature can see running pins it: it stands and watches the
+	// installer work instead of strolling off, because a pet that walks away from a
+	// progress bar is not paying attention to the thing that earned its face.
+	if m.companionWatching() {
+		m.CompanionMoving = false
+		return
+	}
 	stage := companionStageWidth(*m)
 	limit := max(stage-companionCellWidth, 0)
 	m.CompanionPos = min(max(m.CompanionPos, 0), limit)
@@ -2228,6 +2518,12 @@ func (m Model) companionSprite(stage, height int) []string {
 		artHeight = companionMiniHeight
 	}
 	art := companionArtFor(state, artHeight, m.AnimTick, m.CompanionGaze)
+	// The frame guard: a state whose art ever outgrew its rung is refused here
+	// rather than drawn over the rule below it. Every table frame fits, so this is
+	// the assertion that keeps a future edit from shipping an overflowing one.
+	if !companionFrameFits(art, companionReservedRows(height)) {
+		return nil
+	}
 	rows := make([]string, len(art))
 	for i, row := range art {
 		rows[i] = strings.Repeat(" ", pos) + CompanionStyle.Render(row)
