@@ -111,5 +111,23 @@ func GetHerdrKeymaps() []KeymapCategory {
 				{Keys: "Ctrl+Y", Description: "Insert the last cut text", Mode: "field"},
 			},
 		},
+		{
+			// The installer provisions plugins for Tmux, Fish, Zsh and Neovim
+			// because the repository declares each of those sets. It declares none
+			// for Herdr, so Herdr plugins are third-party code the user installs and
+			// the installer leaves alone. This category is where the installer's own
+			// surface says so, beside the rest of the Herdr CLI it documents; the
+			// same stance is stated in README.md, docs/tools.md and
+			// docs/tui-installer.md, and TestHerdrPluginStanceMatchesTheInstaller
+			// fails if the step code and those statements disagree.
+			Name:        "Plugins (user-managed)",
+			Description: "Herdr plugins are third-party code the installer leaves alone: you install them",
+			Keymaps: []Keymap{
+				{Keys: "herdr plugin install", Description: "Install third-party plugin code from a GitHub repo, <owner>/<repo>/<subdir>", Mode: "cli"},
+				{Keys: "herdr plugin link", Description: "Link a plugin from a working tree on this machine", Mode: "cli"},
+				{Keys: "herdr plugin list", Description: "List the plugins installed for this user", Mode: "cli"},
+				{Keys: "herdr plugin uninstall", Description: "Unregister an installed plugin (plugin unlink for a linked one)", Mode: "cli"},
+			},
+		},
 	}
 }

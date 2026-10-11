@@ -640,7 +640,7 @@ and the choices, so a run shows only the ones that apply.
 | Install Terminal | Installs your chosen terminal emulator |
 | Install Meslo Nerd Font | Installs the Meslo Nerd Font for icons |
 | Install Shell | Installs your shell and its plugins |
-| Install Multiplexer | Installs your terminal multiplexer |
+| Install Multiplexer | Installs your terminal multiplexer; Tmux also gets its plugin set |
 | Install Neovim | Installs Neovim with your configuration |
 | Install Toolset | Installs the command-line tools declared in the `Brewfile` (best effort; skipped on Termux and without Homebrew) |
 | Install Pi Agent Skills | Installs the pinned AI agent skills |
@@ -648,6 +648,17 @@ and the choices, so a run shows only the ones that apply.
 | Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
+
+**The installer provisions plugins for four tools and leaves the fifth to you.**
+It installs the plugin set this repository declares for Tmux (it clones TPM and
+runs `install_plugins`), Fish, Zsh and Neovim, because in each case the set is a
+decision the repository has already made. Herdr is the exception: a Herdr plugin
+is third-party code installed from GitHub shorthand, and the repository declares
+none, so the installer neither installs, links, updates nor removes Herdr
+plugins. They are **user-managed** — run `herdr plugin install
+<owner>/<repo>/<subdir>` yourself — and a reinstall copies `config.toml` and
+leaves them in place. The Herdr keymaps screen names the same commands, and
+[Tools Reference](tools.md#plugins) lists them.
 
 The installing screen is the longest thing a user watches, so it shows how far
 the run has come: a progress bar sized to the frame with a percentage beside it,

@@ -85,6 +85,8 @@ Durante la selección del multiplexor, elegí **Tmux**, **Zellij**, **Herdr** o 
 
 > **Usuarios de Tmux:** Después de la instalación, abrí tmux y presioná `prefix + I` (I mayúscula) para instalar los plugins con TPM. Esto asegura que el tema y los plugins carguen correctamente.
 
+> **Usuarios de Herdr:** Los plugins de Herdr son **gestionados por vos** (`user-managed`). Un plugin de Herdr es código de terceros que se instala desde GitHub (`herdr plugin install <owner>/<repo>/<subdir>`), y este repositorio no declara ningún conjunto de plugins para él, así que el instalador no los instala, ni los enlaza, ni los actualiza, ni los elimina. Una reinstalación copia `config.toml` y deja los plugins que ya están en la máquina exactamente como están. Mirá los comandos en la [Referencia de Herramientas](docs/tools.md#plugins).
+
 > **Usuarios de Windows:** Primero tenés que configurar WSL. Consultá la [Guía de instalación manual](docs/manual-installation.md#windows-wsl).
 
 ### Qué hace la instalación

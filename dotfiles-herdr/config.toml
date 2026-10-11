@@ -1,6 +1,11 @@
 onboarding = false
 # herdr configuration managed by dotfiles.
 # This file is copied into ~/.config/herdr/config.toml during installation.
+#
+# Herdr plugins are not declared here, and the installer neither installs nor
+# removes them: a plugin is third-party code installed from GitHub shorthand with
+# `herdr plugin install <owner>/<repo>/<subdir>`, and it is user-managed. A
+# reinstall copies this file and leaves your plugins exactly as they are.
 
 [theme]
 # A built-in dark theme with neutral foregrounds, so Herdr does not inherit
