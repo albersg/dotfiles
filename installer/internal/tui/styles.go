@@ -163,17 +163,21 @@ var (
 	CurrentCursorStyle lipgloss.Style
 	SelectionStyle     lipgloss.Style
 
-	BrandStyle        lipgloss.Style
-	RuleStyle         lipgloss.Style
-	InkStyle          lipgloss.Style
-	AccentKeyStyle    lipgloss.Style
-	HelpVerbStyle     lipgloss.Style
-	MeterFilledStyle  lipgloss.Style
-	MeterStyle        lipgloss.Style
-	MeterOnBarStyle   lipgloss.Style
-	CompanionStyle    lipgloss.Style
-	RowBarStyle       lipgloss.Style
-	RowBarMarkerStyle lipgloss.Style
+	BrandStyle             lipgloss.Style
+	RuleStyle              lipgloss.Style
+	HeaderChipStyle        lipgloss.Style
+	HeaderRuleStyle        lipgloss.Style
+	HeaderChipSuccessStyle lipgloss.Style
+	HeaderRuleSuccessStyle lipgloss.Style
+	InkStyle               lipgloss.Style
+	AccentKeyStyle         lipgloss.Style
+	HelpVerbStyle          lipgloss.Style
+	MeterFilledStyle       lipgloss.Style
+	MeterStyle             lipgloss.Style
+	MeterOnBarStyle        lipgloss.Style
+	CompanionStyle         lipgloss.Style
+	RowBarStyle            lipgloss.Style
+	RowBarMarkerStyle      lipgloss.Style
 )
 
 // currentUIColors is the palette the vars currently hold, so a caller can save
@@ -296,6 +300,38 @@ func applyUIColors(c uiColors) {
 	BrandStyle = lipgloss.NewStyle().
 		Foreground(Brand).
 		Bold(true)
+
+	// The frame's header is a tab, not a row of loose text: the section name sits
+	// on a filled block of the brand colour and the rule under it carries the same
+	// tone, so the head of every screen reads as a designed band rather than as two
+	// muted lines. The ink on the block is OnFill, the same role the selected row's
+	// bar uses, so it is the value every applied theme's fill contrast guard already
+	// measures against Primary.
+	HeaderChipStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(Brand).
+		Bold(true).
+		Padding(0, 1)
+
+	// The rule under the header: the brand tone, where every other separator keeps
+	// the quiet Rule slate. It is what separates the header band from the body
+	// without spending a second colour, and the glyph -- not the tone -- is what
+	// makes the separation visible on a terminal with no colour.
+	HeaderRuleStyle = lipgloss.NewStyle().
+		Foreground(Brand)
+
+	// The same tab and rule in the success tone, for the one screen whose whole
+	// subject is that the run finished. The ink is still OnFill, the role every
+	// applied theme's fill guard measures against the success colour, so a green
+	// crown costs no contrast that the brand one did not.
+	HeaderChipSuccessStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(Success).
+		Bold(true).
+		Padding(0, 1)
+
+	HeaderRuleSuccessStyle = lipgloss.NewStyle().
+		Foreground(Success)
 
 	RuleStyle = lipgloss.NewStyle().
 		Foreground(Rule)

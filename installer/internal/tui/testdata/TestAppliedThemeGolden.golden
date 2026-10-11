@@ -1,6 +1,6 @@
                                                                                 
-  [1;38;2;137;179;250mUtilities[0m                                                                     
-  [38;2;166;173;200m────────────────────────────────────────────────────────────────────────────[0m  
+  [48;2;137;179;250m [0m[1;38;2;30;30;46;48;2;137;179;250mUtilities[0m[48;2;137;179;250m [0m                                                                   
+  [38;2;137;179;250m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m  
   [1;38;2;137;179;250mChange the dotfiles theme[0m                                                     
   [38;2;166;173;200mThe dotfiles' own theme is defined once in themes/. Choosing a theme applies[0m  
   [38;2;166;173;200mit to every tool it can paint and names the tools it leaves out. Moving the[0m   
