@@ -23,9 +23,6 @@ end
 -- Prepend the lazy.nvim path to the runtime path
 vim.opt.rtp:prepend(vim.env.LAZY or lazypath)
 
--- Fix copy and paste in WSL (Windows Subsystem for Linux)
-vim.opt.clipboard = "unnamedplus" -- Use the system clipboard for all operations
-
 -- Setup lazy.nvim with the specified configuration
 require("lazy").setup({
   spec = {
