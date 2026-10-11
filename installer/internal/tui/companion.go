@@ -67,11 +67,12 @@ import (
 // model and moves nothing, and advanceCompanion, called only from the frame tick
 // (animTickMsg), is the one writer of everything below.
 //
-// Cost has two regimes and a test for each, rather than a promise in this comment.
-// A still creature writes nothing between events; its breath, ear twitch, tail-tip
-// flick and blink each have their own model-tick period. Walking repaints its owned
-// rows as the cell moves. TestCompanionIdleEventsHaveIndependentPeriods pins the
-// event clocks, TestCompanionTicksChangeOnlyItsOwnRows bounds row ownership, and
+// Cost has regimes and a test for each, rather than a promise in this comment.
+// A still creature -- asleep -- writes nothing; an awake idle creature animates
+// only the rows it owns, on its own fast breath and tail clocks so a reader sees
+// it move within a fraction of a second; and a walk repaints its owned rows as the
+// cell moves. TestCompanionIdleEventsHaveIndependentPeriods pins the idle clocks,
+// TestCompanionTicksChangeOnlyItsOwnRows bounds row ownership, and
 // TestCompanionCostHasTwoRegimes measures the terminal's actual line cost.
 //
 // With the animation gate off there is no companion anywhere: a frozen pet is not
@@ -126,9 +127,12 @@ const (
 	companionBrakeCells  = 3
 	companionBrakeFrames = 2
 
-	// companionRoamAfterSeconds gives recent input and the user's attention a long
-	// quiet stretch before autonomous play can begin.
-	companionRoamAfterSeconds = 8
+	// companionRoamAfterSeconds gives recent input and the user's attention a
+	// short quiet stretch before autonomous play can begin. It is two seconds and
+	// not the eight it used to be: a pet nobody has touched for two seconds is a
+	// pet that has gone quiet, and the watch was over before the creature did
+	// anything a reader could see.
+	companionRoamAfterSeconds = 2
 
 	// companionRoamStepFrames slows cell movement below the 8fps render clock.
 	companionRoamStepFrames = 3
@@ -152,16 +156,21 @@ const (
 	// companionYawnTicks is that stretch in frames.
 	companionYawnTicks = companionYawnSeconds * animTicksPerSecond
 
-	// companionBlinkSeconds is how often an awake, idle creature blinks. It is ten
-	// and not five because every blink rewrites the creature's rows: a blink is a
-	// decoration, and once it is frequent enough to notice it is noise in the middle
-	// of whatever the reader is reading. The blink lasts one frame and is derived
-	// from the tick counter rather than from a second clock, so a snapshot can pin
-	// the blink without waiting for it.
-	companionBlinkSeconds = 10
+	// companionBlinkSeconds is how often an awake, idle creature blinks. It is six
+	// seconds: frequent enough that a reader watching for a few seconds sees one,
+	// and rare enough that it still reads as a blink and not as a twitch. The blink
+	// is a short close-and-open and is derived from the tick counter rather than
+	// from a second clock, so a snapshot can pin the blink without waiting for it.
+	companionBlinkSeconds = 6
 
 	// companionBlinkTicks is that interval in frames.
 	companionBlinkTicks = companionBlinkSeconds * animTicksPerSecond
+
+	// companionBlinkHoldTicks is how many frames the eyes stay shut. Two frames at
+	// the render clock is a quarter of a second: long enough that a person sees the
+	// lid come down and go back up, which is what separates a blink from a single
+	// dropped frame.
+	companionBlinkHoldTicks = 2
 
 	// companionPleasedSeconds is how long a finished installation step is worth
 	// celebrating: about a second, not forever.
@@ -173,25 +182,35 @@ const (
 	// companionHopTicks counts anticipation, lift and landing, one pinned frame each.
 	companionHopTicks = 3
 
-	// Idle motions are one-frame events. Their periods are durations converted by
-	// the model's animation clock; frames between these boundaries are identical.
-	companionBreathSeconds    = 4
-	companionEarTwitchSeconds = 20
-	companionTailFlickSeconds = 15
+	// Idle motions are three independent clocks, converted from seconds through the
+	// model's animation clock. The breath is a continuous cycle rather than a
+	// one-frame pulse: it is the motion that makes an otherwise still creature
+	// read as alive, so it runs the whole time the creature is idle. The ear twitch
+	// stays a single frame, because a twitch is a quick event; the tail sways on its
+	// own slower cycle so the body can be still while the tail moves.
+	companionBreathSeconds    = 1
+	companionEarTwitchSeconds = 5
+	companionTailFlickSeconds = 2
 	companionBreathTicks      = companionBreathSeconds * animTicksPerSecond
 	companionEarTwitchTicks   = companionEarTwitchSeconds * animTicksPerSecond
 	companionTailFlickTicks   = companionTailFlickSeconds * animTicksPerSecond
 	companionRoamAfterTicks   = companionRoamAfterSeconds * animTicksPerSecond
-	companionRoamMinWaitTicks = 6 * animTicksPerSecond
-	companionRoamMaxWaitTicks = 14 * animTicksPerSecond
+	companionRoamMinWaitTicks = 0
+	companionRoamMaxWaitTicks = 2 * animTicksPerSecond
 
-	// companionIdleFrameTicks is how long the resting glyph art holds one frame.
-	// A motion that changed every tick would repaint the creature's rows eight
-	// times a second over a screen nobody is touching, which is the cost regime
-	// this repository measured and fixed; the idle, pleased, playing, watching and
-	// flinching sequences therefore advance on this cadence, and a still creature
-	// stays byte-identical between frames so the renderer writes nothing.
-	companionIdleFrameTicks = 2 * animTicksPerSecond
+	// companionIdleFrameTicks is how long the resting glyph art holds one frame:
+	// two to four frames at the render clock, which is a quarter to half a second.
+	// It is two here, the fast end of that band, so the idle poses cycle inside a
+	// second and a reader looking for five seconds sees several of them. The
+	// reaction and held states keep companionHoldFrameTicks, a slower cadence, so a
+	// flinch that has settled or a creature watching a step does not flicker.
+	companionIdleFrameTicks = 2
+
+	// companionHoldFrameTicks is the cadence of every state that is not the idle
+	// cycle: watching, flinching, yawning, charmed and curious hold a pose rather
+	// than cycling quickly. Two seconds still lets a two-frame hold trade poses
+	// eventually, without repainting a reaction the user is reading.
+	companionHoldFrameTicks = 2 * animTicksPerSecond
 
 	// companionCelebrateFrameTicks is the cheer's faster cadence: the celebration
 	// counter only lasts companionPleasedTicks, so a three-frame cheer has to step
@@ -203,12 +222,13 @@ const (
 	companionPlayStepTicks = 3
 
 	// companionPlayFrameTicks is how long one bout of play lasts, and
-	// companionPlayPeriodTicks is the quiet gap between bouts. The gap is longer
-	// than companionRoamAfterTicks on purpose: a run that has just gone quiet gets
-	// the stroll first, and the pet's own game is what it does between strolls.
-	// The play window is the first companionPlayFrameTicks of each period.
-	companionPlayFrameTicks  = 3 * animTicksPerSecond
-	companionPlayPeriodTicks = companionRoamAfterTicks + 8*animTicksPerSecond
+	// companionPlayPeriodTicks is the gap between bouts. Ten seconds sits in the
+	// eight-to-twelve the report asks for: a reader watching a quiet screen sees a
+	// bout, a stroll and an idle cycle all inside a dozen seconds, and a bout is
+	// long enough to show its paws move before it leaves. The play window is the
+	// first companionPlayFrameTicks of each period.
+	companionPlayFrameTicks  = 2 * animTicksPerSecond
+	companionPlayPeriodTicks = 10 * animTicksPerSecond
 )
 
 // companionState is the state the creature is drawn in. The reactions come
@@ -364,6 +384,7 @@ const (
 	companionFullEarsPlay    = ` /\______/\  o`
 	companionFullEarsAir     = ` /\______/\  ^`
 	companionFullEarsBreath  = `  /\______/\  `
+	companionFullEarsIdle    = `/\______/\    `
 	companionFullEyeEmpty    = `(          )  `
 	companionFullEyeIdle     = `(  o    o  )  `
 	companionFullEyeShut     = `(  -    -  )  `
@@ -381,12 +402,15 @@ const (
 	companionFullPawsBat     = `  > <  >  <   `
 	companionFullPawsTuck    = `  ><    ><    `
 	companionFullPawsLand    = ` >   <  >   < `
+	companionFullPawsIdle    = `  >  <  >   < `
 )
 
 // The rows the three-row head is drawn from, on the same terms.
 const (
 	companionCompactEars       = ` /\_____/\    `
 	companionCompactEarsBreath = `  /\_____/\   `
+	companionCompactEarsIdle   = `/\_____/\     `
+	companionCompactEarsFar    = `   /\_____/\  `
 	companionCompactEyeIdle    = `(  o   o  )   `
 	companionCompactEyeShut    = `(  -   -  )   `
 	companionCompactEyeAsleep  = `(  -   -  )z  `
@@ -416,9 +440,13 @@ const (
 // draw the same frame and the alternation is visible without colour.
 var companionFullFrames = []companionFrame{
 	{companionIdleState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPaws}, companionFullEyes},
-	// The breath shifts the whole head a column and holds it: the one idle motion
-	// the glyph cat can show without a second eye row to blink or an ear to twitch.
+	// The idle is a four-pose breath and weight-shift cycle, not one held frame: the
+	// head sways left and right and the paws shift, so the resting cat is visibly
+	// moving at the idle cadence instead of changing once every two seconds. Tick 0
+	// is still the old first pose, which is what keeps the pinned goldens' base frame.
 	{companionIdleState, []string{companionFullEarsBreath, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPaws}, companionFullEyes},
+	{companionIdleState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsIdle}, companionFullEyes},
+	{companionIdleState, []string{companionFullEarsIdle, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPaws}, companionFullEyes},
 	{companionWalkingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsStride},
 		companionFullEyes},
 	{companionWalkingState, []string{companionFullEars, companionFullEyeEmpty, companionFullEyeIdle, companionFullMouth, companionFullPawsStep}, companionFullEyes},
@@ -460,7 +488,10 @@ var companionFullFrames = []companionFrame{
 // is horizontal only here.
 var companionCompactFrames = []companionFrame{
 	{companionIdleState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouth}, companionCompactEyes},
+	// The same four-pose idle cycle as the full cat, carried by the head's sway.
 	{companionIdleState, []string{companionCompactEarsBreath, companionCompactEyeIdle, companionCompactMouth}, companionCompactEyes},
+	{companionIdleState, []string{companionCompactEarsIdle, companionCompactEyeIdle, companionCompactMouth}, companionCompactEyes},
+	{companionIdleState, []string{companionCompactEarsFar, companionCompactEyeIdle, companionCompactMouth}, companionCompactEyes},
 	{companionWalkingState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouthStep}, companionCompactEyes},
 	{companionWalkingState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouthIn}, companionCompactEyes},
 	{companionWalkingState, []string{companionCompactEars, companionCompactEyeIdle, companionCompactMouthCross}, companionCompactEyes},
@@ -494,7 +525,10 @@ var companionCompactFrames = []companionFrame{
 // interior column to move a pupil into, and the walk reads from the leg instead.
 var companionMiniFrames = []companionFrame{
 	{companionIdleState, []string{`(o.o)`}, companionNoEyes},
+	// The one-row idle cycle: a closed eye, the other closed, then a one-cell sway.
 	{companionIdleState, []string{`(-.o)`}, companionNoEyes},
+	{companionIdleState, []string{`(o.-)`}, companionNoEyes},
+	{companionIdleState, []string{`( o.o)`}, companionNoEyes},
 	{companionWalkingState, []string{`(o.o)/`}, companionNoEyes},
 	{companionWalkingState, []string{`(o.o)\`}, companionNoEyes},
 	{companionWalkingState, []string{`(o.o)-`}, companionNoEyes},
@@ -671,21 +705,25 @@ func companionArtFor(state companionState, height, tick int, gaze companionGaze)
 
 // companionFramePeriod is how many animation ticks a state holds one of its
 // frames. A walk and a jump are one frame a tick -- the legs are the motion -- and
-// so is a blink, which is one tick by definition. Every other state holds its
-// frame for companionIdleFrameTicks so a still creature is byte-identical between
-// frames and the renderer writes nothing while it rests; a cheer and a bout of
-// play step faster because their own states do not last long enough for the idle
-// cadence to show more than the first frame.
+// so is a blink, whose whole state is the shut frame. The idle cycle uses
+// companionIdleFrameTicks, the fast cadence that keeps the resting creature
+// visibly breathing and shifting; every other held state uses
+// companionHoldFrameTicks so a reaction the reader is looking at stays on its
+// pose rather than flickering, and a cheer and a bout of play step faster because
+// their own states do not last long enough for a slower cadence to show more than
+// the first frame.
 func companionFramePeriod(state companionState) int {
 	switch state {
 	case companionWalkingState, companionJumpingState, companionBlinkingState:
 		return 1
+	case companionIdleState:
+		return companionIdleFrameTicks
 	case companionPleasedState:
 		return companionCelebrateFrameTicks
 	case companionPlayingState:
 		return companionPlayStepTicks
 	default:
-		return companionIdleFrameTicks
+		return companionHoldFrameTicks
 	}
 }
 
@@ -1192,11 +1230,24 @@ func companionEventAt(tick, period int) bool {
 	return period > 0 && tick%period == period-1
 }
 
-func boolFloat(value bool) float64 {
-	if value {
-		return 1
+// companionIdleWave is the idle motion's phase: a triangle wave over the period,
+// zero at the start, peaking at the middle and returning. It is the tick's own
+// arithmetic and not a clock's, so the same model draws the same breath and a
+// snapshot can pin it. The breath and the tail sample it at their own periods,
+// which is what lets the tail move while the body is still.
+func companionIdleWave(tick, period int) float64 {
+	if period <= 1 {
+		return 0
 	}
-	return 0
+	phase := ((tick % period) + period) % period
+	half := period / 2
+	if half <= 1 {
+		return 0
+	}
+	if phase < half {
+		return float64(phase) / float64(half)
+	}
+	return float64(period-phase) / float64(half)
 }
 
 // companionPoseFor builds the creature's primitives for one frame: the whole of its
@@ -1277,12 +1328,13 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 	// it -- so even the lowest ear still reaches the cell's own top.
 	earBack, earLift, tailTip := 0.0, 0.0, 0.0
 	idlePose := state == companionIdleState || state == companionBlinkingState
-	breath := idlePose && companionEventAt(tick, companionBreathTicks)
+	breath := 0.0
+	if idlePose {
+		breath = companionIdleWave(tick, companionBreathTicks)
+		tailTip += companionIdleWave(tick, companionTailFlickTicks) * unit(1)
+	}
 	if idlePose && companionEventAt(tick, companionEarTwitchTicks) {
 		earLift += unit(1)
-	}
-	if idlePose && companionEventAt(tick, companionTailFlickTicks) {
-		tailTip += unit(1)
 	}
 	switch state {
 	case companionAlertState:
@@ -1353,7 +1405,7 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 	}
 	return companionPose{
 		body:   companionBlobAt(-0.18+tremble, 0.56+lift, 0.42, 0.26*bodyDepth, lean),
-		chest:  companionBlobAt(0.22+tremble, 0.57+lift+boolFloat(breath)*unit(1), 0.30, 0.28*bodyDepth, lean),
+		chest:  companionBlobAt(0.22+tremble, 0.57+lift+breath*unit(1), 0.30, 0.28*bodyDepth, lean),
 		haunch: companionBlobAt(-0.53+tremble, 0.57+lift, 0.43, 0.34, lean),
 		neck:   companionBlobAt(0.38+tremble, 0.73+lift, 0.15, 0.25, lean),
 		head:   companionBlobAt(headX, headY, 0.29, 0.275, 0),
@@ -2247,11 +2299,17 @@ func (m Model) companionPlayingNow() bool {
 	return m.AnimTick%companionPlayPeriodTicks < companionPlayFrameTicks
 }
 
-// companionBlinking reports whether this tick is a blink. It is the tick counter
-// read at a modulus, not a second clock, so the blink is as pinnable as any other
-// frame and it never fires while the creature is walking or reacting.
+// companionBlinking reports whether this tick is inside a blink. It is the tick
+// counter read at a modulus, not a second clock, so the blink is as pinnable as
+// any other frame and it never fires while the creature is walking or reacting.
+// The eyes stay shut for companionBlinkHoldTicks frames, so the lid visibly goes
+// down and comes back up instead of changing for a single dropped frame.
 func (m Model) companionBlinking() bool {
-	return m.AnimTick%companionBlinkTicks == companionBlinkTicks-1
+	phase := m.AnimTick % companionBlinkTicks
+	if phase < 0 {
+		phase += companionBlinkTicks
+	}
+	return phase >= companionBlinkTicks-companionBlinkHoldTicks
 }
 
 // companionYawning reports whether the quiet run has reached the stretch before
