@@ -171,14 +171,20 @@ type stepRecordedState struct {
 	WorkDir   string
 	RepoDir   string
 	BackupDir string
+	// ConfigFingerprints is the before-run content hash of every configuration
+	// path. The first step takes it, and it travels with the other recorded state
+	// because the record built at the end of the run is written from the UI model,
+	// which never saw the copy the step ran against.
+	ConfigFingerprints map[string]string
 }
 
 // recordedState takes the state a step recorded off the model it ran against.
 func (m Model) recordedState() stepRecordedState {
 	return stepRecordedState{
-		WorkDir:   m.WorkDir,
-		RepoDir:   m.RepoDir,
-		BackupDir: m.BackupDir,
+		WorkDir:            m.WorkDir,
+		RepoDir:            m.RepoDir,
+		BackupDir:          m.BackupDir,
+		ConfigFingerprints: m.ConfigFingerprints,
 	}
 }
 
@@ -187,19 +193,19 @@ func (r stepRecordedState) applyTo(m *Model) {
 	m.WorkDir = r.WorkDir
 	m.RepoDir = r.RepoDir
 	m.BackupDir = r.BackupDir
+	m.ConfigFingerprints = r.ConfigFingerprints
 }
 
 // recordLastInstall writes the record of a completed run and puts it on the
 // model, so the "Last install" panel shows the run that just finished without
-// waiting for the next startup read. The file write is deliberately unchecked:
-// it is a convenience for the next run, and a read-only or missing state
-// directory must not fail an install that already succeeded.
+// waiting for the next startup read. The record itself is built in state.go from
+// what the run did to each configuration path, not from the pre-run detection;
+// copying m.ExistingConfigs here is the defect reported in issue #239. The file
+// write is deliberately unchecked: it is a convenience for the next run, and a
+// read-only or missing state directory must not fail an install that already
+// succeeded.
 func (m *Model) recordLastInstall() {
-	rec := lastInstall{
-		Timestamp: time.Now(),
-		Version:   VersionLabel(),
-		Files:     append([]string(nil), m.ExistingConfigs...),
-	}
+	rec := lastInstallRecord(m, time.Now())
 	m.LastInstall = &rec
 	_ = writeLastInstall(rec)
 }

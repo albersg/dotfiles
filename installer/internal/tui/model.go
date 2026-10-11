@@ -293,6 +293,13 @@ type Model struct {
 	// main menu then offers no "Last install" panel at all rather than a section
 	// that says "never".
 	LastInstall *lastInstall
+	// ConfigFingerprints is the content hash of every configuration path as it
+	// was before the run wrote anything. executeStep takes it before the first
+	// step, and recordLastInstall compares the paths against it so the record
+	// names an outcome per path instead of copying the pre-run detection. It is
+	// nil until a run starts and for a model built by hand in a test, which then
+	// claims no replacement.
+	ConfigFingerprints map[string]string
 	// Repository checkout created by the clone step
 	WorkDir string // Private temporary directory owned by this run (empty until clone)
 	RepoDir string // Repository checkout inside WorkDir (empty until clone)
