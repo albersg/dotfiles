@@ -4,15 +4,12 @@
 
 The `.github/workflows/upstream-watch.yml` workflow handles automated sync:
 
-1. **Schedule**: Runs every 6 hours + manual dispatch
-2. **Detection**: Compares `upstream/main` with `.downstream/version.json`
-3. **New tag found**: Creates `integration/upstream-vX.Y.Z` branch
-4. **PR creation**: Opens PR with diff report (`--head integration/upstream-vX.Y.Z --base main`)
-5. **Conflict handling**: Creates GitHub issue with conflict details (no force push)
+1. **Schedule**: Runs every 6 hours + manual dispatch.
+2. **Release detection** (`check-upstream`): Fetches tags and compares the newest semantic `v*` tag's commit SHA with `.downstream/version.json`. This remains tag-based; it does not detect untagged commits.
+3. **New tag found**: `create-integration-pr` creates `integration/upstream-vX.Y.Z`, attempts the tag merge, opens a PR on a clean merge, or creates a conflict issue.
+4. **Mirror update** (`track-activity`): Independently fetches `upstream/main` and pushes it to `origin/upstream-main` without force. On fetch/push failure, the activity tracker issue receives a deduplicated warning comment; the job log contains the failing command. A non-fast-forward/divergent destination is deliberately not overwritten automatically.
 
-Tag detection, the `upstream-main` mirror push, integration branches, conflict issues
-and integration PRs are unchanged. The activity tracker below is a separate job and
-does not gate or depend on that flow.
+The activity tracker is a separate job and does not gate or depend on release-tag detection. Thus untagged commits are visible in the activity feed even though they do not trigger an integration PR. The release job's own tag fetch failure fails that job visibly in the Actions run log; it does not currently create an issue comment.
 
 ## Upstream Activity Tracker (issue feed)
 
@@ -22,11 +19,12 @@ upstream event:
 
 | Event | Source | Comment marker |
 |-------|--------|----------------|
-| New commit reachable on upstream `main` | `GET /repos/{upstream}/branches/main` + `GET /repos/{upstream}/compare/{sha}...main` | `commit:<sha>` |
+| New commit reachable on upstream `main` (tagged or untagged) | `GET /repos/{upstream}/branches/main` + `GET /repos/{upstream}/compare/{sha}...main` | `commit:<sha>` |
+| Failed `upstream-main` mirror update | Git fetch + non-forced push in `track-activity` | `upstream-mirror-failure:<sha>` (or `fetch-failed`) |
 | Newly created upstream issue | `GET /repos/{upstream}/issues?state=all` (no `pull_request` field) | `issue:<number>` |
 | Newly created upstream pull request | same endpoint, entries carrying `pull_request` | `pr:<number>` |
 
-Commits use a persisted **head-SHA comparison** rather than a date filter. GitHub's
+Commits use a persisted **head-SHA comparison** rather than tags or a date filter. This catches commits added to `main` after the latest release tag (for example, a commit like `6f44b79` before the next tag). Release-tag detection remains a separate, tag-only path and still creates integration PRs only for new tags. Commit comments are keyed by full SHA; existing markers are checked before posting, so a SHA already recorded by any earlier activity run is not posted again. GitHub's
 `listCommits?since=<time>` endpoint filters by commit date, so a commit that only
 becomes reachable now — a cherry-pick, an imported/backdated commit, a merge of an
 old branch — would be missed when its author or committer date predates the cursor.
@@ -79,7 +77,7 @@ single endpoint returns both.
   is posted and the commit cursor is not advanced. Issues/PRs are still processed and
   the job exits with a partial-fetch error. To resume commit tracking, delete and
   recreate the tracker issue to establish a new baseline from the rewritten head.
-- Fetch and comment failures fail the job loudly. If one event stream fails, events
+- Upstream API fetch and comment failures fail the activity job loudly in the Actions run log. Mirror fetch/push failure is additionally reported in the tracker issue (deduplicated by target SHA); a successful issue comment does not make the mirror step successful. The release job's separate `git fetch upstream --tags` failure is visible as a failed Actions step but is not currently copied into an issue. If one event stream fails, events
   from the other stream are still recorded and their cursor advances, but the job
   still exits with a partial-fetch error so the failure is visible. Errors are never
   swallowed.
@@ -88,10 +86,7 @@ single endpoint returns both.
 
 ### Permissions and safety
 
-- The job requests `contents: read` and `issues: write` only, enough to read this
-  repository and write the tracker issue. It inherits no `contents: write`.
-- All upstream calls are read-only `GET` requests; the tracker never mutates the
-  upstream repository and never writes files.
+- The `track-activity` job requests `contents: write` to update `origin/upstream-main` and `issues: write` for the tracker. The activity API calls against upstream remain read-only `GET`s; the workflow never writes to the upstream repository.
 - The upstream repository slug is configured once as an environment variable in
   `.github/workflows/upstream-watch.yml` (kept out of the helper script and this
   document's other paths by the branding audit exclusions).

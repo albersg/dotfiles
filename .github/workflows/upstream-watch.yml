@@ -180,7 +180,7 @@ jobs:
       group: upstream-activity-tracker
       cancel-in-progress: false
     permissions:
-      contents: read
+      contents: write
       issues: write
     env:
       UPSTREAM_REPOSITORY: Gentleman-Programming/Gentleman.Dots
@@ -189,6 +189,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Keep the mirror moving independently of tag detection. Do not force-push:
+      # if the destination diverged or GitHub denies the write, report it below.
+      - name: Advance upstream-main mirror
+        id: mirror
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git" || true
+          git fetch upstream "${UPSTREAM_BRANCH}:refs/remotes/upstream/${UPSTREAM_BRANCH}"
+          UPSTREAM_SHA=$(git rev-parse "refs/remotes/upstream/${UPSTREAM_BRANCH}")
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          git push origin "refs/remotes/upstream/${UPSTREAM_BRANCH}:refs/heads/upstream-main"
 
       - name: Append new upstream events to the tracker issue
         uses: actions/github-script@v7
@@ -220,3 +235,47 @@ jobs:
                 .addList(result.posted.map((event) => `${event.type}: ${event.title}`))
                 .write();
             }
+
+      - name: Report mirror update failure in tracker issue
+        if: always() && steps.mirror.outcome == 'failure'
+        uses: actions/github-script@v7
+        env:
+          MIRROR_SHA: ${{ steps.mirror.outputs.upstream_sha }}
+        with:
+          script: |
+            const title = process.env.TRACKER_TITLE;
+            const listed = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100,
+            });
+            let issue = listed.data.find((item) => item.title === title && !item.pull_request);
+            if (!issue) {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: 'This issue is maintained by the Upstream Watch workflow.',
+              });
+              issue = created.data;
+            }
+            const sha = process.env.MIRROR_SHA || 'fetch-failed';
+            const marker = `<!-- upstream-mirror-failure:${sha} -->`;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              per_page: 100,
+            });
+            if (comments.data.some((comment) => comment.body.includes(marker))) {
+              core.notice(`Mirror failure for ${sha} was already reported in issue #${issue.number}`);
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `⚠️ The Upstream Watch workflow could not advance the \`upstream-main\` mirror. The fetch or non-forced push failed; inspect this run's “Advance upstream-main mirror” log, then retry or repair the mirror before retrying. Target upstream SHA: \`${sha}\`.\n\n${marker}`,
+            });
+            core.warning(`Mirror update failure reported in tracker issue #${issue.number}`);
