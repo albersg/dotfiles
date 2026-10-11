@@ -643,4 +643,10 @@ test('workflow keeps the release gate and adds serialized, independent activity 
   assert.match(trackerJob, /cancel-in-progress: false/);
   assert.equal(/needs:\s*check-upstream/.test(trackerJob), false);
   assert.match(trackerJob, /issues: write/);
+  assert.match(trackerJob, /contents: write/);
+  assert.match(trackerJob, /Advance upstream-main mirror/);
+  assert.match(trackerJob, /continue-on-error: true/);
+  assert.match(trackerJob, /git push origin .*refs\/heads\/upstream-main/);
+  assert.match(trackerJob, /Report mirror update failure in tracker issue/);
+  assert.match(trackerJob, /upstream-mirror-failure:/);
 });
