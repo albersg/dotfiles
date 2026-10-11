@@ -165,6 +165,7 @@ var (
 
 	BrandStyle             lipgloss.Style
 	RuleStyle              lipgloss.Style
+	PanelBorderStyle       lipgloss.Style
 	HeaderChipStyle        lipgloss.Style
 	HeaderRuleStyle        lipgloss.Style
 	HeaderChipSuccessStyle lipgloss.Style
@@ -335,6 +336,14 @@ func applyUIColors(c uiColors) {
 
 	RuleStyle = lipgloss.NewStyle().
 		Foreground(Rule)
+
+	// PanelBorderStyle draws the edge of an in-body panel. It takes the border
+	// role rather than the quiet Rule slate, so the card that bounds a screen's
+	// content wears the same tone as the frame's own edge and reads as chrome
+	// rather than as another separator. The box glyphs carry the shape on a
+	// terminal with no colour, so the tone is a convenience and not the edge.
+	PanelBorderStyle = lipgloss.NewStyle().
+		Foreground(BorderActive)
 
 	InkStyle = lipgloss.NewStyle().
 		Foreground(Ink)

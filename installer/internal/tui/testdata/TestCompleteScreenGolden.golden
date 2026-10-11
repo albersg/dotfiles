@@ -4,18 +4,18 @@
                                                                                 
                                                                                 
                                                                                 
+  ╭─ ✓ Summary ──────────────────────────────────────────────────────────────╮  
+  │ OS: mac                                                                  │  
+  │ Terminal: ghostty                                                        │  
+  │ Shell: fish                                                              │  
+  │ Window Manager: tmux                                                     │  
+  │ Editor: Neovim with dotfiles config                                      │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
                                                                                 
-  ✓ Summary                                                                     
-  │ OS: mac                                                                     
-  │ Terminal: ghostty                                                           
-  │ Shell: fish                                                                 
-  │ Window Manager: tmux                                                        
-  │ Editor: Neovim with dotfiles config                                         
-                                                                                
-  Next Step                                                                     
-  │ To use your new shell now, run:                                             
-  │ exec fish                                                                   
-                                                                                
+  ╭─ Next Step ──────────────────────────────────────────────────────────────╮  
+  │ To use your new shell now, run:                                          │  
+  │ exec fish                                                                │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
                                                                                 
                                                                                 
                                                                                 
