@@ -158,6 +158,33 @@ func queryWindowsHost(ctx context.Context) ([]byte, error) {
 	return cmd.Output()
 }
 
+// WindowsQueryTimeout bounds every Windows-side query that goes through
+// WindowsQuery. It is the same deadline the host-capacity query uses, so all of
+// the installer's interop calls share one bound rather than growing a second.
+const WindowsQueryTimeout = hostQueryTimeout
+
+// WindowsQuery runs one Windows-side PowerShell program through WSL interop and
+// returns its output.
+//
+// It is the boundary the Windows Terminal font work crosses. It reuses the host
+// query's bounds rather than growing its own: -NoProfile keeps a stranger's
+// profile scripts out of the installer's path, -NonInteractive makes a prompt
+// fail the query instead of hanging it past the deadline, and WaitDelay pairs
+// with the caller's context deadline so a grandchild holding the inherited
+// stdout pipe cannot outlive the timeout. An absent powershell.exe -- a
+// distribution with interop disabled -- is an error the caller degrades from,
+// never a failure to hide.
+//
+// The caller owns the deadline; WindowsQueryTimeout is what a caller should use
+// for it, and the output can carry a leading UTF-8 BOM, which a caller parsing
+// text has to strip.
+func WindowsQuery(ctx context.Context, script string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, windowsPowerShellBinary,
+		"-NoProfile", "-NonInteractive", "-Command", script)
+	cmd.WaitDelay = hostQueryWaitDelay
+	return cmd.Output()
+}
+
 // hostResourcesFromEnv reads the DOTFILES_WSL_HOST_* overrides. Both must be
 // present and positive: a half-set pair is not a capacity reading, and the query
 // is a better source than a partial guess.

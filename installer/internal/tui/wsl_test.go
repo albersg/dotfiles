@@ -58,6 +58,29 @@ func wslModel(repoDir string, isWSL bool) Model {
 	return m
 }
 
+// TestNonInteractivePlanReachesTheWSLStep pins the --non-interactive path at the
+// planner: the flag's plan schedules the wslconfig step, and the executor table
+// the flag's run uses has an entry for it. The write guard then drives that same
+// executeStep, so the chain flag -> plan -> executor -> write is covered end to
+// end rather than by a test that calls the writer directly.
+func TestNonInteractivePlanReachesTheWSLStep(t *testing.T) {
+	m := wslModel("", true)
+	m.Choices = UserChoices{InstallFont: false}
+
+	var scheduled bool
+	for _, step := range buildStepsForChoices(&m) {
+		if step.ID == wslStepID {
+			scheduled = true
+		}
+	}
+	if !scheduled {
+		t.Fatalf("the non-interactive plan does not schedule the %q step", wslStepID)
+	}
+	if stepExecutors[wslStepID] == nil {
+		t.Fatalf("the non-interactive executor table has no %q entry, so the planned step would do nothing", wslStepID)
+	}
+}
+
 func TestStepInstallWSLConfigSkipsNonWSLHosts(t *testing.T) {
 	repoDir, winHome, _ := newWSLLayout(t)
 	m := wslModel(repoDir, false)

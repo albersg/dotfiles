@@ -107,6 +107,11 @@ func stepInstallWSLConfig(m *Model) error {
 				"Failed to install .wslconfig into the Windows user profile", err)
 		}
 		wslLog(wslStepID, fmt.Sprintf("✓ .wslconfig installed at %s", destination))
+
+		// The renderer on the Windows side is the half #236 only described. Under
+		// --non-interactive the step performs it, since the flag is already an
+		// explicit choice; otherwise it shows the offer and writes nothing.
+		configureWindowsTerminalRenderer(repoDir, profileDir)
 	}
 
 	// wsl.conf is read from inside the distribution and needs root to replace.
