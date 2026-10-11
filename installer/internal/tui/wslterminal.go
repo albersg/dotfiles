@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
 // ============================================================================
@@ -29,9 +32,13 @@ import (
 
 const (
 	// windowsTerminalFontFace is the face Windows Terminal must select for the
-	// Nerd Font glyphs the prompt draws. It is the same face the Linux terminals
-	// are configured with.
-	windowsTerminalFontFace = "IosevkaTerm NF"
+	// Nerd Font glyphs the prompt draws. It is the family Nerd Fonts 3.x gives
+	// the IosevkaTerm archive the installer downloads (the release the Linux
+	// step extracts), and the same family the Linux terminals are configured
+	// with. It is not written to Windows Terminal until the Windows font store
+	// reports the family after the installer has registered it: a face named
+	// here but not resolvable there is the silent fallback this defect is about.
+	windowsTerminalFontFace = "IosevkaTerm Nerd Font"
 
 	// windowsTerminalSchemeName is the name the dotfiles palette is registered
 	// under in Windows Terminal's "schemes" array and selected by
@@ -71,6 +78,7 @@ func windowsTerminalRendererLines() []string {
 	return []string{
 		"The Nerd Font is installed under ~/.local/share/fonts and the dotfiles palette is written into the Linux terminal configurations, but this screen is drawn by Windows Terminal on the Windows side, which reads neither of them.",
 		"To make the prompt render within Windows Terminal, set " + strings.Join(labels, " and ") + " in its settings.json.",
+		"Windows Terminal reads its font list once, when it starts, so reopen it after this install to see the icons and the palette.",
 	}
 }
 
@@ -924,6 +932,232 @@ func findJSONCScheme(arr *jsoncValue, name string) *jsoncValue {
 		}
 	}
 	return nil
+}
+
+// ============================================================================
+// THE FONT: PER-USER REGISTRATION AND THE VERIFICATION BEFORE THE FACE
+// ============================================================================
+//
+// Windows Terminal can only use a family the Windows font store resolves. A
+// font under ~/.local/share/fonts lives in the distribution's ext4 filesystem,
+// which a Windows program cannot read, so the face named in settings.json would
+// fall back silently -- exactly the defect issue #261 describes. The step
+// therefore copies a handful of the faces the Linux step already extracted into
+// the per-user Windows font store and registers them under HKCU, which needs no
+// administrator, and then asks the Windows font store whether the family
+// resolves. The face is written only when that answer is yes; when the answer
+// cannot be had, the face is not written and the step says why.
+
+const (
+	// windowsFontStoreRelPath is %LOCALAPPDATA%\Microsoft\Windows\Fonts,
+	// the per-user font store, relative to the Windows profile directory.
+	windowsFontStoreRelPath = "AppData/Local/Microsoft/Windows/Fonts"
+
+	// windowsFontFamilyFilePrefix is the file name prefix the IosevkaTerm
+	// Nerd Fonts archive gives every face.
+	windowsFontFamilyFilePrefix = "IosevkaTermNerdFont-"
+
+	// windowsFontPresent and windowsFontAbsent are the two answers the
+	// verification query prints. Anything else is "no answer" and refuses the
+	// face rather than guessing.
+	windowsFontPresent = "font=present"
+	windowsFontAbsent  = "font=absent"
+)
+
+// windowsFontFace is one file copied to the Windows store and the style label
+// Windows uses in the registry value name. Only four faces travel: the whole
+// family is 81 files and about a gigabyte, and Windows Terminal needs a
+// regular, a bold, an italic and a bold italic, not the set.
+var windowsFontFaces = []windowsFontFace{
+	{File: windowsFontFamilyFilePrefix + "Regular.ttf", Label: "Regular"},
+	{File: windowsFontFamilyFilePrefix + "Bold.ttf", Label: "Bold"},
+	{File: windowsFontFamilyFilePrefix + "Italic.ttf", Label: "Italic"},
+	{File: windowsFontFamilyFilePrefix + "BoldItalic.ttf", Label: "Bold Italic"},
+}
+
+type windowsFontFace struct {
+	File  string
+	Label string
+}
+
+// windowsFontQuery runs one Windows-side PowerShell program. It is a variable so
+// a test replaces the interop boundary; production uses system.WindowsQuery,
+// which is bounded by WindowsQueryTimeout with WaitDelay.
+var windowsFontQuery = system.WindowsQuery
+
+// windowsFontQueryTimeout is the deadline each Windows-side font query runs
+// under. It is the shared WindowsQueryTimeout; it is a variable so a test can
+// shorten it and prove a hanging query is bounded rather than blocking.
+var windowsFontQueryTimeout = system.WindowsQueryTimeout
+
+// runWindowsFontQuery bounds one font query with the shared timeout. The caller
+// gets a reported failure on a timeout, never an installer that stops
+// responding (constraint 5).
+func runWindowsFontQuery(script string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), windowsFontQueryTimeout)
+	defer cancel()
+	return windowsFontQuery(ctx, script)
+}
+
+// psSingleQuote renders s as a PowerShell single-quoted literal, so a value can
+// never escape the string it is embedded in.
+func psSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// windowsFontRegisterScript is the whole registration: one HKCU value per copied
+// face, named the way Windows names a per-user font. It writes nothing outside
+// the current user's registry hive.
+func windowsFontRegisterScript(faces []windowsFontFace) string {
+	var b strings.Builder
+	b.WriteString("$key = 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'\n")
+	b.WriteString("New-Item -Path $key -Force | Out-Null\n")
+	for _, face := range faces {
+		value := windowsTerminalFontFace + " " + face.Label + " (TrueType)"
+		fmt.Fprintf(&b, "New-ItemProperty -Path $key -Name %s -Value %s -PropertyType String -Force | Out-Null\n",
+			psSingleQuote(value), psSingleQuote(face.File))
+	}
+	return b.String()
+}
+
+// windowsFontVerifyScript asks the Windows font store, not the registry, whether
+// the family resolves. System.Drawing.Text.InstalledFontCollection is the list
+// the renderer resolves a face against, so an answer of present is the same fact
+// Windows Terminal would see.
+func windowsFontVerifyScript() string {
+	return "Add-Type -AssemblyName System.Drawing; " +
+		"$names = (New-Object System.Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }; " +
+		"if ($names -contains " + psSingleQuote(windowsTerminalFontFace) + ") { " +
+		psSingleQuote(windowsFontPresent) + " } else { " + psSingleQuote(windowsFontAbsent) + " }"
+}
+
+// parseWindowsFontPresence reads the verification answer. A BOM a redirected
+// Windows PowerShell console can prepend is stripped first, and any output that
+// is not one of the two answers is "no answer", which the caller treats as a
+// refusal rather than as an absent font.
+func parseWindowsFontPresence(output []byte) (present bool, known bool) {
+	for _, line := range strings.Split(strings.TrimPrefix(string(output), "\ufeff"), "\n") {
+		switch strings.TrimSpace(line) {
+		case windowsFontPresent:
+			return true, true
+		case windowsFontAbsent:
+			return false, true
+		}
+	}
+	return false, false
+}
+
+// installAndVerifyWindowsFont copies the handful of faces the Linux step
+// extracted into the Windows per-user font store, registers them under HKCU, and
+// confirms the family resolves there. It is the gate constraint 1 requires: a
+// non-nil error means the family could not be confirmed, and the caller must not
+// write font.face.
+func installAndVerifyWindowsFont(profileDir string) error {
+	fontDir := filepath.Join(os.Getenv("HOME"), ".local", "share", "fonts")
+	dest := filepath.Join(profileDir, filepath.FromSlash(windowsFontStoreRelPath))
+
+	var copied []windowsFontFace
+	for _, face := range windowsFontFaces {
+		data, err := os.ReadFile(filepath.Join(fontDir, face.File))
+		if err != nil {
+			continue
+		}
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			return fmt.Errorf("creating the Windows font store at %s: %w", dest, err)
+		}
+		if err := os.WriteFile(filepath.Join(dest, face.File), data, 0o644); err != nil {
+			return fmt.Errorf("copying %s into the Windows font store: %w", face.File, err)
+		}
+		copied = append(copied, face)
+	}
+	if len(copied) == 0 {
+		return fmt.Errorf("no %s*.ttf faces were found in %s, so the Linux font step did not run or did not extract the family", windowsFontFamilyFilePrefix, fontDir)
+	}
+
+	if _, err := runWindowsFontQuery(windowsFontRegisterScript(copied)); err != nil {
+		return fmt.Errorf("registering the family under HKCU failed: %w", err)
+	}
+
+	output, err := runWindowsFontQuery(windowsFontVerifyScript())
+	if err != nil {
+		return fmt.Errorf("the family %q could not be verified in the Windows font store: %w", windowsTerminalFontFace, err)
+	}
+	present, known := parseWindowsFontPresence(output)
+	if !known {
+		return fmt.Errorf("the Windows font store gave no answer for %q, so the face was not written", windowsTerminalFontFace)
+	}
+	if !present {
+		return fmt.Errorf("%q is not present in the Windows font store after registering it, so the face was not written", windowsTerminalFontFace)
+	}
+	return nil
+}
+
+// windowsTerminalThemeDefinition loads the palette the Windows Terminal scheme
+// is built from. The scheme is the dotfiles theme, the one the installer applies
+// to every other tool, so the renderer paints the same palette as the shell.
+func windowsTerminalThemeDefinition(repoDir string) (themeDefinition, error) {
+	defs, err := loadThemeDefinitions(repoDir)
+	if err != nil {
+		return themeDefinition{}, err
+	}
+	def, ok := themeByID(defs, defaultThemeID)
+	if !ok {
+		return themeDefinition{}, fmt.Errorf("the %q theme definition is not in %s/%s", defaultThemeID, repoDir, themesDirName)
+	}
+	if !def.Complete() {
+		return themeDefinition{}, fmt.Errorf("the %q theme is incomplete, so Windows Terminal's scheme would be incomplete", defaultThemeID)
+	}
+	return def, nil
+}
+
+// configureWindowsTerminalRenderer leaves the Windows side of a WSL install in a
+// state where the next Windows Terminal start renders the theme. It never fails
+// the step: a Windows-side problem is reported and skipped, because the shell is
+// useful whether or not the renderer was reached.
+//
+// The two paths are deliberate and distinct (the maintainer's decision on #261):
+// under --non-interactive the flag is already an explicit choice, so the font is
+// installed, the family is verified, and the settings are written; outside it the
+// offer is shown and nothing is written, because docs/tui-installer.md promises a
+// write only after an explicit yes.
+func configureWindowsTerminalRenderer(repoDir, profileDir string) {
+	def, err := windowsTerminalThemeDefinition(repoDir)
+	if err != nil {
+		wslLog(wslStepID, "Windows Terminal was not configured: "+err.Error())
+		return
+	}
+
+	offer := readWindowsTerminalOffer(profileDir, def)
+	if !offer.Available {
+		wslLog(wslStepID, "Windows Terminal was not configured: "+offer.Reason)
+		return
+	}
+
+	if !nonInteractiveMode {
+		for _, line := range describeWindowsTerminalOffer(offer) {
+			wslLog(wslStepID, line)
+		}
+		wslLog(wslStepID, "The Nerd Font would also be copied into the Windows per-user font store and registered under HKCU once you choose to configure it.")
+		wslLog(wslStepID, "Windows Terminal was left unchanged: the font face and the colour scheme are written only after an explicit yes.")
+		return
+	}
+
+	// Verify the family before the face is written: a face Windows cannot
+	// resolve is a silent fallback, the defect this step exists to close.
+	if err := installAndVerifyWindowsFont(profileDir); err != nil {
+		wslLog(wslStepID, "Windows Terminal's font face was not written: "+err.Error())
+		return
+	}
+
+	notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
+	if err != nil {
+		wslLog(wslStepID, "Windows Terminal was not configured: "+err.Error())
+		return
+	}
+	if wrote {
+		wslLog(wslStepID, "✓ "+notice)
+	}
+	wslLog(wslStepID, "Windows Terminal reads its font list when it starts; reopen it to see the icons and the palette.")
 }
 
 // ============================================================================

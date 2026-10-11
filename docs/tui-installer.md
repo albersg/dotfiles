@@ -484,16 +484,39 @@ everything is fine.
 
 **The step states the truth before it reports anything as done.** It says where the font and the
 palette landed, that Windows Terminal is the renderer, and the two settings it has to be told: the
-font face `IosevkaTerm NF` and the colour scheme `dotfiles`. The line is unconditional — it is not
-behind a choice, and it does not depend on whether Windows Terminal is reachable. The list of owned
-settings is declared once in the code (`windowsTerminalSettings`), so the notice and the writer can
-never name different things.
+font face `IosevkaTerm Nerd Font` and the colour scheme `dotfiles`. The line is unconditional — it is
+not behind a choice, and it does not depend on whether Windows Terminal is reachable. It also says
+that Windows Terminal reads its font list once, when it starts, so it has to be reopened. The list of
+owned settings is declared once in the code (`windowsTerminalSettings`), so the notice and the
+writer can never name different things.
 
-**It also offers to write those two settings, and writes only after an explicit yes.** The
-settings.json is looked up under the Windows profile — both the Store and the Preview package names
+**A Nerd Font is put where the Windows renderer can resolve it.** The Linux step extracts the whole
+archived family into `~/.local/share/fonts`, but a font on the distribution's ext4 filesystem is
+invisible to a Windows program. The step therefore copies only a handful of faces (Regular, Bold,
+Italic and Bold Italic — the family is ~81 files and about 13 MB each) into the per-user Windows
+font store, `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, and registers them under
+`HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts`. That is a per-user registration and
+needs no administrator, and it is the same mechanism the reporter's machine already used for its own
+Nerd Font.
+
+**The family is verified before the face is named.** After registering, the step asks the Windows
+font store (`System.Drawing.Text.InstalledFontCollection`, the list the renderer resolves a face
+against) whether the family is there. Only an answer of present lets `font.face` be written; an
+answer of absent, or no answer at all — interop missing, a query that timed out, an unusable font
+store — leaves the face unwritten and says why. A face written without that check produces a silent
+fallback, which is the defect this issue is about, so the check is the gate rather than a courtesy.
+Every Windows-side query is bounded by the same `WindowsQueryTimeout` and `WaitDelay` the host
+capacities use, so a hanging Windows side becomes a reported failure and never a blocked installer.
+
+**The interactive path keeps the offer and its refusal; `--non-interactive` performs the step.**
+Outside `--non-interactive`, the step names the settings.json, the font face, the colour scheme and
+what a write would do, and writes nothing: `docs/tui-installer.md` requires a write only after an
+explicit yes. Under `--non-interactive`, passing the flag is itself the explicit choice, so the step
+installs the font, verifies the family and writes the settings. The settings.json is looked up under
+the Windows profile — both the Store and the Preview package names
 (`AppData/Local/Packages/Microsoft.WindowsTerminal_*/LocalState/settings.json` and the same for
-`Microsoft.WindowsTerminalPreview_*`) — and the offer names the file and what would change before
-anything is written. Declining changes nothing and leaves no backup.
+`Microsoft.WindowsTerminalPreview_*`) — and a file that cannot be edited safely is refused with the
+reason named and nothing changed.
 
 **Before a write, the previous file is copied beside itself** as
 `settings.json.bak-dotfiles-<timestamp>`, and only the keys this installer owns are changed: the font
@@ -611,7 +634,7 @@ and the choices, so a run shows only the ones that apply.
 | Install Toolset | Installs the command-line tools declared in the `Brewfile` (best effort; skipped on Termux and without Homebrew) |
 | Install Pi Agent Skills | Installs the pinned AI agent skills |
 | Install OfficeCLI | Installs the OfficeCLI document tool |
-| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there |
+| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
 

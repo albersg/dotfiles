@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // testWindowsTerminalThemeDefinition builds a complete palette so the scheme
@@ -556,5 +558,312 @@ func TestWindowsTerminalRendererLinesNameTheLandingSites(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the renderer notice should name %q:\n%s", want, joined)
 		}
+	}
+	// Windows Terminal caches its font list at start, so the step has to tell the
+	// user to reopen it or the icons stay boxes until they happen to restart it.
+	if !strings.Contains(joined, "reopen") {
+		t.Errorf("the renderer notice should say Windows Terminal has to be reopened:\n%s", joined)
+	}
+}
+
+// ============================================================================
+// THE WINDOWS-SIDE WRITE: REACHABILITY, THE VERIFICATION GATE, AND THE REFUSAL
+// ============================================================================
+
+// setNonInteractiveForTest drives the step through the same switch the
+// --non-interactive flag flips, restoring the previous value when the test ends.
+func setNonInteractiveForTest(t *testing.T, enabled bool) {
+	t.Helper()
+	previous := nonInteractiveMode
+	SetNonInteractiveMode(enabled)
+	t.Cleanup(func() { SetNonInteractiveMode(previous) })
+}
+
+// stubWindowsFontQuery replaces the Windows command boundary for one test. It
+// answers the verification script with answer and returns nothing for the
+// registration script, recording every script so a test can assert both ran and
+// in which order. No test ever spawns powershell.exe.
+func stubWindowsFontQuery(t *testing.T, answer string) *[]string {
+	t.Helper()
+
+	scripts := &[]string{}
+	previous := windowsFontQuery
+	windowsFontQuery = func(_ context.Context, script string) ([]byte, error) {
+		*scripts = append(*scripts, script)
+		if strings.Contains(script, "InstalledFontCollection") {
+			return []byte(answer + "\n"), nil
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { windowsFontQuery = previous })
+	return scripts
+}
+
+// newWindowsTerminalWSLLayout builds the whole WSL fixture: a checkout that
+// ships the .wslconfig template, wsl.conf and the dotfiles theme; a Windows
+// profile whose settings.json is reachable; a Linux font directory holding the
+// faces the font step would have extracted; and the pins that keep every lookup
+// and query in the temporary tree.
+func newWindowsTerminalWSLLayout(t *testing.T) (repoDir, profileDir, settingsPath string) {
+	t.Helper()
+
+	repoDir, _, _ = newWSLLayout(t)
+	t.Setenv(envBinfmtDir, t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "")
+
+	// The renderer's scheme is built from the real dotfiles theme, so the fixture
+	// exercises the same palette the installer applies to every other tool.
+	theme, err := os.ReadFile(filepath.Join(repoRoot(t), themesDirName, defaultThemeID+".toml"))
+	if err != nil {
+		t.Fatalf("reading the %s theme: %v", defaultThemeID, err)
+	}
+	themePath := filepath.Join(repoDir, themesDirName, defaultThemeID+".toml")
+	if err := os.MkdirAll(filepath.Dir(themePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(themePath, theme, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	fontDir := filepath.Join(home, ".local", "share", "fonts")
+	if err := os.MkdirAll(fontDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, face := range windowsFontFaces {
+		if err := os.WriteFile(filepath.Join(fontDir, face.File), []byte("font-bytes:"+face.File), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	profileDir, settingsPath = newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	t.Setenv(envWSLWindowsHome, profileDir)
+	return repoDir, profileDir, settingsPath
+}
+
+// TestWSLConfigStepConfiguresWindowsTerminalUnderNonInteractive is the
+// reachability guard for the write path. It drives the very executor
+// RunNonInteractive uses (executeStep, through stepExecutors), with the mode
+// --non-interactive sets, and fails unless the font lands in the Windows font
+// store, the family is verified, and settings.json is written with a backup. It
+// is the guard the dead offer functions never had: a test that called them
+// directly hid the fact that no flag and no screen could reach them.
+func TestWSLConfigStepConfiguresWindowsTerminalUnderNonInteractive(t *testing.T) {
+	repoDir, profileDir, settingsPath := newWindowsTerminalWSLLayout(t)
+	scripts := stubWindowsFontQuery(t, windowsFontPresent)
+	setNonInteractiveForTest(t, true)
+
+	m := wslModel(repoDir, true)
+	if err := executeStep("wslconfig", &m); err != nil {
+		t.Fatalf("the --non-interactive step failed: %v", err)
+	}
+
+	store := filepath.Join(profileDir, filepath.FromSlash(windowsFontStoreRelPath))
+	for _, face := range windowsFontFaces {
+		if _, err := os.Stat(filepath.Join(store, face.File)); err != nil {
+			t.Errorf("the face %s was not copied into the Windows font store: %v", face.File, err)
+		}
+	}
+
+	if len(*scripts) < 2 {
+		t.Fatalf("expected a registration query and a verification query, got %d", len(*scripts))
+	}
+	if !strings.Contains((*scripts)[0], "New-ItemProperty") {
+		t.Errorf("the first query should register the font, got:\n%s", (*scripts)[0])
+	}
+	if !strings.Contains((*scripts)[1], "InstalledFontCollection") {
+		t.Errorf("the second query should verify the family, got:\n%s", (*scripts)[1])
+	}
+
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := parseJSONC(after)
+	if err != nil {
+		t.Fatalf("the written settings are not valid JSONC: %v\n%s", err, after)
+	}
+	defaults := root.findMember("profiles").value.findMember("defaults").value
+	if face := defaults.findMember("font"); face == nil || face.value.findMember("face") == nil || face.value.findMember("face").value.text != windowsTerminalFontFace {
+		t.Errorf("profiles.defaults.font.face was not written with %q", windowsTerminalFontFace)
+	}
+	if cs := defaults.findMember("colorScheme"); cs == nil || cs.value.text != windowsTerminalSchemeName {
+		t.Errorf("profiles.defaults.colorScheme was not written with %q", windowsTerminalSchemeName)
+	}
+	if backups, _ := filepath.Glob(settingsPath + ".bak-dotfiles-*"); len(backups) != 1 {
+		t.Errorf("the write must leave exactly one backup, got %v", backups)
+	}
+}
+
+// TestWSLConfigStepRefusesTheFaceWhenTheFamilyDoesNotVerify is the constraint-1
+// guard: when the Windows font store answers that the family is absent, or gives
+// no answer at all, the face must not be written. Without the gate the face
+// landed in settings.json even though Windows could not resolve it, which is the
+// silent fallback this defect is about.
+func TestWSLConfigStepRefusesTheFaceWhenTheFamilyDoesNotVerify(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		answer string
+		want   string
+	}{
+		{"the family is absent", windowsFontAbsent, "not present"},
+		{"the store gives no answer", "something else", "no answer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repoDir, _, settingsPath := newWindowsTerminalWSLLayout(t)
+			stubWindowsFontQuery(t, tc.answer)
+			setNonInteractiveForTest(t, true)
+
+			var lines []string
+			restore := wslLog
+			wslLog = func(_, line string) { lines = append(lines, line) }
+			t.Cleanup(func() { wslLog = restore })
+
+			m := wslModel(repoDir, true)
+			if err := stepInstallWSLConfig(&m); err != nil {
+				t.Fatalf("step failed: %v", err)
+			}
+
+			if after, err := os.ReadFile(settingsPath); err != nil {
+				t.Fatal(err)
+			} else if string(after) != testWindowsTerminalSettings {
+				t.Errorf("the face must not be written when the family does not verify:\n%s", after)
+			}
+			if report := strings.Join(lines, "\n"); !strings.Contains(report, tc.want) {
+				t.Errorf("the refusal should say %q, got:\n%s", tc.want, report)
+			}
+		})
+	}
+}
+
+// TestWSLConfigStepRefusesWindowsTerminalWithoutTheExplicitYes is the interactive
+// half of the maintainer's decision: outside --non-interactive the step names the
+// offer and writes nothing to the Windows side, because docs/tui-installer.md
+// promises a write only after an explicit yes.
+func TestWSLConfigStepRefusesWindowsTerminalWithoutTheExplicitYes(t *testing.T) {
+	repoDir, profileDir, settingsPath := newWindowsTerminalWSLLayout(t)
+	stubWindowsFontQuery(t, windowsFontPresent)
+	setNonInteractiveForTest(t, false)
+
+	var lines []string
+	restore := wslLog
+	wslLog = func(_, line string) { lines = append(lines, line) }
+	t.Cleanup(func() { wslLog = restore })
+
+	m := wslModel(repoDir, true)
+	if err := stepInstallWSLConfig(&m); err != nil {
+		t.Fatalf("step failed: %v", err)
+	}
+
+	if after, err := os.ReadFile(settingsPath); err != nil {
+		t.Fatal(err)
+	} else if string(after) != testWindowsTerminalSettings {
+		t.Error("without an explicit yes the settings file must be unchanged")
+	}
+	if _, err := os.Stat(filepath.Join(profileDir, filepath.FromSlash(windowsFontStoreRelPath))); !os.IsNotExist(err) {
+		t.Error("without an explicit yes no font may be copied into the Windows store")
+	}
+
+	report := strings.Join(lines, "\n")
+	if !strings.Contains(report, settingsPath) {
+		t.Errorf("the offer should name the settings file before a choice:\n%s", report)
+	}
+	if !strings.Contains(report, "explicit yes") {
+		t.Errorf("the refusal should say the write needs an explicit yes:\n%s", report)
+	}
+}
+
+// TestParseWindowsFontPresenceHandlesTheConsoleBOM pins constraint 4's second
+// half: the console can prepend a BOM to redirected output, and the parser must
+// still read the answer. Anything that is not one of the two answers is "no
+// answer" rather than an absent font, because the step refuses the face either
+// way but reports a different reason.
+func TestParseWindowsFontPresenceHandlesTheConsoleBOM(t *testing.T) {
+	tests := []struct {
+		name    string
+		output  string
+		present bool
+		known   bool
+	}{
+		{"present", "font=present\r\n", true, true},
+		{"absent with a BOM", "\ufefffont=absent\r\n", false, true},
+		{"present with a BOM and noise", "\ufeffsome noise\r\nfont=present\r\n", true, true},
+		{"no answer", "some noise\r\n", false, false},
+		{"empty", "", false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			present, known := parseWindowsFontPresence([]byte(tt.output))
+			if present != tt.present || known != tt.known {
+				t.Errorf("parseWindowsFontPresence(%q) = (%v, %v), want (%v, %v)", tt.output, present, known, tt.present, tt.known)
+			}
+		})
+	}
+}
+
+// TestWindowsFontScriptsNameTheFamilyAndOnlyTheCopiedFaces pins the two PowerShell
+// programs the boundary runs: registration writes one HKCU value per copied face
+// and none of the uncopied ones, and the verification asks the font store for the
+// family the settings will name. A script that registered the whole family or
+// verified a different family would break the constraint-2 and constraint-1
+// promises respectively.
+func TestWindowsFontScriptsNameTheFamilyAndOnlyTheCopiedFaces(t *testing.T) {
+	copied := windowsFontFaces[:2]
+	register := windowsFontRegisterScript(copied)
+	if !strings.Contains(register, "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts") {
+		t.Errorf("the registration must write the per-user font key, got:\n%s", register)
+	}
+	for _, face := range copied {
+		if !strings.Contains(register, face.File) {
+			t.Errorf("the registration is missing the copied face %s:\n%s", face.File, register)
+		}
+	}
+	for _, face := range windowsFontFaces[2:] {
+		if strings.Contains(register, face.File) {
+			t.Errorf("the registration includes %s, which was not copied:\n%s", face.File, register)
+		}
+	}
+
+	verify := windowsFontVerifyScript()
+	for _, want := range []string{"InstalledFontCollection", windowsTerminalFontFace} {
+		if !strings.Contains(verify, want) {
+			t.Errorf("the verification should ask the font store for %q, got:\n%s", want, verify)
+		}
+	}
+}
+
+// TestWindowsFontQueryIsBounded pins constraint 5: a Windows-side query that
+// hangs times out into a reported refusal instead of blocking the installer. The
+// fake honours its context, as the real system.WindowsQuery does through
+// exec.CommandContext and WaitDelay, and the step must return once the deadline
+// fires.
+func TestWindowsFontQueryIsBounded(t *testing.T) {
+	repoDir, _, settingsPath := newWindowsTerminalWSLLayout(t)
+	setNonInteractiveForTest(t, true)
+
+	previousTimeout := windowsFontQueryTimeout
+	windowsFontQueryTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { windowsFontQueryTimeout = previousTimeout })
+
+	previousQuery := windowsFontQuery
+	windowsFontQuery = func(ctx context.Context, _ string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() { windowsFontQuery = previousQuery })
+
+	m := wslModel(repoDir, true)
+	start := time.Now()
+	if err := stepInstallWSLConfig(&m); err != nil {
+		t.Fatalf("a hanging Windows query must not fail the step: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("the hanging query blocked the step for %s; it must be bounded", elapsed)
+	}
+	if after, err := os.ReadFile(settingsPath); err != nil {
+		t.Fatal(err)
+	} else if string(after) != testWindowsTerminalSettings {
+		t.Error("a query that cannot be answered must leave the face unwritten")
 	}
 }

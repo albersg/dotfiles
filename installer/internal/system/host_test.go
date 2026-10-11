@@ -110,6 +110,29 @@ func TestDetectHostResourcesParsesTheWindowsHostQuery(t *testing.T) {
 	}
 }
 
+// TestWindowsQueryHonoursACancelledContext pins that the exported interop
+// boundary never blocks: a context that is already done fails the query instead
+// of waiting on a Windows process.
+func TestWindowsQueryHonoursACancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := WindowsQuery(ctx, "'x'"); err == nil {
+		t.Fatal("a cancelled context must fail the query")
+	}
+}
+
+// TestWindowsQueryTimeoutIsTheSharedHostDeadline pins that the font work and the
+// host-capacity query share one bound, so neither can grow a private timeout and
+// the WaitDelay cannot outlive the deadline it is paired with.
+func TestWindowsQueryTimeoutIsTheSharedHostDeadline(t *testing.T) {
+	if WindowsQueryTimeout != hostQueryTimeout {
+		t.Errorf("WindowsQueryTimeout = %s, want the shared hostQueryTimeout %s", WindowsQueryTimeout, hostQueryTimeout)
+	}
+	if WindowsQueryTimeout <= 0 || hostQueryWaitDelay <= 0 || hostQueryWaitDelay >= WindowsQueryTimeout {
+		t.Errorf("the WaitDelay must stay positive and below the timeout: timeout=%s delay=%s", WindowsQueryTimeout, hostQueryWaitDelay)
+	}
+}
+
 func TestDetectHostResourcesUnknownWhenTheHostCannotBeRead(t *testing.T) {
 	tests := []struct {
 		name          string
