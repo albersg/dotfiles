@@ -590,14 +590,16 @@ func (m Model) GetCurrentOptions() []string {
 			"LazyVim Guide",
 			"Vim Trainer",
 		}
-		// The update row is offered only when a later release is published and this
-		// file is the installer's own to replace: the button acts, so a run that has
-		// nothing to install shows no row rather than one that opens onto nothing.
-		// It sits above Restore so the action rows stay together, and the cursor is
-		// held by its label when it arrives late -- a background check lands after
-		// the first frame, and an index-based cursor would otherwise hand Enter to
-		// whichever option the insertion pushed under it.
-		if m.UpdateInstallable() {
+		// The update row is offered whenever the check has something to report: a
+		// later release was found, or the check ended with the reason it could not
+		// read one. When the file is the installer's own the row acts; when it is
+		// not the row still appears and names the reason on its panel, because a
+		// hidden row reads as "nothing new". It sits above Restore so the action
+		// rows stay together, and the cursor is held by its label when it arrives
+		// late -- a background check lands after the first frame, and an index-based
+		// cursor would otherwise hand Enter to whichever option the insertion pushed
+		// under it.
+		if m.UpdateRowOffered() {
 			opts = append(opts, updateInstallerRow)
 		}
 		// The channel row is offered once the record names a channel, which every

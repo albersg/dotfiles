@@ -664,8 +664,14 @@ func (m Model) contextHeadline() string {
 		}
 		return backupCount(len(m.AvailableBackups)) + " to restore"
 	case choiceUpdate:
-		if !m.UpdateInstallable() {
+		if !m.UpdateRowOffered() {
 			return ""
+		}
+		if !m.UpdateInstallable() {
+			// The narrow summary names the reason too. A sentence too long for the
+			// summary's row budget is dropped by rotatorLines rather than cut, and
+			// the row still opens the screen that states it in full.
+			return m.updateNotInstallableReason()
 		}
 		return m.UpdateCheck.Latest + " ready"
 	case choiceChannel:
@@ -953,13 +959,28 @@ func (m Model) backupPanelFacts(l layout) []string {
 	return rows
 }
 
-// updatePanelFacts is what the panel says for the main menu's update button: the
-// release that is published, the build this run is, and the one thing pressing
-// the row does. Every value comes from the model's own update state, so the panel
-// and the button cannot disagree about which release is being offered.
+// updatePanelFacts is what the panel says for the main menu's update row. When
+// the row can act it names the published release, the build this run is, and the
+// one thing pressing it does; when the row is offered but cannot act -- a package
+// manager owns the file, the target could not be resolved, or the check failed --
+// it names the reason instead. Every value comes from the model's own update
+// state, so the panel and the row cannot disagree about what is being offered.
 func (m Model) updatePanelFacts(l layout) []string {
 	if !m.UpdateInstallable() {
-		return nil
+		if !m.UpdateRowOffered() {
+			return nil
+		}
+		// The row is offered but cannot act, so the panel names the reason in the
+		// same words the update screen uses, from updateNotInstallableReason, the
+		// one place it is worded. It never offers the press.
+		var rows []string
+		if m.UpdateCheck.Latest != "" {
+			rows = append(rows, panelFact("Published", m.UpdateCheck.Latest, l.Right)...)
+		}
+		for _, line := range wrapText(m.updateNotInstallableReason(), l.Right, 0) {
+			rows = append(rows, InkStyle.Render(line))
+		}
+		return rows
 	}
 	rows := panelFact("Published", m.UpdateCheck.Latest, l.Right)
 	if build := BuildLabel(); build != "" {

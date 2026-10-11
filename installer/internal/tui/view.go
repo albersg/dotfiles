@@ -1987,12 +1987,55 @@ func (m Model) updateRows() []string {
 
 // UpdateInstallable reports whether this run may replace its own binary: a newer
 // release is published, the running file was resolved, and no package manager
-// owns it.
+// owns it. It is updateBlockedReason's own answer, so the question "may this run
+// replace itself" and the sentence that says why it may not are one thing.
 func (m Model) UpdateInstallable() bool {
-	if m.UpdateTargetErr != "" || !m.UpdateCheck.Newer() {
-		return false
+	return m.UpdateCheck.Newer() && m.updateBlockedReason() == ""
+}
+
+// UpdateRowOffered reports whether the main menu has something to say about the
+// published release: a later release was found, or the last check ended with the
+// reason it could not read one. A run that found nothing and failed at nothing
+// shows no row rather than one about an answer it does not have.
+//
+// It is deliberately not UpdateInstallable: a newer release that a package
+// manager owns, or one whose target could not be resolved, still gets a row,
+// because hiding it would read as "nothing new".
+func (m Model) UpdateRowOffered() bool {
+	return m.UpdateCheck.Newer() || m.UpdateCheck.Failed != ""
+}
+
+// updateBlockedReason is the one place the reason this run may not replace its
+// own binary is worded: the running file could not be resolved, or a package
+// manager owns it. The update screen and the main menu row's panel both show this
+// sentence, so they cannot disagree about the reason. It is "" when the file is
+// the installer's own to replace.
+func (m Model) updateBlockedReason() string {
+	switch owner := packageManagerOwner(m.UpdateTarget.Path); {
+	case m.UpdateTargetErr != "":
+		return fmt.Sprintf("This binary is not installable from here: %s.", m.UpdateTargetErr)
+	case owner != "":
+		return fmt.Sprintf(
+			"This copy lives at %s and was installed by %s, so it is not the installer's to replace. "+
+				"The update belongs to the package manager: run %q. %s reports the same release, and the "+
+				"formula's own checksum is the release's own SHA256SUMS line for that asset.",
+			m.UpdateTarget.Path, owner, homebrewUpgradeCommand, owner)
 	}
-	return packageManagerOwner(m.UpdateTarget.Path) == ""
+	return ""
+}
+
+// updateNotInstallableReason is what the main menu row's panel says when the row
+// is offered but cannot act: the ownership or target sentence when that is the
+// reason, and otherwise the check's own reason it could not read a release. The
+// row is never allowed to appear without naming why it will not install.
+func (m Model) updateNotInstallableReason() string {
+	if reason := m.updateBlockedReason(); reason != "" {
+		return reason
+	}
+	if m.UpdateCheck.Failed != "" {
+		return fmt.Sprintf("The published release could not be read: %s.", m.UpdateCheck.Failed)
+	}
+	return ""
 }
 
 // updateDescription is what the update screen says about itself. Every claim
@@ -2031,16 +2074,11 @@ func (m Model) updateDescription() []string {
 
 	// Who owns the file an update would replace, and what that means here. It is
 	// the same question the theme switch asks of a config file, asked of a binary.
-	switch owner := packageManagerOwner(m.UpdateTarget.Path); {
-	case m.UpdateTargetErr != "":
-		paragraphs = append(paragraphs, fmt.Sprintf(
-			"This binary is not installable from here: %s.", m.UpdateTargetErr))
-	case owner != "":
-		paragraphs = append(paragraphs, fmt.Sprintf(
-			"This copy lives at %s and was installed by %s, so it is not the installer's to replace. "+
-				"The update belongs to the package manager: run %q. %s reports the same release, and the "+
-				"formula's own checksum is the release's own SHA256SUMS line for that asset.",
-			m.UpdateTarget.Path, owner, homebrewUpgradeCommand, owner))
+	// The sentence comes from updateBlockedReason, the one place it is worded, so
+	// the screen and the main menu row's panel cannot disagree about the reason.
+	switch reason := m.updateBlockedReason(); {
+	case reason != "":
+		paragraphs = append(paragraphs, reason)
 	case m.UpdateCheck.Newer():
 		paragraphs = append(paragraphs, fmt.Sprintf(
 			"%s would replace %s after the download is checked against that release's %s. The binary being "+

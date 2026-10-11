@@ -1082,12 +1082,12 @@ func updateReadyModel(t *testing.T) Model {
 	return m
 }
 
-// TestMainMenuOffersTheUpdateRowOnlyWhenAnUpdateIsAvailable is the offer rule:
-// the main menu carries a button only when there is something for it to do -- a
-// later release is published and this file is the installer's own to replace.
-// A run that is current, or does not know, shows no row rather than one that
-// would refuse when it was pressed.
-func TestMainMenuOffersTheUpdateRowOnlyWhenAnUpdateIsAvailable(t *testing.T) {
+// TestMainMenuOffersTheUpdateRowWheneverTheCheckHasSomethingToReport is the
+// offer rule: the main menu carries the row when a later release was found or the
+// check ended with a reason it could not read one, and stays silent only when the
+// check produced neither. A run that is current, or has never checked, shows no
+// row rather than one about an answer it does not have.
+func TestMainMenuOffersTheUpdateRowWheneverTheCheckHasSomethingToReport(t *testing.T) {
 	isolateUpdateState(t)
 
 	quiet := NewModel()
@@ -1107,12 +1107,194 @@ func TestMainMenuOffersTheUpdateRowOnlyWhenAnUpdateIsAvailable(t *testing.T) {
 		t.Error("the update row is still offered after this run installed the published release")
 	}
 
-	// A binary Homebrew owns is not the installer's to replace, so the button is
-	// withdrawn rather than offered and then refused.
+	// A binary Homebrew owns is not the installer's to replace, but the menu is not
+	// silent about a newer release because of it: the row is offered so the reason
+	// can be read. The reason itself is the next guard's job.
 	homebrew := updateReadyModel(t)
 	homebrew.UpdateTarget = updateTarget{Path: "/opt/homebrew/Cellar/dotfiles/0.5.0/bin/dotfiles", Asset: "dotfiles-darwin-arm64"}
-	if updateRowsContain(homebrew.GetCurrentOptions(), updateInstallerRow) {
-		t.Error("the update row was offered over a binary a package manager owns")
+	if !updateRowsContain(homebrew.GetCurrentOptions(), updateInstallerRow) {
+		t.Errorf("the update row was hidden over a binary a package manager owns, so the menu is silent about a newer release: %v", homebrew.GetCurrentOptions())
+	}
+}
+
+// cursorOnUpdateRow puts the main menu's cursor on the update row the way the
+// menu does -- by finding the label it drew. A guard that cannot find the row has
+// already observed the defect.
+func cursorOnUpdateRow(t *testing.T, m *Model) {
+	t.Helper()
+	for i, option := range m.GetCurrentOptions() {
+		if option == updateInstallerRow {
+			m.Cursor = i
+			return
+		}
+	}
+	t.Fatalf("the main menu drew no update row to put the cursor on: %v", m.GetCurrentOptions())
+}
+
+// flatView is a rendered screen with its ANSI, its box-drawing chrome and its
+// layout whitespace removed, so a guard can ask whether a whole sentence is
+// present even though the panel wrapped it across rows beside the menu column.
+// The wrapping is not the contract; the words are.
+func flatView(m Model) string {
+	plain := ansiEscape.ReplaceAllString(m.View(), "")
+	plain = strings.Map(func(r rune) rune {
+		if r >= 0x2500 && r <= 0x257F {
+			return ' '
+		}
+		return r
+	}, plain)
+	return strings.Join(strings.Fields(plain), " ")
+}
+
+// TestANewerReleaseStillShowsTheRowWhenHomebrewOwnsTheBinary is the guard for the
+// report from the second machine: the check found a newer release, so the menu
+// must not be silent, and the row must name Homebrew as the reason rather than
+// reading as a button that would replace a file Homebrew owns. Without the fix
+// the row is hidden and GetCurrentOptions carries no update row at all -- which
+// is exactly the user's "the menu does not show the new version".
+func TestANewerReleaseStillShowsTheRowWhenHomebrewOwnsTheBinary(t *testing.T) {
+	isolateUpdateState(t)
+
+	m := NewModel()
+	m.Width, m.Height = 160, 40
+	m.Screen = ScreenMainMenu
+	m.UpdateTarget = updateTarget{
+		Path:  "/opt/homebrew/Cellar/dotfiles/0.5.0/bin/dotfiles",
+		Asset: "dotfiles-darwin-arm64",
+	}
+	m.UpdateTargetErr = ""
+
+	// The answer lands the way the run's own background check lands it, not by
+	// setting the field the menu reads.
+	next, _ := m.Update(updateCheckMsg{record: updateRecord{
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+		Latest:    "v9.9.9",
+	}})
+	m, ok := next.(Model)
+	if !ok {
+		t.Fatal("Update did not return a Model")
+	}
+
+	cursorOnUpdateRow(t, &m)
+	view := flatView(m)
+	for _, want := range []string{"Homebrew", homebrewUpgradeCommand, m.UpdateTarget.Path} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the row found a newer release but does not name %q as the reason it will not install:\n%s", want, view)
+		}
+	}
+}
+
+// TestANewerReleaseStillShowsTheRowWhenTheTargetCouldNotBeResolved is the second
+// half of the same guard: the check found a newer release and the running binary
+// could not be resolved at all, so the row must appear and name the target error.
+// Without the fix the row is hidden and the reason never reaches the menu.
+func TestANewerReleaseStillShowsTheRowWhenTheTargetCouldNotBeResolved(t *testing.T) {
+	isolateUpdateState(t)
+
+	constant := errors.New("could not resolve the running binary: executable file not found in $PATH")
+
+	m := NewModel()
+	m.Width, m.Height = 160, 40
+	m.Screen = ScreenMainMenu
+	m.UpdateTarget = updateTarget{}
+	m.UpdateTargetErr = constant.Error()
+
+	next, _ := m.Update(updateCheckMsg{record: updateRecord{
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+		Latest:    "v9.9.9",
+	}})
+	m, ok := next.(Model)
+	if !ok {
+		t.Fatal("Update did not return a Model")
+	}
+
+	cursorOnUpdateRow(t, &m)
+	// The panel wraps the sentence beside the menu column, so the whole error
+	// cannot be matched across the wrap; its opening clause is on one line and is
+	// what proves the resolved-target error reached the menu.
+	view := flatView(m)
+	for _, want := range []string{"not installable from here", "could not resolve the running binary"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the row found a newer release but does not name %q as the reason it will not install:\n%s", want, view)
+		}
+	}
+}
+
+// TestTheMenuShowsTheReasonWhenTheDevCheckFindsNoPreRelease covers the channel
+// half of the same defect: on the dev channel with no pre-release published the
+// check fails, and today that also leaves the menu silent. The row must appear
+// and name the reason the check could not read a release.
+func TestTheMenuShowsTheReasonWhenTheDevCheckFindsNoPreRelease(t *testing.T) {
+	isolateUpdateState(t)
+
+	reason := "GET https://api.github.com/repos/albersg/dotfiles/releases: no pre-release is published"
+
+	m := NewModel()
+	m.Width, m.Height = 160, 40
+	m.Screen = ScreenMainMenu
+	m.UpdateTarget = updateTarget{Path: "/home/alber/.local/bin/dotfiles", Asset: "dotfiles-linux-amd64"}
+	m.UpdateTargetErr = ""
+	// The channel row's press is what switches the run to dev.
+	m = m.setUpdateChannel(channelDev)
+
+	next, _ := m.Update(updateCheckMsg{
+		channel: channelDev,
+		record: updateRecord{
+			Channel:   "dev",
+			CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+			Failed:    reason,
+		},
+	})
+	m, ok := next.(Model)
+	if !ok {
+		t.Fatal("Update did not return a Model")
+	}
+
+	cursorOnUpdateRow(t, &m)
+	view := flatView(m)
+	if !strings.Contains(view, "no pre-release is published") {
+		t.Errorf("the dev check failed but the menu does not name why:\n%s", view)
+	}
+}
+
+// TestTheBlockedUpdateRowReportsRatherThanTrying is the write-path guard for the
+// rows the three guards above added: the row is offered so the reason can be
+// read, and pressing it opens the update screen where the reason is stated. It
+// must not mark a swap in flight and must not return a command, so a binary a
+// package manager owns is never a press away from being replaced.
+func TestTheBlockedUpdateRowReportsRatherThanTrying(t *testing.T) {
+	isolateUpdateState(t)
+
+	m := NewModel()
+	m.Width, m.Height = 100, 40
+	m.Screen = ScreenMainMenu
+	m.UpdateCheck = updateState{
+		Latest:    "v9.9.9",
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+	}
+	m.UpdateTarget = updateTarget{
+		Path:  "/opt/homebrew/Cellar/dotfiles/0.5.0/bin/dotfiles",
+		Asset: "dotfiles-darwin-arm64",
+	}
+	m.UpdateTargetErr = ""
+
+	cursorOnUpdateRow(t, &m)
+	next, cmd := m.handleMainMenuKeys("enter")
+	after, ok := next.(Model)
+	if !ok {
+		t.Fatal("the key handler did not return a model")
+	}
+	if cmd != nil {
+		t.Error("pressing the blocked row started a command, so the press is a way to try")
+	}
+	if after.UpdateCheck.InFlight {
+		t.Error("pressing the blocked row marked a swap in flight over a binary a package manager owns")
+	}
+	if after.Screen != ScreenUpdate {
+		t.Errorf("pressing the blocked row did not open the screen that states the reason: screen = %v", after.Screen)
+	}
+	if view := flatView(after); !strings.Contains(view, "Homebrew") {
+		t.Errorf("the screen the press opens does not state the reason:\n%s", view)
 	}
 }
 

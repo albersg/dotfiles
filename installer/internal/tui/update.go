@@ -1566,10 +1566,19 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		case strings.Contains(selected, "Vim Trainer"):
 			return m.startTrainer()
 		case selected == updateInstallerRow:
-			// The row is the button: pressing it runs the same verified swap
-			// `--self-update` runs, off the update loop, and the result appears on
-			// this screen in the notice slot above the menu.
-			if !m.UpdateInstallable() || m.UpdateCheck.InFlight {
+			// The row is the button when this run may replace its own file:
+			// pressing it runs the same verified swap `--self-update` runs, off the
+			// update loop, and the result appears on this screen in the notice slot
+			// above the menu. When the file is not the installer's to replace, the
+			// row reports instead: it opens the update screen, where the reason is
+			// stated in full and a fresh check can be asked for. It never attempts
+			// the swap the reason says is not the installer's to make.
+			if !m.UpdateInstallable() {
+				m.Screen = ScreenUpdate
+				m.Cursor = 0
+				return m, nil
+			}
+			if m.UpdateCheck.InFlight {
 				return m, nil
 			}
 			m.UpdateCheck.InFlight = true
