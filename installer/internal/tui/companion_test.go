@@ -289,13 +289,26 @@ func companionPixelRowShape(plain string) bool {
 var companionArtRowSet = companionEveryArtRow()
 
 // companionEveryArtRow walks the tables and the composer to list every row the
-// sprite can be drawn as.
+// sprite can be drawn as. The tick range is per state and derived from that
+// state's own cadence, so a frame the sequence only reaches after several
+// companionIdleFrameTicks -- the idle breath, the play sequence -- is enumerated
+// too; a fixed small range used to miss everything past its first frame and made
+// a row-has-art helper that trusted the list disown a frame it had just drawn.
 func companionEveryArtRow() []string {
+	gazes := []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {X: -1, Y: -1}, {X: 1, Y: -1}}
 	var rows []string
 	for _, height := range companionHeights() {
+		frames := map[companionState]int{}
+		for _, frame := range companionFramesAt(height) {
+			frames[frame.state]++
+		}
 		for _, state := range companionStates() {
-			for tick := 0; tick < 4; tick++ {
-				for _, gaze := range []companionGaze{{}, {X: -1}, {X: 1}, {Y: -1}, {X: -1, Y: -1}, {X: 1, Y: -1}} {
+			cycle := companionFramePeriod(state) * frames[state]
+			if cycle < 1 {
+				cycle = 1
+			}
+			for tick := 0; tick < cycle; tick++ {
+				for _, gaze := range gazes {
 					rows = append(rows, companionArtFor(state, height, tick, gaze)...)
 				}
 			}
@@ -315,6 +328,8 @@ func companionStates() []companionState {
 		companionIdleState, companionWalkingState, companionBlinkingState,
 		companionAsleepState, companionYawningState, companionAlertState,
 		companionPleasedState, companionFlinchingState,
+		companionWatchingState, companionPlayingState, companionJumpingState,
+		companionCharmedState, companionCuriousState,
 	}
 }
 
@@ -832,6 +847,44 @@ func TestCompanionStateFollowsTheModelAndItsPrecedence(t *testing.T) {
 			name:  "a yawn never interrupts a flinch",
 			model: Model{Animating: true, CompanionIdle: companionSleepTicks - 1, ErrorMsg: errorMsg},
 			want:  companionFlinchingState,
+		},
+		{
+			name: "a step that is running is watched, even while it sleeps",
+			model: Model{Animating: true, CompanionIdle: sleeping, Screen: ScreenInstalling,
+				Steps: []InstallStep{{ID: "clone", Status: StatusRunning}}},
+			want: companionWatchingState,
+		},
+		{
+			name: "the installer working wins over a blink",
+			model: Model{Animating: true, AnimTick: companionBlinkTicks - 1, Screen: ScreenInstalling,
+				Steps: []InstallStep{{ID: "clone", Status: StatusRunning}}},
+			want: companionWatchingState,
+		},
+		{
+			name: "a chosen theme charms the creature while the picker is up",
+			model: Model{Animating: true, Screen: ScreenThemePicker,
+				DotfilesThemeRecord: &dotfilesThemeRecord{}},
+			want: companionCharmedState,
+		},
+		{
+			name:  "a published release makes it curious",
+			model: Model{Animating: true, UpdateCheck: updateState{Latest: "v9.9.9"}},
+			want:  companionCuriousState,
+		},
+		{
+			name:  "the hop clock in the air is the jumping state",
+			model: Model{Animating: true, CompanionHop: companionHopTicks},
+			want:  companionJumpingState,
+		},
+		{
+			name:  "its own play window is the playing state",
+			model: Model{Animating: true, CompanionIdle: companionRoamAfterTicks, AnimTick: companionPlayPeriodTicks},
+			want:  companionPlayingState,
+		},
+		{
+			name:  "a stroll outranks its own play",
+			model: Model{Animating: true, CompanionIdle: companionRoamAfterTicks, AnimTick: companionPlayPeriodTicks, CompanionMoving: true},
+			want:  companionWalkingState,
 		},
 	}
 
