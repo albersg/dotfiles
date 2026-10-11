@@ -60,6 +60,11 @@ const (
 	win32yankSHA256 = "247c9a05b94387a884b49d3db13f806b1677dfc38020f955f719be6902260cd6"
 )
 
+// wslLog is the WSL step's log sink. It is a variable so a test can capture what
+// the step reports and fail the moment a success line stops naming Windows
+// Terminal, which is the defect issue #236 describes.
+var wslLog = SendLog
+
 // stepInstallWSLConfig installs the WSL artifacts shipped in dotfiles-wsl into
 // the two places WSL actually reads: the Windows user profile for .wslconfig,
 // and /etc/wsl.conf inside the running distribution.
@@ -70,7 +75,7 @@ const (
 // outside WSL, so it is safe to call unconditionally.
 func stepInstallWSLConfig(m *Model) error {
 	if !m.SystemInfo.IsWSL {
-		SendLog(wslStepID, "Not running under WSL; nothing to configure")
+		wslLog(wslStepID, "Not running under WSL; nothing to configure")
 		return nil
 	}
 
@@ -80,12 +85,20 @@ func stepInstallWSLConfig(m *Model) error {
 			"Failed to locate the cloned repository", err)
 	}
 
+	// The font and the palette are installed on the Linux side, but the session
+	// is drawn by Windows Terminal on the Windows side and reads neither. State
+	// that before reporting anything as done: a success line that omits it is
+	// exactly the defect this step used to have.
+	for _, line := range windowsTerminalRendererLines() {
+		wslLog(wslStepID, line)
+	}
+
 	// The machine-derived keys come from the Windows host. The content is built
 	// once, by the same builder the utilities section calls, and written by the
 	// same writer, so the two routes cannot disagree about the file they install.
 	profileDir, profileErr := windowsUserProfile()
 	if profileErr != nil {
-		SendLog(wslStepID, fmt.Sprintf(
+		wslLog(wslStepID, fmt.Sprintf(
 			"Skipping .wslconfig: %v. Set %s to override the lookup.", profileErr, envWSLWindowsHome))
 	} else {
 		destination := filepath.Join(profileDir, ".wslconfig")
@@ -93,7 +106,7 @@ func stepInstallWSLConfig(m *Model) error {
 			return wrapStepError(wslStepID, "Configure WSL",
 				"Failed to install .wslconfig into the Windows user profile", err)
 		}
-		SendLog(wslStepID, fmt.Sprintf("✓ .wslconfig installed at %s", destination))
+		wslLog(wslStepID, fmt.Sprintf("✓ .wslconfig installed at %s", destination))
 	}
 
 	// wsl.conf is read from inside the distribution and needs root to replace.
@@ -105,21 +118,21 @@ func stepInstallWSLConfig(m *Model) error {
 		return wrapStepError(wslStepID, "Configure WSL",
 			"Failed to install /etc/wsl.conf", err)
 	}
-	SendLog(wslStepID, fmt.Sprintf("✓ wsl.conf installed at %s", confDst))
+	wslLog(wslStepID, fmt.Sprintf("✓ wsl.conf installed at %s", confDst))
 
 	// Deliberately not fatal, for the same reason the xclip and wl-clipboard
 	// providers are not: the editor works without a clipboard bridge, and a
 	// download that fails should not fail an otherwise completed WSL setup.
 	if !peInteropHealthy() {
-		SendLog(wslStepID, "Skipping win32yank: this distribution cannot execute Windows binaries stored on the Linux filesystem, so the bridge would install into a path that cannot run. Neovim will keep using wl-clipboard. See the binfmt note in this step's source.")
+		wslLog(wslStepID, "Skipping win32yank: this distribution cannot execute Windows binaries stored on the Linux filesystem, so the bridge would install into a path that cannot run. Neovim will keep using wl-clipboard. See the binfmt note in this step's source.")
 	} else if err := installWin32Yank(wslStepID); err != nil {
-		SendLog(wslStepID, "Could not install win32yank, so Neovim will not reach the Windows clipboard: "+err.Error())
+		wslLog(wslStepID, "Could not install win32yank, so Neovim will not reach the Windows clipboard: "+err.Error())
 	} else {
-		SendLog(wslStepID, "✓ Windows clipboard bridge ready")
+		wslLog(wslStepID, "✓ Windows clipboard bridge ready")
 	}
 
 	// Both files are only read when the WSL VM starts.
-	SendLog(wslStepID, "Run `wsl --shutdown` on Windows and reopen the terminal to apply the changes")
+	wslLog(wslStepID, "Run `wsl --shutdown` on Windows and reopen the terminal to apply the changes")
 	return nil
 }
 
