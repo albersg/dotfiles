@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -353,5 +354,152 @@ func TestCompanionPetReactionsAreSpecificNotAGenericWiggle(t *testing.T) {
 	installed.UpdateCheck.Installed = true
 	if installed.companionStateNow() == companionCuriousState {
 		t.Error("the creature is still curious after this run installed the published release")
+	}
+}
+
+// TestCompanionPetIdleCycleIsVisibleWithinABound is the liveliness guard the
+// report asked for: an idle creature is not a held frame. Every idle tier draws
+// at least three distinct poses and reaches all of them inside one cycle of
+// companionIdleFrameTicks ticks, and the volume's model cycle moves too.
+//
+// The failure it produces without the fix: with one idle pose the distinct-pose
+// count is 1 and the test reports "want at least three so the cycle reads as
+// motion"; with the old two-second cadence the 21-tick window never leaves the
+// first pose.
+func TestCompanionPetIdleCycleIsVisibleWithinABound(t *testing.T) {
+	if companionIdleFrameTicks < 2 || companionIdleFrameTicks > 4 {
+		t.Fatalf("the idle frame cadence is %d ticks, want 2-4 (%.2f-%.2f s at %d fps)",
+			companionIdleFrameTicks, 2.0/animTicksPerSecond, 4.0/animTicksPerSecond, animTicksPerSecond)
+	}
+	for _, height := range companionHeights() {
+		height := height
+		t.Run(fmt.Sprintf("height %d", height), func(t *testing.T) {
+			frames := companionFramesOf(companionIdleState, height)
+			if len(frames) < 3 {
+				t.Fatalf("the idle at height %d has %d poses, want at least three so the cycle reads as motion", height, len(frames))
+			}
+			bound := len(frames) * companionIdleFrameTicks
+			seen := map[string]struct{}{}
+			for tick := 0; tick < bound; tick++ {
+				seen[strings.Join(companionArtFor(companionIdleState, height, tick, companionGaze{}), "\n")] = struct{}{}
+			}
+			if len(seen) != len(frames) {
+				t.Errorf("the idle at height %d drew %d distinct poses in %d ticks, want all %d", height, len(seen), bound, len(frames))
+			}
+		})
+	}
+
+	// The volume's idle is a model cycle rather than a frame table, so it is checked
+	// separately: it must change within a bounded number of ticks.
+	size, _ := companionVolumeSizeFor(companionVolumeFullHeight)
+	base := companionVolumeTones(companionIdleState, 0, companionGaze{}, 0, size)
+	moved := false
+	for tick := 1; tick <= companionIdleFrameTicks*4; tick++ {
+		if fmt.Sprint(base) != fmt.Sprint(companionVolumeTones(companionIdleState, tick, companionGaze{}, 0, size)) {
+			moved = true
+			break
+		}
+	}
+	if !moved {
+		t.Errorf("the volume idle frame did not change within %d ticks", companionIdleFrameTicks*4)
+	}
+}
+
+// TestCompanionPetStrollAndPlayAreReachableWithinABound asserts the cadences the
+// report names and that a model actually reaches each action inside them. The band
+// checks come first, so a slow cadence fails even if a particular model strolls.
+//
+// The failure it produces without the fix: the old eight-second quiet gate and
+// six-to-fourteen-second wait put the stroll bound at twenty-two seconds, far past
+// the four asserted here, and the old play period at sixteen seconds, past twelve.
+func TestCompanionPetStrollAndPlayAreReachableWithinABound(t *testing.T) {
+	if got := companionRoamAfterTicks + companionRoamMaxWaitTicks; got > 4*animTicksPerSecond {
+		t.Errorf("a stroll may begin up to %d ticks (%ds) after quiet, want within four seconds", got, got/animTicksPerSecond)
+	}
+	if companionPlayPeriodTicks < 8*animTicksPerSecond || companionPlayPeriodTicks > 12*animTicksPerSecond {
+		t.Errorf("the play period is %d ticks (%ds), want eight to twelve seconds", companionPlayPeriodTicks, companionPlayPeriodTicks/animTicksPerSecond)
+	}
+
+	bound := companionRoamAfterTicks + companionRoamMaxWaitTicks
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Screen = ScreenMainMenu
+	m.Width, m.Height = 160, 50
+	m.Animating = true
+	strolled := false
+	for tick := 0; tick < bound; tick++ {
+		m.AnimTick++
+		m.advanceCompanion()
+		if m.CompanionMoving || m.CompanionRoamActive {
+			strolled = true
+			break
+		}
+	}
+	if !strolled {
+		t.Errorf("the pet did not choose a stroll within %d ticks (%ds)", bound, bound/animTicksPerSecond)
+	}
+
+	play := NewModel()
+	isolateGoldenTest(t, &play)
+	play.Screen = ScreenMainMenu
+	play.Width, play.Height, play.Animating = 160, 50, true
+	play.CompanionIdle = companionRoamAfterTicks + 1
+	played := false
+	for delta := 0; delta < companionPlayPeriodTicks; delta++ {
+		play.AnimTick = delta
+		if play.companionStateNow() == companionPlayingState {
+			played = true
+			break
+		}
+	}
+	if !played {
+		t.Errorf("the play window did not open within %d ticks (%ds)", companionPlayPeriodTicks, companionPlayPeriodTicks/animTicksPerSecond)
+	}
+}
+
+// TestCompanionPetPrintedFrameSequence is the look-at-it guard: it renders the
+// real main-menu screen at successive ticks and logs the companion's rows from
+// the rendered view, so the sequence can be read rather than only measured. It
+// asserts that the printed frames genuinely differ, which is what the report's
+// "look for five seconds and see the creature doing something" reduces to in a
+// test.
+func TestCompanionPetPrintedFrameSequence(t *testing.T) {
+	for _, tier := range []struct {
+		name  string
+		pixel bool
+	}{{"glyph", false}, {"volume", true}} {
+		tier := tier
+		t.Run(tier.name, func(t *testing.T) {
+			m := NewModel()
+			isolateGoldenTest(t, &m)
+			m.Screen = ScreenMainMenu
+			m.Width, m.Height = 160, 50
+			m.Animating, m.PixelSprite = true, tier.pixel
+			m.ink = companionInkFor(true)
+			last, changes := "", 0
+			distinct := map[string]struct{}{}
+			for tick := 0; tick <= 20; tick++ {
+				m.AnimTick = tick
+				viewRows := strings.Split(m.View(), "\n")
+				var frame strings.Builder
+				for _, row := range companionOwnedRows(viewRows) {
+					frame.WriteString(viewRows[row])
+					frame.WriteByte('\n')
+				}
+				got := frame.String()
+				if got != last {
+					changes++
+				}
+				last = got
+				distinct[got] = struct{}{}
+				t.Logf("tick %2d state=%s position=%d:\n%s", tick, companionStateNames[m.companionStateNow()], m.CompanionPos, got)
+			}
+			if len(distinct) < 3 {
+				t.Errorf("the %s sequence drew %d distinct frames across 21 ticks, want a moving creature", tier.name, len(distinct))
+			}
+			if changes < 4 {
+				t.Errorf("the %s sequence changed only %d times across 21 ticks", tier.name, changes)
+			}
+		})
 	}
 }

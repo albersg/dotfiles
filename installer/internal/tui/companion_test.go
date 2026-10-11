@@ -1056,16 +1056,31 @@ func TestCompanionSleepsAfterAQuietStretchAndWakesOnAKey(t *testing.T) {
 		t.Errorf("the companion is still asleep after a key")
 	}
 	// Waking restores the resting state, not motion: this screen has no menu, so the
-	// tick after a key leaves the creature standing where it woke and changes nothing.
-	// The walk is the wake's other half, and it is pinned on a menu screen by
+	// tick after a key leaves the creature standing where it woke. The idle creature
+	// is breathing, so its own rows may change; every other row of the screen must
+	// not. The walk is the wake's other half, and it is pinned on a menu screen by
 	// TestCompanionWalksTowardWhatTheCursorPointsAt.
 	walked := companionTick(t, woken)
 	if walked.CompanionMoving {
 		t.Errorf("the companion walked on its own after being woken")
 	}
-	if walked.View() != woken.View() {
-		t.Errorf("the tick after a key changed a screen with nothing to walk toward:\nbefore:\n%s\nafter:\n%s",
-			woken.View(), walked.View())
+	if walked.CompanionPos != woken.CompanionPos {
+		t.Errorf("the companion moved from cell %d to %d on a screen with nothing to walk toward", woken.CompanionPos, walked.CompanionPos)
+	}
+	beforeRows := strings.Split(woken.View(), "\n")
+	afterRows := strings.Split(walked.View(), "\n")
+	ownedSet := map[int]struct{}{}
+	for _, row := range companionOwnedRows(afterRows) {
+		ownedSet[row] = struct{}{}
+	}
+	for i := range beforeRows {
+		if beforeRows[i] == afterRows[i] {
+			continue
+		}
+		if _, ok := ownedSet[i]; !ok {
+			t.Errorf("the tick after a key changed row %d, which the sprite does not own:\nbefore: %q\nafter:  %q",
+				i, plainRow(beforeRows[i]), plainRow(afterRows[i]))
+		}
 	}
 }
 
@@ -1098,11 +1113,10 @@ func TestCompanionDrawsNothingWhenAnimationIsOff(t *testing.T) {
 // --- cost -----------------------------------------------------------------
 
 // TestCompanionTicksChangeOnlyItsOwnRows is the cost bound, and it is two-sided.
-// Between idle events, a still creature changes no row at all. While it is armed and
+// A still creature -- asleep -- changes no row at all. While it is armed and
 // walking the sprite moves one column, so every row it owns changes and no other
 // row may: the frame is not re-laid out, no body row is touched and the row count
-// does not move. Both halves are asserted over several screens and terminal sizes,
-// on ticks that are not event boundaries.
+// does not move. Both halves are asserted over several screens and terminal sizes.
 func TestCompanionTicksChangeOnlyItsOwnRows(t *testing.T) {
 	fixtures := []companionScreenFixture{
 		{name: "main menu 80x24", screen: ScreenMainMenu, width: 80, height: 24, framed: true},
@@ -1136,13 +1150,17 @@ func TestCompanionTicksChangeOnlyItsOwnRows(t *testing.T) {
 				return m
 			}
 
-			// This tick pair is between idle events: a still companion changes no row
-			// or byte, and the view stays identical.
-			atRest := build()
-			before := atRest.View()
-			after := companionTick(t, atRest).View()
+			// A still companion is the sleeping one: an asleep creature has no idle
+			// cycle and no stroll, so a tick changes no row or byte and the view stays
+			// identical. The awake idle creature deliberately animates now (pinned by
+			// TestCompanionIdleCycleIsVisibleWithinABound); this half keeps the
+			// rest-writes-nothing guarantee for the state that is genuinely at rest.
+			asleep := build()
+			asleep.CompanionIdle = companionSleepTicks
+			before := asleep.View()
+			after := companionTick(t, asleep).View()
 			if before != after {
-				t.Fatalf("a tick with nothing to do changed the view:\nbefore:\n%s\nafter:\n%s", before, after)
+				t.Fatalf("a tick with a sleeping companion changed the view:\nbefore:\n%s\nafter:\n%s", before, after)
 			}
 
 			// Walking is the other half: the sprite moves one column, so every row of it
@@ -3537,15 +3555,13 @@ func BenchmarkCompanionGlyphFrame(b *testing.B) {
 }
 
 // TestCompanionStaysPutWhenNothingHappens pins the rest regime of the creature's
-// cost: with no key and no pointer, nothing about the frame changes at all. Not
-// "the creature does not move" but "the bytes do not change", which is what makes
-// the renderer write nothing -- it repaints a line only when a byte in it changed,
-// so a view identical from tick to tick is a terminal that is not written to. The
-// creature used to stroll on its own and settle its gaze a tick after the target
-// did, so two of its rows changed on every frame and the screen flickered; neither
-// happens now. The horizon is shorter than companionBlinkTicks on purpose: a blink
-// is a deliberate decoration with its own interval, and the regime this pins is the
-// one between blinks.
+// cost: a creature that is genuinely still -- asleep after a long quiet stretch --
+// has no idle cycle and no stroll, so with no key and no pointer nothing about the
+// frame changes at all. Not "the creature does not move" but "the bytes do not
+// change", which is what makes the renderer write nothing. An awake idle creature
+// deliberately animates now (TestCompanionIdleCycleIsVisibleWithinABound); this is
+// the sleeping rest state, and twenty-four ticks is shorter than the blink horizon
+// and the sleep cycle, so a still creature is byte-identical from tick to tick.
 func TestCompanionStaysPutWhenNothingHappens(t *testing.T) {
 	fixtures := []companionScreenFixture{
 		{name: "main menu 160x50", screen: ScreenMainMenu, width: 160, height: 50, framed: true},
@@ -3560,11 +3576,12 @@ func TestCompanionStaysPutWhenNothingHappens(t *testing.T) {
 			m.Screen = f.screen
 			m.Width, m.Height = f.width, f.height
 			m.Animating, m.PixelSprite = true, true
+			m.CompanionIdle = companionSleepTicks
 
 			before := m.View()
 			after := companionTicks(t, m, 24).View()
 			if rows, bytes := companionChangedRows(before, after); len(rows) != 0 || bytes != 0 {
-				t.Errorf("twenty-four ticks with no input changed %d rows and %d bytes, want none:\nbefore:\n%s\nafter:\n%s",
+				t.Errorf("twenty-four ticks with a sleeping companion changed %d rows and %d bytes, want none:\nbefore:\n%s\nafter:\n%s",
 					len(rows), bytes, before, after)
 			}
 		})
@@ -3785,13 +3802,14 @@ func assertCompanionBlockContract(t *testing.T, positions map[string]int, name s
 	}
 }
 
-// TestCompanionCostHasTwoRegimes measures the creature's two costs. The renderer
-// repaints a whole line whenever any byte in it changed. A still creature writes
-// nothing between its independent idle events; the walking
-// figure is logged rather than asserted, because the terminal's width and the
-// sprite's height set it and a constant here could not defend itself; what is
-// asserted is the shape -- a walking tick changes the sprite's rows and only those,
-// and a walk writes something on the frames it moves.
+// TestCompanionCostHasTwoRegimes measures the creature's costs. The renderer
+// repaints a whole line whenever any byte in it changed. A sleeping creature
+// writes nothing; an awake idle creature writes only its own rows on its idle
+// cycle; and the walking figure is logged rather than asserted, because the
+// terminal's width and the sprite's height set it and a constant here could not
+// defend itself. What is asserted is the shape -- an idle or walking tick changes
+// the sprite's rows and only those, and a walk writes something on the frames it
+// moves.
 func TestCompanionCostHasTwoRegimes(t *testing.T) {
 	m := NewModel()
 	isolateGoldenTest(t, &m)
@@ -3799,11 +3817,33 @@ func TestCompanionCostHasTwoRegimes(t *testing.T) {
 	m.Width, m.Height = 227, 62
 	m.Animating, m.PixelSprite = true, true
 
-	// Pin an interval between events: the view is byte-identical across these ticks.
+	// Pin an interval with the creature genuinely still -- asleep: the view is
+	// byte-identical across these ticks, so the renderer writes nothing.
+	m.CompanionIdle = companionSleepTicks
 	before := m.View()
 	after := companionTicks(t, m, 24).View()
 	if rows, bytes := companionChangedRows(before, after); len(rows) != 0 || bytes != 0 {
-		t.Errorf("a resting creature changed %d rows and %d bytes, want none", len(rows), bytes)
+		t.Errorf("a sleeping creature changed %d rows and %d bytes, want none", len(rows), bytes)
+	}
+
+	// The third regime: an awake idle creature animates, but only in the rows it
+	// owns. Measure one idle cycle before arming the stroll.
+	m.CompanionIdle = 0
+	idleBefore := m.View()
+	idleAfter := companionTicks(t, m, companionIdleFrameTicks*4).View()
+	idleRows, idleBytes := companionChangedRows(idleBefore, idleAfter)
+	if len(idleRows) == 0 {
+		t.Errorf("four idle frames changed no row, so the awake creature does not move")
+	}
+	idleOwned := companionOwnedRows(strings.Split(idleAfter, "\n"))
+	idleSet := make(map[int]struct{}, len(idleOwned))
+	for _, row := range idleOwned {
+		idleSet[row] = struct{}{}
+	}
+	for _, row := range idleRows {
+		if _, ok := idleSet[row]; !ok {
+			t.Fatalf("an idle tick changed row %d, which the sprite does not own", row)
+		}
 	}
 
 	// While strolling: a bounded autonomous destination changes only the pet's rows.
@@ -3838,8 +3878,9 @@ func TestCompanionCostHasTwoRegimes(t *testing.T) {
 	if moves == 0 {
 		t.Fatalf("the autonomous stroll wrote no frame")
 	}
-	t.Logf("walking at %d columns: %d sprite rows, up to %d changed lines per moving tick; %d moving frames out of %d (%.2f s), %d bytes total, %d bytes in the widest changed lines (%.1f KB/s at %d fps); still creature writes nothing between events: 0 changed bytes across 24 pinned ticks; events: breath %d ticks (%ds), ear twitch %d ticks (%ds), tail-tip flick %d ticks (%ds), blink %d ticks (%ds)",
+	t.Logf("walking at %d columns: %d sprite rows, up to %d changed lines per moving tick; %d moving frames out of %d (%.2f s), %d bytes total, %d bytes in the widest changed lines (%.1f KB/s at %d fps); sleeping creature writes nothing: 0 changed bytes across 24 pinned ticks; awake idle cycle changes %d rows/%d bytes over %d frames (%ds); event periods: breath %d ticks (%ds), ear twitch %d ticks (%ds), tail sway %d ticks (%ds), blink %d ticks (%ds)",
 		m.Width, spriteLines, lines, moves, frames, float64(frames)/animTicksPerSecond, total, widest, float64(widest)*animTicksPerSecond/1024, animTicksPerSecond,
+		len(idleRows), idleBytes, companionIdleFrameTicks*4, companionIdleFrameTicks*4/animTicksPerSecond,
 		companionBreathTicks, companionBreathSeconds, companionEarTwitchTicks, companionEarTwitchSeconds,
 		companionTailFlickTicks, companionTailFlickSeconds, companionBlinkTicks, companionBlinkSeconds)
 }
@@ -3909,31 +3950,25 @@ func TestCompanionWalkPoseSequencePinsContactsAndLag(t *testing.T) {
 	}
 }
 
-// TestCompanionIdleEventsHaveIndependentPeriods pins each one-frame pulse on the model
-// clock and proves every intervening idle pose is unchanged at the geometry level.
+// TestCompanionIdleEventsHaveIndependentPeriods pins the idle clocks: the breath is
+// a continuous cycle, the ear twitch is a one-frame pulse, the tail sways on its own
+// while the body is still, and the blink holds its lid shut long enough to read. The
+// periods are durations through animTicksPerSecond, so the seconds quoted here are
+// the same seconds the guide states.
 func TestCompanionIdleEventsHaveIndependentPeriods(t *testing.T) {
-	// Two things this test's name and the documentation promise, and this is where
-	// they are held. Independent: two events that shared a period would fire
-	// together and read as one movement, which is why the periods are distinct.
-	// Documented: the guide tells a reader that the creature breathes every four
-	// seconds, twitches an ear every twenty, flicks its tail every fifteen and
-	// blinks every ten, so those numbers are pinned here rather than left to drift
-	// away from the prose. Both were checked by changing a period - to twenty-one
-	// seconds, and to fifteen to collide with the tail - and both changes used to
-	// pass this test.
 	documented := []struct {
 		name  string
 		ticks int
 	}{
-		{"breath", 4 * animTicksPerSecond},
-		{"ear twitch", 20 * animTicksPerSecond},
-		{"tail-tip flick", 15 * animTicksPerSecond},
-		{"blink", 10 * animTicksPerSecond},
+		{"breath", 1 * animTicksPerSecond},
+		{"ear twitch", 5 * animTicksPerSecond},
+		{"tail sway", 2 * animTicksPerSecond},
+		{"blink", 6 * animTicksPerSecond},
 	}
 	periods := []int{companionBreathTicks, companionEarTwitchTicks, companionTailFlickTicks, companionBlinkTicks}
 	for i, want := range documented {
 		if periods[i] != want.ticks {
-			t.Errorf("the %s fires every %d ticks, but the documentation states %d ticks (%d seconds at %d fps)",
+			t.Errorf("the %s period is %d ticks, but the documentation states %d ticks (%d seconds at %d fps)",
 				want.name, periods[i], want.ticks, want.ticks/animTicksPerSecond, animTicksPerSecond)
 		}
 	}
@@ -3952,48 +3987,71 @@ func TestCompanionIdleEventsHaveIndependentPeriods(t *testing.T) {
 	}
 	base := poseAt(0)
 	baseRaster := companionVolumeTones(companionIdleState, 0, companionGaze{}, 0, size)
-	for _, event := range []struct {
-		name    string
-		period  int
-		changed func(companionPose) bool
-	}{
-		{"breath", companionBreathTicks, func(p companionPose) bool { return p.chest.y != base.chest.y }},
-		{"ear twitch", companionEarTwitchTicks, func(p companionPose) bool { return p.ears != base.ears }},
-		{"tail-tip flick", companionTailFlickTicks, func(p companionPose) bool { return p.tail[2].y1 != base.tail[2].y1 }},
-	} {
-		first := event.period - 1
-		if !event.changed(poseAt(first)) {
-			t.Errorf("%s did not fire at frame %d (%d-frame period)", event.name, first, event.period)
-		}
-		if raster := companionVolumeTones(companionIdleState, first, companionGaze{}, 0, size); reflect.DeepEqual(baseRaster, raster) {
-			t.Errorf("%s changed geometry but no raster pixels at frame %d", event.name, first)
-		}
-		if event.changed(poseAt(first + 1)) {
-			t.Errorf("%s remained active after its one-frame event", event.name)
-		}
-		if companionEventAt(first+1, event.period) {
-			t.Errorf("%s fired before its next %d-frame period", event.name, event.period)
+
+	// The breath is a cycle: over one period the chest visits at least three
+	// heights and returns to its rest height, so it is not one held frame.
+	chestHeights := map[float64]struct{}{}
+	for tick := 0; tick < companionBreathTicks; tick++ {
+		chestHeights[poseAt(tick).chest.y] = struct{}{}
+	}
+	if len(chestHeights) < 3 {
+		t.Errorf("the breath visited %d chest heights over %d ticks, want a cycle of at least three", len(chestHeights), companionBreathTicks)
+	}
+	if poseAt(companionBreathTicks).chest.y != base.chest.y {
+		t.Errorf("the breath did not return to its rest height after one period")
+	}
+
+	// The idle raster changes within a bounded number of ticks: a reader watching
+	// for a fraction of a second sees the volume move.
+	idleChanged := false
+	for tick := 1; tick <= companionIdleFrameTicks*4; tick++ {
+		if !reflect.DeepEqual(baseRaster, companionVolumeTones(companionIdleState, tick, companionGaze{}, 0, size)) {
+			idleChanged = true
+			break
 		}
 	}
+	if !idleChanged {
+		t.Errorf("the volume idle raster never changed within %d ticks", companionIdleFrameTicks*4)
+	}
+
+	// The tail moves on its own: there is a tick where the body is at its rest
+	// height and the tail tip has moved.
+	tailMovedWhileBodyStill := false
+	anythingMoved := false
 	for tick := 0; tick < companionEarTwitchTicks; tick++ {
-		if companionEventAt(tick, companionBreathTicks) || companionEventAt(tick, companionEarTwitchTicks) || companionEventAt(tick, companionTailFlickTicks) {
-			continue
-		}
 		p := poseAt(tick)
-		if p.chest != base.chest || p.ears != base.ears || p.tail != base.tail {
-			t.Fatalf("idle geometry changed at frame %d between event periods", tick)
+		if p.chest.y == base.chest.y && p.tail[2].y1 != base.tail[2].y1 {
+			tailMovedWhileBodyStill = true
 		}
-		if raster := companionVolumeTones(companionIdleState, tick, companionGaze{}, 0, size); !reflect.DeepEqual(baseRaster, raster) {
-			t.Fatalf("idle raster changed at frame %d between event periods", tick)
+		if p.chest.y != base.chest.y || p.ears != base.ears || p.tail[2].y1 != base.tail[2].y1 {
+			anythingMoved = true
 		}
 	}
-	m := Model{Animating: true, AnimTick: companionBlinkTicks - 1}
-	if !m.companionBlinking() {
-		t.Errorf("blink did not fire at frame %d of its %d-frame period", companionBlinkTicks-1, companionBlinkTicks)
+	if !anythingMoved {
+		t.Errorf("no idle geometry moved across a full ear period")
 	}
-	m.AnimTick++
-	if m.companionBlinking() {
-		t.Errorf("blink fired between its %d-frame periods", companionBlinkTicks)
+	if !tailMovedWhileBodyStill {
+		t.Errorf("the tail never moved while the body was at rest")
+	}
+
+	// The ear twitch stays a one-frame pulse, in geometry and in pixels.
+	earFrame := companionEarTwitchTicks - 1
+	if poseAt(earFrame).ears == base.ears {
+		t.Errorf("the ear twitch did not fire at frame %d", earFrame)
+	}
+	if poseAt(earFrame+1).ears != base.ears {
+		t.Errorf("the ear twitch remained active after its one-frame event")
+	}
+
+	// The blink closes for companionBlinkHoldTicks frames and then clears.
+	blinkFirst := companionBlinkTicks - companionBlinkHoldTicks
+	for tick := blinkFirst; tick < companionBlinkTicks; tick++ {
+		if m := (Model{Animating: true, AnimTick: tick}); !m.companionBlinking() {
+			t.Errorf("the blink is not held at tick %d of its %d-frame period", tick, companionBlinkTicks)
+		}
+	}
+	if m := (Model{Animating: true, AnimTick: companionBlinkTicks}); m.companionBlinking() {
+		t.Errorf("the blink did not clear at the end of its %d-frame period", companionBlinkTicks)
 	}
 }
 
