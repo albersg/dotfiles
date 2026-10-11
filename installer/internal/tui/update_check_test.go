@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -67,12 +68,18 @@ func init() {
 type updateTestClient struct {
 	files    map[string]string
 	status   map[string]int
+	headers  map[string]http.Header
 	failures map[string]error
 	requests []string
 }
 
 func newUpdateTestClient(files map[string]string) *updateTestClient {
-	return &updateTestClient{files: files, status: map[string]int{}, failures: map[string]error{}}
+	return &updateTestClient{
+		files:    files,
+		status:   map[string]int{},
+		headers:  map[string]http.Header{},
+		failures: map[string]error{},
+	}
 }
 
 func (c *updateTestClient) client() *http.Client {
@@ -93,19 +100,26 @@ func (c *updateTestClient) roundTrip(r *http.Request) (*http.Response, error) {
 		status = http.StatusNotFound
 		body = "not found"
 	}
+	header := http.Header{}
+	for key, values := range c.headers[r.URL.String()] {
+		for _, value := range values {
+			header.Add(key, value)
+		}
+	}
+	statusText := strconv.Itoa(status) + " " + http.StatusText(status)
 	if status >= 400 {
 		return &http.Response{
 			StatusCode: status,
-			Status:     http.StatusText(status),
-			Header:     http.Header{},
+			Status:     statusText,
+			Header:     header,
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Request:    r,
 		}, nil
 	}
 	return &http.Response{
 		StatusCode: status,
-		Status:     http.StatusText(status),
-		Header:     http.Header{},
+		Status:     statusText,
+		Header:     header,
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Request:    r,
 	}, nil
@@ -147,15 +161,30 @@ func writeFakeBinary(t *testing.T, path, content string) string {
 // Reading the latest release
 // ---------------------------------------------------------------------------
 
-func TestLatestReleaseTagReadsTheTagName(t *testing.T) {
+func TestLatestReleaseReadsTheTagName(t *testing.T) {
 	c := newUpdateTestClient(map[string]string{dotfilesReleaseAPIURL: releaseLatestBody("v0.5.1")})
 
-	tag, err := latestReleaseTag(c.client(), dotfilesReleaseAPIURL)
+	answer, err := latestRelease(c.client(), dotfilesReleaseAPIURL)
 	if err != nil {
-		t.Fatalf("latestReleaseTag: %v", err)
+		t.Fatalf("latestRelease: %v", err)
 	}
-	if tag != "v0.5.1" {
-		t.Errorf("tag = %q, want v0.5.1", tag)
+	if answer.Tag != "v0.5.1" {
+		t.Errorf("tag = %q, want v0.5.1", answer.Tag)
+	}
+}
+
+func TestLatestReleaseReadsThePublishedDate(t *testing.T) {
+	c := newUpdateTestClient(map[string]string{
+		dotfilesReleaseAPIURL: `{"tag_name":"v0.5.1","published_at":"2026-10-04T12:00:00Z"}`,
+	})
+
+	answer, err := latestRelease(c.client(), dotfilesReleaseAPIURL)
+	if err != nil {
+		t.Fatalf("latestRelease: %v", err)
+	}
+	want := time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC)
+	if !answer.PublishedAt.Equal(want) {
+		t.Errorf("PublishedAt = %v, want %v", answer.PublishedAt, want)
 	}
 }
 
@@ -163,7 +192,7 @@ func TestLatestReleaseTagFailsOnANonOKStatus(t *testing.T) {
 	c := newUpdateTestClient(nil)
 	c.status[dotfilesReleaseAPIURL] = http.StatusForbidden
 
-	if _, err := latestReleaseTag(c.client(), dotfilesReleaseAPIURL); err == nil {
+	if _, err := latestRelease(c.client(), dotfilesReleaseAPIURL); err == nil {
 		t.Fatal("a 403 answered with a tag instead of an error: a rate-limited check would look like a result")
 	}
 }
@@ -171,8 +200,122 @@ func TestLatestReleaseTagFailsOnANonOKStatus(t *testing.T) {
 func TestLatestReleaseTagFailsOnAnAnswerWithoutATag(t *testing.T) {
 	c := newUpdateTestClient(map[string]string{dotfilesReleaseAPIURL: `{"message":"Not Found"}`})
 
-	if _, err := latestReleaseTag(c.client(), dotfilesReleaseAPIURL); err == nil {
+	if _, err := latestRelease(c.client(), dotfilesReleaseAPIURL); err == nil {
 		t.Fatal("a body with no tag_name answered with a tag instead of an error")
+	}
+}
+
+// TestReleaseFailuresSayWhyTheAnswerIsUnknown is the guard for the third
+// correctness gap: "unknown" that cannot say why is barely better than a wrong
+// answer. The four ways a read can fail are named, and each one comes back with
+// words that identify it, so the screen and `--check-update` can say no network,
+// rate limit, nothing published, or an unexpected status rather than only saying
+// that the answer is unknown.
+func TestReleaseFailuresSayWhyTheAnswerIsUnknown(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  int
+		headers http.Header
+		failure error
+		want    string
+	}{
+		{
+			name:    "no network",
+			failure: errors.New("dial tcp: no route to host"),
+			want:    "could not be reached",
+		},
+		{
+			name:   "rate limit by status 429",
+			status: http.StatusTooManyRequests,
+			want:   "rate limit",
+		},
+		{
+			name:    "rate limit by an exhausted quota header",
+			status:  http.StatusForbidden,
+			headers: http.Header{"X-RateLimit-Remaining": []string{"0"}},
+			want:    "rate limit",
+		},
+		{
+			name:   "nothing published",
+			status: http.StatusNotFound,
+			want:   "nothing is published",
+		},
+		{
+			name:   "an unexpected status",
+			status: http.StatusInternalServerError,
+			want:   "500",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newUpdateTestClient(map[string]string{dotfilesReleaseAPIURL: releaseLatestBody("v9.9.9")})
+			if tc.status != 0 {
+				c.status[dotfilesReleaseAPIURL] = tc.status
+			}
+			if tc.headers != nil {
+				c.headers[dotfilesReleaseAPIURL] = tc.headers
+			}
+			if tc.failure != nil {
+				c.failures[dotfilesReleaseAPIURL] = tc.failure
+			}
+
+			_, err := latestRelease(c.client(), dotfilesReleaseAPIURL)
+			if err == nil {
+				t.Fatalf("a %s answered with a tag instead of a classified error", tc.name)
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(tc.want)) {
+				t.Errorf("error = %q, want it to carry %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// TestUnknownAnswerSaysWhyForEveryClassifiedFailure pins the sentence the user
+// reads. Each classified failure must reach Summary() with its own reason, so
+// "unknown" is never bare and a script or a reader can tell a rate limit from a
+// channel with nothing published from a machine with no network.
+func TestUnknownAnswerSaysWhyForEveryClassifiedFailure(t *testing.T) {
+	cases := []struct {
+		name   string
+		setup  func(c *updateTestClient)
+		reason string
+	}{
+		{
+			name:   "no network",
+			setup:  func(c *updateTestClient) { c.failures[dotfilesReleaseAPIURL] = errors.New("dial tcp: no route to host") },
+			reason: "could not be reached",
+		},
+		{
+			name:   "rate limit",
+			setup:  func(c *updateTestClient) { c.status[dotfilesReleaseAPIURL] = http.StatusTooManyRequests },
+			reason: "rate limit",
+		},
+		{
+			name:   "nothing published",
+			setup:  func(c *updateTestClient) { c.status[dotfilesReleaseAPIURL] = http.StatusNotFound },
+			reason: "nothing is published",
+		},
+		{
+			name:   "an unparseable tag",
+			setup:  func(c *updateTestClient) { c.files[dotfilesReleaseAPIURL] = releaseLatestBody("not-a-version") },
+			reason: "not a version",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateUpdateState(t)
+			c := newUpdateTestClient(map[string]string{dotfilesReleaseAPIURL: releaseLatestBody("v9.9.9")})
+			tc.setup(c)
+
+			state := stateFromRecord(refreshUpdateRecord(c.client(), channelStable, time.Now()))
+			summary := state.Summary()
+			if !strings.Contains(strings.ToLower(summary), "unknown") {
+				t.Errorf("Summary() = %q, want it to say unknown", summary)
+			}
+			if !strings.Contains(strings.ToLower(summary), strings.ToLower(tc.reason)) {
+				t.Errorf("Summary() = %q, want the reason %q in it", summary, tc.reason)
+			}
+		})
 	}
 }
 
@@ -316,6 +459,61 @@ func TestVersionIsNewerComparesNumbersNotText(t *testing.T) {
 	}
 }
 
+// TestVersionIsNewerOrdersPreReleasesLikeSemver is the guard for the two
+// sequences #234 declared as limits: rc9 against rc10, and a pre-release
+// against its own final release. The comparison must be numeric where a number
+// is there, must treat a final release as later than any pre-release of the same
+// version, and must ignore build metadata. It is table-driven because ordering
+// is exactly the contract a single example cannot pin.
+func TestVersionIsNewerOrdersPreReleasesLikeSemver(t *testing.T) {
+	cases := []struct {
+		name, current, candidate string
+		want                     bool
+	}{
+		{"rc10 is later than rc9", "v0.7.0-rc9", "v0.7.0-rc10", true},
+		{"rc9 is not later than rc10", "v0.7.0-rc10", "v0.7.0-rc9", false},
+		{"a final release is later than its pre-release", "v0.7.0-rc10", "v0.7.0", true},
+		{"a pre-release is not later than its final release", "v0.7.0", "v0.7.0-rc10", false},
+		{"the final release is later than an early pre-release", "v0.7.0-rc1", "v0.7.0", true},
+		{"dev.2 is later than dev.1", "v1.2.0-dev.1", "v1.2.0-dev.2", true},
+		{"dev.10 is later than dev.2", "v1.2.0-dev.2", "v1.2.0-dev.10", true},
+		{"alpha.1 is later than alpha", "v1.0.0-alpha", "v1.0.0-alpha.1", true},
+		{"build metadata does not change the order", "v1.0.0+build.1", "v1.0.0+build.2", false},
+		{"a pre-release is never newer than a higher final release", "v0.7.0-rc9", "v0.8.0", true},
+		{"a higher final release is not ordered by its own pre-release", "v0.8.0", "v0.7.0-rc10", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := versionIsNewer(tc.current, tc.candidate); got != tc.want {
+				t.Errorf("versionIsNewer(%q, %q) = %v, want %v", tc.current, tc.candidate, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestVersionIsNewerKeepsTheSourceBuildAndUnparseableRules pins the two
+// behaviours the semver change must not lose: a source build carries no version
+// and is therefore behind every release, and a candidate that is not a version is
+// never a newer release.
+func TestVersionIsNewerKeepsTheSourceBuildAndUnparseableRules(t *testing.T) {
+	cases := []struct {
+		name, current, candidate string
+		want                     bool
+	}{
+		{"the dev source build is behind a release", "dev", "v0.5.1", true},
+		{"the dev source build is behind a pre-release", "dev", "v0.7.0-rc1", true},
+		{"an empty candidate is not a release", "v0.5.1", "", false},
+		{"a non-version candidate is not a release", "v0.5.1", "not-a-version", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := versionIsNewer(tc.current, tc.candidate); got != tc.want {
+				t.Errorf("versionIsNewer(%q, %q) = %v, want %v", tc.current, tc.candidate, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestUpdateStateNeverClaimsUpToDateWithoutAnAnswer(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -366,6 +564,64 @@ func TestUpdateStateNeverClaimsUpToDateWithoutAnAnswer(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestUpdateStateTreatsAnUnparseableTagAsUnknownNotCurrent is the guard for the
+// second correctness defect: a tag the installer cannot order must not be read as
+// "you are up to date". "Up to date" is a claim about GitHub, so the test pins
+// both the boolean and the sentence, and demands the tag and the reason so the
+// user can see what was published.
+func TestUpdateStateTreatsAnUnparseableTagAsUnknownNotCurrent(t *testing.T) {
+	state := updateState{Channel: channelStable, CheckedAt: time.Now(), Latest: "not-a-version"}
+
+	if state.UpToDate() {
+		t.Error("an unparseable published tag was reported as up to date: the installer cannot claim current without a version it can order against this build")
+	}
+	if state.Newer() {
+		t.Error("an unparseable tag was reported as a newer release")
+	}
+
+	summary := state.Summary()
+	if !strings.Contains(strings.ToLower(summary), "unknown") {
+		t.Errorf("Summary() = %q, want it to say the answer is unknown", summary)
+	}
+	if strings.Contains(strings.ToLower(summary), "up to date") {
+		t.Errorf("Summary() = %q, which claims current from a tag that is not a version", summary)
+	}
+	if !strings.Contains(summary, "not-a-version") {
+		t.Errorf("Summary() = %q, want the tag it could not read named", summary)
+	}
+
+	found := false
+	for _, row := range state.displayRows() {
+		if row.Label == "Why not" && row.Value != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("displayRows() = %+v, want a row saying why the tag is not an answer", state.displayRows())
+	}
+}
+
+// TestCheckForUpdateReportsAnUnparseableTagAsUnknown pins the command-line half:
+// a tag that cannot be parsed is exit status 2, the same as a check that could
+// not be made, never the 0 that reads as "already current".
+func TestCheckForUpdateReportsAnUnparseableTagAsUnknown(t *testing.T) {
+	isolateUpdateState(t)
+	c := newUpdateTestClient(map[string]string{dotfilesReleaseAPIURL: releaseLatestBody("not-a-version")})
+	swapUpdateTransport(t, c)
+
+	report := CheckForUpdate()
+
+	if report.Known {
+		t.Error("an unparseable published tag was reported as a known release")
+	}
+	if report.Newer {
+		t.Error("an unparseable tag was reported as newer")
+	}
+	if !strings.Contains(strings.ToLower(report.Summary), "unknown") {
+		t.Errorf("summary = %q, want it to say the answer is unknown", report.Summary)
 	}
 }
 
@@ -1228,12 +1484,12 @@ func TestDevChannelReadsTheNewestPreReleaseNotTheStableRelease(t *testing.T) {
 		]`,
 	})
 
-	tag, err := latestReleaseTagForChannel(c.client(), channelDev)
+	answer, err := latestReleaseForChannel(c.client(), channelDev)
 	if err != nil {
 		t.Fatalf("the dev channel could not be read: %v", err)
 	}
-	if tag != "v1.2.0-dev.1" {
-		t.Errorf("dev tag = %q, want the newest pre-release v1.2.0-dev.1: a dev channel that answers with the stable release is the stable channel", tag)
+	if answer.Tag != "v1.2.0-dev.1" {
+		t.Errorf("dev tag = %q, want the newest pre-release v1.2.0-dev.1: a dev channel that answers with the stable release is the stable channel", answer.Tag)
 	}
 	if len(c.requests) != 1 || c.requests[0] != dotfilesReleaseListURL {
 		t.Errorf("dev requests = %v, want exactly [%s]: the dev channel reads the release list, not /releases/latest", c.requests, dotfilesReleaseListURL)
@@ -1248,12 +1504,12 @@ func TestDevChannelSkipsDraftsAndReleasedEntries(t *testing.T) {
 		]`,
 	})
 
-	tag, err := latestReleaseTagForChannel(c.client(), channelDev)
+	answer, err := latestReleaseForChannel(c.client(), channelDev)
 	if err != nil {
-		t.Fatalf("latestReleaseTagForChannel(dev): %v", err)
+		t.Fatalf("latestReleaseForChannel(dev): %v", err)
 	}
-	if tag != "v1.9.0" {
-		t.Errorf("dev tag = %q, want v1.9.0: a draft is not published, so it is not an artifact this channel can serve", tag)
+	if answer.Tag != "v1.9.0" {
+		t.Errorf("dev tag = %q, want v1.9.0: a draft is not published, so it is not an artifact this channel can serve", answer.Tag)
 	}
 }
 
@@ -1262,8 +1518,12 @@ func TestDevChannelSaysUnknownWhenNoPreReleaseIsPublished(t *testing.T) {
 		dotfilesReleaseListURL: `[{"tag_name":"v1.0.0","prerelease":false,"draft":false}]`,
 	})
 
-	if _, err := latestReleaseTagForChannel(c.client(), channelDev); err == nil {
+	_, err := latestReleaseForChannel(c.client(), channelDev)
+	if err == nil {
 		t.Fatal("a release list with no pre-release answered with a tag: dev would serve the stable release under a dev name")
+	}
+	if !strings.Contains(err.Error(), "no pre-release is published") {
+		t.Errorf("error = %q, want it to say no pre-release is published, so the dev channel's unknown has a reason", err.Error())
 	}
 }
 
@@ -1323,6 +1583,57 @@ func TestTheStateNamesTheDevChannel(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("displayRows() = %+v, want a Channel row naming dev", state.displayRows())
+	}
+}
+
+// TestDevAnswerNamesThePreReleaseAndWhenItWasPublished is the guard for the dev
+// channel's whole point: an answer that reads like a stable one is how a user
+// installs something they did not choose. The dev answer must name the
+// pre-release, say that it is a pre-release, and say the day it was published.
+// It reads the answer from the API body through the record and the state, so the
+// published date has to survive the whole path to count.
+func TestDevAnswerNamesThePreReleaseAndWhenItWasPublished(t *testing.T) {
+	isolateUpdateState(t)
+	c := newUpdateTestClient(map[string]string{
+		dotfilesReleaseListURL: `[{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false,"published_at":"2026-10-03T09:30:00Z"}]`,
+	})
+
+	rec := refreshUpdateRecord(c.client(), channelDev, time.Now())
+	state := stateFromRecord(rec)
+
+	summary := state.Summary()
+	for _, want := range []string{"pre-release", "v1.2.0-dev.1", "2026-10-03"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("Summary() = %q, want it to carry %q", summary, want)
+		}
+	}
+
+	published := ""
+	for _, row := range state.displayRows() {
+		if row.Label == "Published" {
+			published = row.Value
+		}
+	}
+	for _, want := range []string{"pre-release", "v1.2.0-dev.1", "2026-10-03"} {
+		if !strings.Contains(published, want) {
+			t.Errorf("displayRows() Published = %q, want it to carry %q", published, want)
+		}
+	}
+}
+
+// TestStableAnswerIsNotCalledAPreRelease pins the other side of the same rule:
+// the stable channel serves the published release, so it must not borrow the dev
+// channel's word for one.
+func TestStableAnswerIsNotCalledAPreRelease(t *testing.T) {
+	state := updateState{Channel: channelStable, CheckedAt: time.Now(), Latest: "v1.0.0"}
+
+	if strings.Contains(strings.ToLower(state.Summary()), "pre-release") {
+		t.Errorf("Summary() = %q, want the stable answer not to borrow the dev channel's word", state.Summary())
+	}
+	for _, row := range state.displayRows() {
+		if row.Label == "Published" && strings.Contains(strings.ToLower(row.Value), "pre-release") {
+			t.Errorf("displayRows() Published = %q, want no pre-release word for stable", row.Value)
+		}
 	}
 }
 

@@ -94,7 +94,9 @@ From the main menu you can access:
   the main menu and the new binary runs after a restart
 - **Update channel**: Appears once a check has named a channel. The label shows which channel
   the run follows -- **stable** (the latest published release, the default) or **dev** (the
-  newest pre-release, the artifact the release workflow builds from a tag on `main`). Pressing
+  newest published pre-release, by publish order). `dev` serves the newest release GitHub
+  reports as a pre-release and does not verify that it was cut from `main`, so treat a `dev`
+  build as work in progress from whichever branch the maintainers cut it from. Pressing
   it switches to the other channel, remembers the choice in `update-check.json` beside the
   answers, and asks for a fresh answer from that channel. `--channel stable|dev` is the same
   choice for `--check-update`, `--self-update` and the TUI

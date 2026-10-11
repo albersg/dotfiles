@@ -152,7 +152,8 @@ release asset, checks it against the
 The check follows one of two channels. The default, **stable**, is the latest published
 release. **dev** is the newest pre-release, which is the artifact the release workflow
 builds from the tag it was started on; the installer cannot build from source, so a
-pre-release is what a build of `main` is served as. Choose a channel with
+pre-release is what a build of `main` is served as -- the installer takes the
+newest pre-release GitHub offers and does not verify that it came from `main`. Choose a channel with
 `--channel stable|dev` (it applies to `--check-update`, `--self-update` and the TUI) or by
 pressing the main menu's **Update channel** row, which appears once a check has named one.
 The choice is remembered in the same `update-check.json` the answers live in, and every
