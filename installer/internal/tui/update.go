@@ -231,10 +231,10 @@ func (m Model) Init() tea.Cmd {
 	if cmd := m.metricsTickCmdFor(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	// The last published release is read on that same gate, and on the record's
-	// own lifetime: a run that may not animate -- a piped run, DOTFILES_ANIM=0 --
-	// does not reach the network on its own, and a record younger than
-	// updateCheckTTL means no start asks twice. The check is a command, never a
+	// The last published release is read on the record's own lifetime, for every
+	// real run whether or not it may animate: the user asked for the check when
+	// dotfiles opens. A record younger than updateCheckTTL means no start asks
+	// twice, and a test run is not armed at all. The check is a command, never a
 	// call here, so the network cannot be waited on.
 	if cmd := m.updateCheckCmdFor(); cmd != nil {
 		cmds = append(cmds, cmd)
