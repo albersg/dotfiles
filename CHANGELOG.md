@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.7.0] — 2026-10-11
+
+### Added
+
+- **The companion plays, hops, and notices what the installer is doing.** It already wandered on its own; it barely moved while it did. Every state now has a real sequence instead of one glyph that shifts position -- a breath that moves the head a column and holds it, a three-step cheer, a play bout with paws batting and a tail swishing, and a hop with a take-off and a landing. Five states are earned by the installer rather than by a timer: watching a step that is running, charmed by a theme just chosen, curious about a published release this build does not have, mid-hop, and playing a game it starts on its own after a quiet stretch. None of them claims a step finished: the only path to the pleased face is the model's celebration counter, armed when a step really completes. The cadences are written down in the code, because a motion that changed every tick would repaint the creature's rows eight times a second over a screen nobody is touching.
+- **The theme reaches the frame.** The chrome around the content was close to plain: the theme reached the content and stopped at the border. Borders, titles, the selected row and the step indicators now take the palette the user chose. And the truecolor path is captured separately for the first time -- until now every golden was taken on the adaptive chrome, so the themed frames a user with a truecolor terminal actually sees had no golden at all; three screens have one now.
+- **The Neovim configuration syncs the clipboard over SSH.** Copy and paste worked in WSL and never over SSH, because nothing bridged to OSC 52. `vim.opt.clipboard` now lives in `options.lua`, which installs an OSC 52 clipboard when `SSH_CONNECTION` is set. A guard loads the file in headless Neovim with and without `SSH_CONNECTION` and asserts both directions; when nvim is missing it exits non-zero with a skip message rather than passing without checking anything.
+
+### Fixed
+
+- **Pre-releases are ordered correctly, and an unknown answer says why.** Version parsing dropped everything after `-`, so `v0.7.0-rc9` and `v0.7.0-rc10` parsed identically: a build on rc9 was told it was up to date with rc10, and a final `v0.7.0` was invisible over its own `v0.7.0-rcN`. Parsing is semver-aware now -- `rc9 < rc10`, a pre-release is behind its final, `dev.1 < dev.2 < dev.10`, build metadata ignored -- keeping the two rules that were already right: a source build is behind every release, and an unparseable candidate is never newer.
+- **A tag that cannot be parsed no longer reads as "up to date".** It is unknown, with a reason, and `--self-update` refuses rather than installing from a tag it cannot parse. Failures are classified instead of stored verbatim: no network, rate limit, nothing published, or another status. A dev answer now names the pre-release it found, when it was published, and that it is a pre-release -- a dev answer that reads like a stable one is how a user installs something they did not choose.
+- **The upstream mirror stays current, and says so when it cannot.** The tracker already compared a persisted HEAD and deduplicated by commit, so commits past the last tag were never invisible; what was wrong is that our mirror branch sat at a July commit while upstream's `main` moved two commits ahead of its last tag, and nothing said so. The mirror is advanced from the workflow now, and a failed fetch or push is reported as a comment instead of staying in a log.
+
+### Changed
+
+- **Declared limits are stated where they belong.** The dev channel does not verify that a pre-release came from `main`, and it takes the publish order rather than the highest version, so an older pre-release published later would be served. Both are written in the docs and in the code, and the README no longer claims ancestry the code does not check.
+
 ## [v0.6.5] — 2026-10-11
 
 ### Fixed
