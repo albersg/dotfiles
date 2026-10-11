@@ -80,6 +80,20 @@ jobs:
             ! -path './.git/*' \
             -exec shellcheck --severity=warning {} +
 
+      - name: Run the Neovim clipboard guard
+        # The guard loads only options.lua under --headless, so it needs no
+        # display, no plugin manager and no network beyond this download. It does
+        # need a Neovim with vim.ui.clipboard.osc52 (0.10+), which is newer than
+        # the runner image's own package, so the version is pinned here rather
+        # than inherited from whatever the image happens to ship.
+        run: |
+          curl -sSL -o /tmp/nvim.tar.gz \
+            https://github.com/neovim/neovim/releases/download/v0.11.2/nvim-linux-x86_64.tar.gz
+          sudo tar -xzf /tmp/nvim.tar.gz -C /opt
+          sudo ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
+          nvim --version | head -1
+          ./scripts/check-nvim-clipboard.sh
+
   branding-audit:
     name: Branding Audit
     runs-on: ubuntu-latest
