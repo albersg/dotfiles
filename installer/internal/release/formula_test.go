@@ -49,25 +49,32 @@ func TestTheFormulaCompiles(t *testing.T) {
 		t.Fatalf("the formula is not where this guard looks: %v", err)
 	}
 
-	brew, err := exec.LookPath("brew")
-	if err != nil {
-		// A skip is honest on a machine that has no Homebrew; in CI it would be a
-		// silent hole, so there it fails. GitHub's ubuntu runners ship Homebrew,
-		// which is why the check belongs in the Go job rather than in a step of
-		// its own.
+	// The question is whether Ruby compiles the file, not whether Homebrew is
+	// installed. Homebrew's Ruby is preferred because it is the interpreter brew
+	// itself uses, and a plain ruby is the same answer from a different build:
+	// GitHub's runners have no Homebrew, and the first version of this guard
+	// failed there for exactly that reason instead of checking anything.
+	var rubyArgs []string
+	if brew, err := exec.LookPath("brew"); err == nil {
+		rubyArgs = []string{brew, "ruby", "-e", compileScript, path}
+	} else if ruby, err := exec.LookPath("ruby"); err == nil {
+		rubyArgs = []string{ruby, "-e", compileScript, path}
+	} else {
+		// A skip is honest on a machine with no Ruby at all; in CI it would be a
+		// silent hole, so there it fails.
 		if os.Getenv("CI") != "" {
-			t.Fatalf("brew is not installed in CI, so %s was not compiled and this guard checked nothing", formulaPath)
+			t.Fatalf("no Ruby is installed in CI, so %s was not compiled and this guard checked nothing", formulaPath)
 		}
-		t.Skipf("brew is not installed here, so %s was NOT compiled; CI runs this check with Homebrew present", formulaPath)
+		t.Skipf("no Ruby is installed here, so %s was NOT compiled", formulaPath)
 	}
 
-	out, err := exec.Command(brew, "ruby", "-e", compileScript, path).CombinedOutput()
+	out, err := exec.Command(rubyArgs[0], rubyArgs[1:]...).CombinedOutput()
 	if err != nil {
 		t.Errorf("%s does not compile, and brew will refuse to install or upgrade from it:\n%s", formulaPath, out)
 		return
 	}
 	if !strings.Contains(string(out), "compiles") {
-		t.Errorf("brew ruby said %q, which does not prove the formula compiled", out)
+		t.Errorf("%s said %q, which does not prove the formula compiled", rubyArgs[0], out)
 	}
 }
 
