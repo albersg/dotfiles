@@ -33,6 +33,39 @@ Detailed overview of all tools configured by dotfiles.
 |------|-------------|
 | **Neovim** | LazyVim config with LSP, completions, AI integration |
 
+## Plugins
+
+The installer provisions a plugin set for four tools, and in each case the set
+is a decision this repository has already made — the step is copying or installing
+a list that lives here:
+
+| Tool | Where the set is declared | What the installer does |
+|------|---------------------------|-------------------------|
+| **Tmux** | `dotfiles-tmux/tmux.conf` through TPM | Clones TPM, copies the seeded plugin directory and runs `install_plugins` |
+| **Fish** | `dotfiles-fish/fish/fish_plugins` | Ships the plugin list and the plugin files with the Fish config; `config.fish` bootstraps Fisher on first start |
+| **Zsh** | `.zshrc` | Installs the plugin packages (autosuggestions, syntax highlighting, completions, fzf-tab, Powerlevel10k) that the `.zshrc` sources |
+| **Neovim** | `dotfiles-nvim/nvim/lua/plugins/` | Ships the LazyVim plugin set, which lazy.nvim installs on first launch |
+
+**Herdr is the one tool whose plugins are user-managed.** A Herdr plugin is
+third-party code installed from GitHub shorthand, not a configuration line, and
+this repository declares no plugin set for it. The installer does not choose
+which third-party code you run, so it neither installs, links, updates nor
+removes Herdr plugins:
+
+```bash
+herdr plugin install <owner>/<repo>/<subdir>   # install a plugin (GitHub shorthand only)
+herdr plugin link <path>                        # link a plugin from a working tree
+herdr plugin list                               # list the plugins installed for this user
+herdr plugin uninstall <id>                     # unregister an installed plugin
+herdr plugin unlink <id>                        # unregister a linked one
+```
+
+Because the installer never looks at plugin state, nothing backs it up,
+refreshes it or undoes it: a reinstall copies `config.toml` and leaves the
+plugins already on the machine exactly as they are. That is the deliberate
+default, not a missing step. Herdr's keymaps screen in the installer names the
+same commands.
+
 ## Prompts
 
 | Tool | Description |
