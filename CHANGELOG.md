@@ -4,6 +4,19 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [v0.6.5] — 2026-10-11
+
+### Fixed
+
+- **The install record says what the run did, not what it found.** It was built from the list of configs the run found on disk, so a config merely detected was recorded exactly like one the run overwrote, and a reader could not tell what had changed. Each entry now carries an action -- found, backed-up, replaced or created -- and an entry claiming a replacement carries the backup that proves it. An earlier version's record still loads (#239).
+- **Under WSL, the installer no longer reports success where nothing renders.** The Nerd Font went to `~/.local/share/fonts` and the palette into the Linux terminals' configurations, but the program that draws the session is Windows Terminal, on the Windows side, which reads neither. The step now states where both landed and that Windows Terminal is the renderer before reporting anything as done, and then offers -- behind one explicit choice -- to write the font face and the colour scheme into the `settings.json` reachable from the mount. The offer keeps its promises in code: it takes a backup before writing and aborts if the backup fails, changes only the keys it owns while preserving comments and every other key, is idempotent, and refuses what it cannot edit safely instead of rewriting it. Outside WSL it touches nothing on the Windows side (#236).
+
+### Changed
+
+- **The release names the commit a tag points at, not the tag object.** `GITHUB_SHA` is the commit for a lightweight tag and the tag object for an annotated one, so a binary stamped from it could name a tag's id and be impossible to match to the commit the release built. The commit is now resolved once, in the job that has a checkout and produces the binaries, and read by every other job from an output it already needed; peeling falls back to the raw value when the tag object is absent, because naming a tag is worse than naming the commit but inventing one is worse still (#246).
+
 ## [v0.6.4] — 2026-10-10
 
 ### Fixed
