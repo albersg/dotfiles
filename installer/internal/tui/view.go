@@ -703,6 +703,59 @@ func gutteredBlock(lines []string) []string {
 	return out
 }
 
+// panelFrame is the columns a panel spends on its left and right border: one
+// each, and panelPad is the blank column each border keeps from its content, so a
+// row never touches the edge. A caller that measures text against a panel's
+// inner width subtracts panelFrame + panelPad*2.
+const (
+	panelFrame = 2
+	panelPad   = 1
+)
+
+// panelBlock wraps lines in a rounded box and sets title into the top border. It
+// is the frame's inner edge: the header rule and the footer rule bound the
+// screen, and a panel bounds the block inside it, so a body reads as a card
+// rather than as rows floating in the void.
+//
+// The edges carry the theme's border role and the title is rendered by the
+// caller in the tone the block's subject earns, while the box glyphs carry the
+// shape on a terminal with no colour, so nothing here is invented. Each line is
+// clipped to the panel's inner width with lipgloss's ANSI-aware width, so a
+// caller passes rows already measured for the screen and the border replaces the
+// columns the clip frees. The title may be styled: its width is measured, not
+// its byte length.
+func panelBlock(title string, width int, lines []string) []string {
+	if width < panelFrame+panelPad*2+2 {
+		width = panelFrame + panelPad*2 + 2
+	}
+	// One column of padding inside each border, so a row never touches the edge.
+	content := width - panelFrame - panelPad*2
+	edge := func(s string) string { return PanelBorderStyle.Render(s) }
+	fill := func(s string) string { return " " + padRight(s, content) + " " }
+
+	out := make([]string, 0, len(lines)+2)
+	if title == "" {
+		out = append(out, edge("╭"+strings.Repeat("─", content+panelPad*2)+"╮"))
+	} else {
+		label := " " + title + " "
+		dash := content + 1 - lipgloss.Width(label)
+		if dash < 1 {
+			// The title is wider than the panel: cut it so the box still closes,
+			// leaving at least one rule cell after it. MaxWidth is the ANSI-aware
+			// clip, because the title may be styled.
+			label = " " + lipgloss.NewStyle().MaxWidth(content-2).Render(title) + " "
+			dash = 1
+		}
+		out = append(out, edge("╭─")+label+edge(strings.Repeat("─", dash)+"╮"))
+	}
+	for _, line := range lines {
+		clipped := lipgloss.NewStyle().MaxWidth(content).Render(line)
+		out = append(out, edge("│")+fill(clipped)+edge("│"))
+	}
+	out = append(out, edge("╰"+strings.Repeat("─", content+panelPad*2)+"╯"))
+	return out
+}
+
 // rowBar renders one menu row. The selected row is a bar with the ▸ in Accent
 // and the text in Paper on BrandSoft; the unselected row is the same text in Ink
 // at the SAME indent, so state comes from the bar and the weight rather than
@@ -2313,27 +2366,27 @@ func (m Model) dotfilesThemeOptions() []string {
 }
 
 func (m Model) renderMainMenu() string {
-	// Title. The toolbox emoji that used to open it was the one thing on the
-	// first screen that a terminal without an emoji font drew as a box.
-	body := []string{
-		BrandStyle.Render("dotfiles"),
-	}
+	// The title block names the screen and asks its question; the options sit in a
+	// card beneath it, so the first screen reads as a designed panel instead of
+	// rows floating between two rules. The greeting stays a line of its own above
+	// the card -- the same one-line move it always was -- and the card's top border
+	// carries the brand the emoji-free title row used to. The width is the row
+	// measure, so a wide terminal draws the card as a column rather than across the
+	// whole screen.
+	body := []string{}
 	// A greeting by time of day, an added dim line read from the model's own
 	// creation time rather than from the clock at render time.
 	if g := m.greeting(); g != "" {
 		body = append(body, MutedStyle.Render(g))
 	}
-	body = append(body,
-		MutedStyle.Render("What would you like to do?"),
-		"",
-	)
+	body = append(body, MutedStyle.Render("What would you like to do?"))
 	if notice := m.mainMenuTrainerNotice(); notice != "" {
 		body = append(body, notice)
 	}
 	if notice := m.mainMenuUpdateNotice(); notice != "" {
 		body = append(body, notice)
 	}
-	body = append(body, m.menuRows(m.GetCurrentOptions(), m.Cursor)...)
+	body = append(body, panelBlock(BrandStyle.Render("dotfiles"), layoutFor(m).RowMeasure, m.menuRows(m.GetCurrentOptions(), m.Cursor))...)
 
 	// The main menu is the screen that asks what is about to happen, so it offers
 	// the plan panel. The frame takes it only where there is room for it and drops
@@ -2800,11 +2853,11 @@ const (
 	// moved into the frame's header, and the legend into its footer.
 	installingBodyFixed = 4
 	// installingDetailsFrameRows is the height the log box spends around its own
-	// lines: the blank above it, the box's border (two rows), its padding (two more)
-	// and the blank below it. It is a constant because only the frame changes; the
-	// number of lines the box holds is what is left after the rail has its floor, so
-	// the box follows the terminal instead of a fixed three rows.
-	installingDetailsFrameRows = 6
+	// lines: the box's border (two rows) and its padding (two more). The blank rows
+	// that used to surround it are gone -- the panel around the rail now separates
+	// the two blocks -- so the frame is four rows and the box follows the terminal
+	// instead of a fixed three lines.
+	installingDetailsFrameRows = 4
 	// installingMinLogLines is the smallest useful box: one log line and the dim note
 	// naming the earlier lines it could not show. Below that the box is dropped and
 	// the rail keeps the rows rather than drawing an empty box.
@@ -3127,8 +3180,11 @@ func (m Model) renderInstalling() string {
 	// more, and the whole rail is windowed around the running step so a long run
 	// keeps the step in progress on screen. Each row carries its own trailing
 	// meter, so a step's progress is visible on the row rather than only in the
-	// run's single bar.
+	// run's single bar. The rail is a card, so the plan reads as one object, and
+	// the rail is measured to the panel's inner width so its meters stop at the
+	// border.
 	const railMeterCells = 10
+	railWidth := width - panelFrame - panelPad*2
 	rows := make([]string, 0, len(m.Steps)+1)
 	runningIdx := 0
 	for i, step := range m.Steps {
@@ -3136,25 +3192,23 @@ func (m Model) renderInstalling() string {
 		if i == m.CurrentStep {
 			runningIdx = len(rows)
 		}
-		rows = append(rows, railRow(fmt.Sprintf("%s %s", icon, step.Name), style, stepFraction(step), railMeterCells, width))
+		rows = append(rows, railRow(fmt.Sprintf("%s %s", icon, step.Name), style, stepFraction(step), railMeterCells, railWidth))
 		if i == m.CurrentStep && step.Status == StatusRunning && step.Description != "" {
-			rows = append(rows, MutedStyle.Render("   "+truncate(step.Description, width-4)))
+			rows = append(rows, MutedStyle.Render("   "+truncate(step.Description, railWidth-3)))
 		}
 	}
 
-	// The rail and the log box share the rows the frame leaves: the box takes what
-	// the rail's floor does not need, so the log follows the terminal instead of a
-	// fixed three lines. Its rendered rows are split back out so the frame counts
-	// every row of the box, not the box as one row.
-	railRows, boxLines := m.installingRowBudget(bodyRows)
+	// The rail and the log box share the rows the frame leaves. The panel around the
+	// rail spends two rows of its own, so the budget is measured against the rows
+	// left after them; a body that overflows its frame still fails the frame guard
+	// rather than being clipped.
+	railRows, boxLines := m.installingRowBudget(bodyRows - panelFrame)
 	start, end := listWindow(runningIdx, railRows, len(rows))
-	body = append(body, rows[start:end]...)
+	body = append(body, panelBlock(BrandStyle.Render("Steps"), width, rows[start:end])...)
 
 	if boxLines > 0 {
-		body = append(body, "")
 		lines := logTail(m.LogLines, boxLines, width-4, InfoStyle)
 		body = append(body, strings.Split(BoxStyle.Render(strings.Join(lines, "\n")), "\n")...)
-		body = append(body, "")
 	}
 
 	return m.frame(m.headerName(), m.installingVital(), body, hints)
@@ -3169,7 +3223,6 @@ func (m Model) renderComplete() string {
 	// place the completion screen says "done" in the palette without spending a
 	// row, and the companion and the celebration are both measured against the
 	// rows this screen leaves.
-	body := []string{SuccessStyle.Render("✓") + " " + chip("Summary")}
 	items := []string{
 		fmt.Sprintf("OS: %s", m.Choices.OS),
 		fmt.Sprintf("Terminal: %s", m.Choices.Terminal),
@@ -3186,8 +3239,6 @@ func (m Model) renderComplete() string {
 	for i, item := range items {
 		rendered[i] = InfoStyle.Render(truncate(item, width-2))
 	}
-	body = append(body, gutteredBlock(rendered)...)
-	body = append(body, "")
 
 	// Next Step block.
 	shell := m.Choices.Shell
@@ -3195,8 +3246,14 @@ func (m Model) renderComplete() string {
 	if shell == "nushell" {
 		shellCmd = "nu"
 	}
-	body = append(body, chip("Next Step"))
-	body = append(body, gutteredBlock([]string{
+
+	// The two blocks are cards, like the main menu: the panel edge gives the
+	// completion screen a body that reads as designed space instead of a gutter
+	// under a chip, and the summary's title keeps the success check that says the
+	// run finished while the edges wear the frame's border role.
+	body := panelBlock(SuccessStyle.Render("✓")+" "+BrandStyle.Render("Summary"), width, rendered)
+	body = append(body, "")
+	body = append(body, panelBlock(BrandStyle.Render("Next Step"), width, []string{
 		InfoStyle.Render("To use your new shell now, run:"),
 		HighlightStyle.Render(fmt.Sprintf("exec %s", shellCmd)),
 	})...)

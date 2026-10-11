@@ -4,18 +4,18 @@
                                                                                 
                                                                                 
                                                                                 
-  dotfiles                                                                      
   Good morning                                                                  
   What would you like to do?                                                    
-                                                                                
-  ▸ Start Installation                                                          
-    Learn About Tools                                                           
-    Keymaps Reference                                                           
-    LazyVim Guide                                                               
-    Vim Trainer                                                                 
-    Update this installer                                                       
-    Utilities                                                                   
-    Exit                                                                        
+  ╭─ dotfiles ───────────────────────────────────────────────────────────────╮  
+  │ ▸ Start Installation                                                     │  
+  │   Learn About Tools                                                      │  
+  │   Keymaps Reference                                                      │  
+  │   LazyVim Guide                                                          │  
+  │   Vim Trainer                                                            │  
+  │   Update this installer                                                  │  
+  │   Utilities                                                              │  
+  │   Exit                                                                   │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
                                                                                 
                                                                                 
                                                                                 
