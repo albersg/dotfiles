@@ -36,6 +36,11 @@ func driveInstallStepLoop(t *testing.T, m Model, start tea.Msg) Model {
 // one cleanup removes, so this drives a clone, a step that needs the checkout,
 // and the real cleanup through Update.
 func TestTUIStepLoopCarriesWhatAStepRecordsToTheNextStep(t *testing.T) {
+	// executeStep fingerprints the configuration paths under $HOME before the
+	// first step, so the test points $HOME at a directory it owns rather than
+	// letting it read the developer's real home.
+	t.Setenv("HOME", t.TempDir())
+
 	workDir := t.TempDir()
 	checkout := filepath.Join(workDir, "dotfiles")
 	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
@@ -98,6 +103,10 @@ func TestTUIStepLoopCarriesWhatAStepRecordsToTheNextStep(t *testing.T) {
 // not cost cleanup its turn, and cleanup still finds the checkout because the
 // runner shares one model with every step.
 func TestRunInstallStepsStillCleansUpAfterAFailure(t *testing.T) {
+	// executeStep fingerprints the configuration paths under $HOME before the
+	// first step, so the test points $HOME at a directory it owns.
+	t.Setenv("HOME", t.TempDir())
+
 	workDir := t.TempDir()
 	checkout := filepath.Join(workDir, "dotfiles")
 	if err := os.MkdirAll(checkout, 0o755); err != nil {

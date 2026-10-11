@@ -4407,6 +4407,17 @@ func executeStep(stepID string, m *Model) error {
 		return nil
 	}
 
+	// The first step of a run takes the content fingerprint of every
+	// configuration path, before any step has written one. The record written when
+	// the run ends compares the paths against it, so it names what each path's
+	// outcome was instead of what merely existed before the run (issue #239). No
+	// step before the first writes a configuration path: the backup step copies
+	// out of the home, and the dependency and clone steps install packages and a
+	// checkout rather than a configuration file.
+	if m.ConfigFingerprints == nil {
+		m.ConfigFingerprints = configFingerprints()
+	}
+
 	execute, ok := stepExecutors[stepID]
 	if !ok {
 		return fmt.Errorf("unknown step: %s", stepID)

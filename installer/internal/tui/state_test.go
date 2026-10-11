@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
 // TestLastInstallRoundTripsUnderATemporaryStateDir covers both halves of the
@@ -93,14 +95,29 @@ func TestLastInstallReadsNoRecordForMissingCorruptOrIncompleteFile(t *testing.T)
 
 // TestCompletingARunRecordsItAndWritesTheStateFile pins the write the run's end
 // triggers: the model carries the record so the panel updates immediately, and
-// the file the next startup reads holds the same version and touched paths.
+// the file the next startup reads holds the same version and the outcome of each
+// configuration path. It also pins the issue #239 honesty rule: the record is
+// built from what the run did, not from the pre-run detection, so a config the
+// run only found is recorded as found and not counted as touched.
 func TestCompletingARunRecordsItAndWritesTheStateFile(t *testing.T) {
 	dir := t.TempDir()
+	home := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
+	t.Setenv("HOME", home)
+
+	// A configuration that was on disk before this run. The run writes nothing,
+	// so the record may only report it as found.
+	found := filepath.Join(home, ".config", "nvim")
+	if err := os.MkdirAll(found, 0o755); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(found, "init.lua"), []byte("-- user\n"), 0o644); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
 
 	m := Model{
 		Screen:          ScreenInstalling,
-		ExistingConfigs: []string{"nvim: /home/testuser/.config/nvim"},
+		ExistingConfigs: system.DetectExistingConfigs(),
 	}
 	next, _ := m.update(installCompleteMsg{totalTime: 12.5})
 	got, ok := next.(Model)
@@ -128,8 +145,15 @@ func TestCompletingARunRecordsItAndWritesTheStateFile(t *testing.T) {
 	if rec.Version != got.LastInstall.Version {
 		t.Errorf("the file's version = %q, the model's = %q", rec.Version, got.LastInstall.Version)
 	}
-	if strings.Join(rec.Files, "|") != "nvim: /home/testuser/.config/nvim" {
-		t.Errorf("the file's files = %v, want the run's existing configs", rec.Files)
+	if len(rec.Files) != 0 {
+		t.Errorf("the file counts %v as touched, but the run wrote nothing", rec.Files)
+	}
+	entry, ok := entryFor(*rec, "nvim")
+	if !ok {
+		t.Fatalf("the record does not name the detected nvim configuration")
+	}
+	if entry.Action != installActionFound {
+		t.Errorf("nvim action = %q, want %q", entry.Action, installActionFound)
 	}
 }
 
