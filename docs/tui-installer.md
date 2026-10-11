@@ -472,6 +472,37 @@ place: the table keeps its size and its place, the notice row says it is refresh
 is one visible change. **`--dry-run` skips the write**, leaving no file, no backup and no record,
 exactly as it skips every installation step.
 
+### The renderer on the Windows side
+
+Under WSL the installer writes the Nerd Font into `~/.local/share/fonts` and the dotfiles palette
+into the Linux terminals' configurations, but the program that draws the session is **Windows
+Terminal, on the Windows side**, which reads neither. The WSL step used to finish with a success line
+and no mention of that, which is issue #236: the shell's prompt cannot render and the install says
+everything is fine.
+
+**The step states the truth before it reports anything as done.** It says where the font and the
+palette landed, that Windows Terminal is the renderer, and the two settings it has to be told: the
+font face `IosevkaTerm NF` and the colour scheme `dotfiles`. The line is unconditional — it is not
+behind a choice, and it does not depend on whether Windows Terminal is reachable. The list of owned
+settings is declared once in the code (`windowsTerminalSettings`), so the notice and the writer can
+never name different things.
+
+**It also offers to write those two settings, and writes only after an explicit yes.** The
+settings.json is looked up under the Windows profile — both the Store and the Preview package names
+(`AppData/Local/Packages/Microsoft.WindowsTerminal_*/LocalState/settings.json` and the same for
+`Microsoft.WindowsTerminalPreview_*`) — and the offer names the file and what would change before
+anything is written. Declining changes nothing and leaves no backup.
+
+**Before a write, the previous file is copied beside itself** as
+`settings.json.bak-dotfiles-<timestamp>`, and only the keys this installer owns are changed: the font
+face, the colour scheme, and the scheme definition it registers. settings.json is JSONC, so comments
+and every other key survive — the editor parses the file into byte spans and replaces exactly the
+one it owns rather than re-serialising the document. A file that cannot be edited safely —
+unparseable JSONC, a shape without `profiles.defaults` or a `schemes` array, no settings.json under
+the mount, or more than one package to choose between — is **refused with the reason named and
+nothing changed**, because a rewrite that dropped the user's comments would be worse than no write
+at all.
+
 ### The shell's startup
 
 The fourth utility is **the shell's startup**, behind the **Measure the shell's startup** row. It is
@@ -578,7 +609,7 @@ and the choices, so a run shows only the ones that apply.
 | Install Toolset | Installs the command-line tools declared in the `Brewfile` (best effort; skipped on Termux and without Homebrew) |
 | Install Pi Agent Skills | Installs the pinned AI agent skills |
 | Install OfficeCLI | Installs the OfficeCLI document tool |
-| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only) |
+| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there |
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
 

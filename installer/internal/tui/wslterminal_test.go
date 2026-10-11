@@ -1,0 +1,560 @@
+package tui
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// testWindowsTerminalThemeDefinition builds a complete palette so the scheme
+// builder has every canonical role to map. Each role gets a distinct value, so a
+// field wired to the wrong role is caught rather than passing by luck.
+func testWindowsTerminalThemeDefinition() themeDefinition {
+	palette := make(map[string]string, len(themePaletteRoles))
+	for i, role := range themePaletteRoles {
+		palette[role] = fmt.Sprintf("#%06x", i+1)
+	}
+	return themeDefinition{ID: "dotfiles", Name: "dotfiles", Palette: palette}
+}
+
+// testWindowsTerminalSettings is the shape Windows Terminal writes: a defaults
+// object, a profile list, a schemes array, comments and keys this installer does
+// not own. The comments and the unrelated keys are what the editor must keep.
+const testWindowsTerminalSettings = `{
+    // Windows Terminal settings
+    "$schema": "https://example.invalid/schema.json",
+    "profiles": {
+        // the default profile settings
+        "defaults": {
+            "padding": "8"
+        },
+        "list": [
+            { "name": "Debian", "guid": "{00000000-0000-0000-0000-000000000000}" }
+        ]
+    },
+    "schemes": [
+        { "name": "Campbell", "background": "#0C0C0C", "foreground": "#CCCCCC" }
+    ],
+    "theme": "dark"
+}
+`
+
+// newWindowsTerminalProfile builds a fake Windows profile whose only Windows
+// Terminal package is the Store build, so discovery is exercised without ever
+// reading a real /mnt/c. An empty settings string leaves the file absent.
+func newWindowsTerminalProfile(t *testing.T, settings string) (profileDir, settingsPath string) {
+	t.Helper()
+
+	profileDir = t.TempDir()
+	settingsPath = filepath.Join(profileDir, "AppData", "Local", "Packages",
+		"Microsoft.WindowsTerminal_8wekyb3d8bbwe", "LocalState", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if settings != "" {
+		if err := os.WriteFile(settingsPath, []byte(settings), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return profileDir, settingsPath
+}
+
+// TestWSLStepSuccessNamesWindowsTerminal is the guard for the reported defect:
+// on WSL the installer reports success while the program that actually draws the
+// screen is Windows Terminal, on the other side of the boundary, which reads
+// neither the Nerd Font nor the palette the install wrote. The guard fails the
+// moment the step's own output stops naming it and the two settings it needs.
+func TestWSLStepSuccessNamesWindowsTerminal(t *testing.T) {
+	t.Setenv(envBinfmtDir, t.TempDir())
+	repoDir, _, _ := newWSLLayout(t)
+	m := wslModel(repoDir, true)
+
+	var lines []string
+	restore := wslLog
+	wslLog = func(_, line string) { lines = append(lines, line) }
+	t.Cleanup(func() { wslLog = restore })
+
+	if err := stepInstallWSLConfig(&m); err != nil {
+		t.Fatalf("step failed: %v", err)
+	}
+
+	report := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"Windows Terminal",
+		windowsTerminalFontFace,
+		windowsTerminalSchemeName,
+		".local/share/fonts",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the WSL step reports success without %q, which is the defect:\n%s", want, report)
+		}
+	}
+}
+
+// TestWindowsTerminalWriteAlwaysBacksUp is the backup guard: a write over the
+// user's settings.json must leave the previous bytes beside it first. A
+// regression that writes without a backup fails here.
+func TestWindowsTerminalWriteAlwaysBacksUp(t *testing.T) {
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	if !offer.Available {
+		t.Fatalf("the offer must be available, got: %s", offer.Reason)
+	}
+
+	if _, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID); err != nil || !wrote {
+		t.Fatalf("applyWindowsTerminalOffer wrote=%v err=%v, want a write", wrote, err)
+	}
+
+	backups, err := filepath.Glob(settingsPath + ".bak-dotfiles-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("a write must leave exactly one backup beside the file, got %v", backups)
+	}
+	saved, err := os.ReadFile(backups[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(saved) != testWindowsTerminalSettings {
+		t.Errorf("the backup does not hold the settings as they were before the write")
+	}
+}
+
+// TestWindowsTerminalWriteAbortsWhenTheBackupFails pins the other half of the
+// backup guard: a backup that cannot be written aborts the settings write rather
+// than leaving the user without one. The containing directory is made read-only,
+// so both the backup and any write into it are refused.
+func TestWindowsTerminalWriteAbortsWhenTheBackupFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory permissions are not enforced")
+	}
+
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	if !offer.Available {
+		t.Fatalf("the offer must be available: %s", offer.Reason)
+	}
+
+	dir := filepath.Dir(settingsPath)
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	if _, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID); err == nil || wrote {
+		t.Fatalf("a failed backup must abort the write, wrote=%v err=%v", wrote, err)
+	}
+	if after, err := os.ReadFile(settingsPath); err != nil {
+		t.Fatal(err)
+	} else if string(after) != testWindowsTerminalSettings {
+		t.Error("the settings file must be unchanged when the backup fails")
+	}
+}
+
+// TestWindowsTerminalWriteRequiresTheChoice pins the never-write-without-a-choice
+// rule: the read that builds the offer changes nothing, and applying it without
+// the explicit yes changes nothing and leaves no backup behind.
+func TestWindowsTerminalWriteRequiresTheChoice(t *testing.T) {
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	if !offer.Available {
+		t.Fatalf("the offer must be available, got: %s", offer.Reason)
+	}
+
+	if before, err := os.ReadFile(settingsPath); err != nil {
+		t.Fatal(err)
+	} else if string(before) != testWindowsTerminalSettings {
+		t.Fatal("the read must not change the settings file")
+	}
+
+	notice, wrote, err := applyWindowsTerminalOffer(offer, false, wslStepID)
+	if err != nil {
+		t.Fatalf("declining must not be an error: %v", err)
+	}
+	if wrote {
+		t.Error("declining must not write")
+	}
+	if !strings.Contains(notice, "unchanged") {
+		t.Errorf("the decline notice should say the file was left unchanged, got %q", notice)
+	}
+	if after, err := os.ReadFile(settingsPath); err != nil {
+		t.Fatal(err)
+	} else if string(after) != testWindowsTerminalSettings {
+		t.Error("declining must leave the settings file exactly as it was")
+	}
+	if backups, _ := filepath.Glob(settingsPath + ".bak-dotfiles-*"); len(backups) != 0 {
+		t.Errorf("declining must leave no backup, got %v", backups)
+	}
+}
+
+// TestWindowsTerminalSettingsContentPreservesCommentsAndOtherKeys is the JSONC
+// preservation guard: only the two owned keys and the owned scheme change, and
+// every comment, unrelated key and the other schemes survive.
+func TestWindowsTerminalSettingsContentPreservesCommentsAndOtherKeys(t *testing.T) {
+	scheme, err := windowsTerminalSchemeFor(testWindowsTerminalThemeDefinition())
+	if err != nil {
+		t.Fatalf("windowsTerminalSchemeFor failed: %v", err)
+	}
+
+	updated, err := windowsTerminalSettingsContent([]byte(testWindowsTerminalSettings), scheme)
+	if err != nil {
+		t.Fatalf("windowsTerminalSettingsContent failed: %v", err)
+	}
+	got := string(updated)
+
+	for _, kept := range []string{
+		"// Windows Terminal settings",
+		"// the default profile settings",
+		`"$schema"`,
+		`"padding": "8"`,
+		`"name": "Debian"`,
+		`"name": "Campbell"`,
+		"#0C0C0C",
+		`"theme": "dark"`,
+	} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("the edit dropped something it does not own: %q is gone:\n%s", kept, got)
+		}
+	}
+
+	root, err := parseJSONC(updated)
+	if err != nil {
+		t.Fatalf("the edited settings are not valid JSONC: %v\n%s", err, got)
+	}
+	profiles := root.findMember("profiles")
+	if profiles == nil {
+		t.Fatal("profiles disappeared")
+	}
+	defaults := profiles.value.findMember("defaults")
+	if defaults == nil {
+		t.Fatal("profiles.defaults disappeared")
+	}
+	if face := defaults.value.findMember("font"); face == nil {
+		t.Error("profiles.defaults.font was not created")
+	} else if member := face.value.findMember("face"); member == nil || member.value.text != windowsTerminalFontFace {
+		t.Errorf("profiles.defaults.font.face = %v, want %q", member, windowsTerminalFontFace)
+	}
+	if cs := defaults.value.findMember("colorScheme"); cs == nil || cs.value.text != windowsTerminalSchemeName {
+		t.Errorf("profiles.defaults.colorScheme = %v, want %q", cs, windowsTerminalSchemeName)
+	}
+
+	schemes := root.findMember("schemes")
+	if schemes == nil || schemes.value.kind != jsoncArray {
+		t.Fatal("schemes is not an array after the edit")
+	}
+	names := map[string]bool{}
+	for _, elem := range schemes.value.elements {
+		if name := elem.findMember("name"); name != nil {
+			names[name.value.text] = true
+		}
+	}
+	if !names["Campbell"] || !names[windowsTerminalSchemeName] {
+		t.Errorf("schemes should hold both Campbell and %q, got %v", windowsTerminalSchemeName, names)
+	}
+
+	// The owned scheme must carry the palette: its red must be the theme's red.
+	owned := findSchemeNamed(t, schemes.value, windowsTerminalSchemeName)
+	red := owned.findMember("red")
+	wantRed := testWindowsTerminalThemeDefinition().Palette["red"]
+	if red == nil || red.value.text != wantRed {
+		t.Errorf("the owned scheme's red = %v, want %q", red, wantRed)
+	}
+}
+
+// findSchemeNamed returns the scheme object a schemes array holds under a name.
+func findSchemeNamed(t *testing.T, schemes *jsoncValue, name string) *jsoncValue {
+	t.Helper()
+
+	for _, elem := range schemes.elements {
+		if member := elem.findMember("name"); member != nil && member.value.text == name {
+			return elem
+		}
+	}
+	t.Fatalf("no scheme named %q in %v", name, schemes)
+	return nil
+}
+
+// TestWindowsTerminalSettingsContentIsIdempotent pins that a second pass over an
+// already-written file is the identity: the editor must not keep adding keys or
+// duplicate the scheme.
+func TestWindowsTerminalSettingsContentIsIdempotent(t *testing.T) {
+	scheme, err := windowsTerminalSchemeFor(testWindowsTerminalThemeDefinition())
+	if err != nil {
+		t.Fatal(err)
+	}
+	once, err := windowsTerminalSettingsContent([]byte(testWindowsTerminalSettings), scheme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twice, err := windowsTerminalSettingsContent(once, scheme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(once) != string(twice) {
+		t.Errorf("a second pass changed the file again:\n--- once ---\n%s\n--- twice ---\n%s", once, twice)
+	}
+}
+
+// TestWindowsTerminalReadOfferRefusesWhatItCannotEditSafely pins the refusal
+// paths: unparseable JSONC, a shape without profiles.defaults, and a settings
+// file that is not there are all refused with a reason, and nothing is written.
+func TestWindowsTerminalReadOfferRefusesWhatItCannotEditSafely(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings string
+		want     string
+	}{
+		{
+			name:     "unparseable JSONC",
+			settings: `{ "profiles": { "defaults": { } `,
+			want:     "JSONC",
+		},
+		{
+			name:     "profiles is not an object",
+			settings: `{ "profiles": [], "schemes": [] }`,
+			want:     "profiles",
+		},
+		{
+			name:     "defaults is missing",
+			settings: `{ "profiles": { "list": [] }, "schemes": [] }`,
+			want:     "defaults",
+		},
+		{
+			name:     "schemes is not an array",
+			settings: `{ "profiles": { "defaults": {} }, "schemes": {} }`,
+			want:     "schemes",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			profileDir, settingsPath := newWindowsTerminalProfile(t, tt.settings)
+			offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+			if offer.Available {
+				t.Fatalf("the offer must be refused for %q", tt.name)
+			}
+			if !strings.Contains(offer.Reason, tt.want) {
+				t.Errorf("the refusal should name %q, got: %s", tt.want, offer.Reason)
+			}
+
+			if _, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID); err != nil || wrote {
+				t.Errorf("a refused offer must write nothing, wrote=%v err=%v", wrote, err)
+			}
+			if after, err := os.ReadFile(settingsPath); err != nil {
+				t.Fatal(err)
+			} else if string(after) != tt.settings {
+				t.Error("a refused offer must leave the file untouched")
+			}
+		})
+	}
+}
+
+// TestWindowsTerminalReadOfferRefusesWhenTheFileIsAbsent pins that a package
+// directory with no settings.json is a named refusal, not an empty file.
+func TestWindowsTerminalReadOfferRefusesWhenTheFileIsAbsent(t *testing.T) {
+	profileDir, _ := newWindowsTerminalProfile(t, "")
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	if offer.Available {
+		t.Fatal("an absent settings.json must not be offered")
+	}
+	if !strings.Contains(offer.Reason, "no Windows Terminal settings.json") {
+		t.Errorf("the refusal should say the file is missing, got: %s", offer.Reason)
+	}
+}
+
+// TestWindowsTerminalSettingsPathInjectsTheMount pins that discovery reads the
+// mount it is handed: the Store and Preview package names are both found, an
+// ambiguous pair is refused with both named, and no real /mnt/c is ever read.
+func TestWindowsTerminalSettingsPathInjectsTheMount(t *testing.T) {
+	write := func(t *testing.T, profileDir string, packages ...string) []string {
+		t.Helper()
+		var paths []string
+		for _, pkg := range packages {
+			path := filepath.Join(profileDir, "AppData", "Local", "Packages", pkg, "LocalState", "settings.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			paths = append(paths, path)
+		}
+		return paths
+	}
+
+	t.Run("the Store build is found", func(t *testing.T) {
+		profileDir := t.TempDir()
+		want := write(t, profileDir, "Microsoft.WindowsTerminal_8wekyb3d8bbwe")[0]
+		got, err := windowsTerminalSettingsPath(profileDir)
+		if err != nil || got != want {
+			t.Fatalf("windowsTerminalSettingsPath = %q, %v; want %q", got, err, want)
+		}
+	})
+
+	t.Run("the Preview build is found", func(t *testing.T) {
+		profileDir := t.TempDir()
+		want := write(t, profileDir, "Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe")[0]
+		got, err := windowsTerminalSettingsPath(profileDir)
+		if err != nil || got != want {
+			t.Fatalf("windowsTerminalSettingsPath = %q, %v; want %q", got, err, want)
+		}
+	})
+
+	t.Run("an ambiguous pair is refused with both named", func(t *testing.T) {
+		profileDir := t.TempDir()
+		write(t, profileDir, "Microsoft.WindowsTerminal_8wekyb3d8bbwe", "Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe")
+		_, err := windowsTerminalSettingsPath(profileDir)
+		if err == nil {
+			t.Fatal("two packages must be refused rather than guessed")
+		}
+		for _, want := range []string{"Microsoft.WindowsTerminal_", "Preview"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal should name %q: %v", want, err)
+			}
+		}
+	})
+
+	t.Run("an empty mount is refused", func(t *testing.T) {
+		if _, err := windowsTerminalSettingsPath(t.TempDir()); err == nil {
+			t.Fatal("an empty mount must not resolve a settings file")
+		}
+	})
+}
+
+// TestWindowsTerminalSchemeCoversEveryField pins the mapping from the canonical
+// palette roles to Windows Terminal's own scheme keys, and that the marshalled
+// scheme carries every key the single list names.
+func TestWindowsTerminalSchemeCoversEveryField(t *testing.T) {
+	def := testWindowsTerminalThemeDefinition()
+	scheme, err := windowsTerminalSchemeFor(def)
+	if err != nil {
+		t.Fatalf("windowsTerminalSchemeFor failed: %v", err)
+	}
+	if scheme.Name != windowsTerminalSchemeName {
+		t.Errorf("scheme name = %q, want %q", scheme.Name, windowsTerminalSchemeName)
+	}
+
+	values := map[string]string{}
+	for _, c := range scheme.Colors {
+		values[c.Key] = c.Value
+	}
+	for _, tc := range []struct{ key, role string }{
+		{"background", "base"},
+		{"foreground", "text"},
+		{"cursorColor", "cursor"},
+		{"selectionBackground", "selection"},
+		{"red", "red"},
+		{"purple", "magenta"},
+		{"brightPurple", "bright_magenta"},
+		{"brightWhite", "bright_white"},
+	} {
+		if got := values[tc.key]; got != def.Palette[tc.role] {
+			t.Errorf("scheme %s = %q, want the %q role %q", tc.key, got, tc.role, def.Palette[tc.role])
+		}
+	}
+
+	// The marshalled object must hold every key the field list names, so a key
+	// added to the list without a struct field is caught here.
+	data, err := json.Marshal(windowsTerminalSchemeObject(scheme))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range scheme.Colors {
+		if decoded[c.Key] != c.Value {
+			t.Errorf("the marshalled scheme is missing %s = %q", c.Key, c.Value)
+		}
+	}
+}
+
+// TestWindowsTerminalSchemeRefusesAMissingRole pins that an incomplete theme is
+// refused rather than written with an invented colour.
+func TestWindowsTerminalSchemeRefusesAMissingRole(t *testing.T) {
+	def := testWindowsTerminalThemeDefinition()
+	delete(def.Palette, "magenta")
+	if _, err := windowsTerminalSchemeFor(def); err == nil {
+		t.Fatal("a theme missing a role must be refused")
+	} else if !strings.Contains(err.Error(), "magenta") {
+		t.Errorf("the refusal should name the missing role: %v", err)
+	}
+}
+
+// TestWindowsTerminalSettingsListNamesWhatWrites ties the single list the panel
+// reads to the values the writer uses, so the offer cannot name one thing and
+// the writer set another.
+func TestWindowsTerminalSettingsListNamesWhatWrites(t *testing.T) {
+	if len(windowsTerminalSettings) == 0 {
+		t.Fatal("the owned-settings list is empty")
+	}
+	var labels []string
+	for _, s := range windowsTerminalSettings {
+		labels = append(labels, s.Label)
+	}
+	joined := strings.Join(labels, " and ")
+	for _, want := range []string{windowsTerminalFontFace, windowsTerminalSchemeName} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the owned-settings list does not name %q: %v", want, labels)
+		}
+	}
+}
+
+// TestWindowsTerminalOfferDescribesWhatWouldChange pins the offer's body: it
+// names the file, the font face and the scheme before the user chooses.
+func TestWindowsTerminalOfferDescribesWhatWouldChange(t *testing.T) {
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	if !offer.Available {
+		t.Fatalf("the offer must be available: %s", offer.Reason)
+	}
+
+	description := strings.Join(describeWindowsTerminalOffer(offer), "\n")
+	for _, want := range []string{settingsPath, windowsTerminalFontFace, windowsTerminalSchemeName} {
+		if !strings.Contains(description, want) {
+			t.Errorf("the offer should name %q before a choice is made:\n%s", want, description)
+		}
+	}
+}
+
+// TestStepInstallWSLConfigNeverTouchesWindowsTerminalWithoutWSL pins that the
+// Windows file is only a WSL concern: on a non-WSL host the step is a no-op and
+// a reachable-looking settings.json is left alone.
+func TestStepInstallWSLConfigNeverTouchesWindowsTerminalWithoutWSL(t *testing.T) {
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	t.Setenv(envWSLWindowsHome, profileDir)
+
+	m := wslModel("", false)
+	if err := stepInstallWSLConfig(&m); err != nil {
+		t.Fatalf("non-WSL host must be a no-op: %v", err)
+	}
+	if after, err := os.ReadFile(settingsPath); err != nil {
+		t.Fatal(err)
+	} else if string(after) != testWindowsTerminalSettings {
+		t.Error("a non-WSL host must not touch Windows Terminal's settings")
+	}
+}
+
+// TestWindowsTerminalRendererLinesNameTheLandingSites pins the truth the WSL
+// screen states: where the font and the palette landed and that Windows Terminal
+// is the renderer.
+func TestWindowsTerminalRendererLinesNameTheLandingSites(t *testing.T) {
+	joined := strings.Join(windowsTerminalRendererLines(), "\n")
+	for _, want := range []string{
+		".local/share/fonts",
+		"palette",
+		"Windows Terminal",
+		windowsTerminalFontFace,
+		windowsTerminalSchemeName,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the renderer notice should name %q:\n%s", want, joined)
+		}
+	}
+}
