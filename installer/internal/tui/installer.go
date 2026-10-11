@@ -1824,11 +1824,65 @@ func adoptThemeFile(art themeArtifact, content string) (string, bool) {
 	return strings.Join(out, "\n"), true
 }
 
-// unownedThemeFileError is the refusal for a file that is neither wholly ours
-// nor carries our region, so its bytes prove nothing. It names the file, every
-// proof the switch attempted, and the two ways forward: a refusal that says only
-// "not owned" is a closed door with no sign on it.
-func unownedThemeFileError(path string, art themeArtifact) error {
+// themeSkippedFile is one installed file the switch left exactly as it was, and
+// why it could not be themed. The switch collects every one of them in one pass,
+// so one run reports the whole list rather than stopping at the first file whose
+// ownership it cannot prove. That first-stop behaviour left every later managed
+// file on the old palette for a reason that was about one file.
+type themeSkippedFile struct {
+	Path   string
+	Reason string
+}
+
+// themeSkipOnce appends a file to the skipped list unless it is already there.
+// Several artifacts share one file (Starship's two blocks, .zshrc's zsh and bat
+// blocks), and a file left alone must be named once, not once per artifact.
+func themeSkipOnce(skipped []themeSkippedFile, path, reason string) []themeSkippedFile {
+	for _, s := range skipped {
+		if s.Path == path {
+			return skipped
+		}
+	}
+	return append(skipped, themeSkippedFile{Path: path, Reason: reason})
+}
+
+// themeSkippedList renders one line per skipped file, the path first and the
+// reason second, for the result and for the failure. It is the whole list, not
+// the first file: three unowned files used to take three runs to discover.
+func themeSkippedList(skipped []themeSkippedFile) string {
+	lines := make([]string, 0, len(skipped))
+	for _, s := range skipped {
+		lines = append(lines, fmt.Sprintf("%s — %s", s.Path, s.Reason))
+	}
+	return strings.Join(lines, "; ")
+}
+
+// themeLeftAloneWayForward names the actions the interface actually offers for a
+// file the switch cannot prove it owns. Naming an action the product does not
+// offer is worse than naming none, and the picker has no per-file selection, so
+// the sentence points only at paths that exist: running the installer again
+// (its backup step copies an existing config before its configuration step
+// writes it in the marked form) and the picker's own refresh row.
+const themeLeftAloneWayForward = "what you can do: run the installer again — its backup step keeps a copy of this file first and its configuration step writes it in the marked form; the theme picker's \"" + themeRefreshRow + "\" is the in-place path for a file whose dotfiles block can still be recognised"
+
+// themePartialNoticePrefix marks a result that themed some files and left others
+// alone. The caller renders a marked notice beside the reload list instead of
+// replacing it with a plain "applied", so a partial run is never reported as a
+// whole one.
+const themePartialNoticePrefix = "Partial: "
+
+// themeNoticeIsPartial reports whether a switch notice describes a run that left
+// at least one file alone, so the caller can keep that report on screen beside
+// the reload list.
+func themeNoticeIsPartial(notice string) bool {
+	return strings.HasPrefix(notice, themePartialNoticePrefix)
+}
+
+// unownedThemeFileReason is why the switch could not prove it owns a file: every
+// proof it attempted, named apart so a reader can tell which one the file
+// failed. It carries "not owned by dotfiles" because that is the rule the file
+// fell outside.
+func unownedThemeFileReason(art themeArtifact) string {
 	anchorStart := art.AdoptStart
 	if anchorStart == "" {
 		anchorStart = "DOTFILES THEME"
@@ -1837,24 +1891,34 @@ func unownedThemeFileError(path string, art themeArtifact) error {
 	if anchorEnd == "" {
 		anchorEnd = "end of file"
 	}
-	proofs := []string{
-		fmt.Sprintf("no %q ownership marker", themeOwnershipMarker),
-		fmt.Sprintf("no generated theme block (%s)", themeBeginTag(art.Block)),
-		fmt.Sprintf("no dotfiles region anchors (%q ... %q)", anchorStart, anchorEnd),
-		"its bytes are not identical to the file this repository ships",
-	}
+	return fmt.Sprintf(
+		"not owned by dotfiles: no %q ownership marker, no generated theme block (%s), no dotfiles region anchors (%q ... %q), and its bytes are not identical to the file this repository ships",
+		themeOwnershipMarker, themeBeginTag(art.Block), anchorStart, anchorEnd)
+}
+
+// themeNothingThemedError is the refusal when a run changed nothing: every
+// installed managed file was left exactly as it is, and the message names each
+// one, why, and the way forward.
+func themeNothingThemedError(skipped []themeSkippedFile) error {
 	return fmt.Errorf(
-		"%s is not owned by dotfiles, so it was left exactly as it is; "+
-			"checked: %s; "+
-			"what you can do: reinstall so dotfiles installs its marked files, or leave this file out of the theme change",
-		path, strings.Join(proofs, "; "))
+		"nothing was themed: every installed managed file was left exactly as it is; %s. The file(s): %s",
+		themeLeftAloneWayForward, themeSkippedList(skipped))
+}
+
+// themePartialResultSentence reports a run that themed what it could and left the
+// rest alone: how many files were themed, and every file that was skipped with
+// its reason. Its prefix is what keeps the result from reading as a plain
+// success.
+func themePartialResultSentence(themed int, skipped []themeSkippedFile) string {
+	return fmt.Sprintf("%s%d file(s) were themed and %d file(s) were left exactly as they are: %s. %s.",
+		themePartialNoticePrefix, themed, len(skipped), themeSkippedList(skipped), themeLeftAloneWayForward)
 }
 
 // applyDotfilesTheme switches every installed terminal file to the theme,
 // recording the exact bytes each one held so the change can be undone. It is
-// gated on dryRun() exactly as executeStep is, refuses a file this repository
-// does not own, and restores anything it already wrote if a later write fails.
-// It never invents a file: a tool that is not installed is skipped.
+// gated on dryRun() exactly as executeStep is, leaves a file it cannot prove it
+// owns exactly as it is, and restores anything it already wrote if a later write
+// fails. It never invents a file: a tool that is not installed is skipped.
 //
 // A file with no ownership marker is not refused outright, because there are two
 // more degrees of ownership below the marker, and they are not the same thing:
@@ -1870,14 +1934,18 @@ func unownedThemeFileError(path string, art themeArtifact) error {
 //     rewritten; every other byte of the file is left exactly as it was, and the
 //     original is recorded so undo restores it byte-for-byte.
 //
-// A file that proves neither degree is still refused and left exactly as it is.
+// A file that proves neither degree is left exactly as it is and named, but it no
+// longer stops the run: the switch themes every file it can prove it owns, collects
+// every file it could not in one pass, and reports the run as partial rather than
+// as a plain success. Stopping at the first such file left every later managed file
+// on the old palette for a reason that was about one file.
 //
 // A managed file that already carries the ownership marker but has neither the
 // generated block nor the region anchors is the one case the two proofs above
 // cannot bring forward - there is nothing to replace and no region to rewrite -
 // and the switch does not skip it in silence: it applies the files it can, names
-// each one it could not update, and says that a reinstall refreshes it. The file
-// is left exactly as it is either way.
+// each file it could not update with what refreshes it, and reports the run as
+// partial. The file is left exactly as it is either way.
 func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfilesThemeRecord, string, error) {
 	if dryRun() {
 		SendLog("utilities", fmt.Sprintf("DRY RUN: skipping the switch to the %s theme", def.Name))
@@ -1888,15 +1956,11 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 	var written []string
 	var adopted []string
 	var regionAdopted []string
-	// cannotUpdate names the marked managed files whose generated block and region
-	// anchors are both missing, so the switch can say which files it could not
-	// update rather than skipping them in silence. It is keyed by path: several
-	// artifacts share one file.
-	var cannotUpdate []string
-	// nvimUnreachable names why the Neovim colorscheme could not be made reachable
-	// on this machine. It is empty when the line either resolves or was never a
-	// candidate; when it is not empty the line was left out.
-	var nvimUnreachable string
+	// skipped names every installed file the switch left exactly as it is, and why,
+	// in the order the artifacts reach them. It is the whole list, not the first
+	// file: ownership that cannot be proven about one artifact does not stop the
+	// files that can be themed.
+	var skipped []themeSkippedFile
 	themed := 0
 	// record keeps the first bytes read for a path. Several artifacts can share
 	// one file (Starship's two blocks, .zshrc's zsh and bat blocks), and a later
@@ -1971,13 +2035,17 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 					// nothing to rewrite here. Name it so the switch says so instead of
 					// reporting a change it did not make; an adopted one is already
 					// recorded, so undo takes it back.
-					if owned && !slices.Contains(cannotUpdate, path) {
-						cannotUpdate = append(cannotUpdate, path)
+					if owned {
+						skipped = themeSkipOnce(skipped, path,
+							"carries the dotfiles ownership marker but no generated theme block and no region anchors, so it cannot be updated in place without refreshing it")
 					}
 					continue
 				}
-				restoreWritten()
-				return nil, "", unownedThemeFileError(path, art)
+				// A file neither proof covers is left exactly as it is and named, and
+				// the run keeps going: the files it can prove it owns are still themed,
+				// and the ones it could not are reported together at the end.
+				skipped = themeSkipOnce(skipped, path, unownedThemeFileReason(art))
+				continue
 			}
 			updated = region
 		}
@@ -1989,7 +2057,7 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 			// reached the line is left out rather than starting Neovim broken, and
 			// the reason is said out loud below.
 			if reason := reachableNvimColorscheme(homeDir, def); reason != "" {
-				nvimUnreachable = reason
+				skipped = themeSkipOnce(skipped, path, "Neovim was left on its previous colorscheme: "+reason)
 				continue
 			}
 		}
@@ -2004,24 +2072,17 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 		themed++
 	}
 
-	// A file that could not be updated is named once per file, whether the switch
-	// applied the rest or nothing at all, so a switch that left files on the old
-	// palette is never reported as a whole one.
-	for _, path := range cannotUpdate {
-		SendLog("utilities", fmt.Sprintf("%s carries the ownership marker but no generated block or region anchors, so it cannot be updated without refreshing it; reinstall the dotfiles to write the block.", path))
-	}
-
-	if nvimUnreachable != "" {
-		SendLog("utilities", "Neovim was left on its previous colorscheme: "+nvimUnreachable)
+	// Every file left alone is named once per file, whether the switch applied the
+	// rest or nothing at all, so a switch that left files on the old palette is
+	// never reported as a whole one.
+	for _, s := range skipped {
+		SendLog("utilities", fmt.Sprintf("%s was left exactly as it is: %s", s.Path, s.Reason))
 	}
 
 	if themed == 0 {
 		restoreWritten()
-		if len(cannotUpdate) > 0 {
-			return nil, "", fmt.Errorf("%s", themeCannotUpdateSentence(cannotUpdate))
-		}
-		if nvimUnreachable != "" {
-			return nil, "", fmt.Errorf("Neovim was left on its previous colorscheme: %s, and no other installed theme block was found, so nothing was changed", nvimUnreachable)
+		if len(skipped) > 0 {
+			return nil, "", themeNothingThemedError(skipped)
 		}
 		return nil, "", fmt.Errorf("no installed theme block was found, so nothing was changed")
 	}
@@ -2045,8 +2106,8 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 		SendLog("utilities", fmt.Sprintf("Adopted the dotfiles region in %s: the bytes between its anchors were rewritten and the rest of the file was left untouched; Undo puts it back.", path))
 	}
 	notice := ""
-	if len(cannotUpdate) > 0 {
-		notice = themeCannotUpdateSentence(cannotUpdate) + " "
+	if len(skipped) > 0 {
+		notice = themePartialResultSentence(themed, skipped) + " "
 	}
 	if len(adopted) > 0 {
 		notice += fmt.Sprintf("Adopted %d file(s) whose whole content proved they are dotfiles', adding the ownership marker and nothing else. ", len(adopted))
@@ -2054,23 +2115,9 @@ func applyDotfilesTheme(homeDir, repoDir string, def themeDefinition) (*dotfiles
 	if len(regionAdopted) > 0 {
 		notice += fmt.Sprintf("Adopted %d file(s) whose dotfiles region was rewritten in place, leaving the rest of each file untouched. ", len(regionAdopted))
 	}
-	if nvimUnreachable != "" {
-		notice += fmt.Sprintf("Neovim was left on its previous colorscheme: %s. ", nvimUnreachable)
-	}
 	notice += fmt.Sprintf("The %s theme is applied to %d file(s). The blocks it replaced are recorded; use Undo to put them back.",
 		def.Name, themed)
 	return next, notice, nil
-}
-
-// themeCannotUpdateSentence names the managed files whose generated block and
-// region anchors are both missing, so a file that cannot be updated in place is
-// said out loud. It heads the per-file lines the switch logs, and it is the whole
-// result when none of the installed files could be updated: the remedy is a
-// reinstall, which is what writes the generated block into a file that only
-// carries the ownership marker.
-func themeCannotUpdateSentence(paths []string) string {
-	return fmt.Sprintf("%d managed file(s) carry the ownership marker but no generated block and no region anchors, so they cannot be updated without refreshing them. Reinstall the dotfiles to refresh them (a reinstall writes the block). The file(s) were left exactly as they are: %s.",
-		len(paths), strings.Join(paths, ", "))
 }
 
 // undoDotfilesTheme puts back the exact bytes each file held before the change,

@@ -301,25 +301,30 @@ the *content* — never the path — whether the file is ours, and it recognises
   so it would put the old palette back at the next shell start. The refresh below is the path that
   preserves a whole file before it replaces it.
 
-A file that proves neither degree is still refused, unchanged — and the refusal **names the file,
-every proof that was attempted** (the ownership marker, the generated block, the region anchors, the
-byte-for-byte match) and **what the user can do**: reinstall so dotfiles writes its marked files, or
-leave that file out of the theme change.
+A file that proves neither degree is left exactly as it is, but it no longer stops the run: the
+switch **themes every file it can prove it owns**, collects every file it could not in one pass, and
+reports the run as **partial** — the result names each file it left alone with every proof that was
+attempted (the ownership marker, the generated block, the region anchors, the byte-for-byte match),
+and **what the user can do**. That guidance names only actions the interface offers: run the installer
+again (its backup step keeps a copy of the file first, and its configuration step writes it in the
+marked form), or the picker's own **Refresh outdated theme files** row for a file whose dotfiles block
+can still be recognised. There is no per-file selection in the picker, so the old "leave this file out
+of the theme change" clause is gone: naming an action the product cannot do is worse than naming none.
 
 **A marked file with nothing to rewrite is named, not skipped in silence.** A managed file can carry
 the `dotfiles-managed-config:` marker yet hold no `>>> dotfiles-theme...` block and none of the region
 anchors the generator knows - a generated block that was removed by hand, for instance. (A marked
 file that still carries its region anchors is not this case: the switch adopts that region, above.)
 The file is ours, so it is not refused, but there is nothing to replace and no region to rewrite.
-Rather than quietly leaving it on the old palette, the switch **names the file and says what fixes
-it**: a reinstall rewrites the block, because that is what writes generated blocks into installed
-files. One line per affected file goes to the log and the result that heads them counts the files, so
-a switch that updated the rest is never reported as a whole one. A file whose content has drifted past
-both proofs above is a different case (no marker at all): it is refused, and the run stops rather than
-writing around it. The marker-but-nothing-to-rewrite case **applies the files it can and reports the
-ones it cannot**, because the file is already ours — refusing the whole switch would put a machine
-that already has dotfiles back where adoption was introduced to rescue it, and leaving the rest
-unchanged would be a worse outcome than a reported, reversible partial switch.
+Rather than quietly leaving it on the old palette, the switch **names the file and says what refreshes
+it**: running the installer again rewrites the block, because that is what writes generated blocks
+into installed files. One line per affected file goes to the log and the result that heads them counts
+the files, so a switch that updated the rest is never reported as a whole one. A file whose content
+has drifted past both proofs above is a different case (no marker at all): it is left exactly as it is
+and named, and the run carries on to the files it can prove it owns. Both cases **apply the files they
+can and report the ones they cannot** as a partial result, because refusing the whole switch would put
+a machine that already has dotfiles back where adoption was introduced to rescue it, and leaving the
+rest unchanged would be a worse outcome than a reported, reversible partial switch.
 
 **It is reversible.** Before writing, the switch records the exact bytes each file held in the same
 `$XDG_STATE_HOME/dotfiles/theme.json` the desktop switch uses (the two halves coexist in that one

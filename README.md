@@ -275,11 +275,13 @@ is adopted first: when its whole content proves it is ours (it is what the repos
 carries a generated block marker) only that marker line is added, and when only a region is ours —
 the file has drifted but still carries the anchors the generator knows — **only the bytes between
 those anchors are rewritten and the rest of the file is left untouched**; either way Undo puts the
-original back byte-for-byte, and a file that proves neither is refused with a message that names the
-proofs it tried and the way forward. A managed file that carries the ownership marker but has neither
-the generated block nor a region to rewrite is named, not skipped in silence: the switch applies the
-files it can, names each one it left alone, and says that reinstalling the dotfiles refreshes it,
-rather than reporting a change it did not make. The **Refresh outdated theme files** row brings an old file
+original back byte-for-byte, and a file that proves neither is left exactly as it is: the switch
+keeps going, themes every file it can prove it owns, and reports the run as **partial**, naming
+every file it left alone, every proof it tried and the way forward rather than stopping at the first
+one. A managed file that carries the ownership marker but has neither the generated block nor a
+region to rewrite is named the same way, not skipped in silence: the switch applies the files it
+can, names each one it left alone, and names what refreshes it, rather than reporting a change it
+did not make. A partial run is never reported as a whole one. The **Refresh outdated theme files** row brings an old file
 forward as a named, preserved change — it names every file it would touch and where an unowned one is
 preserved (into `~/.zshrc.d/` or `~/.config/fish/dotfiles.d/`, or beside itself as
 `<path>.bak-dotfiles-<timestamp>`) before anything is written — records the previous bytes so Undo

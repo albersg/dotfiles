@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
@@ -3484,6 +3485,227 @@ func TestDotfilesThemeSwitchRefusesAnUnownedFile(t *testing.T) {
 	}
 }
 
+// TestThemeSwitchThemesTheOwnedFilesAfterAnUnownedFirstArtifact is the defect
+// from issue #268 as a guard: alacritty is the first entry in
+// themeActiveArtifacts, so a machine carrying a legacy alacritty.toml used to
+// stop the whole run there - after restoreWritten() had put back everything it
+// wrote - and left kitty, herdr and every other managed file on the old palette
+// for a reason that was about one file. The guard drives the switch the way the
+// interface does (a press on a theme row, then the command the press returns),
+// and it requires every owned file to be themed, both unowned files to be
+// named, and both unowned files to keep their bytes.
+//
+// Its teeth: restoring the first-stop return leaves the owned files unchanged
+// and the second unowned file unnamed, both of which fail below.
+func TestThemeSwitchThemesTheOwnedFilesAfterAnUnownedFirstArtifact(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// No tmux or bat on PATH: the reload step must not run a command here.
+	t.Setenv("PATH", t.TempDir())
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	// Two unowned files, the first of which is the first artifact of all, and two
+	// owned files that come after it.
+	alacrittyPath := themeInstalledPath(artifactByName(t, "alacritty"), home)
+	alacrittyUser := []byte("# my own alacritty config\nbackground = \"#000000\"\n")
+	writeThemeFileAt(t, alacrittyPath, string(alacrittyUser))
+	ghosttyPath := themeInstalledPath(artifactByName(t, "ghostty"), home)
+	ghosttyUser := []byte("# my own ghostty config\nfont-size = 12\n")
+	writeThemeFileAt(t, ghosttyPath, string(ghosttyUser))
+
+	ownedBefore := installThemeFiles(t, home, "kitty", "herdr")
+	herdrPath := themeInstalledPath(artifactByName(t, "herdr"), home)
+	kittyPath := themeInstalledPath(artifactByName(t, "kitty"), home)
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	m.DotfilesRepoDir = repoRoot(t)
+	m.Width, m.Height = 80, 24
+	m.Cursor = themePickerRowIndex(t, m, dotfilesThemeRow(target))
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("pressing the theme row returned no command, so the switch is not wired")
+	}
+	msg := cmd()
+	next, _ = m.Update(msg)
+	m = next.(Model)
+
+	changed, ok := msg.(dotfilesThemeChangedMsg)
+	if !ok {
+		t.Fatalf("the press returned %T, want the switch's result message", msg)
+	}
+	if changed.err != nil {
+		t.Fatalf("a run that themed files and skipped others was reported as a failure: %v", changed.err)
+	}
+	// The partial report names every file it left alone, not just the first.
+	for _, want := range []string{alacrittyPath, ghosttyPath, "not owned by dotfiles"} {
+		if !strings.Contains(changed.notice, want) {
+			t.Errorf("the partial report does not name %q:\n%s", want, changed.notice)
+		}
+	}
+
+	// The owned files were themed.
+	for _, p := range []string{kittyPath, herdrPath} {
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(got, ownedBefore[p]) {
+			t.Errorf("%s was left on the old palette although the switch can prove it owns it", p)
+		}
+	}
+	// The unowned files kept their bytes.
+	for p, want := range map[string][]byte{alacrittyPath: alacrittyUser, ghosttyPath: ghosttyUser} {
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("the unowned file %s was changed", p)
+		}
+	}
+	// Only the files it wrote are recorded, so undo can put them back and never
+	// touches a file it could not prove it owns.
+	rec := readDotfilesThemeRecord()
+	if rec == nil {
+		t.Fatal("the partial run recorded nothing, so the change is not reversible")
+	}
+	for _, p := range []string{alacrittyPath, ghosttyPath} {
+		if _, ok := rec.Files[p]; ok {
+			t.Errorf("the record holds the unowned file %s, so undo would write it", p)
+		}
+	}
+	for _, p := range []string{kittyPath, herdrPath} {
+		if _, ok := rec.Files[p]; !ok {
+			t.Errorf("the record does not hold %s, so undo cannot put it back", p)
+		}
+	}
+	if _, err := undoDotfilesTheme(*rec); err != nil {
+		t.Fatalf("undo the partial run: %v", err)
+	}
+	for p, want := range ownedBefore {
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("undo did not restore %s byte-for-byte", p)
+		}
+	}
+}
+
+// TestThemeSwitchReportsAPartialRunAsPartial is the reporting half of issue
+// #268: a run that left a file alone must never be told as a plain success. The
+// guard drives the picker and requires the result to be marked partial - the
+// prefix the caller keys on - and to name what it skipped and why. The control
+// is a run with nothing to skip, which must not be marked partial, so the mark
+// cannot be painted on every run.
+//
+// Its teeth: dropping the partial report (or folding it back into the plain
+// "applied to N file(s)" sentence) fails the prefix and the skip-name
+// assertions; marking every run partial fails the control.
+func TestThemeSwitchReportsAPartialRunAsPartial(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("DOTFILES_DRY_RUN", "0")
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	target, ok := themeByID(defs, "catppuccin-mocha")
+	if !ok {
+		t.Fatal("the catppuccin-mocha definition is missing")
+	}
+
+	// One unowned file and one owned one: the run themes the owned file and must
+	// report that it left the other alone.
+	unownedPath := themeInstalledPath(artifactByName(t, "alacritty"), home)
+	writeThemeFileAt(t, unownedPath, "# my own alacritty config\nbackground = \"#000000\"\n")
+	installThemeFiles(t, home, "herdr")
+
+	m := NewModel()
+	m.Screen = ScreenThemePicker
+	m.DotfilesThemes = defs
+	m.DotfilesRepoDir = repoRoot(t)
+	m.Width, m.Height = 80, 24
+	m.Cursor = themePickerRowIndex(t, m, dotfilesThemeRow(target))
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("pressing the theme row returned no command, so the switch is not wired")
+	}
+	msg := cmd()
+	changed, ok := msg.(dotfilesThemeChangedMsg)
+	if !ok {
+		t.Fatalf("the press returned %T, want the switch's result message", msg)
+	}
+	if !themeNoticeIsPartial(changed.notice) {
+		t.Errorf("a run that skipped %s is not reported as partial:\n%s", unownedPath, changed.notice)
+	}
+	if !strings.Contains(changed.notice, "left exactly as they are") || !strings.Contains(changed.notice, unownedPath) {
+		t.Errorf("the partial result does not name what it left alone:\n%s", changed.notice)
+	}
+
+	// The control: a run with nothing to skip is a plain success and carries no
+	// partial mark.
+	controlHome := t.TempDir()
+	t.Setenv("HOME", controlHome)
+	installThemeFiles(t, controlHome, "herdr")
+	control := NewModel()
+	control.Screen = ScreenThemePicker
+	control.DotfilesThemes = defs
+	control.DotfilesRepoDir = repoRoot(t)
+	control.Width, control.Height = 80, 24
+	control.Cursor = themePickerRowIndex(t, control, dotfilesThemeRow(target))
+	nextControl, controlCmd := control.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	control = nextControl.(Model)
+	if controlCmd == nil {
+		t.Fatal("pressing the theme row returned no command in the control run")
+	}
+	controlMsg, ok := controlCmd().(dotfilesThemeChangedMsg)
+	if !ok {
+		t.Fatal("the control press did not return the switch's result message")
+	}
+	if controlMsg.err != nil {
+		t.Fatalf("the control run failed: %v", controlMsg.err)
+	}
+	if themeNoticeIsPartial(controlMsg.notice) {
+		t.Errorf("a run with nothing to skip is marked partial:\n%s", controlMsg.notice)
+	}
+
+	// The message being partial is not enough: the frame is what a person sees.
+	// update.go's reload branch used to drop the notice in favour of the reload
+	// paragraphs, which renders a partial run as a plain success -- the defect this
+	// guard exists for. Feed the message back through the model and read the slot.
+	nextShown, _ := m.Update(msg)
+	shown := strings.Join(nextShown.(Model).ThemeActivity.Result, "\n")
+	if !themeNoticeIsPartial(shown) {
+		t.Errorf("the activity slot did not carry the partial notice, so a partial run renders as a plain success:\n%s", shown)
+	}
+	if !strings.Contains(shown, "alacritty") {
+		t.Errorf("the activity slot does not name the file the run left alone:\n%s", shown)
+	}
+}
+
 // installThemeFileWithoutOwnershipMarker writes the file the repository ships
 // for tool into home with the ownership-marker line removed, which is the state
 // an install from before the marker leaves behind. It returns the bytes written.
@@ -3763,11 +3985,11 @@ func TestThemeSwitchReportsAnOwnedFileWithNoGeneratedBlock(t *testing.T) {
 	if !strings.Contains(notice, stalePath) {
 		t.Errorf("the notice does not name the file it could not update: %q", notice)
 	}
-	if !strings.Contains(notice, "generated block") || !strings.Contains(notice, "ownership marker") {
+	if !strings.Contains(notice, "generated theme block") || !strings.Contains(notice, "ownership marker") {
 		t.Errorf("the notice does not name the condition: %q", notice)
 	}
-	if !strings.Contains(notice, "Reinstall") {
-		t.Errorf("the notice does not say a reinstall refreshes the file: %q", notice)
+	if !strings.Contains(notice, themeRefreshRow) {
+		t.Errorf("the notice does not name the picker's own way forward (%q): %q", themeRefreshRow, notice)
 	}
 }
 
@@ -3798,7 +4020,7 @@ func TestThemeSwitchNamesEveryFileItCannotUpdate(t *testing.T) {
 			t.Errorf("the notice does not name %s: %q", path, notice)
 		}
 	}
-	if !strings.Contains(notice, "2 managed file") {
+	if !strings.Contains(notice, "2 file(s) were left") {
 		t.Errorf("the notice does not count both unrefreshable files: %q", notice)
 	}
 }
@@ -3831,8 +4053,8 @@ func TestThemeSwitchReportsWhenNothingCanBeUpdated(t *testing.T) {
 	if !strings.Contains(err.Error(), stalePath) {
 		t.Errorf("the failure does not name the file it could not update: %v", err)
 	}
-	if !strings.Contains(err.Error(), "Reinstall") {
-		t.Errorf("the failure does not say a reinstall refreshes the file: %v", err)
+	if !strings.Contains(err.Error(), themeRefreshRow) {
+		t.Errorf("the failure does not name the picker's own way forward (%q): %v", themeRefreshRow, err)
 	}
 	stale, readErr := os.ReadFile(stalePath)
 	if readErr != nil {

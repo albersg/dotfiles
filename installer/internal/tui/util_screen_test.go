@@ -1132,7 +1132,12 @@ func TestThemeRegionAdoptionCoversTheUsersFiveFiles(t *testing.T) {
 // TestThemeRefusalNamesTheProbesAndTheWayForward pins the message. A refusal
 // that says only "not owned" is a closed door with no sign, so it must name the
 // file, every proof the switch attempted - the marker, the generated block, the
-// region anchors, the byte-identity - and what the user can do next.
+// region anchors, the byte-identity - and the way forward. The way forward must
+// be an action the interface actually offers: the picker has no per-file
+// selection, so the old "leave this file out of the theme change" clause named
+// something the product cannot do, and a sentence like that is worse than none.
+// Its teeth are the old clause coming back and the way-forward sentence being
+// dropped, either of which fails the assertions below.
 func TestThemeRefusalNamesTheProbesAndTheWayForward(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("DOTFILES_DRY_RUN", "0")
@@ -1157,11 +1162,18 @@ func TestThemeRefusalNamesTheProbesAndTheWayForward(t *testing.T) {
 		"generated",
 		"anchor",
 		"identical",
-		"reinstall",
-		"leave",
+		themeRefreshRow,
+		"run the installer again",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal does not name %q:\n%s", want, msg)
+		}
+	}
+	// The unreachable action and the bare "reinstall" the issue named are gone:
+	// naming a path the interface does not offer is the defect, not the fix.
+	for _, never := range []string{"leave this file out of the theme change", "reinstall"} {
+		if strings.Contains(msg, never) {
+			t.Errorf("the refusal names the unavailable action %q:\n%s", never, msg)
 		}
 	}
 	got, readErr := os.ReadFile(dst)
