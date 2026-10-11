@@ -484,7 +484,8 @@ everything is fine.
 
 **The step states the truth before it reports anything as done.** It says where the font and the
 palette landed, that Windows Terminal is the renderer, and the two settings it has to be told: the
-font face `IosevkaTerm Nerd Font` and the colour scheme `dotfiles`. The line is unconditional — it is
+font face `MesloLGS NF` and the colour scheme `dotfiles` (the offer names the machine's own build
+instead once the font store resolves it). The line is unconditional — it is
 not behind a choice, and it does not depend on whether Windows Terminal is reachable. It also says
 that Windows Terminal reads its font list once, when it starts, so it has to be reopened. The list of
 owned settings is declared once in the code (`windowsTerminalSettings`), so the notice and the
@@ -499,9 +500,14 @@ font store, `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, and registers them under
 needs no administrator, and it is the same mechanism the reporter's machine already used for its own
 Nerd Font.
 
-**The family is verified before the face is named.** After registering, the step asks the Windows
-font store (`System.Drawing.Text.InstalledFontCollection`, the list the renderer resolves a face
-against) whether the family is there. Only an answer of present lets `font.face` be written; an
+**The family is verified before the face is named.** The face is resolved from the Windows font
+store, never hand-written, and the machine's own build is preferred: when the store already resolves
+`MesloLGS NF Herdr`, the step names it and copies nothing, because that is the family the person
+chose for the machine and the installer does not redistribute it. Otherwise the archive's public
+`MesloLGS NF` family is the fallback: the step copies the handful of faces, registers them, and asks
+the Windows font store (`System.Drawing.Text.InstalledFontCollection`, the list the renderer
+resolves a face against) whether the family is there. Only an answer of present lets `font.face` be
+written; an
 answer of absent, or no answer at all — interop missing, a query that timed out, an unusable font
 store — leaves the face unwritten and says why. A face written without that check produces a silent
 fallback, which is the defect this issue is about, so the check is the gate rather than a courtesy.
@@ -627,7 +633,7 @@ and the choices, so a run shows only the ones that apply.
 | Install Homebrew | Installs Homebrew, the package manager |
 | Clone Repository | Downloads your dotfiles repository |
 | Install Terminal | Installs your chosen terminal emulator |
-| Install Iosevka Nerd Font | Installs the Iosevka Nerd Font for icons |
+| Install Meslo Nerd Font | Installs the Meslo Nerd Font for icons |
 | Install Shell | Installs your shell and its plugins |
 | Install Multiplexer | Installs your terminal multiplexer |
 | Install Neovim | Installs Neovim with your configuration |
@@ -642,7 +648,7 @@ The installing screen is the longest thing a user watches, so it shows how far
 the run has come: a progress bar sized to the frame with a percentage beside it,
 a rail of one row per step whose state is a glyph and a word (`✓` done,
 `●` running, `○` pending, `✗` failed, `⊘` skipped), and, under the bar, the step
-the run is on with its name (`Step 6 of 9 · Install Iosevka Nerd Font`) and the
+the run is on with its name (`Step 6 of 9 · Install Meslo Nerd Font`) and the
 run's clock — how long it has taken and how much is left. The running step's
 description is shown under its row, and `d` opens a log box. Under the clock, once
 the sampler has a reading, one row shows the machine's pulse (cpu and memory
@@ -1335,7 +1341,7 @@ Backups must be in your home directory with the format:
 
 ### Font Not Displaying Correctly
 
-1. Ensure the terminal is using "Iosevka Term Nerd Font"
+1. Ensure the terminal is using "MesloLGS NF"
 2. Restart your terminal after font installation
 3. On macOS, you may need to manually select the font in terminal preferences
 

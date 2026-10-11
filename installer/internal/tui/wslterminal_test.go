@@ -101,7 +101,7 @@ func TestWSLStepSuccessNamesWindowsTerminal(t *testing.T) {
 // regression that writes without a backup fails here.
 func TestWindowsTerminalWriteAlwaysBacksUp(t *testing.T) {
 	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
-	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
 	if !offer.Available {
 		t.Fatalf("the offer must be available, got: %s", offer.Reason)
 	}
@@ -136,7 +136,7 @@ func TestWindowsTerminalWriteAbortsWhenTheBackupFails(t *testing.T) {
 	}
 
 	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
-	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
 	if !offer.Available {
 		t.Fatalf("the offer must be available: %s", offer.Reason)
 	}
@@ -162,7 +162,7 @@ func TestWindowsTerminalWriteAbortsWhenTheBackupFails(t *testing.T) {
 // the explicit yes changes nothing and leaves no backup behind.
 func TestWindowsTerminalWriteRequiresTheChoice(t *testing.T) {
 	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
-	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
 	if !offer.Available {
 		t.Fatalf("the offer must be available, got: %s", offer.Reason)
 	}
@@ -202,7 +202,7 @@ func TestWindowsTerminalSettingsContentPreservesCommentsAndOtherKeys(t *testing.
 		t.Fatalf("windowsTerminalSchemeFor failed: %v", err)
 	}
 
-	updated, err := windowsTerminalSettingsContent([]byte(testWindowsTerminalSettings), scheme)
+	updated, err := windowsTerminalSettingsContent([]byte(testWindowsTerminalSettings), scheme, windowsTerminalFontFace)
 	if err != nil {
 		t.Fatalf("windowsTerminalSettingsContent failed: %v", err)
 	}
@@ -288,11 +288,11 @@ func TestWindowsTerminalSettingsContentIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	once, err := windowsTerminalSettingsContent([]byte(testWindowsTerminalSettings), scheme)
+	once, err := windowsTerminalSettingsContent([]byte(testWindowsTerminalSettings), scheme, windowsTerminalFontFace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	twice, err := windowsTerminalSettingsContent(once, scheme)
+	twice, err := windowsTerminalSettingsContent(once, scheme, windowsTerminalFontFace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func TestWindowsTerminalReadOfferRefusesWhatItCannotEditSafely(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			profileDir, settingsPath := newWindowsTerminalProfile(t, tt.settings)
-			offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+			offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
 			if offer.Available {
 				t.Fatalf("the offer must be refused for %q", tt.name)
 			}
@@ -360,7 +360,7 @@ func TestWindowsTerminalReadOfferRefusesWhatItCannotEditSafely(t *testing.T) {
 // directory with no settings.json is a named refusal, not an empty file.
 func TestWindowsTerminalReadOfferRefusesWhenTheFileIsAbsent(t *testing.T) {
 	profileDir, _ := newWindowsTerminalProfile(t, "")
-	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
 	if offer.Available {
 		t.Fatal("an absent settings.json must not be offered")
 	}
@@ -512,7 +512,7 @@ func TestWindowsTerminalSettingsListNamesWhatWrites(t *testing.T) {
 // names the file, the font face and the scheme before the user chooses.
 func TestWindowsTerminalOfferDescribesWhatWouldChange(t *testing.T) {
 	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
-	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition())
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
 	if !offer.Available {
 		t.Fatalf("the offer must be available: %s", offer.Reason)
 	}
@@ -599,6 +599,44 @@ func stubWindowsFontQuery(t *testing.T, answer string) *[]string {
 	return scripts
 }
 
+// stubWindowsFontQueryStateful replaces the Windows command boundary with a
+// fake font store. installed names the families the store resolves before any
+// registration; a family that is not installed starts resolving once a
+// registration query has run, because registration writes the per-user font key
+// the store reads. scripts records every query so a test can assert what ran. No
+// test ever spawns powershell.exe.
+func stubWindowsFontQueryStateful(t *testing.T, installed map[string]bool) *[]string {
+	t.Helper()
+
+	scripts := &[]string{}
+	registered := false
+	previous := windowsFontQuery
+	windowsFontQuery = func(_ context.Context, script string) ([]byte, error) {
+		*scripts = append(*scripts, script)
+		if strings.Contains(script, "New-ItemProperty") {
+			registered = true
+			return nil, nil
+		}
+		for face, present := range installed {
+			if strings.Contains(script, psSingleQuote(face)) {
+				if present {
+					return []byte(windowsFontPresent + "\n"), nil
+				}
+				return []byte(windowsFontAbsent + "\n"), nil
+			}
+		}
+		// A family the map does not hold resolves only after the installer has
+		// registered the archive family into the store.
+		if registered && strings.Contains(script, psSingleQuote(windowsTerminalFontFace)) {
+			return []byte(windowsFontPresent + "\n"), nil
+		}
+		// A query that names a family the map does not hold is absent.
+		return []byte(windowsFontAbsent + "\n"), nil
+	}
+	t.Cleanup(func() { windowsFontQuery = previous })
+	return scripts
+}
+
 // newWindowsTerminalWSLLayout builds the whole WSL fixture: a checkout that
 // ships the .wslconfig template, wsl.conf and the dotfiles theme; a Windows
 // profile whose settings.json is reachable; a Linux font directory holding the
@@ -651,7 +689,7 @@ func newWindowsTerminalWSLLayout(t *testing.T) (repoDir, profileDir, settingsPat
 // directly hid the fact that no flag and no screen could reach them.
 func TestWSLConfigStepConfiguresWindowsTerminalUnderNonInteractive(t *testing.T) {
 	repoDir, profileDir, settingsPath := newWindowsTerminalWSLLayout(t)
-	scripts := stubWindowsFontQuery(t, windowsFontPresent)
+	scripts := stubWindowsFontQueryStateful(t, map[string]bool{})
 	setNonInteractiveForTest(t, true)
 
 	m := wslModel(repoDir, true)
@@ -666,14 +704,20 @@ func TestWSLConfigStepConfiguresWindowsTerminalUnderNonInteractive(t *testing.T)
 		}
 	}
 
-	if len(*scripts) < 2 {
-		t.Fatalf("expected a registration query and a verification query, got %d", len(*scripts))
+	registered, verified := false, false
+	for _, script := range *scripts {
+		if strings.Contains(script, "New-ItemProperty") {
+			registered = true
+		}
+		if strings.Contains(script, "InstalledFontCollection") && strings.Contains(script, windowsTerminalFontFace) {
+			verified = true
+		}
 	}
-	if !strings.Contains((*scripts)[0], "New-ItemProperty") {
-		t.Errorf("the first query should register the font, got:\n%s", (*scripts)[0])
+	if !registered {
+		t.Errorf("the family must be registered under HKCU before the face is written; queries were %v", *scripts)
 	}
-	if !strings.Contains((*scripts)[1], "InstalledFontCollection") {
-		t.Errorf("the second query should verify the family, got:\n%s", (*scripts)[1])
+	if !verified {
+		t.Errorf("the family %q must be verified in the font store before the face is written; queries were %v", windowsTerminalFontFace, *scripts)
 	}
 
 	after, err := os.ReadFile(settingsPath)
@@ -693,6 +737,55 @@ func TestWSLConfigStepConfiguresWindowsTerminalUnderNonInteractive(t *testing.T)
 	}
 	if backups, _ := filepath.Glob(settingsPath + ".bak-dotfiles-*"); len(backups) != 1 {
 		t.Errorf("the write must leave exactly one backup, got %v", backups)
+	}
+}
+
+// TestWSLConfigStepPrefersTheMachinesOwnFace is the "name what resolves" guard
+// for the preference rule. When the Windows font store already resolves the
+// machine's own Meslo build, the writer names it and copies nothing; a family
+// hand-written here rather than resolved would be the silent fallback the rule
+// exists to prevent.
+func TestWSLConfigStepPrefersTheMachinesOwnFace(t *testing.T) {
+	repoDir, profileDir, settingsPath := newWindowsTerminalWSLLayout(t)
+	stubWindowsFontQueryStateful(t, map[string]bool{windowsTerminalFontFacePreferred: true})
+	setNonInteractiveForTest(t, true)
+
+	var lines []string
+	restore := wslLog
+	wslLog = func(_, line string) { lines = append(lines, line) }
+	t.Cleanup(func() { wslLog = restore })
+
+	m := wslModel(repoDir, true)
+	if err := executeStep("wslconfig", &m); err != nil {
+		t.Fatalf("the --non-interactive step failed: %v", err)
+	}
+
+	store := filepath.Join(profileDir, filepath.FromSlash(windowsFontStoreRelPath))
+	for _, face := range windowsFontFaces {
+		if _, err := os.Stat(filepath.Join(store, face.File)); !os.IsNotExist(err) {
+			t.Errorf("the machine's own face resolved, so %s must not be copied into the Windows font store: %v", face.File, err)
+		}
+	}
+
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := parseJSONC(after)
+	if err != nil {
+		t.Fatalf("the written settings are not valid JSONC: %v\n%s", err, after)
+	}
+	defaults := root.findMember("profiles").value.findMember("defaults").value
+	if face := defaults.findMember("font").value.findMember("face"); face == nil || face.value.text != windowsTerminalFontFacePreferred {
+		t.Errorf("profiles.defaults.font.face was not written with the machine's own family %q", windowsTerminalFontFacePreferred)
+	}
+
+	// The notice names the face that was written, not the fallback constant: a
+	// description naming a different family than the settings file is the same
+	// silent mismatch in prose that the resolution rule closes in the file.
+	notice := strings.Join(lines, "\n")
+	if !strings.Contains(notice, windowsTerminalFontFacePreferred) {
+		t.Errorf("the success notice should name the resolved family %q, got:\n%s", windowsTerminalFontFacePreferred, notice)
 	}
 }
 

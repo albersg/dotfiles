@@ -8,7 +8,7 @@ This guide walks you through manually setting up your development environment wi
 - [Windows (WSL)](#windows-wsl)
   - [Install WSL](#1-install-wsl)
   - [Install a Linux Distribution](#2-install-a-linux-distribution)
-  - [Install the Iosevka Font](#3-install-the-iosevka-font)
+  - [Install the Meslo Font](#3-install-the-meslo-font)
   - [Update the Distribution](#4-update-the-distribution)
   - [Install a Terminal Emulator](#5-install-a-terminal-emulator)
   - [Configure Terminal Emulator](#6-configure-terminal-emulator)
@@ -17,7 +17,7 @@ This guide walks you through manually setting up your development environment wi
 - [Unsupported Native Windows Tooling](#unsupported-native-windows-tooling)
 - [Linux, Arch Linux, macOS, and WSL](#linux-arch-linux-macos-and-wsl)
   - [Install Dependencies](#1-install-dependencies)
-  - [Install Iosevka Term Nerd Font](#2-install-iosevka-term-nerd-font)
+  - [Install Meslo Nerd Font](#2-install-meslo-nerd-font)
   - [Install Terminal Emulator](#3-install-terminal-emulator)
   - [Install a Shell](#4-install-a-shell)
   - [Install Window Manager](#5-install-window-manager)
@@ -64,13 +64,19 @@ wsl --list --online
 wsl --install -d <distribution-name>
 ```
 
-### 3. Install the Iosevka Font
+### 3. Install the Meslo Font
 
-The Iosevka Term Nerd Font is required for terminal icons. On Windows, install manually:
+The Meslo Nerd Font is required for terminal icons. On Windows, install manually:
 
-1. Download from [Nerd Fonts GitHub](https://github.com/ryanoasis/nerd-fonts/releases) - look for `IosevkaTerm.zip`
+1. Download from [Nerd Fonts GitHub](https://github.com/ryanoasis/nerd-fonts/releases) - look for `Meslo.zip`
 2. Extract the archive
 3. Right-click each font file and select **"Install for all users"**
+
+Windows Terminal's face is resolved from the Windows font store, never guessed. If the machine already
+carries the `MesloLGS NF Herdr` build, the installer names that family when it writes
+`profiles.defaults.font.face`; otherwise it names the public `MesloLGS NF` family the archive provides.
+The four shipped terminal configurations (`alacritty.toml`, `.wezterm.lua`, Ghostty and Kitty) name the
+public `MesloLGS NF` family, because a static configuration cannot know which build a machine carries.
 
 ### 4. Update the Distribution
 
@@ -325,7 +331,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### 2. Install Iosevka Term Nerd Font
+### 2. Install Meslo Nerd Font
 
 #### Arch Linux / Linux
 
@@ -334,9 +340,9 @@ mkdir -p ~/.local/share/fonts
 # Download latest version from https://github.com/ryanoasis/nerd-fonts/releases
 # The archive lands in a scratch directory inside the font directory, never the
 # font directory itself, and is removed once the fonts are extracted
-font_scratch=$(mktemp -d ~/.local/share/fonts/.iosevka-term-XXXXXX)
-wget -O "$font_scratch/IosevkaTerm.zip" https://github.com/ryanoasis/nerd-fonts/releases/latest/download/IosevkaTerm.zip
-unzip "$font_scratch/IosevkaTerm.zip" -d ~/.local/share/fonts/
+font_scratch=$(mktemp -d ~/.local/share/fonts/.meslo-XXXXXX)
+wget -O "$font_scratch/Meslo.zip" https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip
+unzip "$font_scratch/Meslo.zip" -d ~/.local/share/fonts/
 rm -rf "$font_scratch"
 fc-cache -fv
 ```
@@ -344,7 +350,7 @@ fc-cache -fv
 #### macOS
 
 ```bash
-brew install --cask font-iosevka-term-nerd-font
+brew install --cask font-meslo-lg-nerd-font
 ```
 
 ### 3. Install Terminal Emulator

@@ -5349,9 +5349,9 @@ func stepInstallTerminal(m *Model) error {
 // The release URL is pinned, and the archive is fetched into a scratch directory
 // the step owns instead of into the font directory: see stepInstallFont.
 const (
-	iosevkaTermArchiveURL  = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/IosevkaTerm.zip"
-	iosevkaTermArchiveName = "IosevkaTerm.zip"
-	fontScratchDirPrefix   = ".iosevka-term-"
+	mesloArchiveURL      = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip"
+	mesloArchiveName     = "Meslo.zip"
+	fontScratchDirPrefix = ".meslo-"
 )
 
 func stepInstallFont(m *Model) error {
@@ -5386,12 +5386,12 @@ func stepInstallFont(m *Model) error {
 	}
 
 	if m.SystemInfo.OS == system.OSMac {
-		SendLog(stepID, "Installing Iosevka Term Nerd Font...")
-		result := system.RunBrewWithLogs("install --cask font-iosevka-term-nerd-font", nil, func(line string) {
+		SendLog(stepID, "Installing Meslo Nerd Font...")
+		result := system.RunBrewWithLogs("install --cask font-meslo-lg-nerd-font", nil, func(line string) {
 			SendLog(stepID, line)
 		})
 		if result.Error != nil {
-			return wrapStepError("font", "Install Iosevka Nerd Font",
+			return wrapStepError("font", "Install Meslo Nerd Font",
 				"Failed to install font via Homebrew. Try installing manually from https://www.nerdfonts.com/",
 				result.Error)
 		}
@@ -5403,7 +5403,7 @@ func stepInstallFont(m *Model) error {
 	fontDir := filepath.Join(homeDir, ".local/share/fonts")
 	SendLog(stepID, "Creating fonts directory...")
 	if err := system.EnsureDir(fontDir); err != nil {
-		return wrapStepError("font", "Install Iosevka Nerd Font",
+		return wrapStepError("font", "Install Meslo Nerd Font",
 			"Failed to create fonts directory",
 			err)
 	}
@@ -5417,7 +5417,7 @@ func stepInstallFont(m *Model) error {
 	// ~/.local/share/fonts, which belongs to the user.
 	scratchDir, err := os.MkdirTemp(fontDir, fontScratchDirPrefix)
 	if err != nil {
-		return wrapStepError("font", "Install Iosevka Nerd Font",
+		return wrapStepError("font", "Install Meslo Nerd Font",
 			"Failed to create a temporary directory for the font archive",
 			err)
 	}
@@ -5429,14 +5429,14 @@ func stepInstallFont(m *Model) error {
 		}
 	}()
 
-	archivePath := filepath.Join(scratchDir, iosevkaTermArchiveName)
+	archivePath := filepath.Join(scratchDir, mesloArchiveName)
 
-	SendLog(stepID, "Downloading Iosevka Term Nerd Font...")
-	result := system.RunWithLogs(fmt.Sprintf("curl -fsSL -o %s %s", archivePath, iosevkaTermArchiveURL), nil, func(line string) {
+	SendLog(stepID, "Downloading Meslo Nerd Font...")
+	result := system.RunWithLogs(fmt.Sprintf("curl -fsSL -o %s %s", archivePath, mesloArchiveURL), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
-		return wrapStepError("font", "Install Iosevka Nerd Font",
+		return wrapStepError("font", "Install Meslo Nerd Font",
 			"Failed to download font. Check your internet connection.",
 			result.Error)
 	}
@@ -5446,7 +5446,7 @@ func stepInstallFont(m *Model) error {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
-		return wrapStepError("font", "Install Iosevka Nerd Font",
+		return wrapStepError("font", "Install Meslo Nerd Font",
 			"Failed to extract font archive",
 			result.Error)
 	}

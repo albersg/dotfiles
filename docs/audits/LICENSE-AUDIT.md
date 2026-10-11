@@ -56,7 +56,7 @@ The Neovim configuration references plugins that are installed by LazyVim. These
 
 ## Fonts
 
-- **Iosevka Term Nerd Font**: SIL Open Font License 1.1
+- **Meslo LG Nerd Font**: Apache License, Version 2.0 (verified from the LICENSE.txt inside the Meslo.zip the installer downloads; Copyright 2009, 2010, 2013 André Berg)
 - Installed via the system package manager, not bundled in this repository
 
 ## Compliance Notes

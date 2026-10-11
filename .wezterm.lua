@@ -10,7 +10,7 @@ local config = {}
 -- │                                   FONT                                       │
 -- └──────────────────────────────────────────────────────────────────────────────┘
 
-config.font = wezterm.font("IosevkaTerm NF")
+config.font = wezterm.font("MesloLGS NF")
 config.font_size = 14.0
 
 -- ┌──────────────────────────────────────────────────────────────────────────────┐

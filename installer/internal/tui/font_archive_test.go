@@ -54,7 +54,7 @@ if [ "$%s" != "0" ]; then
   exit "$%s"
 fi
 mkdir -p "$dir"
-printf 'font-bytes' > "$dir/IosevkaTermNerdFont-Regular.ttf"
+printf 'font-bytes' > "$dir/MesloLGSNerdFont-Regular.ttf"
 `, stubLogEnv, stubUnzipExitEnv, stubUnzipExitEnv)
 
 var stubFcCacheScript = fmt.Sprintf(`#!/bin/sh
@@ -258,12 +258,12 @@ func TestStepInstallFontLinuxLeavesNoArchiveBehind(t *testing.T) {
 	}
 
 	archive := stubs.downloadedArchive(t)
-	if filepath.Base(archive) != "IosevkaTerm.zip" {
+	if filepath.Base(archive) != "Meslo.zip" {
 		t.Errorf("the step downloaded %q, which is not the Nerd Fonts archive", archive)
 	}
 	stubs.assertNoArchiveLeft(t, archive)
 
-	assertFontDirHolds(t, stubs.fontDir, []string{"IosevkaTermNerdFont-Regular.ttf"})
+	assertFontDirHolds(t, stubs.fontDir, []string{"MesloLGSNerdFont-Regular.ttf"})
 
 	commands := stubs.commands(t)
 	var runners []string
@@ -273,7 +273,7 @@ func TestStepInstallFontLinuxLeavesNoArchiveBehind(t *testing.T) {
 	if got := strings.Join(runners, ","); got != "curl,unzip,fc-cache" {
 		t.Errorf("the step ran %q, want the real download, extraction and cache update", got)
 	}
-	if joined := strings.Join(commands, "\n"); !strings.Contains(joined, "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/IosevkaTerm.zip") {
+	if joined := strings.Join(commands, "\n"); !strings.Contains(joined, "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip") {
 		t.Errorf("the step no longer downloads the pinned Nerd Fonts release: %q", joined)
 	}
 
@@ -335,8 +335,8 @@ func TestStepInstallFontLinuxReportsAFailedDownload(t *testing.T) {
 
 // TestStepInstallFontLinuxLeavesFilesItDidNotWriteAlone pins the narrow scope of
 // the cleanup: the font directory belongs to the user, so the step removes only
-// what it wrote itself. A user's own IosevkaTerm.zip is not the step's to delete
-// or overwrite, and an unrelated file must survive untouched.
+// what it wrote itself. A user's own Meslo.zip is not the step's to delete or
+// overwrite, and an unrelated file must survive untouched.
 func TestStepInstallFontLinuxLeavesFilesItDidNotWriteAlone(t *testing.T) {
 	stubs := stubFontCommands(t, fontStubOptions{})
 	if err := os.MkdirAll(stubs.fontDir, 0o755); err != nil {
@@ -344,8 +344,8 @@ func TestStepInstallFontLinuxLeavesFilesItDidNotWriteAlone(t *testing.T) {
 	}
 
 	userFiles := map[string]string{
-		filepath.Join(stubs.fontDir, "IosevkaTerm.zip"): "the user's own archive\n",
-		filepath.Join(stubs.fontDir, "MyFont.ttf"):      "the user's own font\n",
+		filepath.Join(stubs.fontDir, "Meslo.zip"):  "the user's own archive\n",
+		filepath.Join(stubs.fontDir, "MyFont.ttf"): "the user's own font\n",
 	}
 	for path, content := range userFiles {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -370,8 +370,8 @@ func TestStepInstallFontLinuxLeavesFilesItDidNotWriteAlone(t *testing.T) {
 	}
 
 	assertFontDirHolds(t, stubs.fontDir, []string{
-		"IosevkaTerm.zip",
+		"Meslo.zip",
 		"MyFont.ttf",
-		"IosevkaTermNerdFont-Regular.ttf",
+		"MesloLGSNerdFont-Regular.ttf",
 	})
 }
