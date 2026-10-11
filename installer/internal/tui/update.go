@@ -841,8 +841,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.DotfilesThemeRecord = readDotfilesThemeRecord()
 		if len(msg.reload) > 0 {
 			// The files changed; the slot says which tool was reached and which was
-			// not, one line per tool, in the rows the pending line already held.
-			m.finishThemeActivity(themeReloadResultParagraphs(msg.reload)...)
+			// not, one line per tool, in the rows the pending line already held. A
+			// partial run's notice heads that list: the files it left alone must not
+			// be dropped in favour of a plain "applied".
+			paragraphs := themeReloadResultParagraphs(msg.reload)
+			if themeNoticeIsPartial(msg.notice) {
+				paragraphs = append([]string{msg.notice}, paragraphs...)
+			}
+			m.finishThemeActivity(paragraphs...)
 			return m, nil
 		}
 		m.finishThemeActivity(msg.notice)
