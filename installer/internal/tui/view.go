@@ -3230,7 +3230,7 @@ func (m Model) renderComplete() string {
 		fmt.Sprintf("Window Manager: %s", m.Choices.WindowMgr),
 	}
 	if m.Choices.InstallFont {
-		items = append(items, "Font: Iosevka Term Nerd Font")
+		items = append(items, "Font: Meslo Nerd Font")
 	}
 	if m.Choices.InstallNvim {
 		items = append(items, "Editor: Neovim with dotfiles config")

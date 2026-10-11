@@ -31,14 +31,19 @@ import (
 // it refuses rather than rewrite a file it cannot edit safely.
 
 const (
-	// windowsTerminalFontFace is the face Windows Terminal must select for the
-	// Nerd Font glyphs the prompt draws. It is the family Nerd Fonts 3.x gives
-	// the IosevkaTerm archive the installer downloads (the release the Linux
-	// step extracts), and the same family the Linux terminals are configured
-	// with. It is not written to Windows Terminal until the Windows font store
-	// reports the family after the installer has registered it: a face named
-	// here but not resolvable there is the silent fallback this defect is about.
-	windowsTerminalFontFace = "IosevkaTerm Nerd Font"
+	// windowsTerminalFontFace is the family the Nerd Fonts Meslo archive the
+	// installer downloads provides (the release the Linux step extracts), and
+	// the family the four shipped terminal configurations name. It is the
+	// fallback face: it is written to Windows Terminal only when the Windows
+	// font store reports it after the installer has registered it. A face named
+	// there but not resolvable is the silent fallback this defect is about.
+	windowsTerminalFontFace = "MesloLGS NF"
+
+	// windowsTerminalFontFacePreferred is the Meslo build the machine already
+	// carries under a name of its own. When the Windows font store resolves it,
+	// it is the face the writer names, because it is the family the person chose
+	// for the machine. The installer never redistributes it; it only names it.
+	windowsTerminalFontFacePreferred = "MesloLGS NF Herdr"
 
 	// windowsTerminalSchemeName is the name the dotfiles palette is registered
 	// under in Windows Terminal's "schemes" array and selected by
@@ -788,11 +793,14 @@ func jsoncSetString(src []byte, obj *jsoncValue, key, value string) ([]byte, err
 }
 
 // windowsTerminalSettingsContent is the whole edit: it sets
-// profiles.defaults.font.face and profiles.defaults.colorScheme and registers
-// the scheme, and it touches nothing else. The first half of the function
-// re-parses after every structural insert because the byte offsets shift; that
-// keeps each edit anchored to the tree it was read from.
-func windowsTerminalSettingsContent(src []byte, scheme windowsTerminalScheme) ([]byte, error) {
+// profiles.defaults.font.face to the resolved face and
+// profiles.defaults.colorScheme and registers the scheme, and it touches nothing
+// else. The face is a parameter rather than the constant, because the writer
+// names the family the Windows font store resolved, which is not known until
+// install time. The first half of the function re-parses after every structural
+// insert because the byte offsets shift; that keeps each edit anchored to the
+// tree it was read from.
+func windowsTerminalSettingsContent(src []byte, scheme windowsTerminalScheme, face string) ([]byte, error) {
 	if _, err := jsoncRootObject(src); err != nil {
 		return nil, err
 	}
@@ -800,7 +808,7 @@ func windowsTerminalSettingsContent(src []byte, scheme windowsTerminalScheme) ([
 		return nil, err
 	}
 
-	updated, err := jsoncEnsureFontFace(src)
+	updated, err := jsoncEnsureFontFace(src, face)
 	if err != nil {
 		return nil, err
 	}
@@ -811,9 +819,10 @@ func windowsTerminalSettingsContent(src []byte, scheme windowsTerminalScheme) ([
 	return jsoncEnsureScheme(updated, scheme)
 }
 
-// jsoncEnsureFontFace sets profiles.defaults.font.face, creating the font object
-// first when the defaults object carries none.
-func jsoncEnsureFontFace(src []byte) ([]byte, error) {
+// jsoncEnsureFontFace sets profiles.defaults.font.face to face, creating the
+// font object first when the defaults object carries none. face is the family
+// the Windows font store resolved, so the editor never names a face by hand.
+func jsoncEnsureFontFace(src []byte, face string) ([]byte, error) {
 	defaults, err := jsoncDefaults(src)
 	if err != nil {
 		return nil, err
@@ -835,7 +844,7 @@ func jsoncEnsureFontFace(src []byte) ([]byte, error) {
 	if font.value.kind != jsoncObject {
 		return nil, fmt.Errorf("profiles.defaults.font is not an object")
 	}
-	return jsoncSetString(src, font.value, "face", windowsTerminalFontFace)
+	return jsoncSetString(src, font.value, "face", face)
 }
 
 // jsoncSetDefaultsColorScheme sets profiles.defaults.colorScheme.
@@ -953,9 +962,11 @@ const (
 	// the per-user font store, relative to the Windows profile directory.
 	windowsFontStoreRelPath = "AppData/Local/Microsoft/Windows/Fonts"
 
-	// windowsFontFamilyFilePrefix is the file name prefix the IosevkaTerm
-	// Nerd Fonts archive gives every face.
-	windowsFontFamilyFilePrefix = "IosevkaTermNerdFont-"
+	// windowsFontFamilyFilePrefix is the file name prefix the Meslo Nerd Fonts
+	// archive gives every face of the family the installer installs. It is
+	// "MesloLGSNerdFont-", not the family name: the patcher names the file after
+	// the font ("MesloLGS") and the family after the release ("MesloLGS NF").
+	windowsFontFamilyFilePrefix = "MesloLGSNerdFont-"
 
 	// windowsFontPresent and windowsFontAbsent are the two answers the
 	// verification query prints. Anything else is "no answer" and refuses the
@@ -963,6 +974,14 @@ const (
 	windowsFontPresent = "font=present"
 	windowsFontAbsent  = "font=absent"
 )
+
+// windowsFontFaceCandidates is the preference order the writer resolves the face
+// against: the machine's own Meslo build first, the family the installer's
+// archive provides second. The order is the rule, and it is stated once.
+var windowsFontFaceCandidates = []string{
+	windowsTerminalFontFacePreferred,
+	windowsTerminalFontFace,
+}
 
 // windowsFontFace is one file copied to the Windows store and the style label
 // Windows uses in the registry value name. Only four faces travel: the whole
@@ -1020,15 +1039,40 @@ func windowsFontRegisterScript(faces []windowsFontFace) string {
 	return b.String()
 }
 
-// windowsFontVerifyScript asks the Windows font store, not the registry, whether
-// the family resolves. System.Drawing.Text.InstalledFontCollection is the list
-// the renderer resolves a face against, so an answer of present is the same fact
-// Windows Terminal would see.
-func windowsFontVerifyScript() string {
+// windowsFontFaceQueryScript asks the Windows font store, not the registry,
+// whether a family resolves. System.Drawing.Text.InstalledFontCollection is the
+// list the renderer resolves a face against, so an answer of present is the same
+// fact Windows Terminal would see. It is the one question every face check asks,
+// so a name cannot be changed in one check and left behind in another.
+func windowsFontFaceQueryScript(face string) string {
 	return "Add-Type -AssemblyName System.Drawing; " +
 		"$names = (New-Object System.Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }; " +
-		"if ($names -contains " + psSingleQuote(windowsTerminalFontFace) + ") { " +
+		"if ($names -contains " + psSingleQuote(face) + ") { " +
 		psSingleQuote(windowsFontPresent) + " } else { " + psSingleQuote(windowsFontAbsent) + " }"
+}
+
+// windowsFontVerifyScript asks whether the family the installer registers
+// resolves.
+func windowsFontVerifyScript() string {
+	return windowsFontFaceQueryScript(windowsTerminalFontFace)
+}
+
+// installedWindowsFontFace resolves the face the writer should name against the
+// Windows font store, preferring the machine's own build. It copies and
+// registers nothing: asking is read-only, so the interactive offer can name the
+// same face the write would use. A store that answers nothing, or errors, for a
+// candidate is treated as that candidate not resolving.
+func installedWindowsFontFace() (string, bool) {
+	for _, face := range windowsFontFaceCandidates {
+		output, err := runWindowsFontQuery(windowsFontFaceQueryScript(face))
+		if err != nil {
+			continue
+		}
+		if present, known := parseWindowsFontPresence(output); known && present {
+			return face, true
+		}
+	}
+	return "", false
 }
 
 // parseWindowsFontPresence reads the verification answer. A BOM a redirected
@@ -1127,7 +1171,18 @@ func configureWindowsTerminalRenderer(repoDir, profileDir string) {
 		return
 	}
 
-	offer := readWindowsTerminalOffer(profileDir, def)
+	// Resolve the face before the offer is built, so the offer, the write and
+	// the settings all name the same family. The name is never hand-written: a
+	// face the Windows font store cannot resolve falls back silently, so the
+	// store is asked and its answer is what is named. The machine's own Meslo
+	// build is preferred; the family the installer's archive provides is the
+	// fallback. Asking is read-only and changes nothing.
+	face, resolved := installedWindowsFontFace()
+	if !resolved {
+		face = windowsTerminalFontFace
+	}
+
+	offer := readWindowsTerminalOffer(profileDir, def, face)
 	if !offer.Available {
 		wslLog(wslStepID, "Windows Terminal was not configured: "+offer.Reason)
 		return
@@ -1142,11 +1197,14 @@ func configureWindowsTerminalRenderer(repoDir, profileDir string) {
 		return
 	}
 
-	// Verify the family before the face is written: a face Windows cannot
-	// resolve is a silent fallback, the defect this step exists to close.
-	if err := installAndVerifyWindowsFont(profileDir); err != nil {
-		wslLog(wslStepID, "Windows Terminal's font face was not written: "+err.Error())
-		return
+	// Nothing resolved, so the installer's own family has to be registered
+	// before its face can be written. installAndVerifyWindowsFont is the gate
+	// that confirms it resolves; a family that does not verify is not written.
+	if !resolved {
+		if err := installAndVerifyWindowsFont(profileDir); err != nil {
+			wslLog(wslStepID, "Windows Terminal's font face was not written: "+err.Error())
+			return
+		}
 	}
 
 	notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
@@ -1182,8 +1240,8 @@ type windowsTerminalOffer struct {
 // the bytes a write would leave behind. It never writes: a refusal carries a
 // reason and changes nothing, which is the correct behaviour when the file is
 // unparseable, its shape is unexpected, or no writable mount holds it.
-func readWindowsTerminalOffer(profileDir string, def themeDefinition) windowsTerminalOffer {
-	offer := windowsTerminalOffer{Face: windowsTerminalFontFace}
+func readWindowsTerminalOffer(profileDir string, def themeDefinition, face string) windowsTerminalOffer {
+	offer := windowsTerminalOffer{Face: face}
 
 	scheme, err := windowsTerminalSchemeFor(def)
 	if err != nil {
@@ -1204,7 +1262,7 @@ func readWindowsTerminalOffer(profileDir string, def themeDefinition) windowsTer
 		offer.Reason = fmt.Sprintf("reading %s: %v", path, err)
 		return offer
 	}
-	updated, err := windowsTerminalSettingsContent(original, scheme)
+	updated, err := windowsTerminalSettingsContent(original, scheme, face)
 	if err != nil {
 		offer.Reason = fmt.Sprintf("%s was not written: %v", path, err)
 		return offer
@@ -1216,18 +1274,32 @@ func readWindowsTerminalOffer(profileDir string, def themeDefinition) windowsTer
 	return offer
 }
 
+// windowsTerminalSettingLabels is the human-readable list the offer and the
+// success notice show. The font-face label names the face the writer resolved,
+// not the constant, so a description can never name a different family than the
+// settings would hold. The IDs and the colour-scheme label still come from the
+// one declaration in windowsTerminalSettings.
+func windowsTerminalSettingLabels(face string) []string {
+	labels := make([]string, 0, len(windowsTerminalSettings))
+	for _, setting := range windowsTerminalSettings {
+		label := setting.Label
+		if setting.ID == "font-face" {
+			label = "the font face " + face
+		}
+		labels = append(labels, label)
+	}
+	return labels
+}
+
 // describeWindowsTerminalOffer is what the offer shows before the user chooses:
 // the file, the two settings, and what happens to the previous file. It is built
 // from windowsTerminalSettings, so it cannot name a setting the writer does not
-// set.
+// set, and it names the resolved face rather than the constant.
 func describeWindowsTerminalOffer(offer windowsTerminalOffer) []string {
 	if !offer.Available {
 		return []string{offer.Reason}
 	}
-	labels := make([]string, 0, len(windowsTerminalSettings))
-	for _, setting := range windowsTerminalSettings {
-		labels = append(labels, setting.Label)
-	}
+	labels := windowsTerminalSettingLabels(offer.Face)
 	return []string{
 		fmt.Sprintf("Windows Terminal's settings.json is reachable at %s.", offer.Path),
 		fmt.Sprintf("Choosing to configure it would set %s there, registering the %s scheme in \"schemes\".", strings.Join(labels, " and "), offer.Scheme),
@@ -1258,10 +1330,7 @@ func applyWindowsTerminalOffer(offer windowsTerminalOffer, chosen bool, stepID s
 		return "", false, fmt.Errorf("writing %s: %w", offer.Path, err)
 	}
 
-	labels := make([]string, 0, len(windowsTerminalSettings))
-	for _, setting := range windowsTerminalSettings {
-		labels = append(labels, setting.Label)
-	}
+	labels := windowsTerminalSettingLabels(offer.Face)
 	return fmt.Sprintf("Windows Terminal configured: %s were written to %s; the previous file is at %s.",
 		strings.Join(labels, " and "), offer.Path, backup), true, nil
 }

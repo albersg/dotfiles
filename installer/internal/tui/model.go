@@ -630,7 +630,7 @@ func (m Model) GetCurrentOptions() []string {
 		}
 		return []string{"Alacritty", "WezTerm", "Ghostty", "None", m.menuSeparator(), "Learn about terminals"}
 	case ScreenFontSelect:
-		return []string{"Yes, install Iosevka Term Nerd Font", "No, I already have it"}
+		return []string{"Yes, install Meslo Nerd Font", "No, I already have it"}
 	case ScreenShellSelect:
 		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "Learn about shells"}
 	case ScreenWMSelect:
@@ -1000,7 +1000,7 @@ func (m Model) GetScreenDescription() string {
 		}
 		return "Select your preferred terminal emulator"
 	case ScreenFontSelect:
-		return "Iosevka Term Nerd Font is required for icons and glyphs"
+		return "Meslo Nerd Font is required for icons and glyphs"
 	case ScreenShellSelect:
 		// The line names the detected shell and says what the cursor is doing: it
 		// starts on the detected shell when the menu lists it. The old line stated
@@ -1162,8 +1162,8 @@ func planFor(opts planOptions) []InstallStep {
 	if opts.InstallFont {
 		steps = append(steps, InstallStep{
 			ID:          "font",
-			Name:        "Install Iosevka Nerd Font",
-			Description: "Installs the Iosevka Nerd Font for icons.",
+			Name:        "Install Meslo Nerd Font",
+			Description: "Installs the Meslo Nerd Font for icons.",
 			Status:      StatusPending,
 		})
 	}
