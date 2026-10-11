@@ -1,6 +1,6 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-  Utilities                                                                     
-  ────────────────────────────────────────────────────────────────────────────  
+   Utilities                                                                    
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Change the dotfiles theme                                                     
   The dotfiles' own theme is defined once in themes/. Choosing a theme applies  
   it to every tool it can paint and names the tools it leaves out. Moving the   

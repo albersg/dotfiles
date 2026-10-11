@@ -201,18 +201,29 @@ func installerBodyRows(height, footerRows int) int {
 // says which screen this is, while the vital repeats counts the body already
 // carries.
 func headerRow(name, vital string, inner int) string {
-	if inner > 0 && lipgloss.Width(name) > inner {
-		name = truncate(name, inner)
+	return headerRowStyle(HeaderChipStyle, name, vital, inner)
+}
+
+// headerRowStyle is headerRow with the tab's fill given explicitly. The frame
+// uses it to turn the completion screen's crown green; every other caller takes
+// the brand tab through headerRow.
+func headerRowStyle(chipStyle lipgloss.Style, name, vital string, inner int) string {
+	// The name is a filled tab: two columns of the chip's own padding sit around
+	// it, so the room the name may use is the inner width less that padding. The
+	// chip's rendered width is measured rather than derived from the name, so the
+	// vital is placed against the block that is actually drawn.
+	if inner > 0 && lipgloss.Width(name) > inner-headerChipPadding {
+		name = truncate(name, inner-headerChipPadding)
 	}
-	nameWidth := lipgloss.Width(name)
-	left := BrandStyle.Render(name)
+	left := chipStyle.Render(name)
 	if vital == "" {
 		return left
 	}
 
+	nameWidth := lipgloss.Width(left)
 	available := inner - nameWidth - 1
 	if available < 0 {
-		// The name alone leaves no room for a gap, let alone a vital; the name is
+		// The tab alone leaves no room for a gap, let alone a vital; the name is
 		// the fact and stays, the vital is dropped.
 		return left
 	}
@@ -226,6 +237,11 @@ func headerRow(name, vital string, inner int) string {
 	}
 	return left + strings.Repeat(" ", gap) + vital
 }
+
+// headerChipPadding is the columns HeaderChipStyle spends around the header
+// name: one column of padding on each side. headerRow subtracts it from the room
+// the name may use, so a long name cannot push the chip past the inner width.
+const headerChipPadding = 2
 
 // truncateHeaderVital shortens a header's vital to width columns without
 // splitting its escape sequences, and ends with the shared cut marker in a style
@@ -428,9 +444,16 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	placed = m.placeCompanion(placed, summary, inner)
 
 	var b strings.Builder
-	b.WriteString(headerRow(name, vital, inner))
+	chipStyle, ruleStyle := HeaderChipStyle, HeaderRuleStyle
+	if m.Screen == ScreenComplete {
+		// The run's own verdict is the screen's subject, so its crown wears the
+		// success tone rather than the brand one: the completion screen is the one
+		// frame the installer is allowed to make celebratory.
+		chipStyle, ruleStyle = HeaderChipSuccessStyle, HeaderRuleSuccessStyle
+	}
+	b.WriteString(headerRowStyle(chipStyle, name, vital, inner))
 	b.WriteString("\n")
-	b.WriteString(rule(inner))
+	b.WriteString(headerRuleStyle(ruleStyle, inner))
 	b.WriteString("\n")
 	for _, line := range placed {
 		b.WriteString(line)
@@ -2212,8 +2235,18 @@ func (m Model) themePreviewLines(width int) []string {
 		label = truncateRunes(label, width)
 	}
 
+	// "Preview" is the block's chip and the rest is its dim metadata, so the one
+	// word that says the colours below are a preview carries the brand tone while
+	// the sentence that qualifies it stays quiet. It counts the same columns
+	// either way, so the swatch budget is unchanged.
+	const previewChip = "Preview"
 	var b strings.Builder
-	b.WriteString(MutedStyle.Render(label))
+	if lipgloss.Width(label) <= lipgloss.Width(previewChip) {
+		b.WriteString(MutedStyle.Render(label))
+	} else {
+		b.WriteString(chip(previewChip))
+		b.WriteString(MutedStyle.Render(strings.TrimPrefix(label, previewChip)))
+	}
 	for _, role := range themePreviewSwatchRoles {
 		hex := def.Palette[role]
 		if hex == "" {
@@ -3004,7 +3037,7 @@ func (m Model) installingTimeText() string {
 // count is added here: the run holds no file counter, so the screen shows none.
 func (m Model) installingStatusRows() []string {
 	return []string{
-		InfoStyle.Render(m.installingStepText()),
+		BrandStyle.Render(m.installingStepText()),
 		MutedStyle.Render(m.installingTimeText()),
 	}
 }
@@ -3078,7 +3111,7 @@ func (m Model) renderInstalling() string {
 		}
 	}
 	body := []string{
-		renderProgressBar(barWidth, progress, highlight) + MutedStyle.Render(fmt.Sprintf(" %3.0f%%", progress*100)),
+		renderProgressBar(barWidth, progress, highlight) + BrandStyle.Render(fmt.Sprintf(" %3.0f%%", progress*100)),
 		"",
 	}
 	// What the run knows: the step it is on and its own clock. Both come from
@@ -3131,8 +3164,12 @@ func (m Model) renderComplete() string {
 	width := contentWidth(m)
 
 	// The screen's name is the frame's header now, so the body opens on the first
-	// block instead of repeating it as a second label row.
-	body := []string{chip("Summary")}
+	// block instead of repeating it as a second label row. The block carries the
+	// run's verdict too: the check in the success tone before the label is the one
+	// place the completion screen says "done" in the palette without spending a
+	// row, and the companion and the celebration are both measured against the
+	// rows this screen leaves.
+	body := []string{SuccessStyle.Render("✓") + " " + chip("Summary")}
 	items := []string{
 		fmt.Sprintf("OS: %s", m.Choices.OS),
 		fmt.Sprintf("Terminal: %s", m.Choices.Terminal),
@@ -3473,6 +3510,24 @@ func rule(width int) string {
 	return MutedStyle.Render(ruleText(width))
 }
 
+// headerRule draws the frame's top rule in the brand tone, the counterpart to
+// the quiet rule above the footer. It is a heavy glyph run, where every other
+// separator is the light one, so the two edges of the frame differ by weight as
+// well as by tone and the eye lands on the header first. The glyph keeps the
+// difference visible on a terminal with no colour.
+func headerRule(width int) string {
+	return headerRuleStyle(HeaderRuleStyle, width)
+}
+
+// headerRuleStyle is headerRule in a given tone, so the frame can crown the
+// completion screen in the success colour without a second copy of the glyph run.
+func headerRuleStyle(style lipgloss.Style, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	return style.Render(strings.Repeat("━", width))
+}
+
 // cutToWidth returns as much of s as fits in width columns, in whole runes. It
 // cuts without a marker, for callers that need to know where the cut landed.
 func cutToWidth(s string, width int) string {
@@ -3755,7 +3810,7 @@ func (m Model) renderTrainerMenu() string {
 
 	rows := []string{
 		headerRow("🎮 Vim Mastery Trainer", m.trainerMenuVital(), inner),
-		rule(inner),
+		headerRule(inner),
 	}
 
 	for i, module := range m.TrainerModules {
@@ -4178,7 +4233,7 @@ func (m Model) renderTrainerExercise(mode string) string {
 
 	rows := []string{
 		headerRow(fmt.Sprintf("🎮 %s · %s", mode, string(m.TrainerGameState.CurrentModule)), m.trainerExerciseVital(), inner),
-		rule(inner),
+		headerRule(inner),
 	}
 
 	if m.trainerTwoColumnLayout(l) {
@@ -4420,7 +4475,7 @@ func (m Model) renderTrainerBoss() string {
 	// chips in the header rather than the two label rows they used to stack.
 	rows := []string{
 		headerRow("⚔️ Boss · "+boss.Name, m.trainerBossVital(), inner),
-		rule(inner),
+		headerRule(inner),
 		chip("Challenge"),
 	}
 
@@ -4498,7 +4553,7 @@ func (m Model) renderTrainerResult() string {
 
 	rows := []string{
 		headerRow(name, vital, inner),
-		rule(inner),
+		headerRule(inner),
 		chip("Summary"),
 	}
 
@@ -4574,7 +4629,7 @@ func (m Model) renderTrainerBossResult() string {
 
 	rows := []string{
 		headerRow(name, vital, inner),
-		rule(inner),
+		headerRule(inner),
 		chip("Summary"),
 	}
 
