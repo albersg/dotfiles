@@ -88,6 +88,10 @@ brew "k9s"
 
 # --- Terminals and multiplexers ----------------------------------------------
 brew "herdr"
+# Herdr shells out to an external mp3 player for its sound alerts, which the
+# managed configuration enables. mpg123 is the smallest of the players it tries
+# and the one every package manager the installer reaches carries.
+brew "mpg123"
 
 # --- Personal organiser and media --------------------------------------------
 brew "calcurse"

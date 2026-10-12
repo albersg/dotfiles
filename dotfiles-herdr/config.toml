@@ -51,8 +51,9 @@ prompt_new_tab_name = false
 # Play a short mp3 alert when an agent finishes or needs input in a background
 # workspace. Herdr ships no audio decoder: it shells out to an external mp3
 # player, trying `paplay`, `pw-play`, `ffplay`, `mpg123` and `mpv` in that order,
-# and fails silently when none of them is installed. Install one of them, for
-# example `pulseaudio-utils` (paplay) or `mpg123` on Debian/Ubuntu.
+# and fails silently when none of them is installed. The installer provisions
+# `mpg123` when none of the five resolves and reports it when even that cannot be
+# provided, so this setting is backed by the dependency it needs.
 enabled = true
 
 # Sound fires only for agents in a BACKGROUND workspace: an agent in the focused
