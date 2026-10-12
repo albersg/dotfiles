@@ -177,10 +177,13 @@ type Model struct {
 	// what the walking frames mean: a standing creature draws the idle frame while
 	// the clock keeps running.
 	CompanionMoving bool
-	// CompanionIdle counts the animation frames since the last key press. It is the
-	// stretch the sleeping frame is drawn from, and it lives on the model rather
-	// than in the renderer so a test can reach the sleeping state without waiting
-	// out companionSleepSeconds.
+	// CompanionIdle counts the animation frames since the last key press, and it is
+	// the stretch the sleeping frame is drawn from. A key clips it rather than
+	// clearing it: the sleep clock restarts while the creature keeps moving, because
+	// it owns reserved rows, never reflows the layout and never touches the cursor,
+	// so its own stroll cannot collide with the user reading or navigating. It lives
+	// on the model rather than in the renderer so a test can reach the sleeping state
+	// without waiting out companionSleepSeconds.
 	CompanionIdle int
 	// CompanionPleased counts the frames left of a celebration: an installation
 	// step that has just finished is worth companionPleasedTicks of them.
