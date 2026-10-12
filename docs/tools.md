@@ -27,6 +27,11 @@ Detailed overview of all tools configured by dotfiles.
 | **Zellij** | Modern, WebAssembly plugins, floating panes |
 | **Herdr** | Agent-focused terminal multiplexer for AI coding workflows |
 
+Herdr's sound alerts are enabled by the managed configuration, but Herdr ships no audio
+decoder and shells out to an external mp3 player. The installer provisions `mpg123` when none
+of the players Herdr tries (`paplay`, `pw-play`, `ffplay`, `mpg123`, `mpv`) resolves, and it
+reports the gap rather than claiming success when even that cannot be provided.
+
 ## Editor
 
 | Tool | Description |

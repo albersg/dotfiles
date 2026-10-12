@@ -6836,6 +6836,162 @@ func zellijPlatformPackages() (platformPackages, []string) {
 	}, unavailable
 }
 
+// herdrSoundPlayers names the external mp3 players Herdr shells out to for its
+// sound alerts, in the order it tries them. Herdr ships no audio decoder, so the
+// managed `[ui.sound] enabled = true` is only a working setting when one of these
+// resolves on the machine; when none does Herdr fails silently, which is the
+// defect issue #270 describes.
+var herdrSoundPlayers = []string{"paplay", "pw-play", "ffplay", "mpg123", "mpv"}
+
+// herdrSoundProvision is the player the installer installs when the managed
+// configuration enables sound and none of Herdr's own players resolves. mpg123
+// is the smallest of the five and the one every package manager this installer
+// reaches carries, so it is the smallest declared dependency that makes the
+// setting able to fire.
+const herdrSoundProvision = "mpg123"
+
+// herdrCommandExists is system.CommandExists, indirected so a guard can resolve
+// a player without a real installation.
+var herdrCommandExists = system.CommandExists
+
+// herdrBinaryPresent reports whether Herdr itself is installed. It is a variable
+// so the Herdr step's guards exercise the configuration and the sound player
+// without a real Herdr binary or a real package manager.
+var herdrBinaryPresent = system.CommandExists
+
+// herdrLog is the Herdr step's log sink. It is a variable so a guard can capture
+// what the step reports and fail the moment a managed `[ui.sound] enabled = true`
+// stops naming the dependency the machine is missing.
+var herdrLog = SendLog
+
+// herdrSoundPlayer returns the first of Herdr's players that resolves on this
+// machine, or "" when none does. The order is Herdr's own, so the answer is the
+// player that would actually fire.
+func herdrSoundPlayer(exists func(string) bool) string {
+	for _, player := range herdrSoundPlayers {
+		if exists(player) {
+			return player
+		}
+	}
+	return ""
+}
+
+// herdrSoundPlayerLookup resolves a player on PATH and in the Homebrew prefix,
+// for the same reason componentPresentAfterInstall does: Homebrew writes its
+// binaries into its own prefix and this process's PATH does not necessarily
+// contain it moments after a successful install.
+func herdrSoundPlayerLookup(command string) bool {
+	if herdrCommandExists(command) {
+		return true
+	}
+	prefix := os.Getenv("HOMEBREW_PREFIX")
+	if prefix == "" {
+		prefix = system.GetBrewPrefix()
+	}
+	info, err := os.Stat(filepath.Join(prefix, "bin", command))
+	return err == nil && !info.IsDir()
+}
+
+// herdrSoundPlayerPresent is the lookup the step uses. It is a variable so a
+// guard can describe the machine without a real player on it.
+var herdrSoundPlayerPresent = herdrSoundPlayerLookup
+
+// parseHerdrSoundEnabled reports whether the managed Herdr configuration turns
+// sound alerts on. It reads the `[ui.sound] enabled` key from the small TOML
+// subset the file uses, the way parseThemeDefinition does, rather than pulling in
+// a parser for one boolean.
+func parseHerdrSoundEnabled(data []byte) bool {
+	section := ""
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.Trim(line, "[]")
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || section != "ui.sound" || strings.TrimSpace(key) != "enabled" {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if i := strings.IndexByte(value, '#'); i >= 0 {
+			value = strings.TrimSpace(value[:i])
+		}
+		return value == "true"
+	}
+	return false
+}
+
+// herdrSoundPlatformPackages returns the player the installer provisions for
+// Herdr's sound alerts. The columns go through the same availability filters as
+// every other package set, so a distribution that stopped carrying mpg123 is
+// reported rather than aborting the transaction.
+func herdrSoundPlatformPackages() platformPackages {
+	debian, _ := debianPackages(herdrSoundProvision)
+	arch, archGaps := archPackages(herdrSoundProvision)
+	fedora, fedoraGaps := fedoraPackages(herdrSoundProvision)
+	return platformPackages{
+		Termux:            herdrSoundProvision,
+		Brew:              herdrSoundProvision,
+		Arch:              arch,
+		Fedora:            fedora,
+		Debian:            debian,
+		archUnavailable:   archGaps,
+		fedoraUnavailable: fedoraGaps,
+	}
+}
+
+// ensureHerdrSound makes the installed Herdr configuration honest: it reads
+// whether sound is enabled, resolves one of the players Herdr shells out to and
+// provisions the smallest declared player when none resolves. It reports the gap
+// explicitly when a player still cannot be provided, so the failure Herdr hides
+// in herdr-client.log is named by the installer instead.
+//
+// It returns whether sound is ready to fire or was not asked for. That is the
+// condition the Herdr step's success line is gated on, so a configuration whose
+// dependency is missing never gets an unqualified success. A configuration that
+// does not enable sound installs nothing: a player is only provisioned where the
+// sound is wanted.
+func ensureHerdrSound(m *Model, stepID, configPath string) bool {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		herdrLog(stepID, fmt.Sprintf(
+			"Could not read the Herdr configuration to verify sound alerts: %v", err))
+		return false
+	}
+	if !parseHerdrSoundEnabled(data) {
+		return true
+	}
+
+	if player := herdrSoundPlayer(herdrSoundPlayerPresent); player != "" {
+		herdrLog(stepID, fmt.Sprintf("Sound alerts are enabled; Herdr will use %s", player))
+		return true
+	}
+
+	herdrLog(stepID, fmt.Sprintf(
+		"Sound alerts are enabled but none of Herdr's players (%s) resolves; installing %s...",
+		strings.Join(herdrSoundPlayers, ", "), herdrSoundProvision))
+	result := installPlatformPackages(m, stepID, herdrSoundPlatformPackages(), func(line string) {
+		herdrLog(stepID, line)
+	})
+	if result != nil && result.Error != nil {
+		herdrLog(stepID, fmt.Sprintf("Could not install %s: %v", herdrSoundProvision, result.Error))
+	}
+
+	if player := herdrSoundPlayer(herdrSoundPlayerPresent); player != "" {
+		herdrLog(stepID, fmt.Sprintf("Sound alerts are enabled; Herdr will use %s", player))
+		return true
+	}
+
+	herdrLog(stepID, fmt.Sprintf(
+		"Sound alerts cannot play: the managed configuration enables them but none of %s resolves. "+
+			"Herdr fails silently when no player is installed; install one (for example %s) and run the installer again.",
+		strings.Join(herdrSoundPlayers, ", "), herdrSoundProvision))
+	return false
+}
+
 func stepInstallWM(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	wm := m.Choices.WindowMgr
@@ -7052,35 +7208,43 @@ func stepInstallWM(m *Model) error {
 		SendLog(stepID, "✓ Zellij configured")
 
 	case "herdr":
-		if !system.CommandExists("herdr") {
-			SendLog(stepID, "Installing Herdr...")
+		if !herdrBinaryPresent("herdr") {
+			herdrLog(stepID, "Installing Herdr...")
 			if err := installHerdrBinary(m, stepID); err != nil {
 				return wrapStepError("wm", "Install Herdr",
 					"Failed to install Herdr",
 					err)
 			}
 		} else {
-			SendLog(stepID, "Herdr already installed")
+			herdrLog(stepID, "Herdr already installed")
 		}
 
-		SendLog(stepID, "Copying Herdr configuration...")
+		herdrLog(stepID, "Copying Herdr configuration...")
 		herdrDir := filepath.Join(homeDir, ".config", "herdr")
 		if err := system.EnsureDir(herdrDir); err != nil {
 			return wrapStepError("wm", "Install Herdr",
 				"Failed to create Herdr config directory",
 				err)
 		}
-		if err := system.CopyFile(filepath.Join(repoDir, repoAssetHerdrConfig), filepath.Join(herdrDir, "config.toml")); err != nil {
+		installedConfig := filepath.Join(herdrDir, "config.toml")
+		if err := system.CopyFile(filepath.Join(repoDir, repoAssetHerdrConfig), installedConfig); err != nil {
 			return wrapStepError("wm", "Install Herdr",
 				"Failed to copy Herdr configuration",
 				err)
 		}
-		if err := os.Chmod(filepath.Join(herdrDir, "config.toml"), 0644); err != nil {
+		if err := os.Chmod(installedConfig, 0644); err != nil {
 			return wrapStepError("wm", "Install Herdr",
 				"Failed to make Herdr configuration writable",
 				err)
 		}
-		SendLog(stepID, "✓ Herdr configured")
+		// The managed configuration turns sound alerts on, and Herdr ships no
+		// decoder. Verify a player resolves and provision the declared one when it
+		// does not, so the step cannot report a success the machine cannot show.
+		if ensureHerdrSound(m, stepID, installedConfig) {
+			herdrLog(stepID, "✓ Herdr configured")
+		} else {
+			herdrLog(stepID, "Herdr configuration installed, but its sound alerts will stay silent until a player resolves")
+		}
 
 		// The plugins come after the binary resolves and the config is in place,
 		// and the step fails if a declared plugin did not install or verify: a

@@ -668,6 +668,14 @@ installed, and the installer never uninstalls or disables a plugin you added
 yourself. The Herdr keymaps screen names the same commands, and
 [Tools Reference](tools.md#plugins) lists them.
 
+**Herdr's sound alerts carry their dependency.** The Herdr configuration this repository
+installs enables `[ui.sound]`, and Herdr ships no audio decoder: it shells out to an external
+mp3 player, trying `paplay`, `pw-play`, `ffplay`, `mpg123` and `mpv` in that order, and fails
+silently when none resolves. The Herdr step resolves a player before it reports success: when
+none is present it provisions `mpg123` — the smallest of the five and the one every package
+manager it reaches carries — and when even that cannot be provided it names the gap and
+withholds the success line instead of leaving Herdr to fail silently. A configuration that does
+not enable sound installs no player.
 The installing screen is the longest thing a user watches, so it shows how far
 the run has come: a progress bar sized to the frame with a percentage beside it,
 a rail of one row per step whose state is a glyph and a word (`✓` done,
