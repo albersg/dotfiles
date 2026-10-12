@@ -147,6 +147,28 @@ type (
 		err    error
 	}
 
+	// wslTerminalOfferMsg carries the Windows Terminal offer the interactive WSL
+	// step shows. It is built in a command because resolving the face asks the
+	// Windows font store through interop, and the offer has to be on the model
+	// before the installing screen draws it. The offer is read-only: no field here
+	// has been written to disk.
+	wslTerminalOfferMsg struct {
+		offer      windowsTerminalOffer
+		lines      []string
+		profileDir string
+		resolved   bool
+	}
+
+	// wslTerminalOfferAppliedMsg carries the result of the interactive WSL step's
+	// answer back to Update, which logs it and then starts the rest of the step.
+	// err is a Windows-side failure, reported in the log rather than on the error
+	// screen for the same reason the non-interactive branch does not fail the
+	// step: the shell is useful whether or not Windows Terminal was reached.
+	wslTerminalOfferAppliedMsg struct {
+		notice string
+		err    error
+	}
+
 	// shellAuditMeasuredMsg carries a finished measurement back to the screen: the
 	// runs, their median and range, and the functions zprof named or the reason it
 	// named none. The measurement starts the user's shell several times, so it is a
@@ -345,6 +367,71 @@ func (m Model) wslResourceWriteCmd() tea.Cmd {
 		notice, wrote, err := writeWSLResourceDraft(state, "utilities")
 		return wslResourceWrittenMsg{notice: notice, wrote: wrote, err: err}
 	}
+}
+
+// wslTerminalOfferCmd builds the interactive WSL step's Windows Terminal offer
+// off the update loop: it resolves the Windows profile, reads the settings.json
+// under it and asks the font store, so it runs as a command like every other
+// machine touch. What it returns is the read-only offer and the lines the screen
+// shows; the step writes nothing until the user answers. A profile that cannot
+// be resolved skips the offer with the reason named rather than failing the
+// step, exactly as the script's own Windows half does.
+func (m Model) wslTerminalOfferCmd() tea.Cmd {
+	repoDir := m.RepoDir
+	return func() tea.Msg {
+		profileDir, err := windowsUserProfile()
+		if err != nil {
+			return wslTerminalOfferMsg{lines: []string{fmt.Sprintf(
+				"Skipping the Windows Terminal offer: %v. Set %s to override the lookup.", err, envWSLWindowsHome)}}
+		}
+		offer, lines, resolved := wslTerminalInteractiveOffer(repoDir, profileDir)
+		return wslTerminalOfferMsg{offer: offer, lines: lines, profileDir: profileDir, resolved: resolved}
+	}
+}
+
+// applyWSLTerminalOfferCmd performs the answer the user gave the interactive WSL
+// step. A yes installs and verifies the font first when the store resolved no
+// face, then writes through applyWindowsTerminalOffer, which copies the previous
+// file beside itself before it writes; a no calls the same function with chosen
+// false, so the refusal notice comes from the one place the write decision lives
+// and nothing at all is written.
+func (m Model) applyWSLTerminalOfferCmd(chosen bool) tea.Cmd {
+	offer := *m.WSLTerminalOffer
+	profileDir := m.WSLTerminalOfferProfileDir
+	resolved := m.WSLTerminalOfferResolved
+	return func() tea.Msg {
+		if !chosen {
+			notice, _, err := applyWindowsTerminalOffer(offer, false, wslStepID)
+			return wslTerminalOfferAppliedMsg{notice: notice, err: err}
+		}
+		// Nothing resolved, so the installer's own family has to be registered
+		// before its face can be written. installAndVerifyWindowsFont is the gate:
+		// a family that does not verify is not written, and the gate's failure is
+		// reported instead of a silent fallback face.
+		if !resolved {
+			if err := installAndVerifyWindowsFont(profileDir); err != nil {
+				return wslTerminalOfferAppliedMsg{err: err}
+			}
+		}
+		notice, _, err := applyWindowsTerminalOffer(offer, true, wslStepID)
+		return wslTerminalOfferAppliedMsg{notice: notice, err: err}
+	}
+}
+
+// appendInstallLog adds lines to the installing screen's log, keeping the same
+// bound the step log uses so the model and the box agree on how much history
+// exists. Empty lines are skipped: a notice that is nothing is not a log row.
+func (m Model) appendInstallLog(lines ...string) Model {
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		m.LogLines = append(m.LogLines, line)
+	}
+	if len(m.LogLines) > 20 {
+		m.LogLines = m.LogLines[len(m.LogLines)-20:]
+	}
+	return m
 }
 
 // shellAuditCmd runs one measurement off the update loop. The resolved state
@@ -818,6 +905,39 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.WSLState.Refreshing = true
 		return m, m.wslResourceStateCmdIfNeeded()
 
+	case wslTerminalOfferMsg:
+		// The offer is read-only, so the first thing it does is reach the screen.
+		// With nothing to offer the reason is logged and the step carries straight
+		// on to its script, so a machine where Windows Terminal is not reachable
+		// still gets the in-distribution half of the step.
+		if !msg.offer.Available {
+			m = m.appendInstallLog(msg.lines...)
+			return m, runInteractiveStep(wslStepID, &m)
+		}
+		offer := msg.offer
+		m.WSLTerminalOffer = &offer
+		m.WSLTerminalOfferLines = msg.lines
+		m.WSLTerminalOfferProfileDir = msg.profileDir
+		m.WSLTerminalOfferResolved = msg.resolved
+		m.Cursor = 0
+		return m, nil
+
+	case wslTerminalOfferAppliedMsg:
+		// The answer is a fact about the run, so it is logged where the step's own
+		// notices go, and the run then continues into the script that needs sudo.
+		// The offer cannot be answered twice: it is cleared before the script's
+		// own messages can arrive.
+		if msg.err != nil {
+			m = m.appendInstallLog(msg.err.Error())
+		} else if msg.notice != "" {
+			m = m.appendInstallLog(msg.notice)
+		}
+		m.WSLTerminalOffer = nil
+		m.WSLTerminalOfferLines = nil
+		m.WSLTerminalOfferProfileDir = ""
+		m.WSLTerminalOfferResolved = false
+		return m, runInteractiveStep(wslStepID, &m)
+
 	case shellAuditMeasuredMsg:
 		// The measurement is not an install step and cannot fail as one: every run
 		// it could not complete is already part of the state it brings back, with
@@ -1023,6 +1143,17 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key == "ctrl+c" {
 		m.Quitting = true
 		return m, tea.Quit
+	}
+
+	// The interactive WSL step pauses the run on the Windows Terminal offer. Its
+	// answer keys are taken here, before the navigation keys, so Esc is the refusal
+	// the offer names rather than a way out of a screen the run still owns. A key
+	// that is not an answer falls through, so the leader key, details and the rest
+	// keep working while the offer waits.
+	if m.Screen == ScreenInstalling && m.WSLTerminalOffer != nil {
+		if next, cmd, handled := m.handleWSLTerminalOfferKeys(key); handled {
+			return next, cmd
+		}
 	}
 
 	// Leader key mode: <space> activates, next key executes command
@@ -1696,6 +1827,22 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// handleWSLTerminalOfferKeys answers the interactive WSL step's Windows Terminal
+// offer. y is the explicit yes and n is the refusal, with Esc standing in for it
+// because that is the way back everywhere else; the two both go through
+// applyWSLTerminalOfferCmd, so the key handler never touches the file and the
+// yes has to be spelled. handled is false for every other key, which lets the
+// installing screen keep its own keys while the offer waits.
+func (m Model) handleWSLTerminalOfferKeys(key string) (tea.Model, tea.Cmd, bool) {
+	switch key {
+	case "y", "Y":
+		return m, m.applyWSLTerminalOfferCmd(true), true
+	case "n", "N", "esc":
+		return m, m.applyWSLTerminalOfferCmd(false), true
+	}
+	return m, nil, false
 }
 
 // handleWSLResourceKeys drives the WSL resource screen. It only ever changes the
@@ -2913,6 +3060,16 @@ func (m *Model) runNextStep() tea.Cmd {
 
 	// Check if this step needs interactive input (sudo, chsh, etc)
 	if step.Interactive {
+		// The WSL step is the one interactive step with a decision to put to the
+		// user before the script runs: whether Windows Terminal may be configured.
+		// The offer is read in a command and the installing screen shows it, and the
+		// script that needs sudo runs only after the answer. This is what makes the
+		// offer reachable from the TUI at all -- for a release the offer functions
+		// were called only by a test. A dry run skips the step entirely, offer
+		// included, exactly as runInteractiveStep's own gate does.
+		if step.ID == wslStepID && !dryRun() && m.SystemInfo != nil && m.SystemInfo.IsWSL {
+			return m.wslTerminalOfferCmd()
+		}
 		return runInteractiveStep(step.ID, m)
 	}
 

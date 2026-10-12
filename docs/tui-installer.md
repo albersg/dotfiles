@@ -524,12 +524,19 @@ fallback, which is the defect this issue is about, so the check is the gate rath
 Every Windows-side query is bounded by the same `WindowsQueryTimeout` and `WaitDelay` the host
 capacities use, so a hanging Windows side becomes a reported failure and never a blocked installer.
 
-**The interactive path keeps the offer and its refusal; `--non-interactive` performs the step.**
-Outside `--non-interactive`, the step names the settings.json, the font face, the colour scheme and
-what a write would do, and writes nothing: `docs/tui-installer.md` requires a write only after an
-explicit yes. Under `--non-interactive`, passing the flag is itself the explicit choice, so the step
-installs the font, verifies the family and writes the settings. The settings.json is looked up under
-the Windows profile — both the Store and the Preview package names
+**The interactive path asks, and the answer is the only thing that writes.** Under the TUI the WSL
+step reaches its Windows decision before the sudo script runs: the step loop builds the offer in a
+command, the **installing screen draws it**, and the run waits. The offer names the settings.json,
+the font face the write would set, the colour scheme it would register, and — when another tool has
+already set one — the font face and colour scheme the file holds today, because an offer that names
+only what it would set is how a user loses a value they chose. `y` is the explicit yes: only then is
+the font installed and verified and the settings written. `n` (or `Esc`) leaves the file exactly as
+it was, with no font copied and no backup, and the run continues to the in-distribution half either
+way. A machine where Windows Terminal cannot be reached still gets the step, with the reason named in
+the log instead of an offer. Under `--non-interactive`, passing the flag is itself the explicit
+choice, so the step installs the font, verifies the family and writes the settings without asking.
+The settings.json is looked up under the Windows profile — both the Store and the Preview package
+names
 (`AppData/Local/Packages/Microsoft.WindowsTerminal_*/LocalState/settings.json` and the same for
 `Microsoft.WindowsTerminalPreview_*`) — and a file that cannot be edited safely is refused with the
 reason named and nothing changed.

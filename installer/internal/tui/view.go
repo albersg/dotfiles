@@ -99,6 +99,11 @@ var (
 	// ever added to a screen that has something to cycle, so the footer never
 	// advertises a key that does nothing.
 	hintTab = installerHint{"[Tab]", "panel"}
+	// hintWSLTerminalOffer is the installing screen's hint while the interactive
+	// WSL step waits on the Windows Terminal offer. It is one hint rather than two
+	// so it always fits one footer row beside the details hint, and it spells both
+	// answers because the offer writes nothing until one of them is pressed.
+	hintWSLTerminalOffer = installerHint{"[y/n]", "configure Windows Terminal or leave it unchanged"}
 )
 
 // helpHintSeparator is the one separator the installer footer shares with the
@@ -3179,6 +3184,12 @@ func railRow(name string, style lipgloss.Style, fraction float64, cells, inner i
 func (m Model) renderInstalling() string {
 	width := contentWidth(m)
 	hints := []installerHint{hintDetails}
+	// The offer's own hint leads while the run is paused on it: it is the action
+	// the step is waiting for, and the details hint stays so the keys already on
+	// the screen do not vanish with the question.
+	if m.WSLTerminalOffer != nil {
+		hints = []installerHint{hintWSLTerminalOffer, hintDetails}
+	}
 	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
 
 	// Progress bar. It is sized to the frame and labeled with the percentage, so
@@ -3213,6 +3224,16 @@ func (m Model) renderInstalling() string {
 	// budget left it, so it cannot push the rail or the log off the frame. A model
 	// the gate never sampled draws the installing screen exactly as it was.
 	body = append(body, m.installingLiveRows(width)...)
+
+	// The interactive WSL step's offer is a question the run is blocked on, so it
+	// takes the rows the rail and the log would use while it waits. It is drawn
+	// whether or not the details panel is on: a question asked inside a box the
+	// user had not opened is a question nobody read, and this is the screen that
+	// stands between the run and a write to settings.json.
+	if m.WSLTerminalOffer != nil {
+		body = append(body, m.wslTerminalOfferRows(width, bodyRows-len(body))...)
+		return m.frame(m.headerName(), m.installingVital(), body, hints)
+	}
 
 	// Step rail. Each step is one row and the running step's description is one
 	// more, and the whole rail is windowed around the running step so a long run
@@ -3250,6 +3271,43 @@ func (m Model) renderInstalling() string {
 	}
 
 	return m.frame(m.headerName(), m.installingVital(), body, hints)
+}
+
+// wslTerminalOfferRows renders the pending Windows Terminal offer into the
+// installing body. Every line is wrapped to the panel's inner width and the rows
+// the body has left bound it, so a long settings path or a long font family is
+// read whole rather than clipped, and the block can never grow past the frame. A
+// frame too short for a panel falls back to plain wrapped rows so the file and
+// the value at stake are still named instead of dropped in silence.
+func (m Model) wslTerminalOfferRows(width, rows int) []string {
+	if rows < 1 || len(m.WSLTerminalOfferLines) == 0 {
+		return nil
+	}
+
+	if rows < panelFrame+1 {
+		var out []string
+		for _, line := range m.WSLTerminalOfferLines {
+			if len(out) >= rows {
+				break
+			}
+			out = append(out, wrapText(line, width, rows-len(out))...)
+		}
+		return out
+	}
+
+	content := width - panelFrame - panelPad*2
+	inner := rows - panelFrame
+	wrapped := make([]string, 0, inner)
+	remaining := inner
+	for _, line := range m.WSLTerminalOfferLines {
+		if remaining <= 0 {
+			break
+		}
+		chunk := wrapText(line, content, remaining)
+		wrapped = append(wrapped, chunk...)
+		remaining -= len(chunk)
+	}
+	return panelBlock(BrandStyle.Render("Windows Terminal"), width, wrapped)
 }
 
 func (m Model) renderComplete() string {
