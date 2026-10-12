@@ -986,20 +986,18 @@ func TestCompanionReactsToAFinishedStepAndToAFailedOne(t *testing.T) {
 		t.Errorf("State = %d after a finished step, want the pleased one", state)
 	}
 
-	// The celebration is a few ticks, not a mode: it settles by itself, and what it
-	// settles to is the resting state and not motion. This screen has no menu, so the
-	// creature has nothing to walk toward, and the ticks after the celebration leave
-	// it standing exactly where it is.
+	// The celebration is a few ticks, not a mode: it settles by itself and never
+	// lingers as the pleased face. What the awake creature is doing once it settles
+	// is its own business -- the idle cycle, a stroll, or a bout of play, now that a
+	// key no longer freezes it -- so the assertion is that the celebration left, not
+	// which live pose replaced it.
 	settled := companionTicks(t, done, companionPleasedTicks)
 	if settled.CompanionPleased != 0 {
 		t.Errorf("CompanionPleased = %d after %d ticks, want 0",
 			settled.CompanionPleased, companionPleasedTicks)
 	}
-	if state := settled.companionStateNow(); state != companionIdleState {
-		t.Errorf("State = %d after the celebration settles, want the idle one", state)
-	}
-	if settled.CompanionMoving {
-		t.Errorf("the companion walked on its own after its celebration")
+	if state := settled.companionStateNow(); state == companionPleasedState {
+		t.Errorf("the celebration was still showing after %d ticks", companionPleasedTicks)
 	}
 
 	failed := Model{
@@ -1049,23 +1047,25 @@ func TestCompanionSleepsAfterAQuietStretchAndWakesOnAKey(t *testing.T) {
 	}
 
 	woken := companionKey(t, asleep, "x")
-	if woken.CompanionIdle != 0 {
-		t.Errorf("CompanionIdle = %d after a key, want 0", woken.CompanionIdle)
+	if woken.CompanionIdle > companionRoamAfterTicks+1 {
+		t.Errorf("CompanionIdle = %d after a key, want it clipped to %d: a key wakes the creature without holding it below autonomous play",
+			woken.CompanionIdle, companionRoamAfterTicks+1)
 	}
 	if state := woken.companionStateNow(); state == companionAsleepState {
 		t.Errorf("the companion is still asleep after a key")
 	}
-	// Waking restores the resting state, not motion: this screen has no menu, so the
-	// tick after a key leaves the creature standing where it woke. The idle creature
-	// is breathing, so its own rows may change; every other row of the screen must
-	// not. The walk is the wake's other half, and it is pinned on a menu screen by
-	// TestCompanionWalksTowardWhatTheCursorPointsAt.
-	walked := companionTick(t, woken)
-	if walked.CompanionMoving {
-		t.Errorf("the companion walked on its own after being woken")
+	// Waking is something the reader sees: the creature hops once. The hop is a
+	// bounded frame count, so it leaves by itself.
+	if woken.CompanionHop != companionHopTicks {
+		t.Errorf("waking set CompanionHop to %d, want the %d-frame hop", woken.CompanionHop, companionHopTicks)
 	}
-	if walked.CompanionPos != woken.CompanionPos {
-		t.Errorf("the companion moved from cell %d to %d on a screen with nothing to walk toward", woken.CompanionPos, walked.CompanionPos)
+	// Waking no longer pins the creature to the spot: a key is allowed to leave the
+	// pet alive and walking. What must hold is that the wake changes no row the
+	// sprite does not own -- the hop is inside the reserved block like every other
+	// pose.
+	walked := companionTick(t, woken)
+	if walked.CompanionHop != companionHopTicks-1 {
+		t.Errorf("the wake hop had %d frames left one tick in, want %d", walked.CompanionHop, companionHopTicks-1)
 	}
 	beforeRows := strings.Split(woken.View(), "\n")
 	afterRows := strings.Split(walked.View(), "\n")
@@ -3040,11 +3040,16 @@ func TestCompanionStartleTremblesThenHolds(t *testing.T) {
 		t.Errorf("the tremble did not reach the drawing")
 	}
 
-	// Once the stretch is over the pose holds: the same view from tick to tick.
+	// Once the stretch is over the pose holds. The creature is awake and would
+	// otherwise choose its own play within half a second, which is the point of the
+	// cadence change, so the roam clock is held open here: this test is about the
+	// flinch's own art, not about the creature's life. With the clock held, the
+	// crouched pose is byte-identical from tick to tick.
 	settled := companionTicks(t, m, companionShiverTicks)
 	if settled.companionShiverPx() != 0 {
 		t.Errorf("the creature is still trembling %d frames after the key", companionShiverTicks)
 	}
+	settled.CompanionRoamWait = companionPauseAfterInputTicks
 	before := settled.View()
 	after := companionTicks(t, settled, 8).View()
 	if rows, bytes := companionChangedRows(before, after); len(rows) != 0 || bytes != 0 {

@@ -988,11 +988,12 @@ front-left, back-right, front-right, back-left, the body's one-pixel rise at pas
 one-pixel lead and the tail's two-pose lag. The geometry is checked against the raster; the art stays
 inside the terminal-sized block. The anatomy guard remains `TestCompanionAnatomyIsStructural`.
 
-An idle creature emits one-frame events on the model tick: the chest breathes one pixel every **32
-frames / 4 seconds**, an ear twitches every **160 frames / 20 seconds**, the tail tip flicks every
-**120 frames / 15 seconds**, and the existing blink recurs every **80 frames / 10 seconds**. These
-figures are asserted by `TestCompanionIdleEventsHaveIndependentPeriods`. Every frame between events
-is unchanged; drawing reads no clock.
+An idle creature emits one-frame events on the model tick: the chest breathes as a continuous cycle
+over **8 frames / 1 second**, an ear twitches every **40 frames / 5 seconds**, the tail sways every
+**16 frames / 2 seconds**, and the blink holds the lids shut for **2 frames** every **48 frames / 6
+seconds**. These figures are asserted by `TestCompanionIdleEventsHaveIndependentPeriods`. Between
+events the glyph idle is a four-pose cycle that steps every **2 ticks / 0.25 seconds**
+(`TestCompanionPetIdleCycleIsVisibleWithinABound`); drawing reads no clock.
 
 The glyph ladder under it needs no colour at all and stays exactly as it is: a half-block cell with no
 colour draws as a plain block, and this shading means nothing there. That is what keeps it a floor
@@ -1005,7 +1006,7 @@ changes. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227 c
 - **Between events:** the still creature changed **0 bytes across 24 pinned ticks**. It is not accurate
 to claim zero bytes for all idle time: each periodic event repaints the sprite's owned rows.
 - **Autonomous stroll:** the volume owns **12 sprite rows** and changes up to **12 lines per moving
-tick**. The current run reports **21 moving frames out of 21 (2.62 seconds)**, **176915 bytes total**,
+tick**. The current run reports **21 moving frames out of 21 (2.62 seconds)**, **176719 bytes total**,
 and **9202 bytes** in the widest changed lines (**71.9 KB/s at 8 fps**). The prior cursor-directed
 walk measurement was **19 frames / 2.38 seconds, 166586 bytes, 9138 widest-line bytes and 71.4
 KB/s**; the autonomous stroll is about **6.2% more total bytes**, **0.7% more widest-line bytes** and
@@ -1097,9 +1098,9 @@ carries the same eyes and props, and the one-row art the same state as the frame
 
 | State | What it looks like | When |
 |-------|--------------------|------|
-| Idle | `(  o    o  )` | Awake between autonomous play choices; a recent keypress pauses movement |
+| Idle | `(  o    o  )` | Awake between autonomous play choices; a keypress wakes it and leaves it alive rather than pausing it |
 | Walking | the paws alternate between legs apart and legs in | The frames it moves: the legs change, which is what reads as motion |
-| Blinking | `(  -    -  )` for one frame, every ten seconds | It is awake and idle. The blink is the tick counter read at a modulus, not a second clock |
+| Blinking | `(  -    -  )` for two frames, every six seconds | It is awake and idle. The blink is the tick counter read at a modulus, not a second clock |
 | Yawning | `(  -    -  )` with the mouth open, over the last two seconds before it sleeps | The quiet run is nearly over, so falling asleep reads as a transition rather than a cut |
 | Asleep | `(  -    -  )` and a `z` beside the ears | Sixty seconds without keyboard input |
 | Alert | `(  O    O  )` and a `!` | The selection throws something away |
@@ -1113,20 +1114,30 @@ flickering. These are the glyph-art rules; the volume has its own raster contrac
 
 **The gaze is hers, not the user's.** The pupils use the same three vertical positions and the
 head turns horizontally, but mouse movement and menu selection do not steer either the gaze or the
-position. After eight seconds without a key, the creature can choose a look-around, a hop, or a short
+position. After half a second without a key, the creature can choose a look-around, a hop, or a short
 stroll. The private xorshift state lives on the model and is injectable; no package-global `rand` can
 change a golden or depend on test order. A left click remains an explicit optional hop, but merely
 moving the pointer does not wake or redirect her. `TestCompanionDoesNotFollowCursor`,
 `TestCompanionIgnoresPointerMotion` and `TestCompanionAutonomyIsSeededBoundedAndQuiet` pin those
 boundaries and the deterministic behavior.
 
-**Autonomous movement is deliberately sparse.** A stroll chooses a bounded destination a few cells
-away and advances one whole cell no faster than every three frame ticks. She waits six to fourteen
-seconds between play choices; direction is her own, and a destination at an edge is reflected back
-into the stage rather than clamped into repeated edge movement. Key input cancels a pending stroll and
-starts another eight-second quiet window, so writing/navigation wins. The application has no reliable
-signal for whether someone is reading, so it cannot pause specifically for reading; the long initial
-quiet and sparse play cadence are the available low-noise approximation. She naps after sixty seconds
+**Autonomous movement is deliberately lively.** A stroll chooses a bounded destination a few cells
+away and advances one whole cell no faster than every `companionRoamStepFrames` frame ticks. The first
+stretch before any choice is **half a second** (`companionRoamAfterSeconds`), the gap between choices
+is **zero to one second** (`companionRoamMaxWaitTicks`), and the play bout still comes every **ten
+seconds**. Direction is her own, and a destination at an edge is reflected back into the stage rather
+than clamped into repeated edge movement. `TestCompanionPetStrollAndPlayAreReachableWithinABound`
+asserts the first stroll begins within two seconds and the play window opens within ten.
+
+**A keypress wakes her; it does not stop her life.** A key clips the idle counter down to the first
+tick past `companionRoamAfterTicks` -- restarting the sixty-second sleep clock without holding the
+creature below the point where autonomous play begins -- and hops it once if it was asleep or already
+yawning, so a wake is visible. It does not cancel a pending stroll and does not reset the roam clock:
+the creature owns reserved rows, never reflows the layout and never touches the cursor, so it has
+nothing to yield to typing. Only a window resize cancels a stroll, because that is the one event that
+can move the stage under it. `TestCompanionPetMovesAfterAKeypressWhileTheUserIsTyping` is the guard
+the report needed: with a key every other frame, the creature still walks within three seconds.
+`TestCompanionPetWakeHopIsReachableAndLeaves` pins the wake reaction. She naps after sixty seconds
 without a key.
 
 **The same frame clock owns every choice.** The gaze, hop, stroll, breath, blink and tip rotation use

@@ -559,19 +559,29 @@ func loadThemeRecordCmd() tea.Cmd {
 
 // Update implements tea.Model. It is the one place a screen change is observed,
 // so it is also the one place the active panel is reset: a screen always opens on
-// its default panel, whichever path changed the screen. The companion's two
-// event-driven fields are written here for the same reason: any key wakes it, and
-// a key that moved the cursor or changed the screen gives it something to walk
-// toward. The walking itself happens on the frame ticks that follow.
+// its default panel, whichever path changed the screen. It is also where the two
+// events that reach the creature from outside its own clock are turned into model
+// state: a key wakes it, and a resize cancels a stroll whose stage just moved. The
+// walking itself happens on the frame ticks that follow.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	screen := m.Screen
-	cursor := m.Cursor
 	if _, ok := msg.(tea.KeyMsg); ok {
-		// Any key wakes the companion and restarts the stretch that would put it
-		// back to sleep. It also gives the user's reading/typing priority over a
-		// pending autonomous stroll.
-		m.CompanionIdle = 0
-		m.pauseCompanionAfterInput()
+		// A key wakes the companion and restarts the stretch that would put it back
+		// to sleep. It does not cancel a stroll, reset the roam clock or hold the
+		// idle counter below the point where autonomous play begins: the creature
+		// owns reserved rows, never reflows anything and never touches the cursor, so
+		// it has nothing to yield to a keypress, and suppressing it on every key is
+		// what kept an active reader from ever seeing it move. See companionWake.
+		m.companionWake()
+	}
+	if _, ok := msg.(tea.WindowSizeMsg); ok {
+		// A resize is the one event that can move the stage under a pending stroll,
+		// so it is the one event that cancels one. It costs nothing when no stroll is
+		// in progress: Bubble Tea sends an initial size when the program starts, and
+		// that must not delay the first stroll by the calm interval.
+		if m.CompanionRoamActive {
+			m.pauseCompanionAfterInput()
+		}
 	}
 	next, cmd := m.update(msg)
 
@@ -581,9 +591,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if updated.Screen != screen {
 		updated.PanelIndex = 0
-	}
-	if updated.Cursor != cursor || updated.Screen != screen {
-		updated.pauseCompanionAfterInput()
 	}
 	return updated, cmd
 }

@@ -127,12 +127,17 @@ const (
 	companionBrakeCells  = 3
 	companionBrakeFrames = 2
 
-	// companionRoamAfterSeconds gives recent input and the user's attention a
-	// short quiet stretch before autonomous play can begin. It is two seconds and
-	// not the eight it used to be: a pet nobody has touched for two seconds is a
-	// pet that has gone quiet, and the watch was over before the creature did
-	// anything a reader could see.
-	companionRoamAfterSeconds = 2
+	// companionRoamAfterSeconds is the first stretch the creature is still before
+	// autonomous play can begin. It is half a second: a reader who looks at the
+	// screen for a moment must see the creature do something, and two seconds was
+	// long enough that the watch was over first.
+	companionRoamAfterSeconds = 0.5
+
+	// companionPauseAfterInputSeconds is the calm interval pauseCompanionAfterInput
+	// leaves after a screen change, an explicit cancel rather than the ordinary
+	// between-action wait. It stays longer than companionRoamAfterSeconds because
+	// its job is to let a re-laid-out screen settle, not to start play quickly.
+	companionPauseAfterInputSeconds = 2
 
 	// companionRoamStepFrames slows cell movement below the 8fps render clock.
 	companionRoamStepFrames = 3
@@ -188,15 +193,19 @@ const (
 	// read as alive, so it runs the whole time the creature is idle. The ear twitch
 	// stays a single frame, because a twitch is a quick event; the tail sways on its
 	// own slower cycle so the body can be still while the tail moves.
-	companionBreathSeconds    = 1
-	companionEarTwitchSeconds = 5
-	companionTailFlickSeconds = 2
-	companionBreathTicks      = companionBreathSeconds * animTicksPerSecond
-	companionEarTwitchTicks   = companionEarTwitchSeconds * animTicksPerSecond
-	companionTailFlickTicks   = companionTailFlickSeconds * animTicksPerSecond
-	companionRoamAfterTicks   = companionRoamAfterSeconds * animTicksPerSecond
-	companionRoamMinWaitTicks = 0
-	companionRoamMaxWaitTicks = 2 * animTicksPerSecond
+	companionBreathSeconds        = 1
+	companionEarTwitchSeconds     = 5
+	companionTailFlickSeconds     = 2
+	companionBreathTicks          = companionBreathSeconds * animTicksPerSecond
+	companionEarTwitchTicks       = companionEarTwitchSeconds * animTicksPerSecond
+	companionTailFlickTicks       = companionTailFlickSeconds * animTicksPerSecond
+	companionRoamAfterTicks       = int(companionRoamAfterSeconds * animTicksPerSecond)
+	companionPauseAfterInputTicks = int(companionPauseAfterInputSeconds * animTicksPerSecond)
+	companionRoamMinWaitTicks     = 0
+	// companionRoamMaxWaitTicks is the widest gap between two autonomous choices.
+	// It is one second rather than the two it used to be: a person looking for five
+	// seconds should see the creature choose more than once.
+	companionRoamMaxWaitTicks = 1 * animTicksPerSecond
 
 	// companionIdleFrameTicks is how long the resting glyph art holds one frame:
 	// two to four frames at the render clock, which is a quarter to half a second.
@@ -2398,12 +2407,38 @@ func (m Model) companionSelectedRow() string {
 	return options[m.Cursor]
 }
 
-// pauseCompanionAfterInput gives the user a calm interval and cancels a pending
-// stroll. Input never sets an autonomous destination.
+// pauseCompanionAfterInput cancels a pending stroll and leaves a calm interval
+// before the next autonomous choice. It is the explicit cancel, called when a new
+// screen is resized under a stroll, not on ordinary input: input never sets an
+// autonomous destination, but it must not stop one either (see companionWake).
 func (m *Model) pauseCompanionAfterInput() {
 	m.CompanionMoving = false
 	m.CompanionRoamActive = false
-	m.CompanionRoamWait = companionRoamAfterTicks
+	m.CompanionRoamWait = companionPauseAfterInputTicks
+}
+
+// companionWake is what a keypress does to the creature, and it is the whole of
+// what a keypress is allowed to do. It wakes a sleeping or yawning creature and
+// restarts the stretch that would put it back to sleep, so the pet is never
+// asleep while someone is at the keyboard. A creature that was asleep or already
+// yawning hops once, so waking is something the reader can see rather than a face
+// change nobody notices.
+//
+// It deliberately does not touch the roam clock and does not cancel a pending
+// stroll. Those were the old reset's other half, and they are not worth keeping:
+// the creature owns reserved rows, never reflows the layout and never touches the
+// cursor, so a stroll cannot collide with reading or navigation. Holding the idle
+// counter at zero is what kept an active reader's creature below the point where
+// autonomous play begins, so a keypress clips the counter down to the first tick
+// past that point instead of resetting it to zero: the sleep clock still restarts,
+// the creature still moves.
+func (m *Model) companionWake() {
+	if m.CompanionIdle >= companionSleepTicks-companionYawnTicks {
+		m.CompanionHop = companionHopTicks
+	}
+	if m.CompanionIdle > companionRoamAfterTicks+1 {
+		m.CompanionIdle = companionRoamAfterTicks + 1
+	}
 }
 
 // advanceCompanion is the creature's whole clock: it ages the idle stretch, ages

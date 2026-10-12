@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ============================================================================
@@ -409,12 +411,14 @@ func TestCompanionPetIdleCycleIsVisibleWithinABound(t *testing.T) {
 // report names and that a model actually reaches each action inside them. The band
 // checks come first, so a slow cadence fails even if a particular model strolls.
 //
-// The failure it produces without the fix: the old eight-second quiet gate and
-// six-to-fourteen-second wait put the stroll bound at twenty-two seconds, far past
-// the four asserted here, and the old play period at sixteen seconds, past twelve.
+// The failure it produces without the fix: the two-second first stretch and the
+// two-second spread this change replaced put the stroll bound at four seconds,
+// past the two asserted here; the old eight-second quiet gate and
+// six-to-fourteen-second wait put it at twenty-two, and the old play period at
+// sixteen seconds, past twelve.
 func TestCompanionPetStrollAndPlayAreReachableWithinABound(t *testing.T) {
-	if got := companionRoamAfterTicks + companionRoamMaxWaitTicks; got > 4*animTicksPerSecond {
-		t.Errorf("a stroll may begin up to %d ticks (%ds) after quiet, want within four seconds", got, got/animTicksPerSecond)
+	if got := companionRoamAfterTicks + companionRoamMaxWaitTicks; got > 2*animTicksPerSecond {
+		t.Errorf("a stroll may begin up to %d ticks (%ds) after quiet, want within two seconds", got, got/animTicksPerSecond)
 	}
 	if companionPlayPeriodTicks < 8*animTicksPerSecond || companionPlayPeriodTicks > 12*animTicksPerSecond {
 		t.Errorf("the play period is %d ticks (%ds), want eight to twelve seconds", companionPlayPeriodTicks, companionPlayPeriodTicks/animTicksPerSecond)
@@ -454,6 +458,113 @@ func TestCompanionPetStrollAndPlayAreReachableWithinABound(t *testing.T) {
 	}
 	if !played {
 		t.Errorf("the play window did not open within %d ticks (%ds)", companionPlayPeriodTicks, companionPlayPeriodTicks/animTicksPerSecond)
+	}
+}
+
+// TestCompanionPetMovesAfterAKeypressWhileTheUserIsTyping is the guard the
+// report needed. It drives the real main menu through Update with a key every
+// other frame -- arrows, Enter, letters, the way a reader navigates and types --
+// and requires the creature to choose and take a stroll inside three seconds. It
+// also logs the owned rows at every tick, so the sequence can be read and not only
+// measured.
+//
+// The failure it produces without the fix: the old Update reset CompanionIdle to
+// zero on every key and cancelled the pending stroll, so the counter never passed
+// companionRoamAfterTicks, the creature never moved, and the test reports "the pet
+// never moved across 24 ticks (3s) with a key every other frame".
+func TestCompanionPetMovesAfterAKeypressWhileTheUserIsTyping(t *testing.T) {
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Screen = ScreenMainMenu
+	m.Width, m.Height = 160, 50
+	m.Animating = true
+
+	bound := 3 * animTicksPerSecond
+	moved := false
+	lastPos := m.CompanionPos
+	distinct := map[string]struct{}{}
+	for tick := 0; tick < bound; tick++ {
+		if tick%2 == 0 {
+			m = companionKey(t, m, "j")
+		}
+		m = companionTick(t, m)
+		rows := strings.Split(m.View(), "\n")
+		var frame strings.Builder
+		for _, row := range companionOwnedRows(rows) {
+			frame.WriteString(rows[row])
+			frame.WriteByte('\n')
+		}
+		distinct[frame.String()] = struct{}{}
+		t.Logf("tick %2d state=%-8s position=%d moving=%t:\n%s",
+			tick, companionStateNames[m.companionStateNow()], m.CompanionPos, m.CompanionMoving, frame.String())
+		if m.CompanionPos != lastPos {
+			moved = true
+		}
+		lastPos = m.CompanionPos
+	}
+	if !moved {
+		t.Fatalf("the pet never moved across %d ticks (%ds) with a key every other frame; a keypress must wake it, not freeze it",
+			bound, bound/animTicksPerSecond)
+	}
+	if len(distinct) < 3 {
+		t.Errorf("the live sequence drew %d distinct frames across %d ticks, want a moving creature", len(distinct), bound)
+	}
+}
+
+// TestCompanionPetWakeHopIsReachableAndLeaves pins the wake reaction: a key that
+// reaches a sleeping or yawning creature hops once, so a wake is something the
+// reader sees rather than a face change nobody notices. The hop is a bounded frame
+// count, so it also leaves by itself.
+//
+// The failure it produces without the fix: without the hop the state after a key
+// is the resting one and the test reports "waking drew idle, want the hop"; with
+// the hop never aged, the "after companionHopTicks ticks" assertion reports it
+// still jumping.
+func TestCompanionPetWakeHopIsReachableAndLeaves(t *testing.T) {
+	asleep := Model{Animating: true, Screen: ScreenComplete, Width: 100, Height: 24}
+	asleep.CompanionIdle = companionSleepTicks
+
+	woken := companionKey(t, asleep, "x")
+	if woken.companionStateNow() != companionJumpingState {
+		t.Fatalf("waking drew %s, want the hop", companionStateNames[woken.companionStateNow()])
+	}
+
+	// Hold the roam clock open so a fresh autonomous choice cannot set another hop
+	// under this one: the thing under test is that this hop ends.
+	woken.CompanionRoamWait = companionPauseAfterInputTicks
+	landed := companionTicks(t, woken, companionHopTicks)
+	if landed.CompanionHop != 0 || landed.companionStateNow() == companionJumpingState {
+		t.Fatalf("the wake hop had %d frames left after %d ticks and draws %s",
+			landed.CompanionHop, companionHopTicks, companionStateNames[landed.companionStateNow()])
+	}
+}
+
+// TestCompanionPetResizeCancelsAStrollButTheInitialSizeDoesNot pins the one
+// remaining user of the calm interval. The size message Bubble Tea sends when the
+// program starts must not delay the first stroll; a resize with a stroll already in
+// progress cancels it, because the stage just moved under it.
+//
+// The failure it produces without the fix: pausing on every size message makes the
+// initial-size assertion report a reset roam clock (the pet would stand still for
+// the calm interval before its first stroll), and never pausing leaves a stroll
+// armed toward a cell the narrower stage no longer reaches.
+func TestCompanionPetResizeCancelsAStrollButTheInitialSizeDoesNot(t *testing.T) {
+	start := Model{Animating: true, Screen: ScreenMainMenu, Width: 160, Height: 50}
+
+	// The initial size arrives before any stroll exists: it must leave the roam clock
+	// exactly where it was so the first stroll still comes at half a second.
+	sized, _ := start.Update(tea.WindowSizeMsg{Width: 160, Height: 50})
+	if got := sized.(Model); got.CompanionRoamWait != start.CompanionRoamWait {
+		t.Fatalf("the initial size reset the roam clock from %d to %d", start.CompanionRoamWait, got.CompanionRoamWait)
+	}
+
+	// A resize with a stroll in progress is the one event that cancels it.
+	walking := start
+	walking.CompanionRoamActive = true
+	walking.CompanionRoamTarget = 40
+	resized, _ := walking.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	if got := resized.(Model); got.CompanionRoamActive {
+		t.Fatalf("a resize left the stroll from cell %d to cell %d armed", walking.CompanionPos, walking.CompanionRoamTarget)
 	}
 }
 
