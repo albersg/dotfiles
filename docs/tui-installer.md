@@ -645,7 +645,7 @@ and the choices, so a run shows only the ones that apply.
 | Install Terminal | Installs your chosen terminal emulator |
 | Install Meslo Nerd Font | Installs the Meslo Nerd Font for icons |
 | Install Shell | Installs your shell and its plugins |
-| Install Multiplexer | Installs your terminal multiplexer; Tmux also gets its plugin set |
+| Install Multiplexer | Installs your terminal multiplexer; Tmux and Herdr also get their plugin sets |
 | Install Neovim | Installs Neovim with your configuration |
 | Install Toolset | Installs the command-line tools declared in the `Brewfile` (best effort; skipped on Termux and without Homebrew) |
 | Install Pi Agent Skills | Installs the pinned AI agent skills |
@@ -654,15 +654,18 @@ and the choices, so a run shows only the ones that apply.
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
 
-**The installer provisions plugins for four tools and leaves the fifth to you.**
-It installs the plugin set this repository declares for Tmux (it clones TPM and
-runs `install_plugins`), Fish, Zsh and Neovim, because in each case the set is a
-decision the repository has already made. Herdr is the exception: a Herdr plugin
-is third-party code installed from GitHub shorthand, and the repository declares
-none, so the installer neither installs, links, updates nor removes Herdr
-plugins. They are **user-managed** — run `herdr plugin install
-<owner>/<repo>/<subdir>` yourself — and a reinstall copies `config.toml` and
-leaves them in place. The Herdr keymaps screen names the same commands, and
+**The installer provisions plugins for five tools.** It installs the plugin set
+this repository declares for Tmux (it clones TPM and runs `install_plugins`),
+Fish, Zsh and Neovim, because in each case the set is a decision the repository
+has already made. For Herdr it installs the two plugins declared in the
+installer's own source — `aigora.lantern` and `herdr.auto-title` — with `herdr
+plugin install <owner>/<repo> --yes`, then verifies each with `herdr plugin
+list` and reports the revision Herdr recorded. Herdr has no plugin update
+command, so re-running the installer is how they are updated: the install
+replaces Herdr's managed checkout with the repository's current default branch.
+A plugin that failed to install, or whose build failed, is not reported as
+installed, and the installer never uninstalls or disables a plugin you added
+yourself. The Herdr keymaps screen names the same commands, and
 [Tools Reference](tools.md#plugins) lists them.
 
 The installing screen is the longest thing a user watches, so it shows how far

@@ -151,13 +151,13 @@ func moduleIDConstantsInDeclarationOrder(t *testing.T) []string {
 // TestHerdrPluginStanceMatchesTheInstaller keeps the statement the documentation
 // makes about Herdr plugins in agreement with what the installer actually does.
 //
-// The installer provisions a plugin set for Tmux, Fish, Zsh and Neovim because
-// the repository declares each of those sets; it declares none for Herdr, whose
-// plugins are third-party code installed from GitHub shorthand. So the docs say
-// Herdr plugins are user-managed and the installer leaves them alone. That claim
-// is only honest while no installer step invokes the Herdr plugin CLI, and this
-// guard derives that fact from the installer's own sources rather than repeating
-// it here: a provisioning step added without the docs being updated fails.
+// The installer now provisions a plugin set for Herdr too, declared in
+// installer.go and installed from GitHub shorthand, so the docs must say the
+// installer installs them and no doc may still call them user-managed. That
+// claim is only honest while an installer step does invoke the Herdr plugin CLI,
+// and this guard derives that fact from the installer's own sources rather than
+// repeating it here: a provisioning step removed without the docs being updated,
+// or added without them, makes the two disagree and fails this.
 //
 // The keymap reference (keymaps_*.go) is left out: it lists `herdr plugin` as UI
 // text for the user to read, which is the screen naming the command, not the
@@ -194,6 +194,12 @@ func TestHerdrPluginStanceMatchesTheInstaller(t *testing.T) {
 // `herdr plugin` command. It reads the string literals of the installer's own
 // sources through the parser, so the fact comes from the code and not from a
 // copy in the test.
+//
+// TestHerdrPluginSetAndDocumentationAgree is the other half of the agreement:
+// the declared set in installer.go and the prose in docs/tools.md name the same
+// plugins. Adding a plugin to herdrPluginSet without documenting it fails there,
+// and emptying the set fails the non-empty guard, so a guard that checks nothing
+// cannot pass.
 func installerInvokesHerdrPlugin(t *testing.T) bool {
 	t.Helper()
 
@@ -238,4 +244,31 @@ func installerInvokesHerdrPlugin(t *testing.T) bool {
 		t.Fatal("no installer sources were scanned, so this guard proves nothing")
 	}
 	return found
+}
+
+// TestHerdrPluginSetAndDocumentationAgree keeps the declared set and the prose
+// that names it in step. The set is declared once, in installer.go, and the
+// installer's documentation must list the same plugins and the same GitHub
+// sources. A plugin added to the set without a doc line fails here; clearing the
+// set fails the non-empty guard, so a guard that checks nothing cannot pass.
+func TestHerdrPluginSetAndDocumentationAgree(t *testing.T) {
+	if len(herdrPluginSet) == 0 {
+		t.Fatal("the declared Herdr plugin set is empty, so this guard proves nothing")
+	}
+
+	tools, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "tools.md"))
+	if err != nil {
+		t.Fatalf("read docs/tools.md: %v", err)
+	}
+	text := string(tools)
+
+	for _, plugin := range herdrPluginSet {
+		if !strings.Contains(text, plugin.ID) {
+			t.Errorf("docs/tools.md does not name the declared plugin id %q", plugin.ID)
+		}
+		if !strings.Contains(text, plugin.shorthand()) {
+			t.Errorf("docs/tools.md does not name the declared source %q, so a reader cannot tell where %q comes from",
+				plugin.shorthand(), plugin.ID)
+		}
+	}
 }
