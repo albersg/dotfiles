@@ -336,15 +336,23 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 #### Arch Linux / Linux
 
 ```bash
-mkdir -p ~/.local/share/fonts
-# Download latest version from https://github.com/ryanoasis/nerd-fonts/releases
-# The archive lands in a scratch directory inside the font directory, never the
-# font directory itself, and is removed once the fonts are extracted
-font_scratch=$(mktemp -d ~/.local/share/fonts/.meslo-XXXXXX)
-wget -O "$font_scratch/Meslo.zip" https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip
-unzip "$font_scratch/Meslo.zip" -d ~/.local/share/fonts/
-rm -rf "$font_scratch"
-fc-cache -fv
+# Ask fontconfig before downloading: the archive is ~108 MB and re-fetching it
+# over identical files is wasted. This is the check the installer itself runs.
+if ! fc-list : family 2>/dev/null | grep -q 'MesloLGS NF'; then
+  mkdir -p ~/.local/share/fonts
+  # Download latest version from https://github.com/ryanoasis/nerd-fonts/releases
+  # The archive lands in a scratch directory inside the font directory, never the
+  # font directory itself, and is removed once the fonts are extracted
+  font_scratch=$(mktemp -d ~/.local/share/fonts/.meslo-XXXXXX)
+  wget -O "$font_scratch/Meslo.zip" https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip
+  unzip "$font_scratch/Meslo.zip" -d ~/.local/share/fonts/
+  rm -rf "$font_scratch"
+  fc-cache -fv
+fi
+# Verify: the family the terminal configurations name must resolve. A line here
+# means the icons will render; nothing means the font did not register, whatever
+# the commands above said.
+fc-list : family | grep 'MesloLGS NF'
 ```
 
 #### macOS

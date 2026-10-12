@@ -484,6 +484,30 @@ place: the table keeps its size and its place, the notice row says it is refresh
 is one visible change. **`--dry-run` skips the write**, leaving no file, no backup and no record,
 exactly as it skips every installation step.
 
+### The Nerd Font step
+
+**The machine is asked before anything is downloaded.** On Linux the pinned Nerd Fonts archive is
+about 108 MB (`108,281,715` bytes at v3.3.0), the most expensive network operation in the installer
+apart from a package install, and for a long time it was fetched and extracted over identical files
+on every run. The step now asks fontconfig first — `fc-list : family` — whether the family the
+shipped terminal configurations name, `MesloLGS NF`, already resolves. When it does, the download,
+the extraction and `fc-cache` are all skipped and the step says which command answered. The family
+comes from `windowsTerminalFontFace`, the same constant `font_family_test.go` checks every shipped
+configuration against, so the presence check and the configurations cannot name different families.
+
+**The report is the verification, not the attempt.** After `fc-cache`, the step asks fontconfig
+again and only reports `✓ Font installed` when the family really resolves; a broken extraction, a
+cache that did not pick the directory up, or an `fc-list` that could not be asked fails the step and
+names what it asked for instead. This is the same gate `wslterminal.go` puts on the Windows font
+store before it names a face, and it exists for the same reason: a family that does not resolve
+falls back silently, so an unchecked success line is worse than a failure.
+
+**Termux reads one file, not a family.** Termux's terminal has no fontconfig; it reads
+`~/.termux/font.ttf`, and the step's presence check is that file. A non-empty file skips the
+download entirely; after a download the step verifies the file is there and not zero-length before
+it reloads Termux's settings. The face it really installs is JetBrainsMono Nerd Font, which the
+step's log now says rather than labelling it Meslo.
+
 ### The renderer on the Windows side
 
 Under WSL the installer writes the Nerd Font into `~/.local/share/fonts` and the dotfiles palette
@@ -643,7 +667,7 @@ and the choices, so a run shows only the ones that apply.
 | Install Homebrew | Installs Homebrew, the package manager |
 | Clone Repository | Downloads your dotfiles repository |
 | Install Terminal | Installs your chosen terminal emulator |
-| Install Meslo Nerd Font | Installs the Meslo Nerd Font for icons |
+| Install Meslo Nerd Font | Installs the Meslo Nerd Font for icons; on Linux it asks fontconfig (`fc-list`) whether the family the terminal configurations name already resolves and skips the ~108 MB download when it does, and it verifies that family resolves before reporting success; on Termux it checks and verifies its own `~/.termux/font.ttf` slot |
 | Install Shell | Installs your shell and its plugins |
 | Install Multiplexer | Installs your terminal multiplexer; Tmux and Herdr also get their plugin sets |
 | Install Neovim | Installs Neovim with your configuration |

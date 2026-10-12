@@ -145,6 +145,28 @@ func TestTheInstallerInstallsTheFamilyTheConfigsName(t *testing.T) {
 	}
 }
 
+// TestTheTermuxStepNamesTheFaceItInstalls is the guard for the Termux half of
+// issue #269: the step, the menu and the docs said Meslo while the asset the
+// step fetched was JetBrainsMono. The menu and the docs live outside this
+// change's surface, but the step's own label does not, and it must name the
+// asset it fetches. The two are read and compared, so a label that says Meslo
+// over a JetBrainsMono URL -- or the reverse after someone "fixes" the URL to
+// match the menu -- fails here instead of being logged as success.
+func TestTheTermuxStepNamesTheFaceItInstalls(t *testing.T) {
+	if !strings.Contains(termuxFontURL, "JetBrainsMono") {
+		t.Errorf("the Termux step downloads %q, which is no longer the JetBrainsMono asset; the label %q and the asset have to be decided together", termuxFontURL, termuxFontFace)
+	}
+	if !strings.Contains(termuxFontFace, "JetBrainsMono") {
+		t.Errorf("the Termux step's label is %q but its asset is %q: the step would log a family it does not install", termuxFontFace, termuxFontURL)
+	}
+	if strings.Contains(termuxFontFace, windowsTerminalFontFace) {
+		t.Errorf("the Termux label %q claims the family %q, but the asset it installs is %q", termuxFontFace, windowsTerminalFontFace, termuxFontURL)
+	}
+	if termuxFontDirName != ".termux" || termuxFontFileName != "font.ttf" {
+		t.Errorf("Termux reads ~/.termux/font.ttf, but the step writes ~/%s/%s", termuxFontDirName, termuxFontFileName)
+	}
+}
+
 // TestWindowsTerminalFaceIsResolvedBeforeItIsNamed is the guard for the "name
 // what resolves" rule. The face written to Windows Terminal must be the one the
 // Windows font store answers for, preferring the machine's own Meslo build and
