@@ -5400,25 +5400,84 @@ const (
 	mesloArchiveURL      = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip"
 	mesloArchiveName     = "Meslo.zip"
 	fontScratchDirPrefix = ".meslo-"
+
+	// linuxFontFamilyQuery is how the step asks fontconfig which families this
+	// machine can already resolve. `fc-list : family` prints one line per face,
+	// with the face's families comma-separated, and changes nothing, so asking
+	// is cheap and read-only. The answer decides whether the pinned archive is
+	// downloaded at all and, after extraction, whether the install may be
+	// reported as done. It is one constant so the presence check and the
+	// verification ask fontconfig the same question.
+	linuxFontFamilyQuery = "fc-list : family"
+
+	// termuxFontDirName, termuxFontFileName, termuxFontURL and termuxFontFace
+	// describe Termux's font slot. Termux has no fontconfig: its terminal reads
+	// one file, so the honest presence check is the file rather than a family.
+	// The face really installed is JetBrainsMono Nerd Font, not the MesloLGS NF
+	// the other terminals name, and the step's log says so. The wizard row and
+	// the menu still say Meslo, which is the rest of issue #269 and lives in
+	// model.go, outside this change's surface.
+	termuxFontDirName  = ".termux"
+	termuxFontFileName = "font.ttf"
+	termuxFontFace     = "JetBrainsMono Nerd Font"
+	termuxFontURL      = "https://github.com/ryanoasis/nerd-fonts/raw/HEAD/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFont-Regular.ttf"
 )
+
+// linuxFontFamilyResolves reports whether fontconfig's family listing resolves
+// family. Each line names one face and its families are comma-separated, so the
+// whole family name is compared rather than a substring: a different face that
+// merely shares a prefix must not satisfy the check.
+func linuxFontFamilyResolves(family, listing string) bool {
+	for _, line := range strings.Split(listing, "\n") {
+		for _, name := range strings.Split(line, ",") {
+			if strings.TrimSpace(name) == family {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// installedLinuxFontFamily asks fontconfig whether family is already installed.
+// It returns known=false when fc-list could not be asked at all -- a machine
+// without fontconfig -- which is a different answer from "absent": the first
+// means the download should still run, and the second means the family simply
+// is not there yet. Nothing is downloaded to answer the question.
+func installedLinuxFontFamily(family string) (resolved, known bool) {
+	result := system.RunWithLogs(linuxFontFamilyQuery, nil, nil)
+	if result.Error != nil {
+		return false, false
+	}
+	return linuxFontFamilyResolves(family, result.Output), true
+}
 
 func stepInstallFont(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	stepID := "font"
 
-	// Termux: fonts work differently - copy to ~/.termux/font.ttf
+	// Termux: fonts work differently. Its terminal reads exactly one file in its
+	// own slot, so a non-empty file already there is the whole answer and the
+	// download is skipped before anything is created or fetched.
 	isTermux := m.SystemInfo.IsTermux || m.Choices.OS == "termux"
 	if isTermux {
-		SendLog(stepID, "Downloading JetBrainsMono Nerd Font for Termux...")
-		termuxDir := filepath.Join(homeDir, ".termux")
+		termuxDir := filepath.Join(homeDir, termuxFontDirName)
+		termuxFontPath := filepath.Join(termuxDir, termuxFontFileName)
+
+		if info, err := os.Stat(termuxFontPath); err == nil && info.Size() > 0 {
+			SendLog(stepID, fmt.Sprintf("%s is already installed at %s, so nothing was downloaded.", termuxFontFace, termuxFontPath))
+			SendLog(stepID, "✓ Font already installed - restart Termux to apply")
+			return nil
+		}
+
+		SendLog(stepID, fmt.Sprintf("Downloading %s for Termux...", termuxFontFace))
 		if err := system.EnsureDir(termuxDir); err != nil {
 			return wrapStepError("font", "Install Nerd Font",
 				"Failed to create .termux directory",
 				err)
 		}
 
-		// Download a single TTF file for Termux
-		result := system.RunWithLogs(fmt.Sprintf("curl -fsSL -o %s/font.ttf https://github.com/ryanoasis/nerd-fonts/raw/HEAD/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFont-Regular.ttf", termuxDir), nil, func(line string) {
+		// Download the single TTF file Termux reads.
+		result := system.RunWithLogs(fmt.Sprintf("curl -fsSL -o %s %s", termuxFontPath, termuxFontURL), nil, func(line string) {
 			SendLog(stepID, line)
 		})
 		if result.Error != nil {
@@ -5427,9 +5486,22 @@ func stepInstallFont(m *Model) error {
 				result.Error)
 		}
 
+		// Verify the slot the terminal will read instead of the transfer that was
+		// attempted: curl exits 0 on an empty body, and a zero-length font.ttf is
+		// not an installed font.
+		if info, err := os.Stat(termuxFontPath); err != nil {
+			return wrapStepError("font", "Install Nerd Font",
+				fmt.Sprintf("The download reported success, but %s is not there, so Termux has no font to read.", termuxFontPath),
+				err)
+		} else if info.Size() == 0 {
+			return wrapStepError("font", "Install Nerd Font",
+				fmt.Sprintf("The download wrote an empty %s, so Termux has no font to read.", termuxFontPath),
+				nil)
+		}
+
 		SendLog(stepID, "Reloading Termux settings...")
 		system.Run("termux-reload-settings", nil)
-		SendLog(stepID, "✓ Font installed - restart Termux to apply")
+		SendLog(stepID, fmt.Sprintf("✓ Font installed - %s is in place; restart Termux to apply", termuxFontPath))
 		return nil
 	}
 
@@ -5449,6 +5521,23 @@ func stepInstallFont(m *Model) error {
 
 	// Linux
 	fontDir := filepath.Join(homeDir, ".local/share/fonts")
+
+	// Ask the machine before downloading. The pinned archive is about 108 MB
+	// (108,281,715 bytes at v3.3.0, not the 347 MB the old comment claimed), the
+	// most expensive network operation in the installer apart from a package
+	// install, and without this check it is re-fetched and re-extracted over
+	// identical files on every run. fc-list is asked whether the family the
+	// terminal configurations name already resolves; when it does, the download,
+	// the extraction and the cache rebuild are skipped and the step reports what
+	// answered. The family comes from the same constant the shipped
+	// configurations are guarded against (font_family_test.go), so the check
+	// cannot name a family the configurations do not.
+	if resolved, known := installedLinuxFontFamily(windowsTerminalFontFace); known && resolved {
+		SendLog(stepID, fmt.Sprintf("%s is already installed: %s resolves it, so the font archive was not downloaded.", windowsTerminalFontFace, linuxFontFamilyQuery))
+		SendLog(stepID, "✓ Font already installed")
+		return nil
+	}
+
 	SendLog(stepID, "Creating fonts directory...")
 	if err := system.EnsureDir(fontDir); err != nil {
 		return wrapStepError("font", "Install Meslo Nerd Font",
@@ -5457,8 +5546,8 @@ func stepInstallFont(m *Model) error {
 	}
 
 	// The archive used to be downloaded into fontDir itself and never removed, so
-	// a 347 MB zip stayed in a directory fontconfig scans. It is fetched into a
-	// scratch directory this step owns instead: inside fontDir, so the download
+	// the ~108 MB zip stayed in a directory fontconfig scans. It is fetched into
+	// a scratch directory this step owns instead: inside fontDir, so the download
 	// lands on the same filesystem rather than in a memory-backed /tmp, but never
 	// the font directory itself, and removing that directory covers the failure
 	// paths too. Doing this also keeps the cleanup away from every other file in
@@ -5503,7 +5592,24 @@ func stepInstallFont(m *Model) error {
 	system.RunWithLogs("fc-cache -fv", nil, func(line string) {
 		SendLog(stepID, line)
 	})
-	SendLog(stepID, "✓ Font installed")
+
+	// Verify, and report the verification rather than the attempt. A broken
+	// extraction, a fontconfig cache that did not pick the directory up, or a
+	// user font directory the terminal cannot read all leave the family
+	// unresolved, and none of them may be reported as ✓. This is the same
+	// discipline wslterminal.go follows against the Windows font store.
+	resolved, known := installedLinuxFontFamily(windowsTerminalFontFace)
+	if !known {
+		return wrapStepError("font", "Install Meslo Nerd Font",
+			fmt.Sprintf("The font files were extracted into %s, but %s could not be asked, so %q was not verified and may not resolve.", fontDir, linuxFontFamilyQuery, windowsTerminalFontFace),
+			nil)
+	}
+	if !resolved {
+		return wrapStepError("font", "Install Meslo Nerd Font",
+			fmt.Sprintf("The font files were extracted into %s, but %s does not resolve %q, so the configured font would fall back silently.", fontDir, linuxFontFamilyQuery, windowsTerminalFontFace),
+			nil)
+	}
+	SendLog(stepID, fmt.Sprintf("✓ Font installed - %s resolves %s", linuxFontFamilyQuery, windowsTerminalFontFace))
 	return nil
 }
 
