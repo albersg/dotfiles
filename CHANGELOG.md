@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.7.3] — 2026-10-12
+
+### Fixed
+
+- **The pet moves within a second, and a key no longer stops its life.** Reported after v0.7.0 made it animate: it took a long time to start walking. Two causes, both measured. The first stroll waited two seconds of quiet before the wait even began, and a further zero to two seconds spread on top, so the first cell could take four seconds to appear. And a keypress reset the idle counter to zero, so a person reading the menu and pressing arrows or Enter held it at zero forever -- the pet never strolled for the user who reported it. The first stretch is half a second now and the gap between choices is zero to one, so the first cell lands around three quarters of a second.
+- **The keypress reset was split rather than deleted.** What it was protecting -- the user's reading and navigation -- is not protected by it: the creature owns reserved rows, never reflows the layout and never touches the cursor, so its stroll cannot collide with either. What is kept is the sleep half: a key wakes a sleeping or yawning pet, restarts the sixty second sleep clock, and hops once so the wake is visible. The counter is clipped to the first tick past the roam threshold instead of cleared, so the sleep clock restarts while the pet keeps moving. One cancel survives because it is real: a resize that lands while a stroll is in progress. The initial size Bubble Tea sends at startup is excluded, or the first stroll would wait out the calm interval.
+
 ## [v0.7.2] — 2026-10-12
 
 ### Added
