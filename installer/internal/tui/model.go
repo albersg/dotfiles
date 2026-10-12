@@ -359,6 +359,18 @@ type Model struct {
 	// WSLNotice is the one-line result of the last write, cleared when the screen
 	// is left, exactly as ThemeNotice is.
 	WSLNotice string
+	// WSLTerminalOffer is the Windows Terminal decision the interactive WSL step
+	// puts to the user before the run writes anything there: the read-only offer,
+	// the lines the installing screen shows for it, the Windows profile the font
+	// would be installed into, and whether the font store already resolved a face.
+	// It is non-nil only while the step waits for the answer, so the screen draws
+	// the offer exactly when a choice is pending. The write happens only when the
+	// answer is yes; the offer itself is built by a command, because resolving the
+	// face asks the Windows font store through interop.
+	WSLTerminalOffer           *windowsTerminalOffer
+	WSLTerminalOfferLines      []string
+	WSLTerminalOfferProfileDir string
+	WSLTerminalOfferResolved   bool
 	// TerminalCapabilities is the terminal capability report: what the terminal
 	// the installer is running in can do, where each answer came from, and what
 	// it implies. It is read by a command only when the capability screen is

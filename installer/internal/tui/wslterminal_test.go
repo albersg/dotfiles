@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // testWindowsTerminalThemeDefinition builds a complete palette so the scheme
@@ -864,6 +866,283 @@ func TestWSLConfigStepRefusesWindowsTerminalWithoutTheExplicitYes(t *testing.T) 
 	}
 	if !strings.Contains(report, "explicit yes") {
 		t.Errorf("the refusal should say the write needs an explicit yes:\n%s", report)
+	}
+}
+
+// testWindowsTerminalSettingsWithOtherFace is the settings.json of a machine
+// another tool already configured: a font face of its own and a colour scheme of
+// its own sit beside the keys this installer owns. The offer has to name them,
+// because an offer that only says what it would set is how a user loses a value
+// they chose.
+const testWindowsTerminalSettingsWithOtherFace = `{
+    // Windows Terminal settings
+    "$schema": "https://example.invalid/schema.json",
+    "profiles": {
+        "defaults": {
+            "font": { "face": "CascadiaMonoNF" },
+            "colorScheme": "OneHalfDark",
+            "padding": "8"
+        },
+        "list": [
+            { "name": "Debian", "guid": "{00000000-0000-0000-0000-000000000000}" }
+        ]
+    },
+    "schemes": [
+        { "name": "Campbell", "background": "#0C0C0C", "foreground": "#CCCCCC" }
+    ],
+    "theme": "dark"
+}
+`
+
+// installWSLTerminalSettings overwrites the fixture's settings.json with a
+// document of the caller's choosing, so a test can pin what the offer reads
+// outside the shape the shared fixture ships.
+func installWSLTerminalSettings(t *testing.T, settingsPath, content string) {
+	t.Helper()
+	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing the fixture settings: %v", err)
+	}
+}
+
+// mountWSLTerminalStep parks a model on the installing screen with the
+// interactive WSL step as the one the run is on. It is the state the TUI is in
+// when the step loop arrives at the offer.
+func mountWSLTerminalStep(t *testing.T, repoDir string) Model {
+	t.Helper()
+	m := wslModel(repoDir, true)
+	m.Screen = ScreenInstalling
+	m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
+	m.CurrentStep = 0
+	m.Steps = []InstallStep{{ID: wslStepID, Name: "Configure WSL", Interactive: true}}
+	return m
+}
+
+// driveWSLTerminalOfferToTheScreen drives the step loop the way the bubbletea
+// runtime does: installStartMsg makes Update return runNextStep's command, that
+// command returns the offer message, and the message goes back into Update. It is
+// the reachability assertion the dead offer functions never had -- the offer has
+// to arrive through the model and its Update loop, so a screen nobody wired would
+// fail here instead of passing a test that called the writer directly. Running
+// the returned command is what proves the offer is produced by the TUI's own
+// dispatch rather than by a test helper.
+func driveWSLTerminalOfferToTheScreen(t *testing.T, m Model) Model {
+	t.Helper()
+
+	result, cmd := m.Update(installStartMsg{})
+	if cmd == nil {
+		t.Fatal("the step loop returned no command, so the WSL step would never start")
+	}
+	m = result.(Model)
+
+	msg := cmd()
+	result, _ = m.Update(msg)
+	m = result.(Model)
+
+	if m.WSLTerminalOffer == nil {
+		t.Fatalf("the interactive WSL step reached %T and produced no on-screen offer; with no offer a TUI user can never say yes, which is exactly the gap this guard exists to close", msg)
+	}
+	return m
+}
+
+// TestInteractiveWSLStepShowsTheOfferOnTheInstallingScreen is the reachability
+// guard for the interactive half of the maintainer's decision on #261: the TUI's
+// own step loop must produce the Windows Terminal offer and the installing screen
+// must draw it, naming the file, the settings and the value already there. Before
+// this wiring the offer functions were reached only by --non-interactive (or, the
+// release before, only by a test), so a user who installed through the TUI never
+// saw the offer at all.
+func TestInteractiveWSLStepShowsTheOfferOnTheInstallingScreen(t *testing.T) {
+	repoDir, _, settingsPath := newWindowsTerminalWSLLayout(t)
+	stubWindowsFontQueryStateful(t, map[string]bool{})
+	installWSLTerminalSettings(t, settingsPath, testWindowsTerminalSettingsWithOtherFace)
+
+	m := driveWSLTerminalOfferToTheScreen(t, mountWSLTerminalStep(t, repoDir))
+
+	// The screen shows the offer, and the screen is what a person reads: the
+	// assertion is on the rendered frame, not only on the model field.
+	view := strings.ReplaceAll(m.View(), "\n", "")
+	for _, want := range []string{
+		"Windows Terminal's settings.json is reachable at",
+		"CascadiaMonoNF",
+		"OneHalfDark",
+		"configure Windows Terminal or leave it unchanged",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the installing screen does not show %q, so a write could happen without the user reading what it replaces:\n%s", want, m.View())
+		}
+	}
+	if !strings.Contains(strings.Join(m.WSLTerminalOfferLines, "\n"), settingsPath) {
+		t.Errorf("the offer must name the settings.json it would change, got:\n%s", strings.Join(m.WSLTerminalOfferLines, "\n"))
+	}
+
+	// Reading the offer changed nothing on disk: the offer is read-only and the
+	// write waits for the answer.
+	if got, err := os.ReadFile(settingsPath); err != nil {
+		t.Fatal(err)
+	} else if string(got) != testWindowsTerminalSettingsWithOtherFace {
+		t.Error("building the offer must not change the settings file")
+	}
+}
+
+// TestInteractiveWSLStepOfferFitsTheInstallingFrame measures the offer state the
+// frame guards do not carry: it reuses ScreenInstalling, so the derived coverage
+// guard sees the screen, but nothing measures the frame while the offer is on it.
+// A question that overflows the frame would be clipped, so this renders it at the
+// 80x24 floor with the same fit assertion the installer's screens use.
+func TestInteractiveWSLStepOfferFitsTheInstallingFrame(t *testing.T) {
+	repoDir, _, settingsPath := newWindowsTerminalWSLLayout(t)
+	stubWindowsFontQueryStateful(t, map[string]bool{})
+	installWSLTerminalSettings(t, settingsPath, testWindowsTerminalSettingsWithOtherFace)
+
+	m := driveWSLTerminalOfferToTheScreen(t, mountWSLTerminalStep(t, repoDir))
+	assertInstallerScreenFits(t, "installing-wsl-terminal-offer", m)
+}
+
+// TestInteractiveWSLStepOfferIsSkippedOnADryRun pins the gate runNextStep puts
+// around the offer. Without it a documented no-op run would still build the
+// offer, ask for a yes, and then copy the Nerd Font into the Windows font store
+// on that answer, because installAndVerifyWindowsFont runs before the writer's
+// own dry-run check. Under the flag the step takes its ordinary skipped path,
+// exactly as runInteractiveStep already decides for every interactive step.
+func TestInteractiveWSLStepOfferIsSkippedOnADryRun(t *testing.T) {
+	repoDir, profileDir, _ := newWindowsTerminalWSLLayout(t)
+	t.Setenv("DOTFILES_DRY_RUN", "1")
+	stubWindowsFontQueryStateful(t, map[string]bool{})
+
+	m := mountWSLTerminalStep(t, repoDir)
+	msg := m.runNextStep()()
+
+	finished, ok := msg.(execFinishedMsg)
+	if !ok {
+		t.Fatalf("a dry run produced %T for the WSL step, want execFinishedMsg", msg)
+	}
+	if finished.stepID != wslStepID {
+		t.Fatalf("dry-run message carries step %q, want %q", finished.stepID, wslStepID)
+	}
+	if _, err := os.Stat(filepath.Join(profileDir, filepath.FromSlash(windowsFontStoreRelPath))); !os.IsNotExist(err) {
+		t.Error("a dry run must not copy the font into the Windows store")
+	}
+}
+
+// TestInteractiveWSLStepRefusalLeavesTheFileUntouched is the refusal half of the
+// interactive guard: pressing n answers the offer through Update, and the file,
+// the font store and the absence of a backup all have to be exactly what they
+// were. The script command the step continues to is inspected but never run, so
+// the guard stays hermetic.
+func TestInteractiveWSLStepRefusalLeavesTheFileUntouched(t *testing.T) {
+	repoDir, profileDir, settingsPath := newWindowsTerminalWSLLayout(t)
+	stubWindowsFontQueryStateful(t, map[string]bool{})
+	installWSLTerminalSettings(t, settingsPath, testWindowsTerminalSettingsWithOtherFace)
+
+	m := driveWSLTerminalOfferToTheScreen(t, mountWSLTerminalStep(t, repoDir))
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if cmd == nil {
+		t.Fatal("refusing the offer returned no command, so the step would never continue to its script")
+	}
+	m = result.(Model)
+
+	// The refusal runs through the same apply path the write does; run it and feed
+	// the answer back, then stop before the script command runs a shell.
+	applied := cmd()
+	if _, ok := applied.(wslTerminalOfferAppliedMsg); !ok {
+		t.Fatalf("refusing produced %T, want wslTerminalOfferAppliedMsg", applied)
+	}
+	result, scriptCmd := m.Update(applied)
+	m = result.(Model)
+	if scriptCmd == nil {
+		t.Fatal("the refused step produced no script command, so the rest of the WSL step would not run")
+	}
+
+	if got, err := os.ReadFile(settingsPath); err != nil {
+		t.Fatal(err)
+	} else if string(got) != testWindowsTerminalSettingsWithOtherFace {
+		t.Error("refusing must leave the settings file exactly as it was")
+	}
+	if backups, _ := filepath.Glob(settingsPath + ".bak-dotfiles-*"); len(backups) != 0 {
+		t.Errorf("refusing must leave no backup, got %v", backups)
+	}
+	if _, err := os.Stat(filepath.Join(profileDir, filepath.FromSlash(windowsFontStoreRelPath))); !os.IsNotExist(err) {
+		t.Error("refusing must not copy the font into the Windows store")
+	}
+	if m.WSLTerminalOffer != nil {
+		t.Error("the offer must be cleared once it is answered")
+	}
+}
+
+// TestInteractiveWSLStepYesWritesTheFile is the yes half: pressing y answers the
+// offer through Update, and the font is installed and verified before the face is
+// written through the same writer the non-interactive step uses, with the previous
+// file kept beside it. It is the proof that the interactive screen, and not only
+// the flag, can reach the write.
+func TestInteractiveWSLStepYesWritesTheFile(t *testing.T) {
+	repoDir, profileDir, settingsPath := newWindowsTerminalWSLLayout(t)
+	scripts := stubWindowsFontQueryStateful(t, map[string]bool{})
+	installWSLTerminalSettings(t, settingsPath, testWindowsTerminalSettingsWithOtherFace)
+
+	m := driveWSLTerminalOfferToTheScreen(t, mountWSLTerminalStep(t, repoDir))
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd == nil {
+		t.Fatal("accepting the offer returned no command, so nothing could be written")
+	}
+	m = result.(Model)
+
+	applied := cmd()
+	result, scriptCmd := m.Update(applied)
+	m = result.(Model)
+	if scriptCmd == nil {
+		t.Fatal("the accepted step produced no script command, so the rest of the WSL step would not run")
+	}
+
+	store := filepath.Join(profileDir, filepath.FromSlash(windowsFontStoreRelPath))
+	for _, face := range windowsFontFaces {
+		if _, err := os.Stat(filepath.Join(store, face.File)); err != nil {
+			t.Errorf("the face %s was not copied into the Windows font store: %v", face.File, err)
+		}
+	}
+	registered, verified := false, false
+	for _, script := range *scripts {
+		if strings.Contains(script, "New-ItemProperty") {
+			registered = true
+		}
+		if strings.Contains(script, "InstalledFontCollection") && strings.Contains(script, windowsTerminalFontFace) {
+			verified = true
+		}
+	}
+	if !registered {
+		t.Errorf("the family must be registered under HKCU before the face is written; queries were %v", *scripts)
+	}
+	if !verified {
+		t.Errorf("the family %q must be verified in the font store before the face is written; queries were %v", windowsTerminalFontFace, *scripts)
+	}
+
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := parseJSONC(after)
+	if err != nil {
+		t.Fatalf("the written settings are not valid JSONC: %v\n%s", err, after)
+	}
+	defaults := root.findMember("profiles").value.findMember("defaults").value
+	if face := defaults.findMember("font").value.findMember("face"); face == nil || face.value.text != windowsTerminalFontFace {
+		t.Errorf("profiles.defaults.font.face was not written with %q", windowsTerminalFontFace)
+	}
+	if cs := defaults.findMember("colorScheme"); cs == nil || cs.value.text != windowsTerminalSchemeName {
+		t.Errorf("profiles.defaults.colorScheme was not written with %q", windowsTerminalSchemeName)
+	}
+	backups, _ := filepath.Glob(settingsPath + ".bak-dotfiles-*")
+	if len(backups) != 1 {
+		t.Fatalf("the write must leave exactly one backup, got %v", backups)
+	}
+	if saved, err := os.ReadFile(backups[0]); err != nil {
+		t.Fatal(err)
+	} else if string(saved) != testWindowsTerminalSettingsWithOtherFace {
+		t.Error("the backup must hold the other tool's settings as they were")
+	}
+	if m.WSLTerminalOffer != nil {
+		t.Error("the offer must be cleared once it is answered")
 	}
 }
 

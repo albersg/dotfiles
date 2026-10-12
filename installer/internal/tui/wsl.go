@@ -141,6 +141,95 @@ func stepInstallWSLConfig(m *Model) error {
 	return nil
 }
 
+// wslTerminalInteractiveOffer builds the read-only Windows Terminal offer the
+// interactive WSL step puts to the user, and the lines the installing screen
+// shows for it. It shares windowsTerminalThemeDefinition, installedWindowsFontFace
+// and readWindowsTerminalOffer with the non-interactive branch, so the file, the
+// face and the scheme the offer names are the same ones a write would use. It
+// reads and computes only: nothing here writes, which is what lets the screen
+// name the change before the user makes it.
+func wslTerminalInteractiveOffer(repoDir, profileDir string) (windowsTerminalOffer, []string, bool) {
+	def, err := windowsTerminalThemeDefinition(repoDir)
+	if err != nil {
+		return windowsTerminalOffer{}, []string{"Windows Terminal was not configured: " + err.Error()}, false
+	}
+
+	// Resolve the face before the offer is built, exactly as the non-interactive
+	// branch does, so the offer, the font install and the settings all name the
+	// same family.
+	face, resolved := installedWindowsFontFace()
+	if !resolved {
+		face = windowsTerminalFontFace
+	}
+
+	offer := readWindowsTerminalOffer(profileDir, def, face)
+	return offer, wslTerminalOfferLines(offer), resolved
+}
+
+// wslTerminalOfferLines is what the installing screen shows before the choice:
+// the file, the two settings a write would set, what happens to the previous
+// file, the values the file holds today when another tool set one, and the keys
+// that answer the offer. describeWindowsTerminalOffer is reused rather than
+// restated, so the screen cannot name a setting or a file the writer does not
+// touch; the current values are added here because the non-interactive notice
+// never had to name what it was about to replace, and an offer that does not
+// name a face already set is how a user loses a setting they chose.
+func wslTerminalOfferLines(offer windowsTerminalOffer) []string {
+	lines := describeWindowsTerminalOffer(offer)
+	if !offer.Available {
+		return lines
+	}
+	if face, ok := windowsTerminalCurrentFontFace(offer.Original); ok {
+		lines = append(lines, fmt.Sprintf(
+			"It already names the font face %q there; that is the value this installer would replace.", face))
+	}
+	if scheme, ok := windowsTerminalCurrentColorScheme(offer.Original); ok {
+		lines = append(lines, fmt.Sprintf(
+			"It already names the colour scheme %q there.", scheme))
+	}
+	lines = append(lines,
+		"The Nerd Font would also be copied into the Windows per-user font store and registered under HKCU once you choose to configure it.",
+		"Press y to write these settings, or n to leave Windows Terminal exactly as it is.")
+	return lines
+}
+
+// windowsTerminalCurrentFontFace reads the font face the settings.json already
+// names, so the offer can name the value it would replace instead of only the
+// value it would set. A file with no font face, or a shape that does not carry
+// one, answers false and the offer says nothing about a value that is not there.
+func windowsTerminalCurrentFontFace(src []byte) (string, bool) {
+	defaults, err := jsoncDefaults(src)
+	if err != nil {
+		return "", false
+	}
+	font := defaults.findMember("font")
+	if font == nil || font.value.kind != jsoncObject {
+		return "", false
+	}
+	return jsoncStringMember(font.value, "face")
+}
+
+// windowsTerminalCurrentColorScheme reads the colour scheme already named in the
+// file, with the same rule: absent is nothing to name, not a guess.
+func windowsTerminalCurrentColorScheme(src []byte) (string, bool) {
+	defaults, err := jsoncDefaults(src)
+	if err != nil {
+		return "", false
+	}
+	return jsoncStringMember(defaults, "colorScheme")
+}
+
+// jsoncStringMember returns the non-empty string a member holds, or false when
+// the member is absent or is not a string. It is the read half of the writer's
+// membership rule, so a value the offer names is one the writer would keep.
+func jsoncStringMember(obj *jsoncValue, key string) (string, bool) {
+	member := obj.findMember(key)
+	if member == nil || member.value.kind != jsoncString || member.value.text == "" {
+		return "", false
+	}
+	return member.value.text, true
+}
+
 // mergedRepoWSLConfig reads the shipped template, detects the Windows host,
 // renders the machine-derived keys for it, and **merges** the result over the
 // .wslconfig this machine already has: the user's own keys, comments and
