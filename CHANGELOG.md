@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.7.2] — 2026-10-12
+
+### Added
+
+- **The installer installs the Herdr plugins.** It provisioned plugins for tmux, zsh, fish and Neovim and left Herdr's alone, and the two plugins this repository now declares -- `aigora.lantern` and `herdr.auto-title` -- are installed with `herdr plugin install <owner>/<repo> --yes` and verified by reading `herdr plugin list` back. No revision is pinned: the point is the latest, and the commit Herdr records is read and reported rather than chosen here. `--yes` is not optional, because without it the command opens a trust preview that nothing in a step can answer. A plugin that failed to install, or whose build failed, is a failed step rather than a success, and a plugin you added yourself is never touched.
+- **The renderer offer reaches a screen.** Under WSL the installer could install the font, register it, verify it and write Windows Terminal's settings -- but only under `--non-interactive`. The interactive path, which is what a person using the TUI takes, printed the notice and never showed the offer. The installing screen now shows it, including the value that is there now when one is: a machine already configured by another tool has a font face set, and an offer that does not name it is how a user loses a setting they chose.
+
+### Fixed
+
+- **One unowned file no longer leaves every other file on the old palette.** The theme switch returned at the first artifact whose ownership it could not prove, after putting back everything it had already written, and alacritty is the first entry: on a machine carrying a legacy `alacritty.toml` the run stopped before kitty, ghostty, herdr, starship, zsh, p10k, nvim, bat, fish, tmux and nushell were reached, including the files that are marked and were perfectly themeable. The run now collects every file it cannot prove it owns in one pass, themes what it can, and reports a partial result naming each skipped file and its reason. A skipped file's bytes are untouched and the undo record holds only the files written. The refusal also stopped naming an action the interface does not offer.
+- **The update row is never silent about what it knows.** A machine reported it exactly: on the stable channel `--check-update` exits 1 and the main menu shows nothing, because the row was added only when the update was installable from here. A newer release the installer could not install -- a binary Homebrew owns, or a target it could not resolve -- left no row at all, and a hidden row reads as "nothing new". The row now appears whenever the check has something to report and names the reason in the words the update screen already uses; pressing it opens that screen rather than attempting a swap. The write path is untouched: a binary a package manager owns is still never replaced, and the row reports rather than tries.
+- **The font step asks whether the family is already installed, and verifies what landed.** It installed the font once per run, every run: Linux always downloaded the pinned 108 MB archive to overwrite identical bytes, and then reported "Font installed" whether a family registered or not. A broken extraction, a fontconfig cache that did not pick the directory up, or a user font directory the terminal cannot read was reported as success. The step now asks before it downloads and verifies after it installs, and Termux gets the same treatment.
+- **The sound the managed config turns on gets its dependency.** The Herdr configuration this repository installs enables `[ui.sound]`, and Herdr ships no audio decoder: it shells out to an external mp3 player and fails silently when none resolves. The step now resolves a player before it reports success, provisions `mpg123` when none is present, and names the gap and withholds the success line when even that cannot be provided.
+
+### Changed
+
+- **The documentation and the code cannot disagree about the Herdr plugins.** A guard derives from source whether the installer invokes the plugin CLI and requires each document to carry the matching stance, so a provisioning step added without the documentation being updated fails it. It covers the Spanish README too: the other language drifting is a defect this repository has already had once.
+
 ## [v0.7.1] — 2026-10-11
 
 ### Fixed
