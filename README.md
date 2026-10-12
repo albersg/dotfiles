@@ -85,7 +85,7 @@ During multiplexer selection, choose **Tmux**, **Zellij**, **Herdr**, or **None*
 
 > **Tmux users:** After installation, open tmux and press `prefix + I` (capital I) to install plugins via TPM. This ensures the theme and all plugins load correctly.
 
-> **Herdr users:** Herdr plugins are **user-managed**. A Herdr plugin is third-party code installed from GitHub shorthand (`herdr plugin install <owner>/<repo>/<subdir>`), and this repository declares no plugin set for it, so the installer neither installs, links, updates nor removes them. A reinstall copies `config.toml` and leaves the plugins already on the machine exactly as they are. See [Tools Reference](docs/tools.md#plugins) for the commands.
+> **Herdr users:** The installer installs Herdr's plugin set itself — `aigora.lantern` (`aigorahub/herdr-lantern`) and `herdr.auto-title` (`kryptamine/herdr-auto-title`) — with `herdr plugin install <owner>/<repo> --yes`, then verifies each with `herdr plugin list` and reports the revision Herdr recorded. `herdr.auto-title` builds from Go at install time. Herdr has no plugin update command, so re-running the installer is how they are updated, and it never removes a plugin you added yourself. See [Tools Reference](docs/tools.md#plugins) for the commands.
 
 > **Windows users:** You must set up WSL first. See the [Manual Installation Guide](docs/manual-installation.md#windows-wsl).
 

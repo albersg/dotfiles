@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -6010,6 +6011,172 @@ func installHerdrBinary(m *Model, stepID string) error {
 	return os.Chmod(dest, 0755)
 }
 
+// ============================================================================
+// HERDR PLUGINS: THE DECLARED SET, INSTALLED AND VERIFIED
+// ============================================================================
+//
+// Unlike the plugin set for Tmux, Fish, Zsh and Neovim, Herdr's is not declared
+// in a file this repository copies: Herdr installs plugins itself, from GitHub
+// shorthand, into a directory it owns. The set is still a decision this
+// repository makes, so it is named here and in the documentation, and nowhere
+// is it inferred.
+//
+// The install is deliberately not pinned. The owner asked for whatever is
+// current, and `herdr plugin install` replaces the managed checkout it owns, so
+// a re-run lands the repository's default branch again -- which is the only
+// update path Herdr 0.9.3 has, because its plugin surface has no update, upgrade
+// or refresh command. The revision that actually landed is Herdr's fact, not
+// this installer's: it is read back from `herdr plugin list`
+// (`source.resolved_commit`) and reported, never chosen in advance.
+//
+// Nothing else is touched. The step never uninstalls, unlinks or disables a
+// plugin, so a plugin the user added themselves survives a reinstall, and a
+// plugin that fails to install or fails to build is never reported as installed.
+
+// herdrPlugin is one plugin this installer declares and provisions.
+type herdrPlugin struct {
+	// ID is the plugin id Herdr records and `herdr plugin list` reports. It is
+	// what verification looks for.
+	ID string
+	// Owner and Repo are the GitHub shorthand `herdr plugin install` accepts.
+	Owner string
+	Repo  string
+	// Name is the plugin's own name, for the install log.
+	Name string
+}
+
+func (p herdrPlugin) shorthand() string { return p.Owner + "/" + p.Repo }
+
+// herdrPluginSet is the declared set, and the single source of truth for it: the
+// step installs exactly these, and the documentation guard fails if a declared
+// plugin stops being named in docs/tools.md.
+var herdrPluginSet = []herdrPlugin{
+	{ID: "aigora.lantern", Owner: "aigorahub", Repo: "herdr-lantern", Name: "Lantern, by Elves"},
+	{ID: "herdr.auto-title", Owner: "kryptamine", Repo: "herdr-auto-title", Name: "Auto Title"},
+}
+
+// herdrPluginRun runs one Herdr plugin CLI command and returns its result. It is
+// a variable so a test replaces the boundary; production uses system.RunWithLogs
+// so the plugin's own install and build output reaches the step log.
+var herdrPluginRun = system.RunWithLogs
+
+// herdrPluginList reads the installed-plugin registry back from the machine. It
+// is a variable for the same reason as herdrPluginRun, and it is separate
+// because verification must read the machine's answer rather than interleave it
+// with log lines.
+var herdrPluginList = func() (string, error) {
+	result := system.Run("herdr plugin list --json", nil)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	return result.Output, nil
+}
+
+// installedHerdrPlugin is one plugin `herdr plugin list --json` reports.
+type installedHerdrPlugin struct {
+	PluginID string `json:"plugin_id"`
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	Source   struct {
+		ResolvedCommit string `json:"resolved_commit"`
+	} `json:"source"`
+}
+
+// herdrPluginListDocument mirrors the response envelope of `herdr plugin list
+// --json`: {"id":"cli:plugin","result":{"type":"plugin_list","plugins":[...]}}.
+type herdrPluginListDocument struct {
+	Result struct {
+		Plugins []installedHerdrPlugin `json:"plugins"`
+	} `json:"result"`
+}
+
+// parseInstalledHerdrPlugins reads the machine's answer into a map keyed by
+// plugin id. A response that cannot be read is an error, never an empty list:
+// "no plugins" and "no answer" must not look the same to a caller that is about
+// to claim an install succeeded.
+func parseInstalledHerdrPlugins(output string) (map[string]installedHerdrPlugin, error) {
+	var doc herdrPluginListDocument
+	if err := json.Unmarshal([]byte(output), &doc); err != nil {
+		return nil, fmt.Errorf("could not read the `herdr plugin list --json` response: %w", err)
+	}
+	installed := make(map[string]installedHerdrPlugin, len(doc.Result.Plugins))
+	for _, plugin := range doc.Result.Plugins {
+		installed[plugin.PluginID] = plugin
+	}
+	return installed, nil
+}
+
+// herdrPluginRevision keeps the reported revision readable while still
+// identifying it. Herdr records the full commit; the installer never chooses it.
+func herdrPluginRevision(commit string) string {
+	if commit == "" {
+		return "unknown revision"
+	}
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	return commit
+}
+
+// installHerdrPlugins installs every plugin in the declared set and verifies
+// each one against the machine. A plugin that did not install, or whose build
+// failed, is returned as an error so the step cannot report success over it.
+//
+// It runs only for the Herdr multiplexer choice, and only where the herdr binary
+// resolves: a machine without it gets nothing and no error, because there is
+// nothing to install into.
+func installHerdrPlugins(m *Model, stepID string) error {
+	if m == nil || m.Choices.WindowMgr != "herdr" {
+		return nil
+	}
+	if !system.CommandExists("herdr") {
+		SendLog(stepID, "Herdr is not on PATH; the Herdr plugins were not touched")
+		return nil
+	}
+	if len(herdrPluginSet) == 0 {
+		return fmt.Errorf("the declared Herdr plugin set is empty, so this step proves nothing")
+	}
+
+	var failures []error
+	for _, plugin := range herdrPluginSet {
+		SendLog(stepID, fmt.Sprintf("Installing Herdr plugin %s (%s)...", plugin.Name, plugin.shorthand()))
+		// --yes is the noninteractive form: without it the CLI shows a trust
+		// preview and waits on a [y/N] prompt, which a TUI step cannot answer.
+		result := herdrPluginRun("herdr plugin install "+plugin.shorthand()+" --yes", nil, func(line string) {
+			SendLog(stepID, line)
+		})
+		if result.Error != nil {
+			failures = append(failures, fmt.Errorf("%s (%s) failed to install: %w", plugin.Name, plugin.ID, result.Error))
+		}
+	}
+
+	// Ask the machine rather than assume, the way the WSL font path asks the
+	// Windows font store: the install command's exit status is not proof, so the
+	// registry is read back and every declared plugin has to be in it. This is
+	// also what makes a failed build visible, because herdr.auto-title is built
+	// at install time.
+	output, err := herdrPluginList()
+	if err != nil {
+		return fmt.Errorf("the installed Herdr plugins could not be read back to verify the install: %w", err)
+	}
+	installed, err := parseInstalledHerdrPlugins(output)
+	if err != nil {
+		return err
+	}
+	for _, plugin := range herdrPluginSet {
+		got, ok := installed[plugin.ID]
+		if !ok {
+			failures = append(failures, fmt.Errorf("%s (%s) is not in `herdr plugin list` after installing it", plugin.Name, plugin.ID))
+			continue
+		}
+		SendLog(stepID, fmt.Sprintf("✓ %s (%s) installed at %s", plugin.Name, plugin.ID, herdrPluginRevision(got.Source.ResolvedCommit)))
+	}
+	if len(failures) > 0 {
+		return errors.Join(failures...)
+	}
+	return nil
+}
+
 // shellPlatformPackages returns the packages each package manager needs for the
 // requested shell and the tools its configuration reads at start.
 //
@@ -6914,6 +7081,16 @@ func stepInstallWM(m *Model) error {
 				err)
 		}
 		SendLog(stepID, "✓ Herdr configured")
+
+		// The plugins come after the binary resolves and the config is in place,
+		// and the step fails if a declared plugin did not install or verify: a
+		// consumer that only sees the exit status would otherwise read a failed
+		// build as a finished install.
+		if err := installHerdrPlugins(m, stepID); err != nil {
+			return wrapStepError("wm", "Install Herdr",
+				"Failed to install the Herdr plugins",
+				err)
+		}
 	}
 
 	return nil

@@ -35,9 +35,10 @@ Detailed overview of all tools configured by dotfiles.
 
 ## Plugins
 
-The installer provisions a plugin set for four tools, and in each case the set
-is a decision this repository has already made — the step is copying or installing
-a list that lives here:
+The installer provisions a plugin set for five tools. For four of them the set
+is a list that lives in this repository and the step copies or installs it; for
+Herdr the set is declared in the installer's own source, because Herdr has no
+plugin list file to copy:
 
 | Tool | Where the set is declared | What the installer does |
 |------|---------------------------|-------------------------|
@@ -45,26 +46,39 @@ a list that lives here:
 | **Fish** | `dotfiles-fish/fish/fish_plugins` | Ships the plugin list and the plugin files with the Fish config; `config.fish` bootstraps Fisher on first start |
 | **Zsh** | `.zshrc` | Installs the plugin packages (autosuggestions, syntax highlighting, completions, fzf-tab, Powerlevel10k) that the `.zshrc` sources |
 | **Neovim** | `dotfiles-nvim/nvim/lua/plugins/` | Ships the LazyVim plugin set, which lazy.nvim installs on first launch |
+| **Herdr** | `herdrPluginSet` in `installer/internal/tui/installer.go` | Runs `herdr plugin install <owner>/<repo> --yes` for each declared plugin and verifies each with `herdr plugin list` |
 
-**Herdr is the one tool whose plugins are user-managed.** A Herdr plugin is
-third-party code installed from GitHub shorthand, not a configuration line, and
-this repository declares no plugin set for it. The installer does not choose
-which third-party code you run, so it neither installs, links, updates nor
-removes Herdr plugins:
+### Herdr
+
+The declared Herdr set is two plugins, installed from GitHub shorthand:
+
+| Plugin | Source | What it is |
+|--------|--------|------------|
+| `aigora.lantern` | `aigorahub/herdr-lantern` | Lantern, by Elves |
+| `herdr.auto-title` | `kryptamine/herdr-auto-title` | Auto Title, built from Go at install time (Go is required) |
+
+The step runs only on the Herdr multiplexer choice and only where the `herdr`
+binary resolves. It installs each plugin with `--yes`, the noninteractive form
+of `herdr plugin install`, then asks the machine what it has with `herdr plugin
+list` and reports the revision Herdr recorded for each plugin
+(`source.resolved_commit`). A plugin that failed to install, or whose build
+failed, is reported as a failure and not as an installed plugin.
+
+**Nothing is pinned, and Herdr has no plugin update command.** `herdr plugin
+install` re-resolves the repository's default branch and replaces the managed
+checkout it owns, so re-running the installer is how these plugins are updated.
+The installer never uninstalls, unlinks or disables a plugin, so plugins you add
+yourself are left untouched. The same commands:
 
 ```bash
-herdr plugin install <owner>/<repo>/<subdir>   # install a plugin (GitHub shorthand only)
-herdr plugin link <path>                        # link a plugin from a working tree
-herdr plugin list                               # list the plugins installed for this user
-herdr plugin uninstall <id>                     # unregister an installed plugin
-herdr plugin unlink <id>                        # unregister a linked one
+herdr plugin install <owner>/<repo>/<subdir> --yes   # install or update (GitHub shorthand only)
+herdr plugin link <path>                             # link a plugin from a working tree
+herdr plugin list                                    # list the plugins installed for this user
+herdr plugin uninstall <id>                          # unregister an installed plugin
+herdr plugin unlink <id>                             # unregister a linked one
 ```
 
-Because the installer never looks at plugin state, nothing backs it up,
-refreshes it or undoes it: a reinstall copies `config.toml` and leaves the
-plugins already on the machine exactly as they are. That is the deliberate
-default, not a missing step. Herdr's keymaps screen in the installer names the
-same commands.
+Herdr's keymaps screen in the installer names the same commands.
 
 ## Prompts
 

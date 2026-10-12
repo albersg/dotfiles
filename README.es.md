@@ -85,7 +85,7 @@ Durante la selección del multiplexor, elegí **Tmux**, **Zellij**, **Herdr** o 
 
 > **Usuarios de Tmux:** Después de la instalación, abrí tmux y presioná `prefix + I` (I mayúscula) para instalar los plugins con TPM. Esto asegura que el tema y los plugins carguen correctamente.
 
-> **Usuarios de Herdr:** Los plugins de Herdr son **gestionados por vos** (`user-managed`). Un plugin de Herdr es código de terceros que se instala desde GitHub (`herdr plugin install <owner>/<repo>/<subdir>`), y este repositorio no declara ningún conjunto de plugins para él, así que el instalador no los instala, ni los enlaza, ni los actualiza, ni los elimina. Una reinstalación copia `config.toml` y deja los plugins que ya están en la máquina exactamente como están. Mirá los comandos en la [Referencia de Herramientas](docs/tools.md#plugins).
+> **Usuarios de Herdr:** El instalador instala el conjunto de plugins de Herdr por sí solo — `aigora.lantern` (`aigorahub/herdr-lantern`) y `herdr.auto-title` (`kryptamine/herdr-auto-title`) — con `herdr plugin install <owner>/<repo> --yes`, y después verifica cada uno con `herdr plugin list` e informa la revisión que Herdr registró. `herdr.auto-title` se compila con Go al instalarse. Herdr no tiene un comando para actualizar plugins, así que volver a correr el instalador es la forma de actualizarlos, y nunca elimina un plugin que hayas agregado vos. Mirá los comandos en la [Referencia de Herramientas](docs/tools.md#plugins).
 
 > **Usuarios de Windows:** Primero tenés que configurar WSL. Consultá la [Guía de instalación manual](docs/manual-installation.md#windows-wsl).
 
