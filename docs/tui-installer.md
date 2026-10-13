@@ -734,8 +734,30 @@ and the choices, so a run shows only the ones that apply.
 | Install Pi Agent Skills | Installs the pinned AI agent skills |
 | Install OfficeCLI | Installs the OfficeCLI document tool |
 | Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
+| Restore the Applied Theme | Writes the theme this machine has applied back into the configuration files the run replaced (see below) |
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
+
+**An install preserves the theme the machine has applied, and that is a step of its own.** Every step
+that writes a configuration file writes the file this repository ships, and those carry the **default**
+theme's generated block — so a run silently reverted whichever theme the picker had applied, for every
+file it rewrote, while the record of which theme is applied went on naming it. The reset was per step
+rather than uniform: measured on one machine, an install rewrote `~/.zshrc`, `~/.p10k.zsh` and the
+Herdr configuration back to the default palette while `starship.toml` and `nushell/config.nu` kept the
+theme, and the prompt — which reads its colours from the first two — painted the default colours on a
+machine the interface reported as Nocturne.
+
+The `Restore the Applied Theme` step runs after every step that writes a configuration file and before
+`Cleanup`, which removes the temporary checkout the theme definitions are read from. It is the picker's
+write without the picker's transaction: it uses the picker's own gates — the artifact list, the path
+each artifact answers with, the ownership proof, the Neovim reachability rule and the same renderer —
+so a file the picker would refuse is refused here for the same reason. It never adopts a file that
+carries no marker of this project, because an install is not a user choosing a theme, and it leaves
+the theme record and its undo snapshot exactly as the picker wrote them. Three cases leave every file
+alone and none of them fails the run: no theme is recorded, the record cannot be read, and the record
+names a theme the checkout does not define — the last is a normal race between the installed binary
+and the branch it reads, and failing there would report an install as failed after it had already
+installed everything.
 
 **The installer provisions plugins for five tools.** It installs the plugin set
 this repository declares for Tmux (it clones TPM and runs `install_plugins`),

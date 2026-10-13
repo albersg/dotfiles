@@ -4,6 +4,42 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **An install no longer discards the theme the machine has applied.** Every step that writes a
+  configuration file writes the file this repository ships, and those carry the **default** theme's
+  generated block. The picker was the only caller of `applyDotfilesTheme`, and the record of which
+  theme is applied was read only to be displayed, so a run silently reverted an applied theme for every
+  file it rewrote while the record went on naming it, and nothing reported it: the picker's own count
+  stayed true of a machine that no longer matched it.
+
+  Measured on the machine this was found on: the picker wrote Nocturne into six files at `15:31:19`,
+  an install ran at `16:59:42`, and afterwards `~/.zshrc`, `~/.p10k.zsh` and
+  `~/.config/herdr/config.toml` carried the default theme's block and a `16:59:42` timestamp, while
+  `~/.config/starship.toml` and `~/.config/nushell/config.nu` still carried Nocturne's and their
+  `15:31:19` one. `theme.json` went on naming Nocturne over six files. The reset was per step rather
+  than uniform, and the prompt — which reads `PALETTE_*` from the first two — rendered the default
+  palette on a machine whose own interface reported Nocturne as applied: measured in a real
+  interactive shell, `POWERLEVEL9K_OS_ICON_FOREGROUND=#7fb4ca`, `POWERLEVEL9K_FOREGROUND=#f3f6f9` and
+  `POWERLEVEL9K_PROMPT_CHAR_OK_VIINS_FOREGROUND=#b7cc85`, every one of them `themes/dotfiles.toml`'s
+  value rather than Nocturne's `#8686cb`, `#c0c0c0` and `#86cb86`. The same configuration looked right
+  on another machine because the theme there had been applied **after** the last install; the order was
+  the whole difference.
+
+  A new **Restore the Applied Theme** step runs after every step that writes a configuration file and
+  before `Cleanup`, which removes the temporary checkout the theme definitions are read from. It
+  re-renders each artifact's block from the definition the record names, through the picker's own gates
+  — the artifact list, the path each artifact answers with, the ownership proof, the Neovim
+  reachability rule and the same renderer — so a file the picker would refuse is refused here for the
+  same reason. Unlike the picker it never adopts a file that carries no marker of this project, and it
+  leaves the theme record and its undo snapshot exactly as the picker wrote them. No record, a record
+  that cannot be read, and a record naming a theme the checkout does not define all leave every file
+  alone and none of them fails the run: the last is a normal race between the installed binary and the
+  branch it reads, and failing there would report an install as failed after it had already installed
+  everything.
+
 ## [v0.7.7] — 2026-10-13
 
 ### Fixed
