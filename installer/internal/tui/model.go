@@ -288,8 +288,12 @@ type Model struct {
 	// Backup mode
 	ExistingConfigs  []string            // Configs that will be overwritten
 	AvailableBackups []system.BackupInfo // Available backups for restore
-	SelectedBackup   int                 // Selected backup index
-	BackupDir        string              // Last backup directory created
+	// FontPresence is what the font step's own check found on this machine,
+	// measured once when the model is built so the font screen can state it
+	// without running fc-list while drawing. The render paths only read it.
+	FontPresence   fontPresence
+	SelectedBackup int    // Selected backup index
+	BackupDir      string // Last backup directory created
 	// LastInstall is the record of the previous completed run -- when it finished,
 	// the build it ran and the configuration paths it replaced -- read from the
 	// state file on the startup path. It is nil when there is no record, and the
@@ -506,6 +510,10 @@ func NewModel() Model {
 	// The desktop's theme switch is detected once here, the way the host itself
 	// is, so no screen probes the environment or PATH while it draws.
 	m.ThemeSwitch, m.ThemeSwitchFound = currentThemeSwitch(m.SystemInfo)
+	// The font step's own presence check is taken once here for the same reason:
+	// the font screen states what is already on the machine, and on Linux the
+	// check runs fc-list, which a render must not do.
+	m.FontPresence = fontPresenceProbe(m.SystemInfo)
 	// The shell the startup utility would measure is resolved here for the same
 	// reason: which shell, and whether this run can start an interactive one, are
 	// questions a render must not ask. The measurement itself is a keypress away.
@@ -619,6 +627,49 @@ func (m Model) installedFontLabel() string {
 	return fontInstallLabel(fontInstallFamily(m.isFontTermux()))
 }
 
+// fontPresenceDescription names what the font step's own check found on this
+// machine, so the screen states a measurement instead of leaving the user to
+// remember whether the family is there. The sentence the screen carried before
+// -- "is required for icons and glyphs" -- is kept for a host the step does not
+// check (macOS installs through the Homebrew cask), where claiming installed or
+// not would be a claim nothing measured.
+func (m Model) fontPresenceDescription() string {
+	label := m.installedFontLabel()
+	if !m.FontPresence.Measured {
+		return label + " is required for icons and glyphs"
+	}
+	if m.FontPresence.Installed {
+		return label + " is already installed here.\nInstalling it again downloads nothing; skipping it leaves it in place."
+	}
+	return label + " is not installed here.\nInstalling it provides the icons and glyphs the terminal configuration names; skipping it leaves the terminal without them."
+}
+
+// fontPresenceApplies reports whether the presence measured for the detected
+// host is the one the font step would use. The step takes its Termux branch for
+// the host or for a run that chose Termux, so a run that chose Termux on a
+// different host is a check the model did not make and its measurement is not
+// this run's answer.
+func (m Model) fontPresenceApplies() bool {
+	return !(m.Choices.OS == "termux" && (m.SystemInfo == nil || !m.SystemInfo.IsTermux))
+}
+
+// fontSummaryLine is the completion screen's font row. It names the font the run
+// installed and, when the pre-run check measured this machine, what it found: the
+// step either found the family already resolvable or installed it, so the only
+// question left is which. A host nothing measured -- or a run whose step used a
+// check the model did not make -- keeps the label alone rather than claiming a
+// state.
+func (m Model) fontSummaryLine() string {
+	line := "Font: " + m.installedFontLabel()
+	if !m.FontPresence.Measured || !m.fontPresenceApplies() {
+		return line
+	}
+	if m.FontPresence.Installed {
+		return line + " (already installed)"
+	}
+	return line + " (installed now)"
+}
+
 func (m Model) GetCurrentOptions() []string {
 	switch m.Screen {
 	case ScreenMainMenu:
@@ -674,7 +725,11 @@ func (m Model) GetCurrentOptions() []string {
 		}
 		return []string{"Alacritty", "WezTerm", "Ghostty", "None", m.menuSeparator(), "Learn about terminals"}
 	case ScreenFontSelect:
-		return []string{fmt.Sprintf("Yes, install %s", m.installedFontLabel()), "No, I already have it"}
+		// Both rows name what pressing them does. The second row used to give a
+		// reason -- "No, I already have it" -- which answered a question the user
+		// had not asked and left a person without the font unable to tell whether
+		// choosing it skipped the font or failed the step.
+		return []string{"Install " + m.installedFontLabel(), "Skip it"}
 	case ScreenShellSelect:
 		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "Learn about shells"}
 	case ScreenWMSelect:
@@ -1044,7 +1099,7 @@ func (m Model) GetScreenDescription() string {
 		}
 		return "Select your preferred terminal emulator"
 	case ScreenFontSelect:
-		return m.installedFontLabel() + " is required for icons and glyphs"
+		return m.fontPresenceDescription()
 	case ScreenShellSelect:
 		// The line names the detected shell and says what the cursor is doing: it
 		// starts on the detected shell when the menu lists it. The old line stated
