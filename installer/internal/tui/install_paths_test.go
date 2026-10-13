@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -4605,5 +4606,153 @@ func TestThemeRefreshSkipsAnUnrefreshableFileAndContinues(t *testing.T) {
 	}
 	if !strings.Contains(notice, "could not") {
 		t.Errorf("the notice does not say a file could not be refreshed: %q", notice)
+	}
+}
+
+// TestEveryThemeArtifactResolvesToAnInstalledPath is the reachability guard for
+// the artifact list. The switch opens every iteration by asking
+// themeInstalledPath where the artifact's file is and skipping the artifact when
+// that answer is empty, so an artifact the function answers nothing for is
+// declared, rendered, covered by tests -- and never written. A renderer that
+// works and an artifact the switch cannot reach look identical from a test that
+// calls the renderer directly, which is why nothing noticed.
+func TestEveryThemeArtifactResolvesToAnInstalledPath(t *testing.T) {
+	home := t.TempDir()
+	for _, art := range themeActiveArtifacts {
+		if path := themeInstalledPath(art, home); path == "" {
+			t.Errorf("the %q artifact (%s, block %q) resolves to no installed path, so the switch skips it without a word",
+				art.Tool, art.Path, art.Block)
+		}
+	}
+}
+
+// TestTheBatSelectionFollowsTheAppliedTheme is the guard for the bat artifact's
+// reach, measured on the file the repository ships. The switch declares an
+// artifact for the BAT_THEME selection in dotfiles-zsh/.zshrc; while it cannot
+// find a path for that artifact the selection stays on the theme the repository
+// ships, so bat -- and cat, which the shipped .zshrc aliases to it -- renders the
+// default palette whatever theme the machine applied, with every .tmTheme file
+// present and nothing selecting them.
+func TestTheBatSelectionFollowsTheAppliedTheme(t *testing.T) {
+	const appliedID = "nocturne"
+
+	shipped, err := os.ReadFile(filepath.Join(repoRoot(t), repoAssetZshrc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".zshrc"), shipped, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("loading the theme definitions: %v", err)
+	}
+	applied, ok := themeByID(defs, appliedID)
+	if !ok {
+		t.Fatalf("the %s theme is not in the repository", appliedID)
+	}
+	if appliedID == defaultThemeID {
+		t.Fatal("this guard needs a theme that is not the default one")
+	}
+
+	if _, _, err := applyDotfilesTheme(home, repoRoot(t), applied); err != nil {
+		t.Fatalf("applying %s: %v", appliedID, err)
+	}
+
+	after, err := os.ReadFile(filepath.Join(home, ".zshrc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(after)
+
+	if !strings.Contains(got, themeBeginTag("bat")+" "+appliedID) {
+		t.Errorf("the .zshrc bat block does not name %q, so the selection stayed on another theme", appliedID)
+	}
+	if !strings.Contains(got, `export BAT_THEME="`+appliedID+`"`) {
+		t.Errorf("BAT_THEME was not set to %q", appliedID)
+	}
+	if !strings.Contains(got, "bat/themes/"+appliedID+".tmTheme") {
+		t.Errorf("the bat block does not check for %s's .tmTheme file", appliedID)
+	}
+}
+
+// TestTheGeneratedP10kPaletteAppliesOnAReload runs the generated p10k palette
+// block in zsh with the previous theme's values already set, which is what a
+// shell that was open when the theme changed holds, and fails unless the applied
+// theme's values are what is left. `p10k reload` re-sources ~/.p10k.zsh, so
+// re-sourcing is the operation that has to apply a theme change: a block that
+// only defaults each name keeps the stale value, the prompt keeps the previous
+// palette, and the installing screen's instruction to run `p10k reload` names an
+// action that cannot work.
+func TestTheGeneratedP10kPaletteAppliesOnAReload(t *testing.T) {
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("zsh is not available")
+	}
+
+	const appliedID = "nocturne"
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("loading the theme definitions: %v", err)
+	}
+	applied, ok := themeByID(defs, appliedID)
+	if !ok {
+		t.Fatalf("the %s theme is not in the repository", appliedID)
+	}
+	previous, ok := themeByID(defs, defaultThemeID)
+	if !ok {
+		t.Fatalf("the %s theme is not in the repository", defaultThemeID)
+	}
+
+	block, err := renderP10kTheme(applied)
+	if err != nil {
+		t.Fatalf("rendering the p10k palette: %v", err)
+	}
+
+	var script strings.Builder
+	changed := 0
+	for _, role := range themeShellRoles {
+		// What the shipped .zshrc left in the shell before the theme changed, for
+		// every name the block writes. Without it this guard would pass on a block
+		// that sets anything at all.
+		fmt.Fprintf(&script, "typeset -g PALETTE_%s=%q\n", role.Name, previous.Palette[role.Role])
+		if previous.Palette[role.Role] != applied.Palette[role.Role] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Fatalf("%s and %s define the same palette, so this guard cannot tell them apart", appliedID, defaultThemeID)
+	}
+
+	names := make([]string, 0, len(themeShellRoles))
+	for _, role := range themeShellRoles {
+		names = append(names, "PALETTE_"+role.Name)
+	}
+	script.WriteString(block)
+	script.WriteString("\nfor name in " + strings.Join(names, " ") + "; do print -r -- \"$name=${(P)name}\"; done\n")
+
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("zsh", "-f", "-c", script.String())
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("running the generated block failed: %v\n%s", err, stderr.String())
+	}
+
+	got := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+		if name, value, found := strings.Cut(line, "="); found {
+			got[name] = value
+		}
+	}
+	for _, role := range themeShellRoles {
+		want := applied.Palette[role.Role]
+		name := "PALETTE_" + role.Name
+		if got[name] != want {
+			t.Errorf("after re-sourcing the block %s = %q, want %s's %q (the previous theme's is %q)",
+				name, got[name], appliedID, want, previous.Palette[role.Role])
+		}
 	}
 }

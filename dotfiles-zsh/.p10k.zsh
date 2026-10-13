@@ -1716,22 +1716,25 @@
   # ── Palette ────────────────────────────────────────────────────────────────
   # Every colour below comes from the palette declared once in themes/dotfiles.toml,
   # which is what keeps the prompt from drifting away from the listings and the
-  # line editor, which read the same values. The fallbacks keep this file working
-  # when it is sourced on its own, without .zshrc.
+  # line editor, which read the same values. They are assignments rather than
+  # fallbacks, so re-sourcing this file is what applies a theme change: p10k
+  # reload re-sources it, and a fallback would keep the value the shell already
+  # held from the theme before it. The file still stands on its own without
+  # .zshrc, because an assignment sets the value whether or not it is defined.
   #
   # The block this used to carry held a Kanagawa palette (background #1f1f28,
   # red #c34043, green #76946a, blue #7e9cd8) while the terminal emulators
   # defined different values, so the prompt and the terminal disagreed.
-  typeset -g PALETTE_BASE=${PALETTE_BASE:-"#06080f"}
-  typeset -g PALETTE_SURFACE=${PALETTE_SURFACE:-"#263356"}
-  typeset -g PALETTE_TEXT=${PALETTE_TEXT:-"#f3f6f9"}
-  typeset -g PALETTE_MUTED=${PALETTE_MUTED:-"#8a8fa3"}
-  typeset -g PALETTE_RED=${PALETTE_RED:-"#cb7c94"}
-  typeset -g PALETTE_GREEN=${PALETTE_GREEN:-"#b7cc85"}
-  typeset -g PALETTE_YELLOW=${PALETTE_YELLOW:-"#ffe066"}
-  typeset -g PALETTE_BLUE=${PALETTE_BLUE:-"#7fb4ca"}
-  typeset -g PALETTE_MAGENTA=${PALETTE_MAGENTA:-"#ff8dd7"}
-  typeset -g PALETTE_CYAN=${PALETTE_CYAN:-"#7aa89f"}
+  typeset -g PALETTE_BASE="#06080f"
+  typeset -g PALETTE_SURFACE="#263356"
+  typeset -g PALETTE_TEXT="#f3f6f9"
+  typeset -g PALETTE_MUTED="#8a8fa3"
+  typeset -g PALETTE_RED="#cb7c94"
+  typeset -g PALETTE_GREEN="#b7cc85"
+  typeset -g PALETTE_YELLOW="#ffe066"
+  typeset -g PALETTE_BLUE="#7fb4ca"
+  typeset -g PALETTE_MAGENTA="#ff8dd7"
+  typeset -g PALETTE_CYAN="#7aa89f"
 # <<< dotfiles-theme <<<
 
   # No background of its own. The block above painted #1f1f28 behind the prompt
