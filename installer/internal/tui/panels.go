@@ -1002,7 +1002,7 @@ func (m Model) updateChannelPanelFacts(l layout) []string {
 	rows := panelFact("Channel", string(channel), l.Right)
 	what := "stable follows the latest published release."
 	if channel == channelDev {
-		what = "dev follows the newest pre-release the release workflow built from its tag."
+		what = "dev follows the highest-versioned pre-release the release workflow built from its tag."
 	}
 	for _, line := range wrapText(what+" Pressing the row switches to the other channel and asks for a fresh answer.", l.Right, 0) {
 		rows = append(rows, InkStyle.Render(line))

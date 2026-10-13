@@ -1620,7 +1620,7 @@ func TestUpdateSelfRefusesABinaryHomebrewOwnsAndNamesTheCommand(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// The two channels: stable is what shipped, dev is the newest pre-release
+// The two channels: stable is what shipped, dev is the highest-versioned pre-release
 // ---------------------------------------------------------------------------
 //
 // The check has always read the latest published release. That is the stable
@@ -1673,7 +1673,7 @@ func TestDevChannelReadsTheNewestPreReleaseNotTheStableRelease(t *testing.T) {
 		t.Fatalf("the dev channel could not be read: %v", err)
 	}
 	if answer.Tag != "v1.2.0-dev.1" {
-		t.Errorf("dev tag = %q, want the newest pre-release v1.2.0-dev.1: a dev channel that answers with the stable release is the stable channel", answer.Tag)
+		t.Errorf("dev tag = %q, want the highest-versioned pre-release v1.2.0-dev.1: a dev channel that answers with the stable release is the stable channel", answer.Tag)
 	}
 	if len(c.requests) != 1 || c.requests[0] != dotfilesReleaseListURL {
 		t.Errorf("dev requests = %v, want exactly [%s]: the dev channel reads the release list, not /releases/latest", c.requests, dotfilesReleaseListURL)

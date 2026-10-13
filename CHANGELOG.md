@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dev channel serves the highest version, not the newest by date.** GitHub orders its releases list by creation date rather than by version, and the channel took the first pre-release in that list, so a pre-release cut after a higher one -- from a hotfix branch, or a re-cut of an older line -- was served over the newer version. It compares versions now, and it also skips a tag that is not a version at all, which it used to serve: a list holding a tag like `nightly` would have been offered as a release to install. Both were declared limits, written in the code, the README and this file, and all three said the channel took the publish order; they now say what the code does.
+
+
 ## [v0.7.3] — 2026-10-12
 
 ### Fixed
