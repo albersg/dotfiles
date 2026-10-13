@@ -255,8 +255,14 @@ func TestWindowsTerminalWriteReportsTheValueThatDidNotLand(t *testing.T) {
 	offer.updated = offer.Original
 
 	notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
-	if err != nil || !wrote {
-		t.Fatalf("the write must still run and report, wrote=%v err=%v", wrote, err)
+	if !wrote {
+		t.Fatalf("the write must still run and report, wrote=%v", wrote)
+	}
+	// The contract changed: a landing that did not land whole is a shortfall, so no caller
+	// can print a checkmark over a settings file Windows Terminal will not read as sent.
+	// The report stays, and it is what names the value that did not land.
+	if err == nil {
+		t.Errorf("a landing that did not land whole must be a shortfall, not a success")
 	}
 
 	if !strings.Contains(notice, "did not land") {
@@ -294,8 +300,14 @@ func TestWindowsTerminalWriteReportsAValueThatDidNotLandBesideOneThatDid(t *test
 	offer.Face = "Some Other Face"
 
 	notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
-	if err != nil || !wrote {
-		t.Fatalf("the write must still run and report, wrote=%v err=%v", wrote, err)
+	if !wrote {
+		t.Fatalf("the write must still run and report, wrote=%v", wrote)
+	}
+	// The contract changed: a landing that did not land whole is a shortfall, so no caller
+	// can print a checkmark over a settings file Windows Terminal will not read as sent.
+	// The report stays, and it is what names the value that did not land.
+	if err == nil {
+		t.Errorf("a landing that did not land whole must be a shortfall, not a success")
 	}
 
 	if !strings.Contains(notice, "did not land") {
@@ -1351,5 +1363,69 @@ func TestWindowsFontQueryIsBounded(t *testing.T) {
 		t.Fatal(err)
 	} else if string(after) != testWindowsTerminalSettings {
 		t.Error("a query that cannot be answered must leave the face unwritten")
+	}
+}
+
+// TestAPartialLandingIsAShortfallAndStillReports is the half of #288 that main did not have.
+// Its report was already per-value, but it returned no error, so every caller could print a
+// checkmark over a write that landed one of the two settings. A partial landing must be a
+// shortfall the caller cannot mistake for success, and the notice must still carry the whole
+// report, so the log says which value did not land and what the file holds instead.
+func TestAPartialLandingIsAShortfallAndStillReports(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	// A settings file the writer would edit: an empty profiles.defaults, no schemes.
+	original := []byte("{\n  \"profiles\": {\n    \"defaults\": {}\n  }\n}\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	scheme := windowsTerminalScheme{Name: "dotfiles"}
+	face := "MesloLGS Nerd Font"
+	whole, err := windowsTerminalSettingsContent(original, scheme, face)
+	if err != nil {
+		t.Fatalf("the writer refused to build a whole landing: %v", err)
+	}
+	// The face lands and the scheme does not: the file holds the face and no colorScheme.
+	half := []byte("{\n  \"profiles\": {\n    \"defaults\": {\n      \"font\": {\n        \"face\": \"MesloLGS Nerd Font\"\n      }\n    }\n  }\n}\n")
+
+	for _, tc := range []struct {
+		name  string
+		bytes []byte
+		want  bool // whether both settings landed
+	}{
+		{"both settings land", whole, true},
+		{"only the face lands", half, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			offer := windowsTerminalOffer{
+				Available: true,
+				Path:      path,
+				Original:  original,
+				updated:   tc.bytes,
+				Face:      face,
+				Scheme:    scheme.Name,
+			}
+			notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
+			if !wrote {
+				t.Fatalf("the file was written, so wrote must be true")
+			}
+			if tc.want {
+				if err != nil {
+					t.Errorf("a whole landing must not be a shortfall: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Errorf("a landing that did not land whole must be a shortfall, not a success, so no caller can print a checkmark over it; notice was %q", notice)
+			}
+			if !strings.Contains(notice, "did not land") {
+				t.Errorf("the notice must still say what did not land, got %q", notice)
+			}
+			if err != nil && !strings.Contains(err.Error(), "did not land") {
+				t.Errorf("the shortfall must name the value that did not land, got %q", err.Error())
+			}
+		})
 	}
 }

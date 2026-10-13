@@ -1333,7 +1333,35 @@ func applyWindowsTerminalOffer(offer windowsTerminalOffer, chosen bool, stepID s
 		return "", false, fmt.Errorf("writing %s: %w", offer.Path, err)
 	}
 
-	return windowsTerminalWriteReport(offer.Path, offer.Face, offer.Scheme, backup), true, nil
+	// The report is read from the file, and a landing that did not land whole is returned as
+	// an error rather than only as words: a caller that sees no error prints a checkmark, and
+	// a checkmark over a half-written settings file is the defect this reports.
+	notice, whole := windowsTerminalWriteReport(offer.Path, offer.Face, offer.Scheme, backup)
+	if !whole {
+		return notice, true, fmt.Errorf("%s did not land in %s, so the settings Windows Terminal reads are not the ones this installer wrote",
+			strings.Join(windowsTerminalMissingLabels(offer.Path, offer.Face, offer.Scheme), " and "), offer.Path)
+	}
+	return notice, true, nil
+}
+
+// windowsTerminalMissingLabels names the settings the file does not hold as sent, for the
+// shortfall message. It asks the file rather than the notice, so the message and the report
+// cannot disagree.
+func windowsTerminalMissingLabels(path, sentFace, sentScheme string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return []string{"the font face", "the colour scheme"}
+	}
+	face, faceOK := windowsTerminalCurrentFontFace(data)
+	scheme, schemeOK := windowsTerminalCurrentColorScheme(data)
+	missing := make([]string, 0, 2)
+	if !faceOK || face != sentFace {
+		missing = append(missing, "the font face")
+	}
+	if !schemeOK || scheme != sentScheme {
+		missing = append(missing, "the colour scheme")
+	}
+	return missing
 }
 
 // windowsTerminalWriteReport reads the settings file Windows Terminal will read,
@@ -1342,21 +1370,24 @@ func applyWindowsTerminalOffer(offer windowsTerminalOffer, chosen bool, stepID s
 // otherwise be reported as a success. The two values are checked on their own,
 // and a value the file does not hold is named as the value that did not land, so
 // the report and the file can only agree.
-func windowsTerminalWriteReport(path, sentFace, sentScheme, backup string) string {
+func windowsTerminalWriteReport(path, sentFace, sentScheme, backup string) (notice string, whole bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Sprintf("Windows Terminal settings were written to %s, but the file could not be read back to confirm the font face and the colour scheme: %v; the previous file is at %s.",
-			path, err, backup)
+			path, err, backup), false
 	}
 
 	face, faceOK := windowsTerminalCurrentFontFace(data)
 	scheme, schemeOK := windowsTerminalCurrentColorScheme(data)
+	// A value landed only when the file names it and names the same value that was sent.
+	faceLanded := faceOK && face == sentFace
+	schemeLanded := schemeOK && scheme == sentScheme
 	values := []string{
 		windowsTerminalLandedValue("the font face", sentFace, face, faceOK),
 		windowsTerminalLandedValue("the colour scheme", sentScheme, scheme, schemeOK),
 	}
 	return fmt.Sprintf("Windows Terminal now reads from %s: %s; the previous file is at %s.",
-		path, strings.Join(values, " and "), backup)
+		path, strings.Join(values, " and "), backup), faceLanded && schemeLanded
 }
 
 // windowsTerminalLandedValue describes one owned setting by what the file holds:

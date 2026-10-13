@@ -934,10 +934,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// notices go, and the run then continues into the script that needs sudo.
 		// The offer cannot be answered twice: it is cleared before the script's
 		// own messages can arrive.
+		// The notice goes first and the shortfall after it: the notice is the report read
+		// from the file, and the shortfall is the verdict on it. Logging the verdict alone
+		// would drop what the file actually holds, which is the half a person needs.
+		if msg.notice != "" {
+			m = m.appendInstallLog(msg.notice)
+		}
 		if msg.err != nil {
 			m = m.appendInstallLog(msg.err.Error())
-		} else if msg.notice != "" {
-			m = m.appendInstallLog(msg.notice)
 		}
 		m.WSLTerminalOffer = nil
 		m.WSLTerminalOfferLines = nil
