@@ -4,6 +4,42 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The theme switch now writes the `bat` selection it always declared, and the prompt reload it names
+  applies the theme.** Two silent gaps in the switch's reach, found by measuring one machine after
+  Nocturne was applied and reported by neither the switch nor its screen.
+
+  The switch declares fourteen artifacts and opens each iteration by asking where the artifact's file
+  is, skipping it when the answer is empty — so an artifact it has no path for is declared, rendered
+  and covered by tests while never being written, and a skip is not a failure. `bat` was that
+  artifact: it shares `dotfiles-zsh/.zshrc` with the zsh artifact, further down the same file, and
+  `themeInstalledPath` had no case for it. `BAT_THEME` therefore held the theme this repository ships
+  for every theme on every machine, so `bat` — and `cat`, which the shipped `.zshrc` aliases to it —
+  rendered the default palette while the rest of the machine rendered the applied one, with every
+  generated `.tmTheme` present and nothing selecting any of them. The screen's own numbers showed it
+  before any code was read: it reported `7 file(s) were themed and 2 file(s) were left exactly as
+  they are` on a machine where fourteen artifacts minus the two files this repository does not own
+  and the four absent tools leaves eight. Applying Nocturne to a copy of the machine's `.zshrc` left
+  the bat block's tag and `BAT_THEME` on `dotfiles`, and counted one themed file where the same file
+  holds two artifacts. A guard now fails unless every declared artifact resolves to a path.
+
+  The second gap was in the instruction the screen prints. It names `p10k reload` for the prompt, and
+  that re-sources `~/.p10k.zsh`; the generated palette block there **defaulted** each `PALETTE_*`
+  (`${PALETTE_X:-"…"}`) while the shipped `.zshrc` sets the same names unconditionally and is
+  sourced first. In a shell that was already open when the theme changed, `PALETTE_*` still held the
+  previous theme, so the reloaded file kept exactly those values: measured in zsh with the previous
+  theme's blue live in the shell, `POWERLEVEL9K_DIR_FOREGROUND` came out `#7fb4ca` where Nocturne's
+  blue is `#8686cb`, and `POWERLEVEL9K_FOREGROUND` `#f3f6f9` where Nocturne's text is `#c0c0c0`. The
+  one in-place action the installer offers for the prompt was the action that could not work. The
+  block assigns now, which sets the file's values whether or not the names are defined — so the file
+  still stands on its own without `.zshrc`, the property the fallbacks were written for, without the
+  ability to lose to a value already in the environment. A guard asserts this against a real zsh: it
+  sources the generated block with the previous theme's values set and fails unless the applied
+  theme's values are what is left.
+
 ## [v0.7.6] — 2026-10-13
 
 ### Fixed

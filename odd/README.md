@@ -52,6 +52,7 @@ repository's memory of why something is the way it is.
 | [pi-agent-skills-officecli.md](tasks/pi-agent-skills-officecli.md) | The pinned agent skills and OfficeCLI |
 | [preserve-user-configs.md](tasks/preserve-user-configs.md) | Preserving user shell configurations |
 | [themes-integration.md](tasks/themes-integration.md) | Theme integration |
+| [theme-switch-reach.md](tasks/theme-switch-reach.md) | What the theme switch actually reaches |
 | [trainer-hint-coherence.md](tasks/trainer-hint-coherence.md) | The trainer's hints |
 | [tui-facelift.md](tasks/tui-facelift.md) | The TUI facelift |
 | [unified-themes.md](tasks/unified-themes.md) | The unified theme library |

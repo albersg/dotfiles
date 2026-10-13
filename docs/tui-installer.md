@@ -222,6 +222,17 @@ is what bat registers a custom theme under (measured against bat 0.26.1; the `<k
 the file is not the selection key, and a theme that exported it selected a bundled theme of the same
 name in five of the six cases).
 
+**Every declared artifact has to resolve to a path, and a guard says so.** The switch opens each
+iteration by asking where the artifact's file is and skipping the artifact when the answer is empty,
+so an artifact the switch has no path for is declared, rendered and covered by tests while never being
+written — and nothing is reported, because a skip is not a failure. `bat` was exactly that: it shares
+`dotfiles-zsh/.zshrc` with the zsh artifact, further down the same file, and the function that answers
+the path had no case for it, so `BAT_THEME` kept the theme this repository ships whatever theme the
+machine applied, and `bat` — and `cat`, which the shipped `.zshrc` aliases to it — rendered the
+default palette with every generated `.tmTheme` present and nothing selecting any of them. A test now
+fails unless every entry in the artifact list resolves, which is what made the omission visible
+afterwards; the omission itself was invisible, and the screen's own count is what pointed at it.
+
 **Writing the file is not the same as the tool showing the theme.** A tool that watches its own
 config reloads by itself, but a tool that is already running and only reads its file at startup keeps
 the old palette until something tells it the file changed, and the switch used to report the change
@@ -255,6 +266,15 @@ by a five-second timeout, so a hung `tmux`, `herdr` or `bat` cannot hang the scr
 | bat | No — the theme must be in bat's cache, and `BAT_THEME` is read by a new shell | rebuilds the cache (`bat cache --build` with `BAT_CONFIG_DIR`); names the new shell |
 | Neovim | No — a running editor keeps its colorscheme | nothing; names `:colorscheme <name>` |
 | tmux | Yes, for a server that is already running | runs `tmux source-file <config>` only when `tmux list-sessions` succeeds; otherwise names the command |
+
+An action is only as good as the file it names, so the reload instructions hold the same standard as
+the writes. `p10k reload` re-sources `~/.p10k.zsh`, and the generated palette block there **assigns**
+each `PALETTE_*` rather than defaulting it, because the shipped `.zshrc` sets the same names and runs
+first: a block written as `${PALETTE_X:-…}` would keep whatever the shell already held, so the reload
+would leave the prompt on the previous theme while the screen said the theme had changed. Assigning
+instead of defaulting costs nothing the fallbacks were protecting — the file still stands on its own
+without `.zshrc`, since an assignment sets the value whether or not the name is defined — and it is
+the difference between the instruction working and the instruction being a no-op.
 
 **Choosing a theme is one change on screen, and the result is told where the press was made.** A
 press answers at once: the rows under the list show what is being applied while it runs
