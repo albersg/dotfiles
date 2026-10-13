@@ -99,7 +99,7 @@ From the main menu you can access:
   release is never hidden from the menu, and the menu is never silent about it
 - **Update channel**: Appears once a check has named a channel. The label shows which channel
   the run follows -- **stable** (the latest published release, the default) or **dev** (the
-  newest published pre-release, by publish order). `dev` serves the newest release GitHub
+  highest published pre-release, by version). `dev` serves the highest-versioned release GitHub
   reports as a pre-release and does not verify that it was cut from `main`, so treat a `dev`
   build as work in progress from whichever branch the maintainers cut it from. Pressing
   it switches to the other channel, remembers the choice in `update-check.json` beside the

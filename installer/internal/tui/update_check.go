@@ -470,7 +470,7 @@ const (
 	// check has always read, and GitHub's latest endpoint cannot return a
 	// pre-release, so following it is the same promise as before.
 	channelStable releaseChannel = "stable"
-	// channelDev is the newest pre-release. The release workflow builds its four
+	// channelDev is the highest-versioned pre-release. The release workflow builds its four
 	// assets from the tag a run is started from, so a pre-release is the artifact
 	// the dev channel serves -- and the only one the installer can verify, because
 	// it downloads a published asset rather than compiling one. It does not verify
@@ -565,13 +565,19 @@ func (ch releaseChannel) toggle() releaseChannel {
 	return channelDev
 }
 
-// latestPrerelease reads the newest pre-release from the releases list. The list
-// is ordered newest first and carries drafts only for an authenticated caller, so
-// the first non-draft entry with prerelease set is the answer. A list with no
-// such entry is an error, not an empty answer: it is how the dev channel says
-// there is nothing to serve rather than inventing a release. Nothing here checks
-// that the pre-release was cut from main -- the channel takes GitHub's order --
-// which is a limit the documentation states rather than hides.
+// latestPrerelease reads the highest pre-release from the releases list. The list
+// arrives ordered by creation date rather than by version, so taking its first
+// pre-release would serve whichever one was published last, and a pre-release cut
+// after a higher one -- from a hotfix branch, or a re-cut of an older line -- would be
+// served over the newer version. The channel compares versions instead, and skips the
+// entries that cannot be served: a draft is not published, and a tag that is not a
+// version cannot be ordered at all. A list with no servable pre-release is an error,
+// not an empty answer: it is how the dev channel says there is nothing to serve rather
+// than inventing a release.
+//
+// Nothing here checks that the pre-release was cut from main -- the channel serves the
+// highest version it can see, whatever branch produced it -- which is a limit the
+// documentation states rather than hides.
 func latestPrerelease(client *http.Client, apiURL string) (releaseAnswer, error) {
 	resp, err := client.Get(apiURL)
 	if err != nil {
@@ -590,19 +596,38 @@ func latestPrerelease(client *http.Client, apiURL string) (releaseAnswer, error)
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
 		return releaseAnswer{}, err
 	}
+	var (
+		best     releaseAnswer
+		bestAs   parsedVersion
+		haveBest bool
+	)
 	for _, release := range body {
 		if release.Draft || !release.Prerelease {
 			continue
 		}
-		if tag := strings.TrimSpace(release.TagName); tag != "" {
-			return releaseAnswer{Tag: tag, PublishedAt: parsePublishedAt(release.PublishedAt)}, nil
+		tag := strings.TrimSpace(release.TagName)
+		if tag == "" {
+			continue
 		}
+		version, ok := parseVersion(tag)
+		if !ok {
+			continue
+		}
+		if haveBest && compareVersions(version, bestAs) <= 0 {
+			continue
+		}
+		best = releaseAnswer{Tag: tag, PublishedAt: parsePublishedAt(release.PublishedAt)}
+		bestAs = version
+		haveBest = true
 	}
-	return releaseAnswer{}, fmt.Errorf("GET %s: no pre-release is published", apiURL)
+	if !haveBest {
+		return releaseAnswer{}, fmt.Errorf("GET %s: no pre-release is published", apiURL)
+	}
+	return best, nil
 }
 
 // latestReleaseForChannel reads the answer the given channel offers: the latest
-// published release for stable, the newest pre-release for dev. It is the one
+// published release for stable, the highest-versioned pre-release for dev. It is the one
 // place the two channels differ, so nothing downstream can serve one channel's
 // answer under the other channel's name.
 func latestReleaseForChannel(client *http.Client, channel releaseChannel) (releaseAnswer, error) {

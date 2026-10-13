@@ -152,10 +152,10 @@ release asset, checks it against the
 `<binary>.previous`, and only then moves the new one into place with a single rename.
 
 The check follows one of two channels. The default, **stable**, is the latest published
-release. **dev** is the newest pre-release, which is the artifact the release workflow
+release. **dev** is the highest-versioned pre-release, which is the artifact the release workflow
 builds from the tag it was started on; the installer cannot build from source, so a
 pre-release is what a build of `main` is served as -- the installer takes the
-newest pre-release GitHub offers and does not verify that it came from `main`. Choose a channel with
+highest-versioned pre-release GitHub offers and does not verify that it came from `main`. Choose a channel with
 `--channel stable|dev` (it applies to `--check-update`, `--self-update` and the TUI) or by
 pressing the main menu's **Update channel** row, which appears once a check has named one.
 The choice is remembered in the same `update-check.json` the answers live in, and every
@@ -208,7 +208,7 @@ up to date. The refusal described in [After installing](#after-installing) is th
 answer when a package manager owns the file, which is why no button is offered there.
 
 Beside it, the **Update channel** row switches between **stable** (the latest published
-release, the default) and **dev** (the newest pre-release the workflow built from its tag).
+release, the default) and **dev** (the highest-versioned pre-release the workflow built from its tag).
 The row appears once the record names a channel — every check writes one, success or failure
 — and pressing it writes the new choice to the same record and asks for a fresh answer from
 that channel. `--channel stable|dev` is the scriptable form, and `--check-update` and
