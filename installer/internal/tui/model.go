@@ -592,6 +592,19 @@ func (m Model) alacrittyNeedsBuild() bool {
 		m.Choices.OS == "linux"
 }
 
+// isFontTermux reports whether the font step will take its Termux branch on this
+// machine. It mirrors the step's own predicate -- the detected host or the chosen
+// OS -- so the label and the machine read the same decision.
+func (m Model) isFontTermux() bool {
+	return (m.SystemInfo != nil && m.SystemInfo.IsTermux) || m.Choices.OS == "termux"
+}
+
+// installedFontLabel is the name the interface shows for the font the step
+// installs on this machine.
+func (m Model) installedFontLabel() string {
+	return fontInstallLabel(fontInstallFamily(m.isFontTermux()))
+}
+
 func (m Model) GetCurrentOptions() []string {
 	switch m.Screen {
 	case ScreenMainMenu:
@@ -647,7 +660,7 @@ func (m Model) GetCurrentOptions() []string {
 		}
 		return []string{"Alacritty", "WezTerm", "Ghostty", "None", m.menuSeparator(), "Learn about terminals"}
 	case ScreenFontSelect:
-		return []string{"Yes, install Meslo Nerd Font", "No, I already have it"}
+		return []string{fmt.Sprintf("Yes, install %s", m.installedFontLabel()), "No, I already have it"}
 	case ScreenShellSelect:
 		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "Learn about shells"}
 	case ScreenWMSelect:
@@ -1017,7 +1030,7 @@ func (m Model) GetScreenDescription() string {
 		}
 		return "Select your preferred terminal emulator"
 	case ScreenFontSelect:
-		return "Meslo Nerd Font is required for icons and glyphs"
+		return m.installedFontLabel() + " is required for icons and glyphs"
 	case ScreenShellSelect:
 		// The line names the detected shell and says what the cursor is doing: it
 		// starts on the detected shell when the menu lists it. The old line stated
@@ -1179,8 +1192,8 @@ func planFor(opts planOptions) []InstallStep {
 	if opts.InstallFont {
 		steps = append(steps, InstallStep{
 			ID:          "font",
-			Name:        "Install Meslo Nerd Font",
-			Description: "Installs the Meslo Nerd Font for icons.",
+			Name:        "Install " + fontInstallLabel(fontInstallFamily(isTermux)),
+			Description: "Installs the " + fontInstallLabel(fontInstallFamily(isTermux)) + " for icons.",
 			Status:      StatusPending,
 		})
 	}

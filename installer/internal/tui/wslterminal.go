@@ -31,13 +31,14 @@ import (
 // it refuses rather than rewrite a file it cannot edit safely.
 
 const (
-	// windowsTerminalFontFace is the family the Nerd Fonts Meslo archive the
-	// installer downloads provides (the release the Linux step extracts), and
-	// the family the four shipped terminal configurations name. It is the
-	// fallback face: it is written to Windows Terminal only when the Windows
-	// font store reports it after the installer has registered it. A face named
-	// there but not resolvable is the silent fallback this defect is about.
-	windowsTerminalFontFace = "MesloLGS NF"
+	// windowsTerminalFontFace is the name the installer registers the archive's
+	// Meslo faces under, and the fallback face it writes to Windows Terminal when
+	// the machine's own build does not resolve. It derives from mesloArchiveFamily,
+	// the one family the pinned archive and the macOS cask declare and the four
+	// shipped terminal configurations name, so the Windows registration cannot
+	// name a family the faces do not. A face named there but not resolvable is the
+	// silent fallback this defect is about.
+	windowsTerminalFontFace = mesloArchiveFamily
 
 	// windowsTerminalFontFacePreferred is the Meslo build the machine already
 	// carries under a name of its own. When the Windows font store resolves it,
@@ -965,7 +966,7 @@ const (
 	// windowsFontFamilyFilePrefix is the file name prefix the Meslo Nerd Fonts
 	// archive gives every face of the family the installer installs. It is
 	// "MesloLGSNerdFont-", not the family name: the patcher names the file after
-	// the font ("MesloLGS") and the family after the release ("MesloLGS NF").
+	// the font ("MesloLGS") and the family after the release ("MesloLGS Nerd Font").
 	windowsFontFamilyFilePrefix = "MesloLGSNerdFont-"
 
 	// windowsFontPresent and windowsFontAbsent are the two answers the

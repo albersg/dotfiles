@@ -5397,8 +5397,17 @@ func stepInstallTerminal(m *Model) error {
 // The release URL is pinned, and the archive is fetched into a scratch directory
 // the step owns instead of into the font directory: see stepInstallFont.
 const (
-	mesloArchiveURL      = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip"
-	mesloArchiveName     = "Meslo.zip"
+	mesloArchiveURL  = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip"
+	mesloArchiveName = "Meslo.zip"
+
+	// mesloArchiveFamily is the family the pinned Meslo archive declares. The
+	// archive name does not encode it, so it was read once from a face in the
+	// release -- MesloLGSNerdFont-Regular.ttf declares "MesloLGS Nerd Font" -- and
+	// recorded here rather than typed again wherever the family is needed. The
+	// macOS cask downloads the same release tree (v3.5.1 at the time of writing)
+	// and installs the same family.
+	mesloArchiveFamily = "MesloLGS Nerd Font"
+
 	fontScratchDirPrefix = ".meslo-"
 
 	// linuxFontFamilyQuery is how the step asks fontconfig which families this
@@ -5413,15 +5422,41 @@ const (
 	// termuxFontDirName, termuxFontFileName, termuxFontURL and termuxFontFace
 	// describe Termux's font slot. Termux has no fontconfig: its terminal reads
 	// one file, so the honest presence check is the file rather than a family.
-	// The face really installed is JetBrainsMono Nerd Font, not the MesloLGS NF
-	// the other terminals name, and the step's log says so. The wizard row and
-	// the menu still say Meslo, which is the rest of issue #269 and lives in
-	// model.go, outside this change's surface.
+	//
+	// The face is the one the decision names -- Meslo (see #265) -- not the
+	// JetBrainsMono this step used to fetch while the wizard said Meslo. The URL
+	// is the S (small line gap, the terminal variant) Meslo face in the same
+	// nerd-fonts repository the other platforms' archive comes from, and
+	// termuxFontFace is the family that file declares, read from its own name
+	// table rather than assumed: the v3 patcher names it "MesloLGS Nerd Font".
 	termuxFontDirName  = ".termux"
 	termuxFontFileName = "font.ttf"
-	termuxFontFace     = "JetBrainsMono Nerd Font"
-	termuxFontURL      = "https://github.com/ryanoasis/nerd-fonts/raw/HEAD/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFont-Regular.ttf"
+	termuxFontFace     = "MesloLGS Nerd Font"
+	termuxFontURL      = "https://github.com/ryanoasis/nerd-fonts/raw/HEAD/patched-fonts/Meslo/S/MesloLGSNerdFont-Regular.ttf"
 )
+
+// fontInstallFamily is the family the font step installs for a platform. Termux
+// reads one file from its own slot; every other platform extracts the pinned
+// Meslo archive, on macOS through the cask that downloads the same release tree.
+// The interface reads this one decision, so a screen cannot name a face the step
+// does not put on the machine.
+func fontInstallFamily(isTermux bool) string {
+	if isTermux {
+		return termuxFontFace
+	}
+	return mesloArchiveFamily
+}
+
+// fontInstallLabel is the name the interface shows for the font the step
+// installs. It is computed from the family rather than typed beside it, so a
+// screen cannot claim Meslo over a family the step did not install: a Meslo face
+// gets the installer's own phrase, and any other family is shown as itself.
+func fontInstallLabel(family string) string {
+	if strings.HasPrefix(family, "Meslo") {
+		return "Meslo Nerd Font"
+	}
+	return family
+}
 
 // linuxFontFamilyResolves reports whether fontconfig's family listing resolves
 // family. Each line names one face and its families are comma-separated, so the
@@ -5505,13 +5540,18 @@ func stepInstallFont(m *Model) error {
 		return nil
 	}
 
+	// The family the non-Termux branch installs, and the label this branch's own
+	// messages name it by. Both are computed from the one family constant, so the
+	// step's log cannot drift from the family it puts on the machine.
+	fontName := fontInstallLabel(mesloArchiveFamily)
+
 	if m.SystemInfo.OS == system.OSMac {
-		SendLog(stepID, "Installing Meslo Nerd Font...")
+		SendLog(stepID, "Installing "+fontName+"...")
 		result := system.RunBrewWithLogs("install --cask font-meslo-lg-nerd-font", nil, func(line string) {
 			SendLog(stepID, line)
 		})
 		if result.Error != nil {
-			return wrapStepError("font", "Install Meslo Nerd Font",
+			return wrapStepError("font", "Install "+fontName,
 				"Failed to install font via Homebrew. Try installing manually from https://www.nerdfonts.com/",
 				result.Error)
 		}
@@ -5529,18 +5569,19 @@ func stepInstallFont(m *Model) error {
 	// identical files on every run. fc-list is asked whether the family the
 	// terminal configurations name already resolves; when it does, the download,
 	// the extraction and the cache rebuild are skipped and the step reports what
-	// answered. The family comes from the same constant the shipped
-	// configurations are guarded against (font_family_test.go), so the check
-	// cannot name a family the configurations do not.
-	if resolved, known := installedLinuxFontFamily(windowsTerminalFontFace); known && resolved {
-		SendLog(stepID, fmt.Sprintf("%s is already installed: %s resolves it, so the font archive was not downloaded.", windowsTerminalFontFace, linuxFontFamilyQuery))
+	// answered. The family comes from mesloArchiveFamily, the one family the pinned
+	// archive declares and the shipped configurations are guarded against
+	// (font_family_test.go), so the check cannot name a family the archive does not
+	// provide.
+	if resolved, known := installedLinuxFontFamily(mesloArchiveFamily); known && resolved {
+		SendLog(stepID, fmt.Sprintf("%s is already installed: %s resolves it, so the font archive was not downloaded.", mesloArchiveFamily, linuxFontFamilyQuery))
 		SendLog(stepID, "✓ Font already installed")
 		return nil
 	}
 
 	SendLog(stepID, "Creating fonts directory...")
 	if err := system.EnsureDir(fontDir); err != nil {
-		return wrapStepError("font", "Install Meslo Nerd Font",
+		return wrapStepError("font", "Install "+fontName,
 			"Failed to create fonts directory",
 			err)
 	}
@@ -5554,7 +5595,7 @@ func stepInstallFont(m *Model) error {
 	// ~/.local/share/fonts, which belongs to the user.
 	scratchDir, err := os.MkdirTemp(fontDir, fontScratchDirPrefix)
 	if err != nil {
-		return wrapStepError("font", "Install Meslo Nerd Font",
+		return wrapStepError("font", "Install "+fontName,
 			"Failed to create a temporary directory for the font archive",
 			err)
 	}
@@ -5568,12 +5609,12 @@ func stepInstallFont(m *Model) error {
 
 	archivePath := filepath.Join(scratchDir, mesloArchiveName)
 
-	SendLog(stepID, "Downloading Meslo Nerd Font...")
+	SendLog(stepID, "Downloading "+fontName+"...")
 	result := system.RunWithLogs(fmt.Sprintf("curl -fsSL -o %s %s", archivePath, mesloArchiveURL), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
-		return wrapStepError("font", "Install Meslo Nerd Font",
+		return wrapStepError("font", "Install "+fontName,
 			"Failed to download font. Check your internet connection.",
 			result.Error)
 	}
@@ -5583,7 +5624,7 @@ func stepInstallFont(m *Model) error {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
-		return wrapStepError("font", "Install Meslo Nerd Font",
+		return wrapStepError("font", "Install "+fontName,
 			"Failed to extract font archive",
 			result.Error)
 	}
@@ -5598,18 +5639,18 @@ func stepInstallFont(m *Model) error {
 	// user font directory the terminal cannot read all leave the family
 	// unresolved, and none of them may be reported as ✓. This is the same
 	// discipline wslterminal.go follows against the Windows font store.
-	resolved, known := installedLinuxFontFamily(windowsTerminalFontFace)
+	resolved, known := installedLinuxFontFamily(mesloArchiveFamily)
 	if !known {
-		return wrapStepError("font", "Install Meslo Nerd Font",
-			fmt.Sprintf("The font files were extracted into %s, but %s could not be asked, so %q was not verified and may not resolve.", fontDir, linuxFontFamilyQuery, windowsTerminalFontFace),
+		return wrapStepError("font", "Install "+fontName,
+			fmt.Sprintf("The font files were extracted into %s, but %s could not be asked, so %q was not verified and may not resolve.", fontDir, linuxFontFamilyQuery, mesloArchiveFamily),
 			nil)
 	}
 	if !resolved {
-		return wrapStepError("font", "Install Meslo Nerd Font",
-			fmt.Sprintf("The font files were extracted into %s, but %s does not resolve %q, so the configured font would fall back silently.", fontDir, linuxFontFamilyQuery, windowsTerminalFontFace),
+		return wrapStepError("font", "Install "+fontName,
+			fmt.Sprintf("The font files were extracted into %s, but %s does not resolve %q, so the configured font would fall back silently.", fontDir, linuxFontFamilyQuery, mesloArchiveFamily),
 			nil)
 	}
-	SendLog(stepID, fmt.Sprintf("✓ Font installed - %s resolves %s", linuxFontFamilyQuery, windowsTerminalFontFace))
+	SendLog(stepID, fmt.Sprintf("✓ Font installed - %s resolves %s", linuxFontFamilyQuery, mesloArchiveFamily))
 	return nil
 }
 

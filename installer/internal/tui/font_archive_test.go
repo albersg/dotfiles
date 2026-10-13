@@ -85,8 +85,9 @@ echo "fc-cache $*" >> "$%s"
 // the temporary $HOME. A test can force an answer with the mode variable, and can
 // rename the family to prove the step compares the family it names rather than
 // merely accepting that some font is installed. The family is built from
-// windowsTerminalFontFace, the constant the shipped configurations are checked
-// against, so the response cannot drift from what the step asks for.
+// mesloArchiveFamily, the one family the pinned archive declares and the shipped
+// configurations are checked against, so the response cannot drift from what the
+// step asks for.
 var stubFcListScript = fmt.Sprintf(`#!/bin/sh
 echo "fc-list $*" >> "$%s"
 if [ "$%s" != "0" ]; then exit "$%s"; fi
@@ -97,7 +98,7 @@ case "${%s:-auto}" in
   *) if [ -f "$HOME/.local/share/fonts/%s" ]; then printf '%%s\n' "$family"; fi ;;
 esac
 exit 0
-`, stubLogEnv, stubFcListExitEnv, stubFcListExitEnv, stubFcListFamilyEnv, windowsTerminalFontFace, stubFcListModeEnv, stubFontFaceFile)
+`, stubLogEnv, stubFcListExitEnv, stubFcListExitEnv, stubFcListFamilyEnv, mesloArchiveFamily, stubFcListModeEnv, stubFontFaceFile)
 
 // stubTermuxReloadScript records the Termux settings reload, so a test can assert
 // the already-installed path has no side effect rather than only that no download
@@ -411,7 +412,7 @@ func TestStepInstallFontLinuxLeavesNoArchiveBehind(t *testing.T) {
 	if !strings.Contains(log, "✓ Font installed") {
 		t.Errorf("a successful install no longer reports success: %q", log)
 	}
-	if !strings.Contains(log, "fc-list") || !strings.Contains(log, windowsTerminalFontFace) {
+	if !strings.Contains(log, "fc-list") || !strings.Contains(log, mesloArchiveFamily) {
 		t.Errorf("the success line does not report what was verified and which family resolved: %q", log)
 	}
 }
@@ -482,7 +483,7 @@ func TestStepInstallFontLinuxFailsWhenTheFamilyDoesNotResolve(t *testing.T) {
 	if !errors.As(err, &stepErr) || stepErr.StepID != "font" {
 		t.Fatalf("the failure is not reported as a font step failure: %v", err)
 	}
-	if !strings.Contains(err.Error(), windowsTerminalFontFace) || !strings.Contains(err.Error(), linuxFontFamilyQuery) {
+	if !strings.Contains(err.Error(), mesloArchiveFamily) || !strings.Contains(err.Error(), linuxFontFamilyQuery) {
 		t.Errorf("the failure does not name the family and the check that missed it: %v", err)
 	}
 
@@ -504,7 +505,7 @@ func TestStepInstallFontLinuxDoesNotAcceptAnotherFamily(t *testing.T) {
 	if err == nil {
 		t.Fatal("a fontconfig answer for another family must not be reported as the configured family")
 	}
-	if !strings.Contains(err.Error(), windowsTerminalFontFace) {
+	if !strings.Contains(err.Error(), mesloArchiveFamily) {
 		t.Errorf("the failure does not name the family the check asked for: %v", err)
 	}
 	if len(stubs.fetchCommands(t)) == 0 {

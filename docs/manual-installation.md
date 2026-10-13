@@ -74,9 +74,9 @@ The Meslo Nerd Font is required for terminal icons. On Windows, install manually
 
 Windows Terminal's face is resolved from the Windows font store, never guessed. If the machine already
 carries the `MesloLGS NF Herdr` build, the installer names that family when it writes
-`profiles.defaults.font.face`; otherwise it names the public `MesloLGS NF` family the archive provides.
+`profiles.defaults.font.face`; otherwise it names the public `MesloLGS Nerd Font` family the archive provides.
 The four shipped terminal configurations (`alacritty.toml`, `.wezterm.lua`, Ghostty and Kitty) name the
-public `MesloLGS NF` family, because a static configuration cannot know which build a machine carries.
+public `MesloLGS Nerd Font` family, because a static configuration cannot know which build a machine carries.
 
 ### 4. Update the Distribution
 
@@ -338,7 +338,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```bash
 # Ask fontconfig before downloading: the archive is ~108 MB and re-fetching it
 # over identical files is wasted. This is the check the installer itself runs.
-if ! fc-list : family 2>/dev/null | grep -q 'MesloLGS NF'; then
+if ! fc-list : family 2>/dev/null | grep -q 'MesloLGS Nerd Font'; then
   mkdir -p ~/.local/share/fonts
   # Download latest version from https://github.com/ryanoasis/nerd-fonts/releases
   # The archive lands in a scratch directory inside the font directory, never the
@@ -352,7 +352,7 @@ fi
 # Verify: the family the terminal configurations name must resolve. A line here
 # means the icons will render; nothing means the font did not register, whatever
 # the commands above said.
-fc-list : family | grep 'MesloLGS NF'
+fc-list : family | grep 'MesloLGS Nerd Font'
 ```
 
 #### macOS
