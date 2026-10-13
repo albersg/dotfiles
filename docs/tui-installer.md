@@ -536,6 +536,18 @@ font store, `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, and registers them under
 needs no administrator, and it is the same mechanism the reporter's machine already used for its own
 Nerd Font.
 
+**Two details of that registration are load-bearing, and both were wrong once.** The key is created
+only when it is missing: it holds every per-user font on the machine, and PowerShell's
+`New-Item -Force` recreates a key that already exists and discards the values it held, so an
+unguarded `New-Item` over it silently unregisters every per-user font the installer did not install
+— 36 of them, whole families, on the machine this was measured on, with their `.ttf` files left in
+the store and nothing to resolve them by. And the value is the **absolute path** of the copied face,
+built on the Windows side from `%LOCALAPPDATA%` with `Join-Path`: Windows resolves a per-user face
+through that path, so a value holding only the file's base name is looked for in `%WINDIR%\Fonts`,
+the family never resolves, and the verification below refuses — correctly — on every run.
+`TestWindowsFontRegistrationCannotUninstallTheFontsItDoesNotOwn` pins both, and is asserted against
+the program's text because the alternative is a test that runs PowerShell.
+
 **The family is verified before the face is named.** The face is resolved from the Windows font
 store, never hand-written, and the machine's own build is preferred: when the store already resolves
 `MesloLGS NF Herdr`, the step names it and copies nothing, because that is the family the person

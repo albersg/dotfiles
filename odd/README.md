@@ -58,6 +58,7 @@ repository's memory of why something is the way it is.
 | [upstream-activity-tracker.md](tasks/upstream-activity-tracker.md) | Watching upstream activity |
 | [upstream-triage.md](tasks/upstream-triage.md) | Triaging upstream |
 | [vim-trainer-buffer-engine.md](tasks/vim-trainer-buffer-engine.md) | The trainer's buffer engine |
+| [windows-font-registration.md](tasks/windows-font-registration.md) | The per-user font registration Windows has to resolve |
 | [vim-trainer-improvements.md](tasks/vim-trainer-improvements.md) | Improvements to the trainer |
 | [visual-dashboard.md](tasks/visual-dashboard.md) | The visual dashboard |
 | [wsl-host-derived-config.md](tasks/wsl-host-derived-config.md) | WSL configuration derived from the host |
