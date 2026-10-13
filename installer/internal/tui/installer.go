@@ -1721,7 +1721,10 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".config/herdr/config.toml")
 	case "starship":
 		return filepath.Join(homeDir, ".config/starship.toml")
-	case "zsh":
+	case "zsh", "bat":
+		// One file holds two artifacts: the shell palette and, further down it, the
+		// bat theme selection. The switch rewrites each region in turn, so both
+		// artifacts have to answer with the same path or one of them is skipped.
 		return filepath.Join(homeDir, ".zshrc")
 	case "p10k":
 		return filepath.Join(homeDir, ".p10k.zsh")
@@ -3582,14 +3585,17 @@ func renderP10kTheme(def themeDefinition) (string, error) {
 	b.WriteString("  # ── Palette ────────────────────────────────────────────────────────────────\n")
 	b.WriteString("  # Every colour below comes from the palette declared once in themes/" + def.ID + ".toml,\n")
 	b.WriteString("  # which is what keeps the prompt from drifting away from the listings and the\n")
-	b.WriteString("  # line editor, which read the same values. The fallbacks keep this file working\n")
-	b.WriteString("  # when it is sourced on its own, without .zshrc.\n")
+	b.WriteString("  # line editor, which read the same values. They are assignments rather than\n")
+	b.WriteString("  # fallbacks, so re-sourcing this file is what applies a theme change: p10k\n")
+	b.WriteString("  # reload re-sources it, and a fallback would keep the value the shell already\n")
+	b.WriteString("  # held from the theme before it. The file still stands on its own without\n")
+	b.WriteString("  # .zshrc, because an assignment sets the value whether or not it is defined.\n")
 	b.WriteString("  #\n")
 	b.WriteString("  # The block this used to carry held a Kanagawa palette (background #1f1f28,\n")
 	b.WriteString("  # red #c34043, green #76946a, blue #7e9cd8) while the terminal emulators\n")
 	b.WriteString("  # defined different values, so the prompt and the terminal disagreed.\n")
 	for _, role := range themeShellRoles {
-		fmt.Fprintf(&b, "  typeset -g PALETTE_%s=${PALETTE_%s:-\"%s\"}\n", role.Name, role.Name, values[role.Name])
+		fmt.Fprintf(&b, "  typeset -g PALETTE_%s=\"%s\"\n", role.Name, values[role.Name])
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
