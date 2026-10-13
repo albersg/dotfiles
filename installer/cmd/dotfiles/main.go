@@ -349,7 +349,7 @@ Flags:
                        package manager installed is refused (run
                        brew upgrade dotfiles for that one)
   --channel=<name>     Channel to follow: stable (the latest published release,
-                       the default) or dev (the newest pre-release). The choice
+                       the default) or dev (the highest-versioned pre-release). The choice
                        is remembered in update-check.json and offered again as
                        the main menu's "Update channel" row
   --no-anim            Disable animations (same as DOTFILES_ANIM=0); animation

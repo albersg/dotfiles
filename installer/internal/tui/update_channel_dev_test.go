@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -89,6 +90,12 @@ func TestTheDevChannelRefusesWhenNothingIsServable(t *testing.T) {
 // source file honest about it: the wording that described the old behaviour may not come
 // back, wherever it would have been written.
 //
+// It scans every .go file in the module, not only this package: the wording lived in
+// cmd/dotfiles's help text too, which is the first place a person reads about the
+// channel, and a guard rooted at the package directory walked straight past it. The
+// module root is found by walking up to go.mod rather than by counting "../..", so the
+// guard keeps covering the module if this package moves.
+//
 // It scans source, not prose files: the changelog is history and keeps its old wording,
 // because the limit it recorded was real at the time.
 func TestNoSourceStillClaimsTheDevChannelFollowsThePublishOrder(t *testing.T) {
@@ -99,9 +106,9 @@ func TestNoSourceStillClaimsTheDevChannelFollowsThePublishOrder(t *testing.T) {
 		"takes the publish order",
 	}
 
-	root, err := filepath.Abs(".")
+	root, err := moduleRoot()
 	if err != nil {
-		t.Fatalf("resolving the package directory failed: %v", err)
+		t.Fatalf("finding the module root failed: %v", err)
 	}
 	scanned := 0
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -118,7 +125,11 @@ func TestNoSourceStillClaimsTheDevChannelFollowsThePublishOrder(t *testing.T) {
 		scanned++
 		for _, phrase := range stale {
 			if bytes.Contains(body, []byte(phrase)) {
-				t.Errorf("%s still claims the dev channel uses %q, and it compares versions instead", filepath.Base(path), phrase)
+				rel := path
+				if trimmed, err := filepath.Rel(root, path); err == nil {
+					rel = trimmed
+				}
+				t.Errorf("%s still claims the dev channel uses %q, and it compares versions instead", rel, phrase)
 			}
 		}
 		return nil
@@ -128,5 +139,24 @@ func TestNoSourceStillClaimsTheDevChannelFollowsThePublishOrder(t *testing.T) {
 	}
 	if scanned == 0 {
 		t.Fatal("scanned no Go files, so this guard is looking at nothing")
+	}
+}
+
+// moduleRoot walks up from the working directory to the directory holding go.mod, which
+// is the whole module: every package, including the command's help text.
+func moduleRoot() (string, error) {
+	dir, err := filepath.Abs(".")
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("no go.mod above %s", dir)
+		}
+		dir = parent
 	}
 }
