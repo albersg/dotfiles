@@ -1,0 +1,60 @@
+# A Debian image whose sudo really asks for a password.
+#
+# The other E2E images grant `NOPASSWD`, which is right for testing the install
+# steps but useless for measuring the credential request: sudo that never needs
+# a password can never be counted. This image exists only for the one-password
+# probe, so it has a real password, a real sudo that checks it, and a counter
+# that records every time sudo asks.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends sudo fish passwd procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# A real password for a real account. The askpass counter answers with it, so
+# sudo authenticates and caches a credential for real instead of being waved
+# through.
+RUN useradd -m -s /bin/bash -G sudo tester \
+    && echo 'tester:testerpw' | chpasswd
+
+# The package manager the rendered Arch scripts call. It is a stub: this test
+# measures sudo's prompt, and installing real packages would add minutes and
+# network to a test about a password. It lives in /usr/local/sbin, which is
+# ahead of /usr/sbin on sudo's secure_path, so sudo runs the stub.
+RUN printf '#!/bin/sh\necho "pacman(stub): %s"\nexit 0\n' '$*' > /usr/local/sbin/pacman \
+    && chmod 0755 /usr/local/sbin/pacman
+
+# The password entry point the whole measurement rests on.
+#
+#   askpass   is what sudo runs in place of a terminal prompt. Its one line per
+#             invocation is the count: a person would have been asked exactly
+#             then.
+#   sudo      prepends -A so plain `sudo` reads its password through askpass.
+#             This is the only way to observe a prompt in a container with no
+#             terminal, and it changes nothing else: the same sudo, the same
+#             PAM check, the same cached credential. `sudo -n` still never
+#             prompts, which is the behaviour being measured.
+#   password  is the answer askpass gives.
+RUN install -d -o tester -g tester /home/tester/bin \
+    && printf '#!/bin/sh\necho prompt >> /home/tester/sudo-prompts.log\ncat /home/tester/.sudo-password\n' > /home/tester/bin/askpass \
+    && printf '#!/bin/sh\nexec /usr/bin/sudo -A "$@"\n' > /home/tester/bin/sudo \
+    && chmod 0755 /home/tester/bin/askpass /home/tester/bin/sudo \
+    && printf 'testerpw\n' > /home/tester/.sudo-password \
+    && chown tester:tester /home/tester/.sudo-password \
+    && chmod 0600 /home/tester/.sudo-password \
+    && touch /home/tester/sudo-prompts.log \
+    && chown tester:tester /home/tester/sudo-prompts.log
+
+# The checkout the terminal step copies its configuration from. The rendered
+# script points here (see the renderer's RepoDir), so a run that reaches the
+# copy finds a real directory instead of failing on a path that was never there.
+RUN install -d -o tester -g tester /home/tester/dotfiles/dotfiles-ghostty \
+    && printf '[font]\nfamily = "JetBrainsMono Nerd Font"\n' > /home/tester/dotfiles/dotfiles-ghostty/config \
+    && chown -R tester:tester /home/tester/dotfiles
+
+COPY --chown=tester:tester sudo_prompt_probe.sh /home/tester/sudo_prompt_probe.sh
+
+USER tester
+WORKDIR /home/tester
+
+CMD ["/bin/sh", "/home/tester/sudo_prompt_probe.sh"]
