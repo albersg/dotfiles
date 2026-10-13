@@ -10,7 +10,7 @@ local config = {}
 -- │                                   FONT                                       │
 -- └──────────────────────────────────────────────────────────────────────────────┘
 
-config.font = wezterm.font("MesloLGS NF")
+config.font = wezterm.font("MesloLGS Nerd Font")
 config.font_size = 14.0
 
 -- ┌──────────────────────────────────────────────────────────────────────────────┐

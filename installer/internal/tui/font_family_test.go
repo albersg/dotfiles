@@ -20,9 +20,10 @@ import (
 // installs Meslo, so an Iosevka family anywhere in a shipped configuration is the
 // defect again.
 //
-// The family is read from the constant the installer already uses when it writes
-// the face on the Windows side, so this guard has one source of truth rather than
-// a second copy of the name.
+// The family is read from mesloArchiveFamily, the one family the pinned archive
+// declares; every other name (the Windows registration and the shipped
+// configurations) derives from it, so this guard has one source of truth rather
+// than a second copy of the name.
 func TestEveryTerminalConfigNamesTheFamilyTheArchiveProvides(t *testing.T) {
 	// The shipped configurations that name a font family. They are the files
 	// themselves, not a copy of the list: each is read and every Nerd Font family
@@ -63,11 +64,11 @@ func TestEveryTerminalConfigNamesTheFamilyTheArchiveProvides(t *testing.T) {
 		for _, match := range matches {
 			familiesRead++
 			match = strings.TrimSpace(match)
-			if match == windowsTerminalFontFace {
+			if match == mesloArchiveFamily {
 				continue
 			}
 			t.Errorf("%s names the family %q, and the installer ships Meslo, whose family is %q. An Iosevka family in a shipped configuration is the defect: a terminal naming a family that does not resolve falls back silently, so the icons simply never appear.",
-				rel, match, windowsTerminalFontFace)
+				rel, match, mesloArchiveFamily)
 		}
 	}
 
@@ -106,7 +107,7 @@ func TestNoShippedConfigNamesIosevka(t *testing.T) {
 			read++
 			filesRead++
 			if m := iosevka.FindString(string(body)); m != "" {
-				t.Errorf("%s names %q: the installer ships the Meslo archive, whose family is %q", p, m, windowsTerminalFontFace)
+				t.Errorf("%s names %q: the installer ships the Meslo archive, whose family is %q", p, m, mesloArchiveFamily)
 			}
 			return nil
 		})
@@ -145,22 +146,51 @@ func TestTheInstallerInstallsTheFamilyTheConfigsName(t *testing.T) {
 	}
 }
 
-// TestTheTermuxStepNamesTheFaceItInstalls is the guard for the Termux half of
-// issue #269: the step, the menu and the docs said Meslo while the asset the
-// step fetched was JetBrainsMono. The menu and the docs live outside this
-// change's surface, but the step's own label does not, and it must name the
-// asset it fetches. The two are read and compared, so a label that says Meslo
-// over a JetBrainsMono URL -- or the reverse after someone "fixes" the URL to
-// match the menu -- fails here instead of being logged as success.
-func TestTheTermuxStepNamesTheFaceItInstalls(t *testing.T) {
-	if !strings.Contains(termuxFontURL, "JetBrainsMono") {
-		t.Errorf("the Termux step downloads %q, which is no longer the JetBrainsMono asset; the label %q and the asset have to be decided together", termuxFontURL, termuxFontFace)
+// TestOneMesloFamilyDecidesEveryName is the one-place guard for T8. The v3
+// archive and the macOS cask declare "MesloLGS Nerd Font". The Windows registry
+// name must be that same family rather than a second name that can drift from it,
+// and the Termux face is the same family. Everything the installer writes reads
+// this one constant; the shipped configurations are held to it by
+// TestEveryTerminalConfigNamesTheFamilyTheArchiveProvides above.
+func TestOneMesloFamilyDecidesEveryName(t *testing.T) {
+	if windowsTerminalFontFace != mesloArchiveFamily {
+		t.Errorf("windowsTerminalFontFace = %q, but the one family the installer installs is %q; the Windows registration name must derive from it, not be typed again", windowsTerminalFontFace, mesloArchiveFamily)
 	}
-	if !strings.Contains(termuxFontFace, "JetBrainsMono") {
-		t.Errorf("the Termux step's label is %q but its asset is %q: the step would log a family it does not install", termuxFontFace, termuxFontURL)
+	if termuxFontFace != mesloArchiveFamily {
+		t.Errorf("termuxFontFace = %q, but the one family the installer installs is %q", termuxFontFace, mesloArchiveFamily)
 	}
-	if strings.Contains(termuxFontFace, windowsTerminalFontFace) {
-		t.Errorf("the Termux label %q claims the family %q, but the asset it installs is %q", termuxFontFace, windowsTerminalFontFace, termuxFontURL)
+	if windowsTerminalFontFacePreferred == mesloArchiveFamily {
+		t.Errorf("windowsTerminalFontFacePreferred = %q must stay the machine's own build, distinct from the archive family", windowsTerminalFontFacePreferred)
+	}
+}
+
+// TestTheTermuxStepInstallsTheFaceTheDecisionNames is the guard for the Termux
+// half of issue #269. The decision recorded in #265 is that the font is Meslo,
+// for every terminal, and the archive the installer already pins for Linux
+// carries the same family. The step used to fetch JetBrainsMono while the wizard
+// said Meslo; this guard makes the label and the asset one decision, so neither
+// can be "fixed" to match the other without failing here.
+//
+// The URL was verified by hand, not by this test: the family below was read from
+// the downloaded face's own `name` table (fc-scan on the v3-patched Meslo S
+// face, which declares "MesloLGS Nerd Font"). The test touches no network and
+// only checks that the URL and the label name the same face.
+func TestTheTermuxStepInstallsTheFaceTheDecisionNames(t *testing.T) {
+	if !strings.Contains(termuxFontURL, "patched-fonts/Meslo/") {
+		t.Errorf("the Termux step must download a Meslo face, got %q", termuxFontURL)
+	}
+	if !strings.Contains(termuxFontURL, "MesloLGSNerdFont-Regular.ttf") {
+		t.Errorf("the Termux step must download the Meslo S Regular face, got %q", termuxFontURL)
+	}
+	if strings.Contains(termuxFontURL, "JetBrainsMono") {
+		t.Errorf("the Termux step still downloads the JetBrainsMono face: %q", termuxFontURL)
+	}
+	// The family the downloaded face declares, read from its name table: the v3
+	// "MesloLGS Nerd Font". The older v2 naming and the JetBrainsMono face this
+	// step used to fetch are both different names, and neither is what this face
+	// declares.
+	if termuxFontFace != "MesloLGS Nerd Font" {
+		t.Errorf("termuxFontFace = %q, want the family the downloaded Meslo S face declares: %q", termuxFontFace, "MesloLGS Nerd Font")
 	}
 	if termuxFontDirName != ".termux" || termuxFontFileName != "font.ttf" {
 		t.Errorf("Termux reads ~/.termux/font.ttf, but the step writes ~/%s/%s", termuxFontDirName, termuxFontFileName)
@@ -202,5 +232,75 @@ func TestWindowsTerminalFaceIsResolvedBeforeItIsNamed(t *testing.T) {
 				t.Errorf("installedWindowsFontFace() = (%q, %v), want (%q, %v)", got, ok, tc.want, tc.wantOK)
 			}
 		})
+	}
+}
+
+// TestTheInterfaceNamesTheFamilyTheStepInstalls is the guard for T7: every
+// interface string that names the font must derive it from the family the font
+// step installs, so a screen can never claim Meslo over a face the step did not
+// put on the machine.
+//
+// The family is computed rather than typed beside the label: a non-Meslo family
+// is shown as itself, which is what makes a label that always says "Meslo" fail
+// here. The five strings are then compared to the same helper the install family
+// flows through, so the guard asserts that the interface and the step agree
+// rather than pinning a literal name.
+func TestTheInterfaceNamesTheFamilyTheStepInstalls(t *testing.T) {
+	// The shorthand follows the family: a Meslo face keeps the installer's own
+	// phrase, and anything else is named rather than mislabelled.
+	for _, tc := range []struct{ family, want string }{
+		{mesloArchiveFamily, "Meslo Nerd Font"},
+		{termuxFontFace, "Meslo Nerd Font"},
+		{windowsTerminalFontFace, "Meslo Nerd Font"},
+		{"JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font"},
+		{"IosevkaTerm Nerd Font", "IosevkaTerm Nerd Font"},
+	} {
+		if got := fontInstallLabel(tc.family); got != tc.want {
+			t.Errorf("fontInstallLabel(%q) = %q, want %q", tc.family, got, tc.want)
+		}
+	}
+
+	// Every string the interface shows for the font agrees with the family the
+	// step installs on the platform, rather than carrying its own copy of it.
+	for _, tc := range []struct {
+		name   string
+		m      Model
+		termux bool
+	}{
+		{"linux", Model{Screen: ScreenFontSelect, Choices: UserChoices{OS: "linux", InstallFont: true}}, false},
+		{"termux", Model{Screen: ScreenFontSelect, Choices: UserChoices{OS: "termux", InstallFont: true}}, true},
+	} {
+		want := fontInstallLabel(fontInstallFamily(tc.termux))
+
+		opts := tc.m.GetCurrentOptions()
+		if len(opts) == 0 || !strings.Contains(opts[0], want) {
+			t.Errorf("%s: the wizard row is %q, which does not name the family the step installs (%q)", tc.name, opts, want)
+		}
+		if desc := tc.m.GetScreenDescription(); !strings.Contains(desc, want) {
+			t.Errorf("%s: the requirement line %q does not name the family the step installs (%q)", tc.name, desc, want)
+		}
+
+		steps := planFor(planOptions{OS: tc.m.Choices.OS, InstallFont: true, DetectedTermux: tc.termux})
+		var fontStep *InstallStep
+		for i := range steps {
+			if steps[i].ID == "font" {
+				fontStep = &steps[i]
+				break
+			}
+		}
+		if fontStep == nil {
+			t.Fatalf("%s: the plan has no font step", tc.name)
+		}
+		if !strings.Contains(fontStep.Name, want) {
+			t.Errorf("%s: the menu row %q does not name the family the step installs (%q)", tc.name, fontStep.Name, want)
+		}
+		if !strings.Contains(fontStep.Description, want) {
+			t.Errorf("%s: the menu description %q does not name the family the step installs (%q)", tc.name, fontStep.Description, want)
+		}
+
+		tc.m.Width, tc.m.Height = 80, 24
+		if summary := tc.m.renderComplete(); !strings.Contains(summary, want) {
+			t.Errorf("%s: the summary does not name the family the step installs (%q)", tc.name, want)
+		}
 	}
 }

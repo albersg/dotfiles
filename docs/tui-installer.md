@@ -490,10 +490,11 @@ exactly as it skips every installation step.
 about 108 MB (`108,281,715` bytes at v3.3.0), the most expensive network operation in the installer
 apart from a package install, and for a long time it was fetched and extracted over identical files
 on every run. The step now asks fontconfig first — `fc-list : family` — whether the family the
-shipped terminal configurations name, `MesloLGS NF`, already resolves. When it does, the download,
-the extraction and `fc-cache` are all skipped and the step says which command answered. The family
-comes from `windowsTerminalFontFace`, the same constant `font_family_test.go` checks every shipped
-configuration against, so the presence check and the configurations cannot name different families.
+shipped terminal configurations name, `MesloLGS Nerd Font`, already resolves. When it does, the
+download, the extraction and `fc-cache` are all skipped and the step says which command answered.
+The family comes from `mesloArchiveFamily`, the one constant the pinned archive declares and
+`font_family_test.go` checks every shipped configuration against, so the presence check and the
+configurations cannot name different families.
 
 **The report is the verification, not the attempt.** After `fc-cache`, the step asks fontconfig
 again and only reports `✓ Font installed` when the family really resolves; a broken extraction, a
@@ -505,8 +506,9 @@ falls back silently, so an unchecked success line is worse than a failure.
 **Termux reads one file, not a family.** Termux's terminal has no fontconfig; it reads
 `~/.termux/font.ttf`, and the step's presence check is that file. A non-empty file skips the
 download entirely; after a download the step verifies the file is there and not zero-length before
-it reloads Termux's settings. The face it really installs is JetBrainsMono Nerd Font, which the
-step's log now says rather than labelling it Meslo.
+it reloads Termux's settings. The face it installs is the same Meslo family the other platforms
+get (`MesloLGS Nerd Font`), fetched as a single face from the same nerd-fonts repository, and the
+step's log names it.
 
 ### The renderer on the Windows side
 
@@ -518,7 +520,7 @@ everything is fine.
 
 **The step states the truth before it reports anything as done.** It says where the font and the
 palette landed, that Windows Terminal is the renderer, and the two settings it has to be told: the
-font face `MesloLGS NF` and the colour scheme `dotfiles` (the offer names the machine's own build
+font face `MesloLGS Nerd Font` and the colour scheme `dotfiles` (the offer names the machine's own build
 instead once the font store resolves it). The line is unconditional — it is
 not behind a choice, and it does not depend on whether Windows Terminal is reachable. It also says
 that Windows Terminal reads its font list once, when it starts, so it has to be reopened. The list of
@@ -538,7 +540,7 @@ Nerd Font.
 store, never hand-written, and the machine's own build is preferred: when the store already resolves
 `MesloLGS NF Herdr`, the step names it and copies nothing, because that is the family the person
 chose for the machine and the installer does not redistribute it. Otherwise the archive's public
-`MesloLGS NF` family is the fallback: the step copies the handful of faces, registers them, and asks
+`MesloLGS Nerd Font` family is the fallback: the step copies the handful of faces, registers them, and asks
 the Windows font store (`System.Drawing.Text.InstalledFontCollection`, the list the renderer
 resolves a face against) whether the family is there. Only an answer of present lets `font.face` be
 written; an
@@ -1415,7 +1417,7 @@ Backups must be in your home directory with the format:
 
 ### Font Not Displaying Correctly
 
-1. Ensure the terminal is using "MesloLGS NF"
+1. Ensure the terminal is using "MesloLGS Nerd Font"
 2. Restart your terminal after font installation
 3. On macOS, you may need to manually select the font in terminal preferences
 
