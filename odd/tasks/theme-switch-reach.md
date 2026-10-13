@@ -188,6 +188,30 @@ Nothing. Both defects are fixed in the same change, each with the guard that was
 
 Deliberately outside this front, and each its own concern:
 
+- **An install silently discards the theme that is recorded as applied.** Measured on this machine,
+  and it is why the prompt showed the default palette after the theme had been applied correctly:
+  the theme picker wrote Nocturne into six files at `15:31:19` (`~/.zshrc`, `~/.p10k.zsh`,
+  `~/.config/starship.toml`, `~/.config/herdr/config.toml`, `~/.config/nushell/config.nu`, and the
+  Neovim colorscheme), and an install at `16:59:42` overwrote three of them with the files this
+  repository ships — which carry the **default** theme's blocks — while `theme.json` still named
+  Nocturne and still listed six files. `readDotfilesThemeRecord()` is read only by the Windows
+  Terminal scheme and by the interface for display, and `applyDotfilesTheme` is called only from the
+  picker, so nothing re-applies the recorded theme after the install. The reset is per step, not
+  uniform: `starship.toml` and `config.nu` kept Nocturne and still carry its tag and its `15:31:19`
+  timestamp, while `~/.zshrc`, `~/.p10k.zsh` and the Herdr config were written at `16:59:42` with the
+  default theme. The prompt reads ``PALETTE_*`` from the first two, so it renders the default palette
+  (`#7fb4ca`, `#f3f6f9`, `#b7cc85`) on a machine that reports Nocturne as applied. That is why the same
+  configuration looked right on one machine and wrong on another: the theme had been applied **after**
+  the last install there.
+
+  The fix is a re-application at the end of the install — for every artifact whose file the run
+  rewrote, when a theme is recorded and the repository still defines it — with its own guard: apply a
+  theme, run the install, and fail unless the files still name it. It is not in this change because it
+  is a different question (what an install preserves, not what the switch reaches), it touches the step
+  flow rather than one function, and it needs its own front. This change does **not** cause it: on the
+  untouched code the install resets `~/.zshrc` as well, and the prompt took its palette from there
+  because the `.p10k.zsh` block could not overwrite it, so the machine showed the default palette
+  either way. This change moves which file decides, which is why the two are worth fixing together.
 - The theme switch still does not repaint the Windows Terminal scheme. Measured again here: after
   Nocturne was applied, `state/dotfiles/theme.json` recorded six rewritten files and the Windows side
   was not among them, while the `dotfiles` scheme in `settings.json` did hold Nocturne's palette —
