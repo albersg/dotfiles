@@ -1026,15 +1026,38 @@ func psSingleQuote(s string) string {
 }
 
 // windowsFontRegisterScript is the whole registration: one HKCU value per copied
-// face, named the way Windows names a per-user font. It writes nothing outside
-// the current user's registry hive.
+// face, named the way Windows names a per-user font and pointing at the absolute
+// path a per-user face is resolved by. It writes nothing outside the current
+// user's registry hive.
+//
+// Two things here are load-bearing, and both were wrong once -- measured on a
+// machine rather than argued about:
+//
+//   - The key is created only when it is missing. It is not this installer's key:
+//     it holds every per-user font on the machine. PowerShell's New-Item -Force
+//     recreates a key that already exists and discards the values it held, so an
+//     unguarded New-Item over this path uninstalls every per-user font the
+//     installer did not put there. The run that was measured destroyed 36
+//     registrations -- the whole CaskaydiaCove Nerd Font family -- and left the
+//     .ttf files in the store with nothing to resolve them by.
+//   - The value is the absolute path, built on the Windows side out of
+//     %LOCALAPPDATA% with Join-Path. A bare file name is resolved against
+//     %WINDIR%\Fonts, where these faces are not, so a value naming one registers
+//     a face Windows cannot follow -- and the verification that gates the write
+//     then refuses, correctly, on every run.
 func windowsFontRegisterScript(faces []windowsFontFace) string {
 	var b strings.Builder
 	b.WriteString("$key = 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'\n")
-	b.WriteString("New-Item -Path $key -Force | Out-Null\n")
+	// Only when it is missing: New-Item -Force on a key that already exists
+	// discards every value it holds.
+	b.WriteString("if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }\n")
+	// The store is %LOCALAPPDATA% on Windows, which only the Windows side knows,
+	// so the program resolves it there rather than being handed a path some other
+	// layer guessed.
+	b.WriteString("$store = Join-Path $env:LOCALAPPDATA 'Microsoft\\Windows\\Fonts'\n")
 	for _, face := range faces {
 		value := windowsTerminalFontFace + " " + face.Label + " (TrueType)"
-		fmt.Fprintf(&b, "New-ItemProperty -Path $key -Name %s -Value %s -PropertyType String -Force | Out-Null\n",
+		fmt.Fprintf(&b, "New-ItemProperty -Path $key -Name %s -Value (Join-Path $store %s) -PropertyType String -Force | Out-Null\n",
 			psSingleQuote(value), psSingleQuote(face.File))
 	}
 	return b.String()

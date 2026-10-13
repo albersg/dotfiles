@@ -4,6 +4,12 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Windows per-user font registration no longer uninstalls the fonts it did not install, and the face it registers can now be resolved.** The registration program ran `New-Item -Path $key -Force` over `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts` before writing its four values, and on a key that already exists PowerShell's `New-Item -Force` recreates it and discards everything it held. That key is the machine's per-user font list, so every per-user font this installer did not put there lost its registration: the run this was measured on destroyed 36 of them, the whole CaskaydiaCove Nerd Font family, leaving the `.ttf` files in the store with nothing to resolve them by. The key is created only when `Test-Path` says it is missing. Separately, the value written was the file's base name, and Windows resolves a per-user face through the absolute path in the value -- a bare name is looked for in `%WINDIR%\Fonts`, where these faces are not. The family therefore never resolved, the verification that gates the face write refused correctly on every run, and Windows Terminal was never told the font, which is what a user sees as the installer doing nothing. The value is the absolute path now, built on the Windows side from `%LOCALAPPDATA%` with `Join-Path`.
+
 ## [v0.7.4] — 2026-10-13
 
 ### Fixed
