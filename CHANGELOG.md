@@ -4,7 +4,16 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [v0.7.4] — 2026-10-13
+
+### Fixed
+
+- **Every terminal this installer configures now names a font that exists.** The installer wrote four shipped configurations naming `MesloLGS NF`, and no face in any artifact it fetches declares that family: the pinned Linux and Termux archive, the macOS cask and the Termux face all declare `MesloLGS Nerd Font`. On a fresh Linux or macOS install every terminal fell back to its default font -- silently, with no icons and the wrong letterforms. There is one family constant now, read from the face the archive ships, and the check, the verification, the Windows registration name, the four configurations, the interface label and both guards all derive from it.
+- **The Linux font step no longer downloads 108 MB on every run, and no longer fails on a machine that has the font.** The presence check asked fontconfig for a family the archive does not declare, so it never resolved and the archive was refetched every time -- the defect #276 was opened to close, with a guard that could not fire. The verification after extraction asked the same wrong question, so the step reported an error on a machine where the font was installed correctly.
+- **Termux installs the font the interface names.** It installed JetBrains Mono while the wizard row, the menu row, the requirement line and the summary all said Meslo, and the decision recorded in #265 is that the font is Meslo for every terminal. The URL it used had itself moved and was a 404, so that step would have failed the download outright.
+- **The Windows account is asked about rather than guessed.** `defaultuser0` was not in the list of Windows system accounts, and it exists on machines; a single surviving directory was returned as the answer without being checked against anyone. The profile now comes from `%USERPROFILE%` through the Windows interop, gated on the directory existing, with the mount as a fallback that refuses rather than guesses.
+- **The Windows Terminal write is reported from the file, not from the bytes that were sent.** A landing that came out partial could print a success over a configuration Windows Terminal would not read as sent. The write is read back, each setting is reported separately, and a partial landing is a shortfall that withholds the checkmark and names what did not land.
+
 
 ### Fixed
 
