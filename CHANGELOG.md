@@ -4,7 +4,12 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [v0.7.9] — 2026-10-13
+
+### Fixed
+
+- **The font screen says what each option does, and what it found on this machine.** The row that answered "No, I already have it" was a **reason** where an **action** belongs: it did not say whether choosing it skips the font, fails the step, or continues. The rows are verbs now -- install, or skip -- and the screen states the measurement the installer already makes before downloading anything, so the choice rests on what is on the machine rather than on what the user remembers. The measurement is the step's own check rather than a second one, it runs once when the screen is built rather than on every redraw, and on macOS, where the step installs through Homebrew's cask and checks nothing, the screen says nothing about presence instead of inventing an answer.
+
 
 ### Fixed
 
