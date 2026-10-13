@@ -425,13 +425,19 @@ func windowsUserProfile() (string, error) {
 
 // windowsProfileFromMount resolves the Windows user profile by reading the
 // mounted users directory. It never runs cmd.exe or wslpath, so it works on a
-// distribution whose WSLInterop binfmt entry is missing.
+// distribution whose WSLInterop binfmt entry is missing, and it is only reached
+// when the interop route could not answer.
 //
-// A single candidate directory is used directly. With several, the one named
-// after the Linux user wins, because WSL creates the Linux account from the
-// Windows one by default and the names normally match. If none matches, the
-// lookup is ambiguous and is refused with the candidates named, so an arbitrary
-// profile is never written to; DOTFILES_WSL_WINDOWS_HOME chooses one explicitly.
+// Windows system directories are dropped first. What remains is a candidate
+// only when it is named after the account this process runs as: WSL creates the
+// Linux account from the Windows one by default and the names normally match, so
+// USER and USERNAME are the only names a distribution without interop can offer.
+// A candidate that does not match is never returned, not even when it is the
+// only one left -- a lone leftover can belong to a second real profile or to a
+// system account the filter does not know, and writing into it would configure
+// the wrong account. An empty or ambiguous mount is refused with the candidates
+// named, so an arbitrary profile is never written to; envWSLWindowsHome chooses
+// one explicitly.
 func windowsProfileFromMount() (string, error) {
 	usersDir := os.Getenv(envWSLUsersDir)
 	if usersDir == "" {
@@ -444,24 +450,35 @@ func windowsProfileFromMount() (string, error) {
 	}
 
 	var candidates []string
+	var systemDirs []string
 	for _, entry := range entries {
-		if !entry.IsDir() || windowsSystemUserDir(entry.Name()) {
+		if !entry.IsDir() {
+			continue
+		}
+		if windowsSystemUserDir(entry.Name()) {
+			systemDirs = append(systemDirs, entry.Name())
 			continue
 		}
 		candidates = append(candidates, filepath.Join(usersDir, entry.Name()))
 	}
 
-	switch len(candidates) {
-	case 0:
+	if len(candidates) == 0 {
+		if len(systemDirs) > 0 {
+			return "", fmt.Errorf("no Windows user profile found under %s; every directory there is a Windows system account (%s); set %s to override the lookup",
+				usersDir, strings.Join(systemDirs, ", "), envWSLWindowsHome)
+		}
 		return "", fmt.Errorf("no Windows user profile found under %s; set %s to override the lookup", usersDir, envWSLWindowsHome)
-	case 1:
-		return candidates[0], nil
 	}
 
 	for _, candidate := range candidates {
 		if windowsUserMatches(candidate, os.Getenv("USER")) || windowsUserMatches(candidate, os.Getenv("USERNAME")) {
 			return candidate, nil
 		}
+	}
+
+	if len(candidates) == 1 {
+		return "", fmt.Errorf("the only Windows user profile under %s is %s, which is not this account; set %s to choose it explicitly",
+			usersDir, filepath.Base(candidates[0]), envWSLWindowsHome)
 	}
 
 	return "", fmt.Errorf("several Windows user profiles found under %s (%s); set %s to choose one",
@@ -471,12 +488,25 @@ func windowsProfileFromMount() (string, error) {
 // windowsSystemUserDir reports whether a directory under the Windows users
 // mount belongs to Windows rather than to a person. Writing .wslconfig into one
 // of these would either fail or configure the wrong account.
+//
+// The built-in entries are named exactly: "public" is the shared profile,
+// "default" and "default user" are the profile template, "all users" is the
+// compatibility junction for the shared profile, and "defaultapppool" is the IIS
+// application-pool identity. "defaultuser0" is the account Windows Setup creates
+// for the out-of-box experience; the machine this was measured on carried it
+// beside the real profile, and it is a system account no person signs in with.
+//
+// A name ending in "$" is a Windows computer or trust account: the OS reserves
+// that suffix for the machine's own account, and the measured machine carried
+// ES99P6NCS5A7A0H$. It is never a person's profile. Nothing broader is matched,
+// so a name that merely looks similar (defaultuser0x, alberto) stays a candidate.
 func windowsSystemUserDir(name string) bool {
-	switch strings.ToLower(name) {
-	case "public", "default", "default user", "all users", "defaultapppool":
+	lower := strings.ToLower(name)
+	switch lower {
+	case "public", "default", "default user", "all users", "defaultapppool", "defaultuser0":
 		return true
 	}
-	return false
+	return strings.HasSuffix(lower, "$")
 }
 
 // windowsUserMatches reports whether the profile directory is named after the

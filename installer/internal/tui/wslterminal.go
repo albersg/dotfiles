@@ -1310,7 +1310,9 @@ func describeWindowsTerminalOffer(offer windowsTerminalOffer) []string {
 // applyWindowsTerminalOffer is the only path that writes. chosen is the explicit
 // yes: without it nothing is written and no backup is made. With it, the previous
 // bytes are copied beside the file before the write, and a backup that cannot be
-// made aborts the write rather than leaving the user without one.
+// made aborts the write rather than leaving the user without one. The notice it
+// returns is read back from the file, so it reports the face and the colour
+// scheme the file actually holds rather than the bytes that were sent.
 func applyWindowsTerminalOffer(offer windowsTerminalOffer, chosen bool, stepID string) (notice string, wrote bool, err error) {
 	if !offer.Available {
 		return offer.Reason, false, nil
@@ -1330,7 +1332,43 @@ func applyWindowsTerminalOffer(offer windowsTerminalOffer, chosen bool, stepID s
 		return "", false, fmt.Errorf("writing %s: %w", offer.Path, err)
 	}
 
-	labels := windowsTerminalSettingLabels(offer.Face)
-	return fmt.Sprintf("Windows Terminal configured: %s were written to %s; the previous file is at %s.",
-		strings.Join(labels, " and "), offer.Path, backup), true, nil
+	return windowsTerminalWriteReport(offer.Path, offer.Face, offer.Scheme, backup), true, nil
+}
+
+// windowsTerminalWriteReport reads the settings file Windows Terminal will read,
+// after the write, and reports the font face and the colour scheme it now holds.
+// The bytes that were sent are not evidence: a write that did not land would
+// otherwise be reported as a success. The two values are checked on their own,
+// and a value the file does not hold is named as the value that did not land, so
+// the report and the file can only agree.
+func windowsTerminalWriteReport(path, sentFace, sentScheme, backup string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Sprintf("Windows Terminal settings were written to %s, but the file could not be read back to confirm the font face and the colour scheme: %v; the previous file is at %s.",
+			path, err, backup)
+	}
+
+	face, faceOK := windowsTerminalCurrentFontFace(data)
+	scheme, schemeOK := windowsTerminalCurrentColorScheme(data)
+	values := []string{
+		windowsTerminalLandedValue("the font face", sentFace, face, faceOK),
+		windowsTerminalLandedValue("the colour scheme", sentScheme, scheme, schemeOK),
+	}
+	return fmt.Sprintf("Windows Terminal now reads from %s: %s; the previous file is at %s.",
+		path, strings.Join(values, " and "), backup)
+}
+
+// windowsTerminalLandedValue describes one owned setting by what the file holds:
+// the value it landed with, or the value that did not land and what the file
+// holds instead. It is the read-back half of the write report, so a value the
+// file never received cannot be described as if it had.
+func windowsTerminalLandedValue(label, sent, found string, ok bool) string {
+	switch {
+	case !ok:
+		return fmt.Sprintf("%s %q did not land (the file names none)", label, sent)
+	case found != sent:
+		return fmt.Sprintf("%s %q did not land (the file names %q)", label, sent, found)
+	default:
+		return fmt.Sprintf("%s %q", label, found)
+	}
 }
