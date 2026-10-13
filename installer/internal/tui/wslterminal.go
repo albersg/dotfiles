@@ -1161,19 +1161,43 @@ func installAndVerifyWindowsFont(profileDir string) error {
 }
 
 // windowsTerminalThemeDefinition loads the palette the Windows Terminal scheme
-// is built from. The scheme is the dotfiles theme, the one the installer applies
-// to every other tool, so the renderer paints the same palette as the shell.
+// is built from. The scheme carries the colours of the theme this machine has
+// applied -- the name the installer's own record holds -- so the Windows side is
+// painted from the palette the shell, the prompt and every other tool on the
+// Linux side are actually using. Loading the default theme instead would put the
+// two sides of the boundary on different palettes on any machine whose theme is
+// not the default.
+//
+// The scheme's name does not change with the theme: it is the one dotfiles
+// scheme and a theme change repaints it, because Windows Terminal resolves it by
+// the name profiles.defaults.colorScheme holds.
+//
+// Three answers end at the default theme, and all three are deliberate. A
+// machine with no record has applied nothing, so the default -- the theme a fresh
+// install applies -- is its palette. A record this machine cannot read is treated
+// the same way. A record naming a theme this repository no longer defines falls
+// back too rather than failing: this function's error abandons the whole Windows
+// side of the step, font face included, and a stale record must not cost a font
+// that has nothing to do with the theme it names.
 func windowsTerminalThemeDefinition(repoDir string) (themeDefinition, error) {
 	defs, err := loadThemeDefinitions(repoDir)
 	if err != nil {
 		return themeDefinition{}, err
 	}
-	def, ok := themeByID(defs, defaultThemeID)
+
+	id := defaultThemeID
+	if rec := readDotfilesThemeRecord(); rec != nil && rec.Theme != "" {
+		if _, ok := themeByID(defs, rec.Theme); ok {
+			id = rec.Theme
+		}
+	}
+
+	def, ok := themeByID(defs, id)
 	if !ok {
-		return themeDefinition{}, fmt.Errorf("the %q theme definition is not in %s/%s", defaultThemeID, repoDir, themesDirName)
+		return themeDefinition{}, fmt.Errorf("the %q theme definition is not in %s/%s", id, repoDir, themesDirName)
 	}
 	if !def.Complete() {
-		return themeDefinition{}, fmt.Errorf("the %q theme is incomplete, so Windows Terminal's scheme would be incomplete", defaultThemeID)
+		return themeDefinition{}, fmt.Errorf("the %q theme is incomplete, so Windows Terminal's scheme would be incomplete", def.ID)
 	}
 	return def, nil
 }

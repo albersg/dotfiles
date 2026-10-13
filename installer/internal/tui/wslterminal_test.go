@@ -617,6 +617,144 @@ func TestWindowsTerminalSchemeRefusesAMissingRole(t *testing.T) {
 	}
 }
 
+// mountThemeDefinition copies one of the repository's own theme definitions into
+// the fixture repository, so a test can apply a theme that is not the default
+// with the real palette rather than a hand-written stand-in.
+func mountThemeDefinition(t *testing.T, repoDir, id string) {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), themesDirName, id+".toml"))
+	if err != nil {
+		t.Fatalf("reading the %s theme: %v", id, err)
+	}
+	path := filepath.Join(repoDir, themesDirName, id+".toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWindowsTerminalSchemeFollowsTheAppliedTheme is the regression guard for the
+// scheme's palette. The scheme carries the colours of the theme this machine has
+// applied, read from the installer's own record, and never the default theme's:
+// a machine whose theme switch applied another theme would otherwise have the
+// Windows side painted from a palette no tool on the Linux side uses. The scheme
+// keeps its one name across themes, because Windows Terminal resolves it by the
+// name profiles.defaults.colorScheme holds.
+func TestWindowsTerminalSchemeFollowsTheAppliedTheme(t *testing.T) {
+	const appliedID = "nocturne"
+
+	repoDir, _, settingsPath := newWindowsTerminalWSLLayout(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	mountThemeDefinition(t, repoDir, appliedID)
+
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("loading the repository's themes: %v", err)
+	}
+	applied, ok := themeByID(defs, appliedID)
+	if !ok {
+		t.Fatalf("the %s theme is not in the repository", appliedID)
+	}
+	fallback, ok := themeByID(defs, defaultThemeID)
+	if !ok {
+		t.Fatalf("the %s theme is not in the repository", defaultThemeID)
+	}
+	// Without two palettes that actually differ, the guard would pass on a
+	// function that reads the wrong theme.
+	if applied.Palette["base"] == fallback.Palette["base"] {
+		t.Fatalf("%s and %s share a background, so this guard cannot tell them apart", appliedID, defaultThemeID)
+	}
+
+	if err := writeDotfilesThemeRecord(&dotfilesThemeRecord{Theme: appliedID}); err != nil {
+		t.Fatalf("recording the applied theme: %v", err)
+	}
+
+	resolved, err := windowsTerminalThemeDefinition(repoDir)
+	if err != nil {
+		t.Fatalf("resolving the scheme's palette: %v", err)
+	}
+	if resolved.ID != appliedID {
+		t.Errorf("the scheme's palette came from %q, want the applied %q", resolved.ID, appliedID)
+	}
+
+	stubWindowsFontQueryStateful(t, map[string]bool{})
+	setNonInteractiveForTest(t, true)
+	m := wslModel(repoDir, true)
+	if err := executeStep("wslconfig", &m); err != nil {
+		t.Fatalf("the --non-interactive step failed: %v", err)
+	}
+
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := parseJSONC(after)
+	if err != nil {
+		t.Fatalf("the written settings are not valid JSONC: %v\n%s", err, after)
+	}
+	schemes := root.findMember("schemes")
+	if schemes == nil || schemes.value.kind != jsoncArray {
+		t.Fatal("schemes is not an array after the write")
+	}
+	owned := findSchemeNamed(t, schemes.value, windowsTerminalSchemeName)
+	if owned == nil {
+		t.Fatalf("the write left no %q scheme", windowsTerminalSchemeName)
+	}
+
+	// Every role the palette defines, not one of them: a scheme built from the
+	// right theme for one key and the wrong one for the rest is the bug.
+	for _, field := range windowsTerminalSchemeFields {
+		want := applied.Palette[field.role]
+		member := owned.findMember(field.key)
+		if member == nil || member.value.text != want {
+			t.Errorf("the scheme's %s = %v, want %s's %q (the default theme's is %q)",
+				field.key, member, appliedID, want, fallback.Palette[field.role])
+		}
+	}
+}
+
+// TestWindowsTerminalSchemeKeepsTheDefaultThemeWithoutARecord pins the fallback
+// the guard above is measured against. A machine that has applied nothing, and
+// one whose record names a theme this repository no longer defines, both get the
+// default theme: the first because it is what a fresh install applies, the
+// second because failing the Windows side over a stale record would cost the
+// font as well and the default is the only palette the repository can still
+// prove.
+func TestWindowsTerminalSchemeKeepsTheDefaultThemeWithoutARecord(t *testing.T) {
+	t.Run("no record", func(t *testing.T) {
+		repoDir, _, _ := newWindowsTerminalWSLLayout(t)
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+		resolved, err := windowsTerminalThemeDefinition(repoDir)
+		if err != nil {
+			t.Fatalf("resolving the scheme's palette: %v", err)
+		}
+		if resolved.ID != defaultThemeID {
+			t.Errorf("a machine with no record resolved %q, want %q", resolved.ID, defaultThemeID)
+		}
+	})
+
+	t.Run("a record naming a theme the repository does not hold", func(t *testing.T) {
+		repoDir, _, _ := newWindowsTerminalWSLLayout(t)
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+		if err := writeDotfilesThemeRecord(&dotfilesThemeRecord{Theme: "a-theme-that-is-gone"}); err != nil {
+			t.Fatalf("recording the applied theme: %v", err)
+		}
+
+		resolved, err := windowsTerminalThemeDefinition(repoDir)
+		if err != nil {
+			t.Fatalf("a stale record must not fail the Windows side: %v", err)
+		}
+		if resolved.ID != defaultThemeID {
+			t.Errorf("a stale record resolved %q, want the fallback %q", resolved.ID, defaultThemeID)
+		}
+	})
+}
+
 // TestWindowsTerminalSettingsListNamesWhatWrites ties the single list the panel
 // reads to the values the writer uses, so the offer cannot name one thing and
 // the writer set another.
