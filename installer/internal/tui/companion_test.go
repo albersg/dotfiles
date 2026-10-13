@@ -4093,3 +4093,39 @@ func TestCompanionHopHasThreeRasterPhases(t *testing.T) {
 		}
 	}
 }
+
+// TestCompanionStatesAreDistinguishableAtEveryHeight is the property a person
+// would state: at any size the creature can be drawn at, two different states must
+// not draw the same rows. A state that looks like another one is a state the user
+// cannot see, and at the smallest height -- a single row -- it is the easiest thing
+// to do by accident.
+//
+// This was found by printing the whole matrix while reviewing the art, and it is a
+// test now so that a pose added later cannot collapse two states into one.
+func TestCompanionStatesAreDistinguishableAtEveryHeight(t *testing.T) {
+	var states []companionState
+	for s := range companionStateNames {
+		states = append(states, s)
+	}
+	if len(states) < 2 {
+		t.Fatalf("read %d states, so this guard is not looking at them", len(states))
+	}
+
+	for _, height := range companionHeights() {
+		seen := map[string][]string{}
+		for _, state := range states {
+			// The rows the state draws, with the gaze centred so the comparison is
+			// about the pose and not about where the creature happens to look.
+			key := strings.Join(companionArtFor(state, height, 0, companionGaze{}), "\n")
+			seen[key] = append(seen[key], companionStateNames[state])
+		}
+		if len(seen) == len(states) {
+			continue
+		}
+		for _, names := range seen {
+			if len(names) > 1 {
+				t.Errorf("at height %d these states draw the same rows, so a reader cannot tell them apart: %s", height, strings.Join(names, ", "))
+			}
+		}
+	}
+}
