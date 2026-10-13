@@ -1274,6 +1274,17 @@ func planFor(opts planOptions) []InstallStep {
 		})
 	}
 
+	// Restore the theme this machine has applied. This runs after every step that
+	// writes a configuration file, because each of them writes the file this
+	// repository ships and those carry the default theme's block, and before
+	// cleanup, which removes the checkout the theme definitions are read from.
+	steps = append(steps, InstallStep{
+		ID:          "theme",
+		Name:        "Restore the Applied Theme",
+		Description: "Writes the theme this machine has applied back into the files the install replaced.",
+		Status:      StatusPending,
+	})
+
 	// Set default shell (interactive - chsh needs password)
 	steps = append(steps, InstallStep{
 		ID:          "setshell",

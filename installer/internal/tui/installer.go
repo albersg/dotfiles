@@ -4450,6 +4450,7 @@ var stepExecutors = map[string]func(*Model) error{
 	"agentskills": stepInstallAgentSkills,
 	"officecli":   stepInstallOfficeCLI,
 	"wslconfig":   stepInstallWSLConfig,
+	"theme":       stepReapplyTheme,
 	"cleanup":     stepCleanup,
 	"setshell":    stepSetDefaultShell,
 }
@@ -7610,6 +7611,120 @@ func stepInstallNvim(m *Model) error {
 	}
 
 	SendLog(stepID, "✓ Neovim configured with dotfiles setup")
+	return nil
+}
+
+// reapplyRecordedTheme writes the theme this machine has applied back into the
+// configuration files a run replaced, and reports how many files it wrote.
+//
+// It is the picker's write without the picker's transaction. It does not touch the
+// record of which theme is applied, and it keeps no undo: choosing a theme is a
+// user's action with a way back, and an install is not one. It uses the picker's
+// own gates -- the artifact list, the path each artifact answers with, the
+// ownership proof, the Neovim reachability rule and the same renderer -- so a file
+// the picker would refuse is refused here for the same reason, and a file it would
+// write is written with the bytes it would have written. A file that carries no
+// marker of ours is left exactly as it is: unlike the picker, an install never
+// adopts.
+//
+// Three cases leave every file alone and are not errors: no theme is recorded, the
+// record cannot be read, and the record names a theme this checkout does not
+// define. The last is a normal race -- the installed binary can come from a branch
+// newer than the checkout it reads -- and failing there would report an install as
+// failed after it had already installed everything, which is the choice the
+// Windows Terminal scheme makes for the same reason.
+func reapplyRecordedTheme(homeDir, repoDir string) (int, error) {
+	rec := readDotfilesThemeRecord()
+	if rec == nil || rec.Theme == "" || repoDir == "" {
+		return 0, nil
+	}
+
+	defs, err := loadThemeDefinitions(repoDir)
+	if err != nil {
+		return 0, fmt.Errorf("the theme definitions could not be read, so no file was restored: %w", err)
+	}
+	def, ok := themeByID(defs, rec.Theme)
+	if !ok {
+		return 0, nil
+	}
+
+	var files []string
+	for _, art := range themeActiveArtifacts {
+		path := themeInstalledPath(art, homeDir)
+		if path == "" {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return len(files), fmt.Errorf("could not read %s, so it was left as it is: %w", path, err)
+		}
+		content := string(data)
+		if !strings.Contains(content, themeOwnershipMarker) && !themeInstalledFileIsOurs(repoDir, art, content) {
+			continue
+		}
+		if art.Tool == "nvim" {
+			// The same rule the picker applies: the line names a colorscheme
+			// Neovim has to find, and a generated one is installed here before the
+			// line that names it is written. A name Neovim cannot load starts the
+			// editor with E185 on every launch, which is worse than the previous
+			// colorscheme.
+			if reason := reachableNvimColorscheme(homeDir, def); reason != "" {
+				SendLog("theme", fmt.Sprintf("Neovim was left on its previous colorscheme: %s", reason))
+				continue
+			}
+		}
+		block, err := themeArtifactBlock(art, def)
+		if err != nil {
+			return len(files), err
+		}
+		updated, ok := replaceThemeBlock(content, block, art.Block)
+		if !ok || updated == content {
+			continue
+		}
+		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+			return len(files), fmt.Errorf("could not write the %s block into %s: %w", art.Tool, path, err)
+		}
+		if !slices.Contains(files, path) {
+			files = append(files, path)
+		}
+	}
+	return len(files), nil
+}
+
+// stepReapplyTheme is the run's last word on the theme.
+//
+// Every step that writes a configuration file writes the file this repository
+// ships, and those carry the default theme's generated block. The picker is the
+// only caller of applyDotfilesTheme, and the record of which theme is applied
+// was read only to be displayed, so a run left a machine that records one theme
+// rendering another: measured on one machine, an install at 16:59:42 put the
+// default palette back into ~/.zshrc, ~/.p10k.zsh and the Herdr configuration
+// while theme.json went on naming Nocturne over six files, and the prompt --
+// which reads its colours from the first two -- painted the default palette.
+//
+// It runs after every step that writes a configuration file, and before the
+// cleanup step removes the checkout the theme definitions are read from.
+func stepReapplyTheme(m *Model) error {
+	stepID := "theme"
+
+	repoDir := m.RepoDir
+	if repoDir == "" {
+		repoDir = m.DotfilesRepoDir
+	}
+
+	changed, err := reapplyRecordedTheme(os.Getenv("HOME"), repoDir)
+	if err != nil {
+		return wrapStepError("theme", "Restore the Applied Theme",
+			"Failed to restore the theme this machine has applied", err)
+	}
+	if changed == 0 {
+		SendLog(stepID, "No theme is recorded, so every file is left as the repository ships it")
+		return nil
+	}
+	SendLog(stepID, fmt.Sprintf("Restored the applied theme in %d file(s)", changed))
 	return nil
 }
 

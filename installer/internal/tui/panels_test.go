@@ -330,7 +330,7 @@ func TestWillHappenPanelPreviewsThePlan(t *testing.T) {
 
 	for _, want := range []string{
 		"on Linux (detected)",
-		"Steps 8",
+		"Steps 9",
 		"Install Dependencies",
 	} {
 		if !strings.Contains(flat, want) {
@@ -1777,7 +1777,7 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 			name:   "Start Installation",
 			want: []string{
 				"Selected Start Installation",
-				"Steps 8",
+				"Steps 9",
 				"Install Dependencies",
 				"Overwrites 1 config",
 				"nvim: /home/testuser/.config/nvim",

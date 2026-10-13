@@ -157,6 +157,11 @@ func buildStepsForChoices(m *Model) []InstallStep {
 		steps = append(steps, InstallStep{ID: "wslconfig", Name: "Configure WSL"})
 	}
 
+	// The theme this machine has applied, put back into the files the steps above
+	// replaced. Last, so it sees every file the run wrote, and before cleanup, which
+	// removes the checkout the theme definitions are read from.
+	steps = append(steps, InstallStep{ID: "theme", Name: "Restore the applied theme"})
+
 	// Set shell as default
 	steps = append(steps, InstallStep{ID: "setshell", Name: "Set shell as default"})
 
