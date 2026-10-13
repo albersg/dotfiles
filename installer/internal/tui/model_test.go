@@ -1,11 +1,31 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 )
+
+// The font presence probe runs the font step's own check, and on Linux that
+// check shells out to fc-list. This package builds a model in hundreds of tests,
+// and none of them should pay for that process: the stub answers "nothing
+// measured", and for a host the step does not check that is also the true answer,
+// so the screens keep their unmeasured sentence. Tests that need a machine with
+// the font, or without one, replace the probe and restore it. The guard below
+// fails if this init is removed.
+func init() {
+	fontPresenceProbe = func(info *system.SystemInfo) fontPresence {
+		return fontPresence{}
+	}
+	fontPresenceStubbed = true
+}
+
+// fontPresenceStubbed records that the init above replaced the probe, so a guard
+// can fail if it is ever removed.
+var fontPresenceStubbed bool
 
 func TestNewModel(t *testing.T) {
 	t.Run("should create model with initial state", func(t *testing.T) {
@@ -133,6 +153,155 @@ func TestGetCurrentOptions(t *testing.T) {
 			t.Errorf("Expected 0 options for installing screen, got %d", len(opts))
 		}
 	})
+}
+
+// TestFontScreenOptionsNameTheirActions is the guard for the reported defect:
+// the font step's question asks whether to install the family, so both rows have
+// to answer with what they do. The old second row answered with a reason --
+// "No, I already have it" -- so a person who did not have the font, or who was
+// unsure, could not tell whether choosing it skipped the font, failed the step,
+// or continued the install.
+func TestFontScreenOptionsNameTheirActions(t *testing.T) {
+	m := Model{Screen: ScreenFontSelect, Choices: UserChoices{OS: "linux"}}
+	opts := m.GetCurrentOptions()
+
+	want := []string{"Install " + m.installedFontLabel(), "Skip it"}
+	if len(opts) != len(want) {
+		t.Fatalf("font screen offers %d rows, want %d: %v", len(opts), len(want), opts)
+	}
+	for i := range want {
+		if opts[i] != want[i] {
+			t.Errorf("font row %d = %q, want %q", i, opts[i], want[i])
+		}
+	}
+}
+
+// TestFontPresenceProbeIsStubbedInATestBinary is the guard for the init above:
+// the probe runs the font step's presence check, and on Linux that check shells
+// out to fc-list. If the init goes, building a model in any test runs a process.
+func TestFontPresenceProbeIsStubbedInATestBinary(t *testing.T) {
+	if !fontPresenceStubbed {
+		t.Fatal("the font presence probe is not stubbed in this test binary; building a model would run fc-list")
+	}
+}
+
+// TestFontPresenceIsMeasuredOnceAndNeverWhileRendering is the guard for the rule
+// the design turns on: the font screen's description and rows are computed on
+// every render, so they must read the measurement rather than take one. The
+// probe is counted, and drawing the screen repeatedly must not move the count.
+func TestFontPresenceIsMeasuredOnceAndNeverWhileRendering(t *testing.T) {
+	original := fontPresenceProbe
+	t.Cleanup(func() { fontPresenceProbe = original })
+
+	calls := 0
+	fontPresenceProbe = func(info *system.SystemInfo) fontPresence {
+		calls++
+		return fontPresence{Measured: true, Installed: true}
+	}
+
+	m := NewModel()
+	if calls != 1 {
+		t.Fatalf("building the model called the probe %d times, want exactly 1", calls)
+	}
+	m.Screen = ScreenFontSelect
+	m.Choices = UserChoices{OS: "linux"}
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	for i := 0; i < 25; i++ {
+		_ = m.GetScreenDescription()
+		_ = m.GetCurrentOptions()
+		_ = m.View()
+	}
+
+	if calls != 1 {
+		t.Fatalf("rendering the font screen called the probe %d times, want still 1", calls)
+	}
+}
+
+// TestFontScreenDescriptionStatesWhatTheCheckFound pins the second half of the
+// fix: the screen says what the font step's own check found on this machine, so
+// the choice is informed by a measurement rather than the user's memory. A
+// platform the step does not check keeps the requirement sentence instead of
+// claiming a state nothing measured.
+func TestFontScreenDescriptionStatesWhatTheCheckFound(t *testing.T) {
+	cases := []struct {
+		name     string
+		presence fontPresence
+		want     string
+	}{
+		{"already installed", fontPresence{Measured: true, Installed: true}, "is already installed here"},
+		{"not installed", fontPresence{Measured: true}, "is not installed here"},
+		{"step does not check", fontPresence{}, "is required for icons and glyphs"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{Screen: ScreenFontSelect, Choices: UserChoices{OS: "linux"}, FontPresence: tc.presence}
+			got := m.GetScreenDescription()
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("font screen description = %q, want it to contain %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFontSummaryLineNamesWhatTheRunFound pins the completion row's optional
+// provenance: when the pre-run check measured this machine, the row says whether
+// the font was already there or was installed by this run. A host the step did
+// not check -- and a run that chose the Termux branch on a host the check did not
+// measure -- keeps the label alone.
+func TestFontSummaryLineNamesWhatTheRunFound(t *testing.T) {
+	cases := []struct {
+		name     string
+		choices  UserChoices
+		presence fontPresence
+		want     string
+	}{
+		{"already installed", UserChoices{OS: "linux", InstallFont: true}, fontPresence{Measured: true, Installed: true}, "Font: Meslo Nerd Font (already installed)"},
+		{"installed now", UserChoices{OS: "linux", InstallFont: true}, fontPresence{Measured: true}, "Font: Meslo Nerd Font (installed now)"},
+		{"nothing measured", UserChoices{OS: "linux", InstallFont: true}, fontPresence{}, "Font: Meslo Nerd Font"},
+		{"termux chosen on another host", UserChoices{OS: "termux", InstallFont: true}, fontPresence{Measured: true, Installed: true}, "Font: Meslo Nerd Font"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{Screen: ScreenComplete, Choices: tc.choices, FontPresence: tc.presence, SystemInfo: &system.SystemInfo{OS: system.OSLinux}}
+			if got := m.fontSummaryLine(); got != tc.want {
+				t.Fatalf("font summary = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFontPresenceForHostUsesTheStepsOwnCheck pins the dispatch the probe makes:
+// the Termux branch reads the slot file the step itself reads, and macOS -- whose
+// step installs through the cask and never reads the font store -- answers "not
+// measured" rather than claiming the family is absent. The Linux branch is the
+// step's own fc-list call, covered where the step is.
+func TestFontPresenceForHostUsesTheStepsOwnCheck(t *testing.T) {
+	home := t.TempDir()
+	termux := &system.SystemInfo{IsTermux: true, HomeDir: home}
+
+	if got := fontPresenceForHost(termux); !got.Measured || got.Installed {
+		t.Fatalf("empty Termux slot = %+v, want measured and not installed", got)
+	}
+
+	slot := filepath.Join(home, termuxFontDirName, termuxFontFileName)
+	if err := os.MkdirAll(filepath.Dir(slot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(slot, []byte("font-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := fontPresenceForHost(termux); !got.Measured || !got.Installed {
+		t.Fatalf("filled Termux slot = %+v, want measured and installed", got)
+	}
+
+	if got := fontPresenceForHost(&system.SystemInfo{OS: system.OSMac, HomeDir: home}); got.Measured {
+		t.Fatalf("macOS presence = %+v, want not measured: the step never checks the font store", got)
+	}
+	if got := fontPresenceForHost(nil); got.Measured {
+		t.Fatalf("nil host presence = %+v, want not measured", got)
+	}
 }
 
 func TestGetScreenTitle(t *testing.T) {

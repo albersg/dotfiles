@@ -5493,6 +5493,49 @@ func installedLinuxFontFamily(family string) (resolved, known bool) {
 	return linuxFontFamilyResolves(family, result.Output), true
 }
 
+// fontPresence is what the font step's own check found on this machine, so a
+// screen can state the measurement instead of asking the user to remember it.
+// Measured is false when the step would not ask at all -- the macOS branch
+// installs through the Homebrew cask and never reads the font store first --
+// which is a different answer from "not installed".
+type fontPresence struct {
+	Measured  bool
+	Installed bool
+}
+
+// fontPresenceProbe is the model's one call into the font step's own presence
+// check. It is indirected for two reasons: on Linux the check shells out to
+// fc-list, so the model runs it once when it is built and every render reads the
+// result instead; and a test can describe a machine with the font or without one
+// rather than depending on the machine that runs the test. Rendering never calls
+// this.
+var fontPresenceProbe = fontPresenceForHost
+
+// fontPresenceForHost answers the question the font step asks before it
+// downloads anything, for the host detection named. It is the same check the
+// step makes: the Termux slot's file when the step's Termux branch would run,
+// the fontconfig family listing everywhere the Linux branch would, and no check
+// at all on macOS, where the step installs through Homebrew's cask. The family
+// is the one constant the step itself installs, so the screen cannot report a
+// different family's presence.
+func fontPresenceForHost(info *system.SystemInfo) fontPresence {
+	if info == nil {
+		return fontPresence{}
+	}
+	if info.IsTermux {
+		path := filepath.Join(info.HomeDir, termuxFontDirName, termuxFontFileName)
+		if stat, err := os.Stat(path); err == nil && stat.Size() > 0 {
+			return fontPresence{Measured: true, Installed: true}
+		}
+		return fontPresence{Measured: true}
+	}
+	if info.OS == system.OSMac {
+		return fontPresence{}
+	}
+	resolved, known := installedLinuxFontFamily(mesloArchiveFamily)
+	return fontPresence{Measured: known, Installed: resolved}
+}
+
 func stepInstallFont(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	stepID := "font"
