@@ -6,26 +6,86 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const interactiveContinuePrompt = `if [ -t 0 ] && [ -r /dev/tty ]; then
-    echo "Press Enter to continue..."
-    if ! IFS= read -r dummy < /dev/tty; then
-        echo "Continuing without confirmation prompt."
-    fi
-fi`
-
-// needsExecProcessMsg signals that we need to run tea.ExecProcess
+// needsExecProcessMsg is the message that handed the terminal to a child
+// process. Nothing produces it anymore: the steps run through the captured
+// executor so the installer stays on screen. It survives as the target of the
+// test that refuses to let the terminal handback come back.
 type needsExecProcessMsg struct {
 	stepID string
 	cmd    *exec.Cmd
 }
 
-// runInteractiveStep creates a tea.Cmd that runs an interactive step
-// This suspends the TUI and gives full terminal control to the process
+// sudoPrimer is the seam for the one credential request of a run. The default
+// hands the terminal to `sudo -v` once, before the first root-needing step, so
+// sudo caches the credential the rest of the run reads with `sudo -n`. It is a
+// variable so a test can prove the run asks exactly once without invoking sudo.
+var sudoPrimer = defaultSudoPrimer
+
+// defaultSudoPrimer runs `sudo -v` with the terminal attached. It is the one
+// moment a run gives the terminal to a child process: sudo writes the cached
+// credential it later reads non-interactively, and the TUI comes straight back
+// to the screen.
+func defaultSudoPrimer() tea.Cmd {
+	c := exec.Command("sudo", "-v")
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return sudoPrimedMsg{err: err}
+	})
+}
+
+// sudoPrimedMsg reports the outcome of the single credential request.
+type sudoPrimedMsg struct{ err error }
+
+// sudoKeepAliveMsg asks for the cached credential to be refreshed.
+type sudoKeepAliveMsg struct{}
+
+// sudoRefreshedMsg reports the outcome of a credential refresh.
+type sudoRefreshedMsg struct{ err error }
+
+// sudoKeepAliveInterval is how often the cached credential is refreshed. sudo's
+// default timestamp timeout is fifteen minutes; five leaves a wide margin so a
+// long step cannot outlive the cache between refreshes.
+const sudoKeepAliveInterval = 5 * time.Minute
+
+// sudoRefresher is the seam for the keep-alive. The default runs `sudo -n -v`,
+// which needs no terminal because the credential is already cached.
+var sudoRefresher = defaultSudoRefresher
+
+func defaultSudoRefresher() error {
+	return system.Run(nonInteractiveSudo("-v"), nil).Error
+}
+
+// sudoKeepAliveTickCmd arms the next credential refresh. A run that is not
+// primed never arms one.
+func sudoKeepAliveTickCmd() tea.Cmd {
+	return tea.Tick(sudoKeepAliveInterval, func(time.Time) tea.Msg {
+		return sudoKeepAliveMsg{}
+	})
+}
+
+// sudoRefreshCmd refreshes the cached credential off the update loop.
+func sudoRefreshCmd() tea.Cmd {
+	return func() tea.Msg {
+		return sudoRefreshedMsg{err: sudoRefresher()}
+	}
+}
+
+// runStepScript is the seam that runs a generated step script through the
+// captured executor. It is a variable so a test can prove the dispatch without
+// running a shell.
+var runStepScript = runStepScriptWithLogs
+
+// runInteractiveStep turns an interactive step ID into a tea.Cmd that runs its
+// generated script through the captured-output executor. The installer stays on
+// screen: the script's output streams into the activity log line by line, the
+// same machinery every other step uses, instead of the terminal being handed to
+// the process. The credential is cached before this runs, so the script's
+// `sudo -n` calls need no TTY.
 func runInteractiveStep(stepID string, m *Model) tea.Cmd {
 	return func() tea.Msg {
 		// --dry-run gates this path exactly as executeStep gates the
@@ -49,18 +109,109 @@ func runInteractiveStep(stepID string, m *Model) tea.Cmd {
 			return execFinishedMsg{stepID: stepID, err: nil}
 		}
 
-		cmd, err := createTempScriptCommand(script)
-		if err != nil {
-			return execFinishedMsg{stepID: stepID, err: fmt.Errorf("failed to create script for %s: %w", stepID, err)}
+		// A step that no longer owns the terminal must not carry the enter-to-
+		// continue prompt that only made a handback readable. Reintroducing one
+		// fails the step visibly here instead of blocking a run with no terminal
+		// to read from.
+		if stepScriptPromptsForEnter(script) {
+			return execFinishedMsg{stepID: stepID, err: fmt.Errorf("step %q generated an enter-to-continue prompt; the run keeps the screen, so no step may wait for a keypress", stepID)}
 		}
 
-		// Return message that tells Update to use tea.ExecProcess
-		return needsExecProcessMsg{stepID: stepID, cmd: cmd}
+		if err := runStepScript(stepID, script); err != nil {
+			return execFinishedMsg{stepID: stepID, err: err}
+		}
+		return execFinishedMsg{stepID: stepID, err: nil}
 	}
 }
 
+// stepNeedsSudo reports whether starting stepID on this host runs a command
+// that needs root. A run asks for the credential once, before the first step
+// that answers true, so every later sudo can run with -n.
+func stepNeedsSudo(stepID string, m *Model) bool {
+	if m == nil || m.SystemInfo == nil || m.SystemInfo.IsTermux {
+		return false
+	}
+	switch stepID {
+	case "deps", "shell", "wm", "nvim":
+		// These install through the native managers unless Homebrew is present,
+		// and Homebrew is user-scoped.
+		return nativePackageManager(m)
+	case "terminal":
+		// macOS installs terminals as Homebrew casks; Linux uses the native
+		// managers or a root-owning install script.
+		return m.SystemInfo.OS != system.OSMac
+	case "homebrew":
+		return m.SystemInfo.OS != system.OSMac && !m.SystemInfo.HasBrew
+	case "wslconfig", "setshell":
+		return true
+	}
+	return false
+}
+
+// nativePackageManager reports whether a step on this host reaches the native
+// package managers that run through sudo rather than the user-scoped Homebrew
+// route. It mirrors the branches of planPlatformInstall.
+func nativePackageManager(m *Model) bool {
+	return usesApt(m) || usesPacman(m) || usesDnf(m)
+}
+
+// stepScriptPromptsForEnter reports whether a generated step script waits for a
+// keypress. That prompt existed only so a terminal handback stayed readable;
+// with the run captured there is no handback and nothing to read, so a script
+// carrying one would block. It is the guard that refuses to let the prompt come
+// back.
+func stepScriptPromptsForEnter(script string) bool {
+	for _, marker := range []string{"Press Enter to continue", "read -r _", "read dummy"} {
+		if strings.Contains(script, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// runStepScriptWithLogs writes a generated step script to a private temporary
+// file and runs it through the same captured-output executor every other step
+// uses, so the script's output lands in the activity log and the installer stays
+// on screen. The file is removed on every path out.
+func runStepScriptWithLogs(stepID, script string) error {
+	path, err := writeStepScript(script)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(path)
+
+	result := system.RunWithLogs(fmt.Sprintf("%s %q", system.GetShell(), path), nil, func(line string) {
+		SendLog(stepID, line)
+	})
+	return result.Error
+}
+
+// writeStepScript writes script to an executable temporary file and returns its
+// path.
+func writeStepScript(script string) (string, error) {
+	tmpFile, err := os.CreateTemp("", "dotfiles-install-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp script: %w", err)
+	}
+
+	if _, err := tmpFile.WriteString(script); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write script: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to close script: %w", err)
+	}
+	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to make script executable: %w", err)
+	}
+	return tmpFile.Name(), nil
+}
+
 // interactiveScriptBuilders is the dispatch table for interactive steps. Each
-// entry turns a step ID into the shell script tea.ExecProcess runs.
+// entry turns a step ID into the shell script the captured executor runs.
 //
 // It is a map rather than a switch so the flag-versus-dispatch invariant test
 // can enumerate the cases instead of restating them: a step that
@@ -75,8 +226,10 @@ var interactiveScriptBuilders = map[string]func(*Model) (string, error){
 	"wslconfig": getWSLConfigScript,
 }
 
-// getInteractiveScript returns the bash script for interactive steps only
-// Interactive steps are those that NEED user input (sudo password, chsh, etc)
+// getInteractiveScript returns the shell script for an interactive step.
+// Interactive steps are the ones that install or reconfigure a root-owned
+// resource; the run caches the administrator credential once before the first
+// of them, so their scripts run captured with `sudo -n` and need no terminal.
 func getInteractiveScript(stepID string, m *Model) (string, error) {
 	build, ok := interactiveScriptBuilders[stepID]
 	if !ok {
@@ -85,7 +238,8 @@ func getInteractiveScript(stepID string, m *Model) (string, error) {
 	return build(m)
 }
 
-// getHomebrewScript returns script to install Homebrew (needs password on first install)
+// getHomebrewScript returns script to install Homebrew. It runs captured, with
+// the administrator credential already cached for the run.
 func getHomebrewScript(m *Model) (string, error) {
 	if system.CommandExists("brew") {
 		return "", nil // Already installed
@@ -96,7 +250,6 @@ func getHomebrewScript(m *Model) (string, error) {
 set -e
 echo ""
 echo "🍺 Installing Homebrew package manager..."
-echo "   (You may be prompted for your password)"
 echo ""
 NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
@@ -121,8 +274,7 @@ eval "$(%s/bin/brew shellenv)"
 	echo ""
 	echo "✅ Homebrew installed successfully!"
 	echo ""
-	%s
-	`, brewPrefix, brewPrefix, interactiveContinuePrompt)
+	`, brewPrefix, brewPrefix)
 
 	return script, nil
 }
@@ -131,8 +283,8 @@ eval "$(%s/bin/brew shellenv)"
 // the TUI counterpart of stepInstallDeps and shares its decisions rather than
 // re-deriving them: depsForInstall picks and filters the package names,
 // planPlatformInstall picks the manager and the command, and this function only
-// wraps that in the shell script tea.ExecProcess runs. Nothing about which
-// packages or which manager is decided here.
+// wraps that in the shell script the captured executor runs. Nothing about
+// which packages or which manager is decided here.
 func getDepsScript(m *Model) (string, error) {
 	deps, debianGaps := depsForInstall(m)
 	plan := planPlatformInstall(m, deps)
@@ -140,7 +292,6 @@ func getDepsScript(m *Model) (string, error) {
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\nset -e\necho \"\"\n")
 	script.WriteString("echo \"🔄 Installing base dependencies...\"\n")
-	script.WriteString("echo \"   (You may be prompted for your password)\"\n")
 	script.WriteString("echo \"\"\n")
 
 	// The notice and the index refresh come from the plan, exactly as they do in
@@ -153,7 +304,7 @@ func getDepsScript(m *Model) (string, error) {
 		}
 	}
 	if plan.Update != "" {
-		fmt.Fprintf(&script, "sudo %s\n", plan.Update)
+		fmt.Fprintf(&script, "sudo -n %s\n", plan.Update)
 	}
 
 	switch plan.Manager {
@@ -171,7 +322,6 @@ func getDepsScript(m *Model) (string, error) {
 	}
 
 	script.WriteString("echo \"\"\necho \"✅ Dependencies installed successfully!\"\necho \"\"\n")
-	script.WriteString("echo \"Press Enter to continue...\"\nread -r _\n")
 	return script.String(), nil
 }
 
@@ -194,13 +344,13 @@ func getTerminalScript(m *Model) (string, error) {
 		if system.CommandExists("alacritty") {
 			installCmd = `echo "✓ Alacritty already installed"`
 		} else if m.SystemInfo.OS == system.OSArch {
-			installCmd = `sudo pacman -S --noconfirm alacritty`
+			installCmd = `sudo -n pacman -S --noconfirm alacritty`
 		} else if m.SystemInfo.OS == system.OSFedora {
-			installCmd = `sudo dnf install -y alacritty`
+			installCmd = `sudo -n dnf install -y alacritty`
 		} else {
 			// Debian/Ubuntu: compile from source (PPAs are unreliable)
 			installCmd = `echo "📦 Installing build dependencies..."
-sudo apt-get install -y cmake pkg-config libfreetype6-dev libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev python3 gzip scdoc git curl
+sudo -n apt-get install -y cmake pkg-config libfreetype6-dev libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev python3 gzip scdoc git curl
 
 # Install Rust if not present
 if ! command -v cargo &> /dev/null && [ ! -f "$HOME/.cargo/bin/cargo" ]; then
@@ -221,8 +371,8 @@ cd "$ALACRITTY_DIR"
 cargo build --release
 
 echo "📦 Installing Alacritty binary..."
-sudo cp target/release/alacritty /usr/local/bin/alacritty
-sudo cp extra/linux/Alacritty.desktop /usr/share/applications/ 2>/dev/null || true
+sudo -n cp target/release/alacritty /usr/local/bin/alacritty
+sudo -n cp extra/linux/Alacritty.desktop /usr/share/applications/ 2>/dev/null || true
 
 echo "🧹 Cleaning up..."
 rm -rf "$ALACRITTY_DIR"
@@ -250,10 +400,10 @@ cp "%s" "%s/.config/wezterm/wezterm.lua"`, homeDir, filepath.Join(repoDir, repoA
 		if system.CommandExists("ghostty") {
 			installCmd = `echo "✓ Ghostty already installed"`
 		} else if m.SystemInfo.OS == system.OSArch {
-			installCmd = `sudo pacman -S --noconfirm ghostty`
+			installCmd = `sudo -n pacman -S --noconfirm ghostty`
 		} else if m.SystemInfo.OS == system.OSFedora {
-			installCmd = `sudo dnf copr enable -y pgdev/ghostty
-sudo dnf install -y ghostty`
+			installCmd = `sudo -n dnf copr enable -y pgdev/ghostty
+sudo -n dnf install -y ghostty`
 		} else {
 			// Debian, Ubuntu and macOS use the upstream install script. It is
 			// downloaded to a file and then run instead of being piped into bash:
@@ -277,7 +427,6 @@ cp -r "%s"/* "%s/.config/ghostty/"`, homeDir, filepath.Join(repoDir, repoAssetGh
 set -e
 echo ""
 echo "🖥️  Installing %s..."
-echo "   (You may be prompted for your password)"
 echo ""
 %s
 echo ""
@@ -286,8 +435,6 @@ echo "📝 Copying %s configuration..."
 echo ""
 echo "✅ %s configured!"
 echo ""
-echo "Press Enter to continue..."
-read -r _
 `, terminal, installCmd, terminal, configCmd, terminal)
 
 	return script, nil
@@ -326,9 +473,6 @@ SHELL_PATH=$(which %s 2>/dev/null)
 
 if [ -z "$SHELL_PATH" ]; then
     echo "❌ Shell '%s' not found in PATH"
-    echo ""
-    echo "Press Enter to continue..."
-    read dummy
     exit 1
 fi
 
@@ -338,21 +482,22 @@ echo ""
 
 # Check if shell is already in /etc/shells
 if ! grep -q "^$SHELL_PATH$" /etc/shells 2>/dev/null; then
-    echo "📝 Adding $SHELL_PATH to /etc/shells (requires sudo)..."
-    echo "$SHELL_PATH" | sudo tee -a /etc/shells > /dev/null
+    echo "📝 Adding $SHELL_PATH to /etc/shells..."
+    echo "$SHELL_PATH" | sudo -n tee -a /etc/shells > /dev/null
 fi
 
-# Change shell
+# Change shell. usermod runs through the credential cached for the run and needs
+# no terminal, so it is the first attempt; chsh asks for the login password on a
+# terminal the captured executor does not have and is only the fallback.
 echo ""
 echo "🔐 Changing default shell..."
-echo "   (You may need to enter your password)"
 echo ""
-if chsh -s "$SHELL_PATH" 2>/dev/null; then
-    echo ""
-    echo "✅ Default shell changed to $SHELL_PATH"
-elif sudo usermod -s "$SHELL_PATH" "$(whoami)" 2>/dev/null; then
+if sudo -n usermod -s "$SHELL_PATH" "$(whoami)" 2>/dev/null; then
     echo ""
     echo "✅ Default shell changed to $SHELL_PATH (via usermod)"
+elif chsh -s "$SHELL_PATH" 2>/dev/null; then
+    echo ""
+    echo "✅ Default shell changed to $SHELL_PATH"
 else
     echo ""
     echo "⚠️  Could not change default shell automatically."
@@ -361,8 +506,6 @@ fi
 
 echo "   Please log out and log back in for changes to take effect."
 echo ""
-echo "Press Enter to continue..."
-read dummy
 `, brewPrefix, shellCmd, shellCmd)
 
 	return script, nil
@@ -378,9 +521,6 @@ SHELL_PATH=$(which %s 2>/dev/null)
 
 if [ -z "$SHELL_PATH" ]; then
     echo "❌ Shell '%s' not found in PATH"
-    echo ""
-    echo "Press Enter to continue..."
-    read dummy
     exit 1
 fi
 
@@ -408,8 +548,6 @@ echo ""
 echo "✅ Default shell set to $SHELL_PATH"
 echo "   Close and reopen Termux for changes to take effect."
 echo ""
-echo "Press Enter to continue..."
-read dummy
 `, shellCmd, shellCmd)
 
 	return script, nil
@@ -421,10 +559,11 @@ read dummy
 // repository asset names all come from the same helpers the step uses, so the
 // two cannot disagree about what to install or where.
 //
-// The script only exists because /etc/wsl.conf is root-owned and sudo has to be
-// able to prompt, which needs the terminal the TUI suspends with
-// tea.ExecProcess. It reproduces what the step installs, and the win32yank
-// bridge keeps the same pinned URL, checksum and interop-health decision.
+// The script only exists because /etc/wsl.conf is root-owned. The run caches the
+// sudo credential once before the first root-needing step, so the script's
+// `sudo -n` calls need no terminal and the installer stays on screen. It
+// reproduces what the step installs, and the win32yank bridge keeps the same
+// pinned URL, checksum and interop-health decision.
 //
 // .wslconfig is rendered in Go by the same helper the step uses, and the script
 // copies those rendered bytes from a temporary file it deletes afterwards, so
@@ -493,7 +632,7 @@ install_artifact() {
 		backup="$dst.bak-dotfiles-$STAMP"
 		if cp -a "$dst" "$backup" 2>/dev/null; then
 			echo "Previous $(basename "$dst") backed up to $backup"
-		elif sudo cp -a "$dst" "$backup" 2>/dev/null; then
+		elif sudo -n cp -a "$dst" "$backup" 2>/dev/null; then
 			echo "Previous $(basename "$dst") backed up to $backup"
 		else
 			echo "Warning: could not back up $dst" >&2
@@ -506,7 +645,7 @@ install_artifact() {
 	tmp=$(mktemp)
 	cp "$src" "$tmp"
 	chmod 0644 "$tmp"
-	sudo install -m 0644 "$tmp" "$dst"
+	sudo -n install -m 0644 "$tmp" "$dst"
 	rm -f "$tmp"
 }
 
@@ -594,34 +733,4 @@ func writeRenderedWSLConfig(rendered []byte) (string, error) {
 // embedded in.
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// createTempScriptCommand creates a temporary bash script and returns a command to execute it
-func createTempScriptCommand(script string) (*exec.Cmd, error) {
-	// Create temp file
-	tmpFile, err := os.CreateTemp("", "dotfiles-install-*.sh")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp script: %w", err)
-	}
-
-	// Write script
-	if _, err := tmpFile.WriteString(script); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
-		return nil, fmt.Errorf("failed to write script: %w", err)
-	}
-	tmpFile.Close()
-
-	// Make executable
-	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
-		os.Remove(tmpFile.Name())
-		return nil, fmt.Errorf("failed to make script executable: %w", err)
-	}
-
-	// Return command - use available shell (bash, sh, or zsh)
-	shellPath := system.GetShell()
-	cmd := exec.Command(shellPath, tmpFile.Name())
-	cmd.Env = os.Environ()
-
-	return cmd, nil
 }

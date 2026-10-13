@@ -108,7 +108,7 @@ type InstallStep struct {
 	Status      StepStatus
 	Progress    float64
 	Error       error
-	Interactive bool // If true, this step needs terminal control (sudo, chsh, etc)
+	Interactive bool // If true, this step runs a generated shell script through the captured executor
 }
 
 type StepStatus int
@@ -374,6 +374,20 @@ type Model struct {
 	WSLTerminalOfferLines      []string
 	WSLTerminalOfferProfileDir string
 	WSLTerminalOfferResolved   bool
+	// WSLTerminalOfferDone records that this run has already put the offer to
+	// the user, so re-entering the step after the credential request resumes the
+	// script instead of asking again. It resets when a new run starts.
+	WSLTerminalOfferDone bool
+	// SudoPrimed records that the run cached the administrator credential with
+	// the single, visible password prompt. Until it is set, the first step that
+	// needs root asks for it; after it, every root command runs with sudo -n and
+	// no step owns the terminal. It resets when a new run starts.
+	SudoPrimed bool
+	// SudoPrimeAttempted records that this run already made its one credential
+	// request. It stops a failed or cancelled request from asking again and
+	// again: the run continues, and a step that lacks the credential fails
+	// visibly through sudo -n. It resets when a new run starts.
+	SudoPrimeAttempted bool
 	// TerminalCapabilities is the terminal capability report: what the terminal
 	// the installer is running in can do, where each answer came from, and what
 	// it implies. It is read by a command only when the capability screen is
@@ -1137,7 +1151,7 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Install Dependencies",
 			Description: "Installs base packages with your distribution's package manager.",
 			Status:      StatusPending,
-			Interactive: true, // Needs sudo
+			Interactive: true, // Native package manager runs through the captured script
 		})
 	} else if isTermux {
 		steps = append(steps, InstallStep{
@@ -1164,7 +1178,7 @@ func planFor(opts planOptions) []InstallStep {
 		Status:      StatusPending,
 	})
 
-	// Homebrew (interactive - first install needs password)
+	// Homebrew (installs through the captured script; root work uses the credential cached for the run)
 	// Skip Termux and native package manager Linux distributions.
 	// WSL systems use Homebrew (Debian-based approach).
 	if !opts.HasBrew && !opts.DetectedTermux && opts.DetectedOS != system.OSArch && opts.DetectedOS != system.OSFedora {
@@ -1184,7 +1198,7 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Install " + opts.Terminal,
 			Description: "Installs your terminal emulator.",
 			Status:      StatusPending,
-			Interactive: opts.OS == "linux", // Linux needs sudo for pacman/apt
+			Interactive: opts.OS == "linux", // Linux installs through the captured script
 		})
 	}
 
@@ -1270,7 +1284,7 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Configure WSL",
 			Description: "Applies the WSL settings on Windows and in this distribution.",
 			Status:      StatusPending,
-			Interactive: true, // /etc/wsl.conf needs sudo
+			Interactive: true, // /etc/wsl.conf and the Windows profile are root/Windows-owned
 		})
 	}
 
@@ -1285,7 +1299,7 @@ func planFor(opts planOptions) []InstallStep {
 		Status:      StatusPending,
 	})
 
-	// Set default shell (interactive - chsh needs password)
+	// Set default shell (runs captured; usermod uses the cached credential)
 	steps = append(steps, InstallStep{
 		ID:          "setshell",
 		Name:        "Set Default Shell",

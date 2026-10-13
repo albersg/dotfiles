@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -686,6 +685,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Celebrating = false
 		m.CelebrationTick = 0
 		m.Particles = nil
+		// A new run asks for the credential again and may offer the WSL decision
+		// again: both are facts about this run, not about the model's whole life.
+		m.SudoPrimed = false
+		m.SudoPrimeAttempted = false
+		m.WSLTerminalOfferDone = false
 		// Start the installation process
 		cmd := m.runNextStep()
 		return m, cmd
@@ -919,7 +923,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// still gets the in-distribution half of the step.
 		if !msg.offer.Available {
 			m = m.appendInstallLog(msg.lines...)
-			return m, runInteractiveStep(wslStepID, &m)
+			m.WSLTerminalOfferDone = true
+			return m, m.runNextStep()
 		}
 		offer := msg.offer
 		m.WSLTerminalOffer = &offer
@@ -947,7 +952,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.WSLTerminalOfferLines = nil
 		m.WSLTerminalOfferProfileDir = ""
 		m.WSLTerminalOfferResolved = false
-		return m, runInteractiveStep(wslStepID, &m)
+		m.WSLTerminalOfferDone = true
+		return m, m.runNextStep()
 
 	case shellAuditMeasuredMsg:
 		// The measurement is not an install step and cannot fail as one: every run
@@ -1046,8 +1052,38 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case sudoPrimedMsg:
+		// The one credential request has returned. Whether it succeeded or not,
+		// the run continues: a step that needs root without the credential fails
+		// visibly through sudo -n instead of prompting where the user cannot see
+		// it. A success keeps the run's credential refreshed while it works.
+		if msg.err != nil {
+			m.SudoPrimed = false
+			m.LogLines = append(m.LogLines, fmt.Sprintf("⚠️  Administrator credential was not cached (%v). Steps that need root will report it.", msg.err))
+			return m, m.runNextStep()
+		}
+		m.SudoPrimed = true
+		m.LogLines = append(m.LogLines, "✓ Administrator credential cached for this run.")
+		return m, tea.Batch(m.runNextStep(), sudoKeepAliveTickCmd())
+
+	case sudoKeepAliveMsg:
+		if !m.SudoPrimed {
+			return m, nil
+		}
+		return m, sudoRefreshCmd()
+
+	case sudoRefreshedMsg:
+		if msg.err != nil {
+			m.SudoPrimed = false
+			m.LogLines = append(m.LogLines, "⚠️  Could not refresh the administrator credential; a step that needs root will report it.")
+			return m, nil
+		}
+		return m, sudoKeepAliveTickCmd()
+
 	case execFinishedMsg:
-		// Interactive process finished (sudo commands, chsh, etc)
+		// A captured step finished. The script ran through the same output
+		// executor every other step uses, so the installer never left the screen;
+		// a failure still takes the run to the error screen with the step's name.
 		for i := range m.Steps {
 			if m.Steps[i].ID == msg.stepID {
 				if msg.err != nil {
@@ -1070,11 +1106,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.CompanionPleased = companionPleasedTicks
 		return m, m.runNextStep()
 
-	case needsExecProcessMsg:
-		// This step needs to run with tea.ExecProcess for interactive input
-		return m, tea.ExecProcess(msg.cmd, func(err error) tea.Msg {
-			return execFinishedMsg{stepID: msg.stepID, err: err}
-		})
 	}
 
 	return m, nil
@@ -1094,15 +1125,6 @@ func describeInteractiveStepError(stepID string, err error) error {
 	}
 
 	return err
-}
-
-// execInteractiveCmd creates a tea.Cmd that runs an interactive process
-// This suspends the TUI and gives full terminal control to the process
-func execInteractiveCmd(stepID string, name string, args ...string) tea.Cmd {
-	c := exec.Command(name, args...)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return execFinishedMsg{stepID: stepID, err: err}
-	})
 }
 
 const (
@@ -3078,10 +3100,20 @@ func (m *Model) runNextStep() tea.Cmd {
 		// offer reachable from the TUI at all -- for a release the offer functions
 		// were called only by a test. A dry run skips the step entirely, offer
 		// included, exactly as runInteractiveStep's own gate does.
-		if step.ID == wslStepID && !dryRun() && m.SystemInfo != nil && m.SystemInfo.IsWSL {
+		if step.ID == wslStepID && !dryRun() && !m.WSLTerminalOfferDone && m.SystemInfo != nil && m.SystemInfo.IsWSL {
 			return m.wslTerminalOfferCmd()
 		}
+		if m.shouldPrimeSudo(step.ID) {
+			return m.sudoPrimeCmd()
+		}
 		return runInteractiveStep(step.ID, m)
+	}
+
+	// A step that needs root asks for the credential once before it starts, if no
+	// earlier step already did. The check is here rather than in executeStep so
+	// both routes (the captured script and the Go executor) share it.
+	if m.shouldPrimeSudo(step.ID) {
+		return m.sudoPrimeCmd()
 	}
 
 	// The step runs in a tea.Cmd, after Update has returned the model it keeps.
@@ -3094,6 +3126,23 @@ func (m *Model) runNextStep() tea.Cmd {
 		recorded := stepModel.recordedState()
 		return stepCompleteMsg{stepID: step.ID, err: err, recorded: &recorded}
 	}
+}
+
+// shouldPrimeSudo reports whether starting stepID has to ask for the
+// administrator credential first. It is true once per run, before the first
+// step that needs root, and never under --dry-run, which runs nothing.
+func (m *Model) shouldPrimeSudo(stepID string) bool {
+	return !dryRun() && !m.SudoPrimed && !m.SudoPrimeAttempted && stepNeedsSudo(stepID, m)
+}
+
+// sudoPrimeCmd asks for the administrator credential once and records that the
+// ask is visible on the installing screen. The prompt is what makes the rest of
+// the run possible without owning the terminal: once sudo holds the cached
+// credential, every step's `sudo -n` needs no TTY.
+func (m *Model) sudoPrimeCmd() tea.Cmd {
+	m.SudoPrimeAttempted = true
+	m.LogLines = append(m.LogLines, "Administrator access: one password prompt will cover the whole run.")
+	return sudoPrimer()
 }
 
 // ============================================================================
