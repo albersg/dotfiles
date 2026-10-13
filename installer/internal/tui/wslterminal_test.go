@@ -195,6 +195,120 @@ func TestWindowsTerminalWriteRequiresTheChoice(t *testing.T) {
 	}
 }
 
+// TestWindowsTerminalWriteReportsWhatTheFileNowHolds is the T4 guard: the report
+// after a write must come from the file Windows Terminal reads, not from the
+// bytes the write sent. It names the face and the colour scheme the file now
+// holds, which is the only evidence that the two settings landed.
+func TestWindowsTerminalWriteReportsWhatTheFileNowHolds(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "")
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
+	if !offer.Available {
+		t.Fatalf("the offer must be available, got: %s", offer.Reason)
+	}
+
+	notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
+	if err != nil || !wrote {
+		t.Fatalf("applyWindowsTerminalOffer wrote=%v err=%v, want a write", wrote, err)
+	}
+
+	// The file, not the report, is the authority: read it back the same way the
+	// offer does and require the report to agree with it.
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, faceOK := windowsTerminalCurrentFontFace(after)
+	scheme, schemeOK := windowsTerminalCurrentColorScheme(after)
+	if !faceOK || face != offer.Face {
+		t.Fatalf("the write did not leave the face in the file: face=%q ok=%v, want %q", face, faceOK, offer.Face)
+	}
+	if !schemeOK || scheme != offer.Scheme {
+		t.Fatalf("the write did not leave the scheme in the file: scheme=%q ok=%v, want %q", scheme, schemeOK, offer.Scheme)
+	}
+
+	if !strings.Contains(notice, "now reads") {
+		t.Errorf("the report must describe what the file now holds, not the bytes that were sent: %q", notice)
+	}
+	for _, want := range []string{offer.Face, offer.Scheme, settingsPath} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("the report should name %q, got %q", want, notice)
+		}
+	}
+}
+
+// TestWindowsTerminalWriteReportsTheValueThatDidNotLand is the teeth of the
+// read-back: when the file does not hold what the write was supposed to send,
+// the report has to say which value did not land instead of claiming a success.
+// The offer's updated bytes are replaced with the file's original bytes, so the
+// write runs, changes nothing, and the report can only be right by reading the
+// file back.
+func TestWindowsTerminalWriteReportsTheValueThatDidNotLand(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "")
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
+	if !offer.Available {
+		t.Fatalf("the offer must be available, got: %s", offer.Reason)
+	}
+
+	// The bytes that are sent are the bytes already on disk: nothing lands.
+	offer.updated = offer.Original
+
+	notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
+	if err != nil || !wrote {
+		t.Fatalf("the write must still run and report, wrote=%v err=%v", wrote, err)
+	}
+
+	if !strings.Contains(notice, "did not land") {
+		t.Errorf("a value the file does not hold must be reported as not landing: %q", notice)
+	}
+	for _, want := range []string{offer.Face, offer.Scheme} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("the report should name the value that did not land, %q, got %q", want, notice)
+		}
+	}
+
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if face, ok := windowsTerminalCurrentFontFace(after); ok {
+		t.Fatalf("this test only means something while the file names no face, got %q", face)
+	}
+}
+
+// TestWindowsTerminalWriteReportsAValueThatDidNotLandBesideOneThatDid
+// triangulates the read-back: each value is checked on its own, so a report that
+// collapses both into one verdict fails. The scheme lands, the face does not,
+// because the face the offer claims differs from the face the bytes write.
+func TestWindowsTerminalWriteReportsAValueThatDidNotLandBesideOneThatDid(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "")
+	profileDir, _ := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
+	if !offer.Available {
+		t.Fatalf("the offer must be available, got: %s", offer.Reason)
+	}
+
+	// updated still writes windowsTerminalFontFace; change only the face the
+	// report is asked to look for, so the scheme matches and the face does not.
+	offer.Face = "Some Other Face"
+
+	notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
+	if err != nil || !wrote {
+		t.Fatalf("the write must still run and report, wrote=%v err=%v", wrote, err)
+	}
+
+	if !strings.Contains(notice, "did not land") {
+		t.Errorf("the face that did not land must be reported: %q", notice)
+	}
+	if !strings.Contains(notice, offer.Face) {
+		t.Errorf("the report should name the face that did not land %q: %q", offer.Face, notice)
+	}
+	if !strings.Contains(notice, offer.Scheme) {
+		t.Errorf("the report should name the scheme that did land %q: %q", offer.Scheme, notice)
+	}
+}
+
 // TestWindowsTerminalSettingsContentPreservesCommentsAndOtherKeys is the JSONC
 // preservation guard: only the two owned keys and the owned scheme change, and
 // every comment, unrelated key and the other schemes survive.

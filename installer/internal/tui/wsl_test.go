@@ -361,6 +361,192 @@ func TestWindowsUserProfileHonoursOverride(t *testing.T) {
 	}
 }
 
+// stubWindowsInterop puts stub cmd.exe and wslpath binaries first on PATH so
+// windowsUserProfile's interop route -- ask Windows for %USERPROFILE%, translate
+// it with wslpath -- runs a real exec.Command against a real PATH lookup without
+// a Windows host. windowsProfile is what cmd.exe answers for %USERPROFILE%;
+// unixPath is what wslpath -u translates it to. Nothing here reaches the real
+// cmd.exe, the real wslpath or /mnt/c: the stub directory is a t.TempDir().
+func stubWindowsInterop(t *testing.T, windowsProfile, unixPath string) {
+	t.Helper()
+
+	t.Setenv("DOTFILES_TEST_CMD_USERPROFILE", windowsProfile)
+	t.Setenv("DOTFILES_TEST_WSLPATH_UNIX", unixPath)
+
+	binDir := t.TempDir()
+	writeStubCommand(t, binDir, "cmd.exe", `#!/bin/sh
+# Test stub for cmd.exe. The interop route asks for exactly one variable, so the
+# stub answers %USERPROFILE% and refuses anything else.
+for arg in "$@"; do
+  if [ "$arg" = "%USERPROFILE%" ]; then
+    printf '%s\n' "$DOTFILES_TEST_CMD_USERPROFILE"
+    exit 0
+  fi
+done
+exit 1
+`)
+	writeStubCommand(t, binDir, "wslpath", `#!/bin/sh
+# Test stub for wslpath -u <windows path>, which the interop route is the only
+# caller of.
+if [ "$1" = "-u" ]; then
+  printf '%s\n' "$DOTFILES_TEST_WSLPATH_UNIX"
+  exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestWindowsSystemUserDirKnowsTheWindowsSystemAccounts is the D1 guard: the
+// names Windows uses for its own accounts must never be handed to the installer
+// as a person's profile. defaultuser0 was the missing one on the measured
+// machine, and the machine account that ends in "$" (ES99P6NCS5A7A0H$) sat
+// beside it, so the filter has to answer for both without swallowing a person's
+// profile.
+func TestWindowsSystemUserDirKnowsTheWindowsSystemAccounts(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want bool
+		why  string
+	}{
+		{"public", true, "the built-in shared profile"},
+		{"Public", true, "the same name in the spelling the mount uses"},
+		{"default", true, "the profile template"},
+		{"Default User", true, "the profile template, with the space Windows uses"},
+		{"All Users", true, "the compatibility junction"},
+		{"DefaultAppPool", true, "the IIS application-pool identity"},
+		{"defaultuser0", true, "the account Windows Setup creates for the out-of-box experience"},
+		{"ES99P6NCS5A7A0H$", true, "a Windows computer account, whose name always ends in $"},
+		{"t749597", false, "a person's profile on the measured machine"},
+		{"t143298o", false, "another real profile on the measured machine"},
+		{"alberto", false, "the Linux account, which is not a Windows profile"},
+		{"defaultuser0x", false, "not a Windows system-account name, so it stays a candidate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := windowsSystemUserDir(tc.name); got != tc.want {
+				t.Errorf("windowsSystemUserDir(%q) = %v, want %v (%s)", tc.name, got, tc.want, tc.why)
+			}
+		})
+	}
+}
+
+// TestWindowsUserProfileAsksWindowsBeforeScanningTheMount is the D2 guard for
+// the resolution order: %USERPROFILE% through cmd.exe is the robust answer, and
+// the mount scan is only reached when it is missing or points nowhere. The stub
+// answers C:\Users\t749597, which is exactly what the measured machine answers,
+// while the mount is full of candidates no environment variable can match.
+func TestWindowsUserProfileAsksWindowsBeforeScanningTheMount(t *testing.T) {
+	users := t.TempDir()
+	for _, name := range []string{"defaultuser0", "ES99P6NCS5A7A0H$", "someone-else"} {
+		if err := os.MkdirAll(filepath.Join(users, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	winProfile := filepath.Join(t.TempDir(), "t749597")
+	if err := os.MkdirAll(winProfile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(envWSLWindowsHome, "")
+	t.Setenv(envWSLUsersDir, users)
+	t.Setenv("USER", "alberto")
+	t.Setenv("USERNAME", "")
+	stubWindowsInterop(t, `C:\Users\t749597`, winProfile)
+
+	got, err := windowsUserProfile()
+	if err != nil {
+		t.Fatalf("the interop answer must resolve the profile: %v", err)
+	}
+	if got != winProfile {
+		t.Errorf("profile = %q, want the interop answer %q", got, winProfile)
+	}
+}
+
+// TestWindowsUserProfileIgnoresAUserProfileThatPointsNowhere pins the other half
+// of the order: a stale or wrong %USERPROFILE% must not be believed, so the
+// lookup falls through to the mount scan and resolves this account there.
+func TestWindowsUserProfileIgnoresAUserProfileThatPointsNowhere(t *testing.T) {
+	users := t.TempDir()
+	mountProfile := filepath.Join(users, "alber")
+	if err := os.MkdirAll(mountProfile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(envWSLWindowsHome, "")
+	t.Setenv(envWSLUsersDir, users)
+	t.Setenv("USER", "alber")
+	t.Setenv("USERNAME", "")
+	// The interop answer translates to a path that does not exist, so trusting it
+	// would write .wslconfig into a directory that is not there.
+	stubWindowsInterop(t, `C:\Users\wrong`, filepath.Join(t.TempDir(), "nowhere"))
+
+	got, err := windowsUserProfile()
+	if err != nil {
+		t.Fatalf("a wrong %%USERPROFILE%% must fall through to the mount: %v", err)
+	}
+	if got != mountProfile {
+		t.Errorf("profile = %q, want the mount profile %q", got, mountProfile)
+	}
+}
+
+// TestWindowsProfileFromMountRefusesWhenOnlySystemAccountsExist is the D1 guard
+// at the fallback: a mount holding only defaultuser0 has no profile at all, and
+// returning defaultuser0 is configuring the wrong account. The refusal has to
+// name what it found and the override that chooses a profile explicitly.
+func TestWindowsProfileFromMountRefusesWhenOnlySystemAccountsExist(t *testing.T) {
+	users := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(users, "defaultuser0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(envWSLUsersDir, users)
+	t.Setenv(envWSLWindowsHome, "")
+	t.Setenv("USER", "alberto")
+	t.Setenv("USERNAME", "")
+
+	got, err := windowsProfileFromMount()
+	if err == nil {
+		t.Fatalf("a mount holding only a system account must not resolve, got %q", got)
+	}
+	for _, want := range []string{"defaultuser0", envWSLWindowsHome} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal should mention %q: %v", want, err)
+		}
+	}
+}
+
+// TestWindowsProfileFromMountRefusesALoneCandidateThatIsNotThisAccount pins
+// the last rule of the fallback: surviving the system-account filter is not
+// proof that a directory belongs to this account. Returning a lone leftover --
+// a second real profile, or a system account the filter does not know -- would
+// configure an account that is not this user's.
+func TestWindowsProfileFromMountRefusesALoneCandidateThatIsNotThisAccount(t *testing.T) {
+	users := t.TempDir()
+	for _, name := range []string{"defaultuser0", "t143298o"} {
+		if err := os.MkdirAll(filepath.Join(users, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Setenv(envWSLUsersDir, users)
+	t.Setenv(envWSLWindowsHome, "")
+	t.Setenv("USER", "alberto")
+	t.Setenv("USERNAME", "")
+
+	got, err := windowsProfileFromMount()
+	if err == nil {
+		t.Fatalf("a lone profile that is not this account must not be returned, got %q", got)
+	}
+	for _, want := range []string{"t143298o", envWSLWindowsHome} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal should mention %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "defaultuser0") {
+		t.Errorf("a system account is not a candidate, so the refusal should not name it: %v", err)
+	}
+}
+
 func TestWSLStepIsScheduledOnlyOnWSL(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
