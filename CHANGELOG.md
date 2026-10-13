@@ -4,6 +4,12 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Installing asks for the password once, and the installer stays on screen.** Four complaints from using it on Linux -- a password prompt for every step, having to press enter to continue, and the installer leaving the screen for the terminal while it worked -- had one cause: it handed the terminal to a shell script whenever a step needed `sudo`, because `sudo` wants a terminal to ask its question on. Its own comment said the consequence, *"This suspends the TUI and gives full terminal control to the process"*, and that single decision produced all of them. The credential is requested once now, before the first step that needs it, and kept warm while the install runs; every step script runs `sudo -n`, so a step without the credential fails visibly instead of prompting somewhere the user cannot see. With the credential cached a script needs no terminal, so the scripts run through the executor that already captured their output line by line and put it in the activity log -- the machinery every other step already used. No step hands the terminal over any more; the one remaining handover is the credential request itself, which is where `sudo` reads the password from. And the pauses are gone: eight occurrences of a sentence this program printed itself, one of its own constants, and a guard that now refuses to let one back into a step that no longer needs it.
+
 ## [v0.7.8] — 2026-10-13
 
 ### Fixed
