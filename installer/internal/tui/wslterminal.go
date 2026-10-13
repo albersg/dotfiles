@@ -1209,7 +1209,14 @@ func configureWindowsTerminalRenderer(repoDir, profileDir string) {
 
 	notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
 	if err != nil {
-		wslLog(wslStepID, "Windows Terminal was not configured: "+err.Error())
+		// A write that landed part of what it owns carries the read-back in its
+		// notice, and a write that landed nothing reports why. Neither is a
+		// success line, so the notice is shown instead of a checkmark.
+		if notice != "" {
+			wslLog(wslStepID, notice)
+		} else {
+			wslLog(wslStepID, "Windows Terminal was not configured: "+err.Error())
+		}
 		return
 	}
 	if wrote {
@@ -1274,21 +1281,72 @@ func readWindowsTerminalOffer(profileDir string, def themeDefinition, face strin
 	return offer
 }
 
-// windowsTerminalSettingLabels is the human-readable list the offer and the
-// success notice show. The font-face label names the face the writer resolved,
-// not the constant, so a description can never name a different family than the
-// settings would hold. The IDs and the colour-scheme label still come from the
-// one declaration in windowsTerminalSettings.
+// windowsTerminalSettingLabel names one owned setting for a person. The
+// font-face label names the face the writer resolved, not the constant, so the
+// offer, the notice and the read-back report can never name a different family
+// than the settings hold. The colour-scheme label comes from the one declaration
+// in windowsTerminalSettings.
+func windowsTerminalSettingLabel(id, face string) string {
+	for _, setting := range windowsTerminalSettings {
+		if setting.ID != id {
+			continue
+		}
+		if setting.ID == "font-face" {
+			return "the font face " + face
+		}
+		return setting.Label
+	}
+	return id
+}
+
+// windowsTerminalSettingLabels is the human-readable list the offer shows, built
+// from the one declaration in windowsTerminalSettings so it cannot name a setting
+// the writer does not set.
 func windowsTerminalSettingLabels(face string) []string {
 	labels := make([]string, 0, len(windowsTerminalSettings))
 	for _, setting := range windowsTerminalSettings {
-		label := setting.Label
-		if setting.ID == "font-face" {
-			label = "the font face " + face
-		}
-		labels = append(labels, label)
+		labels = append(labels, windowsTerminalSettingLabel(setting.ID, face))
 	}
 	return labels
+}
+
+// windowsTerminalLanded is the read-back that turns one write into a report. It
+// reads the file Windows Terminal will read and says which of the two owned
+// settings it now holds, through the same readers the offer uses to name the
+// values already there. A setting whose value is not in the file did not land,
+// whatever was sent, which is what lets a partial write be reported as the
+// partial thing it is instead of as a success.
+func windowsTerminalLanded(path, face, scheme string) (faceLanded, schemeLanded bool, err error) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return false, false, fmt.Errorf("reading %s back: %w", path, err)
+	}
+	if got, ok := windowsTerminalCurrentFontFace(src); ok && got == face {
+		faceLanded = true
+	}
+	if got, ok := windowsTerminalCurrentColorScheme(src); ok && got == scheme {
+		schemeLanded = true
+	}
+	return faceLanded, schemeLanded, nil
+}
+
+// windowsTerminalLandingNotice is the line the step shows after a write, built
+// from the read-back of the file rather than from the bytes that were sent.
+// landed and missing are the labels of the owned settings the file now holds and
+// does not. A landing that is not whole says which half it was and never reads as
+// a whole success.
+func windowsTerminalLandingNotice(path, backup string, landed, missing []string) string {
+	switch {
+	case len(missing) == 0:
+		return fmt.Sprintf("Windows Terminal configured: %s were written to %s and read back from it; the previous file is at %s.",
+			strings.Join(landed, " and "), path, backup)
+	case len(landed) == 0:
+		return fmt.Sprintf("Windows Terminal was not configured: %s did not land in %s; the previous file is at %s.",
+			strings.Join(missing, " and "), path, backup)
+	default:
+		return fmt.Sprintf("Windows Terminal was only partly configured: %s were written to %s and read back from it, but %s did not land; the previous file is at %s.",
+			strings.Join(landed, " and "), path, strings.Join(missing, " and "), backup)
+	}
 }
 
 // describeWindowsTerminalOffer is what the offer shows before the user chooses:
@@ -1330,7 +1388,33 @@ func applyWindowsTerminalOffer(offer windowsTerminalOffer, chosen bool, stepID s
 		return "", false, fmt.Errorf("writing %s: %w", offer.Path, err)
 	}
 
-	labels := windowsTerminalSettingLabels(offer.Face)
-	return fmt.Sprintf("Windows Terminal configured: %s were written to %s; the previous file is at %s.",
-		strings.Join(labels, " and "), offer.Path, backup), true, nil
+	// The write is the attempt; the report is the answer. The file is read back
+	// and the notice names what it now holds, so a write that landed one setting
+	// and not the other is reported as the partial landing it is instead of as a
+	// success. Only a whole landing is a success; a shortfall is returned as an
+	// error so no caller can print a checkmark over it.
+	faceLanded, schemeLanded, err := windowsTerminalLanded(offer.Path, offer.Face, offer.Scheme)
+	if err != nil {
+		return "", true, err
+	}
+
+	landed := make([]string, 0, len(windowsTerminalSettings))
+	missing := make([]string, 0, len(windowsTerminalSettings))
+	if faceLanded {
+		landed = append(landed, windowsTerminalSettingLabel("font-face", offer.Face))
+	} else {
+		missing = append(missing, windowsTerminalSettingLabel("font-face", offer.Face))
+	}
+	if schemeLanded {
+		landed = append(landed, windowsTerminalSettingLabel("colorScheme", offer.Face))
+	} else {
+		missing = append(missing, windowsTerminalSettingLabel("colorScheme", offer.Face))
+	}
+
+	notice = windowsTerminalLandingNotice(offer.Path, backup, landed, missing)
+	if len(missing) > 0 {
+		return notice, true, fmt.Errorf("%s did not land in %s, so the settings Windows Terminal reads are not the ones this installer wrote",
+			strings.Join(missing, " and "), offer.Path)
+	}
+	return notice, true, nil
 }

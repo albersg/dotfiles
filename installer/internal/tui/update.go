@@ -932,12 +932,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case wslTerminalOfferAppliedMsg:
 		// The answer is a fact about the run, so it is logged where the step's own
 		// notices go, and the run then continues into the script that needs sudo.
+		// The notice is the read-back of what the file now holds, so it is shown
+		// whenever there is one: a landing that was not whole is named by the
+		// notice rather than replaced by its shortfall, which is how a partial
+		// write stays visible on the screen instead of reading as a success.
 		// The offer cannot be answered twice: it is cleared before the script's
 		// own messages can arrive.
-		if msg.err != nil {
-			m = m.appendInstallLog(msg.err.Error())
-		} else if msg.notice != "" {
+		if msg.notice != "" {
 			m = m.appendInstallLog(msg.notice)
+		} else if msg.err != nil {
+			m = m.appendInstallLog(msg.err.Error())
 		}
 		m.WSLTerminalOffer = nil
 		m.WSLTerminalOfferLines = nil

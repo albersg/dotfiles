@@ -1146,6 +1146,202 @@ func TestInteractiveWSLStepYesWritesTheFile(t *testing.T) {
 	}
 }
 
+// partialWindowsTerminalSettings is the bytes a write that lost the colour
+// scheme leaves behind: profiles.defaults.font.face is set and
+// profiles.defaults.colorScheme is not. It is the half-landed file a write can
+// leave, and the report has to name it rather than the settings that were sent.
+func partialWindowsTerminalSettings(face string) string {
+	return `{"profiles":{"defaults":{"font":{"face":"` + face + `"}}},"schemes":[]}`
+}
+
+// windowsTerminalTestLabel names one owned setting the way the report does, by
+// reading the same list the report reads. The test builds the expectation itself
+// so a report that names a setting the list does not own fails here.
+func windowsTerminalTestLabel(t *testing.T, id, face string) string {
+	t.Helper()
+	for _, setting := range windowsTerminalSettings {
+		if setting.ID != id {
+			continue
+		}
+		if setting.ID == "font-face" {
+			return "the font face " + face
+		}
+		return setting.Label
+	}
+	t.Fatalf("no owned setting with id %q", id)
+	return ""
+}
+
+// TestApplyWindowsTerminalOfferReportsWhatTheFileHolds is the reporting contract
+// for one write: the notice names the settings the file now holds, not the ones
+// the writer sent, and a landing that is not whole is a shortfall rather than a
+// success. The offer's bytes are the fixture because a partial landing is only
+// reachable through a write that leaves a setting behind; the backup, the write,
+// the read-back and the report are the production ones.
+func TestApplyWindowsTerminalOfferReportsWhatTheFileHolds(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		updated     func(face string) string
+		wantLanded  []string
+		wantMissing []string
+	}{
+		{
+			// A nil updated keeps the bytes the production writer computed, so the
+			// whole-landing case exercises the real content as well as the report.
+			name:       "both settings land",
+			wantLanded: []string{"font-face", "colorScheme"},
+		},
+		{
+			name:        "only the face lands",
+			updated:     partialWindowsTerminalSettings,
+			wantLanded:  []string{"font-face"},
+			wantMissing: []string{"colorScheme"},
+		},
+		{
+			name: "only the scheme lands",
+			updated: func(string) string {
+				return `{"profiles":{"defaults":{"colorScheme":"` + windowsTerminalSchemeName + `"}},"schemes":[]}`
+			},
+			wantLanded:  []string{"colorScheme"},
+			wantMissing: []string{"font-face"},
+		},
+		{
+			name: "neither lands",
+			updated: func(string) string {
+				return `{"profiles":{"defaults":{}},"schemes":[]}`
+			},
+			wantMissing: []string{"font-face", "colorScheme"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+			offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
+			if !offer.Available {
+				t.Fatalf("the offer must be available: %s", offer.Reason)
+			}
+			if tt.updated != nil {
+				offer.updated = []byte(tt.updated(offer.Face))
+			}
+
+			notice, wrote, err := applyWindowsTerminalOffer(offer, true, wslStepID)
+			if !wrote {
+				t.Fatalf("the write must happen, wrote=%v err=%v", wrote, err)
+			}
+			if len(tt.wantMissing) == 0 && err != nil {
+				t.Errorf("a whole landing must not be a shortfall: %v", err)
+			}
+			if len(tt.wantMissing) > 0 && err == nil {
+				t.Error("a landing that did not land whole must be a shortfall, not a success")
+			}
+
+			for _, id := range tt.wantLanded {
+				label := windowsTerminalTestLabel(t, id, offer.Face)
+				if !strings.Contains(notice, label) {
+					t.Errorf("the report must name %q as landed:\n%s", label, notice)
+				}
+			}
+			for _, id := range tt.wantMissing {
+				label := windowsTerminalTestLabel(t, id, offer.Face)
+				if !strings.Contains(notice, label) {
+					t.Errorf("the report must name %q as not landed:\n%s", label, notice)
+				}
+			}
+			if len(tt.wantMissing) > 0 && !strings.Contains(notice, "did not land") {
+				t.Errorf("the report must say what did not land:\n%s", notice)
+			}
+			if len(tt.wantMissing) == 0 && !strings.Contains(notice, "read back") {
+				t.Errorf("a whole landing must say the settings were read back from the file:\n%s", notice)
+			}
+
+			after, readErr := os.ReadFile(settingsPath)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if string(after) != string(offer.updated) {
+				t.Errorf("the file must hold the bytes the write reported:\n%s", after)
+			}
+		})
+	}
+}
+
+// TestInteractiveWSLStepReportsAPartialLanding is the reachability guard for the
+// read-back: it drives the offer onto the installing screen through the TUI's own
+// step loop, answers yes, and makes the write land only the font face. The report
+// must name the half that landed and the half that did not, on the screen a person
+// reads, and it must not read as a success. Before the read-back the step reported
+// both settings written whatever the file held, which is the defect: a partial
+// landing told as a success.
+func TestInteractiveWSLStepReportsAPartialLanding(t *testing.T) {
+	repoDir, _, settingsPath := newWindowsTerminalWSLLayout(t)
+	stubWindowsFontQueryStateful(t, map[string]bool{})
+	installWSLTerminalSettings(t, settingsPath, testWindowsTerminalSettingsWithOtherFace)
+
+	m := driveWSLTerminalOfferToTheScreen(t, mountWSLTerminalStep(t, repoDir))
+	// The details panel is opened and the frame is tall enough for its log box,
+	// so the report the step logs is the report a person reads off the screen.
+	m.ShowDetails = true
+	m.Height = 40
+	face := m.WSLTerminalOffer.Face
+
+	// A real run reaches the offer with earlier lines already in the log, and the
+	// screen's log box shows them; the guard lands the offer's own report as the
+	// newest line of a log that already has one, so the screen renders it.
+	m = m.appendInstallLog("Installing dotfiles-wsl artifacts…")
+
+	// The offer is the production one; only the bytes a write would leave behind
+	// are the half-landed ones, so the write, the backup, the read-back and the
+	// report all run for real.
+	m.WSLTerminalOffer.updated = []byte(partialWindowsTerminalSettings(face))
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd == nil {
+		t.Fatal("accepting the offer returned no command, so nothing could be written")
+	}
+	m = result.(Model)
+
+	applied := cmd()
+	result, _ = m.Update(applied)
+	m = result.(Model)
+
+	report := strings.Join(m.LogLines, "\n")
+	if !strings.Contains(report, face) {
+		t.Errorf("the report must name the face %q that landed:\n%s", face, report)
+	}
+	if !strings.Contains(report, windowsTerminalSchemeName) {
+		t.Errorf("the report must name the colour scheme %q that did not land:\n%s", windowsTerminalSchemeName, report)
+	}
+	if !strings.Contains(report, "did not land") {
+		t.Errorf("the report must say the colour scheme did not land:\n%s", report)
+	}
+	if strings.Contains(report, "✓") {
+		t.Errorf("a partial landing must not be reported as a success:\n%s", report)
+	}
+
+	// The screen is what a person reads, so the partial landing has to be on it.
+	// The log box clips a long line, so the assertion is on the part of the report
+	// the screen can show: the run is told the write was only partly configured,
+	// not that it succeeded.
+	view := strings.ReplaceAll(m.View(), "\n", "")
+	if !strings.Contains(view, "only partly configured") {
+		t.Errorf("the installing screen must show the partial landing:\n%s", m.View())
+	}
+	if strings.Contains(view, "✓") {
+		t.Errorf("the installing screen must not show a success mark for a partial landing:\n%s", m.View())
+	}
+
+	// The report is a fact about the file, so the file holds the half that landed.
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := windowsTerminalCurrentFontFace(after); !ok || got != face {
+		t.Errorf("the write should have landed the face %q, file holds %q", face, got)
+	}
+	if scheme, ok := windowsTerminalCurrentColorScheme(after); ok {
+		t.Errorf("the fixture's write landed no colour scheme, so the file must not hold one, got %q", scheme)
+	}
+}
+
 // TestParseWindowsFontPresenceHandlesTheConsoleBOM pins constraint 4's second
 // half: the console can prepend a BOM to redirected output, and the parser must
 // still read the answer. Anything that is not one of the two answers is "no
