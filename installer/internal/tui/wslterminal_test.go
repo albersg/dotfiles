@@ -1331,6 +1331,59 @@ func TestWindowsFontScriptsNameTheFamilyAndOnlyTheCopiedFaces(t *testing.T) {
 	}
 }
 
+// TestWindowsFontRegistrationCannotUninstallTheFontsItDoesNotOwn pins the two
+// promises the registration program has to keep on the machine it runs on, both
+// of which were broken at once and both of which were measured.
+//
+// The key it writes into is not the installer's: it holds every per-user font on
+// the machine. PowerShell's New-Item -Force recreates a key that already exists
+// and discards the values it held, so an unguarded New-Item over this key
+// uninstalls every per-user font the installer did not put there. That is not
+// hypothetical: the cost measured on the machine this was found on was 36
+// registrations, the whole CaskaydiaCove Nerd Font family, whose .ttf files were
+// left behind in the store with nothing to resolve them by. The guard below is
+// the whole fix for that half.
+//
+// The second half is why the family never resolved. Windows follows a per-user
+// face through the absolute path in the value; a bare file name is resolved
+// against %WINDIR%\Fonts, where these faces are not, so a registration naming one
+// is a registration Windows cannot follow -- and the verification that gates the
+// face write then refuses, correctly, forever.
+func TestWindowsFontRegistrationCannotUninstallTheFontsItDoesNotOwn(t *testing.T) {
+	register := windowsFontRegisterScript(windowsFontFaces)
+
+	// Every New-Item must sit behind the Test-Path guard. An unguarded one is how
+	// the key's existing values are lost, so this is the failure the test exists
+	// to catch rather than a preference about how the program reads.
+	for i, line := range strings.Split(register, "\n") {
+		// "New-Item -Path" and not "New-ItemProperty": only the key creation
+		// recreates the key, and the value writes are what must survive it.
+		if !strings.Contains(line, "New-Item -Path") {
+			continue
+		}
+		if !strings.Contains(line, "Test-Path") {
+			t.Errorf("line %d creates the key without checking whether it exists, which discards every registration already in it:\n%s", i+1, line)
+		}
+	}
+
+	// The store directory is the one fact that cannot be hard-coded from the
+	// Linux side: it is %LOCALAPPDATA% on Windows, which only the Windows side
+	// knows, so the program resolves it there and joins it, rather than being
+	// handed a path some other layer guessed.
+	if !strings.Contains(register, "Join-Path $env:LOCALAPPDATA") {
+		t.Errorf("the registration must resolve the per-user font store from %%LOCALAPPDATA%%, got:\n%s", register)
+	}
+
+	for _, face := range windowsFontFaces {
+		if !strings.Contains(register, "Join-Path $store "+psSingleQuote(face.File)) {
+			t.Errorf("the registration must write %s joined onto the store, so the value is an absolute path Windows can follow:\n%s", face.File, register)
+		}
+		if strings.Contains(register, "-Value "+psSingleQuote(face.File)) {
+			t.Errorf("the registration writes the bare file name %s as the value, which is resolved against %%WINDIR%%\\Fonts and cannot be followed:\n%s", face.File, register)
+		}
+	}
+}
+
 // TestWindowsFontQueryIsBounded pins constraint 5: a Windows-side query that
 // hangs times out into a reported refusal instead of blocking the installer. The
 // fake honours its context, as the real system.WindowsQuery does through
