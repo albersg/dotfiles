@@ -4,6 +4,12 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Windows Terminal colour scheme is built from the theme the machine has applied, not from the default one.** `windowsTerminalThemeDefinition` loaded `dotfiles` unconditionally, so the scheme, the offer and the read-back all described the default palette no matter which theme the switch had applied. The machine this was measured on had `nocturne` applied -- recorded in the installer's own theme state, and written into `.zshrc`, `.p10k.zsh` and `starship.toml` -- while the `dotfiles` scheme in `settings.json` held `background #06080f`, `red #cb7c94`, `blue #7fb4ca`, to the digit the default theme's values. The palette now comes from the applied-theme record, with the default theme kept for a machine that has applied nothing, a record that cannot be read, and a record naming a theme the repository no longer defines -- the last of these falls back rather than failing, because an error in that function abandons the whole Windows side of the step, font face included. The scheme's name does not change: it is the one `dotfiles` scheme and a theme change repaints it.
+
 ## [v0.7.5] — 2026-10-13
 
 ### Fixed
