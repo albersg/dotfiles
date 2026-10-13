@@ -5078,11 +5078,11 @@ func weztermInstallCommands(si *system.SystemInfo) []string {
 	brew := filepath.Join(system.GetBrewPrefix(), "bin", "brew")
 	switch si.OS {
 	case system.OSArch:
-		return []string{"sudo pacman -S --noconfirm wezterm"}
+		return []string{"sudo -n pacman -S --noconfirm wezterm"}
 	case system.OSFedora:
 		return []string{
-			"sudo dnf copr enable -y wezfurlong/wezterm-nightly",
-			"sudo dnf install -y wezterm",
+			"sudo -n dnf copr enable -y wezfurlong/wezterm-nightly",
+			"sudo -n dnf install -y wezterm",
 		}
 	case system.OSMac:
 		return []string{brew + " install --cask wezterm"}
@@ -5119,7 +5119,7 @@ func stepInstallTerminal(m *Model) error {
 			SendLog(stepID, "Installing Alacritty...")
 			var result *system.ExecResult
 			if m.SystemInfo.OS == system.OSArch {
-				result = system.RunSudoWithLogs("pacman -S --noconfirm alacritty", nil, func(line string) {
+				result = runSudoWithLogs("pacman -S --noconfirm alacritty", nil, func(line string) {
 					SendLog(stepID, line)
 				})
 			} else if m.SystemInfo.OS == system.OSMac {
@@ -5128,14 +5128,14 @@ func stepInstallTerminal(m *Model) error {
 				})
 			} else if m.SystemInfo.OS == system.OSFedora {
 				// Fedora: install from dnf
-				result = system.RunSudoWithLogs("dnf install -y alacritty", nil, func(line string) {
+				result = runSudoWithLogs("dnf install -y alacritty", nil, func(line string) {
 					SendLog(stepID, line)
 				})
 			} else if m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux {
 				// Debian/Ubuntu: compile from source (PPAs are unreliable)
 				SendLog(stepID, "Building Alacritty from source...")
 				SendLog(stepID, "Installing build dependencies...")
-				result = system.RunSudoWithLogs("apt-get install -y cmake pkg-config libfreetype6-dev libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev python3 gzip scdoc git curl", nil, func(line string) {
+				result = runSudoWithLogs("apt-get install -y cmake pkg-config libfreetype6-dev libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev python3 gzip scdoc git curl", nil, func(line string) {
 					SendLog(stepID, line)
 				})
 				if result.Error != nil {
@@ -5184,7 +5184,7 @@ func stepInstallTerminal(m *Model) error {
 						result.Error)
 				}
 				SendLog(stepID, "Installing Alacritty binary...")
-				result = system.RunSudoWithLogs(fmt.Sprintf("cp %s/target/release/alacritty /usr/local/bin/alacritty", alacrittyDir), nil, func(line string) {
+				result = runSudoWithLogs(fmt.Sprintf("cp %s/target/release/alacritty /usr/local/bin/alacritty", alacrittyDir), nil, func(line string) {
 					SendLog(stepID, line)
 				})
 				if result.Error != nil {
@@ -5192,7 +5192,7 @@ func stepInstallTerminal(m *Model) error {
 						"Failed to install Alacritty binary",
 						result.Error)
 				}
-				system.RunSudoWithLogs(fmt.Sprintf("cp %s/extra/linux/Alacritty.desktop /usr/share/applications/", alacrittyDir), nil, func(line string) {
+				runSudoWithLogs(fmt.Sprintf("cp %s/extra/linux/Alacritty.desktop /usr/share/applications/", alacrittyDir), nil, func(line string) {
 					SendLog(stepID, line)
 				})
 				os.RemoveAll(alacrittyDir)
@@ -5317,13 +5317,13 @@ func stepInstallTerminal(m *Model) error {
 			SendLog(stepID, "Installing Ghostty...")
 			var result *system.ExecResult
 			if m.SystemInfo.OS == system.OSArch {
-				result = system.RunSudoWithLogs("pacman -S --noconfirm ghostty", nil, func(line string) {
+				result = runSudoWithLogs("pacman -S --noconfirm ghostty", nil, func(line string) {
 					SendLog(stepID, line)
 				})
 			} else if m.SystemInfo.OS == system.OSFedora {
 				// Fedora: enable COPR and install
-				system.RunSudo("dnf copr enable -y pgdev/ghostty", nil)
-				result = system.RunSudoWithLogs("dnf install -y ghostty", nil, func(line string) {
+				runSudoSilently("dnf copr enable -y pgdev/ghostty", nil)
+				result = runSudoWithLogs("dnf install -y ghostty", nil, func(line string) {
 					SendLog(stepID, line)
 				})
 			} else if m.SystemInfo.OS == system.OSMac {
@@ -5685,11 +5685,33 @@ type platformPackages struct {
 
 var (
 	runPkgInstallWithLogs = system.RunPkgInstall
-	runSudoWithLogs       = system.RunSudoWithLogs
+	runSudoWithLogs       = sudoWithLogs
+	runSudoSilently       = sudoSilently
 	runBrewWithLogs       = system.RunBrewWithLogs
 	runOhMyZshInstaller   = system.RunWithLogs
 	runFnmWithLogs        = system.RunWithLogs
 )
+
+// nonInteractiveSudo spells the sudo invocation every root command uses. The -n
+// flag makes sudo fail immediately when the credential cached for the run is
+// absent, instead of prompting on a terminal the captured executor does not
+// own, so a step that needs a password it does not have reports the failure
+// where the user can read it.
+func nonInteractiveSudo(command string) string {
+	return "sudo -n " + command
+}
+
+// sudoWithLogs runs a root command and streams its output, with -n so it can
+// never prompt. It is the default behind the runSudoWithLogs seam.
+func sudoWithLogs(command string, opts *system.ExecOptions, onLog system.LogCallback) *system.ExecResult {
+	return system.RunWithLogs(nonInteractiveSudo(command), opts, onLog)
+}
+
+// sudoSilently runs a root command without streaming, with -n for the same
+// reason as sudoWithLogs. It is the default behind the runSudoSilently seam.
+func sudoSilently(command string, opts *system.ExecOptions) *system.ExecResult {
+	return system.Run(nonInteractiveSudo(command), opts)
+}
 
 // fnmPath resolves the fnm executable. It is a variable so a test can exercise
 // the alias setup without a real fnm installation.
@@ -6064,7 +6086,7 @@ func (p platformInstallPlan) nativeCommand() string {
 // for a native manager.
 func (p platformInstallPlan) sudoCommand() string {
 	if command := p.nativeCommand(); command != "" {
-		return "sudo " + command
+		return nonInteractiveSudo(command)
 	}
 	return ""
 }
@@ -7828,7 +7850,7 @@ fi
 		return nil
 	}
 
-	// Non-Termux: Try to set shell using sudo usermod (works if NOPASSWD configured)
+	// Non-Termux: set the shell as root through the credential cached for the run.
 	// Find the shell path first
 	shellPath := system.Run(fmt.Sprintf("which %s", shellCmd), nil)
 	if shellPath.Error != nil || strings.TrimSpace(shellPath.Output) == "" {
@@ -7859,19 +7881,20 @@ fi
 	checkShells := system.Run(fmt.Sprintf("grep -q '^%s$' /etc/shells", shellPathStr), nil)
 	if checkShells.Error != nil {
 		// Shell not in /etc/shells, try to add it
-		addResult := system.RunSudo(fmt.Sprintf("sh -c 'echo \"%s\" >> /etc/shells'", shellPathStr), nil)
+		addResult := runSudoSilently(fmt.Sprintf("sh -c 'echo \"%s\" >> /etc/shells'", shellPathStr), nil)
 		if addResult.Error != nil {
 			SendLog(stepID, fmt.Sprintf("Could not add %s to /etc/shells (may need manual setup)", shellPathStr))
 		}
 	}
 
-	// Try sudo usermod first (more reliable than chsh in scripts)
+	// Try usermod first (more reliable than chsh in scripts, and it needs no
+	// terminal because sudo reads the credential cached for the run).
 	SendLog(stepID, fmt.Sprintf("Setting %s as default shell for %s...", shell, currentUser))
-	result := system.RunSudo(fmt.Sprintf("usermod -s %s %s", shellPathStr, currentUser), nil)
+	result := runSudoSilently(fmt.Sprintf("usermod -s %s %s", shellPathStr, currentUser), nil)
 	if result.Error != nil {
 		// usermod failed, try chsh as fallback
 		SendLog(stepID, "usermod failed, trying chsh...")
-		result = system.RunSudo(fmt.Sprintf("chsh -s %s %s", shellPathStr, currentUser), nil)
+		result = runSudoSilently(fmt.Sprintf("chsh -s %s %s", shellPathStr, currentUser), nil)
 		if result.Error != nil {
 			// Both failed - not critical, just inform user
 			SendLog(stepID, fmt.Sprintf("Could not set default shell automatically"))
