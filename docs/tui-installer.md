@@ -579,6 +579,24 @@ names
 `Microsoft.WindowsTerminalPreview_*`) — and a file that cannot be edited safely is refused with the
 reason named and nothing changed.
 
+**The scheme carries the palette of the theme the machine has applied.** The colour scheme is
+registered under one name, `dotfiles`, and a theme change repaints it rather than adding a second
+one: Windows Terminal resolves a scheme by the name `profiles.defaults.colorScheme` holds, so a
+scheme per theme would leave every profile pointing at the old one. The palette inside it is read
+from the same record every other consumer of the applied theme reads — the installer's own theme
+state — so the Windows side is painted from the colours the shell, the prompt and the Linux
+terminals are actually using. A machine whose record names `nocturne` gets `nocturne`'s eight
+values, not the default theme's. Three cases end at the **default** theme. A machine with no record
+has applied nothing, so the default is what is applied. A record that cannot be read is treated the
+same way. And a record naming a theme this repository no longer defines falls back instead of
+failing, because an error here abandons the whole Windows side of the step — font face included —
+and a stale theme record must not cost a font that has nothing to do with it.
+`TestWindowsTerminalSchemeFollowsTheAppliedTheme` pins the palette over every role the scheme
+writes, and `TestWindowsTerminalSchemeKeepsTheDefaultThemeWithoutARecord` pins the three fallbacks.
+The Linux-side theme switch does not repaint this scheme itself: it rewrites the files it owns, and
+this one is written by the WSL step, which is what a theme change re-runs for the Windows side to
+follow — see `odd/tasks/windows-terminal-scheme-theme.md` for why that half is its own front.
+
 **Before a write, the previous file is copied beside itself** as
 `settings.json.bak-dotfiles-<timestamp>`, and only the keys this installer owns are changed: the font
 face, the colour scheme, and the scheme definition it registers. settings.json is JSONC, so comments
