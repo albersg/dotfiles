@@ -2,9 +2,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -247,4 +249,133 @@ func repoRoot(t *testing.T) string {
 		t.Fatalf("repository root not found at %s: %v", root, err)
 	}
 	return root
+}
+
+// verifyStdout runs fn with stdout replaced by a pipe and returns what it
+// printed. The verify report is what the user reads, so the guard asserts on the
+// captured bytes rather than on a string the test built itself.
+func verifyStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = old })
+
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close pipe: %v", err)
+	}
+	os.Stdout = old
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	return string(out)
+}
+
+// TestVerifyReportsTheMachineAgainstTheRecord is the five-case guard for
+// --verify. Each case is asserted both on the exit status a script reads and on
+// the line the user reads, because a verification honest on one channel and
+// misleading on the other is worse than none.
+//
+// The record is written at the path the state file documents, under a temporary
+// XDG_STATE_HOME, so no case can touch the real one and a change to the
+// documented layout fails the guard instead of passing silently.
+func TestVerifyReportsTheMachineAgainstTheRecord(t *testing.T) {
+	entryRecord := func(entries string) string {
+		return `{"timestamp":"2026-09-29T14:30:00Z","version":"v0.4.0","files":[],"entries":` + entries + `}`
+	}
+
+	cases := []struct {
+		name         string
+		setup        func(t *testing.T, root string) string
+		wantCode     int
+		wantContains []string
+	}{
+		{
+			name: "a path that is here",
+			setup: func(t *testing.T, root string) string {
+				present := filepath.Join(root, "nvim")
+				if err := os.MkdirAll(present, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				return entryRecord(fmt.Sprintf(`[{"key":"nvim","path":%q,"action":"replaced"}]`, present))
+			},
+			wantCode:     0,
+			wantContains: []string{"here", "cannot say whether this is still what the install left"},
+		},
+		{
+			name: "a path that is gone",
+			setup: func(t *testing.T, root string) string {
+				gone := filepath.Join(root, "fish")
+				return entryRecord(fmt.Sprintf(`[{"key":"fish","path":%q,"action":"created"}]`, gone))
+			},
+			wantCode:     1,
+			wantContains: []string{"missing", "fish"},
+		},
+		{
+			name: "a backup that is gone",
+			setup: func(t *testing.T, root string) string {
+				present := filepath.Join(root, "kitty")
+				if err := os.MkdirAll(present, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				backup := filepath.Join(root, "backups", "kitty")
+				return entryRecord(fmt.Sprintf(`[{"key":"kitty","path":%q,"action":"replaced","backup":%q}]`, present, backup))
+			},
+			wantCode:     1,
+			wantContains: []string{"missing", "backup of kitty"},
+		},
+		{
+			name: "a record that cannot be parsed",
+			setup: func(t *testing.T, root string) string {
+				return "{not json"
+			},
+			wantCode:     2,
+			wantContains: []string{"Could not read the record"},
+		},
+		{
+			name: "no record at all",
+			setup: func(t *testing.T, root string) string {
+				return ""
+			},
+			wantCode:     0,
+			wantContains: []string{"nothing was installed here"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stateHome := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", stateHome)
+
+			record := tc.setup(t, t.TempDir())
+			if record != "" {
+				path := filepath.Join(stateHome, "dotfiles", "last-install.json")
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(record), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			var code int
+			out := verifyStdout(t, func() { code = reportVerify() })
+
+			if code != tc.wantCode {
+				t.Errorf("exit code = %d, want %d\nreport:\n%s", code, tc.wantCode, out)
+			}
+			for _, want := range tc.wantContains {
+				if !strings.Contains(out, want) {
+					t.Errorf("the report does not contain %q:\n%s", want, out)
+				}
+			}
+		})
+	}
 }

@@ -24,6 +24,7 @@ This guide walks you through manually setting up your development environment wi
   - [Install Neovim](#6-install-neovim)
   - [Set Default Shell](#7-set-default-shell)
   - [Restart](#8-restart)
+  - [Verify What the Installer Left Behind](#verify-what-the-installer-left-behind)
 
 ---
 
@@ -582,6 +583,35 @@ sudo chsh -s "$shell_path" "$USER"
 Close and reopen your terminal, or restart your computer/WSL instance for changes to take effect.
 
 ---
+
+## Verify What the Installer Left Behind
+
+Every run writes a record to `$XDG_STATE_HOME/dotfiles/last-install.json`
+(`~/.local/state/dotfiles/last-install.json` by default): for each configuration path it
+touched, the path, what the run did to it, and the backup it took when there was one.
+
+```bash
+dotfiles --verify
+```
+
+It reports one line per entry, and exits **0** when the machine still matches the record,
+**1** when something the record names is gone, and **2** when the record could not be read.
+
+**What it can tell you, and what it cannot.** The record names no digest of the files it
+wrote, so verification reports what it can establish -- that a path is there, what the run
+did to it, and whether the backup it took still exists -- and says plainly, on each line,
+that it cannot tell whether a file's contents are still the ones the install left:
+
+```
+here     zshrc  /home/you/.zshrc  replaced by the run; the record names no digest, so it
+         cannot say whether this is still what the install left
+missing  tmux   /home/you/.tmux.conf  replaced by the run, and the path the record names is
+         not here
+```
+
+A machine with **no record is not a failure**: it says that nothing was installed here,
+which is what a verification run before the first install should say.
+
 
 ## Troubleshooting
 
