@@ -341,3 +341,142 @@ func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// --- Verification against the record ---------------------------------------
+
+// errNoRecord is the one read failure that is not a failure: the machine has no
+// record because nothing was installed here. It is a sentinel so the report can
+// tell it apart from a record that is present and cannot be read.
+var errNoRecord = errors.New("no record of an install")
+
+// VerifyReport is what --verify found and what it could not. Lines is the report
+// the user reads, in order. Consistent is true only when every path and backup
+// the record names is still there. Unreadable is true when a record is present
+// and could not be read at all, which is not the same as there being no record.
+//
+// The two booleans are how a script and a reader tell the three outcomes apart:
+// a record that cannot be read and a record whose paths are gone are different
+// facts about the machine, and a machine with no record is a third.
+type VerifyReport struct {
+	Lines      []string
+	Consistent bool
+	Unreadable bool
+}
+
+// readLastInstallRecord reads the record for verification. Unlike readLastInstall
+// it tells "there is no record" (errNoRecord) apart from "there is a record and
+// it cannot be read" (any other error). The panel folds both into nil because a
+// panel that would say "never" is better silent; verification must not fold
+// them, because its exit codes differ: nothing installed here is not a failure,
+// while a record that cannot be read is.
+func readLastInstallRecord() (*lastInstall, error) {
+	path := lastInstallPath()
+	if path == "" {
+		return nil, errors.New("the state directory could not be determined")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, errNoRecord
+		}
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	var rec lastInstall
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if rec.Timestamp.IsZero() {
+		return nil, fmt.Errorf("parse %s: the record names no run", path)
+	}
+	if len(rec.Entries) == 0 && len(rec.Files) > 0 {
+		rec.Entries = legacyEntries(rec.Files)
+	}
+	return &rec, nil
+}
+
+// VerifyInstall compares the machine with the record of the last completed run
+// and returns the report --verify prints. It reports what the record supports --
+// whether each path is there, what the run did to it, and whether the backup it
+// took is still there -- and says plainly what the record cannot support:
+// installEntry names no digest, so a path that is present is reported as present
+// and unverifiable, never as matching what the install left. Verification never
+// writes: it reads the machine and the record and nothing else.
+func VerifyInstall() VerifyReport {
+	rec, err := readLastInstallRecord()
+	if errors.Is(err, errNoRecord) {
+		return VerifyReport{
+			Lines: []string{
+				"dotfiles " + BuildLabel(),
+				"No record of an install on this machine: nothing was installed here, so there is nothing to verify.",
+			},
+			Consistent: true,
+		}
+	}
+	if err != nil {
+		return VerifyReport{
+			Lines: []string{
+				"dotfiles " + BuildLabel(),
+				"Could not read the record: " + err.Error(),
+			},
+			Unreadable: true,
+		}
+	}
+
+	lines := []string{
+		"dotfiles " + BuildLabel(),
+		"Record from " + rec.Timestamp.Format(panelBackupStamp) + " by " + rec.Version + ".",
+	}
+	consistent := true
+	for _, entry := range rec.Entries {
+		// A record that names no path has nothing to compare with the machine. It is
+		// skipped rather than counted as gone: the machine did not lose anything.
+		if entry.Path == "" {
+			continue
+		}
+		phrase := verifyActionPhrase(entry.Action)
+		if pathExists(entry.Path) {
+			lines = append(lines, fmt.Sprintf(
+				"here     %s  %s  %s; the record names no digest, so it cannot say whether this is still what the install left",
+				entry.Key, entry.Path, phrase))
+		} else {
+			consistent = false
+			lines = append(lines, fmt.Sprintf(
+				"missing  %s  %s  %s, and the path the record names is not here",
+				entry.Key, entry.Path, phrase))
+		}
+
+		if entry.Backup == "" {
+			continue
+		}
+		if pathExists(entry.Backup) {
+			lines = append(lines, fmt.Sprintf(
+				"here     backup of %s  %s  the record names no digest, so it cannot say whether this is still that copy",
+				entry.Key, entry.Backup))
+		} else {
+			consistent = false
+			lines = append(lines, fmt.Sprintf(
+				"missing  backup of %s  %s  the record names this copy and it is not here",
+				entry.Key, entry.Backup))
+		}
+	}
+
+	return VerifyReport{Lines: lines, Consistent: consistent}
+}
+
+// verifyActionPhrase renders what the run did to a path as the clause the
+// verification report uses. An action this build does not know is reported as
+// recorded rather than guessed at.
+func verifyActionPhrase(action installAction) string {
+	switch action {
+	case installActionCreated:
+		return "created by the run"
+	case installActionReplaced:
+		return "replaced by the run"
+	case installActionBackedUp:
+		return "backed up by the run"
+	case installActionFound:
+		return "found and left alone by the run"
+	default:
+		return "recorded by the run"
+	}
+}

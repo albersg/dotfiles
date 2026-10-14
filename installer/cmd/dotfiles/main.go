@@ -35,6 +35,7 @@ type cliFlags struct {
 	nonInteractive bool
 	checkUpdate    bool
 	selfUpdate     bool
+	verify         bool
 	channel        string
 	terminal       string
 	shell          string
@@ -58,6 +59,7 @@ func registerFlags(fs *flag.FlagSet, flags *cliFlags) {
 	fs.BoolVar(&flags.help, "h", false, "Show help message (shorthand)")
 	fs.BoolVar(&flags.checkUpdate, "check-update", false, "Read the latest published release and report it")
 	fs.BoolVar(&flags.selfUpdate, "self-update", false, "Install the latest published release over this binary")
+	fs.BoolVar(&flags.verify, "verify", false, "Check the machine against the record of the last install")
 	fs.StringVar(&flags.channel, "channel", "", "Release channel to follow: stable (default) or dev")
 	fs.BoolVar(&flags.test, "test", false, "Run in test mode (uses temporary directory)")
 	fs.BoolVar(&flags.test, "t", false, "Run in test mode (shorthand)")
@@ -123,6 +125,14 @@ func main() {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	}
+
+	// --verify is the read half of the record the run writes: it compares this
+	// machine with what the last install said it did, and never writes. It sits
+	// with the update commands, above test mode and dry run, because it makes no
+	// change that either could gate.
+	if flags.verify {
+		os.Exit(reportVerify())
 	}
 
 	if flags.test {
@@ -229,6 +239,31 @@ func runSelfUpdate() error {
 	}
 	fmt.Println(notice)
 	return nil
+}
+
+// reportVerify prints the record's account of this machine and returns the exit
+// status a script reads: 0 when every path and backup the record names is still
+// there, 1 when something it names is gone, and 2 when a record is present and
+// could not be read. A machine with no record is not a failure: the report says
+// nothing was installed here and the status is 0.
+//
+// The report never claims a file's contents match the install. installEntry
+// names no digest, so the honest statement is presence, the action and the
+// backup, with the unverifiable part said per line rather than in a footer.
+func reportVerify() int {
+	report := tui.VerifyInstall()
+	for _, line := range report.Lines {
+		fmt.Println(line)
+	}
+
+	switch {
+	case report.Unreadable:
+		return 2
+	case !report.Consistent:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func runNonInteractive(flags *cliFlags) error {
@@ -348,6 +383,15 @@ Flags:
                        is kept beside it as dotfiles.previous, and a binary a
                        package manager installed is refused (run
                        brew upgrade dotfiles for that one)
+  --verify             Check this machine against the record the last install
+                       wrote: every configuration path and backup that run named
+                       is reported as here or missing, with what the run did to
+                       it. The record holds no digest, so a path that is here is
+                       reported as here and unverifiable, never as matching.
+                       Exits 0 when every path and backup it names is still here,
+                       1 when something it names is gone, and 2 when a record is
+                       present and could not be read. A machine with no record
+                       exits 0 and says nothing was installed here
   --channel=<name>     Channel to follow: stable (the latest published release,
                        the default) or dev (the highest-versioned pre-release). The choice
                        is remembered in update-check.json and offered again as
@@ -403,6 +447,9 @@ Examples:
 
   # Verbose output (shows all command logs)
   DOTFILES_VERBOSE=1 dotfiles --non-interactive --shell=fish --nvim
+
+  # Check this machine against the last install's record
+  dotfiles --verify
 
 Navigation (TUI mode):
   ↑/k, ↓/j        Navigate up/down

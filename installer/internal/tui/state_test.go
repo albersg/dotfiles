@@ -189,3 +189,189 @@ func TestAStateDirectoryThatCannotBeWrittenDoesNotFailTheRun(t *testing.T) {
 		t.Errorf("a record was read back from a directory nothing could be written to")
 	}
 }
+
+// --- Verification against the record ---------------------------------------
+
+// verifyReportText joins the lines VerifyInstall returns, so a test asserts on
+// what the user reads in one place.
+func verifyReportText(report VerifyReport) string {
+	return strings.Join(report.Lines, "\n")
+}
+
+// TestVerifyReportsAPathThatIsHereAsHereButUnverifiable is case one of the
+// five: the record names a path that is still there. The report may say "here",
+// and it must say what it cannot say -- the record names no digest, so it cannot
+// claim the bytes are still the ones the run left.
+func TestVerifyReportsAPathThatIsHereAsHereButUnverifiable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", home)
+
+	present := filepath.Join(home, ".config", "nvim")
+	if err := os.MkdirAll(present, 0o755); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+	if err := writeLastInstall(lastInstall{
+		Timestamp: time.Date(2026, 9, 29, 14, 30, 0, 0, time.UTC),
+		Version:   "v0.4.0",
+		Entries:   []installEntry{{Key: "nvim", Path: present, Action: installActionReplaced}},
+	}); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+
+	report := VerifyInstall()
+	if report.Unreadable {
+		t.Fatalf("a readable record read as unreadable:\n%s", verifyReportText(report))
+	}
+	if !report.Consistent {
+		t.Errorf("a path the record names and that is still here was reported as absent:\n%s", verifyReportText(report))
+	}
+	text := verifyReportText(report)
+	if !strings.Contains(text, "here") || !strings.Contains(text, present) {
+		t.Errorf("the report does not name the present path as here:\n%s", text)
+	}
+	if !strings.Contains(text, "cannot say whether this is still what the install left") {
+		t.Errorf("the report claims more than the record holds: it must say the contents cannot be judged:\n%s", text)
+	}
+}
+
+// TestVerifyReportsAPathThatIsGoneAsMissing is case two: the record names a
+// path that is no longer there, and the report has to say missing rather than
+// leave the reader to infer it.
+func TestVerifyReportsAPathThatIsGoneAsMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", home)
+
+	gone := filepath.Join(home, ".config", "fish")
+	if err := writeLastInstall(lastInstall{
+		Timestamp: time.Now(),
+		Version:   "v0.4.0",
+		Entries:   []installEntry{{Key: "fish", Path: gone, Action: installActionCreated}},
+	}); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+
+	report := VerifyInstall()
+	if report.Consistent {
+		t.Errorf("a path the record names that is gone was reported as consistent:\n%s", verifyReportText(report))
+	}
+	if report.Unreadable {
+		t.Errorf("a readable record read as unreadable:\n%s", verifyReportText(report))
+	}
+	text := verifyReportText(report)
+	if !strings.Contains(text, "missing") || !strings.Contains(text, gone) {
+		t.Errorf("the report does not name the gone path as missing:\n%s", text)
+	}
+}
+
+// TestVerifyReportsABackupThatIsGoneAsMissing is case three: the path the run
+// replaced may still be here while the copy that would make a rollback possible
+// is gone, and that is what verification must catch.
+func TestVerifyReportsABackupThatIsGoneAsMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", home)
+
+	present := filepath.Join(home, ".config", "kitty")
+	if err := os.MkdirAll(present, 0o755); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+	goneBackup := filepath.Join(home, ".config", "backups", "kitty")
+	if err := writeLastInstall(lastInstall{
+		Timestamp: time.Now(),
+		Version:   "v0.4.0",
+		Entries: []installEntry{{
+			Key:    "kitty",
+			Path:   present,
+			Action: installActionReplaced,
+			Backup: goneBackup,
+		}},
+	}); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+
+	report := VerifyInstall()
+	if report.Consistent {
+		t.Errorf("a backup the record names that is gone was reported as consistent:\n%s", verifyReportText(report))
+	}
+	text := verifyReportText(report)
+	if !strings.Contains(text, "missing") || !strings.Contains(text, "backup of kitty") || !strings.Contains(text, goneBackup) {
+		t.Errorf("the report does not name the missing backup:\n%s", text)
+	}
+}
+
+// TestVerifyReportsARecordItCannotParse is case four: a record file that is
+// there and cannot be read is exit 2, not "nothing was installed here",
+// because those are different facts about the machine.
+func TestVerifyReportsARecordItCannotParse(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	path := lastInstallPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+
+	report := VerifyInstall()
+	if !report.Unreadable {
+		t.Errorf("a record that cannot be parsed was not reported as unreadable:\n%s", verifyReportText(report))
+	}
+	if report.Consistent {
+		t.Errorf("a record that cannot be read was reported as consistent:\n%s", verifyReportText(report))
+	}
+	if !strings.Contains(verifyReportText(report), "Could not read the record") {
+		t.Errorf("the report does not say the record could not be read:\n%s", verifyReportText(report))
+	}
+}
+
+// TestVerifyReportsNoRecordAsNothingInstalled is case five: a machine with no
+// record is not a failure. It is "nothing was installed here", and the report
+// says so without an exit code that a script would read as a broken machine.
+func TestVerifyReportsNoRecordAsNothingInstalled(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	report := VerifyInstall()
+	if report.Unreadable {
+		t.Errorf("a machine with no record was reported as unreadable:\n%s", verifyReportText(report))
+	}
+	if !report.Consistent {
+		t.Errorf("a machine with no record was reported as divergent:\n%s", verifyReportText(report))
+	}
+	if !strings.Contains(verifyReportText(report), "nothing was installed here") {
+		t.Errorf("the report does not say nothing was installed here:\n%s", verifyReportText(report))
+	}
+}
+
+// TestVerifyReadsALegacyRecordAsFoundEntries pins that verification goes
+// through the same upgrade the panel does: a record written before Entries
+// existed names its paths as found, not as replacements the old build never
+// established.
+func TestVerifyReadsALegacyRecordAsFoundEntries(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", home)
+
+	present := filepath.Join(home, ".config", "nvim")
+	if err := os.MkdirAll(present, 0o755); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+	if err := writeLastInstall(lastInstall{
+		Timestamp: time.Now(),
+		Version:   "v0.3.0",
+		Files:     []string{"nvim: " + present},
+	}); err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+
+	report := VerifyInstall()
+	if !report.Consistent {
+		t.Errorf("a legacy record whose only path is here was reported as divergent:\n%s", verifyReportText(report))
+	}
+	text := verifyReportText(report)
+	if !strings.Contains(text, "found and left alone by the run") {
+		t.Errorf("a legacy record's path was not read as found:\n%s", text)
+	}
+}
