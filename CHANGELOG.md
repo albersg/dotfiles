@@ -4,6 +4,12 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.7.10] — 2026-10-14
+
+### Added
+
+- **`dotfiles --verify` reports whether the machine is still as the last install left it.** Every run records what it did to each configuration path it touched -- the path, the action it took, and the backup it made when there was one -- and nothing read that record. The command reports one line per entry and exits **0** when the machine matches the record, **1** when something it names is gone, and **2** when the record could not be read. It names its own limit **on every line**: the record holds no digest, so it establishes that a path is there, what the run did to it, and whether the backup still exists -- and says it cannot tell whether a file's contents are still the ones the install left. The distinction between absent and present-but-unverifiable is the point of the report, so it is per line rather than in a footnote. A machine with **no record is not a failure**: it says that nothing was installed here, which is what a verification run before the first install should say. The manual gains a section saying the same.
+
 ## [v0.7.9] — 2026-10-13
 
 ### Fixed
