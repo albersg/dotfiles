@@ -249,3 +249,26 @@ it were**, and have the step report which of the two landed.
   choice is genuinely open, ask the user rather than deciding for them.
 - [ ] **T7 — One place decides the face.** Every interface string that names a font derives
   it from the constant that installs it, so the label cannot drift from the machine again.
+
+## After this front: the pin moved
+
+D6 measured the archive this installer pinned for Linux at the time -- `Meslo.zip` v3.3.0 --
+and recorded that its faces declare `MesloLGS Nerd Font`. The measurements above are left as
+they were taken. This is what changed since, so that a reader does not take them for the
+current state.
+
+**The pin is `Meslo.zip` v3.5.1 now (issue #313), and the facts D6 rested on were re-measured
+at the new tag rather than assumed to carry over:**
+
+| what | at v3.3.0 | at v3.5.1 |
+|---|---|---|
+| the family the faces declare (`name` id 1) | `MesloLGS Nerd Font` | `MesloLGS Nerd Font` -- unchanged, so the presence check and the post-extraction verification keep working |
+| `dev-yaml`, `U+E8EB` | **absent** | **present**, glyph id 4074 |
+| the archive's declared size | 108,281,715 bytes | 116,387,026 bytes |
+
+The codepoint is why this is a fix rather than housekeeping: `eza` draws a `.yaml` file with
+`U+E8EB`, so on v3.3.0 every `.yaml` in a listing came out as a blank box on Linux, WSL and
+Termux while macOS -- whose cask installs v3.5.1 -- drew it correctly. That is also what makes
+the version a floor rather than a preference: `U+F086F` and `U+F15DE` are present at both tags
+and `U+E8EB` only at the later one, so lowering the URL restores the blank box. The archive's
+`glyphnames.json` at each tag is what settles it, and is what a future bump is checked against.

@@ -5403,8 +5403,17 @@ func stepInstallTerminal(m *Model) error {
 // The Linux font step downloads the Nerd Fonts release archive and extracts it.
 // The release URL is pinned, and the archive is fetched into a scratch directory
 // the step owns instead of into the font directory: see stepInstallFont.
+//
+// The pin is a minimum, not a preference. v3.3.0, which this replaced, carries no
+// `dev-yaml` (U+E8EB) at all: `eza` draws a `.yaml` file with that codepoint, so
+// every `.yaml` in a listing came out as a blank box on Linux, WSL and Termux
+// while macOS -- whose cask installs a later release of the same tree -- drew it
+// correctly. Reading the codepoint out of the release's own `glyphnames.json` is
+// what separates that from a font that failed to install, and what a later bump
+// has to be checked against: `U+F086F` and `U+F15DE` are present at both tags,
+// and `U+E8EB` only at the later one. Lowering this URL restores the blank box.
 const (
-	mesloArchiveURL  = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip"
+	mesloArchiveURL  = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/Meslo.zip"
 	mesloArchiveName = "Meslo.zip"
 
 	// mesloArchiveFamily is the family the pinned Meslo archive declares. The
@@ -5612,8 +5621,8 @@ func stepInstallFont(m *Model) error {
 	// Linux
 	fontDir := filepath.Join(homeDir, ".local/share/fonts")
 
-	// Ask the machine before downloading. The pinned archive is about 108 MB
-	// (108,281,715 bytes at v3.3.0, not the 347 MB the old comment claimed), the
+	// Ask the machine before downloading. The pinned archive is about 116 MB
+	// (116,387,026 bytes at v3.5.1, not the 347 MB the old comment claimed), the
 	// most expensive network operation in the installer apart from a package
 	// install, and without this check it is re-fetched and re-extracted over
 	// identical files on every run. fc-list is asked whether the family the
