@@ -175,12 +175,15 @@ func GetWMInfo() map[string]ToolInfo {
 				"Remote pairing support",
 				"Scriptable and automatable",
 				"Very stable and mature",
+				// dotfiles-tmux/tmux.conf sets `mouse on`; the upstream default is off,
+				// and the entry used to state the opposite of what this run ships
+				// (TestTmuxLearnEntryMatchesTheShippedMouseSetting).
+				"Mouse support enabled by the shipped configuration (`set -g mouse on`)",
 			},
 			Cons: []string{
 				"Steep learning curve",
 				"Default keybindings are awkward",
 				"Configuration syntax is dated",
-				"No native mouse support (needs config)",
 			},
 			Website: "https://github.com/tmux/tmux",
 		},
@@ -393,25 +396,15 @@ func GetNvimKeymaps() []KeymapCategory {
 			},
 		},
 		{
-			Name:        "AI Assistants (Copilot + OpenCode)",
-			Description: "AI-powered coding assistance",
+			Name:        "AI Assistant (pi)",
+			Description: "The one assistant this configuration enables: a floating pi chat",
+			// docs/ai-configuration.md is the repository's statement of which assistant is
+			// live; every other AI plugin is disabled by name in
+			// dotfiles-nvim/nvim/lua/plugins/disabled.lua, so this table carries the
+			// binding that exists and nothing else. TestLearnAIKeymapsMatchTheActiveAssistant
+			// holds the two to each other.
 			Keymaps: []Keymap{
-				{Keys: "<Tab>", Description: "Accept Copilot suggestion", Mode: "i"},
-				{Keys: "<C-]>", Description: "Dismiss Copilot suggestion", Mode: "i"},
-				{Keys: "<M-]>", Description: "Next Copilot suggestion", Mode: "i"},
-				{Keys: "<M-[>", Description: "Previous Copilot suggestion", Mode: "i"},
-				{Keys: "<leader>aa", Description: "Toggle OpenCode", Mode: "n"},
-				{Keys: "<leader>as", Description: "OpenCode select", Mode: "n,x"},
-				{Keys: "<leader>ai", Description: "OpenCode ask", Mode: "n,x"},
-				{Keys: "<leader>aI", Description: "OpenCode ask with context", Mode: "n,x"},
-				{Keys: "<leader>ab", Description: "OpenCode ask about buffer", Mode: "n,x"},
-				{Keys: "<leader>ap", Description: "OpenCode prompt", Mode: "n,x"},
-				{Keys: "<leader>ape", Description: "OpenCode explain", Mode: "n,x"},
-				{Keys: "<leader>apf", Description: "OpenCode fix", Mode: "n,x"},
-				{Keys: "<leader>apd", Description: "OpenCode diagnose", Mode: "n,x"},
-				{Keys: "<leader>apr", Description: "OpenCode review", Mode: "n,x"},
-				{Keys: "<leader>apt", Description: "OpenCode test", Mode: "n,x"},
-				{Keys: "<leader>apo", Description: "OpenCode optimize", Mode: "n,x"},
+				{Keys: "<leader>a", Description: "Open the pi floating chat", Mode: "n"},
 			},
 		},
 		{
@@ -602,7 +595,7 @@ func GetNvimInfo() ToolInfo {
 			"LazyVim: Pre-configured, sane defaults",
 			"LSP support for 100+ languages",
 			"TreeSitter for better syntax highlighting",
-			"AI integration (Copilot, Avante)",
+			"One AI assistant enabled: the pi floating chat (<leader>a)",
 			"Git integration (Lazygit, Gitsigns)",
 			"Fuzzy finding (Snacks picker)",
 			"File navigation (Oil, Mini.files, Harpoon)",
@@ -614,6 +607,7 @@ func GetNvimInfo() ToolInfo {
 			"Requires terminal with good font support",
 			"Plugin ecosystem can be overwhelming",
 			"Configuration complexity (mitigated by LazyVim)",
+			"The other AI plugins (Copilot, Avante, OpenCode, Claude Code, CodeCompanion, Antigravity) ship disabled; enable one at a time (see docs/ai-configuration.md)",
 		},
 		Website: "https://lazyvim.org",
 	}
@@ -851,12 +845,12 @@ return {
     },
   },
   
-  -- Modify telescope options
+  -- Modify the snacks picker
   {
-    "nvim-telescope/telescope.nvim",
+    "folke/snacks.nvim",
     opts = {
-      defaults = {
-        layout_strategy = "vertical",
+      picker = {
+        exclude = { ".git", "node_modules", "vendor" },
       },
     },
   },
@@ -928,7 +922,7 @@ return {
 			Tips: []string{
 				"Always add 'desc' for which-key integration",
 				"Use :map to see all current mappings",
-				"<leader>sk to search keymaps with telescope",
+				"<leader>sk to search keymaps with the snacks picker",
 			},
 		},
 		{
@@ -1050,7 +1044,7 @@ K                Hover docs
 			Tips: []string{
 				"<leader>? shows context-aware keybindings",
 				"<leader>sk to fuzzy search all keymaps",
-				"Most commands work with telescope/snacks",
+				"Most commands read through the snacks picker",
 			},
 		},
 	}
