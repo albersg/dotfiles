@@ -57,8 +57,12 @@ crust = "#06080f"
 # <<< dotfiles-theme-palettes <<<
 
 [character]
-success_symbol = "[󱗞 ](fg:green)"
-error_symbol = "[󱗞 ](fg:red)"
+# The prompt symbol is U+E0B0 (nf-pl-left_hard_divider), a one-cell powerline
+# triangle. Measured against the families this repository installs -- MesloLGS and
+# IosevkaTerm, on both the Windows and the WSL side -- its advance is exactly 1.000
+# of a cell and equal to the U+F15DE it replaces, so the prompt does not shift.
+success_symbol = "[ ](fg:green)"
+error_symbol = "[ ](fg:red)"
 vimcmd_symbol = "[N](bold red)"
 vimcmd_replace_one_symbol = "[R](bold peach)"
 vimcmd_visual_symbol = "[V](bold mauve)"
@@ -66,7 +70,7 @@ vimcmd_visual_symbol = "[V](bold mauve)"
 [username]
 style_user = 'bold blue'
 style_root = 'bold red'
-format = '[󱗞 $user](fg:$style) '
+format = '[ $user](fg:$style) '
 disabled = false
 show_always = true
 
