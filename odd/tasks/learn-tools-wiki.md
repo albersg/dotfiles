@@ -97,6 +97,21 @@ worktree principal. Por eso este frente vive en su propio worktree,
 
 **L4.** Decisión del humano (verbatim): *"C) Todo, incluida paridad de keymaps (puntos 1-5)"*.
 
+**L6.** T3 y T4 se entregaron en un solo commit: sus cambios viven en los mismos archivos
+(`tools_info.go`, `view.go`, `update.go`, `model.go`, `learn_menu.go`, `teatest_test.go`,
+`comprehensive_test.go`), así que la frontera entre "páginas de Font y Prompts" y "páginas de
+referencia" no se puede cortar por archivo sin partir hunks a mano. Evidencia de la suite del
+paquete que obligó a un arreglo: `TestEveryScreenFitsEveryTerminalSize` falló con "the guard
+enumerates 66 screens, want the measured 62", porque `measuredScreens` está pinneada a propósito y
+no siguió a las pantallas nuevas; ahora vale 69 (57 estados del installer + los 6 que abre la
+sección de utilidades + los 6 del trainer) y su comentario dice de dónde sale cada grupo.
+
+También en T4: `markdownTableRowsAfter` ahora salta la primera fila de la sección como encabezado
+—sea cual sea su nombre— en vez de reconocer "Keys" y "Plugin", porque la tabla de shell tooling
+titula su primera columna "Tool"; y el guard del toolset trata una directiva marcada como dropeada
+que el Brewfile sí declara como el caso que la página documenta, no como un desajuste: el
+comportamiento real de cada fila lo verifica `filterBrewfile`.
+
 **L7.** T5. La referencia de keymaps ofrecía cinco tools; ahora ofrece ocho. Kitty entra con las
 once líneas `map` de `dotfiles-kitty/kitty.conf:68-80` (nueve saltos de pestaña y las dos de
 portapapeles) y las otras dos entran con la respuesta exacta: ni `.wezterm.lua` ni `alacritty.toml`
@@ -112,18 +127,11 @@ Dos renombres, porque el mecanismo dejó de ser sólo del learn: `LearnTableScro
 sumó Kitty: el panel cuenta tablas de bindings, y los dos que no declaran ninguno no tienen tabla
 que contar, cosa que su comentario ahora dice en vez de afirmar que son "the five tools".
 `measuredScreens` pasó de 69 a 73.
-: sus cambios viven en los mismos archivos
-(`tools_info.go`, `view.go`, `update.go`, `model.go`, `learn_menu.go`, `teatest_test.go`,
-`comprehensive_test.go`), así que la frontera entre "páginas de Font y Prompts" y "páginas de
-referencia" no se puede cortar por archivo sin partir hunks a mano. Evidencia de la suite del
-paquete que obligó a un arreglo: `TestEveryScreenFitsEveryTerminalSize` falló con "the guard
-enumerates 66 screens, want the measured 62", porque `measuredScreens` está pinneada a propósito y
-no siguió a las pantallas nuevas; ahora vale 69 (57 estados del installer + los 6 que abre la
-sección de utilidades + los 6 del trainer) y su comentario dice de dónde sale cada grupo.
 
-También en T4: `markdownTableRowsAfter` ahora salta la primera fila de la sección como encabezado
-—sea cual sea su nombre— en vez de reconocer "Keys" y "Plugin", porque la tabla de shell tooling
-titula su primera columna "Tool"; y el guard del toolset trata una directiva marcada como dropeada
-que el Brewfile sí declara como el caso que la página documenta, no como un desajuste: el
-comportamiento real de cada fila lo verifica `filterBrewfile`.
+**L8.** T6 y T7. Los dos documentos quedaron al día: `docs/tui-installer.md` nombra el hub y cada
+página que alcanza, la referencia de keymaps tiene sección propia con las ocho tools y el archivo que
+copia cada tabla, y la página de Neovim ya no lista los plugins de IA como vivos; `docs/tools.md` dice
+dónde aparece su contenido dentro de la interfaz y que la tabla de shell tooling se copia fila por
+fila. Verificación de cierre: `bash scripts/preflight.sh` (la puerta completa, sin caché y en el
+orden de CI) más la suite del módulo y los guards dirigidos de cada tarea.
 ```

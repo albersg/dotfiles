@@ -58,12 +58,30 @@ func TestLearnHubRowsAndOptionsAgree(t *testing.T) {
 // TestEveryLearnHubRowOpensItsPageAndComesBack is the behavioral half: Enter on
 // a row lands on the screen the row names, and Escape returns to the hub rather
 // than dumping the reader on the main menu.
+//
+// The row is found by its label in the menu the hub draws, not by its index in
+// the table. The menu carries a rule where the hub's two sections meet, so a
+// row's index in the table and its position in the menu are two different
+// numbers from the first row of the second section on. The guard walked the
+// table by index until that section existed, and then the index led to the row
+// under the one it meant to press.
 func TestEveryLearnHubRowOpensItsPageAndComesBack(t *testing.T) {
-	for i, row := range learnToolRows() {
+	for _, row := range learnToolRows() {
 		m := NewModel()
 		m.Screen = ScreenLearnTools
 		m.PrevScreen = ScreenMainMenu
-		m.Cursor = i
+
+		index := -1
+		for i, option := range m.GetCurrentOptions() {
+			if option == row.Label {
+				index = i
+			}
+		}
+		if index < 0 {
+			t.Errorf("the hub table carries the row %q and the menu does not offer it", row.Label)
+			continue
+		}
+		m.Cursor = index
 
 		opened, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		page := opened.(Model)

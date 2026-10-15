@@ -78,6 +78,29 @@ func TestEveryScreenIsCoveredByAFrameGuard(t *testing.T) {
 		len(declared), len(measured), trainerFrameWidth, trainerFrameHeight)
 }
 
+// TestEveryDeclaredScreenHasAName pins the two halves of one list: model.go
+// declares the screens and the test helper names them, for the failure messages
+// every guard in this package writes. The names used to be a slice indexed by the
+// constant's value, so a screen inserted above another was renamed after its
+// neighbour and the newest ones printed as "Unknown" in exactly the message that
+// was supposed to name them.
+func TestEveryDeclaredScreenHasAName(t *testing.T) {
+	declared := screenConstantsInDeclarationOrder(t)
+	if len(declared) == 0 {
+		t.Fatal("model.go declares no Screen constants, so this guard proves nothing")
+	}
+
+	for value, name := range declared {
+		// The constant is ScreenKeymapsKitty; the name a failure should read is the
+		// one without the type's prefix.
+		want := strings.TrimPrefix(name, "Screen")
+		if got := Screen(value).String(); got != want {
+			t.Errorf("Screen(%d) is %s in model.go and prints as %q, want %q: add it to screenNames",
+				value, name, got, want)
+		}
+	}
+}
+
 // TestNoInstallerScreenDrawsAnEmojiBox is the class guard for the rule the
 // repository already stated for the trainer and then broke everywhere else: a
 // terminal without an emoji font draws an emoji as a box, so the interface says

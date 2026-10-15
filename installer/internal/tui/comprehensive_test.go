@@ -1619,18 +1619,75 @@ func TestInitReturnsCommands(t *testing.T) {
 // SCREEN STRING REPRESENTATION (for debugging)
 // =============================================================================
 
+// screenNames names every Screen constant, for the failure messages of the tests
+// in this package. It is a map rather than a slice indexed by the constant's
+// value: a slice made a name a matter of counting, so a screen inserted above
+// another one was renamed after its neighbour and the newest ones printed as
+// "Unknown" in exactly the messages that were supposed to name them.
+// TestEveryDeclaredScreenHasAName fails by name when a constant is added without
+// an entry here.
+var screenNames = map[Screen]string{
+	ScreenWelcome:              "Welcome",
+	ScreenMainMenu:             "MainMenu",
+	ScreenOSSelect:             "OSSelect",
+	ScreenTerminalSelect:       "TerminalSelect",
+	ScreenFontSelect:           "FontSelect",
+	ScreenShellSelect:          "ShellSelect",
+	ScreenWMSelect:             "WMSelect",
+	ScreenNvimSelect:           "NvimSelect",
+	ScreenInstalling:           "Installing",
+	ScreenComplete:             "Complete",
+	ScreenError:                "Error",
+	ScreenLearnTerminals:       "LearnTerminals",
+	ScreenLearnShells:          "LearnShells",
+	ScreenLearnWM:              "LearnWM",
+	ScreenLearnNvim:            "LearnNvim",
+	ScreenKeymaps:              "Keymaps",
+	ScreenKeymapCategory:       "KeymapCategory",
+	ScreenKeymapsMenu:          "KeymapsMenu",
+	ScreenKeymapsTmux:          "KeymapsTmux",
+	ScreenKeymapsTmuxCat:       "KeymapsTmuxCat",
+	ScreenKeymapsZellij:        "KeymapsZellij",
+	ScreenKeymapsZellijCat:     "KeymapsZellijCat",
+	ScreenKeymapsGhostty:       "KeymapsGhostty",
+	ScreenKeymapsGhosttyCat:    "KeymapsGhosttyCat",
+	ScreenLearnLazyVim:         "LearnLazyVim",
+	ScreenLazyVimTopic:         "LazyVimTopic",
+	ScreenBackupConfirm:        "BackupConfirm",
+	ScreenRestoreBackup:        "RestoreBackup",
+	ScreenRestoreConfirm:       "RestoreConfirm",
+	ScreenGhosttyWarning:       "GhosttyWarning",
+	ScreenTrainerMenu:          "TrainerMenu",
+	ScreenTrainerLesson:        "TrainerLesson",
+	ScreenTrainerPractice:      "TrainerPractice",
+	ScreenTrainerBoss:          "TrainerBoss",
+	ScreenTrainerResult:        "TrainerResult",
+	ScreenTrainerBossResult:    "TrainerBossResult",
+	ScreenKeymapsHerdr:         "KeymapsHerdr",
+	ScreenKeymapsHerdrCat:      "KeymapsHerdrCat",
+	ScreenKeymapsKitty:         "KeymapsKitty",
+	ScreenKeymapsKittyCat:      "KeymapsKittyCat",
+	ScreenKeymapsWezTerm:       "KeymapsWezTerm",
+	ScreenKeymapsAlacritty:     "KeymapsAlacritty",
+	ScreenUtilities:            "Utilities",
+	ScreenThemePicker:          "ThemePicker",
+	ScreenWSLResources:         "WSLResources",
+	ScreenTerminalCapabilities: "TerminalCapabilities",
+	ScreenShellAudit:           "ShellAudit",
+	ScreenUpdate:               "Update",
+	ScreenAdminPassword:        "AdminPassword",
+	ScreenInstallReview:        "InstallReview",
+	ScreenLearnTools:           "LearnTools",
+	ScreenLearnFont:            "LearnFont",
+	ScreenLearnPrompts:         "LearnPrompts",
+	ScreenLearnTooling:         "LearnTooling",
+	ScreenLearnPlugins:         "LearnPlugins",
+	ScreenLearnToolset:         "LearnToolset",
+}
+
 func (s Screen) String() string {
-	names := []string{
-		"Welcome", "MainMenu", "OSSelect", "TerminalSelect",
-		"FontSelect", "ShellSelect", "WMSelect", "NvimSelect",
-		"Installing", "Complete", "Error",
-		"LearnTerminals", "LearnShells", "LearnWM", "LearnNvim",
-		"Keymaps", "KeymapCategory",
-		"LearnLazyVim", "LazyVimTopic",
-		"BackupConfirm", "RestoreBackup", "RestoreConfirm",
-	}
-	if int(s) < len(names) {
-		return names[s]
+	if name, ok := screenNames[s]; ok {
+		return name
 	}
 	return "Unknown"
 }
