@@ -85,7 +85,10 @@ func zeroPasswordBytes(buf []byte) {
 const adminPasswordMaskLimit = 24
 
 // renderAdminPassword draws the installer's own password prompt. It shows how
-// much has been typed and never a character of it.
+// much has been typed and never a character of it, and it says what to do with
+// the keyboard rather than leaving it to be guessed at: the field reads as a
+// place to type, the line above it names the action, and Enter is named for the
+// attempt it makes instead of for a selection.
 //
 // Every line goes through wrapText against the frame's own width rather than being
 // hand-wrapped: the frame pads every row to the widest one in the body, so a single
@@ -93,7 +96,7 @@ const adminPasswordMaskLimit = 24
 // guard measures at twelve terminal sizes down to 60x20.
 func (m Model) renderAdminPassword() string {
 	width := contentWidth(m)
-	hints := []installerHint{hintSelect, hintBack}
+	hints := []installerHint{hintValidate, hintTerminal}
 
 	typed := len(m.AdminPassword)
 	masked := strings.Repeat("•", typed)
@@ -101,11 +104,12 @@ func (m Model) renderAdminPassword() string {
 		masked = strings.Repeat("•", adminPasswordMaskLimit) + cutMarker
 	}
 	if typed == 0 {
-		masked = MutedStyle.Render("waiting")
+		masked = MutedStyle.Render("type it here")
 	}
 
 	body := []string{BrandStyle.Render(m.GetScreenTitle())}
 	body = append(body, wrapText("sudo needs it for the steps that change the machine.", width, 0)...)
+	body = append(body, wrapText("Type your administrator password and press Enter.", width, 0)...)
 	body = append(body, "", "  "+masked, "")
 	body = append(body, wrapText(fmt.Sprintf("%d characters typed; the field holds up to %d.", typed, adminPasswordCapacity), width, 0)...)
 

@@ -290,3 +290,55 @@ func TestTheFieldOwnsItsKeys(t *testing.T) {
 		t.Fatalf("the field holds %d bytes, past its fixed capacity of %d", len(m.AdminPassword), adminPasswordCapacity)
 	}
 }
+
+// normalizeRender folds a rendered screen into one line of lowercase words, so a
+// guard can ask whether a phrase is on the screen at all without depending on
+// where the frame happened to wrap it. It strips nothing: the words a styled
+// segment carries stay words, which is all these assertions read.
+func normalizeRender(rendered string) string {
+	var b strings.Builder
+	for _, word := range strings.Fields(rendered) {
+		b.WriteString(strings.ToLower(word))
+		b.WriteString(" ")
+	}
+	return b.String()
+}
+
+// TestTheScreenSaysWhatToTypeAndThatEnterValidates pins S5. The screen was
+// readable only to someone who already knew what to do: an empty field drew the
+// word "waiting", which reads as the installer waiting for something rather than
+// as the place to type, and the only key the footer named was Enter/select -- when
+// this screen's Enter is not a selection at all, it is an attempt. The guard holds
+// the two halves that make it unmistakable: the screen says the action in its own
+// words, and nothing on it calls Enter a selection.
+func TestTheScreenSaysWhatToTypeAndThatEnterValidates(t *testing.T) {
+	empty := Model{Screen: ScreenAdminPassword, AdminPassword: make([]byte, 0, adminPasswordCapacity)}
+	plain := normalizeRender(empty.renderAdminPassword())
+
+	if !strings.Contains(plain, "press enter") {
+		t.Fatalf("the screen never says that Enter validates what was typed on it:\n%s", empty.renderAdminPassword())
+	}
+	if !strings.Contains(plain, "type") {
+		t.Fatalf("the screen does not name the action where the password goes:\n%s", empty.renderAdminPassword())
+	}
+	if strings.Contains(plain, "waiting") {
+		t.Fatalf("an empty field reads as the installer waiting for something rather than as a place to type:\n%s", empty.renderAdminPassword())
+	}
+	if strings.Contains(plain, "select") {
+		t.Fatalf("the footer calls this screen's Enter a selection, which is not what it does here:\n%s", empty.renderAdminPassword())
+	}
+
+	// The instruction does not disappear once a character is typed: the screen a
+	// user is looking at mid-password has to answer the same question as the empty
+	// one, and that is the state it was reported from.
+	typed := Model{
+		Screen:        ScreenAdminPassword,
+		AdminPassword: append(make([]byte, 0, adminPasswordCapacity), []byte("hunter2")...),
+	}
+	midway := normalizeRender(typed.renderAdminPassword())
+	for _, want := range []string{"press enter", "type"} {
+		if !strings.Contains(midway, want) {
+			t.Fatalf("with something typed the screen stopped saying %q:\n%s", want, typed.renderAdminPassword())
+		}
+	}
+}
