@@ -97,6 +97,18 @@ worktree principal. Por eso este frente vive en su propio worktree,
 
 **L4.** Decisión del humano (verbatim): *"C) Todo, incluida paridad de keymaps (puntos 1-5)"*.
 
-**L5.** Reconocimiento que acota S6: `alacritty.toml` no tiene sección `[keyboard]` ni `[[keyboard.bindings]]`
-y `.wezterm.lua` no asigna `config.keys`; `dotfiles-kitty/kitty.conf:68-80` declara los once `map`.
+**L6.** T3 y T4 se entregaron en un solo commit: sus cambios viven en los mismos archivos
+(`tools_info.go`, `view.go`, `update.go`, `model.go`, `learn_menu.go`, `teatest_test.go`,
+`comprehensive_test.go`), así que la frontera entre "páginas de Font y Prompts" y "páginas de
+referencia" no se puede cortar por archivo sin partir hunks a mano. Evidencia de la suite del
+paquete que obligó a un arreglo: `TestEveryScreenFitsEveryTerminalSize` falló con "the guard
+enumerates 66 screens, want the measured 62", porque `measuredScreens` está pinneada a propósito y
+no siguió a las pantallas nuevas; ahora vale 69 (57 estados del installer + los 6 que abre la
+sección de utilidades + los 6 del trainer) y su comentario dice de dónde sale cada grupo.
+
+También en T4: `markdownTableRowsAfter` ahora salta la primera fila de la sección como encabezado
+—sea cual sea su nombre— en vez de reconocer "Keys" y "Plugin", porque la tabla de shell tooling
+titula su primera columna "Tool"; y el guard del toolset trata una directiva marcada como dropeada
+que el Brewfile sí declara como el caso que la página documenta, no como un desajuste: el
+comportamiento real de cada fila lo verifica `filterBrewfile`.
 ```

@@ -91,6 +91,7 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 		{ScreenLearnWM, 3},
 		{ScreenLearnNvim, 4},
 		{ScreenLearnTools, 5},
+		{ScreenLearnPrompts, 4},
 		{ScreenKeymaps, 3},
 		{ScreenLearnLazyVim, 3},
 		// The review screen lists one row per catalogued unit, so its count is the
@@ -221,7 +222,8 @@ func TestGetScreenTitleForAllScreens(t *testing.T) {
 		ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm,
 		ScreenInstalling, ScreenComplete, ScreenError,
 		ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim,
-		ScreenLearnTools,
+		ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts,
+		ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset,
 		ScreenKeymaps, ScreenKeymapCategory, ScreenLearnLazyVim, ScreenLazyVimTopic,
 	}
 

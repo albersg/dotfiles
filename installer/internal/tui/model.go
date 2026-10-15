@@ -116,6 +116,19 @@ const (
 	// that row opened the terminal list directly and the rest were reachable only
 	// from inside a run. Every row is one entry of learnToolRows().
 	ScreenLearnTools // Every page of the in-installer wiki, one row each
+	// The font and the prompts, appended at the end for the same reason as the
+	// screens above. The run installs both without asking about them: the font
+	// question offers Install or Skip, and the prompts belong to the shells the
+	// wizard already chose.
+	ScreenLearnFont    // The Nerd Font the run installs, and why it needs to be there
+	ScreenLearnPrompts // The prompt each shipped shell configuration starts
+	// The three read-only reference pages: what the shell step installs beside the
+	// shell, the plugin set the run provisions, and the Brewfile directives the
+	// toolset step reads. Appended at the end for the same reason as the screens
+	// above.
+	ScreenLearnTooling // What the shell step installs, and what uses it
+	ScreenLearnPlugins // The plugin set the run provisions, and what manages it
+	ScreenLearnToolset // The Brewfile directives, and what the run does with each
 )
 
 // InstallStep represents a single installation step
@@ -318,6 +331,11 @@ type Model struct {
 	HerdrKeymapCategories   []KeymapCategory
 	HerdrSelectedCategory   int
 	HerdrKeymapScroll       int
+	// LearnTableScroll is the top-row offset of the read-only reference pages the
+	// learn section draws (shell tooling, plugins, the machine toolset). They share
+	// one value because only one of them is on screen at a time, and it is reset
+	// when a page is opened and when it is left.
+	LearnTableScroll int
 	// LazyVim mode
 	LazyVimTopics        []LazyVimTopic
 	SelectedLazyVimTopic int
@@ -924,6 +942,8 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "← Back"}
 	case ScreenLearnWM:
 		return []string{"Tmux", "Zellij", "Herdr", m.menuSeparator(), "← Back"}
+	case ScreenLearnPrompts:
+		return []string{"Starship", "Powerlevel10k", m.menuSeparator(), "← Back"}
 	case ScreenLearnNvim:
 		return []string{"View Features", "View Keymaps", "LazyVim Guide", m.menuSeparator(), "← Back"}
 	case ScreenKeymaps:

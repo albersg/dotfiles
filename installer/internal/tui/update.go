@@ -1323,11 +1323,20 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		return m.handleSelectionKeys(key)
 
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnPrompts:
 		return m.handleLearnMenuKeys(key)
 
 	case ScreenLearnTools:
 		return m.handleLearnHubKeys(key)
+
+	case ScreenLearnTooling:
+		return m.handleLearnTableKeys(key, len(shellToolingRows()))
+
+	case ScreenLearnPlugins:
+		return m.handleLearnTableKeys(key, len(pluginSetRows()))
+
+	case ScreenLearnToolset:
+		return m.handleLearnTableKeys(key, len(toolsetDirectives()))
 
 	case ScreenKeymaps:
 		return m.handleKeymapsMenuKeys(key)
@@ -1465,10 +1474,11 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenLazyVimTopic:
 		m.Screen = ScreenLearnLazyVim
 		m.LazyVimScroll = 0
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
 		m.ViewingTool = ""
+		m.LearnTableScroll = 0
 	case ScreenKeymaps:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
@@ -2494,6 +2504,32 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 // through learnToolRows() rather than by its position, so the page a row opens
 // and the row the menu draws cannot drift apart, and Escape is the way back to
 // whatever opened the hub.
+// handleLearnTableKeys scrolls a read-only reference page and leaves it. The
+// pages share one scroll value because only one of them is on screen at a time,
+// and the value is reset when the page is opened and when it is left, so a page
+// never opens part-way down a table the reader has not seen. The window and its
+// clamp come from the same helper the renderer windows with, so the last row is
+// reachable.
+func (m Model) handleLearnTableKeys(key string, rows int) (tea.Model, tea.Cmd) {
+	maxScroll := offsetWindowMax(keymapTableRows(m.Height), rows)
+
+	switch key {
+	case "up", "k":
+		if m.LearnTableScroll > 0 {
+			m.LearnTableScroll--
+		}
+	case "down", "j":
+		if m.LearnTableScroll < maxScroll {
+			m.LearnTableScroll++
+		}
+	case "enter", " ", "q":
+		m.Screen = m.PrevScreen
+		m.LearnTableScroll = 0
+	}
+
+	return m, nil
+}
+
 func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -2530,6 +2566,7 @@ func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
 		m.Screen = row.Screen
 		m.Cursor = 0
 		m.ViewingTool = ""
+		m.LearnTableScroll = 0
 	}
 
 	return m, nil

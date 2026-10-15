@@ -48,6 +48,7 @@ func markdownTableRowsAfter(t *testing.T, doc, heading string) [][]string {
 	}
 
 	var rows [][]string
+	headerSeen := false
 	for _, line := range strings.Split(section, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "|") {
@@ -67,8 +68,10 @@ func markdownTableRowsAfter(t *testing.T, doc, heading string) [][]string {
 		if rule {
 			continue
 		}
-		// The header is the row that names the columns.
-		if len(rows) == 0 && (cells[0] == "Keys" || cells[0] == "Plugin") {
+		// The first row of a section's table is its header, whatever it names, so
+		// the caller compares data rows and not a column title.
+		if !headerSeen {
+			headerSeen = true
 			continue
 		}
 		rows = append(rows, cells)

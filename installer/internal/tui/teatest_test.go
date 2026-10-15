@@ -1792,6 +1792,20 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return m
 	case "learn-tools":
 		return base(ScreenLearnTools)
+	case "learn-font":
+		return base(ScreenLearnFont)
+	case "learn-prompts":
+		return base(ScreenLearnPrompts)
+	case "learn-prompts-info":
+		m := base(ScreenLearnPrompts)
+		m.ViewingTool = "powerlevel10k"
+		return m
+	case "learn-tooling":
+		return base(ScreenLearnTooling)
+	case "learn-plugins":
+		return base(ScreenLearnPlugins)
+	case "learn-toolset":
+		return base(ScreenLearnToolset)
 	case "keymaps":
 		return base(ScreenKeymaps)
 	case "keymap-category":
@@ -1929,6 +1943,8 @@ var installerFrameScreenNames = []string{
 	"learn-wm", "learn-wm-info",
 	"learn-nvim", "learn-nvim-features",
 	"learn-tools",
+	"learn-font", "learn-prompts", "learn-prompts-info",
+	"learn-tooling", "learn-plugins", "learn-toolset",
 	"keymaps", "keymap-category", "keymaps-menu",
 	"keymaps-tmux", "keymaps-tmux-category",
 	"keymaps-zellij", "keymaps-zellij-category",
