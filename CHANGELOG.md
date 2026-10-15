@@ -4,6 +4,12 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Fish lists files the way zsh does, icons included.** The two shells are meant to be the same shell with the same tools, and they were not. `.zshrc` aliases `ls` to `eza --icons --group-directories-first` with `ll`, `la`, `lt` and `tree` beside it; `config.fish` aliased `ls` to `gls --color=auto` and added nothing. A fish user therefore got a listing with no icon anywhere, which cannot be told apart from a Nerd Font that was installed wrong -- and it was reported as that. `eza` was already on the fish `PATH` on every host this installer supports, so fish had the tool and never called it. The listing block now declares the same five aliases with the same flags, which a guard compares against `.zshrc` so that a flag changed in one shell and not the other fails a test instead of shipping one flag at a time, and it exports `EZA_ICON_SPACING` so an icon is not jammed against the name it labels. Every alias is declared inside a `command -q eza` guard, because an alias whose tool the host has not got fails on every call and the Homebrew step that puts `eza` in place is allowed to fail. Without `eza`, macOS keeps the `ls --color=auto` it already had and a host with Homebrew's coreutils keeps `gls --color=auto` -- itself guarded now, for the same reason: `gls` is a Homebrew-only name, so that alias failed on every call on a Debian host without Homebrew.
+
 ## [v0.7.10] — 2026-10-14
 
 ### Added
