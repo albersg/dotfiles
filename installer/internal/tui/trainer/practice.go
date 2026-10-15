@@ -10,12 +10,39 @@ import (
 const MasteryThreshold = 3
 
 // MasteredReviewWeight is the weight a mastered exercise keeps in the practice
-// pool. It is deliberately the smallest positive weight: mastered exercises are
-// review rather than the main event, but they never leave the pool. When the
-// mastered weight was zero the pool could empty, and a module whose exercises
-// were all mastered but whose boss gate was unmet could neither be practised nor
-// fought -- the deadlock this constant removes.
+// pool while its review is not due. It is deliberately the smallest positive
+// weight: mastered exercises are review rather than the main event, but they never
+// leave the pool. When the mastered weight was zero the pool could empty, and a
+// module whose exercises were all mastered but whose boss gate was unmet could
+// neither be practised nor fought -- the deadlock this constant removes.
 const MasteredReviewWeight = 1
+
+// MasteredReviewDueWeight is the weight a mastered exercise takes once its review
+// is due: high enough that a due review is served promptly rather than buried under
+// exercises the player has never touched.
+const MasteredReviewDueWeight = 12
+
+// MasteryReviewInterval is how long a mastered exercise stays out of the way before
+// it comes back for review. The trainer's own documentation has promised spaced
+// repetition since it was written and the per-exercise timestamp it needs was
+// recorded and never read; this is the rule that reads it. Twelve hours is long
+// enough that a single session is not spent re-answering what was just mastered and
+// short enough that the next session starts with it.
+const MasteryReviewInterval = 12 * time.Hour
+
+// IsReviewDue reports whether a mastered exercise has waited long enough to be
+// reviewed again. An exercise that was never mastered is never "due": it is simply
+// in the pool. A mastered exercise with no recorded attempt is due, because nothing
+// says when it was last seen.
+func (stats *ExerciseStats) IsReviewDue(now time.Time) bool {
+	if !stats.IsMastered() {
+		return false
+	}
+	if stats.LastAttempted == 0 {
+		return true
+	}
+	return now.Sub(time.Unix(stats.LastAttempted, 0)) >= MasteryReviewInterval
+}
 
 // GetExerciseStats returns stats for a specific exercise, creating if needed.
 // It is the write-side accessor: recording an answer needs a record to write to.
@@ -76,10 +103,10 @@ func (mp *ModuleProgress) RecordExerciseResult(exerciseID string, correct bool, 
 	}
 }
 
-// RecordPracticeAttempt records one practice answer in the module-level
-// counters the boss gate and the accuracy line read. It is practice-only on
-// purpose: a lesson answer or a boss step must not move the accuracy the
-// practice gate is measured with.
+// RecordPracticeAttempt records one practice answer in the module-level counters the
+// accuracy line reads, and in the recent window the boss gate reads. It is
+// practice-only on purpose: a lesson answer or a boss step must not move the accuracy
+// the practice gate is measured with.
 func (mp *ModuleProgress) RecordPracticeAttempt(correct bool, now time.Time) {
 	mp.PracticeAttempts++
 	if correct {
@@ -89,6 +116,46 @@ func (mp *ModuleProgress) RecordPracticeAttempt(correct bool, now time.Time) {
 		mp.PracticeAccuracy = float64(mp.PracticeCorrect) / float64(mp.PracticeAttempts)
 	}
 	mp.LastPracticed = now
+
+	// The recent window is what the boss gate reads, so a bad first run cannot tax
+	// the player forever. It keeps the last BossGateWindow answers and nothing older.
+	if len(mp.RecentResults) >= BossGateWindow {
+		mp.RecentResults = mp.RecentResults[len(mp.RecentResults)-BossGateWindow+1:]
+	}
+	mp.RecentResults = append(mp.RecentResults, correct)
+}
+
+// RecentAccuracy is the accuracy over the last BossGateWindow practice answers, and
+// how many answers that window holds. A profile written before the window existed has
+// none, so it falls back to the lifetime accuracy: the gate then behaves exactly as it
+// did before this rule, instead of reading a fresh player's history as 0%.
+func (mp *ModuleProgress) RecentAccuracy() (float64, int) {
+	if mp == nil {
+		return 0, 0
+	}
+	if len(mp.RecentResults) == 0 {
+		return mp.PracticeAccuracy, mp.PracticeAttempts
+	}
+	correct := 0
+	for _, ok := range mp.RecentResults {
+		if ok {
+			correct++
+		}
+	}
+	return float64(correct) / float64(len(mp.RecentResults)), len(mp.RecentResults)
+}
+
+// ReviewsDue counts the module's mastered exercises whose review interval has passed
+// at now. It is read-only, and it is the number the trainer menu shows and the rule
+// that keeps a practice session alive after everything is mastered.
+func (mp *ModuleProgress) ReviewsDue(module ModuleID, now time.Time) int {
+	due := 0
+	for _, lesson := range GetLessons(module) {
+		if mp.ExerciseStatsOrNil(lesson.ID).IsReviewDue(now) {
+			due++
+		}
+	}
+	return due
 }
 
 // RecordPracticeResult records the result of a practice attempt: the exercise's
@@ -103,18 +170,24 @@ func (mp *ModuleProgress) RecordPracticeResult(exerciseID string, correct bool, 
 	mp.RecordPracticeAttempt(correct, now)
 }
 
-// GetPracticeWeight calculates the weight for an exercise (higher = more likely to appear).
+// GetPracticeWeightAt calculates the weight for an exercise at one moment (higher =
+// more likely to appear). now is a parameter for the same reason every other timing
+// decision in this package takes one: a due review is a question about the clock, and
+// a hidden clock would make the pool untestable.
 //
 // A nil receiver is an exercise that has never been attempted, which is the same
 // question as an empty record and must not be a nil dereference: the pool asks
 // this for every lesson of a module the player may have never opened.
-func (stats *ExerciseStats) GetPracticeWeight() int {
+func (stats *ExerciseStats) GetPracticeWeightAt(now time.Time) int {
 	if stats == nil {
 		return 15 // Never attempted: medium-high priority.
 	}
 
 	if stats.IsMastered() {
-		return MasteredReviewWeight // Review, not the main event; never zero.
+		if stats.IsReviewDue(now) {
+			return MasteredReviewDueWeight
+		}
+		return MasteredReviewWeight // Resting review; never zero.
 	}
 
 	// Base weight
@@ -151,7 +224,7 @@ var defaultPracticeRand = rand.New(rand.NewSource(time.Now().UnixNano()))
 // mastered exercise keeps MasteredReviewWeight, so the pool is empty exactly
 // when the module has nothing to practise. nil is therefore reserved for a
 // module with no exercises at all.
-func SelectRandomPracticeExercise(module ModuleID, progress *ModuleProgress, rng *rand.Rand) *Exercise {
+func SelectRandomPracticeExercise(module ModuleID, progress *ModuleProgress, rng *rand.Rand, now time.Time) *Exercise {
 	lessons := GetLessons(module)
 	if len(lessons) == 0 {
 		return nil
@@ -168,7 +241,7 @@ func SelectRandomPracticeExercise(module ModuleID, progress *ModuleProgress, rng
 
 	for _, lesson := range lessons {
 		stats := progress.ExerciseStatsOrNil(lesson.ID)
-		weight := stats.GetPracticeWeight()
+		weight := stats.GetPracticeWeightAt(now)
 
 		if weight > 0 {
 			pool = append(pool, weightedEx{exercise: lesson, weight: weight})
@@ -285,6 +358,7 @@ func (mp *ModuleProgress) ResetModulePractice() {
 	mp.PracticeAttempts = 0
 	mp.PracticeCorrect = 0
 	mp.PracticeAccuracy = 0
+	mp.RecentResults = nil
 	mp.WeakExercises = []string{}
 	mp.LastPracticed = time.Time{}
 }

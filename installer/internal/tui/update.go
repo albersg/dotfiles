@@ -3421,7 +3421,11 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// its first answer, so it is the only state that refuses to start; an
 			// all-mastered module whose boss gate is unmet keeps offering review,
 			// which is how the player reaches the gate at all.
-			if m.TrainerStats.PracticeComplete(module.ID) {
+			// time.Now is the menu's own clock: the rule lives in the trainer package
+			// and takes the moment as an argument, and the menu is the view layer that
+			// has to supply one. A due review is work, so a module with reviews due
+			// starts a session even when the boss is already unlocked.
+			if m.TrainerStats.PracticeComplete(module.ID, time.Now()) {
 				m.TrainerMessage = "🎉 Nothing left to practise in " + module.Name + ": the boss is unlocked. Press [b]."
 				return m, nil
 			}
@@ -3435,8 +3439,15 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 			}
 
 			m.TrainerInput = ""
-			if m.TrainerStats.IsPracticeComplete(module.ID) {
-				m.TrainerMessage = "🔁 Review run: every exercise is mastered, and the boss still needs 80% practice accuracy."
+			if due := m.TrainerStats.ReviewsDue(module.ID, time.Now()); due > 0 {
+				word := "reviews"
+				if due == 1 {
+					word = "review"
+				}
+				m.TrainerMessage = fmt.Sprintf("🔁 Review run: %d mastered %s due.", due, word)
+			} else if m.TrainerStats.IsPracticeComplete(module.ID) {
+				m.TrainerMessage = fmt.Sprintf("🔁 Review run: every exercise is mastered, and the boss still needs %.0f%% of your last %d practice answers.",
+					trainer.BossGateAccuracy*100, trainer.BossGateWindow)
 			} else {
 				m.TrainerMessage = ""
 			}

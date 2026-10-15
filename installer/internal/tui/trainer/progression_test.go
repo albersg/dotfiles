@@ -17,15 +17,15 @@ import (
 
 func pickPractice(t *testing.T, module ModuleID, progress *ModuleProgress) *Exercise {
 	t.Helper()
-	return SelectRandomPracticeExercise(module, progress, nil)
+	return SelectRandomPracticeExercise(module, progress, nil, time.Now())
 }
 
-// progressionTestNow is the clock every recording test uses, so the stamps the
-// tests assert on are values and not the moment the suite happened to run.
-var progressionTestNow = time.Unix(1_700_000_000, 0)
-
+// recordPractice records one answer at the real clock. A fixture that answers "now"
+// is the fixture of a player in the middle of a session, with nothing due for review
+// yet, which is what these progression tests are about; the tests that need a stamp
+// of their own pass one explicitly (see review_test.go).
 func recordPractice(mp *ModuleProgress, exerciseID string, correct bool) {
-	mp.RecordPracticeResult(exerciseID, correct, progressionTestNow)
+	mp.RecordPracticeResult(exerciseID, correct, time.Now())
 }
 
 // completeLessons records the lesson stage of a module as finished, which is the
@@ -104,7 +104,7 @@ func TestIsPracticeComplete_DoesNotCreateEntries(t *testing.T) {
 func TestGetPracticeWeight_NilStatsIsNeverAttempted(t *testing.T) {
 	var stats *ExerciseStats
 
-	if got := stats.GetPracticeWeight(); got != 15 {
+	if got := stats.GetPracticeWeightAt(time.Now()); got != 15 {
 		t.Errorf("a never-attempted exercise weighs %d, want 15", got)
 	}
 }
@@ -115,7 +115,7 @@ func TestGetPracticeWeight_NilStatsIsNeverAttempted(t *testing.T) {
 func TestGetPracticeWeight_MasteredIsReviewWeight(t *testing.T) {
 	stats := &ExerciseStats{Mastered: true, TotalAttempts: 3, TotalCorrect: 3}
 
-	if got := stats.GetPracticeWeight(); got <= 0 {
+	if got := stats.GetPracticeWeightAt(time.Now()); got <= 0 {
 		t.Errorf("a mastered exercise weighs %d, want a positive review weight", got)
 	}
 }
@@ -266,7 +266,7 @@ func TestSelectPracticeExercise_UsesTheInjectedSource(t *testing.T) {
 		rng := rand.New(rand.NewSource(7))
 		ids := make([]string, 0, 5)
 		for i := 0; i < 5; i++ {
-			ex := SelectRandomPracticeExercise(ModuleHorizontal, progress, rng)
+			ex := SelectRandomPracticeExercise(ModuleHorizontal, progress, rng, time.Now())
 			if ex == nil {
 				t.Fatal("expected a practice exercise")
 			}

@@ -161,9 +161,11 @@ func TestRecordPracticeResult_UpdatesModuleProgress(t *testing.T) {
 // was unmet: no practice, no boss, and only the destructive reset as an exit.
 // Mastered exercises stay in the pool at the review weight instead.
 func TestGetPracticeWeight_MasteredKeepsReviewWeight(t *testing.T) {
-	stats := &ExerciseStats{Mastered: true}
+	// Mastered a moment ago: a resting review. A mastered exercise whose review has
+	// come due weighs more, which review_test.go pins separately.
+	stats := &ExerciseStats{Mastered: true, LastAttempted: time.Now().Unix()}
 
-	if got := stats.GetPracticeWeight(); got != MasteredReviewWeight {
+	if got := stats.GetPracticeWeightAt(time.Now()); got != MasteredReviewWeight {
 		t.Errorf("Mastered exercise should keep the review weight %d, got %d", MasteredReviewWeight, got)
 	}
 	if MasteredReviewWeight <= 0 {
@@ -174,7 +176,7 @@ func TestGetPracticeWeight_MasteredKeepsReviewWeight(t *testing.T) {
 func TestGetPracticeWeight_NeverAttemptedHasMediumWeight(t *testing.T) {
 	stats := &ExerciseStats{}
 
-	weight := stats.GetPracticeWeight()
+	weight := stats.GetPracticeWeightAt(time.Now())
 	if weight != 15 {
 		t.Errorf("Never attempted should have weight 15, got %d", weight)
 	}
@@ -184,7 +186,7 @@ func TestGetPracticeWeight_MoreErrorsHigherWeight(t *testing.T) {
 	statsLowErrors := &ExerciseStats{TotalAttempts: 5, TotalWrong: 1}
 	statsHighErrors := &ExerciseStats{TotalAttempts: 5, TotalWrong: 5}
 
-	if statsHighErrors.GetPracticeWeight() <= statsLowErrors.GetPracticeWeight() {
+	if statsHighErrors.GetPracticeWeightAt(time.Now()) <= statsLowErrors.GetPracticeWeightAt(time.Now()) {
 		t.Error("More errors should mean higher weight")
 	}
 }
@@ -193,7 +195,7 @@ func TestGetPracticeWeight_ConsecutiveCorrectReducesWeight(t *testing.T) {
 	statsNoStreak := &ExerciseStats{TotalAttempts: 5, ConsecutiveRight: 0}
 	statsStreak := &ExerciseStats{TotalAttempts: 5, ConsecutiveRight: 2}
 
-	if statsStreak.GetPracticeWeight() >= statsNoStreak.GetPracticeWeight() {
+	if statsStreak.GetPracticeWeightAt(time.Now()) >= statsNoStreak.GetPracticeWeightAt(time.Now()) {
 		t.Error("Consecutive correct should reduce weight")
 	}
 }
@@ -205,7 +207,7 @@ func TestGetPracticeWeight_ConsecutiveCorrectReducesWeight(t *testing.T) {
 func TestSelectRandomPracticeExercise_ReturnsExercise(t *testing.T) {
 	mp := &ModuleProgress{}
 
-	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil)
+	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil, time.Now())
 
 	if ex == nil {
 		t.Error("Should return an exercise")
@@ -231,10 +233,10 @@ func TestSelectRandomPracticeExercise_NilOnlyWithoutExercises(t *testing.T) {
 		mp.RecordPracticeResult(lesson.ID, true, time.Now())
 	}
 
-	if ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil); ex == nil {
+	if ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil, time.Now()); ex == nil {
 		t.Error("An all-mastered module must still offer a review exercise")
 	}
-	if ex := SelectRandomPracticeExercise(ModuleID("no_such_module"), mp, nil); ex != nil {
+	if ex := SelectRandomPracticeExercise(ModuleID("no_such_module"), mp, nil, time.Now()); ex != nil {
 		t.Error("A module with no exercises must select nothing")
 	}
 }
@@ -242,7 +244,7 @@ func TestSelectRandomPracticeExercise_NilOnlyWithoutExercises(t *testing.T) {
 func TestSelectRandomPracticeExercise_IsPracticeType(t *testing.T) {
 	mp := &ModuleProgress{}
 
-	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil)
+	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil, time.Now())
 
 	if ex != nil && ex.Type != ExercisePractice {
 		t.Errorf("Should be Practice type, got %s", ex.Type)

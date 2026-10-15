@@ -1755,10 +1755,14 @@ func trainerBossRequirement(stats *trainer.UserStats, mod trainer.ModuleInfo) st
 	}
 	accuracy, attempts := 0.0, 0
 	if progress := stats.ModuleProgressOrNil(mod.ID); progress != nil {
-		accuracy = progress.PracticeAccuracy * 100
-		attempts = progress.PracticeAttempts
+		// The recent window is what the gate reads, so it is what this line
+		// reports: a player shown the lifetime average would be told they need a
+		// number the gate does not look at.
+		accuracy, attempts = progress.RecentAccuracy()
+		accuracy *= 100
 	}
-	return fmt.Sprintf("80%% practice accuracy and 10 tries (at %.0f%%, %d)", accuracy, attempts)
+	return fmt.Sprintf("%.0f%% of the last %d practice answers (at %.0f%% over %d)",
+		trainer.BossGateAccuracy*100, trainer.BossGateWindow, accuracy, attempts)
 }
 
 // --- Did you know? ---------------------------------------------------------

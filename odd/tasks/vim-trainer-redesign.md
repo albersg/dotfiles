@@ -140,11 +140,11 @@ of being overwritten by the next save. A test pins each of the three.
 
 ## Tasks
 
-- [ ] **T1. Progression core** (S1-S4): read-only lookups, the review fallback that removes the
+- [x] **T1. Progression core** (S1-S4): read-only lookups, the review fallback that removes the
       deadlock, clock and RNG seams, per-exercise recording in all three modes. Tests first.
-- [ ] **T2. The pet turns** (S12): possessed companion state, art for the three glyph rungs and the
+- [x] **T2. The pet turns** (S12): possessed companion state, art for the three glyph rungs and the
       volume sprite, escalation with the boss's remaining lives, restored after the fight.
-- [ ] **T3. Spaced repetition and the recent gate** (S5, S6): review interval, due count on the menu,
+- [x] **T3. Spaced repetition and the recent gate** (S5, S6): review interval, due count on the menu,
       windowed accuracy for the boss gate, requirement copy.
 - [ ] **T4. Calibrated difficulty** (S7, S8): the Level contract and its guard, points from
       difficulty, the practice mix, the boss clock rule and the corrected step limits.
@@ -207,3 +207,20 @@ of being overwritten by the next save. A test pins each of the three.
   `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`,
   `TestInteractiveGhosttyScriptDownloadsThenRuns`), confirmed by running them in a detached worktree
   at `4ba4332`.
+
+- **T3 (S5, S6).** RED observed as a build failure naming every new rule
+  (`MasteryReviewInterval`, `IsReviewDue`, `GetPracticeWeightAt`), then implemented:
+  `MasteryReviewInterval = 12h` and `ExerciseStats.IsReviewDue(now)` read the per-exercise
+  `LastAttempted` stamp the trainer had recorded since it was written and never used;
+  `GetPracticeWeightAt(now)` weighs a due review at `MasteredReviewDueWeight = 12` and a resting
+  one at `MasteredReviewWeight = 1`, so mastery is a resting state rather than a grave;
+  `ModuleProgress.RecentResults` is the last `BossGateWindow = 20` practice answers and
+  `RecentAccuracy` is what `IsBossReady` reads (a profile written before the window existed falls
+  back to the lifetime accuracy, so old profiles keep the gate they had);
+  `UserStats.PracticeComplete(module, now)` now also waits for due reviews, because a promised
+  review that has come due is work, not a finished module. Visible: the menu detail line carries
+  "N mastered reviews due", the `[p]` handler announces a review run, and the boss requirement line
+  reports the recent window instead of the lifetime average.
+  Fixtures corrected, not rules: `recordPractice` answers at the real clock (a session's own
+  answers are never due), the mastered-weight pin and the session-complete pin stamp
+  `LastAttempted` "now", and the panel pin now asserts the new requirement copy.

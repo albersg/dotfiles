@@ -278,11 +278,11 @@ func (g *GameState) StartPractice(module ModuleID) {
 	// Use weighted random selection for intelligent practice. A module with
 	// nothing left to practise presents nothing: the menu reports that instead of
 	// opening a session that would end on its first answer.
-	if g.Stats.PracticeComplete(module) {
+	if g.Stats.PracticeComplete(module, g.Now()) {
 		return
 	}
 	progress := g.Stats.GetModuleProgress(module)
-	exercise := SelectRandomPracticeExercise(module, progress, g.rng)
+	exercise := SelectRandomPracticeExercise(module, progress, g.rng, g.Now())
 	g.presentExercise(exercise)
 }
 
@@ -302,12 +302,12 @@ func (g *GameState) NextPracticeExercise() bool {
 	if !g.IsPracticeMode {
 		return false
 	}
-	if g.Stats.PracticeComplete(g.CurrentModule) {
+	if g.Stats.PracticeComplete(g.CurrentModule, g.Now()) {
 		return false
 	}
 
 	progress := g.Stats.GetModuleProgress(g.CurrentModule)
-	exercise := SelectRandomPracticeExercise(g.CurrentModule, progress, g.rng)
+	exercise := SelectRandomPracticeExercise(g.CurrentModule, progress, g.rng, g.Now())
 
 	if exercise == nil {
 		// Only reachable for a module with no exercises at all.

@@ -3905,15 +3905,26 @@ func trainerModuleMeterText(progress *trainer.ModuleProgress, practice trainer.P
 }
 
 // trainerPracticeAccuracyText renders the selected module's practice accuracy,
-// the percentage the boss unlock threshold is measured against. It is omitted
-// until the module has a recorded attempt, so a fresh module does not claim 0%.
-// It names itself because it is now a line of the selected module's detail
-// block rather than a suffix on the row, where "Acc 60%" had to be terse.
-func trainerPracticeAccuracyText(progress *trainer.ModuleProgress) string {
+// the percentage the boss unlock threshold is measured against, and how many
+// mastered exercises have come due for review. It is omitted until the module has
+// a recorded attempt, so a fresh module does not claim 0%. It names itself because
+// it is now a line of the selected module's detail block rather than a suffix on
+// the row, where "Acc 60%" had to be terse. The due count shares the line rather
+// than taking a row of its own: the menu's row budget is fixed, and a new row here
+// would push the legend off an 80x24 screen.
+func trainerPracticeAccuracyText(progress *trainer.ModuleProgress, module trainer.ModuleID, now time.Time) string {
 	if progress == nil || progress.PracticeAttempts == 0 {
 		return ""
 	}
-	return fmt.Sprintf("Practice accuracy: %.0f%%", progress.PracticeAccuracy*100)
+	text := fmt.Sprintf("Practice accuracy: %.0f%%", progress.PracticeAccuracy*100)
+	if due := progress.ReviewsDue(module, now); due > 0 {
+		word := "reviews"
+		if due == 1 {
+			word = "review"
+		}
+		text += fmt.Sprintf(" · %d mastered %s due", due, word)
+	}
+	return text
 }
 
 // trainerWeakExerciseText renders the exercises a module misses most, in the
@@ -4017,7 +4028,7 @@ func (m Model) renderTrainerMenu() string {
 		// gutter.
 		if i == m.TrainerCursor {
 			detail := []string{InkStyle.Render(truncate(module.Description, inner-blockGutterWidth))}
-			if accuracy := trainerPracticeAccuracyText(progress); accuracy != "" {
+			if accuracy := trainerPracticeAccuracyText(progress, module.ID, time.Now()); accuracy != "" {
 				detail = append(detail, InfoStyle.Render(accuracy))
 			}
 			if weak := trainerWeakExerciseText(progress, practice, inner-blockGutterWidth); weak != "" {

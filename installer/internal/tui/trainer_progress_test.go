@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
@@ -202,7 +203,11 @@ func TestTrainerSessionCompleteReportsFailedSave(t *testing.T) {
 		progress.LessonsTotal = len(lessons)
 		progress.LessonsCompleted = len(lessons)
 		for _, lesson := range lessons {
-			progress.GetExerciseStats(lesson.ID).Mastered = true
+			recorded := progress.GetExerciseStats(lesson.ID)
+			recorded.Mastered = true
+			// Mastered just now. A due review is still work, so a mastered exercise
+			// with no stamp would leave the session open instead of complete.
+			recorded.LastAttempted = time.Now().Unix()
 		}
 		progress.PracticeAttempts = 10
 		progress.PracticeCorrect = 10

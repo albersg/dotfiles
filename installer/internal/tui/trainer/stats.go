@@ -30,6 +30,7 @@ type moduleProgressJSON struct {
 	PracticeAccuracy    float64                       `json:"practiceAccuracy"`
 	PracticeAttempts    int                           `json:"practiceAttempts"`
 	PracticeCorrect     int                           `json:"practiceCorrect"`
+	RecentResults       []bool                        `json:"recentResults,omitempty"`
 	BossDefeated        bool                          `json:"bossDefeated"`
 	BossBestTimeSeconds int64                         `json:"bossBestTimeSeconds"`
 	BossAttempts        int                           `json:"bossAttempts"`
@@ -111,6 +112,7 @@ func LoadStats() *UserStats {
 			PracticeAccuracy: modProgress.PracticeAccuracy,
 			PracticeAttempts: modProgress.PracticeAttempts,
 			PracticeCorrect:  modProgress.PracticeCorrect,
+			RecentResults:    modProgress.RecentResults,
 			BossDefeated:     modProgress.BossDefeated,
 			BossBestTime:     time.Duration(modProgress.BossBestTimeSeconds) * time.Second,
 			BossAttempts:     modProgress.BossAttempts,
@@ -204,6 +206,7 @@ func SaveStats(stats *UserStats) error {
 			PracticeAccuracy:    modProgress.PracticeAccuracy,
 			PracticeAttempts:    modProgress.PracticeAttempts,
 			PracticeCorrect:     modProgress.PracticeCorrect,
+			RecentResults:       modProgress.RecentResults,
 			BossDefeated:        modProgress.BossDefeated,
 			BossBestTimeSeconds: int64(modProgress.BossBestTime.Seconds()),
 			BossAttempts:        modProgress.BossAttempts,
