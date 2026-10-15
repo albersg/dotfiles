@@ -26,7 +26,7 @@ is last and holds the user's own words.
 - [x] **T2** (S4, S8) One builder: the interactive and non-interactive planners become callers of a single function, with the defaults unchanged. Route: inline. Commit: `refactor(tui): one builder turns choices into steps`.
 - [x] **T3** (S5, S9) The screen: enum, title, description, options, panel, render, key dispatch, escape map. Route: worker. Commit: `feat(tui): a screen that shows every unit and its switch`.
 - [x] **T4** (S6) The selection reaches the plan, and a unit turned off reports itself as skipped. Route: worker. Commit: `feat(tui): a unit turned off says so instead of vanishing`.
-- **T5** (S7, S8) The command line and the environment: the flag, and parity guards that hold both routes to the same plan. Route: worker. Commit: `feat(tui): the command line says what the screen can say`.
+- [x] **T5** (S7, S8) The command line and the environment: the flag, and parity guards that hold both routes to the same plan. Route: worker. Commit: `feat(tui): the command line says what the screen can say`.
 - **T6** (S2, S5) Documentation and changelog: `docs/tui-installer.md`, the `--help` text and `CHANGELOG.md`. Route: inline. Commit: `docs(tui): the installer's choices are described where its screens are`.
 
 ## Log
@@ -133,3 +133,23 @@ is last and holds the user's own words.
   restored byte-identical (`model.go` `f008647c739465e2`, `update.go` `0be36a9243225327`,
   `non_interactive.go` `855d8ccfbfcdb6ef`). Two of these guards assert an absence and pass trivially
   without a mutation; they are worth something because M1 and M2 bit.
+- **L19.** T5's flag is deliberately a validating one. `--skip` reads against the catalogue through
+  `ParseUnitSelection`, refuses a unit the run needs and a name nothing installs, and names both what it
+  refused and the fourteen that could have been asked for -- an accepted token that quietly does nothing
+  is worse than an error, because the user believes they asked for it. `SwitchableUnitIDs` feeds the
+  flag's own usage line, the help text and the validation from the one table, so a unit added to the
+  catalogue is offered without anyone remembering a written-out copy.
+- **L20.** A guard caught a real distinction and the fix belonged in the code, not in the guard.
+  `ParseUnitSelection` built its result with `make([]string, 0, ...)`, so nothing-named returned an empty
+  slice while the model's untouched set is nil -- the same plan and not the same value, and the parity
+  guard compares values. The empty flag now answers nil, which is what makes it *indistinguishable*
+  from an untouched selection rather than merely equivalent to it; loosening the guard to accept both
+  would have hidden the difference it exists to notice.
+- **L21.** Two script defects and no product defect, both worth recording because both looked like
+  failures. Job-51's section 2 and section 4 ran from the wrong directory after a stray `cd ..`, so the
+  binary package and the end-to-end check measured the wrong tree and reported nothing -- the same
+  lesson this front already carries, that a job which never ran measures nothing. And the dry run with
+  `--skip=toolset,nvim` printed one skipped line where the script expected two: the run had no `--nvim`,
+  so the Neovim unit was not in its plan at all, and a unit that is not planned has nothing to report.
+  Measured with `--nvim --skip=toolset,nvim`: twelve steps, the Neovim row and the Toolset row, and a
+  skipped line under each. The behaviour was right; the expectation was the thing that was wrong.

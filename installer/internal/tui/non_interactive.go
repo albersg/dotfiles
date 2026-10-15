@@ -9,7 +9,13 @@ import (
 )
 
 // RunNonInteractive executes the installation without TUI
-func RunNonInteractive(choices UserChoices) error {
+// RunNonInteractive installs the plan the choices produce, without the interface.
+//
+// disabledUnits names the units the caller was told to leave out, in catalogue order.
+// It is the same set the review screen leaves in Model.DisabledUnits on the other
+// route, and it is handed straight to the one builder, so one selection produces one
+// plan whichever route asked for it -- which is what S8 asks for.
+func RunNonInteractive(choices UserChoices, disabledUnits ...string) error {
 	// Enable non-interactive mode for logging
 	SetNonInteractiveMode(true)
 
@@ -25,9 +31,10 @@ func RunNonInteractive(choices UserChoices) error {
 
 	// Create a minimal model for the installation functions
 	model := &Model{
-		SystemInfo: sysInfo,
-		Choices:    choices,
-		LogLines:   []string{},
+		SystemInfo:    sysInfo,
+		Choices:       choices,
+		LogLines:      []string{},
+		DisabledUnits: disabledUnits,
 	}
 
 	// Detect existing configs for backup functionality

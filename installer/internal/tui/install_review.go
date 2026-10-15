@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -339,6 +340,80 @@ func installUnitIsFixed(id string) bool {
 		}
 	}
 	return false
+}
+
+// installUnitIsCatalogued reports whether the catalogue names a unit at all, which
+// installUnitIsFixed deliberately does not answer: an unknown ID is not a fixed one,
+// and the two questions are asked separately when a command line is validated.
+func installUnitIsCatalogued(id string) bool {
+	for _, unit := range installUnits {
+		if unit.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// SwitchableUnitIDs names the units a run can leave out, in catalogue order: every
+// unit except the three the run itself needs. It is what the command line offers and
+// validates against, so a unit added to the catalogue is offered without anyone
+// remembering to widen a written-out copy of the list.
+func SwitchableUnitIDs() []string {
+	ids := make([]string, 0, len(installUnits))
+	for _, unit := range installUnits {
+		if unit.Fixed {
+			continue
+		}
+		ids = append(ids, unit.ID)
+	}
+	return ids
+}
+
+// ParseUnitSelection reads the comma-separated unit list a command line flag carries
+// and returns the catalogue IDs it names, in the catalogue's order.
+//
+// An unknown name, or one of the three the run needs, is an error rather than an
+// ignored token. A user who typed a unit the run will not leave out -- or a name
+// nothing recognises -- has asked for something this run is not going to do, and
+// installing it anyway while saying nothing is the worst of the three answers. The
+// error names what was refused and what could have been asked for instead.
+//
+// The order comes from the catalogue rather than from the string, so the same
+// selection reads the same way whichever route produced it.
+func ParseUnitSelection(list string) ([]string, error) {
+	wanted := map[string]bool{}
+	for _, token := range strings.Split(list, ",") {
+		name := strings.TrimSpace(token)
+		if name == "" {
+			continue
+		}
+		if installUnitIsFixed(name) {
+			return nil, fmt.Errorf("%q is a unit the run needs and cannot leave out; this run can skip: %s",
+				name, strings.Join(SwitchableUnitIDs(), ", "))
+		}
+		if !installUnitIsCatalogued(name) {
+			return nil, fmt.Errorf("%q is not a unit this run installs; this run can skip: %s",
+				name, strings.Join(SwitchableUnitIDs(), ", "))
+		}
+		wanted[name] = true
+	}
+
+	// Nothing named reads as no selection at all, rather than as an empty one: the set a
+	// model starts with is nil, and an empty flag has to be indistinguishable from an
+	// untouched selection instead of merely equal to it. The guard below caught exactly
+	// this -- an empty slice and no slice plan the same steps and are not the same
+	// value, and the parity guard compares values.
+	if len(wanted) == 0 {
+		return nil, nil
+	}
+
+	units := make([]string, 0, len(wanted))
+	for _, unit := range installUnits {
+		if wanted[unit.ID] {
+			units = append(units, unit.ID)
+		}
+	}
+	return units, nil
 }
 
 // unitIsDisabled reports whether the user turned a unit off, read over the plan's own
