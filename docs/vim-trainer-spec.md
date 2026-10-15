@@ -569,7 +569,7 @@ cuando existe, y si no los primeros caracteres de su respuesta. El respaldo
 existe porque Tab estaba muerta en los 35 pasos de jefe que no traían pista, y
 nunca imprime la respuesta completa: una respuesta de dos teclas muestra la
 primera, y una de una sola tecla no muestra nada, porque su primera tecla es su
-solución. Los 35 pasos traen pista escrita —`TestCorpusBossStepsCarryAHint` lo
+solución. Los 45 pasos traen pista escrita —`TestCorpusBossStepsCarryAHint` lo
 exige y `TestCorpusHintsDoNotQuoteTheAnswer` impide que una pista cite su propia
 respuesta—, así que el respaldo es la regla para el contenido que venga. La
 revelación automática por `TimeoutSecs` sigue siendo solo de los ejercicios,

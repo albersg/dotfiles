@@ -30,7 +30,7 @@ files only where a screen has to show the new facts.
 Read: `trainer/types.go`, `gamestate.go`, `practice.go`, `stats.go`, `validation.go`,
 `tui/update.go` (trainer handlers), `tui/view.go` (trainer screens), `tui/panels.go` (trainer
 panel), `tui/companion.go` (state machine, art tables, volume renderer). Corpus inventoried by a
-temporary test over `GetLessons`/`GetBoss` for all 9 modules: 244 exercises (209 lessons, 35 boss
+temporary test over `GetLessons`/`GetBoss` for all 9 modules: 244 exercises (199 lessons, 45 boss
 steps).
 
 1. **Progression deadlock.** `IsPracticeComplete` is true once every lesson is mastered (3
@@ -62,9 +62,9 @@ steps).
    45, 60 seconds for steps of the same shape: the horizontal boss gives 5 seconds to read a mission
    and type `fe`, while the regex boss gives 45 for a comparable answer. `BonusTime` is 0 for the
    Change & Repeat fight (its wins buy nothing) and 120 for regex (larger than a whole step).
-10. **The boss hint key is dead.** The boss handler honours `Tab`, but all 35 boss steps carry no
-    `Hint`, so the key does nothing on every shipped fight. `TimeoutSecs` is also unset on all 35
-    steps and on 5 lessons, so the automatic hint reveal cannot fire there either.
+10. **The boss hint key is dead.** The boss handler honours `Tab`, but 35 of the 45 boss steps carry no
+    `Hint`, so the key does nothing on 35 of the 9 modules' fights. `TimeoutSecs` is also unset on
+    those 35 steps and on 5 lessons, so the automatic hint reveal cannot fire there either.
 11. **The combo is invisible.** `ComboMultiplier` is raised only by `NextExercise` in boss mode and
     multiplies every score, so the same correct answer is worth 1x in a lesson and up to 4x in a
     fight, with nothing on screen saying so.
@@ -227,8 +227,8 @@ of being overwritten by the next save. A test pins each of the three.
 
 - **T4 (S7, S8).** RED observed as a build failure on the new names, then, once the rules
   existed, as three corpus guards failing on real content: `substitution_022` declared level 11;
-  30 of the 35 boss steps gave the player less time than their own mission and answer need (the
-  worst was `editing_boss_2`, 33s of work in a 10s window); `changerepeat_boss` granted no bonus
+  33 of the 45 boss steps shipped a limit the rule rejects (the worst was `editing_boss_2`, 33s of
+  work in a 10s window); `changerepeat_boss` granted no bonus
   time at all and `regex_boss` granted two minutes. Implemented: `difficulty.go` holds the Level
   contract (`Min/MaxExerciseLevel`, `ClampExerciseLevel`, `PointsForLevel` 10..55,
   `ExercisePoints` with the level as a floor so a hand-tuned reward survives and a hard exercise
@@ -240,7 +240,7 @@ of being overwritten by the next save. A test pins each of the three.
   30 step limits were raised to the recommendation, `changerepeat_boss` gained `BonusTime: 30` and
   `regex_boss` came down to 45. The boss golden changed by exactly the one line that reads the
   clock (5s -> 7s on `horizontal_boss_1`), regenerated with `-update` and inspected.
-  Deferred to T6 by design: the guard that every boss step carries a hint (35 steps do not), which
+  Deferred to T6 by design: the guard that every boss step carries a hint (35 of the 45 did not), which
   is S11's content work rather than S7/S8's.
 
 - **T5 (S9).** RED observed as a build failure on `MaxComboMultiplier`. Implemented: the combo
@@ -256,13 +256,13 @@ of being overwritten by the next save. A test pins each of the three.
   new `TestTrainerComboSurvivesTheDocumentedFloor` holds the chip inside 80 columns.
 
 - **T6 (S10, S11).** RED observed as a build failure on `BossFightElapsed`, then as the corpus
-  hint guard failing on all 35 steps. Implemented for S10: the fight has its own clock
+  hint guard failing on the 35 hintless steps. Implemented for S10: the fight has its own clock
   (`bossFightStartedAt`/`bossFightEndedAt`, frozen by `finishBossFight` when the last life goes or
   the boss falls), `BossFightElapsed` is what `RecordBossVictory` now writes into the dead
   `TimeElapsed` field, `BossBestTime` is finally recorded, and the result screen reports "Fight
   time: Ns · Best: Ns". For S11: `trainer.BossStepNudge` is the one owner of what `Tab` reveals --
   the step's own hint, or the first keystrokes of its answer, never the whole answer and nothing at
-  all for a one-keystroke answer -- and all 35 steps now ship an authored hint.
+  all for a one-keystroke answer -- and all 45 steps now ship an authored hint.
   Content lesson worth keeping: the repo's own `TestShippedHintsAddWhatTheirMissionDoesNot` guard
   rejected 17 of the first drafts for repeating the mission, so those were rewritten to add a
   mechanism (a count, a sibling command, or the consequence of the command) rather than a synonym.
@@ -297,3 +297,34 @@ of being overwritten by the next save. A test pins each of the three.
   `docs/tui-installer.md` gained the companion's state machine section: the possession as a state
   rather than an overlay, the ember eyes at every rung including the one-row one, the rage escalation
   on the last life, and the two helpers the eye-invariant test now asks.
+
+## Verification round (independent, read-only)
+
+One `gentle-ai-verify` pass over the whole branch (base `4ba4332`, head `4aa19de`) against S1-S13.
+It ran the authorized command only -- `go test ./internal/tui/trainer/ -count=1`, `ok` -- plus
+`go vet`/`gofmt` and its own probes over the corpus and the real start-up order. Verdict: S1-S13
+covered, with three defects and one documentation error.
+
+- **D1, fixed.** `RecentAccuracy` did not bound a *loaded* `RecentResults` to `BossGateWindow`; only
+  the writer trimmed. A hand-edited profile of 80 right answers followed by 20 wrong ones read 0.80
+  over 100 and cleared the gate. The read now bounds the window itself, because the profile is a
+  file on disk and the rule cannot live only where the window is appended.
+  `TestRecentWindowIsBoundedOnLoad`.
+- **D2, fixed.** The corrupt-profile notice was consumed before the trainer opened: `Init`'s panel
+  path called `LoadStats`, which went through `LoadStatsReport`, which renamed the file and threw the
+  sentence away; `startTrainer` then found no file and said nothing. Preservation (S13) held, the
+  sentence did not. The read is now split -- `readStatsFile` reads without changing anything on disk,
+  `LoadStats` is the quiet read that moves nothing, and preserving and reporting belong to
+  `LoadStatsReport`, the path the trainer's own entry point uses. `TestLoadStatsKeepsTheCorruptNotice`
+  drives the real order: quiet read first, reporting read second.
+- **D3, fixed.** A victory that measured zero elapsed time overwrote a recorded best with 0. Only
+  reachable with identical clock reads, but "no time at all" is not a time a player can beat, so a
+  fight that measured nothing now records nothing. `TestZeroElapsedVictoryKeepsTheBest`.
+- **Documentation, corrected.** The inventory said 209 lessons and 35 boss steps; the corpus is 199
+  lessons and 45 boss steps (244 total, 45 with a hint after T6, 33 of them with a raised `TimeLimit`).
+  The T4 and T6 entries carried the wrong count.
+- **Also found by the run, not by the verifier:** my own targeted runs used the name filter
+  `Trainer|Panel|Companion`, which never reached `TestBossTabRevealsNoLabelWithoutAHint` -- a pin of
+  the behaviour S11 replaced. The full suite caught it; it now pins the one case the fallback stays
+  silent for, a one-keystroke answer (commit `4aa19de`). The lesson kept: a name filter is not a
+  coverage argument.

@@ -143,3 +143,23 @@ func TestBossStepNudgeNeverPrintsTheWholeAnswer(t *testing.T) {
 		t.Errorf("a nil exercise got the nudge %q, want nothing", got)
 	}
 }
+
+// TestZeroElapsedVictoryKeepsTheBest pins the boundary of the best-time rule: a fight
+// that measured no time at all records no best, because writing a zero would replace a
+// real record with nothing. The clock is frozen so both reads return the same instant,
+// which is the only way a fight can measure zero.
+func TestZeroElapsedVictoryKeepsTheBest(t *testing.T) {
+	stats := NewUserStats()
+	progress := stats.GetModuleProgress(ModuleHorizontal)
+	progress.BossBestTime = 40 * time.Second
+
+	frozen := time.Unix(1_700_000_000, 0)
+	state := NewGameStateWithStats(stats)
+	state.SetClock(func() time.Time { return frozen })
+	state.StartBoss(ModuleHorizontal)
+	state.RecordBossVictory()
+
+	if got, want := progress.BossBestTime, 40*time.Second; got != want {
+		t.Errorf("a fight that measured no time set the best to %s, want it left at %s", got, want)
+	}
+}

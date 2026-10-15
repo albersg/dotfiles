@@ -580,7 +580,9 @@ func (g *GameState) RecordBossVictory() {
 	// had no time to show.
 	g.finishBossFight()
 	g.TimeElapsed = g.BossFightElapsed()
-	if progress.BossBestTime == 0 || g.TimeElapsed < progress.BossBestTime {
+	// A fight that measured no time records no best: writing a zero would replace a real
+	// record with nothing, and "no time at all" is not a time a player can beat.
+	if g.TimeElapsed > 0 && (progress.BossBestTime == 0 || g.TimeElapsed < progress.BossBestTime) {
 		progress.BossBestTime = g.TimeElapsed
 	}
 	progress.BossLivesLeft = g.BossLives

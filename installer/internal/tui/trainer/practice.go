@@ -136,13 +136,24 @@ func (mp *ModuleProgress) RecentAccuracy() (float64, int) {
 	if len(mp.RecentResults) == 0 {
 		return mp.PracticeAccuracy, mp.PracticeAttempts
 	}
+
+	// The read bounds the window itself rather than trusting what was written. A profile
+	// is a file on disk: a hand-edited one, or one a future version wrote with a longer
+	// window, would otherwise make the gate read the whole history -- the exact rule the
+	// window exists to replace -- and eighty right answers followed by twenty wrong ones
+	// would gate as 80%.
+	window := mp.RecentResults
+	if len(window) > BossGateWindow {
+		window = window[len(window)-BossGateWindow:]
+	}
+
 	correct := 0
-	for _, ok := range mp.RecentResults {
+	for _, ok := range window {
 		if ok {
 			correct++
 		}
 	}
-	return float64(correct) / float64(len(mp.RecentResults)), len(mp.RecentResults)
+	return float64(correct) / float64(len(window)), len(window)
 }
 
 // ReviewsDue counts the module's mastered exercises whose review interval has passed

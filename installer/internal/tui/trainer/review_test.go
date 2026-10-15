@@ -179,3 +179,26 @@ func TestRecentWindowIsBounded(t *testing.T) {
 		t.Errorf("the lifetime accuracy is %.2f; the fixture needs a mixed history", progress.PracticeAccuracy)
 	}
 }
+
+// TestRecentWindowIsBoundedOnLoad pins the read side of S6. A profile is a file on disk,
+// so the rule cannot be enforced only where the window is appended: a file with more
+// answers than the window -- hand-edited, or written by a future version with a longer
+// one -- must still gate on the last BossGateWindow of them. Eighty right answers
+// followed by twenty wrong ones is the case that tells the two rules apart.
+func TestRecentWindowIsBoundedOnLoad(t *testing.T) {
+	progress := &ModuleProgress{PracticeAccuracy: 0.1, PracticeAttempts: 100}
+	for i := 0; i < 80; i++ {
+		progress.RecentResults = append(progress.RecentResults, true)
+	}
+	for i := 0; i < 20; i++ {
+		progress.RecentResults = append(progress.RecentResults, false)
+	}
+
+	accuracy, attempts := progress.RecentAccuracy()
+	if attempts != BossGateWindow {
+		t.Errorf("the window read %d answers, want the last %d", attempts, BossGateWindow)
+	}
+	if accuracy >= BossGateAccuracy {
+		t.Errorf("the window read %.2f, which clears the gate on a run of 20 wrong answers", accuracy)
+	}
+}

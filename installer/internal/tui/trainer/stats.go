@@ -87,11 +87,56 @@ func getConfigDir() string {
 	return filepath.Join(homeDir, ".config", "dotfiles-trainer")
 }
 
-// LoadStats loads user stats from file. It is LoadStatsReport without the report, for
-// callers that only describe the panel and have nowhere to say what went wrong.
+// statsFileProblem is what a read found, and it is what decides whether the reporting
+// path preserves the file. It is a value rather than an error because "there is no
+// profile yet" is the ordinary first run and not a failure.
+type statsFileProblem int
+
+const (
+	statsFileFine statsFileProblem = iota
+	statsFileMissing
+	statsFileUnreadable
+	statsFileCorrupt
+	statsFileNewer
+)
+
+// readStatsFile reads and parses the profile without changing anything on disk. Both
+// public entry points read through it, so they cannot disagree about what the file says.
+func readStatsFile() (statsFileJSON, statsFileProblem, error) {
+	path := GetStatsPath()
+	if path == "" {
+		return statsFileJSON{}, statsFileMissing, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return statsFileJSON{}, statsFileMissing, nil
+		}
+		return statsFileJSON{}, statsFileUnreadable, err
+	}
+
+	var fileStats statsFileJSON
+	if err := json.Unmarshal(data, &fileStats); err != nil {
+		return statsFileJSON{}, statsFileCorrupt, err
+	}
+	if fileStats.SchemaVersion > StatsSchemaVersion {
+		return fileStats, statsFileNewer, nil
+	}
+	return fileStats, statsFileFine, nil
+}
+
+// LoadStats is the quiet read: it reports nothing and, in particular, it moves nothing.
+// The main menu's panel reads the profile to describe it, and that read runs at startup
+// before the player has opened the trainer, so it must not consume the sentence the
+// player is owed. Preserving and reporting belong to LoadStatsReport, the path the
+// trainer's own entry point uses.
 func LoadStats() *UserStats {
-	stats, _ := LoadStatsReport()
-	return stats
+	fileStats, problem, _ := readStatsFile()
+	if problem != statsFileFine {
+		return nil
+	}
+	return statsFromFile(fileStats)
 }
 
 // LoadStatsReport loads user stats and says what happened when it could not. A missing
@@ -100,31 +145,23 @@ func LoadStats() *UserStats {
 // path, because it is the only evidence of what went wrong and the next save would write
 // over it -- and reported in one line the trainer can show the player.
 func LoadStatsReport() (*UserStats, string) {
-	path := GetStatsPath()
-	if path == "" {
+	fileStats, problem, err := readStatsFile()
+
+	switch problem {
+	case statsFileFine:
+		return statsFromFile(fileStats), ""
+	case statsFileMissing:
 		return nil, ""
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ""
-		}
-		return nil, "The trainer profile could not be read: " + err.Error()
-	}
-
-	var fileStats statsFileJSON
-	if err := json.Unmarshal(data, &fileStats); err != nil {
-		return nil, preserveStatsFile(path, statsCorruptSuffix,
+	case statsFileCorrupt:
+		return nil, preserveStatsFile(GetStatsPath(), statsCorruptSuffix,
 			"The trainer profile could not be read")
-	}
-	if fileStats.SchemaVersion > StatsSchemaVersion {
-		return nil, preserveStatsFile(path, statsNewerSuffix,
+	case statsFileNewer:
+		return nil, preserveStatsFile(GetStatsPath(), statsNewerSuffix,
 			fmt.Sprintf("The trainer profile is from a newer trainer (format %d, this one reads %d)",
 				fileStats.SchemaVersion, StatsSchemaVersion))
+	default:
+		return nil, "The trainer profile could not be read: " + err.Error()
 	}
-
-	return statsFromFile(fileStats), ""
 }
 
 // preserveStatsFile renames a profile this build cannot use to a sibling path and

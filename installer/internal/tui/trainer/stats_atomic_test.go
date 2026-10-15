@@ -212,3 +212,33 @@ func TestNewerSchemaIsPreservedRatherThanDowngraded(t *testing.T) {
 		t.Errorf("the preserved copy is %q, want the original bytes %q", kept, newer)
 	}
 }
+
+// TestLoadStatsKeepsTheCorruptNotice pins the order the program actually runs in. The
+// main menu's panel reads the profile at startup -- before the player has opened the
+// trainer -- and that quiet read must not move the file, or the sentence the player is
+// owed is consumed by a read that had nowhere to say it.
+func TestLoadStatsKeepsTheCorruptNotice(t *testing.T) {
+	dir := statsDir(t)
+	path := filepath.Join(dir, statsFileName)
+	if err := os.WriteFile(path, []byte("{ not a profile"), 0644); err != nil {
+		t.Fatalf("writing the corrupt profile failed: %v", err)
+	}
+
+	if stats := LoadStats(); stats != nil {
+		t.Errorf("the quiet read produced stats from a corrupt profile: %v", stats)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the quiet read moved the profile it could not parse: %v", err)
+	}
+
+	stats, problem := LoadStatsReport()
+	if stats != nil {
+		t.Error("the reporting read produced stats from a corrupt profile")
+	}
+	if problem == "" {
+		t.Error("the reporting read had nothing to say: the quiet read consumed the notice")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the reporting read did not preserve the profile: %v", err)
+	}
+}
