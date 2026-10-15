@@ -6,6 +6,10 @@ import (
 )
 
 // GameState manages the current game session state
+// MaxComboMultiplier is the highest the combo goes. A cap keeps a long run from making
+// the score meaningless, and it is a named constant because two screens print it.
+const MaxComboMultiplier = 4
+
 type GameState struct {
 	// Stats & Progress (persisted)
 	Stats *UserStats
@@ -23,7 +27,10 @@ type GameState struct {
 	IsBossMode     bool
 
 	// Streak and scoring
-	CurrentStreak   int
+	CurrentStreak int
+	// ComboMultiplier is what the score of the answer after this one is multiplied
+	// by. It is owned by RecordCorrectAnswer (raised, capped at MaxComboMultiplier)
+	// and RecordIncorrectAnswer (reset to 1).
 	ComboMultiplier int
 	SessionScore    int
 
@@ -350,7 +357,9 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	}
 	g.Stats.CurrentStreak = g.CurrentStreak
 
-	// Calculate and add points
+	// Calculate and add points. The multiplier is the one the run has already earned:
+	// this answer is paid for the streak behind it, and the raise below is what the
+	// next answer will be paid with.
 	points := CalculatePoints(g.CurrentExercise, timeSeconds, isOptimal, g.ComboMultiplier)
 	g.SessionScore += points
 	g.Stats.TotalScore += points
@@ -366,6 +375,14 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	// the module's practice counters in practice mode. One owner per counter: the
 	// screens do not record anything themselves.
 	g.recordAnswer(true)
+
+	// The combo is raised by the answer rather than by the screen that advances
+	// after it, which is what makes it real in lessons and practice as well as in a
+	// boss fight. It used to live in the boss branch of NextExercise, so the
+	// multiplier the score is paid by stayed at one everywhere else.
+	if g.ComboMultiplier < MaxComboMultiplier {
+		g.ComboMultiplier++
+	}
 
 	// Update lesson progress
 	if g.IsLessonMode {
@@ -463,9 +480,6 @@ func (g *GameState) RecordBossStepTimeout() {
 // NextExercise advances to the next exercise
 func (g *GameState) NextExercise() bool {
 	if g.IsBossMode {
-		if g.ComboMultiplier < 4 {
-			g.ComboMultiplier++
-		}
 		return g.NextBossExercise()
 	}
 

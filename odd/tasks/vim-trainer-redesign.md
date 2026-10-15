@@ -148,7 +148,7 @@ of being overwritten by the next save. A test pins each of the three.
       windowed accuracy for the boss gate, requirement copy.
 - [x] **T4. Calibrated difficulty** (S7, S8): the Level contract and its guard, points from
       difficulty, the practice mix, the boss clock rule and the corrected step limits.
-- [ ] **T5. The visible combo** (S9): combo in all modes, shown on the exercise and boss headers.
+- [x] **T5. The visible combo** (S9): combo in all modes, shown on the exercise and boss headers.
 - [ ] **T6. Fight time and boss hints** (S10, S11): measured fight duration, best time on the result
       screen, the boss nudge behind `Tab`.
 - [ ] **T7. Profile hardening** (S13): atomic save, schema version, corrupt profile preserved.
@@ -242,3 +242,15 @@ of being overwritten by the next save. A test pins each of the three.
   clock (5s -> 7s on `horizontal_boss_1`), regenerated with `-update` and inspected.
   Deferred to T6 by design: the guard that every boss step carries a hint (35 steps do not), which
   is S11's content work rather than S7/S8's.
+
+- **T5 (S9).** RED observed as a build failure on `MaxComboMultiplier`. Implemented: the combo
+  is raised by `RecordCorrectAnswer` -- the single owner of a correct answer -- instead of by the
+  boss branch of `NextExercise`, so lessons and practice are multiplied too, and it is capped by
+  the named `MaxComboMultiplier = 4`; `RecordIncorrectAnswer` already reset it, which is why an
+  expired boss step resets it as well. Visible: `trainerComboText` is the one owner of the wording
+  and of when the fact is worth showing (nothing at multiplier 1), and both the exercise header
+  and the boss header carry it. The boss chip sits before the countdown because the header drops
+  what does not fit from its tail, and the seconds left on a step are worth more than a run of
+  wins. Two pins that encoded the old ownership were rewritten
+  (`TestGameState_NextExercise_IncreasesCombo`, `TestGameState_NextExercise_ComboMaxAt4`), and the
+  new `TestTrainerComboSurvivesTheDocumentedFloor` holds the chip inside 80 columns.

@@ -4370,6 +4370,9 @@ func (m Model) trainerExerciseVital() string {
 		parts = append(parts, meterRendered(state.ExerciseIndex+1, len(state.Exercises), trainerHeaderMeterCells))
 	}
 	parts = append(parts, MeterStyle.Render(fmt.Sprintf("Score: %d · Streak: %d", state.SessionScore, state.CurrentStreak)))
+	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
+		parts = append(parts, MeterStyle.Render(combo))
+	}
 	if remaining := state.RemainingSeconds(); remaining > 0 {
 		parts = append(parts, WarningStyle.Render(fmt.Sprintf("⏳ Hint in %ds", int(math.Ceil(remaining)))))
 	}
@@ -4615,6 +4618,17 @@ func renderLineWithSelection(line string, startPos trainer.Position, sel trainer
 	return result.String()
 }
 
+// trainerComboText is the multiplier the score is paid by, named only once there is a
+// run to speak of: "Combo ×1" on every screen would be noise rather than a fact. It is
+// one function so the lesson, practice and boss headers cannot disagree about the
+// wording or about when the fact is worth showing.
+func trainerComboText(multiplier int) string {
+	if multiplier <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("Combo ×%d", multiplier)
+}
+
 // trainerBossVital is the boss screen's vital sign, carried by its header instead
 // of two stacked rows: the lives as a count and a glyph run, the step the fight
 // is on, and the live countdown, each as a chip. The countdown is derived from
@@ -4632,6 +4646,12 @@ func (m Model) trainerBossVital() string {
 	parts := []string{
 		chip(fmt.Sprintf("Lives: %d/%d %s", state.BossLives, boss.Lives, trainerLivesGlyphs(state.BossLives, boss.Lives))),
 		chip(fmt.Sprintf("Step %d/%d", state.BossStep+1, len(boss.Steps))),
+	}
+	// The combo sits before the countdown rather than after it: the header drops what
+	// does not fit from its tail, and a run of wins is worth less than the seconds
+	// left on the step.
+	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
+		parts = append(parts, chip(combo))
 	}
 	if remaining := state.BossStepSecondsLeft(); remaining > 0 {
 		parts = append(parts, chip(fmt.Sprintf("⏳ Time left: %ds", int(math.Ceil(remaining)))))

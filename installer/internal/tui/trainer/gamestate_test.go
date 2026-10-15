@@ -306,27 +306,19 @@ func TestGameState_NextExercise_InBossMode(t *testing.T) {
 	}
 }
 
-func TestGameState_NextExercise_IncreasesCombo(t *testing.T) {
+// TestGameState_NextExerciseLeavesTheComboAlone replaces the pin that said the boss
+// advance raises the combo. That rule made the multiplier a property of one screen, so
+// a lesson or practice run was multiplied by one for its whole length; the raise now
+// belongs to RecordCorrectAnswer and the advance is only an advance.
+func TestGameState_NextExerciseLeavesTheComboAlone(t *testing.T) {
 	state := NewGameState()
 	state.StartBoss(ModuleHorizontal)
 	state.ComboMultiplier = 2
 
 	state.NextExercise()
 
-	if state.ComboMultiplier != 3 {
-		t.Errorf("ComboMultiplier should increase to 3, got %d", state.ComboMultiplier)
-	}
-}
-
-func TestGameState_NextExercise_ComboMaxAt4(t *testing.T) {
-	state := NewGameState()
-	state.StartBoss(ModuleHorizontal)
-	state.ComboMultiplier = 4
-
-	state.NextExercise()
-
-	if state.ComboMultiplier != 4 {
-		t.Errorf("ComboMultiplier should max at 4, got %d", state.ComboMultiplier)
+	if state.ComboMultiplier != 2 {
+		t.Errorf("the boss advance moved the combo to %d, want it left at 2", state.ComboMultiplier)
 	}
 }
 
