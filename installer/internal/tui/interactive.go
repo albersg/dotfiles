@@ -186,8 +186,22 @@ func runStepScriptWithLogs(stepID, script string) error {
 	return result.Error
 }
 
-// writeStepScript writes script to an executable temporary file and returns its
-// path.
+// writeStepScript writes script to a temporary file only its owner can read,
+// and returns its path.
+//
+// os.CreateTemp already creates the file 0600, which is the answer; the mode is
+// set explicitly rather than left implicit because of where the file lands and
+// how long it lives. It is written into os.TempDir() -- the shared, sticky,
+// world-listable /tmp on Linux -- under a name the directory listing shows, and
+// it stays there for the whole of its step, which for the toolset step is
+// minutes. Its contents name the exact package commands the run is about to
+// execute, so no account but the owner's may read it.
+//
+// The owner's execute bit is kept even though nothing consults it. The script is
+// not run by its own path: runStepScriptWithLogs hands it to a shell as an
+// argument, `<shell> <path>`, so what the run needs from this mode is the read
+// bit. Keeping the bit means the day the invocation changes is the day the
+// invocation changes and not the day every root-needing step stops running.
 func writeStepScript(script string) (string, error) {
 	tmpFile, err := os.CreateTemp("", "dotfiles-install-*.sh")
 	if err != nil {
@@ -203,9 +217,9 @@ func writeStepScript(script string) (string, error) {
 		os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("failed to close script: %w", err)
 	}
-	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+	if err := os.Chmod(tmpFile.Name(), 0700); err != nil {
 		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("failed to make script executable: %w", err)
+		return "", fmt.Errorf("failed to set the step script's mode: %w", err)
 	}
 	return tmpFile.Name(), nil
 }
