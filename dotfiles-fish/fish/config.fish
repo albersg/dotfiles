@@ -429,6 +429,205 @@ function serve
     python3 -m http.server $port --bind 127.0.0.1
 end
 
+## hooks
+# The two things zsh does on every directory change, and the three commands that keep
+# secrets encrypted. Declared here for the same reason as the commands above: outside the
+# generated block, and before the user's drop-ins.
+
+# Activate a project's virtual environment on cd, and leave it on the way out. Only an
+# environment this hook activated is ever deactivated, so one the user activated by hand
+# is never touched, and moving around inside a project does not re-activate or
+# re-announce anything.
+set -g _DOTFILES_VENV ""
+function _dotfiles_activate_venv --on-variable PWD
+    # Search the current directory and, when inside a repository, its ancestors up to the
+    # repository root only. Walking all the way to / would activate a stray venv sitting
+    # in /tmp or in $HOME for every directory underneath it, which is how a scratch
+    # environment ends up capturing unrelated projects. The .git test costs one stat and
+    # no subprocess, which matters on every cd.
+    set -l search $PWD
+    set -l dir $PWD
+    while test "$dir" != /; and test "$dir" != "$HOME"
+        set dir (path dirname $dir)
+        set -a search $dir
+        if test -e "$dir/.git"
+            break
+        end
+    end
+    if not test -e "$search[-1]/.git"
+        set search $PWD
+    end
+
+    set -l found ""
+    for dir in $search
+        for candidate in .venv venv .env
+            # activate.fish rather than the POSIX activate beside it: fish cannot source
+            # that file at all, and an environment that has only got one is left alone
+            # instead of half-activated.
+            if test -f "$dir/$candidate/bin/activate.fish"
+                set found "$dir/$candidate"
+                break
+            end
+        end
+        if test -n "$found"
+            break
+        end
+    end
+
+    if test "$found" = "$_DOTFILES_VENV"
+        return 0
+    end
+
+    if test -n "$_DOTFILES_VENV"
+        if test -n "$VIRTUAL_ENV"; and test "$VIRTUAL_ENV" = "$_DOTFILES_VENV"
+            deactivate 2>/dev/null
+        end
+        set -g _DOTFILES_VENV ""
+    end
+
+    if test -n "$found"
+        source "$found/bin/activate.fish"
+        set -g _DOTFILES_VENV "$found"
+        echo "venv: "(path basename $found)
+    end
+end
+
+# Announce a project's available tasks when entering it. Silent when the project
+# declares none, and skippable with DOTFILES_NO_TASKS=1.
+function _dotfiles_show_tasks --on-variable PWD
+    if test -n "$DOTFILES_NO_TASKS"
+        return 0
+    end
+    if test "$PWD" = "$HOME"
+        return 0
+    end
+
+    if test -f justfile; or test -f Justfile
+        command -q just; and just --list 2>/dev/null | head -20
+    else if test -f Makefile; or test -f makefile
+        # List declared targets without executing anything: the awk pass only reads lines
+        # shaped like a target rule, so a Makefile that runs work at parse time stays
+        # untouched.
+        awk -F: '/^[a-zA-Z0-9_.-]+:([^=]|$)/ { print "  make " $1 }' Makefile 2>/dev/null | sort -u | head -20
+    end
+
+    if test -f package.json; and command -q jq
+        jq -r '.scripts // {} | keys[]' package.json 2>/dev/null | head -20 | sed 's/^/  npm run /'
+    end
+
+    if test -f Taskfile.yml; or test -f Taskfile.yaml
+        command -q task; and task --list 2>/dev/null | head -20
+    end
+end
+
+## secrets
+# A file encrypted with SOPS keeps its keys readable and only its values encrypted, so it
+# can live in a repository and still show which keys exist and which one changed. The key
+# is a single age file rather than a GPG keyring, which avoids the agent and pinentry
+# dance that is fragile under WSL.
+#
+# Create the key once:
+#
+#   mkdir -p ~/.config/sops/age && age-keygen -o ~/.config/sops/age/keys.txt
+#
+# Then put the public key it prints into a .sops.yaml in each project:
+#
+#   creation_rules:
+#     - path_regex: .*\.env$
+#       age: <public key>
+#
+# An age key has no recovery path. Lose that file and every encrypted value is gone for
+# good, so back it up somewhere that is not this machine.
+set -g DOTFILES_SOPS_FILE secrets.env
+if not set -q SOPS_AGE_KEY_FILE
+    set -gx SOPS_AGE_KEY_FILE $HOME/.config/sops/age/keys.txt
+end
+
+# Every secrets helper starts here, so a missing tool or key is reported once, with the
+# command that fixes it, instead of failing somewhere further down.
+function _dotfiles_secrets_ready
+    if not command -q sops
+        echo 'secrets: sops is not installed' >&2
+        return 1
+    end
+    if not test -f "$SOPS_AGE_KEY_FILE"
+        set -l keydir (path dirname $SOPS_AGE_KEY_FILE)
+        echo "secrets: no age key at $SOPS_AGE_KEY_FILE" >&2
+        echo "  create one with: mkdir -p $keydir && age-keygen -o $SOPS_AGE_KEY_FILE" >&2
+        return 1
+    end
+    return 0
+end
+
+# env-edit [file]: edit an encrypted file. SOPS decrypts into the editor and re-encrypts on
+# save, so the plaintext never lands on disk.
+function env-edit
+    _dotfiles_secrets_ready; or return 1
+    set -l file $argv[1]
+    if test -z "$file"
+        set file $DOTFILES_SOPS_FILE
+    end
+    if not test -f "$file"
+        echo "secrets: no such file: $file" >&2
+        return 1
+    end
+    sops $file
+end
+
+# env-load [file] [.env]: decrypt into a local file for tools that insist on reading one.
+# It refuses unless the destination is already ignored by git, because writing plaintext
+# secrets into a repository is the mistake this whole arrangement exists to prevent.
+function env-load
+    _dotfiles_secrets_ready; or return 1
+    set -l src $argv[1]
+    if test -z "$src"
+        set src $DOTFILES_SOPS_FILE
+    end
+    set -l dst $argv[2]
+    if test -z "$dst"
+        set dst .env
+    end
+    if not test -f "$src"
+        echo "secrets: no such file: $src" >&2
+        return 1
+    end
+    # Refuse unless git already ignores the destination. Writing a plaintext secret into a
+    # repository is the mistake this arrangement exists to avoid, and creating a fresh .env
+    # that git would happily track is the same mistake with a different name, so the check
+    # runs whether or not the file exists. Outside a work tree there is nothing to leak
+    # into, so it is allowed.
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; and not git check-ignore -q -- "$dst" 2>/dev/null
+        echo "secrets: git does not ignore $dst, so the plaintext would be tracked" >&2
+        echo "  add it to .gitignore, or to a global exclude, and try again" >&2
+        return 1
+    end
+    if test -e "$dst"; and not test -w "$dst"
+        echo "secrets: cannot write $dst" >&2
+        return 1
+    end
+    if not sops -d "$src" >"$dst"
+        rm -f "$dst"
+        echo "secrets: could not decrypt $src" >&2
+        return 1
+    end
+    echo "secrets: wrote $dst"
+end
+
+# env-export [file]: print export lines for the current shell, for an .envrc. Nothing is
+# written to disk this way, which is the option to prefer.
+function env-export
+    _dotfiles_secrets_ready; or return 1
+    set -l src $argv[1]
+    if test -z "$src"
+        set src $DOTFILES_SOPS_FILE
+    end
+    if not test -f "$src"
+        echo "secrets: no such file: $src" >&2
+        return 1
+    end
+    sops -d --output-type dotenv "$src" 2>/dev/null | sed 's/^/export /'
+end
+
 # Files in this directory belong to the user, not to this managed config: the
 # installer replaces config.fish on updates, so local edits written here are
 # lost. The drop-ins survive because installation leaves this directory alone.

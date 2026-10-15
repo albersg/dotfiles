@@ -35,7 +35,10 @@ func readShellFunction(t *testing.T, path, shell, name string) []string {
 
 	declaration := regexp.MustCompile(`^(?:function\s+)?` + regexp.QuoteMeta(name) + `\(\)\s*\{$`)
 	if shell == "fish" {
-		declaration = regexp.MustCompile(`^function\s+` + regexp.QuoteMeta(name) + `$`)
+		// A fish function may carry flags after its name, and the directory-change
+		// hooks are declared exactly that way: `function _dotfiles_activate_venv
+		// --on-variable PWD`.
+		declaration = regexp.MustCompile(`^function\s+` + regexp.QuoteMeta(name) + `(?:\s+--.*)?$`)
 	}
 	opener := regexp.MustCompile(`^(?:if|for|while|switch|begin)\b`)
 
@@ -271,7 +274,15 @@ func toolVariable(body []string, shell string) string {
 // errorMessages returns every string a body writes to the error stream, with the
 // variable names normalised: which variable holds the value is the shell's business,
 // and it is the value a person sees.
-var shellVariable = regexp.MustCompile(`\$\{?[A-Za-z0-9_]+\}?`)
+// A message can name a path the shell builds rather than a plain variable: zsh writes
+// `${SOPS_AGE_KEY_FILE:h}` for its directory and fish writes `(path dirname
+// $SOPS_AGE_KEY_FILE)`. Both are the same sentence to the person reading it, so both fold
+// to `$…` before the two are compared: what is compared is the sentence, not the way a
+// shell spells a path inside it.
+var (
+	shellVariable     = regexp.MustCompile(`\$\{?[A-Za-z0-9_]+\}?`)
+	shellSubstitution = regexp.MustCompile(`\$\{[^}]*\}|\$\([^)]*\)|\([^()]*\$[^()]*\)`)
+)
 
 func errorMessages(body []string, shell string) []string {
 	quoted := regexp.MustCompile(`'([^']*)'|"([^"]*)"`)
@@ -299,7 +310,7 @@ func errorMessages(body []string, shell string) []string {
 			if message == "" {
 				message = match[2]
 			}
-			messages = append(messages, shellVariable.ReplaceAllString(message, "$…"))
+			messages = append(messages, shellVariable.ReplaceAllString(shellSubstitution.ReplaceAllString(message, "$…"), "$…"))
 		}
 	}
 	sort.Strings(messages)

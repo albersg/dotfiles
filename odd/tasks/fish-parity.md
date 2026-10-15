@@ -431,8 +431,155 @@ drop-in loader, so a user's drop-in in `~/.config/fish/dotfiles.d/` still overri
 and the artifact guard, which replaces only the bytes between the sentinels, is not
 touched by this stage.
 
+**L16.** Stage 3 was merged as `acad575` (`feat(fish): the four commands zsh declares,
+so an archive is unpacked the same way`, PR #325) with all eleven checks green, including
+the `macOS smoke test` that had caught the stage-2 capacity defect. The merge job refused
+to run unless the PR's head was the commit this file was verified on, before and after
+waiting for the checks. This record is written in stage 4's branch, which is branched from
+the merge, because a merge's own hash cannot be in the branch it merges.
+
+## Stage 4 — the hooks and the secrets
+
+The mandate is this file's own stage 4: *"the sops/age secrets, the venv activation on
+`cd`, and the project-task announcement"*.
+
+### What was measured before writing anything
+
+Read out of `dotfiles-zsh/.zshrc`; the line numbers are that file's.
+
+| what | zsh | what it does |
+|------|-----|--------------|
+| `_dotfiles_activate_venv` | `:665-704` | hooked to `chpwd`: walks the current directory and, **only while inside a repository**, its ancestors up to the root; candidates `.venv`, `venv`, `.env`, requiring the environment's activation script to be a file; tracks what it activated in `_DOTFILES_VENV` so an environment the user activated by hand is never deactivated, does nothing when the directory is inside the project it already activated, and prints `venv: <name>` when it activates |
+| `_dotfiles_show_tasks` | `:708-729` | hooked to `chpwd`: silent in `$HOME` and with `DOTFILES_NO_TASKS=1`; `just --list` for a `justfile`, otherwise `make` targets read out of a `Makefile` **without executing it**, `package.json` scripts through `jq` printed as `npm run <name>`, and `task --list` for a `Taskfile.yml`; each list capped at 20 lines |
+| `_dotfiles_secrets_ready` | `:777-790` | the gate every secrets command starts with: names `sops` when it is missing, and the key file with the `age-keygen` command that creates it when the key is missing |
+| `env-edit [file]` | `:792-804` | `sops <file>`, so the plaintext never reaches the disk |
+| `env-load [file] [.env]` | `:806-838` | refuses unless git **ignores** the destination, refuses an unwritable one, removes the destination when decryption fails, and reports `secrets: wrote <dst>` |
+| `env-export [file]` | `:840-850` | `sops -d --output-type dotenv` prefixed with `export `, writing nothing |
+
+- **The two hooks are `chpwd`, and the third `add-zsh-hook` is not a hook.** `grep -n
+  add-zsh-hook` returns three lines, but `:364` is the `autoload` that brings the function
+  into the shell. Counting the matches would have claimed a third hook that does not exist.
+- **fish's primitives were measured, not assumed** (`fish --no-config`): a handler
+  declared `--on-variable PWD` does **not** fire at startup, fires on every directory
+  change, sees the **new** directory, and what it sets with `set -gx` survives the
+  handler -- `chpwd`'s behaviour under another name. `path dirname` walks the ancestors the
+  way `${dir:h}` does and stops where `.git` is.
+- **The virtual environment is activated through the script fish can source.**
+  `python3 -m venv` writes four activation scripts, and sourcing `bin/activate.fish` sets
+  `VIRTUAL_ENV`, prepends the environment's `bin` to `PATH` and defines `deactivate`,
+  which puts both back (measured). The POSIX `bin/activate` beside it is not fish and
+  cannot be sourced from fish at all.
+- **What this host cannot verify by running it**: `just` and `task` are not installed here,
+  so those two branches of the task announcement are held by the guard's comparison with
+  `.zshrc` and not by a run, and the proof table says so. `jq`, `make`, `git`, `sops` and
+  `age` are present, so the rest of the stage is exercised for real, secrets included.
+
+### Specs
+
+S1. fish declares the same three secrets commands under the same names -- `env-edit`,
+    `env-load`, `env-export` -- with the same defaults (`DOTFILES_SOPS_FILE=secrets.env`,
+    and `SOPS_AGE_KEY_FILE` defaulting to `~/.config/sops/age/keys.txt`), and each one
+    starts with the same readiness check, so a missing tool or key is reported once, with
+    the command that fixes it.
+S2. `env-load` refuses to write a destination git does not ignore, refuses an unwritable
+    one, removes the destination when decryption fails, and reports `secrets: wrote <dst>`
+    on success; `env-export` prints `export `-prefixed dotenv lines and writes nothing.
+S3. fish activates a project's environment when the directory changes and leaves it on the
+    way out: only an environment this hook activated is ever deactivated, tracked under the
+    same name (`_DOTFILES_VENV`), so one the user activated by hand is never touched;
+    moving inside the project it already activated neither re-activates nor re-announces
+    anything; the candidates are the same three, and an environment counts as present only
+    when the activation script fish can source is a file in it.
+S4. The search is bounded the same way: the current directory, and its ancestors **only
+    while inside a repository**, stopping at the root -- so a stray environment in `/tmp`
+    or in `$HOME` cannot capture unrelated projects; with no repository, only the current
+    directory is searched.
+S5. fish announces a project's tasks the way zsh does: silent in `$HOME`, skipped with
+    `DOTFILES_NO_TASKS=1`, `just --list` for a `justfile` when `just` resolves, otherwise
+    `make` targets read from a `Makefile` without executing it, `package.json` scripts
+    through `jq`, and `task --list` for a `Taskfile.yml`; each list capped at 20 lines.
+S6. The messages a person reads are the same strings in both shells, so a mistake reads the
+    same whichever shell is running it.
+S7. Nothing outside these two hooks and three commands moves: the generated theme block,
+    stage 1's aliases, `EZA_ICON_SPACING`, stage 3's four commands and the drop-in loader
+    stay exactly where they are.
+
+### Tasks
+
+T1. Declare the two hooks and the three secrets commands in `config.fish`, outside the
+    generated block and before the drop-in loader.
+T2. Guard it: the names, the defaults, the candidates, the repository boundary, the guards
+    on the tools and the messages are compared against `.zshrc`.
+T3. Prove the hooks by running them: a repository with a virtual environment (activation on
+    entering, deactivation on leaving, no re-activation inside the project, and a stray
+    environment in a directory outside any repository ignored) and a project that declares
+    tasks.
+T4. Prove the secrets commands by running what this host can: a real age key in a scratch
+    directory, a real encrypted file, `env-export` and `env-load` against it, and every
+    refusal on the way.
+
+### The proof (stage 4)
+
+| what | value |
+|------|-------|
+| the seven guards against `config.fish` as it stands in `acad575` | **all seven fail**, each naming what fish lacks -- `zsh runs [_dotfiles_activate_venv _dotfiles_show_tasks] when the directory changes and fish runs []`, `declares no env-load, so fish is missing a hook or a command zsh has` -- and the zsh side read correctly (37 lines for the venv hook, 19 for the tasks hook, 26 for `env-load`), so no guard complained about zsh while the change was in fish |
+| the same seven after the change | pass; `fish -n` accepts the file |
+| the venv hook, run in a real fish | the five rules: activates from an ancestor inside the repository; does not re-activate or re-announce while moving inside the project; leaves the environment on the way out; **a stray `.venv` beside a subdirectory does not capture it** (the rule the bounded search exists for); and an environment activated by hand survives a directory change (`_DOTFILES_VENV` empty, `VIRTUAL_ENV` unchanged) |
+| the task hook, run in a real fish | `  make build` and `  make test` from a `Makefile` -- listed by the awk pass, so nothing in the file ran -- and `  npm run build` / `  npm run dev` from `package.json` through `jq`; silent in the same directory that had announced them once `DOTFILES_NO_TASKS=1` is set, and silent in `$HOME` |
+| what this host cannot run | `just` and `task` are not installed, so those two branches are held by the comparison with `.zshrc` and not by a run; the guard names them either way |
+| the secrets, run against a real age key and a real encrypted file | `sops -e -i` left **0** occurrences of the plaintext, header `ENC[AES256_GCM,…]`; `env-export` printed `export API_KEY=…` and `export OTHER=two`; `env-load` refused without a `.gitignore` (status 1, no file created) and then wrote the plaintext with `secrets: wrote out.env`; a corrupt file failed with `secrets: could not decrypt bad.env` and **no destination left**; `env-edit` with `EDITOR=true` decrypted and re-encrypted the same file |
+| the refusal paths, one by one | missing file -> `secrets: no such file: …`; no age key -> `secrets: no age key at …` **and** `  create one with: mkdir -p … && age-keygen -o …`; no `sops` on `PATH` -> `secrets: sops is not installed`; a destination git does not ignore -> the two-sentence refusal, before anything is written |
+| why the removal after a failed decrypt is not ceremony | measured on its own: `sops` exits **100** on a file it cannot read and the redirect has already created the destination, so without the removal a failed decrypt leaves an empty file that looks like a secrets file |
+| the seven mutations | each fires only the guard written for it: the hook stops being `--on-variable PWD`; the candidate list loses one; `activate.fish` becomes the POSIX `activate`; the `git check-ignore` refusal goes; a message changes; `env-load` loses the readiness check; the `Taskfile` branch goes. Each restored byte-identical, and the seven guards green again |
+| the shape of the change (S7) | `git diff --numstat`: **199 added, 0 removed**, one hunk (`@@ -431,0 +432,199 @@`), after stage 3's `serve` and before the drop-in loader; `.zshrc` carries no diff at all |
+| `gofmt -l ./internal ./cmd`, `go vet ./...`, `go build ./...` | no output, exit 0 and exit 0 |
+| the full suite, unfiltered, on this tree (`go test ./... -count=1`) | **the four Ghostty failures only** -- the same four this file has recorded since stage 1 and `theme-survives-install.md` records beside them, and the same four every run in this repository produces; `cmd/dotfiles`, `internal/release`, `internal/system` and `internal/tui/trainer` all pass |
+
+### Log
+
+**L17.** **Two readers that took in more than they were reading about, the third and
+fourth of this session.** The candidate list came back as `[.venv venv .env;]` because
+zsh writes `for candidate in .venv venv .env; do` and the semicolon arrives glued to the
+last candidate, so a break on the word `";"` never fired. And the sops comparison came
+back as `if ! sops -d then` against `if not sops -d`, because it compared the whole line,
+keywords included, instead of the invocation. Both were the guard's own defect: fish was
+implemented correctly and the guard said otherwise.
+
+**L18.** **The fifth one produced the rule.** Reading the `git` invocations out of
+`env-load` returned a phantom `git does` -- from the message `secrets: git does not ignore
+$dst`, read as code. The same class had now appeared four times, in four different
+readers, so this one was fixed at the root rather than at the call site: quoted strings
+are stripped before any line is scanned for a command, because a message that names a
+command is not that command being run.
+
+**L19.** **Two probe defects and one suspicion that did not survive measurement.** The
+first secrets run proved almost nothing: `age-keygen` prints `Public key: age1…` on
+**stderr** with a capital P, the pattern looked for a lowercase `public key:` in the
+combined output, so the public key was empty, `.sops.yaml` had `age: ` and the file was
+never encrypted -- steps 1 to 3 then exercised a plaintext file. The same run restored
+`PATH` to `/usr/bin:/bin`, where `sops` is not installed, so `env-edit` reported the wrong
+refusal for the wrong reason. Both were the probe's, and both were re-run properly rather
+than reported. And two `warning:` lines fish printed around a failed redirect in that run
+**did not reappear** in a clean one or in isolation, with zsh beside it producing the same
+result: recorded here as a suspicion that measurement did not support, and nothing was
+changed in response to it.
+
+**L20.** A small process mistake worth one line: three assertions in the probe were
+written with `and` / `or`, which are fish keywords, inside a bash command substitution.
+They failed with *command not found* and the two checks they held were run again. The
+shell a line is written for is not the shell a line is written in.
+
+**L21.** **No document changed, and that is a decision rather than an omission.** zsh's
+venv hook and secrets commands are documented nowhere -- the only mention of `sops` and
+`age` in `docs/` is the Brewfile row in `docs/tools.md`, which lists formulae rather than
+shell commands. Stage 3 did change `docs/tools.md`, because its `cat` row named an alias
+where the shell declares a function; nothing here has an equivalent row to correct. The
+introductory sentence of that same table says what the zsh configuration starts, which is
+still true, so it is left as it is.
+
 ## Remaining
 
-Stage 3 is written and in review on this branch: the functions. Stage 4 -- the sops/age
-secrets, the venv activation on `cd`, and the project-task announcement -- is open, its
-own change and its own review.
+Stage 4 is written and in review on this branch: the hooks and the secrets. With it the
+mandate that opened this file is whole. The next piece of work is a different one -- the
+installer's background becomes a slow-drifting gradient, decided separately and recorded
+in memory rather than here.
