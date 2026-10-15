@@ -834,6 +834,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case installVerifyMsg:
+		// The verdict is filled once, by the same rule: the check is read-only, so
+		// the first answer is the answer and a return to the screen does not stat
+		// the machine again.
+		if !m.InstallVerify.Resolved {
+			m.InstallVerify = installVerifyState{Resolved: true, Verdict: msg.verdict}
+		}
+		return m, nil
+
 	case updateCheckMsg:
 		// An answer for a channel this run has left is not an answer. The channel
 		// row can be pressed while a check is in flight, so the older check's reply
@@ -1380,6 +1389,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
 
+	case ScreenInstallVerify:
+		return m.handleInstallVerifyKeys(key)
+
 	case ScreenUpdate:
 		return m.handleUpdateKeys(key)
 
@@ -1524,6 +1536,11 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// nothing: a measurement that is still running writes its answer onto the
 		// model regardless, which is what keeps the number from being lost because
 		// the user stepped back while it ran.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+	case ScreenInstallVerify:
+		// The verification screen is one level in as well, and read-only: leaving
+		// it cancels nothing, because nothing it does is a change.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	case ScreenUpdate:
@@ -1876,6 +1893,13 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenWSLResources
 			m.Cursor = 0
 			m.WSLNotice = ""
+		case selected == utilitiesVerifyRow:
+			// The verification is one level in as well, and it is the check that runs
+			// off the update loop: the record and the paths it names are stated here,
+			// and a keypress must not wait on them.
+			m.Screen = ScreenInstallVerify
+			m.Cursor = 0
+			return m, m.installVerifyCmdIfNeeded()
 		case selected == utilitiesTerminalRow:
 			// The capability report is one level in as well, and it is read-only.
 			// The probe is armed here -- when the user opens the screen, never at

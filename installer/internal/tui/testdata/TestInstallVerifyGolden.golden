@@ -1,0 +1,24 @@
+                                                                                
+   Utilities                                                                    
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  The last install                                                              
+  Read-only: this checks that every path and backup the record names is still   
+  here, and nothing else. The record names no digest, so it cannot say whether  
+  a file is still what the install left.                                        
+  Record from 2026-10-15 12:24:00 by v0.9.0.                                    
+  2 of the 3 paths and backups the record names are not here:                   
+  missing  fish  /home/testuser/.config/fish  created by the run                
+  missing  backup of kitty                                                      
+  /home/testuser/.dotfiles-backup-20261015-122400/kitty                         
+  Still here: 1 of the 3 paths and backups the record names. dotfiles --verify  
+  prints every one of them, including the ones that are here.                   
+                                                                                
+  ▸ ← Back                                                                      
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  ────────────────────────────────────────────────────────────────────────────  
+  [Esc] back                                                                    

@@ -332,7 +332,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 62 // 50 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + the trainer's 6
+const measuredScreens = 63 // 50 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + install-verify + the trainer's 6
 
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
@@ -471,13 +471,14 @@ func terminalFitCases() []terminalFitCase {
 	// one of the installer's states, so it is measured here the way the trainer's
 	// screens are. The theme picker is one level in from it, for the same reason,
 	// and its refresh review is a second state of that picker. The capability
-	// report and the shell audit are destinations in the section, each reached
-	// from its own row.
+	// report, the install verification and the shell audit are destinations in the
+	// section, each reached from its own row.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
 	cases = append(cases, terminalFitCase{themeActivityCaseName, themeActivityFrameCase})
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
 	cases = append(cases, terminalFitCase{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase})
+	cases = append(cases, terminalFitCase{installVerifyCaseName, installVerifyFrameCase})
 	cases = append(cases, terminalFitCase{shellAuditCaseName, shellAuditFrameCase})
 
 	return cases
@@ -647,6 +648,7 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{wslResourcesCaseName, wslResourcesFrameCase(t)},
 		{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase(t)},
 		{shellAuditCaseName, shellAuditFrameCase(t)},
+		{installVerifyCaseName, installVerifyFrameCase(t)},
 		{updateCaseName, updateFrameCase(t)},
 	}
 }
@@ -920,6 +922,10 @@ func TestWSLResourcesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 // shellAuditCaseName is the name the frame guards know the shell startup screen
 // by.
 const shellAuditCaseName = "shell-audit"
+
+// installVerifyCaseName is the name the frame guards know the install
+// verification screen by.
+const installVerifyCaseName = "install-verify"
 
 // shellAuditFrameCase builds the shell startup screen with a finished
 // measurement, a run that timed out and zprof's table, so the guards measure the
