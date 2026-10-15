@@ -67,7 +67,7 @@ página nueva contradice o amplía `docs/tools.md`, se enlaza, sin duplicar la t
 | T4 | Páginas de Shell tooling, Plugins y Machine toolset | S4, S5 | inline | `9c58ee6` |
 | T5 | Keymaps Reference: Kitty, WezTerm y Alacritty | S5, S6 | inline | `9944a9e` |
 | T6 | Docs al día (`tui-installer.md`, `tools.md`) | S7 | inline | `b0627f7` |
-| T7 | Suite completa y cierre | S8 | inline | `3f0a29b` + la puerta completa |
+| T7 | Suite completa y cierre | S8 | inline | `3f0a29b`, `167e430` + la puerta |
 
 ## Log
 
@@ -157,4 +157,10 @@ commit base `4ba4332` (antes de cualquier cambio de este frente) los mismos cuat
 la misma salida. En CI, sin Ghostty instalado, no aparecen. Además, el guard del compañero pinnaba
 896 estados de frame y con las nueve pantallas nuevas pasó a 1072: la constante se subió con el
 comentario que dice de dónde sale, y ese arreglo va en este commit.
+
+Confirmación medida después de ese arreglo: `go test ./... -count=1` deja `internal/tui/trainer`,
+`cmd/dotfiles`, `internal/release` e `internal/system` en verde y sólo esos cuatro fallos del host; el
+guard del compañero pasa con 1072 estados. Queda una decisión del humano: si esos cuatro tests deben
+volverse independientes del host (hoy stubean `curl` pero no la pregunta "¿ya está instalado?"), es
+un frente aparte, fuera del alcance de esta wiki.
 ```
