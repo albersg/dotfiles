@@ -23,7 +23,7 @@ is last and holds the user's own words.
 ## Tasks
 
 - [x] **T1** (S1, S3) Shared unit table: one place names the seventeen units, their order, and which three are fixed. Route: inline. Commit: `refactor(tui): one table names the installer's units`.
-- **T2** (S4, S8) One builder: the interactive and non-interactive planners become callers of a single function, with the defaults unchanged. Route: inline. Commit: `refactor(tui): one builder turns choices into steps`.
+- [x] **T2** (S4, S8) One builder: the interactive and non-interactive planners become callers of a single function, with the defaults unchanged. Route: inline. Commit: `refactor(tui): one builder turns choices into steps`.
 - **T3** (S5, S9) The screen: enum, title, description, options, panel, render, key dispatch, escape map. Route: worker. Commit: `feat(tui): a screen that shows every unit and its switch`.
 - **T4** (S6) The selection reaches the plan, and a unit turned off reports itself as skipped. Route: worker. Commit: `feat(tui): a unit turned off says so instead of vanishing`.
 - **T5** (S7, S8) The command line and the environment: the flag, and parity guards that hold both routes to the same plan. Route: worker. Commit: `feat(tui): the command line says what the screen can say`.
@@ -55,3 +55,29 @@ is last and holds the user's own words.
   separate decision and is not part of this front. The churn this costs in the repository's own
   guards is small and was measured too: two lines pin the old names, `non_interactive_test.go:16`
   (`Set shell as default`) and `step_loop_test.go:118` (`Clone dotfiles repository`).
+
+- **L7.** T1 shipped as `58e08f2` ("refactor(tui): one table names the installer's units"); T2 is
+  the commit that carries this line. T1's evidence is a mutation set rather than a red test, and it
+  has to be: a table that nothing reads yet has no behaviour to make red. Four mutations were applied
+  and each failed the guard that names its rule -- cleanup unmarked, agentskills dropped, a unit
+  added to catalogue and executor that no configuration can schedule (caught by the pre-existing
+  `TestEveryExecutorEntryIsAScheduledStep`, which is the transitive coverage the new guards lean on),
+  and backup named twice -- with both files restored byte-identical: sha256 over the pair
+  `c7fa0552728d45a8`, before and after.
+- **L8.** T2 did not rewrite `planFor`, which the task table allowed it to. The catalogue is made the
+  authority on the order by a guard instead: every plan has to be a subsequence of it, and the union
+  of every configuration has to plan every unit it names. That is the same force the executor
+  agreement gets from enumerating both schedulers, and it is a diff of fourteen lines rather than
+  seventy-four -- the risky version of this task was the elegant one.
+- **L9.** "Today's plan" is a measurement, not a memory. A probe printed the plan, field by field,
+  for six configurations before the builder changed, and the guard is written against that output, so
+  a unit that appears, disappears or moves fails rather than being noticed in the field. The whole
+  module then ran twice, before and after, with the same four pre-existing Ghostty failures and no
+  others.
+- **L10.** That green is also the finding, and it is not a comfortable one: nothing in the suite
+  pinned the divergence the two planners had been carrying. On macOS the non-interactive path
+  scheduled `deps` -- a Linux step -- and `xcode` regardless of the tools being present; on a Termux
+  host it scheduled `homebrew`; with nothing to back up it scheduled `backup`. Fifteen tests name
+  `buildStepsForChoices`, and not one of them said which units it should produce. The convergence is
+  therefore covered by the four guards written here and by nothing that already existed, which is
+  worth knowing before trusting the next green.
