@@ -52,6 +52,7 @@ plugin list file to copy:
 | **Zsh** | `.zshrc` | Installs the plugin packages (autosuggestions, syntax highlighting, completions, fzf-tab, Powerlevel10k) that the `.zshrc` sources |
 | **Neovim** | `dotfiles-nvim/nvim/lua/plugins/` | Ships the LazyVim plugin set, which lazy.nvim installs on first launch |
 | **Herdr** | `herdrPluginSet` in `installer/internal/tui/installer.go` | Runs `herdr plugin install <owner>/<repo> --yes` for each declared plugin and verifies each with `herdr plugin list` |
+herdr plugin update --yes                              # update every GitHub-installed plugin
 
 ### Herdr
 
@@ -69,11 +70,13 @@ list` and reports the revision Herdr recorded for each plugin
 (`source.resolved_commit`). A plugin that failed to install, or whose build
 failed, is reported as a failure and not as an installed plugin.
 
-**Nothing is pinned, and Herdr has no plugin update command.** `herdr plugin
+**The set is installed every run, and updated where the CLI can.** `herdr plugin
 install` re-resolves the repository's default branch and replaces the managed
-checkout it owns, so re-running the installer is how these plugins are updated.
-The installer never uninstalls, unlinks or disables a plugin, so plugins you add
-yourself are left untouched. The same commands:
+checkout it owns, and on Herdr 0.9.4 or newer `herdr plugin update --yes` updates
+every GitHub-installed plugin -- including any you added yourself. On an older CLI the
+step names the version it found and reports that the plugins were installed but not
+updated, because `plugin update` did not exist before 0.9.4. The installer never
+uninstalls, unlinks or disables a plugin. The same commands:
 
 ```bash
 herdr plugin install <owner>/<repo>/<subdir> --yes   # install or update (GitHub shorthand only)

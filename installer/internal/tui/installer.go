@@ -6242,10 +6242,14 @@ func runNativeWithBrewFallback(nativeCommand string, brewPackages string, hasBre
 }
 
 // Herdr release used by the fallback download. Keep the repository and the tag
-// in sync with the asset checksums below.
+// in sync with the asset checksums below. The tag matters beyond the download:
+// it is the version a machine gets when Herdr is not already installed, so it
+// has to be one that can update its plugins (0.9.4 is the first, and v0.9.1, the
+// previous pin, could not). v0.9.5 is the current stable release, whose linux
+// x86_64 and aarch64 asset digests are the two values below.
 const (
 	herdrRepo    = "herdrdev/herdr"
-	herdrVersion = "v0.9.1"
+	herdrVersion = "v0.9.5"
 )
 
 func installHerdrBinary(m *Model, stepID string) error {
@@ -6268,10 +6272,10 @@ func installHerdrBinary(m *Model, stepID string) error {
 	switch runtime.GOARCH {
 	case "amd64":
 		assetArch = "x86_64"
-		expectedSHA256 = "2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7"
+		expectedSHA256 = "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d"
 	case "arm64":
 		assetArch = "aarch64"
-		expectedSHA256 = "f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e"
+		expectedSHA256 = "17d7536f2da50859523680ef279dffcac8e4a235f4e46fe8da6c2ec44141897c"
 	default:
 		return fmt.Errorf("unsupported Herdr architecture: %s", runtime.GOARCH)
 	}
@@ -6306,7 +6310,7 @@ func installHerdrBinary(m *Model, stepID string) error {
 }
 
 // ============================================================================
-// HERDR PLUGINS: THE DECLARED SET, INSTALLED AND VERIFIED
+// HERDR PLUGINS: THE DECLARED SET, INSTALLED, UPDATED AND VERIFIED
 // ============================================================================
 //
 // Unlike the plugin set for Tmux, Fish, Zsh and Neovim, Herdr's is not declared
@@ -6315,13 +6319,24 @@ func installHerdrBinary(m *Model, stepID string) error {
 // repository makes, so it is named here and in the documentation, and nowhere
 // is it inferred.
 //
-// The install is deliberately not pinned. The owner asked for whatever is
-// current, and `herdr plugin install` replaces the managed checkout it owns, so
-// a re-run lands the repository's default branch again -- which is the only
-// update path Herdr 0.9.3 has, because its plugin surface has no update, upgrade
-// or refresh command. The revision that actually landed is Herdr's fact, not
-// this installer's: it is read back from `herdr plugin list`
-// (`source.resolved_commit`) and reported, never chosen in advance.
+// The set is installed on every run, and updated on every run when the machine's
+// herdr can: 0.9.4 is the first release whose plugin surface has an `update`
+// subcommand, and `herdr plugin update --yes` is what this step runs after the
+// install. The install is deliberately not pinned either -- `herdr plugin
+// install` re-resolves the repository's default branch and replaces the managed
+// checkout it owns -- so a re-run both reinstalls the set and, where it can,
+// updates it. The revision that actually landed is Herdr's fact, not this
+// installer's: it is read back from `herdr plugin list`
+// (`source.resolved_commit`) after the update and reported, never chosen in
+// advance.
+//
+// The update is capability-guarded rather than attempted-and-caught, because
+// `herdr plugin update` exits non-zero on a CLI that has no such subcommand:
+// running it unconditionally would fail this step on exactly the machines that
+// have been running this installer longest (0.9.1 and 0.9.3). On those the step
+// names the version it found and says the plugins were installed but cannot be
+// updated until Herdr is upgraded. A step that fails on a machine which is
+// merely old is a worse defect than one that does not update.
 //
 // Nothing else is touched. The step never uninstalls, unlinks or disables a
 // plugin, so a plugin the user added themselves survives a reinstall, and a
@@ -6364,6 +6379,106 @@ var herdrPluginList = func() (string, error) {
 		return "", result.Error
 	}
 	return result.Output, nil
+}
+
+// herdrPluginUpdateMinVersion is the first Herdr release with a plugin update
+// command. 0.9.4's own `--help` says `update   Update GitHub-installed plugins`;
+// 0.9.3 lists eleven subcommands and none of them updates, so the version is the
+// capability boundary the step has to honour before it runs anything.
+const herdrPluginUpdateMinVersion = "0.9.4"
+
+// herdrPluginUpdateCommand is the noninteractive form of the update. Read from
+// 0.9.4's own `--help`:
+//
+//	Usage: herdr plugin update [OPTIONS] [PLUGIN]...
+//	Arguments:
+//	  [PLUGIN]...
+//	Options:
+//	  -y, --yes
+//
+// The plugin arguments are optional and omitted here: with none, the command
+// updates every GitHub-installed plugin. --yes is required rather than optional
+// for this step: with stdin not a terminal, `herdr plugin update` exits 2 with
+// "plugin update requires --yes when stdin is not interactive", and a TUI step
+// cannot answer a prompt.
+const herdrPluginUpdateCommand = "herdr plugin update --yes"
+
+// herdrPluginVersion reads the version of the herdr binary on PATH. It is a
+// variable for the same reason as herdrPluginList, and it is separate because
+// the version decides whether the update command may run at all.
+var herdrPluginVersion = func() (string, error) {
+	result := system.Run("herdr --version", nil)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	return result.Output, nil
+}
+
+// parseHerdrVersion pulls the version out of `herdr --version`, which prints a
+// single line like "herdr 0.9.3". It returns "" when no version is present, and
+// the caller treats that as "cannot update" rather than guessing.
+func parseHerdrVersion(output string) string {
+	for _, field := range strings.Fields(output) {
+		field = strings.TrimPrefix(field, "v")
+		if field == "" || field[0] < '0' || field[0] > '9' {
+			continue
+		}
+		end := 0
+		for end < len(field) && (field[end] >= '0' && field[end] <= '9' || field[end] == '.') {
+			end++
+		}
+		if version := strings.Trim(field[:end], "."); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
+// herdrVersionAtLeast reports whether found is at least want, comparing dotted
+// numeric components. A string comparison would order 0.10.0 below 0.9.4 and
+// silently stop updating a newer Herdr; a missing component counts as zero, so
+// "0.9" is below "0.9.4" and "1.0" is at least "0.9.4".
+func herdrVersionAtLeast(found, want string) bool {
+	foundParts, ok := herdrVersionComponents(found)
+	if !ok {
+		return false
+	}
+	wantParts, ok := herdrVersionComponents(want)
+	if !ok {
+		return false
+	}
+	for i := 0; i < len(wantParts); i++ {
+		got := 0
+		if i < len(foundParts) {
+			got = foundParts[i]
+		}
+		if got != wantParts[i] {
+			return got > wantParts[i]
+		}
+	}
+	return true
+}
+
+// herdrVersionComponents turns "0.9.4" into [0 9 4]. A suffix such as the
+// "-dev" in "0.9.4-dev" ends the numeric run rather than failing the parse, so a
+// development build of a release that can update is not mistaken for one that
+// cannot. A component with no digits at all makes the whole version unreadable.
+func herdrVersionComponents(version string) ([]int, bool) {
+	parts := strings.Split(version, ".")
+	components := make([]int, 0, len(parts))
+	for _, part := range parts {
+		value := 0
+		digits := 0
+		for i := 0; i < len(part) && part[i] >= '0' && part[i] <= '9'; i++ {
+			value = value*10 + int(part[i]-'0')
+			digits++
+		}
+		if digits == 0 {
+			return nil, false
+		}
+		components = append(components, value)
+	}
+	return components, true
 }
 
 // installedHerdrPlugin is one plugin `herdr plugin list --json` reports.
@@ -6412,9 +6527,10 @@ func herdrPluginRevision(commit string) string {
 	return commit
 }
 
-// installHerdrPlugins installs every plugin in the declared set and verifies
-// each one against the machine. A plugin that did not install, or whose build
-// failed, is returned as an error so the step cannot report success over it.
+// installHerdrPlugins installs every plugin in the declared set, updates them
+// when the herdr on PATH can, and verifies each one against the machine. A
+// plugin that did not install, or whose build failed, is returned as an error so
+// the step cannot report success over it.
 //
 // It runs only for the Herdr multiplexer choice, and only where the herdr binary
 // resolves: a machine without it gets nothing and no error, because there is
@@ -6423,8 +6539,8 @@ func installHerdrPlugins(m *Model, stepID string) error {
 	if m == nil || m.Choices.WindowMgr != "herdr" {
 		return nil
 	}
-	if !system.CommandExists("herdr") {
-		SendLog(stepID, "Herdr is not on PATH; the Herdr plugins were not touched")
+	if !herdrBinaryPresent("herdr") {
+		herdrLog(stepID, "Herdr is not on PATH; the Herdr plugins were not touched")
 		return nil
 	}
 	if len(herdrPluginSet) == 0 {
@@ -6433,15 +6549,25 @@ func installHerdrPlugins(m *Model, stepID string) error {
 
 	var failures []error
 	for _, plugin := range herdrPluginSet {
-		SendLog(stepID, fmt.Sprintf("Installing Herdr plugin %s (%s)...", plugin.Name, plugin.shorthand()))
+		herdrLog(stepID, fmt.Sprintf("Installing Herdr plugin %s (%s)...", plugin.Name, plugin.shorthand()))
 		// --yes is the noninteractive form: without it the CLI shows a trust
 		// preview and waits on a [y/N] prompt, which a TUI step cannot answer.
 		result := herdrPluginRun("herdr plugin install "+plugin.shorthand()+" --yes", nil, func(line string) {
-			SendLog(stepID, line)
+			herdrLog(stepID, line)
 		})
 		if result.Error != nil {
 			failures = append(failures, fmt.Errorf("%s (%s) failed to install: %w", plugin.Name, plugin.ID, result.Error))
 		}
+	}
+
+	// The update runs before the read-back so the revision reported below is the
+	// one the update left behind, not the one the install landed a moment
+	// earlier. Its failure is a failure: on a CLI that has the command, an update
+	// that did not happen is not a successful update. On a CLI that does not have
+	// it, updateHerdrPlugins answers without running anything, so a machine that
+	// is merely old never fails here.
+	if err := updateHerdrPlugins(stepID); err != nil {
+		failures = append(failures, err)
 	}
 
 	// Ask the machine rather than assume, the way the WSL font path asks the
@@ -6463,11 +6589,51 @@ func installHerdrPlugins(m *Model, stepID string) error {
 			failures = append(failures, fmt.Errorf("%s (%s) is not in `herdr plugin list` after installing it", plugin.Name, plugin.ID))
 			continue
 		}
-		SendLog(stepID, fmt.Sprintf("✓ %s (%s) installed at %s", plugin.Name, plugin.ID, herdrPluginRevision(got.Source.ResolvedCommit)))
+		herdrLog(stepID, fmt.Sprintf("✓ %s (%s) installed at %s", plugin.Name, plugin.ID, herdrPluginRevision(got.Source.ResolvedCommit)))
 	}
 	if len(failures) > 0 {
 		return errors.Join(failures...)
 	}
+	return nil
+}
+
+// updateHerdrPlugins updates the installed GitHub plugins when the herdr on
+// PATH can, and explains the gap when it cannot.
+//
+// The capability is decided from the version before the command runs, and that
+// order is the whole point: `herdr plugin update` exits non-zero on a CLI that
+// has no such subcommand, so running it unconditionally would fail the step on
+// exactly the machines that have been running this installer longest. Herdr
+// 0.9.4 is where the command first appears; 0.9.1 and 0.9.3 install plugins but
+// cannot update them, and for those the step says so, installs as it always did,
+// and succeeds. An upgrade plus a re-run is what updates them there.
+//
+// A version that cannot be read is treated as "cannot update": the step cannot
+// prove the command exists, so it does not run it, and it says that too.
+func updateHerdrPlugins(stepID string) error {
+	version, err := herdrPluginVersion()
+	if err != nil {
+		herdrLog(stepID, fmt.Sprintf("Herdr's version could not be read (%v), so the plugins were installed but not updated", err))
+		return nil
+	}
+	found := parseHerdrVersion(version)
+	if found == "" {
+		herdrLog(stepID, fmt.Sprintf("Herdr did not report a version (output %q), so the plugins were installed but not updated", strings.TrimSpace(version)))
+		return nil
+	}
+	herdrLog(stepID, fmt.Sprintf("Herdr %s found", found))
+	if !herdrVersionAtLeast(found, herdrPluginUpdateMinVersion) {
+		herdrLog(stepID, fmt.Sprintf("Herdr %s is older than %s, which is where `herdr plugin update` was added, so the plugins were installed but not updated; upgrade Herdr and run the installer again to update them", found, herdrPluginUpdateMinVersion))
+		return nil
+	}
+
+	result := herdrPluginRun(herdrPluginUpdateCommand, nil, func(line string) {
+		herdrLog(stepID, line)
+	})
+	if result.Error != nil {
+		return fmt.Errorf("the Herdr plugins were installed but could not be updated with `%s`: %w", herdrPluginUpdateCommand, result.Error)
+	}
+	herdrLog(stepID, "✓ Herdr plugins updated")
 	return nil
 }
 
