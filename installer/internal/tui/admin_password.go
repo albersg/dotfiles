@@ -78,37 +78,52 @@ func zeroPasswordBytes(buf []byte) {
 	}
 }
 
+// adminPasswordMaskLimit is how many bullets the field draws before it stops
+// counting them out. The field holds up to adminPasswordCapacity bytes, and one
+// bullet per byte would run past any terminal long before that; the count on the
+// line beneath is the precise answer, so the mask does not have to be.
+const adminPasswordMaskLimit = 24
+
 // renderAdminPassword draws the installer's own password prompt. It shows how
 // much has been typed and never a character of it.
+//
+// Every line goes through wrapText against the frame's own width rather than being
+// hand-wrapped: the frame pads every row to the widest one in the body, so a single
+// literal line longer than the terminal makes the whole screen overflow, which a
+// guard measures at twelve terminal sizes down to 60x20.
 func (m Model) renderAdminPassword() string {
+	width := contentWidth(m)
 	hints := []installerHint{hintSelect, hintBack}
 
 	typed := len(m.AdminPassword)
 	masked := strings.Repeat("•", typed)
+	if typed > adminPasswordMaskLimit {
+		masked = strings.Repeat("•", adminPasswordMaskLimit) + cutMarker
+	}
 	if typed == 0 {
 		masked = MutedStyle.Render("waiting")
 	}
 
-	body := []string{
-		BrandStyle.Render(m.GetScreenTitle()),
-		MutedStyle.Render("sudo needs it for the steps that change the machine."),
-		"",
-		HighlightStyle.Render("  > ") + masked,
-		"",
-		MutedStyle.Render(fmt.Sprintf("  %d characters typed; the field holds up to %d.", typed, adminPasswordCapacity)),
-	}
+	body := []string{BrandStyle.Render(m.GetScreenTitle())}
+	body = append(body, wrapText("sudo needs it for the steps that change the machine.", width, 0)...)
+	body = append(body, "", "  "+masked, "")
+	body = append(body, wrapText(fmt.Sprintf("%d characters typed; the field holds up to %d.", typed, adminPasswordCapacity), width, 0)...)
+
 	if m.AdminPasswordErr != "" {
-		body = append(body,
-			"",
-			ErrorStyle.Render("  ✗ "+m.AdminPasswordErr),
-			MutedStyle.Render("  Press Esc to be asked in the terminal instead."),
-		)
+		body = append(body, "")
+		for _, row := range wrapText("✗ "+m.AdminPasswordErr, width, 0) {
+			body = append(body, ErrorStyle.Render(row))
+		}
+		for _, row := range wrapText("Press Esc to be asked in the terminal instead.", width, 0) {
+			body = append(body, MutedStyle.Render(row))
+		}
 	}
-	body = append(body,
-		"",
-		MutedStyle.Render("  It is read here, on this screen: the installer does not leave its own"),
-		MutedStyle.Render("  interface to ask for it. Nothing about it is written down."),
-	)
+
+	body = append(body, "")
+	reading := "It is read here, on this screen: the installer does not leave its own interface to ask for it, and nothing about it is written down."
+	for _, row := range wrapText(reading, width, 0) {
+		body = append(body, MutedStyle.Render(row))
+	}
 
 	return m.frame(m.headerName(), "", body, hints)
 }
