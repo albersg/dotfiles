@@ -518,6 +518,8 @@ func (m Model) headerName() string {
 		return "Setup"
 	case ScreenInstalling:
 		return "Installing dotfiles"
+	case ScreenAdminPassword:
+		return "Administrator access"
 	case ScreenComplete:
 		return "Installation complete"
 	case ScreenError:
@@ -1074,6 +1076,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
+	case ScreenAdminPassword:
+		s.WriteString(m.renderAdminPassword())
 	case ScreenComplete:
 		s.WriteString(m.renderComplete())
 	case ScreenError:

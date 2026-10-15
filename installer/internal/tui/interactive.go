@@ -21,17 +21,40 @@ type needsExecProcessMsg struct {
 	cmd    *exec.Cmd
 }
 
-// sudoPrimer is the seam for the one credential request of a run. The default
-// hands the terminal to `sudo -v` once, before the first root-needing step, so
-// sudo caches the credential the rest of the run reads with `sudo -n`. It is a
-// variable so a test can prove the run asks exactly once without invoking sudo.
+// sudoPrimer is the seam for the first half of the run's one credential request:
+// asking the machine whether sudo already has what it needs, without owning the
+// terminal and without putting anything in front of the user. It is a variable so
+// a test can prove the run asks exactly once without invoking sudo.
 var sudoPrimer = defaultSudoPrimer
 
-// defaultSudoPrimer runs `sudo -v` with the terminal attached. It is the one
-// moment a run gives the terminal to a child process: sudo writes the cached
-// credential it later reads non-interactively, and the TUI comes straight back
-// to the screen.
+// defaultSudoPrimer asks sudo whether a credential is already cached, with
+// `sudo -n -v`, which never prompts: it succeeds where sudo is configured not to
+// want a password -- a NOPASSWD rule, common in containers -- and fails where one
+// is required. The success is reported as a successful priming, so a machine that
+// needs no password is never asked for one; the failure is what puts the
+// installer's own password screen up instead of a terminal handover.
 func defaultSudoPrimer() tea.Cmd {
+	return func() tea.Msg {
+		if err := exec.Command("sudo", "-n", "-v").Run(); err != nil {
+			return sudoNeedsPasswordMsg{}
+		}
+		return sudoPrimedMsg{}
+	}
+}
+
+// sudoTerminalPrimer is the seam for the way out of the installer's own prompt. It
+// is the handover the run used to make for every request, kept for the case an
+// in-screen prompt cannot cover: a system whose PAM wants a terminal -- a
+// two-factor or fingerprint module, or a legacy `Defaults requiretty` -- cannot be
+// authenticated through `sudo -S` at all, and that has to be a way forward rather
+// than a dead end.
+var sudoTerminalPrimer = defaultSudoTerminalPrimer
+
+// defaultSudoTerminalPrimer runs `sudo -v` with the terminal attached. It is now
+// the one moment a run gives the terminal to a child process, and it happens only
+// when the user asks for it: sudo writes the cached credential it later reads
+// non-interactively, and the interface comes straight back to the screen.
+func defaultSudoTerminalPrimer() tea.Cmd {
 	c := exec.Command("sudo", "-v")
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return sudoPrimedMsg{err: err}
