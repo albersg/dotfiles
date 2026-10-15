@@ -4,6 +4,12 @@ All notable changes to the dotfiles downstream distribution will be documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **The prompt symbol is a one-cell powerline triangle rather than the glyph that shipped before.** `starship.toml` drew `U+F15DE` (`nf-md-mustache`) in both the character block and the username format; both draw `U+E0B0` (`nf-pl-left_hard_divider`) now. A prompt symbol is not a matter of taste alone: it has to occupy exactly one cell, or every line the prompt sits on shifts by a fraction of one. Measured against the families this repository installs -- MesloLGS and IosevkaTerm, on the Windows side and on the WSL side -- `U+E0B0`'s advance is exactly **1.000 of a cell**, and in the same face it equals `U+F15DE`'s, so the prompt keeps the width it had and nothing below it moves. Every one of those faces draws it. That measurement is the verification rather than a test, because the fonts are put in place by the installer and are not shipped in this repository: a test here cannot read a `cmap` the repository does not hold.
+
 ## [v0.7.10] — 2026-10-14
 
 ### Added
