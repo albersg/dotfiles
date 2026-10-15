@@ -799,9 +799,12 @@ installed everything.
 **The installer provisions plugins for five tools.** It installs the plugin set
 this repository declares for Tmux (it clones TPM and runs `install_plugins`),
 Fish, Zsh and Neovim, because in each case the set is a decision the repository
-has already made. Herdr's set is the one a run can leave out today:
-`--skip=plugins-herdr` turns it off, and the step then runs no `herdr` command,
-installs nothing and reports the set as left out. A set this installer does not
+has already made. Tmux's and Herdr's sets are the ones a run can leave out:
+`--skip=plugins-tmux` and `--skip=plugins-herdr` turn them off, and the step then
+runs no TPM and no `herdr` command, installs nothing and reports the set as left
+out. A run that leaves Tmux's out also writes a configuration that declares no
+plugin and runs no TPM, between the markers `dotfiles-tmux/tmux.conf` carries for
+exactly that. A set this installer does not
 install itself is not offered as a switch, because a switch there would install
 nothing -- Fish's `config.fish` bootstraps Fisher on first start and Neovim's set
 is installed by lazy.nvim on first launch, which is what

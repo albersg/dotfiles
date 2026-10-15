@@ -45,6 +45,13 @@ is a list that lives in this repository and the step copies or installs it; for
 Herdr the set is declared in the installer's own source, because Herdr has no
 plugin list file to copy:
 
+Two of those sets are work this installer does and can be left out of a run:
+Tmux's, with `--skip=plugins-tmux`, and Herdr's, with `--skip=plugins-herdr`. A
+run that leaves Tmux's out installs no TPM, downloads no plugin, and strips the
+plugin declarations and the line that runs TPM out of the `tmux.conf` it writes,
+so tmux is never asked to run a checkout that is not there. The others are not
+offered as switches, because a switch there would install nothing.
+
 | Tool | Where the set is declared | What the installer does |
 |------|---------------------------|-------------------------|
 | **Tmux** | `dotfiles-tmux/tmux.conf` through TPM | Clones TPM, copies the seeded plugin directory and runs `install_plugins` |
@@ -64,9 +71,9 @@ The declared Herdr set is two plugins, installed from GitHub shorthand:
 | `herdr.auto-title` | `kryptamine/herdr-auto-title` | Auto Title, built from Go at install time (Go is required) |
 
 The step runs only on the Herdr multiplexer choice and only where the `herdr`
-binary resolves. It is also the only plugin set a run can leave out today:
-`--skip=plugins-herdr` turns it off, and the step then runs no `herdr` command,
-installs nothing, updates nothing, and reports the set as left out. It installs each plugin with `--yes`, the noninteractive form
+binary resolves. A run can leave its set out: `--skip=plugins-herdr` turns it
+off, and the step then runs no `herdr` command, installs nothing, updates
+nothing, and reports the set as left out. It installs each plugin with `--yes`, the noninteractive form
 of `herdr plugin install`, then asks the machine what it has with `herdr plugin
 list` and reports the revision Herdr recorded for each plugin
 (`source.resolved_commit`). A plugin that failed to install, or whose build

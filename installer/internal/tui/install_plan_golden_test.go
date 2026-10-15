@@ -210,6 +210,11 @@ func TestTheNonInteractiveRunnerPlansWhatTheInterfacePlans(t *testing.T) {
 // the identifiers say which units run, and these say what each one is called and
 // says about itself, which is what the run prints and what the main menu's panel
 // shows. Measured from the tree as it stood before the builder changed.
+//
+// The multiplexer's step carries the plugin set it provisions
+// (install_plugin_sets.go): the plan names what the step would install and whether
+// the run turned it off, so the guard sees it here instead of the step being blind
+// to its own work. This is the one field the plan gained for it.
 func TestTheWholePlanIsWhatItWas(t *testing.T) {
 	fixture := planFixtures()[0]
 	m := fixture.fixtureModel()
@@ -223,7 +228,7 @@ func TestTheWholePlanIsWhatItWas(t *testing.T) {
 		{ID: "terminal", Name: "Install kitty", Description: "Installs your terminal emulator.", Status: StatusPending, Interactive: true},
 		{ID: "font", Name: "Install Meslo Nerd Font", Description: "Installs the Meslo Nerd Font for icons.", Status: StatusPending},
 		{ID: "shell", Name: "Install zsh", Description: "Installs your shell and its plugins.", Status: StatusPending},
-		{ID: "wm", Name: "Install tmux", Description: "Installs your terminal multiplexer.", Status: StatusPending},
+		{ID: "wm", Name: "Install tmux", Description: "Installs your terminal multiplexer.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-tmux", Name: "the plugins its configuration declares"}},
 		{ID: "nvim", Name: "Install Neovim", Description: "Installs Neovim with your configuration.", Status: StatusPending},
 		{ID: "toolset", Name: "Install Toolset", Description: "Installs the command-line tools listed in your Brewfile.", Status: StatusPending},
 		{ID: "agentskills", Name: "Install Pi Agent Skills", Description: "Installs the pinned security-audit, archify and officecli skills.", Status: StatusPending},
@@ -237,7 +242,10 @@ func TestTheWholePlanIsWhatItWas(t *testing.T) {
 		t.Fatalf("the plan has %d steps, want %d:\n  %s", len(got), len(want), planIDList(got))
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		// Compared by value rather than with ==: the plan carries a pointer to the set
+		// its step provisions, and == would compare the pointer, so an expectation that
+		// says the same thing would still fail for having been built separately.
+		if !reflect.DeepEqual(got[i], want[i]) {
 			t.Errorf("step %d (%s):\n  got  %+v\n  want %+v", i, want[i].ID, got[i], want[i])
 		}
 	}

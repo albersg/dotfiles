@@ -43,9 +43,12 @@ type pluginSet struct {
 	Provisioned bool
 }
 
-// pluginSetIDHerdr names the Herdr set, so the registry and the step that
-// installs it cannot drift apart over the string.
-const pluginSetIDHerdr = "plugins-herdr"
+// pluginSetIDTmux and pluginSetIDHerdr name the sets the executor honours, so the
+// registry and the steps that install them cannot drift apart over the string.
+const (
+	pluginSetIDTmux  = "plugins-tmux"
+	pluginSetIDHerdr = "plugins-herdr"
+)
 
 // Label is the set's name as the interface shows it: what it is called, and what
 // it installs when the installer declares that itself.
@@ -68,6 +71,13 @@ func (s pluginSet) Label() string {
 // with the switch that turns it off, and a set a tool bootstraps for itself is
 // registered with Provisioned false when the screen that explains it arrives.
 var pluginSets = []pluginSet{
+	{
+		ID:          pluginSetIDTmux,
+		Step:        "wm",
+		Tool:        "tmux",
+		Named:       "the plugins its configuration declares",
+		Provisioned: true,
+	},
 	{
 		ID:          pluginSetIDHerdr,
 		Step:        "wm",
@@ -110,6 +120,15 @@ func SwitchablePluginSetIDs() []string {
 		}
 	}
 	return ids
+}
+
+// pluginSetIsSwitchable reports whether a run can turn a set off. A set is
+// switchable exactly when this installer installs it itself: for a set a tool
+// bootstraps from the configuration this repository ships, there is nothing a run
+// could leave out, and offering it would promise a switch that does nothing.
+func pluginSetIsSwitchable(id string) bool {
+	set, ok := pluginSetByID(id)
+	return ok && set.Provisioned
 }
 
 // SwitchableSkipIDs names everything --skip accepts: the units a run can leave

@@ -7493,17 +7493,28 @@ func stepInstallWM(m *Model) error {
 			SendLog(stepID, "Tmux already installed")
 		}
 
+		// The plugin set is a switch (install_plugin_sets.go). With it off, none of the
+		// plugin work runs, and the configuration this step installs carries no plugin
+		// declaration and no line that runs TPM, because a machine that left the set
+		// out must not be asked to run a checkout that is not there.
+		withPlugins := !pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDTmux)
+		if !withPlugins {
+			SendLog(stepID, "The Tmux plugin set is turned off; TPM is not installed and no plugin is downloaded")
+		}
+
 		// TPM
-		tpmDir := filepath.Join(homeDir, ".tmux/plugins/tpm")
-		if _, err := os.Stat(tpmDir); os.IsNotExist(err) {
-			SendLog(stepID, "Cloning TPM (Tmux Plugin Manager)...")
-			result := system.RunWithLogs(fmt.Sprintf("git clone https://github.com/tmux-plugins/tpm %s", tpmDir), nil, func(line string) {
-				SendLog(stepID, line)
-			})
-			if result.Error != nil {
-				return wrapStepError("wm", "Install Tmux",
-					"Failed to clone TPM (Tmux Plugin Manager)",
-					result.Error)
+		if withPlugins {
+			tpmDir := filepath.Join(homeDir, ".tmux/plugins/tpm")
+			if _, err := os.Stat(tpmDir); os.IsNotExist(err) {
+				SendLog(stepID, "Cloning TPM (Tmux Plugin Manager)...")
+				result := system.RunWithLogs(fmt.Sprintf("git clone https://github.com/tmux-plugins/tpm %s", tpmDir), nil, func(line string) {
+					SendLog(stepID, line)
+				})
+				if result.Error != nil {
+					return wrapStepError("wm", "Install Tmux",
+						"Failed to clone TPM (Tmux Plugin Manager)",
+						result.Error)
+				}
 			}
 		}
 
@@ -7516,15 +7527,17 @@ func stepInstallWM(m *Model) error {
 		// The plugin seed is optional: tmux.conf declares every plugin through TPM
 		// and the install_plugins run below downloads them. Copy only when the
 		// repository actually ships a seed, instead of failing the whole step.
-		pluginsSrc := filepath.Join(repoDir, repoAssetTmuxPlugins)
-		if system.DirExists(pluginsSrc) {
-			if err := system.CopyDir(pluginsSrc, filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
-				return wrapStepError("wm", "Install Tmux",
-					"Failed to copy Tmux plugins",
-					err)
+		if withPlugins {
+			pluginsSrc := filepath.Join(repoDir, repoAssetTmuxPlugins)
+			if system.DirExists(pluginsSrc) {
+				if err := system.CopyDir(pluginsSrc, filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
+					return wrapStepError("wm", "Install Tmux",
+						"Failed to copy Tmux plugins",
+						err)
+				}
+			} else {
+				SendLog(stepID, "No seeded Tmux plugins in the repository; TPM will install them")
 			}
-		} else {
-			SendLog(stepID, "No seeded Tmux plugins in the repository; TPM will install them")
 		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetTmuxConf), filepath.Join(homeDir, ".tmux.conf")); err != nil {
 			return wrapStepError("wm", "Install Tmux",
@@ -7573,19 +7586,38 @@ func stepInstallWM(m *Model) error {
 			}
 		}
 
+		// A run that left the plugin set out must not install a configuration that
+		// declares the plugins or runs TPM: the checkout is not there, and tmux would be
+		// asked to run a missing file on every start. The configuration carries markers
+		// around exactly that text (tmux_plugins.go), and the patch refuses rather than
+		// guesses when they are missing.
+		if !withPlugins {
+			if err := leaveTmuxPluginsOut(tmuxConfPath); err != nil {
+				return wrapStepError("wm", "Install Tmux",
+					"Failed to leave the plugin set out of tmux.conf",
+					err)
+			}
+		}
+
 		// Install plugins. The result is checked instead of discarded: TPM fails
 		// here with no running tmux server or no network, and logging
 		// "✓ Tmux configured" over it left the user with an empty plugin set and
 		// no way to tell. The step's own work is already done and tmux retries
 		// the plugins through TPM at startup, so the failure is reported as a
 		// warning and the success line is withheld.
-		SendLog(stepID, "Installing Tmux plugins...")
-		result := system.RunWithLogs(filepath.Join(homeDir, ".tmux/plugins/tpm/bin/install_plugins"), nil, func(line string) {
-			SendLog(stepID, line)
-		})
-		if result.Error != nil {
-			SendLog(stepID, fmt.Sprintf("Warning: could not install the Tmux plugins: %v", result.Error))
+		if withPlugins {
+			SendLog(stepID, "Installing Tmux plugins...")
+			result := system.RunWithLogs(filepath.Join(homeDir, ".tmux/plugins/tpm/bin/install_plugins"), nil, func(line string) {
+				SendLog(stepID, line)
+			})
+			if result.Error != nil {
+				SendLog(stepID, fmt.Sprintf("Warning: could not install the Tmux plugins: %v", result.Error))
+			} else {
+				SendLog(stepID, "✓ Tmux configured")
+			}
 		} else {
+			// Nothing about the plugins ran, so nothing about them could have failed:
+			// the configuration this step installed is complete.
 			SendLog(stepID, "✓ Tmux configured")
 		}
 

@@ -55,13 +55,17 @@ it, and the screen has to exist before the plan can show which choice each row c
       first: each one is named in the interface, carried on the step of the tool it belongs
       to, honored when turned off, and paired with the configuration rule that keeps a
       skipped set from being named by a file this run writes.
-      - **Herdr's set: done in this commit.** The registry, the set a step carries, the plan
+      - **Herdr's set: committed as `99139b5`.** The registry, the set a step carries, the plan
         that shows it, the guard inside the step, and `--skip` naming both axes, with four
         guards that were red first.
-      - **Tmux's set: next.** It is real installer work (`stepInstallWM` clones TPM and runs
-        `install_plugins`), and its configuration rule is the one the theme block already
-        obeys: a run that turns the set off must not leave a `tmux.conf` that runs TPM.
-      - **The shell's set: after that**, the most entangled of the three: it carries Oh My Zsh,
+      - **Tmux's set: done in this commit.** It is real installer work (`stepInstallWM` cloned
+        TPM and ran `install_plugins`), and it is the set a configuration names, so leaving it
+        out had to reach the file: `dotfiles-tmux/tmux.conf` now carries markers around the
+        declarations and around the line that runs TPM, the patch strips exactly those, and the
+        guard fails if a marker is missing, duplicated, or wide enough to take a key binding.
+        The declarations and the key bindings that sat between them were grouped accordingly,
+        and that regrouping is the only thing that moved in the file.
+      - **The shell's set: next**, the most entangled of the three: it carries Oh My Zsh,
         the plugin packages and Powerlevel10k, all of which the installed `.zshrc` names, so
         skipping it needs the `.zshrc` to be patched the way `PatchZshForWM` already patches
         it.
@@ -146,3 +150,25 @@ it, and the screen has to exist before the plan can show which choice each row c
   measured: because a set is not a unit, `TestThePlanIsStillThePlanItWas` and
   `TestThePlanNamesWhatItInstalls` did not move -- the plan's identifiers and names are
   what they were.
+
+- **L7.** The second work unit, Tmux's set, red first and then green: a registry entry
+  (`pluginSetIDTmux`), the switch honoured by the three places in `stepInstallWM` that do the
+  plugin work (the TPM clone, the seed copy, the `install_plugins` run), and the configuration
+  rule the other two sets do not need. `dotfiles-tmux/tmux.conf` gained two marker pairs --
+  `# >>> dotfiles-plugins >>>` / `# <<< dotfiles-plugins <<<` around the declarations and the
+  options that belong to them, `# >>> dotfiles-tpm >>>` / `# <<< dotfiles-tpm <<<` around the
+  `# TPM init` comment and the line that runs TPM -- and the declarations were grouped so the
+  key bindings that sat between them (the `M-g` scratch popup and the `M-l` lazygit popup) are
+  outside the block. That regrouping is the only thing that moved: every declaration still
+  precedes the TPM run line, which is the property `TestTmuxThemeBlockLoadsAfterPlugins`
+  reads. The stripper lives in `tmux_plugins.go` and refuses rather than guesses when a marker
+  is missing or unterminated, because the alternative is a `tmux.conf` that asks tmux to run a
+  checkout nobody installed, on every start. Guards, red first:
+  `TestThePluginMarkersBoundTheTextTheInstallerTreatsAsTheSet` (exactly one of each marker, in
+  the order the stripper reads them, every declaration inside, the TPM line inside, and no key
+  binding inside either block),
+  `TestTurningOffTmuxsSetLeavesNoTPMAndNoPluginInTheServer` (both halves on the machine: with
+  the set off no checkout and no declaration, with it on the configuration this repository
+  ships), and `TestThePlanCarriesThePluginSetOfItsTool` raised from one set to a table over
+  every set the registry calls provisioned, so a set added later without a plan row fails
+  there instead of arriving in silence.
