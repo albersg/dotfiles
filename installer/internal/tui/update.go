@@ -1326,6 +1326,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
 		return m.handleLearnMenuKeys(key)
 
+	case ScreenLearnTools:
+		return m.handleLearnHubKeys(key)
+
 	case ScreenKeymaps:
 		return m.handleKeymapsMenuKeys(key)
 
@@ -1462,7 +1465,7 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenLazyVimTopic:
 		m.Screen = ScreenLearnLazyVim
 		m.LazyVimScroll = 0
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
 		m.ViewingTool = ""
@@ -1763,7 +1766,9 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// under the cursor reads as the installer's answer.
 			m.Cursor = m.osCursor()
 		case strings.Contains(selected, "Learn About Tools"):
-			m.Screen = ScreenLearnTerminals
+			// The row opens the hub rather than the terminal list: the hub is the one
+			// route the main menu has to the shell, multiplexer and Neovim pages.
+			m.Screen = ScreenLearnTools
 			m.PrevScreen = ScreenMainMenu
 			m.Cursor = 0
 		case strings.Contains(selected, "Keymaps Reference"):
@@ -2483,6 +2488,59 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// handleLearnHubKeys walks the Learn About Tools hub. Enter resolves the row
+// through learnToolRows() rather than by its position, so the page a row opens
+// and the row the menu draws cannot drift apart, and Escape is the way back to
+// whatever opened the hub.
+func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if m.learnSeparatorAt(options, m.Cursor) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if m.learnSeparatorAt(options, m.Cursor) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		if m.learnSeparatorAt(options, m.Cursor) || strings.Contains(selected, "Back") {
+			m.Screen = m.PrevScreen
+			m.Cursor = 0
+			return m, nil
+		}
+		row, ok := learnToolRowByLabel(selected)
+		if !ok {
+			return m, nil
+		}
+		m.PrevScreen = ScreenLearnTools
+		m.Screen = row.Screen
+		m.Cursor = 0
+		m.ViewingTool = ""
+	}
+
+	return m, nil
+}
+
+// learnSeparatorAt reports whether the option at an index is the menu's rule.
+func (m Model) learnSeparatorAt(options []string, index int) bool {
+	if index < 0 || index >= len(options) {
+		return false
+	}
+	return strings.HasPrefix(options[index], m.menuSeparator())
 }
 
 func (m Model) handleLearnMenuKeys(key string) (tea.Model, tea.Cmd) {

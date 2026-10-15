@@ -90,6 +90,7 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 		{ScreenLearnShells, 4},
 		{ScreenLearnWM, 3},
 		{ScreenLearnNvim, 4},
+		{ScreenLearnTools, 5},
 		{ScreenKeymaps, 3},
 		{ScreenLearnLazyVim, 3},
 		// The review screen lists one row per catalogued unit, so its count is the
@@ -220,6 +221,7 @@ func TestGetScreenTitleForAllScreens(t *testing.T) {
 		ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm,
 		ScreenInstalling, ScreenComplete, ScreenError,
 		ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim,
+		ScreenLearnTools,
 		ScreenKeymaps, ScreenKeymapCategory, ScreenLearnLazyVim, ScreenLazyVimTopic,
 	}
 
@@ -538,6 +540,9 @@ func TestEscapeKeyBehavior(t *testing.T) {
 		// ScreenKeymapsMenu uses PrevScreen to go back to MainMenu
 		{ScreenKeymapsMenu, ScreenMainMenu, ScreenMainMenu},
 		{ScreenLearnLazyVim, ScreenMainMenu, ScreenMainMenu},
+		// The hub is the main menu's row into the wiki, so leaving it goes back
+		// there rather than to the page it replaced.
+		{ScreenLearnTools, ScreenMainMenu, ScreenMainMenu},
 	}
 
 	for _, tc := range testCases {
@@ -719,6 +724,9 @@ func TestMainMenuToStartInstallation(t *testing.T) {
 	}
 }
 
+// TestMainMenuToLearnTools holds the main menu's own Learn row to the hub. The
+// row used to open the terminal list directly, which left the shell, multiplexer
+// and Neovim pages reachable only from inside an installation run.
 func TestMainMenuToLearnTools(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenMainMenu
@@ -727,11 +735,22 @@ func TestMainMenuToLearnTools(t *testing.T) {
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	newModel := result.(Model)
 
-	if newModel.Screen != ScreenLearnTerminals {
-		t.Errorf("Expected ScreenLearnTerminals, got %v", newModel.Screen)
+	if newModel.Screen != ScreenLearnTools {
+		t.Errorf("Expected ScreenLearnTools, got %v", newModel.Screen)
 	}
 	if newModel.PrevScreen != ScreenMainMenu {
 		t.Error("PrevScreen should be MainMenu")
+	}
+
+	// The terminal page is still one Enter away, and its way back is the hub, not
+	// the main menu.
+	opened, _ := newModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	page := opened.(Model)
+	if page.Screen != ScreenLearnTerminals {
+		t.Errorf("the hub's first row should open ScreenLearnTerminals, got %v", page.Screen)
+	}
+	if page.PrevScreen != ScreenLearnTools {
+		t.Errorf("the terminal page should come back to the hub, PrevScreen = %v", page.PrevScreen)
 	}
 }
 

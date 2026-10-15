@@ -110,6 +110,12 @@ const (
 	// the three the run cannot do without, and offers the two ways out -- back to
 	// the questions, or on to the run with the selection just made.
 	ScreenInstallReview // What will be installed, and what will not
+	// The Learn About Tools hub. Appended at the end for the same reason as the
+	// screens above. The main menu's own row opens it, and it is the only way the
+	// main menu reaches the shell, multiplexer, Neovim and later pages: before it,
+	// that row opened the terminal list directly and the rest were reachable only
+	// from inside a run. Every row is one entry of learnToolRows().
+	ScreenLearnTools // Every page of the in-installer wiki, one row each
 )
 
 // InstallStep represents a single installation step
@@ -760,6 +766,10 @@ func (m Model) GetCurrentOptions() []string {
 		return opts
 	case ScreenKeymapsMenu:
 		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", m.menuSeparator(), "← Back"}
+	case ScreenLearnTools:
+		// The hub is built from its own table so the menu, the key handler and the
+		// reachability guard all read one list.
+		return m.learnToolsOptions()
 	case ScreenOSSelect:
 		// The detected platform is already named on the line above the menu, so
 		// the option labels do not repeat it: they were "Linux (detected)" and

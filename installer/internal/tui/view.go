@@ -533,7 +533,7 @@ func (m Model) headerName() string {
 		return "Installation complete"
 	case ScreenError:
 		return "Installation failed"
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools:
 		return "Learn"
 	case ScreenKeymaps, ScreenKeymapCategory, ScreenKeymapsMenu,
 		ScreenKeymapsTmux, ScreenKeymapsTmuxCat, ScreenKeymapsZellij,
@@ -1041,6 +1041,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderLearnWM())
 	case ScreenLearnNvim:
 		s.WriteString(m.renderLearnNvim())
+	case ScreenLearnTools:
+		s.WriteString(m.renderLearnTools())
 	case ScreenKeymaps:
 		s.WriteString(m.renderKeymapsMenu())
 	case ScreenKeymapCategory:
@@ -2496,6 +2498,12 @@ func (m Model) renderSelection() string {
 		vital = meterRendered(current, total, 10)
 	}
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintSelect, hintBack})
+}
+
+// renderLearnTools draws the hub: one row per page of the in-installer wiki,
+// built from learnToolRows() so the menu and the key handler read one table.
+func (m Model) renderLearnTools() string {
+	return m.renderMenu("Select what to learn about")
 }
 
 func (m Model) renderLearnTerminals() string {
