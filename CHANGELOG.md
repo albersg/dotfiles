@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.8.0] — 2026-10-15
+
 ### Added
 
 - **The installer's background drifts: a gradient drawn from the theme, behind every screen.** The interface was painted on whatever the terminal's own background is, so every screen sat on a flat field and the only colour in the frame was the text's. Each screen now paints a vertical gradient built from the theme's own `Background` and a lightly accent-tinted variant of it -- **20%** toward the accent, small on purpose, because the text has to stay exactly as legible on the ramp as it was on the flat field -- and the band scrolls **half a row per frame tick**, four rows a second, so the whole screen takes several seconds to cross and no single tick reads as a jump.
