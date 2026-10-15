@@ -114,8 +114,10 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the
-  read-only terminal capability report behind the **Report the terminal capabilities** row
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the two
+  read-only reports: the terminal capability report behind the **Report the terminal
+  capabilities** row, and the install check behind the **Check the machine against the last
+  install** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -130,12 +132,12 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds three jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds five jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
-host), and the read-only **terminal capability report**. The main menu's panel derives one row per
-job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
-is the only list -- so a utility added to the section shows up in the panel or is visibly missing
-from that one function.
+host), the read-only **terminal capability report**, and the read-only **install check**. The main
+menu's panel derives one row per job from the same model state the section's own options are built
+from -- `utilitiesPanelEntries` is the only list -- so a utility added to the section shows up in
+the panel or is visibly missing from that one function.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
@@ -719,6 +721,57 @@ produces an honest empty reply within the timeout rather than a frozen interface
 controlling terminal (a container, a service, a run with no TTY) gets the empty reply too and the
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
+
+### The install check
+
+The check answers one question -- **is this machine still what the last install left** -- and it is a
+utility that writes nothing and changes nothing. It is reached from the section's **Check the machine
+against the last install** row and is read-only: its only key is the way back.
+
+A completed run writes a record, `$XDG_STATE_HOME/dotfiles/last-install.json` (or
+`~/.local/state/dotfiles/last-install.json` when `XDG_STATE_HOME` is unset), with one entry per
+configuration path naming what the run did to that path and where the copy it took went. The check
+walks that record once and compares each entry with the machine:
+
+| The record names | The check asks | The screen says |
+|------------------|----------------|-----------------|
+| a path the run wrote | is it still here | `missing  <key>  <path>  <what the run did>` when it is gone |
+| a backup the run took | is the copy still here | `missing  backup of <key>  <path>` when it is gone |
+
+The screen names only what is gone and counts what is still here (`Still here: 12 of the 14 paths and
+backups the record names.`), because a record written by a normal run names every configuration path
+the installer touches and that list is longer than any frame. It says where the full list is --
+`dotfiles --verify` prints every entry, including the ones that are here -- rather than printing a
+truncated version of it.
+
+**The record names no digest, and the screen says so.** A path that is present is reported as
+present, never as unchanged: the check establishes that the file is there, not that it is still what
+the install left. This is the limit of what the record supports, and it is stated in the body rather
+than left for the user to infer from a report that says everything is fine.
+
+**Four states, never a guess.** No record means no run has completed on this machine, so there is
+nothing to check yet; a record that cannot be read says why; a record that names no path says there
+is nothing the record and the machine can be compared on -- which is neither a pass nor a failure; and
+a record with entries reports the missing ones. The panel's own row says `not checked yet` before the
+check has run instead of answering with a fact nobody established.
+
+**One walk, two presenters.** `InspectInstall` walks the record, and the command line's `--verify`
+and this screen are two presenters of the facts it returns. Two walks of one record could disagree
+about the same file, and only one of them would be right, so the screen is the second reader of the
+same verification rather than a second verification.
+
+**Nothing blocks and nothing runs at startup.** The check runs when the screen is opened, as a
+command off the update loop, never when the model is built. The panel's row reads the model and never
+the filesystem, so a keystroke never waits on a machine whose disks are not answering, and coming back
+to the screen does not stat the machine a second time: the first answer is the answer.
+
+`TestTheVerificationScreenShowsWhatIsGoneAndSaysWhatIsStillHere`,
+`TestTheVerificationScreenSaysWhenNothingIsGone` and
+`TestTheVerificationScreenSaysWhatItCannotCheck` pin the three bodies;
+`TestTheVerificationScreenIsReadOnly` pins that the only key is the way back and that nothing is
+written; `TestChoosingTheVerificationRowRunsTheCheckOffTheUpdateLoop` pins the command, and
+`TestTheVerificationReadsTheVerdictRatherThanTheDiskAgain` pins that a keypress does not read the
+machine. `TestInstallVerifyGolden` holds the frame at 80x24.
 
 ### Installation Flow
 

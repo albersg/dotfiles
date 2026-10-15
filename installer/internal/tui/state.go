@@ -394,6 +394,198 @@ func readLastInstallRecord() (*lastInstall, error) {
 	return &rec, nil
 }
 
+// installFindingKind names what one finding is: a path the record names that is
+// still here or gone, or the copy a replacement took. The two questions are kept
+// apart because a path that is here with its backup gone is a different fact from
+// a path that is gone: the first machine can still be rolled back to the second's
+// state only if the copy survived, which is exactly what this catches.
+type installFindingKind int
+
+const (
+	// findingPathPresent: the record names a path and it is still there. Its
+	// contents cannot be judged, because the record holds no digest.
+	findingPathPresent installFindingKind = iota
+	// findingPathMissing: the record names a path and the machine no longer has it.
+	findingPathMissing
+	// findingBackupPresent: the record names the copy a replacement took and the
+	// copy is still there.
+	findingBackupPresent
+	// findingBackupMissing: the record names a copy and it is gone, so the change
+	// it was taken for can no longer be put back.
+	findingBackupMissing
+)
+
+// Missing reports whether the finding is something the machine no longer has.
+func (k installFindingKind) Missing() bool {
+	return k == findingPathMissing || k == findingBackupMissing
+}
+
+// Copy reports whether the finding is about the copy the run took rather than
+// about the path itself.
+func (k installFindingKind) Copy() bool {
+	return k == findingBackupPresent || k == findingBackupMissing
+}
+
+// installFinding is one fact the verification established: something the record
+// names and what the machine says about it now. It is a fact rather than a
+// sentence so the command line and the interface can each say it in their own
+// shape. They are two presenters of one walk: a second walk of the same record
+// is what this shape exists to prevent, because two walks can disagree about the
+// same file and only one of them would be right.
+type installFinding struct {
+	// Kind is what the machine says about this path or copy.
+	Kind installFindingKind
+	// Key is the configuration path's own name, as the record carries it.
+	Key string
+	// Path is the path itself, or the copy, depending on Kind.
+	Path string
+	// Action is what the run did to the path, kept for the path's own findings and
+	// unused by the ones about a copy.
+	Action installAction
+}
+
+// installVerdict is what comparing this machine with the record of the last
+// completed run found, as facts: the run, or the reason there is no readable run
+// to compare with, and one finding per path and copy the record names.
+type installVerdict struct {
+	// NoRecord is true when there is no record at all. Nothing was installed on
+	// this machine, which is not the same fact as a record that cannot be read.
+	NoRecord bool
+	// Unreadable reports a record that is present and could not be read.
+	Unreadable bool
+	// Reason is why the record could not be read. It is set only beside Unreadable.
+	Reason string
+	// Record is the record that was read, and nil unless one was.
+	Record *lastInstall
+	// Findings is one fact per path and copy the record names, in the record's own
+	// order, so neither presenter has to sort them into anything.
+	Findings []installFinding
+}
+
+// Consistent reports whether every path and copy the record names is still here.
+// A machine with no record is consistent rather than divergent: nothing was
+// installed, so nothing was lost. That is the same reading the command line's
+// exit status takes, and the two must agree, because a script and a reader are
+// looking at one fact.
+func (v installVerdict) Consistent() bool {
+	if v.NoRecord {
+		return true
+	}
+	if v.Unreadable {
+		return false
+	}
+	return v.Missing() == 0
+}
+
+// Missing counts the findings the machine no longer has.
+func (v installVerdict) Missing() int {
+	missing := 0
+	for _, finding := range v.Findings {
+		if finding.Kind.Missing() {
+			missing++
+		}
+	}
+	return missing
+}
+
+// InspectInstall compares this machine with the record of the last completed run
+// and returns what it found as facts. It is the one walk: VerifyInstall renders
+// these facts for the command line, and the utilities section's own screen
+// renders them for a reader, so the two cannot come to different conclusions
+// about one record.
+//
+// Nothing is written and nothing but the record and the paths it names is read.
+func InspectInstall() installVerdict {
+	rec, err := readLastInstallRecord()
+	if errors.Is(err, errNoRecord) {
+		return installVerdict{NoRecord: true}
+	}
+	if err != nil {
+		return installVerdict{Unreadable: true, Reason: err.Error()}
+	}
+
+	verdict := installVerdict{Record: rec}
+	for _, entry := range rec.Entries {
+		// A record that names no path has nothing to compare with the machine. It is
+		// skipped rather than counted as gone: the machine did not lose anything.
+		if entry.Path == "" {
+			continue
+		}
+
+		kind := findingPathMissing
+		if pathExists(entry.Path) {
+			kind = findingPathPresent
+		}
+		verdict.Findings = append(verdict.Findings, installFinding{
+			Kind:   kind,
+			Key:    entry.Key,
+			Path:   entry.Path,
+			Action: entry.Action,
+		})
+
+		if entry.Backup == "" {
+			continue
+		}
+		copyKind := findingBackupMissing
+		if pathExists(entry.Backup) {
+			copyKind = findingBackupPresent
+		}
+		verdict.Findings = append(verdict.Findings, installFinding{
+			Kind: copyKind,
+			Key:  entry.Key,
+			Path: entry.Backup,
+		})
+	}
+	return verdict
+}
+
+// verifyLines renders a verdict as the report --verify prints: one line per
+// fact, aligned so the outcome is the first column, and the limit the record
+// carries stated on every line that could otherwise be read as a stronger claim
+// than presence. It is a presenter and nothing else: every fact it prints comes
+// from the verdict it was handed.
+func verifyLines(v installVerdict) []string {
+	switch {
+	case v.NoRecord:
+		return []string{
+			"dotfiles " + BuildLabel(),
+			"No record of an install on this machine: nothing was installed here, so there is nothing to verify.",
+		}
+	case v.Unreadable:
+		return []string{
+			"dotfiles " + BuildLabel(),
+			"Could not read the record: " + v.Reason,
+		}
+	}
+
+	lines := []string{
+		"dotfiles " + BuildLabel(),
+		"Record from " + v.Record.Timestamp.Format(panelBackupStamp) + " by " + v.Record.Version + ".",
+	}
+	for _, finding := range v.Findings {
+		phrase := verifyActionPhrase(finding.Action)
+		switch finding.Kind {
+		case findingPathPresent:
+			lines = append(lines, fmt.Sprintf(
+				"here     %s  %s  %s; the record names no digest, so it cannot say whether this is still what the install left",
+				finding.Key, finding.Path, phrase))
+		case findingPathMissing:
+			lines = append(lines, fmt.Sprintf(
+				"missing  %s  %s  %s, and the path the record names is not here",
+				finding.Key, finding.Path, phrase))
+		case findingBackupPresent:
+			lines = append(lines, fmt.Sprintf(
+				"here     backup of %s  %s  the record names no digest, so it cannot say whether this is still that copy",
+				finding.Key, finding.Path))
+		case findingBackupMissing:
+			lines = append(lines, fmt.Sprintf(
+				"missing  backup of %s  %s  the record names this copy and it is not here",
+				finding.Key, finding.Path))
+		}
+	}
+	return lines
+}
+
 // VerifyInstall compares the machine with the record of the last completed run
 // and returns the report --verify prints. It reports what the record supports --
 // whether each path is there, what the run did to it, and whether the backup it
@@ -402,65 +594,12 @@ func readLastInstallRecord() (*lastInstall, error) {
 // and unverifiable, never as matching what the install left. Verification never
 // writes: it reads the machine and the record and nothing else.
 func VerifyInstall() VerifyReport {
-	rec, err := readLastInstallRecord()
-	if errors.Is(err, errNoRecord) {
-		return VerifyReport{
-			Lines: []string{
-				"dotfiles " + BuildLabel(),
-				"No record of an install on this machine: nothing was installed here, so there is nothing to verify.",
-			},
-			Consistent: true,
-		}
+	verdict := InspectInstall()
+	return VerifyReport{
+		Lines:      verifyLines(verdict),
+		Consistent: verdict.Consistent(),
+		Unreadable: verdict.Unreadable,
 	}
-	if err != nil {
-		return VerifyReport{
-			Lines: []string{
-				"dotfiles " + BuildLabel(),
-				"Could not read the record: " + err.Error(),
-			},
-			Unreadable: true,
-		}
-	}
-
-	lines := []string{
-		"dotfiles " + BuildLabel(),
-		"Record from " + rec.Timestamp.Format(panelBackupStamp) + " by " + rec.Version + ".",
-	}
-	consistent := true
-	for _, entry := range rec.Entries {
-		// A record that names no path has nothing to compare with the machine. It is
-		// skipped rather than counted as gone: the machine did not lose anything.
-		if entry.Path == "" {
-			continue
-		}
-		phrase := verifyActionPhrase(entry.Action)
-		if pathExists(entry.Path) {
-			lines = append(lines, fmt.Sprintf(
-				"here     %s  %s  %s; the record names no digest, so it cannot say whether this is still what the install left",
-				entry.Key, entry.Path, phrase))
-		} else {
-			consistent = false
-			lines = append(lines, fmt.Sprintf(
-				"missing  %s  %s  %s, and the path the record names is not here",
-				entry.Key, entry.Path, phrase))
-		}
-
-		if entry.Backup == "" {
-			continue
-		}
-		if pathExists(entry.Backup) {
-			lines = append(lines, fmt.Sprintf(
-				"here     backup of %s  %s  the record names no digest, so it cannot say whether this is still that copy",
-				entry.Key, entry.Backup))
-		} else {
-			consistent = false
-			lines = append(lines, fmt.Sprintf(
-				"missing  backup of %s  %s  the record names this copy and it is not here",
-				entry.Key, entry.Backup))
-		}
-	}
-
-	return VerifyReport{Lines: lines, Consistent: consistent}
 }
 
 // verifyActionPhrase renders what the run did to a path as the clause the

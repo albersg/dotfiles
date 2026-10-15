@@ -1144,6 +1144,18 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: m.ShellAudit.Available,
 	})
 
+	// The section's utilitiesVerifyRow. The check is read-only and offered
+	// everywhere, so the panel always names it: before the screen has been opened
+	// the value says so rather than answering with a fact nobody established, and
+	// afterwards it is the verdict's own count. Nothing here reads the record -- a
+	// panel is drawn on every keypress -- which is why the value comes from the
+	// model's verdict and not from the state file.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Install check",
+		value:   installVerifyPanelValue(m.InstallVerify),
+		offered: true,
+	})
+
 	// The section's utilitiesTerminalRow. The report is read-only and offered
 	// everywhere, so the panel always names it: before the screen has been
 	// opened the value says the terminal has not been inspected, and afterwards
