@@ -100,7 +100,7 @@ them next to the shell itself.
 | Tool | Used for |
 |------|----------|
 | **eza** | `ls`, `ll`, `la`, `lt` and `tree` aliases, in zsh and in fish |
-| **bat** | `cat` alias, fzf previews, `BAT_THEME` |
+| **bat** | `cat` function (plain output, no paging), in zsh and in fish; fzf previews; `BAT_THEME` |
 | **ripgrep** | `grep` alias and fzf's default search |
 | **fd** | `FZF_DEFAULT_COMMAND` and the fzf directory jump |
 | **fzf** | `Ctrl+R` history, `Alt+C`, `eval "$(fzf --zsh)"` |
