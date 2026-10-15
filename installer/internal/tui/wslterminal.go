@@ -1322,36 +1322,60 @@ func readWindowsTerminalOffer(profileDir string, def themeDefinition, face strin
 	return offer
 }
 
-// windowsTerminalSettingLabels is the human-readable list the offer and the
-// success notice show. The font-face label names the face the writer resolved,
-// not the constant, so a description can never name a different family than the
-// settings would hold. The IDs and the colour-scheme label still come from the
-// one declaration in windowsTerminalSettings.
-func windowsTerminalSettingLabels(face string) []string {
-	labels := make([]string, 0, len(windowsTerminalSettings))
-	for _, setting := range windowsTerminalSettings {
-		label := setting.Label
-		if setting.ID == "font-face" {
-			label = "the font face " + face
-		}
-		labels = append(labels, label)
-	}
-	return labels
+// windowsTerminalUnsetValue is the left side of a change row whose setting the file
+// does not carry. It is a fact and not a guess: an available offer proves the file
+// was read and parsed, so an absent key is the only thing "unset" can mean.
+const windowsTerminalUnsetValue = "(unset)"
+
+// windowsTerminalOfferLabelColumn is the width the offer's labels are padded to, so
+// the values line up in a column instead of starting wherever a label happens to end.
+const windowsTerminalOfferLabelColumn = 11
+
+// windowsTerminalOfferRow is one change: the setting's key in settings.json, the
+// value the file holds today, and the value this installer would write. The two
+// values are read against each other instead of being stated in a sentence, which is
+// what lets the screen say what a write replaces without spending a row on saying
+// that it replaces something.
+func windowsTerminalOfferRow(key, current, next string) string {
+	return fmt.Sprintf("  %-*s  %s > %s", windowsTerminalOfferLabelColumn, key, current, next)
 }
 
-// describeWindowsTerminalOffer is what the offer shows before the user chooses:
-// the file, the two settings, and what happens to the previous file. It is built
-// from windowsTerminalSettings, so it cannot name a setting the writer does not
-// set, and it names the resolved face rather than the constant.
+// windowsTerminalOfferFact is one row of the offer that is not a change.
+func windowsTerminalOfferFact(label, value string) string {
+	return fmt.Sprintf("  %-*s  %s", windowsTerminalOfferLabelColumn, label, value)
+}
+
+// describeWindowsTerminalOffer is what the offer shows before the user chooses: the
+// file a write would land in, the two settings with the value each holds today beside
+// the value a write would set, and what happens to the rest of the file. It is a
+// table rather than a paragraph because of where it is drawn: the panel sits in the
+// installing body and takes the rows left after the live meters, which at the
+// tightest terminal the frame guards measure is eight. The seven sentences it used to
+// be needed more than that, and the rows that fell off the bottom first were the ones
+// naming the value a write would replace -- the fact this screen exists to state.
+//
+// Eight content rows is the whole budget, and the path spends three or four of them
+// depending on the platform, so the four rows left carry two facts each only where
+// they belong together: the backup and what is kept are one row, because a write that
+// takes a backup and loses nothing else is a single promise about the rest of the
+// file. The keys are the ones windowsTerminalSettingsContent writes, and the face is
+// the resolved one rather than the constant, so the screen cannot name a setting or a
+// family the writer does not use.
 func describeWindowsTerminalOffer(offer windowsTerminalOffer) []string {
 	if !offer.Available {
 		return []string{offer.Reason}
 	}
-	labels := windowsTerminalSettingLabels(offer.Face)
+	present := func(read func([]byte) (string, bool)) string {
+		if value, ok := read(offer.Original); ok {
+			return value
+		}
+		return windowsTerminalUnsetValue
+	}
 	return []string{
-		fmt.Sprintf("Windows Terminal's settings.json is reachable at %s.", offer.Path),
-		fmt.Sprintf("Choosing to configure it would set %s there, registering the %s scheme in \"schemes\".", strings.Join(labels, " and "), offer.Scheme),
-		"The previous file is copied beside it as .bak-dotfiles-<stamp> first, and every other key and comment is kept.",
+		offer.Path,
+		windowsTerminalOfferRow("font.face", present(windowsTerminalCurrentFontFace), offer.Face),
+		windowsTerminalOfferRow("colorScheme", present(windowsTerminalCurrentColorScheme), offer.Scheme),
+		windowsTerminalOfferFact("backup", ".bak-dotfiles-<stamp>, rest kept"),
 	}
 }
 
