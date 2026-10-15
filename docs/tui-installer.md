@@ -777,14 +777,19 @@ this repository declares for Tmux (it clones TPM and runs `install_plugins`),
 Fish, Zsh and Neovim, because in each case the set is a decision the repository
 has already made. For Herdr it installs the two plugins declared in the
 installer's own source — `aigora.lantern` and `herdr.auto-title` — with `herdr
-plugin install <owner>/<repo> --yes`, then verifies each with `herdr plugin
-list` and reports the revision Herdr recorded. Herdr has no plugin update
-command, so re-running the installer is how they are updated: the install
-replaces Herdr's managed checkout with the repository's current default branch.
-A plugin that failed to install, or whose build failed, is not reported as
-installed, and the installer never uninstalls or disables a plugin you added
-yourself. The Herdr keymaps screen names the same commands, and
-[Tools Reference](tools.md#plugins) lists them.
+plugin install <owner>/<repo> --yes`, then updates them with `herdr plugin
+update --yes`, and finally verifies each with `herdr plugin list` and reports
+the revision Herdr recorded. The update command arrived in Herdr 0.9.4; on
+0.9.1 and 0.9.3, whose plugin surface has no such subcommand, the step names the
+version it found, installs exactly as before, and says the plugins were
+installed but not updated — upgrading Herdr and re-running is what updates them
+there. It never fails merely because Herdr is old: `herdr plugin update` exits
+non-zero on a CLI that does not have it, so the step decides from the version
+before it runs anything. The fallback download this installer pins is v0.9.5,
+so a machine it provisions can update. A plugin that failed to install, or whose
+build failed, is not reported as installed, and the installer never uninstalls
+or disables a plugin you added yourself. The Herdr keymaps screen names the same
+commands, and [Tools Reference](tools.md#plugins) lists them.
 
 **Herdr's sound alerts carry their dependency.** The Herdr configuration this repository
 installs enables `[ui.sound]`, and Herdr ships no audio decoder: it shells out to an external
