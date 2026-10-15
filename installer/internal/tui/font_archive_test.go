@@ -404,7 +404,7 @@ func TestStepInstallFontLinuxLeavesNoArchiveBehind(t *testing.T) {
 	if got := strings.Join(runners, ","); got != "fc-list,curl,unzip,fc-cache,fc-list" {
 		t.Errorf("the step ran %q, want a presence check, the download, the extraction, the cache update and a verification", got)
 	}
-	if joined := strings.Join(commands, "\n"); !strings.Contains(joined, "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip") {
+	if joined := strings.Join(commands, "\n"); !strings.Contains(joined, "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/Meslo.zip") {
 		t.Errorf("the step no longer downloads the pinned Nerd Fonts release: %q", joined)
 	}
 
