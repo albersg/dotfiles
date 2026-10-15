@@ -311,8 +311,128 @@ the package failed to build and the guards never ran; it was rewritten so that b
 halves receive the same value outside the theme, which is what makes only the values
 guard fire.
 
+**L10.** Stage 2 was merged as `f0d0cbf` (`feat(fish): the listing is painted by the
+theme, not by eza's own defaults`, PR #324), and its guards were re-run on the merged
+`main` rather than on the branch, which is the tree a user gets: `themeShellPaletteFor`
+5 occurrences, `themeListingTableForShell` 4, three new test functions, all green.
+
+## Stage 3 — the functions
+
+The mandate is this file's own stage 3: *"the functions: `cat` → `bat`, `extract`,
+`compress`, `serve`."*
+
+### What was measured before writing anything
+
+Read out of `dotfiles-zsh/.zshrc`; the line numbers are that file's.
+
+| function | zsh | what it does |
+|----------|-----|--------------|
+| `cat` | `:442-451` | a function rather than an alias, so a script does not inherit it: an argument beginning with `-` goes to `command cat`, which is what keeps the flags working, and a plain invocation goes to `bat --paging=never --style=plain --` |
+| `extract` | `:546-581` | one archive: thirteen `case` patterns onto eleven tools, the tool named in the message before it is run |
+| `compress` | `:586-658` | an archive and one or more paths: five archive formats and the four single-file ones, which refuse more than one path or a directory, and remove the target when the compressor fails |
+| `serve` | `:732-752` | a port (`8000` by default) validated as a whole number in 1-65535, python3 checked, the port checked for use, then `python3 -m http.server` bound to `127.0.0.1` |
+
+- **`start_if_needed` (`:30`) is out of scope.** It is zsh's own, the parity table that
+  opened this file never listed it, and this stage's mandate names four functions. It is
+  recorded here as a lead rather than ported in silence.
+- **fish's primitives were measured, not assumed.** Running them through
+  `fish --no-config` confirmed what the translation rests on: `case` takes several glob
+  patterns as alternatives and `|` inside one pattern is a literal; `$argv[2..-1]` is the
+  rest of the arguments; `command -q` is the guard; `string match -qr` tests the port;
+  a command held in a variable runs as a command; `>&2` sends a message to the error
+  stream and `return 1` sets the status.
+
+### Specs
+
+S1. fish declares the same four commands zsh declares, under the same names: `cat`,
+    `extract`, `compress`, `serve`.
+S2. `cat` keeps zsh's policy: an argument beginning with `-` reaches the real `cat`, so
+    flags are never silently swallowed, and a plain invocation reaches `bat` with the
+    same three flags. It is declared as a function, so a script does not inherit it.
+S3. `extract` names the same tool for the same format as zsh's does, for every pattern
+    zsh handles, and asks whether that tool resolves before running it, so a host
+    without it is told which one is missing instead of getting a bare
+    `command not found`.
+S4. `compress` writes the same formats with the same tool and the same flags, refuses a
+    single-file target given several paths, a directory or a missing file, and removes
+    the target when the compressor fails, so a failure never leaves an empty archive
+    and a success reported.
+S5. `serve` validates the port the way zsh's does -- a whole number, 1 to 65535 -- asks
+    whether python3 resolves, refuses a port already in use, and serves the current
+    directory on `127.0.0.1`.
+S6. The messages a person reads are the same strings in both shells, so which shell is
+    running never changes what a mistake says.
+S7. Nothing outside these four functions moves: the generated theme block, stage 1's
+    listing aliases, `EZA_ICON_SPACING` and the drop-in loader stay as they are.
+
+### Tasks
+
+T1. Declare the four functions in `config.fish`, outside the generated block.
+T2. Guard it: the four names, the tool per format, the guards on the tools, and the
+    messages are compared against `.zshrc`, so one shell cannot drift from the other.
+T3. Prove it with behaviour, not only by reading: the functions are run in a real fish
+    against real archives.
+
+### The proof (stage 3)
+
+| what | value |
+|------|-------|
+| the seven guards against `config.fish` as it stands in `HEAD` | **all seven fail**, each naming the missing command: `declares no cat, so fish is missing a command zsh has: cat, extract, compress, serve`, `declares no extract, so every archive zsh unpacks has to be unpacked by hand under fish`, `declares no compress, so none of the archives zsh writes can be written under fish`, `declares no serve, so it has no message of its own for this guard to compare` |
+| the same seven after the change | pass; `fish -n` accepts the file |
+| the four functions run in a real fish against real files | **20 checks, all correct**: `cat` prints bat's plain output (`hola`) and `cat -n` numbers it (`1\thola`), `extract` unpacks a real `.tar.gz`, `compress` writes a `.gz` that passes `gzip -t`, and `extract` unpacks that file back |
+| the tool guard, exercised rather than read | with `PATH` set to a directory that does not exist: `extract: needs tar, which is not installed` and status 1 -- not a bare command-not-found |
+| every refusal in fish carries zsh's own string | `compress one.gz a.txt dir`, `compress dir.gz dir`, `compress out.gz missing.txt`, `compress out.bin a.txt`, `extract weird.bin` (an existing file of unknown format), `serve abc`, `serve 99999`, and each of the two usage lines |
+| mutation: fish loses `serve` | `TestFishDeclaresTheCommandsZshDeclares` fails: `declares no serve, so fish is missing a command zsh has: cat, extract, compress, serve` |
+| mutation: a flag changes (`tar -xzf` -> `-xf`) | `TestBothShellsExtractTheSameFormatsWithTheSameTools` fails naming both sides: `extract runs "tar -xzf" for *.tar.gz under zsh and "tar -xf" under fish` |
+| mutation: a message changes (`no such file` -> `not found`) | `TestTheErrorMessagesAreTheSameInBothShells` fails printing both sets, `[extract: no such file: $...]` against `[extract: not found: $...]` |
+| mutation: the tool check is removed | `TestExtractAndCompressAskWhetherTheToolResolves` fails: `runs a tool without asking command -q whether it resolves, so a host without it gets a bare command-not-found instead of being told which tool is missing` |
+| mutation: **the wiring** (`.tar.bz2` running `.xz`'s `tar -xJf`) | `TestBothShellsExtractTheSameFormatsWithTheSameTools` fails naming both sides -- the case the comparison exists for, and the reason it compares the tool and the flags per pattern instead of comparing the two tables as text |
+| mutation: `bat` loses `--style=plain` | `TestCatKeepsItsPolicyInBothShells` fails: `cat runs [bat --paging=never --style=plain --] under zsh and [bat --paging=never --] under fish` |
+| each mutation restored afterwards | byte-identical, checked with `diff -q`, and the seven guards green again |
+| the shape of the change (S7) | `git diff --numstat` on `config.fish`: **213 added, 0 removed**, one hunk (`@@ -218,0 +219,213 @@`); `.zshrc` carries no diff at all; both sentinels still on lines 121 and 217 |
+| `gofmt -l ./internal ./cmd` | no output |
+| `go vet ./...`, `go build ./...` | exit 0, both |
+| the full suite, unfiltered, on this tree (`go test ./... -count=1`) | **the four Ghostty failures only** -- `TestStepInstallTerminalGhosttyReportsAFailedDownload`, `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`, `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`, `TestInteractiveGhosttyScriptDownloadsThenRuns` -- the same four this file has recorded since stage 1 and `theme-survives-install.md` records beside them; `cmd/dotfiles`, `internal/release`, `internal/system` and `internal/tui/trainer` all pass |
+
+### Log
+
+**L11.** **A guard that reads the wrong thing, and the first one to catch it was itself.**
+The first version of the reader found functions by a closing brace in column 0. zsh's
+`source_first_existing` (`:381`) closes with an indented `    }` (`:389`), so `cat` was
+swallowed into the function above it and the reader found **8 of the 12** functions the
+file declares. The guards then failed complaining about *zsh* while the change was in
+fish -- a failure for the wrong reason, which is worse than no failure. The reader now
+reads one function at a time, counting depth from that function's own declaration.
+
+**L12.** **The same class of mistake, twice in one stage.** The message guard collected
+every quoted string on a line that mentions the error stream, and zsh packs more than a
+message onto one line: `esac || { rm -f "$archive"; print -u2 "compress: failed to
+create $archive"; return 1 }` put the `rm` target into the comparison, and only the fish
+side lacked it. The guard now reads what the error verb is given -- after `print -u2`,
+before `>&2` -- and the sets match. L4 was a search that missed; these two were readers
+that over-read. Both were found by the guard failing, which is the point of it failing.
+
+**L13.** **The comparison is over policy, not text**, and that is a decision rather than
+an accident of implementation: fish cannot be written as zsh, so a guard over literal
+text would either forbid the translation or accept a fish body that says something else.
+What S3 and S4 claim is the tool and the flags per format and the message a person
+reads, so that is what is compared -- the words that carry no policy (`$`-bearing words,
+redirections) are dropped before comparing.
+
+**L14.** **A probe can be wrong while the code is right.** `extract weird.bin` was
+expected to say *unsupported format* and said *no such file*, because the probe never
+created the file: the check for a file comes before the check for a format, in zsh and
+therefore in fish. The branch was verified afterwards with a file that exists. The
+correct-looking output was the probe's fault, not the function's, and nothing was
+changed in response.
+
+**L15.** The four functions are declared outside the generated block and before the
+drop-in loader, so a user's drop-in in `~/.config/fish/dotfiles.d/` still overrides them
+and the artifact guard, which replaces only the bytes between the sentinels, is not
+touched by this stage.
+
 ## Remaining
 
-Stages 3 and 4 are open; each is its own change and its own review. Stage 2 is written
-and awaiting its merge: it is the one that makes fish's listing the same *colours*, not
-only the same shape.
+Stage 3 is written and in review on this branch: the functions. Stage 4 -- the sops/age
+secrets, the venv activation on `cd`, and the project-task announcement -- is open, its
+own change and its own review.

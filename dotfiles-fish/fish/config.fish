@@ -216,6 +216,219 @@ set -g fish_pager_color_completion f3f6f9
 set -g fish_pager_color_description 8a8fa3
 # <<< dotfiles-theme <<<
 
+## functions
+# The four commands zsh has and fish had not. They sit after the generated theme block
+# and before the user's drop-ins, so a drop-in can still override them.
+
+# `cat` shows a file the way zsh's does: bat's plain output, without paging. An
+# argument that begins with a dash goes to the real cat instead, which is what keeps
+# the flags working, and the command is a function rather than an alias so a script
+# does not inherit it.
+function cat
+    for arg in $argv
+        if string match -q -- '-*' $arg
+            command cat $argv
+            return
+        end
+    end
+    bat --paging=never --style=plain -- $argv
+end
+
+# extract <archive>: unpack almost any archive format.
+function extract
+    if test (count $argv) -eq 0
+        echo 'usage: extract <archive>' >&2
+        return 1
+    end
+    set -l file $argv[1]
+    if not test -f "$file"
+        echo "extract: no such file: $file" >&2
+        return 1
+    end
+
+    # Each format is paired with the tool it needs, so a missing dependency is
+    # reported by name instead of surfacing as a bare "command not found". The order
+    # matters: the first pattern that matches wins, so *.tar.gz is asked before *.gz.
+    set -l tool
+    set -l cmd
+    switch $file
+        case '*.tar.gz' '*.tgz'
+            set tool tar
+            set cmd tar -xzf $file
+        case '*.tar.bz2' '*.tbz2'
+            set tool tar
+            set cmd tar -xjf $file
+        case '*.tar.xz' '*.txz'
+            set tool tar
+            set cmd tar -xJf $file
+        case '*.tar.zst'
+            set tool tar
+            set cmd tar --zstd -xf $file
+        case '*.tar'
+            set tool tar
+            set cmd tar -xf $file
+        case '*.zip'
+            set tool unzip
+            set cmd unzip -q $file
+        case '*.7z'
+            set tool 7z
+            set cmd 7z x $file
+        case '*.rar'
+            set tool unrar
+            set cmd unrar x $file
+        case '*.gz'
+            set tool gunzip
+            set cmd gunzip -kf $file
+        case '*.bz2'
+            set tool bunzip2
+            set cmd bunzip2 -kf $file
+        case '*.xz'
+            set tool unxz
+            set cmd unxz -kf $file
+        case '*.zst'
+            set tool zstd
+            set cmd zstd -df $file
+        case '*'
+            echo "extract: unsupported format: $file" >&2
+            return 1
+    end
+
+    if not command -q $tool
+        echo "extract: needs $tool, which is not installed" >&2
+        return 1
+    end
+    $cmd
+end
+
+# compress <archive> <path>...: build an archive, format taken from the target
+# extension. The single-file formats refuse a directory rather than producing an
+# archive that cannot be unpacked back.
+function compress
+    if test (count $argv) -lt 2
+        echo 'usage: compress <archive> <path> [path...]' >&2
+        echo '       targets: .tar.gz .tar.bz2 .tar.xz .tar.zst .zip .7z .gz .bz2 .xz .zst' >&2
+        return 1
+    end
+    set -l archive $argv[1]
+    set -l paths $argv[2..-1]
+
+    # tar is named before the table for the same reason zsh does it: it is the tool
+    # most of the formats need, and a missing one should say which tool it is.
+    switch $archive
+        case '*.tar.*' '*.tgz'
+            if not command -q tar
+                echo 'compress: needs tar, which is not installed' >&2
+                return 1
+            end
+    end
+
+    set -l tool
+    set -l cmd
+    switch $archive
+        case '*.tar.gz' '*.tgz'
+            set tool tar
+            set cmd tar -czf $archive $paths
+        case '*.tar.bz2'
+            set tool tar
+            set cmd tar -cjf $archive $paths
+        case '*.tar.xz'
+            set tool tar
+            set cmd tar -cJf $archive $paths
+        case '*.tar.zst'
+            set tool tar
+            set cmd tar --zstd -cf $archive $paths
+        case '*.zip'
+            set tool zip
+            set cmd zip -qr $archive $paths
+        case '*.7z'
+            set tool 7z
+            set cmd 7z a -bso0 -bsp0 $archive $paths
+        case '*.gz' '*.bz2' '*.xz' '*.zst'
+            if test (count $paths) -ne 1
+                echo "compress: $archive holds one file; use a .tar.* or .zip target for several" >&2
+                return 1
+            end
+            set -l src $paths[1]
+            if test -d "$src"
+                echo "compress: $archive holds one file; use a .tar.* or .zip target for a directory" >&2
+                return 1
+            end
+            if not test -f "$src"
+                echo "compress: no such file: $src" >&2
+                return 1
+            end
+            switch $archive
+                case '*.gz'
+                    set tool gzip
+                    set cmd gzip -c $src
+                case '*.bz2'
+                    set tool bzip2
+                    set cmd bzip2 -c $src
+                case '*.xz'
+                    set tool xz
+                    set cmd xz -c $src
+                case '*.zst'
+                    set tool zstd
+                    set cmd zstd -qc $src
+            end
+            if not command -q $tool
+                echo "compress: needs $tool, which is not installed" >&2
+                return 1
+            end
+            # The redirection creates the target before the compressor runs, so a
+            # failure would otherwise leave an empty archive behind and still
+            # report success.
+            if not $cmd >$archive
+                rm -f $archive
+                echo "compress: failed to create $archive" >&2
+                return 1
+            end
+            echo "created $archive"
+            return 0
+        case '*'
+            echo "compress: unsupported format: $archive" >&2
+            return 1
+    end
+
+    if not command -q $tool
+        echo "compress: needs $tool, which is not installed" >&2
+        return 1
+    end
+    if $cmd
+        echo "created $archive"
+    else
+        rm -f $archive
+        echo "compress: failed to create $archive" >&2
+        return 1
+    end
+end
+
+# serve [port]: static file server for the current directory, defaulting to 8000.
+function serve
+    set -l port $argv[1]
+    if test -z "$port"
+        set port 8000
+    end
+    if not string match -qr '^[0-9]+$' -- $port
+        echo "serve: port must be a whole number, got '$port'" >&2
+        return 1
+    end
+    if test $port -lt 1; or test $port -gt 65535
+        echo "serve: port must be between 1 and 65535, got $port" >&2
+        return 1
+    end
+    if not command -q python3
+        echo 'serve: needs python3, which is not installed' >&2
+        return 1
+    end
+    if command -q ss; and ss -ltn 2>/dev/null | grep -q ":$port "
+        echo "serve: port $port is already in use" >&2
+        return 1
+    end
+    echo "serving $PWD on http://localhost:$port  (Ctrl-C to stop)"
+    python3 -m http.server $port --bind 127.0.0.1
+end
+
 # Files in this directory belong to the user, not to this managed config: the
 # installer replaces config.fish on updates, so local edits written here are
 # lost. The drop-ins survive because installation leaves this directory alone.
