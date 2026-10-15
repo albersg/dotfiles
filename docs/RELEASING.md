@@ -286,7 +286,13 @@ python3 - "$VERSION" /tmp/tap-update/SHA256SUMS <<'PY'
 import pathlib, re, sys
 
 version, sums_path = sys.argv[1], sys.argv[2]
-hashes = dict(re.findall(r'^([0-9a-f]{64})  \./([^/]+)/\2$', pathlib.Path(sums_path).read_text(), re.M))
+# Group 1 is the digest and group 2 is the asset name, so the asset has to be the key:
+# read the other way round, every pattern built below is a digest where an asset name
+# belongs, and it matches nothing.
+hashes = {
+    asset: digest
+    for digest, asset in re.findall(r'^([0-9a-f]{64})  \./([^/]+)/\2$', pathlib.Path(sums_path).read_text(), re.M)
+}
 if len(hashes) != 4:
     raise SystemExit(f'{sums_path} does not name four assets: {sorted(hashes)}')
 
@@ -296,13 +302,19 @@ for path in ('homebrew-tap/Formula/dotfiles.rb', 'Formula/dotfiles.rb'):
         print(f'skip {path}: not here')
         continue
     text = formula.read_text()
-    text = re.sub(r'^  version ".*"$', f'  version "{version.lstrip("v")}"', text, count=1, flags=re.M)
+    text, pinned = re.subn(r'^  version ".*"$', f'  version "{version.lstrip("v")}"', text, count=1, flags=re.M)
+    if pinned != 1:
+        raise SystemExit(f'{path}: the version line was substituted {pinned} times, not once')
+    # A substitution that matches nothing is silent, and it leaves the new version beside
+    # the previous release's hashes, so each one has to happen exactly once.
     for asset, digest in hashes.items():
-        text = re.sub(
+        text, replaced = re.subn(
             r'(releases/download/v#\{version\}/' + asset + r'"\n      sha256 ")[0-9a-f]{64}',
             lambda m: m.group(1) + digest,
             text,
         )
+        if replaced != 1:
+            raise SystemExit(f'{path}: {asset} was substituted {replaced} times, not once')
     formula.write_text(text)
     print(f'wrote {path}')
 PY
