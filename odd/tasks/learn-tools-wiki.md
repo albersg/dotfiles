@@ -146,4 +146,15 @@ orden de CI) más la suite del módulo y los guards dirigidos de cada tarea.
    nombrarlas (el fallo se leía "opens Unknown, want Unknown"). Ahora es un mapa con una entrada por
    constante, y `TestEveryDeclaredScreenHasAName` falla por nombre si se añade una constante sin
    entrada. Arreglo en `3f0a29b`. No se relajó ningún guard.
+
+**L10.** T7, veredicto por paso de la puerta (`scripts/preflight.sh`): `gofmt -l`, `go vet`, `go build
+./cmd/dotfiles`, `shellcheck --severity=warning`, la auditoría de marca y `gitleaks` sobre los ocho
+commits de la rama pasan. `go test ./...` pasa salvo cuatro tests del instalador de Ghostty
+(`installer_test.go`), y eso es del host, no de este frente: `/usr/bin/ghostty` existe en esta
+máquina desde abril de 2026, el paso responde "✓ Ghostty already installed" y los tests miden la
+descarga que el host ya no necesita. La prueba de que es previo y ajeno: en un worktree sobre el
+commit base `4ba4332` (antes de cualquier cambio de este frente) los mismos cuatro tests fallan con
+la misma salida. En CI, sin Ghostty instalado, no aparecen. Además, el guard del compañero pinnaba
+896 estados de frame y con las nueve pantallas nuevas pasó a 1072: la constante se subió con el
+comentario que dice de dónde sale, y ese arreglo va en este commit.
 ```
