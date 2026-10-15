@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.9.0] — 2026-10-15
+
 ### Added
 
 - **The installer shows every unit it is about to install, and each one can be turned off.** The wizard's last question led straight to the run, so the answer to "what is it going to do to this machine" was a step list that would only be complete once it was too late to disagree with it. A review screen now stands between the two: every unit of the run, in the order the run takes it, each one on or off, with the three the run cannot do without marked and refusing to change -- `clone`, the repository the run works from; `cleanup`, the state it created; and `setshell`, the default shell the user chose. `Space` turns the unit under the cursor off or back on, `Enter` starts the run and `Esc` returns to the question the screen was opened from, which is the backup question when there were configurations to ask about and the last question otherwise. The list is longer than the frame, so it is drawn as a window sized by the terminal -- the frame guard measured this screen at **28 rows on a 24-row terminal**, and the first fix, a fixed nine-row window, still overflowed the **60x20** case of the twelve sizes the matrix measures -- and the rows that do not fit are counted above and below rather than dropped. Nothing about the wizard's own questions changed: an untouched selection is exactly the plan the answers alone produced, which is what makes turning a unit off free of consequence rather than a second way of choosing.
