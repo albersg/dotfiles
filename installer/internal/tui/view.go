@@ -1108,9 +1108,11 @@ func (m Model) View() string {
 		content = replaceLastLine(content, WarningStyle.Render("▶ Leader mode: [q] quit • [d] details"))
 	}
 
-	// Apply global padding (top: 1, right: 2, bottom: 0, left: 2)
+	// Apply global padding (top: 1, right: 2, bottom: 0, left: 2), then paint the
+	// drifting background across the whole frame. This tail is the one paint point
+	// every screen passes through, so no screen can be added or kept that opts out.
 	paddedStyle := lipgloss.NewStyle().Padding(viewPaddingRows, viewPaddingCols, 0, viewPaddingCols)
-	return paddedStyle.Render(content)
+	return paintDriftBackground(paddedStyle.Render(content), m)
 }
 
 // replaceLastLine returns s with its last non-empty line replaced by line. It is

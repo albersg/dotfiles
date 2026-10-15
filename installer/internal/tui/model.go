@@ -159,6 +159,13 @@ type Model struct {
 	// the stream the run would draw to, and stored here so a test can force either
 	// side without touching the environment.
 	Animating bool
+	// Drifting is the background's own answer: true when this run paints the
+	// drifting gradient behind every screen. It is decided once, when the model is
+	// built, from the same gate as Animating -- --no-anim / DOTFILES_ANIM=0 and the
+	// terminal checks animationGate applies -- and kept as a field of its own so
+	// the render path never reads the environment and a test can force either side
+	// without turning the frame tick or the creature with it.
+	Drifting bool
 	// AnimTick counts the animation frames since the run started: one per frame
 	// tick, animTicksPerSecond of them a second. It stays at zero while animation
 	// is off, and it is the clock the tip rotation and the companion read instead
@@ -472,6 +479,7 @@ type themeActivity struct {
 
 // NewModel creates a new Model with initial state
 func NewModel() Model {
+	animating := animationGate(os.Stdout)
 	m := Model{
 		Screen:                  ScreenWelcome,
 		PrevScreen:              ScreenWelcome,
@@ -483,7 +491,8 @@ func NewModel() Model {
 		CurrentStep:             0,
 		Cursor:                  0,
 		PanelIndex:              0,
-		Animating:               animationGate(os.Stdout),
+		Animating:               animating,
+		Drifting:                driftGate(animating),
 		Hovering:                hoverRequested(),
 		PixelSprite:             pixelSpriteGate(),
 		ink:                     companionInkFor(lipgloss.HasDarkBackground()),
