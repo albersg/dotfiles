@@ -738,6 +738,19 @@ and the choices, so a run shows only the ones that apply.
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
 
+**The administrator password is asked once, on the installer's own screen.** Before the first step
+that needs root, the installer asks sudo whether it already has a credential it can use
+(`sudo -n -v`, which never prompts) and asks the user only when it does not — so a machine where
+sudo is configured not to want a password, which is common in containers, is never asked for one.
+The prompt is a masked field on a screen of its own, so the terminal is never handed to another
+process and the interface does not disappear and come back. The password reaches sudo on the
+child's **standard input** (`sudo -S`) rather than in its arguments, it is never written to a log
+line, and the only copy the installer holds lives in a fixed-capacity buffer that is cleared as
+soon as sudo has read it. A password that is refused stays on the screen to be retyped, and **Esc**
+asks in the terminal instead: a system whose PAM needs a terminal — a two-factor or fingerprint
+module, or a legacy `Defaults requiretty` — cannot be authenticated through standard input, and
+that path stays reachable rather than becoming a dead end.
+
 **An install preserves the theme the machine has applied, and that is a step of its own.** Every step
 that writes a configuration file writes the file this repository ships, and those carry the **default**
 theme's generated block — so a run silently reverted whichever theme the picker had applied, for every

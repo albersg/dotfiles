@@ -1812,6 +1812,19 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return base(ScreenLearnLazyVim)
 	case "lazyvim-topic":
 		return base(ScreenLazyVimTopic)
+	case "admin-password":
+		// The field with something typed in it, so the guards measure the masked line
+		// and the count rather than only the empty state.
+		m := base(ScreenAdminPassword)
+		m.AdminPassword = append(make([]byte, 0, adminPasswordCapacity), []byte("a-typed-password")...)
+		return m
+	case "admin-password-failed":
+		// The same screen carrying a refusal, which adds a line the empty state does
+		// not have: the guard has to measure the taller of the two.
+		m := base(ScreenAdminPassword)
+		m.AdminPassword = append(make([]byte, 0, adminPasswordCapacity), []byte("a-typed-password")...)
+		m.AdminPasswordErr = "that password was not accepted"
+		return m
 	case "backup-confirm":
 		return withConfigs(ScreenBackupConfirm, []string{
 			"nvim: ~/.config/nvim", "fish: ~/.config/fish", "zsh: ~/.zshrc",
@@ -1907,6 +1920,7 @@ var installerFrameScreenNames = []string{
 	"installing", "installing-details", "installing-details-many", "installing-at-end",
 	"installing-live",
 	"complete", "error", "error-many-logs",
+	"admin-password", "admin-password-failed",
 }
 
 // TestInstallerScreensFitTheFrame is the counterpart to

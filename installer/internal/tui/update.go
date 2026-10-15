@@ -1052,7 +1052,35 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case sudoNeedsPasswordMsg:
+		// sudo has no credential it can use without a password. The installer asks
+		// for it on its own screen, so nothing is handed over and the terminal stays
+		// where it is. The field is a []byte of fixed capacity: see AdminPassword.
+		m.AdminPassword = make([]byte, 0, adminPasswordCapacity)
+		m.AdminPasswordErr = ""
+		m.Screen = ScreenAdminPassword
+		m.LogLines = append(m.LogLines, "Administrator access: type the password on this screen; the installer does not leave it to ask.")
+		return m, nil
+
 	case sudoPrimedMsg:
+		// An attempt made from the installer's own screen. sudo has already read
+		// whatever the field held and those bytes are already cleared, so the field
+		// starts empty for a retry. A refusal stays on the screen rather than
+		// becoming a loop: only the user starts another attempt.
+		if m.Screen == ScreenAdminPassword {
+			m.AdminPassword = m.AdminPassword[:0]
+			if msg.err != nil {
+				m.AdminPasswordErr = msg.err.Error()
+				m.LogLines = append(m.LogLines, "⚠️  "+msg.err.Error())
+				return m, nil
+			}
+			m.AdminPasswordErr = ""
+			m.Screen = ScreenInstalling
+			m.SudoPrimed = true
+			m.LogLines = append(m.LogLines, "✓ Administrator credential cached for this run.")
+			return m, tea.Batch(m.runNextStep(), sudoKeepAliveTickCmd())
+		}
+
 		// The one credential request has returned. Whether it succeeded or not,
 		// the run continues: a step that needs root without the credential fails
 		// visibly through sudo -n instead of prompting where the user cannot see
@@ -1211,6 +1239,16 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Unknown leader command, ignore
 			return m, nil
 		}
+	}
+
+	// The password screen owns every key it uses. It is reached in the middle of an
+	// install, where the global meanings of these keys would take a character away
+	// from the field: space would open the leader key instead of being typed,
+	// backspace would mean "back" instead of deleting, and escape would leave the
+	// screen rather than offer the way out it is meant to offer. Taking the
+	// dispatch here, before any of them, is what keeps the field a field.
+	if m.Screen == ScreenAdminPassword {
+		return m.updateAdminPassword(msg)
 	}
 
 	// <space> activates leader mode EXCEPT in screens that need space for input

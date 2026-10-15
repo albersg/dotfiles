@@ -41,6 +41,7 @@ repository's memory of why something is the way it is.
 | [companion-realism.md](tasks/companion-realism.md) | The realism pass on the creature |
 | [companion-v2.md](tasks/companion-v2.md) | The second generation of the creature (mandate) |
 | [companion-v2-research.md](tasks/companion-v2-research.md) | The research behind it, superseding that decision only |
+| [admin-password-in-the-interface.md](tasks/admin-password-in-the-interface.md) | The administrator password, asked inside the interface |
 | [fish-parity.md](tasks/fish-parity.md) | The fish shell's parity with zsh |
 | [contextual-panel.md](tasks/contextual-panel.md) | The contextual panel |
 | [install-update-release.md](tasks/install-update-release.md) | The installer's own release: checking it, updating from it, shipping it |

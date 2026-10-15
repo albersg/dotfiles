@@ -98,6 +98,12 @@ const (
 	// file, in which case it says so and names the command that does own it instead
 	// of writing over a file another program owns.
 	ScreenUpdate // The published release, beside this build
+	// The administrator password. Appended at the end for the same reason as the
+	// screens above. It is reached from the installing screen rather than from the
+	// menu: the first step that needs root puts it up, so the terminal is never
+	// handed over to ask for the credential. Escape offers the handover instead,
+	// for a system whose PAM insists on a terminal.
+	ScreenAdminPassword // The administrator password, typed on the installer's own screen
 )
 
 // InstallStep represents a single installation step
@@ -392,6 +398,19 @@ type Model struct {
 	// again: the run continues, and a step that lacks the credential fails
 	// visibly through sudo -n. It resets when a new run starts.
 	SudoPrimeAttempted bool
+
+	// AdminPassword is the field the administrator password is typed into. It is a
+	// []byte of fixed capacity rather than a string because Update returns the model
+	// by value: every keystroke copies the slice header, and the copies all share
+	// this one backing array, so clearing it once clears every copy of it. A Go
+	// string is immutable and could not be cleared at all, and a buffer allowed to
+	// grow would reallocate and leave the bytes in an array nothing can reach.
+	AdminPassword []byte
+
+	// AdminPasswordErr is the line the password screen shows when an attempt was
+	// refused. It carries the outcome and never the password, and never sudo's own
+	// stderr, which names the invoking account and the host.
+	AdminPasswordErr string
 	// TerminalCapabilities is the terminal capability report: what the terminal
 	// the installer is running in can do, where each answer came from, and what
 	// it implies. It is read by a command only when the capability screen is
@@ -980,6 +999,8 @@ func (m Model) GetScreenTitle() string {
 		return "Ghostty Compatibility Warning"
 	case ScreenInstalling:
 		return "Installing dotfiles"
+	case ScreenAdminPassword:
+		return "Administrator password"
 	case ScreenComplete:
 		return "Installation complete"
 	case ScreenError:
