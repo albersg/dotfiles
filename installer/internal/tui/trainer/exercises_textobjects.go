@@ -360,7 +360,7 @@ func getTextObjectsBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 6,
+				TimeLimit: 8,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_1",
 					Module:    ModuleTextObjects,
@@ -375,7 +375,7 @@ func getTextObjectsBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_2",
 					Module:    ModuleTextObjects,
@@ -390,7 +390,7 @@ func getTextObjectsBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_3",
 					Module:    ModuleTextObjects,
@@ -405,7 +405,7 @@ func getTextObjectsBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_4",
 					Module:    ModuleTextObjects,
@@ -420,7 +420,7 @@ func getTextObjectsBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_5",
 					Module:    ModuleTextObjects,

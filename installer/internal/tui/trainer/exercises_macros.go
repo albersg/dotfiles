@@ -524,7 +524,7 @@ func getMacrosBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "macros_boss_1",
 					Module: ModuleMacros,
@@ -545,7 +545,7 @@ func getMacrosBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:     "macros_boss_2",
 					Module: ModuleMacros,
@@ -564,7 +564,7 @@ func getMacrosBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "macros_boss_3",
 					Module: ModuleMacros,
@@ -585,7 +585,7 @@ func getMacrosBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:     "macros_boss_4",
 					Module: ModuleMacros,
@@ -606,7 +606,7 @@ func getMacrosBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 12,
 				Exercise: Exercise{
 					ID:     "macros_boss_5",
 					Module: ModuleMacros,

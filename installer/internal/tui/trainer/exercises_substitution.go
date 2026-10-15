@@ -363,7 +363,7 @@ func getSubstitutionLessons() []Exercise {
 		{
 			ID:     "substitution_022",
 			Module: ModuleSubstitution,
-			Level:  11,
+			Level:  10,
 			Type:   ExerciseLesson,
 			Code: []string{
 				"// Keep this line unchanged",
@@ -394,7 +394,7 @@ func getSubstitutionBoss() *BossExercise {
 		BonusTime: 45,
 		Steps: []BossStep{
 			{
-				TimeLimit: 8,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:     "substitution_boss_1",
 					Module: ModuleSubstitution,
@@ -412,7 +412,7 @@ func getSubstitutionBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 10,
+				TimeLimit: 12,
 				Exercise: Exercise{
 					ID:     "substitution_boss_2",
 					Module: ModuleSubstitution,
@@ -430,7 +430,7 @@ func getSubstitutionBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 8,
+				TimeLimit: 10,
 				Exercise: Exercise{
 					ID:     "substitution_boss_3",
 					Module: ModuleSubstitution,

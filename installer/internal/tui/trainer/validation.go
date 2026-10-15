@@ -299,7 +299,10 @@ func CalculatePoints(exercise *Exercise, timeSeconds float64, isOptimal bool, co
 		comboMultiplier = 1
 	}
 
-	points := float64(exercise.Points)
+	// The level is what an exercise pays (difficulty.go): a hand-authored reward above
+	// the level's own value survives, and a hard exercise can never pay less than an
+	// easy one, which is what the raw Points field allowed.
+	points := float64(ExercisePoints(exercise))
 
 	// Optimal bonus: 50%
 	if isOptimal {

@@ -239,9 +239,18 @@ func SelectRandomPracticeExercise(module ModuleID, progress *ModuleProgress, rng
 	pool := make([]weightedEx, 0, len(lessons))
 	totalWeight := 0
 
+	// The mix leans on the frontier (difficulty.go): the next level to learn is served
+	// most often, the levels beyond it occasionally, and the levels the player has
+	// already mastered not at all -- those are review, and their weight is a question
+	// about the clock rather than about difficulty.
+	floor := MasteredLevelFloor(module, progress)
+
 	for _, lesson := range lessons {
 		stats := progress.ExerciseStatsOrNil(lesson.ID)
 		weight := stats.GetPracticeWeightAt(now)
+		if !stats.IsMastered() {
+			weight += frontierBonus(lesson.Level, floor)
+		}
 
 		if weight > 0 {
 			pool = append(pool, weightedEx{exercise: lesson, weight: weight})

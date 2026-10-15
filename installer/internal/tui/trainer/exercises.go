@@ -409,7 +409,7 @@ func getHorizontalBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_1",
 					Module:    ModuleHorizontal,
@@ -424,7 +424,7 @@ func getHorizontalBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_2",
 					Module:    ModuleHorizontal,
@@ -439,7 +439,7 @@ func getHorizontalBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_3",
 					Module:    ModuleHorizontal,
@@ -454,7 +454,7 @@ func getHorizontalBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_4",
 					Module:    ModuleHorizontal,
@@ -469,7 +469,7 @@ func getHorizontalBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_5",
 					Module:    ModuleHorizontal,
@@ -1031,7 +1031,7 @@ func getVerticalBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:     "vertical_boss_1",
 					Module: ModuleVertical,
@@ -1057,7 +1057,7 @@ func getVerticalBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:     "vertical_boss_2",
 					Module: ModuleVertical,
@@ -1083,7 +1083,7 @@ func getVerticalBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "vertical_boss_3",
 					Module: ModuleVertical,
@@ -1109,7 +1109,7 @@ func getVerticalBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "vertical_boss_4",
 					Module: ModuleVertical,
@@ -1135,7 +1135,7 @@ func getVerticalBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "vertical_boss_5",
 					Module: ModuleVertical,

@@ -483,7 +483,7 @@ func getEditingBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 8,
+				TimeLimit: 16,
 				Exercise: Exercise{
 					ID:     "editing_boss_1",
 					Module: ModuleEditing,
@@ -503,7 +503,7 @@ func getEditingBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 10,
+				TimeLimit: 33,
 				Exercise: Exercise{
 					ID:     "editing_boss_2",
 					Module: ModuleEditing,
@@ -522,7 +522,7 @@ func getEditingBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 10,
+				TimeLimit: 18,
 				Exercise: Exercise{
 					ID:     "editing_boss_3",
 					Module: ModuleEditing,
@@ -541,7 +541,7 @@ func getEditingBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 12,
+				TimeLimit: 14,
 				Exercise: Exercise{
 					ID:     "editing_boss_4",
 					Module: ModuleEditing,
@@ -561,7 +561,7 @@ func getEditingBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 15,
+				TimeLimit: 26,
 				Exercise: Exercise{
 					ID:     "editing_boss_5",
 					Module: ModuleEditing,

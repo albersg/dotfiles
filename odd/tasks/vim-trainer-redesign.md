@@ -146,7 +146,7 @@ of being overwritten by the next save. A test pins each of the three.
       volume sprite, escalation with the boss's remaining lives, restored after the fight.
 - [x] **T3. Spaced repetition and the recent gate** (S5, S6): review interval, due count on the menu,
       windowed accuracy for the boss gate, requirement copy.
-- [ ] **T4. Calibrated difficulty** (S7, S8): the Level contract and its guard, points from
+- [x] **T4. Calibrated difficulty** (S7, S8): the Level contract and its guard, points from
       difficulty, the practice mix, the boss clock rule and the corrected step limits.
 - [ ] **T5. The visible combo** (S9): combo in all modes, shown on the exercise and boss headers.
 - [ ] **T6. Fight time and boss hints** (S10, S11): measured fight duration, best time on the result
@@ -224,3 +224,21 @@ of being overwritten by the next save. A test pins each of the three.
   Fixtures corrected, not rules: `recordPractice` answers at the real clock (a session's own
   answers are never due), the mastered-weight pin and the session-complete pin stamp
   `LastAttempted` "now", and the panel pin now asserts the new requirement copy.
+
+- **T4 (S7, S8).** RED observed as a build failure on the new names, then, once the rules
+  existed, as three corpus guards failing on real content: `substitution_022` declared level 11;
+  30 of the 35 boss steps gave the player less time than their own mission and answer need (the
+  worst was `editing_boss_2`, 33s of work in a 10s window); `changerepeat_boss` granted no bonus
+  time at all and `regex_boss` granted two minutes. Implemented: `difficulty.go` holds the Level
+  contract (`Min/MaxExerciseLevel`, `ClampExerciseLevel`, `PointsForLevel` 10..55,
+  `ExercisePoints` with the level as a floor so a hand-tuned reward survives and a hard exercise
+  can never pay less than an easy one), the frontier rule (`MasteredLevelFloor`, `frontierBonus`,
+  `PracticeFrontierWeight = 10`, `PracticeBeyondFrontierWeight = 4`) and `CalculatePoints` now
+  pays `ExercisePoints`; `bossclock.go` holds the clock rule (`BossStepBaseSeconds = 4` + mission
+  read at 20 chars/s + 1s per answer character, capped at 90s) and the bonus-time range (15..60s).
+  Content corrected to the rules, not the rules to the content: the level-11 exercise is now 10,
+  30 step limits were raised to the recommendation, `changerepeat_boss` gained `BonusTime: 30` and
+  `regex_boss` came down to 45. The boss golden changed by exactly the one line that reads the
+  clock (5s -> 7s on `horizontal_boss_1`), regenerated with `-update` and inspected.
+  Deferred to T6 by design: the guard that every boss step carries a hint (35 steps do not), which
+  is S11's content work rather than S7/S8's.

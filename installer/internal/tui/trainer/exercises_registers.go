@@ -435,7 +435,7 @@ func getRegistersBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 8,
+				TimeLimit: 18,
 				Exercise: Exercise{
 					ID:     "registers_boss_1",
 					Module: ModuleRegisters,
@@ -455,7 +455,7 @@ func getRegistersBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 10,
+				TimeLimit: 23,
 				Exercise: Exercise{
 					ID:     "registers_boss_2",
 					Module: ModuleRegisters,
@@ -474,7 +474,7 @@ func getRegistersBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 10,
+				TimeLimit: 22,
 				Exercise: Exercise{
 					ID:     "registers_boss_3",
 					Module: ModuleRegisters,
@@ -493,7 +493,7 @@ func getRegistersBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 12,
+				TimeLimit: 19,
 				Exercise: Exercise{
 					ID:     "registers_boss_4",
 					Module: ModuleRegisters,
@@ -512,7 +512,7 @@ func getRegistersBoss() *BossExercise {
 				},
 			},
 			{
-				TimeLimit: 15,
+				TimeLimit: 29,
 				Exercise: Exercise{
 					ID:     "registers_boss_5",
 					Module: ModuleRegisters,
