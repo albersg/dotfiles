@@ -2,6 +2,7 @@ package trainer
 
 import (
 	"testing"
+	"time"
 )
 
 // =============================================================================
@@ -41,7 +42,7 @@ func TestGetExerciseStats_ReturnsSame(t *testing.T) {
 func TestRecordPracticeResult_CorrectIncrementsCounters(t *testing.T) {
 	mp := &ModuleProgress{}
 
-	mp.RecordPracticeResult("test_001", true)
+	mp.RecordPracticeResult("test_001", true, time.Now())
 
 	stats := mp.GetExerciseStats("test_001")
 	if stats.TotalAttempts != 1 {
@@ -58,7 +59,7 @@ func TestRecordPracticeResult_CorrectIncrementsCounters(t *testing.T) {
 func TestRecordPracticeResult_WrongIncrementsCounters(t *testing.T) {
 	mp := &ModuleProgress{}
 
-	mp.RecordPracticeResult("test_001", false)
+	mp.RecordPracticeResult("test_001", false, time.Now())
 
 	stats := mp.GetExerciseStats("test_001")
 	if stats.TotalAttempts != 1 {
@@ -76,8 +77,8 @@ func TestRecordPracticeResult_WrongResetsStreak(t *testing.T) {
 	mp := &ModuleProgress{}
 
 	// Build up a streak
-	mp.RecordPracticeResult("test_001", true)
-	mp.RecordPracticeResult("test_001", true)
+	mp.RecordPracticeResult("test_001", true, time.Now())
+	mp.RecordPracticeResult("test_001", true, time.Now())
 
 	stats := mp.GetExerciseStats("test_001")
 	if stats.ConsecutiveRight != 2 {
@@ -85,7 +86,7 @@ func TestRecordPracticeResult_WrongResetsStreak(t *testing.T) {
 	}
 
 	// Wrong answer resets streak
-	mp.RecordPracticeResult("test_001", false)
+	mp.RecordPracticeResult("test_001", false, time.Now())
 
 	if stats.ConsecutiveRight != 0 {
 		t.Errorf("Wrong should reset streak to 0, got %d", stats.ConsecutiveRight)
@@ -96,8 +97,8 @@ func TestRecordPracticeResult_MasteryAfterThreeCorrect(t *testing.T) {
 	mp := &ModuleProgress{}
 
 	// Not mastered after 2
-	mp.RecordPracticeResult("test_001", true)
-	mp.RecordPracticeResult("test_001", true)
+	mp.RecordPracticeResult("test_001", true, time.Now())
+	mp.RecordPracticeResult("test_001", true, time.Now())
 
 	stats := mp.GetExerciseStats("test_001")
 	if stats.Mastered {
@@ -105,7 +106,7 @@ func TestRecordPracticeResult_MasteryAfterThreeCorrect(t *testing.T) {
 	}
 
 	// Mastered after 3
-	mp.RecordPracticeResult("test_001", true)
+	mp.RecordPracticeResult("test_001", true, time.Now())
 
 	if !stats.Mastered {
 		t.Error("Should be mastered after 3 consecutive correct")
@@ -116,9 +117,9 @@ func TestRecordPracticeResult_WrongUnmasters(t *testing.T) {
 	mp := &ModuleProgress{}
 
 	// Master the exercise
-	mp.RecordPracticeResult("test_001", true)
-	mp.RecordPracticeResult("test_001", true)
-	mp.RecordPracticeResult("test_001", true)
+	mp.RecordPracticeResult("test_001", true, time.Now())
+	mp.RecordPracticeResult("test_001", true, time.Now())
+	mp.RecordPracticeResult("test_001", true, time.Now())
 
 	stats := mp.GetExerciseStats("test_001")
 	if !stats.Mastered {
@@ -126,7 +127,7 @@ func TestRecordPracticeResult_WrongUnmasters(t *testing.T) {
 	}
 
 	// Wrong answer un-masters
-	mp.RecordPracticeResult("test_001", false)
+	mp.RecordPracticeResult("test_001", false, time.Now())
 
 	if stats.Mastered {
 		t.Error("Wrong answer should un-master")
@@ -136,8 +137,8 @@ func TestRecordPracticeResult_WrongUnmasters(t *testing.T) {
 func TestRecordPracticeResult_UpdatesModuleProgress(t *testing.T) {
 	mp := &ModuleProgress{}
 
-	mp.RecordPracticeResult("test_001", true)
-	mp.RecordPracticeResult("test_001", false)
+	mp.RecordPracticeResult("test_001", true, time.Now())
+	mp.RecordPracticeResult("test_001", false, time.Now())
 
 	if mp.PracticeAttempts != 2 {
 		t.Errorf("PracticeAttempts should be 2, got %d", mp.PracticeAttempts)
@@ -154,11 +155,19 @@ func TestRecordPracticeResult_UpdatesModuleProgress(t *testing.T) {
 // PRACTICE WEIGHT
 // =============================================================================
 
-func TestGetPracticeWeight_MasteredIsZero(t *testing.T) {
+// TestGetPracticeWeight_MasteredKeepsReviewWeight replaces the pin that said a
+// mastered exercise weighs zero. That rule emptied the practice pool, which is
+// what deadlocked a module whose exercises were all mastered but whose boss gate
+// was unmet: no practice, no boss, and only the destructive reset as an exit.
+// Mastered exercises stay in the pool at the review weight instead.
+func TestGetPracticeWeight_MasteredKeepsReviewWeight(t *testing.T) {
 	stats := &ExerciseStats{Mastered: true}
 
-	if stats.GetPracticeWeight() != 0 {
-		t.Error("Mastered exercise should have weight 0")
+	if got := stats.GetPracticeWeight(); got != MasteredReviewWeight {
+		t.Errorf("Mastered exercise should keep the review weight %d, got %d", MasteredReviewWeight, got)
+	}
+	if MasteredReviewWeight <= 0 {
+		t.Errorf("MasteredReviewWeight must be positive or the pool can empty again, got %d", MasteredReviewWeight)
 	}
 }
 
@@ -196,14 +205,18 @@ func TestGetPracticeWeight_ConsecutiveCorrectReducesWeight(t *testing.T) {
 func TestSelectRandomPracticeExercise_ReturnsExercise(t *testing.T) {
 	mp := &ModuleProgress{}
 
-	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp)
+	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil)
 
 	if ex == nil {
 		t.Error("Should return an exercise")
 	}
 }
 
-func TestSelectRandomPracticeExercise_NilWhenAllMastered(t *testing.T) {
+// TestSelectRandomPracticeExercise_NilOnlyWithoutExercises replaces the pin that
+// said an all-mastered module selects nothing. The pool keeps mastered exercises
+// at the review weight, so nil is reserved for a module that has no exercises at
+// all -- here, a module id the catalogue does not know.
+func TestSelectRandomPracticeExercise_NilOnlyWithoutExercises(t *testing.T) {
 	mp := &ModuleProgress{}
 
 	lessons := GetLessons(ModuleHorizontal)
@@ -211,24 +224,25 @@ func TestSelectRandomPracticeExercise_NilWhenAllMastered(t *testing.T) {
 		t.Skip("No lessons available")
 	}
 
-	// Master all
+	// Master all: the pool must still offer review.
 	for _, lesson := range lessons {
-		mp.RecordPracticeResult(lesson.ID, true)
-		mp.RecordPracticeResult(lesson.ID, true)
-		mp.RecordPracticeResult(lesson.ID, true)
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
 	}
 
-	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp)
-
-	if ex != nil {
-		t.Error("Should return nil when all mastered")
+	if ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil); ex == nil {
+		t.Error("An all-mastered module must still offer a review exercise")
+	}
+	if ex := SelectRandomPracticeExercise(ModuleID("no_such_module"), mp, nil); ex != nil {
+		t.Error("A module with no exercises must select nothing")
 	}
 }
 
 func TestSelectRandomPracticeExercise_IsPracticeType(t *testing.T) {
 	mp := &ModuleProgress{}
 
-	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp)
+	ex := SelectRandomPracticeExercise(ModuleHorizontal, mp, nil)
 
 	if ex != nil && ex.Type != ExercisePractice {
 		t.Errorf("Should be Practice type, got %s", ex.Type)
@@ -249,9 +263,9 @@ func TestGetPracticeStatsForModule_CountsCorrectly(t *testing.T) {
 
 	// Master 2 exercises
 	for i := 0; i < 2; i++ {
-		mp.RecordPracticeResult(lessons[i].ID, true)
-		mp.RecordPracticeResult(lessons[i].ID, true)
-		mp.RecordPracticeResult(lessons[i].ID, true)
+		mp.RecordPracticeResult(lessons[i].ID, true, time.Now())
+		mp.RecordPracticeResult(lessons[i].ID, true, time.Now())
+		mp.RecordPracticeResult(lessons[i].ID, true, time.Now())
 	}
 
 	stats := GetPracticeStatsForModule(ModuleHorizontal, mp)
@@ -276,12 +290,12 @@ func TestGetPracticeStatsForModule_TracksWeakest(t *testing.T) {
 	}
 
 	// Make first exercise have most errors
-	mp.RecordPracticeResult(lessons[0].ID, false)
-	mp.RecordPracticeResult(lessons[0].ID, false)
-	mp.RecordPracticeResult(lessons[0].ID, false)
+	mp.RecordPracticeResult(lessons[0].ID, false, time.Now())
+	mp.RecordPracticeResult(lessons[0].ID, false, time.Now())
+	mp.RecordPracticeResult(lessons[0].ID, false, time.Now())
 
 	// Second exercise has some errors
-	mp.RecordPracticeResult(lessons[1].ID, false)
+	mp.RecordPracticeResult(lessons[1].ID, false, time.Now())
 
 	stats := GetPracticeStatsForModule(ModuleHorizontal, mp)
 
@@ -303,9 +317,9 @@ func TestGetPracticeStatsForModule_PracticeComplete(t *testing.T) {
 
 	// Master all
 	for _, lesson := range lessons {
-		mp.RecordPracticeResult(lesson.ID, true)
-		mp.RecordPracticeResult(lesson.ID, true)
-		mp.RecordPracticeResult(lesson.ID, true)
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
 	}
 
 	stats := GetPracticeStatsForModule(ModuleHorizontal, mp)
@@ -327,8 +341,8 @@ func TestResetModulePractice_ClearsAll(t *testing.T) {
 	}
 
 	// Add some exercise stats
-	mp.RecordPracticeResult("test_001", true)
-	mp.RecordPracticeResult("test_001", true)
+	mp.RecordPracticeResult("test_001", true, time.Now())
+	mp.RecordPracticeResult("test_001", true, time.Now())
 
 	mp.ResetModulePractice()
 
@@ -368,9 +382,9 @@ func TestIsPracticeComplete_TrueWhenAllMastered(t *testing.T) {
 
 	// Master all
 	for _, lesson := range lessons {
-		mp.RecordPracticeResult(lesson.ID, true)
-		mp.RecordPracticeResult(lesson.ID, true)
-		mp.RecordPracticeResult(lesson.ID, true)
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
+		mp.RecordPracticeResult(lesson.ID, true, time.Now())
 	}
 
 	if !mp.IsPracticeComplete(ModuleHorizontal) {

@@ -1,6 +1,7 @@
 package trainer
 
 import (
+	"math/rand"
 	"time"
 )
 
@@ -55,6 +56,11 @@ type GameState struct {
 	// through SetClock in tests so no test has to sleep to advance time.
 	now func() time.Time
 
+	// rng is the session's randomness source for practice selection, replaced
+	// through SetRandomSource. The session owns it rather than calling the
+	// package-level rand functions so a test can pin which exercise comes next.
+	rng *rand.Rand
+
 	// exerciseStartedAt is when the current exercise was presented on screen.
 	// presentExercise is its only writer. It is deliberately not reset by a
 	// wrong answer: ElapsedSeconds measures the time to solve the current
@@ -68,6 +74,7 @@ func NewGameState() *GameState {
 		Stats:           NewUserStats(),
 		ComboMultiplier: 1,
 		now:             time.Now,
+		rng:             newPracticeRand(),
 	}
 }
 
@@ -80,7 +87,32 @@ func NewGameStateWithStats(stats *UserStats) *GameState {
 		Stats:           stats,
 		ComboMultiplier: 1,
 		now:             time.Now,
+		rng:             newPracticeRand(),
 	}
+}
+
+// newPracticeRand is the session's own clock-seeded source.
+func newPracticeRand() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
+// SetRandomSource replaces the source practice selection draws from. It exists
+// so a test can pin the exercise order instead of flaking on the global source;
+// production passes nothing and keeps the clock-seeded one. Passing nil restores
+// a fresh clock-seeded source.
+func (g *GameState) SetRandomSource(rng *rand.Rand) {
+	if rng == nil {
+		rng = newPracticeRand()
+	}
+	g.rng = rng
+}
+
+// Now reads the injected clock. It is the exported view of the same clock the
+// score, the countdown and the practice stamps use, so a caller that owns a
+// ModuleProgress (the trainer's key handlers) can stamp an answer with the
+// session's time instead of a second wall clock.
+func (g *GameState) Now() time.Time {
+	return g.clockNow()
 }
 
 // SetClock replaces the clock the state uses to measure answer time. It exists
@@ -243,9 +275,14 @@ func (g *GameState) StartPractice(module ModuleID) {
 	g.CurrentStreak = 0
 	g.ComboMultiplier = 1
 
-	// Use weighted random selection for intelligent practice
+	// Use weighted random selection for intelligent practice. A module with
+	// nothing left to practise presents nothing: the menu reports that instead of
+	// opening a session that would end on its first answer.
+	if g.Stats.PracticeComplete(module) {
+		return
+	}
 	progress := g.Stats.GetModuleProgress(module)
-	exercise := SelectRandomPracticeExercise(module, progress)
+	exercise := SelectRandomPracticeExercise(module, progress, g.rng)
 	g.presentExercise(exercise)
 }
 
@@ -254,18 +291,26 @@ func (g *GameState) SetPracticeExercise(exercise *Exercise) {
 	g.presentExercise(exercise)
 }
 
-// NextPracticeExercise selects the next random exercise for practice
-// Returns false if practice is complete (all mastered)
+// NextPracticeExercise selects the next random exercise for practice.
+//
+// It returns false only when there is nothing left to do: every exercise
+// mastered AND the boss unlocked (see UserStats.PracticeComplete). While the
+// boss gate is unmet an all-mastered module keeps offering review, which is what
+// removes the deadlock where the player could neither practise nor fight and the
+// only exit was erasing their progress.
 func (g *GameState) NextPracticeExercise() bool {
 	if !g.IsPracticeMode {
 		return false
 	}
+	if g.Stats.PracticeComplete(g.CurrentModule) {
+		return false
+	}
 
 	progress := g.Stats.GetModuleProgress(g.CurrentModule)
-	exercise := SelectRandomPracticeExercise(g.CurrentModule, progress)
+	exercise := SelectRandomPracticeExercise(g.CurrentModule, progress, g.rng)
 
 	if exercise == nil {
-		// All exercises mastered - practice complete!
+		// Only reachable for a module with no exercises at all.
 		return false
 	}
 
@@ -317,9 +362,10 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	g.Stats.TotalTime += time.Duration(timeSeconds * float64(time.Second))
 	g.Stats.LastPlayed = g.clockNow()
 
-	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
-	// the single owner of PracticeAttempts/PracticeCorrect and per-exercise
-	// mastery. Counting it here too double-counted every practice submission.
+	// The answer is recorded against its own exercise in every mode, and against
+	// the module's practice counters in practice mode. One owner per counter: the
+	// screens do not record anything themselves.
+	g.recordAnswer(true)
 
 	// Update lesson progress
 	if g.IsLessonMode {
@@ -333,6 +379,26 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	if g.IsBossMode {
 		g.recordBossAttempt()
 	}
+}
+
+// recordAnswer records one answer against the exercise that is on screen: the
+// per-exercise record in every mode, plus the module-level practice counters
+// when the answer was given in practice. It is the single owner of both, so no
+// screen counts a submission and the practice accuracy the boss gate reads
+// cannot be moved by a lesson or a boss step.
+//
+// It is a no-op when there is no current exercise or the exercise carries no ID,
+// which keeps an unnamed fixture from writing a record keyed by the empty string.
+func (g *GameState) recordAnswer(correct bool) {
+	if g.CurrentExercise == nil || g.CurrentExercise.ID == "" {
+		return
+	}
+	progress := g.Stats.GetModuleProgress(g.CurrentModule)
+	if g.IsPracticeMode {
+		progress.RecordPracticeResult(g.CurrentExercise.ID, correct, g.clockNow())
+		return
+	}
+	progress.RecordExerciseResult(g.CurrentExercise.ID, correct, g.clockNow())
 }
 
 // recordBossAttempt counts one boss step answered. ModuleProgress.BossAttempts
@@ -359,8 +425,10 @@ func (g *GameState) RecordIncorrectAnswer() {
 	// answer already covers the seconds spent on this mistake.
 	g.Stats.LastPlayed = g.clockNow()
 
-	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
-	// the single owner of PracticeAttempts/PracticeCorrect.
+	// A wrong answer is an answer: it counts against the exercise that was on
+	// screen in every mode, which is what makes the weakest list and the mastery
+	// state describe real play.
+	g.recordAnswer(false)
 
 	// Boss mode: a lost life is one failed boss step. Re-arming the deadline here,
 	// rather than in each failure path, is what gives the retry a full window

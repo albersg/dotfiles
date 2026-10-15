@@ -194,12 +194,20 @@ func TestTrainerSessionCompleteReportsFailedSave(t *testing.T) {
 		m := failingTrainerSaveModel(t)
 		m.Screen = ScreenTrainerResult
 
-		// Practice ends only once every exercise is mastered, which is what
-		// makes NextPracticeExercise report there is nothing left to present.
+		// Practice ends only when there is nothing left to do: every exercise
+		// mastered AND the boss gate met. Both halves are needed here, or the
+		// session keeps offering review and never reaches the complete branch.
 		progress := m.TrainerStats.GetModuleProgress(trainer.ModuleHorizontal)
-		for _, lesson := range trainer.GetLessons(trainer.ModuleHorizontal) {
+		lessons := trainer.GetLessons(trainer.ModuleHorizontal)
+		progress.LessonsTotal = len(lessons)
+		progress.LessonsCompleted = len(lessons)
+		for _, lesson := range lessons {
 			progress.GetExerciseStats(lesson.ID).Mastered = true
 		}
+		progress.PracticeAttempts = 10
+		progress.PracticeCorrect = 10
+		progress.PracticeAccuracy = 1
+
 		m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
 		m.TrainerGameState.IsPracticeMode = true
 		m.TrainerGameState.CurrentModule = trainer.ModuleHorizontal

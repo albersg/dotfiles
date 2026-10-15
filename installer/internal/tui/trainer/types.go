@@ -272,6 +272,24 @@ func (s *UserStats) IsBossReady(module ModuleID) bool {
 	return progress != nil && progress.PracticeAccuracy >= 0.80 && progress.PracticeAttempts >= 10
 }
 
+// IsPracticeComplete reports whether every exercise of a module is mastered. It
+// reads the recorded progress without creating it, which is what the trainer
+// menu needs: the question is asked on every keypress.
+func (s *UserStats) IsPracticeComplete(module ModuleID) bool {
+	return s.ModuleProgressOrNil(module).IsPracticeComplete(module)
+}
+
+// PracticeComplete reports whether a module has nothing left to practise: every
+// exercise mastered AND the boss gate already met. It is the rule that ends a
+// practice session, and it is deliberately stricter than IsPracticeComplete. A
+// module whose exercises are all mastered but whose boss is still locked keeps
+// offering practice -- review is what lets the player reach the gate -- instead
+// of refusing to start and leaving the boss as the only exit, which was a
+// deadlock.
+func (s *UserStats) PracticeComplete(module ModuleID) bool {
+	return s.IsPracticeComplete(module) && s.IsBossReady(module)
+}
+
 // GetAllModules returns info for all modules in order
 func GetAllModules() []ModuleInfo {
 	return []ModuleInfo{

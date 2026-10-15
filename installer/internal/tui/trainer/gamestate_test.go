@@ -334,38 +334,36 @@ func TestGameState_NextExercise_ComboMaxAt4(t *testing.T) {
 // GAME STATE - Stats Updates
 // =============================================================================
 
+// TestGameState_UpdatePracticeStats pins the ownership the practice counters have
+// now: the recorders that own the answer own the counters, and a practice answer
+// moves each of them exactly once. The screen records nothing, which is what used
+// to double every practice submission when it also called the module recorder.
 func TestGameState_UpdatePracticeStats(t *testing.T) {
 	state := NewGameState()
 	state.StartPractice(ModuleHorizontal)
 
 	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
+	exerciseID := state.CurrentExercise.ID
 
-	// RecordCorrectAnswer/RecordIncorrectAnswer own streaks, score and lesson
-	// progress, not practice accounting. Three answers here must leave the
-	// practice counters untouched.
 	state.RecordCorrectAnswer(3.0, false)
 	state.RecordCorrectAnswer(4.0, true)
 	state.RecordIncorrectAnswer()
 
-	if progress.PracticeAttempts != 0 {
-		t.Errorf("PracticeAttempts should stay 0 when GameState records answers, got %d", progress.PracticeAttempts)
-	}
-	if progress.PracticeCorrect != 0 {
-		t.Errorf("PracticeCorrect should stay 0 when GameState records answers, got %d", progress.PracticeCorrect)
-	}
-
-	// ModuleProgress.RecordPracticeResult is the single owner of the practice
-	// counters, so the same three results land there.
-	exerciseID := state.CurrentExercise.ID
-	progress.RecordPracticeResult(exerciseID, true)
-	progress.RecordPracticeResult(exerciseID, true)
-	progress.RecordPracticeResult(exerciseID, false)
-
 	if progress.PracticeAttempts != 3 {
-		t.Errorf("PracticeAttempts should be 3, got %d", progress.PracticeAttempts)
+		t.Errorf("PracticeAttempts should be 3 after three answers, got %d", progress.PracticeAttempts)
 	}
 	if progress.PracticeCorrect != 2 {
-		t.Errorf("PracticeCorrect should be 2, got %d", progress.PracticeCorrect)
+		t.Errorf("PracticeCorrect should be 2 after two correct answers, got %d", progress.PracticeCorrect)
+	}
+
+	// The exercise's own record moves in the same call: one answer, one owner.
+	recorded := progress.ExerciseStatsOrNil(exerciseID)
+	if recorded == nil {
+		t.Fatal("a practice answer recorded nothing for its own exercise")
+	}
+	if recorded.TotalAttempts != 3 || recorded.TotalCorrect != 2 || recorded.TotalWrong != 1 {
+		t.Errorf("exercise record = %d attempts, %d correct, %d wrong; want 3, 2, 1",
+			recorded.TotalAttempts, recorded.TotalCorrect, recorded.TotalWrong)
 	}
 }
 
@@ -374,18 +372,14 @@ func TestGameState_PracticeAccuracyCalculation(t *testing.T) {
 	state.StartPractice(ModuleHorizontal)
 
 	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
-	exerciseID := state.CurrentExercise.ID
 
-	// 8 correct, 2 incorrect = 80% accuracy. Each submission is the composition
-	// the UI handler runs: GameState records the streak/score side, and
-	// RecordPracticeResult owns the practice counters.
+	// 8 correct, 2 incorrect = 80% accuracy, one submission each. The recorders
+	// own the practice counters, so no second call is made for the same answer.
 	for i := 0; i < 8; i++ {
 		state.RecordCorrectAnswer(3.0, false)
-		progress.RecordPracticeResult(exerciseID, true)
 	}
 	for i := 0; i < 2; i++ {
 		state.RecordIncorrectAnswer()
-		progress.RecordPracticeResult(exerciseID, false)
 	}
 
 	expectedAccuracy := 0.80
@@ -544,22 +538,55 @@ func TestGameState_NextPracticeExercise_ReturnsFalseWhenNotPracticeMode(t *testi
 	}
 }
 
-func TestGameState_NextPracticeExercise_ReturnsFalseWhenAllMastered(t *testing.T) {
+// TestGameState_NextPracticeExercise_ContinuesWhileBossLocked replaces the pin
+// that said an all-mastered module ends practice. Mastery alone is not "nothing
+// left to do": with the boss gate unmet the pool keeps offering review, and
+// ending the session there is the deadlock the player could not escape without
+// erasing their progress.
+func TestGameState_NextPracticeExercise_ContinuesWhileBossLocked(t *testing.T) {
 	state := NewGameState()
+	completeLessons(state.Stats, ModuleHorizontal)
 	state.StartPractice(ModuleHorizontal)
 
-	// Mark all exercises as mastered
+	// Mark all exercises as mastered, with no practice accuracy recorded: the
+	// boss gate is not met.
 	progress := state.Stats.GetModuleProgress(ModuleHorizontal)
-	lessons := GetLessons(ModuleHorizontal)
-	for _, lesson := range lessons {
-		exStats := progress.GetExerciseStats(lesson.ID)
-		exStats.Mastered = true
+	for _, lesson := range GetLessons(ModuleHorizontal) {
+		progress.GetExerciseStats(lesson.ID).Mastered = true
 	}
 
-	hasNext := state.NextPracticeExercise()
+	if state.Stats.IsBossReady(ModuleHorizontal) {
+		t.Fatal("the fixture is wrong: the boss gate should still be locked")
+	}
 
-	if hasNext {
-		t.Error("NextPracticeExercise should return false when all exercises are mastered")
+	if !state.NextPracticeExercise() {
+		t.Error("practice ended with the boss gate still locked, which is the deadlock")
+	}
+}
+
+// TestGameState_NextPracticeExercise_EndsWhenNothingIsLeft pins the other side:
+// once every exercise is mastered and the boss is unlocked there is genuinely
+// nothing left to practise, so the session ends.
+func TestGameState_NextPracticeExercise_EndsWhenNothingIsLeft(t *testing.T) {
+	state := NewGameState()
+	stats := state.Stats
+	completeLessons(stats, ModuleHorizontal)
+
+	progress := stats.GetModuleProgress(ModuleHorizontal)
+	for _, lesson := range GetLessons(ModuleHorizontal) {
+		for i := 0; i < MasteryThreshold; i++ {
+			progress.RecordPracticeResult(lesson.ID, true, time.Now())
+		}
+	}
+
+	state.StartPractice(ModuleHorizontal)
+
+	if !stats.IsBossReady(ModuleHorizontal) {
+		t.Fatalf("the fixture is wrong: accuracy %.2f should clear the boss gate", progress.PracticeAccuracy)
+	}
+
+	if state.NextPracticeExercise() {
+		t.Error("practice continued after everything was mastered and the boss was unlocked")
 	}
 }
 
