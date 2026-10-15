@@ -2820,22 +2820,34 @@ func TestBossTabRevealsTheStepHint(t *testing.T) {
 	}
 }
 
-// TestBossTabRevealsNoLabelWithoutAHint pins the other half on the boss screen:
-// a step with no hint gets no label, exactly like the exercise screen. The
-// horizontal boss steps ship without hints, so that is the screen under test.
-func TestBossTabRevealsNoLabelWithoutAHint(t *testing.T) {
+// TestBossTabRevealsNoNudgeForAOneKeystrokeAnswer replaces the pin that said a
+// hint-less boss step shows nothing at all. That rule made the key dead on all 35
+// shipped steps, so the boss screen now asks trainer.BossStepNudge: the step's hint when
+// it ships one, and otherwise the first keystrokes of its answer. The one case the
+// fallback deliberately stays silent for is an answer of a single keystroke, whose first
+// keystroke is its solution.
+func TestBossTabRevealsNoNudgeForAOneKeystrokeAnswer(t *testing.T) {
 	m := newTrainerBossModel(t)
-	exercise := m.TrainerGameState.CurrentExercise
-	if exercise == nil {
+	step := m.TrainerGameState.CurrentExercise
+	if step == nil {
 		t.Fatal("test setup: no live boss step")
 	}
-	exercise.Hint = ""
+	// A step of its own rather than a mutation of the shipped one: the corpus is what
+	// every other test in this package reads.
+	m.TrainerGameState.CurrentExercise = &trainer.Exercise{
+		ID:        step.ID,
+		Module:    step.Module,
+		Level:     step.Level,
+		Mission:   "Go to the end of the line",
+		Solutions: []string{"$"},
+		Optimal:   "$",
+	}
 	m.TrainerMessage = ""
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	got := next.(Model)
 	if got.TrainerMessage != "" {
-		t.Errorf("TrainerMessage after Tab on a hint-less boss step = %q, want empty", got.TrainerMessage)
+		t.Errorf("TrainerMessage after Tab on a one-keystroke boss step = %q, want empty", got.TrainerMessage)
 	}
 }
 
