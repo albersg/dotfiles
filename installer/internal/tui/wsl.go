@@ -167,30 +167,18 @@ func wslTerminalInteractiveOffer(repoDir, profileDir string) (windowsTerminalOff
 }
 
 // wslTerminalOfferLines is what the installing screen shows before the choice:
-// the file, the two settings a write would set, what happens to the previous
-// file, the values the file holds today when another tool set one, and the keys
-// that answer the offer. describeWindowsTerminalOffer is reused rather than
-// restated, so the screen cannot name a setting or a file the writer does not
-// touch; the current values are added here because the non-interactive notice
-// never had to name what it was about to replace, and an offer that does not
-// name a face already set is how a user loses a setting they chose.
+// every row describeWindowsTerminalOffer builds, plus the one effect of a yes that
+// does not live in settings.json. describeWindowsTerminalOffer is reused rather than
+// restated, so the screen cannot name a setting or a file the writer does not touch.
+// The closing sentence that said which key answers is gone: the installing screen's
+// own hint already reads "[y/n] configure Windows Terminal or leave it unchanged",
+// and the row it spent is one the panel does not have at the tightest terminal.
 func wslTerminalOfferLines(offer windowsTerminalOffer) []string {
 	lines := describeWindowsTerminalOffer(offer)
 	if !offer.Available {
 		return lines
 	}
-	if face, ok := windowsTerminalCurrentFontFace(offer.Original); ok {
-		lines = append(lines, fmt.Sprintf(
-			"It already names the font face %q there; that is the value this installer would replace.", face))
-	}
-	if scheme, ok := windowsTerminalCurrentColorScheme(offer.Original); ok {
-		lines = append(lines, fmt.Sprintf(
-			"It already names the colour scheme %q there.", scheme))
-	}
-	lines = append(lines,
-		"The Nerd Font would also be copied into the Windows per-user font store and registered under HKCU once you choose to configure it.",
-		"Press y to write these settings, or n to leave Windows Terminal exactly as it is.")
-	return lines
+	return append(lines, windowsTerminalOfferFact("also", "Nerd Font registered under HKCU"))
 }
 
 // windowsTerminalCurrentFontFace reads the font face the settings.json already

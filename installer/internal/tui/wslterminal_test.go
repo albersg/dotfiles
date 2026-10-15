@@ -774,6 +774,154 @@ func TestWindowsTerminalSettingsListNamesWhatWrites(t *testing.T) {
 	}
 }
 
+// TestWindowsTerminalOfferBodyIsAChangeTable pins the offer's body as a table of
+// what changes. It used to be a paragraph: three sentences built by
+// describeWindowsTerminalOffer, the values already in the file and the font-store
+// notice appended by wslTerminalOfferLines, and a closing line restating the
+// screen's own hint -- seven rows of prose for one yes/no. Every fact survives;
+// what the table replaces is the sentence form, and this guard is what holds the
+// shape, so the prose cannot come back one clause at a time.
+func TestWindowsTerminalOfferBodyIsAChangeTable(t *testing.T) {
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	installWSLTerminalSettings(t, settingsPath, testWindowsTerminalSettingsWithOtherFace)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
+	if !offer.Available {
+		t.Fatalf("the offer must be available: %s", offer.Reason)
+	}
+
+	lines := wslTerminalOfferLines(offer)
+	body := strings.Join(lines, "\n")
+
+	// Every fact the sentences carried is still on the screen: the file, both
+	// settings, the value each holds today, the backup, the rest of the file, and
+	// the one effect that does not live in settings.json.
+	for _, want := range []string{
+		settingsPath,
+		"settings.json",
+		"font.face",
+		"colorScheme",
+		"CascadiaMonoNF",
+		windowsTerminalFontFace,
+		"OneHalfDark",
+		windowsTerminalSchemeName,
+		">",
+		".bak-dotfiles-",
+		"every other key and comment",
+		"HKCU",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the offer's body does not carry %q:\n%s", want, body)
+		}
+	}
+
+	// The value the file holds is opposed to the one this installer would write, on
+	// the row of the setting it belongs to. That opposition is what replaced the
+	// sentences "It already names the font face ... there".
+	if !strings.Contains(body, "CascadiaMonoNF > "+windowsTerminalFontFace) {
+		t.Errorf("the font row does not oppose the value in the file to the value this installer would write:\n%s", body)
+	}
+	if !strings.Contains(body, "OneHalfDark > "+windowsTerminalSchemeName) {
+		t.Errorf("the colour row does not oppose the value in the file to the value this installer would write:\n%s", body)
+	}
+
+	// The closing sentence spent a row repeating the installing screen's own hint.
+	if strings.Contains(body, "Press y") {
+		t.Errorf("the offer still spends a row on the hint the screen already shows:\n%s", body)
+	}
+
+	// No row is a sentence: not one of them ends in the full stop every one of the
+	// seven sentences it replaces ended in.
+	for _, line := range lines {
+		if strings.HasSuffix(strings.TrimSpace(line), ".") {
+			t.Errorf("the offer's row %q is still a sentence, and the table is the form that replaces it:\n%s", line, body)
+		}
+	}
+
+	// The shared description is the table too, so the notice --non-interactive
+	// prints stops saying what the screen stopped saying.
+	for _, line := range describeWindowsTerminalOffer(offer) {
+		if strings.HasSuffix(strings.TrimSpace(line), ".") || strings.Contains(line, "is reachable at") {
+			t.Errorf("the shared description is still the sentence the table replaces: %q", line)
+		}
+	}
+}
+
+// TestWindowsTerminalOfferRowSaysUnsetRatherThanNothing pins the row of a setting
+// the file does not carry. The prose named a value only when there was one, so a
+// person reading the screen could not tell an absent value from a screen that had
+// run out of rows. The table always answers, and the answer is a fact rather than a
+// guess: an available offer proves the file was read and parsed.
+func TestWindowsTerminalOfferRowSaysUnsetRatherThanNothing(t *testing.T) {
+	profileDir, settingsPath := newWindowsTerminalProfile(t, testWindowsTerminalSettings)
+	offer := readWindowsTerminalOffer(profileDir, testWindowsTerminalThemeDefinition(), windowsTerminalFontFace)
+	if !offer.Available {
+		t.Fatalf("the offer must be available: %s", offer.Reason)
+	}
+	if _, ok := windowsTerminalCurrentFontFace(offer.Original); ok {
+		t.Fatalf("this fixture names a font face, so it cannot pin the absent case: %s", settingsPath)
+	}
+
+	body := strings.Join(wslTerminalOfferLines(offer), "\n")
+	if !strings.Contains(body, "(unset) > "+windowsTerminalFontFace) {
+		t.Errorf("a file that names no font face does not say so, so the screen is silent about the value the choice would replace:\n%s", body)
+	}
+}
+
+// TestWindowsTerminalOfferFitsTheFrameItIsDrawnOn is the width guard the offer
+// never had. The panel is drawn from the rows the installing body has left after
+// the live meters, so at the tightest measured terminal it has room for eight
+// content rows -- and the paragraph needed more: at 60x20 the last sentences,
+// including the value the choice replaces, were cut off with a "…". Nothing
+// rendered this panel at any size, so no test could see it, and the panel is the
+// screen that stands between the run and a write to settings.json.
+func TestWindowsTerminalOfferFitsTheFrameItIsDrawnOn(t *testing.T) {
+	repoDir, _, settingsPath := newWindowsTerminalWSLLayout(t)
+	stubWindowsFontQueryStateful(t, map[string]bool{})
+	installWSLTerminalSettings(t, settingsPath, testWindowsTerminalSettingsWithOtherFace)
+
+	for _, size := range measuredTerminalSizes {
+		size := size
+		t.Run(size.name, func(t *testing.T) {
+			m := driveWSLTerminalOfferToTheScreen(t, mountWSLTerminalStep(t, repoDir))
+			m.Width, m.Height = size.width, size.height
+			view := m.View()
+			assertScreenFitsTerminal(t, "installing screen with the Windows Terminal offer pending", size.width, size.height, view)
+
+			// Fitting inside the frame is not the whole rule: the panel is where the
+			// choice is made, so every fact the choice turns on has to be readable in it,
+			// not merely narrower than the terminal. Two views are read, because a long
+			// settings path is wrapped rather than clipped: the file name can sit either
+			// side of a wrap, and the newline, border and padding the panel inserts are
+			// not the user's text. Facts that carry a space are read from the first view,
+			// where the spaces still stand.
+			noNewlines := strings.ReplaceAll(view, "\n", "")
+			wrapped := strings.NewReplacer("\n", "", "│", "", " ", "").Replace(view)
+			for _, want := range []string{
+				"settings.json",
+				"font.face",
+				"colorScheme",
+				"CascadiaMonoNF",
+				"OneHalfDark",
+				windowsTerminalSchemeName,
+				".bak-dotfiles-",
+				"HKCU",
+			} {
+				if !strings.Contains(wrapped, want) {
+					t.Errorf("at %s the offer does not show %q, so the user answers a question whose terms fell out of the panel:\n%s", size.name, want, view)
+				}
+			}
+			for _, want := range []string{
+				windowsTerminalFontFace,
+				"configure Windows Terminal or leave it unchanged",
+			} {
+				if !strings.Contains(noNewlines, want) {
+					t.Errorf("at %s the offer does not show %q, so the user answers a question whose terms fell out of the panel:\n%s", size.name, want, view)
+				}
+			}
+		})
+	}
+}
+
 // TestWindowsTerminalOfferDescribesWhatWouldChange pins the offer's body: it
 // names the file, the font face and the scheme before the user chooses.
 func TestWindowsTerminalOfferDescribesWhatWouldChange(t *testing.T) {
@@ -1214,7 +1362,10 @@ func driveWSLTerminalOfferToTheScreen(t *testing.T, m Model) Model {
 // must draw it, naming the file, the settings and the value already there. Before
 // this wiring the offer functions were reached only by --non-interactive (or, the
 // release before, only by a test), so a user who installed through the TUI never
-// saw the offer at all.
+// saw the offer at all. The screen states those three things as rows now -- the
+// file, then one row per setting with the value the file holds beside the value a
+// write would set -- so this reads the rows the screen draws rather than the
+// sentences that used to carry them.
 func TestInteractiveWSLStepShowsTheOfferOnTheInstallingScreen(t *testing.T) {
 	repoDir, _, settingsPath := newWindowsTerminalWSLLayout(t)
 	stubWindowsFontQueryStateful(t, map[string]bool{})
@@ -1223,17 +1374,26 @@ func TestInteractiveWSLStepShowsTheOfferOnTheInstallingScreen(t *testing.T) {
 	m := driveWSLTerminalOfferToTheScreen(t, mountWSLTerminalStep(t, repoDir))
 
 	// The screen shows the offer, and the screen is what a person reads: the
-	// assertion is on the rendered frame, not only on the model field.
+	// assertion is on the rendered frame, not only on the model field. The rows are
+	// read as a person reads them, with the panel's own newline, border and padding
+	// taken out: a settings path too long for the panel is wrapped rather than
+	// clipped, so the file name can sit either side of a wrap and still be on the
+	// screen. Facts carrying a space are read from the view where the spaces stand.
 	view := strings.ReplaceAll(m.View(), "\n", "")
+	wrapped := strings.NewReplacer("\n", "", "│", "", " ", "").Replace(m.View())
 	for _, want := range []string{
-		"Windows Terminal's settings.json is reachable at",
+		"settings.json",
+		"font.face",
+		"colorScheme",
 		"CascadiaMonoNF",
 		"OneHalfDark",
-		"configure Windows Terminal or leave it unchanged",
 	} {
-		if !strings.Contains(view, want) {
+		if !strings.Contains(wrapped, want) {
 			t.Errorf("the installing screen does not show %q, so a write could happen without the user reading what it replaces:\n%s", want, m.View())
 		}
+	}
+	if hint := "configure Windows Terminal or leave it unchanged"; !strings.Contains(view, hint) {
+		t.Errorf("the installing screen does not show the hint that answers the offer (%q):\n%s", hint, m.View())
 	}
 	if !strings.Contains(strings.Join(m.WSLTerminalOfferLines, "\n"), settingsPath) {
 		t.Errorf("the offer must name the settings.json it would change, got:\n%s", strings.Join(m.WSLTerminalOfferLines, "\n"))
