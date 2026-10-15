@@ -69,15 +69,17 @@ Trainer estilo **keybr.com para Vim** con progresión RPG:
     ▼
 🎯 PRÁCTICA (Grinding)
     │
-    │  Ejercicios aleatorios del módulo
+    │  Ejercicios aleatorios del módulo, sesgados al siguiente nivel a aprender
     │  Con timer, scoring, streaks
-    │  80% accuracy para desbloquear jefe
+    │  80% de los últimos 20 intentos (y al menos 10 intentos) para desbloquear jefe
+    │  Lo dominado vuelve a los 12 h para repaso
     │
     ▼
 👹 JEFE FINAL (Boss Fight)
     │
     │  Ejercicio épico que combina TODO del módulo
-    │  Timer ajustado, múltiples pasos, 3 vidas
+    │  Timer calibrado a la forma del paso, múltiples pasos, 3 vidas
+    │  La pelea mide su propio tiempo y guarda el mejor
     │  Derrotarlo desbloquea siguiente sección
     │
     ▼
@@ -459,10 +461,28 @@ verificar.
 | Mecánica | Descripción |
 |----------|-------------|
 | ❤️ Vidas | 3 errores y perdés (retry desde el inicio) |
-| ⏱️ Timer | Más ajustado que práctica normal |
+| ⏱️ Timer | El mínimo que la forma del paso necesita (ver abajo), no un número elegido a mano |
 | Cadena | 5 pasos seguidos, todo conectado |
-| Combo | Respuestas rápidas dan bonus (x2, x3, x4) |
-| HP | Barra visual que se reduce con cada acierto |
+| Combo | Respuestas correctas seguidas suben el multiplicador (x2, x3, x4) en los tres modos, y el header lo muestra |
+| Tiempo | La pelea mide su duración y la pantalla de resultado muestra la pelea y el mejor del módulo |
+
+#### El reloj del jefe es una regla, no un número
+
+`BossStepRecommendedSeconds` (`bossclock.go`) es el único dueño de "cuánto tiempo
+necesita este paso":
+
+```text
+4 s de base  +  misión / 20 caracteres por segundo  +  1 s por carácter de la respuesta
+```
+
+con tope de 90 s. El `TimeLimit` de cada paso tiene que ser al menos ese valor:
+el mismo tipo de paso recibía 5 s en un módulo y 30 s en otro, y un paso con una
+misión de 254 caracteres tenía 15 s para leerla y contestar. Una pelea que se
+pierde por el reloj y no por el jugador es lo contrario de lo que un jefe busca.
+`BonusTime` —los segundos extra que un paso ganado le regala al siguiente— vive
+entre 15 y 60 s: una pelea que no da nada hace que ganar no valga nada, y una que
+da minutos vuelve decorativo su reloj. Los tres valores los vigila
+`corpus_contract_test.go` sobre el contenido real.
 
 ---
 
@@ -474,7 +494,7 @@ verificar.
 type Exercise struct {
     ID             string       // "horizontal_001"
     Module         ModuleID     // "horizontal", "vertical", "textobjects", ...
-    Level          int          // 1-10
+    Level          int          // 1-10, y es lo que el ejercicio paga (ver abajo)
     Type           ExerciseType // lesson, practice, boss
     Code           []string     // Líneas de código a mostrar
     CursorPos      Position     // Dónde está el cursor inicialmente
@@ -484,7 +504,7 @@ type Exercise struct {
     Hint           string       // Pista que aparece después del timeout
     Explanation    string       // Explicación post-respuesta
     TimeoutSecs    int          // Segundos antes de mostrar la solución
-    Points         int          // Puntos base por completar
+    Points         int          // Puntos base por completar (piso: ver PointsForLevel)
     BufferVerified bool         // Opta al juez de buffer (ver "Cómo se juzga un ejercicio")
 }
 
@@ -500,6 +520,22 @@ juez que lo comprueba). `Solutions` es la lista de respuestas aceptadas y
 funciona como verdad de referencia: una respuesta listada se acepta aunque el
 motor no pueda reproducirla todavía. `Optimal` es la que el motor debe poder
 ejecutar y la que se muestra al jugador.
+
+#### El nivel es un contrato
+
+`Level` va de 1 a 10 y lo vigila `TestCorpusLevelsAreInRange` sobre todo el
+corpus. No es un comentario: es lo que paga un acierto. `PointsForLevel` da
+`10 + 5 * (nivel - 1)`, o sea de 10 a 55 puntos, y `ExercisePoints` devuelve el
+mayor entre ese valor y el `Points` escrito a mano, así que una recompensa
+autoral sobrevive y un ejercicio difícil nunca puede pagar menos que uno fácil.
+Antes de esta regla `Points` era el único dueño del puntaje y se estancaba: un
+ejercicio de nivel 6 pagaba exactamente lo mismo que uno de nivel 3.
+
+El nivel también sesga la práctica. `MasteredLevelFloor` es el nivel más alto del
+módulo que está completo, y el pozo suma `PracticeFrontierWeight` a los
+ejercicios un nivel por encima de ese piso, `PracticeBeyondFrontierWeight` a los
+más lejanos, y nada a los que ya quedaron atrás: la práctica es una progresión y
+no una lotería.
 
 #### Qué enuncia la misión y qué agrega la pista
 
@@ -527,12 +563,17 @@ etiqueta y devuelve cadena vacía cuando no hay pista, así que una pista ausent
 no dibuja ninguna etiqueta. La misma función sirve a las pantallas de lección,
 práctica y jefe, y a la revelación automática tras `TimeoutSecs`.
 
-La tecla Tab revela la pista en la pantalla de jefe con los mismos términos que
-en la de ejercicio: la misma etiqueta y la misma comprobación de pista vacía. Las
-pistas de los pasos de jefe (por ejemplo las del jefe de Change & Repeat) dejan de
-ser texto inalcanzable; la revelación automática por `TimeoutSecs` sigue siendo
-solo de los ejercicios, porque el reloj del jefe cuesta una vida y es otro
-mecanismo.
+La tecla Tab revela la pista en la pantalla de jefe con la misma etiqueta que en
+la de ejercicio, pero a través de `trainer.BossStepNudge`: la pista del paso
+cuando existe, y si no los primeros caracteres de su respuesta. El respaldo
+existe porque Tab estaba muerta en los 35 pasos de jefe que no traían pista, y
+nunca imprime la respuesta completa: una respuesta de dos teclas muestra la
+primera, y una de una sola tecla no muestra nada, porque su primera tecla es su
+solución. Los 35 pasos traen pista escrita —`TestCorpusBossStepsCarryAHint` lo
+exige y `TestCorpusHintsDoNotQuoteTheAnswer` impide que una pista cite su propia
+respuesta—, así que el respaldo es la regla para el contenido que venga. La
+revelación automática por `TimeoutSecs` sigue siendo solo de los ejercicios,
+porque el reloj del jefe cuesta una vida y es otro mecanismo.
 
 `TestShippedHintsAddWhatTheirMissionDoesNot` (en `exercises_test.go`) recorre
 todo el corpus y exige una de esas adiciones en cada pista; `hintEchoRewrites`
@@ -548,12 +589,12 @@ type BossExercise struct {
     Name        string       // "The Line Walker"
     Lives       int          // 3
     Steps       []BossStep   // Cadena de misiones
-    BonusTime   int          // Tiempo total para bonus points
+    BonusTime   int          // Segundos extra para el paso que sigue a uno ganado (15-60)
 }
 
 type BossStep struct {
     Exercise    Exercise
-    TimeLimit   int          // Segundos para este paso específico
+    TimeLimit   int          // Segundos para este paso: >= BossStepRecommendedSeconds
 }
 ```
 
@@ -576,9 +617,10 @@ type ModuleProgress struct {
     LessonsTotal      int
     
     // Práctica  
-    PracticeAccuracy  float64  // 0.0 - 1.0
+    PracticeAccuracy  float64  // 0.0 - 1.0, sobre toda la historia
     PracticeAttempts  int
     PracticeCorrect   int
+    RecentResults     []bool   // Últimos BossGateWindow (20) aciertos: es lo que lee la puerta del jefe
     
     // Boss
     BossDefeated      bool
@@ -588,6 +630,11 @@ type ModuleProgress struct {
     // Spaced Repetition
     WeakExercises     []string  // IDs de ejercicios que más falla
     LastPracticed     time.Time
+
+    // Por ejercicio (ModuleProgress.ExerciseStats): Mastered, LastAttempted y los
+    // contadores. ExerciseStats.IsReviewDue compara LastAttempted con
+    // MasteryReviewInterval (12 h): lo dominado vuelve a la ronda de repaso en vez
+    // de quedarse fuera para siempre.
 }
 ```
 
@@ -595,8 +642,28 @@ type ModuleProgress struct {
 
 Guardar en `~/.config/dotfiles-trainer/stats.json`
 
+Tres reglas de `stats.go`, cada una con su test (`stats_atomic_test.go`):
+
+- **Escritura atómica.** `SaveStats` serializa primero, escribe en un archivo
+temporal creado en el mismo directorio del destino —un rename entre sistemas de
+archivos es una copia, y por eso la ubicación importa— y lo renombra sobre el
+perfil. Un corte a mitad de escritura no puede dejar un perfil truncado donde
+había uno legible, y toda ruta de fallo borra su propio temporal.
+- **Versión de esquema.** El JSON lleva `schemaVersion` (`StatsSchemaVersion`). Un
+perfil escrito antes de que el campo existiera carga igual (versión 0 es este
+formato), y uno escrito por un entrenador más nuevo se preserva en vez de
+rebajarse: esta build no ve los campos que no conoce y volver a guardarlo los
+borraría.
+- **Nada se pierde en silencio.** `LoadStatsReport` distingue el caso normal (no
+hay perfil todavía: es la primera partida, no se reporta nada) de un perfil que
+no se puede parsear. En ese caso renombra el archivo a un hermano
+`stats.json.corrupt-<epoch>` o `stats.json.newer-<epoch>` y devuelve una frase que
+nombra dónde quedó; `startTrainer` la muestra como mensaje del entrenador.
+`LoadStats` sigue existiendo como envoltorio para quien solo describe un panel.
+
 ```json
 {
+  "schemaVersion": 1,
   "totalScore": 2340,
   "currentStreak": 7,
   "bestStreak": 23,
@@ -610,6 +677,7 @@ Guardar en `~/.config/dotfiles-trainer/stats.json`
       "practiceAccuracy": 0.85,
       "practiceAttempts": 47,
       "practiceCorrect": 40,
+      "recentResults": [true, true, false, true],
       "bossDefeated": true,
       "bossBestTimeSeconds": 28,
       "bossAttempts": 3,

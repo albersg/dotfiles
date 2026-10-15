@@ -282,3 +282,18 @@ of being overwritten by the next save. A test pins each of the three.
   thin wrapper for the callers that only describe a panel.
   One assertion in the new suite was wrong and was fixed rather than the behaviour: preserving
   *moves* the file, so the newer-schema case leaves one entry, not two.
+
+- **T8 (docs).** `docs/vim-trainer-spec.md` updated where the rules changed: the progression diagram
+  (the recent-window gate, the 12 h review, the fight's own time), a new "el reloj del jefe es una
+  regla" section with the clock formula and the bonus-time range, a new "el nivel es un contrato"
+  section (PointsForLevel, ExercisePoints, the frontier), the `Level`/`Points`/`BonusTime`/`TimeLimit`
+  comments in the data structures, the boss `Tab` nudge (with why the fallback exists and why it never
+  prints a whole answer), and the three profile rules (atomic write, schema version, nothing lost in
+  silence) plus `schemaVersion`/`recentResults` in the sample JSON.
+  `skills/dotfiles-trainer/SKILL.md` gained the two corpus rules on `Level` and `Hint`, the real
+  progression rules (gate window, review interval, `PracticeComplete`, the combo in every mode), the
+  boss-step requirements (hint, level, fair `TimeLimit`, `BonusTime` in range) and two exercise-design
+  rules (a hint that teaches, no spoilers).
+  `docs/tui-installer.md` gained the companion's state machine section: the possession as a state
+  rather than an overlay, the ember eyes at every rung including the one-row one, the rage escalation
+  on the last life, and the two helpers the eye-invariant test now asks.
