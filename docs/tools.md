@@ -2,6 +2,10 @@
 
 Detailed overview of all tools configured by dotfiles.
 
+Most of these tools also have a page in the installer's **Learn About Tools** hub, which is the same
+content in the interface. The shell tooling table below is copied there row for row, and a test
+fails by name when this document and that page disagree.
+
 ## Terminal Emulators
 
 | Tool | Description |

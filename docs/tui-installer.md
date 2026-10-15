@@ -11,6 +11,7 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - [Command Line Interface](#command-line-interface)
 - [Backup & Restore](#backup--restore)
 - [Learn Mode](#learn-mode)
+- [Keymaps Reference](#keymaps-reference)
 - [Requirements](#requirements)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -24,8 +25,11 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
   cannot drift from the keys the screen accepts
 - **Smart Detection**: Automatically detects your OS, existing configs, and installed tools
 - **Backup & Restore**: Safely backup existing configurations before installation
-- **Educational Content**: Learn about each tool before choosing (terminals, shells, multiplexers)
-- **Neovim Keymaps Reference**: Built-in keymap browser organized by category
+- **Educational Content**: A **Learn About Tools** hub that reaches a page for every tool a run
+touches: the terminals, shells and multiplexers a run chooses, Neovim, the font, the prompts, the
+shell tooling, the plugin sets and the `Brewfile`'s directives
+- **Keymaps Reference**: Built-in keymap browser organized by category, for every tool whose
+configuration declares bindings; the two that declare none say so and list what they set instead
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
 - **Utilities**: The small jobs that are not part of an installation, starting with a
@@ -83,8 +87,9 @@ go build -o dotfiles ./cmd/dotfiles
 From the main menu you can access:
 
 - **Start Installation**: Begin the guided setup process
-- **Learn About Tools**: Explore terminals, shells, and multiplexers
-- **Neovim Keymaps**: Browse all configured keybindings
+- **Learn About Tools**: Opens the hub: terminals, shells, multiplexers, Neovim, the font, the
+  prompts, the shell tooling, the plugin sets and the machine toolset
+- **Keymaps Reference**: Browse the bindings each tool ships, organized by category
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
 - **Update this installer**: Appears whenever the check has something to report: a newer
@@ -1470,7 +1475,9 @@ Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongs
 
 ## Learn Mode
 
-The installer includes educational content to help you understand each tool:
+**Learn About Tools** on the main menu opens a hub; Escape returns to whatever opened it. Every row
+in the hub is a page about one part of a run, and the four screens that used to be reachable only
+from inside the wizard are reachable from here too.
 
 ### Terminals
 
@@ -1501,7 +1508,72 @@ The installer includes educational content to help you understand each tool:
 
 - LazyVim configuration
 - LSP setup
-- AI assistants (OpenCode, Claude, Copilot, etc.)
+- The assistant the configuration enables: `pi`, on `<leader>a`, which opens its floating chat. The
+  conventional assistant plugins (Claude Code, OpenCode, Avante, CopilotChat, `copilot.lua`,
+  CodeCompanion, Antigravity) ship disabled, and the page says so rather than naming bindings for
+  plugins that are not loaded. See [AI Configuration](ai-configuration.md)
+
+### Font
+
+MesloLGS Nerd Font, the Nerd Font patch of Meslo. Every shipped terminal configuration names that
+family, which is why the page is about the icons, box-drawing and prompt glyphs: without it a
+terminal draws a box where a glyph belongs. On Linux the release archive is extracted into
+`~/.local/share/fonts` and the cache is refreshed, so no root is needed; a machine where fontconfig
+already resolves the family skips the download; and Termux needs no fontconfig at all, because the
+same face is written as one file into `~/.termux`, the slot its terminal reads.
+
+### Prompts
+
+| Shell | Prompt |
+|-------|--------|
+| Fish | Starship |
+| Nushell | Starship |
+| Zsh | Powerlevel10k |
+
+### Shell tooling
+
+The tools the shell step installs beside the shell, and what the shipped configuration uses each one
+for: `eza`, `bat`, `ripgrep`, `fd`, `fzf`, `fnm`, `direnv`, `jq`, `gh`, `git-delta`, `xh`,
+`trippy`, `btop`, `zoxide`, `atuin` and `carapace`. The page is a copy of the table
+[tools.md](tools.md) keeps, and a test fails by name when the two disagree.
+
+### Plugins
+
+| Tool | Manager |
+|------|---------|
+| Tmux | TPM |
+| Fish | Fisher |
+| Zsh | the plugin packages the `.zshrc` sources |
+| Neovim | lazy.nvim |
+| Herdr | `herdr plugin install` |
+
+### Machine toolset
+
+| Directive | What the run does |
+|-----------|-------------------|
+| `brew`, `tap`, `go`, `npm`, `uv` | Installed: the toolset step filters the checkout's `Brewfile` and hands it to `brew bundle` |
+| `cask`, `mas` | Installed when the file carries one: the exclusion is a denylist, not an allowlist |
+| `vscode`, `winget` | Dropped, and the step logs how many lines of each it dropped |
+
+## Keymaps Reference
+
+**Keymaps Reference** is its own main-menu row. It offers one row per tool, each tool's tables are
+grouped by category, `↑`/`↓` (or `k`/`j`) scroll a table and `Esc` goes back one level.
+
+| Tool | What its tables hold |
+|------|----------------------|
+| Neovim | The LazyVim keymaps, by category |
+| Tmux | The bindings `dotfiles-tmux/tmux.conf` declares |
+| Zellij | The bindings `dotfiles-zellij/zellij/config.kdl` declares |
+| Herdr | The `[keys]` table of `dotfiles-herdr/config.toml`, whose mouse-first interface needs few keys |
+| Ghostty | The bindings `dotfiles-ghostty/config` declares |
+| Kitty | The eleven `map` lines `dotfiles-kitty/kitty.conf` declares |
+| WezTerm | No bindings: `.wezterm.lua` assigns no `config.keys`, so the page lists the settings it does set |
+| Alacritty | No bindings: `alacritty.toml` has no `[keyboard]` section, so the page lists the settings it does set |
+
+Each table is held to the file it copies by a test: Kitty's `map` lines are compared with the table
+in both directions, and the WezTerm and Alacritty pages fail when their configuration declares a
+binding or when a row names a setting the file does not carry.
 
 ## Requirements
 
