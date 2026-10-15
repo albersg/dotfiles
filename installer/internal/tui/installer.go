@@ -2896,12 +2896,32 @@ func renderFishConfig(def themeDefinition) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	palette, err := themeShellPaletteFor(def)
+	if err != nil {
+		return "", err
+	}
 
-	return fmt.Sprintf(`%s
-# The fish palette. Generated from themes/%s.toml; edit the definition, not this
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n", themeBox("#", "DOTFILES THEME"))
+	fmt.Fprintf(&b, `# The fish palette. Generated from themes/%s.toml; edit the definition, not this
 # block. These are global variables, so they also win over a universal colour the
 # user chose once through fish_config; the switch never writes the user's own
 # state in fish_variables.
+`, def.ID)
+	// The SGR form only: the two listing tables are what read it here, while the
+	// shell's own roles below take the hex form the tool's variables hold.
+	for _, role := range themeShellRoles {
+		fmt.Fprintf(&b, "set -g PALETTE_%s_SGR \"%s\"\n", role.Name, palette.SGR[role.Name])
+	}
+	fmt.Fprintf(&b, "set -g PALETTE_SURFACE_BG_SGR \"%s\"\n", palette.SurfaceBgSGR)
+	b.WriteString("# The two listing tables, from the same mapping the zsh block reads: fish's\n")
+	b.WriteString("# spelling of a reference and of an export is the only difference, so a file\n")
+	b.WriteString("# keeps the colour the other shell gives it and a switch moves both listings.\n")
+	b.WriteString(themeListingTableForShell(zshLsColorsBlock, "fish"))
+	b.WriteString(themeListingTableForShell(zshEzaColorsBlock, "fish"))
+	fmt.Fprintf(&b, `
+
+# The shell's own roles: the prompt, strings, errors, and the completion pager.
 set -g fish_color_normal %s
 set -g fish_color_command %s
 set -g fish_color_keyword %s
@@ -2922,13 +2942,13 @@ set -g fish_pager_color_progress %s
 set -g fish_pager_color_prefix %s
 set -g fish_pager_color_completion %s
 set -g fish_pager_color_description %s`,
-		themeBox("#", "DOTFILES THEME"),
-		def.ID,
 		roles["normal"], roles["command"], roles["keyword"], roles["quote"],
 		roles["redirection"], roles["end"], roles["error"], roles["param"],
 		roles["comment"], roles["selection"], roles["search_match"], roles["operator"],
 		roles["escape"], roles["autosuggestion"], roles["pager_progress"], roles["pager_prefix"],
-		roles["pager_completion"], roles["pager_description"]), nil
+		roles["pager_completion"], roles["pager_description"])
+
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // renderTmuxTheme renders tmux's own style options from the canonical palette.
@@ -3444,24 +3464,11 @@ func themeSGR(hex string, background bool) (string, error) {
 // a theme switch moves them all. No hand-written value outside the palette was
 // found, which is why the region is reproducible in full.
 func renderZshTheme(def themeDefinition) (string, error) {
-	values := map[string]string{}
-	sgrs := map[string]string{}
-	for _, role := range themeShellRoles {
-		hex := def.Palette[role.Role]
-		if hex == "" {
-			return "", fmt.Errorf("theme %q defines no %q, so its zsh palette cannot be generated", def.ID, role.Role)
-		}
-		sgr, err := themeSGR(hex, false)
-		if err != nil {
-			return "", err
-		}
-		values[role.Name] = hex
-		sgrs[role.Name] = sgr
-	}
-	surfaceBg, err := themeSGR(values["SURFACE"], true)
+	palette, err := themeShellPaletteFor(def)
 	if err != nil {
 		return "", err
 	}
+	values, sgrs, surfaceBg := palette.Hex, palette.SGR, palette.SurfaceBgSGR
 
 	var b strings.Builder
 	b.WriteString("# ─── Palette ─────────────────────────────────────────────────────────────────\n")
@@ -3568,17 +3575,76 @@ ga=${PALETTE_GREEN_SGR}:gm=${PALETTE_YELLOW_SGR}:gd=${PALETTE_RED_SGR}:gv=${PALE
 gt=${PALETTE_YELLOW_SGR}:gi=${PALETTE_MUTED_SGR}:gc=${PALETTE_RED_SGR};1:\
 Gm=${PALETTE_BLUE_SGR};1:Go=${PALETTE_CYAN_SGR}:Gc=${PALETTE_GREEN_SGR}:Gd=${PALETTE_YELLOW_SGR}"`
 
+// themeListingTableForShell renders one of the two listing tables above for a shell.
+// The tables are structure: which extension or key takes which role is settled once,
+// and every value in them is a PALETTE_*_SGR variable. What the shells disagree about
+// is only how a variable is spoken -- zsh writes a braced reference and exports with
+// `export`, fish writes a bare one and exports with `set -gx` -- so the mapping is
+// translated rather than restated, and a key added to either table reaches both
+// shells.
+//
+// Measured with fish on this machine: a `$VAR` reference expands inside a
+// double-quoted value, a backslash at the end of a line continues that value without
+// keeping the newline, and `set -gx` exports the result, so eza reads LS_COLORS out of
+// the environment exactly as it does under zsh. The space before the quote is not
+// cosmetic: fish's `set` refuses a joined NAME=value with "invalid variable name", so
+// the value has to be an argument of its own.
+var (
+	themeZshExportLine     = regexp.MustCompile(`(?m)^export ([A-Z_]+)="`)
+	themeZshVariableInText = regexp.MustCompile(`\$\{([A-Z0-9_]+)\}`)
+)
+
+func themeListingTableForShell(table, shell string) string {
+	if shell != "fish" {
+		return table
+	}
+	exported := themeZshExportLine.ReplaceAllString(table, `set -gx $1 "`)
+	return themeZshVariableInText.ReplaceAllString(exported, `$$$1`)
+}
+
+// themeShellPalette is the palette every renderer that spills colour into a shell
+// configuration reads: the ten roles the prompts, the listings and the line editors
+// share, in the two forms those consumers disagree about (hex for a prompt, an SGR
+// sequence for LS_COLORS and EZA_COLORS), plus the one background sequence LS_COLORS
+// needs to mark a mode bit without hiding the name under it.
+type themeShellPalette struct {
+	Hex          map[string]string
+	SGR          map[string]string
+	SurfaceBgSGR string
+}
+
+// themeShellPaletteFor computes that palette once, from the theme's own definition.
+// Every shell renderer reads this, which is what stops the two forms -- and the two
+// shells -- from drifting apart: one list of roles, one value each.
+func themeShellPaletteFor(def themeDefinition) (themeShellPalette, error) {
+	palette := themeShellPalette{Hex: map[string]string{}, SGR: map[string]string{}}
+	for _, role := range themeShellRoles {
+		hex := def.Palette[role.Role]
+		if hex == "" {
+			return themeShellPalette{}, fmt.Errorf("theme %q defines no %q, so its palette cannot be rendered for the shells that read it", def.ID, role.Role)
+		}
+		sgr, err := themeSGR(hex, false)
+		if err != nil {
+			return themeShellPalette{}, err
+		}
+		palette.Hex[role.Name] = hex
+		palette.SGR[role.Name] = sgr
+	}
+	background, err := themeSGR(palette.Hex["SURFACE"], true)
+	if err != nil {
+		return themeShellPalette{}, err
+	}
+	palette.SurfaceBgSGR = background
+	return palette, nil
+}
+
 // renderP10kTheme renders the p10k prompt's palette fallbacks. They are the same
 // ten roles the zsh line editor reads, written as ${VAR:-default} so the prompt
 // still works when .p10k.zsh is sourced on its own.
 func renderP10kTheme(def themeDefinition) (string, error) {
-	values := map[string]string{}
-	for _, role := range themeShellRoles {
-		hex := def.Palette[role.Role]
-		if hex == "" {
-			return "", fmt.Errorf("theme %q defines no %q, so its p10k palette cannot be generated", def.ID, role.Role)
-		}
-		values[role.Name] = hex
+	palette, err := themeShellPaletteFor(def)
+	if err != nil {
+		return "", err
 	}
 
 	var b strings.Builder
@@ -3595,7 +3661,7 @@ func renderP10kTheme(def themeDefinition) (string, error) {
 	b.WriteString("  # red #c34043, green #76946a, blue #7e9cd8) while the terminal emulators\n")
 	b.WriteString("  # defined different values, so the prompt and the terminal disagreed.\n")
 	for _, role := range themeShellRoles {
-		fmt.Fprintf(&b, "  typeset -g PALETTE_%s=\"%s\"\n", role.Name, values[role.Name])
+		fmt.Fprintf(&b, "  typeset -g PALETTE_%s=\"%s\"\n", role.Name, palette.Hex[role.Name])
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }

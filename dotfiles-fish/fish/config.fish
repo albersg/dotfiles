@@ -126,6 +126,74 @@ alias fzfnvim='nvim (fzf --preview="bat --theme=gruvbox-dark --color=always {}")
 # block. These are global variables, so they also win over a universal colour the
 # user chose once through fish_config; the switch never writes the user's own
 # state in fish_variables.
+set -g PALETTE_BASE_SGR "38;2;6;8;15"
+set -g PALETTE_SURFACE_SGR "38;2;38;51;86"
+set -g PALETTE_TEXT_SGR "38;2;243;246;249"
+set -g PALETTE_MUTED_SGR "38;2;138;143;163"
+set -g PALETTE_RED_SGR "38;2;203;124;148"
+set -g PALETTE_GREEN_SGR "38;2;183;204;133"
+set -g PALETTE_YELLOW_SGR "38;2;255;224;102"
+set -g PALETTE_BLUE_SGR "38;2;127;180;202"
+set -g PALETTE_MAGENTA_SGR "38;2;255;141;215"
+set -g PALETTE_CYAN_SGR "38;2;122;168;159"
+set -g PALETTE_SURFACE_BG_SGR "48;2;38;51;86"
+# The two listing tables, from the same mapping the zsh block reads: fish's
+# spelling of a reference and of an export is the only difference, so a file
+# keeps the colour the other shell gives it and a switch moves both listings.
+
+# --- File listings: GNU ls reads LS_COLORS, eza reads it as its base layer ----
+set -gx LS_COLORS "rs=0:\
+di=$PALETTE_BLUE_SGR:\
+ln=$PALETTE_CYAN_SGR:\
+mh=$PALETTE_MUTED_SGR:\
+pi=$PALETTE_YELLOW_SGR:so=$PALETTE_YELLOW_SGR:do=$PALETTE_YELLOW_SGR:\
+bd=$PALETTE_MAGENTA_SGR:cd=$PALETTE_MAGENTA_SGR:\
+or=$PALETTE_RED_SGR;1:mi=$PALETTE_RED_SGR;1:ca=$PALETTE_RED_SGR:\
+su=$PALETTE_RED_SGR;$PALETTE_SURFACE_BG_SGR:sg=$PALETTE_RED_SGR;$PALETTE_SURFACE_BG_SGR:\
+tw=$PALETTE_GREEN_SGR;$PALETTE_SURFACE_BG_SGR:ow=$PALETTE_GREEN_SGR;$PALETTE_SURFACE_BG_SGR:\
+st=$PALETTE_BLUE_SGR;$PALETTE_SURFACE_BG_SGR:\
+ex=$PALETTE_GREEN_SGR:\
+*.tar=$PALETTE_RED_SGR:*.tgz=$PALETTE_RED_SGR:*.tbz2=$PALETTE_RED_SGR:*.txz=$PALETTE_RED_SGR:*.zst=$PALETTE_RED_SGR:\
+*.zip=$PALETTE_RED_SGR:*.7z=$PALETTE_RED_SGR:*.rar=$PALETTE_RED_SGR:\
+*.gz=$PALETTE_RED_SGR:*.bz2=$PALETTE_RED_SGR:*.xz=$PALETTE_RED_SGR:\
+*.png=$PALETTE_MAGENTA_SGR:*.jpg=$PALETTE_MAGENTA_SGR:*.jpeg=$PALETTE_MAGENTA_SGR:*.gif=$PALETTE_MAGENTA_SGR:*.webp=$PALETTE_MAGENTA_SGR:*.svg=$PALETTE_MAGENTA_SGR:*.ico=$PALETTE_MAGENTA_SGR:\
+*.mp4=$PALETTE_MAGENTA_SGR:*.mkv=$PALETTE_MAGENTA_SGR:*.mov=$PALETTE_MAGENTA_SGR:*.webm=$PALETTE_MAGENTA_SGR:\
+*.mp3=$PALETTE_CYAN_SGR:*.flac=$PALETTE_CYAN_SGR:*.wav=$PALETTE_CYAN_SGR:*.ogg=$PALETTE_CYAN_SGR:*.m4a=$PALETTE_CYAN_SGR:\
+*.pdf=$PALETTE_YELLOW_SGR:*.md=$PALETTE_YELLOW_SGR:*.txt=$PALETTE_YELLOW_SGR:*.rst=$PALETTE_YELLOW_SGR:\
+*.sh=$PALETTE_GREEN_SGR:*.bash=$PALETTE_GREEN_SGR:*.zsh=$PALETTE_GREEN_SGR:*.fish=$PALETTE_GREEN_SGR:\
+*.py=$PALETTE_GREEN_SGR:*.go=$PALETTE_GREEN_SGR:*.rs=$PALETTE_GREEN_SGR:*.js=$PALETTE_GREEN_SGR:*.ts=$PALETTE_GREEN_SGR:\
+*.json=$PALETTE_GREEN_SGR:*.yaml=$PALETTE_GREEN_SGR:*.yml=$PALETTE_GREEN_SGR:*.toml=$PALETTE_GREEN_SGR:\
+*.db=$PALETTE_BLUE_SGR:*.sqlite=$PALETTE_BLUE_SGR:*.sql=$PALETTE_BLUE_SGR:\
+*.log=$PALETTE_MUTED_SGR:*.lock=$PALETTE_MUTED_SGR"
+
+# --- eza metadata ------------------------------------------------------------
+# eza paints permissions, owner, size and date from its own defaults (bold
+# yellow, red, green, blue) which fight with the file names and with every other
+# tool in the terminal. Metadata is de-emphasised here and colour is left to
+# carry meaning: the names, the git state, and the security bits in the
+# permission column.
+set -gx EZA_COLORS "\
+oc=$PALETTE_MUTED_SGR:\
+ur=$PALETTE_MUTED_SGR:uw=$PALETTE_MUTED_SGR:ux=$PALETTE_MUTED_SGR:ue=$PALETTE_MUTED_SGR:\
+gr=$PALETTE_MUTED_SGR:gw=$PALETTE_MUTED_SGR:gx=$PALETTE_MUTED_SGR:\
+tr=$PALETTE_MUTED_SGR:tw=$PALETTE_MUTED_SGR:tx=$PALETTE_MUTED_SGR:\
+su=$PALETTE_YELLOW_SGR;1:sf=$PALETTE_YELLOW_SGR;1:xa=$PALETTE_MAGENTA_SGR:\
+sn=$PALETTE_CYAN_SGR:nb=$PALETTE_CYAN_SGR:nk=$PALETTE_CYAN_SGR:nm=$PALETTE_CYAN_SGR:ng=$PALETTE_CYAN_SGR:nt=$PALETTE_CYAN_SGR:\
+sb=$PALETTE_MUTED_SGR:ub=$PALETTE_MUTED_SGR:uk=$PALETTE_MUTED_SGR:um=$PALETTE_MUTED_SGR:ug=$PALETTE_MUTED_SGR:ut=$PALETTE_MUTED_SGR:\
+df=$PALETTE_MUTED_SGR:ds=$PALETTE_MUTED_SGR:lc=$PALETTE_MUTED_SGR:lm=$PALETTE_MUTED_SGR:\
+uu=$PALETTE_BLUE_SGR:un=$PALETTE_MUTED_SGR:uR=$PALETTE_RED_SGR:\
+gu=$PALETTE_BLUE_SGR:gn=$PALETTE_MUTED_SGR:gR=$PALETTE_RED_SGR:\
+xx=$PALETTE_SURFACE_SGR:\
+da=$PALETTE_MUTED_SGR:in=$PALETTE_MUTED_SGR:bl=$PALETTE_MUTED_SGR:\
+hd=$PALETTE_BLUE_SGR;1:lp=$PALETTE_CYAN_SGR:cc=$PALETTE_RED_SGR:bO=$PALETTE_RED_SGR;4:\
+sp=$PALETTE_MAGENTA_SGR:mp=$PALETTE_MAGENTA_SGR:\
+im=$PALETTE_MAGENTA_SGR:vi=$PALETTE_MAGENTA_SGR:mu=$PALETTE_CYAN_SGR:lo=$PALETTE_CYAN_SGR:\
+cr=$PALETTE_YELLOW_SGR:do=$PALETTE_YELLOW_SGR:co=$PALETTE_RED_SGR:tm=$PALETTE_MUTED_SGR:cm=$PALETTE_MUTED_SGR:\
+ga=$PALETTE_GREEN_SGR:gm=$PALETTE_YELLOW_SGR:gd=$PALETTE_RED_SGR:gv=$PALETTE_MAGENTA_SGR:\
+gt=$PALETTE_YELLOW_SGR:gi=$PALETTE_MUTED_SGR:gc=$PALETTE_RED_SGR;1:\
+Gm=$PALETTE_BLUE_SGR;1:Go=$PALETTE_CYAN_SGR:Gc=$PALETTE_GREEN_SGR:Gd=$PALETTE_YELLOW_SGR"
+
+# The shell's own roles: the prompt, strings, errors, and the completion pager.
 set -g fish_color_normal f3f6f9
 set -g fish_color_command b7cc85
 set -g fish_color_keyword ff8dd7
