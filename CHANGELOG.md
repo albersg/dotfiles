@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Herdr's plugin set can be left out of a run.** The installer provisions plugin sets for five tools and the interface never named one of them: a set was work inside its tool's step, so a user who did not want it had no way to say so and nothing to read. The set this installer declares for itself -- Herdr's `aigora.lantern` and `herdr.auto-title` -- is now carried by the multiplexer's step, so the row can name what the step would install and whether the run turned it off, and `--skip=plugins-herdr` leaves it out. A set that was turned off is neither a failure nor a silent no-op: the step runs no `herdr` command at all, asks the machine nothing, installs nothing and updates nothing, and its log says the set was left out, the way a skipped unit is reported. `--skip` names both axes because to a user they are one question -- what should this run not do -- and a name in the sets' own namespace that no set answers to is refused as a set rather than reported as an unknown unit, so the error sends the user to the list that has it. Four guards hold it: `TestThePlanCarriesThePluginSetOfItsTool` (the plan carries the set, on by default, off when told, with the step still planned either way), `TestTheHerdrSetNamesThePluginsItProvisions` (the interface's label is read from the table the step installs from, so a renamed plugin moves the label), `TestTurningOffHerdrsSetRunsNothing` (no command and no registry read), and `TestTheCommandLineReachesTheSameSwitch` (`--skip=officecli,plugins-herdr` reads as one unit and one set, and a name nothing recognises and a unit the run needs both still refuse).
+
 ## [v0.9.0] — 2026-10-15
 
 ### Added

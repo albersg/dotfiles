@@ -121,6 +121,12 @@ type InstallStep struct {
 	Progress    float64
 	Error       error
 	Interactive bool // If true, this step runs a generated shell script through the captured executor
+	// PluginSet is the plugin set this step provisions, when it provisions one, so
+	// that the interface can name it beside the step's own row (T1 of
+	// odd/tasks/start-installation-flow.md). It is nil for every step that
+	// provisions no set, and a set the run turned off is still carried here with
+	// Off set: the row has to say what the run is leaving out rather than vanish.
+	PluginSet *PluginSetState
 }
 
 type StepStatus int
@@ -142,6 +148,11 @@ type UserChoices struct {
 	WindowMgr    string // "tmux", "zellij", "herdr", "none"
 	InstallNvim  bool
 	CreateBackup bool // Whether to backup existing configs
+	// DisabledPluginSets is the plugin sets the run was told to leave out, named by
+	// the IDs of install_plugin_sets.go. The empty slice is the default and means
+	// every set is installed -- the same direction DisabledUnits reads in, so a set
+	// the registry later gains is on until someone turns it off.
+	DisabledPluginSets []string
 }
 
 // Model is the main application state
@@ -1224,6 +1235,11 @@ type planOptions struct {
 	Shell       string
 	WindowMgr   string
 	InstallNvim bool
+
+	// DisabledPluginSets is the plugin sets the user turned off, by set ID, in the
+	// registry's order. Like DisabledUnits, an empty set plans exactly the plan an
+	// untouched selection plans.
+	DisabledPluginSets []string
 }
 
 // planOptions reads the facts the plan is built from out of the model. It only
@@ -1239,7 +1255,8 @@ func (m Model) planOptions() planOptions {
 		WindowMgr:    m.Choices.WindowMgr,
 		InstallNvim:  m.Choices.InstallNvim,
 
-		DisabledUnits: m.DisabledUnits,
+		DisabledUnits:      m.DisabledUnits,
+		DisabledPluginSets: m.Choices.DisabledPluginSets,
 	}
 	if m.SystemInfo != nil {
 		opts.DetectedOS = m.SystemInfo.OS
@@ -1360,7 +1377,11 @@ func planFor(opts planOptions) []InstallStep {
 			ID:          "wm",
 			Name:        "Install " + opts.WindowMgr,
 			Description: "Installs your terminal multiplexer.",
-			Status:      StatusPending,
+			// The multiplexer's plugin set is carried by this step rather than
+			// scheduled as a step of its own (install_plugin_sets.go), so the row can
+			// name what the step would install and the switch that turns it off.
+			PluginSet: planPluginSet("wm", opts),
+			Status:    StatusPending,
 		})
 	}
 

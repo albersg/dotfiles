@@ -64,7 +64,9 @@ The declared Herdr set is two plugins, installed from GitHub shorthand:
 | `herdr.auto-title` | `kryptamine/herdr-auto-title` | Auto Title, built from Go at install time (Go is required) |
 
 The step runs only on the Herdr multiplexer choice and only where the `herdr`
-binary resolves. It installs each plugin with `--yes`, the noninteractive form
+binary resolves. It is also the only plugin set a run can leave out today:
+`--skip=plugins-herdr` turns it off, and the step then runs no `herdr` command,
+installs nothing, updates nothing, and reports the set as left out. It installs each plugin with `--yes`, the noninteractive form
 of `herdr plugin install`, then asks the machine what it has with `herdr plugin
 list` and reports the revision Herdr recorded for each plugin
 (`source.resolved_commit`). A plugin that failed to install, or whose build

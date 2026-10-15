@@ -6539,6 +6539,13 @@ func installHerdrPlugins(m *Model, stepID string) error {
 	if m == nil || m.Choices.WindowMgr != "herdr" {
 		return nil
 	}
+	// A set the user turned off is not a failure and not a silent no-op: nothing is
+	// installed and nothing is updated, and the log says which set was left out, the
+	// way every other thing a run leaves out is reported.
+	if pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDHerdr) {
+		herdrLog(stepID, "The Herdr plugin set is turned off; nothing was installed or updated")
+		return nil
+	}
 	if !herdrBinaryPresent("herdr") {
 		herdrLog(stepID, "Herdr is not on PATH; the Herdr plugins were not touched")
 		return nil

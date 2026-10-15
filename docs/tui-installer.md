@@ -799,7 +799,13 @@ installed everything.
 **The installer provisions plugins for five tools.** It installs the plugin set
 this repository declares for Tmux (it clones TPM and runs `install_plugins`),
 Fish, Zsh and Neovim, because in each case the set is a decision the repository
-has already made. For Herdr it installs the two plugins declared in the
+has already made. Herdr's set is the one a run can leave out today:
+`--skip=plugins-herdr` turns it off, and the step then runs no `herdr` command,
+installs nothing and reports the set as left out. A set this installer does not
+install itself is not offered as a switch, because a switch there would install
+nothing -- Fish's `config.fish` bootstraps Fisher on first start and Neovim's set
+is installed by lazy.nvim on first launch, which is what
+[Tools Reference](tools.md#plugins) says each of them does. For Herdr it installs the two plugins declared in the
 installer's own source — `aigora.lantern` and `herdr.auto-title` — with `herdr
 plugin install <owner>/<repo> --yes`, then updates them with `herdr plugin
 update --yes`, and finally verifies each with `herdr plugin list` and reports

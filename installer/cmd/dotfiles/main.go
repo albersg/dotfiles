@@ -76,7 +76,7 @@ func registerFlags(fs *flag.FlagSet, flags *cliFlags) {
 	fs.BoolVar(&flags.nvim, "nvim", false, "Install Neovim configuration")
 	fs.BoolVar(&flags.font, "font", false, "Install Nerd Font")
 	fs.BoolVar(&flags.backup, "backup", true, "Backup existing configs (default: true)")
-	fs.StringVar(&flags.skip, "skip", "", "Leave these units out, comma-separated: "+strings.Join(tui.SwitchableUnitIDs(), ", "))
+	fs.StringVar(&flags.skip, "skip", "", "Leave these units and plugin sets out, comma-separated: "+strings.Join(tui.SwitchableSkipIDs(), ", "))
 	fs.BoolVar(&flags.noAnim, "no-anim", false, "Disable animations (same as DOTFILES_ANIM=0)")
 	fs.BoolVar(&flags.noMouse, "no-mouse", false, "Do not track the mouse pointer (same as DOTFILES_MOUSE=0)")
 	fs.BoolVar(&flags.noSprite, "no-sprite", false, "Draw the creature as glyphs, not as the shaded sprite (same as DOTFILES_SPRITE=0)")
@@ -297,7 +297,7 @@ func runNonInteractive(flags *cliFlags) error {
 	// The selection the flag carries is read and validated against the catalogue here,
 	// so a unit the run cannot leave out -- or a name nothing recognises -- stops the
 	// run before anything is installed rather than being quietly dropped.
-	skipUnits, err := tui.ParseUnitSelection(flags.skip)
+	skipUnits, skipSets, err := tui.ParseSkipSelection(flags.skip)
 	if err != nil {
 		return err
 	}
@@ -325,6 +325,8 @@ func runNonInteractive(flags *cliFlags) error {
 		InstallNvim:  flags.nvim,
 		InstallFont:  flags.font,
 		CreateBackup: flags.backup,
+
+		DisabledPluginSets: skipSets,
 	}
 
 	fmt.Println("🚀 dotfiles Non-Interactive Installer")
@@ -387,13 +389,15 @@ Flags:
   -t, --test           Run in test mode (uses temporary directory)
   --dry-run            Show what would be installed without doing it
   --non-interactive    Run without TUI, use CLI flags instead
-  --skip=<units>       Leave units out of the run, comma-separated. The run needs
-                       clone, cleanup and setshell and refuses to leave those out;
-                       everything else it installs can be skipped, and a skipped
-                       unit is reported rather than silently dropped. It is the
-                       same selection the review screen offers before an
-                       interactive run, and the plan is built by the same builder
-                       either way
+  --skip=<names>       Leave units and plugin sets out of the run,
+                       comma-separated (--skip=officecli,plugins-herdr). The run
+                       needs clone, cleanup and setshell and refuses to leave those
+                       out; everything else it installs can be skipped, and the
+                       plugin sets this installer installs itself can be turned
+                       off the same way. A skipped unit is reported rather than
+                       silently dropped. It is the same selection the review
+                       screen offers before an interactive run, and the plan is
+                       built by the same builder either way
   --check-update       Read the release the chosen channel offers and print it
                        beside this build. Exits 0 when this build is that release,
                        1 when a newer one exists, and 2 when the answer could not
