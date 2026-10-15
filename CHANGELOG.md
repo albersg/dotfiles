@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The runbook's Homebrew tap command could not update a hash, and said nothing about it.** The command that rewrites `Formula/dotfiles.rb` read the release's `SHA256SUMS` into a dictionary keyed by digest: `re.findall` yields the digest first and the asset name second, and the comprehension keyed them the other way round, so every substitution pattern was built from a digest where an asset name belongs and matched nothing. `re.sub` reports no error for a non-match, so the command's only effect was the version line -- a formula carrying the new version beside the previous release's four hashes, which is the one shape it must never have, because it installs the previous release's bytes under the new number. Measured on v0.8.0: zero matches per asset and no hash changed. The pairs are read the right way round now, and both substitutions count their replacements and raise instead of passing quietly when one does not happen. The verification at the end of the step is what caught it, and it is unchanged.
+
 ## [v0.8.0] — 2026-10-15
 
 ### Added
