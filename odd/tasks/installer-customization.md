@@ -27,7 +27,7 @@ is last and holds the user's own words.
 - [x] **T3** (S5, S9) The screen: enum, title, description, options, panel, render, key dispatch, escape map. Route: worker. Commit: `feat(tui): a screen that shows every unit and its switch`.
 - [x] **T4** (S6) The selection reaches the plan, and a unit turned off reports itself as skipped. Route: worker. Commit: `feat(tui): a unit turned off says so instead of vanishing`.
 - [x] **T5** (S7, S8) The command line and the environment: the flag, and parity guards that hold both routes to the same plan. Route: worker. Commit: `feat(tui): the command line says what the screen can say`.
-- **T6** (S2, S5) Documentation and changelog: `docs/tui-installer.md`, the `--help` text and `CHANGELOG.md`. Route: inline. Commit: `docs(tui): the installer's choices are described where its screens are`.
+- [x] **T6** (S2, S5) Documentation and changelog: `docs/tui-installer.md`, the `--help` text and `CHANGELOG.md`. Route: inline. Commit: `docs(tui): the installer's choices are described where its screens are`.
 
 ## Log
 
@@ -153,3 +153,17 @@ is last and holds the user's own words.
   so the Neovim unit was not in its plan at all, and a unit that is not planned has nothing to report.
   Measured with `--nvim --skip=toolset,nvim`: twelve steps, the Neovim row and the Toolset row, and a
   skipped line under each. The behaviour was right; the expectation was the thing that was wrong.
+- **L22.** The documentation had three sites, and one of them was a sentence this work made false: the
+  `Installation Flow` section opened by saying the installer asks for the choices "then runs the steps
+  that fit that machine", which is exactly what stopped being true. It says the review comes between
+  the two now, followed by a paragraph in the same shape the password and theme blocks already use. The
+  changelog entry goes under `### Added` in `[Unreleased]` -- which is also what makes the next release
+  a MINOR by the repository's own policy, and is worth remembering when the release is cut -- and the
+  `--skip` row sits beside `--backup` in the non-interactive table, where its family is. The `--help`
+  text was written with the flag itself in T5, because a flag and its help are one change.
+
+  These documents are not decoration: three guards read them. `readme_test.go` reads
+  `docs/tui-installer.md` and holds its `--terminal` row to what the binary accepts,
+  `module_docs_test.go` reads the same file among others, and `release_docs_test.go` reads
+  `CHANGELOG.md`. A documentation edit here is therefore measured by the package's own suite rather than
+  assumed.

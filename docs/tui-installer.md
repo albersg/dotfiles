@@ -721,6 +721,7 @@ Every screen is built to fit an 80×24 terminal: it never runs past the frame on
 either axis, and overlong text is cut with a visible marker or wrapped rather
 than clipped silently. The installer first asks for the choices (operating
 system, terminal emulator, font, shell, window manager, Neovim and backup), then
+shows every unit it is about to install and lets each one be turned off, and then
 runs the steps that fit that machine; the set of steps depends on the platform
 and the choices, so a run shows only the ones that apply.
 
@@ -742,6 +743,20 @@ and the choices, so a run shows only the ones that apply.
 | Restore the Applied Theme | Writes the theme this machine has applied back into the configuration files the run replaced (see below) |
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
+
+**Every unit is shown with its switch before anything runs, and a unit turned off is reported rather
+than dropped.** After the last question the installer opens a review screen listing every unit the run
+can install, in the order the run takes them, each one on or off, with the three it cannot do without
+marked and refusing to change: `clone`, the repository the run works from; `cleanup`, the state the run
+created; and `setshell`, the default shell that was chosen. `Space` turns the unit under the cursor off
+or back on, `Enter` starts the run, and `Esc` returns to the question the screen was opened from. The
+list is drawn as a window sized by the terminal, and the rows that do not fit are counted above and
+below it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off
+the bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A
+unit that is turned off stays in the plan, is never executed, is not a failure, and is reported as
+skipped in the run's own output and in its step list. The command line reaches the same selection with
+`--skip`, and both routes plan through the same builder, so one selection produces the same steps
+either way.
 
 **The administrator password is asked once, on the installer's own screen.** Before the first step
 that needs root, the installer asks sudo whether it already has a credential it can use
@@ -1380,6 +1395,7 @@ dotfiles --non-interactive --shell=<shell> [options]
 | `--nvim` | | Install Neovim configuration |
 | `--font` | | Install Nerd Font |
 | `--backup` | `true`/`false` | Backup existing configs (default: true) |
+| `--skip` | unit names, comma-separated | Leave units out of the run: `clone`, `cleanup` and `setshell` cannot be left out and are refused, and a skipped unit is reported as skipped rather than dropped. The interface's review screen makes the same choice by hand |
 
 ### Examples
 
