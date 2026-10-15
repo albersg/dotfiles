@@ -104,6 +104,12 @@ const (
 	// handed over to ask for the credential. Escape offers the handover instead,
 	// for a system whose PAM insists on a terminal.
 	ScreenAdminPassword // The administrator password, typed on the installer's own screen
+	// What the run will install. Appended at the end for the same reason as the
+	// screens above. It is the wizard's last step rather than a question: after the
+	// last question it lists every unit of install_units.go with its switch, marks
+	// the three the run cannot do without, and offers the two ways out -- back to
+	// the questions, or on to the run with the selection just made.
+	ScreenInstallReview // What will be installed, and what will not
 )
 
 // InstallStep represents a single installation step
@@ -149,6 +155,18 @@ type Model struct {
 	Steps       []InstallStep
 	CurrentStep int
 	Cursor      int
+	// UnitCursor is the row the install-review screen has focused. It is separate
+	// from Cursor because that one is the wizard's cursor for the question being
+	// asked and each question resets it by its own rules, while this one has to
+	// survive a trip back to a question and forward again.
+	UnitCursor int
+	// DisabledUnits is the units the user turned off on the install-review screen,
+	// named by the IDs of install_units.go. The empty slice is the default and means
+	// today's plan exactly: a unit is installed unless its ID is in here. That
+	// direction matters -- a unit the catalogue later gains is on by default rather
+	// than off by accident, and a machine that never opens the screen carries no
+	// state that could drift away from the catalogue.
+	DisabledUnits []string
 	// PanelIndex is which panel of the current screen's list is being shown. The
 	// registry's first panel is the default, and the index is reset to it whenever
 	// the screen changes, so a screen always opens on the panel its own question
@@ -767,6 +785,12 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "Learn about multiplexers"}
 	case ScreenNvimSelect:
 		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "Learn about Neovim", "View Keymaps", "LazyVim Guide"}
+	case ScreenInstallReview:
+		rows := make([]string, 0, len(installUnits))
+		for _, unit := range installUnits {
+			rows = append(rows, m.installReviewRow(unit))
+		}
+		return rows
 	case ScreenUtilities:
 		// Only what exists is offered: the switch rows need a detected desktop and
 		// the undo row needs a record this installer wrote for that same desktop.
@@ -998,6 +1022,11 @@ func (m Model) GetScreenTitle() string {
 		return "Step 5: Choose Window Manager"
 	case ScreenNvimSelect:
 		return "Step 6: Neovim Configuration"
+	case ScreenInstallReview:
+		// No step number: the wizard's counter counts the questions it asks, and
+		// this screen is not one of them. It says what it is instead of claiming a
+		// position the meter beside it would not show.
+		return "Choose What Gets Installed"
 	case ScreenBackupConfirm:
 		return "Existing Configs Detected"
 	case ScreenRestoreBackup:
@@ -1130,6 +1159,11 @@ func (m Model) GetScreenDescription() string {
 		return "Select your preferred terminal emulator"
 	case ScreenFontSelect:
 		return m.fontPresenceDescription()
+	case ScreenInstallReview:
+		// It says what the list is and what the two keys do, and it stops there: what
+		// the run will do with a unit that is off is the run's business, and a
+		// sentence claiming it here would be a sentence to keep true twice.
+		return "Every unit this run can install, in the order it runs. Space turns one off or back on; the three the run needs stay on."
 	case ScreenShellSelect:
 		// The line names the detected shell and says what the cursor is doing: it
 		// starts on the detected shell when the menu lists it. The old line stated
@@ -1179,6 +1213,12 @@ type planOptions struct {
 	ConfigCount  int
 	CreateBackup bool
 
+	// DisabledUnits is the set the review screen turned off, by unit ID, in the
+	// catalogue's order. An empty set -- what every model starts with -- plans
+	// today's plan exactly, which is what makes an untouched selection free of
+	// consequence rather than merely equal by luck.
+	DisabledUnits []string
+
 	Terminal    string
 	InstallFont bool
 	Shell       string
@@ -1198,6 +1238,8 @@ func (m Model) planOptions() planOptions {
 		Shell:        m.Choices.Shell,
 		WindowMgr:    m.Choices.WindowMgr,
 		InstallNvim:  m.Choices.InstallNvim,
+
+		DisabledUnits: m.DisabledUnits,
 	}
 	if m.SystemInfo != nil {
 		opts.DetectedOS = m.SystemInfo.OS
@@ -1400,6 +1442,21 @@ func planFor(opts planOptions) []InstallStep {
 		Description: "Removes the temporary files it created.",
 		Status:      StatusPending,
 	})
+
+	// A unit the user turned off is marked rather than dropped: the run's own list keeps
+	// showing it and the run says what it did not do. StatusSkipped is what this state
+	// is for, and until this pass nothing in the tree ever assigned it -- the plan
+	// panel, the step list and the status line have read it correctly all along.
+	//
+	// The three units the run needs are never skipped, whatever the selection holds: the
+	// screen cannot turn them off, and this is where that stops being a promise the
+	// screen keeps and becomes a property of the plan.
+	for i := range steps {
+		if installUnitIsFixed(steps[i].ID) || !opts.unitIsDisabled(steps[i].ID) {
+			continue
+		}
+		steps[i].Status = StatusSkipped
+	}
 
 	return steps
 }

@@ -148,7 +148,8 @@ func (m Model) panelsFor() []panel {
 		}
 		return panels
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect,
-		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
+		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning,
+		ScreenInstallReview:
 		return []panel{planPanel()}
 	}
 	return nil
@@ -620,12 +621,16 @@ func (m Model) contextPanelFacts(l layout) []string {
 	return m.mainMenuPanelFacts(l)
 }
 
-// isWizardChoiceScreen reports whether a screen is one of the wizard's own
-// questions, which draw the plan beside the choice they are asking.
+// isWizardChoiceScreen reports whether a screen draws the plan beside the choice
+// being made: the wizard's own questions, and the review screen that follows the
+// last of them. The review screen is not a question, but its choice is the plan
+// itself, so leaving it out would put the one screen that is about the plan in a
+// layout without one.
 func isWizardChoiceScreen(screen Screen) bool {
 	switch screen {
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect,
-		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
+		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning,
+		ScreenInstallReview:
 		return true
 	}
 	return false

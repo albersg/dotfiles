@@ -432,11 +432,25 @@ func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
 
 	// The teeth: pressing the install key on this same screen reaches the spy, so
 	// the capture below passing means the key was not pressed rather than the spy
-	// being on the wrong seam.
+	// being on the wrong seam. Since the review screen interposes, the install key is
+	// two presses: the wizard's last one opens the review, and the review's own Enter
+	// starts the run. Walking both is what keeps the teeth on the real seam.
 	start := installerFrameCase(t, "nvim-select")
-	next, press := start.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	reviewed, first := start.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if first != nil {
+		t.Fatal("Enter on the neovim screen returned a command, so it started the run without the review")
+	}
+	review, ok := reviewed.(Model)
+	if !ok {
+		t.Fatalf("Enter on the neovim screen returned %T, want a Model", reviewed)
+	}
+	if review.Screen != ScreenInstallReview {
+		t.Fatalf("Enter on the neovim screen landed on %v, want the review screen", review.Screen)
+	}
+
+	next, press := review.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if press == nil {
-		t.Fatal("Enter on the neovim screen returned no command, so the install key is not wired")
+		t.Fatal("Enter on the review screen returned no command, so the install key is not wired")
 	}
 	_, stepCmd := next.(Model).Update(press())
 	if stepCmd == nil {
@@ -1750,6 +1764,8 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return base(ScreenNvimSelect)
 	case "ghostty-warning":
 		return base(ScreenGhosttyWarning)
+	case "install-review":
+		return base(ScreenInstallReview)
 	case "learn-terminals":
 		return base(ScreenLearnTerminals)
 	case "learn-terminals-info":
@@ -1905,6 +1921,7 @@ var installerFrameScreenNames = []string{
 	"main-menu", "main-menu-restore",
 	"os-select", "terminal-select", "terminal-select-wsl", "font-select",
 	"shell-select", "wm-select", "nvim-select", "ghostty-warning",
+	"install-review",
 	"learn-terminals", "learn-terminals-info",
 	"learn-shells", "learn-shells-info",
 	"learn-wm", "learn-wm-info",

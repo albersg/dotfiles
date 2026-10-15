@@ -92,6 +92,10 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 		{ScreenLearnNvim, 4},
 		{ScreenKeymaps, 3},
 		{ScreenLearnLazyVim, 3},
+		// The review screen lists one row per catalogued unit, so its count is the
+		// catalogue's own length rather than a number written here: a unit added to the
+		// table cannot leave this guard behind.
+		{ScreenInstallReview, len(installUnits)},
 	}
 
 	for _, tc := range screens {
@@ -212,6 +216,7 @@ func TestGetScreenTitleForAllScreens(t *testing.T) {
 	allScreens := []Screen{
 		ScreenWelcome, ScreenMainMenu, ScreenOSSelect, ScreenTerminalSelect,
 		ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect,
+		ScreenInstallReview,
 		ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm,
 		ScreenInstalling, ScreenComplete, ScreenError,
 		ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim,
@@ -419,6 +424,7 @@ func TestSetupInstallStepsFullInstall(t *testing.T) {
 func TestCtrlCAlwaysQuits(t *testing.T) {
 	screens := []Screen{
 		ScreenWelcome, ScreenMainMenu, ScreenOSSelect, ScreenTerminalSelect,
+		ScreenInstallReview,
 		ScreenInstalling, ScreenComplete, ScreenError, ScreenKeymapCategory,
 	}
 
@@ -969,11 +975,17 @@ func TestBackupConfirmWithBackup(t *testing.T) {
 	if !newModel.Choices.CreateBackup {
 		t.Error("Should set CreateBackup true")
 	}
-	if newModel.Screen != ScreenInstalling {
-		t.Errorf("Expected ScreenInstalling, got %v", newModel.Screen)
+	// The decision is recorded, and then the review screen -- the wizard's last step
+	// -- shows what will be installed before anything runs. Enter here starts the
+	// review, not the run: the run's own key is on that screen.
+	if newModel.Screen != ScreenInstallReview {
+		t.Errorf("Expected ScreenInstallReview, got %v", newModel.Screen)
 	}
-	if cmd == nil {
-		t.Error("Should return installStartMsg command")
+	if newModel.PrevScreen != ScreenBackupConfirm {
+		t.Errorf("the review does not remember the question it came from: %v", newModel.PrevScreen)
+	}
+	if cmd != nil {
+		t.Error("Enter on the backup question started something before the review")
 	}
 }
 
@@ -989,11 +1001,16 @@ func TestBackupConfirmWithoutBackup(t *testing.T) {
 	if newModel.Choices.CreateBackup {
 		t.Error("Should set CreateBackup false")
 	}
-	if newModel.Screen != ScreenInstalling {
-		t.Errorf("Expected ScreenInstalling, got %v", newModel.Screen)
+	// Same contract as the backup answer above: the decision is recorded, and the
+	// review comes next rather than the run.
+	if newModel.Screen != ScreenInstallReview {
+		t.Errorf("Expected ScreenInstallReview, got %v", newModel.Screen)
 	}
-	if cmd == nil {
-		t.Error("Should return installStartMsg command")
+	if newModel.PrevScreen != ScreenBackupConfirm {
+		t.Errorf("the review does not remember the question it came from: %v", newModel.PrevScreen)
+	}
+	if cmd != nil {
+		t.Error("Enter on the backup question started something before the review")
 	}
 }
 

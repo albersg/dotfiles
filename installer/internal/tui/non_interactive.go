@@ -9,7 +9,13 @@ import (
 )
 
 // RunNonInteractive executes the installation without TUI
-func RunNonInteractive(choices UserChoices) error {
+// RunNonInteractive installs the plan the choices produce, without the interface.
+//
+// disabledUnits names the units the caller was told to leave out, in catalogue order.
+// It is the same set the review screen leaves in Model.DisabledUnits on the other
+// route, and it is handed straight to the one builder, so one selection produces one
+// plan whichever route asked for it -- which is what S8 asks for.
+func RunNonInteractive(choices UserChoices, disabledUnits ...string) error {
 	// Enable non-interactive mode for logging
 	SetNonInteractiveMode(true)
 
@@ -25,9 +31,10 @@ func RunNonInteractive(choices UserChoices) error {
 
 	// Create a minimal model for the installation functions
 	model := &Model{
-		SystemInfo: sysInfo,
-		Choices:    choices,
-		LogLines:   []string{},
+		SystemInfo:    sysInfo,
+		Choices:       choices,
+		LogLines:      []string{},
+		DisabledUnits: disabledUnits,
 	}
 
 	// Detect existing configs for backup functionality
@@ -78,6 +85,15 @@ func runInstallSteps(steps []InstallStep, model *Model, execute func(stepID stri
 	for i, step := range steps {
 		fmt.Printf("[%d/%d] %s...\n", i+1, len(steps), step.Name)
 
+		// A unit the user turned off is planned as skipped rather than dropped, so it is
+		// walked past here instead of executed -- and it is not a failure, because
+		// nothing went wrong. The line is this route's report, distinct from the dry
+		// run's, which says why it skipped something else.
+		if stepIsSkipped(step) {
+			fmt.Printf("    • skipped: you turned it off\n")
+			continue
+		}
+
 		err := execute(step.ID, model)
 		if err != nil {
 			fmt.Printf("    ❌ FAILED: %v\n", err)
@@ -94,79 +110,19 @@ func runInstallSteps(steps []InstallStep, model *Model, execute func(stepID stri
 	return failures
 }
 
-// buildStepsForChoices creates the list of steps based on user choices
+// buildStepsForChoices returns the plan the non-interactive run executes.
+//
+// It is a name for planFor, not a second planner. Two planners for one run had
+// already drifted apart, and it was measured on this tree rather than suspected: a
+// macOS host was planned with the dependency step -- a Linux step -- by this path
+// and with the Apple developer tools by the interface's, a Termux host was planned
+// with Homebrew here and without it there, and a machine with nothing to back up
+// was planned with a backup step here and without one there.
+//
+// The rules live in planFor and the units live in install_units.go. This function
+// exists so the runner keeps a name its call site and its tests read well with, and
+// TestTheNonInteractiveRunnerPlansWhatTheInterfacePlans is what keeps the two from
+// separating again.
 func buildStepsForChoices(m *Model) []InstallStep {
-	var steps []InstallStep
-
-	// Always backup first if enabled
-	if m.Choices.CreateBackup {
-		steps = append(steps, InstallStep{ID: "backup", Name: "Backup existing configs"})
-	}
-
-	// Dependencies first (must run before clone so git is available on fresh Linux installs)
-	steps = append(steps, InstallStep{ID: "deps", Name: "Install dependencies"})
-
-	// Clone repo (after deps so git is available)
-	steps = append(steps, InstallStep{ID: "clone", Name: "Clone dotfiles repository"})
-
-	// Homebrew (for Mac and Debian/Ubuntu Linux - NOT Fedora/Arch which use native package managers)
-	if m.SystemInfo.OS == system.OSMac || m.SystemInfo.OS == system.OSDebian || m.SystemInfo.OS == system.OSLinux || m.SystemInfo.OS == system.OSWSL {
-		steps = append(steps, InstallStep{ID: "homebrew", Name: "Install/Update Homebrew"})
-	}
-
-	// Xcode (Mac only)
-	if m.SystemInfo.OS == system.OSMac {
-		steps = append(steps, InstallStep{ID: "xcode", Name: "Install Xcode CLI tools"})
-	}
-
-	// Terminal
-	if m.Choices.Terminal != "none" {
-		steps = append(steps, InstallStep{ID: "terminal", Name: fmt.Sprintf("Install %s terminal", m.Choices.Terminal)})
-	}
-
-	// Font
-	if m.Choices.InstallFont {
-		steps = append(steps, InstallStep{ID: "font", Name: "Install Nerd Font"})
-	}
-
-	// Shell
-	steps = append(steps, InstallStep{ID: "shell", Name: fmt.Sprintf("Install %s shell", m.Choices.Shell)})
-
-	// Window Manager
-	if m.Choices.WindowMgr != "none" {
-		steps = append(steps, InstallStep{ID: "wm", Name: fmt.Sprintf("Install %s", m.Choices.WindowMgr)})
-	}
-
-	// Neovim
-	if m.Choices.InstallNvim {
-		steps = append(steps, InstallStep{ID: "nvim", Name: "Install Neovim configuration"})
-	}
-
-	// Toolset (after the shell step, whose fnm provides the Node runtime the
-	// Brewfile's npm entries need; best-effort, so it never fails the run)
-	steps = append(steps, InstallStep{ID: "toolset", Name: "Install toolset"})
-
-	// Pi agent skills (pinned, checksum-verified packages under ~/.pi/agent/skills)
-	steps = append(steps, InstallStep{ID: "agentskills", Name: "Install Pi agent skills"})
-
-	// OfficeCLI binary (pinned, checksum-verified release asset in ~/.local/bin)
-	steps = append(steps, InstallStep{ID: "officecli", Name: "Install OfficeCLI"})
-
-	// WSL configuration (Windows host + in-distribution settings)
-	if m.SystemInfo.IsWSL {
-		steps = append(steps, InstallStep{ID: "wslconfig", Name: "Configure WSL"})
-	}
-
-	// The theme this machine has applied, put back into the files the steps above
-	// replaced. Last, so it sees every file the run wrote, and before cleanup, which
-	// removes the checkout the theme definitions are read from.
-	steps = append(steps, InstallStep{ID: "theme", Name: "Restore the applied theme"})
-
-	// Set shell as default
-	steps = append(steps, InstallStep{ID: "setshell", Name: "Set shell as default"})
-
-	// Cleanup
-	steps = append(steps, InstallStep{ID: "cleanup", Name: "Cleanup"})
-
-	return steps
+	return planFor(m.planOptions())
 }

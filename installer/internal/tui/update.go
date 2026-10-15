@@ -1317,6 +1317,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenMainMenu:
 		return m.handleMainMenuKeys(key)
 
+	case ScreenInstallReview:
+		return m.handleInstallReviewKeys(key)
+
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		return m.handleSelectionKeys(key)
 
@@ -2282,6 +2285,17 @@ func (m Model) goBackInstallStep() (tea.Model, tea.Cmd) {
 		// Reset choices
 		m.Choices = UserChoices{}
 
+	case ScreenInstallReview:
+		// Back to the question this screen was opened from -- the wizard's last one,
+		// which is the backup question when there were configs to ask about. The
+		// fallback is for a model built without that record, which is what a test
+		// constructing the screen directly looks like.
+		m.Screen = m.PrevScreen
+		if m.Screen == ScreenInstallReview || m.Screen == ScreenInstalling {
+			m.Screen = ScreenNvimSelect
+		}
+		m.Cursor = 0
+
 	case ScreenTerminalSelect:
 		m.Screen = ScreenOSSelect
 		// Keep the platform the user chose rather than reopening the question on
@@ -2460,11 +2474,11 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 			m.Screen = ScreenBackupConfirm
 			m.Cursor = 0
 		} else {
-			// No existing configs, proceed directly
-			m.SetupInstallSteps()
-			m.Screen = ScreenInstalling
-			m.CurrentStep = 0
-			return m, func() tea.Msg { return installStartMsg{} }
+			// No existing configs, so there is no backup question to ask. The review
+			// screen still comes first: it is the wizard's last step rather than an
+			// extra question about the files.
+			m.openInstallReview()
+			return m, nil
 		}
 	}
 
@@ -2984,16 +2998,12 @@ func (m Model) handleBackupConfirmKeys(key string) (tea.Model, tea.Cmd) {
 		switch m.Cursor {
 		case 0: // Install with Backup
 			m.Choices.CreateBackup = true
-			m.SetupInstallSteps()
-			m.Screen = ScreenInstalling
-			m.CurrentStep = 0
-			return m, func() tea.Msg { return installStartMsg{} }
+			m.openInstallReview()
+			return m, nil
 		case 1: // Install without Backup
 			m.Choices.CreateBackup = false
-			m.SetupInstallSteps()
-			m.Screen = ScreenInstalling
-			m.CurrentStep = 0
-			return m, func() tea.Msg { return installStartMsg{} }
+			m.openInstallReview()
+			return m, nil
 		case 2: // Cancel - abort the entire wizard
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
@@ -3127,6 +3137,22 @@ func (m *Model) runNextStep() tea.Cmd {
 	}
 
 	step := &m.Steps[m.CurrentStep]
+
+	// A unit the user turned off is planned as skipped rather than dropped, so the
+	// list keeps showing it. Skipping it here -- before the status is set to running
+	// and before a credential is asked for on its behalf -- is what "not executed"
+	// means on this route, and the step advances exactly as one that finished does.
+	//
+	// The walk recurses rather than falling through, so a skipped unit at the end of
+	// the plan finishes the run instead of leaving it waiting on a step that will
+	// never execute. It cannot run away: each call advances CurrentStep, and the
+	// guard above ends the walk at the plan's length.
+	if stepIsSkipped(*step) {
+		m.LogLines = append(m.LogLines, "⏭ Skipped: "+step.Name+" — you turned it off.")
+		m.CurrentStep++
+		return m.runNextStep()
+	}
+
 	step.Status = StatusRunning
 
 	// Check if this step needs interactive input (sudo, chsh, etc)

@@ -890,6 +890,7 @@ func TestPanelsForListsWhatEachScreenOffers(t *testing.T) {
 		{ScreenWMSelect, []panelID{panelPlan}},
 		{ScreenNvimSelect, []panelID{panelPlan}},
 		{ScreenGhosttyWarning, []panelID{panelPlan}},
+		{ScreenInstallReview, []panelID{panelPlan}},
 		{ScreenLearnTerminals, nil},
 		{ScreenKeymaps, nil},
 		{ScreenInstalling, nil},
