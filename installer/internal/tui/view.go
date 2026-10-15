@@ -74,18 +74,23 @@ type installerHint struct {
 // slice fixed: navigation first, then the action, then the way back or out. A
 // screen lists the actions it honours by name instead of retyping a sentence.
 var (
-	hintUp      = installerHint{"↑/k", "up"}
-	hintDown    = installerHint{"↓/j", "down"}
-	hintSelect  = installerHint{"[Enter]", "select"}
-	hintBack    = installerHint{"[Esc]", "back"}
-	hintCancel  = installerHint{"[Esc]", "cancel"}
-	hintQuit    = installerHint{"[Space q]", "quit"}
-	hintDetails = installerHint{"[Space d]", "details"}
-	hintPage    = installerHint{"[PgUp/PgDn]", "page"}
-	hintReturn  = installerHint{"[Enter/Space/Esc/q]", "return to menu"}
-	hintRetry   = installerHint{"[r]", "retry"}
-	hintStart   = installerHint{"[Enter]", "start"}
-	hintExit    = installerHint{"[Enter]", "exit"}
+	hintUp     = installerHint{"↑/k", "up"}
+	hintDown   = installerHint{"↓/j", "down"}
+	hintSelect = installerHint{"[Enter]", "select"}
+	hintBack   = installerHint{"[Esc]", "back"}
+	// The password screen's Enter is an attempt rather than a selection, so it names
+	// its own pair instead of borrowing the wizard's: "select" there would say the
+	// opposite of what the key does.
+	hintValidate = installerHint{"[Enter]", "validate"}
+	hintTerminal = installerHint{"[Esc]", "ask in the terminal"}
+	hintCancel   = installerHint{"[Esc]", "cancel"}
+	hintQuit     = installerHint{"[Space q]", "quit"}
+	hintDetails  = installerHint{"[Space d]", "details"}
+	hintPage     = installerHint{"[PgUp/PgDn]", "page"}
+	hintReturn   = installerHint{"[Enter/Space/Esc/q]", "return to menu"}
+	hintRetry    = installerHint{"[r]", "retry"}
+	hintStart    = installerHint{"[Enter]", "start"}
+	hintExit     = installerHint{"[Enter]", "exit"}
 	// hintAdjust and hintRecommended are the WSL resource screen's own keys: the
 	// arrows move the value under the cursor by one step, and `r` puts every row
 	// back on the host's recommendation. hintMove is the same screen's compact
