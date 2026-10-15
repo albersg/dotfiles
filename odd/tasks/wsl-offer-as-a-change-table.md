@@ -118,8 +118,30 @@ should go. That hint stays asserted by
 `TestInteractiveWSLStepShowsTheOfferOnTheInstallingScreen`, so the deletion cannot take
 the answer with it.
 
+L10 (measured, found by CI and not by any local run): on macOS the path a test is
+handed lives under `/var/folders/...` and carries the test's own name, so it is **197
+characters** where the Linux one is 149 -- four wrapped rows at 52 columns instead of
+three. The table's eight content rows are the whole budget, so the fifth fact row fell
+off the bottom of the panel and `TestWindowsTerminalOfferFitsTheFrameItIsDrawnOn/60x20`
+failed in the `macOS smoke test` job while every local run passed. S4's two promises are
+one row now -- `.bak-dotfiles-<stamp>, rest kept` -- because a backup taken and nothing
+else lost is a single promise about the rest of the file, and that is the third
+deliberate deviation from L3's layout. The alternative considered and rejected: freeing
+a row by not drawing the installing screen's `Estimating the time remaining…` row while
+a question blocks the run. It reads well, but it reaches into the composition every
+screen shares to buy one row, where the merge stays inside the two functions this front
+already owns.
+
+L11 (the capacity guard's teeth, demonstrated rather than argued): with the fifth row
+put back, `TestWindowsTerminalOfferFitsThePanelAtItsTightestBudget` fails with "the
+offer's rows take 9 of the panel's 8 content rows at 60x20, so its last row is cut off
+with nothing saying which fact went". The frame guard does **not** fail on Linux in the
+same state -- with a three-row path the fifth row still fits -- which is the whole reason
+the capacity guard exists: the frame guard was measuring the platform's temporary
+directory as much as the panel.
+
 ## Remaining
 
 Nothing. The front is closed: T1-T3 landed and the suite is clean apart from the four
-Ghostty failures that predate this work. The two deliberate deviations from the
-approved layout (L8, L9) are stated above rather than left to be found in the diff.
+Ghostty failures that predate this work. The three deliberate deviations from the
+approved layout (L8, L9, L10) are stated above rather than left to be found in the diff.

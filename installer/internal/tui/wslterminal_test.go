@@ -806,7 +806,7 @@ func TestWindowsTerminalOfferBodyIsAChangeTable(t *testing.T) {
 		windowsTerminalSchemeName,
 		">",
 		".bak-dotfiles-",
-		"every other key and comment",
+		"rest kept",
 		"HKCU",
 	} {
 		if !strings.Contains(body, want) {
@@ -919,6 +919,77 @@ func TestWindowsTerminalOfferFitsTheFrameItIsDrawnOn(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestWindowsTerminalOfferFitsThePanelAtItsTightestBudget measures the panel's
+// capacity against the longest settings path that has to fit, and against the two
+// numbers 60x20 gives the panel: the installing body leaves it ten rows, and hands it
+// 56 columns, of which the frame and its padding keep four.
+//
+// It exists because the frame guard alone left this to the platform. The path a test
+// is handed on macOS lives under /var/folders/... and carries the test's own name, so
+// it is 197 characters where the Linux one is 149 -- one wrapped row further -- and
+// the last row of the table fell off the bottom of the panel on macOS while every
+// local run passed. Where a platform puts its temporary files is not something this
+// panel can have an opinion about, so the capacity is measured against the worst case
+// here rather than inherited from whatever the host happens to hand the test.
+func TestWindowsTerminalOfferFitsThePanelAtItsTightestBudget(t *testing.T) {
+	// Measured at 60x20: ten rows for the panel, 56 columns before its frame.
+	const (
+		panelWidth = 56
+		panelRows  = 10
+		content    = panelWidth - panelFrame - panelPad*2
+	)
+
+	offer := windowsTerminalOffer{
+		Available: true,
+		// Shaped like the path macOS hands a test, with the test's own name in it, which
+		// is the longest one that has to fit.
+		Path: "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/" +
+			"TestWindowsTerminalOfferFitsThePanelAtItsTightestBudget3647465874/006/" +
+			"AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/" +
+			"LocalState/settings.json",
+		Face:     windowsTerminalFontFace,
+		Scheme:   windowsTerminalSchemeName,
+		Original: []byte(testWindowsTerminalSettingsWithOtherFace),
+	}
+	lines := wslTerminalOfferLines(offer)
+
+	wrapped := 0
+	for _, line := range lines {
+		wrapped += len(wrapText(line, content, 0))
+	}
+	if budget := panelRows - panelFrame; wrapped > budget {
+		t.Fatalf("the offer's rows take %d of the panel's %d content rows at 60x20, so its last row is cut off with nothing saying which fact went:\n%s",
+			wrapped, budget, strings.Join(lines, "\n"))
+	}
+
+	// The rows are read as a person reads them. A row too long for the panel is wrapped
+	// and every row is padded to the panel's width, so the file name is read from the
+	// view with that padding taken out along with the borders; a fact carrying a space
+	// sits inside one row and is read from the view where the spaces still stand.
+	drawn := strings.Join(Model{Screen: ScreenInstalling, WSLTerminalOfferLines: lines}.wslTerminalOfferRows(panelWidth, panelRows), "\n")
+	noNewlines := strings.ReplaceAll(drawn, "\n", "")
+	squashed := strings.NewReplacer("\n", "", "│", "", " ", "").Replace(drawn)
+	for _, want := range []string{
+		"settings.json",
+		"font.face",
+		"colorScheme",
+		"CascadiaMonoNF",
+		"OneHalfDark",
+		windowsTerminalSchemeName,
+		".bak-dotfiles-",
+		"HKCU",
+	} {
+		if !strings.Contains(squashed, want) {
+			t.Errorf("at its tightest budget the panel does not show %q, so the fact is not on the screen at all:\n%s", want, drawn)
+		}
+	}
+	for _, want := range []string{windowsTerminalFontFace, "rest kept"} {
+		if !strings.Contains(noNewlines, want) {
+			t.Errorf("at its tightest budget the panel does not show %q, so the fact is not on the screen at all:\n%s", want, drawn)
+		}
 	}
 }
 

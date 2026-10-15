@@ -1352,9 +1352,14 @@ func windowsTerminalOfferFact(label, value string) string {
 // installing body and takes the rows left after the live meters, which at the
 // tightest terminal the frame guards measure is eight. The seven sentences it used to
 // be needed more than that, and the rows that fell off the bottom first were the ones
-// naming the value a write would replace -- the fact this screen exists to state. The
-// keys are the ones windowsTerminalSettingsContent writes, and the face is the
-// resolved one rather than the constant, so the screen cannot name a setting or a
+// naming the value a write would replace -- the fact this screen exists to state.
+//
+// Eight content rows is the whole budget, and the path spends three or four of them
+// depending on the platform, so the four rows left carry two facts each only where
+// they belong together: the backup and what is kept are one row, because a write that
+// takes a backup and loses nothing else is a single promise about the rest of the
+// file. The keys are the ones windowsTerminalSettingsContent writes, and the face is
+// the resolved one rather than the constant, so the screen cannot name a setting or a
 // family the writer does not use.
 func describeWindowsTerminalOffer(offer windowsTerminalOffer) []string {
 	if !offer.Available {
@@ -1370,8 +1375,7 @@ func describeWindowsTerminalOffer(offer windowsTerminalOffer) []string {
 		offer.Path,
 		windowsTerminalOfferRow("font.face", present(windowsTerminalCurrentFontFace), offer.Face),
 		windowsTerminalOfferRow("colorScheme", present(windowsTerminalCurrentColorScheme), offer.Scheme),
-		windowsTerminalOfferFact("backup", ".bak-dotfiles-<stamp> first"),
-		windowsTerminalOfferFact("keeps", "every other key and comment"),
+		windowsTerminalOfferFact("backup", ".bak-dotfiles-<stamp>, rest kept"),
 	}
 }
 
