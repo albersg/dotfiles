@@ -203,6 +203,11 @@ selection, fish's `config.fish` palette block, tmux's style block, the colour re
 fish is switched through the file this repository owns, never through the user's `fish_config` state
 in `fish_variables`: the block sets fish's colour variables in the global scope, which fish returns
 over a universal one, and the switch records and restores the exact bytes like every other block.
+It carries the file listing's colours too — `LS_COLORS`, which `eza` reads as its base layer, and
+`EZA_COLORS`, which paints its metadata — rendered from the same mapping the zsh block reads rather
+than restated, because a listing that is the same shape in different colours is still two listings:
+what each shell spells differently is a variable reference and an export, and nothing else, so the
+colour chosen for an extension is the colour both shells paint it.
 tmux gets its own generated style block after the TPM run line instead of depending on the
 `tmux-kanagawa` plugin, whose Kanagawa palette is partial. Neovim is selected by name: `catppuccin`
 and `kanagawa` are the two colorschemes the repository's own plugin install provides, and the other

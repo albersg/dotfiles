@@ -160,7 +160,159 @@ Two traps are worth naming, because both produced a wrong reading first:
   its last 40 lines, so the failure list could not be reconstructed without running the
   suite again. Any run whose output will be compared later is captured whole.
 
+## Stage 2 — the listing's colours
+
+The mandate is stage 1's own task 5, quoted verbatim: *"Emit `LS_COLORS`,
+`EZA_COLORS` and the icon spacing from one mapping both renderers read, instead of
+a zsh-shaped literal fish cannot use."* The icon spacing is already done — stage 1
+wrote `set -gx EZA_ICON_SPACING 2` at `config.fish:115`, outside the generated
+region. What is missing is the two tables.
+
+### What was measured before writing anything
+
+- **fish reads what zsh writes; only the spelling has to change.** A probe run
+  through `fish --no-config` on this machine, declaring two palette variables and
+  the two tables with them:
+
+  ```fish
+  set -g PALETTE_BLUE_SGR "38;2;1;2;3"
+  set -gx LS_COLORS "rs=0:\
+  di=$PALETTE_BLUE_SGR:\
+  ex=$PALETTE_RED_SGR"
+  ```
+
+  printed `rs=0:di=38;2;1;2;3:ex=38;2;4;5;6` as **one** line (a newline count of
+  `0`), and `env` carried the same string. So `$VAR` expands inside fish's double
+  quotes, a backslash at the end of a line continues the value without keeping the
+  newline, and `set -gx` exports it for `eza` to read out of the environment — the
+  same three things zsh's spelling buys.
+- **Nothing guards either generated block.** `grep -l renderZshTheme renderFishConfig`
+  over `installer/internal/tui/*_test.go` returns nothing: the stage-1 guard reads
+  `config.fish` as a file and never renders it. A refactor of the zsh renderer
+  therefore has no test to catch a change, which is why S6 is guarded here.
+- **The sentinel path is the one that runs.** `replaceThemeBlock`
+  (`installer.go:1342`) is tried before `adoptThemeBlock`, and `config.fish`
+  carries both markers (`:121`, `:149`). The fish artifact's `AdoptStart`/`AdoptEnd`
+  anchors (`set -l foreground F3F6F9 normal` / `set -g fish_pager_color_description $comment`,
+  `installer.go:1293`) are the hand-written-to-generated bridge only, so stage 2
+  leaves them alone.
+- **The two blocks as they stand**, rendered from every theme in `themes/` before
+  the change and kept for comparison: zsh 91 lines, 6567-6575 bytes; fish 27 lines,
+  1533-1541 bytes. Both tables live in the zsh block, as literal strings
+  (`zshLsColorsBlock`, `installer.go:3513`; `zshEzaColorsBlock`, `:3541`) whose every
+  value is a `${PALETTE_*_SGR}` reference.
+
+### Specs
+
+S1. For every theme in `themes/`, the fish block's `LS_COLORS` and `EZA_COLORS` carry
+    the same mapping the zsh block's do: the same keys, in the same order, each
+    taking the same palette role.
+S2. The mapping is written once. No key is stated in a shell's own renderer, so a key
+    added to the mapping reaches both shells and neither can drift from the other.
+S3. The fish tables read the theme's own values, computed the way zsh's are: the SGR
+    sequence of the palette role the mapping names, so a switch moves both shells and
+    neither falls back to a built-in sixteen.
+S4. What fish is given is fish. The emitted block holds no `${VAR}` and no `export `,
+    and declares every variable its tables read before reading it.
+S5. The fish block stays the generated region: still inside the two sentinels, still
+    replaced whole by a switch, and nothing outside it moves — the stage-1 aliases,
+    the `EZA_ICON_SPACING` line and the hand-written functions are untouched.
+S6. The zsh block is byte-identical before and after. This change moves *where* the
+    palette is computed, not what zsh is given.
+
+### Tasks
+
+T1. Compute the palette once, for every renderer that reads it.
+T2. Render the two listing tables from the single mapping, in each shell's spelling.
+T3. Emit the palette and both tables in the fish block, above the fish roles.
+T4. Guard it: the two shells agree on mapping and values, and fish is given fish.
+
+### The proof (stage 2)
+
+| what | value |
+|------|-------|
+| the three guards against the unmodified renderer | **all three fail**: `the fish block declares no LS_COLORS at all, so LS_COLORS reaches the tool unset and the listing falls back to that tool's own colours: the fish block holds 1541 bytes and no listing table` |
+| the same three after the change | pass, over all seven definitions in `themes/` |
+| the two shells compared entry for entry | 67 `LS_COLORS` entries and 66 `EZA_COLORS` entries, identical under both shells |
+| mutation: the fish table loses one entry | `TestBothShellsListFilesFromTheSameMapping` fails naming both sides: `zsh's LS_COLORS carries 67 entries and fish's carries 66`, and `entry 0 of LS_COLORS is "rs=0" under zsh and "di=38;2;30;102;245" under fish` |
+| mutation: fish is handed zsh's `export` untranslated | the mapping guard fails (`declares no LS_COLORS at all ... the fish block holds 6120 bytes and no listing table`) and the shape guard fails with it |
+| mutation: both halves paint a colour the theme never chose | **only** `TestFishListingTablesPaintTheThemesOwnValues` fails -- `di is painted "38;2;1;1;1", which is not a value in themes/catppuccin-latte.toml` -- while the mapping guard stays green, because both shells moved together |
+| each mutation restored afterwards | byte-identical to the version under test, checked with `diff -q` |
+| the zsh block, rendered for three themes before and after | **identical byte for byte**, all three (91 lines, 6567-6575 bytes) |
+| `fish -n` on the rendered block | syntax OK |
+| the block sourced in `fish --no-config` | `LS_COLORS` resolves to 67 entries, `EZA_COLORS` to 66, `di` is the theme's blue, and `env` carries `LS_COLORS`, so eza reads it |
+| `dotfiles-fish/fish/config.fish`, regenerated | +68 lines and no deletions: the palette and the two tables, inside the same two sentinels, with `fish_pager_color_description` still the block's last line |
+| `TestGeneratedThemeArtifactsMatchTheirDefinition` before regenerating | **fails**: `dotfiles-fish/fish/config.fish no longer matches themes/dotfiles.toml: regenerate it with go test ./internal/tui -run TestGeneratedThemeArtifactsMatchTheirDefinition -update-theme-artifacts` |
+| the same guard after regenerating | passes; the other thirteen artifacts already matched byte for byte |
+| `gofmt -l ./internal ./cmd` | no output |
+| `go vet ./...` | exit 0 |
+| the full suite, unfiltered, before regenerating | **5 failures**: the 4 Ghostty ones and the artifact guard above |
+| the full suite, unfiltered, after regenerating | **the 4 Ghostty failures only**, the same four this file and `theme-survives-install.md` already record |
+
+### Log
+
+**L1.** The mandate is this file's task 5, quoted verbatim above. Nothing was added to
+it: the icon spacing was already done, outside the generated region, by stage 1.
+
+**L2.** fish's parser, measured rather than reasoned about (`fish --no-config`):
+
+```
+expandido -> [rs=0:di=38;2;1;2;3:ex=38;2;4;5;6]
+lineas = 0
+LS_COLORS=rs=0:di=38;2;1;2;3:ex=38;2;4;5;6
+```
+
+A bare `$VAR` expands inside a double-quoted value, the backslash at the end of a line
+continues that value without keeping the newline (`lineas = 0`), and `set -gx` exports
+the result.
+
+**L3.** The space before the quote is load-bearing, and the naive translation is what
+measured it:
+
+```
+set: A=uno:dos: invalid variable name. See `help language#shell-variable-and-function-names`
+set: Did you mean `set A uno:dos`?
+```
+
+So `export NAME="` cannot become `set -gx NAME="`; fish refuses it. The translation
+emits `set -gx NAME "` and the value as an argument of its own.
+
+**L4.** **A wrong measurement, recorded because it was acted on before it was caught.**
+A search for the renderers by name -- `grep -l renderZshTheme renderFishConfig` over
+`installer/internal/tui/*_test.go` -- returns nothing, and I concluded that no test
+guarded either generated block, so the shipped artifact could be left alone. The suite
+said otherwise: `TestGeneratedThemeArtifactsMatchTheirDefinition`
+(`install_paths_test.go:2665`) renders every artifact through the same table the
+installer uses and compares it with the committed file, and it failed naming
+`dotfiles-fish/fish/config.fish`. The search was for an identifier; the guard works
+through the artifact's `Render` field. What was true is narrower: nothing calls the
+renderers *by name*.
+
+**L5.** The regression is regenerated, never hand-edited: the guard's own message
+carries the command (`-update-theme-artifacts`) and it goes through
+`themeArtifactBlock` + `replaceThemeBlock`, the path the installer takes.
+
+**L6.** Design: the block declares the palette's SGR values and renders both tables from
+the two constants zsh's block is rendered from, rather than inlining the sequences into
+the tables. Inlining would have been fewer lines and no global variables, and it was
+rejected because it hides what this stage is -- one mapping, read by both shells -- and
+because it stops the two blocks from being read side by side.
+
+**L7.** Order inside the block: the palette, then the tables, then fish's eighteen roles.
+The roles stay last because `installer_test.go:72` uses `set -g fish_pager_color_description`
+as the end of the shipped block when it checks that the drop-in loader comes after it.
+
+**L8.** The values guard allows exactly one entry to name no palette colour: `rs=0` is
+SGR's reset and is in the table on purpose. Any other entry without one fails.
+
+**L9.** A mutation that does not compile measures nothing. The first form of the third
+mutation -- forcing every SGR value to a constant -- left a local variable unused, so
+the package failed to build and the guards never ran; it was rewritten so that both
+halves receive the same value outside the theme, which is what makes only the values
+guard fire.
+
 ## Remaining
 
-Stages 2, 3 and 4 are open; each is its own change and its own review. Stage 2 is
-the one that makes fish's listing the same *colours*, not only the same shape.
+Stages 3 and 4 are open; each is its own change and its own review. Stage 2 is written
+and awaiting its merge: it is the one that makes fish's listing the same *colours*, not
+only the same shape.
