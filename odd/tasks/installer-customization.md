@@ -24,7 +24,7 @@ is last and holds the user's own words.
 
 - [x] **T1** (S1, S3) Shared unit table: one place names the seventeen units, their order, and which three are fixed. Route: inline. Commit: `refactor(tui): one table names the installer's units`.
 - [x] **T2** (S4, S8) One builder: the interactive and non-interactive planners become callers of a single function, with the defaults unchanged. Route: inline. Commit: `refactor(tui): one builder turns choices into steps`.
-- **T3** (S5, S9) The screen: enum, title, description, options, panel, render, key dispatch, escape map. Route: worker. Commit: `feat(tui): a screen that shows every unit and its switch`.
+- [x] **T3** (S5, S9) The screen: enum, title, description, options, panel, render, key dispatch, escape map. Route: worker. Commit: `feat(tui): a screen that shows every unit and its switch`.
 - **T4** (S6) The selection reaches the plan, and a unit turned off reports itself as skipped. Route: worker. Commit: `feat(tui): a unit turned off says so instead of vanishing`.
 - **T5** (S7, S8) The command line and the environment: the flag, and parity guards that hold both routes to the same plan. Route: worker. Commit: `feat(tui): the command line says what the screen can say`.
 - **T6** (S2, S5) Documentation and changelog: `docs/tui-installer.md`, the `--help` text and `CHANGELOG.md`. Route: inline. Commit: `docs(tui): the installer's choices are described where its screens are`.
@@ -81,3 +81,34 @@ is last and holds the user's own words.
   `buildStepsForChoices`, and not one of them said which units it should produce. The convergence is
   therefore covered by the four guards written here and by nothing that already existed, which is
   worth knowing before trusting the next green.
+- **L11.** T3's red came before its code and named the rule: with the screen constant declared and no
+  render case, `TestEveryScreenIsCoveredByAFrameGuard` failed with "no frame guard measures 1 of 46
+  screens: [ScreenInstallReview]". Registering the screen in the lists that measure it -- the
+  frame-state list, the frame case, the options and title lists, the panel map, the `Ctrl+C` list and
+  the two pinned enumerations -- is part of the task rather than cleanup after it: a screen the guards
+  do not measure is a screen nothing holds.
+- **L12.** The frame guard then measured the screen's real size and it was wrong: 28 rows on a 24-row
+  terminal. The cascade is worth recording because the first reading of it was wrong too. The footer's
+  Enter and Esc hints were reported as "not shown", which reads as a footer that drops hints; it was
+  the body pushing the footer off the bottom, and the footer at `footerMaxRows = 2` only truncates
+  *its own* rows. One cause, two symptoms, and the guard that found it named the screen.
+- **L13.** A fixed window was the next wrong answer. Nine rows fit 80x24 and still overflowed the
+  twenty-row terminal the matrix measures -- there are twelve sizes, not four. The window is now
+  computed rather than chosen: `installerBodyRows` says what the body has, the title, the description,
+  the count and the two "more above"/"more below" rows are subtracted, and the floor is three rows.
+  Measured with a temporary probe before the numbers were used: 23 rows at 80x24 (window 11), 19 at
+  60x20 (window 5, footer on two rows), 29 at 100x30 with all seventeen units and no "more" line. The
+  probe was deleted and checked absent from the index, the `zz_probe_test.go` hygiene step this front
+  already learned once.
+- **L14.** One guard failed against a screen that was correct, and the guard was the defect: it built
+  `Model{Screen: ScreenInstallReview}` with no terminal size, so the footer wrapped past
+  `footerMaxRows` and lost its last hints. A guard that renders must name the terminal it renders at,
+  for the same reason the password screen's guard folds the frame before comparing: otherwise the
+  harness decides the verdict.
+- **L15.** Three tests pinned the old wiring -- the neovim question and the backup question's two
+  answers all started the run outright. They now assert that the review opens, that the question it
+  came from is remembered, and that nothing has started yet; and the golden-capture guard's own teeth
+  walk both presses to reach the executor, so the teeth stay on the real seam instead of being
+  loosened. Found while fixing them, not fixed here: `comprehensive_test.go`'s test-only
+  `Screen.String()` table stops at `RestoreConfirm`, so every screen added since prints as "Unknown"
+  in failures -- which is how this one read before its index was understood.

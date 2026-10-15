@@ -90,8 +90,10 @@ func TestHandleBackupConfirmKeys(t *testing.T) {
 			t.Error("CreateBackup should be true when selecting backup option")
 		}
 
-		if newModel.Screen != ScreenInstalling {
-			t.Errorf("Expected ScreenInstalling, got %v", newModel.Screen)
+		// The review screen is the wizard's last step, so the backup answer opens it
+		// rather than the run: nothing installs before the user has seen the list.
+		if newModel.Screen != ScreenInstallReview {
+			t.Errorf("Expected ScreenInstallReview, got %v", newModel.Screen)
 		}
 	})
 

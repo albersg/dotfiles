@@ -314,6 +314,7 @@ func TestGetScreenTitle(t *testing.T) {
 		{ScreenWelcome, "Welcome to dotfiles Installer"},
 		{ScreenOSSelect, "Step 1: Select Your Operating System"},
 		{ScreenTerminalSelect, "Step 2: Choose Terminal Emulator"},
+		{ScreenInstallReview, "Choose What Gets Installed"},
 		{ScreenShellSelect, "Step 4: Choose Your Shell"},
 		{ScreenComplete, "Installation complete"},
 		{ScreenError, "Installation failed"},

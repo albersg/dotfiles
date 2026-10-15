@@ -90,7 +90,10 @@ var (
 	hintReturn   = installerHint{"[Enter/Space/Esc/q]", "return to menu"}
 	hintRetry    = installerHint{"[r]", "retry"}
 	hintStart    = installerHint{"[Enter]", "start"}
-	hintExit     = installerHint{"[Enter]", "exit"}
+	// The review screen's switch. It is its own key rather than Enter, because a key
+	// that turns a unit off and a key that starts the run cannot be the same one.
+	hintToggle = installerHint{"[Space]", "turn it off or on"}
+	hintExit   = installerHint{"[Enter]", "exit"}
 	// hintAdjust and hintRecommended are the WSL resource screen's own keys: the
 	// arrows move the value under the cursor by one step, and `r` puts every row
 	// back on the host's recommendation. hintMove is the same screen's compact
@@ -519,7 +522,8 @@ func (m Model) headerName() string {
 	case ScreenMainMenu:
 		return "Main Menu"
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect,
-		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
+		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning,
+		ScreenInstallReview:
 		return "Setup"
 	case ScreenInstalling:
 		return "Installing dotfiles"
@@ -1027,6 +1031,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderMainMenu())
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		s.WriteString(m.renderSelection())
+	case ScreenInstallReview:
+		s.WriteString(m.renderInstallReview())
 	case ScreenLearnTerminals:
 		s.WriteString(m.renderLearnTerminals())
 	case ScreenLearnShells:
