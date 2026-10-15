@@ -198,3 +198,46 @@ is last and holds the user's own words.
   the guard green, T2's identifier and parity guards unmoved, the nine E2E invocations green by hand
   including the refusal of kitty on Linux and both negative controls, and the whole module showing only
   the four pre-existing Ghostty failures.
+- **L26.** Release 0.9.0, cut by the user's standing instruction once this front closed. The bump is a
+  MINOR by the repository's own policy -- `[Unreleased]` carried `### Added` -- so 0.8.0 became 0.9.0.
+  The release commit `22138b3` (the changelog heading and `.downstream/version.json`) went to `main`
+  directly, which the host's guardrail refused as an unconfirmed protected-branch push until the user
+  chose that route explicitly; the in-repo formula commit `2c9822e` followed under the same choice. CI
+  on the release commit is the authority the runbook names, and it was **15 of 15 green**, enumerated
+  from the commit's own check runs rather than from the pull request's list, because a green check run
+  belonging to a previous head can report success while the new run is still queued.
+
+  Tag `v0.9.0` is annotated (object `3478a7f`, commit `22138b3`) and the release is published at
+  19:54:51Z with a body **identical to the changelog section** -- compared line by line against the
+  section, not eyeballed -- which is the box that catches a release carrying GitHub's generated list
+  instead. Six artifacts followed, and `MANIFEST.txt` names `22138b32...` as the commit they were built
+  from. The four hashes were measured from those published artifacts and then cross-checked against the
+  release's own `SHA256SUMS`: four coincidences, zero discrepancies.
+
+  That cross-check is worth recording twice over, because my first attempt at it **passed without
+  checking anything**: `SHA256SUMS` names paths (`./dotfiles-darwin-amd64/dotfiles-darwin-amd64`) while
+  my loop looked for the bare file name, so nothing was found, nothing was compared, and the report read
+  "coincidencias: 0, discrepancias: 0" with an exit code of zero. It is the same shape as the E2E
+  negative control fixed in T7: a check whose lookup cannot match is a check that is counted and does
+  nothing. Both were caught by asking what the numbers would look like if the check were broken.
+
+  The runbook's own command updated the formula, in both repositories, with each substitution counting
+  its replacements and raising when one did not happen -- it wrote `homebrew-tap/Formula/dotfiles.rb`
+  from this repository and `Formula/dotfiles.rb` from the tap clone, skipping the path that is not
+  there. Both copies carry 0.9.0 and the four published hashes, verified asset by asset with four
+  `sha256` lines and no placeholders. The tap commit `36f77fc` and the in-repo copy `2c9822e` are both
+  pushed, because an unpushed tap commit is a `brew install` that still serves the previous release and
+  nothing fails when it does. `brew install` found the formula already installed and `brew upgrade` did
+  the work: `0.8.0 -> 0.9.0`, then `dotfiles --version` printed `dotfiles v0.9.0 (22138b3, 2026-10-15)`
+  and `dotfiles --check-update` answered `Up to date with v0.9.0 (published 2026-10-15)`, which is the
+  check that notices a release nobody can update to.
+
+  One pre-flight box was not green and is recorded rather than silenced: `make preflight` stops at its
+  last step, `cd installer && go test ./... -count=1`, on the four pre-existing Ghostty tests that fail
+  on this machine and pass in CI. Everything before that step passed, and the four names in its log are
+  the Ghostty ones and no others. The script was **not** edited to accommodate the host: a gate relaxed
+  during a release is not a gate, and CI on the same commit is the same check's authority.
+
+  Also of note: GitHub deletes the pull request's head branch on merge -- the repository's setting, not
+  a flag this session passed -- so `feat/installer-customization` was recreated at `5730a06`, since
+  branches here are never deleted.
