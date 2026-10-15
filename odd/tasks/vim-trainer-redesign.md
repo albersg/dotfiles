@@ -149,7 +149,7 @@ of being overwritten by the next save. A test pins each of the three.
 - [x] **T4. Calibrated difficulty** (S7, S8): the Level contract and its guard, points from
       difficulty, the practice mix, the boss clock rule and the corrected step limits.
 - [x] **T5. The visible combo** (S9): combo in all modes, shown on the exercise and boss headers.
-- [ ] **T6. Fight time and boss hints** (S10, S11): measured fight duration, best time on the result
+- [x] **T6. Fight time and boss hints** (S10, S11): measured fight duration, best time on the result
       screen, the boss nudge behind `Tab`.
 - [ ] **T7. Profile hardening** (S13): atomic save, schema version, corrupt profile preserved.
 - [ ] **T8. Docs** (S2, S5, S6, S7, S8, S12): the trainer spec and the trainer skill describe the
@@ -254,3 +254,18 @@ of being overwritten by the next save. A test pins each of the three.
   wins. Two pins that encoded the old ownership were rewritten
   (`TestGameState_NextExercise_IncreasesCombo`, `TestGameState_NextExercise_ComboMaxAt4`), and the
   new `TestTrainerComboSurvivesTheDocumentedFloor` holds the chip inside 80 columns.
+
+- **T6 (S10, S11).** RED observed as a build failure on `BossFightElapsed`, then as the corpus
+  hint guard failing on all 35 steps. Implemented for S10: the fight has its own clock
+  (`bossFightStartedAt`/`bossFightEndedAt`, frozen by `finishBossFight` when the last life goes or
+  the boss falls), `BossFightElapsed` is what `RecordBossVictory` now writes into the dead
+  `TimeElapsed` field, `BossBestTime` is finally recorded, and the result screen reports "Fight
+  time: Ns · Best: Ns". For S11: `trainer.BossStepNudge` is the one owner of what `Tab` reveals --
+  the step's own hint, or the first keystrokes of its answer, never the whole answer and nothing at
+  all for a one-keystroke answer -- and all 35 steps now ship an authored hint.
+  Content lesson worth keeping: the repo's own `TestShippedHintsAddWhatTheirMissionDoesNot` guard
+  rejected 17 of the first drafts for repeating the mission, so those were rewritten to add a
+  mechanism (a count, a sibling command, or the consequence of the command) rather than a synonym.
+  The new `TestCorpusHintsDoNotQuoteTheAnswer` holds the other end. One pin that encoded the old
+  contract was rewritten: `TestGameState_RecordBossVictory` assigned `TimeElapsed` by hand and now
+  moves the fight's clock instead.

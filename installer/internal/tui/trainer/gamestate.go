@@ -37,6 +37,11 @@ type GameState struct {
 	// Boss state
 	BossLives int
 	BossStep  int
+	// bossFightStartedAt and bossFightEndedAt are the fight's own clock, so a fight
+	// measures itself. They are the fight's and not a step's: the countdowns are per
+	// step and the bonus time a won step grants is not time the fight took.
+	bossFightStartedAt time.Time
+	bossFightEndedAt   time.Time
 	// IsBossDefeated is true once the player has defeated the current boss. It
 	// is set only by RecordBossVictory. Losing a fight is not a defeat of the
 	// boss: an exhausted fight is read from BossLives reaching zero, never from
@@ -338,6 +343,8 @@ func (g *GameState) StartBoss(module ModuleID) {
 	g.CurrentStreak = 0
 	g.ComboMultiplier = 1
 	g.IsBossDefeated = false
+	g.bossFightStartedAt = g.clockNow()
+	g.bossFightEndedAt = time.Time{}
 
 	if g.CurrentBoss != nil {
 		g.BossLives = g.CurrentBoss.Lives
@@ -458,6 +465,11 @@ func (g *GameState) RecordIncorrectAnswer() {
 		if g.BossLives < 0 {
 			g.BossLives = 0
 		}
+		if g.BossLives == 0 {
+			// The last life ends the fight, so the clock stops with it: a defeat's
+			// duration is the fact the result screen reports.
+			g.finishBossFight()
+		}
 		g.startBossDeadline()
 	}
 }
@@ -516,6 +528,31 @@ func (g *GameState) NextBossExercise() bool {
 	return true
 }
 
+// BossFightElapsed is how long the fight on screen has lasted, measured with the
+// injected clock from the moment its first step was presented. It is 0 for a state that
+// is not in a fight. Once the fight ends the duration is frozen, so the result screen
+// reports what the fight took instead of a clock that keeps running while it is read.
+func (g *GameState) BossFightElapsed() time.Duration {
+	if g.bossFightStartedAt.IsZero() {
+		return 0
+	}
+	end := g.bossFightEndedAt
+	if end.IsZero() {
+		end = g.clockNow()
+	}
+	return end.Sub(g.bossFightStartedAt)
+}
+
+// finishBossFight freezes the fight's duration. It is idempotent, so the first end wins
+// and a later one -- a defeat recorded after a victory, or a second expiry tick -- cannot
+// stretch the time the fight is reported to have taken.
+func (g *GameState) finishBossFight() {
+	if g.bossFightStartedAt.IsZero() || !g.bossFightEndedAt.IsZero() {
+		return
+	}
+	g.bossFightEndedAt = g.clockNow()
+}
+
 // RecordBossVictory records defeating a boss
 func (g *GameState) RecordBossVictory() {
 	// The player defeated the boss this session.
@@ -538,6 +575,11 @@ func (g *GameState) RecordBossVictory() {
 	progress := g.Stats.GetModuleProgress(g.CurrentModule)
 	progress.BossDefeated = true
 
+	// TimeElapsed is the finished fight's own duration. It used to be a field nothing
+	// ever wrote, so BossBestTime could only ever stay at zero and the result screen
+	// had no time to show.
+	g.finishBossFight()
+	g.TimeElapsed = g.BossFightElapsed()
 	if progress.BossBestTime == 0 || g.TimeElapsed < progress.BossBestTime {
 		progress.BossBestTime = g.TimeElapsed
 	}
@@ -568,6 +610,8 @@ func (g *GameState) Reset() {
 	g.BossStep = 0
 	g.bossStepBonus = 0
 	g.bossStepDeadline = time.Time{}
+	g.bossFightStartedAt = time.Time{}
+	g.bossFightEndedAt = time.Time{}
 	g.IsBossDefeated = false
 
 	g.TimeElapsed = 0

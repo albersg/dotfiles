@@ -3288,11 +3288,15 @@ func (m *Model) revealExerciseHintOnDeadline() {
 // no label", so the lesson, the practice and the boss handlers, and the
 // automatic deadline reveal, cannot disagree about what a missing hint looks
 // like.
+// trainerHintPrefix is what every hint the trainer reveals is labelled with, so the
+// exercise screen and the boss screen say the same thing about the same kind of help.
+const trainerHintPrefix = "💡 Hint: "
+
 func trainerHintLabel(exercise *trainer.Exercise) string {
 	if exercise == nil || exercise.Hint == "" {
 		return ""
 	}
-	return "💡 Hint: " + exercise.Hint
+	return trainerHintPrefix + exercise.Hint
 }
 
 // expireBossStepOnDeadline charges the clock when a boss step is left
@@ -3701,13 +3705,13 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		// The boss screen reveals its step's hint on the same terms as the
-		// exercise screen: trainerHintLabel's label, its empty check, and no
-		// label at all when the step carries none. Before this case the hint the
-		// rewritten Change & Repeat boss steps ship was unreachable copy: it sat
-		// in the data and no boss key could show it.
-		if label := trainerHintLabel(m.TrainerGameState.CurrentExercise); label != "" {
-			m.TrainerMessage = label
+		// The boss screen asks trainer.BossStepNudge rather than trainerHintLabel:
+		// the step's own hint when it ships one, and the first keystrokes of its
+		// answer when it does not. Tab used to be dead on every step without an
+		// authored hint, which was all 35 of them, so the key did nothing at all in
+		// the one place the player most wants a nudge.
+		if nudge := trainer.BossStepNudge(m.TrainerGameState.CurrentExercise); nudge != "" {
+			m.TrainerMessage = trainerHintPrefix + nudge
 		}
 		return m, nil
 

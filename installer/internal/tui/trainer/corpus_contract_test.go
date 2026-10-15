@@ -97,6 +97,42 @@ func TestCorpusBossBonusTimeIsInRange(t *testing.T) {
 	}
 }
 
+// TestCorpusBossStepsCarryAHint is the corpus half of S11: every boss step ships the
+// nudge the player can ask for. It is a guard rather than a screen test because the
+// trainer's `Tab` key was dead on every step that declared none, which was all 35 of
+// them, and a screen test cannot see content that was never written.
+func TestCorpusBossStepsCarryAHint(t *testing.T) {
+	missing := []string{}
+	for _, module := range GetAllModules() {
+		boss := GetBoss(module.ID)
+		if boss == nil {
+			continue
+		}
+		for _, step := range boss.Steps {
+			if step.Exercise.Hint == "" {
+				missing = append(missing, step.Exercise.ID)
+			}
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("%d boss steps carry no hint, so Tab does nothing on them: %v", len(missing), missing)
+	}
+}
+
+// TestCorpusHintsDoNotQuoteTheAnswer is the other side of S11: a hint gets the player
+// started, so an authored hint that quotes its own answer in the corpus' keystroke
+// notation is a solution wearing a hint's label.
+func TestCorpusHintsDoNotQuoteTheAnswer(t *testing.T) {
+	for _, exercise := range corpusExercises(t) {
+		if exercise.Hint == "" || exercise.Optimal == "" {
+			continue
+		}
+		if strings.Contains(exercise.Hint, "`"+exercise.Optimal+"`") {
+			t.Errorf("%s quotes its own answer in its hint: %q", exercise.ID, exercise.Hint)
+		}
+	}
+}
+
 // TestCorpusMissionDoesNotSpoilTheAnswer pins the hint rule at the other end: the
 // mission may name the target, but it must not print the keystrokes. A mission that
 // contains its own Optimal hands the answer over before the player has looked, which is

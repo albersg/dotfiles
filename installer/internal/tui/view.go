@@ -4812,6 +4812,30 @@ func (m Model) renderTrainerResult() string {
 	return strings.Join(rows, "\n")
 }
 
+// trainerFightDuration renders a fight's length the way the countdowns render theirs:
+// whole seconds, so a fast fight does not read as "39.999s" because a frame landed a
+// hair early.
+func trainerFightDuration(d time.Duration) string {
+	seconds := int(d.Round(time.Second).Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+// trainerBossBestTime is the module's recorded best fight, or 0 when it has none. It
+// reads the profile without creating a record, like every other question the trainer
+// asks of it.
+func (m Model) trainerBossBestTime(module trainer.ModuleID) time.Duration {
+	if m.TrainerStats == nil {
+		return 0
+	}
+	if progress := m.TrainerStats.ModuleProgressOrNil(module); progress != nil {
+		return progress.BossBestTime
+	}
+	return 0
+}
+
 func (m Model) renderTrainerBossResult() string {
 	inner := trainerInnerWidth(m)
 
@@ -4858,6 +4882,19 @@ func (m Model) renderTrainerBossResult() string {
 			summary = append(summary, MutedStyle.Render(state.CurrentBoss.Name+" wins this time..."))
 		}
 		summary = append(summary, InfoStyle.Render("Keep practicing and try again!"))
+	}
+
+	// The fight's own clock, which the state now measures: how long this fight took and
+	// the module's best. Both are omitted for a fight that never started, so the row
+	// appears only when there is a measurement behind it.
+	if state != nil && state.CurrentBoss != nil {
+		if elapsed := state.BossFightElapsed(); elapsed > 0 {
+			line := fmt.Sprintf("Fight time: %s", trainerFightDuration(elapsed))
+			if best := m.trainerBossBestTime(state.CurrentModule); best > 0 {
+				line += fmt.Sprintf(" · Best: %s", trainerFightDuration(best))
+			}
+			summary = append(summary, MeterStyle.Render(line))
+		}
 	}
 	rows = append(rows, gutteredBlock(summary)...)
 

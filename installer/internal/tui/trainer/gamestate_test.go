@@ -382,10 +382,14 @@ func TestGameState_PracticeAccuracyCalculation(t *testing.T) {
 }
 
 func TestGameState_RecordBossVictory(t *testing.T) {
+	// The fight measures itself now, so the fixture moves the clock rather than
+	// assigning the duration the victory is supposed to have read.
+	clock := newFightClock()
 	state := NewGameState()
+	state.SetClock(clock.read)
 	state.StartBoss(ModuleHorizontal)
 	state.BossLives = 2
-	state.TimeElapsed = 25 * time.Second
+	clock.advance(25 * time.Second)
 
 	state.RecordBossVictory()
 
