@@ -241,3 +241,29 @@ is last and holds the user's own words.
   Also of note: GitHub deletes the pull request's head branch on merge -- the repository's setting, not
   a flag this session passed -- so `feat/installer-customization` was recreated at `5730a06`, since
   branches here are never deleted.
+- **L27.** The native review was started **after** delivery instead of before it, and that ordering is my
+  error, recorded here rather than glossed over: `assess` was never consulted while the work was still a
+  candidate, so the outside view the review switch asks for arrived once the code was merged and
+  released. With the switch on (`receipt-driven development: on (decided by default)`), the assessment
+  was run late: risk **high**, 26 paths, 2239 changed lines, `reviewDue: true` by `high_risk`, and its two
+  signals `process_boundary` and `shell_source`, both on `installer/e2e/e2e_test.sh` -- the E2E script T7
+  edited. Its plan asks for the writer's self-verification and a separate independent verifier, neither of
+  which the review replaces.
+
+  Two host details cost a round each and are worth keeping. The first `assess` failed with
+  `fatal: bad revision 'HEAD'` because the session's working directory is a *different* repository whose
+  `HEAD` is unborn; passing the project root explicitly fixed it. And the first START was refused with
+  `lenses-invalid` while carrying a long `lensesReason` that named flags with their dashes; the same two
+  lenses with a short reason were accepted, so the reason text is validated rather than free -- worth
+  knowing before writing one again.
+
+  The review itself is **blocked on the host, not on the candidate**. START created lineage
+  `review-2683c99dcd8e2a37` (state `reviewing`, tier high, lenses `review-readability` and
+  `review-reliability`, correction budget 200) and the frozen trees are pinned, but capturing the
+  reviewer group failed with `pi-host-relay-transport-failure`: *no model is configured for
+  review-readability; assign it a model in the agent model routing config*. Nothing ran, nothing was
+  mutated, and prepared and submitted reviewers are both zero. Fresh STATUS reoffers the same two slots,
+  and resubmitting would fail identically because no configuration changed -- the provider authorised only
+  an exact reoffered **one-slot** binding, which is not what was reoffered -- so it was not retried. The
+  reviewer runs are unavailable in this environment until the lens-to-model routing is assigned, which is
+  the user's configuration to make, not something to invent.
