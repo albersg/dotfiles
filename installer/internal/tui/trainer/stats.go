@@ -3,6 +3,7 @@ package trainer
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,8 +14,24 @@ var statsConfigPath = ""
 
 const statsFileName = "stats.json"
 
+// StatsSchemaVersion is the format the profile is written in. It travels in the file so
+// a future trainer can migrate a profile instead of guessing at it, and it is read back
+// so a profile written by a newer trainer is preserved rather than quietly downgraded
+// -- this build cannot see the fields it does not know, and saving it back would delete
+// them. Version 0 means a profile written before the field existed, which is this format.
+const StatsSchemaVersion = 1
+
+// The suffixes a profile this build cannot use is preserved under. It is renamed beside
+// its own path rather than deleted: a corrupt profile is the only evidence of what went
+// wrong, and the next save writes a fresh one over the old path either way.
+const (
+	statsCorruptSuffix = ".corrupt-"
+	statsNewerSuffix   = ".newer-"
+)
+
 // statsFileJSON represents the JSON structure for stats
 type statsFileJSON struct {
+	SchemaVersion    int                            `json:"schemaVersion"`
 	TotalScore       int                            `json:"totalScore"`
 	CurrentStreak    int                            `json:"currentStreak"`
 	BestStreak       int                            `json:"bestStreak"`
@@ -70,23 +87,60 @@ func getConfigDir() string {
 	return filepath.Join(homeDir, ".config", "dotfiles-trainer")
 }
 
-// LoadStats loads user stats from file
+// LoadStats loads user stats from file. It is LoadStatsReport without the report, for
+// callers that only describe the panel and have nowhere to say what went wrong.
 func LoadStats() *UserStats {
+	stats, _ := LoadStatsReport()
+	return stats
+}
+
+// LoadStatsReport loads user stats and says what happened when it could not. A missing
+// profile is the ordinary first run and reports nothing; a profile that cannot be parsed
+// or that a newer trainer wrote is moved aside -- preserved under a suffix beside its own
+// path, because it is the only evidence of what went wrong and the next save would write
+// over it -- and reported in one line the trainer can show the player.
+func LoadStatsReport() (*UserStats, string) {
 	path := GetStatsPath()
 	if path == "" {
-		return nil
+		return nil, ""
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil, ""
+		}
+		return nil, "The trainer profile could not be read: " + err.Error()
 	}
 
 	var fileStats statsFileJSON
 	if err := json.Unmarshal(data, &fileStats); err != nil {
-		return nil
+		return nil, preserveStatsFile(path, statsCorruptSuffix,
+			"The trainer profile could not be read")
+	}
+	if fileStats.SchemaVersion > StatsSchemaVersion {
+		return nil, preserveStatsFile(path, statsNewerSuffix,
+			fmt.Sprintf("The trainer profile is from a newer trainer (format %d, this one reads %d)",
+				fileStats.SchemaVersion, StatsSchemaVersion))
 	}
 
+	return statsFromFile(fileStats), ""
+}
+
+// preserveStatsFile renames a profile this build cannot use to a sibling path and
+// returns the sentence the trainer shows about it. A rename that fails is reported too:
+// the player has to know the profile was not preserved either way.
+func preserveStatsFile(path, suffix, reason string) string {
+	preserved := fmt.Sprintf("%s%s%d", path, suffix, time.Now().Unix())
+	if err := os.Rename(path, preserved); err != nil {
+		return reason + ", and it could not be kept: " + err.Error()
+	}
+	return reason + "; it was kept as " + filepath.Base(preserved)
+}
+
+// statsFromFile converts the profile's own shape into the one the trainer works with.
+// Every field is read here and nowhere else, so a format change has one place to land.
+func statsFromFile(fileStats statsFileJSON) *UserStats {
 	// Convert JSON struct to UserStats
 	stats := &UserStats{
 		TotalScore:     fileStats.TotalScore,
@@ -164,6 +218,7 @@ func SaveStats(stats *UserStats) error {
 	}
 
 	fileStats := statsFileJSON{
+		SchemaVersion:    StatsSchemaVersion,
 		TotalScore:       stats.TotalScore,
 		CurrentStreak:    stats.CurrentStreak,
 		BestStreak:       stats.BestStreak,
@@ -222,7 +277,32 @@ func SaveStats(stats *UserStats) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// The profile is written beside itself and renamed into place, so a crash -- or a
+	// full disk -- cannot leave a half-written file where a readable profile used to
+	// be. The temporary file lives in the same directory as its target, which is what
+	// makes the rename atomic: a rename across filesystems is a copy.
+	tmp, err := os.CreateTemp(dir, statsFileName+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	// A save that fails at any point removes its own temporary file: a leftover would
+	// be mistaken for a profile by the next run, and the player would never see it.
+	defer func() { _ = os.Remove(tmpName) }()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpName, path)
 }
 
 // ResetStats deletes the stats file

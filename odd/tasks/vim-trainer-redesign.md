@@ -151,7 +151,7 @@ of being overwritten by the next save. A test pins each of the three.
 - [x] **T5. The visible combo** (S9): combo in all modes, shown on the exercise and boss headers.
 - [x] **T6. Fight time and boss hints** (S10, S11): measured fight duration, best time on the result
       screen, the boss nudge behind `Tab`.
-- [ ] **T7. Profile hardening** (S13): atomic save, schema version, corrupt profile preserved.
+- [x] **T7. Profile hardening** (S13): atomic save, schema version, corrupt profile preserved.
 - [ ] **T8. Docs** (S2, S5, S6, S7, S8, S12): the trainer spec and the trainer skill describe the
       rules this front changed, so the repository does not document behaviour it no longer has.
 
@@ -269,3 +269,16 @@ of being overwritten by the next save. A test pins each of the three.
   The new `TestCorpusHintsDoNotQuoteTheAnswer` holds the other end. One pin that encoded the old
   contract was rewritten: `TestGameState_RecordBossVictory` assigned `TimeElapsed` by hand and now
   moves the fight's clock instead.
+
+- **T7 (S13).** RED observed as a build failure on `StatsSchemaVersion`, then as the three new
+  tests failing against the old save/load. Implemented: `SaveStats` marshals first, writes into a
+  temporary file created in the target's own directory (a rename across filesystems is a copy, which
+  is what makes the same-directory placement the point) and renames it into place, removing its own
+  temporary file on every failure path; the JSON carries `schemaVersion`, and a profile with no
+  version still loads as this format; `LoadStatsReport` distinguishes a missing profile (the
+  ordinary first run, silent) from one that cannot be parsed or that a newer trainer wrote, and in
+  both of those cases it renames the file to a sibling `.corrupt-`/`.newer-` path and returns one
+  sentence naming it, which `startTrainer` shows as the trainer's message. `LoadStats` stays as the
+  thin wrapper for the callers that only describe a panel.
+  One assertion in the new suite was wrong and was fixed rather than the behaviour: preserving
+  *moves* the file, so the newer-schema case leaves one entry, not two.

@@ -1716,7 +1716,10 @@ func (m *Model) enterShellSelect() {
 }
 
 func (m Model) startTrainer() (tea.Model, tea.Cmd) {
-	stats := trainer.LoadStats()
+	// The reporting load is the one the trainer's own entry point uses: a profile that
+	// could not be read is moved aside and the player is told where it went, instead of
+	// being handed a silent zero that the next save would write over.
+	stats, problem := trainer.LoadStatsReport()
 	if stats == nil {
 		stats = trainer.NewUserStats()
 	}
@@ -1724,7 +1727,7 @@ func (m Model) startTrainer() (tea.Model, tea.Cmd) {
 	m.TrainerGameState = nil
 	m.TrainerCursor = 0
 	m.TrainerInput = ""
-	m.TrainerMessage = ""
+	m.TrainerMessage = problem
 	m.Screen = ScreenTrainerMenu
 	m.PrevScreen = ScreenMainMenu
 	return m, nil
