@@ -92,6 +92,10 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 		{ScreenLearnNvim, 4},
 		{ScreenLearnTools, 5},
 		{ScreenLearnPrompts, 4},
+		// The reference menu offers every tool it has a page for: the eight rows plus
+		// the separator and Back.
+		{ScreenKeymapsMenu, 10},
+		{ScreenKeymapsKitty, 4},
 		{ScreenKeymaps, 3},
 		{ScreenLearnLazyVim, 3},
 		// The review screen lists one row per catalogued unit, so its count is the
@@ -224,6 +228,9 @@ func TestGetScreenTitleForAllScreens(t *testing.T) {
 		ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim,
 		ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts,
 		ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset,
+		ScreenKeymaps, ScreenKeymapCategory, ScreenKeymapsMenu,
+		ScreenKeymapsKitty, ScreenKeymapsKittyCat,
+		ScreenKeymapsWezTerm, ScreenKeymapsAlacritty,
 		ScreenKeymaps, ScreenKeymapCategory, ScreenLearnLazyVim, ScreenLazyVimTopic,
 	}
 

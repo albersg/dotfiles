@@ -97,7 +97,22 @@ worktree principal. Por eso este frente vive en su propio worktree,
 
 **L4.** Decisión del humano (verbatim): *"C) Todo, incluida paridad de keymaps (puntos 1-5)"*.
 
-**L6.** T3 y T4 se entregaron en un solo commit: sus cambios viven en los mismos archivos
+**L7.** T5. La referencia de keymaps ofrecía cinco tools; ahora ofrece ocho. Kitty entra con las
+once líneas `map` de `dotfiles-kitty/kitty.conf:68-80` (nueve saltos de pestaña y las dos de
+portapapeles) y las otras dos entran con la respuesta exacta: ni `.wezterm.lua` ni `alacritty.toml`
+declaran binding alguno, así que sus páginas dicen eso y listan los ajustes que los archivos sí
+traen, bajo encabezados que se los prometen de verdad (`Setting | Section | What this configuration
+sets`). Los guards leen el archivo: la tabla de Kitty se compara en las dos direcciones contra sus
+`map`, y las otras dos fallan si el archivo llega a declarar un binding y si una fila nombra un ajuste
+que el archivo no trae. El handler del menú pasó de rutear por índice de fila a rutear por etiqueta:
+con el `switch m.Cursor` anterior, insertar una fila arriba mandaba una tool a la página de otra.
+
+Dos renombres, porque el mecanismo dejó de ser sólo del learn: `LearnTableScroll` →
+`ReferenceTableScroll` y `handleLearnTableKeys` → `handleReferenceTableKeys`. Y `keymapSources()`
+sumó Kitty: el panel cuenta tablas de bindings, y los dos que no declaran ninguno no tienen tabla
+que contar, cosa que su comentario ahora dice en vez de afirmar que son "the five tools".
+`measuredScreens` pasó de 69 a 73.
+: sus cambios viven en los mismos archivos
 (`tools_info.go`, `view.go`, `update.go`, `model.go`, `learn_menu.go`, `teatest_test.go`,
 `comprehensive_test.go`), así que la frontera entre "páginas de Font y Prompts" y "páginas de
 referencia" no se puede cortar por archivo sin partir hunks a mano. Evidencia de la suite del

@@ -62,6 +62,14 @@ const (
 	// the existing screens stable.
 	ScreenKeymapsHerdr    // Herdr keymaps
 	ScreenKeymapsHerdrCat // Herdr keymap category
+	// The three terminals the keymap reference was missing. Kitty's two categories
+	// are the bindings its configuration declares; WezTerm and Alacritty declare
+	// none, so their screens carry the settings their files do have. Appended here
+	// to keep the numeric values of the existing screens stable.
+	ScreenKeymapsKitty     // Kitty keymaps
+	ScreenKeymapsKittyCat  // Kitty keymap category
+	ScreenKeymapsWezTerm   // WezTerm settings, because the configuration binds nothing
+	ScreenKeymapsAlacritty // Alacritty settings, because the configuration binds nothing
 	// Utilities section. Appended at the end for the same reason. It is reached
 	// from the main menu both by its own row, just above Exit, and by the `u`
 	// shortcut.
@@ -331,11 +339,15 @@ type Model struct {
 	HerdrKeymapCategories   []KeymapCategory
 	HerdrSelectedCategory   int
 	HerdrKeymapScroll       int
-	// LearnTableScroll is the top-row offset of the read-only reference pages the
-	// learn section draws (shell tooling, plugins, the machine toolset). They share
+	KittyKeymapCategories   []KeymapCategory
+	KittySelectedCategory   int
+	KittyKeymapScroll       int
+	// ReferenceTableScroll is the top-row offset of the read-only reference pages
+	// that are not keymap categories: the learn section's shell tooling, plugins and
+	// machine toolset tables, and the WezTerm and Alacritty keymap pages. They share
 	// one value because only one of them is on screen at a time, and it is reset
 	// when a page is opened and when it is left.
-	LearnTableScroll int
+	ReferenceTableScroll int
 	// LazyVim mode
 	LazyVimTopics        []LazyVimTopic
 	SelectedLazyVimTopic int
@@ -559,6 +571,9 @@ func NewModel() Model {
 		HerdrKeymapCategories:   GetHerdrKeymaps(),
 		HerdrSelectedCategory:   0,
 		HerdrKeymapScroll:       0,
+		KittyKeymapCategories:   GetKittyKeymaps(),
+		KittySelectedCategory:   0,
+		KittyKeymapScroll:       0,
 		LazyVimTopics:           GetLazyVimTopics(),
 		SelectedLazyVimTopic:    0,
 		LazyVimScroll:           0,
@@ -783,7 +798,9 @@ func (m Model) GetCurrentOptions() []string {
 		opts = append(opts, "Exit")
 		return opts
 	case ScreenKeymapsMenu:
-		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", m.menuSeparator(), "← Back"}
+		// The key handler routes by the label rather than by the row index, so a tool
+		// added here is reachable from its own row without a second place to edit.
+		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", "Kitty", "WezTerm", "Alacritty", m.menuSeparator(), "← Back"}
 	case ScreenLearnTools:
 		// The hub is built from its own table so the menu, the key handler and the
 		// reachability guard all read one list.
@@ -986,6 +1003,14 @@ func (m Model) GetCurrentOptions() []string {
 		categories[len(m.HerdrKeymapCategories)] = m.menuSeparator()
 		categories[len(m.HerdrKeymapCategories)+1] = "← Back"
 		return categories
+	case ScreenKeymapsKitty:
+		categories := make([]string, len(m.KittyKeymapCategories)+2)
+		for i, cat := range m.KittyKeymapCategories {
+			categories[i] = cat.Name
+		}
+		categories[len(m.KittyKeymapCategories)] = m.menuSeparator()
+		categories[len(m.KittyKeymapCategories)+1] = "← Back"
+		return categories
 	case ScreenLearnLazyVim:
 		titles := GetLazyVimTopicTitles()
 		result := make([]string, len(titles)+2)
@@ -1118,6 +1143,17 @@ func (m Model) GetScreenTitle() string {
 			return m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
 		}
 		return "Herdr Keymaps"
+	case ScreenKeymapsKitty:
+		return "Kitty Keymaps"
+	case ScreenKeymapsKittyCat:
+		if m.KittySelectedCategory < len(m.KittyKeymapCategories) {
+			return m.KittyKeymapCategories[m.KittySelectedCategory].Name
+		}
+		return "Kitty Keymaps"
+	case ScreenKeymapsWezTerm:
+		return "WezTerm Keymaps"
+	case ScreenKeymapsAlacritty:
+		return "Alacritty Keymaps"
 	case ScreenLearnLazyVim:
 		return "LazyVim Guide"
 	case ScreenLazyVimTopic:

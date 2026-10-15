@@ -538,7 +538,8 @@ func (m Model) headerName() string {
 	case ScreenKeymaps, ScreenKeymapCategory, ScreenKeymapsMenu,
 		ScreenKeymapsTmux, ScreenKeymapsTmuxCat, ScreenKeymapsZellij,
 		ScreenKeymapsZellijCat, ScreenKeymapsGhostty, ScreenKeymapsGhosttyCat,
-		ScreenKeymapsHerdr, ScreenKeymapsHerdrCat:
+		ScreenKeymapsHerdr, ScreenKeymapsHerdrCat, ScreenKeymapsKitty,
+		ScreenKeymapsKittyCat, ScreenKeymapsWezTerm, ScreenKeymapsAlacritty:
 		return "Keymaps"
 	case ScreenLearnLazyVim, ScreenLazyVimTopic:
 		return "LazyVim"
@@ -1075,6 +1076,14 @@ func (m Model) View() string {
 		s.WriteString(m.renderHerdrKeymapsMenu())
 	case ScreenKeymapsHerdrCat:
 		s.WriteString(m.renderHerdrKeymapCategory())
+	case ScreenKeymapsKitty:
+		s.WriteString(m.renderKittyKeymapsMenu())
+	case ScreenKeymapsKittyCat:
+		s.WriteString(m.renderKittyKeymapCategory())
+	case ScreenKeymapsWezTerm:
+		s.WriteString(m.renderWezTermReference())
+	case ScreenKeymapsAlacritty:
+		s.WriteString(m.renderAlacrittyReference())
 	case ScreenLearnLazyVim:
 		s.WriteString(m.renderLazyVimMenu())
 	case ScreenLazyVimTopic:
@@ -2521,15 +2530,15 @@ func (m Model) renderLearnTools() string {
 // one of them is on screen at a time, and the value is reset when the page is
 // opened and when it is left.
 func (m Model) renderLearnTooling() string {
-	return m.renderReferenceTable(shellToolingTable(), m.LearnTableScroll)
+	return m.renderReferenceTable(shellToolingTable(), m.ReferenceTableScroll)
 }
 
 func (m Model) renderLearnPlugins() string {
-	return m.renderReferenceTable(pluginSetsTable(), m.LearnTableScroll)
+	return m.renderReferenceTable(pluginSetsTable(), m.ReferenceTableScroll)
 }
 
 func (m Model) renderLearnToolset() string {
-	return m.renderReferenceTable(machineToolsetTable(), m.LearnTableScroll)
+	return m.renderReferenceTable(machineToolsetTable(), m.ReferenceTableScroll)
 }
 
 // renderLearnPrompts draws the prompt the reader is reading, or the list to pick
@@ -2857,6 +2866,31 @@ func (m Model) renderHerdrKeymapCategory() string {
 		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
 	return m.renderKeymapTable(m.HerdrKeymapCategories[m.HerdrSelectedCategory], m.HerdrKeymapScroll)
+}
+
+// renderKittyKeymapsMenu renders the Kitty keymap categories menu
+func (m Model) renderKittyKeymapsMenu() string {
+	return m.renderMenu("Select a category to view Kitty keybindings")
+}
+
+// renderKittyKeymapCategory renders a specific Kitty keymap category
+func (m Model) renderKittyKeymapCategory() string {
+	if m.KittySelectedCategory >= len(m.KittyKeymapCategories) {
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
+	}
+	return m.renderKeymapTable(m.KittyKeymapCategories[m.KittySelectedCategory], m.KittyKeymapScroll)
+}
+
+// renderWezTermReference and renderAlacrittyReference answer the reference's
+// question for the two terminals whose configurations declare no bindings: they
+// draw the settings those files do carry, under a header that says so rather than
+// under one that promises key bindings.
+func (m Model) renderWezTermReference() string {
+	return m.renderReferenceTable(weztermConfigTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderAlacrittyReference() string {
+	return m.renderReferenceTable(alacrittyConfigTable(), m.ReferenceTableScroll)
 }
 
 func (m Model) renderLazyVimMenu() string {
