@@ -1705,6 +1705,18 @@ func (m Model) utilitiesDescription() []string {
 		if reason == "" {
 			reason = themeDefinitionsNotFoundMessage()
 		}
+		// The row is offered when there are definitions OR when there is a record
+		// to put back, so this branch is reached in the one state where the row is
+		// still there with nothing to apply: the list cannot be read, and the undo
+		// the record names can still be offered. "Not switchable" would deny the
+		// row the list below it draws, which is the contradiction this sentence is
+		// worded from the row's own condition to avoid.
+		if m.DotfilesThemeRecord != nil {
+			paragraphs = append(paragraphs, fmt.Sprintf(
+				"The dotfiles' theme definitions cannot be read here (%s), so no theme can be applied; "+
+					"the change the record names can still be undone.", reason))
+			break
+		}
 		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
 	}
 

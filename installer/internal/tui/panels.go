@@ -683,7 +683,11 @@ func (m Model) contextHeadline() string {
 		return string(m.updateChannel()) + " channel"
 	case choiceUtilities:
 		if !m.ThemeSwitchFound {
-			return ""
+			// The section is more than the desktop switch. With no switch detected it
+			// still carries the dotfiles theme, the WSL resources, the shell's
+			// startup report, the install check and the terminal report, so a blank
+			// summary said the row opened nothing.
+			return "the machine's own settings"
 		}
 		return m.ThemeSwitch.Name + " theme switch"
 	case choiceExit:
