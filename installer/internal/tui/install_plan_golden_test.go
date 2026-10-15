@@ -103,6 +103,72 @@ func planIDList(steps []InstallStep) string {
 	return strings.Join(ids, ",")
 }
 
+// planNameList is a plan as the names a reader sees, in order. The identifiers pin
+// which units the plan holds; the names pin what it calls them, which is what the
+// user reads in the plan and in the run's step list.
+func planNameList(steps []InstallStep) []string {
+	names := make([]string, 0, len(steps))
+	for _, step := range steps {
+		names = append(names, step.ID+":"+step.Name)
+	}
+	return names
+}
+
+// TestThePlanNamesWhatItInstalls pins the other half of the plan a reader meets.
+// The identifiers of TestThePlanIsStillThePlanItWas say which units run; these say
+// what each one is called when it does.
+//
+// It exists because a name is not decoration. The E2E suite asserts two of them
+// (installer/e2e/e2e_test.sh, in the terminal axis and the font option) and it was
+// the only place that did: when the two planners became one, the non-interactive
+// route began using the plan's names, and the E2E -- run on four distributions,
+// minutes into CI -- was the first thing to notice. These pairs were measured from
+// the fixtures, so a name that changes now fails here, in seconds.
+func TestThePlanNamesWhatItInstalls(t *testing.T) {
+	fixture := planFixtures()[0]
+	got := planNameList(planFor(fixture.fixtureModel().planOptions()))
+	want := []string{
+		"backup:Backup Existing Configs",
+		"deps:Install Dependencies",
+		"clone:Clone Repository",
+		"homebrew:Install Homebrew",
+		"terminal:Install kitty",
+		"font:Install Meslo Nerd Font",
+		"shell:Install zsh",
+		"wm:Install tmux",
+		"nvim:Install Neovim",
+		"toolset:Install Toolset",
+		"agentskills:Install Pi Agent Skills",
+		"officecli:Install OfficeCLI",
+		"theme:Restore the Applied Theme",
+		"setshell:Set Default Shell",
+		"cleanup:Cleanup",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the plan's names changed:\n got:\n      %s\nwant:\n      %s",
+			strings.Join(got, "\n      "), strings.Join(want, "\n      "))
+	}
+
+	// The two names the E2E reads by shape rather than by value, held to the same
+	// rule here: a terminal step carries the terminal the choices named, and a font
+	// step carries the part every family shares. The family itself is the
+	// platform's, which is why neither the E2E nor this guard writes a label down.
+	for _, f := range planFixtures() {
+		for _, step := range planFor(f.fixtureModel().planOptions()) {
+			switch step.ID {
+			case "terminal":
+				if want := "Install " + f.choices.Terminal; step.Name != want {
+					t.Errorf("%s: the terminal step is named %q, want %q", f.name, step.Name, want)
+				}
+			case "font":
+				if !strings.Contains(step.Name, "Nerd Font") {
+					t.Errorf("%s: the font step is named %q, which does not carry \"Nerd Font\"", f.name, step.Name)
+				}
+			}
+		}
+	}
+}
+
 // TestThePlanIsStillThePlanItWas pins S4: with the selection untouched, the plan is
 // today's plan, from the same facts. Each fixture's identifiers were measured from
 // the tree before the builder changed, so this fails if a unit appears, disappears

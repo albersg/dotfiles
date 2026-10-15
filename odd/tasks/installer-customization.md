@@ -28,6 +28,7 @@ is last and holds the user's own words.
 - [x] **T4** (S6) The selection reaches the plan, and a unit turned off reports itself as skipped. Route: worker. Commit: `feat(tui): a unit turned off says so instead of vanishing`.
 - [x] **T5** (S7, S8) The command line and the environment: the flag, and parity guards that hold both routes to the same plan. Route: worker. Commit: `feat(tui): the command line says what the screen can say`.
 - [x] **T6** (S2, S5) Documentation and changelog: `docs/tui-installer.md`, the `--help` text and `CHANGELOG.md`. Route: inline. Commit: `docs(tui): the installer's choices are described where its screens are`.
+- [x] **T7** (S4, S8) Corrective: the plan's names are what the E2E asserts, and nothing local pinned them. Route: inline. Commit: `fix(e2e): the planning checks read the names the one builder gives`.
 
 ## Log
 
@@ -167,3 +168,33 @@ is last and holds the user's own words.
   `module_docs_test.go` reads the same file among others, and `release_docs_test.go` reads
   `CHANGELOG.md`. A documentation edit here is therefore measured by the package's own suite rather than
   assumed.
+- **L23.** The merge safeguard refused the branch, and the reason was a name rather than a missing step.
+  Four E2E jobs went red -- alpine, arch, fedora, ubuntu -- with the same four assertions on each:
+  `terminal=alacritty`, `wezterm` and `ghostty` "was accepted but its step is missing from the plan", and
+  `--font was accepted but the Nerd Font step is missing from the plan`. The steps are there. `planFor`
+  names a terminal step `"Install " + opts.Terminal` and a font step `"Install " + fontInstallLabel(...)`,
+  while the non-interactive planner T2 replaced named them `"Install %s terminal"` and
+  `"Install Nerd Font"`. The E2E reads text, so making the two routes one builder -- which is the whole
+  point of T2 -- made four assertions read the old names and fail. The two herdr checks already read
+  `"Install herdr"`, which is why only four failed and not six.
+
+  The worse half was the negative control. `terminal=none` asserted the absence of a step matching
+  `Install .* terminal`, a shape the plan's names never have, so it had quietly stopped checking
+  anything: a plan that grew a terminal step for `--terminal=none` would have passed it. A guard that
+  cannot fail is worse than a missing one, because it is counted.
+- **L24.** The fix is policy rather than text. The terminal assertion now reads `Install $terminal`, the
+  font assertion asks for the part every family shares (`Nerd Font`, because the label carries the
+  platform's family and the E2E must not write one platform's label down), and the negative control walks
+  the terminal values and reports which one appeared instead of matching a shape. `bash -n` and
+  `shellcheck` are clean, and the refusal branch that names the supported values was not touched because
+  it never read a step name.
+- **L25.** The guard that makes this fail locally next time. `TestThePlanNamesWhatItInstalls` pins the
+  linux fixture's fifteen `id:name` pairs in `install_plan_golden_test.go` and holds the two rules the
+  E2E reads by shape: a terminal step carries the terminal the choices named, and a font step carries
+  `Nerd Font`. The pairs came from a temporary probe (`zz_capture_names_test.go`, deleted after the run
+  and never in the index or on disk) because the first measurement was nearly a trap: it used the dry
+  run's alacritty, fish and herdr, while the fixture's choices are `kitty`, `zsh` and `tmux`. What a name
+  is typed from is not what the plan produces, and "measurement, not memory" was literal here. Verified:
+  the guard green, T2's identifier and parity guards unmoved, the nine E2E invocations green by hand
+  including the refusal of kitty on Linux and both negative controls, and the whole module showing only
+  the four pre-existing Ghostty failures.

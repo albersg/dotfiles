@@ -543,6 +543,11 @@ test_nvim_configured() {
 # it names, or refused on the platform that does not support it, with the values
 # that platform does support named in the refusal and no step list planned.
 #
+# The step's name is the plan's own -- one builder names every route's steps, and
+# a terminal step is named "Install <terminal>" -- so the checks read that name
+# rather than inventing one, and the negative control walks the terminal values
+# for the same reason.
+#
 # This is the focused case for the terminal axis; the matrix below walks the
 # whole option space. It is also what checks the platform rule the matrix uses:
 # if the binary accepted kitty off macOS, or refused a value this script
@@ -564,12 +569,24 @@ test_terminal_axis() {
                 continue
             fi
             if [ "$terminal" = "none" ]; then
-                if printf '%s\n' "$out" | grep -qE 'Install .* terminal'; then
-                    log_fail "terminal=none planned a terminal step: $out"
+                # One builder names every route's steps, and it names a terminal
+                # step "Install <terminal>". The negative control therefore asks
+                # about each terminal value rather than about the word
+                # "terminal": a pattern that can never match would pass without
+                # checking anything, which is how this control went quiet when
+                # the two planners became one.
+                planned=""
+                for t in $E2E_TERMINALS; do
+                    if printf '%s\n' "$out" | grep -qF "Install $t"; then
+                        planned="$planned $t"
+                    fi
+                done
+                if [ -n "$planned" ]; then
+                    log_fail "terminal=none planned a terminal step:$planned"
                 else
                     log_pass "terminal=none plans no terminal step"
                 fi
-            elif printf '%s\n' "$out" | grep -qF "Install $terminal terminal"; then
+            elif printf '%s\n' "$out" | grep -qF "Install $terminal"; then
                 log_pass "terminal=$terminal plans its installation step"
             else
                 log_fail "terminal=$terminal was accepted but its step is missing from the plan: $out"
@@ -607,7 +624,7 @@ test_font_option() {
     log_test "--font plans the Nerd Font step"
 
     if out=$(dotfiles --non-interactive --dry-run --shell=fish --wm=none --font --backup=false 2>&1); then
-        if printf '%s\n' "$out" | grep -qF "Install Nerd Font"; then
+        if printf '%s\n' "$out" | grep -qF "Nerd Font"; then
             log_pass "--font plans the Nerd Font step"
         else
             log_fail "--font was accepted but the Nerd Font step is missing from the plan: $out"
@@ -616,8 +633,11 @@ test_font_option() {
         log_fail "--font failed to plan: $out"
     fi
 
+    # The step's name carries the family the platform installs ("Install Meslo
+    # Nerd Font" here), so the check asks for the part every family shares rather
+    # than for a name one platform happens to use.
     if out=$(dotfiles --non-interactive --dry-run --shell=fish --wm=none --backup=false 2>&1); then
-        if printf '%s\n' "$out" | grep -qF "Install Nerd Font"; then
+        if printf '%s\n' "$out" | grep -qF "Nerd Font"; then
             log_fail "the Nerd Font step is planned without --font: $out"
         else
             log_pass "no Nerd Font step without --font"
