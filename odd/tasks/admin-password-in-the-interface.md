@@ -56,13 +56,19 @@ every copy. Capacity is fixed so an append can never allocate a second array beh
 - [x] **T6 — the documentation says which one happens.** `docs/tui-installer.md` and the CHANGELOG
   describe the in-interface prompt and name the fallback, so the next person does not read the
   handover comment and think it is still the normal path.
-- [ ] **T7 — the screen says what to do with the keyboard (S5).** The body gains the instruction
+- [x] **T7 — the screen says what to do with the keyboard (S5).** The body gains the instruction
   and the footer's Enter stops saying `select`; a guard asserts that the rendered text names typing
   and Enter, and that an empty field no longer says `waiting`. Route: inline, test-first: the guard
   goes red against the screen as it stands.
 
 T1-T6 shipped as `bd1f9fc` ("feat(install): the administrator password is asked inside the
 installer"), merged as `e0af189` in PR #322; every box above was observed green before that merge.
+
+T7 shipped as `bc304a2` ("fix(tui): the password screen says what to type and what Enter does"),
+with its own guard red first: against the screen as it stood, the guard printed the whole screen --
+`waiting` in the field, `[Enter] select` in the footer -- and only then named what was missing. The
+whole module ran green afterwards (`go test ./... -count=1` from `installer/`): four failures, all
+four the Ghostty ones this host has always reported, none new.
 
 ## Log
 
@@ -82,3 +88,11 @@ installer"), merged as `e0af189` in PR #322; every box above was observed green 
 - **L5** (verbatim, the user's follow-up; it is what S5 and T7 answer): "En la parte de meter la
   password en el installer, no queda claro que hay que meter ahi la password y que hay que escribir
   y darle al enter, puedes mejorar la UX en general?"
+- **L6**: the fix and its evidence. `bc304a2` on `fix/admin-password-guidance`, and what the guard
+  measured before the change: an empty field drew `waiting` and the footer's only key was
+  `[Enter] select`, so the screen answered neither half of the question the report asks. The guard
+  reads the rendered screen and folds it into one line of words first, so where the frame wraps a
+  sentence cannot decide whether it passes -- the same report at a different width has to fail for
+  the same reason. The three things the screen says now are the body's instruction, the empty
+  field's `type it here`, and the screen's own key pair; the field, the count, the refusal line and
+  the escape route are untouched, which is what S5's last sentence requires.
