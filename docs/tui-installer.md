@@ -1261,12 +1261,13 @@ and its tick changes no content row.
 
 Three switches decide what the creature is drawn as, and they are read once, when the model is built;
 the render path reads the model's answers and never the environment. They are independent on purpose:
-the animation is the creature moving at all, mouse reporting enables only an optional click reaction,
-and the sprite is the drawing being shaded.
+the animation is the creature moving at all **and the background drifting behind the frame**,
+mouse reporting enables only an optional click reaction, and the sprite is the drawing being
+shaded -- which is why the background stops with the animation and not with the sprite.
 
 | Switch | What it turns off | What is drawn instead |
 |--------|-------------------|-----------------------|
-| `DOTFILES_ANIM=0`, `--no-anim` | the frame tick and the tip rotation | no creature anywhere and the first tip. A frozen pet is not the point |
+| `DOTFILES_ANIM=0`, `--no-anim` | the frame tick, the tip rotation and the drifting background | no creature anywhere, the first tip, and the theme's own plain background. A frozen pet is not the point |
 | `DOTFILES_MOUSE=0`, `--no-mouse` | mouse reporting; no mouse mode is requested at all | the autonomous glyph or pixel cat, with the terminal's own drag-to-select |
 | `DOTFILES_SPRITE=0`, `--no-sprite` | the shaded pixel sprite | the glyph cat at whichever of its three heights the rows allow, with autonomous animation untouched |
 

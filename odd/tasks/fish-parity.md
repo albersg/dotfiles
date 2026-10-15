@@ -577,6 +577,14 @@ where the shell declares a function; nothing here has an equivalent row to corre
 introductory sentence of that same table says what the zsh configuration starts, which is
 still true, so it is left as it is.
 
+**L22.** **Stage 4 merged as `2d63bb1`, `main` now `6515ee9`** (PR #329). Eleven checks
+green, the macOS smoke test and the four Linux end-to-end runs among them, and the merge
+safeguard verified the PR's head as `2d63bb1` **both before and after** the wait before
+merging. `origin/main` afterwards carries ten functions in `config.fish`, the two
+directory-change hooks, the seven new guards, and zsh's three `add-zsh-hook` lines
+untouched. With this the four stages this file opened with are all in `main`: the listing
+(#316), its colours (#324), the four commands (#325) and the hooks with the secrets (#329).
+
 ## Remaining
 
 Stage 4 is written and in review on this branch: the hooks and the secrets. With it the

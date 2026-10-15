@@ -418,8 +418,9 @@ Display and terminals:
   turned off, and each switch is both a flag and an environment variable, so a
   script can pin it too.
 
-  --no-anim            DOTFILES_ANIM=0 stops the tip and the creature's motion.
-                       Off by itself when stdout is not a terminal, or TERM=dumb.
+  --no-anim            DOTFILES_ANIM=0 stops the tip, the creature's motion and
+                       the drifting background. Off by itself when stdout is
+                       not a terminal, or TERM=dumb.
   --no-mouse           DOTFILES_MOUSE=0 stops asking the terminal for pointer
                        motion, giving selection and scrolling back to it. Off by
                        itself when stdout is not a terminal and in Termux, where
