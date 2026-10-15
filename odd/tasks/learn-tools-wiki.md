@@ -61,13 +61,13 @@ página nueva contradice o amplía `docs/tools.md`, se enlaza, sin duplicar la t
 
 | ID | Tarea | Specs | Ruta | Commit |
 |----|-------|-------|------|--------|
-| T1 | Corregir el contenido obsoleto (IA, undotree, telescope, mouse de Tmux) y su guard | S3 | inline | `fix(installer): correct stale learn content` |
-| T2 | Hub de Learn About Tools y navegación desde el menú principal | S2, S4 | inline | `feat(installer): reach every learn page from the main menu` |
-| T3 | Páginas de Font y Prompts | S4, S5 | inline | `feat(installer): add font and prompt pages` |
-| T4 | Páginas de Shell tooling, Plugins y Machine toolset | S4, S5 | inline | `feat(installer): document shell tooling, plugins and the machine toolset` |
-| T5 | Keymaps Reference: Kitty, WezTerm y Alacritty | S5, S6 | inline | `feat(installer): add the terminal keymap references` |
-| T6 | Docs al día (`tui-installer.md`, `tools.md`) | S7 | inline | `docs(installer): document the completed learn section` |
-| T7 | Suite completa y cierre | S8 | inline | -- |
+| T1 | Corregir el contenido obsoleto (IA, undotree, telescope, mouse de Tmux) y su guard | S3 | inline | `3ea7bf2` |
+| T2 | Hub de Learn About Tools y navegación desde el menú principal | S2, S4 | inline | `420c4a1` |
+| T3 | Páginas de Font y Prompts | S4, S5 | inline | `9c58ee6` |
+| T4 | Páginas de Shell tooling, Plugins y Machine toolset | S4, S5 | inline | `9c58ee6` |
+| T5 | Keymaps Reference: Kitty, WezTerm y Alacritty | S5, S6 | inline | `9944a9e` |
+| T6 | Docs al día (`tui-installer.md`, `tools.md`) | S7 | inline | `b0627f7` |
+| T7 | Suite completa y cierre | S8 | inline | `3f0a29b` + la puerta completa |
 
 ## Log
 
@@ -134,4 +134,16 @@ copia cada tabla, y la página de Neovim ya no lista los plugins de IA como vivo
 dónde aparece su contenido dentro de la interfaz y que la tabla de shell tooling se copia fila por
 fila. Verificación de cierre: `bash scripts/preflight.sh` (la puerta completa, sin caché y en el
 orden de CI) más la suite del módulo y los guards dirigidos de cada tarea.
+
+**L9.** T7 encontró dos defectos de guard, no de producto (el hub ya resolvía la fila por etiqueta en
+`handleLearnHubKeys`):
+1. `TestEveryLearnHubRowOpensItsPageAndComesBack` pulsaba Enter en el índice de la fila dentro de
+   `learnToolRows()`, pero el menú del hub inserta una regla entre sus dos secciones, así que desde la
+   primera fila de la segunda sección el índice apuntaba a la fila siguiente. Ahora la fila se busca
+   por su etiqueta en `GetCurrentOptions()`, que es lo que hace el propio handler.
+2. `Screen.String()` era una rebanada indexada por el valor de la constante: una pantalla insertada
+   arriba renombraba a su vecina y las más nuevas no tenían nombre, justo en los mensajes que debían
+   nombrarlas (el fallo se leía "opens Unknown, want Unknown"). Ahora es un mapa con una entrada por
+   constante, y `TestEveryDeclaredScreenHasAName` falla por nombre si se añade una constante sin
+   entrada. Arreglo en `3f0a29b`. No se relajó ningún guard.
 ```
