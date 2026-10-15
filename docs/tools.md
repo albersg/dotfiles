@@ -99,7 +99,7 @@ them next to the shell itself.
 
 | Tool | Used for |
 |------|----------|
-| **eza** | `ls`, `ll`, `la` and `tree` aliases |
+| **eza** | `ls`, `ll`, `la`, `lt` and `tree` aliases, in zsh and in fish |
 | **bat** | `cat` alias, fzf previews, `BAT_THEME` |
 | **ripgrep** | `grep` alias and fzf's default search |
 | **fd** | `FZF_DEFAULT_COMMAND` and the fzf directory jump |

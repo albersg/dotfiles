@@ -83,11 +83,36 @@ set -gx VISUAL nvim
 set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
 
 ## alias
-if test (uname) = Darwin
+# --- File listings: eza, the tool and the flags zsh's aliases already use ---
+# The two shells are meant to list files the same way, and zsh has aliased `ls` to
+# `eza --icons --group-directories-first` (with ll/la/lt/tree beside it) for
+# longer than this block has existed. fish was left on `gls`, so its listing
+# printed no icons at all — which cannot be told apart from the Nerd Font being
+# installed wrong, and was reported as that.
+#
+# The aliases are declared only when eza resolves, because an alias whose tool the
+# host has not got fails on every call. eza arrives from the Brewfile, from the
+# Arch and Fedora package lists, or from the Homebrew this installer puts in place
+# for Debian hosts, so a run whose Homebrew step did not complete has none of it.
+if command -q eza
+    alias ls='eza --icons --group-directories-first'
+    alias ll='eza -l --icons --git --group-directories-first --time-style=long-iso --header'
+    alias la='eza -la --icons --git --group-directories-first --time-style=long-iso --header'
+    alias lt='eza --tree --icons --group-directories-first --level=2'
+    alias tree='eza --tree --icons --group-directories-first --level=3'
+else if test (uname) = Darwin
+    # No eza: keep the colour `ls` this configuration already gave macOS, rather
+    # than trading one broken `ls` for another.
     alias ls='ls --color=auto'
-else
+else if command -q gls
+    # `gls` is Homebrew's name for GNU coreutils' ls, so it is asked for rather
+    # than assumed: a Debian host without Homebrew has only the system `ls`, and
+    # an alias to a binary that does not exist fails on every call.
     alias ls='gls --color=auto'
 end
+
+# Icons need a space to breathe next to the name, exactly as they have in .zshrc.
+set -gx EZA_ICON_SPACING 2
 
 alias fzfbat='fzf --preview="bat --theme=gruvbox-dark --color=always {}"'
 alias fzfnvim='nvim (fzf --preview="bat --theme=gruvbox-dark --color=always {}")'
