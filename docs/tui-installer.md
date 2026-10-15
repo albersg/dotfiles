@@ -507,7 +507,7 @@ exactly as it skips every installation step.
 ### The Nerd Font step
 
 **The machine is asked before anything is downloaded.** On Linux the pinned Nerd Fonts archive is
-about 108 MB (`108,281,715` bytes at v3.3.0), the most expensive network operation in the installer
+about 116 MB (`116,387,026` bytes at v3.5.1), the most expensive network operation in the installer
 apart from a package install, and for a long time it was fetched and extracted over identical files
 on every run. The step now asks fontconfig first — `fc-list : family` — whether the family the
 shipped terminal configurations name, `MesloLGS Nerd Font`, already resolves. When it does, the
