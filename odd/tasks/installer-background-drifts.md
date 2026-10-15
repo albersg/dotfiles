@@ -213,6 +213,11 @@ file, and the repository's own practice for a feature is a single work unit carr
 code, the documentation and this front together, which is what every fish stage did. The plan's
 commit column is left as written; this line records what it became.
 
+**L14.** The merge this front could not record is recorded here, as the `## Remaining` note below
+asks. T6's last step landed as PR #330, merge commit `28e4aff` ("Merge pull request #330 from
+albersg/feat/installer-drift-background", parents `6515ee9` and `d2427dc`), with CI and E2E green
+on that commit before anything was built on top of it.
+
 ## Remaining
 
 T6's last step is the merge, and this front cannot record it: the merge commits after this branch
@@ -220,3 +225,5 @@ is gone. As with stage 4 of the fish work (`odd/tasks/fish-parity.md`, L22), the
 whatever branch follows, and the Remaining section here is the note that says so rather than a
 silent gap. The fish work this was queued behind is complete and in `main`
 (`odd/tasks/fish-parity.md`, L22).
+
+Discharged by L14, which records the merge commit this section could not.
