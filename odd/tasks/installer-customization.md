@@ -25,7 +25,7 @@ is last and holds the user's own words.
 - [x] **T1** (S1, S3) Shared unit table: one place names the seventeen units, their order, and which three are fixed. Route: inline. Commit: `refactor(tui): one table names the installer's units`.
 - [x] **T2** (S4, S8) One builder: the interactive and non-interactive planners become callers of a single function, with the defaults unchanged. Route: inline. Commit: `refactor(tui): one builder turns choices into steps`.
 - [x] **T3** (S5, S9) The screen: enum, title, description, options, panel, render, key dispatch, escape map. Route: worker. Commit: `feat(tui): a screen that shows every unit and its switch`.
-- **T4** (S6) The selection reaches the plan, and a unit turned off reports itself as skipped. Route: worker. Commit: `feat(tui): a unit turned off says so instead of vanishing`.
+- [x] **T4** (S6) The selection reaches the plan, and a unit turned off reports itself as skipped. Route: worker. Commit: `feat(tui): a unit turned off says so instead of vanishing`.
 - **T5** (S7, S8) The command line and the environment: the flag, and parity guards that hold both routes to the same plan. Route: worker. Commit: `feat(tui): the command line says what the screen can say`.
 - **T6** (S2, S5) Documentation and changelog: `docs/tui-installer.md`, the `--help` text and `CHANGELOG.md`. Route: inline. Commit: `docs(tui): the installer's choices are described where its screens are`.
 
@@ -112,3 +112,24 @@ is last and holds the user's own words.
   loosened. Found while fixing them, not fixed here: `comprehensive_test.go`'s test-only
   `Screen.String()` table stops at `RestoreConfirm`, so every screen added since prints as "Unknown"
   in failures -- which is how this one read before its index was understood.
+- **L16.** T4's red came before its code and spoke in behaviour rather than in build errors: "toolset is
+  planned as 0, want skipped", "the executor ran \"toolset\", which the user turned off", "the run stopped
+  on the unit that was turned off: it is on step 1", "returned tui.stepCompleteMsg, want the
+  completion". `planOptions.DisabledUnits` and its copy were added first for exactly that reason: a
+  guard that cannot compile fails for the wrong cause, and the cause is the only thing a red is worth
+  reading for.
+- **L17.** The state was the easy half and it is worth saying why. `StatusSkipped` had existed since
+  the enum was written and nothing had ever assigned it, but three views already read it correctly:
+  the plan panel does not count it as pending (`panels.go:1485`), the step list and the runner's list
+  give it the finished marker (`view.go:2943`, `:3178`), and the status line has a label of its own
+  (`view.go:3004`). T4 had to set it and teach both runners to walk past it -- nothing had to learn to
+  display it.
+- **L18.** Two choices are load-bearing. The three units the run needs are protected *in the plan*
+  rather than only in the screen, which turns S3 from a promise the screen keeps into a property of the
+  plan -- and the interactive walk recurses instead of falling through, so a unit turned off at the end
+  of the plan finishes the run rather than leaving it waiting on a step that will never execute. The
+  teeth are the evidence: four mutations, each biting its own guard with its own message -- dropping
+  the fixed-unit clause, dropping the marking, and neutering each runner's skip -- with the three files
+  restored byte-identical (`model.go` `f008647c739465e2`, `update.go` `0be36a9243225327`,
+  `non_interactive.go` `855d8ccfbfcdb6ef`). Two of these guards assert an absence and pass trivially
+  without a mutation; they are worth something because M1 and M2 bit.

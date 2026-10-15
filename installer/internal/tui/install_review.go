@@ -328,3 +328,34 @@ func (m Model) disabledUnitSummary() string {
 	}
 	return strings.Join(names, ", ")
 }
+
+// installUnitIsFixed reports whether the run needs a unit whatever the selection
+// says. An ID the catalogue does not name answers false: the fixed set is the
+// catalogue's, and a step that is not in the table is not one of the three.
+func installUnitIsFixed(id string) bool {
+	for _, unit := range installUnits {
+		if unit.ID == id {
+			return unit.Fixed
+		}
+	}
+	return false
+}
+
+// unitIsDisabled reports whether the user turned a unit off, read over the plan's own
+// copy of the set rather than the model's: the plan is a pure function of its options,
+// and this keeps it one.
+func (opts planOptions) unitIsDisabled(id string) bool {
+	for _, disabled := range opts.DisabledUnits {
+		if disabled == id {
+			return true
+		}
+	}
+	return false
+}
+
+// stepIsSkipped reports whether a planned step is one the user turned off. It is the
+// single predicate both runners share, so "not executed" cannot come to mean two
+// different things on the two routes.
+func stepIsSkipped(step InstallStep) bool {
+	return step.Status == StatusSkipped
+}

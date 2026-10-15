@@ -3137,6 +3137,22 @@ func (m *Model) runNextStep() tea.Cmd {
 	}
 
 	step := &m.Steps[m.CurrentStep]
+
+	// A unit the user turned off is planned as skipped rather than dropped, so the
+	// list keeps showing it. Skipping it here -- before the status is set to running
+	// and before a credential is asked for on its behalf -- is what "not executed"
+	// means on this route, and the step advances exactly as one that finished does.
+	//
+	// The walk recurses rather than falling through, so a skipped unit at the end of
+	// the plan finishes the run instead of leaving it waiting on a step that will
+	// never execute. It cannot run away: each call advances CurrentStep, and the
+	// guard above ends the walk at the plan's length.
+	if stepIsSkipped(*step) {
+		m.LogLines = append(m.LogLines, "⏭ Skipped: "+step.Name+" — you turned it off.")
+		m.CurrentStep++
+		return m.runNextStep()
+	}
+
 	step.Status = StatusRunning
 
 	// Check if this step needs interactive input (sudo, chsh, etc)

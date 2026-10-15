@@ -1213,6 +1213,12 @@ type planOptions struct {
 	ConfigCount  int
 	CreateBackup bool
 
+	// DisabledUnits is the set the review screen turned off, by unit ID, in the
+	// catalogue's order. An empty set -- what every model starts with -- plans
+	// today's plan exactly, which is what makes an untouched selection free of
+	// consequence rather than merely equal by luck.
+	DisabledUnits []string
+
 	Terminal    string
 	InstallFont bool
 	Shell       string
@@ -1232,6 +1238,8 @@ func (m Model) planOptions() planOptions {
 		Shell:        m.Choices.Shell,
 		WindowMgr:    m.Choices.WindowMgr,
 		InstallNvim:  m.Choices.InstallNvim,
+
+		DisabledUnits: m.DisabledUnits,
 	}
 	if m.SystemInfo != nil {
 		opts.DetectedOS = m.SystemInfo.OS
@@ -1434,6 +1442,21 @@ func planFor(opts planOptions) []InstallStep {
 		Description: "Removes the temporary files it created.",
 		Status:      StatusPending,
 	})
+
+	// A unit the user turned off is marked rather than dropped: the run's own list keeps
+	// showing it and the run says what it did not do. StatusSkipped is what this state
+	// is for, and until this pass nothing in the tree ever assigned it -- the plan
+	// panel, the step list and the status line have read it correctly all along.
+	//
+	// The three units the run needs are never skipped, whatever the selection holds: the
+	// screen cannot turn them off, and this is where that stops being a promise the
+	// screen keeps and becomes a property of the plan.
+	for i := range steps {
+		if installUnitIsFixed(steps[i].ID) || !opts.unitIsDisabled(steps[i].ID) {
+			continue
+		}
+		steps[i].Status = StatusSkipped
+	}
 
 	return steps
 }

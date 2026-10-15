@@ -78,6 +78,15 @@ func runInstallSteps(steps []InstallStep, model *Model, execute func(stepID stri
 	for i, step := range steps {
 		fmt.Printf("[%d/%d] %s...\n", i+1, len(steps), step.Name)
 
+		// A unit the user turned off is planned as skipped rather than dropped, so it is
+		// walked past here instead of executed -- and it is not a failure, because
+		// nothing went wrong. The line is this route's report, distinct from the dry
+		// run's, which says why it skipped something else.
+		if stepIsSkipped(step) {
+			fmt.Printf("    • skipped: you turned it off\n")
+			continue
+		}
+
 		err := execute(step.ID, model)
 		if err != nil {
 			fmt.Printf("    ❌ FAILED: %v\n", err)
