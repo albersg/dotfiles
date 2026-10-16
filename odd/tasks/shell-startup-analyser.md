@@ -288,6 +288,18 @@ guard rather than a number that quietly leaves the machine's memory; and the adv
 causal language ("because", "is caused by", "due to"), because the profile can say where the time went
 and cannot say why it went there.
 
+L17. T9's preflight ran once over the whole tree (`make preflight`, the full gate: gofmt, vet, build +
+`--help`, then `go test ./... -count=1`). Steps 1-3 pass. Step 4 fails on four tests, and only on those
+four: `TestStepInstallTerminalGhosttyReportsAFailedDownload`, `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`,
+`TestInteractiveGhosttyScriptFailsWhenTheDownloadFails` and `TestInteractiveGhosttyScriptDownloadsThenRuns`.
+They are not this front's: the diff from the base touches no Ghostty file (`git diff --name-only
+c1e4a64..HEAD | grep -i ghostty` is empty), and the same four fail identically in a detached worktree at
+the base commit `c1e4a64`, with the same messages ("a failed download must not be reported as a
+successful install", "✓ Ghostty already installed"). The cause is the machine: Ghostty is installed
+here, so the step's real detection answers before the test's fake download path runs. Every other
+package is green in the same run, including `installer/internal/tui` with those four skipped (the same
+tree as the 257 s focused run above), so the front's own surface has no failing check.
+
 ## Remaining
 
-T7..T9, with their evidence recorded here as each one lands.
+T9's independent verification, and the final report to the user.
