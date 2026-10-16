@@ -11,12 +11,12 @@
   host.                                                                         
   Measure the shell's startup runs zsh -i -c exit several times and reports     
   the median with the range; it changes nothing.                                
-  Report the terminal capabilities reads the colour depth, OSC 52,              
-  synchronized output and the Nerd Font glyphs, and names the source of every   
-  answer.                                                                       
+  Manage the SSH configuration shows the hosts and keys the client uses.        
+  … and 3 more                                                                  
                                                                                 
   ▸ Change the dotfiles theme                                                   
     Measure the shell's startup                                                 
+    Manage the SSH configuration                                                
     Report the terminal capabilities                                            
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
