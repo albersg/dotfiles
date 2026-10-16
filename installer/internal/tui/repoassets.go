@@ -29,7 +29,14 @@ const (
 	repoAssetNvim        = "dotfiles-nvim/nvim"
 	repoAssetWSLConfig   = "dotfiles-wsl/.wslconfig.tmpl"
 	repoAssetWSLConf     = "dotfiles-wsl/wsl.conf"
-	repoAssetGitconfig   = ".gitconfig"
+	// The memory guard is installed outside the home directory: the WSL step
+	// writes the payload to /usr/local/lib/dotfiles-wsl and the unit to
+	// /etc/systemd/system, which is where systemd reads them from. They are
+	// registered here for the same reason every other asset is -- a rename that
+	// stops shipping them has to fail a test, not a boot.
+	repoAssetWSLGuardScript = "dotfiles-wsl/wsl-memory-guard.sh"
+	repoAssetWSLGuardUnit   = "dotfiles-wsl/wsl-memory-guard.service"
+	repoAssetGitconfig      = ".gitconfig"
 	// Includes the personal identity, because .gitconfig includes it through
 	// includeIf and a missing file would leave that block pointing at nothing.
 	repoAssetGitconfigPersonal = "gitconfig-personal"
@@ -61,6 +68,8 @@ var repoAssets = []string{
 	repoAssetNvim,
 	repoAssetWSLConfig,
 	repoAssetWSLConf,
+	repoAssetWSLGuardScript,
+	repoAssetWSLGuardUnit,
 	repoAssetGitconfig,
 	repoAssetGitconfigPersonal,
 	repoAssetBrewfile,

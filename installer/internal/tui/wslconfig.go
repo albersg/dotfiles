@@ -34,24 +34,45 @@ const (
 	// rounding would not survive.
 	wslMemoryStepMB = 512
 
-	// wslMemoryReserveBytes is what the policy leaves for Windows itself. WSL2
-	// runs on top of Windows, so a VM limit of half the host can still starve
-	// the desktop on a small machine; the reserve is the floor Windows keeps.
-	wslMemoryReserveBytes = 2 << 30 // 2 GiB
+	// wslWindowsReserveBytes is what the policy leaves for Windows itself. WSL2
+	// runs on top of Windows, so a VM limit of half the host can still starve the
+	// desktop on a small machine; the reserve is the floor Windows keeps. It is an
+	// absolute amount rather than a proportion because what Windows needs to stay
+	// usable does not shrink with the machine.
+	wslWindowsReserveBytes = 4 << 30 // 4 GiB
 
 	// wslMinMemoryBytes is the smallest VM limit worth writing. Below 1 GiB the
 	// distribution is too cramped to be useful and WSL's own default is better.
 	wslMinMemoryBytes = 1 << 30 // 1 GiB
+
+	// wslMemoryFloorDivisor is the floor the plan will not go under, expressed as
+	// the divisor of the host it is: half. It equals WSL's own proportional
+	// default, so the plan never hands the VM a worse deal than the default WSL
+	// would have applied by itself -- including on a host too small to honour the
+	// Windows reserve as well, where the floor is what wins and Windows keeps less
+	// than wslWindowsReserveBytes.
+	wslMemoryFloorDivisor = 2
+
+	// wslMemoryRatioDivisor is the share of the host the VM takes before the
+	// reserve is applied, expressed as "leave one part in this many to Windows":
+	// three quarters to the VM, one quarter to Windows. On a host small enough
+	// that a quarter is under the reserve, the reserve is what decides; the ratio
+	// is a ceiling, not a promise.
+	wslMemoryRatioDivisor = 4
 )
 
 // PlanWSLResources turns host capacities into the values the .wslconfig template
 // should render. It is pure: no environment, no filesystem, no processes.
 //
-// The policy is WSL's own proportional default made explicit and clamped to what
-// the host can actually give:
-//   - memory: half the host, but never so much that Windows is left below 2 GiB,
-//     rounded down to wslMemoryStepMB, and omitted below wslMinMemoryBytes;
-//   - processors: every host logical CPU, omitted when the host is unknown;
+// The policy is a ratio, a reserve and a floor, clamped to what the host can
+// actually give, and it exists because the VM's memory limit is the only thing
+// between one runaway workload and the whole distribution:
+//   - memory: three quarters of the host, but never so much that Windows is left
+//     below 4 GiB, and never below half the host; rounded down to
+//     wslMemoryStepMB, and omitted below wslMinMemoryBytes;
+//   - processors: every host logical CPU but one, so Windows keeps one for its
+//     own desktop, and at least one when the host reports a single CPU; omitted
+//     when the host is unknown;
 //   - swap: a quarter of the planned memory, rounded down to the same step, and
 //     omitted when that rounds to nothing.
 //
@@ -62,7 +83,7 @@ func PlanWSLResources(host system.HostResources) WSLResources {
 	plan := WSLResources{}
 
 	if host.LogicalCPUs > 0 {
-		plan.Processors = host.LogicalCPUs
+		plan.Processors = planProcessors(host.LogicalCPUs)
 	}
 
 	plan.MemoryMB = planMemoryMB(host.MemoryBytes)
@@ -73,21 +94,68 @@ func PlanWSLResources(host system.HostResources) WSLResources {
 	return plan
 }
 
-// planMemoryMB applies the memory policy. An unknown host (0 bytes) and a host
-// at or below the Windows reserve have no room to give, and both omit the key.
+// planProcessors applies the CPU policy: every logical CPU but one, so Windows
+// keeps one for the desktop it is also drawing while the VM still gets the
+// parallelism a build needs. The floor is 1 and not 0, because 0 is what the
+// template reads as "omit the key", and WSL's own default for an absent key is
+// every CPU the host has -- the opposite of the policy.
 //
-// The reserve is checked before it is subtracted rather than computed and
-// clamped afterwards: MemoryBytes is unsigned, so subtracting the reserve
-// unconditionally would wrap around on a sub-2 GiB host and report a huge
-// "available" value.
+// A host whose count could not be read never reaches here; the caller omits the
+// key instead.
+func planProcessors(logicalCPUs int) int {
+	if logicalCPUs <= 1 {
+		return 1
+	}
+	return logicalCPUs - 1
+}
+
+// planMemoryMB applies the memory policy:
+//
+//	target = max(min(host - host/4, host - 4 GiB), host/2)
+//
+// The first term is the ratio: the VM takes three quarters of the host. The second
+// is the absolute reserve Windows needs to stay usable, which is what decides on a
+// host where a quarter of the memory is still less than 4 GiB -- on a 16 GiB host
+// the reserve is what binds, and the plan lands one step below it rather than on
+// the ratio. The third is the floor, half the host, which is exactly the default
+// WSL applies when the key is absent: the plan never hands the VM less than WSL
+// would have chosen by itself.
+//
+// On a host small enough that the reserve and the floor disagree, the floor wins
+// and Windows keeps less than the reserve. That is deliberate. The guard this
+// policy is designed around bounds one runaway workload; talking a user with a
+// small machine out of the VM WSL would have given them anyway is not a safeguard
+// but a regression, and a distribution too small to run a build is its own
+// failure mode.
+//
+// An unknown host (0 bytes) has nothing to compute from, and a target below
+// wslMinMemoryBytes is too small to write. Both omit the key, which hands the
+// decision back to WSL.
 func planMemoryMB(memoryBytes uint64) int {
-	if memoryBytes <= wslMemoryReserveBytes {
+	if memoryBytes == 0 {
 		return 0
 	}
 
-	target := memoryBytes / 2
-	if available := memoryBytes - wslMemoryReserveBytes; available < target {
-		target = available
+	// The floor is the starting value as well as the lower bound, so the
+	// arithmetic below can only ever grow it.
+	target := memoryBytes / wslMemoryFloorDivisor
+
+	// The reserve is checked before it is subtracted rather than computed and
+	// clamped afterwards: MemoryBytes is unsigned, so subtracting the reserve on a
+	// host below it would wrap around and report a huge "available" value. Below
+	// the reserve the floor above is the whole answer.
+	if memoryBytes > wslWindowsReserveBytes {
+		// Three quarters, computed as "subtract one quarter" rather than
+		// "multiply by three": the multiplication would overflow a uint64 on any
+		// host large enough to make the whole question absurd, and the subtraction
+		// cannot.
+		ratio := memoryBytes - memoryBytes/wslMemoryRatioDivisor
+		if room := memoryBytes - wslWindowsReserveBytes; ratio > room {
+			ratio = room
+		}
+		if ratio > target {
+			target = ratio
+		}
 	}
 
 	if target < wslMinMemoryBytes {

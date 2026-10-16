@@ -503,9 +503,21 @@ beside the recommendation so it can be checked against the machine:
 
 | Key | Recommended from |
 |-----|------------------|
-| `memory` | half the host's RAM, rounded down to 512 MB, capped so Windows keeps at least 2 GiB, omitted below 1 GiB |
-| `processors` | every logical CPU the host reports |
+| `memory` | three quarters of the host's RAM, rounded down to 512 MB, capped so Windows is left at least 4 GiB wherever that can be honoured and floored at half the host, which is what decides on a host too small to honour both, omitted below 1 GiB |
+| `processors` | every logical CPU the host reports except one, so Windows keeps one |
 | `swap` | a quarter of the planned memory, rounded down to 512 MB |
+
+**These limits were wrong in a way only a packed build shows.** The installer used to take **half**
+the host, pin the reserve at 2 GiB and hand the VM **every** logical CPU. On a 16,016 MiB / 12-CPU
+host that planned `memory=7680MB, processors=12`, and at that size two global out-of-memory kills
+took the whole distribution down while a test run held about 5.3 GiB of it. The reserve is now a flat
+4 GiB instead of 2; the ratio is three quarters of the host instead of half, which is what the
+reserve clamps on a machine this size; the floor is half the host, WSL's own proportional default,
+so the plan never gives less than WSL would; and Windows keeps one CPU. The
+same host now plans `memory=11776MB, processors=11, swap=2560MB`. `TestPlanWSLResources` pins this
+host, both boundaries, the 1-CPU host and the unknown host, and
+[`dotfiles-wsl/.wslconfig.tmpl`](../dotfiles-wsl/.wslconfig.tmpl)'s own comments changed with the
+policy, because a template comment that states the old rule is the defect this change removes.
 
 The rows start on what the file holds today where it sets a key, and on the recommendation where it
 does not. **←/→** (`h`/`l`, `-`/`+`) move the value under the cursor by one step — 512 MB for memory
@@ -527,6 +539,50 @@ After a successful write the screen re-reads the file it left behind and updates
 place: the table keeps its size and its place, the notice row says it is refreshing, and one press
 is one visible change. **`--dry-run` skips the write**, leaving no file, no backup and no record,
 exactly as it skips every installation step.
+
+### The WSL memory guard
+
+**The `.wslconfig` caps the VM; the guard caps what runs inside it.** Under WSL every process in the
+distribution -- the shell, the editor, systemd itself and its journal -- lives in one cgroup,
+`init.scope`, and nothing bounded it. The WSL step installs a small systemd unit whose payload puts
+four limits on that scope and keeps them there:
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `memory.high` | `infinity` | a number here is a throttle, not a limit: the kernel stalls the scope instead of killing anything, which is a freeze with no error, and on 2026-10-16 it froze this distribution for six minutes |
+| `memory.max` | the VM's own total minus 1536 MiB | leaves systemd and the shell room to keep working when a build fills the VM, so the kill lands on the build rather than on the distribution |
+| `memory.swap.max` | `1280M` | bounded, so a spike is not absorbed silently by paging until the machine stops responding, and wide enough that pages the kernel cannot drop have somewhere to go: a tmpfs is shmem, shmem is only reclaimable by swapping, and on 2026-10-16 verification worktrees under `/tmp` held 4524 MiB of the 8409 MiB cap that a 512M allowance could not reclaim. Raising it is the second line of defence; the first is not filling a tmpfs |
+| `memory.oom.group` | `0` | one task is killed, not every task in the group |
+
+**`OOMPolicy=continue` is the half that decides whether the distribution survives at all.** With
+systemd's default, `stop`, an OOM kill inside `init.scope` makes systemd **stop the scope** -- and
+because every process in the distribution is in that scope, one killed process takes the whole
+distribution with it. That is what happened twice on 2026-10-16, at 11:39:48 and 11:53:54. The
+setting is a **unit** property rather than a cgroup attribute, and systemd refuses it through
+`systemctl set-property --runtime`: measured on systemd 257, the route that works is a drop-in scoped
+to the scope, `/etc/systemd/system/init.scope.d/10-oompolicy.conf`, so the guard writes it and then
+**reads the effective policy back** rather than assuming either route worked. It deliberately does
+not write `DefaultOOMPolicy` in `/etc/systemd/system.conf`: that reaches every unit on the machine
+and would stop a service whose main process is OOM-killed from being marked failed, so its
+`Restart=` would never fire. When neither scoped route takes, the guard says so, names that remedy
+with its cost, and exits non-zero.
+
+**The cap survives a reload, and that is checked rather than claimed.** `systemctl set-property
+--runtime` does not set the cgroup in a way a `daemon-reload` discards: systemd stores the values as
+drop-ins under `/run/systemd/transient/init.scope.d/` and re-applies them. The verification in the
+step is that mechanism: it reads `memory.max`, runs a second `daemon-reload` and requires the value
+to be unchanged.
+
+**The step installs it and proves it; the Utility repairs it.** The Configure WSL step installs the
+payload (`0755`, because systemd has to execute it) and the unit (`0644`), reloads, enables and
+restarts the unit, and reads `OOMPolicy` and `memory.max` back. A machine where systemd is not the
+init -- what provides it is `[boot] systemd=true` in `/etc/wsl.conf` -- gets a line saying so and the
+files are left unwritten, because a unit systemd will never read is not a safeguard. Every
+degradation is reported and **none of them fails the step**: the `.wslconfig` half already
+succeeded. `--dry-run` writes nothing and runs no `systemctl`. The **Utilities** section carries the
+state beside the WSL row -- `missing`, `not running`, `unprotected` or `active` -- and the WSL
+resource screen names the failure each missing half produces, in the terms it was measured in, and
+offers **Repair the WSL memory guard**, which installs and re-reads without a full run.
 
 ### The Nerd Font step
 
@@ -922,7 +978,7 @@ on the platform and the choices, so a run shows only the ones that apply.
 | Install Toolset | Installs the command-line tools declared in the `Brewfile` (best effort; skipped on Termux and without Homebrew) |
 | Install Pi Agent Skills | Installs the pinned AI agent skills |
 | Install OfficeCLI | Installs the OfficeCLI document tool |
-| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there and what each of them holds today, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
+| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution, and installs and proves the memory guard that caps the distribution's own memory scope (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there and what each of them holds today, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
 | Restore the Applied Theme | Writes the theme this machine has applied back into the configuration files the run replaced (see below) |
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
