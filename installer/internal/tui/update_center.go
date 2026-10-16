@@ -1272,7 +1272,12 @@ func (m *Model) updateCenterAppendLine(line string) {
 func updateCenterPanelValue(state updateCenterState) string {
 	switch {
 	case !state.Resolved:
-		return "not checked yet"
+		// "read", not "checked": this screen reads what the managers answer, and the
+		// install check's own row already says "not checked yet" about a different
+		// question. The two words are the same fact said about different screens, and
+		// the panel is read as one list -- install_verify_test.go's guard scans the
+		// whole panel -- so one of them has to say it its own way.
+		return "not read yet"
 	case state.Applying:
 		return "an update is running"
 	case state.InFlight:

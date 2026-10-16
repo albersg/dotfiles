@@ -181,6 +181,20 @@ const (
 	// report's own rows and only where the engine can finish.
 	ScreenWSLBenchmark // How fast the storage behind this project answers, measured
 	ScreenWSLMigration // A project copied to the distribution's own storage, previewed and verified
+	// The SSH manager. Appended at the end for the same reason as the screens
+	// above. The utilities section opens it from its own row, and it is the hub of
+	// seven screens: the hosts the client would use, one entry's detail, the
+	// add/edit form, the public keys, the agent, the diagnosis and a connection
+	// test. Every one of them reads the client's own answer rather than guessing
+	// at it, and the only writes it makes are inside the block it owns in the
+	// user's configuration file.
+	ScreenSSHManager     // The hosts the client would use, and the jobs on them
+	ScreenSSHHost        // One entry: the effective values, their sources and the actions
+	ScreenSSHForm        // Add, edit or duplicate one managed entry
+	ScreenSSHKeys        // The public keys, the known hosts and key generation
+	ScreenSSHAgent       // What the agent holds and what may be done with it
+	ScreenSSHDiagnostics // What is wrong with the setup, and what to do about it
+	ScreenSSHTest        // One connection, tested only when the user asks
 )
 
 // stepOrigin says why a step is on the plan, in the three answers S2 of
@@ -656,6 +670,14 @@ type Model struct {
 	// dials nothing -- and its Probe field is nil in a real run, where the checks
 	// go through this machine, and set by a test that must not touch a network.
 	Network networkState
+	// SSH is everything the SSH manager's screens draw: the resolved client and
+	// its tools, the hosts the client would use, the effective answer for the
+	// entry being shown, the public keys and known hosts, the agent's state, the
+	// diagnosis and the last connection test. It is filled by commands and read by
+	// renders, and it is the only place a screen in sshmanager.go reads a fact
+	// from: no render in that file opens a file, runs a process or asks the
+	// environment anything.
+	SSH sshManagerState
 	// UpdateCheck is what the installer knows about the latest published release:
 	// the tag, when it was read, and the reason it could not be read. The cached
 	// record is loaded on the startup path, so a start never waits on the network;
@@ -1124,6 +1146,10 @@ func (m Model) GetCurrentOptions() []string {
 		// silently absent. It sits above the terminal report so the capability row
 		// stays last, where a short frame cannot have it displace a utility above it.
 		utilities = append(utilities, utilitiesVerifyRow)
+		// The SSH manager is offered on every host: a machine with no ssh client
+		// still has a configuration file worth reading, and the manager's own
+		// screen says what it cannot do rather than the row being silently absent.
+		utilities = append(utilities, utilitiesSSHRow)
 		// The terminal capability report is read-only and offered everywhere: there
 		// is always a terminal to describe, and where there is not one the screen's
 		// own body says so rather than the row being silently absent.
@@ -1165,6 +1191,20 @@ func (m Model) GetCurrentOptions() []string {
 		return m.updateCenterRows()
 	case ScreenNetworkDiagnostics:
 		return m.networkRows()
+	case ScreenSSHManager:
+		return m.sshManagerRows()
+	case ScreenSSHHost:
+		return m.sshHostRows()
+	case ScreenSSHForm:
+		return m.sshFormRows()
+	case ScreenSSHKeys:
+		return m.sshKeyRows()
+	case ScreenSSHAgent:
+		return m.sshAgentRows()
+	case ScreenSSHDiagnostics:
+		return m.sshDiagnosticRows()
+	case ScreenSSHTest:
+		return m.sshTestRows()
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:
@@ -1469,6 +1509,30 @@ func (m Model) GetScreenTitle() string {
 		return "The last install"
 	case ScreenNetworkDiagnostics:
 		return "Network diagnostics"
+	case ScreenSSHManager:
+		return "The SSH configuration"
+	case ScreenSSHHost:
+		return "SSH host " + m.SSH.DetailAlias
+	case ScreenSSHForm:
+		switch m.SSH.FormMode {
+		case "create":
+			return "A new SSH host"
+		case "duplicate":
+			return "Duplicate " + m.SSH.Form.EditTarget
+		case "edit":
+			return "Edit " + m.SSH.Form.EditTarget
+		case "delete":
+			return "Remove " + m.SSH.DetailAlias
+		}
+		return "SSH host entry"
+	case ScreenSSHKeys:
+		return "SSH keys"
+	case ScreenSSHAgent:
+		return "The SSH agent"
+	case ScreenSSHDiagnostics:
+		return "The SSH configuration's diagnosis"
+	case ScreenSSHTest:
+		return "Test an SSH connection"
 	case ScreenUpdate:
 		return "Updates"
 	default:

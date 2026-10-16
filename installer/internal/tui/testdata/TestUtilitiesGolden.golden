@@ -4,18 +4,18 @@
   Utilities                                                                     
   No desktop theme switch is available here: no GNOME, KDE or macOS session.    
   Change the dotfiles theme opens the list of complete themes.                  
-  WSL resources are not adjustable here: this is not a WSL instance.            
+  WSL resources are not adjustable here: Linux is not WSL.                      
   Measure the shell's startup times zsh -i -c exit; it changes nothing.         
+  Manage the SSH configuration shows the hosts and keys the client uses.        
   Report the terminal capabilities reads the colour depth and OSC 52.           
-  Check the machine against the last install reports which recorded paths are   
-  gone.                                                                         
+  Check the machine against the last install reports the paths that are gone.   
   Diagnose the network runs read-only checks, stage by stage.                   
-  Check the installed tools for updates changes only what you select.           
                                                                                 
   ▸ Change the dotfiles theme                                                   
     Measure the shell's startup                                                 
     Check the installed tools for updates                                       
     Check the machine against the last install                                  
+    Manage the SSH configuration                                                
     Report the terminal capabilities                                            
     Diagnose the network                                                        
   ────────────────────────────────────────────────────────────────────────────  

@@ -1028,7 +1028,7 @@ func TestNavigationSkipsTheRuleBetweenTwoManagersGroups(t *testing.T) {
 }
 
 // TestTheUtilitiesPanelNamesTheUpdateStateHonestly pins the panel's line: before
-// the question is asked it says so -- "not checked yet" is a different fact from
+// the question is asked it says so -- "not read yet" is a different fact from
 // "nothing to update" -- and after a pass it reports what the managers answered.
 func TestTheUtilitiesPanelNamesTheUpdateStateHonestly(t *testing.T) {
 	apt := updateCenterAvailableAdapter(updates.ManagerApt, updates.ScopeSystem)
@@ -1046,8 +1046,8 @@ func TestTheUtilitiesPanelNamesTheUpdateStateHonestly(t *testing.T) {
 		return ""
 	}
 
-	if got := entry(m); got != "not checked yet" {
-		t.Errorf("the panel says %q before anything has been read, want %q", got, "not checked yet")
+	if got := entry(m); got != "not read yet" {
+		t.Errorf("the panel says %q before anything has been read, want %q", got, "not read yet")
 	}
 
 	m, cmd := updateCenterOpened(t, m)

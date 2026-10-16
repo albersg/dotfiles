@@ -338,7 +338,7 @@ when you open the screen (never at startup), writes nothing, and its terminal qu
 timeout so a terminal that never answers cannot freeze the interface. See the
 [TUI Installer Guide](docs/tui-installer.md#the-terminal-capabilities).
 
-**Check the installed tools for updates.** The fifth utility asks **every package manager this
+**Check the installed tools for updates.** The update center asks **every package manager this
 machine really has** what it has to update — Homebrew, apt, pkg on Termux, pacman, dnf, snap,
 Flatpak and rustup — **one manager at a time**, because apt, pacman, dnf and pkg keep locks over the
 same package state. Each answer is the manager's own: an entry's identity is its **manager, its
@@ -361,6 +361,32 @@ stop row or `c`; when it finishes the manager is read again before anything is c
 entry is reported as **requested**, **executed** or **confirmed** — three different facts — and the
 whole inventory is read again so the list that follows is the machine's answer, not the plan's
 expectation. See the [TUI Installer Guide](docs/tui-installer.md#the-package-update-center).
+
+**Manage the SSH configuration.** This utility reads the SSH setup the client would really
+use and keeps the one part of it this tool owns in order. The hosts list is **the client's own
+answer**, never this package's idea of it: for each alias the screen asks `ssh -G --` and reports
+the effective `HostName`, `User`, `Port`, `ProxyJump` and every `IdentityFile`, naming the file and
+line each value came from and saying plainly when a `Match` criterion (an `exec`, a `canonical`, a
+`final`) was not evaluated rather than guessing which block won. An entry that cannot be rewritten
+safely — a wildcard, a negation, a line with an `Include` or a `Match` under it, a value carrying a
+comment, a file this tool may not write — is shown **read-only with the reason**, and the rows that
+would edit it are not offered. A new entry is written inside a block this tool marks in
+`~/.ssh/config` (`# >>> dotfiles ssh-manager >>>`), and an entry your own file already declares is
+edited **where it is**; either way every line the change does not name is preserved
+**byte-for-byte**, including your comments, blank lines and unknown options, and the plan of a change
+is previewed with its
+`+`/`-` lines and the backup it will take before anything is written. A write copies the file to
+`.bak-dotfiles-<stamp>` first, writes a temporary file, has **the client's own parser** validate it
+with `ssh -G -F`, and replaces the file atomically — refusing outright when the file changed since
+the preview. The keys screen describes a pair from its **public half** (the private key is only
+`stat`ed, never opened), reports its mode and warns when it is too open, and generates a key with
+the passphrase travelling on a **pipe** rather than an argument list. The agent screen names which
+agent this environment actually advertises and what it does differently — `gpg-agent` ignores
+`ssh-add -t`, 1Password and KeePassXC serve the keys they own — instead of pretending every agent
+behaves like OpenSSH's. A connection is tested **only when you press the row that tests it**, with
+`BatchMode`, `StrictHostKeyChecking=yes`, `UpdateHostKeys=no` and no password prompt: a test can
+never accept a new host key or write to `known_hosts`. See the
+[TUI Installer Guide](docs/tui-installer.md#the-ssh-configuration).
 
 ---
 

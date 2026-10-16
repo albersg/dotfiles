@@ -85,7 +85,7 @@ func TestTheUtilitiesPanelNeverCallsAFailedReadNothingToUpdate(t *testing.T) {
 	if got := updateCenterPanelValue(m.UpdateCenter); got == "nothing to update" {
 		t.Errorf("the panel summarises an offline read as %q, which claims the machine is up to date", got)
 	}
-	if got := updateCenterPanelValue(m.UpdateCenter); got == "not checked yet" {
+	if got := updateCenterPanelValue(m.UpdateCenter); got == "not read yet" {
 		t.Errorf("the panel summarises an answered-but-failed read as %q, which claims the question was never asked", got)
 	}
 
