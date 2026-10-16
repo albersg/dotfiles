@@ -51,17 +51,17 @@ Every exercise follows this structure:
 type Exercise struct {
     ID           string       // "horizontal_001"
     Module       ModuleID     // Parent module
-    Level        int          // 1-10 difficulty
+    Level        int          // 1-10 difficulty: it is what the exercise pays
     Type         ExerciseType // lesson, practice, boss
     Code         []string     // Lines of code shown
     CursorPos    Position     // Initial cursor
     Mission      string       // What user must do
     Solutions    []string     // ALL valid solutions
     Optimal      string       // Best/shortest solution
-    Hint         string       // Help text
+    Hint         string       // Mechanism the mission does not give (see below)
     Explanation  string       // Post-answer teaching
     TimeoutSecs  int          // Before showing solution
-    Points       int          // Base score
+    Points       int          // Base score; PointsForLevel is its floor
     // BufferVerified opts the exercise into the buffer judge: the answer is run
     // against a mutable buffer, which is how undo, put, indentation and any other
     // command whose effect lives in the buffer become verifiable. The zero value
@@ -76,6 +76,18 @@ An exercise with `BufferVerified` set is judged by running the answer, not by ma
 so `Solutions` stays useful as ground truth for authoring and for the explanation but is no longer the
 verdict. `installer/internal/tui/trainer/editor.go` is the engine; a guard test fails if an exercise claims
 the buffer judge and its own answer does not verify against it.
+
+Two rules the corpus guards enforce on every exercise, including boss steps:
+
+- **`Level` is a contract, not a comment.** It stays in 1..10 and it drives the score:
+  `ExercisePoints` is `max(Points, PointsForLevel(Level))`, so a hard exercise can never pay
+  less than an easy one and a deliberate authored reward still survives. `Level` also steers the
+  practice pool towards the frontier (`MasteredLevelFloor` plus `frontierBonus`), so write the level
+  you actually mean.
+- **A `Hint` adds what its `Mission` does not**: where the command lands, what it includes or
+  leaves out, the count or flag it takes, how it compares with its sibling command, or what follows
+  from it. `TestShippedHintsAddWhatTheirMissionDoesNot` rejects a hint that only restates the
+  mission, and `TestCorpusHintsDoNotQuoteTheAnswer` rejects one that quotes its own answer.
 
 ### Pattern 3: Module Unlock Order
 
@@ -98,8 +110,18 @@ var moduleUnlockOrder = []ModuleID{
 ### Pattern 4: Progression Flow
 
 ```
-Lessons (sequential) → Practice (80% accuracy) → Boss Fight → Next Module
+Lessons (sequential) → Practice → Boss Fight → Next Module
 ```
+
+- Practice unlocks when every lesson of the module is passed.
+- The boss gate reads the **recent** run: at least `BossGateMinAttempts` (10) practice answers and
+  `BossGateAccuracy` (80%) over the last `BossGateWindow` (20) of them. A fumbled first attempt at a
+  module is not a tax the player pays forever.
+- A mastered exercise comes back for review after `MasteryReviewInterval` (12 h): mastery is a
+  resting state, not a grave. `PracticeComplete` -- the only state that ends a practice session --
+  needs every exercise mastered, the boss unlocked, and no review due.
+- A correct answer raises the combo in every mode (capped at `MaxComboMultiplier`) and a wrong one
+  resets it; the headers show it once it is above 1.
 
 ---
 
@@ -184,28 +206,37 @@ func GetAllModules() []ModuleInfo {
 ```go
 func getNewModuleBoss() *BossExercise {
     return &BossExercise{
-        ID:     "newmodule_boss",
-        Module: ModuleNewModule,
-        Name:   "The New Boss",
-        Lives:  3,
+        ID:        "newmodule_boss",
+        Module:    ModuleNewModule,
+        Name:      "The New Boss",
+        Lives:     3,
+        BonusTime: 30, // 15..60: what a won step grants the next one
         Steps: []BossStep{
             {
                 Exercise: Exercise{
                     ID:        "newmodule_boss_1",
                     Module:    ModuleNewModule,
+                    Level:     5,
                     Code:      []string{"challenge code here"},
                     CursorPos: Position{Line: 0, Col: 0},
                     Mission:   "First boss challenge",
                     Solutions: []string{"w", "W"},
                     Optimal:   "w",
+                    Hint:      "The mechanism the mission does not give.",
                 },
-                TimeLimit: 10,
+                // At least BossStepRecommendedSeconds(&step.Exercise): 4s + mission/20 + 1s per
+                // answer character, capped at 90s. Compute it, do not guess it.
+                TimeLimit: 7,
             },
             // ... more steps (5-7 total)
         },
     }
 }
 ```
+
+Every step needs a `Hint` (`TestCorpusBossStepsCarryAHint`), a `Level` in range, a fair
+`TimeLimit`, and a `BonusTime` inside 15..60 on the fight (`corpus_contract_test.go` checks all
+four). `Tab` shows the hint, or the first keystrokes of the answer when a step ships none.
 
 ### Example 4: Exercise Validation
 
@@ -232,8 +263,10 @@ func ValidateAnswer(exercise *Exercise, answer string) bool {
 1. **Clear Mission**: User knows exactly what to do
 2. **Multiple Solutions**: Accept all valid Vim ways
 3. **Optimal Marked**: Teach the best approach
-4. **Progressive Difficulty**: Level 1-10 within module
+4. **Progressive Difficulty**: Level 1-10 within module, and the level is what it pays
 5. **Real Code**: Use realistic code snippets
+6. **A Hint That Teaches**: the mechanism the mission leaves implicit, never the answer
+7. **No Spoilers**: neither the mission nor the hint prints the answer in backticks
 
 ### Solutions Array Rules
 

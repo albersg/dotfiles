@@ -146,6 +146,15 @@ type (
 		err    error
 	}
 
+	// wslGuardRepairedMsg carries a guard repair back to Update: the state read
+	// afterwards, and the error the install reported. The install runs in a command
+	// because it writes two files and runs systemctl, and the read that follows it
+	// is what the screen then reports rather than the install's own word for it.
+	wslGuardRepairedMsg struct {
+		state wslGuardState
+		err   error
+	}
+
 	// wslTerminalOfferMsg carries the Windows Terminal offer the interactive WSL
 	// step shows. It is built in a command because resolving the face asks the
 	// Windows font store through interop, and the offer has to be on the model
@@ -365,6 +374,33 @@ func (m Model) wslResourceWriteCmd() tea.Cmd {
 	return func() tea.Msg {
 		notice, wrote, err := writeWSLResourceDraft(state, "utilities")
 		return wslResourceWrittenMsg{notice: notice, wrote: wrote, err: err}
+	}
+}
+
+// wslGuardInstaller and wslGuardReader are what the guard row runs and what it
+// reads back afterwards. They are variables for the same reason stepExecutor is
+// one: the row's own test has to observe the press without writing to /etc or
+// restarting a real unit on the machine running the tests, and the two are kept
+// apart so a test can prove the notice reports the read and not the install.
+var (
+	wslGuardInstaller = installWSLMemoryGuard
+	wslGuardReader    = readWSLGuardState
+)
+
+// wslGuardRepairCmd installs the guard and then reads the host back, so the
+// screen reports what the machine holds rather than what the install claims. It
+// runs off the update loop for the same reason the write does: it writes to /etc
+// and runs systemctl, and a render must never wait for either.
+//
+// The install returns an error only for a packaging defect -- a checkout that no
+// longer ships the payload or the unit. A machine that cannot be guarded prints
+// its reason and does not become an error, so the notice carries the reporting
+// and the state carries the verdict.
+func (m Model) wslGuardRepairCmd() tea.Cmd {
+	repoDir := m.WSLState.RepoDir
+	return func() tea.Msg {
+		err := wslGuardInstaller(repoDir, "utilities")
+		return wslGuardRepairedMsg{state: wslGuardReader(repoDir), err: err}
 	}
 }
 
@@ -800,13 +836,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case themeRecordLoadedMsg:
 		// The theme record follows the same rule as the last-install one: the
-		// startup read fills a model the writer did not already fill.
+		// startup read fills a model the writer did not already fill. The undo row
+		// it can add is inserted above the section's other rows, so the cursor is
+		// held by label here too.
+		held := m.selectedOption()
 		if m.ThemeRecord == nil {
 			m.ThemeRecord = msg.record
 		}
 		if m.DotfilesThemeRecord == nil {
 			m.DotfilesThemeRecord = msg.dotfiles
 		}
+		m.holdCursorOn(held)
 		// The record names the theme the run wears; the definitions are what turns
 		// that name into chrome. A run that opens with a theme applied reads them
 		// here, so the first frame is already painted rather than the utilities
@@ -835,9 +875,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.DotfilesThemesErr = msg.err.Error()
 			return m, nil
 		}
+		// The theme row is inserted at the TOP of the section's list, above every
+		// row the user could already see, so the index the cursor holds no longer
+		// names the row it was on. The label is kept and re-found, exactly as the
+		// main menu does when the Restore row arrives: the read is armed when the
+		// section opens, so the first frame is always drawn without it.
+		held := m.selectedOption()
 		m.DotfilesThemes = msg.themes
 		m.DotfilesRepoDir = msg.repoDir
 		m.DotfilesThemesErr = ""
+		m.holdCursorOn(held)
 		return m, nil
 
 	case terminalCapabilityMsg:
@@ -848,6 +895,53 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case installVerifyMsg:
+		// The verdict is filled once, by the same rule: the check is read-only, so
+		// the first answer is the answer and a return to the screen does not stat
+		// the machine again.
+		if !m.InstallVerify.Resolved {
+			m.InstallVerify = installVerifyState{Resolved: true, Verdict: msg.verdict}
+		}
+		return m, nil
+
+	case networkCheckMsg:
+		// One check finishing while the run goes on. It is appended to the streamed
+		// list and the next read is armed on the same run: the update loop keeps
+		// reading while the run keeps producing, so a slow stage never hides a fast
+		// one, and a run that is left in flight still lands its checks here.
+		if m.Network.Running && m.Network.Run != nil {
+			m.Network.Checks = append(m.Network.Checks, msg.check)
+		}
+		return m, waitNetworkEvent(m.Network.Run)
+
+	case networkDoneMsg:
+		// The finished report replaces the streamed checks whole, so the steps a stop
+		// left unrun are named as skipped rather than missing. The cursor is held on
+		// the row it was naming before the rows changed: a report that arrives while
+		// the user is moving through the list must not hand the next Enter to a
+		// different row.
+		held := m.selectedOption()
+		report := msg.report
+		m.Network.Report = &report
+		m.Network.Checks = nil
+		m.Network.Running = false
+		m.Network.Run = nil
+		m.Network.ReportPath = networkReportPath(time.Now())
+		if report.Stopped || msg.stopped {
+			m.Network.Notice = "The run was stopped: the checks that finished are listed, and the rest are skipped."
+		} else {
+			m.Network.Notice = "The run finished. Move the cursor onto a step to read what it measured."
+		}
+		m.holdCursorOn(held)
+		return m, nil
+
+	case networkClosedMsg:
+		// The event channel closed without a report, which is the run being
+		// abandoned. The screen stops saying a run is in flight rather than waiting
+		// for an answer that is not coming.
+		m.Network.Running = false
+		m.Network.Run = nil
+		return m, nil
 	case updateCheckMsg:
 		// An answer for a channel this run has left is not an answer. The channel
 		// row can be pressed while a check is in flight, so the older check's reply
@@ -905,8 +999,26 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the values the write just changed -- so it is accepted too, and the state
 		// it brings clears the refreshing mark by not carrying one.
 		if !m.WSLState.Resolved || m.WSLState.Refreshing {
+			// The WSL row is inserted above the section's read-only rows when the
+			// answer says there is a .wslconfig to edit, and the read is armed when
+			// the section opens, so the row arrives under a cursor that was placed
+			// on the rows already there. The label is kept and re-found.
+			held := m.selectedOption()
 			m.WSLState = msg.state
+			m.holdCursorOn(held)
 		}
+		return m, nil
+
+	case wslGuardRepairedMsg:
+		// The state is replaced by what the host holds after the repair, never by
+		// what the install reported: a guard whose unit exited non-zero leaves the
+		// screen saying exactly which protection is still missing.
+		m.WSLState.Guard = msg.state
+		if msg.err != nil {
+			m.WSLNotice = fmt.Sprintf("The WSL memory guard could not be installed: %v", msg.err)
+			return m, nil
+		}
+		m.WSLNotice = wslGuardRepairNotice(msg.state)
 		return m, nil
 
 	case wslResourceWrittenMsg:
@@ -1255,6 +1367,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// The network screen owns every key while its destination field is open: a space
+	// is not accepted by the field, backspace deletes a character and escape closes
+	// the field rather than leaving the screen, exactly as the password screen keeps
+	// its own keys. The field is dispatched here, before those global meanings,
+	// because a field that loses a character to a navigation key is not a field.
+	if m.Screen == ScreenNetworkDiagnostics && m.Network.InputActive {
+		return m.updateNetworkInput(msg)
+	}
+
 	// The password screen owns every key it uses. It is reached in the middle of an
 	// install, where the global meanings of these keys would take a character away
 	// from the field: space would open the leader key instead of being typed,
@@ -1358,8 +1479,20 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		return m.handleSelectionKeys(key)
 
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnPrompts:
 		return m.handleLearnMenuKeys(key)
+
+	case ScreenLearnTools:
+		return m.handleLearnHubKeys(key)
+
+	case ScreenLearnTooling:
+		return m.handleReferenceTableKeys(key, len(shellToolingRows()))
+
+	case ScreenLearnPlugins:
+		return m.handleReferenceTableKeys(key, len(pluginSetRows()))
+
+	case ScreenLearnToolset:
+		return m.handleReferenceTableKeys(key, len(toolsetDirectives()))
 
 	case ScreenKeymaps:
 		return m.handleKeymapsMenuKeys(key)
@@ -1394,6 +1527,18 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenKeymapsHerdrCat:
 		return m.handleHerdrKeymapCategoryKeys(key)
 
+	case ScreenKeymapsKitty:
+		return m.handleKittyKeymapsMenuKeys(key)
+
+	case ScreenKeymapsKittyCat:
+		return m.handleKittyKeymapCategoryKeys(key)
+
+	case ScreenKeymapsWezTerm:
+		return m.handleReferenceTableKeys(key, len(weztermConfigTable().Rows))
+
+	case ScreenKeymapsAlacritty:
+		return m.handleReferenceTableKeys(key, len(alacrittyConfigTable().Rows))
+
 	case ScreenLearnLazyVim:
 		return m.handleLazyVimMenuKeys(key)
 
@@ -1414,6 +1559,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
+
+	case ScreenInstallVerify:
+		return m.handleInstallVerifyKeys(key)
+
+	case ScreenNetworkDiagnostics:
+		return m.handleNetworkKeys(key)
 
 	case ScreenSSHManager:
 		return m.handleSSHManagerKeys(key)
@@ -1528,19 +1679,25 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenKeymapsHerdrCat:
 		m.Screen = ScreenKeymapsHerdr
 		m.HerdrKeymapScroll = 0
+	case ScreenKeymapsKittyCat:
+		m.Screen = ScreenKeymapsKitty
+		m.KittyKeymapScroll = 0
 	case ScreenLazyVimTopic:
 		m.Screen = ScreenLearnLazyVim
 		m.LazyVimScroll = 0
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
 		m.ViewingTool = ""
+		m.ReferenceTableScroll = 0
 	case ScreenKeymaps:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
-	case ScreenKeymapsTmux, ScreenKeymapsZellij, ScreenKeymapsGhostty, ScreenKeymapsHerdr:
+	case ScreenKeymapsTmux, ScreenKeymapsZellij, ScreenKeymapsGhostty, ScreenKeymapsHerdr,
+		ScreenKeymapsKitty, ScreenKeymapsWezTerm, ScreenKeymapsAlacritty:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
+		m.ReferenceTableScroll = 0
 	case ScreenKeymapsMenu, ScreenLearnLazyVim:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
@@ -1595,6 +1752,18 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// the user stepped back while it ran.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
+	case ScreenInstallVerify:
+		// The verification screen is one level in as well, and read-only: leaving
+		// it cancels nothing, because nothing it does is a change.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+	case ScreenNetworkDiagnostics:
+		// The diagnosis is one level in, and it is the one screen of the section
+		// whose Esc has three meanings: it stops a run that is going, it closes an
+		// open preview, and only then does it leave. That order lives in one place,
+		// leaveNetworkScreen, so the key's meaning cannot drift between them.
+		return m.leaveNetworkScreen()
+
 	case ScreenSSHManager:
 		// The manager is one level in from the utilities section. A test that is
 		// still running is cancelled on the way out: an answer nobody is waiting for
@@ -1825,7 +1994,10 @@ func (m Model) shellCursor() int {
 // when it records the detected shell.
 
 func (m Model) startTrainer() (tea.Model, tea.Cmd) {
-	stats := trainer.LoadStats()
+	// The reporting load is the one the trainer's own entry point uses: a profile that
+	// could not be read is moved aside and the player is told where it went, instead of
+	// being handed a silent zero that the next save would write over.
+	stats, problem := trainer.LoadStatsReport()
 	if stats == nil {
 		stats = trainer.NewUserStats()
 	}
@@ -1833,7 +2005,7 @@ func (m Model) startTrainer() (tea.Model, tea.Cmd) {
 	m.TrainerGameState = nil
 	m.TrainerCursor = 0
 	m.TrainerInput = ""
-	m.TrainerMessage = ""
+	m.TrainerMessage = problem
 	m.Screen = ScreenTrainerMenu
 	m.PrevScreen = ScreenMainMenu
 	return m, nil
@@ -1859,7 +2031,8 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// other main-menu keys, like `vim`.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
-		m.ThemeNotice = ""
+		// Not cleared, for the reason the row's own case states: the outcome of a
+		// switch that failed while the user was away has to survive the way back in.
 		return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
 	case "enter", " ":
 		selected := options[m.Cursor]
@@ -1871,7 +2044,9 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// question's cursor rule lives inside enterSetup now.
 			m.enterSetup()
 		case strings.Contains(selected, "Learn About Tools"):
-			m.Screen = ScreenLearnTerminals
+			// The row opens the hub rather than the terminal list: the hub is the one
+			// route the main menu has to the shell, multiplexer and Neovim pages.
+			m.Screen = ScreenLearnTools
 			m.PrevScreen = ScreenMainMenu
 			m.Cursor = 0
 		case strings.Contains(selected, "Keymaps Reference"):
@@ -1915,7 +2090,11 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// user finds it, the key is the shortcut for someone who has.
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
-			m.ThemeNotice = ""
+			// The notice is deliberately NOT cleared here. A switch is bounded by
+			// themeCommandTimeout and its failure is the slow outcome, so a user who
+			// steps away before it lands would have the one result they must see
+			// erased by the act of coming back to read it. Leaving the section still
+			// clears it, which is where the user has already read it.
 			return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
 		case strings.Contains(selected, "Restore from Backup") && hasRestoreOption:
 			m.Screen = ScreenRestoreBackup
@@ -1984,6 +2163,13 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenWSLResources
 			m.Cursor = 0
 			m.WSLNotice = ""
+		case selected == utilitiesVerifyRow:
+			// The verification is one level in as well, and it is the check that runs
+			// off the update loop: the record and the paths it names are stated here,
+			// and a keypress must not wait on them.
+			m.Screen = ScreenInstallVerify
+			m.Cursor = 0
+			return m, m.installVerifyCmdIfNeeded()
 		case selected == utilitiesTerminalRow:
 			// The capability report is one level in as well, and it is read-only.
 			// The probe is armed here -- when the user opens the screen, never at
@@ -1998,6 +2184,14 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			// that screen's own row.
 			m.Screen = ScreenShellAudit
 			m.Cursor = 0
+		case selected == utilitiesNetworkRow:
+			// The diagnosis is one level in for the same reason, and it dials nothing
+			// on the way in either: the checks start from that screen's own row, and the
+			// host the overview contacts is named there.
+			m.Screen = ScreenNetworkDiagnostics
+			m.Cursor = 0
+			m.Network.Notice = ""
+
 		case selected == utilitiesSSHRow:
 			// The SSH manager is one level in as well. The client and the
 			// configuration are read on the way in, because which hosts exist is what
@@ -2103,6 +2297,13 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 			// wait is visible and the result replaces it in the same rows.
 			m.WSLNotice = fmt.Sprintf("Writing %s…", m.WSLState.Path)
 			return m, m.wslResourceWriteCmd()
+		case options[m.Cursor] == wslGuardRepairRow:
+			// The guard is the part of this screen that is not the .wslconfig, so
+			// its row says what it is doing before it starts: the install writes two
+			// files and restarts a unit, and a silent press would read as nothing
+			// having happened while it runs.
+			m.WSLNotice = "Installing the WSL memory guard…"
+			return m, m.wslGuardRepairCmd()
 		case strings.Contains(options[m.Cursor], "Back"):
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
@@ -2521,6 +2722,86 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleLearnHubKeys walks the Learn About Tools hub. Enter resolves the row
+// through learnToolRows() rather than by its position, so the page a row opens
+// and the row the menu draws cannot drift apart, and Escape is the way back to
+// whatever opened the hub.
+// handleReferenceTableKeys scrolls a read-only reference page and leaves it. The
+// pages share one scroll value because only one of them is on screen at a time,
+// and the value is reset when the page is opened and when it is left, so a page
+// never opens part-way down a table the reader has not seen. The window and its
+// clamp come from the same helper the renderer windows with, so the last row is
+// reachable.
+func (m Model) handleReferenceTableKeys(key string, rows int) (tea.Model, tea.Cmd) {
+	maxScroll := offsetWindowMax(keymapTableRows(m.Height), rows)
+
+	switch key {
+	case "up", "k":
+		if m.ReferenceTableScroll > 0 {
+			m.ReferenceTableScroll--
+		}
+	case "down", "j":
+		if m.ReferenceTableScroll < maxScroll {
+			m.ReferenceTableScroll++
+		}
+	case "enter", " ", "q":
+		m.Screen = m.PrevScreen
+		m.ReferenceTableScroll = 0
+	}
+
+	return m, nil
+}
+
+func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if m.learnSeparatorAt(options, m.Cursor) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if m.learnSeparatorAt(options, m.Cursor) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		if m.learnSeparatorAt(options, m.Cursor) || strings.Contains(selected, "Back") {
+			m.Screen = m.PrevScreen
+			m.Cursor = 0
+			return m, nil
+		}
+		row, ok := learnToolRowByLabel(selected)
+		if !ok {
+			return m, nil
+		}
+		m.PrevScreen = ScreenLearnTools
+		m.Screen = row.Screen
+		m.Cursor = 0
+		m.ViewingTool = ""
+		m.ReferenceTableScroll = 0
+	}
+
+	return m, nil
+}
+
+// learnSeparatorAt reports whether the option at an index is the menu's rule.
+func (m Model) learnSeparatorAt(options []string, index int) bool {
+	if index < 0 || index >= len(options) {
+		return false
+	}
+	return strings.HasPrefix(options[index], m.menuSeparator())
+}
+
 func (m Model) handleLearnMenuKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -2671,24 +2952,29 @@ func (m Model) handleToolKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Navigate to specific tool's keymaps
-		switch m.Cursor {
-		case 0: // Neovim
+		// The menu routes by the label rather than by the row index it used to
+		// switch on: a positional switch silently sent a new row to the wrong
+		// tool's reference as soon as a row was inserted above another one.
+		switch selected {
+		case "Neovim":
 			m.Screen = ScreenKeymaps
-			m.Cursor = 0
-		case 1: // Tmux
+		case "Tmux":
 			m.Screen = ScreenKeymapsTmux
-			m.Cursor = 0
-		case 2: // Zellij
+		case "Zellij":
 			m.Screen = ScreenKeymapsZellij
-			m.Cursor = 0
-		case 3: // Herdr
+		case "Herdr":
 			m.Screen = ScreenKeymapsHerdr
-			m.Cursor = 0
-		case 4: // Ghostty
+		case "Ghostty":
 			m.Screen = ScreenKeymapsGhostty
-			m.Cursor = 0
+		case "Kitty":
+			m.Screen = ScreenKeymapsKitty
+		case "WezTerm":
+			m.Screen = ScreenKeymapsWezTerm
+		case "Alacritty":
+			m.Screen = ScreenKeymapsAlacritty
 		}
+		m.Cursor = 0
+		m.ReferenceTableScroll = 0
 	}
 
 	return m, nil
@@ -2878,6 +3164,68 @@ func (m Model) handleGhosttyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) 
 	case "enter", " ", "q", "esc":
 		m.Screen = ScreenKeymapsGhostty
 		m.GhosttyKeymapScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleKittyKeymapsMenuKeys handles Kitty keymap category selection
+func (m Model) handleKittyKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], "───") && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], "───") && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "enter", " ":
+		selected := options[m.Cursor]
+		if strings.Contains(selected, "Back") {
+			m.Screen = ScreenKeymapsMenu
+			m.Cursor = 0
+			return m, nil
+		}
+		if strings.HasPrefix(selected, "───") {
+			return m, nil
+		}
+
+		m.KittySelectedCategory = m.Cursor
+		m.Screen = ScreenKeymapsKittyCat
+		m.KittyKeymapScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleKittyKeymapCategoryKeys handles scrolling in the Kitty keymap category view
+func (m Model) handleKittyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
+	category := m.KittyKeymapCategories[m.KittySelectedCategory]
+
+	visibleItems := keymapTableRows(m.Height)
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
+
+	switch key {
+	case "up", "k":
+		if m.KittyKeymapScroll > 0 {
+			m.KittyKeymapScroll--
+		}
+	case "down", "j":
+		if m.KittyKeymapScroll < maxScroll {
+			m.KittyKeymapScroll++
+		}
+	case "enter", " ", "q", "esc":
+		m.Screen = ScreenKeymapsKitty
+		m.KittyKeymapScroll = 0
 	}
 
 	return m, nil
@@ -3324,11 +3672,15 @@ func (m *Model) revealExerciseHintOnDeadline() {
 // no label", so the lesson, the practice and the boss handlers, and the
 // automatic deadline reveal, cannot disagree about what a missing hint looks
 // like.
+// trainerHintPrefix is what every hint the trainer reveals is labelled with, so the
+// exercise screen and the boss screen say the same thing about the same kind of help.
+const trainerHintPrefix = "💡 Hint: "
+
 func trainerHintLabel(exercise *trainer.Exercise) string {
 	if exercise == nil || exercise.Hint == "" {
 		return ""
 	}
-	return "💡 Hint: " + exercise.Hint
+	return trainerHintPrefix + exercise.Hint
 }
 
 // expireBossStepOnDeadline charges the clock when a boss step is left
@@ -3447,29 +3799,47 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// P key for Practice mode (if ready)
 		if m.TrainerCursor < len(m.TrainerModules) {
 			module := m.TrainerModules[m.TrainerCursor]
-			if m.TrainerStats.IsPracticeReady(module.ID) {
-				// Check if practice is complete
-				progress := m.TrainerStats.GetModuleProgress(module.ID)
-				if progress.IsPracticeComplete(module.ID) {
-					m.TrainerMessage = "🎉 Practice complete! All exercises mastered! Press [r] to reset."
-					return m, nil
-				}
-
-				m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
-				m.TrainerGameState.StartPractice(module.ID)
-
-				// Check if we got an exercise (shouldn't fail if not complete, but safety check)
-				if m.TrainerGameState.CurrentExercise == nil {
-					m.TrainerMessage = "🎉 Practice complete! All exercises mastered! Press [r] to reset."
-					return m, nil
-				}
-
-				m.TrainerInput = ""
-				m.TrainerMessage = ""
-				m.Screen = ScreenTrainerPractice
-			} else {
+			if !m.TrainerStats.IsPracticeReady(module.ID) {
 				m.TrainerMessage = "Complete all lessons first to unlock practice!"
+				return m, nil
 			}
+
+			// Nothing left to practise means every exercise is mastered AND the boss
+			// is unlocked. That is the only state in which the session would end on
+			// its first answer, so it is the only state that refuses to start; an
+			// all-mastered module whose boss gate is unmet keeps offering review,
+			// which is how the player reaches the gate at all.
+			// time.Now is the menu's own clock: the rule lives in the trainer package
+			// and takes the moment as an argument, and the menu is the view layer that
+			// has to supply one. A due review is work, so a module with reviews due
+			// starts a session even when the boss is already unlocked.
+			if m.TrainerStats.PracticeComplete(module.ID, time.Now()) {
+				m.TrainerMessage = "🎉 Nothing left to practise in " + module.Name + ": the boss is unlocked. Press [b]."
+				return m, nil
+			}
+
+			m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+			m.TrainerGameState.StartPractice(module.ID)
+
+			if m.TrainerGameState.CurrentExercise == nil {
+				m.TrainerMessage = "No exercises to practise in " + module.Name + " yet."
+				return m, nil
+			}
+
+			m.TrainerInput = ""
+			if due := m.TrainerStats.ReviewsDue(module.ID, time.Now()); due > 0 {
+				word := "reviews"
+				if due == 1 {
+					word = "review"
+				}
+				m.TrainerMessage = fmt.Sprintf("🔁 Review run: %d mastered %s due.", due, word)
+			} else if m.TrainerStats.IsPracticeComplete(module.ID) {
+				m.TrainerMessage = fmt.Sprintf("🔁 Review run: every exercise is mastered, and the boss still needs %.0f%% of your last %d practice answers.",
+					trainer.BossGateAccuracy*100, trainer.BossGateWindow)
+			} else {
+				m.TrainerMessage = ""
+			}
+			m.Screen = ScreenTrainerPractice
 		}
 	case "r":
 		// R key to reset practice progress for selected module
@@ -3663,10 +4033,11 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 			m.TrainerMessage = "✗ Incorrect. " + mismatch + "Solutions: " + trainer.FormatSolutionsHint(exercise)
 		}
 
-		// Record practice result for intelligent practice system
-		if m.TrainerGameState.IsPracticeMode && exercise.ID != "" {
-			progress := m.TrainerStats.GetModuleProgress(m.TrainerGameState.CurrentModule)
-			progress.RecordPracticeResult(exercise.ID, validation.IsCorrect)
+		// The answer recorders above own every counter, practice included, so the
+		// screen records nothing itself: counting the submission here as well is
+		// what used to double every practice attempt. The screen only persists the
+		// profile the answer moved.
+		if m.TrainerGameState.IsPracticeMode {
 			saveTrainerStats(&m)
 		}
 
@@ -3718,13 +4089,13 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		// The boss screen reveals its step's hint on the same terms as the
-		// exercise screen: trainerHintLabel's label, its empty check, and no
-		// label at all when the step carries none. Before this case the hint the
-		// rewritten Change & Repeat boss steps ship was unreachable copy: it sat
-		// in the data and no boss key could show it.
-		if label := trainerHintLabel(m.TrainerGameState.CurrentExercise); label != "" {
-			m.TrainerMessage = label
+		// The boss screen asks trainer.BossStepNudge rather than trainerHintLabel:
+		// the step's own hint when it ships one, and the first keystrokes of its
+		// answer when it does not. Tab used to be dead on every step without an
+		// authored hint, which was all 35 of them, so the key did nothing at all in
+		// the one place the player most wants a nudge.
+		if nudge := trainer.BossStepNudge(m.TrainerGameState.CurrentExercise); nudge != "" {
+			m.TrainerMessage = trainerHintPrefix + nudge
 		}
 		return m, nil
 
@@ -3830,9 +4201,11 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			// Session complete. The save runs after the celebration message so a
-			// failed save is reported instead of being hidden behind it.
+			// failed save is reported instead of being hidden behind it. A practice
+			// session ends only when there is nothing left to do, so the message
+			// names the thing that is now open rather than claiming mastery twice.
 			if m.TrainerGameState.IsPracticeMode {
-				m.TrainerMessage = "🎉 All exercises mastered! You're a Vim master! 🏆"
+				m.TrainerMessage = "🎉 Practice complete — every exercise mastered and the boss is unlocked. Press [b] on the menu."
 			} else {
 				m.TrainerMessage = "🎉 Lesson complete! Practice mode unlocked!"
 			}

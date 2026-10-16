@@ -11,6 +11,7 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - [Command Line Interface](#command-line-interface)
 - [Backup & Restore](#backup--restore)
 - [Learn Mode](#learn-mode)
+- [Keymaps Reference](#keymaps-reference)
 - [Requirements](#requirements)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -24,13 +25,17 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
   cannot drift from the keys the screen accepts
 - **Smart Detection**: Automatically detects your OS, existing configs, and installed tools
 - **Backup & Restore**: Safely backup existing configurations before installation
-- **Educational Content**: Learn about each tool before choosing (terminals, shells, multiplexers)
-- **Neovim Keymaps Reference**: Built-in keymap browser organized by category
+- **Educational Content**: A **Learn About Tools** hub that reaches a page for every tool a run
+touches: the terminals, shells and multiplexers a run chooses, Neovim, the font, the prompts, the
+shell tooling, the plugin sets and the `Brewfile`'s directives
+- **Keymaps Reference**: Built-in keymap browser organized by category, for every tool whose
+configuration declares bindings; the two that declare none say so and list what they set instead
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
 - **Utilities**: The small jobs that are not part of an installation, starting with a
   reversible system light/dark theme switch and the reversible dotfiles-theme switch, in its own
-  main-menu row
+  main-menu row, and the read-only **network diagnosis** that names which stage of a connection
+  stopped it
 - **Progress Tracking**: Real-time installation progress with a frame-width progress bar whose
   filled part carries a travelling highlight during long steps, a percentage, the step the run is on
   with its name, the elapsed time and an estimate of what is left measured from the run's own clock,
@@ -83,8 +88,9 @@ go build -o dotfiles ./cmd/dotfiles
 From the main menu you can access:
 
 - **Start Installation**: Begin the guided setup process
-- **Learn About Tools**: Explore terminals, shells, and multiplexers
-- **Neovim Keymaps**: Browse all configured keybindings
+- **Learn About Tools**: Opens the hub: terminals, shells, multiplexers, Neovim, the font, the
+  prompts, the shell tooling, the plugin sets and the machine toolset
+- **Keymaps Reference**: Browse the bindings each tool ships, organized by category
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
 - **Update this installer**: Appears whenever the check has something to report: a newer
@@ -109,8 +115,10 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the
-  read-only terminal capability report behind the **Report the terminal capabilities** row, and the
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the three
+  read-only reports: the terminal capability report behind the **Report the terminal
+  capabilities** row, the install check behind the **Check the machine against the last
+  install** row, and the network diagnosis behind the **Diagnose the network** row, plus the
   SSH configuration behind the **Manage the SSH configuration** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
@@ -126,12 +134,23 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds three jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds seven jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
-host), and the read-only **terminal capability report**. The main menu's panel derives one row per
+host), the read-only **shell's startup** measurement (one level in), the read-only **terminal
+capability report**, the read-only **install check**, and the read-only **network diagnosis** (one
+level in from the **Diagnose the network** row). The main menu's panel derives one row per
 job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
 is the only list -- so a utility added to the section shows up in the panel or is visibly missing
-from that one function.
+from that one function. `TestTheUtilitiesDocNamesEveryJobTheSectionOffers` holds this sentence to
+that list, because a sentence that states a count and then lists fewer jobs than the section offers
+is the defect this doc has already shipped once.
+
+**The network diagnosis accumulates its checks instead of replacing them**: each one appears as it
+finishes, so a slow stage never hides a fast one, and the row that runs them keeps its own label
+while the count of finished steps lives in the notice line above the body (`Running the checks… 3
+finished so far`, with what stopping does). The cursor is held on the row it was on when the report
+lands, so a run that finishes while the user is reading one step does not hand the next `Enter` to a
+different row.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
@@ -485,9 +504,21 @@ beside the recommendation so it can be checked against the machine:
 
 | Key | Recommended from |
 |-----|------------------|
-| `memory` | half the host's RAM, rounded down to 512 MB, capped so Windows keeps at least 2 GiB, omitted below 1 GiB |
-| `processors` | every logical CPU the host reports |
+| `memory` | three quarters of the host's RAM, rounded down to 512 MB, capped so Windows is left at least 4 GiB wherever that can be honoured and floored at half the host, which is what decides on a host too small to honour both, omitted below 1 GiB |
+| `processors` | every logical CPU the host reports except one, so Windows keeps one |
 | `swap` | a quarter of the planned memory, rounded down to 512 MB |
+
+**These limits were wrong in a way only a packed build shows.** The installer used to take **half**
+the host, pin the reserve at 2 GiB and hand the VM **every** logical CPU. On a 16,016 MiB / 12-CPU
+host that planned `memory=7680MB, processors=12`, and at that size two global out-of-memory kills
+took the whole distribution down while a test run held about 5.3 GiB of it. The reserve is now a flat
+4 GiB instead of 2; the ratio is three quarters of the host instead of half, which is what the
+reserve clamps on a machine this size; the floor is half the host, WSL's own proportional default,
+so the plan never gives less than WSL would; and Windows keeps one CPU. The
+same host now plans `memory=11776MB, processors=11, swap=2560MB`. `TestPlanWSLResources` pins this
+host, both boundaries, the 1-CPU host and the unknown host, and
+[`dotfiles-wsl/.wslconfig.tmpl`](../dotfiles-wsl/.wslconfig.tmpl)'s own comments changed with the
+policy, because a template comment that states the old rule is the defect this change removes.
 
 The rows start on what the file holds today where it sets a key, and on the recommendation where it
 does not. **←/→** (`h`/`l`, `-`/`+`) move the value under the cursor by one step — 512 MB for memory
@@ -509,6 +540,50 @@ After a successful write the screen re-reads the file it left behind and updates
 place: the table keeps its size and its place, the notice row says it is refreshing, and one press
 is one visible change. **`--dry-run` skips the write**, leaving no file, no backup and no record,
 exactly as it skips every installation step.
+
+### The WSL memory guard
+
+**The `.wslconfig` caps the VM; the guard caps what runs inside it.** Under WSL every process in the
+distribution -- the shell, the editor, systemd itself and its journal -- lives in one cgroup,
+`init.scope`, and nothing bounded it. The WSL step installs a small systemd unit whose payload puts
+four limits on that scope and keeps them there:
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `memory.high` | `infinity` | a number here is a throttle, not a limit: the kernel stalls the scope instead of killing anything, which is a freeze with no error, and on 2026-10-16 it froze this distribution for six minutes |
+| `memory.max` | the VM's own total minus 1536 MiB | leaves systemd and the shell room to keep working when a build fills the VM, so the kill lands on the build rather than on the distribution |
+| `memory.swap.max` | `1280M` | bounded, so a spike is not absorbed silently by paging until the machine stops responding, and wide enough that pages the kernel cannot drop have somewhere to go: a tmpfs is shmem, shmem is only reclaimable by swapping, and on 2026-10-16 verification worktrees under `/tmp` held 4524 MiB of the 8409 MiB cap that a 512M allowance could not reclaim. Raising it is the second line of defence; the first is not filling a tmpfs |
+| `memory.oom.group` | `0` | one task is killed, not every task in the group |
+
+**`OOMPolicy=continue` is the half that decides whether the distribution survives at all.** With
+systemd's default, `stop`, an OOM kill inside `init.scope` makes systemd **stop the scope** -- and
+because every process in the distribution is in that scope, one killed process takes the whole
+distribution with it. That is what happened twice on 2026-10-16, at 11:39:48 and 11:53:54. The
+setting is a **unit** property rather than a cgroup attribute, and systemd refuses it through
+`systemctl set-property --runtime`: measured on systemd 257, the route that works is a drop-in scoped
+to the scope, `/etc/systemd/system/init.scope.d/10-oompolicy.conf`, so the guard writes it and then
+**reads the effective policy back** rather than assuming either route worked. It deliberately does
+not write `DefaultOOMPolicy` in `/etc/systemd/system.conf`: that reaches every unit on the machine
+and would stop a service whose main process is OOM-killed from being marked failed, so its
+`Restart=` would never fire. When neither scoped route takes, the guard says so, names that remedy
+with its cost, and exits non-zero.
+
+**The cap survives a reload, and that is checked rather than claimed.** `systemctl set-property
+--runtime` does not set the cgroup in a way a `daemon-reload` discards: systemd stores the values as
+drop-ins under `/run/systemd/transient/init.scope.d/` and re-applies them. The verification in the
+step is that mechanism: it reads `memory.max`, runs a second `daemon-reload` and requires the value
+to be unchanged.
+
+**The step installs it and proves it; the Utility repairs it.** The Configure WSL step installs the
+payload (`0755`, because systemd has to execute it) and the unit (`0644`), reloads, enables and
+restarts the unit, and reads `OOMPolicy` and `memory.max` back. A machine where systemd is not the
+init -- what provides it is `[boot] systemd=true` in `/etc/wsl.conf` -- gets a line saying so and the
+files are left unwritten, because a unit systemd will never read is not a safeguard. Every
+degradation is reported and **none of them fails the step**: the `.wslconfig` half already
+succeeded. `--dry-run` writes nothing and runs no `systemctl`. The **Utilities** section carries the
+state beside the WSL row -- `missing`, `not running`, `unprotected` or `active` -- and the WSL
+resource screen names the failure each missing half produces, in the terms it was measured in, and
+offers **Repair the WSL memory guard**, which installs and re-reads without a full run.
 
 ### The Nerd Font step
 
@@ -716,10 +791,11 @@ controlling terminal (a container, a service, a run with no TTY) gets the empty 
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
 
+
 ### The SSH configuration
 
-The fifth utility is **the SSH configuration**, behind the **Manage the SSH configuration** row, and
-it is the one utility that **writes** — inside a block it owns, after a backup and a validation, and
+**The SSH configuration** is the utility behind the **Manage the SSH configuration** row, and it is
+the one utility that **writes** — inside a block it owns, after a backup and a validation, and
 never anywhere else. It exists because the client's real answer is spread over the user's file,
 everything it `Include`s, the system-wide file and the command line, and the parts a developer most
 needs (which key a host really uses, why a host is unreachable, whether the agent is running at all)
@@ -860,24 +936,40 @@ on the platform and the choices, so a run shows only the ones that apply.
 | Install Toolset | Installs the command-line tools declared in the `Brewfile` (best effort; skipped on Termux and without Homebrew) |
 | Install Pi Agent Skills | Installs the pinned AI agent skills |
 | Install OfficeCLI | Installs the OfficeCLI document tool |
-| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there and what each of them holds today, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
+| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution, and installs and proves the memory guard that caps the distribution's own memory scope (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there and what each of them holds today, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
 | Restore the Applied Theme | Writes the theme this machine has applied back into the configuration files the run replaced (see below) |
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
 
-**Every unit is shown with its switch before anything runs, and a unit turned off is reported rather
-than dropped.** The plan the setup screen's action row opens lists every unit the run
-can install, in the order the run takes them, each one on or off, with the three it cannot do without
-marked and refusing to change: `clone`, the repository the run works from; `cleanup`, the state the run
-created; and `setshell`, the default shell that was chosen. `Space` turns the unit under the cursor off
-or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened from. The
-list is drawn as a window sized by the terminal, and the rows that do not fit are counted above and
-below it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off
-the bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A
-unit that is turned off stays in the plan, is never executed, is not a failure, and is reported as
-skipped in the run's own output and in its step list. The command line reaches the same selection with
-`--skip`, and both routes plan through the same builder, so one selection produces the same steps
-either way.
+**The plan screen shows the run's plan, grouped by area, and every row says where it came from.**
+The plan the setup screen's action row opens is the plan the run will execute -- the same builder
+(`planFor`) the command line reads -- so nothing reaches it that the flow never mentioned (S2). Its
+rows are grouped under an area heading -- `Preparation`, `The tools you chose`, `The extras` and
+`Finishing up` -- in the order the run takes them, and each row carries where it came from, one of
+four honest sentences: *your choice decided it* with the value the choice took (`Install kitty —
+your choice decided it: kitty`), *an extra you turned on* for a switch that was turned on, *this
+machine needs it* for the dependency step, the Apple developer tools, Homebrew and the WSL
+configuration, and *every run installs it* for the toolset, the agent skills, OfficeCLI and
+the theme. None of those four says the run cannot leave the step out: the three units it really
+needs -- `clone`, the repository the run works from; `cleanup`, the state the run created; and
+`setshell`, the default shell that was chosen -- read *the run needs it* instead, which is the
+catalogue's fixed flag and a separate fact from where the step came from. A step's plugin set is
+indented directly under it, saying either the switch's state (`[x]` installed, `[ ]` left out) or,
+for a set a run cannot leave out, where the set comes from. That last sentence is deliberately
+short: the frame draws a row instead of wrapping it, and the longest set name leaves nineteen
+characters inside the narrowest terminal the frame matrix measures, so the registry's full reason
+would be cut off exactly where a user reads it -- the reason keeps its own guards and its other
+carriers, `--skip`'s refusal and this documentation. `Space` turns the unit under the cursor
+off or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened
+from. The cursor rests only on rows it can switch: it steps over the area headings, the plugin-set
+rows and the three fixed units, so no row ever offers a switch for something the run needs. The list
+is drawn as a window sized by the terminal, and the rows that do not fit are counted above and below
+it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off the
+bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A unit
+that is turned off stays in the plan as `[ ]`, is never executed, is not a failure, and is reported
+as skipped in the run's own output and in its step list. The command line reaches the same selection
+with `--skip`, and both routes plan through the same builder, so one selection produces the same
+steps either way.
 
 **The administrator password is asked once, on the installer's own screen.** Before the first step
 that needs root, the installer asks sudo whether it already has a credential it can use
@@ -1055,7 +1147,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the terminal capability report, and what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`) — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
@@ -1251,6 +1343,26 @@ The glyph ladder under it needs no colour at all and stays exactly as it is: a h
 colour draws as a plain block, and this shading means nothing there. That is what keeps it a floor
 rather than a fallback — a terminal without true colour, a run with the sprite switched off
 (`DOTFILES_SPRITE=0`) and a frame with fewer rows all get the cat the glyph ladder picks.
+
+### The creature's states, and the one it takes in a fight
+
+`companionStateNow()` picks the creature's state from the model, and the trainer's boss screen
+overrides every reaction: while a boss fight is on screen the creature is **possessed** — a spiked
+crest, fangs, and eyes drawn in the ember tone (`#ff2d2d`) instead of the sclera's own. It is a state
+in the same machine rather than an overlay painted on a frame, so every rung of the sprite ladder has
+art for it (`companionPossessedFrames`, appended by `companionFramesAt`), the frame guard still
+refuses an overflowing one, and the gaze composer still moves the slit pupil. The one-row rung — what
+the trainer draws at the documented 80x24 floor — carries the ember eyes too, which is why the
+glyph renderer paints the mark (`companionGlyphRow`) instead of keying off the eye row's metadata.
+
+Whether an eye's disc is the sclera's tone and whether it carries a highlight are the mark's own
+answers (`companionEyeDiscTone`, `companionEyeHasGlint`), so the eye-invariant test asks the art's
+own question instead of repeating the sclera's colour.
+
+The escalation is the fight: with lives to spare the form is calm, and on the last life
+(`companionPossessionRageLives`) the creature shakes with the same one-pixel tremble a startle draws,
+held for as long as the fight lasts. The moment the fight ends it is its ordinary self again, because
+the state is derived from the screen and nothing about it is stored.
 
 It costs what it looks like it costs. The renderer repaints a whole line whenever any byte in it
 changes. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227 columns and height 62**:
@@ -1525,6 +1637,7 @@ dotfiles --non-interactive --shell=<shell> [options]
 
 | Flag | Values | Description |
 |------|--------|-------------|
+| `--os` | `mac`, `linux`, `termux` | Platform to work from. Absent, the machine the run is on decides. The values are the ones the setup screen's first row records, read from that row rather than written out again, so a platform the screen gains cannot leave the flag behind; WSL is deliberately not one of them, because WSL is a fact about the machine and not something a person chooses. Anything else is refused before anything is planned, with the accepted values named, instead of being quietly read as Linux. The platform chosen here is the platform the plan is built for: `--os mac` schedules the Apple developer tools even on a Linux host |
 | `--shell` | `fish`, `zsh`, `nushell` | Shell to install (required) |
 | `--terminal` | `alacritty`, `wezterm`, `ghostty`, `none`, `kitty` (macOS only) | Terminal emulator |
 | `--wm` | `tmux`, `zellij`, `herdr`, `none` | Window manager |
@@ -1606,7 +1719,9 @@ Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongs
 
 ## Learn Mode
 
-The installer includes educational content to help you understand each tool:
+**Learn About Tools** on the main menu opens a hub; Escape returns to whatever opened it. Every row
+in the hub is a page about one part of a run, and the four screens that used to be reachable only
+from inside the wizard are reachable from here too.
 
 ### Terminals
 
@@ -1637,7 +1752,72 @@ The installer includes educational content to help you understand each tool:
 
 - LazyVim configuration
 - LSP setup
-- AI assistants (OpenCode, Claude, Copilot, etc.)
+- The assistant the configuration enables: `pi`, on `<leader>a`, which opens its floating chat. The
+  conventional assistant plugins (Claude Code, OpenCode, Avante, CopilotChat, `copilot.lua`,
+  CodeCompanion, Antigravity) ship disabled, and the page says so rather than naming bindings for
+  plugins that are not loaded. See [AI Configuration](ai-configuration.md)
+
+### Font
+
+MesloLGS Nerd Font, the Nerd Font patch of Meslo. Every shipped terminal configuration names that
+family, which is why the page is about the icons, box-drawing and prompt glyphs: without it a
+terminal draws a box where a glyph belongs. On Linux the release archive is extracted into
+`~/.local/share/fonts` and the cache is refreshed, so no root is needed; a machine where fontconfig
+already resolves the family skips the download; and Termux needs no fontconfig at all, because the
+same face is written as one file into `~/.termux`, the slot its terminal reads.
+
+### Prompts
+
+| Shell | Prompt |
+|-------|--------|
+| Fish | Starship |
+| Nushell | Starship |
+| Zsh | Powerlevel10k |
+
+### Shell tooling
+
+The tools the shell step installs beside the shell, and what the shipped configuration uses each one
+for: `eza`, `bat`, `ripgrep`, `fd`, `fzf`, `fnm`, `direnv`, `jq`, `gh`, `git-delta`, `xh`,
+`trippy`, `btop`, `zoxide`, `atuin` and `carapace`. The page is a copy of the table
+[tools.md](tools.md) keeps, and a test fails by name when the two disagree.
+
+### Plugins
+
+| Tool | Manager |
+|------|---------|
+| Tmux | TPM |
+| Fish | Fisher |
+| Zsh | the plugin packages the `.zshrc` sources |
+| Neovim | lazy.nvim |
+| Herdr | `herdr plugin install` |
+
+### Machine toolset
+
+| Directive | What the run does |
+|-----------|-------------------|
+| `brew`, `tap`, `go`, `npm`, `uv` | Installed: the toolset step filters the checkout's `Brewfile` and hands it to `brew bundle` |
+| `cask`, `mas` | Installed when the file carries one: the exclusion is a denylist, not an allowlist |
+| `vscode`, `winget` | Dropped, and the step logs how many lines of each it dropped |
+
+## Keymaps Reference
+
+**Keymaps Reference** is its own main-menu row. It offers one row per tool, each tool's tables are
+grouped by category, `↑`/`↓` (or `k`/`j`) scroll a table and `Esc` goes back one level.
+
+| Tool | What its tables hold |
+|------|----------------------|
+| Neovim | The LazyVim keymaps, by category |
+| Tmux | The bindings `dotfiles-tmux/tmux.conf` declares |
+| Zellij | The bindings `dotfiles-zellij/zellij/config.kdl` declares |
+| Herdr | The `[keys]` table of `dotfiles-herdr/config.toml`, whose mouse-first interface needs few keys |
+| Ghostty | The bindings `dotfiles-ghostty/config` declares |
+| Kitty | The eleven `map` lines `dotfiles-kitty/kitty.conf` declares |
+| WezTerm | No bindings: `.wezterm.lua` assigns no `config.keys`, so the page lists the settings it does set |
+| Alacritty | No bindings: `alacritty.toml` has no `[keyboard]` section, so the page lists the settings it does set |
+
+Each table is held to the file it copies by a test: Kitty's `map` lines are compared with the table
+in both directions, and the WezTerm and Alacritty pages fail when their configuration declares a
+binding or when a row names a setting the file does not carry.
 
 ## Requirements
 
@@ -1749,12 +1929,14 @@ terminals again. The pass renders with the companion animating, which is the
 strictest frame, so a screen that overflows only with the creature on fails the
 fit guard instead of escaping it.
 
-The theme picker, the utilities section, the WSL resources, the shell's startup
-and the terminal capability report each have a frame pinned at the 80x24 floor as
+The theme picker, the utilities section, the WSL resources, the shell's startup,
+the terminal capability report and the network diagnosis each have a frame pinned
+at the 80x24 floor as
 well: `TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
 with a switch pending, `TestThemePickerResultGolden` with the report landed,
-`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden` and
-`TestTerminalCapabilitiesGolden`. They were guarded by measurements -- rows,
+`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden`,
+`TestTerminalCapabilitiesGolden` and `TestNetworkDiagnosticsGolden`. They were
+guarded by measurements -- rows,
 columns, fit at twelve sizes -- and by behaviour, and a measurement cannot see a
 block drawn above the list it belongs under, a list squashed to five rows to make
 room for it, or a screen that reads as a wall of prose. Looking at the frame is

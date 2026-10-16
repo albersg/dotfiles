@@ -524,7 +524,7 @@ func getMacrosBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "macros_boss_1",
 					Module: ModuleMacros,
@@ -541,11 +541,12 @@ func getMacrosBoss() *BossExercise {
 					Mission:   "Start recording a macro to register 'a'",
 					Solutions: []string{"qa"},
 					Optimal:   "qa",
+					Hint:      "Recording starts with a register name, so the first key says where the macro is stored.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:     "macros_boss_2",
 					Module: ModuleMacros,
@@ -560,11 +561,12 @@ func getMacrosBoss() *BossExercise {
 					Mission:   "Stop the macro recording",
 					Solutions: []string{"q"},
 					Optimal:   "q",
+					Hint:      "The recording key toggles, so the same keystroke that started the recording also ends it.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "macros_boss_3",
 					Module: ModuleMacros,
@@ -581,11 +583,12 @@ func getMacrosBoss() *BossExercise {
 					Mission:   "Execute the macro in register 'a'",
 					Solutions: []string{"@a"},
 					Optimal:   "@a",
+					Hint:      "Executing a macro takes the register's name as its argument.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:     "macros_boss_4",
 					Module: ModuleMacros,
@@ -602,11 +605,12 @@ func getMacrosBoss() *BossExercise {
 					Mission:   "Apply macro 'a' to remaining 3 lines with a count",
 					Solutions: []string{"3@a"},
 					Optimal:   "3@a",
+					Hint:      "A count in front of the execution repeats the macro, so three lines take one command instead of three.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 12,
 				Exercise: Exercise{
 					ID:     "macros_boss_5",
 					Module: ModuleMacros,
@@ -621,6 +625,7 @@ func getMacrosBoss() *BossExercise {
 					Mission:   "Type \"0p to paste from the yank register (the trainer checks the keystrokes; it cannot pre-fill register 0)",
 					Solutions: []string{"\"0p"},
 					Optimal:   "\"0p",
+					Hint:      "The yank register is always 0; the unnamed register is the one a delete overwrites.",
 					Points:    50,
 				},
 			},

@@ -26,9 +26,18 @@ import (
 // carry the companion on one host and not on another. Tests that are about the
 // animation itself turn the gate on directly through the model's own field,
 // which is what the field is for.
+//
+// It also gives the whole package a state directory of its own and removes it on
+// the way out. That is the one thing this file can do that no individual test
+// can: removal has to happen after the tests and while the process is still
+// alive, and TestMain is the only place that runs there.
 func TestMain(m *testing.M) {
 	os.Setenv(envAnim, "0")
-	os.Exit(m.Run())
+
+	cleanupStateDir := pointStateDirAtATemporaryOne()
+	code := m.Run()
+	cleanupStateDir()
+	os.Exit(code)
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -329,7 +338,7 @@ func companionStates() []companionState {
 		companionAsleepState, companionYawningState, companionAlertState,
 		companionPleasedState, companionFlinchingState,
 		companionWatchingState, companionPlayingState, companionJumpingState,
-		companionCharmedState, companionCuriousState,
+		companionCharmedState, companionCuriousState, companionPossessedState,
 	}
 }
 
@@ -2599,6 +2608,15 @@ func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 			grid := companionVolumeGrid(state, 0, companionGaze{}, size)
 			mark := companionEyeMarkFor(state)
 			shut := mark == companionEyeShut || mark == companionEyeArc || mark == companionEyeHalfShut
+			// The disc's tone and whether the eye glints are the state's own answers
+			// (companionEyeDiscTone, companionEyeHasGlint), asked here rather than
+			// repeated: the possessed eye is a red disc with no highlight, which is the
+			// one state whose eye is deliberately not the creature's own.
+			wantDiscTone := companionEyeDiscTone(mark)
+			wantGlints := 0
+			if companionEyeHasGlint(mark) {
+				wantGlints = 1
+			}
 			for _, centre := range companionVolumeEyeBox(t, state, size) {
 				disc, pupils, lids, glints := 0, 0, 0, 0
 				for y := 0; y < size.rows; y++ {
@@ -2607,7 +2625,7 @@ func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 							continue
 						}
 						switch grid[y][x] {
-						case companionToneEye:
+						case wantDiscTone:
 							disc++
 						case companionTonePupil:
 							pupils++
@@ -2620,10 +2638,6 @@ func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 				}
 
 				if shut {
-					wantGlints := 1
-					if mark == companionEyeArc {
-						wantGlints = 0
-					}
 					if (disc == 0 && size.eyeRows >= 4) || glints != wantGlints {
 						t.Errorf("state %s at %d rows drew %d sclera pixels and %d glints with its eyes shut, want %d glints:\n%s",
 							companionStateNames[state], size.rows, disc, glints, wantGlints, companionVolumeText(grid))
@@ -2642,9 +2656,9 @@ func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 					t.Errorf("state %s at %d rows has no pupil in one of its eyes:\n%s",
 						companionStateNames[state], size.rows, companionVolumeText(grid))
 				}
-				if glints != 1 {
-					t.Errorf("state %s at %d rows drew %d glints in one eye, want one:\n%s",
-						companionStateNames[state], size.rows, glints, companionVolumeText(grid))
+				if glints != wantGlints {
+					t.Errorf("state %s at %d rows drew %d glints in one eye, want %d:\n%s",
+						companionStateNames[state], size.rows, glints, wantGlints, companionVolumeText(grid))
 				}
 			}
 
@@ -2652,12 +2666,9 @@ func TestCompanionVolumeEyeIsADiscAPupilAndAGlint(t *testing.T) {
 			// that can glint, which is what makes it the loudest single thing on the screen
 			// rather than a pattern.
 			total := companionVolumeGridTones(grid)[companionToneGlint]
-			want := 2
-			if shut {
+			want := 0
+			if companionEyeHasGlint(mark) {
 				want = 2
-				if mark == companionEyeArc {
-					want = 0
-				}
 			}
 			if total != want {
 				t.Errorf("state %s at %d rows carries %d glint pixels, want %d:\n%s",
@@ -3748,15 +3759,20 @@ func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 		compared++
 	}
 	renderedCount := int(rendered.Load())
-	// 1072 rather than the 912 this was before the SSH manager: its seven screens
-	// join the list every frame guard renders, and the states that make them
-	// measurable (an editable and a read-only entry, the form and its plan, the key
-	// list and its generation form) join it too, at each measured terminal, in both
-	// sprite modes. The number is written out so that adding a screen is a deliberate
-	// act. It was 912 before the SSH manager, 896 before the setup screen and 880
-	// before the install review screen, for the same reason.
-	if renderedCount != 1072 || compared != 1072 {
-		t.Fatalf("companion block guard rendered %d screens and compared %d, want 1072 of each", renderedCount, compared)
+	// 1248 rather than the 896 this was before the learn pages and the terminal
+	// keymaps, and rather than the 1088 main measured on its own tree: the pages the
+	// hub opens (Font, Prompts, Shell tooling, Plugins and Machine toolset), the
+	// category the keymap reference gained (Kitty, with its table), the two terminals
+	// whose configurations declare no bindings (WezTerm and Alacritty) and the SSH
+	// manager's ten case names in their two states all join the list every frame
+	// guard renders, at each measured terminal. The number is written out so that
+	// adding a screen is a deliberate act: 78 frame states at 4 sizes, 2 pixel modes
+	// and 2 cursor states. It was 896 before the install review screen and 848 before
+	// the administrator password screen, for the same reason. The 1248 is measured on
+	// the merged tree rather than added up from either side: the guard itself
+	// reported 1248 rendered and 1248 compared when both sides' screens were present.
+	if renderedCount != 1248 || compared != 1248 {
+		t.Fatalf("companion block guard rendered %d screens and compared %d, want 1248 of each", renderedCount, compared)
 	}
 	t.Logf("companion block guard coverage: %d rendered screens, %d comparisons", renderedCount, compared)
 }

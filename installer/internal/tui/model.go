@@ -62,6 +62,14 @@ const (
 	// the existing screens stable.
 	ScreenKeymapsHerdr    // Herdr keymaps
 	ScreenKeymapsHerdrCat // Herdr keymap category
+	// The three terminals the keymap reference was missing. Kitty's two categories
+	// are the bindings its configuration declares; WezTerm and Alacritty declare
+	// none, so their screens carry the settings their files do have. Appended here
+	// to keep the numeric values of the existing screens stable.
+	ScreenKeymapsKitty     // Kitty keymaps
+	ScreenKeymapsKittyCat  // Kitty keymap category
+	ScreenKeymapsWezTerm   // WezTerm settings, because the configuration binds nothing
+	ScreenKeymapsAlacritty // Alacritty settings, because the configuration binds nothing
 	// Utilities section. Appended at the end for the same reason. It is reached
 	// from the main menu both by its own row, just above Exit, and by the `u`
 	// shortcut.
@@ -110,12 +118,49 @@ const (
 	// the three the run cannot do without, and offers the two ways out -- back to
 	// the questions, or on to the run with the selection just made.
 	ScreenInstallReview // What will be installed, and what will not
+	// The Learn About Tools hub. Appended at the end for the same reason as the
+	// screens above. The main menu's own row opens it, and it is the only way the
+	// main menu reaches the shell, multiplexer, Neovim and later pages: before it,
+	// that row opened the terminal list directly and the rest were reachable only
+	// from inside a run. Every row is one entry of learnToolRows().
+	ScreenLearnTools // Every page of the in-installer wiki, one row each
+	// The font and the prompts, appended at the end for the same reason as the
+	// screens above. The run installs both without asking about them: the font
+	// question offers Install or Skip, and the prompts belong to the shells the
+	// wizard already chose.
+	ScreenLearnFont    // The Nerd Font the run installs, and why it needs to be there
+	ScreenLearnPrompts // The prompt each shipped shell configuration starts
+	// The three read-only reference pages: what the shell step installs beside the
+	// shell, the plugin set the run provisions, and the Brewfile directives the
+	// toolset step reads. Appended at the end for the same reason as the screens
+	// above.
+	ScreenLearnTooling // What the shell step installs, and what uses it
+	ScreenLearnPlugins // The plugin set the run provisions, and what manages it
+	ScreenLearnToolset // The Brewfile directives, and what the run does with each
+	// The record of the last install, checked against this machine. Appended at
+	// the end for the same reason as the screens above, and reached from the
+	// utilities section's own row. It reports, for every path and backup the
+	// record names, whether the machine still has it -- from the one walk of the
+	// record the command line's --verify prints -- and says plainly that the record
+	// names no digest, so presence is all it can establish. It is read-only:
+	// nothing is written, no copy is restored and no path is removed.
+	ScreenInstallVerify // Is this machine still what the last install left
 	// The setup screen. Appended at the end for the same reason as the screens
 	// above. It is where the wizard's questions went: one row per decision, each
 	// carrying its current value, with the rich per-question screens kept as
 	// optional detours reached from the row that decides them (T2 of
 	// odd/tasks/start-installation-flow.md).
 	ScreenSetup // Every decision of the flow, on one screen
+	// The network diagnosis. Appended at the end for the same reason as the screens
+	// above. The utilities section opens it from its own row, one level in so the
+	// section stays a list of jobs. It separates the local network, DNS, the
+	// transport, the certificate and the application, reports each step with its
+	// evidence, causes, next checks and manual commands, and reaches only for the
+	// host this installer already contacts for its own update check, plus whatever
+	// destination the user types. Nothing is changed, and nothing is written except
+	// the report the user reviews and chooses to save
+	// (odd/tasks/network-diagnostics.md).
+	ScreenNetworkDiagnostics // Why a destination cannot be reached, stage by stage
 	// The SSH manager. Appended at the end for the same reason as the screens
 	// above. The utilities section opens it from its own row, and it is the hub of
 	// seven screens: the hosts the client would use, one entry's detail, the
@@ -132,6 +177,79 @@ const (
 	ScreenSSHTest        // One connection, tested only when the user asks
 )
 
+// stepOrigin says why a step is on the plan, in the three answers S2 of
+// odd/tasks/start-installation-flow.md allows: the run or the machine needs it,
+// a choice the flow asked for decided it, or an extra that had its own switch
+// was turned on. The zero value is deliberately not one of the three, so a step
+// the builder forgets to label fails a guard instead of silently reading as a
+// requirement of the run.
+type stepOrigin int
+
+const (
+	// stepOriginUnknown is the zero value: a step that arrived without an origin.
+	stepOriginUnknown stepOrigin = iota
+	// stepOriginChoice is a step a choice the setup screen asked for decided,
+	// carrying the value that choice took (the terminal, shell or multiplexer
+	// name). Its row says "your choice decided it" and shows the value.
+	stepOriginChoice
+	// stepOriginExtra is a step an extra with its own switch on the setup screen
+	// turned on: the backup, the font and Neovim. Its row says "an extra you
+	// turned on". It has no separate value: the switch's answer is that it is on.
+	stepOriginExtra
+	// stepOriginMachine is a step the machine requires: the dependency step, the
+	// Apple developer tools, Homebrew and the WSL configuration. Its row says
+	// "this machine needs it". None of these is fixed -- the user can still turn
+	// one off on the plan -- so the sentence claims nothing about fixity, which
+	// the catalogue's Fixed flag carries separately.
+	stepOriginMachine
+	// stepOriginAlways is a step the run installs every time rather than because
+	// a choice named it: the toolset, the agent skills, OfficeCLI, the theme, and
+	// the three units the run needs (clone, setshell and cleanup). Its row says
+	// "the run installs it every time"; fixity is a separate claim, so the three
+	// fixed units say "the run needs it" as well.
+	stepOriginAlways
+)
+
+// sentence is what a step's row says about where it came from. It is empty for
+// the zero value, which is what lets a guard fail on an unlabelled step rather
+// than print a sentence nobody chose. No sentence here claims the run cannot
+// leave a step out: that claim is fixedUnitClaim, and only the catalogue's Fixed
+// flag earns it.
+func (o stepOrigin) sentence() string {
+	switch o {
+	case stepOriginChoice:
+		return "your choice decided it"
+	case stepOriginExtra:
+		return "an extra you turned on"
+	case stepOriginMachine:
+		return "this machine needs it"
+	case stepOriginAlways:
+		return "every run installs it"
+	}
+	return ""
+}
+
+// The areas the plan screen groups its rows by. They are declared here, beside
+// the builder that sets each step's Area, so a step cannot be assigned a group
+// the screen does not know. The areas are contiguous in the run's order -- the
+// screen names each one once, before the first step it covers -- which is why
+// they follow the phases of the run rather than its origins.
+const (
+	// areaPreparation is everything before the tools: the backup, the base
+	// packages, the repository checkout and the package manager.
+	areaPreparation = "Preparation"
+	// areaTools is the tools the setup screen asked for: the terminal, the font,
+	// the shell, the multiplexer and the editor. It is the run's own answer to
+	// the decisions, which is why the choices and the extras that took a name or
+	// a switch both sit here.
+	areaTools = "The tools you chose"
+	// areaExtras is the additional tools the run brings after the chosen ones.
+	areaExtras = "The extras"
+	// areaFinishing is the steps that apply the machine's settings and leave the
+	// machine as the run found it.
+	areaFinishing = "Finishing up"
+)
+
 // InstallStep represents a single installation step
 type InstallStep struct {
 	ID          string
@@ -141,6 +259,18 @@ type InstallStep struct {
 	Progress    float64
 	Error       error
 	Interactive bool // If true, this step runs a generated shell script through the captured executor
+	// Origin is why this step is on the plan, and it is what the plan screen's
+	// row says about itself (T3 of odd/tasks/start-installation-flow.md). It is
+	// declared at the same place the step is scheduled, so the screen reads the
+	// builder's answer instead of keeping a second table of step IDs.
+	Origin stepOrigin
+	// OriginValue is the value a choice took when a choice decided the step: the
+	// terminal, shell or multiplexer name. It is empty for a step the run needs
+	// and for an extra, neither of which took a value.
+	OriginValue string
+	// Area is the group the plan screen draws this step under. Areas are named
+	// once, in the order the run meets them.
+	Area string
 	// PluginSet is the plugin set this step provisions, when it provisions one, so
 	// that the interface can name it beside the step's own row (T1 of
 	// odd/tasks/start-installation-flow.md). It is nil for every step that
@@ -353,6 +483,15 @@ type Model struct {
 	HerdrKeymapCategories   []KeymapCategory
 	HerdrSelectedCategory   int
 	HerdrKeymapScroll       int
+	KittyKeymapCategories   []KeymapCategory
+	KittySelectedCategory   int
+	KittyKeymapScroll       int
+	// ReferenceTableScroll is the top-row offset of the read-only reference pages
+	// that are not keymap categories: the learn section's shell tooling, plugins and
+	// machine toolset tables, and the WezTerm and Alacritty keymap pages. They share
+	// one value because only one of them is on screen at a time, and it is reset
+	// when a page is opened and when it is left.
+	ReferenceTableScroll int
 	// LazyVim mode
 	LazyVimTopics        []LazyVimTopic
 	SelectedLazyVimTopic int
@@ -488,6 +627,18 @@ type Model struct {
 	// resolved once, here; the measurement runs only when the row is pressed,
 	// because starting the user's shell five times is not a render.
 	ShellAudit shellAuditState
+	// InstallVerify is what the last-install utility draws: the record of the last
+	// completed run checked against this machine. The check is a command, armed
+	// only when the screen is opened -- never at startup -- because it states the
+	// paths the record names and a render must not touch the filesystem; the
+	// verdict is stored here so a redraw never re-reads the machine.
+	InstallVerify installVerifyState
+	// Network is what the network diagnosis draws: the destination field, the run
+	// in flight, the checks as they arrive, the finished report and the export. It
+	// is filled only when the screen's own row is pressed -- opening the screen
+	// dials nothing -- and its Probe field is nil in a real run, where the checks
+	// go through this machine, and set by a test that must not touch a network.
+	Network networkState
 	// SSH is everything the SSH manager's screens draw: the resolved client and
 	// its tools, the hosts the client would use, the effective answer for the
 	// entry being shown, the public keys and known hosts, the agent's state, the
@@ -584,6 +735,9 @@ func NewModel() Model {
 		HerdrKeymapCategories:   GetHerdrKeymaps(),
 		HerdrSelectedCategory:   0,
 		HerdrKeymapScroll:       0,
+		KittyKeymapCategories:   GetKittyKeymaps(),
+		KittySelectedCategory:   0,
+		KittyKeymapScroll:       0,
 		LazyVimTopics:           GetLazyVimTopics(),
 		SelectedLazyVimTopic:    0,
 		LazyVimScroll:           0,
@@ -855,7 +1009,13 @@ func (m Model) GetCurrentOptions() []string {
 		opts = append(opts, "Exit")
 		return opts
 	case ScreenKeymapsMenu:
-		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", m.menuSeparator(), "← Back"}
+		// The key handler routes by the label rather than by the row index, so a tool
+		// added here is reachable from its own row without a second place to edit.
+		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", "Kitty", "WezTerm", "Alacritty", m.menuSeparator(), "← Back"}
+	case ScreenLearnTools:
+		// The hub is built from its own table so the menu, the key handler and the
+		// reachability guard all read one list.
+		return m.learnToolsOptions()
 	case ScreenOSSelect:
 		// The detected platform is already named on the line above the menu, so
 		// the option labels do not repeat it: they were "Linux (detected)" and
@@ -880,11 +1040,16 @@ func (m Model) GetCurrentOptions() []string {
 		// renderSetup, which is the only screen the values are for.
 		return m.setupRowLabels()
 	case ScreenInstallReview:
-		rows := make([]string, 0, len(installUnits))
-		for _, unit := range installUnits {
-			rows = append(rows, m.installReviewRow(unit))
+		// The plan's rows, in the run's order: an area heading, a step and its
+		// plugin set. The screen draws the same list through planReviewRows, which
+		// also carries which rows the cursor may rest on, so the option list and the
+		// drawn list cannot disagree.
+		rows := m.planReviewRows()
+		texts := make([]string, len(rows))
+		for i, row := range rows {
+			texts[i] = row.Text
 		}
-		return rows
+		return texts
 	case ScreenUtilities:
 		// Only what exists is offered: the switch rows need a detected desktop and
 		// the undo row needs a record this installer wrote for that same desktop.
@@ -920,6 +1085,12 @@ func (m Model) GetCurrentOptions() []string {
 		if m.ShellAudit.Available {
 			utilities = append(utilities, utilitiesShellAuditRow)
 		}
+		// The verification is read-only and offered everywhere for the same reason:
+		// there is always a machine to compare with the record, and where there is no
+		// record the screen's own body says exactly that rather than the row being
+		// silently absent. It sits above the terminal report so the capability row
+		// stays last, where a short frame cannot have it displace a utility above it.
+		utilities = append(utilities, utilitiesVerifyRow)
 		// The SSH manager is offered on every host: a machine with no ssh client
 		// still has a configuration file worth reading, and the manager's own
 		// screen says what it cannot do rather than the row being silently absent.
@@ -928,6 +1099,10 @@ func (m Model) GetCurrentOptions() []string {
 		// is always a terminal to describe, and where there is not one the screen's
 		// own body says so rather than the row being silently absent.
 		utilities = append(utilities, utilitiesTerminalRow)
+		// The network diagnosis is read-only too, and offered for the same reason:
+		// there is always a machine whose connectivity is worth describing, and it
+		// dials nothing until its own screen's row is pressed.
+		utilities = append(utilities, utilitiesNetworkRow)
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -946,8 +1121,14 @@ func (m Model) GetCurrentOptions() []string {
 	case ScreenTerminalCapabilities:
 		// The report is read-only: there is nothing to select, only the way back.
 		return []string{"← Back"}
+	case ScreenInstallVerify:
+		// The verification is read-only too: there is nothing to select and
+		// nothing to write, only the way back.
+		return []string{"← Back"}
 	case ScreenShellAudit:
 		return m.shellAuditRows()
+	case ScreenNetworkDiagnostics:
+		return m.networkRows()
 	case ScreenSSHManager:
 		return m.sshManagerRows()
 	case ScreenSSHHost:
@@ -1025,6 +1206,8 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "← Back"}
 	case ScreenLearnWM:
 		return []string{"Tmux", "Zellij", "Herdr", m.menuSeparator(), "← Back"}
+	case ScreenLearnPrompts:
+		return []string{"Starship", "Powerlevel10k", m.menuSeparator(), "← Back"}
 	case ScreenLearnNvim:
 		return []string{"View Features", "View Keymaps", "LazyVim Guide", m.menuSeparator(), "← Back"}
 	case ScreenKeymaps:
@@ -1066,6 +1249,14 @@ func (m Model) GetCurrentOptions() []string {
 		}
 		categories[len(m.HerdrKeymapCategories)] = m.menuSeparator()
 		categories[len(m.HerdrKeymapCategories)+1] = "← Back"
+		return categories
+	case ScreenKeymapsKitty:
+		categories := make([]string, len(m.KittyKeymapCategories)+2)
+		for i, cat := range m.KittyKeymapCategories {
+			categories[i] = cat.Name
+		}
+		categories[len(m.KittyKeymapCategories)] = m.menuSeparator()
+		categories[len(m.KittyKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenLearnLazyVim:
 		titles := GetLazyVimTopicTitles()
@@ -1203,6 +1394,17 @@ func (m Model) GetScreenTitle() string {
 			return m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
 		}
 		return "Herdr Keymaps"
+	case ScreenKeymapsKitty:
+		return "Kitty Keymaps"
+	case ScreenKeymapsKittyCat:
+		if m.KittySelectedCategory < len(m.KittyKeymapCategories) {
+			return m.KittyKeymapCategories[m.KittySelectedCategory].Name
+		}
+		return "Kitty Keymaps"
+	case ScreenKeymapsWezTerm:
+		return "WezTerm Keymaps"
+	case ScreenKeymapsAlacritty:
+		return "Alacritty Keymaps"
 	case ScreenLearnLazyVim:
 		return "LazyVim Guide"
 	case ScreenLazyVimTopic:
@@ -1235,6 +1437,10 @@ func (m Model) GetScreenTitle() string {
 		return "Terminal capabilities"
 	case ScreenShellAudit:
 		return "The shell's startup"
+	case ScreenInstallVerify:
+		return "The last install"
+	case ScreenNetworkDiagnostics:
+		return "Network diagnostics"
 	case ScreenSSHManager:
 		return "The SSH configuration"
 	case ScreenSSHHost:
@@ -1324,6 +1530,13 @@ func (m Model) GetScreenDescription() string {
 		return "Every choice this run needs, on one screen. Enter opens a row's detailed screen; Space turns a switch on or off."
 	case ScreenGhosttyWarning:
 		return "Ghostty installation may fail on Ubuntu/Debian.\nThe installer script only supports certain versions."
+	case ScreenInstallVerify:
+		return "Every path and backup the record of the last install names, checked against this machine"
+	case ScreenNetworkDiagnostics:
+		// It says what the stages are and what the screen does with them, and it
+		// stops there: the rows below carry the report, and repeating a verdict here
+		// would be a second copy of the state the rows already hold.
+		return "Which stage of the connection stopped, with what each step measured"
 	default:
 		return ""
 	}
@@ -1415,6 +1628,8 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Backup Existing Configs",
 			Description: "Saves a copy of your current configuration first.",
 			Status:      StatusPending,
+			Origin:      stepOriginExtra,
+			Area:        areaPreparation,
 		})
 	}
 
@@ -1429,6 +1644,8 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Installs base packages with your distribution's package manager.",
 			Status:      StatusPending,
 			Interactive: true, // Native package manager runs through the captured script
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
 		})
 	} else if isTermux {
 		steps = append(steps, InstallStep{
@@ -1437,6 +1654,8 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Installs base packages with pkg.",
 			Status:      StatusPending,
 			Interactive: false, // Termux doesn't need sudo
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
 		})
 	} else if opts.OS == "mac" && !opts.HasXcode {
 		steps = append(steps, InstallStep{
@@ -1444,6 +1663,8 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Install Xcode CLI",
 			Description: "Installs the Apple developer command-line tools.",
 			Status:      StatusPending,
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
 		})
 	}
 
@@ -1453,6 +1674,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Clone Repository",
 		Description: "Downloads your dotfiles repository.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaPreparation,
 	})
 
 	// Homebrew (installs through the captured script; root work uses the credential cached for the run)
@@ -1465,6 +1688,8 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Installs Homebrew, the package manager.",
 			Status:      StatusPending,
 			Interactive: true,
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
 		})
 	}
 
@@ -1476,6 +1701,9 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Installs your terminal emulator.",
 			Status:      StatusPending,
 			Interactive: opts.OS == "linux", // Linux installs through the captured script
+			Origin:      stepOriginChoice,
+			OriginValue: opts.Terminal,
+			Area:        areaTools,
 		})
 	}
 
@@ -1486,6 +1714,8 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Install " + fontInstallLabel(fontInstallFamily(isTermux)),
 			Description: "Installs the " + fontInstallLabel(fontInstallFamily(isTermux)) + " for icons.",
 			Status:      StatusPending,
+			Origin:      stepOriginExtra,
+			Area:        areaTools,
 		})
 	}
 
@@ -1504,8 +1734,11 @@ func planFor(opts planOptions) []InstallStep {
 			// later and for the same reason (install_plugin_sets.go): the row says what
 			// the step would install, whether the run turned it off, and -- for a shell
 			// whose configuration is built on its set -- why it cannot be left out.
-			PluginSet: planPluginSet("shell", opts),
-			Status:    StatusPending,
+			PluginSet:   planPluginSet("shell", opts),
+			Status:      StatusPending,
+			Origin:      stepOriginChoice,
+			OriginValue: opts.Shell,
+			Area:        areaTools,
 		})
 	}
 
@@ -1518,8 +1751,11 @@ func planFor(opts planOptions) []InstallStep {
 			// The multiplexer's plugin set is carried by this step rather than
 			// scheduled as a step of its own (install_plugin_sets.go), so the row can
 			// name what the step would install and the switch that turns it off.
-			PluginSet: planPluginSet("wm", opts),
-			Status:    StatusPending,
+			PluginSet:   planPluginSet("wm", opts),
+			Status:      StatusPending,
+			Origin:      stepOriginChoice,
+			OriginValue: opts.WindowMgr,
+			Area:        areaTools,
 		})
 	}
 
@@ -1533,6 +1769,8 @@ func planFor(opts planOptions) []InstallStep {
 			// where the set comes from instead of offering a switch.
 			PluginSet: planPluginSet("nvim", opts),
 			Status:    StatusPending,
+			Origin:    stepOriginExtra,
+			Area:      areaTools,
 		})
 	}
 
@@ -1545,6 +1783,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Install Toolset",
 		Description: "Installs the command-line tools listed in your Brewfile.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaExtras,
 	})
 
 	// Pi agent skills. Pinned, checksum-verified packages installed under
@@ -1554,6 +1794,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Install Pi Agent Skills",
 		Description: "Installs the pinned security-audit, archify and officecli skills.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaExtras,
 	})
 
 	// OfficeCLI binary. A pinned, checksum-verified release asset installed to
@@ -1563,6 +1805,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Install OfficeCLI",
 		Description: "Installs the pinned, checksum-verified OfficeCLI binary.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaExtras,
 	})
 
 	// WSL configuration (Windows host + in-distribution settings). The files are
@@ -1574,6 +1818,8 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Applies the WSL settings on Windows and in this distribution.",
 			Status:      StatusPending,
 			Interactive: true, // /etc/wsl.conf and the Windows profile are root/Windows-owned
+			Origin:      stepOriginMachine,
+			Area:        areaFinishing,
 		})
 	}
 
@@ -1586,6 +1832,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Restore the Applied Theme",
 		Description: "Writes the theme this machine has applied back into the files the install replaced.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaFinishing,
 	})
 
 	// Set default shell (runs captured; usermod uses the cached credential)
@@ -1595,6 +1843,8 @@ func planFor(opts planOptions) []InstallStep {
 		Description: "Sets your shell as the default.",
 		Status:      StatusPending,
 		Interactive: true,
+		Origin:      stepOriginAlways,
+		Area:        areaFinishing,
 	})
 
 	// Cleanup (not interactive - just file deletion)
@@ -1603,6 +1853,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Cleanup",
 		Description: "Removes the temporary files it created.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaFinishing,
 	})
 
 	// A unit the user turned off is marked rather than dropped: the run's own list keeps

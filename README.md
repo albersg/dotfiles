@@ -293,9 +293,10 @@ puts each file back, and skips a file it cannot recognize while carrying on with
 
 **Adjust the WSL resources.** On a WSL host, **Adjust the WSL resources** opens the memory,
 processors and swap the WSL 2 VM may use. The screen prints the Windows host's real RAM and logical
-processor count, recommends values from them — half the host's RAM rounded down to 512 MB (never so
-much that Windows keeps under 2 GiB), every logical CPU, and a quarter of that memory for swap — and
-lets you move each value with **←/→** or put everything back on the recommendation with **`r`**. It
+processor count, recommends values from them — three quarters of the host's RAM rounded down to 512 MB
+(never so much that Windows keeps less than 4 GiB, and never below half the host), every logical CPU
+except one, and a quarter of that memory for swap — and lets you move each value with **←/→** or put
+everything back on the recommendation with **`r`**. It
 is the same values and the same writer the installation step uses, not a second calculation, and it
 is offered only where there is a `.wslconfig` to edit: elsewhere the section says why. The template
 it renders is read from a checkout when one is present — `$DOTFILES_DIR`, the clone, the working
@@ -337,7 +338,7 @@ when you open the screen (never at startup), writes nothing, and its terminal qu
 timeout so a terminal that never answers cannot freeze the interface. See the
 [TUI Installer Guide](docs/tui-installer.md#the-terminal-capabilities).
 
-**Manage the SSH configuration.** The fifth utility reads the SSH setup the client would really
+**Manage the SSH configuration.** This utility reads the SSH setup the client would really
 use and keeps the one part of it this tool owns in order. The hosts list is **the client's own
 answer**, never this package's idea of it: for each alias the screen asks `ssh -G --` and reports
 the effective `HostName`, `User`, `Port`, `ProxyJump` and every `IdentityFile`, naming the file and

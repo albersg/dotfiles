@@ -175,12 +175,15 @@ func GetWMInfo() map[string]ToolInfo {
 				"Remote pairing support",
 				"Scriptable and automatable",
 				"Very stable and mature",
+				// dotfiles-tmux/tmux.conf sets `mouse on`; the upstream default is off,
+				// and the entry used to state the opposite of what this run ships
+				// (TestTmuxLearnEntryMatchesTheShippedMouseSetting).
+				"Mouse support enabled by the shipped configuration (`set -g mouse on`)",
 			},
 			Cons: []string{
 				"Steep learning curve",
 				"Default keybindings are awkward",
 				"Configuration syntax is dated",
-				"No native mouse support (needs config)",
 			},
 			Website: "https://github.com/tmux/tmux",
 		},
@@ -219,6 +222,193 @@ func GetWMInfo() map[string]ToolInfo {
 			},
 			Website: "https://herdr.dev",
 		},
+	}
+}
+
+// GetFontInfo returns info about the Nerd Font the run installs. The name it
+// shows is the step's own label, so the page cannot offer a face no step puts on
+// the machine (TestFontLearnPageNamesTheFamilyTheStepInstalls).
+//
+// The facts come from the step rather than from a font catalogue: the family
+// (fontInstallFamily), the directory the release archive is extracted into on
+// Linux (~/.local/share/fonts), the fontconfig check that skips the download when
+// the family already resolves, and Termux's single-file slot, which has no
+// fontconfig to ask.
+func GetFontInfo() ToolInfo {
+	return ToolInfo{
+		Name:        "Meslo Nerd Font",
+		Description: "The Nerd Font patch of Meslo the run installs, so the icons, box-drawing and prompt glyphs the shipped configurations ask for are drawn instead of boxed",
+		Pros: []string{
+			"Every shipped terminal configuration names this family (Alacritty, WezTerm, Kitty and Ghostty)",
+			"On Linux the release archive is extracted into the user's own font directory (~/.local/share/fonts) and the cache is refreshed, so no root is needed",
+			"The download is skipped when fontconfig already resolves the family on this machine",
+			"Termux needs no fontconfig: the same face is written as one file into ~/.termux, the slot its terminal reads",
+		},
+		Cons: []string{
+			"Without it a terminal draws a box where an icon or a prompt glyph belongs",
+			"It is a patched face, so the patched glyphs change how the font looks",
+			"The font question offers Install or Skip only: there is no second face to choose from",
+		},
+		Website: "https://www.nerdfonts.com/",
+	}
+}
+
+// GetPromptInfo returns info about the prompts the shipped shell configurations
+// start: Starship in fish and Nushell, Powerlevel10k in zsh. The guard beside
+// this file derives that set from those configurations, so a prompt the run
+// starts cannot go unexplained
+// (TestPromptLearnPagesCoverThePromptsTheShellsStart).
+func GetPromptInfo() map[string]ToolInfo {
+	return map[string]ToolInfo{
+		"starship": {
+			Name:        "Starship",
+			Description: "The cross-shell prompt the shipped fish and Nushell configurations start, configured once in starship.toml",
+			Pros: []string{
+				"One configuration file (~/.config/starship.toml) for every shell that starts it",
+				"The shipped starship.toml already asks for the git branch and the git status",
+				"fish and Nushell start it as they load, so there is nothing to enable",
+			},
+			Cons: []string{
+				"The zsh configuration does not use it: Powerlevel10k is that shell's prompt",
+				"Custom segments are written in TOML rather than in shell script",
+			},
+			Website: "https://starship.rs",
+		},
+		"powerlevel10k": {
+			Name:        "Powerlevel10k",
+			Description: "The zsh prompt theme the shipped .zshrc sources, with its instant prompt and its configuration in ~/.p10k.zsh",
+			Pros: []string{
+				"Instant prompt: the first line is drawn before the shell finishes starting",
+				"The .zshrc finds it in Homebrew's share directory, in the system package or as a plugin, whichever this machine has",
+				"p10k configure writes ~/.p10k.zsh by asking questions, and the shipped configuration is already one of its presets",
+			},
+			Cons: []string{
+				"Zsh only: fish and Nushell start Starship instead",
+				"The shipped ~/.p10k.zsh is nearly two thousand lines, almost all of it prompt configuration",
+				"Instant prompt only works while its block stays the first thing the .zshrc runs",
+			},
+			Website: "https://github.com/romkatv/powerlevel10k",
+		},
+	}
+}
+
+// referenceRow is one line of a read-only reference page: the emphasized name,
+// the muted qualification and what the row is for. The keymap tables carry the
+// same three shapes, which is why they share one renderer.
+type referenceRow struct {
+	Name string
+	Kind string
+	What string
+}
+
+// referenceTable is one read-only table page of the learn section.
+type referenceTable struct {
+	Name        string
+	Description string
+	Headers     [3]string
+	Rows        []referenceRow
+}
+
+// shellToolingRows is what the shell step installs beside the shell the reader
+// chose. The list is the one docs/tools.md keeps, because the installer cannot
+// show that file: the guard beside this one fails by name when the two disagree
+// (TestShellToolingPageMatchesTheDocument).
+func shellToolingRows() []referenceRow {
+	return []referenceRow{
+		{"eza", "File listing", "ls, ll, la, lt and tree aliases, in zsh and in fish"},
+		{"bat", "Pager", "cat function (plain output, no paging), in zsh and in fish; fzf previews; BAT_THEME"},
+		{"ripgrep", "Search", "grep alias and fzf's default search"},
+		{"fd", "File finding", "FZF_DEFAULT_COMMAND and the fzf directory jump"},
+		{"fzf", "Fuzzy finder", "Ctrl+R history, Alt+C, and the shell integration the shipped configuration evals"},
+		{"fnm", "Node runtime", "owns the Node runtime; npm globals live in ~/.npm-global"},
+		{"direnv", "Per-directory environments", "direnv hook zsh"},
+		{"jq", "JSON", "JSON in the shell helpers and scripts"},
+		{"gh", "GitHub CLI", "the GitHub command line, and the credential helper .gitconfig configures"},
+		{"git-delta", "Diff pager", "core.pager and interactive.diffFilter in .gitconfig"},
+		{"xh", "HTTP client", "http alias"},
+		{"trippy", "Traceroute", "traceroute and tracert aliases, only when it is present"},
+		{"btop", "Resource monitor", "top alias, only when it is present"},
+		{"zoxide", "Directory jumping", "the z command"},
+		{"atuin", "Shell history", "the history the shell searches"},
+		{"carapace", "Completion bridge", "completions for zsh, fish and bash"},
+	}
+}
+
+func shellToolingTable() referenceTable {
+	return referenceTable{
+		Name:        "Shell tooling",
+		Description: "What the shell step installs beside the shell the run chose",
+		Headers:     [3]string{"Tool", "Kind", "Used for"},
+		Rows:        shellToolingRows(),
+	}
+}
+
+// pluginSetRows is the plugin set the run provisions for five tools, from the
+// table docs/tools.md keeps of them (TestPluginPagesCoverTheSetsTheInstallerProvisions).
+func pluginSetRows() []referenceRow {
+	return []referenceRow{
+		{"Tmux", "TPM", "Clones TPM, seeds the plugin directory and runs install_plugins"},
+		{"Fish", "Fisher", "Ships the plugin list and the plugin files; config.fish bootstraps Fisher on first start"},
+		{"Zsh", "plugin packages", "Installs the packages the .zshrc sources: autosuggestions, syntax highlighting, completions, fzf-tab, Powerlevel10k"},
+		{"Neovim", "lazy.nvim", "Ships the LazyVim plugin set, which lazy.nvim installs on first launch"},
+		{"Herdr", "herdr plugin install", "Installs each declared plugin with --yes and verifies it with herdr plugin list"},
+	}
+}
+
+func pluginSetsTable() referenceTable {
+	return referenceTable{
+		Name:        "Plugins",
+		Description: "The plugin set the run provisions, and what manages it",
+		Headers:     [3]string{"Tool", "Manager", "What the run does"},
+		Rows:        pluginSetRows(),
+	}
+}
+
+// toolsetDirective is one directive of the Brewfile as the toolset step treats
+// it: what the line installs, and whether filterBrewfile drops it before brew
+// bundle sees it. The guard beside this one runs filterBrewfile over every row,
+// so the page cannot claim a line is installed while the step drops it
+// (TestMachineToolsetPageMatchesTheBrewfileAndTheFilter).
+type toolsetDirective struct {
+	Directive string
+	Installs  string
+	Dropped   bool
+	Reason    string
+}
+
+// toolsetDirectives is the Brewfile's vocabulary, not a list of its lines: the
+// step reads the file from the checkout, so a formula added there is installed
+// without a change here. A row for cask or mas says what the filter does with a
+// line the file carries today in neither.
+func toolsetDirectives() []toolsetDirective {
+	return []toolsetDirective{
+		{"brew", "Homebrew formulae the Brewfile lists (btop, sops, age, k9s and the rest)", false, ""},
+		{"tap", "Third-party taps a later formula comes from", false, ""},
+		{"go", "Go module binaries", false, ""},
+		{"npm", "Global npm packages", false, ""},
+		{"uv", "Python tools", false, ""},
+		{"cask", "A macOS application", false, ""},
+		{"mas", "A Mac App Store application", false, ""},
+		{"vscode", "VSCode extensions", true, "installing a desktop's tooling is out of proportion for a dotfiles run, and the code CLI it needs is absent on servers"},
+		{"winget", "Windows desktop applications", true, "same reason: a dotfiles run should not install a desktop's applications"},
+	}
+}
+
+func machineToolsetTable() referenceTable {
+	directives := toolsetDirectives()
+	rows := make([]referenceRow, 0, len(directives))
+	for _, d := range directives {
+		thisRun := "Installed"
+		if d.Dropped {
+			thisRun = "Dropped: " + d.Reason
+		}
+		rows = append(rows, referenceRow{Name: d.Directive, Kind: d.Installs, What: thisRun})
+	}
+	return referenceTable{
+		Name:        "Machine toolset",
+		Description: "The directives the Brewfile declares, and what the toolset step does with each",
+		Headers:     [3]string{"Directive", "What it installs", "This run"},
+		Rows:        rows,
 	}
 }
 
@@ -393,25 +583,15 @@ func GetNvimKeymaps() []KeymapCategory {
 			},
 		},
 		{
-			Name:        "AI Assistants (Copilot + OpenCode)",
-			Description: "AI-powered coding assistance",
+			Name:        "AI Assistant (pi)",
+			Description: "The one assistant this configuration enables: a floating pi chat",
+			// docs/ai-configuration.md is the repository's statement of which assistant is
+			// live; every other AI plugin is disabled by name in
+			// dotfiles-nvim/nvim/lua/plugins/disabled.lua, so this table carries the
+			// binding that exists and nothing else. TestLearnAIKeymapsMatchTheActiveAssistant
+			// holds the two to each other.
 			Keymaps: []Keymap{
-				{Keys: "<Tab>", Description: "Accept Copilot suggestion", Mode: "i"},
-				{Keys: "<C-]>", Description: "Dismiss Copilot suggestion", Mode: "i"},
-				{Keys: "<M-]>", Description: "Next Copilot suggestion", Mode: "i"},
-				{Keys: "<M-[>", Description: "Previous Copilot suggestion", Mode: "i"},
-				{Keys: "<leader>aa", Description: "Toggle OpenCode", Mode: "n"},
-				{Keys: "<leader>as", Description: "OpenCode select", Mode: "n,x"},
-				{Keys: "<leader>ai", Description: "OpenCode ask", Mode: "n,x"},
-				{Keys: "<leader>aI", Description: "OpenCode ask with context", Mode: "n,x"},
-				{Keys: "<leader>ab", Description: "OpenCode ask about buffer", Mode: "n,x"},
-				{Keys: "<leader>ap", Description: "OpenCode prompt", Mode: "n,x"},
-				{Keys: "<leader>ape", Description: "OpenCode explain", Mode: "n,x"},
-				{Keys: "<leader>apf", Description: "OpenCode fix", Mode: "n,x"},
-				{Keys: "<leader>apd", Description: "OpenCode diagnose", Mode: "n,x"},
-				{Keys: "<leader>apr", Description: "OpenCode review", Mode: "n,x"},
-				{Keys: "<leader>apt", Description: "OpenCode test", Mode: "n,x"},
-				{Keys: "<leader>apo", Description: "OpenCode optimize", Mode: "n,x"},
+				{Keys: "<leader>a", Description: "Open the pi floating chat", Mode: "n"},
 			},
 		},
 		{
@@ -602,7 +782,7 @@ func GetNvimInfo() ToolInfo {
 			"LazyVim: Pre-configured, sane defaults",
 			"LSP support for 100+ languages",
 			"TreeSitter for better syntax highlighting",
-			"AI integration (Copilot, Avante)",
+			"One AI assistant enabled: the pi floating chat (<leader>a)",
 			"Git integration (Lazygit, Gitsigns)",
 			"Fuzzy finding (Snacks picker)",
 			"File navigation (Oil, Mini.files, Harpoon)",
@@ -614,6 +794,7 @@ func GetNvimInfo() ToolInfo {
 			"Requires terminal with good font support",
 			"Plugin ecosystem can be overwhelming",
 			"Configuration complexity (mitigated by LazyVim)",
+			"The other AI plugins (Copilot, Avante, OpenCode, Claude Code, CodeCompanion, Antigravity) ship disabled; enable one at a time (see docs/ai-configuration.md)",
 		},
 		Website: "https://lazyvim.org",
 	}
@@ -851,12 +1032,12 @@ return {
     },
   },
   
-  -- Modify telescope options
+  -- Modify the snacks picker
   {
-    "nvim-telescope/telescope.nvim",
+    "folke/snacks.nvim",
     opts = {
-      defaults = {
-        layout_strategy = "vertical",
+      picker = {
+        exclude = { ".git", "node_modules", "vendor" },
       },
     },
   },
@@ -928,7 +1109,7 @@ return {
 			Tips: []string{
 				"Always add 'desc' for which-key integration",
 				"Use :map to see all current mappings",
-				"<leader>sk to search keymaps with telescope",
+				"<leader>sk to search keymaps with the snacks picker",
 			},
 		},
 		{
@@ -1050,7 +1231,7 @@ K                Hover docs
 			Tips: []string{
 				"<leader>? shows context-aware keybindings",
 				"<leader>sk to fuzzy search all keymaps",
-				"Most commands work with telescope/snacks",
+				"Most commands read through the snacks picker",
 			},
 		},
 	}
