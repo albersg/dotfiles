@@ -834,19 +834,22 @@ installed everything.
 **The installer provisions plugins for five tools.** It installs the plugin set
 this repository declares for Tmux (it clones TPM and runs `install_plugins`),
 Fish, Zsh and Neovim, because in each case the set is a decision the repository
-has already made. Tmux's and Herdr's sets are the ones a run can leave out:
-`--skip=plugins-tmux` and `--skip=plugins-herdr` turn them off, and the step then
-runs no TPM and no `herdr` command, installs nothing and reports the set as left
+has already made. Tmux's, Herdr's and the shell's sets are the ones a run can
+leave out: `--skip=plugins-tmux`, `--skip=plugins-herdr` and
+`--skip=plugins-shell` turn them off, and the step then runs no TPM, no `herdr`
+command and no Oh My Zsh installer, installs nothing and reports the set as left
 out. A run that leaves Tmux's out also writes a configuration that declares no
 plugin and runs no TPM, between the markers `dotfiles-tmux/tmux.conf` carries for
-exactly that. The other three sets are named on the same row and are not
-switches. The shell's is installed by this installer and cannot be left out: the
-zsh configuration this repository ships is built on it -- the `.zshrc` declares
-the plugins, sources `$ZSH/oh-my-zsh.sh` and sources `~/.p10k.zsh` for the prompt
--- so a switch there would mean shipping a second, plain-zsh configuration. Fish's
-and Neovim's are not the installer's to leave out at all: `config.fish` bootstraps
-Fisher on first start and lazy.nvim installs the Neovim set on first launch, which
-is what [Tools Reference](tools.md#plugins) says each of them does. For Herdr it installs the two plugins declared in the
+exactly that. A run that leaves the shell's out installs no package that exists
+only to provide a plugin of the set, and the `.zshrc` it writes replaces the
+block the `dotfiles-plugins` markers bound -- the `plugins=(...)` declaration, the
+`source "$ZSH/oh-my-zsh.sh"` line and the third-party loaders -- with a line
+saying why, so the configuration it left behind starts on a machine without Oh My
+Zsh. Fish's and Neovim's sets are named on the same row and are not switches:
+they are not the installer's to leave out at all, because `config.fish`
+bootstraps Fisher on first start and lazy.nvim installs the Neovim set on first
+launch, which is what [Tools Reference](tools.md#plugins) says each of them does.
+For Herdr it installs the two plugins declared in the
 installer's own source — `aigora.lantern` and `herdr.auto-title` — with `herdr
 plugin install <owner>/<repo> --yes`, then updates them with `herdr plugin
 update --yes`, and finally verifies each with `herdr plugin list` and reports
@@ -1442,7 +1445,7 @@ dotfiles --non-interactive --shell=<shell> [options]
 | `--nvim` | | Install Neovim configuration |
 | `--font` | | Install Nerd Font |
 | `--backup` | `true`/`false` | Backup existing configs (default: true) |
-| `--skip` | unit names, comma-separated | Leave units out of the run: `clone`, `cleanup` and `setshell` cannot be left out and are refused, and a skipped unit is reported as skipped rather than dropped. The interface's review screen makes the same choice by hand |
+| `--skip` | unit or plugin-set names, comma-separated | Leave units and plugin sets out of the run: `clone`, `cleanup` and `setshell` cannot be left out and are refused, while `--skip=plugins-tmux`, `--skip=plugins-herdr` and `--skip=plugins-shell` turn a plugin set off and are reported as such rather than dropped. The interface's setup and review screens make the same choices by hand |
 
 ### Examples
 

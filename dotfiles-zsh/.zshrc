@@ -363,6 +363,7 @@ fi
 
 autoload -Uz add-zsh-hook add-zle-hook-widget bashcompinit colors compinit is-at-least zmathfunc zrecompile
 
+# >>> dotfiles-plugins >>>
 # Oh My Zsh must initialize before third-party plugins.
 plugins=(
   command-not-found
@@ -402,6 +403,7 @@ else
         "/usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" \
         "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 fi
+# <<< dotfiles-plugins <<<
 
 export PROJECT_PATHS="$HOME/work"
 export FZF_DEFAULT_COMMAND="fd --hidden --strip-cwd-prefix --exclude .git"

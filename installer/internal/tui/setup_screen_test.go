@@ -236,10 +236,19 @@ func TestTheSetupScreenCanTurnAProvisionedSetOff(t *testing.T) {
 	}
 }
 
-// TestTheSetupScreenGivesNoKeyToASetTheRunCannotLeaveOut is the other half of S3: a
-// set a run cannot leave out is named and explained, and no key offers to turn it
-// off, because that key would install nothing of what it promised.
-func TestTheSetupScreenGivesNoKeyToASetTheRunCannotLeaveOut(t *testing.T) {
+// TestTheSetupScreenCanTurnTheShellsSetOff holds the user's decision at L13 where the
+// run reads it: the shell's set follows the registry, so the row that said `always
+// installed` is a switch whose key writes the same list `--skip=plugins-shell` writes,
+// and the plan the executor reads carries it as left out.
+func TestTheSetupScreenCanTurnTheShellsSetOff(t *testing.T) {
+	set, ok := pluginSetByID(pluginSetIDShell)
+	if !ok {
+		t.Fatal("the registry does not name the shell's plugin set")
+	}
+	if !set.Switchable {
+		t.Fatalf("the shell's set is carried as Switchable=%v, so the row offers no switch to turn it off", set.Switchable)
+	}
+
 	m := Model{
 		Screen:     ScreenSetup,
 		SystemInfo: &system.SystemInfo{OS: system.OSLinux},
@@ -247,8 +256,41 @@ func TestTheSetupScreenGivesNoKeyToASetTheRunCannotLeaveOut(t *testing.T) {
 	}
 	m.SetupCursor = setupGuardRowIndex(t, m, pluginSetLabel(t, pluginSetIDShell))
 
+	if !m.toggleSetupRow() {
+		t.Fatal("the shell's set is a switch now, but the key on its row changed nothing")
+	}
+	if !pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDShell) {
+		t.Fatalf("turning the shell's set off recorded %v, want %q", m.Choices.DisabledPluginSets, pluginSetIDShell)
+	}
+	step := pluginSetOnStep(t, planFor(m.planOptions()), "shell")
+	if step.PluginSet == nil || !step.PluginSet.Off {
+		t.Errorf("the plan does not carry the shell's set as left out: %+v", step.PluginSet)
+	}
+	if value := m.setupRowValue(m.setupRows()[m.SetupCursor]); !strings.Contains(value, "leave it out") {
+		t.Errorf("the row says %q after the set was turned off, want it to say the run leaves it out", value)
+	}
+
+	m.toggleSetupRow()
+	if pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDShell) {
+		t.Errorf("turning the shell's set back on left %v", m.Choices.DisabledPluginSets)
+	}
+}
+
+// TestTheSetupScreenGivesNoKeyToASetTheRunCannotLeaveOut is the other half of S3: a
+// set a run cannot leave out is named and explained, and no key offers to turn it
+// off, because that key would install nothing of what it promised. It is held over
+// fish's set -- the shell's set is a switch now (T7), so it is covered like the
+// others instead.
+func TestTheSetupScreenGivesNoKeyToASetTheRunCannotLeaveOut(t *testing.T) {
+	m := Model{
+		Screen:     ScreenSetup,
+		SystemInfo: &system.SystemInfo{OS: system.OSLinux},
+		Choices:    UserChoices{OS: "linux", Shell: "fish", Terminal: "kitty", WindowMgr: "none"},
+	}
+	m.SetupCursor = setupGuardRowIndex(t, m, pluginSetLabel(t, pluginSetIDFish))
+
 	if m.toggleSetupRow() {
-		t.Error("the shell's set has a key that turns it off, though a run cannot leave it out")
+		t.Error("fish's set has a key that turns it off, though a run cannot leave it out")
 	}
 	if len(m.Choices.DisabledPluginSets) != 0 {
 		t.Errorf("a set a run cannot leave out recorded %v", m.Choices.DisabledPluginSets)

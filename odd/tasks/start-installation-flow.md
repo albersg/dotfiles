@@ -94,16 +94,7 @@ it, and the screen has to exist before the plan can show which choice each row c
 - [ ] **T5. Docs and changelog** (S1-S7).
 - [ ] **T6. The guards move with the screens** (S7): frame lists, counts, the plan-name
       golden, the teatest paths and the E2E expectations.
-- [ ] **T7. The shell's set becomes a switch too** (S3, S4), the user's decision at L13 and the
-      price he accepted there: the `.zshrc` a run writes with the set off has to start on a
-      machine without Oh My Zsh, the plugin packages or Powerlevel10k, and name nothing that is
-      not there. Measured before it is built -- the same way the Tmux set was: whether the
-      repository has to ship a second configuration, or whether the installed file can be
-      patched with markers that bound exactly what the set provides, with the guard failing
-      when one is missing, duplicated, or wide enough to take a line the set does not own. Then
-      the registry's third state is reconsidered: a set that becomes switchable stops being
-      named with a reason, and the guard that reads the asset for that reason is rewritten to
-      hold the new one.
+- [x] **T7. The shell's set becomes a switch too** (S3, S4), the user's decision at L13.
 
 ## Log
 
@@ -257,20 +248,6 @@ it, and the screen has to exist before the plan can show which choice each row c
   E2E -- which drives the installer through `--non-interactive --dry-run` flags and not through
   keys, so it moves only where it names a screen.
 
-- **L13.** Requirement change, from the user: **the shell's plugin set becomes a switch.** The
-  question the front left open at T1 was put to him with its price, and his answer is the option
-  that carries it: *"Sí: que sea interruptor"*, whose consequences he accepted in the same choice,
-  verbatim: *"un segundo .zshrc sin plugins, versionado y mantenido; el instalador elige cuál escribe
-  según el interruptor; reescribir TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt; la
-  fila deja de decir 'always installed' y pasa a [x]/[ ]"*. S3 is rewritten accordingly, T1's bullet
-  closes its question and points here, and the work is T7. One measurement stands between the
-  decision and its price: if the installer can patch the configuration it already ships, with markers
-  bounding exactly what the set provides, the switch costs no second configuration to maintain -- and
-  if it cannot, the second configuration ships as chosen. The same question round settled a second
-  thing, recorded here because it is about publication: PR #339 (a draft another session opened from
-  this branch) is left exactly as it is, and commits and pushes on this branch stay with this
-  session, with PR, tag and release remaining the user's own decisions.
-
 - **L11.** T2a delivered and closed. One `ScreenSetup` replaced the six question screens as steps of
   the flow; they keep their content and become detours that record an answer and return to it. The
   rows are `Platform`, `Shell`, `Terminal`, `Font`, `Multiplexer`, `Editor (Neovim)`, `Existing
@@ -333,3 +310,60 @@ it, and the screen has to exist before the plan can show which choice each row c
   frame's value column, so truncating it on screen would have made the one sentence that matters
   unreadable exactly where it is read. The consequence is recorded rather than hidden: the row says
   what the run will do (`always installed`), and the plan says where it comes from.
+
+- **L13.** Requirement change, from the user: **the shell's plugin set becomes a switch.** The
+  question the front left open at T1 was put to him with its price, and his answer is the option
+  that carries it: *"Sí: que sea interruptor"*, whose consequences he accepted in the same choice,
+  verbatim: *"un segundo .zshrc sin plugins, versionado y mantenido; el instalador elige cuál escribe
+  según el interruptor; reescribir TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt; la
+  fila deja de decir 'always installed' y pasa a [x]/[ ]"*. S3 is rewritten accordingly, T1's bullet
+  closes its question and points here, and the work is T7. One measurement stands between the
+  decision and its price, and the measurement removed the price: the shipped `.zshrc` is already
+  written to survive without the set -- the third-party loaders at 372-404 and the prompt's two
+  references at 39-41 and 851 all carry their own presence test -- so the only unguarded dependency
+  is the Oh My Zsh load at 366-370, and one marker pair bounds the whole region 366-406. The second
+  configuration the option carried is therefore never shipped, and the same question round settled
+  one thing about publication: PR #339 (a draft another session opened from this branch) is left
+  exactly as it is, while commits and pushes on this branch stay with this session and PR, tag and
+  release remain the user's own decisions.
+
+- **L14.** T7 delivered: the shell's set is a switch, and the configuration pays for it. What
+  changed: `dotfiles-zsh/.zshrc` carries `# >>> dotfiles-plugins >>>` / `# <<< dotfiles-plugins <<<`
+  around exactly what the set provides (+2 lines, 366-406); `zsh_plugins.go` holds the markers, the
+  replacement line the user reads, a filter that drops from every platform package list -- and from
+  the unavailable-name lists, so the log cannot name a package the run decided not to request --
+  every package that exists only to provide a plugin of the set, and `leaveZshPluginsOut`, which
+  refuses rather than guesses when a marker is missing or unterminated, the contract
+  `leaveTmuxPluginsOut` already had; the registry's shell entry is `Switchable` with its reason gone;
+  and the shell step gates all three parts -- no Oh My Zsh checkout or installer, no plugin package,
+  and the strip of the `.zshrc` it just wrote -- each with its own log line.
+
+  The guards, red first: the stripped asset's fences and the switch's own guards failed on the
+  missing symbols before anything was implemented, and the golden failed on the shell step's
+  `PluginSet` pointer, which is what pinned the old reason. The six guards now hold: the markers
+  bound exactly the set's text (a duplicate or missing marker, a declaration or loader left outside,
+  and a setting swallowed inside are each their own failure), the file the run writes parses under
+  zsh's own `zsh -n` with the set on and off, the strip refuses and leaves a refused file
+  byte-for-byte alone, the step installs nothing of the set (and still does with the set on), the
+  setup screen's row is a switch that reaches the plan, and every loader left outside the markers
+  carries its presence test. Two limits are recorded rather than hidden: that last fence scans
+  source-shaped loaders plus a named table, so a loader written as `eval` or `autoload` would slip
+  past it, and `zsh -n` proves the file parses, not that a shell start is error-free at runtime.
+
+  Two decisions the worker took, both sound and both recorded because a reader will ask. The
+  Powerlevel10k prompt stays outside the markers: its two references are guarded by the presence of
+  the exact file each one reads, and one marker pair cannot span the instant prompt near the top and
+  the source near the bottom without swallowing 365 lines of PATH, autostart and editor settings --
+  the too-wide defect the guard exists to catch. And `~/.p10k.zsh` is still copied when the set is
+  off, because the theme is what writes that file, not the set; the line that sources it is guarded
+  by its presence, so the configuration still starts. The worker also corrected one of the parent's
+  measurements rather than following it: the `.zshrc` is written at `installer.go:7071`, not in the
+  6100s, which is where `installOhMyZsh` lives; the `withPlugins` pattern it followed is at 7500.
+
+  Evidence: `go test ./... -count=1` ran the whole suite, whose only failures are the four
+  host-condition Ghostty tests; `gofmt -l` and `go vet` are clean; `zsh -n dotfiles-zsh/.zshrc`
+  exits 0. The guard that said to delete itself, `TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt`,
+  was replaced by `TestTheShellsSetIsASwitchAndTheConfigurationPaysForIt`, which is stronger in the
+  direction that changed (the registry, the flag and the plan), and the asset facts it used to
+  check moved beside the strip that depends on them. The setup screen's no-key guard moved to
+  fish's set at the same strength.

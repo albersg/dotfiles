@@ -45,21 +45,25 @@ is a list that lives in this repository and the step copies or installs it; for
 Herdr the set is declared in the installer's own source, because Herdr has no
 plugin list file to copy:
 
-Two of those sets are work this installer does and can be left out of a run:
-Tmux's, with `--skip=plugins-tmux`, and Herdr's, with `--skip=plugins-herdr`. A
-run that leaves Tmux's out installs no TPM, downloads no plugin, and strips the
-plugin declarations and the line that runs TPM out of the `tmux.conf` it writes,
-so tmux is never asked to run a checkout that is not there. The others are named
-on the same row and are not switches: the shell's set cannot be left out because
-the zsh configuration this repository ships is built on it -- the `.zshrc`
-declares the plugins, sources `$ZSH/oh-my-zsh.sh` and sources `~/.p10k.zsh` for the
-prompt -- and Fish's and Neovim's are not the installer's to leave out at all.
+Three of those sets are work this installer does and can be left out of a run:
+Tmux's, with `--skip=plugins-tmux`; Herdr's, with `--skip=plugins-herdr`; and the
+shell's, with `--skip=plugins-shell`. A run that leaves Tmux's out installs no
+TPM, downloads no plugin, and strips the plugin declarations and the line that
+runs TPM out of the `tmux.conf` it writes, so tmux is never asked to run a
+checkout that is not there. A run that leaves the shell's out installs no Oh My
+Zsh and no package that exists only to provide a plugin of the set, and the
+`.zshrc` it writes replaces the block the `dotfiles-plugins` markers bound -- the
+plugin declaration, the `source "$ZSH/oh-my-zsh.sh"` line and the third-party
+loaders -- with a line saying why, so a machine without the set still starts.
+Fish's and Neovim's sets are named on the same row and are not switches: they are
+not the installer's to leave out at all, because `config.fish` bootstraps Fisher
+on first start and lazy.nvim installs the Neovim set on first launch.
 
 | Tool | Where the set is declared | What the installer does |
 |------|---------------------------|-------------------------|
 | **Tmux** | `dotfiles-tmux/tmux.conf` through TPM | Clones TPM, copies the seeded plugin directory and runs `install_plugins` |
 | **Fish** | `dotfiles-fish/fish/fish_plugins` | Ships the plugin list and the plugin files with the Fish config; `config.fish` bootstraps Fisher on first start |
-| **Zsh** | `.zshrc` | Installs the plugin packages (autosuggestions, syntax highlighting, completions, fzf-tab, Powerlevel10k) that the `.zshrc` sources |
+| **Zsh** | `.zshrc` | Installs the plugin packages (autosuggestions, syntax highlighting, completions, fzf-tab, carapace, Powerlevel10k) that the `.zshrc` sources; with the set left out it installs none of them and strips the marked block from the `.zshrc` it writes |
 | **Neovim** | `dotfiles-nvim/nvim/lua/plugins/` | Ships the LazyVim plugin set, which lazy.nvim installs on first launch |
 | **Herdr** | `herdrPluginSet` in `installer/internal/tui/installer.go` | Runs `herdr plugin install <owner>/<repo> --yes` for each declared plugin and verifies each with `herdr plugin list` |
 herdr plugin update --yes                              # update every GitHub-installed plugin

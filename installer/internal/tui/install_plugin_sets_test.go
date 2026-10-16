@@ -21,18 +21,30 @@ func TestThePlanCarriesThePluginSetOfItsTool(t *testing.T) {
 	cases := []struct {
 		name  string
 		setID string
+		step  string
 		model func(t *testing.T) *Model
 	}{
 		{
 			name:  "tmux",
 			setID: "plugins-tmux",
+			step:  "wm",
 			model: func(t *testing.T) *Model { return planFixtures()[0].fixtureModel() },
 		},
 		{
 			name:  "herdr",
 			setID: "plugins-herdr",
+			step:  "wm",
 			model: func(t *testing.T) *Model {
 				m := herdrPluginModel(t, true)
+				return &m
+			},
+		},
+		{
+			name:  "shell",
+			setID: pluginSetIDShell,
+			step:  "shell",
+			model: func(t *testing.T) *Model {
+				m := Model{SystemInfo: &system.SystemInfo{OS: system.OSLinux}, Choices: UserChoices{OS: "linux", Shell: "zsh"}}
 				return &m
 			},
 		},
@@ -42,12 +54,12 @@ func TestThePlanCarriesThePluginSetOfItsTool(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := tc.model(t)
 
-			step := pluginSetOnStep(t, planFor(m.planOptions()), "wm")
+			step := pluginSetOnStep(t, planFor(m.planOptions()), tc.step)
 			if step.PluginSet == nil {
-				t.Fatalf("the wm step carries no plugin set, so the interface cannot name what the step provisions")
+				t.Fatalf("the %s step carries no plugin set, so the interface cannot name what the step provisions", tc.step)
 			}
 			if step.PluginSet.ID != tc.setID {
-				t.Errorf("the wm step carries set %q, want %q", step.PluginSet.ID, tc.setID)
+				t.Errorf("the %s step carries set %q, want %q", tc.step, step.PluginSet.ID, tc.setID)
 			}
 			if step.PluginSet.Off {
 				t.Error("a set is on unless it was turned off; this one arrived off")
@@ -56,7 +68,7 @@ func TestThePlanCarriesThePluginSetOfItsTool(t *testing.T) {
 			// Turning it off leaves the step planned: the tool is still installed, and
 			// only the set it would have provisioned is not.
 			m.Choices.DisabledPluginSets = []string{tc.setID}
-			step = pluginSetOnStep(t, planFor(m.planOptions()), "wm")
+			step = pluginSetOnStep(t, planFor(m.planOptions()), tc.step)
 			if step.PluginSet == nil {
 				t.Fatal("turning the set off removed it from the step instead of turning it off")
 			}
@@ -115,36 +127,41 @@ func TestEveryRegisteredSetIsNamedOnThePlanOfARunThatInstallsItsTool(t *testing.
 	}
 }
 
-// TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt holds the one
-// decision this front took against its own first plan (L8): the shell's set is
-// named, it is not a switch, and the reason is a measured fact about the
-// configuration this repository ships rather than a preference. If that
-// configuration ever stops depending on the set, this guard fails and the row has
-// to become a switch.
-func TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt(t *testing.T) {
+// TestTheShellsSetIsASwitchAndTheConfigurationPaysForIt holds the decision the user
+// took at L13: the shell's set is a switch like the others, and the price he accepted
+// -- the `.zshrc` a run writes standing on its own -- is paid by the markers and the
+// strip held in zsh_plugins_test.go, not by a second configuration this repository
+// would have to maintain. This replaces
+// TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt, whose whole subject
+// was the decision that changed; the guards for the switch itself are here and the
+// guards for the configuration rule are beside the strip.
+func TestTheShellsSetIsASwitchAndTheConfigurationPaysForIt(t *testing.T) {
 	set, ok := pluginSetByID(pluginSetIDShell)
 	if !ok {
 		t.Fatal("the registry does not name the shell's plugin set")
 	}
-	if set.Switchable {
-		t.Fatal("the shell's set is a switch now, so this guard holds nothing: delete it and cover the switch like the others")
+	if !set.Switchable {
+		t.Fatal("the shell's set is not a switch, so the decision at L13 is not in the registry")
+	}
+	if set.Because != "" {
+		t.Errorf("the shell's set can be left out, so it no longer carries the reason it cannot: %q", set.Because)
 	}
 
-	zshrc, err := os.ReadFile(filepath.Join(repoRoot(t), "dotfiles-zsh", ".zshrc"))
+	// The command line reaches the same switch the screen offers: `--skip` accepts the
+	// name and the plan the executor reads carries it as left out.
+	units, sets, err := ParseSkipSelection(pluginSetIDShell)
 	if err != nil {
-		t.Fatalf("the zsh configuration this installer ships could not be read: %v", err)
+		t.Fatalf("--skip must accept the switch the screen offers: %v", err)
 	}
-	for _, needed := range []string{`source "$ZSH/oh-my-zsh.sh"`, "plugins=(", "~/.p10k.zsh"} {
-		if !strings.Contains(string(zshrc), needed) {
-			t.Errorf("the zsh configuration no longer carries %q, so \"its configuration sources it\" is no longer measured: this set can become a switch", needed)
-		}
+	if len(units) != 0 || len(sets) != 1 || sets[0] != pluginSetIDShell {
+		t.Errorf("--skip %s read as units=%v sets=%v, want just the set", pluginSetIDShell, units, sets)
 	}
 
-	// The command line refuses it for the same reason the screen will explain.
-	if _, _, err := ParseSkipSelection(pluginSetIDShell); err == nil {
-		t.Error("a set the run cannot leave out was accepted by --skip")
-	} else if !strings.Contains(err.Error(), set.Because) {
-		t.Errorf("the refusal does not give the reason the registry holds: %v", err)
+	m := Model{SystemInfo: &system.SystemInfo{OS: system.OSLinux}, Choices: UserChoices{OS: "linux", Shell: "zsh"}}
+	m.Choices.DisabledPluginSets = sets
+	step := pluginSetOnStep(t, planFor(m.planOptions()), "shell")
+	if step.PluginSet == nil || !step.PluginSet.Off {
+		t.Errorf("the plan of a run that skipped the set does not carry it as left out: %+v", step.PluginSet)
 	}
 }
 

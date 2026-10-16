@@ -43,11 +43,12 @@ type pluginSet struct {
 	Provisioned bool
 
 	// Switchable says a run can leave the set out. It is a separate question from
-	// Provisioned, and the shell's set is why: this installer does install it, and a
-	// run cannot leave it out, because the shell configuration this repository ships
-	// is built on it -- its .zshrc declares the plugins, sources $ZSH/oh-my-zsh.sh
-	// and sources ~/.p10k.zsh for the prompt -- so leaving it out would mean shipping
-	// a second, unverified shell configuration rather than patching this one.
+	// Provisioned: fish's and Neovim's sets are neither, because their tools bootstrap
+	// them from the configuration this installer ships, and the shell's is provisioned
+	// and switchable because its configuration is patched rather than replaced -- the
+	// .zshrc carries markers around exactly what the set provides (zsh_plugins.go) and
+	// a run that turns the set off strips that block and requests none of its packages,
+	// so the file stands on a machine without Oh My Zsh.
 	Switchable bool
 
 	// Because is why a set a run cannot leave out is not offered as a switch, and it
@@ -56,9 +57,9 @@ type pluginSet struct {
 	Because string
 }
 
-// pluginSetIDTmux and pluginSetIDHerdr name the sets the executor honours, so the
-// registry and the steps that install them cannot drift apart over the string. The
-// other three are named here too, because the interface names them on screen.
+// pluginSetIDTmux, pluginSetIDHerdr and pluginSetIDShell name the sets the executor
+// honours, so the registry and the steps that install them cannot drift apart over the
+// string. The other two are named here too, because the interface names them on screen.
 const (
 	pluginSetIDShell = "plugins-shell"
 	pluginSetIDFish  = "plugins-fish"
@@ -94,7 +95,7 @@ var pluginSets = []pluginSet{
 		Tool:        "zsh",
 		Named:       "Oh My Zsh with Powerlevel10k and the plugin packages",
 		Provisioned: true,
-		Because:     "the zsh configuration this repository ships is built on it: its .zshrc declares the plugins, sources $ZSH/oh-my-zsh.sh and sources ~/.p10k.zsh for the prompt",
+		Switchable:  true,
 	},
 	{
 		ID:    pluginSetIDFish,
@@ -167,11 +168,11 @@ func SwitchablePluginSetIDs() []string {
 
 // pluginSetIsSwitchable reports whether a run can turn a set off. A set is
 // switchable exactly when this installer can leave it out and the configuration it
-// installs survives the absence: for the tmux and herdr sets the configuration is
-// patched to name nothing, and for the shell's, fish's and Neovim's the
-// configuration the repository ships is built on the set, which is why they are
-// named with the reason instead of offered as a switch that would install nothing
-// or ship a second, unverified configuration.
+// installs survives the absence: the tmux, herdr and shell sets are provisioned by
+// this installer and their configuration is patched or copied with the set, while
+// fish's and Neovim's are bootstrapped by their tools from the configuration this
+// repository ships, which is why they are named with the reason instead of offered as
+// a switch that would install nothing or ship a second, unverified configuration.
 func pluginSetIsSwitchable(id string) bool {
 	set, ok := pluginSetByID(id)
 	return ok && set.Switchable

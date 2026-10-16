@@ -6901,6 +6901,17 @@ func stepInstallShell(m *Model) error {
 
 	packages, unavailable := shellPlatformPackages(shell)
 
+	// The shell's plugin set is a switch (install_plugin_sets.go). With it off, none of
+	// the plugin work runs and no package that exists only to provide a plugin of the
+	// set is requested: the configuration this step installs names none of them, so a
+	// package installed for it would sit unused and the plugin itself is what the
+	// configuration no longer loads.
+	withPlugins := !pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDShell)
+	if shell == "zsh" && !withPlugins {
+		packages, unavailable = withoutZshPluginPackages(packages, unavailable)
+		SendLog(stepID, "The Zsh plugin set is turned off; Oh My Zsh and the plugin packages are not installed and the configuration names none of them")
+	}
+
 	// Common dependencies
 	SendLog(stepID, "Creating required directories...")
 	system.EnsureDir(filepath.Join(homeDir, ".config"))
@@ -7083,6 +7094,17 @@ func stepInstallShell(m *Model) error {
 				"Failed to configure .zshrc for window manager",
 				err)
 		}
+		// A run that left the plugin set out must not leave a configuration that sources
+		// $ZSH/oh-my-zsh.sh or loads a plugin that is not installed: the block the
+		// markers bound (zsh_plugins.go) is replaced with a line saying why, and the
+		// strip refuses rather than guesses when a marker is missing.
+		if !withPlugins {
+			if err := leaveZshPluginsOut(zshrcPath); err != nil {
+				return wrapStepError("shell", "Install Zsh",
+					"Failed to leave the plugin set out of .zshrc",
+					err)
+			}
+		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetP10k), filepath.Join(homeDir, ".p10k.zsh")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy Powerlevel10k configuration",
@@ -7172,14 +7194,18 @@ func stepInstallShell(m *Model) error {
 		// the autostash pop, so the official installer runs only when nothing is
 		// installed yet and an existing installation is never written into.
 		ohMyZshDir := filepath.Join(homeDir, ".oh-my-zsh")
-		if shouldInstallOhMyZsh(ohMyZshDir) {
+		switch {
+		case !withPlugins:
+			// The set was left out: no checkout, no installer, and nothing to repair.
+			SendLog(stepID, "Oh My Zsh left out with the plugin set")
+		case shouldInstallOhMyZsh(ohMyZshDir):
 			SendLog(stepID, "Installing Oh My Zsh...")
 			if err := installOhMyZsh(ohMyZshDir, stepID); err != nil {
 				return wrapStepError("shell", "Install Zsh",
 					"Failed to install Oh My Zsh",
 					err)
 			}
-		} else {
+		default:
 			SendLog(stepID, "Oh My Zsh already installed, leaving it untouched")
 		}
 		// Termux: Add zsh to $PREFIX/etc/shells so tmux doesn't complain
