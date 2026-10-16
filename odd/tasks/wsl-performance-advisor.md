@@ -156,3 +156,30 @@ Quoted verbatim from the request; the numbering is this front's.
   the facts it depends on printed first.
 - **L9 (checks, this session):** `go test ./internal/system/` ok (6.6 s) after both engines landed;
   the TUI suite and `make preflight` are recorded in the closing report.
+- **L10 (review gate, this session).** RDD is enabled for this worktree, so the candidate was put to
+  the native review before the change was reported complete. `inspect` offered `review.start` for the
+  frozen target (`sha256:5971aa80…`, base-ref `4ba4332`, committed-only, workspace projection). START
+  refused twice with the same preflight failure: `lens_context_budget_exceeded` — once for the whole
+  branch range, once for the smallest single work-unit commit of this front (`f1da00e`, the copy
+  engine, 1925 insertions). Both refusals report `mutation_outcome: none` and `lineage_created: false`,
+  so no authority exists, nothing was burned and nothing has to be abandoned or repaired. The
+  provider's own continuation is to review the change as smaller candidates that each fit under its
+  context budget. The first START attempt also reported `lenses-invalid`, which is the provider saying
+  its `start` takes a single dominant `focus` rather than a lens list; the rejected attempt created no
+  lineage either. **This front therefore has no review verdict, and the review gate says the candidate
+  is too large to review as one unit — splitting it into a chained sequence is a delivery decision for
+  the human, not something this session may decide unilaterally.**
+- **L11 (checks, this session).** `make preflight` over the frozen tree: gofmt, `go vet ./...`, the
+  build plus `--help` smoke run all PASS; `go test ./... -count=1` passed `cmd/dotfiles`,
+  `internal/release`, `internal/system`, `internal/tui/trainer` and failed `internal/tui` on five
+  tests. One was this front's: the companion block guard's pinned count (912 rendered cases) had to
+  follow the four screen states this front added to every frame guard (912 → 976, the arithmetic being
+  4 terminals × 2 sprite modes × 2 cursor states per screen name), which is exactly the deliberate act
+  that guard exists to force; the count and its comment were updated. The other four are environmental
+  and predate this front: the Ghostty download tests stub `curl` into a temporary directory but set
+  `PATH` to `<stub>:/usr/bin:/bin`, and this machine has a real `/usr/bin/ghostty`, so the step's
+  `CommandExists("ghostty")` check takes the "already installed" branch the tests do not expect. The
+  tests and the step are byte-identical to `origin/main` (the branch's only change to `installer.go`
+  is an unrelated Alacritty cleanup), so the same run fails on `main` on this machine and passes on a
+  CI runner without Ghostty installed. Recorded rather than papered over: **the gate is green on
+  everything this front touched and red on four tests that this machine's own PATH breaks.**

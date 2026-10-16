@@ -3748,12 +3748,14 @@ func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 		compared++
 	}
 	renderedCount := int(rendered.Load())
-	// 912 rather than the 896 this was before the setup screen: its states join the
-	// list every frame guard renders, at each measured terminal, in both sprite
-	// modes. The number is written out so that adding a screen is a deliberate act.
-	// It was 880 before the install review screen, for the same reason.
-	if renderedCount != 912 || compared != 912 {
-		t.Fatalf("companion block guard rendered %d screens and compared %d, want 912 of each", renderedCount, compared)
+	// 976 rather than the 912 this was before the WSL performance advisor: its
+	// report, the reading state before it, the measurement screen and the assisted
+	// copy join the list every frame guard renders, at each measured terminal, in
+	// both sprite modes. The number is written out so that adding a screen is a
+	// deliberate act: it was 912 before the advisor, 896 before the setup screen and
+	// 880 before the install review screen, each for the same reason.
+	if renderedCount != 976 || compared != 976 {
+		t.Fatalf("companion block guard rendered %d screens and compared %d, want 976 of each", renderedCount, compared)
 	}
 	t.Logf("companion block guard coverage: %d rendered screens, %d comparisons", renderedCount, compared)
 }
