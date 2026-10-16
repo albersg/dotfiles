@@ -1167,6 +1167,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.Screen = ScreenError
 					// Include step name in error message for clarity
 					m.ErrorMsg = fmt.Sprintf("Step '%s' failed:\n%s", m.Steps[i].Name, msg.err.Error())
+					// The steps before this one have already written configuration
+					// files, and this run stops here: the record is what names them,
+					// exactly as it is for a step that fails through its own status.
+					m.recordRun(runStatusFailed, []string{m.Steps[i].Name})
 					return m, nil
 				}
 				m.Steps[i].Status = StatusDone
