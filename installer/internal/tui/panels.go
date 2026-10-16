@@ -860,9 +860,11 @@ type keymapSource struct {
 	cats []KeymapCategory
 }
 
-// keymapSources is the keymap reference the panel counts: the five tools the
-// reference menu offers, in the order it offers them, read through the same
-// getters the tables are loaded from so the panel and the tables cannot disagree.
+// keymapSources is the keymap reference the panel counts: the tools whose
+// reference is a table of bindings, in the order the reference menu offers them,
+// read through the same getters the tables are loaded from so the panel and the
+// tables cannot disagree. WezTerm and Alacritty are absent on purpose: their
+// configurations declare no bindings, so there is no table of theirs to count.
 func keymapSources() []keymapSource {
 	return []keymapSource{
 		{"Neovim", GetNvimKeymaps()},
@@ -870,6 +872,7 @@ func keymapSources() []keymapSource {
 		{"Zellij", GetZellijKeymaps()},
 		{"Herdr", GetHerdrKeymaps()},
 		{"Ghostty", GetGhosttyKeymaps()},
+		{"Kitty", GetKittyKeymaps()},
 	}
 }
 

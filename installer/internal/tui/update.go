@@ -1323,8 +1323,20 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		return m.handleSelectionKeys(key)
 
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnPrompts:
 		return m.handleLearnMenuKeys(key)
+
+	case ScreenLearnTools:
+		return m.handleLearnHubKeys(key)
+
+	case ScreenLearnTooling:
+		return m.handleReferenceTableKeys(key, len(shellToolingRows()))
+
+	case ScreenLearnPlugins:
+		return m.handleReferenceTableKeys(key, len(pluginSetRows()))
+
+	case ScreenLearnToolset:
+		return m.handleReferenceTableKeys(key, len(toolsetDirectives()))
 
 	case ScreenKeymaps:
 		return m.handleKeymapsMenuKeys(key)
@@ -1358,6 +1370,18 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenKeymapsHerdrCat:
 		return m.handleHerdrKeymapCategoryKeys(key)
+
+	case ScreenKeymapsKitty:
+		return m.handleKittyKeymapsMenuKeys(key)
+
+	case ScreenKeymapsKittyCat:
+		return m.handleKittyKeymapCategoryKeys(key)
+
+	case ScreenKeymapsWezTerm:
+		return m.handleReferenceTableKeys(key, len(weztermConfigTable().Rows))
+
+	case ScreenKeymapsAlacritty:
+		return m.handleReferenceTableKeys(key, len(alacrittyConfigTable().Rows))
 
 	case ScreenLearnLazyVim:
 		return m.handleLazyVimMenuKeys(key)
@@ -1459,19 +1483,25 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenKeymapsHerdrCat:
 		m.Screen = ScreenKeymapsHerdr
 		m.HerdrKeymapScroll = 0
+	case ScreenKeymapsKittyCat:
+		m.Screen = ScreenKeymapsKitty
+		m.KittyKeymapScroll = 0
 	case ScreenLazyVimTopic:
 		m.Screen = ScreenLearnLazyVim
 		m.LazyVimScroll = 0
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
 		m.ViewingTool = ""
+		m.ReferenceTableScroll = 0
 	case ScreenKeymaps:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
-	case ScreenKeymapsTmux, ScreenKeymapsZellij, ScreenKeymapsGhostty, ScreenKeymapsHerdr:
+	case ScreenKeymapsTmux, ScreenKeymapsZellij, ScreenKeymapsGhostty, ScreenKeymapsHerdr,
+		ScreenKeymapsKitty, ScreenKeymapsWezTerm, ScreenKeymapsAlacritty:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
+		m.ReferenceTableScroll = 0
 	case ScreenKeymapsMenu, ScreenLearnLazyVim:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
@@ -1763,7 +1793,9 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// under the cursor reads as the installer's answer.
 			m.Cursor = m.osCursor()
 		case strings.Contains(selected, "Learn About Tools"):
-			m.Screen = ScreenLearnTerminals
+			// The row opens the hub rather than the terminal list: the hub is the one
+			// route the main menu has to the shell, multiplexer and Neovim pages.
+			m.Screen = ScreenLearnTools
 			m.PrevScreen = ScreenMainMenu
 			m.Cursor = 0
 		case strings.Contains(selected, "Keymaps Reference"):
@@ -2485,6 +2517,86 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleLearnHubKeys walks the Learn About Tools hub. Enter resolves the row
+// through learnToolRows() rather than by its position, so the page a row opens
+// and the row the menu draws cannot drift apart, and Escape is the way back to
+// whatever opened the hub.
+// handleReferenceTableKeys scrolls a read-only reference page and leaves it. The
+// pages share one scroll value because only one of them is on screen at a time,
+// and the value is reset when the page is opened and when it is left, so a page
+// never opens part-way down a table the reader has not seen. The window and its
+// clamp come from the same helper the renderer windows with, so the last row is
+// reachable.
+func (m Model) handleReferenceTableKeys(key string, rows int) (tea.Model, tea.Cmd) {
+	maxScroll := offsetWindowMax(keymapTableRows(m.Height), rows)
+
+	switch key {
+	case "up", "k":
+		if m.ReferenceTableScroll > 0 {
+			m.ReferenceTableScroll--
+		}
+	case "down", "j":
+		if m.ReferenceTableScroll < maxScroll {
+			m.ReferenceTableScroll++
+		}
+	case "enter", " ", "q":
+		m.Screen = m.PrevScreen
+		m.ReferenceTableScroll = 0
+	}
+
+	return m, nil
+}
+
+func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if m.learnSeparatorAt(options, m.Cursor) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if m.learnSeparatorAt(options, m.Cursor) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		if m.learnSeparatorAt(options, m.Cursor) || strings.Contains(selected, "Back") {
+			m.Screen = m.PrevScreen
+			m.Cursor = 0
+			return m, nil
+		}
+		row, ok := learnToolRowByLabel(selected)
+		if !ok {
+			return m, nil
+		}
+		m.PrevScreen = ScreenLearnTools
+		m.Screen = row.Screen
+		m.Cursor = 0
+		m.ViewingTool = ""
+		m.ReferenceTableScroll = 0
+	}
+
+	return m, nil
+}
+
+// learnSeparatorAt reports whether the option at an index is the menu's rule.
+func (m Model) learnSeparatorAt(options []string, index int) bool {
+	if index < 0 || index >= len(options) {
+		return false
+	}
+	return strings.HasPrefix(options[index], m.menuSeparator())
+}
+
 func (m Model) handleLearnMenuKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -2635,24 +2747,29 @@ func (m Model) handleToolKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Navigate to specific tool's keymaps
-		switch m.Cursor {
-		case 0: // Neovim
+		// The menu routes by the label rather than by the row index it used to
+		// switch on: a positional switch silently sent a new row to the wrong
+		// tool's reference as soon as a row was inserted above another one.
+		switch selected {
+		case "Neovim":
 			m.Screen = ScreenKeymaps
-			m.Cursor = 0
-		case 1: // Tmux
+		case "Tmux":
 			m.Screen = ScreenKeymapsTmux
-			m.Cursor = 0
-		case 2: // Zellij
+		case "Zellij":
 			m.Screen = ScreenKeymapsZellij
-			m.Cursor = 0
-		case 3: // Herdr
+		case "Herdr":
 			m.Screen = ScreenKeymapsHerdr
-			m.Cursor = 0
-		case 4: // Ghostty
+		case "Ghostty":
 			m.Screen = ScreenKeymapsGhostty
-			m.Cursor = 0
+		case "Kitty":
+			m.Screen = ScreenKeymapsKitty
+		case "WezTerm":
+			m.Screen = ScreenKeymapsWezTerm
+		case "Alacritty":
+			m.Screen = ScreenKeymapsAlacritty
 		}
+		m.Cursor = 0
+		m.ReferenceTableScroll = 0
 	}
 
 	return m, nil
@@ -2842,6 +2959,68 @@ func (m Model) handleGhosttyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) 
 	case "enter", " ", "q", "esc":
 		m.Screen = ScreenKeymapsGhostty
 		m.GhosttyKeymapScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleKittyKeymapsMenuKeys handles Kitty keymap category selection
+func (m Model) handleKittyKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], "───") && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], "───") && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "enter", " ":
+		selected := options[m.Cursor]
+		if strings.Contains(selected, "Back") {
+			m.Screen = ScreenKeymapsMenu
+			m.Cursor = 0
+			return m, nil
+		}
+		if strings.HasPrefix(selected, "───") {
+			return m, nil
+		}
+
+		m.KittySelectedCategory = m.Cursor
+		m.Screen = ScreenKeymapsKittyCat
+		m.KittyKeymapScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleKittyKeymapCategoryKeys handles scrolling in the Kitty keymap category view
+func (m Model) handleKittyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
+	category := m.KittyKeymapCategories[m.KittySelectedCategory]
+
+	visibleItems := keymapTableRows(m.Height)
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
+
+	switch key {
+	case "up", "k":
+		if m.KittyKeymapScroll > 0 {
+			m.KittyKeymapScroll--
+		}
+	case "down", "j":
+		if m.KittyKeymapScroll < maxScroll {
+			m.KittyKeymapScroll++
+		}
+	case "enter", " ", "q", "esc":
+		m.Screen = ScreenKeymapsKitty
+		m.KittyKeymapScroll = 0
 	}
 
 	return m, nil

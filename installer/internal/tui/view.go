@@ -533,12 +533,13 @@ func (m Model) headerName() string {
 		return "Installation complete"
 	case ScreenError:
 		return "Installation failed"
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		return "Learn"
 	case ScreenKeymaps, ScreenKeymapCategory, ScreenKeymapsMenu,
 		ScreenKeymapsTmux, ScreenKeymapsTmuxCat, ScreenKeymapsZellij,
 		ScreenKeymapsZellijCat, ScreenKeymapsGhostty, ScreenKeymapsGhosttyCat,
-		ScreenKeymapsHerdr, ScreenKeymapsHerdrCat:
+		ScreenKeymapsHerdr, ScreenKeymapsHerdrCat, ScreenKeymapsKitty,
+		ScreenKeymapsKittyCat, ScreenKeymapsWezTerm, ScreenKeymapsAlacritty:
 		return "Keymaps"
 	case ScreenLearnLazyVim, ScreenLazyVimTopic:
 		return "LazyVim"
@@ -1041,6 +1042,18 @@ func (m Model) View() string {
 		s.WriteString(m.renderLearnWM())
 	case ScreenLearnNvim:
 		s.WriteString(m.renderLearnNvim())
+	case ScreenLearnTools:
+		s.WriteString(m.renderLearnTools())
+	case ScreenLearnFont:
+		s.WriteString(m.renderLearnFont())
+	case ScreenLearnPrompts:
+		s.WriteString(m.renderLearnPrompts())
+	case ScreenLearnTooling:
+		s.WriteString(m.renderLearnTooling())
+	case ScreenLearnPlugins:
+		s.WriteString(m.renderLearnPlugins())
+	case ScreenLearnToolset:
+		s.WriteString(m.renderLearnToolset())
 	case ScreenKeymaps:
 		s.WriteString(m.renderKeymapsMenu())
 	case ScreenKeymapCategory:
@@ -1063,6 +1076,14 @@ func (m Model) View() string {
 		s.WriteString(m.renderHerdrKeymapsMenu())
 	case ScreenKeymapsHerdrCat:
 		s.WriteString(m.renderHerdrKeymapCategory())
+	case ScreenKeymapsKitty:
+		s.WriteString(m.renderKittyKeymapsMenu())
+	case ScreenKeymapsKittyCat:
+		s.WriteString(m.renderKittyKeymapCategory())
+	case ScreenKeymapsWezTerm:
+		s.WriteString(m.renderWezTermReference())
+	case ScreenKeymapsAlacritty:
+		s.WriteString(m.renderAlacrittyReference())
 	case ScreenLearnLazyVim:
 		s.WriteString(m.renderLazyVimMenu())
 	case ScreenLazyVimTopic:
@@ -2498,6 +2519,44 @@ func (m Model) renderSelection() string {
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintSelect, hintBack})
 }
 
+// renderLearnTools draws the hub: one row per page of the in-installer wiki,
+// built from learnToolRows() so the menu and the key handler read one table.
+func (m Model) renderLearnTools() string {
+	return m.renderMenu("Select what to learn about")
+}
+
+// renderLearnTooling, renderLearnPlugins and renderLearnToolset draw the three
+// read-only reference pages. They share one renderer and one scroll value: only
+// one of them is on screen at a time, and the value is reset when the page is
+// opened and when it is left.
+func (m Model) renderLearnTooling() string {
+	return m.renderReferenceTable(shellToolingTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderLearnPlugins() string {
+	return m.renderReferenceTable(pluginSetsTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderLearnToolset() string {
+	return m.renderReferenceTable(machineToolsetTable(), m.ReferenceTableScroll)
+}
+
+// renderLearnPrompts draws the prompt the reader is reading, or the list to pick
+// one from. The list keys its pages by the lowercased label the learn handler
+// already writes to ViewingTool.
+func (m Model) renderLearnPrompts() string {
+	if m.ViewingTool != "" {
+		return m.renderToolInfo(GetPromptInfo(), m.ViewingTool)
+	}
+	return m.renderLearnMenu("Select a prompt to learn more about it")
+}
+
+// renderLearnFont draws the font page. The run asks one font question and this is
+// the answer to it, so there is no list to pick from.
+func (m Model) renderLearnFont() string {
+	return m.renderSingleToolInfo(GetFontInfo())
+}
+
 func (m Model) renderLearnTerminals() string {
 	if m.ViewingTool != "" {
 		return m.renderToolInfo(GetTerminalInfo(), m.ViewingTool)
@@ -2633,40 +2692,58 @@ func keymapTableColumns(width, longestKey int) (keys, mode, description int) {
 	return keys, mode, description
 }
 
-// renderKeymapTable renders one keymap category: its title, description, a
-// column header and the rows the frame has room for. Its scroll value IS the
-// top-row offset (0 shows the first binding, offsetWindowMax shows the last), so
-// it windows through offsetWindow and the category key handlers clamp that same
-// value with offsetWindowMax; the last binding is reachable. It replaces five
-// copies of the same table that had each picked their own column widths, their
-// own window and their own 60-column rule.
+// renderKeymapTable renders one keymap category through the shared table
+// renderer: a keymap table is a three-column table whose headers happen to be
+// Keys, Mode and Description. It replaces five copies of the same table that had
+// each picked their own column widths, their own window and their own 60-column
+// rule.
 func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
-	width := contentWidth(m)
-	longestKey := 0
+	cells := make([]referenceRow, 0, len(category.Keymaps))
 	for _, km := range category.Keymaps {
-		if w := lipgloss.Width(km.Keys); w > longestKey {
-			longestKey = w
+		cells = append(cells, referenceRow{Name: km.Keys, Kind: km.Mode, What: km.Description})
+	}
+	return m.renderReferenceTable(referenceTable{
+		Name:        category.Name,
+		Description: category.Description,
+		Headers:     [3]string{"Keys", "Mode", "Description"},
+		Rows:        cells,
+	}, scroll)
+}
+
+// renderReferenceTable renders one read-only table page: its title, description,
+// a column header and the rows the frame has room for. Its scroll value IS the
+// top-row offset (0 shows the first row, offsetWindowMax shows the last), so it
+// windows through offsetWindow and the key handlers clamp that same value with
+// offsetWindowMax; the last row is reachable. The first column is sized from the
+// longest name it holds, so a 37-column Herdr binding is shown whole instead of
+// cut.
+func (m Model) renderReferenceTable(table referenceTable, scroll int) string {
+	width := contentWidth(m)
+	longestName := 0
+	for _, row := range table.Rows {
+		if w := lipgloss.Width(row.Name); w > longestName {
+			longestName = w
 		}
 	}
-	keys, mode, description := keymapTableColumns(width, longestKey)
+	name, kind, what := keymapTableColumns(width, longestName)
 
 	rows := keymapTableRows(m.Height)
-	start, end := offsetWindow(scroll, rows, len(category.Keymaps))
+	start, end := offsetWindow(scroll, rows, len(table.Rows))
 
 	body := []string{
-		BrandStyle.Render(category.Name),
-		MutedStyle.Render(truncate(category.Description, width)),
+		BrandStyle.Render(table.Name),
+		MutedStyle.Render(truncate(table.Description, width)),
 		"",
 	}
-	header := padRight("Keys", keys) + " " + padRight("Mode", mode) + " Description"
+	header := padRight(table.Headers[0], name) + " " + padRight(table.Headers[1], kind) + " " + table.Headers[2]
 	body = append(body, MutedStyle.Render(truncate(header, width)))
 	body = append(body, rule(width))
 	for i := start; i < end; i++ {
-		km := category.Keymaps[i]
+		row := table.Rows[i]
 		body = append(body,
-			KeyStyle.Render(padRight(truncate(km.Keys, keys), keys))+" "+
-				MutedStyle.Render(padRight(truncate(km.Mode, mode), mode))+" "+
-				InfoStyle.Render(truncate(km.Description, description)))
+			KeyStyle.Render(padRight(truncate(row.Name, name), name))+" "+
+				MutedStyle.Render(padRight(truncate(row.Kind, kind), kind))+" "+
+				InfoStyle.Render(truncate(row.What, what)))
 	}
 
 	// The scroll range is the table's vital sign, so it lives in the header and
@@ -2674,8 +2751,8 @@ func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
 	// fit, and reading it back out of the header still satisfies the scroll
 	// reachability tests.
 	vital := ""
-	if len(category.Keymaps) > rows {
-		vital = scrollVital("Showing", start+1, end, len(category.Keymaps))
+	if len(table.Rows) > rows {
+		vital = scrollVital("Showing", start+1, end, len(table.Rows))
 	}
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintReturn})
 }
@@ -2789,6 +2866,31 @@ func (m Model) renderHerdrKeymapCategory() string {
 		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
 	return m.renderKeymapTable(m.HerdrKeymapCategories[m.HerdrSelectedCategory], m.HerdrKeymapScroll)
+}
+
+// renderKittyKeymapsMenu renders the Kitty keymap categories menu
+func (m Model) renderKittyKeymapsMenu() string {
+	return m.renderMenu("Select a category to view Kitty keybindings")
+}
+
+// renderKittyKeymapCategory renders a specific Kitty keymap category
+func (m Model) renderKittyKeymapCategory() string {
+	if m.KittySelectedCategory >= len(m.KittyKeymapCategories) {
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
+	}
+	return m.renderKeymapTable(m.KittyKeymapCategories[m.KittySelectedCategory], m.KittyKeymapScroll)
+}
+
+// renderWezTermReference and renderAlacrittyReference answer the reference's
+// question for the two terminals whose configurations declare no bindings: they
+// draw the settings those files do carry, under a header that says so rather than
+// under one that promises key bindings.
+func (m Model) renderWezTermReference() string {
+	return m.renderReferenceTable(weztermConfigTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderAlacrittyReference() string {
+	return m.renderReferenceTable(alacrittyConfigTable(), m.ReferenceTableScroll)
 }
 
 func (m Model) renderLazyVimMenu() string {

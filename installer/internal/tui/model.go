@@ -62,6 +62,14 @@ const (
 	// the existing screens stable.
 	ScreenKeymapsHerdr    // Herdr keymaps
 	ScreenKeymapsHerdrCat // Herdr keymap category
+	// The three terminals the keymap reference was missing. Kitty's two categories
+	// are the bindings its configuration declares; WezTerm and Alacritty declare
+	// none, so their screens carry the settings their files do have. Appended here
+	// to keep the numeric values of the existing screens stable.
+	ScreenKeymapsKitty     // Kitty keymaps
+	ScreenKeymapsKittyCat  // Kitty keymap category
+	ScreenKeymapsWezTerm   // WezTerm settings, because the configuration binds nothing
+	ScreenKeymapsAlacritty // Alacritty settings, because the configuration binds nothing
 	// Utilities section. Appended at the end for the same reason. It is reached
 	// from the main menu both by its own row, just above Exit, and by the `u`
 	// shortcut.
@@ -110,6 +118,25 @@ const (
 	// the three the run cannot do without, and offers the two ways out -- back to
 	// the questions, or on to the run with the selection just made.
 	ScreenInstallReview // What will be installed, and what will not
+	// The Learn About Tools hub. Appended at the end for the same reason as the
+	// screens above. The main menu's own row opens it, and it is the only way the
+	// main menu reaches the shell, multiplexer, Neovim and later pages: before it,
+	// that row opened the terminal list directly and the rest were reachable only
+	// from inside a run. Every row is one entry of learnToolRows().
+	ScreenLearnTools // Every page of the in-installer wiki, one row each
+	// The font and the prompts, appended at the end for the same reason as the
+	// screens above. The run installs both without asking about them: the font
+	// question offers Install or Skip, and the prompts belong to the shells the
+	// wizard already chose.
+	ScreenLearnFont    // The Nerd Font the run installs, and why it needs to be there
+	ScreenLearnPrompts // The prompt each shipped shell configuration starts
+	// The three read-only reference pages: what the shell step installs beside the
+	// shell, the plugin set the run provisions, and the Brewfile directives the
+	// toolset step reads. Appended at the end for the same reason as the screens
+	// above.
+	ScreenLearnTooling // What the shell step installs, and what uses it
+	ScreenLearnPlugins // The plugin set the run provisions, and what manages it
+	ScreenLearnToolset // The Brewfile directives, and what the run does with each
 )
 
 // InstallStep represents a single installation step
@@ -312,6 +339,15 @@ type Model struct {
 	HerdrKeymapCategories   []KeymapCategory
 	HerdrSelectedCategory   int
 	HerdrKeymapScroll       int
+	KittyKeymapCategories   []KeymapCategory
+	KittySelectedCategory   int
+	KittyKeymapScroll       int
+	// ReferenceTableScroll is the top-row offset of the read-only reference pages
+	// that are not keymap categories: the learn section's shell tooling, plugins and
+	// machine toolset tables, and the WezTerm and Alacritty keymap pages. They share
+	// one value because only one of them is on screen at a time, and it is reset
+	// when a page is opened and when it is left.
+	ReferenceTableScroll int
 	// LazyVim mode
 	LazyVimTopics        []LazyVimTopic
 	SelectedLazyVimTopic int
@@ -535,6 +571,9 @@ func NewModel() Model {
 		HerdrKeymapCategories:   GetHerdrKeymaps(),
 		HerdrSelectedCategory:   0,
 		HerdrKeymapScroll:       0,
+		KittyKeymapCategories:   GetKittyKeymaps(),
+		KittySelectedCategory:   0,
+		KittyKeymapScroll:       0,
 		LazyVimTopics:           GetLazyVimTopics(),
 		SelectedLazyVimTopic:    0,
 		LazyVimScroll:           0,
@@ -759,7 +798,13 @@ func (m Model) GetCurrentOptions() []string {
 		opts = append(opts, "Exit")
 		return opts
 	case ScreenKeymapsMenu:
-		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", m.menuSeparator(), "← Back"}
+		// The key handler routes by the label rather than by the row index, so a tool
+		// added here is reachable from its own row without a second place to edit.
+		return []string{"Neovim", "Tmux", "Zellij", "Herdr", "Ghostty", "Kitty", "WezTerm", "Alacritty", m.menuSeparator(), "← Back"}
+	case ScreenLearnTools:
+		// The hub is built from its own table so the menu, the key handler and the
+		// reachability guard all read one list.
+		return m.learnToolsOptions()
 	case ScreenOSSelect:
 		// The detected platform is already named on the line above the menu, so
 		// the option labels do not repeat it: they were "Linux (detected)" and
@@ -914,6 +959,8 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "← Back"}
 	case ScreenLearnWM:
 		return []string{"Tmux", "Zellij", "Herdr", m.menuSeparator(), "← Back"}
+	case ScreenLearnPrompts:
+		return []string{"Starship", "Powerlevel10k", m.menuSeparator(), "← Back"}
 	case ScreenLearnNvim:
 		return []string{"View Features", "View Keymaps", "LazyVim Guide", m.menuSeparator(), "← Back"}
 	case ScreenKeymaps:
@@ -955,6 +1002,14 @@ func (m Model) GetCurrentOptions() []string {
 		}
 		categories[len(m.HerdrKeymapCategories)] = m.menuSeparator()
 		categories[len(m.HerdrKeymapCategories)+1] = "← Back"
+		return categories
+	case ScreenKeymapsKitty:
+		categories := make([]string, len(m.KittyKeymapCategories)+2)
+		for i, cat := range m.KittyKeymapCategories {
+			categories[i] = cat.Name
+		}
+		categories[len(m.KittyKeymapCategories)] = m.menuSeparator()
+		categories[len(m.KittyKeymapCategories)+1] = "← Back"
 		return categories
 	case ScreenLearnLazyVim:
 		titles := GetLazyVimTopicTitles()
@@ -1088,6 +1143,17 @@ func (m Model) GetScreenTitle() string {
 			return m.HerdrKeymapCategories[m.HerdrSelectedCategory].Name
 		}
 		return "Herdr Keymaps"
+	case ScreenKeymapsKitty:
+		return "Kitty Keymaps"
+	case ScreenKeymapsKittyCat:
+		if m.KittySelectedCategory < len(m.KittyKeymapCategories) {
+			return m.KittyKeymapCategories[m.KittySelectedCategory].Name
+		}
+		return "Kitty Keymaps"
+	case ScreenKeymapsWezTerm:
+		return "WezTerm Keymaps"
+	case ScreenKeymapsAlacritty:
+		return "Alacritty Keymaps"
 	case ScreenLearnLazyVim:
 		return "LazyVim Guide"
 	case ScreenLazyVimTopic:

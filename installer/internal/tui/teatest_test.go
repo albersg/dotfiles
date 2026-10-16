@@ -1790,6 +1790,22 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m := base(ScreenLearnNvim)
 		m.ViewingTool = "features"
 		return m
+	case "learn-tools":
+		return base(ScreenLearnTools)
+	case "learn-font":
+		return base(ScreenLearnFont)
+	case "learn-prompts":
+		return base(ScreenLearnPrompts)
+	case "learn-prompts-info":
+		m := base(ScreenLearnPrompts)
+		m.ViewingTool = "powerlevel10k"
+		return m
+	case "learn-tooling":
+		return base(ScreenLearnTooling)
+	case "learn-plugins":
+		return base(ScreenLearnPlugins)
+	case "learn-toolset":
+		return base(ScreenLearnToolset)
 	case "keymaps":
 		return base(ScreenKeymaps)
 	case "keymap-category":
@@ -1812,6 +1828,14 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return base(ScreenKeymapsHerdr)
 	case "keymaps-herdr-category":
 		return base(ScreenKeymapsHerdrCat)
+	case "keymaps-kitty":
+		return base(ScreenKeymapsKitty)
+	case "keymaps-kitty-category":
+		return base(ScreenKeymapsKittyCat)
+	case "keymaps-wezterm":
+		return base(ScreenKeymapsWezTerm)
+	case "keymaps-alacritty":
+		return base(ScreenKeymapsAlacritty)
 	case "keymaps-herdr-long-keys":
 		// The category with a binding wider than a quarter of the frame, so the
 		// guard covers the widened keys column as well as the default one.
@@ -1926,11 +1950,15 @@ var installerFrameScreenNames = []string{
 	"learn-shells", "learn-shells-info",
 	"learn-wm", "learn-wm-info",
 	"learn-nvim", "learn-nvim-features",
+	"learn-tools",
+	"learn-font", "learn-prompts", "learn-prompts-info",
+	"learn-tooling", "learn-plugins", "learn-toolset",
 	"keymaps", "keymap-category", "keymaps-menu",
 	"keymaps-tmux", "keymaps-tmux-category",
 	"keymaps-zellij", "keymaps-zellij-category",
 	"keymaps-ghostty", "keymaps-ghostty-category",
 	"keymaps-herdr", "keymaps-herdr-category", "keymaps-herdr-long-keys",
+	"keymaps-kitty", "keymaps-kitty-category", "keymaps-wezterm", "keymaps-alacritty",
 	"lazyvim", "lazyvim-topic",
 	"backup-confirm", "backup-confirm-many",
 	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
