@@ -220,7 +220,12 @@ func TestRedactLineKeepsCredentialsOutOfLogs(t *testing.T) {
 		},
 		{
 			"a token in an environment-style pair",
-			"REGISTRY_TOKEN=abcdef123456",
+			// The value is a fixture, not a credential: the key is the half that makes
+			// this a secret pair, and the redactor replaces whatever follows the `=`.
+			// It used to read `abcdef123456`, which is exactly the shape gitleaks'
+			// generic-api-key rule looks for, so the repo's own Secret Scanning job
+			// failed on the test that proves secrets are hidden.
+			"REGISTRY_TOKEN=<placeholder>",
 			"REGISTRY_TOKEN=***",
 		},
 		{
