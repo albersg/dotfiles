@@ -555,11 +555,7 @@ func TestTheInteractiveRoutePreservesTheUsersOwnKeys(t *testing.T) {
 	m := wslModel(repoDir, true)
 	script := generateWSLConfigScript(t, &m)
 
-	rendered, err := os.ReadFile(wslConfigSourceFromScript(t, script))
-	if err != nil {
-		t.Fatalf("reading the content the interactive script copies: %v", err)
-	}
-	got := string(rendered)
+	got := wslConfigRenderedFromScript(t, script)
 
 	for _, kept := range []string{"# my own kernel", "kernel=C:\\\\kernel"} {
 		if !strings.Contains(got, kept) {

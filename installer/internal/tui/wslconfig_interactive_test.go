@@ -22,28 +22,83 @@ func generateWSLConfigScript(t *testing.T, m *Model) string {
 		t.Fatalf("the interactive WSL step produced no script")
 	}
 
-	// The script copies from a temporary file Go writes and deletes during the
-	// run. Keep the test tidy when it inspects the script without running it.
-	src := wslConfigSourceFromScript(t, script)
-	t.Cleanup(func() { _ = os.Remove(src) })
 	return script
 }
 
-// wslConfigSourceFromScript returns the rendered .wslconfig path the generated
-// script copies from. Those bytes are the whole point of the rendered install:
-// they are what the non-interactive step writes too.
-func wslConfigSourceFromScript(t *testing.T, script string) string {
+// wslConfigRenderedFromScript returns the rendered .wslconfig the generated
+// script carries into the copy it installs from. Those bytes are the whole point
+// of the rendered install: they are what the non-interactive step writes too, and
+// the script holds them itself rather than being pointed at a file Go left on
+// disk.
+func wslConfigRenderedFromScript(t *testing.T, script string) string {
 	t.Helper()
 
-	for _, line := range strings.Split(script, "\n") {
-		value, ok := strings.CutPrefix(line, "WSL_CONFIG_SRC=")
-		if !ok {
-			continue
+	opener := "cat > \"$WSL_CONFIG_SRC\" <<'" + wslConfigHeredocEnd + "'"
+	lines := strings.Split(script, "\n")
+	start := -1
+	for i, line := range lines {
+		if line == opener {
+			start = i + 1
+			break
 		}
-		return strings.Trim(value, "'")
 	}
-	t.Fatal("the generated script does not set WSL_CONFIG_SRC")
+	if start < 0 {
+		t.Fatalf("the generated script never writes the rendered .wslconfig into WSL_CONFIG_SRC")
+	}
+	for i := start; i < len(lines); i++ {
+		if lines[i] == wslConfigHeredocEnd {
+			return strings.Join(lines[start:i], "\n") + "\n"
+		}
+	}
+	t.Fatalf("the generated script opens the .wslconfig heredoc and never closes it")
 	return ""
+}
+
+// TestWSLConfigInteractiveScriptWritesNoTemporaryFile pins the rule that
+// building this step's script writes nothing into the machine's temporary
+// directory.
+//
+// The builder used to create a dotfiles-wslconfig-*.conf and leave its removal
+// to the generated script's last line. `set -e` skips that line on every
+// failure before it, and anyone who inspects the generated script without
+// running it never reaches it at all, so the file stayed behind: 70 of them had
+// collected in this machine's shared temporary directory, one per reader. A
+// function that renders a script should not be a side effect on disk.
+func TestWSLConfigInteractiveScriptWritesNoTemporaryFile(t *testing.T) {
+	t.Setenv(envBinfmtDir, t.TempDir())
+	repoDir, _, _ := newWSLLayout(t)
+	m := wslModel(repoDir, true)
+
+	before := wslConfigTempEntries(t)
+	if _, err := getInteractiveScript(wslStepID, &m); err != nil {
+		t.Fatalf("getInteractiveScript(%q) failed: %v", wslStepID, err)
+	}
+	after := wslConfigTempEntries(t)
+
+	for name := range after {
+		if !before[name] {
+			t.Errorf("building the script left %s in %s", name, os.TempDir())
+		}
+	}
+}
+
+// wslConfigTempEntries returns the entries of the system temporary directory
+// whose name the interactive WSL step gave the file it no longer creates, so the
+// guard above can tell "left nothing behind" from "left a file behind".
+func wslConfigTempEntries(t *testing.T) map[string]bool {
+	t.Helper()
+
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		t.Fatalf("reading %s: %v", os.TempDir(), err)
+	}
+	found := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "dotfiles-wslconfig-") {
+			found[entry.Name()] = true
+		}
+	}
+	return found
 }
 
 // runShell writes script to a file and runs it through sh. Both the syntax
@@ -283,10 +338,7 @@ func TestWSLConfigRoutesRenderIdenticalContent(t *testing.T) {
 
 	scriptModel := wslModel(scriptRepo, true)
 	script := generateWSLConfigScript(t, &scriptModel)
-	rendered, err := os.ReadFile(wslConfigSourceFromScript(t, script))
-	if err != nil {
-		t.Fatalf("reading the rendered config the script copies from: %v", err)
-	}
+	rendered := []byte(wslConfigRenderedFromScript(t, script))
 
 	if string(installed) != string(rendered) {
 		t.Errorf("the step and the interactive script do not install the same bytes:\nstep:   %q\nscript: %q",

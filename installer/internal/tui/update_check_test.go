@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -28,15 +30,68 @@ import (
 // The guard that pins the arming logic saves this value, puts it back to true for
 // its own case, and restores it.
 //
-// The same init points the state directory at a fresh temporary one for the
-// whole package, because the model reads the cached record on the startup path
-// and the main menu now draws a row from it. A developer's own update-check.json
-// must not add that row to a test: without this, a menu whose rows are counted by
-// index would pass on CI and fail on the machine that had once run the installer.
 func init() {
 	updateAutoCheckAllowed = func() bool { return false }
-	if dir, err := os.MkdirTemp("", "dotfiles-tui-state-"); err == nil {
-		_ = os.Setenv("XDG_STATE_HOME", dir)
+}
+
+// pointStateDirAtATemporaryOne gives this test binary a state directory of its
+// own and returns the function that removes it again.
+//
+// The model reads the cached release record on the startup path and the main menu
+// draws a row from it, so the directory must be this process's and not the
+// developer's: a developer's own update-check.json must not add that row to a
+// test, because a menu whose rows are counted by index would then pass on CI and
+// fail on the machine that had once run the installer. Removing the directory
+// needs a hook that outlives the tests, and an init is not one -- this lived in an
+// init, where nothing could clean up, so one copy of the directory stayed in the
+// system temporary directory per run, 226 of them on this machine. TestMain owns
+// it now.
+func pointStateDirAtATemporaryOne() func() {
+	dir, err := os.MkdirTemp("", "dotfiles-tui-state-")
+	if err != nil {
+		panic(fmt.Sprintf("creating the test state directory: %v", err))
+	}
+	_ = os.Setenv("XDG_STATE_HOME", dir)
+	return func() { _ = os.RemoveAll(dir) }
+}
+
+// stateDirProbeEnv marks the second process the guard below runs itself as.
+const stateDirProbeEnv = "DOTFILES_TUI_STATE_DIR_PROBE"
+
+// TestTheTestBinaryRemovesItsStateDirectory pins the other half of the state
+// directory rule: the directory this package points XDG_STATE_HOME at is gone
+// once the test binary has exited.
+//
+// It was created in an init and nothing owned it, so every run of this package
+// left one dotfiles-tui-state-* directory in the system temporary directory;
+// 226 of them had collected on this machine, one per run. The cleanup belongs in
+// TestMain, the only place that runs on the way out, and code that runs at exit
+// can only be checked from a second process: this guard re-runs the test binary
+// with the probe below and looks for the directory after that process is gone.
+func TestTheTestBinaryRemovesItsStateDirectory(t *testing.T) {
+	if os.Getenv(stateDirProbeEnv) == "1" {
+		fmt.Printf("state-dir=%s\n", os.Getenv("XDG_STATE_HOME"))
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestTheTestBinaryRemovesItsStateDirectory$")
+	cmd.Env = append(os.Environ(), stateDirProbeEnv+"=1")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("re-running this test binary: %v\n%s", err, out)
+	}
+
+	var dir string
+	for _, line := range strings.Split(string(out), "\n") {
+		if value, ok := strings.CutPrefix(line, "state-dir="); ok {
+			dir = strings.TrimSpace(value)
+		}
+	}
+	if dir == "" {
+		t.Fatalf("the probe process reported no state directory:\n%s", out)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the test binary left its state directory behind at %s (stat: %v)", dir, err)
 	}
 }
 

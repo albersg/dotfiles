@@ -603,8 +603,8 @@ echo ""
 // pinned URL, checksum and interop-health decision.
 //
 // .wslconfig is rendered in Go by the same helper the step uses, and the script
-// copies those rendered bytes from a temporary file it deletes afterwards, so
-// both routes install identical content.
+// carries those rendered bytes itself and writes the copy it installs from, so
+// both routes install identical content and building the script writes nothing.
 func getWSLConfigScript(m *Model) (string, error) {
 	if !m.SystemInfo.IsWSL {
 		return "", nil
@@ -615,15 +615,14 @@ func getWSLConfigScript(m *Model) (string, error) {
 		return "", err
 	}
 
-	// Render the same bytes the non-interactive step installs and point the
-	// script at a temporary copy. The template itself is never handed to the
-	// shell: only rendered content, and only through a file the script deletes
-	// after copying it.
+	// Render the same bytes the non-interactive step installs and carry them
+	// inside the script. The template itself is never handed to the shell: only
+	// rendered content, and the script is what writes it into a copy.
 	rendered, _, _, err := mergedRepoWSLConfig(repoDir)
 	if err != nil {
 		return "", fmt.Errorf("rendering .wslconfig for this host: %w", err)
 	}
-	configSrc, err := writeRenderedWSLConfig(rendered)
+	heredoc, err := wslConfigHeredoc(rendered)
 	if err != nil {
 		return "", err
 	}
@@ -636,7 +635,13 @@ func getWSLConfigScript(m *Model) (string, error) {
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\n")
 	script.WriteString("set -e\n\n")
-	fmt.Fprintf(&script, "WSL_CONFIG_SRC=%s\n", shellSingleQuote(configSrc))
+	// The copy is the script's own, and the trap is what makes its removal hold on
+	// every exit, including the ones `set -e` takes in the middle. Go created this
+	// file before and left the removal to the script's last line, so a failed step
+	// kept it -- and so did every reader that inspected the script without running
+	// it.
+	script.WriteString("WSL_CONFIG_SRC=$(mktemp)\n")
+	script.WriteString("trap 'rm -f \"$WSL_CONFIG_SRC\"' EXIT\n")
 	fmt.Fprintf(&script, "WSL_CONF_SRC=%s\n", shellSingleQuote(filepath.Join(repoDir, repoAssetWSLConf)))
 	fmt.Fprintf(&script, "WSL_CONF_DST=%s\n", shellSingleQuote(confDst))
 
@@ -664,6 +669,8 @@ func getWSLConfigScript(m *Model) (string, error) {
 	} else {
 		fmt.Fprintf(&script, "WINDOWS_PROFILE=%s\n", shellSingleQuote(profileDir))
 	}
+
+	script.WriteString(heredoc)
 
 	script.WriteString(`
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -706,8 +713,6 @@ if [ -n "$WINDOWS_PROFILE" ]; then
 else
 	echo "Skipping .wslconfig: no Windows profile was found"
 fi
-# The rendered .wslconfig came from a temporary file Go created for this run.
-rm -f "$WSL_CONFIG_SRC"
 
 install_artifact "$WSL_CONF_SRC" "$WSL_CONF_DST" 0644
 echo "wsl.conf installed at $WSL_CONF_DST"
@@ -815,26 +820,28 @@ echo "Run wsl --shutdown on Windows and reopen the terminal to apply the changes
 	return script.String(), nil
 }
 
-// writeRenderedWSLConfig writes the rendered .wslconfig to a private temporary
-// file the generated script copies from. The checkout template is never handed
-// to the shell, so the script can only ever install rendered content.
-func writeRenderedWSLConfig(rendered []byte) (string, error) {
-	tmp, err := os.CreateTemp("", "dotfiles-wslconfig-*.conf")
-	if err != nil {
-		return "", err
-	}
+// wslConfigHeredocEnd is the delimiter the generated script quotes, and quoting
+// it is what keeps the bytes exact: nothing inside the heredoc is expanded or
+// interpreted.
+const wslConfigHeredocEnd = "__DOTFILES_WSL_CONFIG_END__"
 
-	path := tmp.Name()
-	if _, err := tmp.Write(rendered); err != nil {
-		tmp.Close()
-		os.Remove(path)
-		return "", err
+// wslConfigHeredoc renders the shell fragment that writes the rendered
+// .wslconfig into the copy the script installs from.
+//
+// The checkout template is still never handed to the shell: the bytes here are
+// what mergeWSLConfig rendered for this host, exactly as the non-interactive step
+// writes them. The delimiter is refused when the content itself contains it,
+// because the alternative is a script that installs a truncated file, and
+// installing the same bytes on both routes is the whole point of this one.
+func wslConfigHeredoc(rendered []byte) (string, error) {
+	content := string(rendered)
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
 	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(path)
-		return "", err
+	if strings.Contains(content, wslConfigHeredocEnd) {
+		return "", fmt.Errorf("the rendered .wslconfig contains %q, the delimiter the generated script carries it in", wslConfigHeredocEnd)
 	}
-	return path, nil
+	return fmt.Sprintf("cat > \"$WSL_CONFIG_SRC\" <<'%s'\n%s%s\n", wslConfigHeredocEnd, content, wslConfigHeredocEnd), nil
 }
 
 // shellSingleQuote renders s as a single-quoted POSIX shell literal, so a path
