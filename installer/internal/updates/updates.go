@@ -337,7 +337,9 @@ type Selection struct {
 	keys map[string]bool
 }
 
-// NewSelection returns an empty selection.
+// NewSelection returns an empty selection. The zero value is empty too, and every
+// method that changes a selection writes through a pointer: a selection made with
+// `var s Selection` must not lose its first toggle to a copy.
 func NewSelection() Selection { return Selection{keys: map[string]bool{}} }
 
 // Count reports how many entries are selected.
@@ -347,7 +349,7 @@ func (s Selection) Count() int { return len(s.keys) }
 func (s Selection) Has(item Item) bool { return s.keys[item.Key()] }
 
 // Toggle adds an entry to the selection or removes it, and reports the new state.
-func (s Selection) Toggle(item Item) bool {
+func (s *Selection) Toggle(item Item) bool {
 	if s.keys == nil {
 		s.keys = map[string]bool{}
 	}
@@ -361,7 +363,7 @@ func (s Selection) Toggle(item Item) bool {
 }
 
 // Clear empties the selection.
-func (s Selection) Clear() {
+func (s *Selection) Clear() {
 	for key := range s.keys {
 		delete(s.keys, key)
 	}
@@ -370,7 +372,7 @@ func (s Selection) Clear() {
 // Retain drops every key that freshItems no longer names, so a selection made
 // before a re-read cannot claim an entry the manager has stopped reporting. It
 // reports how many keys it dropped.
-func (s Selection) Retain(freshItems []Item) int {
+func (s *Selection) Retain(freshItems []Item) int {
 	live := make(map[string]bool, len(freshItems))
 	for _, item := range freshItems {
 		live[item.Key()] = true

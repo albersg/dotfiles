@@ -95,6 +95,44 @@ func TestSelectionTogglesAndKeepsIdentity(t *testing.T) {
 	}
 }
 
+// TestAFreshSelectionsFirstToggleIsNotLost is the regression for a defect this
+// suite found: Toggle used to take the selection by value, so the first press on
+// a screen whose selection was still its zero value created the map on a copy and
+// threw it away. The entry looked selected in the row the user just pressed and
+// counted zero everywhere else, which is the worst shape of bug for a screen
+// whose whole job is to carry a selection to a plan.
+//
+// Every mutation is checked here on a zero-value Selection, because that is the
+// state a screen starts in when nobody remembered NewSelection.
+func TestAFreshSelectionsFirstToggleIsNotLost(t *testing.T) {
+	git := Item{Manager: ManagerBrew, Name: "git", Scope: ScopeUser}
+	var fresh Selection
+
+	if !fresh.Toggle(git) {
+		t.Fatal("the first toggle of a zero-value selection reported the entry unselected")
+	}
+	if fresh.Count() != 1 {
+		t.Fatalf("the first toggle of a zero-value selection left %d entries selected, want 1", fresh.Count())
+	}
+	if !fresh.Has(git) {
+		t.Fatal("the entry the user pressed is not in the selection")
+	}
+
+	fresh.Clear()
+	if fresh.Count() != 0 {
+		t.Fatalf("Clear left %d entries selected, want none", fresh.Count())
+	}
+	if !fresh.Toggle(git) {
+		t.Fatal("a selection that was cleared cannot be selected again")
+	}
+	if dropped := fresh.Retain(nil); dropped != 1 {
+		t.Fatalf("Retain dropped %d keys for an empty answer, want 1", dropped)
+	}
+	if fresh.Count() != 0 {
+		t.Fatalf("Retain against an answer that names nothing left %d entries selected", fresh.Count())
+	}
+}
+
 // TestGroupsNeedOneCommandEach pins what one command can carry: a Homebrew
 // formula and a cask need two, a Flatpak user and system installation need two,
 // and the groups keep the adapters' order so the plan list is the same twice.
