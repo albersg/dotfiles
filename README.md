@@ -310,18 +310,34 @@ does not run it; `--dry-run` skips the write.
 
 **Measure the shell's startup.** The fourth utility **changes nothing**. It starts
 the login shell named by `$SHELL` the way a terminal does — `zsh -i -c exit`, or the same shape for
-your shell — **five times**, and reports the **median** with the **range** and every completed start,
-so the number is a measurement and not a single run: the method travels with it and it can be
-reproduced by hand. Every start is bounded by a **ten-second timeout**, because a startup can hang on
-a plugin that waits for the network and the utility must not hang with it — a start that does not
-finish is reported as a timeout and left out of the median, never written down as `0.0 s`. On zsh one
-further start is taken under `zmodload zsh/zprof`, and the functions zprof blames are named heaviest
-first with the total, the self time and the call count; when `zprof` is unavailable, when the shell is
-not zsh, or when the profiled start reports no table, the screen says **only the total is
-measurable** and gives the reason rather than inventing a culprit. Nothing is written: no startup
-file is touched and no plugin is disabled — the wrappers the profiled start needs live in a
-temporary directory that is removed again, and your own files are sourced from where they already
-were. Where it cannot measure — no `$SHELL`, no terminal — the section says so and why.
+your shell — and the **start is yours to name**: the interactive start a terminal gives you, the
+login start, or a clean start that reads no configuration at all, with `[m]`/`[n]`/`[w]`/`[b]` for
+the start, the number of runs (five by default, at most twenty), a warm-up run to throw away, and a
+clean comparison. The line above the rule draws the exact command a press would run, so the plan and
+the measurement cannot disagree. It reports the **median** with the **range** and every completed
+start, so the number is a measurement and not a single run: the method travels with it and it can be
+reproduced by hand. The **spread**, the **95th percentile** and a **trimmed median** join it only once
+there are enough runs behind them, and the screen names what is missing instead of printing a zero.
+Every start is bounded by a **ten-second timeout**, because a startup can hang on a plugin that waits
+for the network and the utility must not hang with it — a start that does not finish is reported as a
+timeout and left out of the median, never written down as `0.0 s` — and **`Esc` stops the runs that
+are left while keeping the samples that finished**. On zsh a further start is taken under `zmodload
+zsh/zprof`; on bash 5.0+ it is traced with `PS4` + `EPOCHREALTIME`; on fish 3.6+ the shell's own
+`--profile-startup` is used. The functions the instrument names are listed heaviest first, and when
+the shell has no instrument here, its version is too old, or the instrument reports no table, the
+screen says **only the total is measurable** and gives the reason rather than inventing a culprit. With
+`[b]` on, the same shell is measured again with no configuration read, and the difference between the
+two medians is reported as the shell and the machine's own time versus what your configuration adds —
+refused rather than guessed when the two sides are not comparable. `[h]` keeps the last fifty
+measurements in `shell-audit-history.json` under the state directory, which is off until you turn it
+on, and `[r]` opens the recommendations, each labelled **Measured**, **Observed** or **Confirmed**
+according to what kind of claim it is. Nothing is written to your configuration: no startup file is
+touched and no plugin is disabled — the tables and wrappers the profiled start needs live in a
+temporary directory that is removed again, your own files are sourced from where they already were, a
+clean start reads an empty directory of the utility's own, and nothing a startup printed is displayed
+or kept. Where it cannot measure — no `$SHELL`, or a login shell this machine does not have — the
+section says so and why; a run with **no terminal attached** is measured and says which terminal it
+ran under, because a pipe, a container or a CI run is exactly where a slow startup is worth knowing.
 
 **Report the terminal capabilities.** The read-only report describes **the terminal this run is
 in** and what each answer means for the theme and the interface: the colour depth (**truecolor**,

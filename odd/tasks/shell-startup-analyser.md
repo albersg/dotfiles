@@ -259,6 +259,19 @@ declared) because the screen guard can only see the frame, and the frame draws t
 items. The golden moved with the prose, one line of it: the shorter evidence line frees a line, so the
 frame's own footer counts one more line below the cut.
 
+L15. T8 in place: `docs/tui-installer.md`'s "The shell's startup" section is rewritten from the old
+one-shape description (five runs of `-i -c exit`, zsh-only attribution, a terminal required) to what the
+utility now is -- the plan and its keys, the statistics and the floors under each of them, the bound and
+what a timeout is not, the cancel and what it keeps, the instrument table per shell, the read-only
+promise with the clean directory each shell honours, the clean comparison and its refusals, the stored
+history, the trend's refusals, the three kinds of recommendation, the redaction, and the terminal as
+context rather than a gate. The README's paragraph carries the same facts in the same order, shorter,
+and a CHANGELOG entry under Unreleased/Added names the behavior change and the guards. Two claims were
+corrected against the code while writing: bash's trace rows are identities (a function the trace was
+inside, or the file it came from) rather than function names alone, and the advice's evidence line has
+to name the same rows the profile paragraph names. The frames document's list of golden screens needed
+no change: `TestShellAuditGolden` was already named there.
+
 L16. A real hazard in the history write path was found while reading it for the docs: the temporary
 name was fixed (`<history>.tmp`), and two saves can be in flight at once -- the switch being turned on
 while a measurement lands. Two writers sharing one temporary name can interleave their bytes into the
