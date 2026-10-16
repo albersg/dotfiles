@@ -118,6 +118,79 @@ const (
 	ScreenSetup // Every decision of the flow, on one screen
 )
 
+// stepOrigin says why a step is on the plan, in the three answers S2 of
+// odd/tasks/start-installation-flow.md allows: the run or the machine needs it,
+// a choice the flow asked for decided it, or an extra that had its own switch
+// was turned on. The zero value is deliberately not one of the three, so a step
+// the builder forgets to label fails a guard instead of silently reading as a
+// requirement of the run.
+type stepOrigin int
+
+const (
+	// stepOriginUnknown is the zero value: a step that arrived without an origin.
+	stepOriginUnknown stepOrigin = iota
+	// stepOriginChoice is a step a choice the setup screen asked for decided,
+	// carrying the value that choice took (the terminal, shell or multiplexer
+	// name). Its row says "your choice decided it" and shows the value.
+	stepOriginChoice
+	// stepOriginExtra is a step an extra with its own switch on the setup screen
+	// turned on: the backup, the font and Neovim. Its row says "an extra you
+	// turned on". It has no separate value: the switch's answer is that it is on.
+	stepOriginExtra
+	// stepOriginMachine is a step the machine requires: the dependency step, the
+	// Apple developer tools, Homebrew and the WSL configuration. Its row says
+	// "this machine needs it". None of these is fixed -- the user can still turn
+	// one off on the plan -- so the sentence claims nothing about fixity, which
+	// the catalogue's Fixed flag carries separately.
+	stepOriginMachine
+	// stepOriginAlways is a step the run installs every time rather than because
+	// a choice named it: the toolset, the agent skills, OfficeCLI, the theme, and
+	// the three units the run needs (clone, setshell and cleanup). Its row says
+	// "the run installs it every time"; fixity is a separate claim, so the three
+	// fixed units say "the run needs it" as well.
+	stepOriginAlways
+)
+
+// sentence is what a step's row says about where it came from. It is empty for
+// the zero value, which is what lets a guard fail on an unlabelled step rather
+// than print a sentence nobody chose. No sentence here claims the run cannot
+// leave a step out: that claim is fixedUnitClaim, and only the catalogue's Fixed
+// flag earns it.
+func (o stepOrigin) sentence() string {
+	switch o {
+	case stepOriginChoice:
+		return "your choice decided it"
+	case stepOriginExtra:
+		return "an extra you turned on"
+	case stepOriginMachine:
+		return "this machine needs it"
+	case stepOriginAlways:
+		return "every run installs it"
+	}
+	return ""
+}
+
+// The areas the plan screen groups its rows by. They are declared here, beside
+// the builder that sets each step's Area, so a step cannot be assigned a group
+// the screen does not know. The areas are contiguous in the run's order -- the
+// screen names each one once, before the first step it covers -- which is why
+// they follow the phases of the run rather than its origins.
+const (
+	// areaPreparation is everything before the tools: the backup, the base
+	// packages, the repository checkout and the package manager.
+	areaPreparation = "Preparation"
+	// areaTools is the tools the setup screen asked for: the terminal, the font,
+	// the shell, the multiplexer and the editor. It is the run's own answer to
+	// the decisions, which is why the choices and the extras that took a name or
+	// a switch both sit here.
+	areaTools = "The tools you chose"
+	// areaExtras is the additional tools the run brings after the chosen ones.
+	areaExtras = "The extras"
+	// areaFinishing is the steps that apply the machine's settings and leave the
+	// machine as the run found it.
+	areaFinishing = "Finishing up"
+)
+
 // InstallStep represents a single installation step
 type InstallStep struct {
 	ID          string
@@ -127,6 +200,18 @@ type InstallStep struct {
 	Progress    float64
 	Error       error
 	Interactive bool // If true, this step runs a generated shell script through the captured executor
+	// Origin is why this step is on the plan, and it is what the plan screen's
+	// row says about itself (T3 of odd/tasks/start-installation-flow.md). It is
+	// declared at the same place the step is scheduled, so the screen reads the
+	// builder's answer instead of keeping a second table of step IDs.
+	Origin stepOrigin
+	// OriginValue is the value a choice took when a choice decided the step: the
+	// terminal, shell or multiplexer name. It is empty for a step the run needs
+	// and for an extra, neither of which took a value.
+	OriginValue string
+	// Area is the group the plan screen draws this step under. Areas are named
+	// once, in the order the run meets them.
+	Area string
 	// PluginSet is the plugin set this step provisions, when it provisions one, so
 	// that the interface can name it beside the step's own row (T1 of
 	// odd/tasks/start-installation-flow.md). It is nil for every step that
@@ -858,11 +943,16 @@ func (m Model) GetCurrentOptions() []string {
 		// renderSetup, which is the only screen the values are for.
 		return m.setupRowLabels()
 	case ScreenInstallReview:
-		rows := make([]string, 0, len(installUnits))
-		for _, unit := range installUnits {
-			rows = append(rows, m.installReviewRow(unit))
+		// The plan's rows, in the run's order: an area heading, a step and its
+		// plugin set. The screen draws the same list through planReviewRows, which
+		// also carries which rows the cursor may rest on, so the option list and the
+		// drawn list cannot disagree.
+		rows := m.planReviewRows()
+		texts := make([]string, len(rows))
+		for i, row := range rows {
+			texts[i] = row.Text
 		}
-		return rows
+		return texts
 	case ScreenUtilities:
 		// Only what exists is offered: the switch rows need a detected desktop and
 		// the undo row needs a record this installer wrote for that same desktop.
@@ -1351,6 +1441,8 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Backup Existing Configs",
 			Description: "Saves a copy of your current configuration first.",
 			Status:      StatusPending,
+			Origin:      stepOriginExtra,
+			Area:        areaPreparation,
 		})
 	}
 
@@ -1365,6 +1457,8 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Installs base packages with your distribution's package manager.",
 			Status:      StatusPending,
 			Interactive: true, // Native package manager runs through the captured script
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
 		})
 	} else if isTermux {
 		steps = append(steps, InstallStep{
@@ -1373,6 +1467,8 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Installs base packages with pkg.",
 			Status:      StatusPending,
 			Interactive: false, // Termux doesn't need sudo
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
 		})
 	} else if opts.OS == "mac" && !opts.HasXcode {
 		steps = append(steps, InstallStep{
@@ -1380,6 +1476,8 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Install Xcode CLI",
 			Description: "Installs the Apple developer command-line tools.",
 			Status:      StatusPending,
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
 		})
 	}
 
@@ -1389,6 +1487,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Clone Repository",
 		Description: "Downloads your dotfiles repository.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaPreparation,
 	})
 
 	// Homebrew (installs through the captured script; root work uses the credential cached for the run)
@@ -1401,6 +1501,8 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Installs Homebrew, the package manager.",
 			Status:      StatusPending,
 			Interactive: true,
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
 		})
 	}
 
@@ -1412,6 +1514,9 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Installs your terminal emulator.",
 			Status:      StatusPending,
 			Interactive: opts.OS == "linux", // Linux installs through the captured script
+			Origin:      stepOriginChoice,
+			OriginValue: opts.Terminal,
+			Area:        areaTools,
 		})
 	}
 
@@ -1422,6 +1527,8 @@ func planFor(opts planOptions) []InstallStep {
 			Name:        "Install " + fontInstallLabel(fontInstallFamily(isTermux)),
 			Description: "Installs the " + fontInstallLabel(fontInstallFamily(isTermux)) + " for icons.",
 			Status:      StatusPending,
+			Origin:      stepOriginExtra,
+			Area:        areaTools,
 		})
 	}
 
@@ -1440,8 +1547,11 @@ func planFor(opts planOptions) []InstallStep {
 			// later and for the same reason (install_plugin_sets.go): the row says what
 			// the step would install, whether the run turned it off, and -- for a shell
 			// whose configuration is built on its set -- why it cannot be left out.
-			PluginSet: planPluginSet("shell", opts),
-			Status:    StatusPending,
+			PluginSet:   planPluginSet("shell", opts),
+			Status:      StatusPending,
+			Origin:      stepOriginChoice,
+			OriginValue: opts.Shell,
+			Area:        areaTools,
 		})
 	}
 
@@ -1454,8 +1564,11 @@ func planFor(opts planOptions) []InstallStep {
 			// The multiplexer's plugin set is carried by this step rather than
 			// scheduled as a step of its own (install_plugin_sets.go), so the row can
 			// name what the step would install and the switch that turns it off.
-			PluginSet: planPluginSet("wm", opts),
-			Status:    StatusPending,
+			PluginSet:   planPluginSet("wm", opts),
+			Status:      StatusPending,
+			Origin:      stepOriginChoice,
+			OriginValue: opts.WindowMgr,
+			Area:        areaTools,
 		})
 	}
 
@@ -1469,6 +1582,8 @@ func planFor(opts planOptions) []InstallStep {
 			// where the set comes from instead of offering a switch.
 			PluginSet: planPluginSet("nvim", opts),
 			Status:    StatusPending,
+			Origin:    stepOriginExtra,
+			Area:      areaTools,
 		})
 	}
 
@@ -1481,6 +1596,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Install Toolset",
 		Description: "Installs the command-line tools listed in your Brewfile.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaExtras,
 	})
 
 	// Pi agent skills. Pinned, checksum-verified packages installed under
@@ -1490,6 +1607,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Install Pi Agent Skills",
 		Description: "Installs the pinned security-audit, archify and officecli skills.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaExtras,
 	})
 
 	// OfficeCLI binary. A pinned, checksum-verified release asset installed to
@@ -1499,6 +1618,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Install OfficeCLI",
 		Description: "Installs the pinned, checksum-verified OfficeCLI binary.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaExtras,
 	})
 
 	// WSL configuration (Windows host + in-distribution settings). The files are
@@ -1510,6 +1631,8 @@ func planFor(opts planOptions) []InstallStep {
 			Description: "Applies the WSL settings on Windows and in this distribution.",
 			Status:      StatusPending,
 			Interactive: true, // /etc/wsl.conf and the Windows profile are root/Windows-owned
+			Origin:      stepOriginMachine,
+			Area:        areaFinishing,
 		})
 	}
 
@@ -1522,6 +1645,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Restore the Applied Theme",
 		Description: "Writes the theme this machine has applied back into the files the install replaced.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaFinishing,
 	})
 
 	// Set default shell (runs captured; usermod uses the cached credential)
@@ -1531,6 +1656,8 @@ func planFor(opts planOptions) []InstallStep {
 		Description: "Sets your shell as the default.",
 		Status:      StatusPending,
 		Interactive: true,
+		Origin:      stepOriginAlways,
+		Area:        areaFinishing,
 	})
 
 	// Cleanup (not interactive - just file deletion)
@@ -1539,6 +1666,8 @@ func planFor(opts planOptions) []InstallStep {
 		Name:        "Cleanup",
 		Description: "Removes the temporary files it created.",
 		Status:      StatusPending,
+		Origin:      stepOriginAlways,
+		Area:        areaFinishing,
 	})
 
 	// A unit the user turned off is marked rather than dropped: the run's own list keeps

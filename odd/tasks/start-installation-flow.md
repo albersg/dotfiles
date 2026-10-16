@@ -85,7 +85,7 @@ it, and the screen has to exist before the plan can show which choice each row c
       indented under the tool it belongs to; all visible at once; `Enter` opens the row's rich
       list and `Esc` returns; the old question screens stop being steps of the flow and become
       that detour. Registered in every guard list.
-- [ ] **T3. The plan screen, grouped and labelled** (S2, S5): rows grouped by area in the
+- [x] **T3. The plan screen, grouped and labelled** (S2, S5): rows grouped by area in the
       order the run takes them, each row saying whether it comes from a choice, from this
       machine, or from an extra switch, with the value chosen where there is one, and a set
       row indented under its tool saying either its switch state or where the set comes from.
@@ -367,3 +367,68 @@ it, and the screen has to exist before the plan can show which choice each row c
   direction that changed (the registry, the flag and the plan), and the asset facts it used to
   check moved beside the strip that depends on them. The setup screen's no-key guard moved to
   fish's set at the same strength.
+
+L15 -- T3 delivered, and the correction turned up a second real defect.
+
+  The plan screen now draws the plan the run will execute: `planFor(m.planOptions())`, the one builder
+  the command line and the non-interactive path already read, grouped under `Preparation`, `The tools
+  you chose`, `The extras` and `Finishing up` in the order the run meets them. `InstallStep` carries
+  `Origin`, `OriginValue` and `Area`, set at the condition that schedules the step (all eighteen
+  append sites), so the screen reads the builder's answer instead of keeping a second table of step
+  IDs; a step that arrives without either fails `TestNoScheduledStepArrivesWithoutAnOriginOrAnArea`.
+  A tool's plugin set is drawn indented under its step, and the cursor rests only on rows `Space` can
+  switch (`TestTheCursorVisitsEverySwitchableRowAndNothingElse`). The plan's identifiers and names
+  are untouched: `TestThePlanIsStillThePlanItWas` and `TestThePlanNamesWhatItInstalls` still pin the
+  list the E2E asserts, and the golden was re-pinned to the two new fields rather than relaxed.
+
+  The parent's verification of that delivery found a real defect and sent it back to the same worker:
+  eight rows -- `deps`, `xcode`, `homebrew`, `toolset`, `agentskills`, `officecli`, `wslconfig` and
+  `theme` -- had been given the sentence *the run needs it*, which is the fixed units' clause, while
+  every one of those eight is a row the cursor can switch off. One phrase was carrying both "this run
+  cannot leave it out" and "this run happens to schedule it", which is what S5 forbids. The correction
+  separates the two facts and gives each its own carrier: provenance is now one of four honest
+  sentences -- *your choice decided it* with the value the choice took, *an extra you turned on*,
+  *this machine needs it*, *every run installs it* -- and none of the four claims the run cannot leave
+  the step out, while fixity stays the catalogue's `Fixed` flag and the clause the three fixed rows
+  (`clone`, `cleanup`, `setshell`) already carried. The invariant is a guard, red first:
+  `TestARowClaimsTheRunNeedsItsUnitIfAndOnlyIfTheUnitIsFixed` over the builder's steps for every host
+  and every choice, `TestTheRenderedRowClaimsTheRunNeedsItsUnitIfAndOnlyIfTheUnitIsFixed` over the
+  rows the screen actually draws, and `TestEveryProvenanceSentenceIsOneOfFourAndNoTwoShareOne` holding
+  the vocabulary distinct with no fifth sentence hiding in the zero value.
+
+  The correction worker was cancelled mid-flight when the parent session shut down, so the parent
+  finished the review itself rather than relaunching equivalent work. The tree it left is complete:
+  no occurrence of the rejected `stepOriginRequired` remains, all eighteen append sites carry one of
+  the four origins, the three guards above are present, and the focused run is green. The worker's
+  own text for the invariant names the defect it was written for, which is the RED narrative rather
+  than a claim about a run nobody saw.
+
+  Reviewing it turned up a second real defect, this one created by the first fix and caught by the
+  new guards. A set a run cannot leave out was drawing the registry's full reason on its row, and
+  that sentence is longer than the frame: `TestThePlanScreenShowsThePlanByAreaInTheRunsOrder` rendered
+  the screen at 100 columns and reported `the frame does not draw the row "  the LazyVim plugin set
+  -- lazy.nvim installs it on first launch from the configuration this repository ships"`, because
+  the frame draws a row instead of wrapping one. The row was therefore cut exactly where a user reads
+  where the set came from. The width guard added with the invariant then reported a second row: the
+  theme step's row reached 81 characters against the 76 the narrowest terminal the frame matrix
+  measures leaves. Two changes, both in the direction of the smallest honest text: the set row now
+  says `the tool installs it` -- nineteen characters available after the longest set name, and true
+  for both sets, because the tool's own configuration is what bootstraps them, which is exactly why
+  there is no switch -- and the fourth provenance became *every run installs it*, parallel to the
+  other three and short enough for the longest row that carries it. Nothing was weakened to make room:
+  the registry's reason is still required non-empty by its own guards, still what `--skip` refuses
+  with, and still what `docs/tui-installer.md` explains; `TestAPluginSetRowSitsUnderTheStepThatCarriesIt`
+  now asserts the drawn phrase and the row's width at 80 columns, and the plan guard asserts no row
+  of the plan exceeds the width the narrowest measured terminal leaves.
+
+  Limits recorded rather than hidden: the width checks are asserted at 80 columns, the narrowest size
+  the frame matrix measures, so a terminal narrower than that still cuts rows; and the phrase on a
+  set row is deliberately less informative than the registry's reason, which is why the reason keeps
+  its other carriers.
+
+  Evidence: the focused origin, plan-identity and plugin-set guards pass with `-count=1`; `gofmt -l`
+  and `go vet` are clean; `scripts/preflight.sh` ran the whole gate on this exact tree and its only
+  failures are the four host-condition Ghostty tests (`TestStepInstallTerminalGhosttyReportsAFailedDownload`,
+  `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`, `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`
+  and `TestInteractiveGhosttyScriptDownloadsThenRuns`), which fail because Ghostty is installed on this
+  host; the work-unit commit is the one that carries this entry.

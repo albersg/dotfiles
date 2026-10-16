@@ -222,21 +222,21 @@ func TestTheWholePlanIsWhatItWas(t *testing.T) {
 
 	got := planFor(m.planOptions())
 	want := []InstallStep{
-		{ID: "backup", Name: "Backup Existing Configs", Description: "Saves a copy of your current configuration first.", Status: StatusPending},
-		{ID: "deps", Name: "Install Dependencies", Description: "Installs base packages with your distribution's package manager.", Status: StatusPending, Interactive: true},
-		{ID: "clone", Name: "Clone Repository", Description: "Downloads your dotfiles repository.", Status: StatusPending},
-		{ID: "homebrew", Name: "Install Homebrew", Description: "Installs Homebrew, the package manager.", Status: StatusPending, Interactive: true},
-		{ID: "terminal", Name: "Install kitty", Description: "Installs your terminal emulator.", Status: StatusPending, Interactive: true},
-		{ID: "font", Name: "Install Meslo Nerd Font", Description: "Installs the Meslo Nerd Font for icons.", Status: StatusPending},
-		{ID: "shell", Name: "Install zsh", Description: "Installs your shell and its plugins.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-shell", Name: "Oh My Zsh with Powerlevel10k and the plugin packages", Switchable: true}},
-		{ID: "wm", Name: "Install tmux", Description: "Installs your terminal multiplexer.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-tmux", Name: "the plugins its configuration declares", Switchable: true}},
-		{ID: "nvim", Name: "Install Neovim", Description: "Installs Neovim with your configuration.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-nvim", Name: "the LazyVim plugin set", Because: "lazy.nvim installs it on first launch from the configuration this repository ships"}},
-		{ID: "toolset", Name: "Install Toolset", Description: "Installs the command-line tools listed in your Brewfile.", Status: StatusPending},
-		{ID: "agentskills", Name: "Install Pi Agent Skills", Description: "Installs the pinned security-audit, archify and officecli skills.", Status: StatusPending},
-		{ID: "officecli", Name: "Install OfficeCLI", Description: "Installs the pinned, checksum-verified OfficeCLI binary.", Status: StatusPending},
-		{ID: "theme", Name: "Restore the Applied Theme", Description: "Writes the theme this machine has applied back into the files the install replaced.", Status: StatusPending},
-		{ID: "setshell", Name: "Set Default Shell", Description: "Sets your shell as the default.", Status: StatusPending, Interactive: true},
-		{ID: "cleanup", Name: "Cleanup", Description: "Removes the temporary files it created.", Status: StatusPending},
+		{ID: "backup", Name: "Backup Existing Configs", Description: "Saves a copy of your current configuration first.", Status: StatusPending, Origin: stepOriginExtra, Area: areaPreparation},
+		{ID: "deps", Name: "Install Dependencies", Description: "Installs base packages with your distribution's package manager.", Status: StatusPending, Interactive: true, Origin: stepOriginMachine, Area: areaPreparation},
+		{ID: "clone", Name: "Clone Repository", Description: "Downloads your dotfiles repository.", Status: StatusPending, Origin: stepOriginAlways, Area: areaPreparation},
+		{ID: "homebrew", Name: "Install Homebrew", Description: "Installs Homebrew, the package manager.", Status: StatusPending, Interactive: true, Origin: stepOriginMachine, Area: areaPreparation},
+		{ID: "terminal", Name: "Install kitty", Description: "Installs your terminal emulator.", Status: StatusPending, Interactive: true, Origin: stepOriginChoice, OriginValue: "kitty", Area: areaTools},
+		{ID: "font", Name: "Install Meslo Nerd Font", Description: "Installs the Meslo Nerd Font for icons.", Status: StatusPending, Origin: stepOriginExtra, Area: areaTools},
+		{ID: "shell", Name: "Install zsh", Description: "Installs your shell and its plugins.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-shell", Name: "Oh My Zsh with Powerlevel10k and the plugin packages", Switchable: true}, Origin: stepOriginChoice, OriginValue: "zsh", Area: areaTools},
+		{ID: "wm", Name: "Install tmux", Description: "Installs your terminal multiplexer.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-tmux", Name: "the plugins its configuration declares", Switchable: true}, Origin: stepOriginChoice, OriginValue: "tmux", Area: areaTools},
+		{ID: "nvim", Name: "Install Neovim", Description: "Installs Neovim with your configuration.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-nvim", Name: "the LazyVim plugin set", Because: "lazy.nvim installs it on first launch from the configuration this repository ships"}, Origin: stepOriginExtra, Area: areaTools},
+		{ID: "toolset", Name: "Install Toolset", Description: "Installs the command-line tools listed in your Brewfile.", Status: StatusPending, Origin: stepOriginAlways, Area: areaExtras},
+		{ID: "agentskills", Name: "Install Pi Agent Skills", Description: "Installs the pinned security-audit, archify and officecli skills.", Status: StatusPending, Origin: stepOriginAlways, Area: areaExtras},
+		{ID: "officecli", Name: "Install OfficeCLI", Description: "Installs the pinned, checksum-verified OfficeCLI binary.", Status: StatusPending, Origin: stepOriginAlways, Area: areaExtras},
+		{ID: "theme", Name: "Restore the Applied Theme", Description: "Writes the theme this machine has applied back into the files the install replaced.", Status: StatusPending, Origin: stepOriginAlways, Area: areaFinishing},
+		{ID: "setshell", Name: "Set Default Shell", Description: "Sets your shell as the default.", Status: StatusPending, Interactive: true, Origin: stepOriginAlways, Area: areaFinishing},
+		{ID: "cleanup", Name: "Cleanup", Description: "Removes the temporary files it created.", Status: StatusPending, Origin: stepOriginAlways, Area: areaFinishing},
 	}
 
 	if len(got) != len(want) {

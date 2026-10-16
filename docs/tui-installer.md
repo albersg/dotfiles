@@ -779,19 +779,35 @@ on the platform and the choices, so a run shows only the ones that apply.
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
 
-**Every unit is shown with its switch before anything runs, and a unit turned off is reported rather
-than dropped.** The plan the setup screen's action row opens lists every unit the run
-can install, in the order the run takes them, each one on or off, with the three it cannot do without
-marked and refusing to change: `clone`, the repository the run works from; `cleanup`, the state the run
-created; and `setshell`, the default shell that was chosen. `Space` turns the unit under the cursor off
-or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened from. The
-list is drawn as a window sized by the terminal, and the rows that do not fit are counted above and
-below it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off
-the bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A
-unit that is turned off stays in the plan, is never executed, is not a failure, and is reported as
-skipped in the run's own output and in its step list. The command line reaches the same selection with
-`--skip`, and both routes plan through the same builder, so one selection produces the same steps
-either way.
+**The plan screen shows the run's plan, grouped by area, and every row says where it came from.**
+The plan the setup screen's action row opens is the plan the run will execute -- the same builder
+(`planFor`) the command line reads -- so nothing reaches it that the flow never mentioned (S2). Its
+rows are grouped under an area heading -- `Preparation`, `The tools you chose`, `The extras` and
+`Finishing up` -- in the order the run takes them, and each row carries where it came from, one of
+four honest sentences: *your choice decided it* with the value the choice took (`Install kitty —
+your choice decided it: kitty`), *an extra you turned on* for a switch that was turned on, *this
+machine needs it* for the dependency step, the Apple developer tools, Homebrew and the WSL
+configuration, and *every run installs it* for the toolset, the agent skills, OfficeCLI and
+the theme. None of those four says the run cannot leave the step out: the three units it really
+needs -- `clone`, the repository the run works from; `cleanup`, the state the run created; and
+`setshell`, the default shell that was chosen -- read *the run needs it* instead, which is the
+catalogue's fixed flag and a separate fact from where the step came from. A step's plugin set is
+indented directly under it, saying either the switch's state (`[x]` installed, `[ ]` left out) or,
+for a set a run cannot leave out, where the set comes from. That last sentence is deliberately
+short: the frame draws a row instead of wrapping it, and the longest set name leaves nineteen
+characters inside the narrowest terminal the frame matrix measures, so the registry's full reason
+would be cut off exactly where a user reads it -- the reason keeps its own guards and its other
+carriers, `--skip`'s refusal and this documentation. `Space` turns the unit under the cursor
+off or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened
+from. The cursor rests only on rows it can switch: it steps over the area headings, the plugin-set
+rows and the three fixed units, so no row ever offers a switch for something the run needs. The list
+is drawn as a window sized by the terminal, and the rows that do not fit are counted above and below
+it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off the
+bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A unit
+that is turned off stays in the plan as `[ ]`, is never executed, is not a failure, and is reported
+as skipped in the run's own output and in its step list. The command line reaches the same selection
+with `--skip`, and both routes plan through the same builder, so one selection produces the same
+steps either way.
 
 **The administrator password is asked once, on the installer's own screen.** Before the first step
 that needs root, the installer asks sudo whether it already has a credential it can use

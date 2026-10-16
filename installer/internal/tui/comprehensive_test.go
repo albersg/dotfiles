@@ -95,10 +95,10 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 		{ScreenLearnNvim, 4},
 		{ScreenKeymaps, 3},
 		{ScreenLearnLazyVim, 3},
-		// The review screen lists one row per catalogued unit, so its count is the
-		// catalogue's own length rather than a number written here: a unit added to the
-		// table cannot leave this guard behind.
-		{ScreenInstallReview, len(installUnits)},
+		// The review screen lists the run's plan grouped by area, so its count is
+		// the plan's own: a negative minimum asks the loop to derive it from the
+		// model rather than writing a number here that the catalogue could move.
+		{ScreenInstallReview, -1},
 	}
 
 	for _, tc := range screens {
@@ -107,9 +107,13 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 			m.Screen = tc.name
 			m.Choices.OS = "mac" // For terminal options
 
+			minLen := tc.minLen
+			if minLen < 0 {
+				minLen = len(planFor(m.planOptions()))
+			}
 			opts := m.GetCurrentOptions()
-			if len(opts) < tc.minLen {
-				t.Errorf("Expected at least %d options, got %d: %v", tc.minLen, len(opts), opts)
+			if len(opts) < minLen {
+				t.Errorf("Expected at least %d options, got %d: %v", minLen, len(opts), opts)
 			}
 		})
 	}
