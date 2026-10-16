@@ -956,9 +956,14 @@ func migrationPathInside(child, parent string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// canonicalMigrationPath resolves a path to an absolute, symlink-free form when it exists, so two
-// spellings of one directory compare equal and the layout checks cannot be fooled by a symlink. A
-// path that does not exist yet (the usual destination) falls back to a cleaned absolute path.
+// canonicalMigrationPath resolves a path to an absolute, symlink-free form so two spellings of one
+// directory compare equal and the layout checks cannot be fooled by a symlink. A path that does not
+// exist yet -- the usual destination -- is resolved through its nearest existing ancestor with the
+// components that do not exist re-appended, because resolving only the part that exists is not
+// enough: on a system whose temporary directory is reached through a symlink (macOS resolves
+// /var/folders/... to /private/var/folders/..., and a Linux /tmp or /home can be a link too) an
+// unresolved destination stops comparing as being inside the resolved source, so "the destination
+// is inside the source" reads as Runnable and the copy would read what it writes.
 func canonicalMigrationPath(p string) string {
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -966,6 +971,22 @@ func canonicalMigrationPath(p string) string {
 	}
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
 		return resolved
+	}
+	// Walk up to the nearest ancestor that resolves and re-append what is left. The nearest one is
+	// what matters: a component that does not exist yet cannot be a symlink, so resolving a higher
+	// ancestor and keeping the whole tail under it preserves the tail exactly.
+	remaining := ""
+	current := abs
+	for {
+		parent := filepath.Dir(current)
+		if parent == current {
+			break // reached the root without resolving anything
+		}
+		remaining = filepath.Join(filepath.Base(current), remaining)
+		current = parent
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			return filepath.Join(resolved, remaining)
+		}
 	}
 	return abs
 }

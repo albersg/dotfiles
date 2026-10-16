@@ -208,6 +208,50 @@ func TestPlanMigrationRefusesNonsenseLayouts(t *testing.T) {
 	}
 }
 
+func TestPlanMigrationRefusesADestinationInsideTheSourceThroughASymlink(t *testing.T) {
+	// The layout check has to hold on a path whose ancestor is a symlink, because that is the shape
+	// this failure really arrives in: macOS resolves its temporary directory to
+	// /private/var/folders/..., a destination that does not exist yet can only be resolved through
+	// the ancestor that does, and comparing an unresolved spelling against a resolved source is how
+	// "destination inside the source" reads as Runnable -- the copy would then read what it writes.
+	base := t.TempDir()
+	source := filepath.Join(base, "project")
+	writeMigrationFile(t, filepath.Join(source, "a.txt"), "a", 0o644)
+
+	inside := filepath.Join(base, "link to the project")
+	if err := os.Symlink(source, inside); err != nil {
+		t.Skipf("this platform cannot create a symlink in the temporary directory: %v", err)
+	}
+	plan, err := PlanMigration(source, filepath.Join(inside, "out"), MigrationOptions{FreeSpace: ampleSpace})
+	if err != nil {
+		t.Fatalf("PlanMigration: %v", err)
+	}
+	if plan.Runnable() {
+		t.Fatalf("a destination inside the source through a symlink is Runnable; blockers=%v", plan.Blockers)
+	}
+	if !containsAny(plan.Blockers, "destination is inside") {
+		t.Errorf("blockers = %v, want one containing %q", plan.Blockers, "destination is inside")
+	}
+
+	// The other direction, so the fix cannot be "refuse every path reached through a link": a
+	// destination whose ancestor is a symlink to somewhere else is a perfectly ordinary copy.
+	elsewhere := filepath.Join(base, "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(base, "link to elsewhere")
+	if err := os.Symlink(elsewhere, outside); err != nil {
+		t.Skipf("this platform cannot create a symlink in the temporary directory: %v", err)
+	}
+	ordinary, err := PlanMigration(source, filepath.Join(outside, "copy"), MigrationOptions{FreeSpace: ampleSpace})
+	if err != nil {
+		t.Fatalf("PlanMigration: %v", err)
+	}
+	if !ordinary.Runnable() {
+		t.Errorf("a destination reached through an unrelated symlink is blocked; blockers=%v", ordinary.Blockers)
+	}
+}
+
 func TestPlanMigrationBlocksANonEmptyDestinationAndCreatesNothing(t *testing.T) {
 	source := t.TempDir()
 	writeMigrationFile(t, filepath.Join(source, "a.txt"), "a", 0o644)
@@ -784,6 +828,14 @@ func TestRunMigrationInstructionsAreQuotedAndNotExecuted(t *testing.T) {
 	writeMigrationFile(t, filepath.Join(source, "a.txt"), "a", 0o644)
 	destination := filepath.Join(t.TempDir(), "dest with space")
 
+	// The plan names the directories it copies in their canonical form, because that is what the run
+	// walks and verifies. t.TempDir() returns a spelling rather than a canonical path, and the two
+	// differ exactly where comparing them failed: macOS reaches its temporary directory through
+	// /var -> /private/var. Resolving the expectation is what keeps this assertion about the
+	// instruction instead of about the platform it runs on.
+	wantSource := resolvedForTest(t, source)
+	wantDestination := resolvedForTest(t, destination)
+
 	plan, err := PlanMigration(source, destination, MigrationOptions{FreeSpace: ampleSpace})
 	if err != nil {
 		t.Fatalf("PlanMigration: %v", err)
@@ -794,22 +846,41 @@ func TestRunMigrationInstructionsAreQuotedAndNotExecuted(t *testing.T) {
 	if !containsAny(plan.Instructions, "rm -rf") {
 		t.Errorf("Instructions = %v, want the by-hand removal", plan.Instructions)
 	}
-	if !containsAny(plan.Instructions, shellQuote(source)) {
-		t.Errorf("Instructions = %v, want the quoted source path", plan.Instructions)
+	if !containsAny(plan.Instructions, shellQuote(wantSource)) {
+		t.Errorf("Instructions = %v, want the quoted source path %q", plan.Instructions, wantSource)
+	}
+	if !containsAny(plan.Instructions, shellQuote(wantDestination)) {
+		t.Errorf("Instructions = %v, want the quoted destination path %q", plan.Instructions, wantDestination)
 	}
 
 	report, err := RunMigration(context.Background(), plan, nil)
 	if err != nil {
 		t.Fatalf("RunMigration: %v", err)
 	}
-	if !containsAny(report.Instructions, shellQuote(source)) {
-		t.Errorf("report Instructions = %v, want the quoted source path", report.Instructions)
+	if !containsAny(report.Instructions, shellQuote(wantSource)) {
+		t.Errorf("report Instructions = %v, want the quoted source path %q", report.Instructions, wantSource)
 	}
 	// The instruction text is data: after a successful copy the source is still there, because nothing
 	// in this package ran the rm line.
 	if _, serr := os.Stat(filepath.Join(source, "a.txt")); serr != nil {
 		t.Errorf("the source was removed, so an instruction was executed: %v", serr)
 	}
+}
+
+// resolvedForTest resolves the symlinks of the part of p that exists and keeps the part that does
+// not, which is the form a plan names a path in. It uses the standard library rather than the
+// package's own resolver on purpose: an expectation computed by the code under test would agree
+// with that code instead of checking it.
+func resolvedForTest(t *testing.T, p string) string {
+	t.Helper()
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	parent := filepath.Dir(p)
+	if parent == p {
+		return p
+	}
+	return filepath.Join(resolvedForTest(t, parent), filepath.Base(p))
 }
 
 // ---------------------------------------------------------------------------
