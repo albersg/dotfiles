@@ -79,6 +79,98 @@ func TestLeavingTheScreenAndReturningStartsNoSecondPass(t *testing.T) {
 	}
 }
 
+// TestTheRecheckKeyDismissesAStaleConfirmation pins what a re-read does to the
+// screen that asks for confirmation: the plan was built from the answers being
+// replaced, so it is dismissed rather than left on screen where Enter would apply
+// a command chosen from a list that no longer exists.
+func TestTheRecheckKeyDismissesAStaleConfirmation(t *testing.T) {
+	apt := updateCenterAvailableAdapter(updates.ManagerApt, updates.ScopeSystem)
+	tar := updateCenterFakeItem(apt, "tar", "1.35-1", "1.35-2")
+	apt.reads[0].Items = []updates.Item{tar}
+	m, _ := updateCenterTestModel(t, apt)
+	m, cmd := updateCenterOpened(t, m)
+	m = updateCenterReadEveryManager(t, m, cmd)
+
+	m, _ = pressUpdateCenterKey(t, m, updateCenterKeySpace())
+	m, _ = pressUpdateCenterRow(t, m, updateCenterApplyRow(1))
+	if !m.UpdateCenter.Confirming {
+		t.Fatal("the confirmation did not open, so the guard proves nothing about a stale plan")
+	}
+
+	m, read := pressUpdateCenterKey(t, m, updateCenterKeyRune('r'))
+	if read == nil {
+		t.Fatal("the re-check started no read")
+	}
+	if m.UpdateCenter.Confirming || len(m.UpdateCenter.Plans) != 0 {
+		t.Error("the plan built from the answers being re-read is still on screen and confirmable")
+	}
+}
+
+// TestAStoppedRunsReportDoesNotLeakIntoTheNextRun pins the boundary of a run's
+// report. What a stopped sequence never reached belongs to that run: a later run,
+// whose plan may have moved the same entry, must not inherit it and report an entry
+// as requested and never run a second time.
+func TestAStoppedRunsReportDoesNotLeakIntoTheNextRun(t *testing.T) {
+	apt := updateCenterAvailableAdapter(updates.ManagerApt, updates.ScopeSystem)
+	first := updateCenterFakeItem(apt, "tar", "1.35-1", "1.35-2")
+	never := updateCenterFakeItem(apt, "libc6", "2.41-1", "2.41-2")
+	m, _ := updateCenterRunningModel(t, apt, first)
+	m.UpdateCenter.Plans = append(m.UpdateCenter.Plans, updates.Plan{
+		Manager: updates.ManagerApt,
+		Scope:   updates.ScopeSystem,
+		Command: updates.Command{Argv: []string{"apt-get", "install", "-y", "libc6"}, Elevate: true},
+		Items:   []updates.Item{never},
+	})
+
+	next, cmd := m.Update(updateCenterApplyDoneMsg{index: 0, result: updates.ApplyResult{
+		Plan:   m.UpdateCenter.Plans[0],
+		Status: updates.StatusCancelled,
+		Outcomes: []updates.Outcome{
+			{Item: first, Step: updates.StepUnknown, Detail: "the run was stopped before the manager answered"},
+		},
+	}})
+	m = next.(Model)
+	if len(m.UpdateCenter.NotReached) == 0 {
+		t.Fatal("the stopped run recorded nothing it never reached, so the guard proves nothing")
+	}
+	// The run's own report survives the re-read it starts: it is the answer to the
+	// question the user asked by running it.
+	m = updateCenterReadEveryManager(t, m, cmd)
+	if len(m.UpdateCenter.NotReached) == 0 {
+		t.Fatal("the re-read that follows a run erased the run's own report")
+	}
+
+	m.UpdateCenter.Confirming = true
+	m.UpdateCenter.Plans = []updates.Plan{{
+		Manager: updates.ManagerApt,
+		Scope:   updates.ScopeSystem,
+		Command: updates.Command{Argv: []string{"apt-get", "install", "-y", "libc6"}, Elevate: true},
+		Items:   []updates.Item{never},
+	}}
+	if apply := m.startUpdateCenterApply(); apply == nil {
+		t.Fatal("the second run did not start, so the guard proves nothing")
+	}
+	if len(m.UpdateCenter.NotReached) != 0 {
+		t.Errorf("the second run inherited the previous run's unreached entries: %+v", m.UpdateCenter.NotReached)
+	}
+
+	// The second run's own plan carries the same entry, so it is legitimately
+	// "requested and not started yet" while the run is out. What must not survive is
+	// the first run's stop being reported as this run's: the notice is what the user
+	// reads, and it must count the entry once, as this run's outcome.
+	next, _ = m.Update(updateCenterApplyDoneMsg{index: 0, result: updates.ApplyResult{
+		Plan:   m.UpdateCenter.Plans[0],
+		Status: updates.StatusCurrent,
+		Outcomes: []updates.Outcome{
+			{Item: never, Step: updates.StepConfirmed, Detail: "the manager no longer reports this as out of date"},
+		},
+	}})
+	m = next.(Model)
+	if notice := m.UpdateCenter.Notice; strings.Contains(notice, "never run") {
+		t.Errorf("the second run's report still counts the previous run's stop as its own: %q", notice)
+	}
+}
+
 // TestApplyIsRefusedWhileAReadIsStillOutstanding holds the other half of the same
 // promise: a plan is built from the list the managers gave, and confirming one
 // while a manager is still being read is a command built from half an answer.

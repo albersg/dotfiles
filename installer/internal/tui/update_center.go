@@ -221,6 +221,13 @@ func (m *Model) startUpdateCenterScan() tea.Cmd {
 		return nil
 	}
 
+	// A pass replaces the answers the plan was built from, so the confirmation is
+	// dismissed: a plan about a list that is being read again must not stay on
+	// screen, confirmable against answers that no longer exist.
+	state.Confirming = false
+	state.Plans = nil
+	state.LeftOut = nil
+
 	if state.Engine == nil {
 		state.Engine = updates.Default(m.SystemInfo != nil && m.SystemInfo.IsTermux)
 	}
@@ -287,6 +294,10 @@ func (m *Model) startUpdateCenterApply() tea.Cmd {
 	state.Confirming = false
 	state.PlanIndex = 0
 	state.Applied = nil
+	// NotReached belongs to the run that filled it: a run's report is read until the
+	// next run starts, and a later run -- whose plan may well have moved the same
+	// entry -- must not inherit the previous run's unreached entries.
+	state.NotReached = nil
 	state.Log = nil
 	state.Notice = ""
 	state.Lines = make(chan string, updateCenterLineBuffer)
@@ -658,6 +669,9 @@ func (m *Model) updateCenterPlanSelection() {
 
 	m.UpdateCenter.Plans = plans
 	m.UpdateCenter.LeftOut = leftOut
+	// A new plan replaces the last run's report as well: what the previous plan could
+	// not carry is no answer about this one.
+	m.UpdateCenter.NotReached = nil
 	if len(plans) == 0 {
 		m.UpdateCenter.Confirming = false
 		m.UpdateCenter.Notice = m.updateCenterNothingToApplyReason()
