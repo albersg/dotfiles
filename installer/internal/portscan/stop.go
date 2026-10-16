@@ -163,17 +163,21 @@ func Stop(ctx context.Context, p Probe, target StopTarget, opts StopOptions) Sto
 
 	after := Discover(ctx, p)
 	result.PortsStillHeld = portsStillHeld(after, target.Sockets)
+	blind := blindTo(after, target.Sockets)
 
 	switch {
 	case waitErr != nil:
 		result.Outcome = OutcomeFailed
 		result.Message = opts.Signal.String() + " was sent to pid " + strconv.Itoa(proc.PID) + ", but whether it exited could " +
-			"not be confirmed (" + waitErr.Error() + "). " + stillHeldSentence(result.PortsStillHeld)
+			"not be confirmed (" + waitErr.Error() + "). " + portsSentence(result.PortsStillHeld, blind)
 	case !aliveAfter:
-		result.Verified = true
+		// The check completed only as far as it could: a port is reported free
+		// when a reader that covers it answered, and the sentence says which
+		// transports it could not ask about.
+		result.Verified = len(blind) == 0
 		result.Outcome = OutcomeStopped
 		result.Message = "pid " + strconv.Itoa(proc.PID) + " (" + processLabel(proc) + ") exited. " +
-			stillHeldSentence(result.PortsStillHeld)
+			portsSentence(result.PortsStillHeld, blind)
 	case !opts.Signal.Forced():
 		result.Verified = true
 		result.Outcome = OutcomeStillRunning
@@ -276,6 +280,66 @@ func stillHeldSentence(held []Listener) string {
 		parts = append(parts, l.Protocol.Transport()+"/"+strconv.Itoa(l.Port)+" is still bound by "+owner)
 	}
 	return "The fresh reading still finds " + strings.Join(parts, ", ") + "."
+}
+
+// portsSentence is the post-attempt sentence about the ports: what the fresh
+// reading found still bound and what it could not answer for. The two are
+// different facts and both are stated, because a port is only free when a
+// reader that covers it said so -- a reading whose readers failed is not
+// evidence of a free port, and calling one free on its strength is the false
+// positive this utility must not produce.
+func portsSentence(held []Listener, blind []string) string {
+	switch {
+	case len(blind) == 0:
+		return stillHeldSentence(held)
+	case len(held) == 0:
+		return "Whether the ports it held are free could not be checked: the fresh reading did not answer for its " +
+			strings.Join(blind, " and ") + " sockets."
+	default:
+		return stillHeldSentence(held) + " Whether the rest are free could not be checked: the fresh reading did not " +
+			"answer for its " + strings.Join(blind, " and ") + " sockets."
+	}
+}
+
+// blindTo names the transports a fresh reading could not answer for, out of
+// those the screen showed. It is what keeps the verification from describing a
+// reading that never happened as a clean bill of health.
+func blindTo(fresh Snapshot, shown []Listener) []string {
+	var blind []string
+	seen := make(map[string]bool, 2)
+	for _, l := range shown {
+		transport := l.Protocol.Transport()
+		if seen[transport] {
+			continue
+		}
+		seen[transport] = true
+		if !answeredFor(fresh, transport) {
+			blind = append(blind, transport)
+		}
+	}
+	return blind
+}
+
+// answeredFor reports whether at least one reader that completed without an
+// error can speak for the ports of one transport. A reader names itself after
+// what it read -- /proc/net/tcp, /proc/net/udp, lsof TCP, lsof UDP, ss, netstat
+// -- so a reader whose own name names the other transport cannot stand in for
+// this one, while a reader that names no transport read the whole table.
+func answeredFor(fresh Snapshot, transport string) bool {
+	other := "udp"
+	if transport == "UDP" {
+		other = "tcp"
+	}
+	for _, src := range fresh.Sources {
+		if src.Err != "" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(src.Name), other) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // waitForExit reports whether the process is still running, asking the kernel

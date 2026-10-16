@@ -297,6 +297,12 @@ func mapSocketOwners(p Probe, inodes []string, limits *[]string) (map[string]int
 		for _, fd := range fds {
 			link, err := p.Readlink(fdDir + "/" + fd.Name())
 			if err != nil {
+				// A denied link read is the same limit as a denied directory: the
+				// owner of something this run can see is not readable without
+				// privileges, and the row says so instead of blaming an exit.
+				if errors.Is(err, fs.ErrPermission) {
+					permissionLimited = true
+				}
 				continue
 			}
 			inode, ok := socketInode(link)
@@ -527,11 +533,9 @@ func discoverLinuxFallbacks(ctx context.Context, p Probe) ([]Listener, []Source,
 		listeners, source, limit := runSocketTool(ctx, p, path, []string{"-H", "-tulpn"}, parseSSOutput)
 		sources = append(sources, source)
 		if source.Err == "" && len(listeners) > 0 {
-			return enrichLinuxFallback(p, listeners), sources, append(limits, limit)
+			return enrichLinuxFallback(p, listeners), sources, joinLimits(limits, limit)
 		}
-		if limit != "" {
-			limits = append(limits, limit)
-		}
+		limits = joinLimits(limits, limit)
 	} else {
 		sources = append(sources, Source{Name: "ss", Err: "not on PATH"})
 	}

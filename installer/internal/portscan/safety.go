@@ -23,6 +23,7 @@ var secretNames = map[string]bool{
 	"passwd":        true,
 	"passphrase":    true,
 	"pwd":           true,
+	"pw":            true,
 	"token":         true,
 	"secret":        true,
 	"apikey":        true,
@@ -36,21 +37,46 @@ var secretNames = map[string]bool{
 }
 
 // RedactArgs returns a copy of a process's arguments with every recognisable
-// secret replaced. The input is never modified, and a flag whose value is not
-// recognisable as a secret is passed through unchanged: guessing at values
-// would mangle the arguments a diagnostic is supposed to reproduce exactly.
+// secret replaced. The input is never modified. The rules are deliberately
+// narrow in what they guess at and deliberately broad in where they look,
+// because a secret that survives is shown on the screen and copied into the
+// diagnostic:
+//
+//   - a flag whose own name is a secret (--password, --api-key,
+//     POSTGRES_PASSWORD) masks its separate value, its =value and its joined
+//     -pvalue form;
+//   - a name:value or name=value pair inside a larger argument is masked
+//     wherever it appears, which is what catches a JSON body on a command
+//     line;
+//   - a user:password pair is masked, both after a credential flag (-u,
+//     --user, --login) and inside a URL;
+//   - Bearer and Basic credentials are masked whole.
+//
+// What is left alone is what carries no credential: a bare account name, a
+// host:port pair, a path. Over-masking costs a diagnostic the fidelity it is
+// read for, so the rules stop at the values that are credentials by their own
+// shape or by their flag's name.
 func RedactArgs(args []string) []string {
 	if len(args) == 0 {
 		return nil
 	}
 
 	out := make([]string, len(args))
-	maskNext := false
+	maskNext, maskPairNext := false, false
 	for i, arg := range args {
-		if maskNext {
+		switch {
+		case maskNext:
 			out[i] = redacted
-			maskNext = false
+			maskNext, maskPairNext = false, false
 			continue
+		case maskPairNext:
+			maskPairNext = false
+			if looksLikeCredentialPair(arg) {
+				out[i] = redacted
+				continue
+			}
+			// A bare account name is not a secret on its own. The value still
+			// gets the embedded scan below, in case it carries one anyway.
 		}
 
 		switch {
@@ -60,10 +86,20 @@ func RedactArgs(args []string) []string {
 		case isSecretFlag(arg):
 			out[i] = arg
 			maskNext = i+1 < len(args)
-		case isRedactableValue(arg):
-			out[i] = redacted
+		case isCredentialFlag(arg):
+			out[i] = arg
+			maskPairNext = i+1 < len(args)
+		case isAttachedShortSecret(arg):
+			out[i] = arg[:2] + redacted
+		case isCredentialAssignment(arg):
+			key, value, _ := strings.Cut(arg, "=")
+			if looksLikeCredentialPair(value) {
+				out[i] = key + "=" + redacted
+			} else {
+				out[i] = key + "=" + value
+			}
 		default:
-			out[i] = redactURLUserinfo(arg)
+			out[i] = redactValue(arg)
 		}
 	}
 	return out
@@ -89,6 +125,79 @@ func isSecretFlag(arg string) bool {
 	return looksLikeSecretName(arg)
 }
 
+// credentialFlags are the flags whose value is a user:password pair, which is
+// how curl and the database clients take a login. The pair is masked and not
+// the whole flag, and not a bare account name either: the account is half the
+// credential, but on its own it is not the secret.
+var credentialFlags = map[string]bool{
+	"u":          true,
+	"U":          true,
+	"user":       true,
+	"username":   true,
+	"user-name":  true,
+	"login":      true,
+	"login-name": true,
+}
+
+// isCredentialFlag reports whether a flag is one that takes a login, in either
+// its short or its long spelling.
+func isCredentialFlag(arg string) bool {
+	if !strings.HasPrefix(arg, "-") || strings.Contains(arg, "=") {
+		return false
+	}
+	if credentialFlags[arg] {
+		return true
+	}
+	return credentialFlags[strings.TrimLeft(arg, "-")]
+}
+
+// isCredentialAssignment reports whether an argument is the =value form of a
+// credential flag, which is --user=alice:s3cret.
+func isCredentialAssignment(arg string) bool {
+	name, _, found := strings.Cut(arg, "=")
+	if !found {
+		return false
+	}
+	return isCredentialFlag(name)
+}
+
+// shortSecretLetters are the single letters whose joined value is a secret,
+// which is how mysql(1) is given a password (-ps3cret). Only letters whose
+// joined form is a credential in the tools that join it are listed: a wider
+// guess would mask arguments that are not secrets at all.
+const shortSecretLetters = "p"
+
+// isAttachedShortSecret reports whether an argument is a short flag with its
+// value joined to it, where the letter is one of the secret letters.
+func isAttachedShortSecret(arg string) bool {
+	if len(arg) < 3 || arg[0] != '-' || arg[1] == '-' {
+		return false
+	}
+	return strings.ContainsRune(shortSecretLetters, rune(arg[1]))
+}
+
+// looksLikeCredentialPair reports whether a value is the user:password form
+// rather than a host:port, a path or a URL. A URL carries its credential after
+// a scheme and is masked by redactURLUserinfo instead, and a host:port pair has
+// no second part to keep secret.
+func looksLikeCredentialPair(value string) bool {
+	if strings.Contains(value, "://") {
+		return false
+	}
+	colon := strings.Index(value, ":")
+	return colon > 0 && colon < len(value)-1
+}
+
+// redactValue masks the secrets inside one argument that is not itself a flag:
+// a self-naming credential whole, and every embedded pair whose name is a
+// secret.
+func redactValue(arg string) string {
+	if isRedactableValue(arg) {
+		return redacted
+	}
+	return redactEmbeddedSecrets(redactURLUserinfo(arg))
+}
+
 // isRedactableValue reports whether a whole argument is a credential that names
 // itself: a bearer token, a Basic header, or an HTTP header whose name is a
 // secret.
@@ -101,6 +210,64 @@ func isRedactableValue(arg string) bool {
 		return true
 	}
 	return false
+}
+
+// redactEmbeddedSecrets masks the value half of every name:value or name=value
+// pair inside one argument whose name is a secret. It is what catches a
+// credential travelling inside a larger argument -- a JSON body on a command
+// line ({"password":"hunter2"}), a header list, a query string -- where no flag
+// names it and no whole-argument rule can see it.
+func redactEmbeddedSecrets(arg string) string {
+	var out strings.Builder
+	i := 0
+	for i < len(arg) {
+		rel := strings.IndexAny(arg[i:], ":=")
+		if rel < 0 {
+			out.WriteString(arg[i:])
+			break
+		}
+		at := i + rel
+		out.WriteString(arg[i : at+1])
+		if !looksLikeSecretName(nameBeforeSeparator(arg[:at])) {
+			i = at + 1
+			continue
+		}
+
+		valueStart := at + 1
+		quote := byte(0)
+		if valueStart < len(arg) && (arg[valueStart] == '"' || arg[valueStart] == '\'') {
+			quote = arg[valueStart]
+			out.WriteByte(quote)
+			valueStart++
+		}
+		end := valueStart
+		for end < len(arg) {
+			c := arg[end]
+			if quote != 0 {
+				if c == quote {
+					break
+				}
+			} else if c == ' ' || c == ',' || c == '}' || c == ']' || c == ';' {
+				break
+			}
+			end++
+		}
+		if end > valueStart {
+			out.WriteString(redacted)
+		}
+		i = end
+	}
+	return out.String()
+}
+
+// nameBeforeSeparator is the key a separator belongs to: the run of characters
+// since the last delimiter, with any quoting removed. A prefix that carries no
+// key -- a URL scheme, a clock time of the form 12:30 -- yields something that
+// is not a secret name, which is what keeps the scan from masking a value that
+// names no secret.
+func nameBeforeSeparator(prefix string) string {
+	start := strings.LastIndexAny(prefix, " ,;{[(|")
+	return strings.Trim(strings.TrimSpace(prefix[start+1:]), "\"'")
 }
 
 // looksLikeSecretName reports whether a flag or key name is one of the account
@@ -248,15 +415,23 @@ func StopRefusal(p Probe, target StopTarget) string {
 	}
 
 	proc := target.Process
-	if proc.Scope != "" {
-		local := localScope(p)
-		if proc.Scope != local {
-			return "this process belongs to " + proc.Scope + ", and this run (" + local + ") cannot signal a process " +
-				"outside its own scope. Nothing was stopped."
-		}
-	}
 	if proc.PID <= 0 {
 		return "no process id was reported for this socket, so there is nothing to stop here."
+	}
+
+	// An unknown scope fails closed. Discover fills every owner's scope from the
+	// kernel the reading came from, so this is the hand-built target: a signal
+	// sent across a host/guest boundary because nobody said which side the
+	// process is on is exactly the mistake the scope rule exists to prevent.
+	local := localScope(p)
+	if proc.Scope == "" {
+		return "the scope this process belongs to could not be established, so this run cannot tell whether a process of " +
+			local + " or of the other side of a host/guest boundary is meant. Nothing was stopped; refresh so the reading " +
+			"names the scope."
+	}
+	if proc.Scope != local {
+		return "this process belongs to " + proc.Scope + ", and this run (" + local + ") cannot signal a process " +
+			"outside its own scope. Nothing was stopped."
 	}
 	return ProtectedReason(p, proc)
 }
