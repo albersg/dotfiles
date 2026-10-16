@@ -71,8 +71,16 @@ systemctl=${WSL_GUARD_SYSTEMCTL:-systemctl}
 # The headroom the distribution keeps for itself, and the swap it may use before
 # the cap bites. Both are absolute for the same reason: a stop that cannot
 # finish needs a fixed amount of memory, not a share of a machine.
+#
+# The swap allowance is not a luxury. Measured on 2026-10-16: a tmpfs is shmem,
+# shmem is only reclaimable by swapping, and while the scope could swap 512 MiB
+# against a VM holding 1536, the kernel had nowhere to put pages it could not
+# drop and killed the process holding the most -- five `pi` agents, repeatedly,
+# with only 2151 MiB of their own heaps between them. 1280 of the VM's 1536
+# leaves the kernel 256 MiB and gives pressure somewhere to go instead of taking
+# a process with it.
 reserve_max_mib=1536
-swap_max_mib=512
+swap_max_mib=1280
 min_total_mib=4096
 bytes_per_mib=1048576
 

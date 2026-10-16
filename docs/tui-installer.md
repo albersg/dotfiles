@@ -531,7 +531,7 @@ four limits on that scope and keeps them there:
 |---------|-------|-----|
 | `memory.high` | `infinity` | a number here is a throttle, not a limit: the kernel stalls the scope instead of killing anything, which is a freeze with no error, and on 2026-10-16 it froze this distribution for six minutes |
 | `memory.max` | the VM's own total minus 1536 MiB | leaves systemd and the shell room to keep working when a build fills the VM, so the kill lands on the build rather than on the distribution |
-| `memory.swap.max` | `512M` | bounded, so a spike is not absorbed silently by paging until the machine stops responding |
+| `memory.swap.max` | `1280M` | bounded, so a spike is not absorbed silently by paging until the machine stops responding, and wide enough that pages the kernel cannot drop have somewhere to go: a tmpfs is shmem, shmem is only reclaimable by swapping, and on 2026-10-16 verification worktrees under `/tmp` held 4524 MiB of the 8409 MiB cap that a 512M allowance could not reclaim. Raising it is the second line of defence; the first is not filling a tmpfs |
 | `memory.oom.group` | `0` | one task is killed, not every task in the group |
 
 **`OOMPolicy=continue` is the half that decides whether the distribution survives at all.** With

@@ -118,7 +118,7 @@ func readCgroup(t *testing.T, dir, name string) string {
 // manager-wide default that would reach every unit).
 func TestWSLMemoryGuardScriptAppliesTheFourLimits(t *testing.T) {
 	const wantMax = (8192 - 1536) * 1048576
-	const wantSwap = 512 * 1048576
+	const wantSwap = 1280 * 1048576
 
 	t.Run("systemd accepts the property", func(t *testing.T) {
 		out, exit, p := runWSLMemoryGuardScript(t, false, "continue", false)
