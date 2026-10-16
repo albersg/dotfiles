@@ -213,18 +213,18 @@ L5 (the native review could not run on this candidate, and what was decided):
 > slices over the same final tree. The pre-split chain is kept locally as `backup/ssh-manager-3unit`;
 > every file outside this log entry is byte-identical to it, and every slice below is a commit the
 > review can name as its own candidate:
-> - `c84cc84` feat(installer): the ssh manager gets its contract and the platform facts it needs (535 lines)
-> - `c904f71` feat(installer): the client's own configuration is read with its provenance (1303 lines)
-> - `a9cb4ac` feat(installer): writes stay inside one marked block of the ssh configuration (1365 lines)
-> - `514de52` feat(installer): a key pair is described from its public half (1314 lines)
-> - `278479b` feat(installer): the agent is described by what it really is (865 lines)
-> - `482a471` feat(installer): the connection test asks the client and classifies its answer (516 lines)
-> - `ff0ef5e` feat(installer): the diagnosis names what is wrong and what to do (1316 lines)
-> - `dd3bcbd` feat(installer): the ssh manager's screens and the commands behind them (2866 lines)
-> - `09b4608` test(installer): the ssh manager's screens are pinned by their own tests (917 lines)
-> - `ac0d7b4` feat(installer): the utilities section gets the ssh manager's row (239 lines)
-> - `47a471b` test(installer): the ssh screens are measured by the shared frame guards (87 lines)
-> - (this commit) docs(installer): the ssh manager is documented (313 lines)
+> - `342b905` feat(installer): the ssh manager gets its contract and the platform facts it needs (542 lines)
+> - `db93a9e` feat(installer): the client's own configuration is read with its provenance (1303 lines)
+> - `32cf0aa` feat(installer): writes stay inside one marked block of the ssh configuration (1365 lines)
+> - `1201122` feat(installer): a key pair is described from its public half (1314 lines)
+> - `451e22d` feat(installer): the agent is described by what it really is (865 lines)
+> - `b4759f9` feat(installer): the connection test asks the client and classifies its answer (516 lines)
+> - `bd0527f` feat(installer): the diagnosis names what is wrong and what to do (1316 lines)
+> - `36668ea` feat(installer): the ssh manager's screens and the commands behind them (2866 lines)
+> - `8afa54c` test(installer): the ssh manager's screens are pinned by their own tests (917 lines)
+> - `e03bebc` feat(installer): the utilities section gets the ssh manager's row (239 lines)
+> - `72dfb82` test(installer): the ssh screens are measured by the shared frame guards (87 lines)
+> - `b58c253` docs(installer): the ssh manager is documented (348 lines)
 > - Reviewing the first slice (535 lines, tier high, four lenses required) reached the capture step
 > and was refused typed: `reviewer-config-invalid`, "no model is configured for review-risk". The
 > reviewer completion reads `review-risk`, `review-resilience`, `review-readability` and
@@ -269,3 +269,34 @@ L6 (independent verification: what it found, and what was fixed):
 >   is deliberate and tested.
 > - The test count above is the real one; the verifier's four probes are part of the suite now, plus
 >   one for the runner fallback.
+
+L7 (the fix commits are a new mutation generation, and the disposition for them):
+
+> - The five fix commits above are a new candidate (the range `4191baf..HEAD`), so receipt-driven
+>   development asked for a review of that target as well. No transaction was started: the user's
+>   decision recorded in L5 ("continue without the native review of the slices") applies to this
+>   work, and the blocker it was made against is unchanged -- the reviewer roles still have no model
+>   in the agent model routing config, so a capture would be refused typed again before running
+>   anything, leaving another transaction that cannot close.
+> - The verification this range rests on is the independent one described in L6: each defect the
+>   verifier found now has a test that failed before the fix and passes after it.
+> - If the reviewer roles get models assigned (from `/gentle:models`; global agents write
+>   `~/.pi/agent/subagents.json`), the review can be resumed without redoing anything: the slice 1
+>   transaction is intact, and this range is a candidate of its own with `base-ref 4191baf`.
+
+L8 (the secret scan read a fixture as a secret, and the chain was rewritten to carry the fix):
+
+> - This repository's CI scans every pull request with gitleaks. A full local scan (1366 commits) reported eight
+>   findings, six of them in this work: the fixtures in `sshcfg/agent_test.go` and `sshcfg/keys_test.go` wrote a
+>   file at the path a private key would occupy and gave it a key header. The tests never read that file -- that
+>   is the rule they pin -- so the header was decoration, and it made a fixture look like a secret to the scanner
+>   and to anyone reading the diff.
+> - The marker is now one shared placeholder (`testPrivatePlaceholder` in `helpers_test.go`) that cannot be read as
+>   a key. The three slices that carried the literal were amended and the rest of the chain rebased, so no commit
+>   in the pull request range contains it; `gitleaks --log-opts c1e4a64..HEAD` reports no leaks. The tip tree
+>   differs from the pre-rewrite tip only in those three test files and in this record, and the table above lists
+>   the SHAs of the rewritten chain.
+> - The other two findings are pre-existing and outside this range, both in commits that are ancestors of `main`:
+>   `internal/tui/shellaudit_profile_test.go` (a curl authorization-header string) and
+>   `internal/updates/updates_test.go` (a generic API-key pattern). They are reported to the maintainer rather
+>   than touched here, because they are not this change's to fix.
