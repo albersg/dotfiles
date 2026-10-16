@@ -333,3 +333,25 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
   code did something else was reading a lie of exactly the class this front removes. Both tables now
   state the shipped arithmetic, and the CHANGELOG gained an entry for the policy change and one for
   the guard.
+- L12: T7's independent verifier returned its verdict: **S1-S10 satisfied**. It recomputed the
+  arithmetic itself from `MemTotal` (16016 MiB -> ratio 11195995478, room 12499025920, floor
+  8396996608, target 11195995478, /512 MiB = 20 steps = 10240 MB; `max(1, 12-1)` = 11) and re-ran the
+  payload against a fabricated cgroup and a stub systemctl (accept / refuse-cap / drop-in honoured /
+  drop-in ignored, plus the boundaries). It also **falsified a claim this document makes**, and two
+  smaller defects, which is what a verifier is for:
+  - F1, real and change-caused: `README.md:296` still carried the pre-T1 policy -- "half the host's
+    RAM ... (never so much that Windows keeps under 2 GiB), every logical CPU". L11 above claims the
+    stale instruction survives "nowhere"; the main user README is exactly where it survived, and
+    README is the first document a user reads.
+  - F2: the comment on `installWSLMemoryGuard` said the only error it returns is a packaging one.
+    That is false -- a `probe.install` the host refuses, such as a denied sudo write, returns one too.
+  - F3: `shellcheck -s bash` on the payload reported SC2209 at `want_policy=continue`. A false
+    positive, but the one script this distribution installs into `/etc` should be clean.
+  It ran **no Go test and no `go vet`**: `init.scope` stood at 7919 MiB of its 8409 MiB cap, above
+  the ~7800 MiB gate it set for itself, and it refused to be the load that reproduces the incident.
+  Recorded as unrun, never as passed.
+- L13: F1, F2 and F3 are fixed in the front's third commit. The README now states the shipped rule in
+  the same words the TUI uses; the comment now says what the function actually returns; the payload
+  quotes the value and `shellcheck` exits 0. The verifier's script-level probes are committed as
+  `wsl_memory_guard_script_test.go`, together with the two boundaries it described but did not write,
+  so the payload's half of S8, S9 and S10 are a test rather than an argument. Both run and pass.
