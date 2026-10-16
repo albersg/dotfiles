@@ -486,6 +486,11 @@ func restoreBackup(backupDir string, planOnly bool) (RestoreReport, error) {
 			failures = append(failures, entry.Key+": "+entry.Reason)
 		}
 	}
+	// The entries this restore was supposed to place: the ones it has a copy for,
+	// plus the ones the manifest names and the directory does not hold. Counting
+	// only the first would report "1 of 0 entries" for a backup whose every entry
+	// is missing.
+	expected := len(plan) + len(failures)
 	for _, item := range plan {
 		if err := swapIn(item.src, item.dst); err != nil {
 			report.Entries = append(report.Entries, RestoreEntryReport{
@@ -508,7 +513,7 @@ func restoreBackup(backupDir string, planOnly bool) (RestoreReport, error) {
 
 	if len(failures) > 0 {
 		return report, fmt.Errorf("restoring %s failed for %d of %d entries: %s",
-			backupDir, report.Failed, len(plan), strings.Join(failures, "; "))
+			backupDir, report.Failed, expected, strings.Join(failures, "; "))
 	}
 	return report, nil
 }

@@ -195,6 +195,76 @@ func TestRestoreRefusesADirectoryThisProgramDidNotWrite(t *testing.T) {
 	}
 }
 
+// The machine's most ordinary state after a second run: a completed run that
+// changed nothing. It has entries and no per-file changes, which is also the shape
+// a record written before this branch carried -- and the answer is not "everything
+// is unrevertible, exit 1", it is that there is nothing to put back.
+func TestRevertOnAMachineWhereNothingChangedSaysSo(t *testing.T) {
+	home := t.TempDir()
+	stateHome := filepath.Join(home, "state")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	zshrc := filepath.Join(home, ".zshrc")
+	if err := os.WriteFile(zshrc, []byte("unchanged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeRecord(t, stateHome, map[string]any{
+		"timestamp": "2026-01-01T00:00:00Z",
+		"version":   "test",
+		"status":    "complete",
+		"files":     []string{},
+		"entries":   []map[string]any{{"key": "zsh", "path": zshrc, "action": "found"}},
+		"changes":   []map[string]any{},
+	})
+
+	if status := reportRevert(false); status != 0 {
+		t.Errorf("reportRevert on a machine where the run changed nothing = %d, want 0", status)
+	}
+	data, err := os.ReadFile(zshrc)
+	if err != nil || string(data) != "unchanged" {
+		t.Errorf("the revert touched a file the run did not change: %q (%v)", string(data), err)
+	}
+}
+
+// A dry run is how a person -- or a script -- asks "can this backup go back
+// before I ask it to". A plan that names an entry the backup does not hold is not
+// a yes.
+func TestRestoreDryRunSaysABackupCannotComplete(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	zshrc := filepath.Join(home, ".zshrc")
+	if err := os.WriteFile(zshrc, []byte("after"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backupDir := filepath.Join(home, ".dotfiles-backup-2026-01-01-000000")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backupDir, "zsh"), []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The manifest names two entries; the directory holds one.
+	gitconfig := filepath.Join(home, ".gitconfig")
+	manifest := `{"schemaVersion":1,"createdAt":"2026-01-01T00:00:00Z","entries":[` +
+		`{"key":"zsh","rel":".","path":"` + zshrc + `","kind":"file"},` +
+		`{"key":"gitconfig","rel":".","path":"` + gitconfig + `","kind":"file"}]}`
+	if err := os.WriteFile(filepath.Join(backupDir, "backup.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if status := reportRestore(backupDir, true); status != 1 {
+		t.Errorf("dry run of a backup whose manifest names an entry it does not hold = %d, want 1", status)
+	}
+	data, _ := os.ReadFile(zshrc)
+	if string(data) != "after" {
+		t.Errorf("the dry run changed %s to %q", zshrc, string(data))
+	}
+}
+
 // The other way back, for a machine whose record is gone: a backup directory
 // named by hand goes back where its entries came from.
 func TestRestorePutsBackupDirectoryBack(t *testing.T) {

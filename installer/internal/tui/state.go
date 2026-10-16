@@ -147,6 +147,12 @@ type lastInstall struct {
 	Files       []string       `json:"files"`
 	Entries     []installEntry `json:"entries,omitempty"`
 	Changes     []fileChange   `json:"changes,omitempty"`
+	// legacy marks a record read from the shape records had before per-file
+	// digests: paths in Files and nothing in Entries. It is never serialized, so a
+	// record this build writes does not carry it, and it is what tells the two
+	// apart when both would otherwise look like "entries and no changes" -- which
+	// is also what a modern run that changed nothing looks like.
+	legacy bool `json:"-"`
 }
 
 // stateDir returns the directory the record lives in: $XDG_STATE_HOME/dotfiles
@@ -214,6 +220,7 @@ func readLastInstall() *lastInstall {
 	}
 	if len(rec.Entries) == 0 && len(rec.Files) > 0 {
 		rec.Entries = legacyEntries(rec.Files)
+		rec.legacy = true
 	}
 	return &rec
 }
@@ -587,6 +594,7 @@ func readLastInstallRecord() (*lastInstall, error) {
 	}
 	if len(rec.Entries) == 0 && len(rec.Files) > 0 {
 		rec.Entries = legacyEntries(rec.Files)
+		rec.legacy = true
 	}
 	return &rec, nil
 }

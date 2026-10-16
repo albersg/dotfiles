@@ -254,7 +254,7 @@ func reportRevert(dryRun bool) int {
 		return 2
 	}
 
-	if report.Record != nil {
+	if report.Record != nil && len(report.Files) > 0 {
 		// The record's own count, not this run's plan: on a second run nothing is
 		// left to do, and "changed 0 file(s)" would misdescribe the record the
 		// lines below are read from.
@@ -284,6 +284,12 @@ func reportRevert(dryRun bool) int {
 		return 1
 	case dryRun:
 		fmt.Println("\nDry run: nothing was changed.")
+		return 0
+	case len(report.Files) == 0:
+		// A run that changed no file has nothing to put back. Saying that every
+		// file "already holds what it held before it" would describe a revert that
+		// examined files the record never named.
+		fmt.Println("The run changed no configuration file, so there is nothing to put back.")
 		return 0
 	case report.Reverted == 0:
 		fmt.Println("\nEvery file the run changed already holds what it held before it.")
@@ -367,6 +373,11 @@ func reportRestore(path string, dryRun bool) int {
 	}
 
 	switch {
+	case dryRun && report.Failed > 0:
+		// A plan that names an entry it cannot place is not a yes: a script asking
+		// whether this backup can go back has to be able to read the answer.
+		fmt.Printf("\nDry run: nothing was changed, and %d entr(ies) could not be put back.\n", report.Failed)
+		return 1
 	case dryRun:
 		fmt.Println("\nDry run: nothing was changed.")
 		return 0
@@ -603,7 +614,9 @@ Flags:
                        its own; and a directory this program did not write is
                        refused. Exits 0 when every entry went back, 1 when an entry
                        could not be placed, 2 when the directory is not a backup
-                       this program wrote. Honours --dry-run
+                       this program wrote. --dry-run prints the plan and changes
+                       nothing, and exits 1 when that plan names an entry the
+                       backup does not hold
   --channel=<name>     Channel to follow: stable (the latest published release,
                        the default) or dev (the highest-versioned pre-release). The choice
                        is remembered in update-check.json and offered again as

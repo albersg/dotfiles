@@ -287,6 +287,13 @@ func (m Model) beginInstallFromReview() (tea.Model, tea.Cmd) {
 	m.Screen = ScreenInstalling
 	m.CurrentStep = 0
 	m.Cursor = 0
+	// A baseline belongs to the run that took it. A retry after a failure starts a
+	// new run, and the state this one found is what its record has to compare
+	// against; the first step takes it (captureRunBaseline). Without this the
+	// record of the second run would name the first attempt's starting state,
+	// while the backup it names holds the state this run actually found.
+	m.ConfigFingerprints = nil
+	m.ConfigFileIndex = nil
 	return m, func() tea.Msg { return installStartMsg{} }
 }
 

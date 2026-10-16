@@ -40,7 +40,18 @@ anything, so the command reports a measurement rather than an attempt.
   `unrevertible`, never skipped, and a file that changed again since the run is reverted
   and named.
 - **Exit status:** `0` when the machine is back where the run found it (or already was),
-  `1` when a file could not be put back, `2` when there is no record to revert.
+  `1` when a file could not be put back, `2` when there is no record to revert. A run that
+  changed no file is `0` and says so.
+- **The record describes the run it belongs to.** A retry after a failure starts a new run,
+  whose record names the state that run found and whose backup holds that same state, so a
+  record's two digests and its copies agree with each other. Undoing further back -- past a
+  retry -- is what `--restore` is for, and every backup directory a machine ever took is
+  still there.
+- **A run that was stopped is not a run that failed.** An install interrupted with `ctrl+c`
+  leaves no record, because nothing failed: the command that stopped it is the one that
+  knows. What it wrote before stopping is still undone from the other direction -- the backup
+  taken before its first write is on disk, `ls -d ~/.dotfiles-backup-*` names it, and
+  `dotfiles --restore=<that directory>` puts it back.
 
 ### Putting one backup directory back
 
@@ -65,7 +76,9 @@ copy; and `failed` with the reason, for an entry the manifest names whose copy i
 replacement that could not be put in place. A `failed` entry is never reported as a machine
 that is back: the command names it and exits. **Exit status:** `0` when every entry went
 back, `1` when an entry could not be placed, `2` when the directory is not a backup this
-program wrote or could not be read.
+program wrote or could not be read. `--dry-run` prints the plan and changes nothing; it
+exits `0` when that plan would put everything back and `1` when it names an entry the backup
+does not hold, so a script can ask the question before it asks the restore.
 
 ### Checking what a machine is
 

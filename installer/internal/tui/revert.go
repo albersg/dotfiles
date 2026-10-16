@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -94,6 +95,19 @@ func (r RevertReport) Complete() bool {
 //
 // A machine with no record has nothing to revert, and that is the answer: the
 // error is errNoRecord, which the command line reports without a traceback.
+// backupDirectoryFor returns the backup directory that holds an entry's copy, or
+// "" when the record names none. A copy is named as a file inside the directory
+// (BackupDir/key), and --restore takes the directory, so the way back a reader is
+// handed has to be the directory itself: the printed command has to work.
+func backupDirectoryFor(entry installEntry) string {
+	if entry.Backup == "" {
+		return ""
+	}
+	// The writer always names a copy inside the directory (BackupDir/key), for a
+	// directory key as well as a file key, so the directory is always its parent.
+	return filepath.Dir(entry.Backup)
+}
+
 func RevertLastRun(opts RevertOptions) (RevertReport, error) {
 	report := RevertReport{
 		Files:        []RevertFileReport{},
@@ -120,15 +134,15 @@ func RevertLastRun(opts RevertOptions) (RevertReport, error) {
 	// what changed in them. There is no file-by-file work to do from it, and the
 	// honest answer is not "already in place": it is that this command cannot act
 	// on that record, and which command can.
-	if len(record.Changes) == 0 && len(record.Entries) > 0 {
+	if record.legacy && len(record.Entries) > 0 {
 		for _, entry := range record.Entries {
 			action := fileActionModified
 			if entry.Action == installActionCreated {
 				action = fileActionCreated
 			}
 			reason := "the record predates per-file digests, so it does not say what this file changed"
-			if entry.Backup != "" {
-				reason += "; `dotfiles --restore=" + entry.Backup + "` puts the whole entry back"
+			if dir := backupDirectoryFor(entry); dir != "" {
+				reason += "; `dotfiles --restore=" + dir + "` puts the whole entry back"
 			} else {
 				reason += "; `dotfiles --restore=<backup>` puts a whole backup entry back"
 			}

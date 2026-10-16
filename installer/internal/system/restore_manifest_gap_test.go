@@ -55,6 +55,12 @@ func TestARestoreNamesAManifestEntryWhoseCopyIsGone(t *testing.T) {
 	if err == nil {
 		t.Fatal("a restore that could not put back an entry the manifest names reported success")
 	}
+	// The account has to count the entries it was supposed to place -- the two the
+	// manifest names, not the one the directory still holds -- or it tells a reader
+	// that one of nothing went wrong.
+	if !strings.Contains(err.Error(), "failed for 1 of 2 entries") {
+		t.Errorf("the failure account does not count the entry it could not place: %v", err)
+	}
 
 	var namedFailure bool
 	for _, entry := range report.Entries {

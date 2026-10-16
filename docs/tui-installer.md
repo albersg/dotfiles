@@ -1577,8 +1577,15 @@ is still someone's way back.
 a file it created is removed, and each file is compared afterwards against the digest the run
 recorded, so the command reports a measurement rather than an attempt. It is idempotent, it keeps
 what it replaces in a backup of its own, and it reports a file whose copy is gone as `unrevertible`
-instead of skipping it. `dotfiles --restore <backup>` does the same for one backup directory named by
-hand, which is the way back for a machine whose record is gone.
+instead of skipping it. A run that changed no file is not a failure and not a legacy record: the
+machine already holds what that run left, and the command says so instead of calling every path
+unrevertible. A run stopped with `ctrl+c` leaves no record at all -- nothing failed -- but the
+backup it had taken before writing anything is still on disk, and `dotfiles --restore=<that
+directory>` is the way back. A retry after a failure starts a new run whose record names the
+state that run found, so a record's digests and its copies always describe the same moment. `dotfiles --restore <backup>` does the same for one backup directory named by
+hand, which is the way back for a machine whose record is gone; its `--dry-run` prints the plan
+and changes nothing, and exits 1 rather than 0 when that plan names an entry the backup does not
+hold, so asking whether a backup can go back and asking it to go back are two different answers.
 
 The failure screen names the same way back: it says which directory holds what the run replaced, that
 `dotfiles --revert` puts it back, and what no command undoes. See
