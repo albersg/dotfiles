@@ -254,6 +254,14 @@ func (m Model) renderInstallReview() string {
 	body = append(body, "")
 	body = append(body, count...)
 
+	// The way back is named here, on the screen where a person can still decide not
+	// to start, and it is placed in the rows the list did not need -- the rule this
+	// frame already follows for the panel summary and the creature. A short terminal
+	// keeps the units and the count and loses the sentence, which is the right way
+	// round: the list is what this screen is for, and the same sentence is on the
+	// failure screen and in the panel that offers the run.
+	body = append(body, wayBackRows(wayBackBeforeTheRun(m.Choices.CreateBackup), width, budget-len(body))...)
+
 	return m.frame(m.headerName(), "", body, hints)
 }
 
@@ -433,4 +441,28 @@ func (opts planOptions) unitIsDisabled(id string) bool {
 // different things on the two routes.
 func stepIsSkipped(step InstallStep) bool {
 	return step.Status == StatusSkipped
+}
+
+// wayBackRows renders the way back into the rows a screen did not need, and gives
+// up before it takes one: a frame with no room shows no sentence rather than a row
+// fewer of what the screen is for. The chip reports that the block continues
+// rather than the sentence stopping mid-word.
+func wayBackRows(lines []string, width, room int) []string {
+	if room < 2 {
+		return nil
+	}
+
+	block := []string{chip("Way back")}
+	room--
+
+	for _, line := range lines {
+		for _, row := range wrapText(line, width-2, 2) {
+			if room <= 0 {
+				return block
+			}
+			block = append(block, gutteredBlock([]string{row})...)
+			room--
+		}
+	}
+	return block
 }

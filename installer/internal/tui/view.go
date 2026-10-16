@@ -3522,6 +3522,15 @@ func (m Model) renderError() string {
 	}
 	body = append(body, gutteredBlock(errLines)...)
 
+	// The way back is named before the log: a failure is where a person needs to
+	// know what the run already changed and how to put it back, and the log is
+	// context for that rather than a substitute for it. The block is three rows so
+	// it cannot be the reason the log disappears from a short frame.
+	body = append(body, "", chip("Way back"))
+	for _, line := range wayBackAfterAFailure(m.BackupDir) {
+		body = append(body, gutteredBlock(wrapText(line, width-2, 2))...)
+	}
+
 	// Show the freshest log lines for context, as many as the frame leaves rather
 	// than a fixed five. One dim row names the earlier lines the panel could not
 	// show, so a log longer than the panel degrades out loud instead of dropping

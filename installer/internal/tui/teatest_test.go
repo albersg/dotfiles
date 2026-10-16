@@ -858,6 +858,10 @@ func TestErrorScreenGolden(t *testing.T) {
 	m.Height = 24
 	m.Screen = ScreenError
 	m.ErrorMsg = "Test error: something went wrong during installation"
+	// The common case on this screen: the run had already taken the backup, so the
+	// frame has to hold the directory it names. The no-backup variant is pinned by
+	// TestTheFailureScreenSaysWhenTheRunTookNoBackup instead of by a second frame.
+	m.BackupDir = "/home/testuser/.dotfiles-backup-20261016-120000"
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Installation failed"))
 }
