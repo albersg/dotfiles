@@ -175,8 +175,22 @@ func Clean(ctx context.Context, probe Probe, guard Guard, plan Plan, opts CleanO
 				freed += delta
 			}
 		}
-		report.FreedBytes = freed
-		report.FreedMeasured = measured
+		switch {
+		case !measured:
+			report.FreedMeasured = false
+		case freed > 0:
+			report.FreedBytes = freed
+			report.FreedMeasured = true
+		default:
+			// The reads succeeded and the filesystem gained nothing. A zero is
+			// not presented as the answer: something else was writing to the
+			// same filesystem while the run was in flight, or the bytes are
+			// still held by an open file, and either way the number the user
+			// wants is the run's own per-item measurement below.
+			report.FreedMeasured = false
+			report.FreedNote = "the filesystem gained no free space around the run: other processes were writing to the " +
+				"same filesystem while it ran, or the files are still held open by a program that has them"
+		}
 	} else {
 		report.FreedNote = "the run's storage is not on a filesystem this utility measured, so the release is " +
 			"taken from the tool's own accounting for each item"

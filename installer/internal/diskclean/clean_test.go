@@ -332,15 +332,28 @@ func TestCleanReportsTheFilesystemDeltaAsTheRealRelease(t *testing.T) {
 	guard := GuardFor(probe, items)
 	report := Clean(context.Background(), probe, guard, BuildPlan(items, guard), CleanOptions{})
 
-	if !report.FreedMeasured {
-		t.Fatalf("the filesystem delta was not measured: %s", report.FreedNote)
+	if report.FreedMeasured {
+		// The other name still holds the file, so the filesystem cannot have
+		// released a megabyte. The bound is generous because other processes write
+		// during a test, and it is the direction that matters.
+		if report.FreedBytes >= 1<<20 {
+			t.Errorf("the filesystem claims %d bytes freed while the file is still linked at %s",
+				report.FreedBytes, second)
+		}
+	} else {
+		// Nothing came back because the other name still holds the bytes. That is
+		// the honest answer for this run, and it is a reason rather than a zero: a
+		// screen that printed "released 0 B" here would be claiming a measurement
+		// of a release that never happened.
+		if report.FreedNote == "" {
+			t.Error("the report has no release and no reason for one")
+		}
+		if report.FreedBytes != 0 {
+			t.Errorf("an unmeasured report carries %d bytes", report.FreedBytes)
+		}
 	}
-	// The other name still holds the file, so the filesystem cannot have
-	// released a megabyte. The bound is generous because other processes write
-	// during a test, and it is the direction that matters.
-	if report.FreedBytes >= 1<<20 {
-		t.Errorf("the filesystem claims %d bytes freed while the file is still linked at %s",
-			report.FreedBytes, second)
+	if report.Results[0].Freed <= 0 {
+		t.Errorf("the run did not measure the bytes of the name it unlinked: %+v", report.Results[0])
 	}
 	if _, err := os.Lstat(second); err != nil {
 		t.Fatalf("the other hardlink disappeared: %v", err)
