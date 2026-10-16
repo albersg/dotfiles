@@ -38,6 +38,33 @@ var secretNames = map[string]bool{
 	"authorization": true,
 }
 
+// shortSecretNames are the words that are a secret where they stand alone or
+// end a name, and nowhere else: pass, pw and pwd are also the tail of ordinary
+// words (bypass, compass, overpass) and of names that describe a step rather
+// than a value (--pass-through), so a rule that matched them anywhere would
+// mask a value that is not a secret at all.
+var shortSecretNames = map[string]bool{
+	"pass": true,
+	"pw":   true,
+	"pwd":  true,
+}
+
+// negationSegments are the words that turn the segment after them into the
+// absence of a thing rather than the thing: --no-auth takes no credential, so
+// its value is not one, and the argument after it is not masked.
+var negationSegments = map[string]bool{
+	"no": true, "not": true, "non": true, "without": true, "disable": true, "disabled": true,
+	"skip": true, "ignore": true, "false": true, "off": true,
+}
+
+// containerSegments are the words that name where a secret lives rather than
+// the secret itself: --token-file takes a path, and a path is not a token.
+var containerSegments = map[string]bool{
+	"file": true, "path": true, "dir": true, "directory": true, "store": true, "source": true,
+	"env": true, "var": true, "name": true, "id": true, "prefix": true, "suffix": true,
+	"length": true, "count": true, "ttl": true, "type": true, "scheme": true, "uri": true, "url": true,
+}
+
 // RedactArgs returns a copy of a process's arguments with every recognisable
 // secret replaced. The input is never modified. The rules are deliberately
 // narrow in what they guess at and deliberately broad in where they look,
@@ -45,20 +72,22 @@ var secretNames = map[string]bool{
 // diagnostic:
 //
 //   - a flag whose own name is a secret (--password, --api-key,
-//     POSTGRES_PASSWORD, --pass) masks its separate value and its =value, and a
-//     short password flag (-p) masks the value apart from it;
-//   - a short flag that carries its secret joined to it (-ps3cret, how mysql(1)
-//     takes a password) is masked when the value carries a character a flag
-//     name would not, because -print and -path begin with the same letter;
+//     POSTGRES_PASSWORD, --pass) masks its separate value and its =value;
+//   - a short password flag (-p is mysql's, -a is redis-cli's) masks the value
+//     apart from it unless that value can be the port the same letter names in
+//     another tool, and a short flag with its value joined to it (-ps3cret)
+//     masks the value unless it reads as a port or as a flag name that carries
+//     no secret;
 //   - a name:value or name=value pair inside a larger argument is masked
 //     wherever it appears, which is what catches a JSON body on a command
 //     line;
-//   - a user:password pair is masked, both after a credential flag (-u,
-//     --user, --login) and inside a URL;
+//   - a user:password pair is masked, after a credential flag (-u, --user,
+//     --login, --proxy-user) and inside a URL or a bare userinfo;
 //   - Bearer and Basic credentials are masked whole.
 //
 // What is left alone is what carries no credential: a bare account name, a
-// host:port pair, a port mapping, a path, a flag that merely begins with a
+// host:port pair, a port mapping, a path, the absence of a thing (--no-auth),
+// the place a secret lives (--token-file), a flag that merely begins with a
 // secret letter. Over-masking costs a diagnostic the fidelity it is read for,
 // so the rules stop at the values that are credentials by their own shape or by
 // their flag's name.
@@ -87,11 +116,11 @@ func RedactArgs(args []string) []string {
 			out[i] = arg
 			maskNext = i+1 < len(args)
 		case isShortSecretFlag(arg):
-			// -p is a password where its value is joined to it (mysql -ps3cret)
-			// and a port where it is not (ssh -p 2222), so the value decides: a
-			// value that reads as a port or an address is left alone.
+			// -p is mysql's password and -a is redis-cli's, but the same letters
+			// name ports and flags elsewhere (ssh -p 2222, grep -a -n), so the
+			// value decides: what can be a port or a path is left alone.
 			out[i] = arg
-			maskNext = i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && !looksLikePortOrAddress(args[i+1])
+			maskNext = i+1 < len(args) && shortFlagValueIsSecret(args[i+1])
 		case isCredentialFlag(arg):
 			out[i] = arg
 			maskNext = i+1 < len(args) && looksLikeCredentialPair(args[i+1])
@@ -123,12 +152,23 @@ func isSecretAssignment(arg string) bool {
 
 // isSecretFlag reports whether an argument is a flag whose separate value is
 // the secret, so the mask lands on the argument that follows rather than on the
-// flag's own name.
+// flag's own name. A single-dash name that only ends with a secret word is not
+// one of these: -psecret is a short password flag with its value joined to it,
+// and reading it as a flag would mask the database name after it and show the
+// password.
 func isSecretFlag(arg string) bool {
 	if !strings.HasPrefix(arg, "-") {
 		return false
 	}
-	return looksLikeSecretName(arg)
+	if !looksLikeSecretName(arg) {
+		return false
+	}
+	name := strings.TrimLeft(arg, "-")
+	if !strings.HasPrefix(arg, "--") && len(name) > 1 && !secretNames[name] &&
+		strings.ContainsRune(shortSecretLetters, rune(name[0])) {
+		return false
+	}
+	return true
 }
 
 // credentialFlags are the flags whose value is a user:password pair, which is
@@ -143,6 +183,8 @@ var credentialFlags = map[string]bool{
 	"user-name":  true,
 	"login":      true,
 	"login-name": true,
+	"proxy-user": true,
+	"proxyuser":  true,
 }
 
 // isCredentialFlag reports whether a flag is one that takes a login, in either
@@ -167,22 +209,39 @@ func isCredentialAssignment(arg string) bool {
 	return isCredentialFlag(name)
 }
 
-// shortSecretLetters are the single letters whose joined value is a secret,
-// which is how mysql(1) is given a password (-ps3cret). Only letters whose
-// joined form is a credential in the tools that join it are listed: a wider
-// guess would mask arguments that are not secrets at all.
-const shortSecretLetters = "p"
+// shortSecretLetters are the single letters that take a credential in the tools
+// this installer describes: -p is mysql's password, -a is redis-cli's. Only
+// those are listed, because every other letter is a port, a boolean or a
+// pattern far more often than it is a password.
+const shortSecretLetters = "pa"
 
 // isShortSecretFlag reports whether an argument is a short secret flag standing
-// on its own (-p), whose separate value is the secret: sshpass -p s3cret.
+// on its own (-p), whose separate value is the secret: mysql -p s3cret.
 func isShortSecretFlag(arg string) bool {
 	return len(arg) == 2 && arg[0] == '-' && strings.ContainsRune(shortSecretLetters, rune(arg[1]))
 }
 
+// shortFlagValueIsSecret reports whether the argument after a standalone short
+// password flag is the secret rather than the port or the path the same letter
+// names in another tool. What can be a port (2222, 8080:80, /dev/tty) is not a
+// password; a value that is a flag of its own is not one either, unless it
+// carries what a flag name would not (-s3cret is a password, -t is sshpass's
+// own option).
+func shortFlagValueIsSecret(value string) bool {
+	if looksLikeAPort(value) {
+		return false
+	}
+	if strings.HasPrefix(value, "-") {
+		return carriesNonFlagCharacter(value)
+	}
+	return true
+}
+
 // isJoinedShortSecret reports whether a short flag carries its value joined to
-// it and that value is a secret. Two things keep the rule from eating a flag's
-// own name: a joined value that reads as a port mapping (-p8080:80) is a port,
-// and one that carries nothing a flag name would (-print, -path) is a flag.
+// it and that value is a secret. Three things keep the rule from eating a flag's
+// own name: a joined value that can be a port (-p8080:80, -p2222) is a port, a
+// bare word that names no secret (-print, -path, -pfoo) is a flag name, and
+// everything else is the password it looks like (-psecret, -p123456, -ps3cret).
 func isJoinedShortSecret(arg string) bool {
 	if len(arg) < 3 || arg[0] != '-' || arg[1] == '-' {
 		return false
@@ -191,16 +250,28 @@ func isJoinedShortSecret(arg string) bool {
 		return false
 	}
 	tail := arg[2:]
-	return !looksLikePortOrAddress(tail) && carriesNonFlagCharacter(tail)
+	if looksLikeAPort(tail) {
+		return false
+	}
+	if isBareFlagWord(tail) && !looksLikeSecretName(tail) {
+		return false
+	}
+	return true
 }
 
-// looksLikePortOrAddress reports whether a value reads as a port, a port
-// mapping or an address rather than as a credential: 2222, 8080:80,
-// 0.0.0.0:3000, [::1]:3000. It is what keeps ssh -p 2222 and docker -p 8080:80
-// readable in a diagnostic.
-func looksLikePortOrAddress(value string) bool {
+// looksLikeAPort reports whether a value can be the port a short flag takes: a
+// number in the port range, an address or a mapping, or a path. It is what keeps
+// ssh -p 2222, docker -p 8080:80 and ls -a /tmp readable while a password --
+// which is none of those -- is masked.
+func looksLikeAPort(value string) bool {
 	if value == "" {
 		return false
+	}
+	if port, err := strconv.Atoi(value); err == nil {
+		return port > 0 && port <= 65535
+	}
+	if isPath(value) {
+		return true
 	}
 	for _, r := range value {
 		switch {
@@ -216,11 +287,32 @@ func looksLikePortOrAddress(value string) bool {
 	return true
 }
 
+// isPath reports whether a value names a place in the file system rather than a
+// credential: it begins with a slash, a dot-slash, a parent or a home. A path is
+// what ls -a /tmp carries after a boolean flag that happens to share its letter
+// with a password flag, and a secret is not spelled like one.
+func isPath(value string) bool {
+	return strings.HasPrefix(value, "/") || strings.HasPrefix(value, "./") ||
+		strings.HasPrefix(value, "../") || strings.HasPrefix(value, "~/")
+}
+
+// isBareFlagWord reports whether a value is a word a flag name could be: lower
+// case letters only, with no digit and no punctuation.
+func isBareFlagWord(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
 // carriesNonFlagCharacter reports whether a value carries a character a flag
 // name would not: a digit, an upper-case letter or one of the punctuation
-// characters a password uses. No rule separates a joined password from a flag
-// name that begins with the same letter on the value alone, so a value with no
-// such character is read as the flag name it most often is.
+// characters a password uses.
 func carriesNonFlagCharacter(value string) bool {
 	for _, r := range value {
 		switch {
@@ -255,7 +347,7 @@ func redactValue(arg string) string {
 	if isRedactableValue(arg) {
 		return redacted
 	}
-	return redactEmbeddedSecrets(redactURLUserinfo(arg))
+	return redactEmbeddedSecrets(redactBareUserinfo(redactURLUserinfo(arg)))
 }
 
 // isRedactableValue reports whether a whole argument is a credential that names
@@ -349,6 +441,12 @@ func nameBeforeSeparator(prefix string) string {
 // POSTGRES_PASSWORD and --db-password both resolve to the segment password,
 // and a whole name with no separator is checked for a secret suffix so that
 // --mytoken and --sessionsecret are caught without matching --authenticator.
+// Three rules keep a name that carries no secret readable: a word that is a
+// secret only where it stands alone (pass, pw, pwd) counts only as the last
+// segment, so DB_PASS is one and bypass and --pass-through are not; a segment
+// after a negation is not a secret, because --no-auth takes none; and a secret
+// word followed by the name of a place is not one either, because --token-file
+// takes a path.
 func looksLikeSecretName(name string) bool {
 	cleaned := strings.ToLower(strings.TrimSpace(strings.TrimLeft(name, "-")))
 	if cleaned == "" {
@@ -360,15 +458,30 @@ func looksLikeSecretName(name string) bool {
 	})
 	if len(segments) > 1 {
 		for i, segment := range segments {
-			if secretNames[segment] {
-				return true
+			if i > 0 && negationSegments[segments[i-1]] {
+				continue
 			}
-			// A two-word name is one account word when the words are joined:
-			// api-key, access-key and secret-key are apikey, accesskey and
-			// secretkey spelled apart.
-			if i+1 < len(segments) && secretNames[segment+segments[i+1]] {
-				return true
+			if !secretNames[segment] {
+				// A two-word name is one account word when the words are joined:
+				// api-key, access-key and secret-key are apikey, accesskey and
+				// secretkey spelled apart.
+				if i+1 < len(segments) && secretNames[segment+segments[i+1]] &&
+					!containerSegments[segments[i+1]] {
+					return true
+				}
+				continue
 			}
+			// The short words are a secret only at the end of a name: DB_PASS is
+			// one, while --pass-through names a step rather than a credential.
+			if shortSecretNames[segment] && i != len(segments)-1 {
+				continue
+			}
+			// The place a secret lives is not the secret: --token-file and
+			// --secret-path take a path, and a path is not a credential.
+			if i+1 < len(segments) && containerSegments[segments[i+1]] {
+				continue
+			}
+			return true
 		}
 		return false
 	}
@@ -377,6 +490,12 @@ func looksLikeSecretName(name string) bool {
 		return true
 	}
 	for word := range secretNames {
+		// The short words are a secret on their own or at the end of a name and
+		// nowhere else: bypass, compass and overpass end in pass and name no
+		// credential.
+		if shortSecretNames[word] {
+			continue
+		}
 		if strings.HasSuffix(cleaned, word) {
 			return true
 		}
@@ -386,7 +505,10 @@ func looksLikeSecretName(name string) bool {
 
 // redactURLUserinfo masks the password half of user:password@host inside a URL
 // argument, which is how a database or registry URL carries a credential where
-// no flag names it.
+// no flag names it. A userinfo with no colon is an account name where it is one
+// (https://alice@host keeps its account) and the token itself where it carries
+// what a name does not (https://ghp_Abc123@host), which is the shape a personal
+// access token is handed to git in.
 func redactURLUserinfo(arg string) string {
 	schemeAt := strings.Index(arg, "://")
 	if schemeAt < 0 {
@@ -400,9 +522,32 @@ func redactURLUserinfo(arg string) string {
 	userinfo := authority[:at]
 	colon := strings.Index(userinfo, ":")
 	if colon < 0 {
+		if carriesNonFlagCharacter(userinfo) {
+			return arg[:schemeAt+3] + redacted + authority[at:]
+		}
 		return arg
 	}
 	return arg[:schemeAt+3] + userinfo[:colon] + ":" + redacted + authority[at:]
+}
+
+// redactBareUserinfo masks the password half of a user:password@host that
+// carries no scheme, which is how a proxy with a login is handed to curl on a
+// command line. It stops at the first separator that is not inside the userinfo
+// so that a URL that already carries a scheme is left to redactURLUserinfo.
+func redactBareUserinfo(arg string) string {
+	if strings.Contains(arg, "://") {
+		return arg
+	}
+	at := strings.Index(arg, "@")
+	if at <= 0 {
+		return arg
+	}
+	userinfo := arg[:at]
+	colon := strings.Index(userinfo, ":")
+	if colon <= 0 || colon == len(userinfo)-1 {
+		return arg
+	}
+	return userinfo[:colon] + ":" + redacted + arg[at:]
 }
 
 // protectedProcessNames are the processes this utility refuses to stop whatever
