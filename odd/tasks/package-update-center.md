@@ -155,3 +155,34 @@ two managers stay two entries.
   the three result facts and the re-read, and the argv/redaction rules — plus the Utilities body,
   the main menu's panel row and the golden list. `README.md` gained the fifth utility, and
   `CHANGELOG.md` the entry with every guard named.
+- **L11 (the independent verification's findings).** A `gentle-ai-verify` pass was run against
+  S1-S16 with its own probes and its own scratch copy. It reported three blockers -- the reading
+  pass was re-entrant (`'r'`, Esc-then-reopen and confirming while a read was outstanding could put
+  two managers on the machine at once); `Result.Notes` and `Item.Note` were computed by the adapters
+  and rendered nowhere; the Utilities panel summarised a failed read as "nothing to update" -- three
+  should-fix gaps (apply could start over an outstanding read; apt's and pkg's unreadable hold list
+  was silent; no row took a filtered category) and three notes (two doc rows named commands the code
+  does not run; `StepRequested`/`StepLeftOut` were produced by nothing; the new Utilities paragraph
+  pushed the terminal-capability line behind the frame's counter). Its verdicts: S2 and S8 unmet,
+  S1/S3/S5/S6/S11/S12 partial, S4/S7/S9/S10/S13/S14 verified, S15 mostly verified, S16 not verifiable
+  here because it needs a terminal and real managers.
+- **L12 (evidence, T7-T13).** The verifier's six probes were installed as guards and observed RED
+  before any fix: `TestTheRecheckKeyStartsNoSecondPassWhileAReadIsOutstanding`,
+  `TestLeavingTheScreenAndReturningStartsNoSecondPass`, `TestApplyIsRefusedWhileAReadIsStillOutstanding`,
+  `TestTheChannelsOwnCaveatsReachTheScreen`, `TestAnEntrysOwnNoteReachesItsRow`,
+  `TestTheUtilitiesPanelNeverCallsAFailedReadNothingToUpdate` (TUI) and
+  `TestAnUnreadableHoldListIsSaidOutLoud` plus its negative control (engine). Fixes:
+  `startUpdateCenterScan` refuses a second pass and says which manager it is already waiting for;
+  the apply row is drawn and honoured only on a settled list; `updateCenterChannelParagraphs`
+  returns the manager's line plus one `note:` paragraph per caveat; `updateCenterItemRow` carries the
+  entry's own note; `aptHolds` returns the reason it could not read the holds and both callers say so;
+  `updateCenterPanelValue` counts answers and failures apart; a new `Select the N shown)` /
+  `Drop the N shown)` row takes the filtered category (`Selection.Drop` added) and counts only what it
+  could select; `updateCenterState.NotReached` keeps requested-and-never-run apart from left-out and
+  `updateCenterItemOutcomes` reports it as `StepRequested`, so the post-run line no longer claims no
+  command could carry an entry a stop simply never reached. Docs: the snap and Flatpak read rows name
+  the real commands, and the Utilities paragraph moved to the end of the body so the terminal
+  capability line is back on screen (golden regenerated: one line swapped, `… and 3 more` unchanged).
+  Checks: `gofmt -l` clean, `go build ./...`, `go vet ./internal/updates/ ./internal/tui/`,
+  `go test ./internal/updates/`, and the TUI guard set (`UpdateCenter|Utilities|EveryScreen|Emoji`)
+  green.

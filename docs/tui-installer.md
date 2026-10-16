@@ -739,8 +739,8 @@ managers are known, each with the one command it is read with and the one it is 
 | pkg (Termux) | user | the apt simulation, read by Termux's own channel | `pkg install -y` | no |
 | pacman | system | `pacman -Qu` and `pacman-conf IgnorePkg` | `pacman -S --noconfirm --needed` | yes |
 | dnf | system | `dnf -q check-update` (exit status 100 is an answer, not a failure), `rpm -q` for the installed versions and `dnf -q versionlock list` | `dnf -y upgrade` | yes |
-| snap | system | `snap list`, `snap refresh --list` and `snap refresh --hold` | `snap refresh` | yes |
-| Flatpak | user and system, per entry | `flatpak remote-ls --updates` and `flatpak list --columns=application,branch,version` | `flatpak update --noninteractive -y` (`--user` or `--system` per plan) | only the system plans |
+| snap | system | `snap list`, `snap refresh --list` and `snap held` | `snap refresh` | yes |
+| Flatpak | user and system, per entry | `flatpak remote-ls --updates --columns=application,branch,version` and `flatpak list --columns=application,branch,installation` | `flatpak update --noninteractive -y` (`--user` or `--system` per plan) | only the system plans |
 | rustup | user | `rustup check` | `rustup update` | no |
 
 **One entry is one installation, and no two are ever merged.** An entry's identity is the manager,
