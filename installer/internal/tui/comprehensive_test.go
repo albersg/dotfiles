@@ -1710,8 +1710,15 @@ var screenNames = map[Screen]string{
 	// The network diagnosis is declared after ScreenSetup and is the last screen the
 	// enum holds: the same guard named it, and its name belongs in the same order.
 	ScreenNetworkDiagnostics: "NetworkDiagnostics",
-	// The SSH manager's seven screens follow it in the enum, so their names follow it
-	// here. The guard in screen_coverage_test.go walks every Screen value in model.go
+	// The WSL performance advisor and its two assistants are declared after the
+	// network diagnosis: the guard named them too, so they follow it in the same
+	// order -- the report and the reading state it shows before the facts land, the
+	// measurement screen, and the assisted copy.
+	ScreenWSLAdvisor:   "WSLAdvisor",
+	ScreenWSLBenchmark: "WSLBenchmark",
+	ScreenWSLMigration: "WSLMigration",
+	// The SSH manager's seven screens follow the advisor's in the enum, so their names
+	// follow its here. The guard in screen_coverage_test.go walks every Screen value in model.go
 	// and fails until each one has an entry, which is what asked for these.
 	ScreenSSHManager:     "SSHManager",
 	ScreenSSHHost:        "SSHHost",

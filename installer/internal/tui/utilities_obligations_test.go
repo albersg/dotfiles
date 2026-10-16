@@ -31,6 +31,11 @@ import (
 //
 // The jobs are asserted by the phrase the doc gives each one, so the guard reads
 // what a user reads rather than an internal identifier.
+//
+// The count moved to eight when the WSL performance advisor joined the section:
+// its row is offered only inside a real WSL instance, so the sentence names it as
+// the eighth job and says where it appears, and this guard names it the same way
+// rather than leaving the sentence short of a job the section offers.
 func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	doc := readRepoFile(t, filepath.Join("docs", "tui-installer.md"))
 
@@ -47,8 +52,8 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	// that is named across a line break would read as a job that is missing.
 	sentence := strings.Join(strings.Fields(doc[start:start+end]), " ")
 
-	if !strings.Contains(sentence, "seven jobs") {
-		t.Errorf("the sentence no longer says the section holds seven jobs: %q", sentence)
+	if !strings.Contains(sentence, "eight jobs") {
+		t.Errorf("the sentence no longer says the section holds eight jobs: %q", sentence)
 	}
 	for _, job := range []string{
 		"system theme switch",
@@ -58,6 +63,7 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 		"terminal capability report",
 		"install check",
 		"network diagnosis",
+		"WSL performance advisor",
 	} {
 		if !strings.Contains(sentence, job) {
 			t.Errorf("the section's job-count sentence does not name %q: %q", job, sentence)
