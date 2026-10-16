@@ -193,7 +193,52 @@ The working path also swallowed a real defect once: the screen's escape key and 
 globally by the leader key and the back handler, so the first version of the screen never saw them —
 the tests caught it, and both are now taken by the disk cleaner before the globals.
 
-**L8 — verification.** (filled at closure)
+**L8 — verification.**
+
+Own checks, run inline as each task landed:
+
+- `gofmt -l internal/diskclean/ internal/tui/` → nothing; `go build ./...` → clean; `go vet
+  ./internal/diskclean/ ./internal/tui/` → clean.
+- `go test ./internal/diskclean/` → `ok` (measurement, mounts, dedupe and overlap, guard, TOCTOU,
+  detectors and tool parsers, plan, removal walker, execution and release measurement).
+- `go test -run 'TestDiskCleaner' ./internal/tui/` → `ok`, 16 screen tests: scan-is-a-command,
+  one-scan-at-a-time, nothing-preselected, bulk key leaves delicate items, preview-before-clean,
+  escape-leaves-the-preview, confirmation-runs-the-plan, escape-stops-the-run, escape-stops-a-scan,
+  add/forget project root, the confirm row counts the work, inert checkbox, section offers the row,
+  what the screen will not do, the preview renders every command and refusal, the results render every
+  outcome and the filesystem number.
+- Frame and rendering guards → `ok`: `TestEveryScreenIsCoveredByAFrameGuard`, `TestNoInstallerScreenDrawsAnEmojiBox`,
+  `TestEveryScreenFitsEveryTerminalSize` (with `measuredScreens` raised 63→64 and the new case added to
+  `terminalFitCases`, which is what the guard's own pinned count demands), `TestDiskCleanerGolden`
+  (new) and `TestUtilitiesGolden` (regenerated for the new row and paragraph).
+- `make preflight` → **fails at step 4/7** (`cd installer && go test ./... -count=1`), exit 2, and the
+  only failures are `TestStepInstallTerminalGhosttyReportsAFailedDownload`,
+  `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`,
+  `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails` and
+  `TestInteractiveGhosttyScriptDownloadsThenRuns` — the Ghostty install-script download path, which
+  this feature does not touch. All four were reproduced in a detached worktree at the base commit
+  `c1e4a64` before this feature's first commit, so they are pre-existing and not a regression: the
+  same four, the same assertions, the same output. Every other package in the gate is `ok`, this
+  feature's `internal/diskclean` among them.
+
+Independent verification (`gentle-ai-verify`, read-only, over `c1e4a64..HEAD`): pending the verdict
+per spec S1–S14; the result is recorded here and acted on before closure.
+
+Native review (receipt-driven development) disposition: `gentle_review` inspect offered
+`review.start` for the frozen candidate. A START carrying the 4R lens selection was rejected as
+`native-start-input-invalid` / `lenses-invalid` — the native provider on this machine is
+`gentle-ai 3.7.0`, whose `review start` knows `--focus`, not the lens selection — and it created no
+lineage. A START with the ordinary input returned `lens_context_budget_exceeded`: the candidate
+frozen for this workspace is the accumulated branch diff, which exceeds the reviewer's context
+budget, and the provider created **no review authority** (`mutation_outcome: none`, `next_action:
+stop`) and states that retrying that exact candidate cannot succeed. Its continuation is to reduce
+scope to smaller candidates; for that path one slice worktree was created at `1f6799d`, whose own
+inspect reported `rdd_disabled`. `gentle-ai review mode status` then answered in both worktrees:
+`receipt-driven development: off (decided by clone_local)` — global unset, clone-local off — so the
+review switch is off for this clone by its own record, the candidate is left unreviewed by that
+decision, and the slice worktree was removed and pruned (`git worktree remove --force` +
+`git worktree prune`). Nothing has to be abandoned or repaired: no lineage, no authority, no
+mutation was left behind.
 
 ## Remaining
 
