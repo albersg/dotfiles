@@ -1717,6 +1717,16 @@ var screenNames = map[Screen]string{
 	ScreenWSLAdvisor:   "WSLAdvisor",
 	ScreenWSLBenchmark: "WSLBenchmark",
 	ScreenWSLMigration: "WSLMigration",
+	// The SSH manager's seven screens follow the advisor's in the enum, so their names
+	// follow its here. The guard in screen_coverage_test.go walks every Screen value in model.go
+	// and fails until each one has an entry, which is what asked for these.
+	ScreenSSHManager:     "SSHManager",
+	ScreenSSHHost:        "SSHHost",
+	ScreenSSHForm:        "SSHForm",
+	ScreenSSHKeys:        "SSHKeys",
+	ScreenSSHAgent:       "SSHAgent",
+	ScreenSSHDiagnostics: "SSHDiagnostics",
+	ScreenSSHTest:        "SSHTest",
 }
 
 func (s Screen) String() string {

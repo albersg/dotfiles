@@ -1183,6 +1183,17 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		value:   networkPanelValue(m.Network),
 		offered: true,
 	})
+
+	// The section's utilitiesSSHRow. The manager lives one level in, so the panel
+	// names it with what it currently holds: how many hosts were read, or the
+	// honest fact that nothing has been read yet.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "SSH",
+		value:   sshManagerPanelValue(m.SSH),
+		absent:  "The SSH configuration has not been read yet.",
+		offered: true,
+	})
+
 	// The section's utilitiesTerminalRow. The report is read-only and offered
 	// everywhere, so the panel always names it: before the screen has been
 	// opened the value says the terminal has not been inspected, and afterwards
@@ -1195,6 +1206,22 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 	})
 
 	return entries
+}
+
+// sshManagerPanelValue is what the Utilities panel says the SSH row holds. It
+// reads the model and probes nothing: a panel is drawn on every keypress, and
+// asking the client for its answer is not a render.
+func sshManagerPanelValue(st sshManagerState) string {
+	switch {
+	case st.Manager == nil:
+		return "not read yet"
+	case !st.HostsLoaded:
+		return "reading"
+	case st.HostsErr != "":
+		return "unreadable"
+	default:
+		return fmt.Sprintf("%d %s", len(st.Hosts), sshPlural(len(st.Hosts), "host", "hosts"))
+	}
 }
 
 // shellAuditPanelValue is what the Utilities panel says the shell startup row

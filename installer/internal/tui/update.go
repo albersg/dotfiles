@@ -655,6 +655,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// not run for a message that changed no screen and no cursor.
 		return m.handleCompanionMouse(msg)
 
+	case sshManagerLoadedMsg, sshEffectiveMsg, sshKeysLoadedMsg, sshAgentLoadedMsg,
+		sshDiagnosticsMsg, sshTestedMsg, sshWrittenMsg, sshGeneratedMsg,
+		sshCopiedMsg, sshAgentActionMsg:
+		// The SSH manager's own answers, applied by one function in sshmanager.go so
+		// the message types and the fields they fill live beside each other: a write
+		// re-reads the configuration, a generated key re-reads the inventory, and an
+		// agent action re-reads both. The case names every type on purpose -- a
+		// default here would swallow the messages the rest of the file handles. The
+		// third result says whether the message was one of them.
+		if next, cmd, handled := m.handleSSHMessage(msg); handled {
+			return next, cmd
+		}
+		return m, nil
+
 	case tickMsg:
 		// A menu gag's lifetime uses this model tick, including when animation is
 		// gated off. The renderer sees only the resulting state and never a clock.
@@ -1436,6 +1450,16 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateAdminPassword(msg)
 	}
 
+	// The SSH manager's screens own every key they use, for the same reason the
+	// password screen does: the form, the generation form and the test's alias
+	// field are text fields, and the global meanings of space and backspace would
+	// take characters away from them. The dispatch is taken here, before the
+	// leader key and before Escape, and each screen's own handler decides what its
+	// Escape means -- cancelling a plan or a sub-state before it leaves the screen.
+	if isSSHManagerScreen(m.Screen) {
+		return m.handleKeyPressSSH(msg)
+	}
+
 	// <space> activates leader mode EXCEPT in screens that need space for input
 	// (Trainer screens use space in commands, Welcome screen uses space to continue)
 	if key == " " {
@@ -1459,6 +1483,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// editor and the backup, and turning a switch on or off is the whole
 			// point of the row. Passing it to the leader key would leave every
 			// switch in the interface advertised and unreachable.
+		case isSSHManagerScreen(m.Screen):
+			// The SSH manager's screens are dispatched above, before this switch:
+			// the space belongs to the field or the row it is pressed on.
 		default:
 			// All other screens: activate leader mode
 			m.LeaderMode = true
@@ -1611,6 +1638,28 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenWSLMigration:
 		return m.handleWSLMigrationKeys(key)
+
+	case ScreenSSHManager:
+		return m.handleSSHManagerKeys(key)
+
+	case ScreenSSHHost:
+		return m.handleSSHHostKeys(key)
+
+	case ScreenSSHForm:
+		return m.handleSSHFormKeys(key)
+
+	case ScreenSSHKeys:
+		return m.handleSSHKeysKeys(key)
+
+	case ScreenSSHAgent:
+		return m.handleSSHAgentKeys(key)
+
+	case ScreenSSHDiagnostics:
+		return m.handleSSHDiagnosticsKeys(key)
+
+	case ScreenSSHTest:
+		return m.handleSSHTestKeys(key)
+
 	case ScreenUpdate:
 		return m.handleUpdateKeys(key)
 
@@ -1807,6 +1856,50 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// open preview, and only then does it leave. That order lives in one place,
 		// leaveNetworkScreen, so the key's meaning cannot drift between them.
 		return m.leaveNetworkScreen()
+
+	case ScreenSSHManager:
+		// The manager is one level in from the utilities section. A test that is
+		// still running is cancelled on the way out: an answer nobody is waiting for
+		// must not land on a screen the user has left.
+		m.cancelSSHTest("")
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.SSH.Notice = ""
+	case ScreenSSHHost:
+		m.Screen = ScreenSSHManager
+		m.Cursor = m.SSH.HostIndex
+		m.SSH.Notice = ""
+	case ScreenSSHForm:
+		// The form's Escape is the cancel its footer names: a plan is discarded
+		// first, and only a second Escape leaves the form.
+		if m.SSH.Plan != nil {
+			m.SSH.Plan = nil
+			m.SSH.Notice = "Nothing was written."
+			return m, nil
+		}
+		m = m.leaveSSHForm()
+	case ScreenSSHKeys:
+		if m.SSH.KeysMode != "" {
+			m.SSH.KeysMode = ""
+			m.SSH.AddPassphrase = ""
+			m.Cursor = 0
+			m.SSH.Notice = ""
+			return m, nil
+		}
+		m.Screen = ScreenSSHManager
+		m.Cursor = 0
+		m.SSH.Notice = ""
+	case ScreenSSHAgent:
+		m.Screen = ScreenSSHManager
+		m.Cursor = 0
+		m.SSH.Notice = ""
+		m.SSH.AgentConfirm = false
+	case ScreenSSHDiagnostics:
+		m.Screen = ScreenSSHManager
+		m.Cursor = 0
+		m.SSH.Notice = ""
+	case ScreenSSHTest:
+		m = m.leaveSSHTest()
 	case ScreenUpdate:
 		// The update screen steps back to the main menu, which is where its row now
 		// lives. Leaving it clears the last update's notice so a later visit does
@@ -2191,6 +2284,22 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenNetworkDiagnostics
 			m.Cursor = 0
 			m.Network.Notice = ""
+
+		case selected == utilitiesSSHRow:
+			// The SSH manager is one level in as well. The client and the
+			// configuration are read on the way in, because which hosts exist is what
+			// the screen is for and a screen that opened empty and filled a moment
+			// later would make the user press twice. The read runs as a command, so
+			// probing the client cannot block the update loop.
+			m.Screen = ScreenSSHManager
+			m.Cursor = 0
+			m.SSH.HostIndex = 0
+			m.SSH.KeysMode = ""
+			m.SSH.Notice = ""
+			if m.SSH.Manager == nil {
+				return m, sshLoadCmd()
+			}
+			return m, sshConfigCmd(m.SSH.Manager)
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			m.ThemeNotice = "Putting the previous desktop theme back…"
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)

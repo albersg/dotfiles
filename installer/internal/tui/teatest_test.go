@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/albersg/dotfiles/installer/internal/sshcfg"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1728,6 +1729,15 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return m
 	}
 
+	sshState := func(screen Screen, adjust func(*Model)) Model {
+		m := installerFrameModel(t, screen)
+		m.SSH = sshTestManagerState()
+		if adjust != nil {
+			adjust(&m)
+		}
+		return m
+	}
+
 	switch name {
 	case "welcome":
 		return base(ScreenWelcome)
@@ -1947,6 +1957,48 @@ func installerFrameCase(t *testing.T, name string) Model {
 			m.LogLines = append(m.LogLines, fmt.Sprintf("log line %d", i+1))
 		}
 		return m
+	case "ssh-manager":
+		return sshState(ScreenSSHManager, nil)
+	case "ssh-host":
+		return sshState(ScreenSSHHost, func(m *Model) { m.SSH.HostIndex = 0 })
+	case "ssh-host-read-only":
+		// The read-only entry adds the sentences that explain why it cannot be
+		// edited, which is the tallest the detail screen gets.
+		return sshState(ScreenSSHHost, func(m *Model) { m.SSH.HostIndex = 1 })
+	case "ssh-form":
+		return sshState(ScreenSSHForm, func(m *Model) {
+			m.SSH.FormMode = "create"
+			m.SSH.Form = sshHostForm{Alias: "work", HostName: "work.example.com", User: "alice", Port: "2222", Identity: "~/.ssh/id_work"}
+		})
+	case "ssh-form-plan":
+		// The confirmation replaces the fields with the preview of the change, so it
+		// is measured in its own right: it is the one state of the form that draws
+		// lines taken from a file.
+		return sshState(ScreenSSHForm, func(m *Model) {
+			m.SSH.FormMode = "create"
+			m.SSH.Plan = &sshcfg.WritePlan{
+				Path:    "/home/testuser/.ssh/config",
+				Kind:    "managed",
+				Alias:   "work",
+				Summary: "Add the entry work inside the block this tool manages in /home/testuser/.ssh/config.",
+				Preview: []string{"  Host github.com", "- ", "+ Host work", "+     HostName work.example.com", "+     User alice"},
+			}
+		})
+	case "ssh-keys":
+		return sshState(ScreenSSHKeys, nil)
+	case "ssh-keys-generate":
+		// The generation form is the tallest state of the key screen: it replaces the
+		// action rows with six fields and their own hints.
+		return sshState(ScreenSSHKeys, func(m *Model) {
+			m.SSH.KeysMode = "generate"
+			m.SSH.Keygen = sshKeygenForm{Path: "~/.ssh/id_ed25519", Type: "ssh-ed25519", Comment: "testuser@host"}
+		})
+	case "ssh-agent":
+		return sshState(ScreenSSHAgent, nil)
+	case "ssh-diagnostics":
+		return sshState(ScreenSSHDiagnostics, nil)
+	case "ssh-test":
+		return sshState(ScreenSSHTest, nil)
 	default:
 		t.Fatalf("no frame case named %q", name)
 		return Model{}
@@ -1983,6 +2035,14 @@ var installerFrameScreenNames = []string{
 	"wsl-advisor", "wsl-advisor-reading", "wsl-benchmark", "wsl-migration",
 	"complete", "error", "error-many-logs",
 	"admin-password", "admin-password-failed",
+	// The SSH manager's seven screens. Each one is a state it reaches in normal
+	// use: the hub with hosts, the detail of an editable and of a read-only entry,
+	// the form and its plan, the key list and its generation form, the agent, the
+	// diagnosis and a finished connection test.
+	"ssh-manager", "ssh-host", "ssh-host-read-only",
+	"ssh-form", "ssh-form-plan",
+	"ssh-keys", "ssh-keys-generate",
+	"ssh-agent", "ssh-diagnostics", "ssh-test",
 }
 
 // TestInstallerScreensFitTheFrame is the counterpart to

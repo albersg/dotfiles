@@ -115,10 +115,11 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the three
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the three
   read-only reports: the terminal capability report behind the **Report the terminal
   capabilities** row, the install check behind the **Check the machine against the last
-  install** row, and the network diagnosis behind the **Diagnose the network** row. On a real WSL
+  install** row, and the network diagnosis behind the **Diagnose the network** row, plus the
+  SSH configuration behind the **Manage the SSH configuration** row. On a real WSL
   instance the list also carries the performance advisor behind the **Diagnose this WSL
   environment** row, which is a report until one of its own rows is pressed
 - **Restore from Backup**: Restore previous configurations (if backups exist)
@@ -862,134 +863,91 @@ controlling terminal (a container, a service, a run with no TTY) gets the empty 
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
 
-### The install check
 
-The check answers one question -- **is this machine still what the last install left** -- and it is a
-utility that writes nothing and changes nothing. It is reached from the section's **Check the machine
-against the last install** row and is read-only: its only key is the way back.
+### The SSH configuration
 
-A completed run writes a record, `$XDG_STATE_HOME/dotfiles/last-install.json` (or
-`~/.local/state/dotfiles/last-install.json` when `XDG_STATE_HOME` is unset), with one entry per
-configuration path naming what the run did to that path and where the copy it took went. The check
-walks that record once and compares each entry with the machine:
+**The SSH configuration** is the utility behind the **Manage the SSH configuration** row, and it is
+the one utility that **writes** — inside a block it owns, after a backup and a validation, and
+never anywhere else. It exists because the client's real answer is spread over the user's file,
+everything it `Include`s, the system-wide file and the command line, and the parts a developer most
+needs (which key a host really uses, why a host is unreachable, whether the agent is running at all)
+are exactly the parts no single file states.
 
-| The record names | The check asks | The screen says |
-|------------------|----------------|-----------------|
-| a path the run wrote | is it still here | `missing  <key>  <path>  <what the run did>` when it is gone |
-| a backup the run took | is the copy still here | `missing  backup of <key>  <path>` when it is gone |
+**The hosts list is the client's answer, not this tool's.** For each alias the screen asks
+`ssh -G -- <alias>` and reports the effective `HostName`, `User`, `Port`, `ProxyJump` and **every**
+`IdentityFile` in the order the client accumulates them, with the file and line of each value this
+tool's own reading can corroborate. Where the two readings disagree, no source is claimed rather
+than one being invented: the client does not report provenance, so a source appears only where the
+declaration matches the answer. A `Match` criterion this tool deliberately does not evaluate — an
+`exec`, a `canonical`, a `final`, a `localnetwork`, a `tagged` — is **named on the screen** and the
+entries it governs are shown as declared, because guessing which block won would produce a
+confident wrong answer. When the client cannot be asked at all, the values come from this tool's own
+reading and the screen **says so**, in the same paragraph as the values.
 
-The screen names only what is gone and counts what is still here (`Still here: 12 of the 14 paths and
-backups the record names.`), because a record written by a normal run names every configuration path
-the installer touches and that list is longer than any frame. It says where the full list is --
-`dotfiles --verify` prints every entry, including the ones that are here -- rather than printing a
-truncated version of it.
+**An entry that cannot be rewritten safely is shown read-only, with the reason, and has no edit
+row.** That covers a `Host` line with a wildcard, a negation or more than one pattern; a line with
+an `Include` under it; a `Match` line after it; a value carrying an unquoted comment or a directive
+with no value at all; and a file this tool may not write. The reason is a sentence on the screen —
+*"the Host pattern contains a wildcard, so it matches more than this one entry, so this tool will
+not rewrite it"* — not a disabled row with no explanation.
 
-**The record names no digest, and the screen says so.** A path that is present is reported as
-present, never as unchanged: the check establishes that the file is there, not that it is still what
-the install left. This is the limit of what the record supports, and it is stated in the body rather
-than left for the user to infer from a report that says everything is fine.
+**Writes live in one block, and everything outside it keeps its bytes.** The tool marks the region
+it owns with two comments, `# >>> dotfiles ssh-manager >>>` and `# <<< dotfiles ssh-manager <<<`,
+and appends that block when the file has none. A create inserts the new entry before the closing
+marker; an edit rewrites **only the lines whose value changes**, leaving the entry's other
+directives, their order and their spacing exactly as they were; a delete takes the entry and its own
+blank line and nothing else. Comments, unknown options, `Include`s, `Match` blocks and the file's
+final newline are preserved byte for byte, because a write that reformats a file the user maintains
+by hand is worse than no write at all.
 
-**Four states, never a guess.** No record means no run has completed on this machine, so there is
-nothing to check yet; a record that cannot be read says why; a record that names no path says there
-is nothing the record and the machine can be compared on -- which is neither a pass nor a failure; and
-a record with entries reports the missing ones. The panel's own row says `not checked yet` before the
-check has run instead of answering with a fact nobody established.
+**Every write is previewed, backed up, validated by the client, and atomic.** The confirmation shows
+the summary, the file, the backup path and the change as `+`/`-` lines, so the plan and the write
+cannot describe different changes. On confirmation the tool checks that the file still holds the
+bytes the plan was built from — if anything changed since the preview it **refuses and writes
+nothing** — copies the file to `<file>.bak-dotfiles-<stamp>` (never overwriting an existing backup),
+writes the new content to a temporary file in the same directory, has **the client's own parser**
+validate it with `ssh -G -F <tempfile>`, and only then renames it into place. A configuration the
+client refuses is never installed: the temporary file is discarded and the old file is untouched. A
+mode others can write is tightened to `0600` while it is written; read bits are left as they are.
 
-**One walk, two presenters.** `InspectInstall` walks the record, and the command line's `--verify`
-and this screen are two presenters of the facts it returns. Two walks of one record could disagree
-about the same file, and only one of them would be right, so the screen is the second reader of the
-same verification rather than a second verification.
+**A private key is never opened.** The key inventory describes a pair from its **public half** —
+type, bits, fingerprint, comment — and the private side is only `stat`ed, for its mode. A key with no
+public half is described by `ssh-keygen -l` and `-y`, which is the tool that owns the format. A key
+whose facts cannot be learned without a passphrase is reported with what is known and a warning;
+"not encrypted" is claimed **only** after `ssh-keygen -y` accepted the key with nothing on the pipe.
+A `0644` private key is reported as too open with the `chmod` that fixes it. Generation asks
+`ssh-keygen` for `ed25519` (100 KDF rounds) by default, `rsa 4096` or `ecdsa 521` on request, and
+passes the passphrase on the child's **standard input with the graphical prompter disabled** — never
+in the argument list, never in the environment, never in a log — then proves the passphrase by
+reopening the key with it and sets `0600`/`0644` explicitly, because `ssh-keygen` honours the umask.
+`known_hosts` is listed by parsing, never by reversing a hash, and `known_hosts.old` is never read:
+it is a previous revision, so trusting it would claim a trust the client is not using.
 
-**Nothing blocks and nothing runs at startup.** The check runs when the screen is opened, as a
-command off the update loop, never when the model is built. The panel's row reads the model and never
-the filesystem, so a keystroke never waits on a machine whose disks are not answering, and coming back
-to the screen does not stat the machine a second time: the first answer is the answer.
+**The agent screen says which agent it is talking to.** The socket path and the platform identify the
+agent, and the screen states what that agent does differently: `gpg-agent` ignores `ssh-add -t` and
+serves what its own configuration decides, 1Password and KeePassXC serve the keys they own and may
+refuse an add or a removal, an unknown agent gets a sentence saying exactly that. An agent that
+answers `ssh-add -l` with exit 1 is reported as **running and empty**, not as broken. Removal takes
+the public key file, never a fingerprint, because translating one would mean deciding which file the
+agent meant.
 
-`TestTheVerificationScreenShowsWhatIsGoneAndSaysWhatIsStillHere`,
-`TestTheVerificationScreenSaysWhenNothingIsGone` and
-`TestTheVerificationScreenSaysWhatItCannotCheck` pin the three bodies;
-`TestTheVerificationScreenIsReadOnly` pins that the only key is the way back and that nothing is
-written; `TestChoosingTheVerificationRowRunsTheCheckOffTheUpdateLoop` pins the command, and
-`TestTheVerificationReadsTheVerdictRatherThanTheDiskAgain` pins that a keypress does not read the
-machine. `TestInstallVerifyGolden` holds the frame at 80x24.
+**A connection is tested only when the row that tests it is pressed.** The screen says so before the
+press, and the test then runs the client with every option that keeps it from doing anything else:
 
-### The network diagnosis
+| Option | What it prevents |
+|--------|------------------|
+| `BatchMode=yes`, `NumberOfPasswordPrompts=0`, `PasswordAuthentication=no`, `KbdInteractiveAuthentication=no` | any authentication prompt, which a non-interactive test could only hang on |
+| `StrictHostKeyChecking=yes`, `UpdateHostKeys=no` | accepting a new host key or writing anything to `known_hosts` |
+| `ControlMaster=no`, `ControlPath=none` | an existing multiplexed session answering for the test and producing a false "ok" |
+| `ClearAllForwardings=yes`, `-n`, `-T` | carrying the user's forwards, reading input, or allocating a terminal |
 
-The seventh job is **the network diagnosis**, behind the section's **Diagnose the network** row. It
-answers the question every support thread starts with -- *why can I not reach it* -- and, like the
-reports beside it, it **changes nothing at all**: no resolver, route, firewall, proxy, VPN or
-certificate setting is written, no verification is ever skipped, no capability is probed by changing
-one, and no tool is installed. It reads, it names the stage that stopped, and it leaves the decision
-to the user.
-
-**It separates the stages, because they are different failures with different owners.** A name that
-does not resolve, a port that refuses, a socket a firewall keeps silent, a certificate this machine
-does not trust and a service that answers an error are five problems with five fixes, and a screen
-that reports "no internet" for all of them is worse than no screen at all. Each check belongs to one
-stage:
-
-| Stage | What it answers | The checks it holds |
-|-------|-----------------|---------------------|
-| Local | Does this machine have a network at all | the interfaces and their addresses, the default route |
-| Resolver | Can the name be turned into an address | the configured resolvers, the system resolution, a query to each server |
-| Transport | Is the way to the address open | the TCP handshake and its time, the optional traceroute |
-| Certificate | Is the far side who it claims to be | the TLS handshake, the chain, the expiry, the name on the certificate |
-| Application | Does the service answer as a service | the HTTP request, its status, the redirect chain, the proxy in the path |
-
-**The rows are the report.** One row per check carries its status word -- `ok`, `noted`, `failed`,
-`unknown` or `skipped` -- and the cursor on a row is what shows that step in full: what it measured,
-how long it took, the **cause** a failure most plausibly has, the **next check** to make, and the
-command to run **by hand** when a person can settle it outside this utility. `unknown` and `skipped`
-are first-class answers: a check that could not run says which capability was missing rather than
-being left out, and a step the run never reached -- because an earlier step made it meaningless, or
-because the run was stopped -- is named as skipped rather than quietly absent.
-
-**What it reaches for is named on the screen, never hidden.** The overview contacts one host: the
-release API this installer already talks to for its own update check, shown on the screen with that
-reason. Everything else is a destination the user types -- a host, an IPv4 or IPv6 address (zone
-included), a `host:port`, an internationalized name, or a complete `http`/`https` URL. It is
-**validated before anything is dialled**, and a destination the validator refuses reopens the field
-with the reason and dials nothing. Only `http` and `https` URLs are accepted, a URL's credentials are
-dropped before any request and the screen says so, and a request's query string is never part of the
-report.
-
-**Every check is bounded by construction, and the run is cancellable.** Each check has its own
-timeout and the run has an overall one, the checks run one at a time in a fixed order so a slow link
-is diagnosed rather
-than saturated, and `Esc` stops the run while **keeping what finished**: the report still lands, with
-the checks that completed listed and the rest named as skipped. The call that runs the checks never
-happens on the update loop, so the interface stays responsive while a stage is waiting, and the
-checks appear as they finish rather than all at once at the end.
-
-**Latency is the TCP handshake's, never a ping's.** A network that answers ICMP and one that drops it
-are diagnosed the same way, because a blocked ping is not evidence of anything about the connection
-the user is trying to make.
-
-**The one check that starts a program is off by default.** The traceroute row runs the system's own
-`tracepath` or `traceroute` -- only when the machine already has one, only for a destination the user
-typed, and never for the overview, which has no single host whose path would mean anything. It is the
-only check that leaves the machine's own network path to a third-party tool, and the screen says what
-a silent hop means: filtered, not a fault.
-
-**The report is written only after it has been read, and it is redacted either way.** Credentials
-never appear in it, whatever the check recorded, because every line of the text passes through the
-same redaction instead of being trusted; the preview row shows the file line for line, and the save
-row is offered only from that preview, so the file cannot differ from what was reviewed. The
-**anonymization** row replaces every address, the user name, the home directory and the machine name,
-which is what makes the file safe to send to somebody else, and the report says which of the two
-forms was written. The host being diagnosed is deliberately kept, and the screen says so: the report
-exists to say what could not be reached, and the preview shows the exact text before anything is
-written. It is saved under the installer's own state directory
-(`$XDG_STATE_HOME/dotfiles/network-report-<UTC start>.txt`), one file per run, readable by the user
-alone -- it still describes this machine's addresses, which is exactly why it is not written anywhere
-else and not written at all until it has been read.
-
-**On WSL the report says which side it is describing.** The host's resolver and interfaces are not
-the guest's, so the two are never mixed: a report written inside the distribution describes the
-distribution's own network and says so, and the interface names it prints are the ones that exist
-where the run happened. A machine where a capability is missing -- no interfaces to enumerate, no
-resolver configured, no TLS stack, no `traceroute` installed, a Termux host with none of the desktop
-tools -- degrades one check at a time, with the reason on that row, instead of failing the screen.
+The host key of a host that is not in `known_hosts` is reported as **unknown with the fingerprint
+question**; a host key that **changed** is reported as what it looks like — a man-in-the-middle
+attempt — and the test does not accept, replace or remove any key. The result names the client's own
+exit status, its first words and the exact command that ran, bounded so a host cannot paste a wall
+of text into the frame. On WSL the Windows-side configuration under `/mnt/c` belongs to another
+system: the diagnosis names it as a separate file to reconcile by hand and **never opens, lists or
+writes it**.
 
 ### Installation Flow
 

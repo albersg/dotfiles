@@ -103,6 +103,10 @@ var (
 	hintAdjust      = installerHint{"[←/→]", "adjust"}
 	hintRecommended = installerHint{"[r]", "recommended"}
 	hintMove        = installerHint{"↑/k ↓/j", "move"}
+	// hintType is the hint for a screen that has a text field: the keyboard writes
+	// into the field, and the arrows move between fields, so no key can be named for
+	// typing itself. It is the same shape as the trainer's "Type command".
+	hintType = installerHint{"", "type"}
 	// hintTab cycles the panels of a screen that offers more than one. It is only
 	// ever added to a screen that has something to cycle, so the footer never
 	// advertises a key that does nothing.
@@ -489,7 +493,8 @@ func (m Model) bodyAnchorsToTheRule() bool {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
 		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenInstallVerify,
 		ScreenNetworkDiagnostics, ScreenWSLAdvisor, ScreenWSLBenchmark,
-		ScreenWSLMigration:
+		ScreenWSLMigration, ScreenSSHManager, ScreenSSHHost, ScreenSSHForm,
+		ScreenSSHKeys, ScreenSSHAgent, ScreenSSHDiagnostics, ScreenSSHTest:
 		return true
 	}
 	return false
@@ -565,6 +570,13 @@ func (m Model) headerName() string {
 		return "Utilities"
 	case ScreenNetworkDiagnostics:
 		// The diagnosis screen is one level in from the same section.
+		return "Utilities"
+	case ScreenSSHManager, ScreenSSHHost, ScreenSSHForm, ScreenSSHKeys,
+		ScreenSSHAgent, ScreenSSHDiagnostics, ScreenSSHTest:
+		// The SSH manager is the section's own job: its hub is one level in, like
+		// the other utility screens, and everything it opens stays under the same
+		// heading. A header that changed as the user walked into a host's detail
+		// would name a section that does not exist in the menu.
 		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
@@ -1100,6 +1112,20 @@ func (m Model) View() string {
 		s.WriteString(m.renderInstallVerify())
 	case ScreenNetworkDiagnostics:
 		s.WriteString(m.renderNetworkDiagnostics())
+	case ScreenSSHManager:
+		s.WriteString(m.renderSSHManager())
+	case ScreenSSHHost:
+		s.WriteString(m.renderSSHHost())
+	case ScreenSSHForm:
+		s.WriteString(m.renderSSHForm())
+	case ScreenSSHKeys:
+		s.WriteString(m.renderSSHKeys())
+	case ScreenSSHAgent:
+		s.WriteString(m.renderSSHAgent())
+	case ScreenSSHDiagnostics:
+		s.WriteString(m.renderSSHDiagnostics())
+	case ScreenSSHTest:
+		s.WriteString(m.renderSSHTest())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1739,6 +1765,14 @@ func (m Model) utilitiesDescription() []string {
 		paragraphs = append(paragraphs, m.wslAdvisorUnavailableReason())
 	}
 
+	// The SSH manager, in one line: what it shows and what it may change. It is
+	// offered everywhere, so no reason line is needed here; the screen itself says
+	// what a host without an ssh client can still do. It is kept to a single line,
+	// like the rows it sits beside: the section's prose shares a row budget with the
+	// list, and a longer paragraph is what pushes another row's own line behind the
+	// "… and n more" marker.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s shows the hosts and keys the client uses.", utilitiesSSHRow))
+
 	// The terminal capability report. It is read-only and offered everywhere;
 	// where there is no terminal to read, the screen itself says so rather than
 	// the section leaving a hole. Naming it here is what makes the row findable.
@@ -2107,15 +2141,25 @@ func wslCurrentParagraph(state wslResourceState) string {
 
 // wslResourcesUnavailableReason says why the section offers no WSL resource row,
 // and is empty when it does. The reason is always stated: a gap the user cannot
-// see the reason for is the failure this exists to prevent, and on a machine
-// that is not Windows the answer is simply that this is not Windows.
+// see the reason for is the failure this exists to prevent, and on a machine that
+// is not WSL the answer names that machine.
+//
+// The sentence stays one row for every host name a machine reports in practice,
+// and that is a budget rule rather than a style: the section's body shares the
+// frame with its rows, so each job's line has to fit at 80x24 without the cut
+// marker (the guard that reads that frame is
+// TestUtilitiesBodyCarriesEveryJobAtTheFloor), and the SSH manager's own line
+// spent the last row the section had. It used to name the host *and* the file's
+// nature -- "and .wslconfig is a Windows file, and %s is not WSL" -- which
+// wrapped it to two rows on every host; the host is the half that says why the
+// utility cannot run here.
 func (m Model) wslResourcesUnavailableReason() string {
 	if m.SystemInfo == nil || !m.SystemInfo.IsWSL {
 		host := "this machine"
 		if m.SystemInfo != nil && m.SystemInfo.OSName != "" {
 			host = m.SystemInfo.OSName
 		}
-		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file, and %s is not WSL.", host)
+		return fmt.Sprintf("WSL resources are not adjustable here: %s is not WSL.", host)
 	}
 	if !m.WSLState.Resolved {
 		return "WSL resources are not adjustable here yet: reading the Windows profile and the host's capacities."
@@ -2132,6 +2176,12 @@ func (m Model) wslResourcesUnavailableReason() string {
 // and a terminal were resolved, and the section's body names the reason
 // everywhere else.
 const utilitiesShellAuditRow = "Measure the shell's startup"
+
+// utilitiesSSHRow is the section's row for the SSH manager. It is offered on
+// every host because the manager's own screen says what it cannot do -- a host
+// with no ssh client still has a configuration file worth reading -- and the
+// gap is declared on that screen rather than by a missing row.
+const utilitiesSSHRow = "Manage the SSH configuration"
 
 // updateInstallerRow is the main menu's button for this installer's own release.
 // It is offered only when a later release is published and the running file is
