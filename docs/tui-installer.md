@@ -127,12 +127,15 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds five jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds six jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
-host), the read-only **terminal capability report**, and the read-only **install check**. The main
-menu's panel derives one row per job from the same model state the section's own options are built
-from -- `utilitiesPanelEntries` is the only list -- so a utility added to the section shows up in
-the panel or is visibly missing from that one function.
+host), the read-only **shell's startup** measurement (one level in), the read-only **terminal
+capability report**, and the read-only **install check**. The main menu's panel derives one row per
+job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
+is the only list -- so a utility added to the section shows up in the panel or is visibly missing
+from that one function. `TestTheUtilitiesDocNamesEveryJobTheSectionOffers` holds this sentence to
+that list, because a sentence that states a count and then lists fewer jobs than the section offers
+is the defect this doc has already shipped once.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
