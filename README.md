@@ -337,6 +337,54 @@ when you open the screen (never at startup), writes nothing, and its terminal qu
 timeout so a terminal that never answers cannot freeze the interface. See the
 [TUI Installer Guide](docs/tui-installer.md#the-terminal-capabilities).
 
+**Clean up development caches.** The fifth utility is **the developer disk cleaner**, behind the
+**Clean up development caches** row, and it is the one utility here that **removes** anything. It
+looks for the stores this machine's development tools actually keep — a tool is named only when a
+program on `PATH`, an environment variable that names a store, or an existing directory says it is
+used here — covering the JavaScript and TypeScript package managers, `pip`, `uv`, Poetry and Conda,
+Cargo and Go, Gradle, Maven and Coursier, the system package managers, the container engines, and
+the project directories you add. The scan is bounded to those known locations and to the project
+directories you name (the installer offers the directory it was started from); it never walks a whole
+disk, and inside WSL it never touches host data.
+
+**Every number says where it came from.** A filesystem store is measured by a bounded walk that
+reports both the **logical** size the files hold and the **physical** space the filesystem spends on
+them, stops at filesystem boundaries, never follows a symbolic link, and counts each file once even
+when two findings overlap — so adding the rows together cannot overshoot what the disk holds. A store
+a tool owns is never walked: the container engines report their own numbers (`docker system df`,
+`podman system df`) and those rows are labelled **(tool-reported)**. A store that is gone, refused, or
+stopped by the scan's own ceilings is reported as **not measured** or as a **lower bound**, never as
+zero.
+
+**Nothing is selected for you, and nothing runs without a preview.** Every finding starts unmarked;
+space marks one, `a` marks only the items that are **safe to rebuild**, and the dependencies, the
+build output, the container images and the volumes — the **careful** and **delicate** rows — are
+never swept up by a bulk key. A finding the plan cannot clean is not selectable at all, and the
+screen names the reason instead of letting a mark do nothing. Confirming the selection opens a
+**dry run** that names, per item, the exact command that would run or the exact path that would be
+removed, and says plainly that **removal is irreversible** and what would have to be downloaded or
+rebuilt again. Nothing is quarantined, and nothing runs in the background: a scan or a cleanup runs
+only while the screen is open, `Esc` cancels either one, and no telemetry or network call is made.
+
+**A tool's own mechanism comes first.** Docker and Podman stores are cleaned through the engines'
+own `prune` commands, package managers through their own cache commands, Go through
+`go clean -cache`/`-modcache`, npm through `npm cache clean --force`, and so on — the engine's
+internal store is never deleted file by file, because that would leave it inconsistent. Where no such
+command exists the finding is **reported** with the reason rather than removed. A command that needs
+administrator rights is attempted with `sudo -n`, without a prompt, and if it is refused the screen
+names the exact command to run by hand.
+
+**What a removal is allowed to touch is re-checked immediately before every unlink.** A direct
+removal refuses `/`, the home directory and the system roots, `.git`, configuration and credential
+directories, a symbolic link where a directory was approved, and any tree that contains a mount
+point; the approved scope is verified again at the moment of the unlink, so a path swapped in after
+the preview is refused rather than followed. What came back is measured twice: per item, and as the
+**filesystem's own free-space delta** around the run — the second is the number the screen leads
+with, and when it cannot be measured the screen says why instead of printing a zero. Inside WSL the
+screen states that freeing space in the Linux filesystem does **not** shrink the distribution's
+virtual disk, and it will not compact it for you: that is a separate decision made from Windows. See
+the [TUI Installer Guide](docs/tui-installer.md#the-development-caches).
+
 ---
 
 ## 🎮 Vim Mastery Trainer

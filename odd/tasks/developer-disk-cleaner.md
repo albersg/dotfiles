@@ -107,10 +107,10 @@ screen lives in the Utilities section.
 | T1 | Types, sizes, measurement engine (walk, dedupe, overlap, mounts, cancel) | S1, S3, S4, S10, S11 | inline | `feat(diskclean): measure what each development store really holds` |
 | T2 | Delete guard and blocked roots | S7, S11, S13 | inline | `feat(diskclean): a removal re-checks its scope before it unlinks` |
 | T3 | Ecosystem detectors with real probes | S1, S2, S6 | inline | `feat(diskclean): the tools that are here, with the reason each was found` |
-| T4 | Plan, dry-run and cleanup execution | S5, S6, S8, S9 | inline | `feat(diskclean): a preview runs first, and the result is measured again` |
-| T5 | TUI state, commands and key handlers | S2, S5, S10 | inline | `feat(tui): the disk cleaner's keys, scan and clean commands` |
-| T6 | Rendering, Utilities integration, frame and golden guards | S3, S9, S12 | inline | `feat(tui): the disk cleaner is a job of the Utilities section` |
-| T7 | Docs and closure | S12, S14 | inline | `docs: the disk cleaner in the installer guide` |
+| T4 | Plan, dry-run and cleanup execution | S5, S6, S8, S9 | inline | `ff3d579` `feat(diskclean): a preview runs first, and the result is measured again`, plus `5c1e2cf` `fix(diskclean): a run that released nothing measurable says so, not zero` (found while wiring the screen: a zero delta was being printed as a measured release) |
+| T5 | TUI state, commands and key handlers | S2, S5, S10 | inline | `004d9da` |
+| T6 | Rendering, Utilities integration, frame and golden guards | S3, S9, S12 | inline | `004d9da` `feat(diskclean): the screen that shows what each store holds, and cleans what you mark` — T5 and T6 share this one work-unit commit on purpose: the frame, emoji and terminal-fit guards measure every declared screen, so a screen constant that nothing renders cannot be committed on its own without leaving the suite red |
+| T7 | Docs and closure | S12, S14 | inline | `docs(diskclean): the development caches in the README and the installer guide` |
 
 ## Log
 
@@ -181,8 +181,43 @@ Tool-reported items (docker/podman) are re-queried and compared. Commands are ar
 strings do not exist in the package.
 
 **L7 — the screen (T5, T6).** `ScreenDiskCleaner` appended to the screen constants; the Utilities
-section gained its row, its panel entry and its paragraph. Scan and clean are commands with a
-context; `Esc` cancels a scan and leaves a preview. Delicate items are never selected by the "safe"
-key, and the confirm row appears only in the preview.
+section gained its row (`Clean up development caches`), its panel entry (`Caches`) and its paragraph.
+Scan and clean are Bubbletea commands with a context; `Esc` cancels a scan or a cleanup in flight and
+leaves a preview without running it. Every checkbox starts empty, `a` marks only the items whose risk
+is safe, `n` clears the selection, and a finding nothing can be done about is not selectable — the
+screen names the reason instead. The confirm row exists only in the preview. `screen_coverage_test.go`
+learned the new screen in four places (`measuredScreens`, `terminalFitCases`,
+`screensTheInstallerStatesNeverReach`, `diskCleanerFrameCase`), a golden frame pins the screen
+(`TestDiskCleanerGolden`), and the Utilities golden and panel tests were updated for the new row.
+The working path also swallowed a real defect once: the screen's escape key and space key are owned
+globally by the leader key and the back handler, so the first version of the screen never saw them —
+the tests caught it, and both are now taken by the disk cleaner before the globals.
 
 **L8 — verification.** (filled at closure)
+
+## Remaining
+
+- **Termux `pkg` has no cache command.** Termux's `pkg`/`apt` cache is reached through
+  `apt-get clean` when that exists; where it does not, the finding is reported with the reason and
+  cannot be selected. No direct removal of the package manager's cache is attempted on Termux.
+- **Platforms without a free-space query or a device/inode pair.** `freeSpaceOn` is implemented for
+  Unix (`statfs`); elsewhere the result says the release could not be measured and falls back to the
+  per-item numbers instead of printing a zero. Likewise, the walk's dedupe by `(device, inode)` and
+  its mount-point refusals only apply where the platform reports those fields; on a platform that
+  does not, a shared file may be counted twice and the walk will not claim to have found a mount it
+  cannot prove. This is the honest failure mode, and it is documented in `stat_other.go`.
+- **Physical size is `Blocks*512` on Unix and equals the logical size elsewhere**, so the physical
+  column is only as good as the platform's own accounting.
+- **A bounded walk can report a lower bound.** A store larger than the scan's ceilings (file count,
+  time, or depth) is reported with `Truncated` set and the screen says the number is the part that
+  was read.
+- **Container volumes stay delicate and unselected.** The Docker and Podman volume rows are found
+  and can be cleaned through `volume prune`, but they are never preselected by the bulk key: their
+  contents are data the engine owns and may not be reproducible. A volume in use is never touched.
+- **Ecosystems that cannot be detected reliably are omitted on purpose** — no guessing is done for a
+  tool whose store layout could not be established from its own documentation or its own command.
+- **No quarantine, by decision (D2).** The preview says the removal is irreversible; there is no
+  trash or moved-aside store to restore from.
+- **The scan is never automatic.** Nothing scans, measures or removes unless the user opened the
+  screen and pressed a row; a run in flight stops when it is cancelled, and no work survives the
+  screen.
