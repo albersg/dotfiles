@@ -34,9 +34,9 @@ because other sessions write to the same clone.
 
 ## Tasks
 
-- [ ] **T1** (S2) This document: the premise, the code each half of it rests on, the measurement spec
+- [x] **T1** (S2) This document: the premise, the code each half of it rests on, the measurement spec
   and the three candidate mechanisms with their costs. Route: inline. Commit: this file.
-- [ ] **T2** (S3, S4) The measurement: does the reply reach the probe, which reader consumed it, and
+- [x] **T2** (S3, S4) The measurement: does the reply reach the probe, which reader consumed it, and
   can reply bytes be read as keys. Route: inline; the harness is a diagnostic and its output is the
   deliverable. Commit: the recorded output in the Log.
 - [ ] **T3** (S1, S5) The owner's mechanism decision, with the measurement in front of them.
@@ -79,15 +79,68 @@ cases, run in the same terminal emulator on the same host:
 
 | Case | Attached readers | Question it answers |
 |------|------------------|---------------------|
-| A | the probe alone | does this terminal answer the probe at all (the baseline) |
+| A | the probe alone, raw terminal | does this terminal answer the probe at all (the baseline) |
 | B | the probe + bubbletea reading `stdin` | does the answer still reach the probe when the installer's reader is attached |
 | C | bubbletea reading `stdin`, probe run concurrently | does a reply byte sequence arrive at bubbletea as input, and what does it become |
+| D | the probe alone, canonical terminal | can the probe read a reply on the terminal as it is before the interface starts |
 
 A and B together are the measurement: if A answers and B does not, or answers shorter, the response is
 being consumed by the installer's own reader, which is the defect. C says whether the loss also
-corrupts input, which decides how severe it is. A terminal emulator that answers the queries is the
-responder -- `tmux` acts as one for the programs inside it -- and the output of each case is recorded
-here with the command that produced it.
+corrupts input, which decides how severe it is. The terminal on the far side has to answer these three
+queries -- DECRQM for mode 2026 and two XTGETTCAP asks -- so the harness supplies one that does;
+`tmux` would be a responder in principle but is not installed on the host this was measured on.
+
+## What the measurement found (T2)
+
+The responder is `scripts/measure-terminal-ownership-stub.py`: it answers the way a terminal that
+supports all three would (`\x1b[?2026;2$y`, then `\x1bP1+r524742=31\x1b\\` and `\x1bP1+r4D73=31\x1b\\`).
+`script(1)` supplies the pty and the controlling terminal, the terminal is held in the raw mode the
+interface sets in production, and `installer/internal/tui/probe_ownership_measure_test.go` makes each
+case's reading. The whole measurement is one command:
+
+```
+scripts/measure-terminal-ownership.sh alone|shared [runs]
+```
+
+**Case A, the baseline: the probe on a terminal nobody else is reading.** In 5 of 5 runs the probe
+received all 41 bytes and `detectTerminalCapabilities` read them as `colour=supported
+clipboard=supported sync=supported ... (the terminal's reply to ...)`. The harness is therefore sound,
+this terminal answers all three queries, and the bytes the probe receives are the bytes it can use.
+
+**Case B, the installer's arrangement: the probe with the interface reading `os.Stdin`.**
+
+| runs | the probe received | the interface received |
+|------|--------------------|------------------------|
+| 19 of 20 | 41 bytes, all three `supported` | 0 messages |
+| 1 of 20 | **0 bytes** | **7 messages** |
+
+Twenty runs, and not one of them in between: the reply goes to one reader or to the other, never split,
+and the losing reader receives nothing at all. In the run the interface won, one 41-byte reply arrived
+as seven messages:
+
+```
+tea.unknownCSISequenceMsg                                     <- the \x1b[?2026;2$y half, swallowed
+KeyMsg type=runes runes=['P'] alt=true paste=false            <- \x1bP, read as alt-P
+KeyMsg type=runes runes=['1' '+' 'r' '5' '2' '4' '7' '4' '2' '=' '3' '1'] alt=false   <- the XTGETTCAP body, read as typed text
+KeyMsg type=runes runes=['\\'] alt=true paste=false           <- the string terminator
+... the second XTGETTCAP reply, the same way
+```
+
+The consequence is visible in the run the probe lost: `colour` fell back to `COLORTERM=truecolor` and
+`clipboard` and `sync` answered `unknown (not determined)`. That is one screen answering `unknown` about
+a terminal that supports all three, decided by which goroutine read first -- and, in the same run, the
+terminal's answer entering the interface as input.
+
+**Case D: the probe alone on a canonical terminal.** The same instrument with the terminal as it is
+before the interface starts -- `scripts/measure-terminal-ownership.sh alone 3 canonical` -- returned
+**0 bytes in 3 of 3 runs**, where the same case on a raw terminal returned all 41 bytes in 5 of 5. The
+reason is not a race but a rule: `queryTerminal` writes to and reads from the descriptor the probe
+opened (`terminal_probe.go:191-215`), and neither it nor `terminalReply` touches termios, so the probe
+can read a partial reply only because the interface has already set raw mode. In canonical mode a read
+returns at a newline and a capability reply contains none, so the reply reaches nobody until the
+deadline passes. Moving the probe ahead of the interface would therefore not move the question to a
+quieter terminal; it would move it to a terminal that cannot answer at all, unless the probe also learns
+to set raw mode itself -- in a component that today touches no termios.
 
 ## The three mechanisms, with their costs (T3)
 
@@ -125,3 +178,24 @@ here with the command that produced it.
   and the I/O half has no test while the interpretation half has its own guards. The premise therefore
   rests on four facts that are all visible in the code, and on one that only a terminal can answer: what
   actually arrives, and where.
+- **L4.** The measurement (T2), with the command it came from:
+  `scripts/measure-terminal-ownership.sh alone|shared [runs] [raw|canonical]`, which puts
+  `installer/internal/tui/probe_ownership_measure_test.go` under a pty from `script(1)`, holds the
+  terminal in the mode asked for, and runs `scripts/measure-terminal-ownership-stub.py` on the far side
+  as a terminal that answers all three queries. **Case A** (probe alone, raw): 41 bytes in 5 of 5 runs,
+  read as `colour=supported clipboard=supported sync=supported`. **Cases B and C** (probe with the
+  interface reading `os.Stdin`, as `cmd/dotfiles` starts it): 20 runs, the probe received the whole
+  reply in 19 and **0 bytes in 1**, and in that one run the interface received the reply as **7 input
+  messages** -- `\x1bP` as alt-P, an XTGETTCAP body as typed text, the DECRQM half swallowed by the
+  parser. Not one run split the reply between the readers. **Case D** (probe alone, canonical): 0 bytes
+  in 3 of 3, against 41 bytes in 5 of 5 on a raw terminal, which is the raw-mode dependency measured
+  rather than argued.
+- **L5.** Two corrections of this front's own instrument, kept because both are the kind of error that
+  would have produced a confident wrong answer. First, the measurement section's first draft named
+  `tmux` as the terminal on the far side; `tmux` is not installed on the host this was measured on, so
+  the responder is the stub script, and only the stub's answers are ever reported as the measurement's
+  own. Second, an intermediate scripted aggregation of the first sample reported "1 message" in every
+  run including the three that received none, because its pattern counted the report's own summary line
+  ("the interface received N messages") as if it were a message; the per-run literal lines settled it,
+  and they agree with the first reading. An aggregate that also matches the sentence it is counting is
+  not evidence.
