@@ -95,17 +95,44 @@ func (r RevertReport) Complete() bool {
 //
 // A machine with no record has nothing to revert, and that is the answer: the
 // error is errNoRecord, which the command line reports without a traceback.
-// backupDirectoryFor returns the backup directory that holds an entry's copy, or
-// "" when the record names none. A copy is named as a file inside the directory
-// (BackupDir/key), and --restore takes the directory, so the way back a reader is
-// handed has to be the directory itself: the printed command has to work.
-func backupDirectoryFor(entry installEntry) string {
-	if entry.Backup == "" {
-		return ""
+// writtenPaths returns the paths a record says the run wrote, for a record that
+// carries no per-file changes: the entries whose own action says the run wrote them
+// ("replaced", "created"), or -- for a record from before entries existed -- the
+// Files list that reading it folds into entries. An entry the backup step merely
+// copied or found is not one of them: that step copies what a run may write, so
+// having a copy of a path says nothing about whether the run changed it. An empty
+// result is the record saying the run changed nothing.
+func writtenPaths(record *lastInstall) []installEntry {
+	written := make([]installEntry, 0, len(record.Entries))
+	for _, entry := range record.Entries {
+		if entry.Action == installActionReplaced || entry.Action == installActionCreated {
+			written = append(written, entry)
+		}
 	}
-	// The writer always names a copy inside the directory (BackupDir/key), for a
-	// directory key as well as a file key, so the directory is always its parent.
-	return filepath.Dir(entry.Backup)
+	if len(written) > 0 || len(record.Files) == 0 {
+		return written
+	}
+	// Files is the record's only word on what it wrote, and the fold is where those
+	// paths became entries: they are what there is to hand back.
+	for _, entry := range record.Entries {
+		if entry.Path != "" {
+			written = append(written, entry)
+		}
+	}
+	return written
+}
+
+// backupDirectoryFor returns the directory the entries' copies live in, or "" when
+// none of them names a copy. A copy is named as a file inside that directory
+// (BackupDir/key), and --restore takes the directory, so the way back a reader is
+// handed has to be a command that works.
+func backupDirectoryFor(entries []installEntry) string {
+	for _, entry := range entries {
+		if entry.Backup != "" {
+			return filepath.Dir(entry.Backup)
+		}
+	}
+	return ""
 }
 
 func RevertLastRun(opts RevertOptions) (RevertReport, error) {
@@ -130,21 +157,26 @@ func RevertLastRun(opts RevertOptions) (RevertReport, error) {
 	items := make([]revertItem, 0, len(record.Changes))
 	keys := map[string]bool{}
 
-	// A record written before per-file digests names paths and says nothing about
-	// what changed in them. There is no file-by-file work to do from it, and the
-	// honest answer is not "already in place": it is that this command cannot act
-	// on that record, and which command can.
-	if record.legacy && len(record.Entries) > 0 {
-		for _, entry := range record.Entries {
+	// A record with no per-file changes cannot be undone one file at a time. What it
+	// can still say is which paths the run wrote, and whether it says any is the
+	// question that separates two records that look alike: one written before this
+	// command had per-file changes, and one written by a run that changed nothing.
+	// Reading the record for that answer -- instead of recognising a shape -- is what
+	// keeps a record written by any version this repository ever shipped from being
+	// told one thing when it means the other.
+	if len(record.Changes) == 0 {
+		written := writtenPaths(record)
+		directory := backupDirectoryFor(written)
+		for _, entry := range written {
 			action := fileActionModified
 			if entry.Action == installActionCreated {
 				action = fileActionCreated
 			}
-			reason := "the record predates per-file digests, so it does not say what this file changed"
-			if dir := backupDirectoryFor(entry); dir != "" {
-				reason += "; `dotfiles --restore=" + dir + "` puts the whole entry back"
+			reason := "the record names this path as one the run wrote, but not the file it is or what it held, so nothing here can put it back"
+			if directory != "" {
+				reason += "; `dotfiles --restore=" + directory + "` puts that whole backup back"
 			} else {
-				reason += "; `dotfiles --restore=<backup>` puts a whole backup entry back"
+				reason += "; `ls -d ~/.dotfiles-backup-*` names the backups this machine took, and `dotfiles --restore=<one of them>` puts a whole backup back"
 			}
 			items = append(items, revertItem{
 				change: fileChange{Key: entry.Key, Path: entry.Path, Action: action},

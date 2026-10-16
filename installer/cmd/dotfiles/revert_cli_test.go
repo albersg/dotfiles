@@ -195,6 +195,48 @@ func TestRestoreRefusesADirectoryThisProgramDidNotWrite(t *testing.T) {
 	}
 }
 
+// The record the released build writes -- what every installed machine therefore
+// holds -- has entries with actions and copies, files for the paths the run wrote,
+// and no per-file changes at all. Answering "the run changed no configuration file"
+// to it is the false success this branch has now produced twice.
+func TestRevertOnAReleasedBuildRecordSaysItCannotActOnIt(t *testing.T) {
+	home := t.TempDir()
+	stateHome := filepath.Join(home, "state")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	zshrc := filepath.Join(home, ".zshrc")
+	if err := os.WriteFile(zshrc, []byte("after-run"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backupDir := filepath.Join(home, ".dotfiles-backup-2026-01-01-000000")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyPath := filepath.Join(backupDir, "zsh")
+	if err := os.WriteFile(copyPath, []byte("before-run"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeRecord(t, stateHome, map[string]any{
+		"timestamp": "2026-01-01T00:00:00Z",
+		"version":   "released",
+		"status":    "complete",
+		"files":     []string{"zsh: " + zshrc},
+		"entries": []map[string]any{{
+			"key": "zsh", "path": zshrc, "action": "replaced", "backup": copyPath,
+		}},
+	})
+
+	if status := reportRevert(false); status != 1 {
+		t.Errorf("reportRevert on a record the released build wrote = %d, want 1", status)
+	}
+	data, err := os.ReadFile(zshrc)
+	if err != nil || string(data) != "after-run" {
+		t.Errorf("the revert touched a file it could not act on: %q (%v)", string(data), err)
+	}
+}
+
 // The machine's most ordinary state after a second run: a completed run that
 // changed nothing. It has entries and no per-file changes, which is also the shape
 // a record written before this branch carried -- and the answer is not "everything

@@ -601,8 +601,11 @@ Flags:
                        run writes names them per file, and each file is checked
                        against the digest the run took before it wrote it, so the
                        command proves what it did. A file whose backup copy is gone
-                       is reported, never skipped. The state it replaces is kept in
-                       a backup of its own. Exits 0 when the machine is back (or
+                       is reported, never skipped, and a record written before the
+                       installer recorded files one by one is reported as one this
+                       command cannot act on, with the backup directory that can put
+                       the whole entry back. The state it replaces is kept in a backup
+                       of its own. Exits 0 when the machine is back (or
                        already was), 1 when a file could not be put back, and 2 when
                        there is no record. Honours --dry-run
   --restore=<path>     Put a backup directory back, the same operation the main

@@ -38,7 +38,11 @@ anything, so the command reports a measurement rather than an attempt.
   names that directory.
 - **It says what it cannot do.** A file the backup holds no copy of is reported as
   `unrevertible`, never skipped, and a file that changed again since the run is reverted
-  and named.
+  and named. A record written before the installer recorded files one by one -- what every
+  machine that ran a released version holds -- does not say what changed inside each path,
+  so this command cannot undo it file by file: it reports each path as one it cannot act
+  on and names the backup directory that can put the whole entry back, rather than
+  reporting success on a machine whose files it never restored.
 - **Exit status:** `0` when the machine is back where the run found it (or already was),
   `1` when a file could not be put back, `2` when there is no record to revert. A run that
   changed no file is `0` and says so.
