@@ -1746,7 +1746,10 @@ func (m *Model) enterShellSelect() {
 }
 
 func (m Model) startTrainer() (tea.Model, tea.Cmd) {
-	stats := trainer.LoadStats()
+	// The reporting load is the one the trainer's own entry point uses: a profile that
+	// could not be read is moved aside and the player is told where it went, instead of
+	// being handed a silent zero that the next save would write over.
+	stats, problem := trainer.LoadStatsReport()
 	if stats == nil {
 		stats = trainer.NewUserStats()
 	}
@@ -1754,7 +1757,7 @@ func (m Model) startTrainer() (tea.Model, tea.Cmd) {
 	m.TrainerGameState = nil
 	m.TrainerCursor = 0
 	m.TrainerInput = ""
-	m.TrainerMessage = ""
+	m.TrainerMessage = problem
 	m.Screen = ScreenTrainerMenu
 	m.PrevScreen = ScreenMainMenu
 	return m, nil
@@ -3467,11 +3470,15 @@ func (m *Model) revealExerciseHintOnDeadline() {
 // no label", so the lesson, the practice and the boss handlers, and the
 // automatic deadline reveal, cannot disagree about what a missing hint looks
 // like.
+// trainerHintPrefix is what every hint the trainer reveals is labelled with, so the
+// exercise screen and the boss screen say the same thing about the same kind of help.
+const trainerHintPrefix = "💡 Hint: "
+
 func trainerHintLabel(exercise *trainer.Exercise) string {
 	if exercise == nil || exercise.Hint == "" {
 		return ""
 	}
-	return "💡 Hint: " + exercise.Hint
+	return trainerHintPrefix + exercise.Hint
 }
 
 // expireBossStepOnDeadline charges the clock when a boss step is left
@@ -3590,29 +3597,47 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// P key for Practice mode (if ready)
 		if m.TrainerCursor < len(m.TrainerModules) {
 			module := m.TrainerModules[m.TrainerCursor]
-			if m.TrainerStats.IsPracticeReady(module.ID) {
-				// Check if practice is complete
-				progress := m.TrainerStats.GetModuleProgress(module.ID)
-				if progress.IsPracticeComplete(module.ID) {
-					m.TrainerMessage = "🎉 Practice complete! All exercises mastered! Press [r] to reset."
-					return m, nil
-				}
-
-				m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
-				m.TrainerGameState.StartPractice(module.ID)
-
-				// Check if we got an exercise (shouldn't fail if not complete, but safety check)
-				if m.TrainerGameState.CurrentExercise == nil {
-					m.TrainerMessage = "🎉 Practice complete! All exercises mastered! Press [r] to reset."
-					return m, nil
-				}
-
-				m.TrainerInput = ""
-				m.TrainerMessage = ""
-				m.Screen = ScreenTrainerPractice
-			} else {
+			if !m.TrainerStats.IsPracticeReady(module.ID) {
 				m.TrainerMessage = "Complete all lessons first to unlock practice!"
+				return m, nil
 			}
+
+			// Nothing left to practise means every exercise is mastered AND the boss
+			// is unlocked. That is the only state in which the session would end on
+			// its first answer, so it is the only state that refuses to start; an
+			// all-mastered module whose boss gate is unmet keeps offering review,
+			// which is how the player reaches the gate at all.
+			// time.Now is the menu's own clock: the rule lives in the trainer package
+			// and takes the moment as an argument, and the menu is the view layer that
+			// has to supply one. A due review is work, so a module with reviews due
+			// starts a session even when the boss is already unlocked.
+			if m.TrainerStats.PracticeComplete(module.ID, time.Now()) {
+				m.TrainerMessage = "🎉 Nothing left to practise in " + module.Name + ": the boss is unlocked. Press [b]."
+				return m, nil
+			}
+
+			m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+			m.TrainerGameState.StartPractice(module.ID)
+
+			if m.TrainerGameState.CurrentExercise == nil {
+				m.TrainerMessage = "No exercises to practise in " + module.Name + " yet."
+				return m, nil
+			}
+
+			m.TrainerInput = ""
+			if due := m.TrainerStats.ReviewsDue(module.ID, time.Now()); due > 0 {
+				word := "reviews"
+				if due == 1 {
+					word = "review"
+				}
+				m.TrainerMessage = fmt.Sprintf("🔁 Review run: %d mastered %s due.", due, word)
+			} else if m.TrainerStats.IsPracticeComplete(module.ID) {
+				m.TrainerMessage = fmt.Sprintf("🔁 Review run: every exercise is mastered, and the boss still needs %.0f%% of your last %d practice answers.",
+					trainer.BossGateAccuracy*100, trainer.BossGateWindow)
+			} else {
+				m.TrainerMessage = ""
+			}
+			m.Screen = ScreenTrainerPractice
 		}
 	case "r":
 		// R key to reset practice progress for selected module
@@ -3806,10 +3831,11 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 			m.TrainerMessage = "✗ Incorrect. " + mismatch + "Solutions: " + trainer.FormatSolutionsHint(exercise)
 		}
 
-		// Record practice result for intelligent practice system
-		if m.TrainerGameState.IsPracticeMode && exercise.ID != "" {
-			progress := m.TrainerStats.GetModuleProgress(m.TrainerGameState.CurrentModule)
-			progress.RecordPracticeResult(exercise.ID, validation.IsCorrect)
+		// The answer recorders above own every counter, practice included, so the
+		// screen records nothing itself: counting the submission here as well is
+		// what used to double every practice attempt. The screen only persists the
+		// profile the answer moved.
+		if m.TrainerGameState.IsPracticeMode {
 			saveTrainerStats(&m)
 		}
 
@@ -3861,13 +3887,13 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		// The boss screen reveals its step's hint on the same terms as the
-		// exercise screen: trainerHintLabel's label, its empty check, and no
-		// label at all when the step carries none. Before this case the hint the
-		// rewritten Change & Repeat boss steps ship was unreachable copy: it sat
-		// in the data and no boss key could show it.
-		if label := trainerHintLabel(m.TrainerGameState.CurrentExercise); label != "" {
-			m.TrainerMessage = label
+		// The boss screen asks trainer.BossStepNudge rather than trainerHintLabel:
+		// the step's own hint when it ships one, and the first keystrokes of its
+		// answer when it does not. Tab used to be dead on every step without an
+		// authored hint, which was all 35 of them, so the key did nothing at all in
+		// the one place the player most wants a nudge.
+		if nudge := trainer.BossStepNudge(m.TrainerGameState.CurrentExercise); nudge != "" {
+			m.TrainerMessage = trainerHintPrefix + nudge
 		}
 		return m, nil
 
@@ -3973,9 +3999,11 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			// Session complete. The save runs after the celebration message so a
-			// failed save is reported instead of being hidden behind it.
+			// failed save is reported instead of being hidden behind it. A practice
+			// session ends only when there is nothing left to do, so the message
+			// names the thing that is now open rather than claiming mastery twice.
 			if m.TrainerGameState.IsPracticeMode {
-				m.TrainerMessage = "🎉 All exercises mastered! You're a Vim master! 🏆"
+				m.TrainerMessage = "🎉 Practice complete — every exercise mastered and the boss is unlocked. Press [b] on the menu."
 			} else {
 				m.TrainerMessage = "🎉 Lesson complete! Practice mode unlocked!"
 			}

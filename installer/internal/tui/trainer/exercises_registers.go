@@ -435,7 +435,7 @@ func getRegistersBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 8,
+				TimeLimit: 18,
 				Exercise: Exercise{
 					ID:     "registers_boss_1",
 					Module: ModuleRegisters,
@@ -450,12 +450,13 @@ func getRegistersBoss() *BossExercise {
 					Mission:        "Move line 2 to the top with dd, k and P, then indent it with >>. The buffer must read '  two', one, three with the cursor on the first non-blank of the indented line.",
 					Solutions:      []string{"ddkP>>"},
 					Optimal:        "ddkP>>",
+					Hint:           "Moving a line up is a delete, a move, and a paste above the cursor.",
 					Points:         50,
 					BufferVerified: true,
 				},
 			},
 			{
-				TimeLimit: 10,
+				TimeLimit: 23,
 				Exercise: Exercise{
 					ID:     "registers_boss_2",
 					Module: ModuleRegisters,
@@ -469,12 +470,13 @@ func getRegistersBoss() *BossExercise {
 					Mission:        "Yank the word 'a' with yiw, delete the line below with j dd, then put register 0 before the cursor with \"0P. The line must read 'ax = a': register 0 kept the yank while the delete took the unnamed register.",
 					Solutions:      []string{"yiwjdd\"0P"},
 					Optimal:        "yiwjdd\"0P",
+					Hint:           "`P` puts above the cursor, and register 0 still holds the yank the delete did not take.",
 					Points:         50,
 					BufferVerified: true,
 				},
 			},
 			{
-				TimeLimit: 10,
+				TimeLimit: 22,
 				Exercise: Exercise{
 					ID:     "registers_boss_3",
 					Module: ModuleRegisters,
@@ -488,12 +490,13 @@ func getRegistersBoss() *BossExercise {
 					Mission:        "Store line 1 in register a with \"ayy, move down with j, put it below line 2 with \"ap, then dedent the put copy with <<. The buffer must read '    alpha', beta, '  alpha'.",
 					Solutions:      []string{"\"ayyj\"ap<<"},
 					Optimal:        "\"ayyj\"ap<<",
+					Hint:           "A named register keeps its own copy, so the put leaves the yank available for a second paste.",
 					Points:         50,
 					BufferVerified: true,
 				},
 			},
 			{
-				TimeLimit: 12,
+				TimeLimit: 19,
 				Exercise: Exercise{
 					ID:     "registers_boss_4",
 					Module: ModuleRegisters,
@@ -507,12 +510,13 @@ func getRegistersBoss() *BossExercise {
 					Mission:        "Move line 1 below line 2 with dd and p, then append '!' to the moved line with A. The buffer must read end, 'start!'.",
 					Solutions:      []string{"ddpA!<Esc>"},
 					Optimal:        "ddpA!<Esc>",
+					Hint:           "`p` puts below the cursor and `A` appends at the end of the line, so the moved line ends up one line lower with the text added.",
 					Points:         50,
 					BufferVerified: true,
 				},
 			},
 			{
-				TimeLimit: 15,
+				TimeLimit: 29,
 				Exercise: Exercise{
 					ID:     "registers_boss_5",
 					Module: ModuleRegisters,
@@ -527,6 +531,7 @@ func getRegistersBoss() *BossExercise {
 					Mission:        "Yank line 1 into register a with \"ayy, yank line 2 with j yy, delete line 3 with j dd, then put register a with \"ap and register 0 with \"0p. The buffer must read alpha, beta, alpha, beta.",
 					Solutions:      []string{"\"ayyjyyjdd\"ap\"0p"},
 					Optimal:        "\"ayyjyyjdd\"ap\"0p",
+					Hint:           "The named register and the unnamed one are separate, so a delete that follows cannot overwrite the yank you kept.",
 					Points:         50,
 					BufferVerified: true,
 				},

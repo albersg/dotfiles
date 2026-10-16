@@ -1121,6 +1121,26 @@ colour draws as a plain block, and this shading means nothing there. That is wha
 rather than a fallback — a terminal without true colour, a run with the sprite switched off
 (`DOTFILES_SPRITE=0`) and a frame with fewer rows all get the cat the glyph ladder picks.
 
+### The creature's states, and the one it takes in a fight
+
+`companionStateNow()` picks the creature's state from the model, and the trainer's boss screen
+overrides every reaction: while a boss fight is on screen the creature is **possessed** — a spiked
+crest, fangs, and eyes drawn in the ember tone (`#ff2d2d`) instead of the sclera's own. It is a state
+in the same machine rather than an overlay painted on a frame, so every rung of the sprite ladder has
+art for it (`companionPossessedFrames`, appended by `companionFramesAt`), the frame guard still
+refuses an overflowing one, and the gaze composer still moves the slit pupil. The one-row rung — what
+the trainer draws at the documented 80x24 floor — carries the ember eyes too, which is why the
+glyph renderer paints the mark (`companionGlyphRow`) instead of keying off the eye row's metadata.
+
+Whether an eye's disc is the sclera's tone and whether it carries a highlight are the mark's own
+answers (`companionEyeDiscTone`, `companionEyeHasGlint`), so the eye-invariant test asks the art's
+own question instead of repeating the sclera's colour.
+
+The escalation is the fight: with lives to spare the form is calm, and on the last life
+(`companionPossessionRageLives`) the creature shakes with the same one-pixel tremble a startle draws,
+held for as long as the fight lasts. The moment the fight ends it is its ordinary self again, because
+the state is derived from the screen and nothing about it is stored.
+
 It costs what it looks like it costs. The renderer repaints a whole line whenever any byte in it
 changes. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227 columns and height 62**:
 

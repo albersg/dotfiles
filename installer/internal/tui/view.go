@@ -4007,15 +4007,26 @@ func trainerModuleMeterText(progress *trainer.ModuleProgress, practice trainer.P
 }
 
 // trainerPracticeAccuracyText renders the selected module's practice accuracy,
-// the percentage the boss unlock threshold is measured against. It is omitted
-// until the module has a recorded attempt, so a fresh module does not claim 0%.
-// It names itself because it is now a line of the selected module's detail
-// block rather than a suffix on the row, where "Acc 60%" had to be terse.
-func trainerPracticeAccuracyText(progress *trainer.ModuleProgress) string {
+// the percentage the boss unlock threshold is measured against, and how many
+// mastered exercises have come due for review. It is omitted until the module has
+// a recorded attempt, so a fresh module does not claim 0%. It names itself because
+// it is now a line of the selected module's detail block rather than a suffix on
+// the row, where "Acc 60%" had to be terse. The due count shares the line rather
+// than taking a row of its own: the menu's row budget is fixed, and a new row here
+// would push the legend off an 80x24 screen.
+func trainerPracticeAccuracyText(progress *trainer.ModuleProgress, module trainer.ModuleID, now time.Time) string {
 	if progress == nil || progress.PracticeAttempts == 0 {
 		return ""
 	}
-	return fmt.Sprintf("Practice accuracy: %.0f%%", progress.PracticeAccuracy*100)
+	text := fmt.Sprintf("Practice accuracy: %.0f%%", progress.PracticeAccuracy*100)
+	if due := progress.ReviewsDue(module, now); due > 0 {
+		word := "reviews"
+		if due == 1 {
+			word = "review"
+		}
+		text += fmt.Sprintf(" · %d mastered %s due", due, word)
+	}
+	return text
 }
 
 // trainerWeakExerciseText renders the exercises a module misses most, in the
@@ -4119,7 +4130,7 @@ func (m Model) renderTrainerMenu() string {
 		// gutter.
 		if i == m.TrainerCursor {
 			detail := []string{InkStyle.Render(truncate(module.Description, inner-blockGutterWidth))}
-			if accuracy := trainerPracticeAccuracyText(progress); accuracy != "" {
+			if accuracy := trainerPracticeAccuracyText(progress, module.ID, time.Now()); accuracy != "" {
 				detail = append(detail, InfoStyle.Render(accuracy))
 			}
 			if weak := trainerWeakExerciseText(progress, practice, inner-blockGutterWidth); weak != "" {
@@ -4461,6 +4472,9 @@ func (m Model) trainerExerciseVital() string {
 		parts = append(parts, meterRendered(state.ExerciseIndex+1, len(state.Exercises), trainerHeaderMeterCells))
 	}
 	parts = append(parts, MeterStyle.Render(fmt.Sprintf("Score: %d · Streak: %d", state.SessionScore, state.CurrentStreak)))
+	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
+		parts = append(parts, MeterStyle.Render(combo))
+	}
 	if remaining := state.RemainingSeconds(); remaining > 0 {
 		parts = append(parts, WarningStyle.Render(fmt.Sprintf("⏳ Hint in %ds", int(math.Ceil(remaining)))))
 	}
@@ -4706,6 +4720,17 @@ func renderLineWithSelection(line string, startPos trainer.Position, sel trainer
 	return result.String()
 }
 
+// trainerComboText is the multiplier the score is paid by, named only once there is a
+// run to speak of: "Combo ×1" on every screen would be noise rather than a fact. It is
+// one function so the lesson, practice and boss headers cannot disagree about the
+// wording or about when the fact is worth showing.
+func trainerComboText(multiplier int) string {
+	if multiplier <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("Combo ×%d", multiplier)
+}
+
 // trainerBossVital is the boss screen's vital sign, carried by its header instead
 // of two stacked rows: the lives as a count and a glyph run, the step the fight
 // is on, and the live countdown, each as a chip. The countdown is derived from
@@ -4723,6 +4748,12 @@ func (m Model) trainerBossVital() string {
 	parts := []string{
 		chip(fmt.Sprintf("Lives: %d/%d %s", state.BossLives, boss.Lives, trainerLivesGlyphs(state.BossLives, boss.Lives))),
 		chip(fmt.Sprintf("Step %d/%d", state.BossStep+1, len(boss.Steps))),
+	}
+	// The combo sits before the countdown rather than after it: the header drops what
+	// does not fit from its tail, and a run of wins is worth less than the seconds
+	// left on the step.
+	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
+		parts = append(parts, chip(combo))
 	}
 	if remaining := state.BossStepSecondsLeft(); remaining > 0 {
 		parts = append(parts, chip(fmt.Sprintf("⏳ Time left: %ds", int(math.Ceil(remaining)))))
@@ -4883,6 +4914,30 @@ func (m Model) renderTrainerResult() string {
 	return strings.Join(rows, "\n")
 }
 
+// trainerFightDuration renders a fight's length the way the countdowns render theirs:
+// whole seconds, so a fast fight does not read as "39.999s" because a frame landed a
+// hair early.
+func trainerFightDuration(d time.Duration) string {
+	seconds := int(d.Round(time.Second).Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+// trainerBossBestTime is the module's recorded best fight, or 0 when it has none. It
+// reads the profile without creating a record, like every other question the trainer
+// asks of it.
+func (m Model) trainerBossBestTime(module trainer.ModuleID) time.Duration {
+	if m.TrainerStats == nil {
+		return 0
+	}
+	if progress := m.TrainerStats.ModuleProgressOrNil(module); progress != nil {
+		return progress.BossBestTime
+	}
+	return 0
+}
+
 func (m Model) renderTrainerBossResult() string {
 	inner := trainerInnerWidth(m)
 
@@ -4929,6 +4984,19 @@ func (m Model) renderTrainerBossResult() string {
 			summary = append(summary, MutedStyle.Render(state.CurrentBoss.Name+" wins this time..."))
 		}
 		summary = append(summary, InfoStyle.Render("Keep practicing and try again!"))
+	}
+
+	// The fight's own clock, which the state now measures: how long this fight took and
+	// the module's best. Both are omitted for a fight that never started, so the row
+	// appears only when there is a measurement behind it.
+	if state != nil && state.CurrentBoss != nil {
+		if elapsed := state.BossFightElapsed(); elapsed > 0 {
+			line := fmt.Sprintf("Fight time: %s", trainerFightDuration(elapsed))
+			if best := m.trainerBossBestTime(state.CurrentModule); best > 0 {
+				line += fmt.Sprintf(" · Best: %s", trainerFightDuration(best))
+			}
+			summary = append(summary, MeterStyle.Render(line))
+		}
 	}
 	rows = append(rows, gutteredBlock(summary)...)
 
