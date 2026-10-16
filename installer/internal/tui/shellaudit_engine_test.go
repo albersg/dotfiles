@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -411,5 +412,50 @@ func TestShellAuditRecordsTheVersionItRanWith(t *testing.T) {
 	}
 	if st.Kind != shellAuditKindZsh {
 		t.Errorf("the family = %q, want zsh", st.Kind)
+	}
+}
+
+// TestShellAuditStateAndRecordStayEachOthersInverse pins the projection and its
+// inverse against each other. The screen draws the flat fields, the comparison,
+// the history and the stored trend read the record, so a field that one of them
+// carries and the other drops would be a measurement the utility has and cannot
+// print -- and it would be dropped silently, which is the worst way for a number
+// to go missing.
+func TestShellAuditStateAndRecordStayEachOthersInverse(t *testing.T) {
+	run := shellAuditRun{
+		Kind:         shellAuditKindZsh,
+		Shell:        "zsh",
+		Path:         "/usr/bin/zsh",
+		Version:      shellAuditVersion{Known: true, Raw: "zsh 5.9.2", Number: "5.9.2", Major: 5, Minor: 9},
+		Mode:         shellAuditMode{Login: true, Interactive: true},
+		Command:      "zsh -l -i -c exit",
+		Terminal:     true,
+		TerminalName: "iTerm.app 3.5.0",
+		Note:         "a note the start carries",
+		Reason:       "",
+
+		Samples:  []time.Duration{400 * time.Millisecond, 410 * time.Millisecond, 420 * time.Millisecond},
+		Warmup:   []time.Duration{900 * time.Millisecond},
+		Timeouts: 1,
+		Failures: 2,
+		Failure:  "exit status 127",
+
+		Stats: shellAuditStatsOf([]time.Duration{400 * time.Millisecond, 410 * time.Millisecond, 420 * time.Millisecond}),
+
+		Attribution: []shellAuditFunction{
+			{Name: "compinit", Kind: shellAuditAttributionFunction, Self: 300 * time.Millisecond, Calls: 1, Percent: "75.00%"},
+		},
+		AttributionReason: "",
+
+		MeasuredAt: time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC),
+		Took:       3 * time.Second,
+		Cancelled:  true,
+	}
+
+	// The state is a projection of the record, so the way back has to be the
+	// record itself -- for every field, including the ones only the history reads.
+	state := (shellAuditState{}).withShellAuditResult(shellAuditEvent{Result: run, Plan: shellAuditPlan{Samples: 3}})
+	if got := state.shellAuditRun(); !reflect.DeepEqual(got, run) {
+		t.Errorf("the round trip lost or changed a field:\n got %+v\nwant %+v", got, run)
 	}
 }

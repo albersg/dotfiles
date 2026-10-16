@@ -183,6 +183,19 @@ L8. T3 and T4 landed under one work-unit commit: the engine dispatches into the 
 with the engine and without the profilers does not build, and a commit that does not build is not a
 review unit. The two fronts' guards are in `shellaudit_engine_test.go` and `shellaudit_profile_test.go`.
 
+L9. T5 in place: `shellaudit_baseline.go` holds `shellAuditComparison` and `compareShellAuditBaseline`,
+the subtraction of the two medians with both numbers carried beside the difference so a reader can redo
+the arithmetic. The floor is the spread's own (`shellAuditComparisonFloor = shellAuditSpreadFloor`), the
+refusals are the substance of the file (another shell, another version, another mode, a cancelled side,
+a side that could not be made, fewer runs than the floor), and the verdict is kept apart from the
+arithmetic: the same number means "this is where your time goes" above a tenth of the start and "this is
+the shell's own" below it. A negative difference is reported as the two starts not being separable, not
+as a saving. Two real bugs were caught by these guards and fixed: the baseline's start time was read from
+the nil pointer that was about to hold it (a panic on the first measured baseline), and the state had no
+inverse projection, so the history and the comparison could not have read the record the screen draws.
+The inverse (`shellAuditState.shellAuditRun`) now lives beside `withShellAuditResult` with a round-trip
+guard over every field.
+
 ## Remaining
 
-T5..T9, with their evidence recorded here as each one lands.
+T6..T9, with their evidence recorded here as each one lands.

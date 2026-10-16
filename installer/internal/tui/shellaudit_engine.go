@@ -387,6 +387,43 @@ func (st shellAuditState) withShellAuditResult(event shellAuditEvent) shellAudit
 	return st
 }
 
+// shellAuditRun rebuilds the record a state is a projection of. The state and the
+// record are two views of one measurement: the screen draws the flat fields, and
+// the comparison, the history and the stored trend all read the record.
+//
+// The inverse lives here, next to withShellAuditResult, because the two have to
+// stay each other's inverse; a guard round-trips a run through both so a field
+// added to one is a failing test rather than a silently dropped number.
+func (st shellAuditState) shellAuditRun() shellAuditRun {
+	return shellAuditRun{
+		Kind:         st.Kind,
+		Shell:        st.Shell,
+		Path:         st.ShellPath,
+		Version:      st.Version,
+		Mode:         st.Mode,
+		Command:      st.Command,
+		Terminal:     st.Terminal,
+		TerminalName: st.TerminalName,
+		Note:         st.Note,
+		Reason:       st.RunReason,
+
+		Samples:  st.Samples,
+		Warmup:   st.Warmup,
+		Timeouts: st.Timeouts,
+		Failures: st.Failures,
+		Failure:  st.Failure,
+
+		Stats: st.Stats,
+
+		Attribution:       st.Attribution,
+		AttributionReason: st.AttributionReason,
+
+		MeasuredAt: st.MeasuredAt,
+		Took:       st.Took,
+		Cancelled:  st.Cancelled,
+	}
+}
+
 // runShellAuditMeasurement is the engine: it makes every start the plan asks
 // for, emits one event per start, and returns the record. The third return is a
 // reason the measurement could not be made at all, which is a different thing
@@ -457,7 +494,7 @@ func runShellAuditMeasurement(st shellAuditState, probe shellAuditProbe, ctx con
 			TerminalName: run.TerminalName,
 			MeasuredAt:   probe.now(),
 		}
-		baselineBegan := baseline.MeasuredAt
+		baselineBegan := clean.MeasuredAt
 		cleanMode := shellAuditMode{Interactive: plan.Mode.Interactive, Login: plan.Mode.Login, Clean: true}
 		clean.Cancelled = runner.measureBaseline(&clean, cleanMode, plan.Warmup, plan.Samples)
 		clean.Stats = shellAuditStatsOf(clean.Samples)
