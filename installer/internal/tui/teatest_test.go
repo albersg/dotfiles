@@ -1067,6 +1067,20 @@ func TestTerminalCapabilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Terminal capabilities"))
 }
 
+// TestNetworkDiagnosticsGolden pins the diagnosis screen: the verdict naming the
+// stage that stopped it, one row per check carrying its own status word, and the
+// detail of the step under the cursor with its evidence, its cause and the
+// command to run by hand. The report is forced rather than dialled, so the frame
+// does not become a snapshot of the network the runner happened to be on.
+func TestNetworkDiagnosticsGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := networkDiagnosticsFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Network diagnostics"))
+}
+
 // TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
 // pleased companion at a frame a few ticks into the two seconds. The burst is
 // model state, so its positions are the same on every machine that renders it.

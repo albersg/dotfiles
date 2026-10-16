@@ -272,9 +272,11 @@ used, so a wrong domain cannot be resolved silently. `go.mod`/`go.sum` show no d
 | T1 | `0ccd0f9` | `go test ./internal/netdiag/` green, `go vet` clean, `gofmt -l` empty; punycode vectors pinned; redaction and anonymization pinned by test; `go mod tidy -diff` shows no change |
 | T2 | `2b17d4d` | `env.go` + `env_test.go`; gofmt/vet/`go test ./internal/netdiag/` green. The interface summary counts a container bridge as virtual and does not count it as a way off the machine (a test pins it); the proxy check reports credentials masked and never fails on a proxy |
 | T3 | `7a59c93` | `checks.go` + `checks_test.go`; gofmt/vet/`go test ./internal/netdiag/` green. A bare `host:22` target is refused a request rather than dialled (a regression would have reached a real host); an untrusted certificate is refused against a real TLS handshake; a 404 is a note and not a failure |
-| T4 | (this commit) | `run.go` + `run_test.go`; stage order, streaming, the skip of the stages a failed transport never reached, the stopped run and the run's own bound are each pinned by test; a skipped check is named exactly like the check that runs |
+| T4 | `92b9160` | `run.go` + `run_test.go`; stage order, streaming, the skip of the stages a failed transport never reached, the stopped run and the run's own bound are each pinned by test; a skipped check is named exactly like the check that runs |
+| T5 | (this commit) | `tui/netdiag.go` and the additive wiring; the screen's own tests pin the refusal before anything is dialled, one run at a time, Escape keeping what finished, the preview as the consent for the write, the mode of the saved file and the anonymized content. Four defects were found by those tests and fixed: the utilities list never offered the row, `handleEscape` had no case for the screen (so Escape fell through to an unrelated state), the save row was offered without the preview, and `1 interfaces` |
+| T6 | (this commit) | every screen guard green: the frame case is registered in the measured matrix (`measuredScreens` 63 → 64), `TestEveryScreenFitsEveryTerminalSize` renders the new screen at all twelve terminals, and `TestNetworkDiagnosticsGolden` pins the 80x24 frame |
 
 ## Remaining
 
-T5 (the screen and its wiring), T6 (the screen's guards and the docs) and T7 (independent
-verification) are open. T1–T4 are complete and committed.
+T7 (independent verification over the whole diff, then the closing report) is open. T1–T6 are
+complete and committed.

@@ -151,6 +151,16 @@ const (
 	// optional detours reached from the row that decides them (T2 of
 	// odd/tasks/start-installation-flow.md).
 	ScreenSetup // Every decision of the flow, on one screen
+	// The network diagnosis. Appended at the end for the same reason as the screens
+	// above. The utilities section opens it from its own row, one level in so the
+	// section stays a list of jobs. It separates the local network, DNS, the
+	// transport, the certificate and the application, reports each step with its
+	// evidence, causes, next checks and manual commands, and reaches only for the
+	// host this installer already contacts for its own update check, plus whatever
+	// destination the user types. Nothing is changed, and nothing is written except
+	// the report the user reviews and chooses to save
+	// (odd/tasks/network-diagnostics.md).
+	ScreenNetworkDiagnostics // Why a destination cannot be reached, stage by stage
 )
 
 // stepOrigin says why a step is on the plan, in the three answers S2 of
@@ -609,6 +619,12 @@ type Model struct {
 	// paths the record names and a render must not touch the filesystem; the
 	// verdict is stored here so a redraw never re-reads the machine.
 	InstallVerify installVerifyState
+	// Network is what the network diagnosis draws: the destination field, the run
+	// in flight, the checks as they arrive, the finished report and the export. It
+	// is filled only when the screen's own row is pressed -- opening the screen
+	// dials nothing -- and its Probe field is nil in a real run, where the checks
+	// go through this machine, and set by a test that must not touch a network.
+	Network networkState
 	// UpdateCheck is what the installer knows about the latest published release:
 	// the tag, when it was read, and the reason it could not be read. The cached
 	// record is loaded on the startup path, so a start never waits on the network;
@@ -1057,6 +1073,10 @@ func (m Model) GetCurrentOptions() []string {
 		// is always a terminal to describe, and where there is not one the screen's
 		// own body says so rather than the row being silently absent.
 		utilities = append(utilities, utilitiesTerminalRow)
+		// The network diagnosis is read-only too, and offered for the same reason:
+		// there is always a machine whose connectivity is worth describing, and it
+		// dials nothing until its own screen's row is pressed.
+		utilities = append(utilities, utilitiesNetworkRow)
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -1081,6 +1101,8 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"← Back"}
 	case ScreenShellAudit:
 		return m.shellAuditRows()
+	case ScreenNetworkDiagnostics:
+		return m.networkRows()
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:
@@ -1377,6 +1399,8 @@ func (m Model) GetScreenTitle() string {
 		return "The shell's startup"
 	case ScreenInstallVerify:
 		return "The last install"
+	case ScreenNetworkDiagnostics:
+		return "Network diagnostics"
 	case ScreenUpdate:
 		return "Updates"
 	default:
@@ -1444,6 +1468,11 @@ func (m Model) GetScreenDescription() string {
 		return "Ghostty installation may fail on Ubuntu/Debian.\nThe installer script only supports certain versions."
 	case ScreenInstallVerify:
 		return "Every path and backup the record of the last install names, checked against this machine"
+	case ScreenNetworkDiagnostics:
+		// It says what the stages are and what the screen does with them, and it
+		// stops there: the rows below carry the report, and repeating a verdict here
+		// would be a second copy of the state the rows already hold.
+		return "Which stage of the connection stopped, with what each step measured"
 	default:
 		return ""
 	}
