@@ -254,7 +254,15 @@ func (m Model) renderInstallReview() string {
 	body = append(body, "")
 	body = append(body, count...)
 
-	return m.frame(m.headerName(), "", body, hints)
+	// The plan is the second of the wizard's two mandatory screens, so it carries the
+	// meter's last step. Without it the header's vital sign disappears exactly where
+	// the flow ends: the screen a user reads last would be the one screen that says
+	// nothing about how far along they are.
+	vital := ""
+	if current, total := m.wizardProgress(); total > 0 {
+		vital = meterRendered(current, total, 10)
+	}
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 // openInstallReview puts the review screen in front of the run, with the screen it

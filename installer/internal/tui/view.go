@@ -523,7 +523,7 @@ func (m Model) headerName() string {
 		return "Main Menu"
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect,
 		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning,
-		ScreenInstallReview:
+		ScreenInstallReview, ScreenSetup:
 		return "Setup"
 	case ScreenInstalling:
 		return "Installing dotfiles"
@@ -564,51 +564,25 @@ func (m Model) headerName() string {
 }
 
 // wizardProgress is the current step and the number of steps the wizard shows
-// for this run. WSL and Termux skip the terminal and font questions, so their
-// counter counts the four steps they actually answer rather than the six the
-// wizard's fixed chip list used to imply. A screen that is not one of the
-// wizard's questions (the Ghostty warning, for instance) reports 0/0 so its
-// header gets no filler meter.
+// for this run. The meter counts the two mandatory screens: the setup screen,
+// where every decision is a row, and the plan. The rich per-question screens are
+// optional detours of the setup screen now, so they inherit its meter rather
+// than claiming a step of their own; a screen that is not part of the wizard (the
+// main menu, the backup confirmation screen the flow no longer walks through)
+// reports 0/0 so its header gets no filler meter.
 func (m Model) wizardProgress() (current, total int) {
 	switch m.Screen {
+	case ScreenSetup:
+		return 1, 2
+	case ScreenInstallReview:
+		return 2, 2
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect,
-		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect:
-	default:
-		return 0, 0
+		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
+		// A detour inherits the meter of the screen it returns to, which is the
+		// setup screen and the first of the two mandatory screens.
+		return 1, 2
 	}
-
-	skipped := m.SystemInfo != nil && (m.SystemInfo.IsWSL || m.SystemInfo.IsTermux)
-	total = 6
-	if skipped {
-		total = 4
-	}
-	switch m.Screen {
-	case ScreenOSSelect:
-		current = 1
-	case ScreenTerminalSelect:
-		current = 2
-	case ScreenFontSelect:
-		current = 3
-	case ScreenShellSelect:
-		if skipped {
-			current = 2
-		} else {
-			current = 4
-		}
-	case ScreenWMSelect:
-		if skipped {
-			current = 3
-		} else {
-			current = 5
-		}
-	case ScreenNvimSelect:
-		if skipped {
-			current = 4
-		} else {
-			current = 6
-		}
-	}
-	return current, total
+	return 0, 0
 }
 
 // meterRendered draws a progress meter of cells with filled of total done: the
@@ -1031,6 +1005,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderMainMenu())
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		s.WriteString(m.renderSelection())
+	case ScreenSetup:
+		s.WriteString(m.renderSetup())
 	case ScreenInstallReview:
 		s.WriteString(m.renderInstallReview())
 	case ScreenLearnTerminals:
@@ -2465,6 +2441,36 @@ func stripStepPrefix(title string) string {
 		}
 	}
 	return title
+}
+
+// renderSetup draws the one screen the wizard's questions moved to: every
+// decision of the flow as a row, each carrying the value the choices hold, with
+// the cursor on the row the value keys act on. The rows and their values come
+// from setup_rows.go, so a decision cannot lose its row by being left out of a
+// renderer written a second time.
+func (m Model) renderSetup() string {
+	body := []string{BrandStyle.Render(stripStepPrefix(m.GetScreenTitle()))}
+
+	width := contentWidth(m)
+	for _, line := range strings.Split(m.GetScreenDescription(), "\n") {
+		for _, row := range wrapText(line, width, 0) {
+			body = append(body, MutedStyle.Render(row))
+		}
+	}
+	body = append(body, "")
+
+	for i, row := range m.setupRows() {
+		body = append(body, m.rowBar(row.Label, i == m.SetupCursor, m.setupRowValue(row)))
+	}
+
+	// The step counter is the wizard's vital sign: the setup screen is the first
+	// of the two mandatory screens, and the detours of this screen inherit the
+	// same count rather than claiming a step the flow does not have.
+	vital := ""
+	if current, total := m.wizardProgress(); total > 0 {
+		vital = meterRendered(current, total, 10)
+	}
+	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintAdjust, hintSelect, hintBack})
 }
 
 func (m Model) renderSelection() string {

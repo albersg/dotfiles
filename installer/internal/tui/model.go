@@ -110,6 +110,12 @@ const (
 	// the three the run cannot do without, and offers the two ways out -- back to
 	// the questions, or on to the run with the selection just made.
 	ScreenInstallReview // What will be installed, and what will not
+	// The setup screen. Appended at the end for the same reason as the screens
+	// above. It is where the wizard's questions went: one row per decision, each
+	// carrying its current value, with the rich per-question screens kept as
+	// optional detours reached from the row that decides them (T2 of
+	// odd/tasks/start-installation-flow.md).
+	ScreenSetup // Every decision of the flow, on one screen
 )
 
 // InstallStep represents a single installation step
@@ -171,6 +177,16 @@ type Model struct {
 	// asked and each question resets it by its own rules, while this one has to
 	// survive a trip back to a question and forward again.
 	UnitCursor int
+	// SetupCursor is the setup screen's row cursor. It is separate from Cursor for
+	// the same reason UnitCursor is: a detour screen resets Cursor by its own rules,
+	// while this one has to survive the trip to the detour and back so the user
+	// returns to the row they opened.
+	SetupCursor int
+	// SetupDetour records that the screen in front of the user was opened from the
+	// setup screen as a detour, so a choice or an Escape there returns to the setup
+	// screen instead of advancing along the wizard's old chain. It is cleared when
+	// the detour's row reports back.
+	SetupDetour bool
 	// DisabledUnits is the units the user turned off on the install-review screen,
 	// named by the IDs of install_units.go. The empty slice is the default and means
 	// today's plan exactly: a unit is installed unless its ID is in here. That
@@ -727,6 +743,53 @@ func (m Model) fontSummaryLine() string {
 	return line + " (installed now)"
 }
 
+// The question screens' value options. Each helper returns only the choices that
+// answer the question, without the separator and the "Learn about ..." rows the
+// rich screen adds: the setup screen's row cycles exactly these, and the rich
+// screen's menu is built from them, so the row and the detour cannot disagree
+// about what may be chosen. Before the setup screen existed these lists were
+// written inline in GetCurrentOptions, and the setup rows would have needed a
+// second copy of every one of them.
+func (m Model) osOptions() []string {
+	return []string{"macOS", "Linux", "Termux"}
+}
+
+func (m Model) terminalOptions() []string {
+	if m.Choices.OS == "mac" {
+		return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", "None"}
+	}
+	return []string{"Alacritty", "WezTerm", "Ghostty", "None"}
+}
+
+func (m Model) fontOptions() []string {
+	return []string{"Install " + m.installedFontLabel(), "Skip it"}
+}
+
+func (m Model) shellOptions() []string {
+	return []string{"Fish", "Zsh", "Nushell"}
+}
+
+func (m Model) wmOptions() []string {
+	// Herdr is not offered where the host itself is Termux: its dependencies are
+	// not packaged there. The check is the one the menu always made.
+	if m.SystemInfo != nil && m.SystemInfo.IsTermux {
+		return []string{"Tmux", "Zellij", "None"}
+	}
+	return []string{"Tmux", "Zellij", "Herdr", "None"}
+}
+
+func (m Model) nvimOptions() []string {
+	return []string{"Yes, install Neovim with config", "No, skip Neovim"}
+}
+
+// backupOptions is the two answers the backup question offers, without the way out
+// its own screen adds. It is the one list the setup screen's backup row cycles and
+// that screen's menu is built from, so the row cannot offer a value the screen
+// would not record.
+func (m Model) backupOptions() []string {
+	return []string{"Install with Backup (recommended)", "Install without Backup"}
+}
+
 func (m Model) GetCurrentOptions() []string {
 	switch m.Screen {
 	case ScreenMainMenu:
@@ -775,27 +838,25 @@ func (m Model) GetCurrentOptions() []string {
 		// The detected platform is already named on the line above the menu, so
 		// the option labels do not repeat it: they were "Linux (detected)" and
 		// friends, which restated the description under the title.
-		return []string{"macOS", "Linux", "Termux"}
+		return m.osOptions()
 	case ScreenTerminalSelect:
-		if m.Choices.OS == "mac" {
-			return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", "None", m.menuSeparator(), "Learn about terminals"}
-		}
-		return []string{"Alacritty", "WezTerm", "Ghostty", "None", m.menuSeparator(), "Learn about terminals"}
+		return append(m.terminalOptions(), m.menuSeparator(), "Learn about terminals")
 	case ScreenFontSelect:
 		// Both rows name what pressing them does. The second row used to give a
 		// reason -- "No, I already have it" -- which answered a question the user
 		// had not asked and left a person without the font unable to tell whether
 		// choosing it skipped the font or failed the step.
-		return []string{"Install " + m.installedFontLabel(), "Skip it"}
+		return m.fontOptions()
 	case ScreenShellSelect:
-		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "Learn about shells"}
+		return append(m.shellOptions(), m.menuSeparator(), "Learn about shells")
 	case ScreenWMSelect:
-		if m.SystemInfo != nil && m.SystemInfo.IsTermux {
-			return []string{"Tmux", "Zellij", "None", m.menuSeparator(), "Learn about multiplexers"}
-		}
-		return []string{"Tmux", "Zellij", "Herdr", "None", m.menuSeparator(), "Learn about multiplexers"}
+		return append(m.wmOptions(), m.menuSeparator(), "Learn about multiplexers")
 	case ScreenNvimSelect:
-		return []string{"Yes, install Neovim with config", "No, skip Neovim", m.menuSeparator(), "Learn about Neovim", "View Keymaps", "LazyVim Guide"}
+		return append(m.nvimOptions(), m.menuSeparator(), "Learn about Neovim", "View Keymaps", "LazyVim Guide")
+	case ScreenSetup:
+		// The rows are the choices themselves; the values they show are drawn by
+		// renderSetup, which is the only screen the values are for.
+		return m.setupRowLabels()
 	case ScreenInstallReview:
 		rows := make([]string, 0, len(installUnits))
 		for _, unit := range installUnits {
@@ -893,11 +954,10 @@ func (m Model) GetCurrentOptions() []string {
 		}
 		return append(opts, "← Back")
 	case ScreenBackupConfirm:
-		return []string{
-			"Install with Backup (recommended)",
-			"Install without Backup",
-			"Cancel",
-		}
+		// The answers come from the one list the setup screen's backup row reads, so
+		// the row and this screen cannot disagree about what may be chosen; the way
+		// out is a row of this screen alone and carries no answer.
+		return append(m.backupOptions(), "Cancel")
 	case ScreenRestoreBackup:
 		opts := make([]string, len(m.AvailableBackups)+2)
 		for i, backup := range m.AvailableBackups {
@@ -1038,6 +1098,10 @@ func (m Model) GetScreenTitle() string {
 		// this screen is not one of them. It says what it is instead of claiming a
 		// position the meter beside it would not show.
 		return "Choose What Gets Installed"
+	case ScreenSetup:
+		// The meter counts this screen and the plan, so it is the first of the two
+		// steps the header shows.
+		return "Step 1: Set Up the Installation"
 	case ScreenBackupConfirm:
 		return "Existing Configs Detected"
 	case ScreenRestoreBackup:
@@ -1189,6 +1253,11 @@ func (m Model) GetScreenDescription() string {
 		return "Terminal multiplexer for managing sessions"
 	case ScreenNvimSelect:
 		return "Includes LSP, TreeSitter, and dotfiles config"
+	case ScreenSetup:
+		// It says what the screen is and what the two keys do, and it stops there:
+		// the values are the rows' own, and repeating them here would be a second
+		// copy of the state the rows already carry.
+		return "Every choice this run needs, on one screen. Enter opens a row's detailed screen; Space turns a switch on or off."
 	case ScreenGhosttyWarning:
 		return "Ghostty installation may fail on Ubuntu/Debian.\nThe installer script only supports certain versions."
 	default:

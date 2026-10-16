@@ -719,11 +719,31 @@ writes not a single query byte.
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
 either axis, and overlong text is cut with a visible marker or wrapped rather
-than clipped silently. The installer first asks for the choices (operating
-system, terminal emulator, font, shell, window manager, Neovim and backup), then
-shows every unit it is about to install and lets each one be turned off, and then
-runs the steps that fit that machine; the set of steps depends on the platform
-and the choices, so a run shows only the ones that apply.
+than clipped silently. **The choices are one screen; the rich per-question screens are detours.** The
+installer opens a **setup screen** listing every decision the flow takes as a row
+-- platform, shell, terminal, font, multiplexer, editor (Neovim) and, when the
+machine holds configurations the run would replace, the backup decision -- each
+row carrying the value the choices hold on the same line, and a final row that
+continues to the plan. `↑`/`↓` move the cursor, `←`/`→` cycle the focused row's
+value in place, `Space` turns the font, editor and backup switches on or off,
+`Enter` opens the focused row's rich screen as a detour, and `Esc` leaves for the
+main menu with the answers forgotten. Inside a detour the original screen is
+unchanged -- its list, its `Learn about ...` rows and the Ghostty compatibility
+warning keep their own behaviour -- but choosing an answer records it and returns
+to the setup screen instead of advancing to a next question, and `Esc` returns
+without changing anything. The backup row opens the screen that names the
+configurations the run would replace, so the decision and the list it applies to
+are both on screen; its third row leaves that screen the way `Esc` does. The setup
+screen is the only entry to those screens:
+the chain of one question leading to the next is gone. The platform's forced
+answers (no terminal emulator on WSL or Termux, the Nerd Font on Termux) are
+applied when the screen is entered and shown as the rows' values rather than
+asked as questions that were never put. The wizard's counter counts the two
+screens the flow cannot skip: the setup screen shows `1/2`, the plan is the
+second, and a detour inherits the setup screen's half.
+
+The run then executes the steps that fit that machine; the set of steps depends
+on the platform and the choices, so a run shows only the ones that apply.
 
 | Step | What it does |
 |------|--------------|
@@ -745,11 +765,11 @@ and the choices, so a run shows only the ones that apply.
 | Cleanup | Removes the temporary files it created |
 
 **Every unit is shown with its switch before anything runs, and a unit turned off is reported rather
-than dropped.** After the last question the installer opens a review screen listing every unit the run
+than dropped.** The plan the setup screen's action row opens lists every unit the run
 can install, in the order the run takes them, each one on or off, with the three it cannot do without
 marked and refusing to change: `clone`, the repository the run works from; `cleanup`, the state the run
 created; and `setshell`, the default shell that was chosen. `Space` turns the unit under the cursor off
-or back on, `Enter` starts the run, and `Esc` returns to the question the screen was opened from. The
+or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened from. The
 list is drawn as a window sized by the terminal, and the rows that do not fit are counted above and
 below it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off
 the bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A

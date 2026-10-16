@@ -8,111 +8,108 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// TestFullInstallationFlow tests the complete flow from welcome to installation
+// setupRowIndexFor finds the setup row with the given label, so a flow test
+// walks the row the renderer draws rather than an index written here.
+func setupRowIndexFor(t *testing.T, m Model, label string) int {
+	t.Helper()
+	for i, row := range m.setupRows() {
+		if row.Label == label {
+			return i
+		}
+	}
+	t.Fatalf("the setup screen has no %q row: %v", label, m.setupRows())
+	return -1
+}
+
+// TestFullInstallationFlow tests the complete flow from welcome to installation.
+//
+// The wizard's questions are rows of the setup screen now (T2), so the flow
+// walks one screen: the row's detour records a choice and comes back, Space
+// turns a switch on, and the action row opens the plan. The host is pinned so the
+// flow is the same on every machine.
 func TestFullInstallationFlow(t *testing.T) {
-	t.Run("complete flow: welcome -> main menu -> installation screens", func(t *testing.T) {
+	t.Run("complete flow: welcome -> main menu -> setup -> plan", func(t *testing.T) {
 		m := NewModel()
-		// Pin the host so the flow is the same on every machine. The wizard's OS
-		// step now starts its cursor on the detected platform, and the shell step
-		// on the detected login shell, so a model built from the real host walked
-		// a different path on a Debian laptop than on the macOS CI runner. This
-		// test walks the macOS path.
 		m.SystemInfo = &system.SystemInfo{OS: system.OSMac, OSName: "macOS", UserShell: "fish"}
 
-		// Start at welcome screen
 		if m.Screen != ScreenWelcome {
 			t.Fatalf("Expected ScreenWelcome, got %v", m.Screen)
 		}
 
-		// Press enter to go to main menu
 		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
-
 		if m.Screen != ScreenMainMenu {
 			t.Fatalf("Expected ScreenMainMenu, got %v", m.Screen)
 		}
 
-		// Select "Start Installation" (cursor at 0)
+		// Start Installation opens the setup screen and records the detected
+		// platform and shell before the first frame is drawn.
 		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
-
-		if m.Screen != ScreenOSSelect {
-			t.Fatalf("Expected ScreenOSSelect, got %v", m.Screen)
-		}
-
-		// Select macOS (cursor at 0; the preselection puts it there for this host)
-		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		m = result.(Model)
-
-		if m.Screen != ScreenTerminalSelect {
-			t.Fatalf("Expected ScreenTerminalSelect, got %v", m.Screen)
+		if m.Screen != ScreenSetup {
+			t.Fatalf("Expected ScreenSetup, got %v", m.Screen)
 		}
 		if m.Choices.OS != "mac" {
 			t.Fatalf("Expected OS 'mac', got '%s'", m.Choices.OS)
 		}
-
-		// Select Ghostty (need to navigate down 3 times: Alacritty, WezTerm, Kitty, Ghostty)
-		for i := 0; i < 3; i++ {
-			result, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-			m = result.(Model)
+		if m.Choices.Shell != "fish" {
+			t.Fatalf("Expected the detected shell 'fish', got '%s'", m.Choices.Shell)
 		}
+
+		// Terminal: the detour records the choice and returns to the setup screen.
+		m.SetupCursor = setupRowIndexFor(t, m, "Terminal")
 		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
-
-		if m.Screen != ScreenFontSelect {
-			t.Fatalf("Expected ScreenFontSelect, got %v", m.Screen)
+		if m.Screen != ScreenTerminalSelect {
+			t.Fatalf("Expected the terminal detour, got %v", m.Screen)
+		}
+		m.Cursor = 3 // Ghostty on macOS
+		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+		if m.Screen != ScreenSetup {
+			t.Fatalf("Expected the setup screen after the terminal detour, got %v", m.Screen)
 		}
 		if m.Choices.Terminal != "ghostty" {
 			t.Fatalf("Expected Terminal 'ghostty', got '%s'", m.Choices.Terminal)
 		}
 
-		// Select "Yes" for font (cursor at 0)
-		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		// Font: Space turns the switch on.
+		m.SetupCursor = setupRowIndexFor(t, m, "Font")
+		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 		m = result.(Model)
-
-		if m.Screen != ScreenShellSelect {
-			t.Fatalf("Expected ScreenShellSelect, got %v", m.Screen)
-		}
 		if !m.Choices.InstallFont {
-			t.Fatal("Expected InstallFont to be true")
+			t.Fatal("Expected InstallFont to be true after the Font switch")
 		}
 
-		// Select Fish (cursor at 0)
+		// Multiplexer: a detour that records Zellij.
+		m.SetupCursor = setupRowIndexFor(t, m, "Multiplexer")
 		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
-
 		if m.Screen != ScreenWMSelect {
-			t.Fatalf("Expected ScreenWMSelect, got %v", m.Screen)
+			t.Fatalf("Expected the multiplexer detour, got %v", m.Screen)
 		}
-		if m.Choices.Shell != "fish" {
-			t.Fatalf("Expected Shell 'fish', got '%s'", m.Choices.Shell)
-		}
-
-		// Select Zellij (navigate down once)
-		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-		m = result.(Model)
+		m.Cursor = 1 // Zellij
 		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
-
-		if m.Screen != ScreenNvimSelect {
-			t.Fatalf("Expected ScreenNvimSelect, got %v", m.Screen)
-		}
 		if m.Choices.WindowMgr != "zellij" {
 			t.Fatalf("Expected WindowMgr 'zellij', got '%s'", m.Choices.WindowMgr)
 		}
 
-		// Select "Yes" for Nvim (cursor at 0)
-		// This should either go to BackupConfirm (if existing configs) or Installing
-		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		// Editor: Space turns the switch on.
+		m.SetupCursor = setupRowIndexFor(t, m, "Editor (Neovim)")
+		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 		m = result.(Model)
-
 		if !m.Choices.InstallNvim {
-			t.Fatal("Expected InstallNvim to be true")
+			t.Fatal("Expected InstallNvim to be true after the Editor switch")
 		}
 
-		// Screen depends on existing configs
-		if m.Screen != ScreenBackupConfirm && m.Screen != ScreenInstalling {
-			t.Fatalf("Expected ScreenBackupConfirm or ScreenInstalling, got %v", m.Screen)
+		// The action row opens the plan, which is where the flow's last question
+		// used to land.
+		m.SetupCursor = setupRowIndexFor(t, m, "Continue to the plan")
+		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+		if m.Screen != ScreenInstallReview {
+			t.Fatalf("Expected the plan screen, got %v", m.Screen)
 		}
 	})
 }
@@ -141,9 +138,11 @@ func TestLinuxFlow(t *testing.T) {
 	})
 }
 
-// TestSkipTerminal tests skipping terminal installation
+// TestSkipTerminal tests choosing no terminal. The old flow skipped the font
+// question when the answer was None; the setup screen records None like any other
+// answer and returns, and the Font row is the user's to leave alone.
 func TestSkipTerminal(t *testing.T) {
-	t.Run("selecting None should skip font selection", func(t *testing.T) {
+	t.Run("selecting None records it and returns to the setup screen", func(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenTerminalSelect
 		m.Choices.OS = "mac"
@@ -160,9 +159,11 @@ func TestSkipTerminal(t *testing.T) {
 		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
 
-		// Should skip font and go directly to shell
-		if m.Screen != ScreenShellSelect {
-			t.Fatalf("Expected ScreenShellSelect when terminal is None, got %v", m.Screen)
+		if m.Choices.Terminal != "none" {
+			t.Fatalf("Expected Terminal 'none', got %q", m.Choices.Terminal)
+		}
+		if m.Screen != ScreenSetup {
+			t.Fatalf("Expected the setup screen after the terminal detour, got %v", m.Screen)
 		}
 	})
 }
@@ -336,13 +337,15 @@ func TestBackupFlow(t *testing.T) {
 		}
 		m.Choices = UserChoices{OS: "mac", Shell: "fish"}
 
-		// Test cancel (cursor = 2)
+		// Test cancel (cursor = 2). The screen is a detour of the setup screen's
+		// backup row now, so its way out is the detour's: back to the setup screen
+		// with nothing changed.
 		m.Cursor = 2
-		result, _ := m.handleBackupConfirmKeys("enter")
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		newM := result.(Model)
 
-		if newM.Screen != ScreenMainMenu {
-			t.Errorf("Cancel should go to MainMenu, got %v", newM.Screen)
+		if newM.Screen != ScreenSetup {
+			t.Errorf("Cancel should go to the setup screen, got %v", newM.Screen)
 		}
 	})
 }

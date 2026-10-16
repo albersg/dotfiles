@@ -216,3 +216,72 @@ it, and the screen has to exist before the plan can show which choice each row c
   failure path -- `step_loop_test.go:133` returns that error on purpose and
   `non_interactive_test.go:27` asserts the failure names its step -- not failures:
   the whole run has exactly four `--- FAIL` markers.
+
+- **L10.** T2's design, settled before the code. One screen, `ScreenSetup`, reached from the
+  install action of the main menu, replaces `OSSelect -> TerminalSelect -> FontSelect ->
+  ShellSelect -> WMSelect -> NvimSelect` as the flow's steps; those six screens stay as they
+  are and become detours. Rows, in the order the decisions are taken:
+  `Platform` (the detected system, changeable), `Shell`, then the shell's plugin-set row
+  indented under it, `Terminal`, `Font`, `Multiplexer`, then its set row, `Editor (Neovim)`,
+  then its set row, `Existing configurations` (the backup decision, which is what "the extras"
+  came to: every other extra is a unit with its switch on the plan screen), and a last action
+  row, `Continue to the plan`, which is where `ScreenInstallReview` is entered from. Keys:
+  `↑↓` move, `←→` cycle the row's value in place, `Space` toggles the rows that are switches
+  (font, editor, backup, and each set the registry calls switchable), `Enter` opens the row's
+  rich list as the detour, `Esc` leaves for the main menu. A set a run cannot leave out has no
+  `Space`: its row states the reason instead, which is the same sentence the plan will show.
+  Detour contract: `Enter` records `PrevScreen = ScreenSetup` and enters the row's screen; a
+  choice there is recorded and returns to `ScreenSetup` instead of the next question, `Esc`
+  returns unchanged, the `Learn about ...` rows inside keep their own return path, and the
+  Ghostty warning keeps its two routes, both leading back to the setup screen. The wizard meter
+  counts the two mandatory screens (`1/2` on the setup screen, `2/2` on the plan) and a detour
+  inherits the meter of the screen it returns to, so the vital sign stays honest. The platform's
+  forced answers (WSL and Termux terminal, Termux fonts) stay in one place -- `enterSetup`,
+  which is `enterShellSelect` promoted -- and the rows show them as values, not as questions
+  that were never asked. Guard lists that move in this commit: `installerFrameScreenNames` and
+  its fixtures, `screen_coverage_test.go`, the teatest flow paths, `measuredScreens`, the
+  E2E -- which drives the installer through `--non-interactive --dry-run` flags and not through
+  keys, so it moves only where it names a screen.
+
+- **L11.** T2a delivered and closed. One `ScreenSetup` replaced the six question screens as steps of
+  the flow; they keep their content and become detours that record an answer and return to it. The
+  rows are `Platform`, `Shell`, `Terminal`, `Font`, `Multiplexer`, `Editor (Neovim)`, `Existing
+  configurations` (offered only when there is something to back up) and `Continue to the plan`;
+  `↑↓` move, `←→` cycle, `Space` toggles, `Enter` opens the row's screen, `Esc` leaves for the main
+  menu with the answers forgotten. The row list is one table (`setup_rows.go`), whose rows derive
+  their values and their answer-recording from the question machinery (`questionValueOptions`,
+  `questionRecordedAnswer`, `questionValueIndex`, `applyQuestionAnswer`) instead of copying an option
+  string or an answer twice. The guard lists moved in the same change: `installerFrameScreenNames`
+  and its fixture, `measuredScreens` 62 -> 63, the companion count 896 -> 912, the anim and panel
+  lists, and the traces the teatest flows walk. Six pre-existing guards that pinned the old chain
+  were replaced by ones holding the new property, never relaxed: the two `...SkipsFont` /
+  `...GoesToFont` tests became `...ReturnsToSetup` and now check the recorded value as well.
+
+  Two things the unit's own worker left, and the parent decided. First, the plan did not paint the
+  meter: `wizardProgress` answered `2/2` and the guard pinned that, but the screen's header showed
+  nothing, so criterion 6 was half true -- modelled and not shown. The meter is painted there now,
+  and the guard checks the rendered header rather than only the model. Second, the backup screen was
+  an orphan: the decision is a row, the screen was reachable from nowhere, and its `Esc` still pointed
+  at the Neovim question. The row now opens it as its detour, which restores the list of
+  configurations the run would replace (S7) and removes the dangling route; its `Cancel` row leaves
+  the screen the way `Esc` does instead of aborting a wizard nobody started, because the abort lives
+  on the setup screen's own `Esc`. That decision cost six pre-existing guards in four files,
+  rewritten to the new contract rather than relaxed.
+
+  Honest record of the evidence. The worker wrote its seven new guards *after* the implementation, so
+  they have teeth by mutation and not by test-first RED; it said so rather than presenting them as
+  red first, and it verified every restore by sha256. The parent then added one guard of its own for
+  the row that opens the list, because `TestEveryDetourRowReturnsToTheSetupScreen` skips rows without
+  a screen: losing that row's screen would have left the list unreachable and nothing would have
+  failed. Both parent guards were then shown to have teeth by mutation, each with the baseline re-run
+  first: the plan stops being the meter's second step (`view.go`, `ScreenInstallReview` returns
+  `0, 0`) -> `TestTheFlowHasExactlyTwoMandatorySteps` fails on `want 2/2`; the backup row loses its
+  screen (`setup_rows.go`) -> `TestTheBackupRowOpensTheScreenThatListsTheConfigurations` fails on
+  `want the screen that lists the configurations`. Both files were restored byte-identical afterwards
+  (sha256 recorded in the run). The first attempt at that harness proved nothing -- one mutation
+  broke the build, so no assertion ran, and a "baseline" ran with a mutation still applied -- and its
+  numbers were discarded rather than reported.
+
+  Still open: whether the shell's set becomes a switch at the price of a second zsh configuration
+  (L8), and what to do with the backup screen in the long run -- it is a detour now, and deleting it
+  would be a T6 cleanup that moves three pinned counts again.

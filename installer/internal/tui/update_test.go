@@ -90,10 +90,11 @@ func TestHandleBackupConfirmKeys(t *testing.T) {
 			t.Error("CreateBackup should be true when selecting backup option")
 		}
 
-		// The review screen is the wizard's last step, so the backup answer opens it
-		// rather than the run: nothing installs before the user has seen the list.
-		if newModel.Screen != ScreenInstallReview {
-			t.Errorf("Expected ScreenInstallReview, got %v", newModel.Screen)
+		// The review screen is reached from the setup screen's action row now, so the
+		// backup answer returns to the screen it belongs to: nothing installs before the
+		// user has seen the list, and the list is one Enter away.
+		if newModel.Screen != ScreenSetup {
+			t.Errorf("Expected the setup screen after the backup answer, got %v", newModel.Screen)
 		}
 	})
 
@@ -120,7 +121,7 @@ func TestHandleBackupConfirmKeys(t *testing.T) {
 		}
 	})
 
-	t.Run("should go to MainMenu when selecting cancel", func(t *testing.T) {
+	t.Run("should return to the setup screen when selecting cancel", func(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenBackupConfirm
 		m.Cursor = 2 // Cancel
@@ -128,12 +129,15 @@ func TestHandleBackupConfirmKeys(t *testing.T) {
 		result, _ := m.handleBackupConfirmKeys("enter")
 		newModel := result.(Model)
 
-		if newModel.Screen != ScreenMainMenu {
-			t.Errorf("Expected ScreenMainMenu, got %v", newModel.Screen)
+		// The screen is a detour of the setup screen's backup row, so its third row is
+		// the way out of the screen and not an abort: aborting the wizard is the setup
+		// screen's own Escape, which forgets the answers.
+		if newModel.Screen != ScreenSetup {
+			t.Errorf("Expected the setup screen after cancel, got %v", newModel.Screen)
 		}
 	})
 
-	t.Run("should go to NvimSelect on escape (go back)", func(t *testing.T) {
+	t.Run("should return to the setup screen on escape (go back)", func(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenBackupConfirm
 		m.Cursor = 0
@@ -143,8 +147,10 @@ func TestHandleBackupConfirmKeys(t *testing.T) {
 		result, _ := m.handleEscape()
 		newModel := result.(Model)
 
-		if newModel.Screen != ScreenNvimSelect {
-			t.Errorf("Expected ScreenNvimSelect (go back), got %v", newModel.Screen)
+		// Every detour returns where it came from. This screen used to belong to the
+		// question chain, so its back step was the Neovim question.
+		if newModel.Screen != ScreenSetup {
+			t.Errorf("Expected the setup screen (go back), got %v", newModel.Screen)
 		}
 	})
 }
@@ -562,20 +568,20 @@ func TestWizardStartsOnTheDetectedPlatform(t *testing.T) {
 				SystemInfo: &system.SystemInfo{OS: c.value, OSName: c.name},
 			}
 
-			// Enter on the main menu's first entry opens the wizard's OS step.
+			// Enter on the main menu's first entry opens the setup screen, whose
+			// Platform row names the platform the entry recorded.
 			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			got := updated.(Model)
-			if got.Screen != ScreenOSSelect {
-				t.Fatalf("enter on the main menu did not open the OS step: screen = %v", got.Screen)
+			if got.Screen != ScreenSetup {
+				t.Fatalf("enter on the main menu did not open the setup screen: screen = %v", got.Screen)
 			}
 
-			options := got.GetCurrentOptions()
-			if got.Cursor < 0 || got.Cursor >= len(options) {
-				t.Fatalf("the cursor is at %d, outside the %d OS options %v", got.Cursor, len(options), options)
+			rows := got.setupRows()
+			if len(rows) == 0 || rows[0].Label != "Platform" {
+				t.Fatalf("the setup screen's first row is not the Platform row: %v", rows)
 			}
-			if options[got.Cursor] != want {
-				t.Errorf("with platform %s detected the wizard starts on %q, want %q: %v",
-					c.name, options[got.Cursor], want, options)
+			if value := got.setupRowValue(rows[0]); value != want {
+				t.Errorf("with platform %s detected the Platform row shows %q, want %q", c.name, value, want)
 			}
 		})
 	}
@@ -605,29 +611,49 @@ func TestShellScreenStartsOnTheDetectedShell(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			m := Model{
-				Screen:     ScreenFontSelect,
-				Cursor:     0, // install the font; ENTER advances to the shell step
+				Screen:     ScreenMainMenu,
 				SystemInfo: &system.SystemInfo{OS: system.OSLinux, UserShell: c.shell},
 			}
 
 			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			got := updated.(Model)
-			if got.Screen != ScreenShellSelect {
-				t.Fatalf("the font step did not lead to the shell step: screen = %v", got.Screen)
+			if got.Screen != ScreenSetup {
+				t.Fatalf("the main menu did not lead to the setup screen: screen = %v", got.Screen)
 			}
 
+			rows := got.setupRows()
+			shellRow := -1
+			for i, row := range rows {
+				if row.Label == "Shell" {
+					shellRow = i
+				}
+			}
+			if shellRow < 0 {
+				t.Fatalf("the setup screen has no Shell row: %v", rows)
+			}
+			if value := got.setupRowValue(rows[shellRow]); value != c.want {
+				t.Errorf("with shell %q detected the Shell row shows %q, want %q", c.shell, value, c.want)
+			}
+
+			// The detour opens on the same answer, and its description names the
+			// detected shell.
+			got.SetupCursor = shellRow
+			got.openSetupRow()
+			if got.Screen != ScreenShellSelect {
+				t.Fatalf("the Shell row did not open the shell screen: screen = %v", got.Screen)
+			}
 			options := got.GetCurrentOptions()
 			if got.Cursor < 0 || got.Cursor >= len(options) {
 				t.Fatalf("the cursor is at %d, outside the %d shell options %v", got.Cursor, len(options), options)
 			}
 			if options[got.Cursor] != c.want {
-				t.Errorf("with shell %q detected the shell step starts on %q, want %q: %v",
+				t.Errorf("with shell %q detected the shell screen starts on %q, want %q: %v",
 					c.shell, options[got.Cursor], c.want, options)
 			}
 
 			description := got.GetScreenDescription()
 			if !strings.Contains(description, c.shell) {
-				t.Errorf("the shell step description %q does not name the detected shell %q", description, c.shell)
+				t.Errorf("the shell screen description %q does not name the detected shell %q", description, c.shell)
 			}
 		})
 	}
@@ -662,28 +688,45 @@ func TestWizardDoesNotPresentAnUndetectedPlatform(t *testing.T) {
 
 			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			got := updated.(Model)
-			if got.Screen != ScreenOSSelect {
-				t.Fatalf("enter on the main menu did not open the OS step: screen = %v", got.Screen)
+			if got.Screen != ScreenSetup {
+				t.Fatalf("enter on the main menu did not open the setup screen: screen = %v", got.Screen)
+			}
+			if got.Choices.OS != "" {
+				t.Fatalf("no platform was detected, but the wizard recorded OS %q", got.Choices.OS)
 			}
 
+			// The Platform row says nothing was chosen instead of showing a detection
+			// that did not happen.
+			rows := got.setupRows()
+			if value := got.setupRowValue(rows[0]); value != "Not chosen" {
+				t.Errorf("with no platform detected the Platform row shows %q, which reads as a detection that did not happen", value)
+			}
+
+			// The platform detour opens with nothing highlighted, so no row reads as
+			// the installer's answer, and an explicit choice is required.
+			got.SetupCursor = 0
+			got.openSetupRow()
+			if got.Screen != ScreenOSSelect {
+				t.Fatalf("the Platform row did not open the platform screen: screen = %v", got.Screen)
+			}
 			options := got.GetCurrentOptions()
 			if got.Cursor >= 0 {
-				t.Fatalf("with no platform detected the OS step opens on %q, a row under the cursor that "+
+				t.Fatalf("with no platform detected the platform screen opens on %q, a row under the cursor that "+
 					"reads as the installer's answer; nothing should be highlighted: %v", options[got.Cursor], options)
 			}
 			got.Width, got.Height = 80, 24
 			if view := ansiEscape.ReplaceAllString(got.View(), ""); strings.Contains(view, "▸") {
-				t.Errorf("the OS step draws a highlighted row though detection found nothing:\n%s", view)
+				t.Errorf("the platform screen draws a highlighted row though detection found nothing:\n%s", view)
 			}
 			if desc := got.GetScreenDescription(); !strings.Contains(desc, "not detected") {
-				t.Errorf("the OS step does not state that detection found nothing: %q", desc)
+				t.Errorf("the platform screen does not state that detection found nothing: %q", desc)
 			}
 
 			// An explicit choice is required before the wizard may continue.
 			after, _ := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			next := after.(Model)
 			if next.Screen != ScreenOSSelect || next.Choices.OS != "" {
-				t.Errorf("Enter answered the OS question without a choice: screen = %v, OS = %q",
+				t.Errorf("Enter answered the platform question without a choice: screen = %v, OS = %q",
 					next.Screen, next.Choices.OS)
 			}
 		})
@@ -706,25 +749,45 @@ func TestShellStepDoesNotPresentAnUndetectedShell(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			m := Model{
-				Screen:     ScreenFontSelect,
-				Cursor:     0, // install the font; ENTER advances to the shell step
+				Screen:     ScreenMainMenu,
 				SystemInfo: &system.SystemInfo{OS: system.OSLinux, UserShell: shell},
 			}
 
 			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			got := updated.(Model)
-			if got.Screen != ScreenShellSelect {
-				t.Fatalf("the font step did not lead to the shell step: screen = %v", got.Screen)
+			if got.Screen != ScreenSetup {
+				t.Fatalf("the main menu did not lead to the setup screen: screen = %v", got.Screen)
 			}
 
+			rows := got.setupRows()
+			shellRow := -1
+			for i, row := range rows {
+				if row.Label == "Shell" {
+					shellRow = i
+				}
+			}
+			if shellRow < 0 {
+				t.Fatalf("the setup screen has no Shell row: %v", rows)
+			}
+			if value := got.setupRowValue(rows[shellRow]); value != "Not chosen" {
+				t.Errorf("with shell %q undetected the Shell row shows %q, which reads as a detection that did not happen", shell, value)
+			}
+
+			// The shell detour opens with nothing highlighted, so no row reads as the
+			// installer's answer, and an explicit choice is required.
+			got.SetupCursor = shellRow
+			got.openSetupRow()
+			if got.Screen != ScreenShellSelect {
+				t.Fatalf("the Shell row did not open the shell screen: screen = %v", got.Screen)
+			}
 			options := got.GetCurrentOptions()
 			if got.Cursor >= 0 {
-				t.Fatalf("with shell %q undetected the shell step opens on %q, a row under the cursor that "+
+				t.Fatalf("with shell %q undetected the shell screen opens on %q, a row under the cursor that "+
 					"reads as the installer's answer; nothing should be highlighted: %v", shell, options[got.Cursor], options)
 			}
 			got.Width, got.Height = 80, 24
 			if view := ansiEscape.ReplaceAllString(got.View(), ""); strings.Contains(view, "▸") {
-				t.Errorf("the shell step draws a highlighted row though the detected shell %q is not listed:\n%s", shell, view)
+				t.Errorf("the shell screen draws a highlighted row though the detected shell %q is not listed:\n%s", shell, view)
 			}
 
 			// An explicit choice is required before the wizard may continue.

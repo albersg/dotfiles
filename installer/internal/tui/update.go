@@ -1269,6 +1269,11 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Trainer screens own space: the exercise screens append it to the
 			// answer input, and the menu and result screens treat it like enter.
 			// Pass through to the screen-specific handlers below.
+		case m.Screen == ScreenSetup:
+			// The setup screen owns space: it is the switch key for the font, the
+			// editor and the backup, and turning a switch on or off is the whole
+			// point of the row. Passing it to the leader key would leave every
+			// switch in the interface advertised and unreachable.
 		default:
 			// All other screens: activate leader mode
 			m.LeaderMode = true
@@ -1319,6 +1324,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenInstallReview:
 		return m.handleInstallReviewKeys(key)
+
+	case ScreenSetup:
+		return m.handleSetupKeys(key)
 
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		return m.handleSelectionKeys(key)
@@ -1435,14 +1443,27 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	// Installation wizard screens - go back through the flow
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect:
 		return m.goBackInstallStep()
+	case ScreenSetup:
+		// The setup screen is where the wizard's questions start, so its Escape
+		// leaves the flow for the main menu and forgets the answers, exactly as
+		// the old first question's Escape did.
+		m.leaveSetup()
+	case ScreenInstallReview:
+		// The plan's Escape is the way back its footer names, and the screen it
+		// was opened from is the setup screen now. It reaches the review's own
+		// handler so the two ways of pressing Escape cannot drift apart.
+		return m.handleInstallReviewKeys("esc")
 	case ScreenGhosttyWarning:
 		// Go back to terminal selection
 		m.Screen = ScreenTerminalSelect
 		m.Cursor = 0
 	case ScreenBackupConfirm:
-		// Go back to Nvim selection (not abort)
-		m.Screen = ScreenNvimSelect
-		m.Cursor = 0
+		// The backup decision is a row on the setup screen and this screen is the
+		// detour that lists the configurations found, so its Escape is every other
+		// detour's: back to the setup screen with the answers untouched. It used to
+		// go back to the Neovim question, which was the question before it in the
+		// chain this front removed.
+		m.returnToSetup()
 	// Content/Learn screens
 	case ScreenKeymapCategory:
 		m.Screen = ScreenKeymaps
@@ -1708,12 +1729,9 @@ func (m Model) shellCursor() int {
 	return noSelection
 }
 
-// enterShellSelect moves to the shell step with the cursor on the detected
-// shell, so the screen's "Current shell" line and the cursor agree.
-func (m *Model) enterShellSelect() {
-	m.Screen = ScreenShellSelect
-	m.Cursor = m.shellCursor()
-}
+// enterSetup is where the wizard now starts. The shell cursor rule that used to
+// live in a separate enterShellSelect is applied by enterSetup (setup_rows.go)
+// when it records the detected shell.
 
 func (m Model) startTrainer() (tea.Model, tea.Cmd) {
 	stats := trainer.LoadStats()
@@ -1756,12 +1774,11 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		selected := options[m.Cursor]
 		switch {
 		case strings.Contains(selected, "Start Installation"):
-			m.Screen = ScreenOSSelect
-			// Start on the platform the user already chose, or the one detection
-			// found. When detection named nothing -- or a platform the mapping does
-			// not know -- the step opens with nothing highlighted, because a row
-			// under the cursor reads as the installer's answer.
-			m.Cursor = m.osCursor()
+			// The wizard opens on the one screen where every decision is a row,
+			// which records the detected platform and applies the answers that
+			// platform forces before the first frame is drawn. The old first
+			// question's cursor rule lives inside enterSetup now.
+			m.enterSetup()
 		case strings.Contains(selected, "Learn About Tools"):
 			m.Screen = ScreenLearnTerminals
 			m.PrevScreen = ScreenMainMenu
@@ -2275,66 +2292,27 @@ func (m Model) handleSelectionKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// goBackInstallStep handles going back during installation wizard
+// goBackInstallStep handles going back during installation wizard.
+//
+// Every question screen is a detour of the setup screen now, so going back from
+// one returns to the setup screen without changing anything: the chain of
+// question-to-question transitions is gone, and there is no next question to
+// step back to. The review screen keeps its own way back to the screen it was
+// opened from.
 func (m Model) goBackInstallStep() (tea.Model, tea.Cmd) {
 	switch m.Screen {
-	case ScreenOSSelect:
-		// Go back to main menu
-		m.Screen = ScreenMainMenu
-		m.Cursor = 0
-		// Reset choices
-		m.Choices = UserChoices{}
+	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect:
+		m.returnToSetup()
 
 	case ScreenInstallReview:
-		// Back to the question this screen was opened from -- the wizard's last one,
-		// which is the backup question when there were configs to ask about. The
-		// fallback is for a model built without that record, which is what a test
-		// constructing the screen directly looks like.
+		// Back to the question this screen was opened from, which is the setup
+		// screen. The fallback is for a model built without that record, which is
+		// what a test constructing the screen directly looks like.
 		m.Screen = m.PrevScreen
 		if m.Screen == ScreenInstallReview || m.Screen == ScreenInstalling {
-			m.Screen = ScreenNvimSelect
+			m.Screen = ScreenSetup
 		}
 		m.Cursor = 0
-
-	case ScreenTerminalSelect:
-		m.Screen = ScreenOSSelect
-		// Keep the platform the user chose rather than reopening the question on
-		// macOS; with no choice recorded this falls back to detection, then to
-		// nothing highlighted.
-		m.Cursor = m.osCursor()
-		// Reset terminal choice
-		m.Choices.Terminal = ""
-
-	case ScreenFontSelect:
-		m.Screen = ScreenTerminalSelect
-		m.Cursor = 0
-		// Reset font choice
-		m.Choices.InstallFont = false
-
-	case ScreenShellSelect:
-		// Termux: go back to OS selection (skipped terminal and font)
-		// WSL: go back to OS selection (skipped terminal and font)
-		if m.SystemInfo.IsTermux || m.SystemInfo.IsWSL {
-			m.Screen = ScreenOSSelect
-			m.Cursor = m.osCursor()
-		} else if m.Choices.Terminal == "none" {
-			// If we skipped font selection (terminal = none), go back to terminal
-			m.Screen = ScreenTerminalSelect
-			m.Cursor = 0
-		} else {
-			m.Screen = ScreenFontSelect
-			m.Cursor = 0
-		}
-		m.Choices.Shell = ""
-
-	case ScreenWMSelect:
-		m.enterShellSelect()
-		m.Choices.WindowMgr = ""
-
-	case ScreenNvimSelect:
-		m.Screen = ScreenWMSelect
-		m.Cursor = 0
-		m.Choices.InstallNvim = false
 	}
 
 	return m, nil
@@ -2395,90 +2373,42 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 	}
 
 	switch m.Screen {
-	case ScreenOSSelect:
-		selectedLower := strings.ToLower(selected)
-		if strings.Contains(selectedLower, "mac") {
-			m.Choices.OS = "mac"
-		} else if strings.Contains(selectedLower, "termux") {
-			m.Choices.OS = "termux"
-		} else {
-			m.Choices.OS = "linux"
-		}
-		// Termux: skip Terminal selection (you're already in a terminal!)
-		// But allow font installation (Termux supports custom fonts)
-		// WSL: skip Terminal selection (terminal emulators run on Windows host)
-		if m.Choices.OS == "termux" {
-			m.Choices.Terminal = "none"
-			m.Choices.InstallFont = true // Install Nerd Font for Termux
-			m.enterShellSelect()
-		} else if m.SystemInfo.IsWSL {
-			m.Choices.Terminal = "none"
-			m.Choices.InstallFont = false // Fonts should be installed on Windows host
-			m.enterShellSelect()
-		} else {
-			m.Screen = ScreenTerminalSelect
-			m.Cursor = 0
-		}
+	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect:
+		// Every one of these screens is a detour of the setup screen now: the
+		// choice is recorded here, by the one apply helper the row also uses, and
+		// the flow returns to the screen that opened it instead of advancing along
+		// the old chain of questions. There is no next question to advance to.
+		m.applyQuestionAnswer(m.Screen, options[m.Cursor])
 
-	case ScreenTerminalSelect:
-		term := strings.ToLower(strings.Split(options[m.Cursor], " ")[0])
-		m.Choices.Terminal = term
-
-		// Check if Ghostty on Debian/Ubuntu - show warning
-		if term == "ghostty" && m.Choices.OS == "linux" && m.SystemInfo.OS == system.OSDebian && !system.CommandExists("ghostty") {
+		// The terminal question has one consequence that is not a value: on a
+		// Debian host, choosing Ghostty puts the compatibility warning up. It is
+		// part of this detour, and every route out of it leads back to the setup
+		// screen.
+		if m.Screen == ScreenTerminalSelect &&
+			m.Choices.Terminal == "ghostty" && m.Choices.OS == "linux" &&
+			m.SystemInfo != nil && m.SystemInfo.OS == system.OSDebian &&
+			!system.CommandExists("ghostty") {
 			m.Screen = ScreenGhosttyWarning
 			m.Cursor = 0
 			return m, nil
 		}
 
-		if term != "none" {
-			m.Screen = ScreenFontSelect
-			m.Cursor = 0
-		} else {
-			m.enterShellSelect()
-		}
-
-	case ScreenFontSelect:
-		m.Choices.InstallFont = m.Cursor == 0
-		m.enterShellSelect()
-
-	case ScreenShellSelect:
-		m.Choices.Shell = strings.ToLower(options[m.Cursor])
-		m.Screen = ScreenWMSelect
-		m.Cursor = 0
+		m.returnToSetup()
 
 	case ScreenGhosttyWarning:
 		switch m.Cursor {
 		case 0: // Continue with Ghostty anyway
-			m.Screen = ScreenFontSelect
-			m.Cursor = 0
-		case 1: // Choose different terminal
+			m.returnToSetup()
+		case 1: // Choose a different terminal
 			m.Screen = ScreenTerminalSelect
-			m.Cursor = 0
-		case 2: // Cancel
+			if index := m.questionValueIndex(ScreenTerminalSelect); index >= 0 {
+				m.Cursor = index
+			} else {
+				m.Cursor = 0
+			}
+		case 2: // Cancel installation
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
-		}
-
-	case ScreenWMSelect:
-		m.Choices.WindowMgr = strings.ToLower(options[m.Cursor])
-		m.Screen = ScreenNvimSelect
-		m.Cursor = 0
-
-	case ScreenNvimSelect:
-		m.Choices.InstallNvim = m.Cursor == 0
-		// Detect existing configs before proceeding
-		m.ExistingConfigs = system.DetectExistingConfigs()
-		if len(m.ExistingConfigs) > 0 {
-			// Show backup confirmation screen
-			m.Screen = ScreenBackupConfirm
-			m.Cursor = 0
-		} else {
-			// No existing configs, so there is no backup question to ask. The review
-			// screen still comes first: it is the wizard's last step rather than an
-			// extra question about the files.
-			m.openInstallReview()
-			return m, nil
 		}
 	}
 
@@ -2998,22 +2928,22 @@ func (m Model) handleBackupConfirmKeys(key string) (tea.Model, tea.Cmd) {
 		switch m.Cursor {
 		case 0: // Install with Backup
 			m.Choices.CreateBackup = true
-			m.openInstallReview()
+			m.returnToSetup()
 			return m, nil
 		case 1: // Install without Backup
 			m.Choices.CreateBackup = false
-			m.openInstallReview()
+			m.returnToSetup()
 			return m, nil
-		case 2: // Cancel - abort the entire wizard
-			m.Screen = ScreenMainMenu
-			m.Cursor = 0
-			// Reset choices when canceling
-			m.Choices = UserChoices{}
+		case 2:
+			// This screen is a detour of the setup screen's backup row now, so its way
+			// out is the detour's way out: back to the setup screen with nothing
+			// changed, which is what Escape does. It used to be the flow's last
+			// question, where its third row aborted the wizard; a row on a screen the
+			// user can still leave cannot abort anything.
+			m.returnToSetup()
 		}
 	case "esc":
-		// Go back to Nvim selection
-		m.Screen = ScreenNvimSelect
-		m.Cursor = 0
+		m.returnToSetup()
 	}
 
 	return m, nil
