@@ -285,3 +285,43 @@ session.
     invariant is the conditional one.
   - `docs/ROLLBACK.md` and `--help` name the released-build case, because it is the one every
     machine that already ran an installer will meet.
+
+- **L14 (the fourth pass: the class, not the shape, and the reproduction with the real
+  writer).** The pass closed points 1, 3, 4 and 5 and re-opened the blocker with the strongest
+  evidence of the four passes: it did not fabricate a record, it drove the run's own writer.
+  A record makes its claim in two halves -- the entries (and the `Files` list) say which paths
+  the run wrote; the per-file `Changes` say what changed inside them -- and only the second
+  half carries a before-state. The index behind it steps over anything that is not a regular
+  file (`configFileIndex`'s `!entry.Type().IsRegular()`), while the fingerprint an entry is
+  decided by walks the whole tree. A configuration directory holding a symlink is the ordinary
+  case: the run retargets the link, the entry says the key was written, no change names the
+  link -- and the revert, reading only the changes, reported the machine back with the link
+  still pointing where the run left it. The same defect reached it through records that name
+  one path in `Changes` and another as written (exit 0, file untouched).
+  - The fix cross-checks both halves: a path the record says the run wrote is accounted for by
+    a change naming exactly it, by the changes under it when it is gone, or -- for a directory
+    -- by changes inside it plus nothing inside of a kind the index steps over that no change
+    names. Everything else is reported, with the exact path and, when the record names one, the
+    backup directory that puts the whole entry back.
+  - The run's own copy is evidence: a link inside a written key that still matches the copy the
+    run took is a link the run did not touch. Without that, the fix would have turned every
+    configuration directory holding a link into a false alarm, and a rule that fixes a false
+    success by inventing a false failure is not a fix. Both directions are pinned by
+    `TestALinkTheRunLeftAloneDoesNotStopTheRevertFromBeingComplete`.
+  - `TestARevertDoesNotCallItselfCompleteWithALinkTheRecordDoesNotName` is the pass's own
+    scenario through the real writer, and `TestAVerticalRecordWithPartialEvidenceIsNotReported
+    AsReverted` is the partial shape through the command line. Both were RED first.
+  - Two of the new tests were wrong before they were right, and their failures said so: the
+    first passed for the wrong reason (with no copy, the file's own failure masked the link),
+    and the second asserted on `RevertReport.Complete()` when the contract that decides the
+    exit status is the error. They now assert that both agree.
+  - The pass's minor point is corrected: `docs/ROLLBACK.md` and `--help` promised a backup
+    directory in a case (`created`, no copy) where the record has none; both now say that the
+    report names a directory only when the record names one.
+  - **Named follow-up, not omitted**: this rule *reports* what the per-file record cannot name;
+    it does not yet *act* on a non-regular entry. Extending the index to symlinks and to link
+    targets would let the revert put one back instead of reporting it -- and would close the
+    advisory this audit recorded earlier (a link to matching bytes reading as "still holds"),
+    because a link would be compared by its target rather than read through. That is the next
+    step for this rule, deliberately not taken in this branch: it changes the meaning of the
+    digests already stored in records written by earlier builds.
