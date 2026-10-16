@@ -740,17 +740,24 @@ walks that record once and compares each entry with the machine:
 |------------------|----------------|-----------------|
 | a path the run wrote | is it still here | `missing  <key>  <path>  <what the run did>` when it is gone |
 | a backup the run took | is the copy still here | `missing  backup of <key>  <path>` when it is gone |
+| a file the run changed | does it still hold the digest the run recorded | `changed  <key>  <path>  no longer holds what the run left: expected <digest>, found <digest>` |
+| a file the run removed | is it still gone | `changed  <key>  <path>  was removed by the run and is here again` |
+| a file that cannot be read | can this be answered at all | `unknown  <key>  <path>  the file could not be read` |
 
-The screen names only what is gone and counts what is still here (`Still here: 12 of the 14 paths and
-backups the record names.`), because a record written by a normal run names every configuration path
-the installer touches and that list is longer than any frame. It says where the full list is --
-`dotfiles --verify` prints every entry, including the ones that are here -- rather than printing a
-truncated version of it.
+The screen names what is gone and what changed, and counts what is still what the run left (`Still
+what the run left: 12 of the 14.`), because a record written by a normal run names every
+configuration path the installer touches and that list is longer than any frame. It says where the
+full list is -- `dotfiles --verify` prints every entry, including the ones that are here -- rather
+than printing a truncated version of it.
 
-**The record names no digest, and the screen says so.** A path that is present is reported as
-present, never as unchanged: the check establishes that the file is there, not that it is still what
-the install left. This is the limit of what the record supports, and it is stated in the body rather
-than left for the user to infer from a report that says everything is fine.
+**A path that is here is not a path that is unchanged.** Where the record carries a digest the check
+compares content, so `changed` is its own answer: the file is present and it is no longer what the
+run left, which is what a person checking their machine needs to know and what `dotfiles --revert`
+puts back. A file the run removed is part of the state it left, so it is named both while it stays
+gone and when something puts it back; and a file that cannot be read is `unknown`, because calling it
+changed and calling it fine are both claims the record does not support. Where the record carries no
+digest -- one written before it kept them, or a path the run did not write -- being here is all the
+report claims, in the same words it always used.
 
 **Four states, never a guess.** No record means no run has completed on this machine, so there is
 nothing to check yet; a record that cannot be read says why; a record that names no path says there
@@ -1540,7 +1547,7 @@ Backups are stored in your home directory with a timestamp:
 ~/.dotfiles-backup-YYYY-MM-DD-HHMMSS/
 ```
 
-Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongside single-file configs like `~/.zshrc`. When installing Fish or Zsh, an existing shell startup file without the shipped ownership marker is also preserved as a dated, sourced drop-in: Fish at `~/.config/fish/dotfiles.d/dotfiles-user-config-*.fish`, Zsh at `~/.zshrc.d/dotfiles-user-config-*.zsh`. The install log names the exact saved path. The shipped `config.fish` sources Fish drop-ins last so personal settings override managed defaults; `.zshrc` likewise sources `.zshrc.d` files last. Fish uses `dotfiles.d` rather than native `conf.d`, because Fish loads `conf.d` before `config.fish`. Files already marked as dotfiles-managed are replaced silently without accumulating drop-ins. For future personal changes, edit or add files in those drop-in directories rather than the managed startup file.
+Each backup carries a `backup.json` manifest naming every entry it took, every entry it could not copy and why, and the entries a run deliberately left out; two backups taken in the same second get separate directories rather than sharing one; and a symlink is preserved as a symlink. Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongside single-file configs like `~/.zshrc`. When installing Fish or Zsh, an existing shell startup file without the shipped ownership marker is also preserved as a dated, sourced drop-in: Fish at `~/.config/fish/dotfiles.d/dotfiles-user-config-*.fish`, Zsh at `~/.zshrc.d/dotfiles-user-config-*.zsh`. The install log names the exact saved path. The shipped `config.fish` sources Fish drop-ins last so personal settings override managed defaults; `.zshrc` likewise sources `.zshrc.d` files last. Fish uses `dotfiles.d` rather than native `conf.d`, because Fish loads `conf.d` before `config.fish`. Files already marked as dotfiles-managed are replaced silently without accumulating drop-ins. For future personal changes, edit or add files in those drop-in directories rather than the managed startup file.
 
 ### Restoring a Backup
 
@@ -1548,6 +1555,30 @@ Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongs
 2. Choose the backup you want to restore
 3. Confirm the restoration
 4. Your previous configurations will be restored
+
+Three rules make that safe on a machine whose configuration you still care about. The replacement is
+copied beside the destination and only a complete copy moves into place, so a destination is never
+absent because a copy failed halfway, and a swap that cannot finish restores what was there. The
+state the restore replaces is copied into a backup of its own first, so a restore can itself be
+undone. And a directory this program did not write is refused rather than trusted. The screen
+accounts for itself entry by entry, and a directory with no `backup.json` that carries the shape of
+the backups written before manifests existed is still accepted, because it is still someone's way
+back.
+
+### Putting the last install back
+
+`dotfiles --revert --dry-run` reads the record of the last run and names what it would put back;
+`dotfiles --revert` does it. A file the run modified or removed is copied back out of the backup and
+a file it created is removed, and each file is compared afterwards against the digest the run
+recorded, so the command reports a measurement rather than an attempt. It is idempotent, it keeps
+what it replaces in a backup of its own, and it reports a file whose copy is gone as `unrevertible`
+instead of skipping it. `dotfiles --restore <backup>` does the same for one backup directory named by
+hand, which is the way back for a machine whose record is gone.
+
+The failure screen names the same way back: it says which directory holds what the run replaced, that
+`dotfiles --revert` puts it back, and what no command undoes. See
+[Rollback Procedures](ROLLBACK.md) for the exit statuses and the manual path for a machine where the
+installer cannot run.
 
 ## Learn Mode
 

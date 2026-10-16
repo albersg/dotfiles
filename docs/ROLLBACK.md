@@ -2,25 +2,96 @@
 
 ## Installer Rollback
 
-Before it changes anything, the installer copies each configuration it is about to
-replace into `~/.dotfiles-backup-<timestamp>/`. Those backups are plain copies, not
-archives, so restoring is a copy back.
+An install leaves two things behind so that the machine can be put back:
 
-### Restoring through the installer
+- **`~/.dotfiles-backup-<timestamp>/`** — a copy of every configuration the run was about
+  to replace, taken before anything was written. Each entry is named after the
+  configuration it replaces (`zsh` is `~/.zshrc`, `nvim` is `~/.config/nvim`), and the
+  directory carries a `backup.json` manifest that names every entry it took, every entry
+  it could not copy and why, and the entries it deliberately left out. A symlink is
+  preserved as a symlink; an entry that cannot be copied is recorded rather than
+  dropped; and one bad entry no longer costs the copies already made.
+- **`~/.local/state/dotfiles/last-install.json`** — the record of the run (or
+  `$XDG_STATE_HOME/dotfiles/last-install.json` when that variable is set). It names what
+  the run did to each configuration path and, file by file, the digest each file held
+  before the run, the digest it held after, and the copy in the backup that puts it
+  back. It is written by a run that failed as well as by one that finished, and by
+  `--non-interactive` as well as by the interface, because a run that stopped halfway is
+  exactly the run whose changes are already on the machine.
 
-Run `dotfiles`, choose `Restore from Backup` from the main menu, pick the backup and
-confirm. See the [TUI Installer Guide](tui-installer.md#backup--restore) for what a
-backup contains.
+### Putting the last install back
+
+```bash
+dotfiles --revert --dry-run   # read the plan: which files, and what would happen to each
+dotfiles --revert             # do it
+```
+
+`--revert` reads the record and undoes it one file at a time: a file the run modified or
+removed is copied back out of the backup, and a file the run created is removed. Every
+file it puts back is then compared against the digest the run recorded before it wrote
+anything, so the command reports a measurement rather than an attempt.
+
+- **It is idempotent.** A file already in the state the revert restores is reported as
+  already there, and running the command twice does not change the machine twice.
+- **It keeps what it replaces.** The configuration it is about to write is copied into a
+  backup of its own first, so a revert can be undone by the same command. The report
+  names that directory.
+- **It says what it cannot do.** A file the backup holds no copy of is reported as
+  `unrevertible`, never skipped, and a file that changed again since the run is reverted
+  and named.
+- **Exit status:** `0` when the machine is back where the run found it (or already was),
+  `1` when a file could not be put back, `2` when there is no record to revert.
+
+### Putting one backup directory back
+
+```bash
+dotfiles --restore ~/.dotfiles-backup-2026-10-16-120000 --dry-run
+dotfiles --restore ~/.dotfiles-backup-2026-10-16-120000
+```
+
+The same operation is offered as **Restore from Backup** in the main menu. Three rules
+make it safe to run on a machine whose configuration you still care about:
+
+- the replacement is copied beside the destination and only a complete copy moves into
+  place, so a destination is never absent because a copy failed halfway, and a swap that
+  cannot finish restores what was there;
+- the state it replaces is copied into a backup of its own first, so the restore is
+  itself undoable;
+- a directory this program did not write is refused rather than trusted.
+
+The report accounts for itself entry by entry: `restored`, `already`, or `failed` with the
+reason. **Exit status:** `0` when every entry went back, `1` when an entry could not be
+placed, `2` when the directory is not a backup this program wrote or could not be read.
+
+### Checking what a machine is
+
+```bash
+dotfiles --verify
+```
+
+`--verify` prints every path, backup and file the record names, with the action the run
+took. For every file the run changed it compares the content against the digest the run
+recorded, so a file is reported as `here` (still holding what the run left), `changed` (no
+longer holding it, with the two digests), `unknown` (the file could not be read) or
+`missing`. Where the record carries no digest — one written before it kept them, or a path
+the run did not write — the report says the path is here and unverifiable rather than
+claiming it matches. **Exit status:** `0` when the machine is what that run left, `1` when
+a path or backup is gone or a file no longer holds what the run left, `2` when a record is
+present and could not be read. A machine with no record exits `0`.
 
 ### Restoring without the installer
 
-A backup is an ordinary directory, which is what matters when the installer cannot run.
-Each entry inside it is named after the configuration it replaced, so list the backup
-before copying anything back:
+A backup is an ordinary directory, which is what matters when the installer cannot run or
+when the machine is not the one that was installed. List the backup before copying
+anything back — and read its `backup.json` first when it has one, because that is where
+the entries it could not copy are named:
 
 ```bash
 # What backups exist, newest last
 ls -d ~/.dotfiles-backup-*
+
+# What this one holds, and what it could not copy
+cat ~/.dotfiles-backup-2026-09-19-153000/backup.json
 
 # A single file goes back where it came from: the entry "zsh" was ~/.zshrc
 cp ~/.dotfiles-backup-2026-09-19-153000/zsh ~/.zshrc
@@ -30,16 +101,40 @@ cp ~/.dotfiles-backup-2026-09-19-153000/zsh ~/.zshrc
 cp -r ~/.dotfiles-backup-2026-09-19-153000/nvim ~/.config/
 ```
 
-There is no restore flag and no restore subcommand, so this copy is the manual path
-rather than a fallback for a broken option.
+A backup written before the manifest existed has no `backup.json`; it is still a valid
+backup, and its entries are still named after the configurations they replaced. When the
+entry's target is still there, copy the entry over it rather than removing it first:
+losing your only copy of a file to a copy that fails is the failure this whole path
+exists to avoid.
+
+### What no command undoes
+
+The reversal above covers the configuration files this program writes. It does not cover,
+and no command here reverses:
+
+- packages installed by the platform package manager (`apt`, `brew`, `pacman`, `dnf`,
+  `pkg`);
+- the Xcode command line tools;
+- the default shell recorded for your account (`/etc/shells` and the login shell);
+- anything installed by a script fetched from the internet (Claude Code, OpenCode);
+- files written outside the configuration paths the backup covers: fonts, caches,
+  `~/.local/bin`, `~/.pi/agent/skills`, `~/.cargo`, `~/.rustup`, `~/.tmux`, and the
+  Windows-side `.wslconfig` and font registration on WSL.
+
+Those are named on the failure screen and printed by `dotfiles --revert`, so the boundary
+is visible at the moment it matters instead of being discovered later.
 
 ### Uninstalling
 
-There is no uninstall subcommand. Undoing an installation has two halves, and the
-removal step applies only to paths the backup does not contain: those are the files the
-installer created from nothing, so there is nothing of yours to restore for them. The
-backup is what tells the two apart, so list it first and keep it in view before running
-anything:
+There is no uninstall subcommand. Undoing an installation has two halves. The first is
+`dotfiles --revert`, which puts back every file the record names and removes the files the
+run created. The second is what a revert deliberately leaves alone: the packages, the
+shell and the files outside the backed-up configuration paths listed above, which are
+removed by whatever installed them (`brew uninstall dotfiles` on the Homebrew path, the
+platform package manager for the rest).
+
+If the record is gone, the backup is what tells your files from the ones the run created,
+so list it first and keep it in view:
 
 ```bash
 # What the most recent backup holds, one entry per configuration it replaced
@@ -102,3 +197,7 @@ location is the same everywhere, Termux and WSL included:
 ```
 $HOME/.dotfiles-backup-<timestamp>/
 ```
+
+Two backups taken inside the same second keep the first one: the second gets a `-2`
+suffix rather than sharing the directory, so a failed run cannot take the copies the first
+one made with it.
