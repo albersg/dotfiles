@@ -235,6 +235,11 @@ type Item struct {
 	// containers, volumes, build cache), named so the preview can say what the
 	// tool's command will remove. It is empty for a filesystem store.
 	VolatileObjects []string
+	// StoreKind names the engine store this item stands for (images,
+	// containers, volumes, build-cache), so a result can ask the same engine
+	// for the same store's number again and report what the command really
+	// freed. It is empty for a filesystem store.
+	StoreKind string
 }
 
 // Cleanable reports whether this item has a mechanism that can run here. A
@@ -332,6 +337,14 @@ type Probe struct {
 	Stat  func(string) (os.FileInfo, error)
 	// ReadDir reads one directory level.
 	ReadDir func(string) ([]os.DirEntry, error)
+	// Remove unlinks one entry: a file, a symbolic link, or an empty directory.
+	// It is a function so a test can watch every unlinking a removal makes,
+	// and make one of them fail, without a destructive test ever touching a
+	// real store.
+	Remove func(string) error
+	// FreeSpace reports the bytes available on the filesystem that holds a
+	// path, which is how the result proves what a run actually released.
+	FreeSpace func(string) (int64, error)
 	// Run starts a program and returns its output. It is how a tool that
 	// reports its own accounting is asked (docker system df), and how a
 	// command of the plan is run.
@@ -343,14 +356,16 @@ type Probe struct {
 // DefaultProbe returns the probe every real scan uses.
 func DefaultProbe() Probe {
 	return Probe{
-		HomeDir:  os.Getenv("HOME"),
-		Getenv:   os.Getenv,
-		LookPath: exec.LookPath,
-		Lstat:    os.Lstat,
-		Stat:     os.Stat,
-		ReadDir:  os.ReadDir,
-		Run:      runCommand,
-		Now:      time.Now,
+		HomeDir:   os.Getenv("HOME"),
+		Getenv:    os.Getenv,
+		LookPath:  exec.LookPath,
+		Lstat:     os.Lstat,
+		Stat:      os.Stat,
+		ReadDir:   os.ReadDir,
+		Remove:    os.Remove,
+		FreeSpace: freeSpaceOn,
+		Run:       runCommand,
+		Now:       time.Now,
 	}
 }
 

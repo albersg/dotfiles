@@ -3,6 +3,7 @@ package diskclean
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // The container engines. Their stores are never walked and never removed from
@@ -52,6 +53,7 @@ func containerStoresFor(program string, tool string, stores []toolStore) []Item 
 			Reason:          engineReason(tool, program, store),
 			Mechanism:       Mechanism{Kind: MechanismTool, Program: program, Args: spec.pruneArgs},
 			VolatileObjects: []string{spec.objects},
+			StoreKind:       spec.kind,
 			Size: Size{
 				// The size is the engine's own reclaimable figure, which is
 				// also what the command is expected to free. It is a tool
@@ -143,6 +145,27 @@ func containerRowSpecs(tool string) []containerStore {
 	}
 }
 
+// containerUsage asks an engine for its own accounting, in the shape the
+// engine supports: the JSON template first, and the plain table when the
+// engine is old enough not to take a template. Both the scan and the result of
+// a command go through here, which is what makes "before" and "after"
+// comparable.
+func containerUsage(ctx context.Context, probe Probe, program, tool string, timeout time.Duration) []toolStore {
+	opts := DetectOptions{ToolTimeout: timeout}
+	template := "{{json .}}"
+	if tool == "podman" {
+		template = "json"
+	}
+	output, err := runTool(ctx, probe, opts, program, "system", "df", "--format", template)
+	if err != nil || len(ParseSystemDF(output)) == 0 {
+		output, err = runTool(ctx, probe, opts, program, "system", "df")
+		if err != nil {
+			return nil
+		}
+	}
+	return ParseSystemDF(output)
+}
+
 // detectDocker asks the Docker engine for its own accounting and turns it into
 // rows. A Docker that is installed but cannot be reached -- a stopped daemon,
 // a missing socket -- contributes nothing: there is no store to measure and no
@@ -152,17 +175,7 @@ func detectDocker(ctx context.Context, probe Probe, opts DetectOptions) []Item {
 	if program == "" {
 		return nil
 	}
-	output, err := runTool(ctx, probe, opts, program, "system", "df", "--format", "{{json .}}")
-	if err != nil || len(ParseSystemDF(output)) == 0 {
-		// Older engines print the table rather than JSON, and the table is
-		// read as it is. A failure here means the engine answered nothing
-		// usable, and no row is invented for it.
-		output, err = runTool(ctx, probe, opts, program, "system", "df")
-		if err != nil {
-			return nil
-		}
-	}
-	return containerStoresFor(program, "docker", ParseSystemDF(output))
+	return containerStoresFor(program, "docker", containerUsage(ctx, probe, program, "docker", opts.ToolTimeout))
 }
 
 // detectPodman does the same for Podman, whose store is separate from
@@ -172,12 +185,5 @@ func detectPodman(ctx context.Context, probe Probe, opts DetectOptions) []Item {
 	if program == "" {
 		return nil
 	}
-	output, err := runTool(ctx, probe, opts, program, "system", "df", "--format", "json")
-	if err != nil || len(ParseSystemDF(output)) == 0 {
-		output, err = runTool(ctx, probe, opts, program, "system", "df")
-		if err != nil {
-			return nil
-		}
-	}
-	return containerStoresFor(program, "podman", ParseSystemDF(output))
+	return containerStoresFor(program, "podman", containerUsage(ctx, probe, program, "podman", opts.ToolTimeout))
 }
