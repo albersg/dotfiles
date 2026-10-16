@@ -190,7 +190,7 @@ func surveyTree(ctx context.Context, probe Probe, root string, rootDevice uint64
 				entries = append(entries, entry{
 					path:     path,
 					size:     physicalSize(childInfo),
-					identity: fileIDOf(childInfo),
+					identity: probe.identity(path, childInfo),
 				})
 			}
 		}

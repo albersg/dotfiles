@@ -224,7 +224,7 @@ func Walk(ctx context.Context, probe Probe, root string, owner string, dedupe *D
 					break
 				}
 				files++
-				if holder, shared := dedupe.claim(fileIDOf(childInfo), owner); shared {
+				if holder, shared := dedupe.claim(probe.identity(entryPath(dir, entry.Name()), childInfo), owner); shared {
 					result.Shared++
 					result.SharedBytes += childInfo.Size()
 					if result.SharedWith == nil {

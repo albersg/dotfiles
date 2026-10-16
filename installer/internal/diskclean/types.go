@@ -335,6 +335,14 @@ type Probe struct {
 	// symlink is never followed.
 	Lstat func(string) (os.FileInfo, error)
 	Stat  func(string) (os.FileInfo, error)
+	// Identity returns the identity of one filesystem object: the pair a walk
+	// deduplicates by, a removal re-checks and a guard verifies. It is a function
+	// rather than a direct call so a test can pin the case a filesystem that
+	// recycles inode numbers makes invisible to any cheap check -- a directory
+	// recreated at the approved path with the very same pair -- without depending
+	// on the filesystem the test happens to run on. Nil means the platform's own
+	// device and inode.
+	Identity func(path string, info os.FileInfo) fileID
 	// ReadDir reads one directory level.
 	ReadDir func(string) ([]os.DirEntry, error)
 	// Remove unlinks one entry: a file, a symbolic link, or an empty directory.
@@ -351,6 +359,14 @@ type Probe struct {
 	Run func(ctx context.Context, name string, args ...string) ([]byte, error)
 	// Now is the clock, so a report's timestamp is testable.
 	Now func() time.Time
+}
+
+// identity is the file identity of a path, or the platform's own reading of it.
+func (p Probe) identity(path string, info os.FileInfo) fileID {
+	if p.Identity != nil {
+		return p.Identity(path, info)
+	}
+	return fileIDOf(info)
 }
 
 // DefaultProbe returns the probe every real scan uses.

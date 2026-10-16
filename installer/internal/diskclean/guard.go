@@ -205,14 +205,25 @@ func (g Guard) Check(path string) (Approval, error) {
 		}
 	}
 
-	identity := fileIDOf(info)
+	identity := g.probe.identity(clean, info)
 	return Approval{Path: clean, Root: root, Device: identity.device, Inode: identity.inode, Dir: info.IsDir()}, nil
 }
 
-// Verify re-checks a path immediately before it is removed: the scope checks
-// run again, and the path has to be the same object the preview approved. A
-// path that was replaced after the preview -- with a link, another directory,
-// or something under a different root -- is refused here.
+// Verify re-checks a path immediately before it is removed: the scope checks run
+// again, the path has to be the same kind of object, and it has to be the same
+// object the preview approved. A path that was replaced after the preview -- with
+// a link, another directory, or something under a different root -- is refused
+// here.
+//
+// The identity it compares is the platform's own device and inode pair. That is
+// the cheapest check that exists and it closes the window for every ordinary
+// case, but it has one honest limit: a filesystem that recycles inode numbers
+// can hand a directory recreated at the same path the very same pair, and then
+// the swap is invisible to this check. The window is between the preview and the
+// removal, and only a process that can write inside the approved scope can race
+// there at all. Everything else about the removal is still re-established here:
+// the scope, the blocklist, the kind of object, and the refusal to unlink a
+// symlink leaf or a mount point.
 func (g Guard) Verify(approval Approval) error {
 	current, err := g.Check(approval.Path)
 	if err != nil {

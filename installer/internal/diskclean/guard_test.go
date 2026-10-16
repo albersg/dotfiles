@@ -193,8 +193,15 @@ func TestGuardRefusesAMissingPath(t *testing.T) {
 	}
 }
 
-// TestVerifyRefusesAPathReplacedAfterThePreview is the TOCTOU guard: the
-// preview approved one object, and the unlink is about to meet another.
+// TestVerifyRefusesAPathReplacedAfterThePreview is the TOCTOU guard: the preview
+// approved one object, and the unlink is about to meet another.
+//
+// The replacement's identity is supplied rather than read: a filesystem that
+// recycles inode numbers -- ext4 in its default layout, for one -- hands a
+// directory recreated at the same path the very same device and inode pair, so a
+// test that recreated the directory and hoped for a new pair would pass on tmpfs
+// and fail on ext4. The identity the guard must refuse is the one this test
+// states, and the honest limit that remains is pinned by its sibling below.
 func TestVerifyRefusesAPathReplacedAfterThePreview(t *testing.T) {
 	guard, probe, _, store := guardFixture(t)
 	approval, err := guard.Check(canonicalPath(probe, store))
@@ -209,10 +216,54 @@ func TestVerifyRefusesAPathReplacedAfterThePreview(t *testing.T) {
 		t.Fatalf("recreate the store: %v", err)
 	}
 
+	// The filesystem gave the replacement a different inode: the guard has to see
+	// that and refuse.
+	trueIdentity := probe.Identity
+	guard.probe.Identity = func(path string, info os.FileInfo) fileID {
+		if trueIdentity != nil {
+			return trueIdentity(path, info)
+		}
+		id := fileIDOf(info)
+		if canonicalPath(probe, path) == approval.Path {
+			id.inode++
+		}
+		return id
+	}
+
 	if err := guard.Verify(approval); err == nil {
 		t.Fatal("a directory recreated after the preview verified as the approved object")
 	} else if !strings.Contains(err.Error(), "no longer") && !strings.Contains(err.Error(), "replaced") {
 		t.Errorf("the refusal does not say the object changed: %v", err)
+	}
+}
+
+// TestVerifyCannotTellASwapTheFilesystemHides pins the residual risk of the
+// identity check instead of pretending it away: when a filesystem hands the
+// directory recreated at the approved path the same device and inode pair, the
+// pair is all this check has, and it verifies. Everything else is still
+// re-established before an unlink -- the scope, the blocklist, the kind of
+// object, no symlink leaf, no mount point -- and the window is the one between
+// the preview and the removal.
+func TestVerifyCannotTellASwapTheFilesystemHides(t *testing.T) {
+	guard, probe, _, store := guardFixture(t)
+	approval, err := guard.Check(canonicalPath(probe, store))
+	if err != nil {
+		t.Fatalf("the fixture store was refused: %v", err)
+	}
+
+	if err := os.RemoveAll(store); err != nil {
+		t.Fatalf("replace the store: %v", err)
+	}
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatalf("recreate the store: %v", err)
+	}
+
+	// The recreated directory answers with the pair the approval recorded.
+	samePair := fileID{device: approval.Device, inode: approval.Inode}
+	guard.probe.Identity = func(string, os.FileInfo) fileID { return samePair }
+
+	if err := guard.Verify(approval); err != nil {
+		t.Fatalf("the guard refused a path whose pair still matches, so this test no longer states the limit: %v", err)
 	}
 }
 
