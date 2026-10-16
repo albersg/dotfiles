@@ -116,9 +116,15 @@ type ModuleProgress struct {
 	LessonsTotal     int
 
 	// Practice
-	PracticeAccuracy float64 // 0.0 - 1.0
+	PracticeAccuracy float64 // 0.0 - 1.0, over the whole history
 	PracticeAttempts int
 	PracticeCorrect  int
+	// RecentResults is the last BossGateWindow practice answers, oldest first. It is
+	// what the boss gate reads: the gate is a question about the player's current
+	// form, not about a mistake made an hour ago. Persisted, and absent in profiles
+	// written before the window existed (RecentAccuracy falls back to the lifetime
+	// accuracy, so those profiles keep the gate they had).
+	RecentResults []bool
 
 	// Boss
 	BossDefeated bool
@@ -262,14 +268,60 @@ func (s *UserStats) IsPracticeReady(module ModuleID) bool {
 	return s.IsModuleUnlocked(module) && s.IsLessonsComplete(module)
 }
 
-// IsBossReady checks if boss fight is unlocked (80% practice accuracy + minimum attempts).
-// It is read-only for the same reason as IsLessonsComplete.
+// BossGateAccuracy is the accuracy the recent window must show before the boss opens.
+const BossGateAccuracy = 0.80
+
+// BossGateMinAttempts is the fewest practice answers the gate will read at all: a
+// player who has answered three questions correctly has not shown anything yet.
+const BossGateMinAttempts = 10
+
+// BossGateWindow is how many of the most recent practice answers the gate reads.
+const BossGateWindow = 20
+
+// IsBossReady checks if the boss fight is unlocked: at least BossGateMinAttempts
+// practice answers, and an accuracy of BossGateAccuracy over the most recent
+// BossGateWindow of them. It is read-only for the same reason as IsLessonsComplete.
+//
+// Reading the recent window rather than the lifetime accuracy is the difference
+// between a gate and a tax: with the lifetime figure a player who fumbled the first
+// few exercises of a module carried that average into every later attempt, and the
+// only way out was to answer enough questions to dilute it.
 func (s *UserStats) IsBossReady(module ModuleID) bool {
 	if !s.IsPracticeReady(module) {
 		return false
 	}
 	progress := s.ModuleProgressOrNil(module)
-	return progress != nil && progress.PracticeAccuracy >= 0.80 && progress.PracticeAttempts >= 10
+	if progress == nil || progress.PracticeAttempts < BossGateMinAttempts {
+		return false
+	}
+	accuracy, _ := progress.RecentAccuracy()
+	return accuracy >= BossGateAccuracy
+}
+
+// ReviewsDue counts the module's mastered exercises whose review interval has passed
+// at now. It is read-only, like every other question the trainer menu asks.
+func (s *UserStats) ReviewsDue(module ModuleID, now time.Time) int {
+	return s.ModuleProgressOrNil(module).ReviewsDue(module, now)
+}
+
+// IsPracticeComplete reports whether every exercise of a module is mastered. It
+// reads the recorded progress without creating it, which is what the trainer
+// menu needs: the question is asked on every keypress.
+func (s *UserStats) IsPracticeComplete(module ModuleID) bool {
+	return s.ModuleProgressOrNil(module).IsPracticeComplete(module)
+}
+
+// PracticeComplete reports whether a module has nothing left to practise: every
+// exercise mastered AND the boss gate already met. It is the rule that ends a
+// practice session, and it is deliberately stricter than IsPracticeComplete. A
+// module whose exercises are all mastered but whose boss is still locked keeps
+// offering practice -- review is what lets the player reach the gate -- instead
+// of refusing to start and leaving the boss as the only exit, which was a
+// deadlock. A due review is the same kind of "still something to do": the trainer
+// promised spaced repetition, so mastery that has come due is work, not a finished
+// module.
+func (s *UserStats) PracticeComplete(module ModuleID, now time.Time) bool {
+	return s.IsPracticeComplete(module) && s.IsBossReady(module) && s.ReviewsDue(module, now) == 0
 }
 
 // GetAllModules returns info for all modules in order

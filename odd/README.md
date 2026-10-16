@@ -61,6 +61,7 @@ repository's memory of why something is the way it is.
 | [unified-themes.md](tasks/unified-themes.md) | The unified theme library |
 | [upstream-activity-tracker.md](tasks/upstream-activity-tracker.md) | Watching upstream activity |
 | [upstream-triage.md](tasks/upstream-triage.md) | Triaging upstream |
+| [utilities-refresh.md](tasks/utilities-refresh.md) | The utilities section: what it gets wrong and what it is missing |
 | [vim-trainer-buffer-engine.md](tasks/vim-trainer-buffer-engine.md) | The trainer's buffer engine |
 | [windows-font-registration.md](tasks/windows-font-registration.md) | The per-user font registration Windows has to resolve |
 | [windows-terminal-scheme-theme.md](tasks/windows-terminal-scheme-theme.md) | The Windows Terminal scheme and the theme that is applied |

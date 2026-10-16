@@ -11,6 +11,7 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - [Command Line Interface](#command-line-interface)
 - [Backup & Restore](#backup--restore)
 - [Learn Mode](#learn-mode)
+- [Keymaps Reference](#keymaps-reference)
 - [Requirements](#requirements)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -24,8 +25,11 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
   cannot drift from the keys the screen accepts
 - **Smart Detection**: Automatically detects your OS, existing configs, and installed tools
 - **Backup & Restore**: Safely backup existing configurations before installation
-- **Educational Content**: Learn about each tool before choosing (terminals, shells, multiplexers)
-- **Neovim Keymaps Reference**: Built-in keymap browser organized by category
+- **Educational Content**: A **Learn About Tools** hub that reaches a page for every tool a run
+touches: the terminals, shells and multiplexers a run chooses, Neovim, the font, the prompts, the
+shell tooling, the plugin sets and the `Brewfile`'s directives
+- **Keymaps Reference**: Built-in keymap browser organized by category, for every tool whose
+configuration declares bindings; the two that declare none say so and list what they set instead
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
 - **Utilities**: The small jobs that are not part of an installation, starting with a
@@ -83,8 +87,9 @@ go build -o dotfiles ./cmd/dotfiles
 From the main menu you can access:
 
 - **Start Installation**: Begin the guided setup process
-- **Learn About Tools**: Explore terminals, shells, and multiplexers
-- **Neovim Keymaps**: Browse all configured keybindings
+- **Learn About Tools**: Opens the hub: terminals, shells, multiplexers, Neovim, the font, the
+  prompts, the shell tooling, the plugin sets and the machine toolset
+- **Keymaps Reference**: Browse the bindings each tool ships, organized by category
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
 - **Update this installer**: Appears whenever the check has something to report: a newer
@@ -109,8 +114,10 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the
-  read-only terminal capability report behind the **Report the terminal capabilities** row
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the two
+  read-only reports: the terminal capability report behind the **Report the terminal
+  capabilities** row, and the install check behind the **Check the machine against the last
+  install** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -125,12 +132,15 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds three jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds six jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
-host), and the read-only **terminal capability report**. The main menu's panel derives one row per
+host), the read-only **shell's startup** measurement (one level in), the read-only **terminal
+capability report**, and the read-only **install check**. The main menu's panel derives one row per
 job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
 is the only list -- so a utility added to the section shows up in the panel or is visibly missing
-from that one function.
+from that one function. `TestTheUtilitiesDocNamesEveryJobTheSectionOffers` holds this sentence to
+that list, because a sentence that states a count and then lists fewer jobs than the section offers
+is the defect this doc has already shipped once.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
@@ -771,6 +781,57 @@ controlling terminal (a container, a service, a run with no TTY) gets the empty 
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
 
+### The install check
+
+The check answers one question -- **is this machine still what the last install left** -- and it is a
+utility that writes nothing and changes nothing. It is reached from the section's **Check the machine
+against the last install** row and is read-only: its only key is the way back.
+
+A completed run writes a record, `$XDG_STATE_HOME/dotfiles/last-install.json` (or
+`~/.local/state/dotfiles/last-install.json` when `XDG_STATE_HOME` is unset), with one entry per
+configuration path naming what the run did to that path and where the copy it took went. The check
+walks that record once and compares each entry with the machine:
+
+| The record names | The check asks | The screen says |
+|------------------|----------------|-----------------|
+| a path the run wrote | is it still here | `missing  <key>  <path>  <what the run did>` when it is gone |
+| a backup the run took | is the copy still here | `missing  backup of <key>  <path>` when it is gone |
+
+The screen names only what is gone and counts what is still here (`Still here: 12 of the 14 paths and
+backups the record names.`), because a record written by a normal run names every configuration path
+the installer touches and that list is longer than any frame. It says where the full list is --
+`dotfiles --verify` prints every entry, including the ones that are here -- rather than printing a
+truncated version of it.
+
+**The record names no digest, and the screen says so.** A path that is present is reported as
+present, never as unchanged: the check establishes that the file is there, not that it is still what
+the install left. This is the limit of what the record supports, and it is stated in the body rather
+than left for the user to infer from a report that says everything is fine.
+
+**Four states, never a guess.** No record means no run has completed on this machine, so there is
+nothing to check yet; a record that cannot be read says why; a record that names no path says there
+is nothing the record and the machine can be compared on -- which is neither a pass nor a failure; and
+a record with entries reports the missing ones. The panel's own row says `not checked yet` before the
+check has run instead of answering with a fact nobody established.
+
+**One walk, two presenters.** `InspectInstall` walks the record, and the command line's `--verify`
+and this screen are two presenters of the facts it returns. Two walks of one record could disagree
+about the same file, and only one of them would be right, so the screen is the second reader of the
+same verification rather than a second verification.
+
+**Nothing blocks and nothing runs at startup.** The check runs when the screen is opened, as a
+command off the update loop, never when the model is built. The panel's row reads the model and never
+the filesystem, so a keystroke never waits on a machine whose disks are not answering, and coming back
+to the screen does not stat the machine a second time: the first answer is the answer.
+
+`TestTheVerificationScreenShowsWhatIsGoneAndSaysWhatIsStillHere`,
+`TestTheVerificationScreenSaysWhenNothingIsGone` and
+`TestTheVerificationScreenSaysWhatItCannotCheck` pin the three bodies;
+`TestTheVerificationScreenIsReadOnly` pins that the only key is the way back and that nothing is
+written; `TestChoosingTheVerificationRowRunsTheCheckOffTheUpdateLoop` pins the command, and
+`TestTheVerificationReadsTheVerdictRatherThanTheDiskAgain` pins that a keypress does not read the
+machine. `TestInstallVerifyGolden` holds the frame at 80x24.
+
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -1238,6 +1299,26 @@ colour draws as a plain block, and this shading means nothing there. That is wha
 rather than a fallback — a terminal without true colour, a run with the sprite switched off
 (`DOTFILES_SPRITE=0`) and a frame with fewer rows all get the cat the glyph ladder picks.
 
+### The creature's states, and the one it takes in a fight
+
+`companionStateNow()` picks the creature's state from the model, and the trainer's boss screen
+overrides every reaction: while a boss fight is on screen the creature is **possessed** — a spiked
+crest, fangs, and eyes drawn in the ember tone (`#ff2d2d`) instead of the sclera's own. It is a state
+in the same machine rather than an overlay painted on a frame, so every rung of the sprite ladder has
+art for it (`companionPossessedFrames`, appended by `companionFramesAt`), the frame guard still
+refuses an overflowing one, and the gaze composer still moves the slit pupil. The one-row rung — what
+the trainer draws at the documented 80x24 floor — carries the ember eyes too, which is why the
+glyph renderer paints the mark (`companionGlyphRow`) instead of keying off the eye row's metadata.
+
+Whether an eye's disc is the sclera's tone and whether it carries a highlight are the mark's own
+answers (`companionEyeDiscTone`, `companionEyeHasGlint`), so the eye-invariant test asks the art's
+own question instead of repeating the sclera's colour.
+
+The escalation is the fight: with lives to spare the form is calm, and on the last life
+(`companionPossessionRageLives`) the creature shakes with the same one-pixel tremble a startle draws,
+held for as long as the fight lasts. The moment the fight ends it is its ordinary self again, because
+the state is derived from the screen and nothing about it is stored.
+
 It costs what it looks like it costs. The renderer repaints a whole line whenever any byte in it
 changes. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227 columns and height 62**:
 
@@ -1511,6 +1592,7 @@ dotfiles --non-interactive --shell=<shell> [options]
 
 | Flag | Values | Description |
 |------|--------|-------------|
+| `--os` | `mac`, `linux`, `termux` | Platform to work from. Absent, the machine the run is on decides. The values are the ones the setup screen's first row records, read from that row rather than written out again, so a platform the screen gains cannot leave the flag behind; WSL is deliberately not one of them, because WSL is a fact about the machine and not something a person chooses. Anything else is refused before anything is planned, with the accepted values named, instead of being quietly read as Linux. The platform chosen here is the platform the plan is built for: `--os mac` schedules the Apple developer tools even on a Linux host |
 | `--shell` | `fish`, `zsh`, `nushell` | Shell to install (required) |
 | `--terminal` | `alacritty`, `wezterm`, `ghostty`, `none`, `kitty` (macOS only) | Terminal emulator |
 | `--wm` | `tmux`, `zellij`, `herdr`, `none` | Window manager |
@@ -1592,7 +1674,9 @@ Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongs
 
 ## Learn Mode
 
-The installer includes educational content to help you understand each tool:
+**Learn About Tools** on the main menu opens a hub; Escape returns to whatever opened it. Every row
+in the hub is a page about one part of a run, and the four screens that used to be reachable only
+from inside the wizard are reachable from here too.
 
 ### Terminals
 
@@ -1623,7 +1707,72 @@ The installer includes educational content to help you understand each tool:
 
 - LazyVim configuration
 - LSP setup
-- AI assistants (OpenCode, Claude, Copilot, etc.)
+- The assistant the configuration enables: `pi`, on `<leader>a`, which opens its floating chat. The
+  conventional assistant plugins (Claude Code, OpenCode, Avante, CopilotChat, `copilot.lua`,
+  CodeCompanion, Antigravity) ship disabled, and the page says so rather than naming bindings for
+  plugins that are not loaded. See [AI Configuration](ai-configuration.md)
+
+### Font
+
+MesloLGS Nerd Font, the Nerd Font patch of Meslo. Every shipped terminal configuration names that
+family, which is why the page is about the icons, box-drawing and prompt glyphs: without it a
+terminal draws a box where a glyph belongs. On Linux the release archive is extracted into
+`~/.local/share/fonts` and the cache is refreshed, so no root is needed; a machine where fontconfig
+already resolves the family skips the download; and Termux needs no fontconfig at all, because the
+same face is written as one file into `~/.termux`, the slot its terminal reads.
+
+### Prompts
+
+| Shell | Prompt |
+|-------|--------|
+| Fish | Starship |
+| Nushell | Starship |
+| Zsh | Powerlevel10k |
+
+### Shell tooling
+
+The tools the shell step installs beside the shell, and what the shipped configuration uses each one
+for: `eza`, `bat`, `ripgrep`, `fd`, `fzf`, `fnm`, `direnv`, `jq`, `gh`, `git-delta`, `xh`,
+`trippy`, `btop`, `zoxide`, `atuin` and `carapace`. The page is a copy of the table
+[tools.md](tools.md) keeps, and a test fails by name when the two disagree.
+
+### Plugins
+
+| Tool | Manager |
+|------|---------|
+| Tmux | TPM |
+| Fish | Fisher |
+| Zsh | the plugin packages the `.zshrc` sources |
+| Neovim | lazy.nvim |
+| Herdr | `herdr plugin install` |
+
+### Machine toolset
+
+| Directive | What the run does |
+|-----------|-------------------|
+| `brew`, `tap`, `go`, `npm`, `uv` | Installed: the toolset step filters the checkout's `Brewfile` and hands it to `brew bundle` |
+| `cask`, `mas` | Installed when the file carries one: the exclusion is a denylist, not an allowlist |
+| `vscode`, `winget` | Dropped, and the step logs how many lines of each it dropped |
+
+## Keymaps Reference
+
+**Keymaps Reference** is its own main-menu row. It offers one row per tool, each tool's tables are
+grouped by category, `↑`/`↓` (or `k`/`j`) scroll a table and `Esc` goes back one level.
+
+| Tool | What its tables hold |
+|------|----------------------|
+| Neovim | The LazyVim keymaps, by category |
+| Tmux | The bindings `dotfiles-tmux/tmux.conf` declares |
+| Zellij | The bindings `dotfiles-zellij/zellij/config.kdl` declares |
+| Herdr | The `[keys]` table of `dotfiles-herdr/config.toml`, whose mouse-first interface needs few keys |
+| Ghostty | The bindings `dotfiles-ghostty/config` declares |
+| Kitty | The eleven `map` lines `dotfiles-kitty/kitty.conf` declares |
+| WezTerm | No bindings: `.wezterm.lua` assigns no `config.keys`, so the page lists the settings it does set |
+| Alacritty | No bindings: `alacritty.toml` has no `[keyboard]` section, so the page lists the settings it does set |
+
+Each table is held to the file it copies by a test: Kitty's `map` lines are compared with the table
+in both directions, and the WezTerm and Alacritty pages fail when their configuration declares a
+binding or when a row names a setting the file does not carry.
 
 ## Requirements
 

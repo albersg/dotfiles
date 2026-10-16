@@ -37,14 +37,19 @@ S1. The request, verbatim: "he tenido problemas de memoria y craasheo en mi wsl,
     para soulcionar mi porblema bash ~/.cache/dotfiles-wsl/apply-wsl-memory-guard.sh. investigalo,
     revisa memoria engram, y en el dotfiles, mejora la parte que tanto en el installer como en la s
     utitlites se hacen cambios en la cpu y mem del wsl, y aplica estas salvaguardas y reomcendaciones"
-S2. `memory` policy, decided with the user: "2/3 del host, reserva 4 GiB, suelo 50%". Written out:
-    `target = max(min(host - host/3, host - 4 GiB), host/2)`, rounded down to 512 MB, omitted below
-    1 GiB. On this host that is `16016 MiB -> min(10678, 11920) = 10678 -> 10240 MB`, the value the
-    user chose by hand. The `host/2` floor is WSL's own proportional default, so the plan never gives
-    the VM less than WSL would choose by itself, and on a small host the floor wins over the Windows
-    reserve (a 7 GiB host plans 3.5 GiB, leaving Windows 3.5 GiB rather than the promised 4).
-S3. `processors` policy, decided with the user: "Todos menos uno" — `max(1, host - 1)`, so Windows
-    keeps one logical CPU (`host 12 CPUs -> processors=11`). Omitted when the host is unknown.
+S2. `memory` policy, decided with the user and revised by them the same day: "Memoria 3/4, CPU
+    como hoy: 11". Written out: `target = max(min(host - host/4, host - 4 GiB), host/2)`, rounded
+    down to 512 MB, omitted below 1 GiB. On this host that is `16016 MiB -> min(12012, 11920) =
+    11920 -> 11776 MB`: the four GiB reserve binds before the ratio asks for 12012, and the 512 MB
+    step falls to 23. The first version of this decision was "2/3 del host, reserva 4 GiB, suelo
+    50%" (10240 MB here); L16 records the revision and what prompted it. The `host/2` floor is WSL's
+    own proportional default, so the plan never gives the VM less than WSL would choose by itself,
+    and on a small host the floor wins over the Windows reserve (a 7 GiB host plans 3.5 GiB, leaving
+    Windows 3.5 GiB rather than the promised 4).
+S3. `processors` policy, decided with the user and re-confirmed when S2 was revised: "Todos menos
+    uno" — `max(1, host - 1)`, so Windows keeps one logical CPU (`host 12 CPUs -> processors=11`).
+    Omitted when the host is unknown. The same three quarters applied to CPUs would be 9, so the
+    revision left this rule alone on purpose rather than by omission (L16).
 S4. The guard's home, decided with the user: "Paso WSL + fila en Utilities" — the Configure WSL step
     installs `/usr/local/lib/dotfiles-wsl/wsl-memory-guard.sh` and
     `/etc/systemd/system/wsl-memory-guard.service`, enables and starts the unit, and verifies that
@@ -95,6 +100,9 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
 ## Tasks
 
 ### T1 — The memory and processor policy, RED first
+- Reopened once, when the user revised S2 (L16): the ratio became a quarter and `5d312a9` carried it
+  through the policy, its table, the fixtures, the golden, the template comment and the docs. The
+  processor half was re-confirmed, not changed.
 - [x] `planMemoryMB`: `target = max(min(host - host/3, host - 4 GiB), host/2)` with the existing
       512 MB stepping and the existing omit-below-1-GiB rule. `wslMemoryReserveBytes` goes from
       2 GiB to 4 GiB; add the floor as its own named constant so the two rules are separable.
@@ -258,7 +266,7 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
   the event. The independent verifier is launched once that run lands, never concurrently with it.
 
 ## Acceptance criteria
-1. [x] `memory` follows S2 and this host plans exactly `10240MB`.
+1. [x] `memory` follows S2 and this host plans exactly `11776MB`.
 2. [x] `processors` follows S3 and this host plans `11`.
 3. [x] The guard ships in the repository, the WSL step installs and verifies it, and a cap that does
        not survive a reload is reported rather than claimed.
@@ -401,3 +409,27 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
   falsified the README claim at L11 and found the false comment and the shellcheck warning. No review
   authority exists or is left hanging: both refusals created no lineage, so there is nothing to
   abandon, quarantine or repair.
+- L16: The fraction S2 states was revised by the user after this front had closed, so S2, S3 and
+  criterion 1 were rewritten and T1 was reopened rather than a new front being opened. Their words,
+  verbatim: "avanza con el installer, con la customizacion del wsl, estudia si podriamos mejor
+  dejarlo como esta, pero que pueda usar 3/4 de los recursos de memoria y cpu, en vez de la mitad",
+  answered as "Memoria 3/4, CPU como hoy: 11" after the study was put to them. The study's one
+  non-obvious fact: `DetectHostResources` does not read the VM's `/proc/meminfo`, it asks Windows
+  through `powershell.exe`, so the fraction is over the real 16016 MiB / 12-CPU machine and not over
+  what the VM sees.
+  - `5d312a9` applies it: `wslMemoryRatioDivisor` 3 -> 4, this host `10240MB -> 11776MB`, processors
+    untouched at 11, and the small hosts the reserve decides unchanged (2 GiB -> 1024, 4 GiB -> 2048,
+    8 GiB -> 4096).
+  - The revision exposed a defect that is the reason it is written down: `view.go`'s own sentence --
+    "Memory is two thirds of the host's RAM" -- was not carried with the arithmetic, and no test held
+    the sentence and the divisor together, so the whole suite stayed green while the WSL resources
+    screen told the reader a proportion the code no longer applied. Fixed, and
+    `TestTheScreenNamesTheFractionThePolicyApplies` now ties the sentence's words to
+    `wslMemoryRatioDivisor` so the next revision cannot leave the same lie behind. The same commit
+    had also grown a second `### Changed` block in the CHANGELOG and an entry claiming the old
+    fraction in the same unreleased version; both are fixed with it.
+  - `3a4e138`, immediately before it, closes the TUI temporary-file leak the earlier measurement
+    pointed at: the state directory, the rendered `.wslconfig` and every Alacritty build tree were
+    left behind. Two of the three fixes had RED; the third has none because
+    `internal/system.RunWithLogs` is a `func` and that path has no seam to fail through, which the
+    commit states rather than inventing one.

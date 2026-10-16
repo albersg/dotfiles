@@ -29,7 +29,6 @@ import (
 //
 // The guard that pins the arming logic saves this value, puts it back to true for
 // its own case, and restores it.
-//
 func init() {
 	updateAutoCheckAllowed = func() bool { return false }
 }

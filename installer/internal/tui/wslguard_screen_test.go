@@ -30,6 +30,44 @@ func wslGuardScreenBody(m Model) string {
 	return strings.Join(m.wslResourceDescription(), " ")
 }
 
+// TestTheScreenNamesTheFractionThePolicyApplies pins the one sentence that states
+// the fraction in words against the divisor the policy divides by. Nothing held
+// the two together, so 5d312a9 changed the arithmetic to leave Windows a quarter
+// of the host and left this screen saying "two thirds" of it with the whole suite
+// green: the reader was told a proportion the code no longer applied. The map is
+// the sentence's half of the contract, so a divisor it has no words for fails
+// here rather than in front of a user.
+func TestTheScreenNamesTheFractionThePolicyApplies(t *testing.T) {
+	fractions := map[uint64]string{2: "half", 3: "two thirds", 4: "three quarters"}
+
+	words, ok := fractions[wslMemoryRatioDivisor]
+	if !ok {
+		t.Fatalf("wslMemoryRatioDivisor is %d and the screen's sentence has no words for it: "+
+			"teach the sentence the fraction before changing the policy", wslMemoryRatioDivisor)
+	}
+
+	body := wslGuardScreenBody(wslGuardScreenModel(t, wslGuardState{}))
+
+	sentence := "Memory is " + words + " of the host's RAM"
+	if !strings.Contains(body, sentence) {
+		t.Errorf("the screen does not name the fraction the policy applies (%q):\n%s", sentence, body)
+	}
+
+	// The stale half: a sentence naming a fraction the policy does not divide by is
+	// the defect this test exists for, and the other words in the map are exactly
+	// the ones it could be reading.
+	for divisor, word := range fractions {
+		if divisor == wslMemoryRatioDivisor {
+			continue
+		}
+		stale := "Memory is " + word + " of the host's RAM"
+		if strings.Contains(body, stale) {
+			t.Errorf("the screen names %q while the policy divides by %d:\n%s",
+				stale, wslMemoryRatioDivisor, body)
+		}
+	}
+}
+
 // wslGuardRepairRowIndex finds the guard row in the screen's own options, so a
 // test presses the row the screen drew rather than an index it guessed at.
 func wslGuardRepairRowIndex(t *testing.T, m Model) int {
