@@ -89,7 +89,7 @@ it, and the screen has to exist before the plan can show which choice each row c
       order the run takes them, each row saying whether it comes from a choice, from this
       machine, or from an extra switch, with the value chosen where there is one, and a set
       row indented under its tool saying either its switch state or where the set comes from.
-- [ ] **T4. The command line and the plan agree** (S6): the sets and the switches the screen
+- [x] **T4. The command line and the plan agree** (S6): the sets and the switches the screen
       gains reach the flags and `--skip`, through the one builder.
 - [ ] **T5. Docs and changelog** (S1-S7).
 - [ ] **T6. The guards move with the screens** (S7): frame lists, counts, the plan-name
@@ -457,7 +457,7 @@ L16 -- The tree was shared, so the gate result needed a caveat and a second run.
   elsewhere, so it is corrected rather than left standing.
 
   The correction is a linked worktree of this same clone at `dcef1d1` (`git worktree add --detach`),
-  which holds this commit alone, with `scripts/preflight.sh` run there and its result recorded below.
+  which holds this commit alone, with `scripts/preflight.sh` run there and its result is stated in L17.
   It was not run at the moment of the discovery on purpose: a second full suite would have competed with
   the writer's own `go test ./internal/tui/` for a host that has 1.5 GB free after losing its
   distribution twice today to memory pressure, and adding to that pressure to prove a cosmetic flow
@@ -466,3 +466,44 @@ L16 -- The tree was shared, so the gate result needed a caveat and a second run.
   One durable lesson, recorded because this will recur while the branch is shared: a gate run in a
   worktree another writer is editing measures their work too, and the honest thing to do is to state
   that in the evidence rather than present the run as a property of one commit.
+
+L17 -- T4 delivered: the command line can name the platform, and the non-interactive path stops overwriting it.
+
+  `--os=mac|linux|termux` fills the one choice the command line could not express. Measured before
+  implementing rather than assumed: `RunNonInteractive` assigned the detected platform over whatever the
+  caller had chosen, so a chosen platform could not survive at all, and `planOptions()` reads the platform
+  from `Choices.OS`, so the choice is exactly what the plan needs. The vocabulary is read from the setup
+  screen's own first row -- `questionAnswerKey` turns each option's label into the answer key the interface
+  records -- so the flag and the row cannot drift apart, and WSL is deliberately not one of the values: it
+  is a fact about the machine (`SystemInfo.IsWSL`, which schedules the configuration step) and not a
+  platform a person chooses. An unknown value is refused before anything is planned, with the accepted
+  values named, which is the shape `--channel` already had; the non-interactive path's other value refusals
+  exit 1 and this one sits with them. The platform appears in the non-interactive summary as the platform
+  the run will actually use, so a run with no flag reports what the machine decided.
+
+  The guards were written first, and their RED was a build failure on symbols that did not exist yet
+  (`SupportedOperatingSystems`, `ValidateOperatingSystem`, `PlatformFor`, `platformFromFlags` and the `os`
+  field), so their assertions were never seen failing. That is a weaker red than an assertion, and rather
+  than present it as more than it is, the teeth were measured by mutation: making `ValidateOperatingSystem`
+  accept everything failed five assertions in the interface package and three in the binary's, and making
+  `PlatformFor` discard the chosen platform failed with the message naming the platform it decided instead.
+  Both mutations were reverted and the guards are green.
+
+  The tests that hold it: `TestThePlatformFlagOffersExactlyWhatTheScreenOffers` (both directions, so neither
+  list can grow alone), `TestThePlatformValueIsRefusedWhenTheScreenCannotOfferIt` (the refusal, and that it
+  names every accepted value, because a refusal that does not teach gets typed again),
+  `TestTheChosenPlatformSurvivesTheNonInteractivePath`, `TestTheChosenPlatformReachesThePlan` (the Apple
+  developer tools for mac through the one builder, and not for linux), and in the binary
+  `TestTheOperatingSystemFlagIsDeclaredAndRefusesWhatItCannotOffer` and
+  `TestTheHelpNamesEveryPlatformTheFlagAccepts`, beside the existing `TestHelpDocumentsEveryFlag`, which
+  refuses to pass for a flag nobody documented and so had to be answered with the help text.
+
+  Evidence: `gofmt -l` and `go vet` are clean and the focused guards of both packages are green. T3's owed
+  isolated verification is also recorded here, because it is what L16 pointed at: `scripts/preflight.sh`
+  at `b79fffc` in the isolated worktree -- the clean tree, with none of the other writer's work in it --
+  failed only the four host-condition Ghostty tests (`TestStepInstallTerminalGhosttyReportsAFailedDownload`,
+  `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`, `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`
+  and `TestInteractiveGhosttyScriptDownloadsThenRuns`), so T3 alone passes by the host-condition convention.
+  The gate for this entry, its work-unit commit and the push are recorded in the todo board and in the
+  commit message; `docs/tui-installer.md` documents the flag where the other non-interactive flags are,
+  and `CHANGELOG.md` carries the entry.

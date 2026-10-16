@@ -38,14 +38,18 @@ type cliFlags struct {
 	verify         bool
 	channel        string
 	terminal       string
-	shell          string
-	windowMgr      string
-	nvim           bool
-	font           bool
-	backup         bool
-	noAnim         bool
-	noMouse        bool
-	noSprite       bool
+	// os is the platform the run works from. It is a choice like the terminal, and it is
+	// read before anything is planned: the non-interactive path used to impose the
+	// detected platform over whatever the caller said.
+	os        string
+	shell     string
+	windowMgr string
+	nvim      bool
+	font      bool
+	backup    bool
+	noAnim    bool
+	noMouse   bool
+	noSprite  bool
 
 	// skip is the comma-separated list of units the run is told to leave out. It is a
 	// string rather than a list because that is what a command line carries; the set
@@ -71,6 +75,7 @@ func registerFlags(fs *flag.FlagSet, flags *cliFlags) {
 	fs.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed without doing it")
 	fs.BoolVar(&flags.nonInteractive, "non-interactive", false, "Run without TUI, use CLI flags")
 	fs.StringVar(&flags.terminal, "terminal", "", "Terminal: "+strings.Join(tui.SupportedTerminals(runtime.GOOS), ", "))
+	fs.StringVar(&flags.os, "os", "", "Platform to work from: "+strings.Join(tui.SupportedOperatingSystems(), ", ")+" (default: the machine this runs on)")
 	fs.StringVar(&flags.shell, "shell", "", "Shell: fish, zsh, nushell")
 	fs.StringVar(&flags.windowMgr, "wm", "", "Window manager: tmux, zellij, herdr, none")
 	fs.BoolVar(&flags.nvim, "nvim", false, "Install Neovim configuration")
@@ -272,6 +277,17 @@ func reportVerify() int {
 	}
 }
 
+// platformFromFlags reads --os and validates it before the run plans anything. The
+// refusal is the tui package's, so the flag and the setup screen's first row keep one
+// vocabulary; an unknown value stops the run instead of being read as Linux, which is
+// what the non-interactive path did before the flag existed.
+func platformFromFlags(flags *cliFlags) (string, error) {
+	if err := tui.ValidateOperatingSystem(flags.os); err != nil {
+		return "", err
+	}
+	return flags.os, nil
+}
+
 func runNonInteractive(flags *cliFlags) error {
 	// Validate required flags
 	if flags.shell == "" {
@@ -311,6 +327,13 @@ func runNonInteractive(flags *cliFlags) error {
 	if !validWMs[wm] {
 		return fmt.Errorf("invalid window manager: %s (valid: tmux, zellij, herdr, none)", wm)
 	}
+	// The platform is checked with the other values, before anything is planned: an
+	// absent one is the machine's answer and an unknown one is refused rather than
+	// replaced by it.
+	platform, err := platformFromFlags(flags)
+	if err != nil {
+		return err
+	}
 
 	// Default an empty window manager to "none"
 	if wm == "" {
@@ -319,6 +342,7 @@ func runNonInteractive(flags *cliFlags) error {
 
 	// Create choices
 	choices := tui.UserChoices{
+		OS:           platform,
 		Terminal:     terminal,
 		Shell:        shell,
 		WindowMgr:    wm,
@@ -332,6 +356,7 @@ func runNonInteractive(flags *cliFlags) error {
 	fmt.Println("🚀 dotfiles Non-Interactive Installer")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("  Terminal:    %s\n", choices.Terminal)
+	fmt.Printf("  OS:          %s\n", tui.PlatformFor(choices))
 	fmt.Printf("  Shell:       %s\n", choices.Shell)
 	fmt.Printf("  Window Mgr:  %s\n", choices.WindowMgr)
 	fmt.Printf("  Neovim:      %v\n", choices.InstallNvim)
@@ -430,6 +455,8 @@ Flags:
                        (same as DOTFILES_SPRITE=0)
 
 Non-Interactive Options:
+  --os=<platform>      Platform to work from: mac, linux, termux (default: the
+                       machine this runs on)
   --shell=<shell>      Shell to install (required): fish, zsh, nushell
   --terminal=<term>    Terminal: alacritty, wezterm, ghostty, none
                        (kitty is available on macOS only)

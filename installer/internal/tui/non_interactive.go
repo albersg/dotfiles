@@ -3,7 +3,6 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"runtime"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 )
@@ -22,12 +21,10 @@ func RunNonInteractive(choices UserChoices, disabledUnits ...string) error {
 	// Detect system info
 	sysInfo := system.Detect()
 
-	// Determine OS choice based on system
-	osChoice := "linux"
-	if runtime.GOOS == "darwin" {
-		osChoice = "mac"
-	}
-	choices.OS = osChoice
+	// The platform is the one the caller chose, and the machine only when the caller
+	// chose nothing. This line used to impose linux or mac over whatever the caller
+	// said, which is why --os could not mean anything until it changed.
+	choices.OS = PlatformFor(choices)
 
 	// Create a minimal model for the installation functions
 	model := &Model{

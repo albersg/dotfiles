@@ -1455,6 +1455,7 @@ dotfiles --non-interactive --shell=<shell> [options]
 
 | Flag | Values | Description |
 |------|--------|-------------|
+| `--os` | `mac`, `linux`, `termux` | Platform to work from. Absent, the machine the run is on decides. The values are the ones the setup screen's first row records, read from that row rather than written out again, so a platform the screen gains cannot leave the flag behind; WSL is deliberately not one of them, because WSL is a fact about the machine and not something a person chooses. Anything else is refused before anything is planned, with the accepted values named, instead of being quietly read as Linux. The platform chosen here is the platform the plan is built for: `--os mac` schedules the Apple developer tools even on a Linux host |
 | `--shell` | `fish`, `zsh`, `nushell` | Shell to install (required) |
 | `--terminal` | `alacritty`, `wezterm`, `ghostty`, `none`, `kitty` (macOS only) | Terminal emulator |
 | `--wm` | `tmux`, `zellij`, `herdr`, `none` | Window manager |
