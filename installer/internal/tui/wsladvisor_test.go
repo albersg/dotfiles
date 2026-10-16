@@ -959,6 +959,56 @@ func TestWSLAdvisorUsesNoShellAndNoHostGuess(t *testing.T) {
 	}
 }
 
+// wslModuleSourceFiles is every file the WSL module is made of: the report, its three screens and
+// the four engines plus the shared /proc/meminfo reader. The list is written out rather than derived
+// on purpose -- the guard below is only worth anything if a file added to the module has to be added
+// here, and a glob would quietly cover a file nobody decided to include.
+var wslModuleSourceFiles = []string{
+	"wsladvisor.go",
+	"wsladvisorscreen.go",
+	"wsladvisorassist.go",
+	"wsladvisorrun.go",
+	"../system/wslruntime.go",
+	"../system/wslmount.go",
+	"../system/wslmigrate.go",
+	"../system/wslbench.go",
+	"../system/meminfo.go",
+}
+
+// TestWSLModuleRunsNoCommandAndAssumesNoHostPath is the class guard for the rule the module is built
+// on: nothing in it executes a command, and nothing in it assumes a host path. It reads the sources
+// because the subject is the absence of a mechanism, which no behavioural test can prove -- a test
+// can only show that the paths it happened to exercise ran no command, while this shows that there is
+// no call site that could.
+//
+// Whole-line comments are dropped before the check, because these files explain in prose exactly
+// which paths they refuse to assume (a comment saying "there is no /mnt/c in this file" is the rule
+// being stated, not broken), and a fragment kept inside a line of code is still checked.
+func TestWSLModuleRunsNoCommandAndAssumesNoHostPath(t *testing.T) {
+	forbidden := []string{"os/exec", "exec.Command", "cmd.exe", "powershell", "Start-Process", "/mnt/c"}
+
+	for _, name := range wslModuleSourceFiles {
+		source, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		var code []string
+		for _, line := range strings.Split(string(source), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "//") {
+				continue
+			}
+			code = append(code, line)
+		}
+		joined := strings.Join(code, "\n")
+		for _, token := range forbidden {
+			if strings.Contains(joined, token) {
+				t.Errorf("%s contains %q outside a comment: this module runs no command and assumes no host path",
+					name, token)
+			}
+		}
+	}
+}
+
 // TestWSLAdvisorCollectOnThisHost runs the real collector on whatever machine the tests are on. It
 // proves the collector does not panic, that it reports the reason for anything it could not read,
 // and that the report is well formed even when the machine is not a WSL one at all.

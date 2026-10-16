@@ -355,7 +355,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 76 // measured on the merged tree, not added up from either side: main's 75 -- the 61 installer states + the 7 the utilities section opens (utilities, theme picker, theme activity, theme refresh, terminal capabilities, shell audit, install-verify) + the trainer's 6 -- plus the setup screen, plus network-diagnostics, the screen this front adds to the section
+const measuredScreens = 80 // measured on the merged tree, not added up from either side: main's 76 -- the 61 installer states + the 7 the utilities section opens (utilities, theme picker, theme activity, theme refresh, terminal capabilities, shell audit, install-verify) + the trainer's 6, plus the setup screen, plus network-diagnostics -- plus the advisor's four states (the report, its reading state, the measurement screen and the assisted copy)
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
 // animating. Before the pass existed, the fit guard and the companion-coverage

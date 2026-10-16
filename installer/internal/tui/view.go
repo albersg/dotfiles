@@ -488,7 +488,8 @@ func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
 		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenInstallVerify,
-		ScreenNetworkDiagnostics:
+		ScreenNetworkDiagnostics, ScreenWSLAdvisor, ScreenWSLBenchmark,
+		ScreenWSLMigration:
 		return true
 	}
 	return false
@@ -554,8 +555,10 @@ func (m Model) headerName() string {
 		// picker is the same level in as the WSL and capability screens, so it names
 		// the same section instead of falling back to the program name.
 		return "Utilities"
-	case ScreenShellAudit:
-		// The shell's startup screen is one level in from the same section.
+	case ScreenShellAudit, ScreenWSLAdvisor, ScreenWSLBenchmark, ScreenWSLMigration:
+		// The shell's startup screen, the performance advisor and its two assistants
+		// are all one level in from the same section, so they name it rather than
+		// reading as sections of their own.
 		return "Utilities"
 	case ScreenInstallVerify:
 		// The verification screen is one level in from the same section.
@@ -1083,6 +1086,12 @@ func (m Model) View() string {
 		s.WriteString(m.renderThemePicker())
 	case ScreenWSLResources:
 		s.WriteString(m.renderWSLResources())
+	case ScreenWSLAdvisor:
+		s.WriteString(m.renderWSLAdvisor())
+	case ScreenWSLBenchmark:
+		s.WriteString(m.renderWSLBenchmark())
+	case ScreenWSLMigration:
+		s.WriteString(m.renderWSLMigration())
 	case ScreenTerminalCapabilities:
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
@@ -1715,6 +1724,19 @@ func (m Model) utilitiesDescription() []string {
 	} else {
 		paragraphs = append(paragraphs, fmt.Sprintf("%s times %s; it changes nothing.",
 			utilitiesShellAuditRow, m.ShellAudit.Command))
+	}
+
+	// The WSL performance advisor, in one line when it is offered and with the reason when it is not
+	// -- but only on a host the installer already classified as WSL. On any other host, naming a WSL
+	// utility the section cannot offer would spend the body on a question nobody asked.
+	switch {
+	case m.wslAdvisorOffered():
+		paragraphs = append(paragraphs, fmt.Sprintf("%s reads this instance's mounts, memory, storage "+
+			"and resolver and states what it found, with the evidence behind every finding; the "+
+			"measurement and the assisted copy are one level in, and the report itself changes nothing.",
+			utilitiesWSLAdvisorRow))
+	case m.SystemInfo != nil && m.SystemInfo.IsWSL:
+		paragraphs = append(paragraphs, m.wslAdvisorUnavailableReason())
 	}
 
 	// The terminal capability report. It is read-only and offered everywhere;
