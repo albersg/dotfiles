@@ -223,6 +223,11 @@ const (
 	StorageOther
 )
 
+// StorageKind classifies the filesystem this mount exposes. It is the same decision
+// ClassifyStorage makes, exposed on the entry so a report that has already resolved a mount does not
+// have to rebuild a one-entry table to ask what it is.
+func (e MountEntry) StorageKind() StorageKind { return storageKindOf(e.FileSystem) }
+
 // String names the kind the way a report says it.
 func (k StorageKind) String() string {
 	switch k {
