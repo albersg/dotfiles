@@ -18,7 +18,7 @@
 //
 // Everything a check does is bounded: a timeout per stage, a limit on the
 // addresses tried, a limit on redirects and on the bytes read from a response,
-// and limited concurrency. Every effect sits behind Probe, so the whole package
+// and one check at a time. Every effect sits behind Probe, so the whole package
 // runs against simulated resolvers, sockets and HTTP servers in a test, with no
 // network and no user configuration involved.
 package netdiag

@@ -560,7 +560,7 @@ func (m Model) networkIntroDescription() []string {
 		fmt.Sprintf("Nothing is changed: no resolver, route, firewall, proxy or certificate setting is "+
 			"written, no verification is skipped, and no tool is installed. Every check is bounded (%s for a "+
 			"resolution, %s for a connection, %s for a request, %s for TLS), the run is cancellable, and "+
-			"concurrency is limited so a slow link is diagnosed rather than saturated.",
+			"the checks run one at a time so a slow link is diagnosed rather than saturated.",
 			netdiag.Duration(bounds.DNS),
 			netdiag.Duration(bounds.TCP),
 			netdiag.Duration(bounds.HTTP),
