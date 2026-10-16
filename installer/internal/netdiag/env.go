@@ -84,8 +84,9 @@ func checkInterfaces(p Probe, s Session) Check {
 		}
 	}
 
-	check.addEvidence(fmt.Sprintf("%d interfaces: %d up, %d down, %d able to carry traffic beyond this machine "+
-		"(virtual or tunnel: %d)", len(sorted), up, down, usable, virtual))
+	check.addEvidence(fmt.Sprintf("%d %s: %d up, %d down, %d able to carry traffic beyond this machine "+
+		"(virtual or tunnel: %d)", len(sorted), plural(len(sorted), "interface", "interfaces"), up, down,
+		usable, virtual))
 
 	switch {
 	case usable == 0:

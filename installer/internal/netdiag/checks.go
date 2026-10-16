@@ -49,7 +49,7 @@ func checkDNS(p Probe, s Session) (Check, Facts) {
 		check.conclude(StatusSkipped, "there is no destination to resolve", "", "")
 		return check, Facts{}
 	}
-	check.Title = "Resolve " + ep.ServerName()
+	check.Title = titleForDNS(ep, true)
 
 	if ip := net.ParseIP(ep.ServerName()); ip != nil {
 		// A literal address needs no resolution, and saying so is not the same as
@@ -223,7 +223,7 @@ func checkTCP(p Probe, s Session) Check {
 		check.conclude(StatusSkipped, "there is no destination to connect to", "", "")
 		return check
 	}
-	check.Title = "Connect to " + ep.Address()
+	check.Title = titleForTCP(ep, true)
 
 	if p.DialContext == nil {
 		check.conclude(StatusSkipped, "this platform cannot open a connection through this utility", "", "")
@@ -459,7 +459,7 @@ func checkHTTP(p Probe, s Session) Check {
 				"question would be a guess -- enter a URL to diagnose HTTP on it", "", "")
 		return check
 	}
-	check.Title = "Request " + SafeURL(target)
+	check.Title = titleForHTTP(ep, true)
 
 	if p.HTTPClient == nil {
 		check.conclude(StatusSkipped, "this platform cannot make an HTTP request through this utility", "", "")
@@ -661,6 +661,7 @@ func checkTLS(p Probe, s Session) Check {
 		check.conclude(StatusSkipped, "this platform cannot open a TLS session through this utility", "", "")
 		return check
 	}
+	check.Title = titleForTLS(ep, true)
 
 	bounds := s.Bounds()
 	ctx, cancel := s.WithTimeout(bounds.tls())

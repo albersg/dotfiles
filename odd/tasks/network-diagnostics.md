@@ -269,8 +269,12 @@ used, so a wrong domain cannot be resolved silently. `go.mod`/`go.sum` show no d
 
 | Task | Commit | Checks observed |
 |------|--------|-----------------|
-| T1 | (see git log) | `go test ./internal/netdiag/` green, `go vet` clean, `gofmt -l` empty; punycode vectors pinned; redaction and anonymization pinned by test |
+| T1 | `0ccd0f9` | `go test ./internal/netdiag/` green, `go vet` clean, `gofmt -l` empty; punycode vectors pinned; redaction and anonymization pinned by test; `go mod tidy -diff` shows no change |
+| T2 | `2b17d4d` | `env.go` + `env_test.go`; gofmt/vet/`go test ./internal/netdiag/` green. The interface summary counts a container bridge as virtual and does not count it as a way off the machine (a test pins it); the proxy check reports credentials masked and never fails on a proxy |
+| T3 | `7a59c93` | `checks.go` + `checks_test.go`; gofmt/vet/`go test ./internal/netdiag/` green. A bare `host:22` target is refused a request rather than dialled (a regression would have reached a real host); an untrusted certificate is refused against a real TLS handshake; a 404 is a note and not a failure |
+| T4 | (this commit) | `run.go` + `run_test.go`; stage order, streaming, the skip of the stages a failed transport never reached, the stopped run and the run's own bound are each pinned by test; a skipped check is named exactly like the check that runs |
 
 ## Remaining
 
-T1–T7 are open; T1 is in progress.
+T5 (the screen and its wiring), T6 (the screen's guards and the docs) and T7 (independent
+verification) are open. T1–T4 are complete and committed.
