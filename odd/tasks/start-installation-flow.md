@@ -27,7 +27,10 @@ set the installer itself provisions is named in the interface, sits beside the t
 belongs to, and can be turned off; turning one off is not a failure, it is reported like every
 other thing the run chose not to do. A set the installer does not provision -- because the
 tool bootstraps it from the configuration this installer ships -- is never given a switch that
-would be a lie: the plan says where the set comes from instead.
+would be a lie: the plan says where the set comes from instead. The shell's set is provisioned
+and is not exempt from this rule (the user's decision, L13): it is a switch like the others,
+and the configuration the run leaves behind has to stand on its own, which is what S4 asks of
+it.
 
 **S4. A configuration never names a plugin that is not there.** When a set is turned off, no
 file this run writes may reference a plugin from it -- the rule the repository already
@@ -74,8 +77,9 @@ it, and the screen has to exist before the plan can show which choice each row c
         The registry gained a third state for exactly this -- named, provisioned, not
         switchable, with the reason the row shows -- and
         `TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt` reads the asset, so the
-        reason cannot quietly stop being true. **This is a question back to the user**:
-        whether the shell's set should become a switch at that price.
+        reason cannot quietly stop being true. **The user answered yes (L13)**: the shell's set
+        becomes a switch, its price is accepted, and the work is T7 rather than a reopening of
+        this task.
 - [ ] **T2. The setup screen** (S1, S2, S7): rows for shell, terminal, multiplexer, editor,
       font and the extras, each cycling its value or taking a switch, with a plugin row
       indented under the tool it belongs to; all visible at once; `Enter` opens the row's rich
@@ -90,6 +94,16 @@ it, and the screen has to exist before the plan can show which choice each row c
 - [ ] **T5. Docs and changelog** (S1-S7).
 - [ ] **T6. The guards move with the screens** (S7): frame lists, counts, the plan-name
       golden, the teatest paths and the E2E expectations.
+- [ ] **T7. The shell's set becomes a switch too** (S3, S4), the user's decision at L13 and the
+      price he accepted there: the `.zshrc` a run writes with the set off has to start on a
+      machine without Oh My Zsh, the plugin packages or Powerlevel10k, and name nothing that is
+      not there. Measured before it is built -- the same way the Tmux set was: whether the
+      repository has to ship a second configuration, or whether the installed file can be
+      patched with markers that bound exactly what the set provides, with the guard failing
+      when one is missing, duplicated, or wide enough to take a line the set does not own. Then
+      the registry's third state is reconsidered: a set that becomes switchable stops being
+      named with a reason, and the guard that reads the asset for that reason is rewritten to
+      hold the new one.
 
 ## Log
 
@@ -243,6 +257,20 @@ it, and the screen has to exist before the plan can show which choice each row c
   E2E -- which drives the installer through `--non-interactive --dry-run` flags and not through
   keys, so it moves only where it names a screen.
 
+- **L13.** Requirement change, from the user: **the shell's plugin set becomes a switch.** The
+  question the front left open at T1 was put to him with its price, and his answer is the option
+  that carries it: *"Sí: que sea interruptor"*, whose consequences he accepted in the same choice,
+  verbatim: *"un segundo .zshrc sin plugins, versionado y mantenido; el instalador elige cuál escribe
+  según el interruptor; reescribir TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt; la
+  fila deja de decir 'always installed' y pasa a [x]/[ ]"*. S3 is rewritten accordingly, T1's bullet
+  closes its question and points here, and the work is T7. One measurement stands between the
+  decision and its price: if the installer can patch the configuration it already ships, with markers
+  bounding exactly what the set provides, the switch costs no second configuration to maintain -- and
+  if it cannot, the second configuration ships as chosen. The same question round settled a second
+  thing, recorded here because it is about publication: PR #339 (a draft another session opened from
+  this branch) is left exactly as it is, and commits and pushes on this branch stay with this
+  session, with PR, tag and release remaining the user's own decisions.
+
 - **L11.** T2a delivered and closed. One `ScreenSetup` replaced the six question screens as steps of
   the flow; they keep their content and become detours that record an answer and return to it. The
   rows are `Platform`, `Shell`, `Terminal`, `Font`, `Multiplexer`, `Editor (Neovim)`, `Existing
@@ -285,3 +313,23 @@ it, and the screen has to exist before the plan can show which choice each row c
   Still open: whether the shell's set becomes a switch at the price of a second zsh configuration
   (L8), and what to do with the backup screen in the long run -- it is a detour now, and deleting it
   would be a T6 cleanup that moves three pinned counts again.
+
+- **L12.** T2b delivered: the plugin set of a tool's step is a row under that tool. The row is derived
+  from the registry with the same chosen-tool test the plan uses (`pluginSetForRow`), so a row and a
+  plan step cannot disagree about which set a tool carries, and the row carries the registry ID rather
+  than a copy of anything: what the set holds, whether a run can leave it out and why stay the
+  registry's answers. A switchable set's row is toggled by `Space`, `Enter` or the arrows and writes
+  `Choices.DisabledPluginSets` through `togglePluginSet` -- the same list `--skip` names -- and its
+  value says `[x] install` or `[ ] leave it out`. A set a run cannot leave out says `always installed`
+  and `toggleSetupRow` refuses to change it, because a switch there would promise to leave out work
+  this installer does anyway. Three guards were written first and observed red on the missing symbols,
+  and they hold the positive direction, both negative ones (a tool nobody chose and a tool with no
+  registered set contribute no row), the place directly under the tool, the key through to the plan
+  and back off, and the absent key with the value that says why.
+
+  Reconciliation with L10, which described the row as stating the reason: the row states the state
+  instead, and the reason stays where a full sentence fits -- the plan's row for the set and `--skip`'s
+  refusal, which already carry `Because`. A row is one line and the shell's reason is longer than the
+  frame's value column, so truncating it on screen would have made the one sentence that matters
+  unreadable exactly where it is read. The consequence is recorded rather than hidden: the row says
+  what the run will do (`always installed`), and the plan says where it comes from.

@@ -128,6 +128,182 @@ func TestTheSetupScreenOffersTheBackupRowOnlyWhenThereIsSomethingToBackUp(t *tes
 	}
 }
 
+// pluginSetLabel is a registered set's row label, read from the registry the row list
+// itself derives its rows from, so a renamed set moves the guard with it.
+func pluginSetLabel(t *testing.T, id string) string {
+	t.Helper()
+	set, ok := pluginSetByID(id)
+	if !ok {
+		t.Fatalf("the registry no longer holds %q", id)
+	}
+	return set.Label()
+}
+
+// TestTheSetupScreenNamesThePluginSetOfTheToolItInstalls is the S3 guard for the row
+// list: the set a tool's step installs is named under that tool, a tool nobody chose
+// contributes no row, and a tool with no registered set gets none.
+func TestTheSetupScreenNamesThePluginSetOfTheToolItInstalls(t *testing.T) {
+	cases := []struct {
+		name    string
+		choices UserChoices
+		want    []string
+		absent  []string
+	}{
+		{
+			name:    "zsh, tmux and Neovim carry three sets",
+			choices: UserChoices{OS: "linux", Shell: "zsh", Terminal: "kitty", WindowMgr: "tmux", InstallNvim: true},
+			want:    []string{pluginSetIDShell, pluginSetIDTmux, pluginSetIDNvim},
+		},
+		{
+			name:    "fish and herdr carry theirs",
+			choices: UserChoices{OS: "linux", Shell: "fish", Terminal: "kitty", WindowMgr: "herdr"},
+			want:    []string{pluginSetIDFish, pluginSetIDHerdr},
+			absent:  []string{pluginSetIDShell, pluginSetIDTmux, pluginSetIDNvim},
+		},
+		{
+			name:    "a tool this installer provisions nothing for gets no set row",
+			choices: UserChoices{OS: "linux", Shell: "nushell", Terminal: "kitty", WindowMgr: "zellij"},
+			absent:  []string{pluginSetIDShell, pluginSetIDFish, pluginSetIDTmux, pluginSetIDHerdr, pluginSetIDNvim},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := Model{Screen: ScreenSetup, SystemInfo: &system.SystemInfo{OS: system.OSLinux}, Choices: c.choices}
+			rows := m.setupRows()
+
+			named := map[string]bool{}
+			for _, row := range rows {
+				if row.Kind == setupRowPluginSet {
+					named[row.SetID] = true
+				}
+			}
+			for _, id := range c.want {
+				if !named[id] {
+					t.Errorf("the setup screen does not name the plugin set %q, which this tool's step installs", id)
+				}
+			}
+			for _, id := range c.absent {
+				if named[id] {
+					t.Errorf("the setup screen names the plugin set %q, which this run does not install", id)
+				}
+			}
+
+			// A set sits directly under the tool whose step installs it, not in a
+			// section of its own: the row above a set row is its tool's row.
+			for i, row := range rows {
+				if row.Kind != setupRowPluginSet {
+					continue
+				}
+				if i == 0 {
+					t.Errorf("the set %q is the list's first row: it belongs under its tool", row.SetID)
+					continue
+				}
+				if parent, ok := m.pluginSetForRow(rows[i-1]); !ok || parent.ID != row.SetID {
+					t.Errorf("the row above the set %q is not the row of the tool that installs it", row.SetID)
+				}
+			}
+		})
+	}
+}
+
+// TestTheSetupScreenCanTurnAProvisionedSetOff holds S3 where it reaches the run: the
+// key on the row writes the same list the flag writes, the plan carries the state the
+// executor's guard reads, and turning it back on clears it.
+func TestTheSetupScreenCanTurnAProvisionedSetOff(t *testing.T) {
+	m := Model{
+		Screen:     ScreenSetup,
+		SystemInfo: &system.SystemInfo{OS: system.OSLinux},
+		Choices:    UserChoices{OS: "linux", Shell: "zsh", Terminal: "kitty", WindowMgr: "tmux"},
+	}
+	m.SetupCursor = setupGuardRowIndex(t, m, pluginSetLabel(t, pluginSetIDTmux))
+
+	m.toggleSetupRow()
+	if !pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDTmux) {
+		t.Fatalf("turning the multiplexer's set off recorded %v, want %q", m.Choices.DisabledPluginSets, pluginSetIDTmux)
+	}
+	step := pluginSetOnStep(t, planFor(m.planOptions()), "wm")
+	if step.PluginSet == nil || !step.PluginSet.Off {
+		t.Errorf("the plan does not carry the set the screen turned off: %+v", step.PluginSet)
+	}
+	if value := m.setupRowValue(m.setupRows()[m.SetupCursor]); !strings.Contains(value, "leave it out") {
+		t.Errorf("the row says %q after the set was turned off, want it to say the run leaves it out", value)
+	}
+
+	m.toggleSetupRow()
+	if pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDTmux) {
+		t.Errorf("turning the set back on left %v", m.Choices.DisabledPluginSets)
+	}
+}
+
+// TestTheSetupScreenGivesNoKeyToASetTheRunCannotLeaveOut is the other half of S3: a
+// set a run cannot leave out is named and explained, and no key offers to turn it
+// off, because that key would install nothing of what it promised.
+func TestTheSetupScreenGivesNoKeyToASetTheRunCannotLeaveOut(t *testing.T) {
+	m := Model{
+		Screen:     ScreenSetup,
+		SystemInfo: &system.SystemInfo{OS: system.OSLinux},
+		Choices:    UserChoices{OS: "linux", Shell: "zsh", Terminal: "kitty", WindowMgr: "none"},
+	}
+	m.SetupCursor = setupGuardRowIndex(t, m, pluginSetLabel(t, pluginSetIDShell))
+
+	if m.toggleSetupRow() {
+		t.Error("the shell's set has a key that turns it off, though a run cannot leave it out")
+	}
+	if len(m.Choices.DisabledPluginSets) != 0 {
+		t.Errorf("a set a run cannot leave out recorded %v", m.Choices.DisabledPluginSets)
+	}
+	if value := m.setupRowValue(m.setupRows()[m.SetupCursor]); !strings.Contains(value, "always installed") {
+		t.Errorf("the row says %q about a set a run cannot leave out, want it to say so", value)
+	}
+}
+
+// TestTheSetupWindowShowsTheRowTheCursorIsOnAndCountsWhatItHides is the plan's window
+// rule applied to the screen whose row list grew with the plugin sets: on the
+// twenty-row terminal the frame matrix measures, the list is a window over the rows,
+// the cursor's row is drawn, and the rows outside the window are counted rather than
+// dropped. The frame guard is what found this screen drawing one row more than the
+// terminal had, so the window is the fix this guard holds.
+func TestTheSetupWindowShowsTheRowTheCursorIsOnAndCountsWhatItHides(t *testing.T) {
+	m := Model{
+		Screen:          ScreenSetup,
+		SystemInfo:      &system.SystemInfo{OS: system.OSLinux},
+		Choices:         UserChoices{OS: "linux", Shell: "zsh", Terminal: "kitty", WindowMgr: "tmux", InstallNvim: true},
+		ExistingConfigs: []string{"nvim: /home/user/.config/nvim"},
+		Width:           60,
+		Height:          20,
+	}
+
+	rows := m.setupRows()
+	if len(rows) < 9 {
+		t.Fatalf("the setup screen offers %d rows, too few for this guard to test a window", len(rows))
+	}
+
+	m.SetupCursor = 0
+	first := m.renderSetup()
+	if !strings.Contains(first, "Platform") {
+		t.Error("with the cursor on the first row the screen does not draw it")
+	}
+	if strings.Contains(first, "more above") {
+		t.Error("with the cursor on the first row the screen claims rows above the window")
+	}
+	if !strings.Contains(first, "more below") {
+		t.Error("with the cursor on the first row the screen does not say how many rows the window leaves out")
+	}
+
+	m.SetupCursor = len(rows) - 1
+	last := m.renderSetup()
+	if !strings.Contains(last, "Continue to the plan") {
+		t.Error("with the cursor on the last row the screen does not draw it")
+	}
+	if strings.Contains(last, "more below") {
+		t.Error("with the cursor on the last row the screen claims rows below the window")
+	}
+	if !strings.Contains(last, "more above") {
+		t.Error("with the cursor on the last row the screen does not say how many rows the window leaves out")
+	}
+}
+
 // TestEveryDetourRowReturnsToTheSetupScreen is the detour contract (T2): Enter on
 // a row opens that row's rich screen and records where it was opened from, a
 // choice there records the answer and returns to the setup screen instead of

@@ -248,7 +248,7 @@ func TestTheWindowKeepsTheCursorInsideIt(t *testing.T) {
 	}
 
 	for cursor := 0; cursor < total; cursor++ {
-		start, end := reviewWindowRows(total, cursor, window)
+		start, end := windowRowsFor(total, cursor, window)
 		if start < 0 || end > total || end < start {
 			t.Fatalf("cursor %d gives the window [%d,%d) out of %d", cursor, start, end, total)
 		}
@@ -260,10 +260,10 @@ func TestTheWindowKeepsTheCursorInsideIt(t *testing.T) {
 		}
 	}
 
-	if start, _ := reviewWindowRows(total, 0, window); start != 0 {
+	if start, _ := windowRowsFor(total, 0, window); start != 0 {
 		t.Errorf("on the first row the window starts at %d, want 0", start)
 	}
-	if _, end := reviewWindowRows(total, total-1, window); end != total {
+	if _, end := windowRowsFor(total, total-1, window); end != total {
 		t.Errorf("on the last row the window ends at %d, want %d", end, total)
 	}
 }
@@ -275,8 +275,8 @@ func TestTheWindowKeepsTheCursorInsideIt(t *testing.T) {
 func TestTheWindowIsSizedByTheTerminalAndNotByANumber(t *testing.T) {
 	total := len(installUnits)
 
-	short := installReviewWindowSize(14, 8, total)
-	tall := installReviewWindowSize(25, 8, total)
+	short := listWindowSize(14, 8, total)
+	tall := listWindowSize(25, 8, total)
 
 	if short >= tall {
 		t.Errorf("a body of 14 rows gives a window of %d and one of 25 gives %d, so the window is not following the terminal", short, tall)
@@ -288,10 +288,10 @@ func TestTheWindowIsSizedByTheTerminalAndNotByANumber(t *testing.T) {
 		t.Errorf("a body of 14 rows with 8 rows of chrome gives a window of %d rows", short)
 	}
 
-	if got := installReviewWindowSize(1, 8, total); got != installReviewWindowMin {
-		t.Errorf("a body too short for any list gives a window of %d, want the floor of %d", got, installReviewWindowMin)
+	if got := listWindowSize(1, 8, total); got != listWindowMin {
+		t.Errorf("a body too short for any list gives a window of %d, want the floor of %d", got, listWindowMin)
 	}
-	if got := installReviewWindowSize(100, 8, total); got != total {
+	if got := listWindowSize(100, 8, total); got != total {
 		t.Errorf("a tall terminal gives a window of %d, want the catalogue's %d", got, total)
 	}
 }

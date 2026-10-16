@@ -17,6 +17,10 @@ const (
 	setupRowCycle setupRowKind = iota
 	setupRowSwitch
 	setupRowAction
+	// setupRowPluginSet is the row of a plugin set the tool in the row above installs.
+	// It is not a decision of its own: it is work that tool's step does, named beside
+	// the tool so that a set a run would install cannot stay off the screen.
+	setupRowPluginSet
 )
 
 // setupRow is one decision of the setup screen: what it is called, which of the
@@ -34,6 +38,11 @@ type setupRow struct {
 	// because there is nothing to decide when the machine holds no configuration
 	// the run would replace.
 	Visible func(m Model) bool
+	// SetID is the registry ID of the plugin set this row stands for, and empty for
+	// every other row. The row carries the ID rather than a state: what the set holds,
+	// whether a run can leave it out and why are the registry's answers, so the row
+	// cannot drift from the plan or from --skip.
+	SetID string
 }
 
 // setupRowTable is every decision of the flow, in the order the decisions are
@@ -69,8 +78,56 @@ func (m Model) setupRows() []setupRow {
 			continue
 		}
 		rows = append(rows, row)
+		// The set this tool's step installs is named directly under it, so the screen
+		// reads as one list of decisions with the work that follows from each.
+		if set, ok := m.pluginSetForRow(row); ok {
+			rows = append(rows, setupRow{Label: set.Label(), Kind: setupRowPluginSet, SetID: set.ID})
+		}
 	}
 	return rows
+}
+
+// pluginSetStepOfScreen names the step whose tool this question screen chooses, or
+// the empty string when the screen chooses no tool. It is how the row list asks the
+// registry which set a row carries without writing the step IDs a second time.
+func pluginSetStepOfScreen(screen Screen) string {
+	switch screen {
+	case ScreenShellSelect:
+		return "shell"
+	case ScreenWMSelect:
+		return "wm"
+	case ScreenNvimSelect:
+		return "nvim"
+	}
+	return ""
+}
+
+// pluginSetForRow is the set the choice in this row installs, when the registry holds
+// one. It asks the registry the same question the plan asks, with the same chosen-tool
+// test, so a row and a plan step cannot disagree about which set a tool carries; a tool
+// with no registered set contributes no row.
+func (m Model) pluginSetForRow(row setupRow) (pluginSet, bool) {
+	step := pluginSetStepOfScreen(row.Screen)
+	if step == "" {
+		return pluginSet{}, false
+	}
+	opts := m.planOptions()
+	for _, set := range pluginSets {
+		if set.Step == step && pluginSetToolChosen(set, opts) {
+			return set, true
+		}
+	}
+	return pluginSet{}, false
+}
+
+// rowLabel is the label as the list draws it. A set's row is indented under the tool
+// that installs it, because the set is that tool's work and not a decision of its own;
+// the option list keeps the plain label, which names decisions.
+func (r setupRow) rowLabel() string {
+	if r.Kind == setupRowPluginSet {
+		return "  " + r.Label
+	}
+	return r.Label
 }
 
 // setupRowLabels is the row list without the values, which is what
@@ -277,6 +334,17 @@ func (m Model) setupRowValue(row setupRow) string {
 			return "[x] back up"
 		}
 		return "[ ] install anyway"
+	case row.Kind == setupRowPluginSet:
+		if !pluginSetIsSwitchable(row.SetID) {
+			// A set a run cannot leave out says so where its value would stand, and the
+			// plan says where it comes from: a switch here would promise to leave out
+			// work this run cannot leave out.
+			return "[x] always installed"
+		}
+		if pluginSetIsOff(m.Choices.DisabledPluginSets, row.SetID) {
+			return "[ ] leave it out"
+		}
+		return "[x] install"
 	}
 	options := m.questionValueOptions(row.Screen)
 	if index := m.questionValueIndex(row.Screen); index >= 0 && index < len(options) {
@@ -295,7 +363,7 @@ func (m *Model) cycleSetupRow(delta int) bool {
 		return false
 	}
 	row := rows[m.SetupCursor]
-	if row.Kind == setupRowSwitch {
+	if row.Kind == setupRowSwitch || row.Kind == setupRowPluginSet {
 		return m.toggleSetupRow()
 	}
 	if row.Kind != setupRowCycle {
@@ -328,6 +396,15 @@ func (m *Model) toggleSetupRow() bool {
 		return false
 	}
 	row := rows[m.SetupCursor]
+	if row.Kind == setupRowPluginSet {
+		// The set's row carries the same switch the flag carries: the two write the
+		// list the plan reads, so a set turned off here is off in --skip too.
+		if !pluginSetIsSwitchable(row.SetID) {
+			return false
+		}
+		m.Choices.DisabledPluginSets = togglePluginSet(m.Choices.DisabledPluginSets, row.SetID)
+		return true
+	}
 	if row.Kind != setupRowSwitch {
 		return false
 	}

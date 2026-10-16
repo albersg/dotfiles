@@ -742,6 +742,21 @@ asked as questions that were never put. The wizard's counter counts the two
 screens the flow cannot skip: the setup screen shows `1/2`, the plan is the
 second, and a detour inherits the setup screen's half.
 
+**The plugin set a tool's step installs is a row under that tool.** A set a run installs
+used to be work inside its tool's step and nothing else, so the screen that asks which
+tools to install said nothing about the plugins they would bring. The set the registry
+carries for the chosen tool is drawn indented under the row that chose it, because it is
+that tool's work rather than a decision of its own. The sets a run can leave out carry
+the same switch the flag carries -- `Space`, `←`/`→` or `Enter` on the row -- and that
+switch writes the very list `--skip=plugins-…` writes, so the two routes are one state
+rather than two that have to agree. The sets a run cannot leave out say `always
+installed` and carry no key at all: a switch there would promise to leave out work the
+run does anyway, and the plan says where each of those sets comes from instead. The row
+list is drawn as a window sized by the terminal, with the rows outside it counted above
+and below: the plugin rows took the screen past the twenty-row terminal the frame matrix
+measures, and a list that hides rows without saying so is a list the user reviews by
+pressing Enter.
+
 The run then executes the steps that fit that machine; the set of steps depends
 on the platform and the choices, so a run shows only the ones that apply.
 

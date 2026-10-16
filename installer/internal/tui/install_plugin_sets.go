@@ -253,6 +253,23 @@ func pluginSetIsOff(disabled []string, id string) bool {
 	return false
 }
 
+// togglePluginSet returns the disabled list with this set turned off, or without it
+// when it was already off. The screen's switch and the flag write the same list, so a
+// set turned off on screen and a set named in --skip are one state rather than two
+// that have to agree.
+func togglePluginSet(disabled []string, id string) []string {
+	if !pluginSetIsOff(disabled, id) {
+		return append(append([]string{}, disabled...), id)
+	}
+	kept := make([]string, 0, len(disabled))
+	for _, name := range disabled {
+		if name != id {
+			kept = append(kept, name)
+		}
+	}
+	return kept
+}
+
 // ParseSkipSelection reads the comma-separated list --skip carries and returns
 // what it names: the units to leave out, in catalogue order, and the plugin sets
 // to turn off, in registry order.

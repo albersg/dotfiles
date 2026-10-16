@@ -163,19 +163,19 @@ func reviewPlural(count int, one, many string) string {
 	return strconv.Itoa(count) + " " + many
 }
 
-// installReviewWindowMin is the floor for the list window. A terminal too short for
+// listWindowMin is the floor for the list window. A terminal too short for
 // even this many rows is one where the frame has already given up: drawing three rows
 // and saying how many are hidden beats drawing none.
-const installReviewWindowMin = 3
+const listWindowMin = 3
 
-// installReviewWindowSize is how many list rows fit: what the body has left after the
+// listWindowSize is how many list rows fit: what the body has left after the
 // rows that are not the list, and never fewer than the floor.
 //
 // It is a pure function of three numbers, which is what lets its guard compare a
 // short terminal against a tall one in one pass instead of rendering both.
-func installReviewWindowSize(budget, chrome, total int) int {
-	if budget-chrome < installReviewWindowMin {
-		return installReviewWindowMin
+func listWindowSize(budget, chrome, total int) int {
+	if budget-chrome < listWindowMin {
+		return listWindowMin
 	}
 	if budget-chrome > total {
 		return total
@@ -183,13 +183,13 @@ func installReviewWindowSize(budget, chrome, total int) int {
 	return budget - chrome
 }
 
-// reviewWindowRows is the window of rows to draw for a given cursor, as the half
+// windowRowsFor is the window of rows to draw for a given cursor, as the half
 // open range [start, end).
 //
 // It is a pure function of the list length, the cursor and the window size. The
 // window is centred on the cursor and pushed back inside the list at both ends, so
 // the cursor is always inside what is drawn.
-func reviewWindowRows(total, cursor, size int) (start, end int) {
+func windowRowsFor(total, cursor, size int) (start, end int) {
 	if size <= 0 || total <= size {
 		return 0, total
 	}
@@ -230,8 +230,8 @@ func (m Model) renderInstallReview() string {
 	// the blank above the count, the count itself, and the two rows the "more above"
 	// and "more below" lines may take.
 	chrome := 1 + len(description) + 1 + 2 + 1 + len(count)
-	size := installReviewWindowSize(budget, chrome, len(rows))
-	start, end := reviewWindowRows(len(rows), m.UnitCursor, size)
+	size := listWindowSize(budget, chrome, len(rows))
+	start, end := windowRowsFor(len(rows), m.UnitCursor, size)
 
 	body := []string{BrandStyle.Render(m.GetScreenTitle())}
 	body = append(body, description...)

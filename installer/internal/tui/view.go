@@ -2449,18 +2449,43 @@ func stripStepPrefix(title string) string {
 // from setup_rows.go, so a decision cannot lose its row by being left out of a
 // renderer written a second time.
 func (m Model) renderSetup() string {
-	body := []string{BrandStyle.Render(stripStepPrefix(m.GetScreenTitle()))}
-
 	width := contentWidth(m)
+
+	hints := []installerHint{hintUp, hintDown, hintAdjust, hintSelect, hintBack}
+	footer := footerHints(layoutFor(m).Inner, m.panelHints(m.panelsFor(), hints))
+	budget := installerBodyRows(m.Height, len(footer))
+
+	var description []string
 	for _, line := range strings.Split(m.GetScreenDescription(), "\n") {
-		for _, row := range wrapText(line, width, 0) {
-			body = append(body, MutedStyle.Render(row))
-		}
+		description = append(description, wrapText(line, width, 0)...)
+	}
+
+	rows := m.setupRows()
+	// The rows that are not the list: the title, the description, the blank under it,
+	// and the two rows the "more above" and "more below" lines may take. The window is
+	// sized from the terminal because the row list grew with the plugin sets and then
+	// did not fit the twenty-row terminal the frame matrix measures: the guard reported
+	// this screen drawing 21 rows where 20 fit. The arithmetic is the plan's, which
+	// solved the same problem for a longer list.
+	chrome := 1 + len(description) + 1 + 2
+	size := listWindowSize(budget, chrome, len(rows))
+	start, end := windowRowsFor(len(rows), m.SetupCursor, size)
+
+	body := []string{BrandStyle.Render(stripStepPrefix(m.GetScreenTitle()))}
+	for _, line := range description {
+		body = append(body, MutedStyle.Render(line))
 	}
 	body = append(body, "")
 
-	for i, row := range m.setupRows() {
-		body = append(body, m.rowBar(row.Label, i == m.SetupCursor, m.setupRowValue(row)))
+	if start > 0 {
+		body = append(body, MutedStyle.Render("↑ "+strconv.Itoa(start)+" more above"))
+	}
+	for i := start; i < end; i++ {
+		row := rows[i]
+		body = append(body, m.rowBar(row.rowLabel(), i == m.SetupCursor, m.setupRowValue(row)))
+	}
+	if end < len(rows) {
+		body = append(body, MutedStyle.Render("↓ "+strconv.Itoa(len(rows)-end)+" more below"))
 	}
 
 	// The step counter is the wizard's vital sign: the setup screen is the first
@@ -2470,7 +2495,7 @@ func (m Model) renderSetup() string {
 	if current, total := m.wizardProgress(); total > 0 {
 		vital = meterRendered(current, total, 10)
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintAdjust, hintSelect, hintBack})
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 func (m Model) renderSelection() string {
