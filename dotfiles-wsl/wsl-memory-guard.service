@@ -1,0 +1,22 @@
+[Unit]
+Description=WSL memory guard for init.scope
+Documentation=man:systemd.resource-control(5)
+# init.scope is created by PID 1 before this can run, and the whole reason the
+# guard needs a boot-time hook is that its cap must be in place before any
+# workload is. ConditionPathExists keeps the unit a no-op on a kernel without
+# the cgroup v2 memory controller instead of failing every boot.
+ConditionPathExists=/sys/fs/cgroup/init.scope/memory.max
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# The cap belongs to the scope, not to this process, so the unit stays "active
+# (exited)" once it has applied it. A non-zero exit means a protection the guard
+# claims is not in place -- a cap that a daemon-reload clears, a throttle that is
+# still armed, or an OOMPolicy systemd refused -- and a safeguard that reports
+# success while half of it is missing is what this guard was built to replace.
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/dotfiles-wsl/wsl-memory-guard.sh
+
+[Install]
+WantedBy=multi-user.target

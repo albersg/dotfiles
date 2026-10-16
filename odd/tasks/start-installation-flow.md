@@ -85,14 +85,14 @@ it, and the screen has to exist before the plan can show which choice each row c
       indented under the tool it belongs to; all visible at once; `Enter` opens the row's rich
       list and `Esc` returns; the old question screens stop being steps of the flow and become
       that detour. Registered in every guard list.
-- [ ] **T3. The plan screen, grouped and labelled** (S2, S5): rows grouped by area in the
+- [x] **T3. The plan screen, grouped and labelled** (S2, S5): rows grouped by area in the
       order the run takes them, each row saying whether it comes from a choice, from this
       machine, or from an extra switch, with the value chosen where there is one, and a set
       row indented under its tool saying either its switch state or where the set comes from.
-- [ ] **T4. The command line and the plan agree** (S6): the sets and the switches the screen
+- [x] **T4. The command line and the plan agree** (S6): the sets and the switches the screen
       gains reach the flags and `--skip`, through the one builder.
-- [ ] **T5. Docs and changelog** (S1-S7).
-- [ ] **T6. The guards move with the screens** (S7): frame lists, counts, the plan-name
+- [x] **T5. Docs and changelog** (S1-S7).
+- [x] **T6. The guards move with the screens** (S7): frame lists, counts, the plan-name
       golden, the teatest paths and the E2E expectations.
 - [x] **T7. The shell's set becomes a switch too** (S3, S4), the user's decision at L13.
 
@@ -367,3 +367,198 @@ it, and the screen has to exist before the plan can show which choice each row c
   direction that changed (the registry, the flag and the plan), and the asset facts it used to
   check moved beside the strip that depends on them. The setup screen's no-key guard moved to
   fish's set at the same strength.
+
+L15 -- T3 delivered, and the correction turned up a second real defect.
+
+  The plan screen now draws the plan the run will execute: `planFor(m.planOptions())`, the one builder
+  the command line and the non-interactive path already read, grouped under `Preparation`, `The tools
+  you chose`, `The extras` and `Finishing up` in the order the run meets them. `InstallStep` carries
+  `Origin`, `OriginValue` and `Area`, set at the condition that schedules the step (all eighteen
+  append sites), so the screen reads the builder's answer instead of keeping a second table of step
+  IDs; a step that arrives without either fails `TestNoScheduledStepArrivesWithoutAnOriginOrAnArea`.
+  A tool's plugin set is drawn indented under its step, and the cursor rests only on rows `Space` can
+  switch (`TestTheCursorVisitsEverySwitchableRowAndNothingElse`). The plan's identifiers and names
+  are untouched: `TestThePlanIsStillThePlanItWas` and `TestThePlanNamesWhatItInstalls` still pin the
+  list the E2E asserts, and the golden was re-pinned to the two new fields rather than relaxed.
+
+  The parent's verification of that delivery found a real defect and sent it back to the same worker:
+  eight rows -- `deps`, `xcode`, `homebrew`, `toolset`, `agentskills`, `officecli`, `wslconfig` and
+  `theme` -- had been given the sentence *the run needs it*, which is the fixed units' clause, while
+  every one of those eight is a row the cursor can switch off. One phrase was carrying both "this run
+  cannot leave it out" and "this run happens to schedule it", which is what S5 forbids. The correction
+  separates the two facts and gives each its own carrier: provenance is now one of four honest
+  sentences -- *your choice decided it* with the value the choice took, *an extra you turned on*,
+  *this machine needs it*, *every run installs it* -- and none of the four claims the run cannot leave
+  the step out, while fixity stays the catalogue's `Fixed` flag and the clause the three fixed rows
+  (`clone`, `cleanup`, `setshell`) already carried. The invariant is a guard, red first:
+  `TestARowClaimsTheRunNeedsItsUnitIfAndOnlyIfTheUnitIsFixed` over the builder's steps for every host
+  and every choice, `TestTheRenderedRowClaimsTheRunNeedsItsUnitIfAndOnlyIfTheUnitIsFixed` over the
+  rows the screen actually draws, and `TestEveryProvenanceSentenceIsOneOfFourAndNoTwoShareOne` holding
+  the vocabulary distinct with no fifth sentence hiding in the zero value.
+
+  The correction worker was cancelled mid-flight when the parent session shut down, so the parent
+  finished the review itself rather than relaunching equivalent work. The tree it left is complete:
+  no occurrence of the rejected `stepOriginRequired` remains, all eighteen append sites carry one of
+  the four origins, the three guards above are present, and the focused run is green. The worker's
+  own text for the invariant names the defect it was written for, which is the RED narrative rather
+  than a claim about a run nobody saw.
+
+  Reviewing it turned up a second real defect, this one created by the first fix and caught by the
+  new guards. A set a run cannot leave out was drawing the registry's full reason on its row, and
+  that sentence is longer than the frame: `TestThePlanScreenShowsThePlanByAreaInTheRunsOrder` rendered
+  the screen at 100 columns and reported `the frame does not draw the row "  the LazyVim plugin set
+  -- lazy.nvim installs it on first launch from the configuration this repository ships"`, because
+  the frame draws a row instead of wrapping one. The row was therefore cut exactly where a user reads
+  where the set came from. The width guard added with the invariant then reported a second row: the
+  theme step's row reached 81 characters against the 76 the narrowest terminal the frame matrix
+  measures leaves. Two changes, both in the direction of the smallest honest text: the set row now
+  says `the tool installs it` -- nineteen characters available after the longest set name, and true
+  for both sets, because the tool's own configuration is what bootstraps them, which is exactly why
+  there is no switch -- and the fourth provenance became *every run installs it*, parallel to the
+  other three and short enough for the longest row that carries it. Nothing was weakened to make room:
+  the registry's reason is still required non-empty by its own guards, still what `--skip` refuses
+  with, and still what `docs/tui-installer.md` explains; `TestAPluginSetRowSitsUnderTheStepThatCarriesIt`
+  now asserts the drawn phrase and the row's width at 80 columns, and the plan guard asserts no row
+  of the plan exceeds the width the narrowest measured terminal leaves.
+
+  Limits recorded rather than hidden: the width checks are asserted at 80 columns, the narrowest size
+  the frame matrix measures, so a terminal narrower than that still cuts rows; and the phrase on a
+  set row is deliberately less informative than the registry's reason, which is why the reason keeps
+  its other carriers.
+
+  Evidence: the focused origin, plan-identity and plugin-set guards pass with `-count=1`; `gofmt -l`
+  and `go vet` are clean; the work-unit commit is `dcef1d1`. The gate result needs its caveat
+  stated plainly, and L16 states it: `scripts/preflight.sh` ran the whole gate and its only failures
+  were the four host-condition Ghostty tests, but the tree it ran in also held another writer's
+  in-flight work, so that run proves this changeset passes alongside theirs rather than alone. The
+  isolated re-run is recorded at the end of L16.
+
+L16 -- The tree was shared, so the gate result needed a caveat and a second run.
+
+  Closing T3 turned up something the work itself did not show: `git status` listed another writer's
+  in-flight work in this same worktree. A WSL memory guard, with its own front
+  (`odd/tasks/wsl-memory-guard.md`, born from two global OOMs on this host that ended the distribution
+  rather than a process), a `.wslconfig` template change, a new `wsl-memory-guard` unit and its
+  service, and edits to `view.go`, `repoassets.go`, `wslconfig.go`, `wslconfig_test.go`,
+  `wslconfig_interactive_test.go`, `wsl_test.go`, `util_screen_test.go`, `screen_coverage_test.go` and
+  `testdata/TestWSLResourcesGolden.golden`. Their file timestamps run 12:26 to 12:51; the T3 gate ran
+  12:22 to 12:26, and a `go test ./internal/tui/` of theirs was still running when T3 was committed.
+
+  Nothing of theirs was touched or committed. The commit used `git add` with nine explicit paths, never
+  `-A`, so `dcef1d1` holds exactly the plan-screen changeset, and `origin/feat/start-installation-flow`
+  reads that commit. Their files are still uncommitted in the worktree, which is where a writer's work
+  belongs until its author commits it.
+
+  The gate result therefore carries a caveat that has to be read, not smoothed over:
+  `scripts/preflight.sh` ran on a tree that also held their uncommitted work, so its verdict -- the four
+  host-condition Ghostty tests and nothing else -- is a statement about the union of the two changesets.
+  It is not evidence that this changeset alone passes. A commit whose own verification was collected on
+  a tree containing somebody else's edits is exactly the kind of claim this front has refused to make
+  elsewhere, so it is corrected rather than left standing.
+
+  The correction is a linked worktree of this same clone at `dcef1d1` (`git worktree add --detach`),
+  which holds this commit alone, with `scripts/preflight.sh` run there and its result is stated in L17.
+  It was not run at the moment of the discovery on purpose: a second full suite would have competed with
+  the writer's own `go test ./internal/tui/` for a host that has 1.5 GB free after losing its
+  distribution twice today to memory pressure, and adding to that pressure to prove a cosmetic flow
+  change would be the wrong trade.
+
+  One durable lesson, recorded because this will recur while the branch is shared: a gate run in a
+  worktree another writer is editing measures their work too, and the honest thing to do is to state
+  that in the evidence rather than present the run as a property of one commit.
+
+L17 -- T4 delivered: the command line can name the platform, and the non-interactive path stops overwriting it.
+
+  `--os=mac|linux|termux` fills the one choice the command line could not express. Measured before
+  implementing rather than assumed: `RunNonInteractive` assigned the detected platform over whatever the
+  caller had chosen, so a chosen platform could not survive at all, and `planOptions()` reads the platform
+  from `Choices.OS`, so the choice is exactly what the plan needs. The vocabulary is read from the setup
+  screen's own first row -- `questionAnswerKey` turns each option's label into the answer key the interface
+  records -- so the flag and the row cannot drift apart, and WSL is deliberately not one of the values: it
+  is a fact about the machine (`SystemInfo.IsWSL`, which schedules the configuration step) and not a
+  platform a person chooses. An unknown value is refused before anything is planned, with the accepted
+  values named, which is the shape `--channel` already had; the non-interactive path's other value refusals
+  exit 1 and this one sits with them. The platform appears in the non-interactive summary as the platform
+  the run will actually use, so a run with no flag reports what the machine decided.
+
+  The guards were written first, and their RED was a build failure on symbols that did not exist yet
+  (`SupportedOperatingSystems`, `ValidateOperatingSystem`, `PlatformFor`, `platformFromFlags` and the `os`
+  field), so their assertions were never seen failing. That is a weaker red than an assertion, and rather
+  than present it as more than it is, the teeth were measured by mutation: making `ValidateOperatingSystem`
+  accept everything failed five assertions in the interface package and three in the binary's, and making
+  `PlatformFor` discard the chosen platform failed with the message naming the platform it decided instead.
+  Both mutations were reverted and the guards are green.
+
+  The tests that hold it: `TestThePlatformFlagOffersExactlyWhatTheScreenOffers` (both directions, so neither
+  list can grow alone), `TestThePlatformValueIsRefusedWhenTheScreenCannotOfferIt` (the refusal, and that it
+  names every accepted value, because a refusal that does not teach gets typed again),
+  `TestTheChosenPlatformSurvivesTheNonInteractivePath`, `TestTheChosenPlatformReachesThePlan` (the Apple
+  developer tools for mac through the one builder, and not for linux), and in the binary
+  `TestTheOperatingSystemFlagIsDeclaredAndRefusesWhatItCannotOffer` and
+  `TestTheHelpNamesEveryPlatformTheFlagAccepts`, beside the existing `TestHelpDocumentsEveryFlag`, which
+  refuses to pass for a flag nobody documented and so had to be answered with the help text.
+
+  Evidence: `gofmt -l` and `go vet` are clean and the focused guards of both packages are green. T3's owed
+  isolated verification is also recorded here, because it is what L16 pointed at: `scripts/preflight.sh`
+  at `b79fffc` in the isolated worktree -- the clean tree, with none of the other writer's work in it --
+  failed only the four host-condition Ghostty tests (`TestStepInstallTerminalGhosttyReportsAFailedDownload`,
+  `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`, `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`
+  and `TestInteractiveGhosttyScriptDownloadsThenRuns`), so T3 alone passes by the host-condition convention.
+  The gate for this entry, its work-unit commit and the push are recorded in the todo board and in the
+  commit message; `docs/tui-installer.md` documents the flag where the other non-interactive flags are,
+  and `CHANGELOG.md` carries the entry.
+
+L18 -- T5: the docs and the changelog were checked against the front, and they were already right.
+
+  This task was written as "docs and changelog" because a front that changes what a user sees leaves
+  stale prose behind. It did not, and the check is recorded rather than asserted. The changelog's
+  Unreleased section carries one bullet per change of this front -- the setup screen and its detours, the
+  plugin set a step provisions being leaveable out, the plan screen reading the plan, the shell's set
+  becoming a switch, and the platform flag -- in the Added section and in commit order, which is the
+  file's convention. The documentation describes the setup screen with its rows, its cursor and its
+  detours including the fact that a detour's answers survive (docs/tui-installer.md), the plan screen's
+  areas and its four provenance sentences, the four sets with the two that are not switches and the
+  reason each of those carries (docs/tools.md and docs/tui-installer.md), and the flags with the values
+  they accept.
+
+  The checks that would have found a gap came back empty, which is the finding: no document still counts
+  the six question screens as the flow's steps, none still describes the screen between the last choice
+  and the run as a catalogue of the repository's units, and the flag table names the accepted platform
+  values, which the help guard also holds. One gap was found and closed while checking rather than after:
+  the set row's short phrase, which is L15's defect, is described where the rows are described, together
+  with the reason the registry's longer reason does not appear there.
+
+  Evidence: read in place -- the changelog's bullet list, the setup-screen and plan-screen sections of
+  docs/tui-installer.md, the plugins sections of docs/tools.md and docs/tui-installer.md, and the flag
+  tables -- plus the greps quoted above, all of them negative for stale text. No code changed in this
+  task, so its gate result is the one the previous commit recorded on the same code tree: a doc-only
+  change cannot alter what the guards measure, and claiming a fresh suite run for it would be a claim
+  without a subject.
+
+L19 -- T6: main merged in, and every pinned number moved by measurement.
+
+  Four paths conflicted, exactly the four the dry run had named, and each was read from both sides
+  before anything was written. `model.go` and `CHANGELOG.md` are unions: main's seven screens keep their
+  places and this front's setup screen follows them inside one enum closed by one paren, with this
+  front's `stepOrigin`, its `sentence()` and its areas after them; this front's five changelog entries
+  precede main's under a single `Added` heading and main's `Fixed` section is untouched. The two pinned
+  counts were measured rather than added up: the companion block guard reported 1088 screens rendered and
+  1088 compared once both sides' screens were present -- main's 67 frame states plus the setup screen, at
+  four sizes, two pixel modes and two cursor states -- and the matrix guard reported that it enumerates 75
+  screens, so `measuredScreens` is 75, main's 74 plus the setup screen. Each number now carries the
+  measurement that produced it rather than a sum somebody did in their head, and the frame-name list in
+  `teatest_test.go` merged on its own carrying both sides.
+
+  The merge ran clean enough to tempt anyone into calling it done, and the gate is what refused that:
+  `TestEveryDeclaredScreenHasAName` reported `Screen(57) is ScreenSetup in model.go and prints as
+  "Unknown", want "Setup": add it to screenNames`. The union had put the setup screen after main's
+  screens and the map that names screens had no key for it, so a screen could be drawn that no failure
+  message could identify. The entry was added where the enum puts it, with the reason written beside it.
+  That is the second time this front was saved by a guard that already existed rather than by review, and
+  the first time it was saved inside a merge, which is where a guard list is worth the most: git's silent
+  agreement covered sixty-eight paths and could not cover this one.
+
+  Evidence: `gofmt -l` and `go vet` clean; the naming, matrix and companion guards green with the measured
+  numbers; `scripts/preflight.sh` on the merged tree passing all seven of its steps with only the four
+  host-condition Ghostty tests failing, the same four that fail on every tree on this host for the reason
+  RECORDED earlier rather than rediscovered. The commit that carries this entry is the merge commit.

@@ -293,9 +293,10 @@ puts each file back, and skips a file it cannot recognize while carrying on with
 
 **Adjust the WSL resources.** On a WSL host, **Adjust the WSL resources** opens the memory,
 processors and swap the WSL 2 VM may use. The screen prints the Windows host's real RAM and logical
-processor count, recommends values from them — half the host's RAM rounded down to 512 MB (never so
-much that Windows keeps under 2 GiB), every logical CPU, and a quarter of that memory for swap — and
-lets you move each value with **←/→** or put everything back on the recommendation with **`r`**. It
+processor count, recommends values from them — three quarters of the host's RAM rounded down to 512 MB
+(never so much that Windows keeps less than 4 GiB, and never below half the host), every logical CPU
+except one, and a quarter of that memory for swap — and lets you move each value with **←/→** or put
+everything back on the recommendation with **`r`**. It
 is the same values and the same writer the installation step uses, not a second calculation, and it
 is offered only where there is a `.wslconfig` to edit: elsewhere the section says why. The template
 it renders is read from a checkout when one is present — `$DOTFILES_DIR`, the clone, the working
@@ -353,6 +354,32 @@ synchronized output is not supported it says a large redraw may flicker or tear.
 when you open the screen (never at startup), writes nothing, and its terminal query is bounded by a
 timeout so a terminal that never answers cannot freeze the interface. See the
 [TUI Installer Guide](docs/tui-installer.md#the-terminal-capabilities).
+
+**Manage the SSH configuration.** This utility reads the SSH setup the client would really
+use and keeps the one part of it this tool owns in order. The hosts list is **the client's own
+answer**, never this package's idea of it: for each alias the screen asks `ssh -G --` and reports
+the effective `HostName`, `User`, `Port`, `ProxyJump` and every `IdentityFile`, naming the file and
+line each value came from and saying plainly when a `Match` criterion (an `exec`, a `canonical`, a
+`final`) was not evaluated rather than guessing which block won. An entry that cannot be rewritten
+safely — a wildcard, a negation, a line with an `Include` or a `Match` under it, a value carrying a
+comment, a file this tool may not write — is shown **read-only with the reason**, and the rows that
+would edit it are not offered. A new entry is written inside a block this tool marks in
+`~/.ssh/config` (`# >>> dotfiles ssh-manager >>>`), and an entry your own file already declares is
+edited **where it is**; either way every line the change does not name is preserved
+**byte-for-byte**, including your comments, blank lines and unknown options, and the plan of a change
+is previewed with its
+`+`/`-` lines and the backup it will take before anything is written. A write copies the file to
+`.bak-dotfiles-<stamp>` first, writes a temporary file, has **the client's own parser** validate it
+with `ssh -G -F`, and replaces the file atomically — refusing outright when the file changed since
+the preview. The keys screen describes a pair from its **public half** (the private key is only
+`stat`ed, never opened), reports its mode and warns when it is too open, and generates a key with
+the passphrase travelling on a **pipe** rather than an argument list. The agent screen names which
+agent this environment actually advertises and what it does differently — `gpg-agent` ignores
+`ssh-add -t`, 1Password and KeePassXC serve the keys they own — instead of pretending every agent
+behaves like OpenSSH's. A connection is tested **only when you press the row that tests it**, with
+`BatchMode`, `StrictHostKeyChecking=yes`, `UpdateHostKeys=no` and no password prompt: a test can
+never accept a new host key or write to `known_hosts`. See the
+[TUI Installer Guide](docs/tui-installer.md#the-ssh-configuration).
 
 ---
 
