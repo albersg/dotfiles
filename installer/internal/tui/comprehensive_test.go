@@ -1707,6 +1707,10 @@ var screenNames = map[Screen]string{
 	// above, so its name belongs here in the same order, and the guard that reads this
 	// map is what said so rather than a guess about where the line should go.
 	ScreenSetup: "Setup",
+	// The update center is declared after ScreenSetup and before the network
+	// diagnosis: the section's eighth destination, named here in the order model.go
+	// declares it.
+	ScreenUpdateCenter: "UpdateCenter",
 	// The network diagnosis is declared after ScreenSetup and is the last screen the
 	// enum holds: the same guard named it, and its name belongs in the same order.
 	ScreenNetworkDiagnostics: "NetworkDiagnostics",

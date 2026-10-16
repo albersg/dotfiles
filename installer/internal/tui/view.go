@@ -500,10 +500,11 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenInstallVerify,
-		ScreenNetworkDiagnostics, ScreenWSLAdvisor, ScreenWSLBenchmark,
-		ScreenWSLMigration, ScreenSSHManager, ScreenSSHHost, ScreenSSHForm,
-		ScreenSSHKeys, ScreenSSHAgent, ScreenSSHDiagnostics, ScreenSSHTest:
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenUpdateCenter,
+		ScreenInstallVerify, ScreenNetworkDiagnostics, ScreenWSLAdvisor,
+		ScreenWSLBenchmark, ScreenWSLMigration, ScreenSSHManager, ScreenSSHHost,
+		ScreenSSHForm, ScreenSSHKeys, ScreenSSHAgent, ScreenSSHDiagnostics,
+		ScreenSSHTest:
 		return true
 	}
 	return false
@@ -579,6 +580,10 @@ func (m Model) headerName() string {
 		return "Utilities"
 	case ScreenNetworkDiagnostics:
 		// The diagnosis screen is one level in from the same section.
+		return "Utilities"
+	case ScreenUpdateCenter:
+		// The update center is one level in from the same section, so it names the
+		// section rather than a heading of its own.
 		return "Utilities"
 	case ScreenSSHManager, ScreenSSHHost, ScreenSSHForm, ScreenSSHKeys,
 		ScreenSSHAgent, ScreenSSHDiagnostics, ScreenSSHTest:
@@ -1117,6 +1122,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenUpdateCenter:
+		s.WriteString(m.renderUpdateCenter())
 	case ScreenInstallVerify:
 		s.WriteString(m.renderInstallVerify())
 	case ScreenNetworkDiagnostics:
@@ -1799,7 +1806,15 @@ func (m Model) utilitiesDescription() []string {
 	// the same reason: the screen itself says when there is no record, so the
 	// section never leaves a hole where a utility should be, and it never promises
 	// more than presence -- the record holds no digest.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s reports which recorded paths are gone.", utilitiesVerifyRow))
+	//
+	// The sentence is one row and has to stay one: the section's body shares the
+	// frame with its rows, TestUtilitiesBodyCarriesEveryJobAtTheFloor reads the
+	// 80x24 frame, and the update center's line is the job that spent the last row
+	// this section had (main's own fix gave the SSH manager's line back by making
+	// the WSL reason one row). The longer sentence -- "reports which recorded paths
+	// are gone" -- wrapped to two rows, and the wrap put three job lines behind the
+	// cut marker; the claim is the same one and it fits in fewer words.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s reports the paths that are gone.", utilitiesVerifyRow))
 
 	// The network diagnosis is named last, in a line short enough to be one row: the
 	// body shares the frame with the rows, and it has to carry every job without the
@@ -1810,6 +1825,17 @@ func (m Model) utilitiesDescription() []string {
 	paragraphs = append(paragraphs, fmt.Sprintf("%s runs read-only checks, stage by stage.",
 		utilitiesNetworkRow))
 
+	// The update center is deliberately the one job with no line of its own here.
+	// The section's body shares the frame with its rows, and the rows take their
+	// budget first (renderThemeScreen: descBudget = available - len(menu)); at 80x24
+	// with nine jobs the body has eight lines, and
+	// TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on the cut marker a ninth line
+	// produces. Every line above is one line and earns its place, so the newest job
+	// is the one that yields rather than pushing a peer's line behind the counter.
+	// Nothing a user needs is lost: the rows list names it ("%s"), and what its line
+	// would have said -- that a command runs only for what was selected, after a
+	// confirmation -- is stated on the screen itself, in updateCenterDescription,
+	// where the selection is made rather than where it is summed up.
 	return paragraphs
 }
 
@@ -2171,6 +2197,14 @@ func wslCurrentParagraph(state wslResourceState) string {
 // utility cannot run here.
 func (m Model) wslResourcesUnavailableReason() string {
 	if m.SystemInfo == nil || !m.SystemInfo.IsWSL {
+		// The reason names the host: util_screen_test.go's own guard reads the body
+		// for the machine's name, and a sentence about "not WSL" that never says which
+		// machine it is talking about is the hole that guard exists to prevent. It
+		// stays one row for the host names a machine reports in practice, which is what
+		// the section's floor budget requires
+		// (TestUtilitiesBodyCarriesEveryJobAtTheFloor); the version that also quoted
+		// .wslconfig wrapped to two rows on every host, and that wrap is what put three
+		// job lines behind the cut marker before the update center's own line yielded.
 		host := "this machine"
 		if m.SystemInfo != nil && m.SystemInfo.OSName != "" {
 			host = m.SystemInfo.OSName

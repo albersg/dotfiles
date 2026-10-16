@@ -1057,6 +1057,38 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			installed, source, msg.kept)
 		return m, nil
 
+	case updateCenterReadMsg:
+		// One manager's answer. The pass stores it and asks the next channel that can
+		// be asked, so the screen fills in as the machine answers rather than waiting
+		// for the slowest manager. A read that lands after the screen was left is
+		// still stored: the answer belongs to the model, and losing it would make the
+		// next visit pay for the same question again.
+		return m.updateCenterHandleRead(msg)
+
+	case updateCenterApplyDoneMsg:
+		// One command of the confirmed sequence. The engine has already re-read the
+		// manager this command belongs to, so the result carries what the manager says
+		// now rather than what the exit status suggested. A cancelled command ends the
+		// sequence: the remaining plans were not reached, and they are reported as
+		// left out rather than run.
+		return m.updateCenterHandleApplyDone(msg)
+
+	case updateCenterLineMsg:
+		// One line of a running command's output, kept as the tail the screen draws.
+		// A line that arrives with no run open is a straggler from a command that has
+		// already been reported on: the result keeps its own bounded copy, so the line
+		// is dropped rather than appended to the log of whatever runs next.
+		if m.UpdateCenter.Lines == nil {
+			return m, nil
+		}
+		m.updateCenterAppendLine(string(msg))
+		return m, updateCenterWaitForLine(m.UpdateCenter.Lines)
+
+	case updateCenterLinesClosedMsg:
+		// The command stopped writing. Nothing is left to read: the result itself is
+		// what carries the outcome, and this message only ends the read loop.
+		return m, nil
+
 	case wslResourceLoadedMsg:
 		// The first read fills the state once: a later answer arriving after the
 		// screen has been written would roll the draft back to what the file held.
@@ -1588,6 +1620,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// editor and the backup, and turning a switch on or off is the whole
 			// point of the row. Passing it to the leader key would leave every
 			// switch in the interface advertised and unreachable.
+		case m.Screen == ScreenUpdateCenter:
+			// The update center owns space for the same reason the setup screen's
+			// switches do: on that list space selects or drops the entry the cursor is
+			// on, which is the whole point of a row. Leaving it to the leader key would
+			// advertise a key the screen never receives, and the first press would
+			// silently arm the leader so the *next* key was read as a leader command.
 		case isSSHManagerScreen(m.Screen):
 			// The SSH manager's screens are dispatched above, before this switch:
 			// the space belongs to the field or the row it is pressed on.
@@ -1740,6 +1778,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
+
+	case ScreenUpdateCenter:
+		return m.handleUpdateCenterKeys(key)
 
 	case ScreenInstallVerify:
 		return m.handleInstallVerifyKeys(key)
@@ -1962,6 +2003,14 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// are the starts that are running.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
+	case ScreenUpdateCenter:
+		// The update center owns its own Escape, because what it means depends on the
+		// state the screen is in: the confirmation cancels and returns to the list, a
+		// running update is refused a way out (hiding the screen mid-transaction would
+		// hide the only place that can stop it), and the list itself steps back to the
+		// section it was opened from. Routing it to the screen's own handler keeps
+		// those three in one place instead of splitting them between two files.
+		return m.handleUpdateCenterKeys("esc")
 	case ScreenInstallVerify:
 		// The verification screen is one level in as well, and read-only: leaving
 		// it cancels nothing, because nothing it does is a change.
@@ -2394,6 +2443,21 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			// that screen's own row.
 			m.Screen = ScreenShellAudit
 			m.Cursor = 0
+		case selected == utilitiesUpdatesRow:
+			// The update center is one level in, and it is the one row of this section
+			// that asks the machine's package managers anything. The read starts here
+			// -- when the user opens the screen, never at startup -- and it runs off the
+			// update loop one manager at a time, so the rows appear as the machine
+			// answers instead of the frame waiting on the slowest manager.
+			//
+			// The command is built before the model is returned: the call records which
+			// manager is being read, and a `return m, m.startUpdateCenterScan()` would
+			// copy the model before that call wrote to it, so the first answer would
+			// arrive for a pass the screen does not believe is running.
+			m.Screen = ScreenUpdateCenter
+			m.Cursor = 0
+			scan := m.startUpdateCenterScan()
+			return m, scan
 		case selected == utilitiesNetworkRow:
 			// The diagnosis is one level in for the same reason, and it dials nothing
 			// on the way in either: the checks start from that screen's own row, and the

@@ -355,6 +355,30 @@ when you open the screen (never at startup), writes nothing, and its terminal qu
 timeout so a terminal that never answers cannot freeze the interface. See the
 [TUI Installer Guide](docs/tui-installer.md#the-terminal-capabilities).
 
+**Check the installed tools for updates.** The update center asks **every package manager this
+machine really has** what it has to update — Homebrew, apt, pkg on Termux, pacman, dnf, snap,
+Flatpak and rustup — **one manager at a time**, because apt, pacman, dnf and pkg keep locks over the
+same package state. Each answer is the manager's own: an entry's identity is its **manager, its
+scope and its name**, so a `git` from Homebrew and a `git` from apt are **two rows with two owners**
+and are never merged, and a pinned entry (`brew pin`, an apt hold, `pacman`'s `IgnorePkg`, a `dnf
+versionlock`, a held snap) is shown **with the manager's own words about the hold**. Four answers
+stay four answers: updates, current, **cannot be asked here** (with the reason), and
+**could not be read** (with the manager's own words — an unreachable mirror, a refused permission, a
+lock another process holds, a conflict); "nothing to update" is never printed for a manager that was
+never asked. Nothing runs on its own: opening the screen only reads, there is **no "update
+everything" row**, the row that opens the plan carries the number of entries selected, and the
+confirmation names **every command exactly as it will run**, the entries it moves, whether it needs
+the administrator, what stays pending afterwards and what going back would cost — in the manager's
+own terms. Elevation is `sudo -n` (a machine whose administrator program would ask for a password is
+refused with the command named, not left waiting on a prompt the frame cannot show). A command is a
+list of arguments handed to the manager directly — **never a line of shell**, so no package name can
+become a second command and there is no `curl | sh` on this path — and credentials in a manager's
+output are redacted before the text reaches the screen. A running command can be stopped with the
+stop row or `c`; when it finishes the manager is read again before anything is concluded, so each
+entry is reported as **requested**, **executed** or **confirmed** — three different facts — and the
+whole inventory is read again so the list that follows is the machine's answer, not the plan's
+expectation. See the [TUI Installer Guide](docs/tui-installer.md#the-package-update-center).
+
 **Manage the SSH configuration.** This utility reads the SSH setup the client would really
 use and keeps the one part of it this tool owns in order. The hosts list is **the client's own
 answer**, never this package's idea of it: for each alias the screen asks `ssh -G --` and reports

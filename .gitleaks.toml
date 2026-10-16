@@ -72,6 +72,17 @@ paths = [
     '''^dotfiles-zsh/\.oh-my-zsh/plugins/genpass/genpass-apple$''',
     '''^dotfiles-zsh/\.oh-my-zsh/plugins/genpass/genpass-monkey$''',
     '''^dotfiles-zsh/\.oh-my-zsh/plugins/macos/spotify$''',
+
+    # The credential-redaction guard. Its fixtures are credentials the redactor
+    # exists to hide, which is why this file is the one test file whose content is
+    # secret-shaped on purpose: an environment-style pair (`KEY=value`), a token in
+    # a URL's userinfo, and a plain `password=`. The environment-style case used to
+    # read `REGISTRY_TOKEN=abcdef123456`, the shape generic-api-key looks for, and
+    # that value still lives in this branch's earlier commits -- a pull request's
+    # scan reads those commits, so the finding arrives after the working tree was
+    # fixed. The path is silenced rather than the value, and only this path: every
+    # line the rule could match here is a fixture the guard asserts is hidden.
+    '''^installer/internal/updates/updates_test\.go$''',
 ]
 
 # One entry here matches a value rather than a path, because the finding is in a

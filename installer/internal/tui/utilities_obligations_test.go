@@ -32,10 +32,11 @@ import (
 // The jobs are asserted by the phrase the doc gives each one, so the guard reads
 // what a user reads rather than an internal identifier.
 //
-// The count moved to eight when the WSL performance advisor joined the section:
-// its row is offered only inside a real WSL instance, so the sentence names it as
-// the eighth job and says where it appears, and this guard names it the same way
-// rather than leaving the sentence short of a job the section offers.
+// The count moved to eight when the WSL performance advisor joined the section, and
+// to nine when the package update center did -- this branch's job, merged after the
+// advisor. It is the section's own destination for the machine's package managers,
+// so the sentence names it and this guard reads it the same way rather than leaving
+// the sentence one job short of what the section offers.
 func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	doc := readRepoFile(t, filepath.Join("docs", "tui-installer.md"))
 
@@ -52,8 +53,8 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	// that is named across a line break would read as a job that is missing.
 	sentence := strings.Join(strings.Fields(doc[start:start+end]), " ")
 
-	if !strings.Contains(sentence, "eight jobs") {
-		t.Errorf("the sentence no longer says the section holds eight jobs: %q", sentence)
+	if !strings.Contains(sentence, "nine jobs") {
+		t.Errorf("the sentence no longer says the section holds nine jobs: %q", sentence)
 	}
 	for _, job := range []string{
 		"system theme switch",
@@ -63,6 +64,7 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 		"terminal capability report",
 		"install check",
 		"network diagnosis",
+		"package update center",
 		"WSL performance advisor",
 	} {
 		if !strings.Contains(sentence, job) {
@@ -107,6 +109,10 @@ func TestUtilitiesBodyCarriesEveryJobAtTheFloor(t *testing.T) {
 		utilitiesShellAuditRow,
 		utilitiesVerifyRow,
 		utilitiesTerminalRow,
+		// The update center's row is the one this guard was widened for: it is the job
+		// the merged section gained, and the body's floor budget is what its line had to
+		// fit inside, so the row that cost the line is read by name here.
+		utilitiesUpdatesRow,
 	} {
 		if !strings.Contains(view, job) {
 			t.Errorf("the 80x24 section does not name the %q job:\n%s", job, view)
