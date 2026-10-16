@@ -34,11 +34,20 @@ const testWSLConfigTemplate = "[wsl2]\n" +
 	"{{if .SwapMB}}swap={{.SwapMB}}MB\n{{end}}" +
 	"networkingMode=mirrored\n"
 
-// TestPlanWSLResources pins the WSL proportional policy. Every case states its
-// own arithmetic, because the numbers are the contract: memory is half the host
-// clamped to (host - 2 GiB) for Windows, rounded down to 512 MiB and omitted
-// below 1 GiB; processors are all logical CPUs; swap is a quarter of the planned
-// memory, rounded down to 512 MiB and omitted when that is zero.
+// TestPlanWSLResources pins the WSL resource policy. Every case states its own
+// arithmetic, because the numbers are the contract:
+//
+//	memory = max(min(host - host/3, host - 4 GiB), host/2)
+//
+// rounded down to 512 MiB and omitted below 1 GiB. The two clamps are a ratio and
+// a floor, and the floor is WSL's own proportional default, so the plan never
+// hands the VM less than WSL would choose by itself. Processors are every logical
+// CPU but one, so Windows keeps one; swap is a quarter of the planned memory,
+// rounded down to 512 MiB and omitted when that is zero.
+//
+// The table deliberately covers all four ways the memory expression can be
+// decided: the ratio alone, the Windows reserve alone, the floor alone, and the
+// floor winning over the reserve on a host too small to honour both.
 func TestPlanWSLResources(t *testing.T) {
 	tests := []struct {
 		name string
@@ -46,83 +55,113 @@ func TestPlanWSLResources(t *testing.T) {
 		want WSLResources
 	}{
 		{
-			name: "4 GiB, 4 CPUs: min(2 GiB, 4-2=2 GiB) = 2048 MiB; swap = 2048/4 = 512",
+			// host == the 4 GiB reserve is not "over" it, so the reserve branch
+			// is skipped and the floor decides: 4096/2 = 2048. Swap = 512.
+			name: "4 GiB, 4 CPUs: host is not over the 4 GiB reserve, so the floor decides = 2048 MiB; swap = 512",
 			host: system.HostResources{MemoryBytes: 4 * testGiB, LogicalCPUs: 4},
-			want: WSLResources{MemoryMB: 2048, Processors: 4, SwapMB: 512},
+			want: WSLResources{MemoryMB: 2048, Processors: 3, SwapMB: 512},
 		},
 		{
-			name: "6 GiB, 8 CPUs: min(3 GiB, 6-2=4 GiB) = 3072 MiB; swap = 768 -> 512",
+			// The floor wins over the reserve: the reserve leaves 6144-4096 =
+			// 2048 MiB, the ratio is 4096 MiB, and the floor is 3072 MiB, so the
+			// VM takes 3 GiB and Windows keeps 3 GiB rather than the promised 4.
+			name: "6 GiB, 8 CPUs: floor 3072 beats ratio 4096 clamped by the reserve to 2048; swap = 768 -> 512",
 			host: system.HostResources{MemoryBytes: 6 * testGiB, LogicalCPUs: 8},
-			want: WSLResources{MemoryMB: 3072, Processors: 8, SwapMB: 512},
+			want: WSLResources{MemoryMB: 3072, Processors: 7, SwapMB: 512},
 		},
 		{
-			// Half = 8388608000 B = 8000 MiB. The reserve leaves
-			// 14629752352 B (about 13952 MiB), which is larger, so the half
-			// wins. 8000 = 15x512 + 320 -> 15x512 = 7680. Swap = 7680/4 = 1920
-			// = 3x512 + 384 -> 3x512 = 1536.
-			name: "16777216000 B, 12 CPUs: min(8000 MiB, 13952 MiB) = 8000 -> 7680; swap = 1920 -> 1536",
+			// The reserve wins over the ratio: the ratio is 6827 MiB, the
+			// reserve leaves 6144 MiB, and the floor (5120) is below both. 6144
+			// is already a whole 512 step, so it is the plan. Swap = 1536.
+			name: "10 GiB, 8 CPUs: ratio 6827 clamped by the reserve to 6144, above the 5120 floor; swap = 1536",
+			host: system.HostResources{MemoryBytes: 10 * testGiB, LogicalCPUs: 8},
+			want: WSLResources{MemoryMB: 6144, Processors: 7, SwapMB: 1536},
+		},
+		{
+			// 16777216000 B = 16000 MiB. The ratio is 16000 - 5333 = 10667 MiB,
+			// the reserve leaves 11904 MiB and the floor is 8000 MiB, so the
+			// ratio decides. 10667 = 20x512 + 427 -> 20x512 = 10240. Swap =
+			// 10240/4 = 2560 = exactly 5x512.
+			name: "16000 MiB, 12 CPUs: min(10667, 11904) = 10667 above the 8000 floor -> 10240; swap = 2560",
 			host: system.HostResources{MemoryBytes: 16777216000, LogicalCPUs: 12},
-			want: WSLResources{MemoryMB: 7680, Processors: 12, SwapMB: 1536},
+			want: WSLResources{MemoryMB: 10240, Processors: 11, SwapMB: 2560},
 		},
 		{
-			name: "32 GiB, 16 CPUs: min(16 GiB, 30 GiB) = 16384 MiB; swap = 16384/4 = 4096",
+			// This host, to the byte: 16016 MiB of RAM and 12 logical CPUs. It is
+			// the machine the 2026-10-16 OOMs ran on, when the policy planned
+			// 7680 MB and the VM died twice. The plan that replaces it is the
+			// value the user chose by hand: 16016-5338 = 10678 -> 10240.
+			name: "this host, 16016 MiB and 12 CPUs: ratio 10678 above the 8008 floor -> 10240; swap = 2560; 11 processors",
+			host: system.HostResources{MemoryBytes: 16016 * testMiB, LogicalCPUs: 12},
+			want: WSLResources{MemoryMB: 10240, Processors: 11, SwapMB: 2560},
+		},
+		{
+			// 32768 - 10922 = 21846, reserve leaves 28672, floor is 16384, so
+			// the ratio decides. 21846 = 42x512 + 342 -> 21504. Swap = 5376 ->
+			// 10x512 = 5120.
+			name: "32 GiB, 16 CPUs: min(21846, 28672) = 21846 above the 16384 floor -> 21504; swap = 5376 -> 5120",
 			host: system.HostResources{MemoryBytes: 32 * testGiB, LogicalCPUs: 16},
-			want: WSLResources{MemoryMB: 16384, Processors: 16, SwapMB: 4096},
+			want: WSLResources{MemoryMB: 21504, Processors: 15, SwapMB: 5120},
 		},
 		{
-			name: "64 GiB, 32 CPUs: min(32 GiB, 62 GiB) = 32768 MiB; swap = 32768/4 = 8192",
+			// 65536 - 21845 = 43691 -> 85x512 = 43520. Swap = 10880 -> 21x512
+			// = 10752.
+			name: "64 GiB, 32 CPUs: min(43691, 61440) = 43691 -> 43520; swap = 10880 -> 10752",
 			host: system.HostResources{MemoryBytes: 64 * testGiB, LogicalCPUs: 32},
-			want: WSLResources{MemoryMB: 32768, Processors: 32, SwapMB: 8192},
+			want: WSLResources{MemoryMB: 43520, Processors: 31, SwapMB: 10752},
 		},
 		{
-			// The reserve clamp is what decides here: half is 1536 MiB, but
-			// host - 2 GiB is only 1024 MiB, so 1024 is the target. Swap would
-			// be 1024/4 = 256 MiB, which rounds down to nothing.
-			name: "3 GiB, 4 CPUs: min(1536 MiB, 3-2=1 GiB) = 1024 MiB; swap = 256 -> 0 (omitted)",
+			// Below the reserve, so only the floor applies: 3072/2 = 1536 MiB.
+			// Swap would be 1536/4 = 384 MiB, which rounds down to nothing.
+			// This is the case the old 2 GiB reserve used to starve to 1024 MiB.
+			name: "3 GiB, 4 CPUs: below the reserve, floor = 1536 MiB; swap = 384 -> 0 (omitted)",
 			host: system.HostResources{MemoryBytes: 3 * testGiB, LogicalCPUs: 4},
-			want: WSLResources{MemoryMB: 1024, Processors: 4, SwapMB: 0},
+			want: WSLResources{MemoryMB: 1536, Processors: 3, SwapMB: 0},
 		},
 		{
-			// The reserve boundary itself: `memoryBytes <= reserve` is the
-			// no-room branch, so a host at exactly 2 GiB omits memory instead of
-			// planning a 0 MiB or wrapped value.
-			name: "2 GiB, 4 CPUs: host == 2 GiB reserve is the no-room boundary; memory and swap omitted",
+			// Exactly the reserve: the branch is `>`, so the floor decides and a
+			// 2 GiB host plans the 1 GiB WSL would give itself, rather than the
+			// omitted key the old reserve rule wrote.
+			name: "2 GiB, 4 CPUs: host == 4 GiB reserve; floor = 1024 MiB is exactly the 1 GiB minimum, so it is written",
 			host: system.HostResources{MemoryBytes: 2 * testGiB, LogicalCPUs: 4},
-			want: WSLResources{MemoryMB: 0, Processors: 4, SwapMB: 0},
+			want: WSLResources{MemoryMB: 1024, Processors: 3, SwapMB: 0},
 		},
 		{
-			// The gap between the reserve boundary above and the 3 GiB case
-			// below: half is 1280 MiB, but the reserve of 2 GiB leaves only
-			// 2560-2048 = 512 MiB, so the clamp wins and the target lands under
-			// the 1 GiB floor. Memory and swap are omitted, processors are not.
-			// Without this case the floor was dead code: 2 GiB returns through
-			// `<= reserve` and 3 GiB sits exactly on the floor, so deleting the
-			// check still left the whole table green while a 2.5 GiB host was
-			// rendered memory=512.
-			name: "2.5 GiB, 4 CPUs: min(1280 MiB, 2560-2048=512 MiB) = 512 MiB, below the 1 GiB floor, so memory and swap are omitted",
+			// 2560/2 = 1280 MiB, which rounds down to 2x512 = 1024. The floor
+			// must be rounded too, or a plan would promise more than the step can
+			// hold.
+			name: "2.5 GiB, 4 CPUs: floor = 1280 MiB -> 1024 after the 512 step; swap = 256 -> 0",
 			host: system.HostResources{MemoryBytes: 2560 * testMiB, LogicalCPUs: 4},
-			want: WSLResources{MemoryMB: 0, Processors: 4, SwapMB: 0},
+			want: WSLResources{MemoryMB: 1024, Processors: 3, SwapMB: 0},
 		},
 		{
-			// A host at or below the reserve has no room to give: the unsigned
-			// subtraction must not wrap into a huge "available" value, and the
-			// target is below the 1 GiB floor anyway.
-			name: "1 GiB, 2 CPUs: host <= 2 GiB reserve, so memory and swap are omitted; processors = 2",
+			// 1024/2 = 512 MiB, below the 1 GiB minimum, so the key is omitted
+			// rather than written as a limit that would leave the distribution
+			// unable to start. One logical CPU still leaves one for Windows.
+			name: "1 GiB, 2 CPUs: floor = 512 MiB is below the 1 GiB minimum, so memory and swap are omitted; 1 processor",
 			host: system.HostResources{MemoryBytes: 1 * testGiB, LogicalCPUs: 2},
-			want: WSLResources{MemoryMB: 0, Processors: 2, SwapMB: 0},
+			want: WSLResources{MemoryMB: 0, Processors: 1, SwapMB: 0},
 		},
 		{
-			// 5632 MiB: half is 2816 MiB, the reserve leaves 3584 MiB, so the
-			// half wins. 2816 = 5x512 + 256 -> 5x512 = 2560. Swap = 2560/4 =
-			// 640 = 1x512 + 128 -> 512.
-			name: "5.5 GiB, 8 CPUs: min(2816 MiB, 5632-2048=3584 MiB) = 2816 -> 2560; swap = 640 -> 512",
+			// 5632 - 1877 = 3755, reserve leaves 1536, floor is 2816, so the
+			// floor decides: 2816 -> 5x512 = 2560. Swap = 640 -> 512.
+			name: "5.5 GiB, 8 CPUs: floor 2816 beats ratio 3755 clamped to 1536 -> 2560; swap = 640 -> 512",
 			host: system.HostResources{MemoryBytes: 5632 * testMiB, LogicalCPUs: 8},
-			want: WSLResources{MemoryMB: 2560, Processors: 8, SwapMB: 512},
+			want: WSLResources{MemoryMB: 2560, Processors: 7, SwapMB: 512},
 		},
 		{
-			name: "8 GiB, unknown CPUs: min(4 GiB, 6 GiB) = 4096 MiB; swap = 1024; processors omitted",
+			// The reserve and the floor agree here: 8192 - 4096 = 4096 either way.
+			name: "8 GiB, unknown CPUs: reserve 4096 == floor 4096, so both give 4096 MiB; swap = 1024",
 			host: system.HostResources{MemoryBytes: 8 * testGiB, LogicalCPUs: 0},
 			want: WSLResources{MemoryMB: 4096, Processors: 0, SwapMB: 1024},
+		},
+		{
+			// The processor floor: "all but one" cannot become zero. A one-CPU
+			// host must still say processors=1, because omitting the key would
+			// hand WSL every CPU it can find.
+			name: "16 GiB, 1 CPU: the all-but-one rule floors at 1 instead of omitting; memory = 10752",
+			host: system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 1},
+			want: WSLResources{MemoryMB: 10752, Processors: 1, SwapMB: 2560},
 		},
 		{
 			name: "unknown host: all three keys omitted, so WSL applies its own defaults",
@@ -144,9 +183,10 @@ func TestPlanWSLResources(t *testing.T) {
 
 // TestRenderWSLConfigForAKnownHost pins the exact rendered bytes for a host
 // supplied through the override seam, so the expectation cannot depend on the
-// machine running the test. 16 GiB and 8 CPUs plan to 8192 MB of memory (half
-// the host, below the 2 GiB reserve clamp), 8 processors and 2048 MB of swap (a
-// quarter of the memory).
+// machine running the test. 16 GiB and 8 CPUs plan to 10752 MB of memory
+// (16384-5461 = 10923 MiB, above the 12288 the reserve allows and well above the
+// 8192 floor, rounded down to 21 steps of 512), 7 processors (all but one) and
+// 2560 MB of swap (a quarter of the memory, rounded down).
 func TestRenderWSLConfigForAKnownHost(t *testing.T) {
 	t.Setenv(envWSLHostMemoryMB, "16384")
 	t.Setenv(envWSLHostCPUs, "8")
@@ -156,7 +196,7 @@ func TestRenderWSLConfigForAKnownHost(t *testing.T) {
 		t.Fatalf("RenderWSLConfig failed: %v", err)
 	}
 
-	want := "[wsl2]\nmemory=8192MB\nprocessors=8\nswap=2048MB\nnetworkingMode=mirrored\n"
+	want := "[wsl2]\nmemory=10752MB\nprocessors=7\nswap=2560MB\nnetworkingMode=mirrored\n"
 	if string(rendered) != want {
 		t.Errorf("rendered .wslconfig =\n%q\nwant\n%q", rendered, want)
 	}
@@ -235,7 +275,7 @@ func TestShippedWSLConfigTemplatePreservesFixedSettings(t *testing.T) {
 			name:     "known host",
 			memoryMB: "16384",
 			cpus:     "8",
-			want:     []string{"memory=8192MB", "processors=8", "swap=2048MB"},
+			want:     []string{"memory=10752MB", "processors=7", "swap=2560MB"},
 		},
 		{
 			name:     "unknown host",

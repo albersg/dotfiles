@@ -1,15 +1,18 @@
 # Settings apply across all Linux distros running on WSL 2
 [wsl2]
 
-# Memory limit for the WSL 2 VM: half of the Windows host's total RAM, read
+# Memory limit for the WSL 2 VM: two thirds of the Windows host's total RAM, read
 # through WSL interop and rounded down to 512 MB, but never so much that Windows
-# keeps less than 2 GiB; a plan below 1 GiB is omitted entirely. When this key is
+# keeps less than 4 GiB, and never below half the host; a plan below 1 GiB is
+# omitted entirely. The floor is WSL's own proportional default, so on a host too
+# small to honour the reserve as well the floor is what decides. When this key is
 # absent, WSL applies its own proportional default instead.
 {{if .MemoryMB}}memory={{.MemoryMB}}MB
 {{end}}
-# Logical processors for the WSL 2 VM: every logical CPU the Windows host
-# reports. When this key is absent, WSL applies its own proportional default
-# instead.
+# Logical processors for the WSL 2 VM: every logical CPU the Windows host reports
+# except one, so Windows keeps one for its own desktop and for the terminal that
+# is drawing this VM; a one-CPU host still gets one. When this key is absent, WSL
+# applies its own proportional default instead -- which is every CPU.
 {{if .Processors}}processors={{.Processors}}
 {{end}}
 # Swap space for the WSL 2 VM: a quarter of the memory limit above, rounded down

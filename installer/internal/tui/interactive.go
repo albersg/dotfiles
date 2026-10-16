@@ -640,6 +640,19 @@ func getWSLConfigScript(m *Model) (string, error) {
 	fmt.Fprintf(&script, "WSL_CONF_SRC=%s\n", shellSingleQuote(filepath.Join(repoDir, repoAssetWSLConf)))
 	fmt.Fprintf(&script, "WSL_CONF_DST=%s\n", shellSingleQuote(confDst))
 
+	// The memory guard's half. Its paths come from the same resolvers the Go
+	// installer's probe uses, and they are baked in here so the script and the
+	// non-interactive step name exactly the same destinations. The sources are
+	// the checkout's two shipped files.
+	fmt.Fprintf(&script, "WSL_GUARD_SCRIPT_SRC=%s\n", shellSingleQuote(filepath.Join(repoDir, repoAssetWSLGuardScript)))
+	fmt.Fprintf(&script, "WSL_GUARD_UNIT_SRC=%s\n", shellSingleQuote(filepath.Join(repoDir, repoAssetWSLGuardUnit)))
+	fmt.Fprintf(&script, "GUARD_SCRIPT_DST=%s\n", shellSingleQuote(wslGuardScriptDestination(os.Getenv)))
+	fmt.Fprintf(&script, "GUARD_UNIT_DST=%s\n", shellSingleQuote(wslGuardUnitDestination(os.Getenv)))
+	fmt.Fprintf(&script, "GUARD_CGROUP=%s\n", shellSingleQuote(wslGuardCgroupDir(os.Getenv)))
+	fmt.Fprintf(&script, "GUARD_SYSTEMD_DIR=%s\n", shellSingleQuote(wslGuardSystemdDir(os.Getenv)))
+	fmt.Fprintf(&script, "GUARD_SYSTEMCTL=%s\n", shellSingleQuote(wslGuardSystemctlBinary(os.Getenv)))
+	fmt.Fprintf(&script, "GUARD_UNIT_NAME=%s\n", shellSingleQuote(wslGuardUnitName))
+
 	profileDir, profileErr := windowsUserProfile()
 	if profileErr != nil {
 		// The lookup can legitimately fail (interop disabled, unusual mount
@@ -661,6 +674,7 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 install_artifact() {
 	src=$1
 	dst=$2
+	mode=$3
 	if [ ! -f "$src" ]; then
 		echo "reading $src: no such file" >&2
 		return 1
@@ -676,18 +690,18 @@ install_artifact() {
 		fi
 	fi
 	mkdir -p "$(dirname "$dst")" 2>/dev/null || true
-	if cp "$src" "$dst" 2>/dev/null && chmod 0644 "$dst" 2>/dev/null; then
+	if cp "$src" "$dst" 2>/dev/null && chmod "$mode" "$dst" 2>/dev/null; then
 		return 0
 	fi
 	tmp=$(mktemp)
 	cp "$src" "$tmp"
-	chmod 0644 "$tmp"
-	sudo -n install -m 0644 "$tmp" "$dst"
+	chmod "$mode" "$tmp"
+	sudo -n install -m "$mode" "$tmp" "$dst"
 	rm -f "$tmp"
 }
 
 if [ -n "$WINDOWS_PROFILE" ]; then
-	install_artifact "$WSL_CONFIG_SRC" "$WINDOWS_PROFILE/.wslconfig"
+	install_artifact "$WSL_CONFIG_SRC" "$WINDOWS_PROFILE/.wslconfig" 0644
 	echo ".wslconfig installed at $WINDOWS_PROFILE/.wslconfig"
 else
 	echo "Skipping .wslconfig: no Windows profile was found"
@@ -695,8 +709,66 @@ fi
 # The rendered .wslconfig came from a temporary file Go created for this run.
 rm -f "$WSL_CONFIG_SRC"
 
-install_artifact "$WSL_CONF_SRC" "$WSL_CONF_DST"
+install_artifact "$WSL_CONF_SRC" "$WSL_CONF_DST" 0644
 echo "wsl.conf installed at $WSL_CONF_DST"
+
+# The WSL memory guard: install the payload and its unit, run the unit, and read
+# the host back rather than assuming. This is the script counterpart of the Go
+# step's installWSLMemoryGuard, reproducing the same install destinations and the
+# same honest failure lines. The payload owns all of the policy; nothing here
+# recomputes a cap. All three systemctl writes and the restart are captured so a
+# non-zero unit exit is reported, not swallowed by set -e.
+if [ ! -d "$GUARD_SYSTEMD_DIR" ]; then
+	echo "wsl-memory-guard: systemd is not the init of this distribution ($GUARD_SYSTEMD_DIR is missing), so the guard unit cannot run. Set [boot] systemd=true in /etc/wsl.conf and restart WSL, then run the installer again."
+else
+	GUARD_INSTALLED=1
+	if install_artifact "$WSL_GUARD_SCRIPT_SRC" "$GUARD_SCRIPT_DST" 0755; then
+		echo "wsl-memory-guard payload installed at $GUARD_SCRIPT_DST (mode 0755)"
+	else
+		GUARD_INSTALLED=0
+		echo "wsl-memory-guard: could not install the payload at $GUARD_SCRIPT_DST" >&2
+	fi
+	if install_artifact "$WSL_GUARD_UNIT_SRC" "$GUARD_UNIT_DST" 0644; then
+		echo "wsl-memory-guard unit installed at $GUARD_UNIT_DST"
+	else
+		GUARD_INSTALLED=0
+		echo "wsl-memory-guard: could not install the unit at $GUARD_UNIT_DST" >&2
+	fi
+
+	if [ "$GUARD_INSTALLED" = "1" ]; then
+		if ! sudo -n "$GUARD_SYSTEMCTL" daemon-reload; then
+			echo "wsl-memory-guard: systemctl daemon-reload failed" >&2
+		fi
+		if ! sudo -n "$GUARD_SYSTEMCTL" enable "$GUARD_UNIT_NAME"; then
+			echo "wsl-memory-guard: systemctl enable $GUARD_UNIT_NAME failed" >&2
+		fi
+		if ! sudo -n "$GUARD_SYSTEMCTL" restart "$GUARD_UNIT_NAME"; then
+			echo "wsl-memory-guard: the unit exited non-zero, so one of its protections is not in place; its own report above names which one. The step continues." >&2
+		fi
+
+		GUARD_POLICY=$("$GUARD_SYSTEMCTL" show init.scope -p OOMPolicy --value 2>/dev/null || echo "")
+		if [ "$GUARD_POLICY" != "continue" ]; then
+			echo "wsl-memory-guard: init.scope OOMPolicy reads '$GUARD_POLICY', want continue; one OOM kill can still stop the scope and take every process in the distribution with it" >&2
+		fi
+
+		GUARD_MAX_BEFORE=$(cat "$GUARD_CGROUP/memory.max" 2>/dev/null || echo "")
+		case "$GUARD_MAX_BEFORE" in
+			'' | max)
+				echo "wsl-memory-guard: $GUARD_CGROUP/memory.max reads '$GUARD_MAX_BEFORE' (want a finite number), so the scope is uncapped" >&2
+				;;
+			esac
+
+		# The durability check: a second daemon-reload and a re-read. If the
+		# attribute the first read found is gone, the cap was never durable.
+		sudo -n "$GUARD_SYSTEMCTL" daemon-reload 2>/dev/null || true
+		GUARD_MAX_AFTER=$(cat "$GUARD_CGROUP/memory.max" 2>/dev/null || echo "")
+		if [ "$GUARD_MAX_AFTER" != "$GUARD_MAX_BEFORE" ]; then
+			echo "wsl-memory-guard: the cap did not survive a daemon-reload: $GUARD_CGROUP/memory.max read '$GUARD_MAX_BEFORE' and then '$GUARD_MAX_AFTER'" >&2
+		elif [ "$GUARD_POLICY" = "continue" ] && [ -n "$GUARD_MAX_BEFORE" ] && [ "$GUARD_MAX_BEFORE" != "max" ]; then
+			echo "wsl-memory-guard verified: init.scope OOMPolicy=continue and $GUARD_CGROUP/memory.max held at $GUARD_MAX_BEFORE across a daemon-reload"
+		fi
+	fi
+fi
 `)
 
 	// The clipboard bridge is deliberately not fatal, for the same reason the Go

@@ -1199,7 +1199,24 @@ func wslPanelValue(state wslResourceState) string {
 	if len(parts) == 0 {
 		return "capacities not read"
 	}
-	return strings.Join(parts, ", ")
+	// The guard is part of what this row is about: the row is where the section
+	// reports the WSL memory, and a missing guard is the one state in it that the
+	// user has to act on.
+	return strings.Join(parts, ", ") + ", guard " + wslGuardPanelLabel(state.Guard)
+}
+
+// wslGuardPanelLabel is the guard said in two words for the section's panel,
+// where the full account lives one row in on the WSL resource screen.
+func wslGuardPanelLabel(g wslGuardState) string {
+	switch {
+	case !g.Installed:
+		return "missing"
+	case !g.Active:
+		return "not running"
+	case g.OOMPolicy != wslGuardWantOOMPolicy || g.HighBytes != "max" || g.MaxBytes == 0:
+		return "unprotected"
+	}
+	return "active"
 }
 
 // planHeadline is the plan said in one short line: how many steps the run would

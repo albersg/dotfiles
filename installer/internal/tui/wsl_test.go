@@ -12,8 +12,10 @@ import (
 
 // renderedTestWSLConfig is what testWSLConfigTemplate renders to for the host
 // capacities newWSLLayout pins: 8192 MiB and 4 logical CPUs plan to 4096 MB of
-// memory, 4 processors (all of them) and 1024 MB of swap (a quarter of memory).
-const renderedTestWSLConfig = "[wsl2]\nmemory=4096MB\nprocessors=4\nswap=1024MB\nnetworkingMode=mirrored\n"
+// memory (the 4 GiB Windows reserve leaves exactly that, and the half-host floor
+// agrees with it), 3 processors (all but one) and 1024 MB of swap (a quarter of
+// memory).
+const renderedTestWSLConfig = "[wsl2]\nmemory=4096MB\nprocessors=3\nswap=1024MB\nnetworkingMode=mirrored\n"
 
 // newWSLLayout builds a throwaway repository checkout plus the two destinations
 // the WSL step writes to, so the step can be exercised without touching the
@@ -23,8 +25,10 @@ func newWSLLayout(t *testing.T) (repoDir, winHome, wslConf string) {
 
 	repoDir = t.TempDir()
 	for asset, content := range map[string]string{
-		repoAssetWSLConfig: testWSLConfigTemplate,
-		repoAssetWSLConf:   "[boot]\nsystemd=true\n",
+		repoAssetWSLConfig:      testWSLConfigTemplate,
+		repoAssetWSLConf:        "[boot]\nsystemd=true\n",
+		repoAssetWSLGuardScript: "#!/usr/bin/env bash\necho guard\n",
+		repoAssetWSLGuardUnit:   "[Unit]\nDescription=guard\n",
 	} {
 		path := filepath.Join(repoDir, asset)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -48,6 +52,17 @@ func newWSLLayout(t *testing.T) (repoDir, winHome, wslConf string) {
 	// positive for the detector to skip its Windows query.
 	t.Setenv(envWSLHostMemoryMB, "8192")
 	t.Setenv(envWSLHostCPUs, "4")
+
+	// Keep the memory guard hermetic. The step installs it after wsl.conf, and
+	// these temporary destinations keep every existing WSL test away from /etc,
+	// /usr and the real systemd: the systemd directory does not exist, so the
+	// guard reports that it cannot run and installs nothing. A guard test that
+	// wants the install to happen overrides these with its own fixture.
+	guardRoot := t.TempDir()
+	t.Setenv(envWSLGuardScript, filepath.Join(guardRoot, "wsl-memory-guard.sh"))
+	t.Setenv(envWSLGuardUnit, filepath.Join(guardRoot, "wsl-memory-guard.service"))
+	t.Setenv(envWSLGuardCgroup, filepath.Join(guardRoot, "init.scope"))
+	t.Setenv(envWSLSystemdRunDir, filepath.Join(guardRoot, "no-systemd"))
 	return repoDir, winHome, wslConf
 }
 

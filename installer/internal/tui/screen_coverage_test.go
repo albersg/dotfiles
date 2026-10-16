@@ -870,10 +870,10 @@ func wslResourcesFrameCase(t *testing.T) Model {
 		Path:      "/mnt/c/Users/alber/.wslconfig",
 		RepoDir:   repoRoot(t),
 		Host:      system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:      WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Plan:      WSLResources{MemoryMB: 10752, Processors: 7, SwapMB: 2560},
 		Current:   WSLResources{MemoryMB: 4096, SwapMB: 1024},
 		HasFile:   true,
-		Draft:     WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Draft:     WSLResources{MemoryMB: 10752, Processors: 7, SwapMB: 2560},
 	}
 	m.Cursor = wslResourceRowMemory
 	return m
