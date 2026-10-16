@@ -210,7 +210,10 @@ const ScopeSelf, ScopeWSLGuest = "this machine", "WSL guest"
 - **T6 — TUI tests and frame guards for the new screens.** S3, S5-S8, S11, S13. Route: worker
   `gentle-ai-worker` then inspected by the parent. Files: `installer/internal/tui/portmanager_test.go`
   and the guard lists in `teatest_test.go` / `screen_coverage_test.go`. Commit: rolled into T4's
-  (`d5648ff`) for the reason recorded there.
+  (`d5648ff`) for the reason recorded there, plus `test(installer): pin what the port copy action puts on
+  the clipboard` (`f590702`) for the one behaviour the worker's tests left open -- what the copy action
+  hands to the terminal, and the two gates in front of it -- written by the parent because the independent
+  review of this section came back unavailable.
 - **T7 — docs and help text.** S1-S10. Route: inline (parent). Files: `docs/tui-installer.md`,
   `README.md` and `README.es.md` (the utility's own paragraph in each language). Commit: `docs: record
   the port and process utility` (this commit).
@@ -219,7 +222,14 @@ const ScopeSelf, ScopeWSLGuest = "this machine", "WSL guest"
   in `9760fe7` (`fix(portscan): mask every credential and never call an unread port free`), `47b4136`
   (`fix(portscan): mask the pass flag, a joined password and an escaped quote`) and `1531bd1`
   (`fix(portscan): mask the user%password form the SMB clients take`), recorded in L5 and L6, and
-  re-verified by two further bounded verifiers.
+  re-verified by two further bounded verifiers, whose third round found six more credential forms and the
+  over-masks fixed in `1115eb1` (L7). The independent review of the TUI section was launched three times:
+  the first pair never started (the worker's cleanup failure quarantined capacity), the relaunched
+  reviewer failed after sixty-two turns without a report, and that is recorded here as an **unavailable
+  verifier rather than retried**, because a third launch is ceremony and not evidence. What stands in its
+  place is named: the ten invariants are covered by the tests listed in `portmanager_test.go`, the two
+  goldens, the frame guards the section was measured by, and the parent's read of the diff against the
+  frozen `portscan` interface.
 
 ## Log
 
@@ -380,3 +390,35 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   is a bare word with no digit, upper-case letter or punctuation (`-psecret`) is read as the flag name
   it most often is, and an all-digit `-p 123456` is read as the port it most often is. Both are the
   price of the diagnostics that stay legible, and both are stated rather than hidden.
+- **L7 — the third verification round, and the rules it rewrote.** A bounded re-verification of `dca9211`
+  ran the redaction rules against the argv real tools take rather than against the shapes the rules were
+  written for, and six of those forms survived: curl's `--proxy-user alice:s3cret`; `redis-cli -a
+  s3cret`; `mysql -psecret db`, which both showed the password and masked the database name after it,
+  because the suffix rule read `-psecret` as a flag whose own name ends in a secret word; `-p123456`
+  outright and `-p 123456` because an all-digit value was read as a port; a personal access token carried
+  as `https://s3cret@host/repo.git`, whose userinfo has no colon; and `sshpass -p -s3cret host`, whose
+  value begins with a dash and was skipped as a flag. The same round found the reverse cost in
+  `--bypass=true`, `--compass north`, `--overpass x`, `--pass-through x` and `--token-file /etc/token`,
+  and three coverage gaps: `sessionid=` had no test, the decision that `--user=alice` stays readable was
+  unpinned, and the empty-scope refusal was asserted by its neighbour's wording. All of it is fixed in
+  `1115eb1`, with `credential_probe_test.go` carrying one regression test per finding. The rules that
+  changed, and why: the short secret words (`pass`, `pw`, `pwd`) count **only at the end of a name**,
+  because `bypass`, `compass`, `overpass` and `--pass-through` contain them and name no credential; a
+  segment after a **negation** is not a secret, because `--no-auth` takes none; a secret word followed by
+  the name of a **container** (`file`, `path`, `dir`, `env`, `id`, ...) is not one either, because
+  `--token-file` takes a path; the standalone password letters are `-p` for mysql and `-a` for
+  redis-cli, and their value apart is masked unless it **can be a port** -- a number inside the port
+  range, an address, a mapping or a path -- which is what keeps `ssh -p 2222`, `docker -p 8080:80` and
+  `ls -a /tmp` readable while `-p 123456` and `redis-cli -a s3cret` are masked; a joined short value is a
+  flag name only when it is a bare word that carries no secret (`-print`, `-path`, `-pfoo`), so
+  `-psecret` is masked and the argument after it is left alone; a URL userinfo with no colon is masked
+  when it carries a character a name would not (`https://ghp_Abc123@host`, `https://s3cret@host`) and
+  kept when it is a plain account name, and a `user:password@host` with no scheme is masked too; and a
+  value after a standalone short flag is masked even when it begins with a dash, because `-t` carries
+  nothing a flag name would not and `-s3cret` does. This supersedes the two boundaries L6 called
+  deliberate: `-psecret` is a password, and an all-digit `-p` value is a port only inside the port
+  range. Two over-masks remain and are stated: a plain word or a bare relative filename after a
+  standalone `-p` or `-a` (`grep -a foo file`, `tar -p notes.txt`) is masked, and a compound name whose
+  container word is not on the list (`--api-key-file`) keeps the secret reading. Both are the safe side
+  of the same trade: a value the diagnostic hides costs fidelity, a value it shows costs a credential.
+  The same round's review of this repository's own copy action is `f590702`.
