@@ -113,8 +113,8 @@ func TestShellAuditReadsFishsOwnProfile(t *testing.T) {
 // keeps.
 func TestShellAuditRedactsTheCommandsItReads(t *testing.T) {
 	const table = `Time (μs)   Sum (μs)  Command
-      9000       9000 > set -gx API_KEY hunter2-secret-value
-      8000       8000 > curl -H 'Authorization: Bearer hunter2-secret-value' https://example.test
+      9000       9000 > set -gx API_KEY hunter2
+      8000       8000 > curl -H 'Authorization: Bearer hunter2' https://example.test
       1000       1000 > source /home/alberto/.config/fish/secrets.fish
 `
 
@@ -164,7 +164,7 @@ const bashTraceSampleOutput = `+1780000000.000000+/home/alberto/.bashrc:1+ sleep
 +1780000000.250000+/home/alberto/lib/setup.sh:7+ _helper
 +1780000000.280000+/home/alberto/lib/helpers.sh:3+_helper echo inside
 +1780000000.900000+/home/alberto/lib/helpers.sh:4+_helper echo more
-+1780000000.950000+/home/alberto/.bashrc:9+ export API_KEY=hunter2-secret-value
++1780000000.950000+/home/alberto/.bashrc:9+ export API_KEY=hunter2
 `
 
 // TestShellAuditReadsBashsTraceAsItArrives pins the trace parser: the elapsed
