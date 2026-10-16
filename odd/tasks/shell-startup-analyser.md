@@ -90,6 +90,7 @@ Measured capability of the shells on this machine (read-only probes):
 | T10 | S3, S4, S9, S11 | inline | The verification's findings: per-shell attribution prose, the statistics the plan promised drawn, the profile-table bound enforced, a refusal kept out of the section's availability, a per-write temporary name |
 | T11 | S11, S12 | verifier | Re-run the full package and the focused guards, then re-verify the findings against the fixed tree |
 | T12 | S3, S4, S9 | inline | The second round's findings: the sentences the fix malformed, the table bound moved in front of the read, a refusal drawn after a measurement, and the guards the first round left unmeasured |
+| T13 | S11, S12 | inline | Delivery: the branch named for the repository's convention, pull request #348, `main` merged in with its three conflicts resolved, the secret scanner's finding fixed in the fixture and in the history it lives in |
 
 ## Log
 
@@ -397,7 +398,69 @@ guard now compares the whole entry, and the reversions the verifier performed (d
 read, removing the statistics paragraph, hardcoding the zsh intro, reverting the fold condition) each
 fail the guard that holds them.
 
+L22 (delivery). The front's commits were published and merged, and the round found one more defect of
+the family this front exists to prevent -- this time in a fixture of its own.
+
+The worktree's branch name does not satisfy the convention `CONTRIBUTING.md` states for this
+repository, so the same commits were pushed as `feat/installer-shell-startup-benchmark` and pull
+request #348 was opened against `main`. The repository's policy was read before the pull request was
+opened rather than assumed from the skill that describes it: `ci.yml` and `e2e-testing.yml` validate
+the Go build and tests, the shell scripts, the branding, the secrets and the packaging, and **no job
+validates an issue reference or a label**, so no issue was linked. `main` requires one approving
+review, which the pull request's own author cannot give -- GitHub refuses a self-approval -- so the
+merge used the administrator bypass this repository already uses for its own pull requests: #345 and
+#346 are both merged with no review.
+
+`main` had advanced a hundred and three commits while this front was open -- the SSH manager, the WSL
+performance advisor, the network diagnosis and the WSL memory guard -- and the utilities section they
+grew is the section this front changed, so three files conflicted. The branch **merged** `main` rather
+than rewriting either side, so the commits this file records keep their identity: `model.go` keeps this
+front's session seam and its availability rule beside `main`'s `InstallVerify`, `Network` and `SSH`
+states, `view.go` keeps both new constant blocks, and `CHANGELOG.md` keeps this entry above the ones
+already merged there, because that file reads newest first. The merged tree was built, vetted and
+tested before the merge commit was made -- `gofmt` clean, `go build ./cmd/dotfiles`, `go vet ./...` and
+`make preflight` -- and the only failures it reports are the four Ghostty download tests this machine
+fails at the base commit too, which the checks on `main` pass.
+
+The defect: `Secret Scanning` failed on the pull request's own commits with exactly one finding,
+`installer/internal/tui/shellaudit_profile_test.go:117`, rule `curl-auth-header`. The fixture whose
+whole purpose is to prove that a credential in a profile's command text never reaches the screen had
+written `curl -H 'Authorization: Bearer hunter2-secret-value'`, and the rule reads that as a real
+token. The scanner was right about its own terms and the fixture was wrong about the repository's.
+
+The fix is the tree first and the history second, because the scanner scans commits. The fixture now
+carries `hunter2`, the placeholder `admin_password_test.go`, `sshmanager_test.go` and this front's own
+parser comments already use, and which the rule's entropy gate lets through -- measured rather than
+assumed: `Bearer hunter2`, `Bearer xxxxxxxxxxxx`, `Bearer test-token` and `Bearer abc123` scan clean
+while `hunter2-secret-value`, `hunter2hunter2`, `FIXTURE-NOT-A-SECRET`, `placeholder`, `X-Api-Key` and
+`X-Session-Token` do not, under gitleaks 8.30.1 locally and 8.24.3, the version the workflow installs.
+Fixing the fixture was not enough: the finding lives in the commit that introduced the line, so the
+range scan still reported it with the tree clean, and a path entry cannot be the answer -- that file is
+the subject of new commits, and silencing the path silences whatever a later commit puts in it. One
+entry in `.gitleaks.toml` matches the value that exists nowhere in the tree any more, with the
+reasoning and the version it was verified against written beside it.
+
+Both guards were checked for teeth rather than declared green. Breaking the redaction
+(`shellAuditRedactCommand` returning the whole command instead of its first word) fails
+`TestShellAuditRedactsTheCommandsItReads`, naming both leaked rows, and reverting it passes again; and
+the scanner still reports a different value written in the same `curl` shape, so the allowlist entry
+silences the history it names and nothing else.
+
+The pull request's fourteen checks then passed -- Go Validation, Shell Validation, Branding Audit,
+Secret Scanning, Build on ubuntu and macOS, Go tests, the four Linux E2E images, Termux and the macOS
+smoke test -- and the pull request was merged as `f66e63d`. The two runs the push to `main` triggered
+passed as well, which is the same commit set verified once more where it landed.
+
 ## Remaining
 
-Nothing open on this front: the fixes of the second round are green and the findings are all either
-fixed or named above as accepted with their reason. The front's own report to the user closes it.
+Nothing open on this front. The change is merged in `main` as `f66e63d`, with every check this
+repository runs passing on the pull request and again on `main`, and the findings of two independent
+verifications all either fixed or named above as accepted with their reason. The delivery round's own
+defect -- the secret scanner reading this front's redaction fixture as a credential -- is fixed in the
+tree and accounted for in `.gitleaks.toml`, with the demonstration that the scanner and the fixture
+each still reject what they are for.
+
+One item was deliberately not taken: a third independent verification of the two last fix commits
+(`022ab6a` and `0e212cd`). The second verification already covered both, the delivery round added no
+behaviour to them, and an unrequested third pass over a change that two verifications have already
+read is cost without a question it would answer. It stays an offer, not a claim.
