@@ -460,3 +460,46 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
     and conventional commits, all of which hold, and this repository has no `status:*`/`type:*`
     labels for a Gentle-owned issue-first rule to attach to -- only the nine defaults. The PR body
     states it instead of the omission being papered over.
+- L18: The high-risk tier put an independent verifier on the delivered change, and it earned its
+  place twice over: it found two blockers no test in the suite could see, because what the suite held
+  was the arithmetic and never the arithmetic against the words describing it.
+  - **B1, the screen promised memory the plan does not keep.** The sentence in `view.go` stated both
+    memory rules -- Windows keeps 4 GiB, and never below half the host -- without saying which wins
+    where they disagree, which they do below 8 GiB, because the `host/2` floor is the larger of the
+    two there: on a 6 GiB host the plan gives the VM 3072 MB and leaves Windows 3 GiB. The template's
+    own comment had resolved that since T1 and the screen had not. Fixed in the sentence and in the
+    two documentation tables carrying the same phrasing, and pinned by
+    `TestTheScreenDoesNotPromiseWindowsMemoryThePlanDoesNotKeep`, which plans {4,6,7,8,16,32} GiB and
+    requires the clause that decides when a host leaves Windows under 4 GiB -- and fails rather than
+    passes if the set ever stops containing such a host. The test T6 added tied the sentence's words
+    to the divisor; nothing tied the sentence to a plan, which is the gap this closed.
+  - **B2, the recovery script printed the superseded fraction.** `dotfiles-wsl/apply-wsl-memory-
+    guard.sh` told its reader to expect `memory=10240MB`, `~9.6Gi` and `~8380M`, which is what the
+    two-thirds rule planned; under S2 the values are whatever `.wslconfig` sets and the guard's own
+    output carries them, so the three lines say that now.
+    `TestTheByHandScriptQuotesThePolicyItApplies` bans both those literals and any `expect <number>`,
+    because an expectation with a number in it is an expectation that goes stale the next time the
+    fraction moves. Why the earlier sweep missed the file is recorded rather than excused: the
+    inventory grep was `\b10240\b` and this file writes `10240M`, where the word boundary never
+    matches.
+  - Both were red first, with the arithmetic in the failure message, and the golden was regenerated
+    for the one line the longer sentence moved (`… and 13 more` -> `… and 14 more`) with the diff read
+    rather than trusted. `-update` is the flag; `UPDATE_GOLDEN` is not a mechanism this library has,
+    which a wasted attempt established.
+  - The verifier also confirmed what a machine can be made to say without being broken: the guard's
+    four limits and its four S8/S9/S10 paths against a fabricated cgroup and a stub `systemctl`, the
+    boundaries (no controller, unreadable `MemTotal`, under 4096 MiB, exactly 4096 MiB), `shellcheck`
+    and `bash -n`, and that the heredoc round-trips `.wslconfig` bytes including `$HOME`, backticks
+    and a backslash. It could not run the by-hand script under real sudo and systemd, and reported
+    that as unverified instead of passing it: true then of this front, and still true.
+  - **The native review was refused terminally for the third time, and this time on the correctly
+    chosen candidate.** `assess` over the PR slice (`origin/main..HEAD`) reports `risk: high` -- the
+    `executable_mode` signal on the by-hand script -- with `reviewDue: true` and a plan requiring an
+    independent verifier, so the route was followed rather than argued with. `inspect` offered
+    `review.start` at `base-ref=7906f06`, the merge base with main, 31 paths, and zero lineages; the
+    START was run with the provider's own tokens and four lenses and refused with
+    `lens_context_budget_exceeded`, `mutation_performed: false`, `next_action: stop`. No lineage was
+    created, so nothing has to be abandoned or quarantined. The provider's only continuation is to
+    split the change into smaller reviewable candidates -- the route offered as three chained PRs and
+    declined when the single PR was chosen -- so it went back to the user as the decision it is
+    instead of being applied on this front's own authority.
