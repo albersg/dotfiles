@@ -183,3 +183,24 @@ Quoted verbatim from the request; the numbering is this front's.
   is an unrelated Alacritty cleanup), so the same run fails on `main` on this machine and passes on a
   CI runner without Ghostty installed. Recorded rather than papered over: **the gate is green on
   everything this front touched and red on four tests that this machine's own PATH breaks.**
+- **L12 (delivery, this session).** The branch was pushed as `feat/wsl-performance-advisor` and
+  PR #344 opened against `main`. `main` had moved from this branch's base (`4ba4332`) to `f6451ec`
+  while the front was built — the network-diagnostics front, PR #343 and the plugin-set work — and
+  the PR arrived `CONFLICTING` against it, so the branch was rebased onto `origin/main` as the
+  repository's branching policy requires (`docs/GIT-BRANCHING.md`: rebase feature branches before
+  merging, always merge and never squash). Eight files overlapped: `model.go`, `update.go`,
+  `view.go`, `panels.go`, `teatest_test.go`, `screen_coverage_test.go`, `companion_test.go` and
+  `docs/tui-installer.md`. Four conflicted and each was resolved as a union rather than by picking a
+  side: `model.go` keeps the network-diagnosis screen and adds this front's three after it,
+  `update.go` and `view.go` keep both sides' cases and both sides' anchored-body list, and the docs
+  keep main's job sentence and panel row plus this front's advisor clause. Three guards had to be
+  reconciled, and each number was **measured on the merged tree rather than added up**: `screenNames`
+  (main's new guard, which named this front's three screens as unlisted) gained them; the utilities
+  section's job sentence moved from seven to eight and its guard
+  (`TestTheUtilitiesDocNamesEveryJobTheSectionOffers`) gained `"WSL performance advisor"`; and the
+  companion guard's pinned count moved 1088 → 1152, which is main's 68 frame states plus this
+  front's four. `measuredScreens` moved 76 → 80 for the same reason. The CHANGELOG gained the
+  release note this front had left out, in the house style, with the guard names it actually has.
+  Observed on the rebased tree: `gofmt -l` clean, `go build ./...` ok, `go vet ./...` ok, and the
+  guard set (names, coverage, companion, doc job count, section body at the floor, emoji box, the
+  advisor golden, the module source guard, every screen at every measured size) `ok` in 96.8 s.

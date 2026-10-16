@@ -714,7 +714,7 @@ at all.
 
 ### The WSL performance advisor
 
-The fourth utility is **the WSL performance advisor**, behind the **Diagnose this WSL environment**
+The eighth utility is **the WSL performance advisor**, behind the **Diagnose this WSL environment**
 row. It is offered **only inside a real WSL instance**, and the gate is not an environment variable:
 `WSL_DISTRO_NAME` is inherited by any child process, so a Windows host that merely has WSL installed,
 or a build agent running under a Windows shell, would satisfy it while having none of the filesystem
