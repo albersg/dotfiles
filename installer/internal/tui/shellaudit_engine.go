@@ -250,12 +250,15 @@ type shellAuditEvent struct {
 // one shape for a measurement, so the screen, the history and the comparison can
 // never disagree about what was measured.
 type shellAuditRun struct {
-	Kind         shellAuditKind
-	Shell        string
-	Path         string
-	Version      shellAuditVersion
-	Mode         shellAuditMode
-	Command      string
+	Kind    shellAuditKind
+	Shell   string
+	Path    string
+	Version shellAuditVersion
+	Mode    shellAuditMode
+	Command string
+	// Timeout is the bound each start was given, recorded because a start killed
+	// at it has no duration and the bound is what says so.
+	Timeout      time.Duration
 	Terminal     bool
 	TerminalName string
 	Note         string
@@ -360,6 +363,7 @@ func (st shellAuditState) withShellAuditResult(event shellAuditEvent) shellAudit
 	st.Version = run.Version
 	st.Mode = run.Mode
 	st.Command = run.Command
+	st.Timeout = run.Timeout
 	st.Terminal = run.Terminal
 	st.TerminalName = run.TerminalName
 	st.Note = run.Note
@@ -384,6 +388,17 @@ func (st shellAuditState) withShellAuditResult(event shellAuditEvent) shellAudit
 	st.Plan.Baseline = event.Baseline != nil || (st.Plan.Baseline && !run.Mode.Clean)
 	st.Runs = st.Plan.Samples
 	st.Baseline = event.Baseline
+
+	// Where this measurement sits among the stored ones, and then the stored ones
+	// themselves. The trend is read before the entry is added, and the entry it is
+	// read against is the one with this measurement's own stamp, so reading the
+	// state twice cannot turn one measurement into a trend of two.
+	entry := shellAuditHistoryEntryOf(run, compareShellAuditBaseline(&run, st.Baseline))
+	st.Trend = st.History.trend(entry)
+	if st.History.Enabled {
+		st.History = st.History.add(entry)
+	}
+
 	return st
 }
 
@@ -402,6 +417,7 @@ func (st shellAuditState) shellAuditRun() shellAuditRun {
 		Version:      st.Version,
 		Mode:         st.Mode,
 		Command:      st.Command,
+		Timeout:      st.Timeout,
 		Terminal:     st.Terminal,
 		TerminalName: st.TerminalName,
 		Note:         st.Note,
@@ -439,6 +455,7 @@ func runShellAuditMeasurement(st shellAuditState, probe shellAuditProbe, ctx con
 		Shell:        st.Shell,
 		Path:         st.ShellPath,
 		Mode:         plan.Mode,
+		Timeout:      probe.timeout,
 		Terminal:     st.Terminal,
 		TerminalName: st.TerminalName,
 		MeasuredAt:   began,

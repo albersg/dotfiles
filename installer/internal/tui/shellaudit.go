@@ -209,6 +209,14 @@ type shellAuditState struct {
 	// when the plan asked for the comparison. It is nil when none was measured,
 	// and the screen then says so instead of drawing a delta of zero.
 	Baseline *shellAuditRun
+
+	// History is what the user has stored, Trend is where this measurement sits
+	// among it, and HistoryError is what the file had to say when it could not be
+	// read. History is empty and off until the user turns it on, and nothing in
+	// this state is written to disk by the measurement itself.
+	History      shellAuditHistory
+	Trend        shellAuditTrend
+	HistoryError string
 }
 
 // shellAuditProbe carries every effect the measurement has, so each one can be
@@ -245,6 +253,11 @@ type shellAuditProbe struct {
 	writeFile func(path string, data []byte) error
 	readFile  func(path string) ([]byte, error)
 	removeAll func(path string) error
+	// mkdirAll and rename are how the stored measurements are written: the file
+	// goes through a temporary neighbour of the same directory and is rolled onto
+	// the real one, so a process that dies mid-write leaves the history it had.
+	mkdirAll func(path string) error
+	rename   func(oldPath, newPath string) error
 }
 
 // defaultShellAuditProbe returns the real probe.
@@ -263,6 +276,8 @@ func defaultShellAuditProbe() shellAuditProbe {
 		writeFile:  func(path string, data []byte) error { return os.WriteFile(path, data, 0o600) },
 		readFile:   os.ReadFile,
 		removeAll:  os.RemoveAll,
+		mkdirAll:   func(path string) error { return os.MkdirAll(path, stateDirMode) },
+		rename:     os.Rename,
 	}
 }
 
@@ -361,6 +376,22 @@ func resolveShellAudit(probe shellAuditProbe) shellAuditState {
 	// all and no explanation of what it was missing.
 	st.Terminal = probe.isTerminal()
 	st.TerminalName = shellAuditTerminalName(probe.getenv)
+
+	// The stored measurements are read once, here on the startup path, and never
+	// while a screen is being drawn: the render path must not wait on a disk, and
+	// a file the user did not ask for must not be read at all. A machine with no
+	// file is a machine that has never kept history, which is the normal first
+	// run; a file that is there and cannot be read is reported rather than
+	// silently started over.
+	if path := shellAuditHistoryPath(probe.getenv); path != "" {
+		history, err := readShellAuditHistory(probe, path)
+		st.History = history
+		if err != nil {
+			st.HistoryError = fmt.Sprintf("the stored measurements in %s could not be read (%v), so this run has "+
+				"no trend behind it: the file is left as it is, and the next measurement you keep replaces it.",
+				path, err)
+		}
+	}
 
 	st.Available = true
 	return st

@@ -196,6 +196,30 @@ inverse projection, so the history and the comparison could not have read the re
 The inverse (`shellAuditState.shellAuditRun`) now lives beside `withShellAuditResult` with a round-trip
 guard over every field.
 
+L10. T6 in place: `shellaudit_history.go` holds the stored measurement (`shellAuditHistoryEntry`: stamp,
+shell, family, version, the start's key, counts, median/fastest/slowest, the clean comparison when one
+was made, and at most the heaviest three profile rows, redacted names only), the sequence
+(newest first, bounded at 50, one measurement that lands twice is one measurement), the trend
+(`shellAuditTrend`: the median of the stored medians against this one, refused across another start,
+another version and a cancelled measurement, quiet under ten percent) and the advice, whose three kinds
+are the discipline of the section: `measured` (a fact about the measurement: the spread, the runs that
+did not finish, the limit of what could be profiled), `observed` (what the instrument named, which is
+not the same as why) and `confirmed` (the only attribution the utility can make, and only through the
+clean comparison). The file lives beside the install record in the XDG state directory, is read once on
+the startup path and never in `View`, is written through a temporary neighbour and a rename so a
+half-written history is not a state the next run can read, and is written only when the user turned
+history on: with the switch off the measurement is measured and stored nowhere. `shellAuditReport` is the
+read model the screen will draw, so the record, the comparison, the trend and the advice are one read of
+one state rather than four. The measurement also records the bound each start was given
+(`shellAuditRun.Timeout`), because a start killed at it has no duration and the number on screen has to
+say which of the two it is.
+
+L11. T6's guards are `shellaudit_history_test.go`. Two things they pinned that are worth naming: the
+stored fields are compared as the exact set of JSON keys, so a field added to the entry is a failing
+guard rather than a number that quietly leaves the machine's memory; and the advice is checked for
+causal language ("because", "is caused by", "due to"), because the profile can say where the time went
+and cannot say why it went there.
+
 ## Remaining
 
-T6..T9, with their evidence recorded here as each one lands.
+T7..T9, with their evidence recorded here as each one lands.

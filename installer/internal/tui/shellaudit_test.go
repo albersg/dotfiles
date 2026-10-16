@@ -89,6 +89,11 @@ type fakeShellAuditProbe struct {
 	profileMissing bool
 	// versionRaw is what the shell answers its own version command with.
 	versionRaw string
+	// readData and readErr are what the history file holds and how reading it
+	// fails. The profile read is separate from them: the fake answers the history
+	// path from these and every other path the way it always did.
+	readData []byte
+	readErr  error
 	// traceLines is what the profiled bash start writes to its stderr, in order,
 	// and traceErr is how that start ends when it is not a clean exit.
 	traceLines []string
@@ -103,6 +108,8 @@ type fakeShellAuditProbe struct {
 	writes     []string
 	bodies     []string
 	removed    []string
+	renames    []string
+	madeDirs   []string
 	tempDir    string
 	traceCalls int
 }
@@ -172,6 +179,15 @@ func (f *fakeShellAuditProbe) probe() shellAuditProbe {
 			return nil
 		},
 		readFile: func(path string) ([]byte, error) {
+			// The stored measurements and the instrument's table arrive through the
+			// same hook, so the path decides which of the two is answered: a guard
+			// about the history must not change what the profiler reads.
+			if path == shellAuditHistoryPath(func(key string) string { return f.env[key] }) {
+				if f.readErr != nil {
+					return nil, f.readErr
+				}
+				return f.readData, nil
+			}
 			if f.profileMissing {
 				return nil, os.ErrNotExist
 			}
@@ -179,6 +195,14 @@ func (f *fakeShellAuditProbe) probe() shellAuditProbe {
 		},
 		removeAll: func(path string) error {
 			f.removed = append(f.removed, path)
+			return nil
+		},
+		mkdirAll: func(path string) error {
+			f.madeDirs = append(f.madeDirs, path)
+			return nil
+		},
+		rename: func(oldPath, newPath string) error {
+			f.renames = append(f.renames, oldPath+" -> "+newPath)
 			return nil
 		},
 	}
