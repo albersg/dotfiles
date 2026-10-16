@@ -652,7 +652,20 @@ func (m *Manager) GenerateKey(ctx context.Context, req KeygenRequest) (GenerateR
 		}
 	}
 
-	if !req.AllowReplace {
+	if req.AllowReplace {
+		// The switch is the user saying this pair may be destroyed, and it has to be
+		// honoured here: ssh-keygen refuses to overwrite a key that is still present and
+		// asks "already exists. Overwrite (y/n)?" on a terminal this interface owns, so a
+		// request that reached it with the old pair in place failed with a message about
+		// a prompt nobody saw. Only the two files this request names are removed, and a
+		// removal that fails stops the generation: the alternative is leaving the user
+		// with an error they cannot act on.
+		for _, existing := range []string{path, path + ".pub"} {
+			if err := os.Remove(existing); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return GenerateResult{}, fmt.Errorf("the existing key %s could not be removed, so nothing was generated: %w", existing, err)
+			}
+		}
+	} else {
 		for _, existing := range []string{path, path + ".pub"} {
 			if _, statErr := os.Stat(existing); statErr == nil {
 				return GenerateResult{}, fmt.Errorf("the key %s already exists; nothing was written. Remove it or allow replacement", existing)
