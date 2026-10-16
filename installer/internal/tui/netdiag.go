@@ -887,6 +887,6 @@ func networkPanelValue(state networkState) string {
 		}
 		return "every stage answered"
 	default:
-		return "not checked yet"
+		return "not run yet"
 	}
 }
