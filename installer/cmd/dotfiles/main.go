@@ -566,14 +566,19 @@ Flags:
                        package manager installed is refused (run
                        brew upgrade dotfiles for that one)
   --verify             Check this machine against the record the last install
-                       wrote: every configuration path and backup that run named
-                       is reported as here or missing, with what the run did to
-                       it. The record holds no digest, so a path that is here is
-                       reported as here and unverifiable, never as matching.
-                       Exits 0 when every path and backup it names is still here,
-                       1 when something it names is gone, and 2 when a record is
-                       present and could not be read. A machine with no record
-                       exits 0 and says nothing was installed here
+                       wrote. Every configuration path and backup that run named
+                       is reported as here or missing, and every file the run
+                       changed is compared against the digest it held when the run
+                       finished: still holding what the run left, changed since,
+                       or unreadable. Where the record carries no digest -- one
+                       written before it kept them, or a path the run did not
+                       write -- the report says the path is here and unverifiable,
+                       never that it matches.
+                       Exits 0 when the machine is what that run left, 1 when a
+                       path or backup it names is gone or a file no longer holds
+                       what the run left, and 2 when a record is present and could
+                       not be read. A machine with no record exits 0 and says
+                       nothing was installed here
   --revert             Put this machine back where the last install found it: every
                        file the run modified or removed is copied back out of the
                        backup, and every file it created is removed. The record the

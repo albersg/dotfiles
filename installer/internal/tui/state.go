@@ -66,6 +66,10 @@ const (
 	installActionReplaced installAction = "replaced"
 	// installActionCreated: the run wrote a path that did not exist before it.
 	installActionCreated installAction = "created"
+	// installActionRemoved: the run removed a file that was there before it. It is
+	// a file-level action: the run removes files inside a configuration directory,
+	// never a whole key, and the record's own Deleted change is what names it.
+	installActionRemoved installAction = "removed"
 )
 
 // installEntry is one configuration path and what the run did to it. Backup
@@ -606,7 +610,26 @@ const (
 	// findingBackupMissing: the record names a copy and it is gone, so the change
 	// it was taken for can no longer be put back.
 	findingBackupMissing
+	// findingFileHoldsWhatTheRunLeft: the record names a file and the digest it had
+	// when the run finished writing, and the file still holds it. This is the only
+	// kind that is a claim about content, and it is a claim the record supports.
+	findingFileHoldsWhatTheRunLeft
+	// findingFileChangedSinceTheRun: the record names a file and a digest, and the
+	// file no longer holds it -- edited afterwards, or put back after the run
+	// removed it.
+	findingFileChangedSinceTheRun
+	// findingFileUnreadable: the file is here and could not be read, so the report
+	// cannot say whether it holds what the run left. A third answer on purpose:
+	// calling it changed and calling it fine are both claims the record does not
+	// support.
+	findingFileUnreadable
 )
+
+// ChangedSinceTheRun reports whether the finding is a file the report can no
+// longer say holds what the run left.
+func (k installFindingKind) ChangedSinceTheRun() bool {
+	return k == findingFileChangedSinceTheRun || k == findingFileUnreadable
+}
 
 // Missing reports whether the finding is something the machine no longer has.
 func (k installFindingKind) Missing() bool {
@@ -635,6 +658,10 @@ type installFinding struct {
 	// Action is what the run did to the path, kept for the path's own findings and
 	// unused by the ones about a copy.
 	Action installAction
+	// Detail is the one comparison behind a per-file finding, already written out:
+	// the digests that differ, or that the file could not be read. The presenters
+	// print it as it stands rather than working anything out themselves.
+	Detail string
 }
 
 // installVerdict is what comparing this machine with the record of the last
@@ -650,8 +677,10 @@ type installVerdict struct {
 	Reason string
 	// Record is the record that was read, and nil unless one was.
 	Record *lastInstall
-	// Findings is one fact per path and copy the record names, in the record's own
-	// order, so neither presenter has to sort them into anything.
+	// Findings is one fact per path, copy and changed file the record names: the
+	// paths and copies in the record's own order, each with the files the record
+	// knows about inside it. A path a per-file finding covers is not repeated, so
+	// nothing is said twice and nothing is said in weaker words than it deserves.
 	Findings []installFinding
 }
 
@@ -667,7 +696,22 @@ func (v installVerdict) Consistent() bool {
 	if v.Unreadable {
 		return false
 	}
-	return v.Missing() == 0
+	return v.Missing() == 0 && v.Divergent() == 0
+}
+
+// Divergent counts the findings that say the machine is no longer what the run
+// left: something it names that is gone, and a file that no longer holds the
+// digest the run recorded. The two are counted together because they are the same
+// answer to the question --verify asks, and they are reported apart because they
+// are different things to do something about.
+func (v installVerdict) Divergent() int {
+	divergent := 0
+	for _, finding := range v.Findings {
+		if finding.Kind.Missing() || finding.Kind.ChangedSinceTheRun() {
+			divergent++
+		}
+	}
+	return divergent
 }
 
 // Missing counts the findings the machine no longer has.
@@ -698,6 +742,25 @@ func InspectInstall() installVerdict {
 	}
 
 	verdict := installVerdict{Record: rec}
+
+	// The per-file findings are what make this a check of content rather than of
+	// presence: each one names the digest the file held when the run finished, so
+	// the report can say whether it still holds it. A change the record cannot
+	// check -- one that names no digest -- takes no part, and leaves its path to
+	// the path-level finding, because presence is all such a record supports.
+	byKey := map[string][]fileChange{}
+	covered := map[string]bool{}
+	for _, change := range rec.Changes {
+		if change.Path == "" {
+			continue
+		}
+		if change.Action != fileActionDeleted && change.After == "" {
+			continue
+		}
+		byKey[change.Key] = append(byKey[change.Key], change)
+		covered[change.Path] = true
+	}
+
 	for _, entry := range rec.Entries {
 		// A record that names no path has nothing to compare with the machine. It is
 		// skipped rather than counted as gone: the machine did not lose anything.
@@ -705,31 +768,117 @@ func InspectInstall() installVerdict {
 			continue
 		}
 
-		kind := findingPathMissing
-		if pathExists(entry.Path) {
-			kind = findingPathPresent
+		// A path a per-file finding covers is not reported twice: the file's own
+		// finding is the stronger fact, and a path-level line would repeat it with
+		// less confidence and in weaker words.
+		if !covered[entry.Path] {
+			kind := findingPathMissing
+			if pathExists(entry.Path) {
+				kind = findingPathPresent
+			}
+			verdict.Findings = append(verdict.Findings, installFinding{
+				Kind:   kind,
+				Key:    entry.Key,
+				Path:   entry.Path,
+				Action: entry.Action,
+			})
 		}
-		verdict.Findings = append(verdict.Findings, installFinding{
-			Kind:   kind,
-			Key:    entry.Key,
-			Path:   entry.Path,
-			Action: entry.Action,
-		})
 
-		if entry.Backup == "" {
-			continue
+		if entry.Backup != "" {
+			copyKind := findingBackupMissing
+			if pathExists(entry.Backup) {
+				copyKind = findingBackupPresent
+			}
+			verdict.Findings = append(verdict.Findings, installFinding{
+				Kind: copyKind,
+				Key:  entry.Key,
+				Path: entry.Backup,
+			})
 		}
-		copyKind := findingBackupMissing
-		if pathExists(entry.Backup) {
-			copyKind = findingBackupPresent
+
+		for _, change := range byKey[entry.Key] {
+			verdict.Findings = append(verdict.Findings, inspectFileChange(change))
 		}
-		verdict.Findings = append(verdict.Findings, installFinding{
-			Kind: copyKind,
-			Key:  entry.Key,
-			Path: entry.Backup,
-		})
+		delete(byKey, entry.Key)
 	}
+
+	// A file whose key the entries do not name still belongs in the report: the run
+	// recorded changing it, and the reader is owed it.
+	orphans := make([]string, 0, len(byKey))
+	for key := range byKey {
+		orphans = append(orphans, key)
+	}
+	sort.Strings(orphans)
+	for _, key := range orphans {
+		for _, change := range byKey[key] {
+			verdict.Findings = append(verdict.Findings, inspectFileChange(change))
+		}
+	}
+
 	return verdict
+}
+
+// inspectFileChange establishes one fact about one file the record names, from the
+// digest the run took and the bytes on disk now.
+func inspectFileChange(change fileChange) installFinding {
+	finding := installFinding{
+		Key:    change.Key,
+		Path:   change.Path,
+		Action: actionForChange(change.Action),
+	}
+
+	if !pathExists(change.Path) {
+		if change.Action == fileActionDeleted {
+			// The run removed it and it is still gone, which is what the run left.
+			finding.Kind = findingFileHoldsWhatTheRunLeft
+			return finding
+		}
+		finding.Kind = findingPathMissing
+		return finding
+	}
+
+	if change.Action == fileActionDeleted {
+		// Something put it back after the run removed it.
+		finding.Kind = findingFileChangedSinceTheRun
+		finding.Detail = "the run removed it and it is here again"
+		return finding
+	}
+
+	switch digest := fileDigest(change.Path); {
+	case digest == "":
+		finding.Kind = findingFileUnreadable
+	case digest == change.After:
+		finding.Kind = findingFileHoldsWhatTheRunLeft
+	default:
+		finding.Kind = findingFileChangedSinceTheRun
+		finding.Detail = "expected " + shortDigest(change.After) + ", found " + shortDigest(digest)
+	}
+	return finding
+}
+
+// actionForChange says what the run did in the path-level vocabulary, so a
+// per-file finding reads in the same words as the path-level ones.
+func actionForChange(action fileAction) installAction {
+	switch action {
+	case fileActionCreated:
+		return installActionCreated
+	case fileActionDeleted:
+		return installActionRemoved
+	default:
+		return installActionReplaced
+	}
+}
+
+// shortDigest is the first twelve characters of a digest: enough for a reader to
+// compare two of them, short enough to keep the report a report.
+func shortDigest(digest string) string {
+	if digest == "" {
+		return "(none)"
+	}
+	if len(digest) > 12 {
+		return digest[:12]
+	}
+	return digest
 }
 
 // verifyLines renders a verdict as the report --verify prints: one line per
@@ -774,18 +923,42 @@ func verifyLines(v installVerdict) []string {
 			lines = append(lines, fmt.Sprintf(
 				"missing  backup of %s  %s  the record names this copy and it is not here",
 				finding.Key, finding.Path))
+		case findingFileHoldsWhatTheRunLeft:
+			phrase := "still holds what the run left"
+			if finding.Action == installActionRemoved {
+				phrase = "is still gone, as the run left it"
+			}
+			lines = append(lines, fmt.Sprintf("here     %s  %s  %s", finding.Key, finding.Path, phrase))
+		case findingFileChangedSinceTheRun:
+			phrase := "no longer holds what the run left"
+			if finding.Action == installActionRemoved {
+				phrase = "was removed by the run and is here again"
+			}
+			if finding.Detail != "" {
+				phrase += ": " + finding.Detail
+			}
+			lines = append(lines, fmt.Sprintf("changed  %s  %s  %s", finding.Key, finding.Path, phrase))
+		case findingFileUnreadable:
+			lines = append(lines, fmt.Sprintf(
+				"unknown  %s  %s  the file could not be read, so this report cannot say whether it still holds what the run left",
+				finding.Key, finding.Path))
 		}
 	}
 	return lines
 }
 
 // VerifyInstall compares the machine with the record of the last completed run
-// and returns the report --verify prints. It reports what the record supports --
-// whether each path is there, what the run did to it, and whether the backup it
-// took is still there -- and says plainly what the record cannot support:
-// installEntry names no digest, so a path that is present is reported as present
-// and unverifiable, never as matching what the install left. Verification never
-// writes: it reads the machine and the record and nothing else.
+// and returns the report --verify prints. It reports what the record supports.
+//
+// For a file the run changed, the record carries the digest it held when the run
+// finished, so the report says whether it still holds it: that is the difference
+// between "the file is here" and "the machine is what the install left", and only
+// the second is worth checking. Where the record carries no digest -- a record
+// written before it kept them, or a path the run did not write -- presence is all
+// that can be established, and the report says so rather than turning presence
+// into a claim about content.
+//
+// Verification never writes: it reads the machine and the record and nothing else.
 func VerifyInstall() VerifyReport {
 	verdict := InspectInstall()
 	return VerifyReport{
@@ -808,6 +981,8 @@ func verifyActionPhrase(action installAction) string {
 		return "backed up by the run"
 	case installActionFound:
 		return "found and left alone by the run"
+	case installActionRemoved:
+		return "removed by the run"
 	default:
 		return "recorded by the run"
 	}

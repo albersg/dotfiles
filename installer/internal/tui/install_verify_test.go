@@ -47,6 +47,16 @@ func installVerifyTestVerdict() installVerdict {
 			{Kind: findingPathPresent, Key: "nvim", Path: "/home/testuser/.config/nvim", Action: installActionReplaced},
 			{Kind: findingPathMissing, Key: "fish", Path: "/home/testuser/.config/fish", Action: installActionCreated},
 			{Kind: findingBackupMissing, Key: "kitty", Path: "/home/testuser/.dotfiles-backup-20261015-122400/kitty"},
+			// A file the record can compare: the screen has to show a file that no
+			// longer holds what the run left, which is the answer presence alone
+			// could never give.
+			{
+				Kind:   findingFileChangedSinceTheRun,
+				Key:    "zsh",
+				Path:   "/home/testuser/.zshrc",
+				Action: installActionReplaced,
+				Detail: "expected 8f3a1c92b4de, found 1c07ba44e9d2",
+			},
 		},
 	}
 }
@@ -150,13 +160,15 @@ func TestTheVerificationScreenShowsWhatIsGoneAndSaysWhatIsStillHere(t *testing.T
 	flat := installVerifyScreenText(m)
 	for _, want := range []string{
 		"Read-only",                                  // the promise
-		"still here, and nothing else",               // exactly what is checked
-		"names no digest",                            // what the record cannot support
+		"is here or gone",                            // exactly what is checked about a path
+		"compared against the digest it held",        // and about a file
+		"carries no digest",                          // what the record cannot support
 		"Record from 2026-10-15 12:24:00 by v0.9.0.", // the run it describes
-		"2 of the 3 paths and backups",               // how many are not here
+		"2 of the 4 paths and backups",               // how many are not here
 		"missing fish /home/testuser/.config/fish",   // the gone path, named
 		"backup of kitty",                            // the gone copy of the replaced path
-		"Still here: 1 of the 3 paths and backups",   // the count that is
+		"no longer holds what the run left",          // the file that changed, named
+		"Still what the run left: 1 of the 4.",       // the count that is
 		"dotfiles --verify prints every one of them", // where the whole list is
 	} {
 		if !strings.Contains(flat, want) {
@@ -189,7 +201,7 @@ func TestTheVerificationScreenSaysWhenNothingIsGone(t *testing.T) {
 	m.Width, m.Height = 200, 60
 
 	flat := installVerifyScreenText(m)
-	if !strings.Contains(flat, "Every one of the 3 paths and backups") {
+	if !strings.Contains(flat, "Every one of the 4 paths, copies and files") {
 		t.Errorf("a machine that matches the record does not say so: %q", flat)
 	}
 	if strings.Contains(flat, "Not here") || strings.Contains(flat, "missing") {
