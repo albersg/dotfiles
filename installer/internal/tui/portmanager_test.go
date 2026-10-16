@@ -565,3 +565,53 @@ func TestPortManagerPeriodicRefreshPausesOnTheStopScreenAndWhileFiltering(t *tes
 		t.Fatal("the tick stopped re-arming itself while the refresh was still on")
 	}
 }
+
+// TestPortManagerCopySendsOnlyRedactedText pins the one invariant the other
+// tests leave open: what the copy action hands to the terminal. The diagnostic
+// is the payload the command carries verbatim, so a password on the command line
+// of the process behind the port cannot reach a clipboard through this screen.
+func TestPortManagerCopySendsOnlyRedactedText(t *testing.T) {
+	probe := newPortTestProbe()
+	// A password in the joined short form mysql takes, on the command line of the
+	// process behind port 9000, so the package's redaction is the only thing
+	// keeping it off the screen and out of the diagnostic.
+	probe.files["/proc/2000/cmdline"] = []byte("python3\x00--serve\x00-ps3cret\x00\x00")
+
+	m := portTestModel(t, probe)
+	portTestCursorToPID(t, &m, 2000)
+
+	text := m.portDiagnosticText()
+	if text == "" {
+		t.Fatal("the copy action has no diagnostic for a row whose owner is known")
+	}
+	if strings.Contains(text, "s3cret") {
+		t.Fatalf("the diagnostic carries the command line's credential:\n%s", text)
+	}
+	for _, want := range []string{"port 9000/tcp", "scope " + portscan.ScopeSelf, "owner python3 pid 2000", "args [python3 --serve -p" + "****]"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the diagnostic does not name %q:\n%s", want, text)
+		}
+	}
+
+	// A terminal that has not confirmed OSC 52 gets no command at all, and the
+	// screen says the text was left for the user to copy by hand instead.
+	next, cmd := m.handlePortManagerKeys("y")
+	got := next.(Model)
+	if cmd != nil {
+		t.Fatal("a copy was sent to a terminal that has not confirmed OSC 52")
+	}
+	if !strings.Contains(got.Ports.Notice, "left on screen") {
+		t.Errorf("notice = %q, want it to say the diagnostic was left on screen", got.Ports.Notice)
+	}
+
+	// A terminal that has confirmed it gets exactly one command.
+	got.TerminalCapabilities.Clipboard.State = capabilitySupported
+	next, cmd = got.handlePortManagerKeys("y")
+	got = next.(Model)
+	if cmd == nil {
+		t.Fatal("no copy command was produced for a terminal that takes OSC 52")
+	}
+	if !strings.Contains(got.Ports.Notice, "OSC 52") {
+		t.Errorf("notice = %q, want it to name the copy it made", got.Ports.Notice)
+	}
+}
