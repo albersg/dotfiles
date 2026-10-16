@@ -1152,6 +1152,17 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: true,
 	})
 
+	// The section's utilitiesDiskCleanerRow. The panel says what the last scan
+	// measured and how much of it is marked -- and that nothing has been measured
+	// yet before a visit has scanned, because the screen it names is the only
+	// thing that walks the machine.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Caches",
+		value:   diskCleanPanelValue(m.DiskClean),
+		absent:  "The development stores are not measurable here.",
+		offered: m.DiskClean.Resolved,
+	})
+
 	return entries
 }
 

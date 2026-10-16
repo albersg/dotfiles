@@ -1054,6 +1054,20 @@ func TestShellAuditGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "The shell's startup"))
 }
 
+// TestDiskCleanerGolden pins the disk cleaner on findings that are forced: each
+// store with the reason it was found, the number it holds and where that number
+// came from, the two rows that are marked beside the ones that are not, and the
+// prose that says what would have to be downloaded or rebuilt again. No scan is
+// run and no machine is read, so the frame is the same on every runner.
+func TestDiskCleanerGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := diskCleanerFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Development caches"))
+}
+
 // TestTerminalCapabilitiesGolden pins the capability report: every answer with
 // the source it came from, the one answer that is unknown with the manual check
 // that replaces it, and the read-only promise. The answers are forced rather than

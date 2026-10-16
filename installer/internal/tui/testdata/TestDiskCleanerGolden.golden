@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   Utilities                                                                    
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  Development caches                                                            
+  Development caches looks at the caches, downloads, build directories,         
+  dependency trees and container stores of the development tools this machine   
+  actually has -- a tool is named only when a program on the PATH, an           
+  environment variable or an existing directory says it is used here. Every     
+  … and 39 more                                                                 
+                                                                                
+  ▸ Scan again                                                                  
+  ────────────────────────────────────────────────────────────────────────────  
+    [x] The npm cache — 900.0 MiB — safe to rebuild                             
+    [ ] The Go build cache — 640.0 MiB — safe to rebuild                        
+    [ ] node_modules in /home/testuser/projects/app — 200.0 MiB — costs a re-…  
+    [x] The container volumes — 500.0 MiB (tool-reported) — delicate — shares…  
+    [ ] The apt package cache — 120.0 MiB — safe to rebuild                     
+  ────────────────────────────────────────────────────────────────────────────  
+    Preview the 2 items selected                                                
+  ────────────────────────────────────────────────────────────────────────────  
+    Add the project directory /home/testuser/projects                           
+    ← Back                                                                      
+  ────────────────────────────────────────────────────────────────────────────  
+  ↑/k up • ↓/j down • [Enter] select                                            [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

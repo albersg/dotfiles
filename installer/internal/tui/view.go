@@ -555,6 +555,9 @@ func (m Model) headerName() string {
 	case ScreenShellAudit:
 		// The shell's startup screen is one level in from the same section.
 		return "Utilities"
+	case ScreenDiskCleaner:
+		// The disk cleaner is one level in from the same section.
+		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
 		return "Utilities"
@@ -1059,6 +1062,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenDiskCleaner:
+		s.WriteString(m.renderDiskCleaner())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1680,6 +1685,15 @@ func (m Model) utilitiesDescription() []string {
 	paragraphs = append(paragraphs, fmt.Sprintf("%s reads the colour depth, OSC 52, synchronized "+
 		"output and the Nerd Font glyphs, and names the source of every answer.", utilitiesTerminalRow))
 
+	// The development disk cleaner, the one utility here that removes things. It
+	// is offered everywhere too, and the one line the section gives it is the rule
+	// the screen then keeps: nothing is cleaned that was not marked, and a store
+	// the tool itself owns is cleaned through the tool's own command.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s measures what this machine's development tools "+
+		"keep -- caches, downloads, build output, dependency trees and container stores -- states why each one "+
+		"was found, and cleans only the findings you mark, through the tool's own command where it has one.",
+		utilitiesDiskCleanerRow))
+
 	return paragraphs
 }
 
@@ -1790,6 +1804,12 @@ const utilitiesWSLRow = "Adjust the WSL resources"
 // It is offered everywhere -- there is always a terminal to describe, and where
 // there is none the screen says so -- and it is read-only.
 const utilitiesTerminalRow = "Report the terminal capabilities"
+
+// utilitiesDiskCleanerRow is the section's row for the developer disk cleaner.
+// It is offered everywhere: a machine a development tool is installed on always
+// keeps something, and where the user-level stores cannot be located the
+// screen's own body names the reason rather than the row going missing.
+const utilitiesDiskCleanerRow = "Clean up development caches"
 
 // The rows the arrow keys act on. The indices are part of the screen's contract:
 // the key handler adjusts the value under the cursor by its index, and the frame

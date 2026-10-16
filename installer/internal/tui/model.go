@@ -116,6 +116,14 @@ const (
 	// optional detours reached from the row that decides them (T2 of
 	// odd/tasks/start-installation-flow.md).
 	ScreenSetup // Every decision of the flow, on one screen
+	// The developer disk cleaner. Appended at the end for the same reason as the
+	// screens above. The utilities section opens it from its own row. It finds
+	// the stores this machine's development tools keep -- caches, downloads,
+	// build artifacts, project dependencies, container engines -- measures what
+	// they hold, states why each one was found, and cleans only what the user
+	// marks, through the tool's own maintenance command where one exists and
+	// through a guarded removal where one does not.
+	ScreenDiskCleaner // The development stores, what they hold, and their cleanup
 )
 
 // InstallStep represents a single installation step
@@ -474,6 +482,14 @@ type Model struct {
 	// resolved once, here; the measurement runs only when the row is pressed,
 	// because starting the user's shell five times is not a render.
 	ShellAudit shellAuditState
+	// DiskClean is what the developer disk cleaner draws: the stores the last scan
+	// found with the reason each was found, what each holds and where that number
+	// came from, what the user marked, the dry run of that mark, and the outcome
+	// once it ran. Its environment half -- the directory this run was started from
+	// -- is resolved once, here. Nothing on the drawing path scans, measures or
+	// removes, and nothing is ever selected for the user: a delicate finding stays
+	// unmarked until they mark it themselves.
+	DiskClean diskCleanState
 	// UpdateCheck is what the installer knows about the latest published release:
 	// the tag, when it was read, and the reason it could not be read. The cached
 	// record is loaded on the startup path, so a start never waits on the network;
@@ -591,6 +607,11 @@ func NewModel() Model {
 	// reason: which shell, and whether this run can start an interactive one, are
 	// questions a render must not ask. The measurement itself is a keypress away.
 	m.ShellAudit = resolveShellAudit(defaultShellAuditProbe())
+	// The directory this run was started from is read here, for the same reason:
+	// the disk cleaner offers it as the project directory whose build artifacts
+	// and dependency trees a scan may look at, and a render must not read the
+	// process's working directory.
+	m.DiskClean = resolveDiskClean()
 	// The last release check is read here, from its own state file, exactly as the
 	// last-install record is: one file read, no waiting. The request itself is a
 	// command the run arms from the drawing gate, so the startup path never reaches
@@ -902,6 +923,10 @@ func (m Model) GetCurrentOptions() []string {
 		// is always a terminal to describe, and where there is not one the screen's
 		// own body says so rather than the row being silently absent.
 		utilities = append(utilities, utilitiesTerminalRow)
+		// The development disk cleaner is offered everywhere for the same reason:
+		// there is always something a development machine keeps, and where the
+		// user-level stores cannot be located the screen's own body names why.
+		utilities = append(utilities, utilitiesDiskCleanerRow)
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -922,6 +947,8 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"← Back"}
 	case ScreenShellAudit:
 		return m.shellAuditRows()
+	case ScreenDiskCleaner:
+		return diskCleanRowLabels(m.diskCleanRows())
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:
@@ -1195,6 +1222,8 @@ func (m Model) GetScreenTitle() string {
 		return "Terminal capabilities"
 	case ScreenShellAudit:
 		return "The shell's startup"
+	case ScreenDiskCleaner:
+		return "Development caches"
 	case ScreenUpdate:
 		return "Updates"
 	default:
