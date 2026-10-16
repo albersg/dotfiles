@@ -204,3 +204,24 @@ Quoted verbatim from the request; the numbering is this front's.
   Observed on the rebased tree: `gofmt -l` clean, `go build ./...` ok, `go vet ./...` ok, and the
   guard set (names, coverage, companion, doc job count, section body at the floor, emoji box, the
   advisor golden, the module source guard, every screen at every measured size) `ok` in 96.8 s.
+- **L13 (CI, this session).** The PR's first CI run on the rebased tree came back green on everything
+except the **macOS smoke test**, which failed inside `internal/system`:
+`TestPlanMigrationRefusesNonsenseLayouts/destination_inside_source` reported
+`plan is Runnable, want blocked; blockers=[]`, and `TestRunMigrationInstructionsAreQuotedAndNotExecuted`
+wanted the spelling `t.TempDir()` returned while the plan quoted a resolved one. One defect explained
+both. `canonicalMigrationPath` resolved a path that exists through `EvalSymlinks` and fell back to
+`filepath.Abs` for one that does not exist yet, so on a system whose temporary directory is reached
+through a symlink (macOS resolves `/var/folders/...` to `/private/var/folders/...`) the destination was
+compared unresolved against a resolved source, the "destination is inside the source" blocker never
+fired, and the copy would have read what it writes. The destination is now resolved through its nearest
+existing ancestor with the components that do not exist re-appended, which also makes the by-hand
+instructions quote one vocabulary instead of a resolved source beside an unresolved destination. Red and
+green were both observed on Linux rather than argued from a red runner: the new regression test spells
+the destination through a symlink into the source and failed with `blockers=[]` before the fix, and the
+whole system suite was run with `TMPDIR` pointed at a symlink -- the shape macOS has -- where the pre-fix
+code failed exactly the two cases CI reported and the fixed code passes. The instruction test now
+resolves its expectation with the standard library instead of the package's own resolver, so it checks
+the instruction rather than agreeing with the code it checks. CI's ubuntu jobs (Go Validation, Go tests,
+both builds, Branding Audit, Secret Scanning, Shell Validation, the Linux E2E matrix and Termux) passed
+on this branch, which is the independent confirmation that the four Ghostty failures local to this
+machine are this machine's PATH and not this change.
