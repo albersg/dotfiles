@@ -2119,15 +2119,25 @@ func wslCurrentParagraph(state wslResourceState) string {
 
 // wslResourcesUnavailableReason says why the section offers no WSL resource row,
 // and is empty when it does. The reason is always stated: a gap the user cannot
-// see the reason for is the failure this exists to prevent, and on a machine
-// that is not Windows the answer is simply that this is not Windows.
+// see the reason for is the failure this exists to prevent, and on a machine that
+// is not WSL the answer names that machine.
+//
+// The sentence stays one row for every host name a machine reports in practice,
+// and that is a budget rule rather than a style: the section's body shares the
+// frame with its rows, so each job's line has to fit at 80x24 without the cut
+// marker (the guard that reads that frame is
+// TestUtilitiesBodyCarriesEveryJobAtTheFloor), and the SSH manager's own line
+// spent the last row the section had. It used to name the host *and* the file's
+// nature -- "and .wslconfig is a Windows file, and %s is not WSL" -- which
+// wrapped it to two rows on every host; the host is the half that says why the
+// utility cannot run here.
 func (m Model) wslResourcesUnavailableReason() string {
 	if m.SystemInfo == nil || !m.SystemInfo.IsWSL {
 		host := "this machine"
 		if m.SystemInfo != nil && m.SystemInfo.OSName != "" {
 			host = m.SystemInfo.OSName
 		}
-		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file, and %s is not WSL.", host)
+		return fmt.Sprintf("WSL resources are not adjustable here: %s is not WSL.", host)
 	}
 	if !m.WSLState.Resolved {
 		return "WSL resources are not adjustable here yet: reading the Windows profile and the host's capacities."
