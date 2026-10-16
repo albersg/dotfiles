@@ -345,9 +345,11 @@ line each value came from and saying plainly when a `Match` criterion (an `exec`
 `final`) was not evaluated rather than guessing which block won. An entry that cannot be rewritten
 safely — a wildcard, a negation, a line with an `Include` or a `Match` under it, a value carrying a
 comment, a file this tool may not write — is shown **read-only with the reason**, and the rows that
-would edit it are not offered. Writing is confined to a block this tool marks in `~/.ssh/config`
-(`# >>> dotfiles ssh-manager >>>`): every line outside it is preserved **byte-for-byte**, including
-your comments, blank lines and unknown options, and the plan of a change is previewed with its
+would edit it are not offered. A new entry is written inside a block this tool marks in
+`~/.ssh/config` (`# >>> dotfiles ssh-manager >>>`), and an entry your own file already declares is
+edited **where it is**; either way every line the change does not name is preserved
+**byte-for-byte**, including your comments, blank lines and unknown options, and the plan of a change
+is previewed with its
 `+`/`-` lines and the backup it will take before anything is written. A write copies the file to
 `.bak-dotfiles-<stamp>` first, writes a temporary file, has **the client's own parser** validate it
 with `ssh -G -F`, and replaces the file atomically — refusing outright when the file changed since
