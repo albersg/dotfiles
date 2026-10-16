@@ -189,32 +189,44 @@ const ScopeSelf, ScopeWSLGuest = "this machine", "WSL guest"
 - **T1 — the `portscan` package: types, probe leaves and the Linux/Termux reader.** S1, S2, S10, S12.
   Route: inline (parent). Files: `installer/internal/portscan/{portscan.go,probe_unix.go,probe_windows.go,
   discover_linux.go,discover_darwin.go,discover_unsupported.go}`. Commit: `feat(portscan): read the
-  sockets a machine has bound and the processes behind them`.
+  sockets a machine has bound and the processes behind them` (`250c627`).
 - **T2 — the safety path: redaction, protection, revalidation and the verified stop.** S2, S6-S9, S14.
   Route: inline (parent). Files: `installer/internal/portscan/{safety.go,stop.go}` plus the darwin
-  reader. Commit: `feat(portscan): stop one process only after revalidating its identity`.
+  reader. Commit: `feat(portscan): stop one process only after revalidating its identity` (`e059c88`).
 - **T3 — `portscan` tests, doubles and the own-child integration test.** S1-S11. Route: inline (parent).
   Files: `installer/internal/portscan/*_test.go`. Commit: `test(portscan): pin the readers, the
-  protection rules and the revalidated stop`.
+  protection rules and the revalidated stop` (`82826f1`).
 - **T4 — the TUI state and wiring: screen constants, model, options, utilities row, panel, dispatch and
   keys.** S3, S5, S9, S12, S13, S14. Route: worker `gentle-ai-worker`, independent of T1-T3 file sets,
   frozen interface above. Files: `installer/internal/tui/{model.go,update.go,view.go,panels.go}` and
   `installer/internal/tui/portmanager.go`. Commit: `feat(installer): the Utilities section finds what
-  holds a port`.
+  holds a port` (`d5648ff`), which carries T5 and T6 with it on purpose: a screen's code, its tests, its
+  frame guards and its goldens are one reviewable unit, because a screen that landed without its guard
+  would leave `TestEveryScreenIsCoveredByAFrameGuard` red and a guard landed without its screen measures
+  nothing.
 - **T5 — the port screens render: list, search, filters, details, refresh and the stop confirmation.**
-  S3, S4, S6, S7, S8, S13. Route: worker `gentle-ai-worker`, same unit as T4. Commit included in T4.
+  S3, S4, S6, S7, S8, S13. Route: worker `gentle-ai-worker`, same unit as T4. Commit included in T4
+  (`d5648ff`).
 - **T6 — TUI tests and frame guards for the new screens.** S3, S5-S8, S11, S13. Route: worker
   `gentle-ai-worker` then inspected by the parent. Files: `installer/internal/tui/portmanager_test.go`
-  and the guard lists in `teatest_test.go` / `screen_coverage_test.go`. Commit: `test(installer): pin
-  the port screen's filtering, refresh and stop confirmation`.
+  and the guard lists in `teatest_test.go` / `screen_coverage_test.go`. Commit: rolled into T4's
+  (`d5648ff`) for the reason recorded there.
 - **T7 — docs and help text.** S1-S10. Route: inline (parent). Files: `docs/tui-installer.md`,
-  `README.md` (feature bullet). Commit: `docs: record the port and process utility`.
+  `README.md` and `README.es.md` (the utility's own paragraph in each language). Commit: `docs: record
+  the port and process utility` (this commit).
 - **T8 — verification: `make check`, the full suite, and an independent verifier over the safety path.**
-  S6, S7, S9, S11. Route: `gentle-ai-verify` + parent. Commit: none.
+  S6, S7, S9, S11. Route: `gentle-ai-verify` + parent. Commit: none of its own; its findings are fixed
+  in `9760fe7` (`fix(portscan): mask every credential and never call an unread port free`), `47b4136`
+  (`fix(portscan): mask the pass flag, a joined password and an escaped quote`) and `1531bd1`
+  (`fix(portscan): mask the user%password form the SMB clients take`), recorded in L5 and L6, and
+  re-verified by two further bounded verifiers.
 
 ## Log
 
-- **L1 (the user's request, verbatim):**
+- **L1 (the user's request, quoted word for word except where a word is marked as elided. The upstream
+  project's own name is elided as `[the upstream project]`: this repository's branding audit fails on it
+  outside its exclusion list, and no other document under `odd/tasks/` spells it out. Nothing else in the
+  quote is changed):**
 
 ```
 # Agente 02 — Port & Process Manager
@@ -262,7 +274,7 @@ funcional y segura, no una tabla decorativa.
 
 ## Contexto y condiciones obligatorias
 
-Estás trabajando en un fork de los dotfiles de Gentleman Programming que ya incluye un
+Estás trabajando en un fork de los dotfiles de [the upstream project] que ya incluye un
 installer/configurador TUI con navegación, estilos y temas dinámicos, mascota, utilidades e integración
 con el entorno de desarrollo. Tu cometido es **implementar esta funcionalidad realmente**, no entregar
 un diseño, pseudocódigo o una maqueta sin lógica.
@@ -325,3 +337,46 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   two signal failures so the outcome is classified by the package instead of by a platform error
   string. `Signal.String()`, `Signal.Forced()`, `Listener.Endpoint/Key/Wildcard/Loopback` and
   `Snapshot.ListenersFor` are the small helpers the TUI reads.
+- **L5 — the independent verification of the safety path found two real failures, both fixed.** A
+  read-only verifier reviewed the package against S1-S14 with its own probes in a scratch copy and
+  reported: **B1**, `RedactArgs` left credentials that any real process can carry unredacted --
+  `curl -u alice:s3cret`, `--user=alice:s3cret`, `mysql -ps3cret`, `--pw=s3cret`, and a JSON body on
+  the command line (`{"password":"hunter2"}`) -- which S8 forbids, because those arguments are shown
+  on the screen and copied into the diagnostic; and **B2**, the post-stop verification reported "The
+  ports it held are free" when the fresh reading had failed on every reader, which is a false
+  positive about occupancy that S7 forbids and an empty list reading as "nothing is bound" that S12
+  forbids. It also raised three limitations: a blank limitation string reached `Snapshot.Limits` from
+  the `ss` fallback with an empty stderr; `StopRefusal` skipped the scope check when a hand-built
+  target carried no scope at all; and a denied `/proc/<pid>/fd` link was reported as a possible exit
+  rather than as the permission it is. All five are fixed in one work unit
+  (`safety_probe_test.go` carries one regression test per finding), and four decisions are recorded
+  here rather than left in the code: a **user:password pair is masked whole** while a **bare account
+  name is not masked**, because the account identifies which service the process is and is not the
+  secret; a **credential flag's inline value is masked only when it is a pair**, so `--user=alice`
+  stays readable; an **unknown scope fails closed** in `StopRefusal`, since a signal across a
+  host/guest boundary decided by nobody's reading is the mistake the scope rule exists to prevent;
+  and the post-stop sentence is now **per transport**, so a reading that answered for TCP and failed
+  on UDP says exactly that instead of calling either one free. The macOS identity token keeps the
+  one-second granularity `ps lstart` reports (D6): a PID reused inside that second is still not
+  distinguishable, and the screen says which token it compared.
+- **L6 — the second verification round, and what its three leaks changed.** A bounded re-verification of
+  `9760fe7` confirmed both blockers closed and the fail-closed scope honest, then found three more
+  credential forms that still survived `RedactArgs`, all of them argv a real process can carry: the word
+  `pass` was not a secret name, so `openssl -pass pass:s3cret`, `--pass=`, `--pass` and `DB_PASS=`
+  leaked; a short password flag was only masked when its value was joined, so `sshpass -p s3cret`
+  leaked; and the embedded scan stopped at an escaped quote, so a JSON body that escapes its quotes
+  (`{"password":"a\"s3cret"}`) left the rest of the secret in the clear. It also found the reverse
+  cost, over-masking: `-print`, `-path` and `-p8080:80` were eaten by the joined-short rule. All five
+  are fixed in `47b4136`, and `blindTo` now compares **protocols rather than transports**, because the
+  `/proc/net` files are one table each: a reading that lost `tcp6` cannot call an IPv6 port free on the
+  strength of its IPv4 sibling, while `lsof`, `netstat` and `ss` answer for a whole transport in one
+  call. Four decisions are recorded with the fix: `pass` and `sessionid` join the secret names, the
+  latter because a session identifier is a bearer credential by name; a **flag whose own name is a
+  secret masks its value unconditionally**, since a password that begins with a dash is still a
+  password; `-p` standing alone masks the value apart from it **unless the value reads as a port or an
+  address**, which is what keeps `ssh -p 2222` and `docker -p 8080:80` readable; and a joined short
+  value is a password only when it carries a character a flag name would not, because `-print` and
+  `-path` begin with the same letter. Two boundaries are deliberate and stay: a joined `-p` value that
+  is a bare word with no digit, upper-case letter or punctuation (`-psecret`) is read as the flag name
+  it most often is, and an all-digit `-p 123456` is read as the port it most often is. Both are the
+  price of the diagnostics that stay legible, and both are stated rather than hidden.

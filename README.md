@@ -405,6 +405,41 @@ behaves like OpenSSH's. A connection is tested **only when you press the row tha
 never accept a new host key or write to `known_hosts`. See the
 [TUI Installer Guide](docs/tui-installer.md#the-ssh-configuration).
 
+**Find what holds a port.** This utility answers the question a development machine asks most
+often — *what is using port 3000, and may I free it?* — from the machine's own socket tables:
+`/proc/net` on Linux, Termux and WSL, and `lsof -nP` on macOS, with `ss` and `netstat` tried only when
+the primary reader cannot answer. Every row names the reader it came from. A **TCP socket in
+LISTEN** and a **bound UDP socket** are different facts and are shown as such — UDP has no listening
+state, so its receivers are labelled `UNCONN` — and IPv4 is never merged with IPv6. An all-interfaces
+binding reads **all interfaces** and a `127.0.0.1` or `::1` binding **loopback only**, which is the
+difference behind most "it works here and not from the phone" moments; a port two rows share is
+marked **shared**. The owner — PID, name, account, executable, start time and the arguments with
+every password, token and key **masked before the reading is stored** — is resolved where the kernel
+allows it, and a socket whose owner the kernel withholds keeps its real port and state with the
+reason stated instead of appearing free. The process environment is never read at all, so there is
+nothing in it to leak.
+
+The screen is keyboard-first: `/` filters by port, process or protocol, `f` cycles all/TCP/UDP, `o`
+filters by owner, `s` cycles the sort, `r` refreshes now, and `p` turns on a five-second refresh that
+keeps the cursor on the same row and reports how many rows appeared or disappeared instead of jumping.
+Its scope line names the kernel it read — **this machine** or **WSL guest** — and inside WSL it says
+plainly that the Windows host's own ports and processes are not visible from here and cannot be
+stopped from here.
+
+Stopping is one deliberate action. `x` opens a confirmation that names the identity, the owner,
+**every port that process holds** and what each signal does; `SIGTERM` is what `t` and `Enter` send,
+and `SIGKILL` is its own row that appears only after a soft attempt left the process running, so it
+can never ride along with the first press. Before anything is sent, the PID is asked about again, its
+start time or identity token is compared with the one that was on screen, and the ports must still be
+held by that same process; PID 1, the installer's own process and its ancestors, and the operating
+system's init and session daemons are refused with the reason. A signal the kernel refuses is
+reported as **permission denied** — privileges are never escalated silently — and after every attempt
+the screen reports what a fresh reading found: the process gone and the ports free, the process still
+running, the port now held by another process, the PID now belonging to a different process, or the
+reason the check could not be completed. Nothing is killed by name and no port's processes are killed
+in bulk: one signal, one PID. See the
+[TUI Installer Guide](docs/tui-installer.md#the-ports-in-use).
+
 ---
 
 ## 🎮 Vim Mastery Trainer

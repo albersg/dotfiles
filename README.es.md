@@ -242,6 +242,43 @@ lee el archivo cuando arranca la VM, así que la pantalla dice que hay que ejecu
 `wsl --shutdown` en Windows para aplicar el cambio y deliberadamente no lo ejecuta;
 `--dry-run` omite la escritura.
 
+**Encontrar qué ocupa un puerto.** La sexta utilidad responde la pregunta que una máquina de
+desarrollo hace más seguido — *¿qué está usando el puerto 3000, y puedo liberarlo?* — a partir de
+las tablas de sockets de la propia máquina: `/proc/net` en Linux, Termux y WSL, y `lsof -nP` en
+macOS, con `ss` y `netstat` solo cuando el lector principal no puede responder, y cada fila dice de
+qué lector salió. Un **socket TCP en LISTEN** y un **socket UDP ligado a un puerto** son hechos
+distintos y se muestran como tales — UDP no tiene estado de escucha, así que sus receptores se
+rotulan `UNCONN` — y IPv4 nunca se mezcla con IPv6. Una ligadura en todas las interfaces dice **all
+interfaces** y una en `127.0.0.1` o `::1` dice **loopback only**, que es la diferencia detrás de
+casi todo "anda local y no desde el teléfono"; un puerto compartido por dos filas se marca
+**shared**. El dueño — PID, nombre, cuenta, ejecutable, hora de inicio y los argumentos con cada
+contraseña, token y clave **enmascarada antes de guardar la lectura** — se resuelve donde el kernel
+lo permite, y un socket cuyo dueño el kernel reserva conserva su puerto y su estado reales con el
+motivo dicho en pantalla, en lugar de aparecer como libre. El entorno del proceso no se lee nunca,
+así que no hay nada ahí que se pueda filtrar.
+
+La pantalla es de teclado: `/` filtra por puerto, proceso o protocolo, `f` alterna todos/TCP/UDP,
+`o` filtra por dueño, `s` recorre el orden, `r` refresca ahora y `p` enciende un refresco cada cinco
+segundos que deja el cursor en la misma fila e informa cuántas filas aparecieron o desaparecieron en
+lugar de saltar. Su línea de alcance nombra el kernel que leyó — **this machine** o **WSL guest** — y
+dentro de WSL dice con todas las letras que los puertos y procesos del host Windows no se ven desde
+acá y no se pueden detener desde acá.
+
+Detener es una acción deliberada. `x` abre una confirmación que nombra la identidad, el dueño,
+**todos los puertos que ese proceso tiene** y qué hace cada señal; `SIGTERM` es lo que envían `t` y
+`Enter`, y `SIGKILL` es una fila aparte, con su propio texto, que aparece solo después de que un
+intento suave dejó el proceso corriendo, así que nunca puede viajar junto con la primera pulsación.
+Antes de enviar nada, se vuelve a preguntar por el PID, se compara su hora de inicio o su token de
+identidad con la que estaba en pantalla y los puertos mostrados tienen que seguir en ese mismo
+proceso; el PID 1, el propio proceso del instalador y sus ancestros, y los demonios de inicio y de
+sesión del sistema operativo se rechazan con el motivo. Una señal que el kernel rechaza se informa
+como **permiso denegado** — los privilegios nunca se escalan en silencio — y después de cada intento
+la pantalla informa lo que encontró una lectura nueva: el proceso terminó y los puertos están
+libres, el proceso sigue corriendo, el puerto ahora lo tiene otro proceso, el PID ahora es de otro
+proceso, o el motivo por el que la comprobación no se pudo completar. Nunca se mata por nombre y
+nunca se matan en bloque los procesos de un puerto: una señal, un PID. Ver la
+[Guía del instalador TUI](docs/tui-installer.md#the-ports-in-use).
+
 ---
 
 ## 🎮 Entrenador de Maestría en Vim
