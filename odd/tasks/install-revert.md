@@ -325,3 +325,29 @@ session.
     because a link would be compared by its target rather than read through. That is the next
     step for this rule, deliberately not taken in this branch: it changes the meaning of the
     digests already stored in records written by earlier builds.
+
+- **L15 (the hole I found myself, after committing the fix).** Re-reading the coverage rule
+  against the exit it produces rather than against the tests it satisfies: the rule answered
+  "the run did not touch this link" from the link's target text matching the run's copy, which
+  is half the question. What a link *reaches* can be a tree the record never walked -- a
+  checkout, a shared directory, a cache -- and a write on the other side of it is invisible to
+  both halves of the record: the per-file index steps over non-regular entries and the walk
+  does not descend through links. Reporting a machine back on that strength is the same false
+  success in a quieter voice.
+  - The rule now asks two questions about a link inside a written key: whether the target it
+    holds differs from the target the run's copy holds (a link the run moved, which the record
+    does not list), and where that target resolves to (a path outside every path the record
+    says the run wrote is somewhere this run may have written with nothing on the record's
+    side). A link into the covered tree keeps the ordinary answer, because what it reaches is
+    recorded file by file -- so a configuration directory of links to its own tree stays quiet.
+  - **My own new tests caught a defect in the message**: it named the key, the copy's target and
+    the machine's target, and left the reader without the path inside the key. A report that
+    does not name the path it cannot account for is not actionable, and now every one of these
+    answers names it.
+  - Full gate after the change: `go test ./... -count=1 -skip Ghostty` green (system, tui,
+    trainer). Commits `9c8a89e` (cross-check), `565ccb8` (reach).
+  - The fifth independent pass is the gate for the handoff: it reviews the coverage rule and the
+    reach rule together, and is asked for false negatives (reporting a machine it can put back)
+    as hard as for false positives -- five passes have each found one more defect in the fix
+    before, and a rule that fixes a false success by inventing a false alarm is not a fix.
+
