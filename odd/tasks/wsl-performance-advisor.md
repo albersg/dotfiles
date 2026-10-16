@@ -86,11 +86,11 @@ Quoted verbatim from the request; the numbering is this front's.
 
 | ID | Spec | Route | What it delivers |
 | --- | --- | --- | --- |
-| T1 | S1, S9, S10 | inline | `installer/internal/system/wslruntime.go`: evidence-based detection of *running inside* a WSL distribution, with an injectable probe and a container veto |
-| T2 | S2, S3, S9 | inline | `installer/internal/system/wslmount.go`: `/proc/self/mountinfo` parsing (octal escapes, spaces), longest-prefix mount resolution, host-mount vs Linux-native classification, disk space |
-| T3 | S7, S8, S9 | worker | `installer/internal/system/wslmigrate.go`: migration plan (preview, space, exclusions, Git/symlinks/hidden files) and a copy-and-verify executor that never deletes |
-| T4 | S5, S9 | worker | `installer/internal/system/wslbench.go`: bounded, non-destructive, cancellable benchmark in its own temporary directories with cleanup |
-| T5 | S4, S6, S9 | inline | `installer/internal/tui/wsladvisor.go`: the facts a report is derived from, the findings with severity/evidence/explanation/benefit/action/scope/origin, and the project discovery |
+| T1 | S1, S9, S10 | inline | `installer/internal/system/wslruntime.go`: evidence-based detection of *running inside* a WSL distribution, with an injectable probe and a container veto — commit `5872121` |
+| T2 | S2, S3, S9 | inline | `installer/internal/system/wslmount.go`: `/proc/self/mountinfo` parsing (octal escapes, spaces), longest-prefix mount resolution, host-mount vs Linux-native classification, disk space — commit `ae909ec` |
+| T3 | S7, S8, S9 | worker | `installer/internal/system/wslmigrate.go`: migration plan (preview, space, exclusions, Git/symlinks/hidden files) and a copy-and-verify executor that never deletes — commit `f1da00e` |
+| T4 | S5, S9 | worker | `installer/internal/system/wslbench.go`: bounded, non-destructive, cancellable benchmark in its own temporary directories with cleanup — commit `9848870` |
+| T5 | S4, S6, S9 | inline | `installer/internal/tui/wsladvisor.go`: the facts a report is derived from, the findings with severity/evidence/explanation/benefit/action/scope/origin, and the project discovery — commit `9022e75`, with `system/meminfo.go` so the metrics sampler and this report share one `/proc/meminfo` reader |
 | T6 | S1, S3, S6, S10, S11 | inline | TUI integration: the gated utilities row, `ScreenWSLAdvisor`, the panel entry, the keys, the render, and the guards (frames, visibility, goldens) |
 | T7 | S11 | inline | `docs/tui-installer.md` and this file: what the utility is, what it refuses to do, and the detection rule |
 | T8 | S10 | inline | `make preflight` and an honest report of coverage and limits |
@@ -129,3 +129,30 @@ Quoted verbatim from the request; the numbering is this front's.
 - **L3 (repo evidence):** `system.classifyLinux` already sets `IsWSL` from the kernel string *or*
   `WSL_DISTRO_NAME`; that is exactly the env-var dependence S1 forbids for this module, so the
   advisor's detection is a new, separate function and the existing field keeps its meaning.
+- **L4 (delegation, this session):** T3 and T4 were handed to two bounded background writers with the
+  exact API, the behavioural rules and `## Allowed edit surfaces` limited to their own two files each.
+  The first pair of tasks was cancelled by an earlier session shutdown having written nothing; both
+  were relaunched. Both returned with `gofmt`, `go vet` and `go test ./internal/system/` green, and
+  the parent re-ran the package suite (6.6 s, ok) before committing.
+- **L5 (decision, parent review of T3):** the worker added one unexported field (`verifyLimit`) to
+  `MigrationPlan` because the frozen export surface had no way to carry `MigrationOptions.VerifyLimit`
+  into `RunMigration`. The parent accepted it: the exported names and signatures are unchanged, a
+  hand-built plan still falls back to `DefaultMigrationVerifyLimit`, and the alternative was a second
+  exported field on a report struct.
+- **L6 (decision, parent, T4):** `DefaultBenchLimits()` was added to `system/wslbench.go` so the
+  benchmark screen can state the file count, the file size, the time bound and the byte ceiling it is
+  about to use. The numbers are owned by the engine; the screen must not hardcode a copy that could
+  drift from what the run really does.
+- **L7 (defect found in review, T6):** the first wiring gated the utilities row on the strict
+  detection alone, and the golden frames caught it immediately: this development machine *is* a WSL
+  instance, so the pinned host the goldens use (`goldenSystemInfo`, `IsWSL: false`) drew a WSL row that
+  the fixture does not have. The gate was changed to require the installer's own host answer as well
+  (`WSLRuntime.Inside && SystemInfo.IsWSL`) and to be evaluated where it is used instead of cached in
+  the screen's state, so a pinned host stays in charge of what is offered and no stale copy of the
+  condition can outlive it. Both directions are narrower than before, never wider.
+- **L8 (decision, parent, T6):** the two acting rows exist only where their engine can finish, and the
+  body states what is missing when they do not: a row that fails when it is pressed is not offered in
+  this installer, and the copy's preview is the confirmation, so no action here is reachable without
+  the facts it depends on printed first.
+- **L9 (checks, this session):** `go test ./internal/system/` ok (6.6 s) after both engines landed;
+  the TUI suite and `make preflight` are recorded in the closing report.

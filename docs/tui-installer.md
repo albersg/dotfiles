@@ -109,8 +109,10 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the
-  read-only terminal capability report behind the **Report the terminal capabilities** row
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the
+  read-only terminal capability report behind the **Report the terminal capabilities** row, and
+  the WSL performance advisor behind the **Diagnose this WSL environment** row, which appears only
+  inside a real WSL instance and is a report until one of its two rows is pressed
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -125,12 +127,15 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds three jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds six jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
-host), and the read-only **terminal capability report**. The main menu's panel derives one row per
-job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
-is the only list -- so a utility added to the section shows up in the panel or is visibly missing
-from that one function.
+host), the **WSL performance advisor** (one level in, and only inside a real WSL instance), the
+shell's startup (one level in, and a utility that changes nothing), and the read-only **terminal
+capability report**. Each job is offered exactly where it can finish: a row that would fail when it
+is pressed is not in the list, and the section's own body says why it is absent. The main menu's
+panel derives one row per job from the same model state the section's own options are built from --
+`utilitiesPanelEntries` is the only list -- so a utility added to the section shows up in the panel
+or is visibly missing from that one function.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
@@ -632,6 +637,73 @@ the mount, or more than one package to choose between — is **refused with the 
 nothing changed**, because a rewrite that dropped the user's comments would be worse than no write
 at all.
 
+### The WSL performance advisor
+
+The fourth utility is **the WSL performance advisor**, behind the **Diagnose this WSL environment**
+row. It is offered **only inside a real WSL instance**, and the gate is not an environment variable:
+`WSL_DISTRO_NAME` is inherited by any child process, so a Windows host that merely has WSL installed,
+or a build agent running under a Windows shell, would satisfy it while having none of the filesystem
+the advice is about. The gate reads the evidence the instance itself leaves behind -- the kernel
+release and version, `WSLInterop` in the binfmt registry, `/run/WSL`, `/usr/lib/wsl` -- requires more
+than one of them where the kernel does not name WSL outright, and refuses a container on the WSL
+kernel, because Docker Desktop's backend runs on that kernel while its filesystem is not a WSL
+instance's. On a host the installer did not classify as WSL the section offers no row at all; on a
+host it did, and where the evidence is missing, the section's body names the signals that were looked
+for and the screen says the same thing instead of drawing rows that would fail.
+
+**The screen is a report and it changes nothing.** It reads the mount table, `/proc/meminfo`,
+`/etc/wsl.conf`, `/etc/resolv.conf`, the `.wslconfig` the resources utility already reads -- the same
+reading, so the two screens cannot disagree about one file -- and the project directories beside the
+working directory, and states what it found. Every finding carries five things: its **severity**
+(critical, warning, notice or information), the **evidence** it was read from (the paths and values),
+the **consequence** in plain words, the **scope** of the change it would need (this instance, the
+Windows side, or after a restart) and whether the claim is **measured** on this machine or
+**documented** behaviour. Findings are ordered by severity, and a reading that failed is itself a
+finding with its reason: an unreadable mount table, a missing `/proc/meminfo` and an unread
+resolver are reported as gaps rather than quietly omitted, because an empty section and a healthy
+machine look identical on screen.
+
+**Storage is classified from the filesystem each mount exposes, never from a path.** `[automount]
+root` can move the Windows drives anywhere (a common setting is `/windir`), automount can be off, a
+drive can arrive later with `wsl --mount`, and a mount point can contain a space, so `/mnt/c` is not
+where a project on the Windows side necessarily lives. The check resolves a path to the longest mount
+boundary above it -- so `/mnt/cd` is never answered by the verdict for `/mnt/c` -- and the
+classification comes from the filesystem type: `drvfs`, `9p`, `virtiofs`, `cifs` and `smb3` are the
+host's, an unknown type is reported as unknown rather than assumed to be fine. A project on the
+Windows host is the case the utility exists for, and the report says which one it is in the finding
+and in the row.
+
+The report's two acting rows are one level in, and each exists only where its engine can finish:
+
+| Row | What it does | What it never does |
+|-----|--------------|--------------------|
+| **Measure the storage this project is on** | writes a scratch directory of its own inside each target, reads it back, states it, creates many small files and removes them again, and reports what each pass took | never writes outside its own scratch directories, never exceeds 32 MiB or 4096 files in one target, and never more than 30 seconds in a run; it removes what it wrote even after a failure or the time bound |
+| **Copy a project to the distribution's disk** | chooses a directory, chooses a destination on the distribution's own filesystem, reads a preview, and only then copies and verifies | never deletes, moves or renames anything in the source, never overwrites an existing entry, and never runs the `cp`/`rsync` line it prints as a by-hand alternative |
+
+**The measurement is bounded and its caveats are part of the report.** Nothing is written until the
+row is pressed, and the screen states what that press will write -- the file count, the file size,
+the 30-second bound and the 32 MiB ceiling -- before it happens. An operation that could not run is
+reported as a note rather than as a rate of zero, a target that could not be measured carries its own
+reason and does not stop the others, and a ratio is published only when both sides have a real
+measurement. The report also carries what muddied the numbers: the order the targets were measured
+in, and the warmer cache the second one meets. The comparison is relative and the screen says so --
+a faster copy here proves nothing about a build, a test suite or a Git operation -- and no number is
+presented as an improvement over a measurement that was never taken.
+
+**The copy is the only thing here that writes a project, and it is previewed and verified.** The
+preview names the source, the destination, what would be copied, what is left behind (dependency and
+cache directories, matched from a named list and counted, never described as an intention), the room
+behind the destination, and the equivalent by-hand command as **quoted data the installer never
+executes**. The run creates the destination only when it is absent and refuses one that already holds
+anything, opens every file with `O_EXCL` so an existing entry is an error instead of a truncation, and
+opens no source path for writing at all: nothing is deleted, moved or renamed, and the by-hand
+removal of the source stays a line the user runs after checking the copy. Afterwards the copy is
+verified rather than trusted -- the path set, each entry's type, size, permission bits, a symlink's
+target and the file bytes up to 8 MiB per file, with the files covered by size and mode alone counted
+-- and a difference is reported, never repaired. A copy stopped with `Esc` or its own row leaves the
+partial destination in place and says what was placed before the stop: deleting it would destroy the
+evidence of what went wrong.
+
 ### The shell's startup
 
 The fourth utility is **the shell's startup**, behind the **Measure the shell's startup** row. It is
@@ -969,7 +1041,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the advisor's own findings by severity (or the copy it is running), the shell startup and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
@@ -1663,12 +1735,13 @@ terminals again. The pass renders with the companion animating, which is the
 strictest frame, so a screen that overflows only with the creature on fails the
 fit guard instead of escaping it.
 
-The theme picker, the utilities section, the WSL resources, the shell's startup
-and the terminal capability report each have a frame pinned at the 80x24 floor as
-well: `TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
-with a switch pending, `TestThemePickerResultGolden` with the report landed,
-`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden` and
-`TestTerminalCapabilitiesGolden`. They were guarded by measurements -- rows,
+The theme picker, the utilities section, the WSL resources, the WSL performance
+advisor, the shell's startup and the terminal capability report each have a frame
+pinned at the 80x24 floor as well: `TestThemePickerGolden` with nothing running,
+`TestThemePickerActivityGolden` with a switch pending, `TestThemePickerResultGolden`
+with the report landed, `TestUtilitiesGolden`, `TestWSLResourcesGolden`,
+`TestWSLAdvisorGolden` on a pinned WSL instance whose reading comes from the
+advisor's own fixture, `TestShellAuditGolden` and `TestTerminalCapabilitiesGolden`. They were guarded by measurements -- rows,
 columns, fit at twelve sizes -- and by behaviour, and a measurement cannot see a
 block drawn above the list it belongs under, a list squashed to five rows to make
 room for it, or a screen that reads as a wall of prose. Looking at the frame is
