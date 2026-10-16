@@ -1702,8 +1702,7 @@ func (m Model) utilitiesDescription() []string {
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
 		paragraphs = append(paragraphs, reason)
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s shows what %s holds today.",
-			utilitiesWSLRow, m.WSLState.Path))
+		paragraphs = append(paragraphs, fmt.Sprintf("%s shows what %s holds today.", utilitiesWSLRow, m.WSLState.Path))
 	}
 
 	if reason := m.shellAuditUnavailableReason(); reason != "" {
@@ -1880,6 +1879,8 @@ func (m Model) wslResourceRows() []string {
 		m.menuSeparator(),
 		wslWriteRow,
 		m.menuSeparator(),
+		wslGuardRepairRow,
+		m.menuSeparator(),
 		"← Back",
 	}
 }
@@ -1894,8 +1895,9 @@ const wslOmittedZero = "omitted (WSL decides)"
 
 // wslResourceDescription is what the WSL resource screen says about itself: the
 // capacities the recommendation came from, the recommendation and the
-// proportions it follows, what the file holds today, what a write preserves, and
-// the one step the screen deliberately does not take.
+// proportions it follows, what the file holds today, what the memory guard holds
+// on the running machine, what a write preserves, and the one step the screen
+// deliberately does not take.
 func (m Model) wslResourceDescription() []string {
 	state := m.WSLState
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
@@ -1904,24 +1906,137 @@ func (m Model) wslResourceDescription() []string {
 
 	// The values come first: the host's capacities, the recommendation, and what
 	// the file holds today, so the three numbers the screen exists for are read
-	// before the derivation that produced them. How to apply the change follows,
-	// then the formula compressed to one sentence, then the file's own rules -- a
-	// short frame cuts the explanation, never the numbers or how to use them.
+	// before the derivation that produced them. The guard's report follows, ahead of
+	// the instruction that applies the change, because it is the one line here about
+	// the machine the user is working on rather than the file being edited, and it
+	// is the half with no second channel: the apply instruction is repeated by the
+	// write's own notice, so a short frame can afford to cut it, while a missing
+	// protection can stop the distribution before the write is ever made. Then the
+	// formula compressed to one sentence, then the file's own rules.
 	plan := state.Plan
-	return []string{
+	paragraphs := []string{
 		wslHostParagraph(state.Host),
 		fmt.Sprintf("Recommended for this host: memory %s, processors %s and swap %s.",
 			wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB")),
 		wslCurrentParagraph(state),
-		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal " +
-			"to apply it. This screen does not run it: that would close the session you are working in.",
-		fmt.Sprintf("Memory is half the host's RAM rounded down to %d MB, and never so much that Windows "+
-			"keeps less than 2 GiB; processors are every logical CPU the host reports; swap is a quarter of that memory.",
-			wslMemoryStepMB),
-		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept " +
-			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> " +
-			"before the write.",
 	}
+	// The guard follows the numbers and comes before how to apply them: what it
+	// reports is the running distribution's own limits, and the failure it names
+	// is the one a short frame must not cut.
+	paragraphs = append(paragraphs, wslGuardParagraphs(state.Guard)...)
+	paragraphs = append(paragraphs,
+		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal "+
+			"to apply it. This screen does not run it: that would close the session you are working in.",
+		fmt.Sprintf("Memory is three quarters of the host's RAM rounded down to %d MB, capped so Windows "+
+			"keeps 4 GiB wherever that can be honoured, and floored at half the host, which is what decides on "+
+			"a host too small to honour both; processors are every logical CPU the host reports except one, so "+
+			"Windows keeps one; swap is a quarter of that memory.",
+			wslMemoryStepMB),
+		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept "+
+			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> "+
+			"before the write.")
+	return paragraphs
+}
+
+// wslGuardRepairRow is the screen's row for the memory guard. It is the one row
+// here that is not about the .wslconfig: pressing it installs the guard's two
+// files, restarts its unit, and then reports what the host holds.
+const wslGuardRepairRow = "Repair the WSL memory guard"
+
+// wslGuardParagraphs is what the screen says about the memory guard. It names
+// what each missing protection costs rather than warning in general terms,
+// because the two halves fail in opposite directions and both were measured on
+// 2026-10-16: OOMPolicy=stop turned one OOM kill into the whole distribution
+// stopping, twice, and a numeric memory.high turned a spike into a six-minute
+// freeze instead of a kill.
+func wslGuardParagraphs(g wslGuardState) []string {
+	if !g.Installed {
+		reason := g.Reason
+		if reason == "" {
+			reason = "its payload and its unit are not where systemd reads them"
+		}
+		return []string{fmt.Sprintf("The WSL memory guard is not installed on this host: %s. It is what caps the "+
+			"distribution's own scope and what keeps one killed process from stopping it; the installation step "+
+			"installs it, and the row below installs it here without a full run.", reason)}
+	}
+
+	paragraphs := []string{fmt.Sprintf("The memory guard is installed and %s. init.scope carries memory.high=%s, "+
+		"memory.max=%s and OOMPolicy=%s.",
+		wslGuardActiveLabel(g), wslGuardText(g.HighBytes), wslGuardCapLabel(g.MaxBytes), wslGuardText(g.OOMPolicy))}
+
+	if failure := wslGuardFailureMode(g); failure != "" {
+		paragraphs = append(paragraphs, failure)
+	}
+	return paragraphs
+}
+
+// wslGuardFailureMode names what a missing protection costs, in the terms the
+// incident was measured in. It is empty when nothing is missing.
+func wslGuardFailureMode(g wslGuardState) string {
+	switch {
+	case g.OOMPolicy != "" && g.OOMPolicy != wslGuardWantOOMPolicy:
+		return fmt.Sprintf("OOMPolicy reads %s, so one OOM kill inside init.scope still stops the scope, and in "+
+			"WSL every process in the distribution lives in that one scope. On 2026-10-16 that killed the whole "+
+			"distribution twice.", g.OOMPolicy)
+	case g.HighBytes != "" && g.HighBytes != "max":
+		return fmt.Sprintf("memory.high is %s, which is a throttle rather than a limit: a spike is stalled "+
+			"instead of being killed, which is the six-minute freeze of 2026-10-16 rather than a crash.", g.HighBytes)
+	case g.MaxBytes == 0:
+		return "memory.max is unlimited, so nothing bounds the distribution's own scope and the OOM killer " +
+			"picks its victim by its own rules. On 2026-10-16 the victim was the distribution itself."
+	}
+	return ""
+}
+
+// wslGuardActiveLabel says whether systemd is running the guard, because
+// installed files that nothing runs hold no values.
+func wslGuardActiveLabel(g wslGuardState) string {
+	if g.Active {
+		return "systemd is running it"
+	}
+	return "systemd is not running it, so nothing is holding those values"
+}
+
+// wslGuardText renders a value the host may not have reported. An unread
+// attribute printed as an empty string would read as "unlimited" rather than
+// "not read".
+func wslGuardText(value string) string {
+	if value == "" {
+		return "unread"
+	}
+	return value
+}
+
+// wslGuardCapLabel renders the scope's memory cap. Zero is the reader's "not a
+// finite cap", which the cgroup spells "max".
+func wslGuardCapLabel(n uint64) string {
+	if n == 0 {
+		return "unlimited"
+	}
+	if n%bytesPerMiB == 0 {
+		return fmt.Sprintf("%d MB", n/bytesPerMiB)
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+
+// wslGuardRepairNotice is the one line the screen shows after a repair attempt.
+// It reports the state read afterwards, which is what decides whether the repair
+// worked; the install's own word for it is not enough.
+func wslGuardRepairNotice(g wslGuardState) string {
+	switch {
+	case !g.Installed:
+		return "The WSL memory guard is still not installed; the section above names why."
+	case !g.Active:
+		return "The WSL memory guard is installed but systemd is not running it, so nothing is holding those " +
+			"values; systemctl status wsl-memory-guard names the reason."
+	case g.OOMPolicy == wslGuardWantOOMPolicy && g.HighBytes == "max" && g.MaxBytes > 0:
+		return fmt.Sprintf("The WSL memory guard is in place: init.scope stops at %s with no throttle band, and "+
+			"OOMPolicy=%s.", wslGuardCapLabel(g.MaxBytes), g.OOMPolicy)
+	}
+	if failure := wslGuardFailureMode(g); failure != "" {
+		return "The WSL memory guard is installed, but " + failure
+	}
+	return "The WSL memory guard is installed; the section above says what the host holds."
 }
 
 // wslUnitLabel renders one planned value for prose, where a zero is a key the

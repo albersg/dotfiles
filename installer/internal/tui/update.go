@@ -146,6 +146,15 @@ type (
 		err    error
 	}
 
+	// wslGuardRepairedMsg carries a guard repair back to Update: the state read
+	// afterwards, and the error the install reported. The install runs in a command
+	// because it writes two files and runs systemctl, and the read that follows it
+	// is what the screen then reports rather than the install's own word for it.
+	wslGuardRepairedMsg struct {
+		state wslGuardState
+		err   error
+	}
+
 	// wslTerminalOfferMsg carries the Windows Terminal offer the interactive WSL
 	// step shows. It is built in a command because resolving the face asks the
 	// Windows font store through interop, and the offer has to be on the model
@@ -365,6 +374,33 @@ func (m Model) wslResourceWriteCmd() tea.Cmd {
 	return func() tea.Msg {
 		notice, wrote, err := writeWSLResourceDraft(state, "utilities")
 		return wslResourceWrittenMsg{notice: notice, wrote: wrote, err: err}
+	}
+}
+
+// wslGuardInstaller and wslGuardReader are what the guard row runs and what it
+// reads back afterwards. They are variables for the same reason stepExecutor is
+// one: the row's own test has to observe the press without writing to /etc or
+// restarting a real unit on the machine running the tests, and the two are kept
+// apart so a test can prove the notice reports the read and not the install.
+var (
+	wslGuardInstaller = installWSLMemoryGuard
+	wslGuardReader    = readWSLGuardState
+)
+
+// wslGuardRepairCmd installs the guard and then reads the host back, so the
+// screen reports what the machine holds rather than what the install claims. It
+// runs off the update loop for the same reason the write does: it writes to /etc
+// and runs systemctl, and a render must never wait for either.
+//
+// The install returns an error only for a packaging defect -- a checkout that no
+// longer ships the payload or the unit. A machine that cannot be guarded prints
+// its reason and does not become an error, so the notice carries the reporting
+// and the state carries the verdict.
+func (m Model) wslGuardRepairCmd() tea.Cmd {
+	repoDir := m.WSLState.RepoDir
+	return func() tea.Msg {
+		err := wslGuardInstaller(repoDir, "utilities")
+		return wslGuardRepairedMsg{state: wslGuardReader(repoDir), err: err}
 	}
 }
 
@@ -919,6 +955,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.WSLState = msg.state
 			m.holdCursorOn(held)
 		}
+		return m, nil
+
+	case wslGuardRepairedMsg:
+		// The state is replaced by what the host holds after the repair, never by
+		// what the install reported: a guard whose unit exited non-zero leaves the
+		// screen saying exactly which protection is still missing.
+		m.WSLState.Guard = msg.state
+		if msg.err != nil {
+			m.WSLNotice = fmt.Sprintf("The WSL memory guard could not be installed: %v", msg.err)
+			return m, nil
+		}
+		m.WSLNotice = wslGuardRepairNotice(msg.state)
 		return m, nil
 
 	case wslResourceWrittenMsg:
@@ -2078,6 +2126,13 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 			// wait is visible and the result replaces it in the same rows.
 			m.WSLNotice = fmt.Sprintf("Writing %s…", m.WSLState.Path)
 			return m, m.wslResourceWriteCmd()
+		case options[m.Cursor] == wslGuardRepairRow:
+			// The guard is the part of this screen that is not the .wslconfig, so
+			// its row says what it is doing before it starts: the install writes two
+			// files and restarts a unit, and a silent press would read as nothing
+			// having happened while it runs.
+			m.WSLNotice = "Installing the WSL memory guard…"
+			return m, m.wslGuardRepairCmd()
 		case strings.Contains(options[m.Cursor], "Back"):
 			m.Screen = ScreenUtilities
 			m.Cursor = 0

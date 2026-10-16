@@ -26,9 +26,18 @@ import (
 // carry the companion on one host and not on another. Tests that are about the
 // animation itself turn the gate on directly through the model's own field,
 // which is what the field is for.
+//
+// It also gives the whole package a state directory of its own and removes it on
+// the way out. That is the one thing this file can do that no individual test
+// can: removal has to happen after the tests and while the process is still
+// alive, and TestMain is the only place that runs there.
 func TestMain(m *testing.M) {
 	os.Setenv(envAnim, "0")
-	os.Exit(m.Run())
+
+	cleanupStateDir := pointStateDirAtATemporaryOne()
+	code := m.Run()
+	cleanupStateDir()
+	os.Exit(code)
 }
 
 // --- helpers ---------------------------------------------------------------

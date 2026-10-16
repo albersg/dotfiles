@@ -57,6 +57,11 @@ tells a WSL user without interop to set the two host overrides.
 | `DOTFILES_REPO_REF` | Test harness hook: selects the revision the container end-to-end suite clones |
 | `DOTFILES_BINFMT_DIR` | Test hook: points the interop check at a fixture directory instead of `/proc/sys/fs/binfmt_misc` |
 | `DOTFILES_ALPINE_RELEASE` | Test hook: points the Alpine/musl probe at a fixture instead of `/etc/alpine-release` |
+| `DOTFILES_WSL_GUARD_SCRIPT` | Test hook: installs the WSL memory guard payload somewhere other than `/usr/local/lib/dotfiles-wsl/wsl-memory-guard.sh` |
+| `DOTFILES_WSL_GUARD_UNIT` | Test hook: installs the WSL memory guard unit somewhere other than `/etc/systemd/system/wsl-memory-guard.service` |
+| `DOTFILES_WSL_GUARD_CGROUP` | Test hook: points the cgroup the guard caps and reads back at a fixture instead of `/sys/fs/cgroup/init.scope` |
+| `DOTFILES_WSL_GUARD_SYSTEMCTL` | Test hook: runs a stub in place of the `systemctl` on `PATH` |
+| `DOTFILES_WSL_SYSTEMD_DIR` | Test hook: points the "systemd is this distribution's init" check at a fixture instead of `/run/systemd/system` |
 
 ### Package Directories
 
