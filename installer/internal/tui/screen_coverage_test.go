@@ -12,6 +12,7 @@ import (
 	"github.com/albersg/dotfiles/installer/internal/diskclean"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
+	"github.com/albersg/dotfiles/installer/internal/updates"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -77,6 +78,29 @@ func TestEveryScreenIsCoveredByAFrameGuard(t *testing.T) {
 
 	t.Logf("%d screens declared, %d of them measured by a frame guard at %dx%d",
 		len(declared), len(measured), trainerFrameWidth, trainerFrameHeight)
+}
+
+// TestEveryDeclaredScreenHasAName pins the two halves of one list: model.go
+// declares the screens and the test helper names them, for the failure messages
+// every guard in this package writes. The names used to be a slice indexed by the
+// constant's value, so a screen inserted above another was renamed after its
+// neighbour and the newest ones printed as "Unknown" in exactly the message that
+// was supposed to name them.
+func TestEveryDeclaredScreenHasAName(t *testing.T) {
+	declared := screenConstantsInDeclarationOrder(t)
+	if len(declared) == 0 {
+		t.Fatal("model.go declares no Screen constants, so this guard proves nothing")
+	}
+
+	for value, name := range declared {
+		// The constant is ScreenKeymapsKitty; the name a failure should read is the
+		// one without the type's prefix.
+		want := strings.TrimPrefix(name, "Screen")
+		if got := Screen(value).String(); got != want {
+			t.Errorf("Screen(%d) is %s in model.go and prints as %q, want %q: add it to screenNames",
+				value, name, got, want)
+		}
+	}
 }
 
 // TestNoInstallerScreenDrawsAnEmojiBox is the class guard for the rule the
@@ -332,8 +356,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 64 // 51 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + disk-cleaner + the trainer's 6
-
+const measuredScreens = 92 // measured on the merged tree by the guard's own report, not added up from either side: main's 91 -- the 61 installer states + the 7 the utilities section opens + the trainer's 6, the setup screen, network-diagnostics and the advisor's four states, plus the SSH manager's 7 screens and the 3 extra states that make them measurable, plus the update center, the section's own destination for the machine's package managers -- plus the developer disk cleaner, this branch's screen
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
 // animating. Before the pass existed, the fit guard and the companion-coverage
@@ -471,17 +494,22 @@ func terminalFitCases() []terminalFitCase {
 	// one of the installer's states, so it is measured here the way the trainer's
 	// screens are. The theme picker is one level in from it, for the same reason,
 	// and its refresh review is a second state of that picker. The capability
-	// report and the shell audit are destinations in the section, each reached
-	// from its own row.
+	// report, the install verification and the shell audit are destinations in the
+	// section, each reached from its own row.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
 	cases = append(cases, terminalFitCase{themeActivityCaseName, themeActivityFrameCase})
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
 	cases = append(cases, terminalFitCase{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase})
+	cases = append(cases, terminalFitCase{installVerifyCaseName, installVerifyFrameCase})
 	cases = append(cases, terminalFitCase{shellAuditCaseName, shellAuditFrameCase})
 	// The disk cleaner is a destination in the section too, reached from its own
 	// row, and it is a state the installer's own flow never walks through.
 	cases = append(cases, terminalFitCase{diskCleanerCaseName, diskCleanerFrameCase})
+	// The update center is the section's newest destination: the same section's key
+	// opens it, and it is measured with the rest of them.
+	cases = append(cases, terminalFitCase{updateCenterCaseName, updateCenterFrameCase})
+	cases = append(cases, terminalFitCase{networkDiagnosticsCaseName, networkDiagnosticsFrameCase})
 
 	return cases
 }
@@ -651,7 +679,10 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase(t)},
 		{shellAuditCaseName, shellAuditFrameCase(t)},
 		{diskCleanerCaseName, diskCleanerFrameCase(t)},
+		{installVerifyCaseName, installVerifyFrameCase(t)},
+		{networkDiagnosticsCaseName, networkDiagnosticsFrameCase(t)},
 		{updateCaseName, updateFrameCase(t)},
+		{updateCenterCaseName, updateCenterFrameCase(t)},
 	}
 }
 
@@ -756,6 +787,61 @@ func updateFrameCase(t *testing.T) Model {
 		Notice:    "Installed over this binary; the binary it replaced is kept at /tmp/dotfiles.previous.",
 	}
 	m.UpdateTarget = updateTarget{Path: "/home/alber/.local/bin/dotfiles", Asset: "dotfiles-linux-amd64"}
+	return m
+}
+
+// updateCenterCaseName is the name the frame guards know the update center by.
+const updateCenterCaseName = "update-center"
+
+// updateCenterFrameCase builds the update center with managers answering and a
+// selection made, so the guards measure the screen carrying its rows -- the
+// entries with their markers, the group rules, the action rows and the way back
+// -- rather than the empty state a first visit draws.
+//
+// The state is built here rather than asked of the machine. A guard that let the
+// engine detect this runner's own package managers would measure whatever happens
+// to be installed on the machine that ran it, and its rows would change with the
+// host instead of describing the screen. Nothing in this case starts a command:
+// the engine is a value with an environment and no adapters, and the screen only
+// reads it for the two facts the confirmation must not guess -- whether an
+// elevation program exists, and what the entries are.
+func updateCenterFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenUpdateCenter)
+	m.UpdateCenter = updateCenterState{
+		Engine:    &updates.Center{Env: updates.Env{GOOS: "linux", SudoAvailable: true}},
+		Resolved:  true,
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+		Channels: []updates.Channel{
+			{Manager: updates.ManagerApt, Label: "apt", Scope: updates.ScopeSystem, Available: true},
+			{Manager: updates.ManagerSnap, Label: "snap", Scope: updates.ScopeSystem, Available: true},
+			{Manager: updates.ManagerRustup, Label: "rustup", Scope: updates.ScopeUser,
+				Status: updates.StatusUnavailable, Reason: "rustup is not on PATH"},
+		},
+		Order: []updates.ManagerID{updates.ManagerApt, updates.ManagerSnap},
+		Results: []updates.Result{
+			{
+				Manager: updates.ManagerApt,
+				Status:  updates.StatusUpdates,
+				Command: "apt-get --simulate -o Debug::NoLocking=1 upgrade",
+				Items: []updates.Item{
+					{Manager: updates.ManagerApt, Scope: updates.ScopeSystem, Name: "libc6",
+						Current: "2.41-1", Available: "2.41-2"},
+					{Manager: updates.ManagerApt, Scope: updates.ScopeSystem, Name: "tar",
+						Current: "1.35-1", Available: "1.35-2", Pinned: true,
+						PinReason: "apt-mark holds tar"},
+				},
+			},
+			{
+				Manager: updates.ManagerSnap,
+				Status:  updates.StatusCurrent,
+				Command: "snap refresh --list",
+			},
+		},
+		Notice: "2 updates are available.",
+	}
+	m.UpdateCenter.Selected.Toggle(m.UpdateCenter.Results[0].Items[0])
 	return m
 }
 
@@ -956,10 +1042,10 @@ func wslResourcesFrameCase(t *testing.T) Model {
 		Path:      "/mnt/c/Users/alber/.wslconfig",
 		RepoDir:   repoRoot(t),
 		Host:      system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:      WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Plan:      WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 		Current:   WSLResources{MemoryMB: 4096, SwapMB: 1024},
 		HasFile:   true,
-		Draft:     WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Draft:     WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 	}
 	m.Cursor = wslResourceRowMemory
 	return m
@@ -1006,6 +1092,10 @@ func TestWSLResourcesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 // shellAuditCaseName is the name the frame guards know the shell startup screen
 // by.
 const shellAuditCaseName = "shell-audit"
+
+// installVerifyCaseName is the name the frame guards know the install
+// verification screen by.
+const installVerifyCaseName = "install-verify"
 
 // shellAuditFrameCase builds the shell startup screen with a finished
 // measurement, a run that timed out and zprof's table, so the guards measure the
@@ -1061,10 +1151,10 @@ func TestShellAuditFrameFitIsMeasuredAtEverySize(t *testing.T) {
 }
 
 // TestShellAuditUnavailableFitsEveryTerminalSize measures the other half at the
-// same twelve terminals: the state a server, a container or a run with no
-// terminal attached sees, where the screen names why nothing can be measured
-// rather than offering a row that would fail. The copy that explains the absence
-// is rows too, and rows can overflow a frame.
+// same twelve terminals: the state a machine with no login shell named sees,
+// where the screen names why nothing can be measured rather than offering a row
+// that would fail. The copy that explains the absence is rows too, and rows can
+// overflow a frame.
 func TestShellAuditUnavailableFitsEveryTerminalSize(t *testing.T) {
 	checked := 0
 	for _, size := range measuredTerminalSizes {

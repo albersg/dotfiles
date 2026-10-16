@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -56,18 +54,36 @@ const (
 	// measurement is bounded by five times shellAuditTimeout.
 	shellAuditRuns = 5
 
-	// shellAuditNamedFunctions is how many rows of zprof's table the screen names.
-	// The list is zprof's own order, heaviest first, and the count it was cut from
-	// is printed beside it, so the cut is declared rather than silent.
+	// shellAuditNamedFunctions is how many rows of the shell's own controller the
+	// screen names. The list is the instrument's own order, heaviest first, and the
+	// count it was cut from is printed beside it, so the cut is declared rather
+	// than silent.
 	shellAuditNamedFunctions = 5
+
+	// shellAuditVersionFlag is how every shell in the matrix is asked what it is.
+	// All four answer it: zsh, bash, fish and nushell print their version for
+	// `--version`. A shell that treats the flag as an error prints nothing with a
+	// version in it, and its version is then unknown rather than zero.
+	shellAuditVersionFlag = "--version"
+
+	// shellAuditVersionTimeout bounds the version probe. It is short on purpose:
+	// the probe is context, not the measurement, and no context line is worth a
+	// wait on a shell that does not answer.
+	shellAuditVersionTimeout = 2 * time.Second
 )
 
-// shellAuditFunction is one function zprof named, with the numbers zprof
-// printed for it. Total is the time the function and everything it called spent,
-// Self is the time the function itself spent, and Percent is zprof's own share
-// cell for Total. zprof sorts its table by Self, and the order is preserved here
-// rather than re-sorted.
+// shellAuditFunction is one row the shell's own instrument named, with the
+// numbers it printed for it. Total is the time the row and everything it called
+// spent, Self is the time the row itself spent, and Percent is the instrument's
+// own share cell for Total, kept verbatim so a number on screen can be found in
+// the table it came from. The instrument's own order is preserved rather than
+// re-sorted: it is the order of the tool that measured, not of this utility.
 type shellAuditFunction struct {
+	// Kind says what sort of thing the row names: a function the shell profiled, a
+	// script it sourced, or a command it ran. Three shells name three different
+	// sorts of thing, and a screen that called them all "functions" would be
+	// describing two of them wrongly.
+	Kind    shellAuditAttributionKind
 	Name    string
 	Calls   int
 	Total   time.Duration
@@ -75,38 +91,94 @@ type shellAuditFunction struct {
 	Percent string
 }
 
+// shellAuditAttributionKind is what one attribution row names.
+type shellAuditAttributionKind string
+
+const (
+	// shellAuditAttributionFunction is a shell function, the row zprof's own
+	// table carries.
+	shellAuditAttributionFunction shellAuditAttributionKind = "function"
+	// shellAuditAttributionScript is a file the startup sourced, which is the row
+	// both fish's profile and bash's trace can name.
+	shellAuditAttributionScript shellAuditAttributionKind = "script"
+	// shellAuditAttributionCommand is a single command the startup ran.
+	shellAuditAttributionCommand shellAuditAttributionKind = "command"
+)
+
 // shellAuditState is everything the utility draws: which shell is measured, the
-// method it is measured with, the runs and their summary, and the functions
-// zprof named -- or the reason it could not name any.
+// start it is measured in, the runs and their summary, and what the shell's own
+// instrument named -- or the reason it named nothing.
 //
-// The environment half (Shell, ShellPath, Command, Runs, Timeout, Available,
+// The environment half (Shell, ShellPath, Kind, Version, Terminal, Available,
 // Reason) is resolved once when the model is built, because a render path must
 // not read the environment. The measurement half is filled only when the row
-// inside the screen is pressed: starting the user's shell five times is not
+// inside the screen is pressed: starting the user's shell several times is not
 // something a screen may do while drawing.
+//
+// The flat fields (Shell, Command, Samples, Median, Timeouts, Attribution...)
+// are the projection of the last measurement: every screen and every guard that
+// already read them keeps its meaning, and the run they came from is the same
+// record the history and the baseline comparison use.
 type shellAuditState struct {
 	// Resolved reports whether the environment half has been answered.
 	Resolved bool
 	// Available reports whether the shell can be measured here at all.
 	Available bool
-	// Reason is why it cannot be measured, in the screen's own words.
-	Reason string
+	// Reason is why it cannot be measured here, in the screen's own words, and
+	// RunReason why the last measurement's own start was refused -- a start this
+	// shell does not offer, where the utility itself is perfectly able to measure.
+	// They are separate because the first decides whether the row is offered and
+	// the second is a result.
+	Reason    string
+	RunReason string
 	// Shell is the login shell's name, ShellPath the binary it resolves to, and
 	// Command the exact line the runs execute, so the number can be reproduced
 	// by hand.
 	Shell     string
 	ShellPath string
 	Command   string
-	// Runs is how many starts the measurement makes and Timeout the bound each
-	// one gets.
+	// Kind is the shell's family, which decides every flag the measurement uses,
+	// and Mode the start the last measurement describes.
+	Kind shellAuditKind
+	Mode shellAuditMode
+	// Version is what the shell said about itself, for the context line and for
+	// the two instruments that need a version.
+	Version shellAuditVersion
+	// Terminal reports whether a terminal was attached to the run, and
+	// TerminalName the terminal the run happened under ($TERM, or $TERM_PROGRAM
+	// when the terminal names itself). A measurement with no terminal is still
+	// made and says so: the alternative was no number at all.
+	Terminal     bool
+	TerminalName string
+	// Runs is how many starts the last measurement made and Timeout the bound each
+	// one got.
 	Runs    int
 	Timeout time.Duration
+	// Plan is what the next measurement will do.
+	Plan shellAuditPlan
 
 	// Measuring reports that a measurement is in flight, so the screen says so
 	// and a second press cannot start a second one.
 	Measuring bool
 	// Measured reports that the measurement has run at least once.
 	Measured bool
+	// Progress is the start in flight, so the screen can say which one it is
+	// waiting on instead of only that it is waiting.
+	Progress shellAuditProgress
+	// AdviceOpen reports that the user asked to read the recommendations, which
+	// moves them to the top of the screen's text: the frame cuts prose from the
+	// bottom, so a list that stayed in place would be what a short frame took away
+	// first. It is a screen state rather than a measurement fact.
+	AdviceOpen bool
+	// Cancelled reports that the last measurement was stopped by the user rather
+	// than finished. The starts that had finished by then are still reported, and
+	// the summary says how many of the plan they are.
+	Cancelled bool
+	// MeasuredAt is when the last measurement finished and Took how long the whole
+	// measurement took, which is longer than the sum of the starts: it includes
+	// the profiled start and the version probe.
+	MeasuredAt time.Time
+	Took       time.Duration
 
 	// Samples are the starts that finished, in the order they ran. Timeouts
 	// counts the starts killed at Timeout and Failures the ones that could not
@@ -117,15 +189,39 @@ type shellAuditState struct {
 	Timeouts int
 	Failures int
 	Failure  string
-	// Median, Fastest and Slowest summarize Samples.
+	// Warmup are the starts made before the samples and thrown away, so a reader
+	// can see what the measurement cost rather than only what it kept.
+	Warmup []time.Duration
+	// Stats is the whole summary of Samples, including the numbers the median
+	// alone cannot show: the spread, the percentile, the outliers and the median
+	// of what is left once they are out.
+	Stats shellAuditStats
+	// Median, Fastest and Slowest summarize Samples. They are the projection of
+	// Stats, kept so every reader of the state reads the same three numbers.
 	Median  time.Duration
 	Fastest time.Duration
 	Slowest time.Duration
 
-	// Attribution is what zprof named, heaviest first, and AttributionReason is
-	// why it named nothing when it did not. Exactly one of the two is set.
+	// Attribution is what the shell's own instrument named, heaviest first, and
+	// AttributionReason is why it named nothing when it did not. Exactly one of
+	// the two is set.
 	Attribution       []shellAuditFunction
 	AttributionReason string
+	// Note is what the start still includes although it was asked to be clean,
+	// where the shell offers no way to leave it out.
+	Note string
+	// Baseline is the same start measured with none of the user's configuration,
+	// when the plan asked for the comparison. It is nil when none was measured,
+	// and the screen then says so instead of drawing a delta of zero.
+	Baseline *shellAuditRun
+
+	// History is what the user has stored, Trend is where this measurement sits
+	// among it, and HistoryError is what the file had to say when it could not be
+	// read. History is empty and off until the user turns it on, and nothing in
+	// this state is written to disk by the measurement itself.
+	History      shellAuditHistory
+	Trend        shellAuditTrend
+	HistoryError string
 }
 
 // shellAuditProbe carries every effect the measurement has, so each one can be
@@ -139,6 +235,19 @@ type shellAuditProbe struct {
 	// run starts the shell and returns its output. The context carries the
 	// deadline, so a run built on exec.CommandContext is killed when it expires.
 	run func(ctx context.Context, name string, args, env []string) ([]byte, error)
+	// version runs the shell's own version command, bounded by its own deadline.
+	// It is separate from run because it is not a start of the shell's startup:
+	// it does not read a configuration file, it must not be counted as a sample,
+	// and a machine that cannot answer it loses nothing but the context line.
+	// A nil hook leaves the version unknown.
+	version func(ctx context.Context, path string) (string, error)
+	// trace starts the shell with its own trace running and hands every line of it
+	// to parse while the start is still running. It is a hook of its own because
+	// the trace arrives on the start's stderr, which run deliberately drops: a
+	// trace read after the start has finished is a trace read from a pipe nobody
+	// drained, and the start would block on a full pipe instead of ending. A nil
+	// hook means this build cannot read a trace, and the bash profiler says so.
+	trace func(ctx context.Context, name string, args, env []string, parse func(string)) error
 	// timeout bounds every single run and runs is how many the total uses.
 	timeout time.Duration
 	runs    int
@@ -149,6 +258,17 @@ type shellAuditProbe struct {
 	writeFile func(path string, data []byte) error
 	readFile  func(path string) ([]byte, error)
 	removeAll func(path string) error
+	// fileSize answers how large a file is without reading it, and it is what keeps
+	// the table bound a bound rather than a complaint after the fact: refusing a
+	// 200 MB table after os.ReadFile has read it would spend the memory the refusal
+	// is written to save. A nil hook falls back to reading and checking, which is
+	// still correct -- the table is never parsed -- but it is the weaker order.
+	fileSize func(path string) (int64, error)
+	// mkdirAll and rename are how the stored measurements are written: the file
+	// goes through a temporary neighbour of the same directory and is rolled onto
+	// the real one, so a process that dies mid-write leaves the history it had.
+	mkdirAll func(path string) error
+	rename   func(oldPath, newPath string) error
 }
 
 // defaultShellAuditProbe returns the real probe.
@@ -159,12 +279,23 @@ func defaultShellAuditProbe() shellAuditProbe {
 		isTerminal: func() bool { return isCharDevice(os.Stdout) },
 		now:        time.Now,
 		run:        runShellAuditCommand,
+		version:    runShellAuditVersionCommand,
+		trace:      runShellAuditTrace,
 		timeout:    shellAuditTimeout,
 		runs:       shellAuditRuns,
 		mkdirTemp:  func() (string, error) { return os.MkdirTemp("", "dotfiles-shell-audit-") },
 		writeFile:  func(path string, data []byte) error { return os.WriteFile(path, data, 0o600) },
 		readFile:   os.ReadFile,
 		removeAll:  os.RemoveAll,
+		fileSize: func(path string) (int64, error) {
+			info, err := os.Stat(path)
+			if err != nil {
+				return 0, err
+			}
+			return info.Size(), nil
+		},
+		mkdirAll: func(path string) error { return os.MkdirAll(path, stateDirMode) },
+		rename:   os.Rename,
 	}
 }
 
@@ -179,6 +310,25 @@ func runShellAuditCommand(ctx context.Context, name string, args, env []string) 
 		cmd.Env = shellAuditMergedEnv(os.Environ(), env)
 	}
 	return cmd.Output()
+}
+
+// runShellAuditVersionCommand asks the shell what it is. Its own bound keeps it
+// from being the one call that stalls the screen: a shell whose version command
+// waits on something -- a network mount, a broken wrapper -- is reported as
+// unknown rather than waited on. The output is kept to the first line, and a
+// failure is not an error the caller has to report: not knowing the version
+// costs the context line, never the measurement.
+func runShellAuditVersionCommand(ctx context.Context, path string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, shellAuditVersionTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, path, shellAuditVersionFlag)
+	cmd.WaitDelay = shellAuditWaitDelay
+	out, err := cmd.Output()
+	if err != nil {
+		return string(out), err
+	}
+	return string(out), nil
 }
 
 // shellAuditMergedEnv adds the utility's own variables to the process
@@ -205,23 +355,18 @@ func shellAuditMergedEnv(base, extra []string) []string {
 	return append(merged, extra...)
 }
 
-// shellAuditArgs is the command every run executes: the shell started the way a
-// terminal starts it, and asked to exit. It is one function so the line on screen
-// and the line that runs cannot disagree.
-func shellAuditArgs() []string {
-	return []string{"-i", "-c", "exit"}
-}
-
 // resolveShellAudit answers everything about the measurement that does not need
-// the measurement: which shell, whether it exists, and whether this run can start
-// an interactive one at all.
+// the measurement: which shell, whether it exists, and what this run can offer.
 //
 // Every refusal is a reason in the screen's own words. A utility that is missing
-// without saying why is the failure this shape exists to prevent, and the three
-// refusals are different situations: no login shell named, a login shell this
-// machine does not have, and a run with no terminal to reproduce the start on.
+// without saying why is the failure this shape exists to prevent, and the two
+// refusals are different situations: no login shell named, and a login shell this
+// machine does not have. A run with no terminal attached is not one of them --
+// the shell starts the same way under our own stdin, and the screen names the
+// terminal it ran under instead of withholding a number it can take.
 func resolveShellAudit(probe shellAuditProbe) shellAuditState {
-	st := shellAuditState{Resolved: true, Runs: probe.runs, Timeout: probe.timeout}
+	plan := shellAuditPlanDefault(probe.runs)
+	st := shellAuditState{Resolved: true, Runs: plan.Samples, Timeout: probe.timeout, Plan: plan}
 
 	shell := probe.getenv("SHELL")
 	if shell == "" {
@@ -230,6 +375,7 @@ func resolveShellAudit(probe shellAuditProbe) shellAuditState {
 		return st
 	}
 	st.Shell = filepath.Base(shell)
+	st.Kind = shellAuditKindOf(st.Shell)
 
 	path, err := probe.lookPath(shell)
 	if err != nil {
@@ -238,84 +384,90 @@ func resolveShellAudit(probe shellAuditProbe) shellAuditState {
 		return st
 	}
 	st.ShellPath = path
-	st.Command = st.Shell + " -i -c exit"
+	st.Command = shellAuditCommandLine(st.Shell, shellAuditStartForKind(st.Kind, plan.Mode))
 
-	if !probe.isTerminal() {
-		st.Reason = fmt.Sprintf("this run has no terminal attached, so %s cannot be started the way a terminal starts it. "+
-			"Without one, job control and the plugins that read the terminal behave differently, and the number would "+
-			"describe a start you never get. Run the installer from a terminal to measure it.", st.Shell)
-		return st
+	// The terminal is context, not a gate. A run with no terminal attached starts
+	// the shell exactly the same way -- `-i -c exit` on our own stdin, which needs
+	// no tty -- and the start is different from the one a terminal gets, because
+	// job control and the plugins that read the terminal behave differently. The
+	// number is still worth having and the screen says what it describes; refusing
+	// outright was the case where a pipe, a container or a CI run got no number at
+	// all and no explanation of what it was missing.
+	st.Terminal = probe.isTerminal()
+	st.TerminalName = shellAuditTerminalName(probe.getenv)
+
+	// The stored measurements are read once, here on the startup path, and never
+	// while a screen is being drawn: the render path must not wait on a disk, and
+	// a file the user did not ask for must not be read at all. A machine with no
+	// file is a machine that has never kept history, which is the normal first
+	// run; a file that is there and cannot be read is reported rather than
+	// silently started over.
+	if path := shellAuditHistoryPath(probe.getenv); path != "" {
+		history, err := readShellAuditHistory(probe, path)
+		st.History = history
+		if err != nil {
+			st.HistoryError = fmt.Sprintf("the stored measurements in %s could not be read (%v), so this run has "+
+				"no trend behind it: the file is left as it is, and the next measurement you keep replaces it.",
+				path, err)
+		}
 	}
 
 	st.Available = true
 	return st
 }
 
-// measureShellAudit starts the shell probe.runs times for the total and then once
-// more under zprof for the attribution. It returns early when the shell was never
-// available, so an unavailable state is never measured.
-//
-// Every start is bounded by probe.timeout, and a start that does not finish is
-// counted as a timeout rather than folded into the samples: a timeout has no
-// duration, and reporting one as a number would be the one lie this utility
-// cannot afford. The profiled start is deliberately not a sample -- zprof costs
-// time of its own -- so the median describes the starts a terminal makes.
+// shellAuditStartForKind is the start of one mode with no clean directory: it
+// exists for the one caller that only needs the command line to draw, and it is
+// careful to be the same answer the run gets. A mode whose start needs a clean
+// directory returns the arguments it would use there, so the line on screen
+// still names the flags.
+func shellAuditStartForKind(kind shellAuditKind, mode shellAuditMode) shellAuditStart {
+	if mode.Clean {
+		start, _ := shellAuditStartFor(kind, mode, shellAuditCleanDirPlaceholder)
+		return start
+	}
+	start, _ := shellAuditStartFor(kind, mode, "")
+	return start
+}
+
+// shellAuditCleanDirPlaceholder is what the drawn command line shows where the
+// run puts the directory of its own. The line is meant to be readable and
+// reproducible by hand: a reader who pastes it makes the same start, and the
+// path they choose is theirs.
+const shellAuditCleanDirPlaceholder = "<empty directory>"
+
+// shellAuditTerminalName is the terminal the run happened under, as the
+// environment names it: $TERM_PROGRAM is the emulator's own name where it sets
+// one, and $TERM is what everything has. It is context for the number, never a
+// capability test.
+func shellAuditTerminalName(getenv func(string) string) string {
+	if program := getenv("TERM_PROGRAM"); program != "" {
+		if version := getenv("TERM_PROGRAM_VERSION"); version != "" {
+			return program + " " + version
+		}
+		return program
+	}
+	return getenv("TERM")
+}
+
+// measureShellAudit runs one measurement to its end on this goroutine and
+// returns the state it leaves. The screen does not use this shape -- it runs the
+// measurement on a session and draws each start as it lands -- but a guard wants
+// the finished state without a channel, and the two share the one engine so a
+// guard can never pass against an engine the screen does not run.
 func measureShellAudit(st shellAuditState, probe shellAuditProbe) shellAuditState {
 	if !st.Available {
 		return st
 	}
-
-	st.Measured = true
-	st.Measuring = false
-	st.Samples = nil
-	st.Timeouts, st.Failures, st.Failure = 0, 0, ""
-
-	for i := 0; i < probe.runs; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), probe.timeout)
-		start := probe.now()
-		_, err := probe.run(ctx, st.ShellPath, shellAuditArgs(), nil)
-		elapsed := probe.now().Sub(start)
-		// Whether the deadline fired has to be read before the cancellation below,
-		// or a finished run would be classified by the cancel this loop itself
-		// caused.
-		timedOut := shellAuditRunTimedOut(ctx, err)
-		cancel()
-
-		switch {
-		case err == nil:
-			st.Samples = append(st.Samples, elapsed)
-		case timedOut:
-			st.Timeouts++
-		default:
-			st.Failures++
-			if st.Failure == "" {
-				st.Failure = err.Error()
-			}
-		}
-	}
-
-	st.Median, st.Fastest, st.Slowest = shellAuditSummary(st.Samples)
-	st.Attribution, st.AttributionReason = profileShellAudit(st, probe)
-	return st
+	return drainShellAuditSession(st, startShellAuditSession(st, probe))
 }
 
 // shellAuditSummary reduces the finished runs to the median and the two ends of
-// the range. The median of an odd count is the middle run; of an even count it is
-// the mean of the two middle runs, which is what happens when some runs timed out
-// and were not samples.
+// the range. It is the projection of the whole summary, kept because the three
+// numbers are what a caller who does not want the spread asks for.
 func shellAuditSummary(samples []time.Duration) (median, fastest, slowest time.Duration) {
-	if len(samples) == 0 {
-		return 0, 0, 0
-	}
-
-	sorted := append([]time.Duration(nil), samples...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-	fastest, slowest = sorted[0], sorted[len(sorted)-1]
-	if len(sorted)%2 == 1 {
-		return sorted[len(sorted)/2], fastest, slowest
-	}
-	return (sorted[len(sorted)/2-1] + sorted[len(sorted)/2]) / 2, fastest, slowest
+	st := shellAuditStatsOf(samples)
+	return st.Median, st.Fastest, st.Slowest
 }
 
 // shellAuditRunTimedOut reports whether a run was cut off rather than finished.
@@ -332,84 +484,6 @@ func shellAuditRunTimedOut(ctx context.Context, err error) bool {
 		return true
 	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
-}
-
-// profileShellAudit takes one profiled start of zsh and returns the functions
-// zprof named, or the reason it named none.
-//
-// It is read-only: the user's startup files are sourced from the directory
-// ZDOTDIR already pointed at, and the only files written are the two wrappers and
-// zprof's table, all inside a directory of the utility's own that is removed
-// afterwards. A function is named only when zprof named it -- no shell's startup
-// is diagnosed by guessing.
-func profileShellAudit(st shellAuditState, probe shellAuditProbe) ([]shellAuditFunction, string) {
-	if st.Shell != "zsh" {
-		return nil, fmt.Sprintf("zprof is zsh's own module, and %s has no equivalent built in, so only the total is "+
-			"measurable here. Nothing is named in its place: the only number this utility can stand behind for %s is "+
-			"the median above.", st.Shell, st.Shell)
-	}
-
-	// ZDOTDIR is where the user's own startup files already live; HOME is where zsh
-	// looks when it is unset. The wrapper sources them from there, so nothing of the
-	// user's is copied, moved or rewritten. Without either, the wrapper could only
-	// name a relative path, so the profiled start is not attempted at all.
-	realZDOTDIR := probe.getenv("ZDOTDIR")
-	if realZDOTDIR == "" {
-		realZDOTDIR = probe.getenv("HOME")
-	}
-	if realZDOTDIR == "" {
-		return nil, "neither $ZDOTDIR nor $HOME names the directory this shell's startup files live in, so the " +
-			"profiled start cannot be pointed at them: no function can be named, and only the total above stands."
-	}
-
-	dir, err := probe.mkdirTemp()
-	if err != nil {
-		return nil, "the profiled start could not be prepared (" + err.Error() + "), so no function can be named: only the total above stands."
-	}
-	defer probe.removeAll(dir)
-
-	profilePath := filepath.Join(dir, "zprof.txt")
-	for _, wrapper := range []struct{ name, body string }{
-		{".zshenv", shellAuditZshEnvWrapper(realZDOTDIR)},
-		{".zshrc", shellAuditZshRCWrapper(realZDOTDIR, profilePath)},
-	} {
-		if err := probe.writeFile(filepath.Join(dir, wrapper.name), []byte(wrapper.body)); err != nil {
-			return nil, "the profiled start could not be prepared (" + err.Error() + "), so no function can be named: only the total above stands."
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), probe.timeout)
-	defer cancel()
-	// ZDOTDIR is the only variable the profiled start needs: it is where zsh looks
-	// for .zshenv and .zshrc, and the wrappers carry every other path they need in
-	// their own text.
-	if _, err := probe.run(ctx, st.ShellPath, shellAuditArgs(), []string{"ZDOTDIR=" + dir}); err != nil {
-		if shellAuditRunTimedOut(ctx, err) {
-			return nil, fmt.Sprintf("the profiled start of %s did not finish within %v, so no function can be named: a "+
-				"start that does not end is reported as a timeout, and only the total above stands.", st.Shell, probe.timeout)
-		}
-		return nil, fmt.Sprintf("the profiled start of %s failed (%v), so no function can be named: only the total "+
-			"above stands.", st.Shell, err)
-	}
-
-	data, err := probe.readFile(profilePath)
-	if err != nil {
-		return nil, "the profiled start wrote no table (" + err.Error() + "), so no function can be named: zsh/zprof " +
-			"reported nothing here, and only the total above stands."
-	}
-
-	functions, reported := parseZprofProfile(data)
-	if !reported {
-		return nil, "zsh/zprof reported no table at all, so no function can be named: the module could not be loaded " +
-			"in this zsh, or the startup did not reach the end of .zshrc. Only the total above stands, and nothing is " +
-			"guessed at in its place."
-	}
-	if len(functions) == 0 {
-		return nil, "zsh/zprof reported no function, so no function can be named: only the total above stands, and " +
-			"nothing is guessed at in its place."
-	}
-
-	return functions, ""
 }
 
 // parseZprofProfile reads zprof's table. The boolean reports whether the table's
@@ -454,61 +528,6 @@ func parseZprofProfile(data []byte) ([]shellAuditFunction, bool) {
 	return functions, reported
 }
 
-// isZprofRule reports whether a line of zprof's output is one of its horizontal
-// rules or a blank line, rather than a row.
-func isZprofRule(line string) bool {
-	trimmed := strings.TrimSpace(line)
-	return trimmed == "" || strings.Trim(trimmed, "-") == ""
-}
-
-// parseZprofLine reads one row of zprof's table. The columns are the table's
-// own: an index, the call count, the total time and its share, the self time and
-// its share, and then the name -- which can contain spaces, as the rows for
-// anonymous functions do, so the tail is joined rather than taken as one field.
-func parseZprofLine(line string) (shellAuditFunction, bool) {
-	fields := strings.Fields(line)
-	if len(fields) < 9 {
-		return shellAuditFunction{}, false
-	}
-
-	index := strings.TrimSuffix(fields[0], ")")
-	if index == fields[0] {
-		return shellAuditFunction{}, false
-	}
-	if _, err := strconv.Atoi(index); err != nil {
-		return shellAuditFunction{}, false
-	}
-
-	calls, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return shellAuditFunction{}, false
-	}
-	total, err := strconv.ParseFloat(fields[2], 64)
-	if err != nil {
-		return shellAuditFunction{}, false
-	}
-	self, err := strconv.ParseFloat(fields[5], 64)
-	if err != nil {
-		return shellAuditFunction{}, false
-	}
-
-	name := strings.Join(fields[8:], " ")
-	if name == "" {
-		return shellAuditFunction{}, false
-	}
-
-	return shellAuditFunction{
-		Name:  name,
-		Calls: calls,
-		Total: shellAuditMilliseconds(total),
-		Self:  shellAuditMilliseconds(self),
-		// The share that belongs to Total. The table prints a second share under
-		// self; the one shown beside the total is the one that adds up to the
-		// startup, so it is the one kept.
-		Percent: fields[4],
-	}, true
-}
-
 // shellAuditMilliseconds converts one of zprof's millisecond cells.
 func shellAuditMilliseconds(ms float64) time.Duration {
 	return time.Duration(ms * float64(time.Millisecond))
@@ -539,41 +558,6 @@ func shellAuditZprofTime(ms float64) string {
 		return fmt.Sprintf("%.2f s", ms/1000)
 	}
 	return fmt.Sprintf("%.2f ms", ms)
-}
-
-// shellAuditZshEnvWrapper renders the .zshenv the profiled start reads first: it
-// loads zprof before anything else, so every function the real startup defines is
-// counted, and then sources the user's own .zshenv from the directory ZDOTDIR
-// pointed at before this run moved it.
-//
-// The paths are baked into the text rather than passed in the environment: the
-// wrapper is the only thing that needs them, and a path in a file cannot be
-// shadowed by a variable the user already set. Every path goes through
-// shellAuditQuote, so a home directory with a space, a quote or a dollar sign in
-// it stays one word instead of becoming shell syntax.
-func shellAuditZshEnvWrapper(realZDOTDIR string) string {
-	userEnv := shellAuditQuote(filepath.Join(realZDOTDIR, ".zshenv"))
-	return "# written by the dotfiles installer for one profiled start; the directory is\n" +
-		"# removed afterwards. It is not the user's shell configuration and nothing is\n" +
-		"# written back to it.\n" +
-		"builtin zmodload zsh/zprof 2>/dev/null\n" +
-		"if [[ -r " + userEnv + " ]]; then\n" +
-		"  builtin source " + userEnv + "\n" +
-		"fi\n"
-}
-
-// shellAuditZshRCWrapper renders the .zshrc the profiled start reads: the user's
-// own .zshrc is sourced from the directory ZDOTDIR pointed at before this run
-// moved it, and zprof writes its table outside the user's tree.
-func shellAuditZshRCWrapper(realZDOTDIR, profilePath string) string {
-	userRC := shellAuditQuote(filepath.Join(realZDOTDIR, ".zshrc"))
-	return "# written by the dotfiles installer for one profiled start; the directory is\n" +
-		"# removed afterwards. The user's own .zshrc is sourced from where ZDOTDIR pointed\n" +
-		"# before this run moved it, and nothing is written into the user's tree.\n" +
-		"if [[ -r " + userRC + " ]]; then\n" +
-		"  builtin source " + userRC + "\n" +
-		"fi\n" +
-		"builtin zprof > " + shellAuditQuote(profilePath) + "\n"
 }
 
 // shellAuditQuote wraps a path in single quotes for the generated wrapper,

@@ -293,9 +293,10 @@ puts each file back, and skips a file it cannot recognize while carrying on with
 
 **Adjust the WSL resources.** On a WSL host, **Adjust the WSL resources** opens the memory,
 processors and swap the WSL 2 VM may use. The screen prints the Windows host's real RAM and logical
-processor count, recommends values from them — half the host's RAM rounded down to 512 MB (never so
-much that Windows keeps under 2 GiB), every logical CPU, and a quarter of that memory for swap — and
-lets you move each value with **←/→** or put everything back on the recommendation with **`r`**. It
+processor count, recommends values from them — three quarters of the host's RAM rounded down to 512 MB
+(never so much that Windows keeps less than 4 GiB, and never below half the host), every logical CPU
+except one, and a quarter of that memory for swap — and lets you move each value with **←/→** or put
+everything back on the recommendation with **`r`**. It
 is the same values and the same writer the installation step uses, not a second calculation, and it
 is offered only where there is a `.wslconfig` to edit: elsewhere the section says why. The template
 it renders is read from a checkout when one is present — `$DOTFILES_DIR`, the clone, the working
@@ -310,18 +311,35 @@ does not run it; `--dry-run` skips the write.
 
 **Measure the shell's startup.** The fourth utility **changes nothing**. It starts
 the login shell named by `$SHELL` the way a terminal does — `zsh -i -c exit`, or the same shape for
-your shell — **five times**, and reports the **median** with the **range** and every completed start,
-so the number is a measurement and not a single run: the method travels with it and it can be
-reproduced by hand. Every start is bounded by a **ten-second timeout**, because a startup can hang on
-a plugin that waits for the network and the utility must not hang with it — a start that does not
-finish is reported as a timeout and left out of the median, never written down as `0.0 s`. On zsh one
-further start is taken under `zmodload zsh/zprof`, and the functions zprof blames are named heaviest
-first with the total, the self time and the call count; when `zprof` is unavailable, when the shell is
-not zsh, or when the profiled start reports no table, the screen says **only the total is
-measurable** and gives the reason rather than inventing a culprit. Nothing is written: no startup
-file is touched and no plugin is disabled — the wrappers the profiled start needs live in a
-temporary directory that is removed again, and your own files are sourced from where they already
-were. Where it cannot measure — no `$SHELL`, no terminal — the section says so and why.
+your shell — and the **start is yours to name**: the interactive start a terminal gives you, the
+login start, or a clean start that reads no configuration at all, with `[m]`/`[n]`/`[w]`/`[b]` for
+the start, the number of runs (five by default, at most twenty), a warm-up run to throw away, and a
+clean comparison. The line above the rule draws the exact command a press would run, so the plan and
+the measurement cannot disagree. It reports the **median** with the **mean** and the **range** and
+every completed start, so the number is a measurement and not a single run: the method travels with it and it can be
+reproduced by hand. The **spread**, the **95th percentile** and a **trimmed median** join it only once
+there are enough runs behind them, and the screen names what is missing, with the runs it would need,
+instead of printing a zero.
+Every start is bounded by a **ten-second timeout**, because a startup can hang on a plugin that waits
+for the network and the utility must not hang with it — a start that does not finish is reported as a
+timeout and left out of the median, never written down as `0.0 s` — and **`Esc` stops the runs that
+are left while keeping the samples that finished**. On zsh a further start is taken under `zmodload
+zsh/zprof`; on bash 5.0+ it is traced with `PS4` + `EPOCHREALTIME`; on fish 3.6+ the shell's own
+`--profile-startup` is used. The functions the instrument names are listed heaviest first, and when
+the shell has no instrument here, its version is too old, or the instrument reports no table, the
+screen says **only the total is measurable** and gives the reason rather than inventing a culprit. With
+`[b]` on, the same shell is measured again with no configuration read, and the difference between the
+two medians is reported as the shell and the machine's own time versus what your configuration adds —
+refused rather than guessed when the two sides are not comparable. `[h]` keeps the last fifty
+measurements in `shell-audit-history.json` under the state directory, which is off until you turn it
+on, and `[r]` opens the recommendations, each labelled **Measured**, **Observed** or **Confirmed**
+according to what kind of claim it is. Nothing is written to your configuration: no startup file is
+touched and no plugin is disabled — the tables and wrappers the profiled start needs live in a
+temporary directory that is removed again, your own files are sourced from where they already were, a
+clean start reads an empty directory of the utility's own, and nothing a startup printed is displayed
+or kept. Where it cannot measure — no `$SHELL`, or a login shell this machine does not have — the
+section says so and why; a run with **no terminal attached** is measured and says which terminal it
+ran under, because a pipe, a container or a CI run is exactly where a slow startup is worth knowing.
 
 **Report the terminal capabilities.** The read-only report describes **the terminal this run is
 in** and what each answer means for the theme and the interface: the colour depth (**truecolor**,
@@ -337,8 +355,8 @@ when you open the screen (never at startup), writes nothing, and its terminal qu
 timeout so a terminal that never answers cannot freeze the interface. See the
 [TUI Installer Guide](docs/tui-installer.md#the-terminal-capabilities).
 
-**Clean up development caches.** The fifth utility is **the developer disk cleaner**, behind the
-**Clean up development caches** row, and it is the one utility here that **removes** anything. It
+**Clean up development caches.** **The developer disk cleaner** is the utility behind the **Clean up
+development caches** row, and it is the one utility here that **removes** anything. It
 looks for the stores this machine's development tools actually keep — a tool is named only when a
 program on `PATH`, an environment variable that names a store, or an existing directory says it is
 used here — covering the JavaScript and TypeScript package managers, `pip`, `uv`, Poetry and Conda,
@@ -386,6 +404,56 @@ with, and when it cannot be measured the screen says why instead of printing a z
 screen states that freeing space in the Linux filesystem does **not** shrink the distribution's
 virtual disk, and it will not compact it for you: that is a separate decision made from Windows. See
 the [TUI Installer Guide](docs/tui-installer.md#the-development-caches).
+
+**Check the installed tools for updates.** The update center asks **every package manager this
+machine really has** what it has to update — Homebrew, apt, pkg on Termux, pacman, dnf, snap,
+Flatpak and rustup — **one manager at a time**, because apt, pacman, dnf and pkg keep locks over the
+same package state. Each answer is the manager's own: an entry's identity is its **manager, its
+scope and its name**, so a `git` from Homebrew and a `git` from apt are **two rows with two owners**
+and are never merged, and a pinned entry (`brew pin`, an apt hold, `pacman`'s `IgnorePkg`, a `dnf
+versionlock`, a held snap) is shown **with the manager's own words about the hold**. Four answers
+stay four answers: updates, current, **cannot be asked here** (with the reason), and
+**could not be read** (with the manager's own words — an unreachable mirror, a refused permission, a
+lock another process holds, a conflict); "nothing to update" is never printed for a manager that was
+never asked. Nothing runs on its own: opening the screen only reads, there is **no "update
+everything" row**, the row that opens the plan carries the number of entries selected, and the
+confirmation names **every command exactly as it will run**, the entries it moves, whether it needs
+the administrator, what stays pending afterwards and what going back would cost — in the manager's
+own terms. Elevation is `sudo -n` (a machine whose administrator program would ask for a password is
+refused with the command named, not left waiting on a prompt the frame cannot show). A command is a
+list of arguments handed to the manager directly — **never a line of shell**, so no package name can
+become a second command and there is no `curl | sh` on this path — and credentials in a manager's
+output are redacted before the text reaches the screen. A running command can be stopped with the
+stop row or `c`; when it finishes the manager is read again before anything is concluded, so each
+entry is reported as **requested**, **executed** or **confirmed** — three different facts — and the
+whole inventory is read again so the list that follows is the machine's answer, not the plan's
+expectation. See the [TUI Installer Guide](docs/tui-installer.md#the-package-update-center).
+
+**Manage the SSH configuration.** This utility reads the SSH setup the client would really
+use and keeps the one part of it this tool owns in order. The hosts list is **the client's own
+answer**, never this package's idea of it: for each alias the screen asks `ssh -G --` and reports
+the effective `HostName`, `User`, `Port`, `ProxyJump` and every `IdentityFile`, naming the file and
+line each value came from and saying plainly when a `Match` criterion (an `exec`, a `canonical`, a
+`final`) was not evaluated rather than guessing which block won. An entry that cannot be rewritten
+safely — a wildcard, a negation, a line with an `Include` or a `Match` under it, a value carrying a
+comment, a file this tool may not write — is shown **read-only with the reason**, and the rows that
+would edit it are not offered. A new entry is written inside a block this tool marks in
+`~/.ssh/config` (`# >>> dotfiles ssh-manager >>>`), and an entry your own file already declares is
+edited **where it is**; either way every line the change does not name is preserved
+**byte-for-byte**, including your comments, blank lines and unknown options, and the plan of a change
+is previewed with its
+`+`/`-` lines and the backup it will take before anything is written. A write copies the file to
+`.bak-dotfiles-<stamp>` first, writes a temporary file, has **the client's own parser** validate it
+with `ssh -G -F`, and replaces the file atomically — refusing outright when the file changed since
+the preview. The keys screen describes a pair from its **public half** (the private key is only
+`stat`ed, never opened), reports its mode and warns when it is too open, and generates a key with
+the passphrase travelling on a **pipe** rather than an argument list. The agent screen names which
+agent this environment actually advertises and what it does differently — `gpg-agent` ignores
+`ssh-add -t`, 1Password and KeePassXC serve the keys they own — instead of pretending every agent
+behaves like OpenSSH's. A connection is tested **only when you press the row that tests it**, with
+`BatchMode`, `StrictHostKeyChecking=yes`, `UpdateHostKeys=no` and no password prompt: a test can
+never accept a new host key or write to `known_hosts`. See the
+[TUI Installer Guide](docs/tui-installer.md#the-ssh-configuration).
 
 ---
 

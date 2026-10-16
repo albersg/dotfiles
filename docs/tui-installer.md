@@ -11,6 +11,7 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - [Command Line Interface](#command-line-interface)
 - [Backup & Restore](#backup--restore)
 - [Learn Mode](#learn-mode)
+- [Keymaps Reference](#keymaps-reference)
 - [Requirements](#requirements)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -24,13 +25,17 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
   cannot drift from the keys the screen accepts
 - **Smart Detection**: Automatically detects your OS, existing configs, and installed tools
 - **Backup & Restore**: Safely backup existing configurations before installation
-- **Educational Content**: Learn about each tool before choosing (terminals, shells, multiplexers)
-- **Neovim Keymaps Reference**: Built-in keymap browser organized by category
+- **Educational Content**: A **Learn About Tools** hub that reaches a page for every tool a run
+touches: the terminals, shells and multiplexers a run chooses, Neovim, the font, the prompts, the
+shell tooling, the plugin sets and the `Brewfile`'s directives
+- **Keymaps Reference**: Built-in keymap browser organized by category, for every tool whose
+configuration declares bindings; the two that declare none say so and list what they set instead
 - **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
 - **Utilities**: The small jobs that are not part of an installation, starting with a
   reversible system light/dark theme switch and the reversible dotfiles-theme switch, in its own
-  main-menu row
+  main-menu row, and the read-only **network diagnosis** that names which stage of a connection
+  stopped it
 - **Progress Tracking**: Real-time installation progress with a frame-width progress bar whose
   filled part carries a travelling highlight during long steps, a percentage, the step the run is on
   with its name, the elapsed time and an estimate of what is left measured from the run's own clock,
@@ -83,8 +88,9 @@ go build -o dotfiles ./cmd/dotfiles
 From the main menu you can access:
 
 - **Start Installation**: Begin the guided setup process
-- **Learn About Tools**: Explore terminals, shells, and multiplexers
-- **Neovim Keymaps**: Browse all configured keybindings
+- **Learn About Tools**: Opens the hub: terminals, shells, multiplexers, Neovim, the font, the
+  prompts, the shell tooling, the plugin sets and the machine toolset
+- **Keymaps Reference**: Browse the bindings each tool ships, organized by category
 - **LazyVim Guide**: Learn LazyVim fundamentals
 - **Vim Trainer**: Practice Vim motions with interactive exercises
 - **Update this installer**: Appears whenever the check has something to report: a newer
@@ -109,10 +115,19 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the
-  read-only terminal capability report behind the **Report the terminal capabilities** row, and the
-  developer disk cleaner behind the **Clean up development caches** row, the one utility here that
-  removes anything
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the three
+  read-only reports: the terminal capability report behind the **Report the terminal
+  capabilities** row, the install check behind the **Check the machine against the last
+  install** row, and the network diagnosis behind the **Diagnose the network** row, plus the
+  SSH configuration behind the **Manage the SSH configuration** row and the package update
+  center behind the **Check the installed tools for updates** row, which asks every package
+  manager this machine really has what it has to update and moves only what is selected,
+  through the manager that owns each entry. The one utility here that removes anything is the
+  developer disk cleaner behind the **Clean up development caches** row, which names a store
+  only when this machine shows evidence of it, measures the space it holds, and cleans only what
+  the scan found and a preview named. On a real WSL
+  instance the list also carries the performance advisor behind the **Diagnose this WSL
+  environment** row, which is a report until one of its own rows is pressed
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -127,12 +142,31 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds three jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds eleven jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
-host), and the read-only **terminal capability report**. The main menu's panel derives one row per
-job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
-is the only list -- so a utility added to the section shows up in the panel or is visibly missing
-from that one function.
+host), the read-only **shell's startup** measurement (one level in), the read-only **terminal
+capability report**, the read-only **install check**, the read-only **network diagnosis** (one
+level in from the **Diagnose the network** row), the **package update center** (which reads what the
+machine's own package managers have to update and moves only what is selected), the **SSH
+configuration** (one level in, and the hub of the screens that read and edit it), the **WSL
+performance advisor** (one level in, and only inside a real WSL instance), and the **developer disk
+cleaner** -- the one job here that removes anything, and only what the scan found on this machine
+and the user marked after a preview. Each job is offered
+exactly where it can finish: a row that would fail when it is pressed is not in the list, and the
+section's own body says why it is absent.
+The main menu's panel derives one row per job from the same model state the section's own options
+are built from -- `utilitiesPanelEntries` is the only list -- so a utility added to the section
+shows up in the panel or is visibly missing from that one function.
+`TestTheUtilitiesDocNamesEveryJobTheSectionOffers` holds this sentence to that list, because a
+sentence that states a count and then lists fewer jobs than the section offers is the defect this
+doc has already shipped once.
+
+**The network diagnosis accumulates its checks instead of replacing them**: each one appears as it
+finishes, so a slow stage never hides a fast one, and the row that runs them keeps its own label
+while the count of finished steps lives in the notice line above the body (`Running the checks… 3
+finished so far`, with what stopping does). The cursor is held on the row it was on when the report
+lands, so a run that finishes while the user is reading one step does not hand the next `Enter` to a
+different row.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
@@ -486,9 +520,21 @@ beside the recommendation so it can be checked against the machine:
 
 | Key | Recommended from |
 |-----|------------------|
-| `memory` | half the host's RAM, rounded down to 512 MB, capped so Windows keeps at least 2 GiB, omitted below 1 GiB |
-| `processors` | every logical CPU the host reports |
+| `memory` | three quarters of the host's RAM, rounded down to 512 MB, capped so Windows is left at least 4 GiB wherever that can be honoured and floored at half the host, which is what decides on a host too small to honour both, omitted below 1 GiB |
+| `processors` | every logical CPU the host reports except one, so Windows keeps one |
 | `swap` | a quarter of the planned memory, rounded down to 512 MB |
+
+**These limits were wrong in a way only a packed build shows.** The installer used to take **half**
+the host, pin the reserve at 2 GiB and hand the VM **every** logical CPU. On a 16,016 MiB / 12-CPU
+host that planned `memory=7680MB, processors=12`, and at that size two global out-of-memory kills
+took the whole distribution down while a test run held about 5.3 GiB of it. The reserve is now a flat
+4 GiB instead of 2; the ratio is three quarters of the host instead of half, which is what the
+reserve clamps on a machine this size; the floor is half the host, WSL's own proportional default,
+so the plan never gives less than WSL would; and Windows keeps one CPU. The
+same host now plans `memory=11776MB, processors=11, swap=2560MB`. `TestPlanWSLResources` pins this
+host, both boundaries, the 1-CPU host and the unknown host, and
+[`dotfiles-wsl/.wslconfig.tmpl`](../dotfiles-wsl/.wslconfig.tmpl)'s own comments changed with the
+policy, because a template comment that states the old rule is the defect this change removes.
 
 The rows start on what the file holds today where it sets a key, and on the recommendation where it
 does not. **←/→** (`h`/`l`, `-`/`+`) move the value under the cursor by one step — 512 MB for memory
@@ -510,6 +556,50 @@ After a successful write the screen re-reads the file it left behind and updates
 place: the table keeps its size and its place, the notice row says it is refreshing, and one press
 is one visible change. **`--dry-run` skips the write**, leaving no file, no backup and no record,
 exactly as it skips every installation step.
+
+### The WSL memory guard
+
+**The `.wslconfig` caps the VM; the guard caps what runs inside it.** Under WSL every process in the
+distribution -- the shell, the editor, systemd itself and its journal -- lives in one cgroup,
+`init.scope`, and nothing bounded it. The WSL step installs a small systemd unit whose payload puts
+four limits on that scope and keeps them there:
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `memory.high` | `infinity` | a number here is a throttle, not a limit: the kernel stalls the scope instead of killing anything, which is a freeze with no error, and on 2026-10-16 it froze this distribution for six minutes |
+| `memory.max` | the VM's own total minus 1536 MiB | leaves systemd and the shell room to keep working when a build fills the VM, so the kill lands on the build rather than on the distribution |
+| `memory.swap.max` | `1280M` | bounded, so a spike is not absorbed silently by paging until the machine stops responding, and wide enough that pages the kernel cannot drop have somewhere to go: a tmpfs is shmem, shmem is only reclaimable by swapping, and on 2026-10-16 verification worktrees under `/tmp` held 4524 MiB of the 8409 MiB cap that a 512M allowance could not reclaim. Raising it is the second line of defence; the first is not filling a tmpfs |
+| `memory.oom.group` | `0` | one task is killed, not every task in the group |
+
+**`OOMPolicy=continue` is the half that decides whether the distribution survives at all.** With
+systemd's default, `stop`, an OOM kill inside `init.scope` makes systemd **stop the scope** -- and
+because every process in the distribution is in that scope, one killed process takes the whole
+distribution with it. That is what happened twice on 2026-10-16, at 11:39:48 and 11:53:54. The
+setting is a **unit** property rather than a cgroup attribute, and systemd refuses it through
+`systemctl set-property --runtime`: measured on systemd 257, the route that works is a drop-in scoped
+to the scope, `/etc/systemd/system/init.scope.d/10-oompolicy.conf`, so the guard writes it and then
+**reads the effective policy back** rather than assuming either route worked. It deliberately does
+not write `DefaultOOMPolicy` in `/etc/systemd/system.conf`: that reaches every unit on the machine
+and would stop a service whose main process is OOM-killed from being marked failed, so its
+`Restart=` would never fire. When neither scoped route takes, the guard says so, names that remedy
+with its cost, and exits non-zero.
+
+**The cap survives a reload, and that is checked rather than claimed.** `systemctl set-property
+--runtime` does not set the cgroup in a way a `daemon-reload` discards: systemd stores the values as
+drop-ins under `/run/systemd/transient/init.scope.d/` and re-applies them. The verification in the
+step is that mechanism: it reads `memory.max`, runs a second `daemon-reload` and requires the value
+to be unchanged.
+
+**The step installs it and proves it; the Utility repairs it.** The Configure WSL step installs the
+payload (`0755`, because systemd has to execute it) and the unit (`0644`), reloads, enables and
+restarts the unit, and reads `OOMPolicy` and `memory.max` back. A machine where systemd is not the
+init -- what provides it is `[boot] systemd=true` in `/etc/wsl.conf` -- gets a line saying so and the
+files are left unwritten, because a unit systemd will never read is not a safeguard. Every
+degradation is reported and **none of them fails the step**: the `.wslconfig` half already
+succeeded. `--dry-run` writes nothing and runs no `systemctl`. The **Utilities** section carries the
+state beside the WSL row -- `missing`, `not running`, `unprotected` or `active` -- and the WSL
+resource screen names the failure each missing half produces, in the terms it was measured in, and
+offers **Repair the WSL memory guard**, which installs and re-reads without a full run.
 
 ### The Nerd Font step
 
@@ -634,6 +724,73 @@ the mount, or more than one package to choose between — is **refused with the 
 nothing changed**, because a rewrite that dropped the user's comments would be worse than no write
 at all.
 
+### The WSL performance advisor
+
+The eighth utility is **the WSL performance advisor**, behind the **Diagnose this WSL environment**
+row. It is offered **only inside a real WSL instance**, and the gate is not an environment variable:
+`WSL_DISTRO_NAME` is inherited by any child process, so a Windows host that merely has WSL installed,
+or a build agent running under a Windows shell, would satisfy it while having none of the filesystem
+the advice is about. The gate reads the evidence the instance itself leaves behind -- the kernel
+release and version, `WSLInterop` in the binfmt registry, `/run/WSL`, `/usr/lib/wsl` -- requires more
+than one of them where the kernel does not name WSL outright, and refuses a container on the WSL
+kernel, because Docker Desktop's backend runs on that kernel while its filesystem is not a WSL
+instance's. On a host the installer did not classify as WSL the section offers no row at all; on a
+host it did, and where the evidence is missing, the section's body names the signals that were looked
+for and the screen says the same thing instead of drawing rows that would fail.
+
+**The screen is a report and it changes nothing.** It reads the mount table, `/proc/meminfo`,
+`/etc/wsl.conf`, `/etc/resolv.conf`, the `.wslconfig` the resources utility already reads -- the same
+reading, so the two screens cannot disagree about one file -- and the project directories beside the
+working directory, and states what it found. Every finding carries five things: its **severity**
+(critical, warning, notice or information), the **evidence** it was read from (the paths and values),
+the **consequence** in plain words, the **scope** of the change it would need (this instance, the
+Windows side, or after a restart) and whether the claim is **measured** on this machine or
+**documented** behaviour. Findings are ordered by severity, and a reading that failed is itself a
+finding with its reason: an unreadable mount table, a missing `/proc/meminfo` and an unread
+resolver are reported as gaps rather than quietly omitted, because an empty section and a healthy
+machine look identical on screen.
+
+**Storage is classified from the filesystem each mount exposes, never from a path.** `[automount]
+root` can move the Windows drives anywhere (a common setting is `/windir`), automount can be off, a
+drive can arrive later with `wsl --mount`, and a mount point can contain a space, so `/mnt/c` is not
+where a project on the Windows side necessarily lives. The check resolves a path to the longest mount
+boundary above it -- so `/mnt/cd` is never answered by the verdict for `/mnt/c` -- and the
+classification comes from the filesystem type: `drvfs`, `9p`, `virtiofs`, `cifs` and `smb3` are the
+host's, an unknown type is reported as unknown rather than assumed to be fine. A project on the
+Windows host is the case the utility exists for, and the report says which one it is in the finding
+and in the row.
+
+The report's two acting rows are one level in, and each exists only where its engine can finish:
+
+| Row | What it does | What it never does |
+|-----|--------------|--------------------|
+| **Measure the storage this project is on** | writes a scratch directory of its own inside each target, reads it back, states it, creates many small files and removes them again, and reports what each pass took | never writes outside its own scratch directories, never exceeds 32 MiB or 4096 files in one target, and never more than 30 seconds in a run; it removes what it wrote even after a failure or the time bound |
+| **Copy a project to the distribution's disk** | chooses a directory, chooses a destination on the distribution's own filesystem, reads a preview, and only then copies and verifies | never deletes, moves or renames anything in the source, never overwrites an existing entry, and never runs the `cp`/`rsync` line it prints as a by-hand alternative |
+
+**The measurement is bounded and its caveats are part of the report.** Nothing is written until the
+row is pressed, and the screen states what that press will write -- the file count, the file size,
+the 30-second bound and the 32 MiB ceiling -- before it happens. An operation that could not run is
+reported as a note rather than as a rate of zero, a target that could not be measured carries its own
+reason and does not stop the others, and a ratio is published only when both sides have a real
+measurement. The report also carries what muddied the numbers: the order the targets were measured
+in, and the warmer cache the second one meets. The comparison is relative and the screen says so --
+a faster copy here proves nothing about a build, a test suite or a Git operation -- and no number is
+presented as an improvement over a measurement that was never taken.
+
+**The copy is the only thing here that writes a project, and it is previewed and verified.** The
+preview names the source, the destination, what would be copied, what is left behind (dependency and
+cache directories, matched from a named list and counted, never described as an intention), the room
+behind the destination, and the equivalent by-hand command as **quoted data the installer never
+executes**. The run creates the destination only when it is absent and refuses one that already holds
+anything, opens every file with `O_EXCL` so an existing entry is an error instead of a truncation, and
+opens no source path for writing at all: nothing is deleted, moved or renamed, and the by-hand
+removal of the source stays a line the user runs after checking the copy. Afterwards the copy is
+verified rather than trusted -- the path set, each entry's type, size, permission bits, a symlink's
+target and the file bytes up to 8 MiB per file, with the files covered by size and mode alone counted
+-- and a difference is reported, never repaired. A copy stopped with `Esc` or its own row leaves the
+partial destination in place and says what was placed before the stop: deleting it would destroy the
+evidence of what went wrong.
+
 ### The shell's startup
 
 The fourth utility is **the shell's startup**, behind the **Measure the shell's startup** row. It is
@@ -641,48 +798,133 @@ a utility that **changes nothing at all**: no startup file is opened for writing
 disabled, and no recommended edit is applied. It answers a question the user lives with every day and
 cannot see — why the terminal takes a second to open — and leaves the decision to them.
 
-**It measures the way a terminal starts the shell.** The shell named by `$SHELL` is started as
-`zsh -i -c exit` (or the same shape for the login shell this machine has), **five times**, and the
-screen reports the **median** with the **range** beside it, the count it covers, and every completed
-start in the order it ran. Five is odd on purpose, so the median is a run that really happened rather
-than the average of two, and it is enough that one cold start does not decide the answer. The number
-is never a single run and never an average, and the screen says so: the method travels with the
-number, so it can be reproduced by hand.
+**It measures a named start, and the screen says which one.** The shell named by `$SHELL` is started
+as a terminal starts it — `zsh -i -c exit`, or the same shape for the shell this machine has — and the
+start itself is the user's choice: the interactive start a terminal gives you, the login start, or a
+clean start with no configuration read at all. Three further settings are on the same line: how many
+runs to take (five by default, at most twenty), whether a warm-up run is thrown away first (none by
+default, at most three), and whether the run compares the configured start with a clean one. `[m]`,
+`[n]`, `[w]` and `[b]` change them, and the screen's first line draws the command the press would
+really run, flags included, so the plan on screen and the measurement cannot promise two different
+things.
 
-**Every start is bounded by a ten-second timeout, and a timeout is reported as a timeout.** A
-startup can hang — a plugin that waits on the network, a prompt reading a filesystem that is not
-answering — and the utility must not hang with it. A start that does not finish inside the bound is
-killed, counted, and named on the screen as a timeout; it is **left out of the median**, and the
-reason is that a hung start has no duration to report. Writing one down as `0.0 s` would be inventing
-a number, which is the one thing this utility cannot afford to do.
+**The number is a measurement, not a run.** The screen reports the **median** with the **mean** and the
+**range** beside it, the count it covers, the fastest and slowest start, and every completed start in
+the order it ran. Five runs is the default because it is odd, so the median is a start that really happened
+rather than the average of two, and it is enough that one cold start does not decide the answer. The
+number is never a single run and never an average, and the screen says so: the method travels with
+the number, so it can be reproduced by hand. Two more statistics join it **only when the runs behind
+them exist**, and the screen names what is missing rather than printing a zero: the **spread** as a
+share of the median, with the startup called steady, variable or erratic, once there are three runs;
+the **95th percentile** and a **trimmed median** that leaves out the starts outside 1.5 times the
+interquartile range, once there are eight. A statistic the count cannot support is named as missing
+with the runs it would need, and never printed as a zero: unreported is not the same number as none,
+and the difference is a number the user can act on.
 
-**It attributes with zsh's own profiler, or says it cannot.** On zsh, one further start is taken with
-`zmodload zsh/zprof` loaded before the startup runs, and the functions zprof reports are listed
-heaviest first — in zprof's own order, by the time each function spent on itself — with the total,
-the self time, the call count and zprof's own percentage. The utility does not diagnose by guessing:
-when `zprof` is not available, when the shell is not zsh, or when the profiled start reports no
-table, the screen says **only the total is measurable** and gives the reason. No function is ever
-named that zprof did not name.
+**Every start is bounded by a ten-second timeout, and a timeout is reported as a timeout.** A startup
+can hang — a plugin that waits on the network, a prompt reading a filesystem that is not answering —
+and the utility must not hang with it. A start that does not finish inside the bound is killed,
+counted, and named on the screen as a timeout; it is **left out of the median**, and the reason is
+that a hung start has no duration to report. Writing one down as `0.0 s` would be inventing a number,
+which is the one thing this utility cannot afford to do. A start that could not be made at all is
+named as a failure in the same way.
 
-**It is read-only, and it says so.** The profiled start writes two wrapper files and zprof's table
-into a directory of the utility's own under the system temporary directory, and removes it again.
-The user's own startup files are **sourced from where `ZDOTDIR` already pointed** — never copied,
-moved or rewritten — and the run's own environment is what tells the wrapper where they are. The
-screen states plainly that nothing is changed and that the fix belongs in the user's own
-configuration.
+**The runs can be stopped, and what finished is kept.** `Esc` while a measurement is running stops
+the starts that are left: the samples that already finished stay on screen and the run that was in
+flight is cut. A stop is a third outcome, counted as neither a timeout nor a failure, and the screen
+never calls a stopped measurement a complete one. `Esc` with nothing running is the way back, as it is
+everywhere else.
 
-**The profiled start is the one that can differ, and the screen says so rather than guessing.** For
-that single run `ZDOTDIR` points at the wrapper's directory, so a startup file that itself refers to
-`$ZDOTDIR` resolves it to the wrapper for that run — the one way the profiled start can behave
-differently from the five measured ones, which run with the environment exactly as it is. If that
-makes the startup fail, the screen reports that zprof named no table instead of a function, which is
-the honest answer: the total is still measured, and no culprit is invented.
+**It attributes with the shell's own instrument, or says it cannot.** A further start is taken with
+the instrument that shell has, and its rows are listed heaviest first, in the instrument's own order:
 
-**Where it cannot measure, it says why.** With no login shell named (`$SHELL` empty), a login shell
-this machine does not have, or a run with no terminal attached — a server, a container, a redirected
-run — the section offers no row and its own body names the reason. Without a terminal the interactive
-start cannot be reproduced faithfully: job control and the plugins that read the terminal behave
-differently, and the number would describe a start the user never gets.
+| Shell | The instrument | What its rows carry |
+|-------|----------------|---------------------|
+| zsh | `zmodload zsh/zprof` loaded before the startup | the function, the total, the time it spent on itself, the call count and zprof's own percentage |
+| -- | the paragraph introducing the table | written for the instrument that ran: it never introduces a trace as a profile, and a share the instrument did not print is not printed by the screen |
+| bash 5.0+ | `PS4` + `EPOCHREALTIME` tracing of the startup | the function or the file each traced command came from, with the time between trace lines, ranked by where the time went |
+| fish 3.6+ | the shell's own `--profile-startup` | the function and its own time; no percentage, because the table's total is the leaf's own time and a share would be invented |
+| anything else | none | only the total is measurable, and the screen says so |
+
+Which start is profiled is the user's: the instrument runs for the start the plan names, so a slow
+login start is attributed as a login start. The utility does not diagnose by guessing: when `zprof` is
+not available, when the shell's version is older than its instrument, when the instrument reports no
+table, or when the shell has no instrument here, the screen says **only the total is measurable** and
+gives the reason. No function is ever named that the instrument did not name, and the profiled start
+is a further start rather than one of the measured samples, so attribution never changes the number.
+
+**It is read-only, and it says so.** The profiled start writes its tables and the wrapper files it
+needs into a directory of the utility's own under the system temporary directory, and removes it
+again. The user's own startup files are **sourced from where the shell already looked for them —
+never copied, moved or rewritten**: zsh's wrapper points `ZDOTDIR` at its own directory and sources
+the real files from the path the environment already carried, and bash's wrapper sources the real
+`.bashrc` where it lives. A clean start is the same idea in reverse: the utility gives the shell an
+empty directory **of its own** to read instead of the user's, through the mechanism that shell
+honours (`ZDOTDIR`, `XDG_CONFIG_HOME`, `--noprofile --norc`, an empty `ENV`), because renaming the
+user's files for the length of a run would be a write. The screen states plainly that nothing is
+changed and that the fix belongs in the user's own configuration.
+
+**Any of them can be the one that hangs, and the profiled start is an extra start the plan counts.** A
+profiled start is bounded like the others, a start that cannot be made is reported as one that could
+not be made, and a measurement that ran out of time before the profiled start says the total was
+measured and no profile was taken. Nothing on this screen is inferred from a run that did not
+happen.
+
+**The clean start is taken so the configured one has something to be compared with.** With `[b]` on,
+the same shell is measured again with no configuration read, and the screen reports the difference
+between the two medians — **the shell and the machine's own time versus what the user's configuration
+adds** — with both medians beside it so the subtraction can be redone by hand, and the difference as a
+share of the configured start. The verdict is kept apart from the arithmetic: above a tenth of the
+start the screen says where the time goes, below it the screen says the startup is mostly the shell's
+own, and a difference that is negative or too small to separate is reported as exactly that rather
+than as a saving. The comparison refuses to answer when the two sides came from different shells,
+different versions, different starts, when either side was stopped, when a side could not be measured
+at all, or when there are fewer than three runs on a side — and it names which of those it was. A
+comparison of two medians taken from one run each would be a comparison of noise.
+
+**The stored measurements are the user's choice, and the file holds numbers and names only.** `[h]`
+turns on keeping the runs: the choice and each measurement are written to
+`shell-audit-history.json` in the state directory beside the install record (`$XDG_STATE_HOME`, else
+`~/.local/state`), **never in the configuration directory and never anywhere the installer's own
+files go**. At most the last fifty measurements are kept, newest first, and each holds the number and
+its context — the start, the shell and its version, the counts, the medians, the clean comparison —
+and at most the heaviest three rows the instrument already named, which is the same redaction the
+screen draws. The file is read once when the section is resolved and never while a screen is drawn; a
+machine with no file is a machine that has never kept a history, which is the normal first run; and a
+file that is there and cannot be read is **reported rather than silently overwritten**. It is written
+through a temporary neighbour and a rename, so a half-written history is not a state the next run can
+read. With the switch off the measurement is measured and stored nowhere.
+
+**What the stored runs allow is a trend, and the trend is refused rather than extrapolated.** From
+three stored measurements of the **same start, the same shell and the same version**, the screen
+compares this run with the median of their medians and calls it steady, a regression or an
+improvement — with a change under a tenth of the earlier number called steady. A measurement that was
+stopped is never a comparison point, and a version change makes the two sides **incomparable**, which
+the screen names rather than averaging across it: a new shell version is a different thing being
+measured.
+
+**The recommendations say what kind of claim each one is, and cite the evidence.** `[r]` opens them
+and they lead the text, and each one is one of three kinds: **Measured** (a fact about the
+measurement: the spread, the sample count, the runs that did not finish, the limit of what could be
+profiled), **Observed** (what the instrument named, which is not the same as why it was slow) and
+**Confirmed** (the only attribution the utility can make, and only through the clean comparison). The
+list is short on purpose, the screen shows at most three, and the utility says what it cannot know:
+the stored measurements show **what changed, never why**. No recommendation is written without
+evidence, and none contains a cause the utility did not measure.
+
+**Nothing from a profile is displayed raw or kept.** The tables are parsed into names and durations,
+the trace runs of bash's profiled start are read as they are produced and turned into the file and
+line each function was called from, and the captured output of every start is discarded — a startup
+that prints a token, an email address or a path does not put it on the screen and cannot put it in
+the history file. Error text is cut to a bounded length for the same reason.
+
+**Where it cannot measure, it says why, and the terminal is context rather than a gate.** With no
+login shell named (`$SHELL` empty) or a login shell this machine does not have, the section offers no
+row and its own body names the reason. A run with **no terminal attached** is measured: the shell is
+started under the utility's own stdin, which needs no tty, and the number is still worth having for a
+pipe, a container or a CI run — what the terminal changes is what the number describes, because job
+control and the plugins that read the terminal behave differently, and the screen **names the
+terminal it ran under** so the reader knows which start the number came from.
 
 ### The terminal capabilities
 
@@ -719,7 +961,7 @@ writes not a single query byte.
 
 ### The development caches
 
-The fifth utility is **the developer disk cleaner**, behind the **Clean up development caches** row,
+**The developer disk cleaner** is the utility behind the **Clean up development caches** row,
 and it is the only utility here that **removes** anything. It answers a question every machine a
 development tool has been installed on eventually asks -- what is actually taking the space, and
 what of it can be had back -- and it is built around three rules: a finding is only reported when
@@ -812,6 +1054,158 @@ disk -- the screen says so, and it will not compact the VHDX for you, because co
 separate decision made from Windows after the space has actually been freed. Nothing is reported
 anywhere: there is no telemetry, no network call, and no cleanup that runs in the background.
 
+### The package update center
+
+The update center answers one question -- **what does this machine have that is out of date, and
+what would it take to move it** -- and it is reached from the section's **Check the installed tools
+for updates** row. It writes nothing when it is opened: opening it asks every package manager the
+machine really has what it reports, and nothing is installed, upgraded or removed until a selection
+is confirmed on a second screen.
+
+**Every manager is asked in its own words, and only the ones that are here.** A manager that is not
+installed is not an error: it is reported as absent with the reason, and the pass continues. Eight
+managers are known, each with the one command it is read with and the one it is moved with:
+
+| Manager | Scope | Read with | Moved with | Needs the administrator |
+|---------|-------|-----------|-----------|--------------------------|
+| Homebrew | user | `brew outdated --json=v2` with `HOMEBREW_NO_AUTO_UPDATE=1` | `brew upgrade` (or `brew upgrade --cask`) | no |
+| apt | system | `apt-get --simulate -o Debug::NoLocking=1 upgrade` and `apt-mark showhold` | `apt-get install -y --only-upgrade` with `DEBIAN_FRONTEND=noninteractive` and the config-file options set to keep the installed ones | yes |
+| pkg (Termux) | user | the apt simulation, read by Termux's own channel | `pkg install -y` | no |
+| pacman | system | `pacman -Qu` and `pacman-conf IgnorePkg` | `pacman -S --noconfirm --needed` | yes |
+| dnf | system | `dnf -q check-update` (exit status 100 is an answer, not a failure), `rpm -q` for the installed versions and `dnf -q versionlock list` | `dnf -y upgrade` | yes |
+| snap | system | `snap list`, `snap refresh --list` and `snap held` | `snap refresh` | yes |
+| Flatpak | user and system, per entry | `flatpak remote-ls --updates --columns=application,branch,version` and `flatpak list --columns=application,branch,installation` | `flatpak update --noninteractive -y` (`--user` or `--system` per plan) | only the system plans |
+| rustup | user | `rustup check` | `rustup update` | no |
+
+**One entry is one installation, and no two are ever merged.** An entry's identity is the manager,
+the scope and the name together. A `git` installed as a formula and a `git` installed as an apt
+package are two rows with their own versions, their own owner and their own command; selecting one
+never selects the other, and a plan never carries two managers' entries in one command. A pinned
+entry -- a `brew pin`, an apt hold, a `pacman` `IgnorePkg`, a `dnf versionlock`, a held snap -- is
+shown with what the manager says about the hold, and selecting it is refused with that reason
+instead of being quietly skipped.
+
+**Four different answers, and none of them is invented.** A manager says one of four things, and the
+screen writes the one it got: it has updates (with the entries), it is current, it cannot be asked
+here (with the reason -- the program is missing, or manager and host do not go together), or it
+failed to answer (with the manager's own words: an unreachable mirror, a refusal, a lock held by
+another process, a conflict, or nothing it could read at all). "Nothing to update" is never said for
+a manager that was not asked, and a version the manager did not print is left empty rather than
+guessed. The command each manager was read with is named beside its answer, and the time of the read
+is on the screen.
+
+**Nothing runs without a confirmed plan.** There is no row that updates everything: a selection is
+the only input a command can be built from, and the row that opens the plan carries the number of
+entries selected. The confirmation names every command exactly as it will run, the entries it moves,
+whether it needs the administrator, what stays pending afterwards -- a service that keeps the old
+version until it is restarted, an application that must be reopened -- and what going back would
+cost, in the manager's own terms rather than a promise this program cannot keep. The manager is run
+with `sudo -n --`, never through a prompt: a machine whose administrator program would ask for a
+password is refused with the command named, because a full-screen interface has nowhere to type it.
+
+**One manager at a time, and what happened is what the manager says happened.** apt, pacman, dnf and
+pkg keep locks over the same package state, so check and apply both run in sequence, never two
+managers at once. The output of a running command is shown as it arrives and the run can be stopped
+with the stop row or `c`, which asks the manager to stop the way an interrupt does; Escape does not
+leave the screen while a command is running. When a command finishes, the manager that ran it is read
+again before anything is concluded, and each entry is reported as **requested** (it was in the
+selection), **executed** (the command finished successfully) or **confirmed** (the manager's own
+answer no longer lists it as out of date) -- three different facts, with a failed, cancelled or
+unreadable outcome reported as what it is, unknown included. After the run the whole inventory is
+read again, so the list that follows is the machine's answer and not the plan's expectation.
+
+**A command is a list of arguments, never a line of shell, and nothing sensitive is shown.** No
+package name ever reaches a shell, so no name can become a second command; there is no `curl | sh`
+anywhere on this path. Passwords and tokens in a manager's output -- a URL with credentials, a line
+that assigns a secret -- are redacted before the text reaches the screen or the log.
+
+### The install check
+
+### The SSH configuration
+
+**The SSH configuration** is the utility behind the **Manage the SSH configuration** row, and it is
+the one utility that **writes** — inside a block it owns, after a backup and a validation, and
+never anywhere else. It exists because the client's real answer is spread over the user's file,
+everything it `Include`s, the system-wide file and the command line, and the parts a developer most
+needs (which key a host really uses, why a host is unreachable, whether the agent is running at all)
+are exactly the parts no single file states.
+
+**The hosts list is the client's answer, not this tool's.** For each alias the screen asks
+`ssh -G -- <alias>` and reports the effective `HostName`, `User`, `Port`, `ProxyJump` and **every**
+`IdentityFile` in the order the client accumulates them, with the file and line of each value this
+tool's own reading can corroborate. Where the two readings disagree, no source is claimed rather
+than one being invented: the client does not report provenance, so a source appears only where the
+declaration matches the answer. A `Match` criterion this tool deliberately does not evaluate — an
+`exec`, a `canonical`, a `final`, a `localnetwork`, a `tagged` — is **named on the screen** and the
+entries it governs are shown as declared, because guessing which block won would produce a
+confident wrong answer. When the client cannot be asked at all, the values come from this tool's own
+reading and the screen **says so**, in the same paragraph as the values.
+
+**An entry that cannot be rewritten safely is shown read-only, with the reason, and has no edit
+row.** That covers a `Host` line with a wildcard, a negation or more than one pattern; a line with
+an `Include` under it; a `Match` line after it; a value carrying an unquoted comment or a directive
+with no value at all; and a file this tool may not write. The reason is a sentence on the screen —
+*"the Host pattern contains a wildcard, so it matches more than this one entry, so this tool will
+not rewrite it"* — not a disabled row with no explanation.
+
+**Writes live in one block, and everything outside it keeps its bytes.** The tool marks the region
+it owns with two comments, `# >>> dotfiles ssh-manager >>>` and `# <<< dotfiles ssh-manager <<<`,
+and appends that block when the file has none. A create inserts the new entry before the closing
+marker; an edit rewrites **only the lines whose value changes**, leaving the entry's other
+directives, their order and their spacing exactly as they were; a delete takes the entry and its own
+blank line and nothing else. Comments, unknown options, `Include`s, `Match` blocks and the file's
+final newline are preserved byte for byte, because a write that reformats a file the user maintains
+by hand is worse than no write at all.
+
+**Every write is previewed, backed up, validated by the client, and atomic.** The confirmation shows
+the summary, the file, the backup path and the change as `+`/`-` lines, so the plan and the write
+cannot describe different changes. On confirmation the tool checks that the file still holds the
+bytes the plan was built from — if anything changed since the preview it **refuses and writes
+nothing** — copies the file to `<file>.bak-dotfiles-<stamp>` (never overwriting an existing backup),
+writes the new content to a temporary file in the same directory, has **the client's own parser**
+validate it with `ssh -G -F <tempfile>`, and only then renames it into place. A configuration the
+client refuses is never installed: the temporary file is discarded and the old file is untouched. A
+mode others can write is tightened to `0600` while it is written; read bits are left as they are.
+
+**A private key is never opened.** The key inventory describes a pair from its **public half** —
+type, bits, fingerprint, comment — and the private side is only `stat`ed, for its mode. A key with no
+public half is described by `ssh-keygen -l` and `-y`, which is the tool that owns the format. A key
+whose facts cannot be learned without a passphrase is reported with what is known and a warning;
+"not encrypted" is claimed **only** after `ssh-keygen -y` accepted the key with nothing on the pipe.
+A `0644` private key is reported as too open with the `chmod` that fixes it. Generation asks
+`ssh-keygen` for `ed25519` (100 KDF rounds) by default, `rsa 4096` or `ecdsa 521` on request, and
+passes the passphrase on the child's **standard input with the graphical prompter disabled** — never
+in the argument list, never in the environment, never in a log — then proves the passphrase by
+reopening the key with it and sets `0600`/`0644` explicitly, because `ssh-keygen` honours the umask.
+`known_hosts` is listed by parsing, never by reversing a hash, and `known_hosts.old` is never read:
+it is a previous revision, so trusting it would claim a trust the client is not using.
+
+**The agent screen says which agent it is talking to.** The socket path and the platform identify the
+agent, and the screen states what that agent does differently: `gpg-agent` ignores `ssh-add -t` and
+serves what its own configuration decides, 1Password and KeePassXC serve the keys they own and may
+refuse an add or a removal, an unknown agent gets a sentence saying exactly that. An agent that
+answers `ssh-add -l` with exit 1 is reported as **running and empty**, not as broken. Removal takes
+the public key file, never a fingerprint, because translating one would mean deciding which file the
+agent meant.
+
+**A connection is tested only when the row that tests it is pressed.** The screen says so before the
+press, and the test then runs the client with every option that keeps it from doing anything else:
+
+| Option | What it prevents |
+|--------|------------------|
+| `BatchMode=yes`, `NumberOfPasswordPrompts=0`, `PasswordAuthentication=no`, `KbdInteractiveAuthentication=no` | any authentication prompt, which a non-interactive test could only hang on |
+| `StrictHostKeyChecking=yes`, `UpdateHostKeys=no` | accepting a new host key or writing anything to `known_hosts` |
+| `ControlMaster=no`, `ControlPath=none` | an existing multiplexed session answering for the test and producing a false "ok" |
+| `ClearAllForwardings=yes`, `-n`, `-T` | carrying the user's forwards, reading input, or allocating a terminal |
+
+The host key of a host that is not in `known_hosts` is reported as **unknown with the fingerprint
+question**; a host key that **changed** is reported as what it looks like — a man-in-the-middle
+attempt — and the test does not accept, replace or remove any key. The result names the client's own
+exit status, its first words and the exact command that ran, bounded so a host cannot paste a wall
+of text into the frame. On WSL the Windows-side configuration under `/mnt/c` belongs to another
+system: the diagnosis names it as a separate file to reconcile by hand and **never opens, lists or
+writes it**.
+
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -871,24 +1265,40 @@ on the platform and the choices, so a run shows only the ones that apply.
 | Install Toolset | Installs the command-line tools declared in the `Brewfile` (best effort; skipped on Termux and without Homebrew) |
 | Install Pi Agent Skills | Installs the pinned AI agent skills |
 | Install OfficeCLI | Installs the OfficeCLI document tool |
-| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there and what each of them holds today, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
+| Configure WSL | Derives the `.wslconfig` limits from the Windows host it runs on and installs the rendered file, plus `/etc/wsl.conf` in the distribution, and installs and proves the memory guard that caps the distribution's own memory scope (WSL hosts only); it also states where the Nerd Font and the palette landed, that Windows Terminal draws the session, and names the font face and the colour scheme to set there and what each of them holds today, copies a handful of the Nerd Font faces into the per-user Windows font store and registers them under HKCU, verifies the family in the Windows font store before naming it, and (under `--non-interactive`, or after an explicit yes) writes `profiles.defaults.font.face` and the colour scheme into the reachable `settings.json` with a backup |
 | Restore the Applied Theme | Writes the theme this machine has applied back into the configuration files the run replaced (see below) |
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
 
-**Every unit is shown with its switch before anything runs, and a unit turned off is reported rather
-than dropped.** The plan the setup screen's action row opens lists every unit the run
-can install, in the order the run takes them, each one on or off, with the three it cannot do without
-marked and refusing to change: `clone`, the repository the run works from; `cleanup`, the state the run
-created; and `setshell`, the default shell that was chosen. `Space` turns the unit under the cursor off
-or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened from. The
-list is drawn as a window sized by the terminal, and the rows that do not fit are counted above and
-below it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off
-the bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A
-unit that is turned off stays in the plan, is never executed, is not a failure, and is reported as
-skipped in the run's own output and in its step list. The command line reaches the same selection with
-`--skip`, and both routes plan through the same builder, so one selection produces the same steps
-either way.
+**The plan screen shows the run's plan, grouped by area, and every row says where it came from.**
+The plan the setup screen's action row opens is the plan the run will execute -- the same builder
+(`planFor`) the command line reads -- so nothing reaches it that the flow never mentioned (S2). Its
+rows are grouped under an area heading -- `Preparation`, `The tools you chose`, `The extras` and
+`Finishing up` -- in the order the run takes them, and each row carries where it came from, one of
+four honest sentences: *your choice decided it* with the value the choice took (`Install kitty —
+your choice decided it: kitty`), *an extra you turned on* for a switch that was turned on, *this
+machine needs it* for the dependency step, the Apple developer tools, Homebrew and the WSL
+configuration, and *every run installs it* for the toolset, the agent skills, OfficeCLI and
+the theme. None of those four says the run cannot leave the step out: the three units it really
+needs -- `clone`, the repository the run works from; `cleanup`, the state the run created; and
+`setshell`, the default shell that was chosen -- read *the run needs it* instead, which is the
+catalogue's fixed flag and a separate fact from where the step came from. A step's plugin set is
+indented directly under it, saying either the switch's state (`[x]` installed, `[ ]` left out) or,
+for a set a run cannot leave out, where the set comes from. That last sentence is deliberately
+short: the frame draws a row instead of wrapping it, and the longest set name leaves nineteen
+characters inside the narrowest terminal the frame matrix measures, so the registry's full reason
+would be cut off exactly where a user reads it -- the reason keeps its own guards and its other
+carriers, `--skip`'s refusal and this documentation. `Space` turns the unit under the cursor
+off or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened
+from. The cursor rests only on rows it can switch: it steps over the area headings, the plugin-set
+rows and the three fixed units, so no row ever offers a switch for something the run needs. The list
+is drawn as a window sized by the terminal, and the rows that do not fit are counted above and below
+it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off the
+bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A unit
+that is turned off stays in the plan as `[ ]`, is never executed, is not a failure, and is reported
+as skipped in the run's own output and in its step list. The command line reaches the same selection
+with `--skip`, and both routes plan through the same builder, so one selection produces the same
+steps either way.
 
 **The administrator password is asked once, on the installer's own screen.** Before the first step
 that needs root, the installer asks sudo whether it already has a credential it can use
@@ -1066,7 +1476,8 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the shell audit's command, the terminal capability report, and the update center's state: what the last read found, how many entries are selected, or that the question has not been asked yet — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the advisor's own findings by severity inside WSL (or the copy it is running), the shell startup, the terminal capability report, and what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`) — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
@@ -1262,6 +1673,26 @@ The glyph ladder under it needs no colour at all and stays exactly as it is: a h
 colour draws as a plain block, and this shading means nothing there. That is what keeps it a floor
 rather than a fallback — a terminal without true colour, a run with the sprite switched off
 (`DOTFILES_SPRITE=0`) and a frame with fewer rows all get the cat the glyph ladder picks.
+
+### The creature's states, and the one it takes in a fight
+
+`companionStateNow()` picks the creature's state from the model, and the trainer's boss screen
+overrides every reaction: while a boss fight is on screen the creature is **possessed** — a spiked
+crest, fangs, and eyes drawn in the ember tone (`#ff2d2d`) instead of the sclera's own. It is a state
+in the same machine rather than an overlay painted on a frame, so every rung of the sprite ladder has
+art for it (`companionPossessedFrames`, appended by `companionFramesAt`), the frame guard still
+refuses an overflowing one, and the gaze composer still moves the slit pupil. The one-row rung — what
+the trainer draws at the documented 80x24 floor — carries the ember eyes too, which is why the
+glyph renderer paints the mark (`companionGlyphRow`) instead of keying off the eye row's metadata.
+
+Whether an eye's disc is the sclera's tone and whether it carries a highlight are the mark's own
+answers (`companionEyeDiscTone`, `companionEyeHasGlint`), so the eye-invariant test asks the art's
+own question instead of repeating the sclera's colour.
+
+The escalation is the fight: with lives to spare the form is calm, and on the last life
+(`companionPossessionRageLives`) the creature shakes with the same one-pixel tremble a startle draws,
+held for as long as the fight lasts. The moment the fight ends it is its ordinary self again, because
+the state is derived from the screen and nothing about it is stored.
 
 It costs what it looks like it costs. The renderer repaints a whole line whenever any byte in it
 changes. `TestCompanionCostHasTwoRegimes` prints the measured figures at **227 columns and height 62**:
@@ -1536,6 +1967,7 @@ dotfiles --non-interactive --shell=<shell> [options]
 
 | Flag | Values | Description |
 |------|--------|-------------|
+| `--os` | `mac`, `linux`, `termux` | Platform to work from. Absent, the machine the run is on decides. The values are the ones the setup screen's first row records, read from that row rather than written out again, so a platform the screen gains cannot leave the flag behind; WSL is deliberately not one of them, because WSL is a fact about the machine and not something a person chooses. Anything else is refused before anything is planned, with the accepted values named, instead of being quietly read as Linux. The platform chosen here is the platform the plan is built for: `--os mac` schedules the Apple developer tools even on a Linux host |
 | `--shell` | `fish`, `zsh`, `nushell` | Shell to install (required) |
 | `--terminal` | `alacritty`, `wezterm`, `ghostty`, `none`, `kitty` (macOS only) | Terminal emulator |
 | `--wm` | `tmux`, `zellij`, `herdr`, `none` | Window manager |
@@ -1617,7 +2049,9 @@ Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongs
 
 ## Learn Mode
 
-The installer includes educational content to help you understand each tool:
+**Learn About Tools** on the main menu opens a hub; Escape returns to whatever opened it. Every row
+in the hub is a page about one part of a run, and the four screens that used to be reachable only
+from inside the wizard are reachable from here too.
 
 ### Terminals
 
@@ -1648,7 +2082,72 @@ The installer includes educational content to help you understand each tool:
 
 - LazyVim configuration
 - LSP setup
-- AI assistants (OpenCode, Claude, Copilot, etc.)
+- The assistant the configuration enables: `pi`, on `<leader>a`, which opens its floating chat. The
+  conventional assistant plugins (Claude Code, OpenCode, Avante, CopilotChat, `copilot.lua`,
+  CodeCompanion, Antigravity) ship disabled, and the page says so rather than naming bindings for
+  plugins that are not loaded. See [AI Configuration](ai-configuration.md)
+
+### Font
+
+MesloLGS Nerd Font, the Nerd Font patch of Meslo. Every shipped terminal configuration names that
+family, which is why the page is about the icons, box-drawing and prompt glyphs: without it a
+terminal draws a box where a glyph belongs. On Linux the release archive is extracted into
+`~/.local/share/fonts` and the cache is refreshed, so no root is needed; a machine where fontconfig
+already resolves the family skips the download; and Termux needs no fontconfig at all, because the
+same face is written as one file into `~/.termux`, the slot its terminal reads.
+
+### Prompts
+
+| Shell | Prompt |
+|-------|--------|
+| Fish | Starship |
+| Nushell | Starship |
+| Zsh | Powerlevel10k |
+
+### Shell tooling
+
+The tools the shell step installs beside the shell, and what the shipped configuration uses each one
+for: `eza`, `bat`, `ripgrep`, `fd`, `fzf`, `fnm`, `direnv`, `jq`, `gh`, `git-delta`, `xh`,
+`trippy`, `btop`, `zoxide`, `atuin` and `carapace`. The page is a copy of the table
+[tools.md](tools.md) keeps, and a test fails by name when the two disagree.
+
+### Plugins
+
+| Tool | Manager |
+|------|---------|
+| Tmux | TPM |
+| Fish | Fisher |
+| Zsh | the plugin packages the `.zshrc` sources |
+| Neovim | lazy.nvim |
+| Herdr | `herdr plugin install` |
+
+### Machine toolset
+
+| Directive | What the run does |
+|-----------|-------------------|
+| `brew`, `tap`, `go`, `npm`, `uv` | Installed: the toolset step filters the checkout's `Brewfile` and hands it to `brew bundle` |
+| `cask`, `mas` | Installed when the file carries one: the exclusion is a denylist, not an allowlist |
+| `vscode`, `winget` | Dropped, and the step logs how many lines of each it dropped |
+
+## Keymaps Reference
+
+**Keymaps Reference** is its own main-menu row. It offers one row per tool, each tool's tables are
+grouped by category, `↑`/`↓` (or `k`/`j`) scroll a table and `Esc` goes back one level.
+
+| Tool | What its tables hold |
+|------|----------------------|
+| Neovim | The LazyVim keymaps, by category |
+| Tmux | The bindings `dotfiles-tmux/tmux.conf` declares |
+| Zellij | The bindings `dotfiles-zellij/zellij/config.kdl` declares |
+| Herdr | The `[keys]` table of `dotfiles-herdr/config.toml`, whose mouse-first interface needs few keys |
+| Ghostty | The bindings `dotfiles-ghostty/config` declares |
+| Kitty | The eleven `map` lines `dotfiles-kitty/kitty.conf` declares |
+| WezTerm | No bindings: `.wezterm.lua` assigns no `config.keys`, so the page lists the settings it does set |
+| Alacritty | No bindings: `alacritty.toml` has no `[keyboard]` section, so the page lists the settings it does set |
+
+Each table is held to the file it copies by a test: Kitty's `map` lines are compared with the table
+in both directions, and the WezTerm and Alacritty pages fail when their configuration declares a
+binding or when a row names a setting the file does not carry.
 
 ## Requirements
 
@@ -1760,12 +2259,25 @@ terminals again. The pass renders with the companion animating, which is the
 strictest frame, so a screen that overflows only with the creature on fails the
 fit guard instead of escaping it.
 
-The theme picker, the utilities section, the WSL resources, the shell's startup
-and the terminal capability report each have a frame pinned at the 80x24 floor as
+The theme picker, the utilities section, the WSL resources, the shell's startup,
+the terminal capability report and the update center each have a frame pinned at
+the 80x24 floor as
 well: `TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
+The theme picker, the utilities section, the WSL resources, the WSL performance
+advisor, the shell's startup, the terminal capability report and the network
+diagnosis each have a frame pinned at the 80x24 floor as well:
+`TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
 with a switch pending, `TestThemePickerResultGolden` with the report landed,
 `TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden` and
-`TestTerminalCapabilitiesGolden`. They were guarded by measurements -- rows,
+`TestTerminalCapabilitiesGolden`, and the update center's own frame in the frame
+matrix (`updateCenterFrameCase`, state `update-center`), which is where a screen
+whose rows and prose come from the machine belongs: the case is built by hand
+-- two managers answering, one entry pinned, one manager absent -- so the frame
+does not change with the host that rendered it. They were guarded by measurements -- rows,
+`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestWSLAdvisorGolden` on a
+pinned WSL instance whose reading comes from the advisor's own fixture,
+`TestShellAuditGolden`, `TestTerminalCapabilitiesGolden` and
+`TestNetworkDiagnosticsGolden`. They were guarded by measurements -- rows,
 columns, fit at twelve sizes -- and by behaviour, and a measurement cannot see a
 block drawn above the list it belongs under, a list squashed to five rows to make
 room for it, or a screen that reads as a wall of prose. Looking at the frame is

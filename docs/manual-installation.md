@@ -161,14 +161,16 @@ choco install win32yank
 
 ### 8. Apply the WSL configuration
 
-The repository ships two WSL artifacts in `dotfiles-wsl/`:
+The repository ships these WSL artifacts in `dotfiles-wsl/`:
 
 | File | Destination | Applies to |
 |------|-------------|------------|
 | `.wslconfig.tmpl` | `%USERPROFILE%\.wslconfig` on Windows | Every WSL 2 distribution |
 | `wsl.conf` | `/etc/wsl.conf` inside the distribution | That distribution only |
+| `wsl-memory-guard.sh` | `/usr/local/lib/dotfiles-wsl/wsl-memory-guard.sh`, mode `0755` | That distribution only |
+| `wsl-memory-guard.service` | `/etc/systemd/system/wsl-memory-guard.service` | That distribution only |
 
-The TUI installer applies both when it detects WSL, rendering the template for
+The TUI installer applies all of them when it detects WSL, rendering the template for
 the Windows host it is running on. To do it by hand, render it rather than
 copying it: only the installer, or the `sed` below, resolves the Go template
 directives that wrap the three host-derived keys.
@@ -184,6 +186,13 @@ sed -e '/{{if \.MemoryMB}}/,/{{end}}/d' \
 
 # Distribution-side settings (systemd, automount, interop)
 sudo install -m 0644 dotfiles-wsl/wsl.conf /etc/wsl.conf
+
+# Distribution-side memory guard: caps the VM's own memory scope so a spike
+# inside the distribution cannot stop it, and installs the unit that reapplies
+# the cap on every boot. It needs [boot] systemd=true in /etc/wsl.conf; without
+# systemd it says so and writes nothing. The same two files are what the TUI's
+# Configure WSL step installs, so running it is never a second implementation.
+sudo bash dotfiles-wsl/apply-wsl-memory-guard.sh
 ```
 
 Both files are only read when the WSL VM boots, so apply them with:
@@ -196,6 +205,18 @@ Then reopen your terminal. Leaving out `memory`, `processors` and `swap` is a
 supported configuration rather than a broken one: each of those keys has a
 proportional default that Windows computes from the machine it is running on.
 
+The guard script reports what it could not put in place and exits non-zero when
+a protection is missing, so its exit status is the answer rather than a line that
+only looks like success. Both halves of it are read back from the system, not
+assumed:
+
+```bash
+systemctl show init.scope -p OOMPolicy --value            # expect: continue
+cat /sys/fs/cgroup/init.scope/memory.high                 # expect: max
+cat /sys/fs/cgroup/init.scope/memory.max                  # expect: a number, not max
+systemctl status wsl-memory-guard --no-pager
+```
+
 #### Deriving the limits yourself
 
 Writing the values explicitly means computing them from the host, never copying
@@ -206,9 +227,9 @@ policy:
 
 | Key | Value for this host |
 |-----|---------------------|
-| `memory` | Half the host's physical memory, and never so much that Windows is left below 2 GiB, rounded down to 512 MB. Omitted when the result is below 1 GiB. |
+| `memory` | Three quarters of the host's physical memory, rounded down to 512 MB, capped so Windows is left at least 4 GiB wherever that can be honoured and floored at half the host, which is what decides on a host too small to honour both. Omitted when the result is below 1 GiB. |
 | `swap` | A quarter of the value you wrote for `memory`, rounded down to 512 MB. |
-| `processors` | Every logical CPU the host reports. |
+| `processors` | Every logical CPU the host reports except one, so Windows keeps one. |
 
 Read the host capacities on Windows with the same query the installer runs
 through WSL interop:

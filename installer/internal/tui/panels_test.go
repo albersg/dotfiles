@@ -1327,7 +1327,7 @@ func TestTrainerPanelNamesModulesAccuracyStreakAndTheNextBoss(t *testing.T) {
 		"Accuracy 75%",
 		"Best streak 6",
 		"Next boss The Line Walker",
-		"80% practice accuracy and 10 tries",
+		"80% of the last 20 practice answers",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the trainer panel does not name %q:\n%s", want, panelText(rows))

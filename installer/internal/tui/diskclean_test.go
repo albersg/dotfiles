@@ -668,9 +668,16 @@ func diskCleanFlatView(m Model) string {
 }
 
 // TestUtilitiesSectionOffersTheDevelopmentCacheCleaner pins the way in: the
-// section lists the job, the panel names it, the rendered section shows the row
-// and says what the job is, and choosing the row opens the screen without
-// scanning anything on the way.
+// section lists the job, the panel names it, the rendered section shows the row,
+// and choosing the row opens the screen without scanning anything on the way.
+//
+// It used to assert that the section's own body carried a sentence about this
+// job. It does not, and that is the same trade main's update center made when the
+// row before this one arrived (utilitiesDescription): at the frame the guards read
+// the body holds the rows its jobs and its two absences need, so the newest job's
+// line is the one that yields, and TestUtilitiesBodyCarriesEveryJobAtTheFloor is
+// what keeps the rest of them there. What this job is and what it will never do is
+// read on the screen the row opens, which is where the marks are made.
 func TestUtilitiesSectionOffersTheDevelopmentCacheCleaner(t *testing.T) {
 	m := installerFrameModel(t, ScreenUtilities)
 	m.Width, m.Height = 120, 50
@@ -690,8 +697,13 @@ func TestUtilitiesSectionOffersTheDevelopmentCacheCleaner(t *testing.T) {
 	if !strings.Contains(view, utilitiesDiskCleanerRow) {
 		t.Errorf("the rendered section does not show %q:\n%s", utilitiesDiskCleanerRow, view)
 	}
-	if !strings.Contains(view, "cleans only the findings you mark") {
-		t.Errorf("the section does not say what the row does:\n%s", view)
+	// The job's own sentence, on the screen the row opens rather than in the
+	// section's body: the section names every job in its list, and the screen says
+	// what the job does.
+	screen := installerFrameModel(t, ScreenDiskCleaner)
+	screen.Width, screen.Height = 120, 50
+	if !strings.Contains(diskCleanFlatView(screen), "measures each store without removing anything") {
+		t.Errorf("the screen does not say what the job does:\n%s", diskCleanFlatView(screen))
 	}
 	offered, flat := false, utilitiesPanelFlat(t, m)
 	for _, entry := range m.utilitiesPanelEntries() {

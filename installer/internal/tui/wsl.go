@@ -125,6 +125,19 @@ func stepInstallWSLConfig(m *Model) error {
 	}
 	wslLog(wslStepID, fmt.Sprintf("✓ wsl.conf installed at %s", confDst))
 
+	// The memory guard is the safeguard this step's own incident is about: a
+	// runaway workload in init.scope took the distribution down, and the guard
+	// caps the scope so that cannot happen again. It is installed after the
+	// .wslconfig and wsl.conf work -- those decide the VM's budget, the guard
+	// bounds a single scope inside it -- and it must never fail the step. The
+	// install reports every degradation itself (an absent systemd, a refused
+	// property, a cap a reload clears); the only error it returns is a checkout
+	// that does not ship the payload, which is reported here and does not stop
+	// the WSL configuration.
+	if err := installWSLMemoryGuard(repoDir, wslStepID); err != nil {
+		wslLog(wslStepID, "Could not install the WSL memory guard: "+err.Error())
+	}
+
 	// Deliberately not fatal, for the same reason the xclip and wl-clipboard
 	// providers are not: the editor works without a clipboard bridge, and a
 	// download that fails should not fail an otherwise completed WSL setup.
@@ -561,7 +574,21 @@ func applyArtifact(src, dst, stepID string) error {
 // destination and escalates to sudo only when the plain write is rejected, so
 // an unprivileged temporary destination (used in tests) never triggers a
 // password prompt.
+//
+// It is applyArtifactContentMode at the installer's default 0644, which every
+// artifact the step copies wants. The mode is a parameter rather than a second
+// copy of the backup-and-escalate logic because the WSL memory guard's payload
+// must be installed 0755: systemd executes it as root, and a 0644 write would
+// install a file that can never run. One writer, one mode, no second path that
+// can drift from this one.
 func applyArtifactContent(data []byte, dst, stepID string) error {
+	return applyArtifactContentMode(data, dst, 0o644, stepID)
+}
+
+// applyArtifactContentMode installs data over dst with an explicit mode,
+// backing up an existing destination first and escalating to sudo only when a
+// direct write is refused.
+func applyArtifactContentMode(data []byte, dst string, mode os.FileMode, stepID string) error {
 	if _, err := os.Stat(dst); err == nil {
 		backup := fmt.Sprintf("%s.bak-dotfiles-%s", dst, time.Now().Format("20060102-150405"))
 		if err := copyArtifact(dst, backup, stepID); err != nil {
@@ -575,12 +602,12 @@ func applyArtifactContent(data []byte, dst, stepID string) error {
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err == nil {
-		if err := os.WriteFile(dst, data, 0o644); err == nil {
+		if err := os.WriteFile(dst, data, mode); err == nil {
 			return nil
 		}
 	}
 
-	return writeWithSudo(data, dst, stepID)
+	return writeWithSudo(data, dst, mode, stepID)
 }
 
 // copyArtifact copies dst to backup, escalating to sudo when the direct copy is
@@ -604,7 +631,7 @@ func copyArtifact(dst, backup, stepID string) (err error) {
 }
 
 // writeWithSudo installs the artifact through a temporary file using sudo.
-func writeWithSudo(data []byte, dst, stepID string) error {
+func writeWithSudo(data []byte, dst string, mode os.FileMode, stepID string) error {
 	tmp, err := os.CreateTemp("", "dotfiles-wsl-artifact-*")
 	if err != nil {
 		return err
@@ -619,7 +646,7 @@ func writeWithSudo(data []byte, dst, stepID string) error {
 		return err
 	}
 
-	result := runSudoWithLogs(fmt.Sprintf("install -m 0644 %q %q", tmp.Name(), dst), nil, func(line string) {
+	result := runSudoWithLogs(fmt.Sprintf("install -m %04o %q %q", mode, tmp.Name(), dst), nil, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
@@ -684,6 +711,12 @@ type wslResourceState struct {
 	HasFile bool
 	// Draft is what the rows edit and the write applies.
 	Draft WSLResources
+	// Guard is what the memory guard holds on this host: whether its two files
+	// are installed, whether systemd is running it, and what init.scope actually
+	// carries. It is read here rather than in View because reading it runs
+	// systemctl, and it is read whether or not the guard is installed, because
+	// "not installed" is itself the state the section has to report.
+	Guard wslGuardState
 }
 
 // wslConfigDestination resolves the .wslconfig the utility edits: the same
@@ -837,6 +870,13 @@ func loadWSLResourceState(repoDir string, isWSL bool) wslResourceState {
 
 	st.Draft = wslDraftFrom(st.Current, st.Plan)
 	st.Available = true
+
+	// The guard is read last and only where the screen is offered at all: it is
+	// the one part of this state that describes the running distribution rather
+	// than the .wslconfig, and a host without systemd has nothing to report but
+	// the reason, which readWSLGuardState fills in itself.
+	st.Guard = readWSLGuardState(st.RepoDir)
+
 	return st
 }
 
