@@ -329,34 +329,40 @@ func TestNotRunChecksAreNamedLikeTheChecksThemselves(t *testing.T) {
 	// the certificate check is skipped, and one whose transport worked, where it
 	// runs. The two reports have to name that step with the same words, or a reader
 	// comparing them sees two different checks.
-	target, err := ParseTarget("api.github.com:443")
-	if err != nil {
-		t.Fatalf("the test target is one the validator refuses: %v", err)
-	}
-	options := Options{Target: target, Bounds: DefaultBounds()}
-
-	down := Run(context.Background(), diagnosisProbe(t, func(p *Probe) {
-		p.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-			return nil, fmt.Errorf("dial tcp %s: connect: connection refused", address)
-		}
-	}), options, nil)
-
-	up := Run(context.Background(), diagnosisProbe(t, nil), options, nil)
-
-	name := func(report Report, id string) string {
-		for _, check := range report.Checks {
-			if check.ID == id {
-				return check.Title
+	//
+	// A destination that is not TLS is tried as well as one that is: the certificate
+	// check concludes differently for each, and the difference must not be what gives
+	// the step a second name.
+	for _, raw := range []string{"api.github.com:443", "example.com:80"} {
+		t.Run(raw, func(t *testing.T) {
+			target, err := ParseTarget(raw)
+			if err != nil {
+				t.Fatalf("the test target is one the validator refuses: %v", err)
 			}
-		}
-		return ""
-	}
-	if skipped, ran := name(down, "tls.handshake"), name(up, "tls.handshake"); skipped != ran {
-		t.Errorf("the certificate check is named %q when it was skipped and %q when it ran, want one name",
-			skipped, ran)
-	}
-	if skipped, ran := name(down, "http.get"), name(up, "http.get"); skipped != ran {
-		t.Errorf("the request check is named %q when it was skipped and %q when it ran, want one name",
-			skipped, ran)
+			options := Options{Target: target, Bounds: DefaultBounds()}
+
+			down := Run(context.Background(), diagnosisProbe(t, func(p *Probe) {
+				p.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+					return nil, fmt.Errorf("dial tcp %s: connect: connection refused", address)
+				}
+			}), options, nil)
+
+			up := Run(context.Background(), diagnosisProbe(t, nil), options, nil)
+
+			name := func(report Report, id string) string {
+				for _, check := range report.Checks {
+					if check.ID == id {
+						return check.Title
+					}
+				}
+				return ""
+			}
+			for _, id := range []string{"tls.handshake", "http.get"} {
+				if skipped, ran := name(down, id), name(up, id); skipped != ran {
+					t.Errorf("the %s check is named %q when it was skipped and %q when it ran, want one name",
+						id, skipped, ran)
+				}
+			}
+		})
 	}
 }

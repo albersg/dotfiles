@@ -131,8 +131,10 @@ The contract both halves share:
 - `s.Context()` is the run's context and `s.WithTimeout(bound)` derives one check's bound from it, so
   a stopped run stops dialling and every check is bounded twice (its own stage and the run).
 - The bound accessors on `Bounds` (`dns()`, `dnsServer()`, `tcp()`, `tls()`, `http()`, `trace()`,
-  `attempts()`, `redirects()`, `bodyBytes()`, `concurrency()`) already substitute their default for
-  a zero field: a check must use them, never the raw field, so no run can be unbounded.
+  `attempts()`, `redirects()`, `bodyBytes()`) already substitute their default for
+  a zero field: a check must use them, never the raw field, so no run can be unbounded. There is no
+  concurrency bound to read: one check runs at a time, by construction, which is the strongest form
+  of that bound.
 - Results are built with `newCheck(id, stage, title)`, `(*Check).addEvidence(...)` and
   `(*Check).conclude(status, cause, next, manual)`; lines go through `RedactProxy`,
   `RedactCredentials` and `SafeURL` before they reach evidence, and a response body is never

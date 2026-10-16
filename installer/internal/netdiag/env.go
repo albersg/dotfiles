@@ -495,10 +495,13 @@ func checkProxy(p Probe, s Session) Check {
 				continue
 			}
 			if strings.EqualFold(name, "no_proxy") {
-				// The exception list is a list of host names and networks: it holds
-				// no credential, and its length is what matters to a reader.
+				// The exception list is host names and networks, and its length is what
+				// matters to a reader. It goes through the redactor like every other
+				// value this check prints: a list that did carry a credential is masked
+				// rather than trusted to be harmless.
 				check.addEvidence(fmt.Sprintf("%s lists %d exceptions (%s)",
-					strings.ToLower(name), len(strings.FieldsFunc(value, func(r rune) bool { return r == ',' })), value))
+					strings.ToLower(name), len(strings.FieldsFunc(value, func(r rune) bool { return r == ',' })),
+					RedactCredentials(value)))
 				continue
 			}
 			masked := RedactProxy(value)

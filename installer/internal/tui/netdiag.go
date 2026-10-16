@@ -124,6 +124,12 @@ type networkState struct {
 	Checks []netdiag.Check
 	Report *netdiag.Report
 
+	// ReportText is the report exactly as the preview shows it and the write saves
+	// it. It is built when the preview opens and when the anonymization is toggled --
+	// both are key presses -- because building it anonymizes by looking this machine
+	// up, and the render path must not read a file or a hostname to draw a frame.
+	ReportText string
+
 	// Trace asks for the opt-in traceroute, Preview shows the report as text, and
 	// Anonymize is the toggle the preview and the write use.
 	Trace     bool
@@ -523,7 +529,7 @@ func (m Model) networkPreviewDescription() []string {
 			"shown and not written.")
 	}
 
-	text := m.networkReportText()
+	text := m.Network.ReportText
 	if strings.TrimSpace(text) == "" {
 		return append(paragraphs, "There is no report to show yet.")
 	}
@@ -707,9 +713,13 @@ func (m Model) handleNetworkKeys(key string) (tea.Model, tea.Cmd) {
 			m.Network.Notice = networkTraceNotice(m.Network.Trace)
 		case networkPreviewRow:
 			m.Network.Preview = true
+			m.Network.ReportText = m.networkReportText()
 			m.Network.Notice = ""
 		case networkAnonymizeRow:
 			m.Network.Anonymize = !m.Network.Anonymize
+			// The text is rebuilt rather than drawn from a flag: what the preview shows
+			// and what the write saves stay one string.
+			m.Network.ReportText = m.networkReportText()
 		case networkSaveRow:
 			m.saveNetworkReport()
 		default:
@@ -815,8 +825,9 @@ func networkReportPath(now time.Time) string {
 }
 
 // networkReportText is the report as text, with the anonymization the screen
-// currently shows. The preview and the write both call it, so the file cannot
-// differ from what was read.
+// currently shows. It is the builder behind ReportText, and it is called from the
+// two key presses that change the text -- opening the preview and toggling the
+// anonymization -- so the render path only ever reads the string it produced.
 func (m Model) networkReportText() string {
 	if m.Network.Report == nil {
 		return ""
@@ -844,7 +855,9 @@ func (m *Model) saveNetworkReport() {
 		m.Network.Notice = "There is no state directory here to save the report in."
 		return
 	}
-	text := m.networkReportText()
+	// The text the preview showed, never a freshly built one: the file cannot differ
+	// from what was read, and nothing is built while the frame is being drawn.
+	text := m.Network.ReportText
 	if err := writeNetworkReport(m.Network.ReportPath, text); err != nil {
 		m.Network.Notice = "The report could not be saved: " + err.Error()
 		return

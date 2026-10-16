@@ -652,6 +652,11 @@ func checkTLS(p Probe, s Session) Check {
 		check.conclude(StatusSkipped, "there is no destination to hand a TLS session to", "", "")
 		return check
 	}
+	// The name is set here rather than next to the handshake, because a destination
+	// that is not https leaves through the branch below without one: the run's own
+	// plan names this step with the same words, and a reader comparing a report that
+	// skipped the step with one that ran it must not see two different checks.
+	check.Title = titleForTLS(ep, true)
 	if !ep.TLS() {
 		check.conclude(StatusSkipped,
 			"the destination is not https, so there is no certificate to validate", "", "")
@@ -661,7 +666,6 @@ func checkTLS(p Probe, s Session) Check {
 		check.conclude(StatusSkipped, "this platform cannot open a TLS session through this utility", "", "")
 		return check
 	}
-	check.Title = titleForTLS(ep, true)
 
 	bounds := s.Bounds()
 	ctx, cancel := s.WithTimeout(bounds.tls())

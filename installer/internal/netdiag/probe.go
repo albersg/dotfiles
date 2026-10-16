@@ -222,26 +222,24 @@ type Bounds struct {
 	// BodyBytes is how many bytes of a response body the HTTP check reads. It is
 	// enough to recognise a portal page and far too little to pull a payload.
 	BodyBytes int64
-	// Concurrency is how many checks may run at once. Every check is I/O bound and
-	// slow networks are common, so the limit is low on purpose: a diagnosis must
-	// not be what saturates the link it is diagnosing.
-	Concurrency int
+	// There is deliberately no concurrency field. One check runs at a time (see
+	// run.go), which is the strongest bound this utility can promise, and a field a
+	// caller could raise would promise a parallelism that does not exist.
 }
 
 // defaultBounds is the bound every check falls back to for a field the caller
 // left at zero.
 var defaultBounds = Bounds{
-	DNS:         5 * time.Second,
-	DNSServer:   3 * time.Second,
-	TCP:         5 * time.Second,
-	TLS:         6 * time.Second,
-	HTTP:        10 * time.Second,
-	Trace:       15 * time.Second,
-	Total:       90 * time.Second,
-	Attempts:    3,
-	Redirects:   5,
-	BodyBytes:   64 << 10,
-	Concurrency: 4,
+	DNS:       5 * time.Second,
+	DNSServer: 3 * time.Second,
+	TCP:       5 * time.Second,
+	TLS:       6 * time.Second,
+	HTTP:      10 * time.Second,
+	Trace:     15 * time.Second,
+	Total:     90 * time.Second,
+	Attempts:  3,
+	Redirects: 5,
+	BodyBytes: 64 << 10,
 }
 
 // DefaultBounds is the set of limits a run uses when the caller names none.
@@ -260,7 +258,6 @@ func (b Bounds) total() time.Duration     { return atLeast(b.Total, defaultBound
 func (b Bounds) attempts() int            { return atLeastInt(b.Attempts, defaultBounds.Attempts) }
 func (b Bounds) redirects() int           { return atLeastInt(b.Redirects, defaultBounds.Redirects) }
 func (b Bounds) bodyBytes() int64         { return atLeast64(b.BodyBytes, defaultBounds.BodyBytes) }
-func (b Bounds) concurrency() int         { return atLeastInt(b.Concurrency, defaultBounds.Concurrency) }
 
 // atLeast returns a positive duration, or the fallback when the field is zero or
 // negative. Negative is treated like zero because a caller who computed a bound

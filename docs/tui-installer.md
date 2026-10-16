@@ -826,7 +826,8 @@ dropped before any request and the screen says so, and a request's query string 
 report.
 
 **Every check is bounded by construction, and the run is cancellable.** Each check has its own
-timeout and the run has an overall one, the concurrency is limited so a slow link is diagnosed rather
+timeout and the run has an overall one, the checks run one at a time in a fixed order so a slow link
+is diagnosed rather
 than saturated, and `Esc` stops the run while **keeping what finished**: the report still lands, with
 the checks that completed listed and the rest named as skipped. The call that runs the checks never
 happens on the update loop, so the interface stays responsive while a stage is waiting, and the

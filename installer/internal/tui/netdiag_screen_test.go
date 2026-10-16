@@ -293,7 +293,10 @@ func TestNetworkScreenWritesOnlyFromThePreviewAndOnlyWhatItShows(t *testing.T) {
 	if !m.Network.Preview {
 		t.Fatal("the preview row did not open the preview")
 	}
-	previewed := m.networkReportText()
+	previewed := m.Network.ReportText
+	if previewed == "" {
+		t.Fatal("opening the preview built no text to show")
+	}
 	if !strings.Contains(previewed, "the transport did not answer") {
 		t.Errorf("the preview does not carry the report:\n%s", previewed)
 	}
@@ -336,9 +339,17 @@ func TestNetworkScreenAnonymizesWhatItSaves(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	m := networkDiagnosticsFrameCase(t)
-	m.Network.Anonymize = true
-	m.Network.Preview = true
 	m.Network.ReportPath = networkReportPath(m.Network.Report.Started)
+
+	// The rows are how a reader does this, and pressing them is also what builds the
+	// text the write uses: the preview first, then the toggle, then the save.
+	for _, row := range []string{networkPreviewRow, networkAnonymizeRow} {
+		next, _ := networkPressRow(t, m, row)
+		m = next
+	}
+	if !m.Network.Anonymize {
+		t.Fatal("the anonymize row did not turn anonymization on")
+	}
 
 	next, _ := networkPressRow(t, m, networkSaveRow)
 	m = next
