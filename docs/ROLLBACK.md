@@ -44,25 +44,26 @@ anything, so the command reports a measurement rather than an attempt.
   on, rather than reporting success on a machine whose files it never restored. The same
   check covers a path it *does* name as written but cannot vouch for file by file, which
   is what a configuration directory holding a symlink looks like: the per-file record
-  lists regular files. A link is judged by three things. What the run's copy of the key
-  holds at that path comes first: a copy pointing somewhere else is reported, because the
-  machine is not where the run left it. Then where the link reaches: a link that reaches
-  nothing is left alone, and so is one that lands inside a path the record says the run did
-  not write -- that is the record's own word, and this installer never creates a link, so
-  only a copy could say one was already there. A link that lands outside every path the
-  record names is reported. A link that lands inside a path the run wrote is reported when
-  a file behind it neither holds what the run's copy of it holds nor is named by a change
-  -- a record that names a tree while omitting a file inside it is caught by the copy, not
-  by its own silence.
-- **It acts on what the record names.** A run that took no backup leaves its record with no
-  copies, and a missing copy is not evidence that the run wrote a path. With no copy of a
-  key, the files behind a link there are judged as the same files are when the key is walked
-  directly -- by the changes the record carries -- and a path the record does not name, a
-  link among them, is left where it is. That is the price of a run that took no backup. A key that is itself a link to a directory is read through
-  when the record is written, so what the run wrote inside it is named; a path the record
-  says the run created and that is a directory now is reported rather than removed, because
-  putting it back would mean removing a tree. When the record names a backup of a path, the
-  report names the directory that puts the whole entry back; when it does not, it says so.
+  lists regular files. A key that is itself a link to a directory is read through when the record is
+  written, so what the run wrote inside it is named; a path the record says the run created and that
+  is a directory now is reported rather than removed, because putting it back would mean removing a
+  tree. When the record names a backup of a path, the report names the directory that puts the whole
+  entry back; when it does not, it says so.
+- **A link is judged by three things.** What the run's copy of the key holds at that path comes
+  first: a copy pointing somewhere else is reported, because the machine is not where the run left
+  it. Then where the link reaches: a link that reaches nothing is left alone, and so is one that
+  lands inside a path the record says the run did not write -- that is the record's own word, and
+  this installer never creates a link, so only a copy could say one was already there. A link that
+  lands outside every path the record names is reported. A link that lands inside a path the run
+  wrote is reported when a file behind it neither holds what the run's copy of it holds nor is named
+  by a change -- a record that names a tree while omitting a file inside it is caught by the copy,
+  not by its own silence. That third question needs a copy to answer: a run that took none is what
+  the next bullet is about.
+- **It acts on what the record names.** A run that took no backup leaves its record with no copies,
+  and a missing copy is not evidence that the run wrote a path. With no copy of a key, the files
+  behind a link there are judged as the same files are when the key is walked directly -- by the
+  changes the record carries -- and a path the record does not name, a link among them, is left
+  where it is. That is the price of a run that took no backup.
 - **Exit status:** `0` when the machine is back where the run found it (or already was),
   `1` when a file could not be put back, `2` when there is no record to revert. A run that
   changed no file is `0` and says so.
