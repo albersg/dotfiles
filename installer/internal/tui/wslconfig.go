@@ -55,8 +55,10 @@ const (
 
 	// wslMemoryRatioDivisor is the share of the host the VM takes before the
 	// reserve is applied, expressed as "leave one part in this many to Windows":
-	// two thirds to the VM, one third to Windows.
-	wslMemoryRatioDivisor = 3
+	// three quarters to the VM, one quarter to Windows. On a host small enough
+	// that a quarter is under the reserve, the reserve is what decides; the ratio
+	// is a ceiling, not a promise.
+	wslMemoryRatioDivisor = 4
 )
 
 // PlanWSLResources turns host capacities into the values the .wslconfig template
@@ -65,7 +67,7 @@ const (
 // The policy is a ratio, a reserve and a floor, clamped to what the host can
 // actually give, and it exists because the VM's memory limit is the only thing
 // between one runaway workload and the whole distribution:
-//   - memory: two thirds of the host, but never so much that Windows is left
+//   - memory: three quarters of the host, but never so much that Windows is left
 //     below 4 GiB, and never below half the host; rounded down to
 //     wslMemoryStepMB, and omitted below wslMinMemoryBytes;
 //   - processors: every host logical CPU but one, so Windows keeps one for its
@@ -109,13 +111,15 @@ func planProcessors(logicalCPUs int) int {
 
 // planMemoryMB applies the memory policy:
 //
-//	target = max(min(host - host/3, host - 4 GiB), host/2)
+//	target = max(min(host - host/4, host - 4 GiB), host/2)
 //
-// The first term is the ratio: the VM takes two thirds of the host. The second is
-// the absolute reserve Windows needs to stay usable, which is what decides on a
-// host where a third of the memory is still less than 4 GiB. The third is the
-// floor, half the host, which is exactly the default WSL applies when the key is
-// absent: the plan never hands the VM less than WSL would have chosen by itself.
+// The first term is the ratio: the VM takes three quarters of the host. The second
+// is the absolute reserve Windows needs to stay usable, which is what decides on a
+// host where a quarter of the memory is still less than 4 GiB -- on a 16 GiB host
+// the reserve is what binds, and the plan lands one step below it rather than on
+// the ratio. The third is the floor, half the host, which is exactly the default
+// WSL applies when the key is absent: the plan never hands the VM less than WSL
+// would have chosen by itself.
 //
 // On a host small enough that the reserve and the floor disagree, the floor wins
 // and Windows keeps less than the reserve. That is deliberate. The guard this
@@ -141,9 +145,10 @@ func planMemoryMB(memoryBytes uint64) int {
 	// host below it would wrap around and report a huge "available" value. Below
 	// the reserve the floor above is the whole answer.
 	if memoryBytes > wslWindowsReserveBytes {
-		// Two thirds, computed as "subtract one third" rather than "multiply by
-		// two": the multiplication would overflow a uint64 on any host large
-		// enough to make the whole question absurd, and the subtraction cannot.
+		// Three quarters, computed as "subtract one quarter" rather than
+		// "multiply by three": the multiplication would overflow a uint64 on any
+		// host large enough to make the whole question absurd, and the subtraction
+		// cannot.
 		ratio := memoryBytes - memoryBytes/wslMemoryRatioDivisor
 		if room := memoryBytes - wslWindowsReserveBytes; ratio > room {
 			ratio = room

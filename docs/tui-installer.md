@@ -484,17 +484,18 @@ beside the recommendation so it can be checked against the machine:
 
 | Key | Recommended from |
 |-----|------------------|
-| `memory` | two thirds of the host's RAM, rounded down to 512 MB, never so much that Windows is left below 4 GiB and never below half the host, omitted below 1 GiB |
+| `memory` | three quarters of the host's RAM, rounded down to 512 MB, never so much that Windows is left below 4 GiB and never below half the host, omitted below 1 GiB |
 | `processors` | every logical CPU the host reports except one, so Windows keeps one |
 | `swap` | a quarter of the planned memory, rounded down to 512 MB |
 
 **These limits were wrong in a way only a packed build shows.** The installer used to take **half**
 the host, pin the reserve at 2 GiB and hand the VM **every** logical CPU. On a 16,016 MiB / 12-CPU
 host that planned `memory=7680MB, processors=12`, and at that size two global out-of-memory kills
-took the whole distribution down while a test run held about 5.3 GiB of it. The reserve is now
-whichever is larger, 4 GiB or a third of the host; the floor is half the host, which is WSL's own
-proportional default, so the plan never gives less than WSL would; and Windows keeps one CPU. The
-same host now plans `memory=10240MB, processors=11, swap=2560MB`. `TestPlanWSLResources` pins this
+took the whole distribution down while a test run held about 5.3 GiB of it. The reserve is now a flat
+4 GiB instead of 2; the ratio is three quarters of the host instead of half, which is what the
+reserve clamps on a machine this size; the floor is half the host, WSL's own proportional default,
+so the plan never gives less than WSL would; and Windows keeps one CPU. The
+same host now plans `memory=11776MB, processors=11, swap=2560MB`. `TestPlanWSLResources` pins this
 host, both boundaries, the 1-CPU host and the unknown host, and
 [`dotfiles-wsl/.wslconfig.tmpl`](../dotfiles-wsl/.wslconfig.tmpl)'s own comments changed with the
 policy, because a template comment that states the old rule is the defect this change removes.

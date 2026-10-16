@@ -42,10 +42,10 @@ func wslResourceTestState(t *testing.T) wslResourceState {
 		Path:      "/mnt/c/Users/alber/.wslconfig",
 		RepoDir:   repoRoot(t),
 		Host:      system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:      WSLResources{MemoryMB: 10752, Processors: 7, SwapMB: 2560},
+		Plan:      WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 		Current:   WSLResources{MemoryMB: 4096, Processors: 0, SwapMB: 1024},
 		HasFile:   true,
-		Draft:     WSLResources{MemoryMB: 10752, Processors: 7, SwapMB: 2560},
+		Draft:     WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 	}
 }
 
@@ -251,12 +251,12 @@ func TestScreenWSLResourcesShowsTheHostNumbersAndTheRecommendation(t *testing.T)
 	for _, want := range []string{
 		"16384 MiB",                     // the host's RAM, in the unit WSL uses
 		"8 logical processors",          // the host's CPUs
-		"10752 MB",                      // the recommended memory, two thirds of the host
-		"2560 MB",                       // the recommended swap, a quarter of it
+		"12288 MB",                      // the recommended memory, as the state this test builds it
+		"3072 MB",                       // the recommended swap, a quarter of that memory
 		"4096MB",                        // what the file holds today, as the file writes it
 		"/mnt/c/Users/alber/.wslconfig", // where the file is
 		"wsl --shutdown",                // the effect, and the command the screen does not run
-		"Memory: 10752 MB",              // the draft, as a row
+		"Memory: 12288 MB",              // the draft, as a row
 		"Processors: 7",                 // the draft, as a row
 	} {
 		if !strings.Contains(view, want) {
@@ -286,7 +286,7 @@ func TestWSLResourceScreenAdjustsTheDraftAndReturnsToTheRecommendation(t *testin
 
 	m.Cursor = wslResourceRowMemory
 	m = press(m, tea.KeyRight)
-	const recommended = 10752 // what the 16 GiB / 8 CPU fixture plans
+	const recommended = 12288 // what the 16 GiB / 8 CPU fixture plans
 	if got := m.WSLState.Draft.MemoryMB; got != recommended+wslMemoryStepMB {
 		t.Errorf("memory after one step right = %d, want %d", got, recommended+wslMemoryStepMB)
 	}
@@ -332,8 +332,8 @@ func TestWSLResourceWriteIsDryRunGated(t *testing.T) {
 	st := wslResourceState{
 		Resolved: true, Available: true, Path: dst, RepoDir: repoDir,
 		Host:  system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:  WSLResources{MemoryMB: 10752, Processors: 7, SwapMB: 2560},
-		Draft: WSLResources{MemoryMB: 10752, Processors: 7, SwapMB: 2560},
+		Plan:  WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
+		Draft: WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 	}
 
 	notice, wrote, err := writeWSLResourceDraft(st, "utilities")
@@ -379,8 +379,8 @@ func TestWSLResourceWritePreservesTheKeysThatAreNotOurs(t *testing.T) {
 	st := wslResourceState{
 		Resolved: true, Available: true, Path: dst, RepoDir: repoDir,
 		Host:  system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:  WSLResources{MemoryMB: 10752, Processors: 7, SwapMB: 2560},
-		Draft: WSLResources{MemoryMB: 10752, Processors: 7, SwapMB: 2560},
+		Plan:  WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
+		Draft: WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 	}
 
 	if _, _, err := writeWSLResourceDraft(st, "utilities"); err != nil {
@@ -397,7 +397,7 @@ func TestWSLResourceWritePreservesTheKeysThatAreNotOurs(t *testing.T) {
 			t.Errorf("the write dropped the user's own line %q:\n%s", kept, got)
 		}
 	}
-	for _, managed := range []string{"memory=10752MB", "processors=7", "swap=2560MB"} {
+	for _, managed := range []string{"memory=12288MB", "processors=7", "swap=3072MB"} {
 		if !strings.Contains(got, managed) {
 			t.Errorf("the write did not apply %q:\n%s", managed, got)
 		}
@@ -517,8 +517,8 @@ func TestTheRecommendationComesFromTheHost(t *testing.T) {
 	if small.MemoryMB != 4096 || small.Processors != 3 {
 		t.Errorf("an 8 GiB / 4 CPU host plans %+v, want 4096 MB and 3 processors", small)
 	}
-	if large.MemoryMB != 21504 || large.Processors != 15 {
-		t.Errorf("a 32 GiB / 16 CPU host plans %+v, want 21504 MB and 15 processors", large)
+	if large.MemoryMB != 24576 || large.Processors != 15 {
+		t.Errorf("a 32 GiB / 16 CPU host plans %+v, want 24576 MB and 15 processors", large)
 	}
 	if small == large {
 		t.Error("two different hosts produced the same plan")
@@ -607,9 +607,9 @@ func TestUtilitiesPanelNamesTheWSLResourcesWithTheHostsValues(t *testing.T) {
 	flat := utilitiesPanelFlat(t, m)
 	for _, want := range []string{
 		"WSL resources",
-		"memory 10752 MB",
+		"memory 12288 MB",
 		"processors 7",
-		"swap 2560 MB",
+		"swap 3072 MB",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the Utilities panel does not name %q:\n%s", want, flat)
@@ -778,7 +778,7 @@ func TestUtilitiesPanelFactsAreDerivedFromTheModelState(t *testing.T) {
 	withWSL.WSLState = wslResourceTestState(t)
 	wslFlat := utilitiesPanelFlat(t, withWSL)
 	t.Logf("utilities panel, WSL resource state:\n%s", wslFlat)
-	if !strings.Contains(wslFlat, "WSL resources") || !strings.Contains(wslFlat, "10752 MB") {
+	if !strings.Contains(wslFlat, "WSL resources") || !strings.Contains(wslFlat, "12288 MB") {
 		t.Errorf("the panel did not pick up the WSL resource state:\n%s", wslFlat)
 	}
 

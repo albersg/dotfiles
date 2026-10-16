@@ -319,7 +319,7 @@ func TestWSLConfigRoutesRenderIdenticalContent(t *testing.T) {
 	stepRepo, stepWinHome, _ := newWSLLayout(t)
 	// Pin one deterministic host for both routes, after the fixture so the plan
 	// does not depend on the machine running the test: 16 GiB and 8 CPUs become
-	// 10752 MB, 7 processors and 2560 MB of swap.
+	// 12288 MB, 7 processors and 3072 MB of swap.
 	t.Setenv(envWSLHostMemoryMB, "16384")
 	t.Setenv(envWSLHostCPUs, "8")
 
@@ -344,7 +344,7 @@ func TestWSLConfigRoutesRenderIdenticalContent(t *testing.T) {
 		t.Errorf("the step and the interactive script do not install the same bytes:\nstep:   %q\nscript: %q",
 			installed, rendered)
 	}
-	for _, want := range []string{"memory=10752MB", "processors=7", "swap=2560MB"} {
+	for _, want := range []string{"memory=12288MB", "processors=7", "swap=3072MB"} {
 		if !strings.Contains(string(installed), want) {
 			t.Errorf("both routes should render %q for the overridden host, got:\n%s", want, installed)
 		}

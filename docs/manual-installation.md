@@ -227,7 +227,7 @@ policy:
 
 | Key | Value for this host |
 |-----|---------------------|
-| `memory` | Two thirds of the host's physical memory, and never so much that Windows is left below 4 GiB and never below half the host, rounded down to 512 MB. Omitted when the result is below 1 GiB. |
+| `memory` | Three quarters of the host's physical memory, and never so much that Windows is left below 4 GiB and never below half the host, rounded down to 512 MB. Omitted when the result is below 1 GiB. |
 | `swap` | A quarter of the value you wrote for `memory`, rounded down to 512 MB. |
 | `processors` | Every logical CPU the host reports except one, so Windows keeps one. |
 
