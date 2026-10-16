@@ -116,6 +116,19 @@ const (
 	// optional detours reached from the row that decides them (T2 of
 	// odd/tasks/start-installation-flow.md).
 	ScreenSetup // Every decision of the flow, on one screen
+	// The WSL performance advisor. Appended at the end for the same reason as the
+	// screens above. The utilities section offers it only inside a real WSL
+	// instance, decided from the evidence such an instance leaves behind rather
+	// than from an inherited variable, and everywhere else the section's own body
+	// states what was looked for instead of leaving a hole in the list.
+	ScreenWSLAdvisor // What this WSL instance is doing with the storage it has
+	// The advisor's two assistants, one level further in. They are appended at the end for the same
+	// reason as the screens above. The benchmark measures storage inside scratch directories of its
+	// own and removes them; the assisted copy writes a project's files into a directory the user
+	// chose on the preview, and neither ever deletes anything, so both are reached only through the
+	// report's own rows and only where the engine can finish.
+	ScreenWSLBenchmark // How fast the storage behind this project answers, measured
+	ScreenWSLMigration // A project copied to the distribution's own storage, previewed and verified
 )
 
 // InstallStep represents a single installation step
@@ -424,6 +437,17 @@ type Model struct {
 	// WSLNotice is the one-line result of the last write, cleared when the screen
 	// is left, exactly as ThemeNotice is.
 	WSLNotice string
+	// WSLRuntime is the strict answer to "is this process inside a WSL instance".
+	// It is read once here, from the evidence the kernel and the instance leave in
+	// the filesystem, and never from an inherited environment variable: a Windows
+	// host that merely has WSL installed cannot set it, and neither can a parent
+	// process. It is what gates the advisor's row.
+	WSLRuntime system.WSLRuntime
+	// WSLAdvisor is what the performance advisor draws: the reading it took, the
+	// findings built from it, and the two screens one level in. The reading is
+	// held rather than re-taken so no render probes the machine and the report
+	// cannot change under the cursor mid-scroll.
+	WSLAdvisor wslAdvisorState
 	// WSLTerminalOffer is the Windows Terminal decision the interactive WSL step
 	// puts to the user before the run writes anything there: the read-only offer,
 	// the lines the installing screen shows for it, the Windows profile the font
@@ -591,6 +615,10 @@ func NewModel() Model {
 	// reason: which shell, and whether this run can start an interactive one, are
 	// questions a render must not ask. The measurement itself is a keypress away.
 	m.ShellAudit = resolveShellAudit(defaultShellAuditProbe())
+	// The strict WSL answer is read here, from files alone, for the same reason:
+	// an environment variable is not evidence, and the row that offers the advisor
+	// has to be drawn from what this process can verify about itself.
+	m.WSLRuntime = system.DetectWSLRuntime()
 	// The last release check is read here, from its own state file, exactly as the
 	// last-install record is: one file read, no waiting. The request itself is a
 	// command the run arms from the drawing gate, so the startup path never reaches
@@ -892,6 +920,12 @@ func (m Model) GetCurrentOptions() []string {
 		if m.WSLState.Available {
 			utilities = append(utilities, utilitiesWSLRow)
 		}
+		// The performance advisor is offered only inside a WSL instance: that is
+		// what it is about, and running it anywhere else would report on a host it
+		// cannot see. The condition is answered in one place, wslAdvisorOffered.
+		if m.wslAdvisorOffered() {
+			utilities = append(utilities, utilitiesWSLAdvisorRow)
+		}
 		// The shell's startup is offered wherever the login shell and a terminal
 		// were both resolved. It is the utility that changes nothing, so it is
 		// offered rather than gated: reading a number is always safe.
@@ -1191,6 +1225,12 @@ func (m Model) GetScreenTitle() string {
 		return "Change the dotfiles theme"
 	case ScreenWSLResources:
 		return "WSL resources"
+	case ScreenWSLAdvisor:
+		return "WSL performance"
+	case ScreenWSLBenchmark:
+		return "WSL storage measurement"
+	case ScreenWSLMigration:
+		return "Copy to native storage"
 	case ScreenTerminalCapabilities:
 		return "Terminal capabilities"
 	case ScreenShellAudit:

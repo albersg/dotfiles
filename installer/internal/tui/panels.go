@@ -1129,6 +1129,17 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: m.WSLState.Available,
 	})
 
+	// The section's utilitiesWSLAdvisorRow, offered under the section's own
+	// condition: the process is inside a real WSL instance. The value is the last
+	// reading the model holds, and before the screen has been opened it says the
+	// machine has not been read yet rather than summarising nothing.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "WSL advisor",
+		value:   wslAdvisorSummary(m.WSLAdvisor),
+		absent:  "The WSL performance advisor is not offered here.",
+		offered: m.wslAdvisorOffered(),
+	})
+
 	// The section's utilitiesShellAuditRow, the utility that changes nothing. It
 	// is offered wherever the login shell and a terminal were resolved, and the
 	// value is the last measurement the model holds: nothing is measured until the

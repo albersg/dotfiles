@@ -955,6 +955,70 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.WSLTerminalOfferDone = true
 		return m, m.runNextStep()
 
+	case wslBenchmarkDoneMsg:
+		// The report replaces the previous one whole, so the screen never shows a
+		// mixture of two runs; a run that measured nothing says so through the same
+		// fields as a run that measured everything.
+		m.WSLAdvisor.Benchmark.Running = false
+		m.WSLAdvisor.Benchmark.Ran = true
+		m.WSLAdvisor.Benchmark.Report = msg.report
+		m.WSLAdvisor.Benchmark.Notice = wslBenchmarkPanelValue(m.WSLAdvisor.Benchmark)
+		return m, nil
+
+	case wslMigrationPlannedMsg:
+		// The preview is only accepted for the pair the screen is still on: a plan
+		// for a source the user has already left behind must not appear as if it
+		// described the current choice.
+		migration := &m.WSLAdvisor.Migration
+		if migration.Phase != wslMigrateReadingSource {
+			return m, nil
+		}
+		if msg.err != "" {
+			migration.PlanErr = msg.err
+		} else {
+			migration.Plan = msg.plan
+			migration.PlanErr = ""
+		}
+		migration.Phase = wslMigratePreview
+		m.Cursor = 0
+		return m, nil
+
+	case wslMigrationProgressMsg:
+		m.WSLAdvisor.Migration.Progress = msg.progress
+		m.WSLAdvisor.Migration.ProgressSeen = true
+		return m, nil
+
+	case wslMigrationCopiedMsg:
+		// The outcome lands even when it arrived after the user stepped back, and
+		// the run's own report is what the screen shows, including a cancelled run
+		// and a partial copy: neither is turned into a success here.
+		migration := &m.WSLAdvisor.Migration
+		migration.Running = false
+		migration.Cancel = nil
+		migration.Report = msg.report
+		migration.ReportErr = msg.err
+		if msg.report.Destination != "" {
+			migration.Plan.Destination = msg.report.Destination
+		}
+		migration.Phase = wslMigrateDone
+		m.Cursor = 0
+		migration.Notice = ""
+		return m, nil
+
+	case wslAdvisorLoadedMsg:
+		// The reading replaces the old one whole, so the report never shows a
+		// mixture of two readings: a half-updated table would let a reader compare
+		// a mount table from one moment with a memory figure from another.
+		msg.state.Notice = m.WSLAdvisor.Notice
+		m.WSLAdvisor = msg.state
+		// The cursor is clamped rather than reset: a re-read while the reader is on
+		// a row should leave them on that row when the list is the same length, and
+		// never past the end when it is not.
+		if rows := m.wslAdvisorRows(); m.Cursor >= len(rows) {
+			m.Cursor = 0
+		}
+		return m, nil
+
 	case shellAuditMeasuredMsg:
 		// The measurement is not an install step and cannot fail as one: every run
 		// it could not complete is already part of the state it brings back, with
@@ -1388,6 +1452,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
 
+	case ScreenWSLAdvisor:
+		return m.handleWSLAdvisorKeys(key)
+
+	case ScreenWSLBenchmark:
+		return m.handleWSLBenchmarkKeys(key)
+
+	case ScreenWSLMigration:
+		return m.handleWSLMigrationKeys(key)
+
 	case ScreenUpdate:
 		return m.handleUpdateKeys(key)
 
@@ -1540,6 +1613,26 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// back to the section that opened it.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
+	case ScreenWSLAdvisor:
+		// The report is one level in from the section. Leaving it clears the
+		// notice of the last action, exactly as the other utility screens do, so a
+		// later visit does not open on a stale result; the reading itself stays,
+		// because it is what the panel shows.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.WSLAdvisor.Notice = ""
+	case ScreenWSLBenchmark:
+		// The measurement screen is one level further in. A run in flight keeps
+		// running and writes its report onto the model, exactly as the shell audit's
+		// measurement does: stepping back must not lose a number that was paid for.
+		m.Screen = ScreenWSLAdvisor
+		m.Cursor = 0
+		m.WSLAdvisor.Benchmark.Notice = ""
+	case ScreenWSLMigration:
+		// The copy screen walks its own phases in reverse, and stops a copy in
+		// flight: a copy is the one action here that keeps costing something while
+		// the user is elsewhere.
+		return m.wslMigrationEscape()
 	case ScreenShellAudit:
 		// The shell startup screen is one level in as well. Leaving it cancels
 		// nothing: a measurement that is still running writes its answer onto the

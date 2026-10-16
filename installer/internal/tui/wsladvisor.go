@@ -240,6 +240,9 @@ type wslAdvisorFacts struct {
 	CPUs int
 	// CPUsErr is why the count could not be read, empty when it could.
 	CPUsErr string
+	// NativeParents are the places a copy could land, read here so the assisted copy cannot offer a
+	// destination this report did not classify.
+	NativeParents []wslNativeParent
 	// RootDisk is the space behind the distribution's own root.
 	RootDisk wslDiskFacts
 	// ProjectDisk is the space behind the current directory.
@@ -382,6 +385,7 @@ func collectWSLAdvisorFacts(in wslAdvisorInput) wslAdvisorFacts {
 	facts.RootDisk = wslDiskFactsFrom(in, root)
 	facts.ProjectDisk = wslDiskFactsFrom(in, facts.Cwd)
 
+	facts.NativeParents = wslNativeParents(in, facts)
 	facts.LocalProject = readWSLProjectFacts(in, facts.Cwd, "")
 	facts.Projects = discoverWSLProjects(in, facts)
 
@@ -684,7 +688,7 @@ func wslStorageFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "storage-unknown",
 			Severity: wslSeverityNotice,
-			Title:    "The storage behind the current directory could not be identified",
+			Title:    "The storage could not be identified",
 			Evidence: "Working directory: " + facts.Cwd + ". " + reason,
 			Why: "Until the filesystem is identified, nothing can be said about whether these files " +
 				"cross the Windows boundary, and no recommendation would be evidence-based.",
@@ -698,7 +702,7 @@ func wslStorageFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "storage-cwd-host",
 			Severity: wslSeverityCritical,
-			Title:    "The current directory is on the Windows host",
+			Title:    "The working directory is on the Windows host",
 			Evidence: wslEvidenceForProject(local),
 			Why: "Every metadata operation on these files crosses the boundary between the " +
 				"distribution and Windows: Git stats every tracked file on each status and checkout, a " +
@@ -719,7 +723,7 @@ func wslStorageFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "storage-cwd-virtual",
 			Severity: wslSeverityWarning,
-			Title:    "The current directory is in memory or an overlay",
+			Title:    "The working directory is not on the distribution's disk",
 			Evidence: wslEvidenceForProject(local),
 			Why: "A tmpfs is memory: its contents are lost when the instance shuts down, and it " +
 				"competes with the memory the rest of the distribution needs. An overlay is a " +
@@ -736,7 +740,7 @@ func wslStorageFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "storage-cwd-native",
 			Severity: wslSeverityInfo,
-			Title:    "The current directory is on the distribution's own storage",
+			Title:    "The working directory is on the distribution's disk",
 			Evidence: wslEvidenceForProject(local),
 			Why: "This is the case a WSL setup wants for source trees: the filesystem is a Linux one " +
 				"and no operation crosses the Windows boundary.",
@@ -748,7 +752,7 @@ func wslStorageFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "storage-cwd-other",
 			Severity: wslSeverityNotice,
-			Title:    "The current directory is on storage this report does not classify",
+			Title:    "The working directory is on other storage",
 			Evidence: wslEvidenceForProject(local),
 			Why: "The filesystem is neither the distribution's own nor a Windows one, so the " +
 				"host-boundary question does not apply here -- and neither does the advice for it.",
@@ -761,7 +765,7 @@ func wslStorageFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "storage-links",
 			Severity: wslSeverityWarning,
-			Title:    "A link in the working tree crosses the boundary",
+			Title:    "A link crosses the boundary",
 			Evidence: strings.Join(local.LinkNotes, "; "),
 			Why: "A link is followed on every access, so the cost of the target is the cost of the " +
 				"link: a dependency directory linked onto a Windows drive is paid for by every read " +
@@ -850,7 +854,7 @@ func wslMemoryFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "swap-absent",
 			Severity: wslSeverityNotice,
-			Title:    "No swap is visible inside the distribution",
+			Title:    "No swap is visible in the distribution",
 			Evidence: fmt.Sprintf("MemTotal %s, used %d%%. %s carries no swap total.",
 				humanBytes(memory.TotalBytes), usedShare, procMeminfoPath),
 			Why: "Without swap, memory pressure inside the limit WSL gives the instance ends in the " +
@@ -890,7 +894,7 @@ func wslMemoryFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "memory-pressure",
 			Severity: wslSeverityWarning,
-			Title:    "Memory inside the instance is nearly exhausted",
+			Title:    "Memory is nearly exhausted",
 			Evidence: fmt.Sprintf("MemTotal %s with %d%% in use (MemAvailable or MemFree from %s).",
 				humanBytes(memory.TotalBytes), usedShare, procMeminfoPath),
 			Why: "The instance's memory is a limit WSL enforces: the Linux side sees the limit, not " +
@@ -921,7 +925,7 @@ func wslResourceFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "resources-unreadable",
 			Severity: wslSeverityNotice,
-			Title:    "The Windows-side .wslconfig could not be read",
+			Title:    "The .wslconfig could not be read",
 			Evidence: evidence,
 			Why: "Without that file this report cannot say whether a configured limit differs from " +
 				"what the running instance has, which is the one case where the difference is the " +
@@ -957,7 +961,7 @@ func wslResourceFindings(facts wslAdvisorFacts) []wslFinding {
 			findings = append(findings, wslFinding{
 				ID:       "resources-applied",
 				Severity: wslSeverityInfo,
-				Title:    "The resource limits in the file are the ones this instance has",
+				Title:    "The resource limits are applied",
 				Evidence: fmt.Sprintf("%s: %s. This instance sees %d processors and %s of memory.",
 					facts.WindowsConfigPath, wslResourcesSummary(*facts.WindowsConfig), facts.CPUs,
 					humanBytes(facts.Memory.TotalBytes)),
@@ -973,7 +977,7 @@ func wslResourceFindings(facts wslAdvisorFacts) []wslFinding {
 	findings = append(findings, wslFinding{
 		ID:       "resources-restart-pending",
 		Severity: wslSeverityNotice,
-		Title:    "A resource limit differs from what this instance is using",
+		Title:    "A resource limit waits for a restart",
 		Evidence: facts.WindowsConfigPath + " — " + strings.Join(pending, "; "),
 		Why: "The Windows-side file is read when the instance starts. A difference between the two is " +
 			"either a change that has not been applied yet or a limit the running instance predates; " +
@@ -1003,7 +1007,7 @@ func wslDiskFindings(facts wslAdvisorFacts) []wslFinding {
 	return []wslFinding{{
 		ID:       "disk-low",
 		Severity: wslSeverityWarning,
-		Title:    "The distribution's own filesystem is nearly full",
+		Title:    "The distribution's disk is nearly full",
 		Evidence: fmt.Sprintf("%s holds %s free of %s (%d%% free).",
 			disk.Path, humanBytes(disk.FreeBytes), humanBytes(disk.TotalBytes), share),
 		Why: "A full filesystem inside the distribution stops builds and package installs with write " +
@@ -1027,7 +1031,7 @@ func wslNetworkFindings(facts wslAdvisorFacts) []wslFinding {
 		return []wslFinding{{
 			ID:       "dns-unreadable",
 			Severity: wslSeverityNotice,
-			Title:    "The resolver configuration could not be read",
+			Title:    "The resolver file could not be read",
 			Evidence: resolv.Path + ": " + resolv.Err,
 			Why: "DNS behaviour is a common cause of a distribution that feels slow on every new " +
 				"connection. With the file unreadable, this report cannot say where name resolution " +
@@ -1041,7 +1045,7 @@ func wslNetworkFindings(facts wslAdvisorFacts) []wslFinding {
 		return []wslFinding{{
 			ID:       "dns-no-nameserver",
 			Severity: wslSeverityWarning,
-			Title:    "Nameservers are listed but none is visible",
+			Title:    "No nameserver is configured",
 			Evidence: resolv.Path + " lists no `nameserver` line" + wslResolvPathNote(resolv) + ".",
 			Why: "With no resolver configured, name lookups fail or fall back to whatever the libc's " +
 				"fallback does, which usually shows up as every network command taking a long time " +
@@ -1079,7 +1083,7 @@ func wslNetworkFindings(facts wslAdvisorFacts) []wslFinding {
 	return []wslFinding{{
 		ID:       "dns-through-host",
 		Severity: wslSeverityNotice,
-		Title:    "Name resolution goes through the Windows host",
+		Title:    "DNS goes through the Windows host",
 		Evidence: evidence,
 		Why: "WSL writes a resolver that points at the host, so every lookup leaves the distribution " +
 			"and is answered on the Windows side. That is WSL's documented default and it usually " +
@@ -1106,7 +1110,7 @@ func wslInteropFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "interop-disabled",
 			Severity: wslSeverityNotice,
-			Title:    "Interop with Windows executables is turned off",
+			Title:    "Interop with Windows is off",
 			Evidence: facts.Conf.Describe(facts.Conf.InteropEnabled, "true"),
 			Why: "With interop off, Windows programs cannot be started from this shell -- including " +
 				"`wsl.exe`, the clipboard bridge this installer ships and any host-side command. That " +
@@ -1125,7 +1129,7 @@ func wslInteropFindings(facts wslAdvisorFacts) []wslFinding {
 		findings = append(findings, wslFinding{
 			ID:       "interop-missing",
 			Severity: wslSeverityWarning,
-			Title:    "No WSL interop registration was found",
+			Title:    "No interop registration was found",
 			Evidence: wslSignalEvidence(facts.Runtime, "interop-binfmt"),
 			Why: "WSL registers the binfmt handler that lets this distribution run Windows " +
 				"executables. Without the registration, `wsl.exe`, `explorer.exe` and anything else " +
@@ -1144,6 +1148,144 @@ func wslInteropFindings(facts wslAdvisorFacts) []wslFinding {
 
 	return findings
 }
+
+// ============================================================================
+// WHERE A COPY COULD LAND
+// ============================================================================
+
+// wslNativeParent is a directory a project could be copied into, read once when the report is taken.
+// The reading is separate from the path the copy would create because the parent's filesystem and
+// room do not depend on which project is being copied.
+type wslNativeParent struct {
+	// Path is the directory that would hold the copy.
+	Path string
+	// Label is what a row shows: the path abbreviated, with the room it has.
+	Label string
+	// Storage is the verdict for the parent, which must be the distribution's own filesystem.
+	Storage system.StorageVerdict
+	// FreeBytes and TotalBytes are the room behind the parent; SpaceKnown says whether it was read.
+	FreeBytes  uint64
+	TotalBytes uint64
+	SpaceKnown bool
+}
+
+// wslNativeDestination is one place a project could be copied to: a native parent joined with the
+// project's own name.
+type wslNativeDestination struct {
+	// Parent is the reading the destination was derived from.
+	Parent wslNativeParent
+	// Path is the directory the copy would create.
+	Path string
+	// Label is the row's label, i.e. the parent's own with the project's name.
+	Label string
+}
+
+// wslNativeParents reads the places a copy could land. Only the distribution's own filesystem is
+// offered: suggesting a Windows mount as the destination of a move away from a Windows mount would be
+// the exact defect this utility exists to prevent, so the filter is on the filesystem kind and never
+// on a path. A parent a copy must not land in -- the source itself or a directory inside it -- is
+// filtered where the source is known, in wslNativeDestinations.
+func wslNativeParents(in wslAdvisorInput, facts wslAdvisorFacts) []wslNativeParent {
+	var paths []string
+	if facts.Home != "" {
+		paths = append(paths, facts.Home)
+		// The conventional project directories, when they are already there: offering to create one
+		// would be inventing a layout for this user.
+		for _, name := range []string{"projects", "src", "dev", "code", "work"} {
+			candidate := filepath.Join(facts.Home, name)
+			if in.Exists(candidate) {
+				paths = append(paths, candidate)
+			}
+		}
+	}
+	// Every other mount whose filesystem is a Linux one, e.g. a disk attached with `wsl --mount`.
+	for _, entry := range facts.Table.Entries {
+		if !entry.StorageKind().NativeForTooling() {
+			continue
+		}
+		if filepath.Clean(entry.MountPoint) == filepath.Clean(facts.NativeRootPath()) {
+			// The root is offered only as the last resort below: joining it with a project's name puts
+			// the copy directly under /, which is valid but rarely what someone means.
+			continue
+		}
+		paths = append(paths, entry.MountPoint)
+	}
+	if len(paths) == 0 {
+		if root := facts.NativeRootPath(); root != "" {
+			paths = append(paths, root)
+		}
+	}
+
+	seen := map[string]bool{}
+	var parents []wslNativeParent
+	for _, path := range paths {
+		path = filepath.Clean(path)
+		if path == "" || path == "." || seen[path] {
+			continue
+		}
+		seen[path] = true
+		resolved, err := in.EvalSymlinks(path)
+		if err != nil {
+			resolved = path
+		}
+		storage := system.ClassifyStorage(facts.Table, path, resolved)
+		if !storage.Kind.NativeForTooling() {
+			// A home directory that is itself a Windows mount is a real layout (WSL can be configured
+			// that way), and it is exactly the case this utility must not offer as a destination.
+			continue
+		}
+		parent := wslNativeParent{Path: path, Storage: storage, Label: abbreviateHome(path, facts.Home)}
+		parent.FreeBytes, parent.TotalBytes, parent.SpaceKnown = in.Statfs(path)
+		if parent.SpaceKnown {
+			parent.Label += " — " + humanBytes(parent.FreeBytes) + " free"
+		} else {
+			parent.Label += " — space not read"
+		}
+		parents = append(parents, parent)
+	}
+	return parents
+}
+
+// wslNativeDestinations derives the copies one source could become: every native parent joined with
+// the project's own name, minus the ones a copy must not land in. It is a pure function of the
+// reading, so a test can ask where a project on a Windows mount would land without a Windows mount.
+func wslNativeDestinations(facts wslAdvisorFacts, sourcePath string) []wslNativeDestination {
+	if sourcePath == "" {
+		return nil
+	}
+	source := filepath.Clean(sourcePath)
+	base := filepath.Base(source)
+	if base == "" || base == "/" || base == "." || base == ".." {
+		return nil
+	}
+
+	var destinations []wslNativeDestination
+	for _, parent := range facts.NativeParents {
+		if len(destinations) >= wslDestinationLimit {
+			break
+		}
+		// A copy must not land inside the tree it copies, and must not be the source itself: the
+		// first would make the copy recursive, and the second is not a copy at all.
+		if parent.Path == source || strings.HasPrefix(parent.Path, source+"/") ||
+			strings.HasPrefix(source, parent.Path+"/") {
+			continue
+		}
+		path := filepath.Join(parent.Path, base)
+		if path == source {
+			continue
+		}
+		destinations = append(destinations, wslNativeDestination{
+			Parent: parent,
+			Path:   path,
+			Label:  parent.Label + " — copy to " + base,
+		})
+	}
+	return destinations
+}
+
+// wslDestinationLimit bounds how many destinations a row list offers. It is a bound on the menu,
+// not on the search: every candidate is still classified and the ones left out are counted.
+const wslDestinationLimit = 6
 
 // ============================================================================
 // HELPERS THE FINDINGS USE
