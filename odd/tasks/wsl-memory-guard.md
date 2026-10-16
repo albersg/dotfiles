@@ -277,7 +277,8 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
        guide did not name, fixed in the fifth commit) and four are the environmental Ghostty tests,
        recorded in L14 rather than fixed. `gofmt` is clean and `go vet ./...` exits 0 on the whole
        module; the independent verifier ran no Go test at all (L12).
-7. [x] No push and no pull request without a separate explicit decision. Nothing was pushed.
+7. [x] No push and no pull request without a separate explicit decision. Asked, and the answer was
+       to merge `main`, push and open the PR (#343) -- L17.
 
 ## Log
 - L1 (verbatim, 2026-10-16): "he tenido problemas de memoria y craasheo en mi wsl, he ejecutaod esto
@@ -433,3 +434,29 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
     left behind. Two of the three fixes had RED; the third has none because
     `internal/system.RunWithLogs` is a `func` and that path has no seam to fail through, which the
     commit states rather than inventing one.
+- L17: Delivery was asked for and given separately from the work. The question "has hecho push y pr?"
+  was answered with the measured state -- no upstream on the branch, `gh pr list --head` empty, tree
+  clean -- and with the finding that mattered: `origin/main` was 34 commits ahead and a merge
+  conflicted in `view.go`. The user chose **merge main, push, and open the PR to main** out of the
+  routes offered.
+  - `1936f46` is the merge, parents `5d312a9` and `7906f06`. One conflict, resolved by taking main's
+    shorter Utilities row description -- PR #340 owns that section's body, and the two facts the
+    shorter sentence drops are already in the WSL resources panel where the user acts on them -- and,
+    in the same commit, four defects the integration exposed in this front's own work: the "two
+    thirds" sentence in `view.go` that no test tied to the divisor, the duplicated `### Changed`
+    block in the CHANGELOG together with an entry claiming the superseded fraction and its 10240,
+    the one-word-short anchor `#wsl-resources`, and two files `gofmt` was unhappy with, one of them
+    joined by the conflict resolution itself.
+  - Verified after the merge, reading the whole log rather than its tail: `gofmt -l .` empty,
+    `go vet ./...` exit 0, and `go test ./... -count=1 -p 1` (3m45s) green on every package except
+    the four environmental Ghostty tests, whose cause is in their own output ("Ghostty already
+    installed", because `/usr/bin/ghostty` is a real binary here).
+  - The push was rejected once with a bare `(failed)` and no reason, which is recorded as what it was
+    -- a transient remote refusal from which nothing landed -- and succeeded on the retry:
+    `origin/feat/wsl-memory-guard` is `1936f460d110180ab3dd038df5ff3e6ff1b1dc58`.
+  - **PR #343**, https://github.com/albersg/dotfiles/pull/343: 31 files, 3334 insertions, 218
+    deletions, base `main`. It links no issue, and that is the target's policy rather than an
+    omission: `CONTRIBUTING.md` asks for a conventional branch, tests, `go build` + `go vet`, docs
+    and conventional commits, all of which hold, and this repository has no `status:*`/`type:*`
+    labels for a Gentle-owned issue-first rule to attach to -- only the nine defaults. The PR body
+    states it instead of the omission being papered over.
