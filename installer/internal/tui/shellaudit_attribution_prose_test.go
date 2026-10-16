@@ -148,3 +148,41 @@ func TestShellAuditScreenPresentsTheStatisticsItMeasured(t *testing.T) {
 		t.Errorf("the screen does not say how many runs the percentile would need:\n%s", short)
 	}
 }
+
+// TestShellAuditStatisticsParagraphNamesEachCountOnce holds the paragraph to
+// English. The plural helper prints a count with its word, and a format that adds
+// the number again produced "Across the 10 finished 10 starts" -- numbers that are
+// right inside a sentence that reads as a measurement nobody made. Covers S3.
+func TestShellAuditStatisticsParagraphNamesEachCountOnce(t *testing.T) {
+	samples := []time.Duration{
+		100 * time.Millisecond, 110 * time.Millisecond, 120 * time.Millisecond,
+		130 * time.Millisecond, 140 * time.Millisecond, 150 * time.Millisecond,
+		160 * time.Millisecond, 170 * time.Millisecond, 180 * time.Millisecond,
+		900 * time.Millisecond,
+	}
+	st := shellAuditState{Measured: true, Samples: samples, Stats: shellAuditStatsOf(samples)}
+	got := shellAuditStatisticsParagraph(st)
+
+	for _, bad := range []string{"10 finished 10 starts", "with the 1 1 start", "3 finished 3 starts"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("the paragraph repeats a count (%q): %q", bad, got)
+		}
+	}
+	if !strings.Contains(got, "Across the 10 finished starts") {
+		t.Errorf("the paragraph does not state the count once: %q", got)
+	}
+	if !strings.Contains(got, "beyond 1.5 times the interquartile range") {
+		t.Errorf("the paragraph does not name the fence the trimmed median used: %q", got)
+	}
+
+	// The article follows the word it introduces, and the reading this paragraph
+	// prints can begin with a vowel.
+	short := shellAuditState{Measured: true, Samples: samples[:3], Stats: shellAuditStatsOf(samples[:3])}
+	if paragraph := shellAuditStatisticsParagraph(short); strings.Contains(paragraph, "a erratic") ||
+		strings.Contains(paragraph, "3 finished 3 starts") {
+		t.Errorf("the short-form paragraph is malformed: %q", paragraph)
+	}
+	if paragraph := shellAuditStatisticsParagraph(short); !strings.Contains(paragraph, "8 runs") {
+		t.Errorf("the paragraph does not say what the missing percentile would need: %q", paragraph)
+	}
+}

@@ -1430,6 +1430,10 @@ func shellAuditTestState() shellAuditState {
 		},
 	}
 	st.Median, st.Fastest, st.Slowest = shellAuditSummary(samples)
+	// The whole summary, not only its three flat numbers: the screen draws a
+	// paragraph from the statistics the runs support, and a fixture without them
+	// would leave that paragraph out of every frame the fit guards measure.
+	st.Stats = shellAuditStatsOf(samples)
 	return st
 }
 

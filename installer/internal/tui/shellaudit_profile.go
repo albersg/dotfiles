@@ -153,17 +153,17 @@ func profileShellAuditZprof(run shellAuditRun, probe shellAuditProbe, ctx contex
 			"above stands.", shell, err)
 	}
 
+	if refusal := shellAuditProfileTooLarge("zsh/zprof", probe, profilePath); refusal != "" {
+		return nil, refusal
+	}
+
 	data, err := probe.readFile(profilePath)
 	if err != nil {
 		return nil, "the profiled start wrote no table (" + err.Error() + "), so no function can be named: zsh/zprof " +
 			"reported nothing here, and only the total above stands."
 	}
-
 	if len(data) > shellAuditProfileFileLimit {
-		return nil, fmt.Sprintf("the table zsh/zprof wrote is larger than the %s this utility reads, so nothing is "+
-			"named from it: only the total above stands. A table that size is not a startup's cost, and reading "+
-			"it whole would spend the run's memory on a file the instrument did not mean to write.",
-			shellAuditSizeLabel(shellAuditProfileFileLimit))
+		return nil, shellAuditProfileTooLargeReason("zsh/zprof")
 	}
 
 	functions, reported := parseZprofProfile(data)
@@ -312,17 +312,17 @@ func profileShellAuditFish(run shellAuditRun, probe shellAuditProbe, ctx context
 			"stands.", shell, err)
 	}
 
+	if refusal := shellAuditProfileTooLarge("fish", probe, profilePath); refusal != "" {
+		return nil, refusal
+	}
+
 	data, err := probe.readFile(profilePath)
 	if err != nil {
 		return nil, "the profiled start wrote no table (" + err.Error() + "), so nothing can be named: fish reported " +
 			"nothing here, and only the total above stands."
 	}
-
 	if len(data) > shellAuditProfileFileLimit {
-		return nil, fmt.Sprintf("the table fish wrote is larger than the %s this utility reads, so nothing is named "+
-			"from it: only the total above stands. A table that size is not a startup's cost, and reading it whole "+
-			"would spend the run's memory on a file the shell did not mean to write.",
-			shellAuditSizeLabel(shellAuditProfileFileLimit))
+		return nil, shellAuditProfileTooLargeReason("fish")
 	}
 
 	rows, reported := parseFishProfile(data)
@@ -484,6 +484,35 @@ const fishProfileHeaderPrefix = "Time (μs)"
 // is named `set`; a command whose arguments carry a token, a password or a URL
 // is named by its command word alone. The cost is right and the secret is not
 // there.
+// shellAuditProfileTooLarge refuses a table past the bound before it is read, when
+// the probe can answer a file's size at all. The empty string means the table is
+// small enough to read or that this probe cannot say, and the read path checks the
+// bytes it got either way.
+func shellAuditProfileTooLarge(instrument string, probe shellAuditProbe, path string) string {
+	if probe.fileSize == nil {
+		return ""
+	}
+	size, err := probe.fileSize(path)
+	if err != nil {
+		// A file that cannot be stat-ed is not a verdict: the read path reports what
+		// happened to it, and a missing table has its own reason.
+		return ""
+	}
+	if size > int64(shellAuditProfileFileLimit) {
+		return shellAuditProfileTooLargeReason(instrument)
+	}
+	return ""
+}
+
+// shellAuditProfileTooLargeReason is what the screen says instead of a table it
+// will not read, and it is one sentence for both orders: the table is refused
+// because of its size, not because anything inside it was judged.
+func shellAuditProfileTooLargeReason(instrument string) string {
+	return fmt.Sprintf("the table %s wrote is larger than the %s this utility reads, so nothing is named from it: "+
+		"only the total above stands. A table that size is not a startup's cost, and a table this utility refuses "+
+		"is refused before it is parsed.", instrument, shellAuditSizeLabel(shellAuditProfileFileLimit))
+}
+
 // shellAuditSizeLabel writes a byte count the way the screen says it out loud.
 func shellAuditSizeLabel(size int) string {
 	if size >= 1024*1024 {

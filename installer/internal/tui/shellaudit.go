@@ -258,6 +258,12 @@ type shellAuditProbe struct {
 	writeFile func(path string, data []byte) error
 	readFile  func(path string) ([]byte, error)
 	removeAll func(path string) error
+	// fileSize answers how large a file is without reading it, and it is what keeps
+	// the table bound a bound rather than a complaint after the fact: refusing a
+	// 200 MB table after os.ReadFile has read it would spend the memory the refusal
+	// is written to save. A nil hook falls back to reading and checking, which is
+	// still correct -- the table is never parsed -- but it is the weaker order.
+	fileSize func(path string) (int64, error)
 	// mkdirAll and rename are how the stored measurements are written: the file
 	// goes through a temporary neighbour of the same directory and is rolled onto
 	// the real one, so a process that dies mid-write leaves the history it had.
@@ -281,8 +287,15 @@ func defaultShellAuditProbe() shellAuditProbe {
 		writeFile:  func(path string, data []byte) error { return os.WriteFile(path, data, 0o600) },
 		readFile:   os.ReadFile,
 		removeAll:  os.RemoveAll,
-		mkdirAll:   func(path string) error { return os.MkdirAll(path, stateDirMode) },
-		rename:     os.Rename,
+		fileSize: func(path string) (int64, error) {
+			info, err := os.Stat(path)
+			if err != nil {
+				return 0, err
+			}
+			return info.Size(), nil
+		},
+		mkdirAll: func(path string) error { return os.MkdirAll(path, stateDirMode) },
+		rename:   os.Rename,
 	}
 }
 

@@ -2260,14 +2260,6 @@ func (m Model) shellAuditDescription() []string {
 	// The plan and the keys that change it. It is prose rather than rows because of
 	// what a row cannot say: why a warm-up exists, what a clean comparison measures
 	// against, and where a history would be written.
-	// The statistics the finished runs support. Each appears with the count it
-	// needs, and one the count cannot support is named as missing rather than
-	// printed as a zero: "variability 0 ms" from a single run would describe a
-	// perfectly steady shell nobody watched.
-	if st.Measured && st.Stats.Count > 0 {
-		paragraphs = append(paragraphs, shellAuditStatisticsParagraph(st))
-	}
-
 	paragraphs = append(paragraphs, fmt.Sprintf("What the press will measure: the %s start, %d runs, %s, and %s. "+
 		"[m] changes the start, [n] the number of runs, [w] the warm-up, and [b] the clean comparison. That comparison "+
 		"is the one measurement here that separates the shell's own startup from what you put in front of it, and it is "+
@@ -2275,6 +2267,13 @@ func (m Model) shellAuditDescription() []string {
 		plan.Mode.label(), plan.Samples, shellAuditWarmupPhrase(plan.Warmup),
 		shellAuditOnOff(plan.Baseline, "the same start is measured again without your configuration",
 			"no clean comparison is measured")))
+
+	// The statistics the finished runs support come after the plan, not before it:
+	// the keys are what the reader acts on, and on a short frame the paragraph a
+	// reader can do something with is the one that stays.
+	if st.Measured && st.Stats.Count > 0 {
+		paragraphs = append(paragraphs, shellAuditStatisticsParagraph(st))
+	}
 
 	if st.History.Enabled {
 		paragraphs = append(paragraphs, fmt.Sprintf("The measurements are stored in %s beside the installer's own "+
@@ -2298,6 +2297,14 @@ func (m Model) shellAuditDescription() []string {
 		return append(paragraphs, "Nothing has been measured yet. Choosing the row above starts the runs; each one ends "+
 			"by itself or at the timeout, so the screen cannot be held open by your shell, it stays usable while they "+
 			"run, and [Esc] stops the ones that are left.")
+	}
+
+	// The same refusal after an earlier measurement: the numbers on screen are the
+	// ones measured before the press that could not be made, and a screen that kept
+	// them without saying so would present a rejected start as a fresh result.
+	if st.RunReason != "" {
+		paragraphs = append(paragraphs, "The last press could not take the measurement: "+st.RunReason+" "+
+			"The numbers above are the measurement before it.")
 	}
 
 	// The context of the measurement: which shell it was, which start, and whether
@@ -2417,13 +2424,16 @@ func shellAuditStatisticsParagraph(st shellAuditState) string {
 		return ""
 	}
 
+	// The count is carried by the plural helper, which prints it with its word:
+	// adding the number again beside it produced "Across the 10 finished 10
+	// starts", a sentence that reads as a measurement nobody made.
 	var b strings.Builder
-	fmt.Fprintf(&b, "Across the %d finished %s: mean %s", stats.Count, reviewPlural(stats.Count, "start", "starts"),
+	fmt.Fprintf(&b, "Across the %s: mean %s", reviewPlural(stats.Count, "finished start", "finished starts"),
 		shellAuditDuration(stats.Mean))
 
 	if word, ratio, ok := stats.steadiness(); ok {
-		fmt.Fprintf(&b, ", spread %s (%.0f%% of the median), which reads as a %s startup",
-			shellAuditDuration(stats.StdDev), ratio*100, word)
+		fmt.Fprintf(&b, ", spread %s (%.0f%% of the median), which reads as %s %s startup",
+			shellAuditDuration(stats.StdDev), ratio*100, shellAuditArticle(word), word)
 	} else {
 		fmt.Fprintf(&b, ", with no spread to read: a spread needs %s and this measurement has %d",
 			reviewPlural(shellAuditSpreadFloor, "run", "runs"), stats.Count)
@@ -2440,8 +2450,8 @@ func shellAuditStatisticsParagraph(st shellAuditState) string {
 	}
 
 	if stats.TrimmedMedianReported {
-		fmt.Fprintf(&b, ", and a trimmed median of %s, with the %d %s beyond %s times the interquartile range left out",
-			shellAuditDuration(stats.TrimmedMedian), len(stats.Outliers),
+		fmt.Fprintf(&b, ", and a trimmed median of %s, with %s beyond %s times the interquartile range left out",
+			shellAuditDuration(stats.TrimmedMedian),
 			reviewPlural(len(stats.Outliers), "start", "starts"), strconv.FormatFloat(shellAuditOutlierFence, 'g', -1, 64))
 	}
 	b.WriteString(". A number the runs cannot support is named here rather than printed in the rows.")
@@ -2552,6 +2562,21 @@ func shellAuditAttributionClosing(kind shellAuditKind) string {
 	default:
 		return closing
 	}
+}
+
+// shellAuditArticle is the indefinite article for the word the screen prints after
+// it, so the sentence reads as English rather than as a template with a slot in
+// it. Only the words this screen actually prints need it, and the rule is the one
+// a reader applies.
+func shellAuditArticle(word string) string {
+	if word == "" {
+		return "a"
+	}
+	switch word[0] {
+	case 'a', 'e', 'i', 'o', 'u':
+		return "an"
+	}
+	return "a"
 }
 
 // shellAuditNotice is the footer's result line: what is running, while something

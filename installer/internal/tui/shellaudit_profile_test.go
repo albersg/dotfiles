@@ -570,6 +570,51 @@ func TestShellAuditProfilerReadsNoMoreThanItMust(t *testing.T) {
 		t.Errorf("the refusal does not name the bound: %q", st.AttributionReason)
 	}
 
+	// The same bound on the other shell that can reach it: a fish table past the
+	// limit names nothing and keeps the total, so removing the fish check cannot
+	// pass while the zsh one holds.
+	fishOver := &fakeShellAuditProbe{
+		env:         map[string]string{"SHELL": "/usr/bin/fish", "HOME": "/home/alberto"},
+		terminal:    true,
+		script:      []time.Duration{200 * time.Millisecond, 220 * time.Millisecond},
+		runs:        2,
+		versionRaw:  "fish, version 4.9.3\n",
+		profileData: strings.Repeat("x", shellAuditProfileFileLimit+1),
+	}
+	fs := measureShellAudit(resolveShellAudit(fishOver.probe()), fishOver.probe())
+	if fs.Median <= 0 {
+		t.Fatalf("the oversized fish table took the total with it: %s", fs.AttributionReason)
+	}
+	if len(fs.Attribution) != 0 {
+		t.Errorf("a fish table past the %d-byte bound named %d rows", shellAuditProfileFileLimit, len(fs.Attribution))
+	}
+	if !strings.Contains(fs.AttributionReason, shellAuditSizeLabel(shellAuditProfileFileLimit)) {
+		t.Errorf("the fish refusal does not name the bound: %q", fs.AttributionReason)
+	}
+
+	// The size is asked for before the table is read when the probe can answer it,
+	// so the refusal does not depend on the memory the read would have spent.
+	asked := zshAuditFixture()
+	asked.profileData = strings.Repeat("x", shellAuditProfileFileLimit+1)
+	sizes := 0
+	probe := asked.probe()
+	probe.fileSize = func(path string) (int64, error) {
+		sizes++
+		if info, err := os.Stat(path); err == nil {
+			return info.Size(), nil
+		}
+		return int64(shellAuditProfileFileLimit + 1), nil
+	}
+	askedState := resolveShellAudit(probe)
+	askedState.Plan = shellAuditPlan{Mode: shellAuditModeInteractive, Samples: 2}
+	askedState = measureShellAudit(askedState, probe)
+	if sizes == 0 {
+		t.Error("the table was read without its size being asked for first")
+	}
+	if len(askedState.Attribution) != 0 {
+		t.Errorf("a table refused on its size still named %d rows", len(askedState.Attribution))
+	}
+
 	// A trace line longer than the bound is dropped rather than kept.
 	profile := newShellAuditTraceProfile()
 	profile.line("+1780000000.000000+/home/alberto/.bashrc:1+ " + strings.Repeat("x", shellAuditTraceLineLimit+1))

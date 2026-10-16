@@ -89,6 +89,7 @@ Measured capability of the shells on this machine (read-only probes):
 | T9 | S11, S12 | verifier | `make preflight` once, then an independent read-only verification of the change |
 | T10 | S3, S4, S9, S11 | inline | The verification's findings: per-shell attribution prose, the statistics the plan promised drawn, the profile-table bound enforced, a refusal kept out of the section's availability, a per-write temporary name |
 | T11 | S11, S12 | verifier | Re-run the full package and the focused guards, then re-verify the findings against the fixed tree |
+| T12 | S3, S4, S9 | inline | The second round's findings: the sentences the fix malformed, the table bound moved in front of the read, a refusal drawn after a measurement, and the guards the first round left unmeasured |
 
 ## Log
 
@@ -354,6 +355,49 @@ measurement); it holds both channels -- the reason reaches the screen, the secti
 row, and `Reason` stays empty. The profile bound and the history round-trip guards were strengthened
 rather than added.
 
+L21. T11's re-verification checked each finding against the fixed tree and returned a verdict for each:
+B1 fixed (every shell kind now describes its own instrument, the zsh share is printed only when the
+table has one, and breaking the switch fails the guard), B2 fixed with one defect introduced, A2 fixed,
+A3 fixed for the reported fault with a gap left, A1 only partially fixed -- and one new blocker.
+
+The new blocker was mine and it was prose: `reviewPlural` already returns the count with its word, and
+the statistics paragraph printed the count a second time beside it, so the screen read "Across the 10
+finished 10 starts" and "with the 1 1 start beyond 1.5 times the interquartile range". The numbers were
+right inside a sentence that describes a measurement nobody made, which is the same fault as the ones
+the front exists to prevent, one layer down. The article was wrong the same way: "a erratic startup".
+Both are fixed by letting the helper carry the count and by an article helper beside the reading it
+introduces, and a guard holds the sentence (no repeated count, the count stated once, the article
+following its word).
+
+A1's partial fix: the bound was checked after `probe.readFile`, which is `os.ReadFile`, so a table past
+the bound was refused only once the whole file had been read into memory -- and the refusal's own
+sentence claimed that reading it would spend the run's memory. The probe now answers a file's size
+(`fileSize`, implemented with `os.Stat`) and both read paths ask before reading; the check on the bytes
+is kept as the fallback for a probe that cannot say, and the refusal is one sentence that is true in
+both orders. The fish path had no guard at all for the bound, so it has one now, and the guard also
+holds that the size is asked for before the read.
+
+A3's gap: after a successful measurement, a press that could not be made left the older numbers on
+screen with no reason beside them, which presents a rejected start as a fresh result. The refusal is
+now drawn in the measured branch too, saying that the numbers above are the measurement before it.
+
+Two advisories were taken too: the frame-fit fixture carried no statistics, so the paragraph the runs
+support was outside every frame the fit guards measured -- it now carries the whole summary, and the
+paragraph renders inside all twelve measured terminals; and the paragraph's placement was settled by
+reading the frame at the floor: the plan's keys come before the statistics, because on an 80x24 frame
+the paragraph a reader can act on is the one that stays, and the numbers the runs support are rows
+above it either way.
+
+The verification's remaining guard-quality notes are accepted rather than papered over. Two guards
+still restate deliberate invariants (`TestShellAuditPlanWorstCaseIsBounded` and
+`TestShellAuditComparisonFloorIsTheSpreadFloor`) and are left as they are: what they pin is that the
+plan's own arithmetic and the comparison's floor are the values this front chose, and the behaviour
+they describe is held elsewhere by runs that would take the wrong number from them. The round-trip
+guard now compares the whole entry, and the reversions the verifier performed (dropping `Fastest` on
+read, removing the statistics paragraph, hardcoding the zsh intro, reverting the fold condition) each
+fail the guard that holds them.
+
 ## Remaining
 
-T11: the full package over the fixed tree, then the verification's findings re-checked.
+Nothing open on this front: the fixes of the second round are green and the findings are all either
+fixed or named above as accepted with their reason. The front's own report to the user closes it.
