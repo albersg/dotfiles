@@ -1927,9 +1927,10 @@ func (m Model) wslResourceDescription() []string {
 	paragraphs = append(paragraphs,
 		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal "+
 			"to apply it. This screen does not run it: that would close the session you are working in.",
-		fmt.Sprintf("Memory is three quarters of the host's RAM rounded down to %d MB, never so much that Windows "+
-			"keeps less than 4 GiB and never below half the host; processors are every logical CPU the host "+
-			"reports except one, so Windows keeps one; swap is a quarter of that memory.",
+		fmt.Sprintf("Memory is three quarters of the host's RAM rounded down to %d MB, capped so Windows "+
+			"keeps 4 GiB wherever that can be honoured, and floored at half the host, which is what decides on "+
+			"a host too small to honour both; processors are every logical CPU the host reports except one, so "+
+			"Windows keeps one; swap is a quarter of that memory.",
 			wslMemoryStepMB),
 		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept "+
 			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> "+

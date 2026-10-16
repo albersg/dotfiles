@@ -494,7 +494,7 @@ beside the recommendation so it can be checked against the machine:
 
 | Key | Recommended from |
 |-----|------------------|
-| `memory` | three quarters of the host's RAM, rounded down to 512 MB, never so much that Windows is left below 4 GiB and never below half the host, omitted below 1 GiB |
+| `memory` | three quarters of the host's RAM, rounded down to 512 MB, capped so Windows is left at least 4 GiB wherever that can be honoured and floored at half the host, which is what decides on a host too small to honour both, omitted below 1 GiB |
 | `processors` | every logical CPU the host reports except one, so Windows keeps one |
 | `swap` | a quarter of the planned memory, rounded down to 512 MB |
 

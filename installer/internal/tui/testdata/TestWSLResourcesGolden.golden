@@ -9,7 +9,7 @@
   processors=omitted and swap=1024MB today. A key that is absent is omitted     
   rather than guessed at: WSL's own proportional default applies to it.         
   The WSL memory guard is not installed on this host: its payload and its unit  
-  … and 13 more                                                                 
+  … and 14 more                                                                 
                                                                                 
   ▸ Memory: 12288 MB                                                            
     Processors: 7                                                               

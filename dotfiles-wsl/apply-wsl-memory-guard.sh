@@ -108,14 +108,14 @@ fi
 echo "OK: init.scope is capped without a throttle band, OOMPolicy=continue, and a reload keeps both."
 echo
 echo "Remaining step, run it from Windows. It closes every WSL session, including"
-echo "the one reading this, and it is what applies memory=10240MB:"
+echo "the one reading this, and it is what applies the memory .wslconfig sets:"
 echo
 echo "    wsl --shutdown"
 echo
 echo "After reopening, confirm both halves:"
 echo
-echo "    free -h                                     # expect ~9.6Gi total"
+echo "    free -h                                     # expect the memory .wslconfig sets"
 echo "    cat /sys/fs/cgroup/init.scope/memory.high   # expect max, never a number"
-echo "    cat /sys/fs/cgroup/init.scope/memory.max    # expect ~8380M, scaled to the new VM"
+echo "    cat /sys/fs/cgroup/init.scope/memory.max    # expect that total minus the guard's reserve"
 echo "    systemctl show init.scope -p OOMPolicy --value   # expect continue"
 echo "    systemctl status wsl-memory-guard --no-pager"
