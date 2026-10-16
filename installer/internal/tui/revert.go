@@ -116,6 +116,30 @@ func RevertLastRun(opts RevertOptions) (RevertReport, error) {
 	items := make([]revertItem, 0, len(record.Changes))
 	keys := map[string]bool{}
 
+	// A record written before per-file digests names paths and says nothing about
+	// what changed in them. There is no file-by-file work to do from it, and the
+	// honest answer is not "already in place": it is that this command cannot act
+	// on that record, and which command can.
+	if len(record.Changes) == 0 && len(record.Entries) > 0 {
+		for _, entry := range record.Entries {
+			action := fileActionModified
+			if entry.Action == installActionCreated {
+				action = fileActionCreated
+			}
+			reason := "the record predates per-file digests, so it does not say what this file changed"
+			if entry.Backup != "" {
+				reason += "; `dotfiles --restore=" + entry.Backup + "` puts the whole entry back"
+			} else {
+				reason += "; `dotfiles --restore=<backup>` puts a whole backup entry back"
+			}
+			items = append(items, revertItem{
+				change: fileChange{Key: entry.Key, Path: entry.Path, Action: action},
+				status: RevertUnrevertible,
+				reason: reason,
+			})
+		}
+	}
+
 	for _, change := range record.Changes {
 		item := revertItem{change: change}
 

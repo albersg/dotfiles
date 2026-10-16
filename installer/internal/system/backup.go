@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -359,7 +360,8 @@ func restoreBackup(backupDir string, planOnly bool) (RestoreReport, error) {
 		return report, fmt.Errorf("failed to read backup directory: %w", err)
 	}
 
-	if _, manifestErr := readBackupManifest(backupDir); manifestErr != nil && !looksLikeLegacyBackup(backupDir) {
+	manifest, manifestErr := readBackupManifest(backupDir)
+	if manifestErr != nil && !looksLikeLegacyBackup(backupDir) {
 		return report, fmt.Errorf("%s is not a backup this program wrote: it holds neither %s nor the shape backups had before manifests existed",
 			backupDir, backupManifestName)
 	}
@@ -401,6 +403,59 @@ func restoreBackup(backupDir string, planOnly bool) (RestoreReport, error) {
 		keys = append(keys, key)
 	}
 
+	// The manifest is what says this backup took a copy. A key it names with no
+	// copy left in the directory is the difference between "three of the four
+	// things are back" and silence, so it is named like any entry that cannot be
+	// placed; and an omission the run recorded when it took the backup is named
+	// too, with that run's own reason.
+	if manifestErr == nil {
+		held := map[string]bool{}
+		for _, entry := range entries {
+			held[entry.Name()] = true
+		}
+		taken := map[string]string{}
+		for _, entry := range manifest.Entries {
+			if _, seen := taken[entry.Key]; !seen {
+				taken[entry.Key] = entry.Path
+			}
+		}
+		named := make([]string, 0, len(taken))
+		for key := range taken {
+			named = append(named, key)
+		}
+		sort.Strings(named)
+
+		for _, key := range named {
+			if held[key] {
+				continue
+			}
+			report.Entries = append(report.Entries, RestoreEntryReport{
+				Key:    key,
+				Path:   taken[key],
+				Status: "failed",
+				Reason: "the manifest names this entry but the backup holds no copy of it",
+			})
+			report.Failed++
+		}
+
+		omitted := func(omission backupManifestOmission) RestoreEntryReport {
+			return RestoreEntryReport{
+				Key:    omission.Key,
+				Path:   omission.Path,
+				Status: "skipped",
+				Reason: "the run that took this backup could not copy it: " + omission.Reason,
+			}
+		}
+		for _, omission := range manifest.Skipped {
+			report.Entries = append(report.Entries, omitted(omission))
+			report.Skipped++
+		}
+		for _, omission := range manifest.Failed {
+			report.Entries = append(report.Entries, omitted(omission))
+			report.Skipped++
+		}
+	}
+
 	if planOnly {
 		for _, item := range plan {
 			report.Entries = append(report.Entries, RestoreEntryReport{
@@ -426,6 +481,11 @@ func restoreBackup(backupDir string, planOnly bool) (RestoreReport, error) {
 	}
 
 	failures := []string{}
+	for _, entry := range report.Entries {
+		if entry.Status == "failed" {
+			failures = append(failures, entry.Key+": "+entry.Reason)
+		}
+	}
 	for _, item := range plan {
 		if err := swapIn(item.src, item.dst); err != nil {
 			report.Entries = append(report.Entries, RestoreEntryReport{

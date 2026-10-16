@@ -757,7 +757,9 @@ puts back. A file the run removed is part of the state it left, so it is named b
 gone and when something puts it back; and a file that cannot be read is `unknown`, because calling it
 changed and calling it fine are both claims the record does not support. Where the record carries no
 digest -- one written before it kept them, or a path the run did not write -- being here is all the
-report claims, in the same words it always used.
+report claims, in the same words it always used. The digests are content digests, so a path that is
+now a symlink to content that matches reads as holding what the run left: the record says what the
+bytes are, not what shape the path had, and the screen does not claim the second from the first.
 
 **Four states, never a guess.** No record means no run has completed on this machine, so there is
 nothing to check yet; a record that cannot be read says why; a record that names no path says there
@@ -1561,9 +1563,12 @@ copied beside the destination and only a complete copy moves into place, so a de
 absent because a copy failed halfway, and a swap that cannot finish restores what was there. The
 state the restore replaces is copied into a backup of its own first, so a restore can itself be
 undone. And a directory this program did not write is refused rather than trusted. The screen
-accounts for itself entry by entry, and a directory with no `backup.json` that carries the shape of
-the backups written before manifests existed is still accepted, because it is still someone's way
-back.
+accounts for itself entry by entry: `restored`, `skipped` with the reason, or `failed` with the
+reason, which is also the exit status -- a backup whose manifest names an entry the directory no
+longer holds is refused as a complete restore and says which one, because a backup that holds three
+of the four things it says it holds is not a machine that is back. A directory with no `backup.json`
+that carries the shape of the backups written before manifests existed is still accepted, because it
+is still someone's way back.
 
 ### Putting the last install back
 

@@ -255,8 +255,11 @@ func reportRevert(dryRun bool) int {
 	}
 
 	if report.Record != nil {
+		// The record's own count, not this run's plan: on a second run nothing is
+		// left to do, and "changed 0 file(s)" would misdescribe the record the
+		// lines below are read from.
 		fmt.Printf("The run of %s changed %d file(s):\n\n",
-			report.Record.Timestamp.Local().Format("2006-01-02 15:04:05"), report.Planned)
+			report.Record.Timestamp.Local().Format("2006-01-02 15:04:05"), len(report.Files))
 	}
 	for _, file := range report.Files {
 		fmt.Printf("  %s %s (%s) %s\n", revertMark(file.Status), file.Path, file.Action, revertPhrase(file))
@@ -573,7 +576,9 @@ Flags:
                        or unreadable. Where the record carries no digest -- one
                        written before it kept them, or a path the run did not
                        write -- the report says the path is here and unverifiable,
-                       never that it matches.
+                       never that it matches. The digests are content digests, so
+                       a path that is now a link to the same content reads as
+                       still holding what the run left.
                        Exits 0 when the machine is what that run left, 1 when a
                        path or backup it names is gone or a file no longer holds
                        what the run left, and 2 when a record is present and could

@@ -59,9 +59,13 @@ make it safe to run on a machine whose configuration you still care about:
   itself undoable;
 - a directory this program did not write is refused rather than trusted.
 
-The report accounts for itself entry by entry: `restored`, `already`, or `failed` with the
-reason. **Exit status:** `0` when every entry went back, `1` when an entry could not be
-placed, `2` when the directory is not a backup this program wrote or could not be read.
+The report accounts for itself entry by entry: `restored`; `skipped` with the reason, for a
+key no configuration path names or one the run that took the backup recorded it could not
+copy; and `failed` with the reason, for an entry the manifest names whose copy is gone or a
+replacement that could not be put in place. A `failed` entry is never reported as a machine
+that is back: the command names it and exits. **Exit status:** `0` when every entry went
+back, `1` when an entry could not be placed, `2` when the directory is not a backup this
+program wrote or could not be read.
 
 ### Checking what a machine is
 
@@ -78,6 +82,11 @@ the run did not write — the report says the path is here and unverifiable rath
 claiming it matches. **Exit status:** `0` when the machine is what that run left, `1` when
 a path or backup is gone or a file no longer holds what the run left, `2` when a record is
 present and could not be read. A machine with no record exits `0`.
+
+The digests the record keeps are content digests, taken by reading the file. A path that is
+now a symlink to content that matches is therefore reported as holding what the run left:
+the record says what the bytes are, not what shape the path had, and the report does not
+claim the second from the first.
 
 ### Restoring without the installer
 
@@ -118,8 +127,10 @@ and no command here reverses:
 - the default shell recorded for your account (`/etc/shells` and the login shell);
 - anything installed by a script fetched from the internet (Claude Code, OpenCode);
 - files written outside the configuration paths the backup covers: fonts, caches,
-  `~/.local/bin`, `~/.pi/agent/skills`, `~/.cargo`, `~/.rustup`, `~/.tmux`, and the
-  Windows-side `.wslconfig` and font registration on WSL.
+  `~/.local/bin`, `~/.pi/agent/skills`, `~/.cargo`, `~/.rustup`, `~/.tmux`, the repository
+  files a package manager adds for itself (`/etc/yum.repos.d`, `/etc/apt/sources.list.d`),
+  and, on WSL, the Windows-side `.wslconfig`, its editor settings and its font
+  registration.
 
 Those are named on the failure screen and printed by `dotfiles --revert`, so the boundary
 is visible at the moment it matters instead of being discovered later.
