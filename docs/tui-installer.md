@@ -109,8 +109,11 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the
-  read-only terminal capability report behind the **Report the terminal capabilities** row
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the
+  read-only terminal capability report behind the **Report the terminal capabilities** row, and
+  the package update center behind the **Check the installed tools for updates** row, which asks
+  every package manager this machine really has what it has to update and moves only what is
+  selected, through the manager that owns each entry
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -125,9 +128,11 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds three jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds five jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
-host), and the read-only **terminal capability report**. The main menu's panel derives one row per
+host), the read-only **terminal capability report**, and the **package update center**, which reads
+what the machine's own package managers have to update and moves only what is selected. The main
+menu's panel derives one row per
 job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
 is the only list -- so a utility added to the section shows up in the panel or is visibly missing
 from that one function.
@@ -715,6 +720,71 @@ controlling terminal (a container, a service, a run with no TTY) gets the empty 
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
 
+### The package update center
+
+The update center answers one question -- **what does this machine have that is out of date, and
+what would it take to move it** -- and it is reached from the section's **Check the installed tools
+for updates** row. It writes nothing when it is opened: opening it asks every package manager the
+machine really has what it reports, and nothing is installed, upgraded or removed until a selection
+is confirmed on a second screen.
+
+**Every manager is asked in its own words, and only the ones that are here.** A manager that is not
+installed is not an error: it is reported as absent with the reason, and the pass continues. Eight
+managers are known, each with the one command it is read with and the one it is moved with:
+
+| Manager | Scope | Read with | Moved with | Needs the administrator |
+|---------|-------|-----------|-----------|--------------------------|
+| Homebrew | user | `brew outdated --json=v2` with `HOMEBREW_NO_AUTO_UPDATE=1` | `brew upgrade` (or `brew upgrade --cask`) | no |
+| apt | system | `apt-get --simulate -o Debug::NoLocking=1 upgrade` and `apt-mark showhold` | `apt-get install -y --only-upgrade` with `DEBIAN_FRONTEND=noninteractive` and the config-file options set to keep the installed ones | yes |
+| pkg (Termux) | user | the apt simulation, read by Termux's own channel | `pkg install -y` | no |
+| pacman | system | `pacman -Qu` and `pacman-conf IgnorePkg` | `pacman -S --noconfirm --needed` | yes |
+| dnf | system | `dnf -q check-update` (exit status 100 is an answer, not a failure), `rpm -q` for the installed versions and `dnf -q versionlock list` | `dnf -y upgrade` | yes |
+| snap | system | `snap list`, `snap refresh --list` and `snap refresh --hold` | `snap refresh` | yes |
+| Flatpak | user and system, per entry | `flatpak remote-ls --updates` and `flatpak list --columns=application,branch,version` | `flatpak update --noninteractive -y` (`--user` or `--system` per plan) | only the system plans |
+| rustup | user | `rustup check` | `rustup update` | no |
+
+**One entry is one installation, and no two are ever merged.** An entry's identity is the manager,
+the scope and the name together. A `git` installed as a formula and a `git` installed as an apt
+package are two rows with their own versions, their own owner and their own command; selecting one
+never selects the other, and a plan never carries two managers' entries in one command. A pinned
+entry -- a `brew pin`, an apt hold, a `pacman` `IgnorePkg`, a `dnf versionlock`, a held snap -- is
+shown with what the manager says about the hold, and selecting it is refused with that reason
+instead of being quietly skipped.
+
+**Four different answers, and none of them is invented.** A manager says one of four things, and the
+screen writes the one it got: it has updates (with the entries), it is current, it cannot be asked
+here (with the reason -- the program is missing, or manager and host do not go together), or it
+failed to answer (with the manager's own words: an unreachable mirror, a refusal, a lock held by
+another process, a conflict, or nothing it could read at all). "Nothing to update" is never said for
+a manager that was not asked, and a version the manager did not print is left empty rather than
+guessed. The command each manager was read with is named beside its answer, and the time of the read
+is on the screen.
+
+**Nothing runs without a confirmed plan.** There is no row that updates everything: a selection is
+the only input a command can be built from, and the row that opens the plan carries the number of
+entries selected. The confirmation names every command exactly as it will run, the entries it moves,
+whether it needs the administrator, what stays pending afterwards -- a service that keeps the old
+version until it is restarted, an application that must be reopened -- and what going back would
+cost, in the manager's own terms rather than a promise this program cannot keep. The manager is run
+with `sudo -n --`, never through a prompt: a machine whose administrator program would ask for a
+password is refused with the command named, because a full-screen interface has nowhere to type it.
+
+**One manager at a time, and what happened is what the manager says happened.** apt, pacman, dnf and
+pkg keep locks over the same package state, so check and apply both run in sequence, never two
+managers at once. The output of a running command is shown as it arrives and the run can be stopped
+with the stop row or `c`, which asks the manager to stop the way an interrupt does; Escape does not
+leave the screen while a command is running. When a command finishes, the manager that ran it is read
+again before anything is concluded, and each entry is reported as **requested** (it was in the
+selection), **executed** (the command finished successfully) or **confirmed** (the manager's own
+answer no longer lists it as out of date) -- three different facts, with a failed, cancelled or
+unreadable outcome reported as what it is, unknown included. After the run the whole inventory is
+read again, so the list that follows is the machine's answer and not the plan's expectation.
+
+**A command is a list of arguments, never a line of shell, and nothing sensitive is shown.** No
+package name ever reaches a shell, so no name can become a second command; there is no `curl | sh`
+anywhere on this path. Passwords and tokens in a manager's output -- a URL with credentials, a line
+that assigns a secret -- are redacted before the text reaches the screen or the log.
+
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -969,7 +1039,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the shell audit's command, the terminal capability report, and the update center's state: what the last read found, how many entries are selected, or that the question has not been asked yet — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
@@ -1663,12 +1733,17 @@ terminals again. The pass renders with the companion animating, which is the
 strictest frame, so a screen that overflows only with the creature on fails the
 fit guard instead of escaping it.
 
-The theme picker, the utilities section, the WSL resources, the shell's startup
-and the terminal capability report each have a frame pinned at the 80x24 floor as
+The theme picker, the utilities section, the WSL resources, the shell's startup,
+the terminal capability report and the update center each have a frame pinned at
+the 80x24 floor as
 well: `TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
 with a switch pending, `TestThemePickerResultGolden` with the report landed,
 `TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden` and
-`TestTerminalCapabilitiesGolden`. They were guarded by measurements -- rows,
+`TestTerminalCapabilitiesGolden`, and the update center's own frame in the frame
+matrix (`updateCenterFrameCase`, state `update-center`), which is where a screen
+whose rows and prose come from the machine belongs: the case is built by hand
+-- two managers answering, one entry pinned, one manager absent -- so the frame
+does not change with the host that rendered it. They were guarded by measurements -- rows,
 columns, fit at twelve sizes -- and by behaviour, and a measurement cannot see a
 block drawn above the list it belongs under, a list squashed to five rows to make
 room for it, or a screen that reads as a wall of prose. Looking at the frame is
