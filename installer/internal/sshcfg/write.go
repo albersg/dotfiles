@@ -115,8 +115,13 @@ func (m *Manager) PlanCreate(ctx context.Context, spec HostSpec) (WritePlan, err
 	if err := validateSpec(spec); err != nil {
 		return WritePlan{}, err
 	}
-	if existing, ok := m.findHost(spec.Alias); ok && existing.Managed {
-		return WritePlan{}, fmt.Errorf("an entry named %s is already managed by this tool in %s, so nothing was written", spec.Alias, existing.File)
+	if existing, ok := m.findHost(spec.Alias); ok {
+		if existing.Managed {
+			return WritePlan{}, fmt.Errorf("an entry named %s is already managed by this tool in %s, so nothing was written", spec.Alias, existing.File)
+		}
+		// The client uses the first entry it finds for a name and ignores every later
+		// one, so a second stanza would be an entry the user could never reach.
+		return WritePlan{}, fmt.Errorf("an entry named %s already exists in %s, and the client uses the first one it finds, so nothing was written", spec.Alias, existing.File)
 	}
 
 	lines, existed, mode := m.readUserConfigLines()
@@ -299,6 +304,17 @@ func (m *Manager) Apply(ctx context.Context, plan WritePlan) (WriteResult, error
 		return WriteResult{}, ErrPlanStale
 	}
 
+	if dir := filepath.Dir(plan.Path); dir != "" && dir != "." {
+		// On a machine that never had a configuration there is no ~/.ssh yet, and this
+		// write is what makes it necessary. The directory is created 0700 because it is
+		// what protects everything inside it; MkdirAll leaves an existing directory's
+		// mode alone, since a directory the user already had is not this write's
+		// business.
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return WriteResult{}, fmt.Errorf("the directory %s could not be created, so nothing was written: %w", dir, err)
+		}
+	}
+
 	result := WriteResult{Path: plan.Path, Added: plan.added, Removed: plan.removed}
 
 	if _, err := os.Stat(plan.Path); err == nil {
@@ -380,7 +396,14 @@ func (m *Manager) validateFile(ctx context.Context, path, alias string) (ran boo
 		// what any name proves.
 		host = "localhost"
 	}
-	res := m.Run.Run(ctx, Command{Name: client, Args: []string{"-G", "-F", path, "--", host}})
+	run := m.Run
+	if run == nil {
+		// A Manager built without a runner still has to work: the injected runner is how
+		// the tests stay off the machine, and a caller that did not inject one is asking
+		// for the real client rather than for a panic.
+		run = ExecRunner{}
+	}
+	res := run.Run(ctx, Command{Name: client, Args: []string{"-G", "-F", path, "--", host}})
 	if res.Err != nil {
 		return false, "the client could not be run to parse the new configuration: " + messageSummary(res)
 	}
@@ -709,6 +732,10 @@ func previewRange(lines []string, start, end int, replacement []string) []string
 	return preview
 }
 
+// backupSearchLimit is how many same-second backups are named by counting before
+// the search falls back to a unique suffix.
+const backupSearchLimit = 100
+
 // backupPathFor is the path a write's backup takes: the file's own name with the
 // suffix the rest of this installer uses, and a counter when that name is
 // already taken -- a backup is never overwritten, because the file it holds may
@@ -717,15 +744,17 @@ func (m *Manager) backupPathFor(path string) string {
 	stamp := time.Now().Format("20060102-150405")
 	base := fmt.Sprintf("%s.bak-dotfiles-%s", path, stamp)
 	candidate := base
-	for i := 2; ; i++ {
+	for i := 2; i <= backupSearchLimit; i++ {
 		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
 			return candidate
 		}
 		candidate = fmt.Sprintf("%s-%d", base, i)
-		if i > 100 {
-			return candidate
-		}
 	}
+	// More backups in one second than the counter allows is pathological, and the
+	// answer cannot be to reuse a name: the file that name holds may be the last copy
+	// of something the user wrote. A unique suffix is used instead, so the name is
+	// new without the search being bounded by a name that might not be.
+	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
 }
 
 // writeTempFile writes content to a fresh file beside the destination, so the
