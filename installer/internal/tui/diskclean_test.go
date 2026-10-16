@@ -118,6 +118,124 @@ func diskCleanerRun(t *testing.T, cmd tea.Cmd) tea.Msg {
 	return cmd()
 }
 
+// TestDiskCleanerGroupsTheFindingsByToolAndProject pins the grouping the request
+// asks for: the findings are listed under the tool that owns them, the artifacts
+// of an added project directory are listed under that project instead of under
+// the word "project", the headings are ordered by name, every finding sits under
+// its own heading, the findings within a heading are largest first, two projects
+// whose last directory has the same name stay in two groups, and a heading is
+// inert -- the cursor can rest on it and no key changes anything through it.
+func TestDiskCleanerGroupsTheFindingsByToolAndProject(t *testing.T) {
+	m, _ := diskCleanerModel(t)
+	m.Width, m.Height = 200, 80
+
+	m.DiskClean.Items = []diskclean.Item{
+		diskCleanToolItem("pip-cache", "The pip cache", "pip", 5<<20),
+		diskCleanToolItem("npm-cache", "The npm cache", "npm", 1<<20),
+		diskCleanToolItem("go-modules", "The module cache", "go", 3<<20),
+		diskCleanToolItem("npm-other", "Another npm store", "npm", 7<<20),
+		diskCleanProjectItem("app-residue", "/home/probe/apps/app", 2<<20),
+		diskCleanProjectItem("app-residue-two", "/home/probe/other/app", 4<<20),
+	}
+	m.DiskClean.Scanned = true
+
+	var headings []string
+	under := map[string]string{}
+	headingRow := map[string]int{}
+	order := map[string][]string{}
+	current := ""
+	for index, row := range m.diskCleanRows() {
+		switch row.action {
+		case diskCleanActionGroup:
+			current = row.label
+			headings = append(headings, row.label)
+		case diskCleanActionItem:
+			item := m.DiskClean.Items[row.item]
+			under[item.ID] = current
+			headingRow[item.ID] = index
+			order[current] = append(order[current], item.ID)
+		}
+	}
+
+	want := []string{"app — 1 finding", "app — 1 finding", "go — 1 finding", "npm — 2 findings", "pip — 1 finding"}
+	if strings.Join(headings, " | ") != strings.Join(want, " | ") {
+		t.Errorf("the headings are %v, want %v", headings, want)
+	}
+	expected := map[string]string{
+		"pip-cache":       "pip — 1 finding",
+		"npm-cache":       "npm — 2 findings",
+		"npm-other":       "npm — 2 findings",
+		"go-modules":      "go — 1 finding",
+		"app-residue":     "app — 1 finding",
+		"app-residue-two": "app — 1 finding",
+	}
+	for id, heading := range expected {
+		if under[id] != heading {
+			t.Errorf("%s is listed under %q, want %q", id, under[id], heading)
+		}
+	}
+	if headingRow["app-residue"] == 0 || headingRow["app-residue"] == headingRow["app-residue-two"] {
+		t.Errorf("the two projects whose last directory is named the same share one heading (rows %d and %d)",
+			headingRow["app-residue"], headingRow["app-residue-two"])
+	}
+	if got := strings.Join(order["npm — 2 findings"], ","); got != "npm-other,npm-cache" {
+		t.Errorf("the npm findings are ordered %q, want the largest one first", got)
+	}
+
+	// A heading is a heading: nothing is selected or run through it.
+	cursor := -1
+	for index, row := range m.diskCleanRows() {
+		if row.action == diskCleanActionGroup {
+			cursor = index
+			break
+		}
+	}
+	if cursor < 0 {
+		t.Fatal("no heading row to rest the cursor on")
+	}
+	m.Cursor = cursor
+	before := m.DiskClean.Selection.Count(m.DiskClean.Items)
+	for _, key := range []string{" ", "enter", "a"} {
+		m, cmd := diskCleanerPress(t, m, key)
+		if cmd != nil {
+			t.Errorf("%q on a heading ran something", key)
+		}
+		if m.DiskClean.Selection.Count(m.DiskClean.Items) != before {
+			t.Errorf("%q on a heading selected something", key)
+		}
+		if m.DiskClean.Phase != diskCleanList {
+			t.Errorf("%q on a heading left the list", key)
+		}
+	}
+}
+
+// diskCleanProjectItem is a finding that belongs to a project directory the user
+// added, which is what the project headings are built from: the detector names
+// the tool "project" and records the project root.
+func diskCleanProjectItem(id, root string, size int64) diskclean.Item {
+	return diskclean.Item{
+		ID: id, Tool: "project", Title: "node_modules in " + root,
+		Category: diskclean.CategoryDependencies, Risk: diskclean.RiskCareful,
+		Roots: []string{root}, Paths: []string{root + "/node_modules"},
+		Reason:    "the project directory was added to the scope on purpose",
+		Detail:    "the dependencies of that project, which an install downloads again",
+		Size:      diskclean.Size{Logical: size, Physical: size},
+		Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismRemove},
+	}
+}
+
+// diskCleanToolItem is a finding owned by one tool, which is what the grouping
+// headings are built from.
+func diskCleanToolItem(id, title, tool string, size int64) diskclean.Item {
+	return diskclean.Item{
+		ID: id, Tool: tool, Title: title, Category: diskclean.CategoryCache, Risk: diskclean.RiskSafe,
+		Reason: "the scan found " + title + " for " + tool,
+		Size:   diskclean.Size{Logical: size, Physical: size},
+		Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismReportOnly,
+			Reason: tool + " cannot be cleaned from here"},
+	}
+}
+
 // diskCleanerCursorOnItem puts the cursor on the row of one finding.
 func diskCleanerCursorOnItem(t *testing.T, m Model, itemID string) Model {
 	t.Helper()
@@ -694,7 +812,7 @@ func TestDiskCleanerPreviewRendersEachCommandAndEachRefusal(t *testing.T) {
 		case "npm-cache":
 			want = append(want, "would run `npm cache clean --force`",
 				"npm is on PATH and its cache directory exists", "regenerable cache",
-				"the packages npm downloaded and unpacked", item.Paths[0])
+				"the packages npm downloaded and unpacked")
 		case "store":
 			want = append(want, "would remove "+store+" — irreversibly")
 		case "apt-archives":
@@ -719,13 +837,12 @@ func TestDiskCleanerPreviewRendersEachCommandAndEachRefusal(t *testing.T) {
 	rows := diskCleanRowLabels(m.diskCleanRows())
 	joined := strings.Join(rows, " | ")
 	if !strings.Contains(joined, "would run npm cache clean --force") ||
-		!strings.Contains(joined, "would remove 1 path") ||
+		!strings.Contains(joined, "would remove "+store) ||
 		!strings.Contains(joined, "nothing would run") {
 		t.Errorf("the preview rows do not carry each item's action: %s", joined)
 	}
 	view := diskCleanFlatView(m)
-	for _, want := range []string{"Preview: nothing has run yet. 2 items would run and 1 item would not",
-		"Escape leaves this without running anything"} {
+	for _, want := range []string{"Preview: nothing has run yet. 2 items would run and 1 item would not"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the preview does not say %q:\n%s", want, view)
 		}

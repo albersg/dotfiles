@@ -263,6 +263,36 @@ func diskCleanSelectionParagraph(st diskCleanState) string {
 	return strings.Join(parts, " ") + " The preview names each one's command or path before anything runs."
 }
 
+// diskCleanCardFloor is the rows the card of the finding under the cursor is
+// guaranteed at any terminal size. The card is what the decision about a store is
+// made on -- the category, the sizes and their source, the reason the scan found
+// it, the paths or engine objects it covers, and what removing it would cost -- so
+// the frame the request treats as the floor reserves these rows for it and windows
+// the list instead of letting the list take every row it asks for.
+const diskCleanCardFloor = 6
+
+// diskCleanPreviewHeadFloor is what the preview's own headline costs above that
+// card: the sentence that says nothing has run yet and what the confirmation
+// would run. The card is not pushed off the floor by it.
+const diskCleanPreviewHeadFloor = 2
+
+// proseFloor is the rows this screen reserves for prose that is evidence rather
+// than orientation, and zero for a screen that reserves none. It is zero here
+// unless a finding under the cursor has a card to draw, so the reservation costs
+// nothing on a screen with no card in front of the user.
+func (m Model) proseFloor() int {
+	if m.Screen != ScreenDiskCleaner {
+		return 0
+	}
+	if _, _, ok := m.diskCleanFocusedFinding(); !ok {
+		return 0
+	}
+	if m.DiskClean.Phase == diskCleanPreview {
+		return diskCleanCardFloor + diskCleanPreviewHeadFloor
+	}
+	return diskCleanCardFloor
+}
+
 // diskCleanFocusedFinding is the finding the cursor is on, and in the preview the
 // exact thing the confirmation would do to it. It is how one screen can show
 // every finding's evidence without printing a list as long as the scan.
@@ -310,14 +340,16 @@ func diskCleanPlannedAction(planned diskclean.PlannedItem) string {
 }
 
 // diskCleanPreviewHead is the preview's headline: how much of the selection would
-// actually run, and the promise that nothing has yet.
+// actually run, and the promise that nothing has yet. It is one sentence on
+// purpose -- the rows below name each action and the card spells the focused one
+// out in full, so at the frame the request treats as the floor this sentence must
+// not be what pushes the reconstruction cost off the screen.
 func diskCleanPreviewHead(plan diskclean.Plan) string {
 	if len(plan.Items) == 0 {
 		return "The preview is empty: nothing is selected."
 	}
 	runnable := len(selectedRunnable(plan.Items))
-	return fmt.Sprintf("Preview: nothing has run yet. %s would run and %s would not; the rows below carry each "+
-		"one's command, path or refusal, and Escape leaves this without running anything.",
+	return fmt.Sprintf("Preview: nothing has run yet. %s would run and %s would not.",
 		diskCleanCount(runnable), diskCleanCount(len(plan.Items)-runnable))
 }
 
@@ -346,11 +378,19 @@ func diskCleanItemCard(item diskclean.Item, action string) []string {
 	if reason := strings.TrimSpace(item.Reason); reason != "" {
 		lines = append(lines, "Found because "+diskCleanSentence(reason))
 	}
-	if len(item.Paths) > 0 {
-		lines = append(lines, "On disk: "+strings.Join(item.Paths, ", "))
-	}
-	if len(item.VolatileObjects) > 0 && item.Size.Source != diskclean.SourceTool {
-		lines = append(lines, "Inside the engine: "+strings.Join(item.VolatileObjects, ", "))
+	// The paths and the engine objects are here for the findings list, where they
+	// are the answer to "where is this?". In the preview they are not repeated: the
+	// action line above already names the exact path a removal would take, the
+	// objects a tool command would prune are in the size line, and at the frame the
+	// request treats as the floor that line is what buys the reconstruction cost its
+	// place on the screen.
+	if strings.TrimSpace(action) == "" {
+		if len(item.Paths) > 0 {
+			lines = append(lines, "On disk: "+strings.Join(item.Paths, ", "))
+		}
+		if len(item.VolatileObjects) > 0 && item.Size.Source != diskclean.SourceTool {
+			lines = append(lines, "Inside the engine: "+strings.Join(item.VolatileObjects, ", "))
+		}
 	}
 	if detail := strings.TrimSpace(item.Detail); detail != "" {
 		lines = append(lines, diskCleanSentence(detail))

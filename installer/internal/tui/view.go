@@ -1496,6 +1496,19 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 		menuBudget = len(menu)
 		descBudget = available - len(menu)
 	}
+	// A screen whose prose is evidence rather than orientation reserves a floor of
+	// rows for it, and the list is windowed instead of being handed every row it
+	// asks for. Only the development-caches screen declares one, and only while a
+	// finding under the cursor has a card to draw: that card carries the reason the
+	// store was found, the paths it covers and what removing it would cost, and the
+	// frame the request treats as the floor must not cut it. Screens that declare no
+	// floor are budgeted exactly as before.
+	if floor := m.proseFloor(); floor > 0 && descBudget < floor {
+		if take := min(floor-descBudget, menuBudget-1); take > 0 {
+			menuBudget -= take
+			descBudget += take
+		}
+	}
 	start, end := listWindow(m.Cursor, menuBudget, len(menu))
 
 	title := BrandStyle.Render(m.GetScreenTitle())

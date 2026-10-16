@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/albersg/dotfiles/installer/internal/diskclean"
@@ -43,6 +45,9 @@ const (
 	diskCleanActionNone diskCleanAction = iota
 	// diskCleanActionItem is an item row: space toggles its selection.
 	diskCleanActionItem
+	// diskCleanActionGroup is a heading: the findings under it belong to one tool.
+	// The cursor can rest on it and no key does anything through it.
+	diskCleanActionGroup
 	// diskCleanActionPreviewItem is an item row inside the preview: the cursor can
 	// walk it and read its card, and no key changes the frozen plan through it.
 	diskCleanActionPreviewItem
@@ -305,17 +310,29 @@ func (m Model) diskCleanRows() []diskCleanRow {
 		// cursor can walk them and read each one's exact action; the confirmation is
 		// the only row that runs anything. The rows carry the item's index into the
 		// last scan, which is how the card knows what the cursor is looking at.
-		rows := make([]diskCleanRow, 0, len(st.Plan.Items)+3)
+		rows := make([]diskCleanRow, 0, len(st.Plan.Items)+5)
+		plannedItems := make([]diskclean.Item, 0, len(st.Plan.Items))
 		for _, planned := range st.Plan.Items {
-			index := diskCleanItemIndex(st.Items, planned.Item.ID)
-			if index < 0 {
-				continue
-			}
+			plannedItems = append(plannedItems, planned.Item)
+		}
+		for _, group := range diskCleanGrouped(plannedItems) {
 			rows = append(rows, diskCleanRow{
-				label:  diskCleanPreviewItemRow(planned),
-				action: diskCleanActionPreviewItem,
-				item:   index,
+				label:  diskCleanGroupRow(group.Label, len(group.Indexes)),
+				action: diskCleanActionGroup,
+				item:   -1,
 			})
+			for _, at := range group.Indexes {
+				planned := st.Plan.Items[at]
+				index := diskCleanItemIndex(st.Items, planned.Item.ID)
+				if index < 0 {
+					continue
+				}
+				rows = append(rows, diskCleanRow{
+					label:  diskCleanPreviewItemRow(planned),
+					action: diskCleanActionPreviewItem,
+					item:   index,
+				})
+			}
 		}
 		rows = append(rows, diskCleanRow{label: m.menuSeparator(), action: diskCleanActionNone, item: -1})
 		if len(st.Plan.Items) > 0 {
@@ -342,8 +359,18 @@ func (m Model) diskCleanRows() []diskCleanRow {
 
 	if len(st.Items) > 0 {
 		rows = append(rows, diskCleanRow{label: m.menuSeparator(), action: diskCleanActionNone, item: -1})
-		for index, item := range st.Items {
-			rows = append(rows, diskCleanRow{label: m.diskCleanItemRow(item), action: diskCleanActionItem, item: index})
+		// The findings are grouped by the tool that owns them: the request asks for
+		// the space to be shown per tool and per project, and a heading per tool is
+		// what makes that grouping visible instead of implied by the titles.
+		for _, group := range diskCleanGrouped(st.Items) {
+			rows = append(rows, diskCleanRow{
+				label:  diskCleanGroupRow(group.Label, len(group.Indexes)),
+				action: diskCleanActionGroup,
+				item:   -1,
+			})
+			for _, index := range group.Indexes {
+				rows = append(rows, diskCleanRow{label: m.diskCleanItemRow(st.Items[index]), action: diskCleanActionItem, item: index})
+			}
 		}
 	}
 
@@ -408,6 +435,104 @@ func diskCleanRowLabels(rows []diskCleanRow) []string {
 	return labels
 }
 
+// diskCleanOtherTools is the heading of the findings no tool claimed. Every
+// detector names its tool, so this exists only so a finding can never be printed
+// without a heading to belong to.
+const diskCleanOtherTools = "Other"
+
+// diskCleanProjectTool is the tool the detectors give a finding that belongs to a
+// project directory the user added rather than to an ecosystem's own store. Those
+// findings are grouped by the project, not by that word.
+const diskCleanProjectTool = "project"
+
+// diskCleanGroup is the findings one tool or one project owns, in the order the
+// rows show them.
+type diskCleanGroup struct {
+	// Label is what the heading shows: the tool, or the last directory of the
+	// project the findings belong to.
+	Label string
+	// Key is what the group is actually keyed by, so two projects whose last
+	// directory has the same name stay in two groups.
+	Key     string
+	Indexes []int
+}
+
+// diskCleanGroupKey is what a finding is grouped under: the tool that owns it, or
+// -- for the artifacts of an added project directory -- that project. The name is
+// the short form a heading can show; the key carries the whole project path.
+func diskCleanGroupKey(item diskclean.Item) (key, label string) {
+	tool := strings.TrimSpace(item.Tool)
+	if tool != "" && tool != diskCleanProjectTool {
+		return "tool:" + strings.ToLower(tool), tool
+	}
+	if len(item.Roots) > 0 {
+		if root := strings.TrimRight(item.Roots[0], "/\\"); root != "" {
+			name := filepath.Base(root)
+			if name == "" || name == "." || name == string(filepath.Separator) {
+				name = root
+			}
+			return "project:" + root, name
+		}
+	}
+	if tool != "" {
+		return "tool:" + strings.ToLower(tool), tool
+	}
+	return "tool:" + diskCleanOtherTools, diskCleanOtherTools
+}
+
+// diskCleanGrouped orders findings by the tool or the project that owns them, and
+// within a group by what a removal would free, so the list reads as the grouping
+// the request asks for -- by tool and by project -- while every row still carries
+// its own evidence. The order is stable: findings of equal size keep the scan's
+// order.
+func diskCleanGrouped(items []diskclean.Item) []diskCleanGroup {
+	groups := make([]diskCleanGroup, 0, 4)
+	at := make(map[string]int, 4)
+	for index, item := range items {
+		key, label := diskCleanGroupKey(item)
+		position, ok := at[key]
+		if !ok {
+			groups = append(groups, diskCleanGroup{Label: label, Key: key})
+			position = len(groups) - 1
+			at[key] = position
+		}
+		groups[position].Indexes = append(groups[position].Indexes, index)
+	}
+
+	sort.SliceStable(groups, func(a, b int) bool {
+		left, right := strings.ToLower(groups[a].Label), strings.ToLower(groups[b].Label)
+		if left != right {
+			return left < right
+		}
+		return groups[a].Key < groups[b].Key
+	})
+	for index := range groups {
+		indexes := groups[index].Indexes
+		sort.SliceStable(indexes, func(a, b int) bool {
+			left, right := items[indexes[a]], items[indexes[b]]
+			if left.Reclaimable() != right.Reclaimable() {
+				return left.Reclaimable() > right.Reclaimable()
+			}
+			return left.ID < right.ID
+		})
+	}
+	return groups
+}
+
+// diskCleanGroupRow is a heading: the tool or project a run of findings belongs
+// to, and how many findings it owns.
+func diskCleanGroupRow(label string, findings int) string {
+	return label + " — " + diskCleanFindingCount(findings)
+}
+
+// diskCleanFindingCount names a number of findings the way a heading reads.
+func diskCleanFindingCount(n int) string {
+	if n == 1 {
+		return "1 finding"
+	}
+	return fmt.Sprintf("%d findings", n)
+}
+
 // diskCleanPreviewItemRow is one item as a preview row: what it is, what it is
 // expected to free, and -- in the row itself, so the list reads as the plan --
 // the exact thing it would do.
@@ -419,6 +544,9 @@ func diskCleanPreviewItemRow(planned diskclean.PlannedItem) string {
 	case planned.Item.Mechanism.Kind == diskclean.MechanismTool:
 		return label + " — would run " + planned.Item.Mechanism.Command()
 	case planned.Item.Mechanism.Kind == diskclean.MechanismRemove:
+		if len(planned.Item.Paths) == 1 {
+			return label + " — would remove " + planned.Item.Paths[0]
+		}
 		return label + " — would remove " + diskCleanPathCount(len(planned.Item.Paths))
 	default:
 		return label + " — reported only"

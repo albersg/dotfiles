@@ -699,7 +699,7 @@ func diskCleanerFrameCase(t *testing.T) Model {
 				Size:   diskclean.Size{Logical: 700 << 20, Physical: 640 << 20, Truncated: true},
 			},
 			{
-				ID: "project-node_modules", Tool: "npm", Title: "node_modules in /home/testuser/projects/app",
+				ID: "project-node_modules", Tool: "project", Title: "node_modules in /home/testuser/projects/app",
 				Category: diskclean.CategoryDependencies, Risk: diskclean.RiskCareful,
 				Roots:  []string{"/home/testuser/projects"},
 				Paths:  []string{"/home/testuser/projects/app/node_modules"},
