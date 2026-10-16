@@ -322,10 +322,28 @@ occurrence of the upstream brand anywhere in the tree outside the attribution fi
 `branding-audit` job failed on this front's own task record; the sentence says "su proyecto upstream" now
 and the rest of the record is verbatim.
 
+### L6 — the second time main moved, the branch merged it instead of rebasing again
+
+The pull request was opened on `a596d1d`, green on both workflows, and the merge came back "the base
+branch policy prohibits the merge": `main` requires an approving review, and GitHub does not let a
+session approve the pull request it opened. While that decision was being taken, another session merged
+its own front, #343 (`feat/wsl-memory-guard`), so `main` moved from `7906f06` to `ee6a4b4` and this pull
+request turned `DIRTY` -- GitHub refused the merge a second time, now because the branch had fallen
+behind a file both fronts add to.
+
+L5 records what happened the first time `main` moved: a rebase. This time the branch merges `origin/main`
+in instead, because that keeps the history this branch had already published reachable -- and because
+#343's own branch met the same situation the same way while it waited. One conflict, in `CHANGELOG.md`
+under `[Unreleased] -> Added`, where both fronts add a bullet; the resolution keeps both, #343's first
+because that is how `main` reads, and the work-unit hashes L5 named stay reachable.
+
+The merged tree is byte-identical to the tree the second rebase had produced, which is how the two routes
+were checked against each other before one of them was published.
+
 ## Remaining
 
 T1–T7, T9, T10 and T14–T16 are complete and committed; T8 was dropped by the user's decision to deliver
-without a native review, and that lineage stays open and unburned. What remains is not code: the branch
-is published as `feat/network-diagnostics` with a pull request against `main`, and the four `Ghostty`
-test failures that red `make preflight` belong to another front -- they fail identically at `c1e4a64`,
-before this work.
+without a native review, and that lineage stays open and unburned. The branch is published as
+`feat/network-diagnostics` and PR #342 carries it to `main`. The four `Ghostty` test failures that red
+`make preflight` belong to another front -- they fail identically at `c1e4a64`, before this work, and the
+CI's `Go tests` job passes over the whole module, which is where no such binary exists.
