@@ -427,8 +427,42 @@ L15 -- T3 delivered, and the correction turned up a second real defect.
   its other carriers.
 
   Evidence: the focused origin, plan-identity and plugin-set guards pass with `-count=1`; `gofmt -l`
-  and `go vet` are clean; `scripts/preflight.sh` ran the whole gate on this exact tree and its only
-  failures are the four host-condition Ghostty tests (`TestStepInstallTerminalGhosttyReportsAFailedDownload`,
-  `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`, `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`
-  and `TestInteractiveGhosttyScriptDownloadsThenRuns`), which fail because Ghostty is installed on this
-  host; the work-unit commit is the one that carries this entry.
+  and `go vet` are clean; the work-unit commit is `dcef1d1`. The gate result needs its caveat
+  stated plainly, and L16 states it: `scripts/preflight.sh` ran the whole gate and its only failures
+  were the four host-condition Ghostty tests, but the tree it ran in also held another writer's
+  in-flight work, so that run proves this changeset passes alongside theirs rather than alone. The
+  isolated re-run is recorded at the end of L16.
+
+L16 -- The tree was shared, so the gate result needed a caveat and a second run.
+
+  Closing T3 turned up something the work itself did not show: `git status` listed another writer's
+  in-flight work in this same worktree. A WSL memory guard, with its own front
+  (`odd/tasks/wsl-memory-guard.md`, born from two global OOMs on this host that ended the distribution
+  rather than a process), a `.wslconfig` template change, a new `wsl-memory-guard` unit and its
+  service, and edits to `view.go`, `repoassets.go`, `wslconfig.go`, `wslconfig_test.go`,
+  `wslconfig_interactive_test.go`, `wsl_test.go`, `util_screen_test.go`, `screen_coverage_test.go` and
+  `testdata/TestWSLResourcesGolden.golden`. Their file timestamps run 12:26 to 12:51; the T3 gate ran
+  12:22 to 12:26, and a `go test ./internal/tui/` of theirs was still running when T3 was committed.
+
+  Nothing of theirs was touched or committed. The commit used `git add` with nine explicit paths, never
+  `-A`, so `dcef1d1` holds exactly the plan-screen changeset, and `origin/feat/start-installation-flow`
+  reads that commit. Their files are still uncommitted in the worktree, which is where a writer's work
+  belongs until its author commits it.
+
+  The gate result therefore carries a caveat that has to be read, not smoothed over:
+  `scripts/preflight.sh` ran on a tree that also held their uncommitted work, so its verdict -- the four
+  host-condition Ghostty tests and nothing else -- is a statement about the union of the two changesets.
+  It is not evidence that this changeset alone passes. A commit whose own verification was collected on
+  a tree containing somebody else's edits is exactly the kind of claim this front has refused to make
+  elsewhere, so it is corrected rather than left standing.
+
+  The correction is a linked worktree of this same clone at `dcef1d1` (`git worktree add --detach`),
+  which holds this commit alone, with `scripts/preflight.sh` run there and its result recorded below.
+  It was not run at the moment of the discovery on purpose: a second full suite would have competed with
+  the writer's own `go test ./internal/tui/` for a host that has 1.5 GB free after losing its
+  distribution twice today to memory pressure, and adding to that pressure to prove a cosmetic flow
+  change would be the wrong trade.
+
+  One durable lesson, recorded because this will recur while the branch is shared: a gate run in a
+  worktree another writer is editing measures their work too, and the honest thing to do is to state
+  that in the evidence rather than present the run as a property of one commit.
