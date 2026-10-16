@@ -188,20 +188,19 @@ func unaccountedInside(record *lastInstall, entry installEntry, path string) str
 	// itself moved; where that target resolves to says whether what it reaches is
 	// something this record can speak for at all. The path is named in every answer,
 	// because a report that says only which key failed leaves the reader looking.
-	copiedTarget, target := linkTarget(copiedFor(entry, path)), linkTarget(path)
-	switch {
-	case copiedTarget != "" && copiedTarget != target:
+	copied := copiedFor(entry, path)
+	copiedTarget, target := linkTarget(copied), linkTarget(path)
+	if copiedTarget != "" && copiedTarget != target {
 		return path + ", which the run's copy points at " + copiedTarget + " and the machine points at " + target + ", and which the record lists no change for"
-	case copiedTarget == "":
-		// The per-file record never lists a link, so the copy is the only thing that can
-		// say whether this one was here before the run. Without it, the run may have made
-		// it, and a link to nothing cannot be reached to check either.
-		return path + ", which the run's copy of the key does not hold, so nothing here can say whether the run made it"
 	}
 
 	resolved, resolveErr := filepath.EvalSymlinks(path)
 	if resolveErr != nil {
-		return "" // the copy holds the same dead link: it is where the run left it
+		// A link to nothing reaches nothing. Only a copy can say a link was already here,
+		// and this installer never makes one: failing the revert for want of that copy
+		// turns every dead link a person already had into "could not be put back" for a
+		// run whose every change was put back.
+		return ""
 	}
 	covering, written := coveringEntry(record, resolved)
 	if covering == nil {
@@ -211,6 +210,14 @@ func unaccountedInside(record *lastInstall, entry installEntry, path string) str
 		// A key the record says the run did not write is a key it left alone, and that
 		// is the record's own word. Reporting it would be an alarm about a place this
 		// run never reached.
+		return ""
+	}
+	if copied == "" {
+		// The copy is the record's only word on the files behind a link. With no copy of the
+		// key there is nothing to compare them against, and the files reached this way are
+		// judged as the same files are when the key is walked directly: by the changes the
+		// record carries. Demanding the copy that is not there would report paths inside a
+		// tree the run wrote, depending on which route the reader took to them.
 		return ""
 	}
 	if why := unvouchedInside(record, *covering, resolved); why != "" {

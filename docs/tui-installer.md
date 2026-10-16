@@ -1020,6 +1020,14 @@ the way back. The body is therefore never wider than 160 columns, and when the t
 the surplus becomes a margin on each side: the composition sits centred rather than pinned left,
 because one void on the right is not a layout.
 
+**The way back needs rows, and a short terminal drops it before anything else.** The review
+screen carries the same way back the failure screen does: the directory that holds what the run
+replaced and the command that puts it back. At 80x24 the marker for it still renders and those lines
+do not, so a reader deciding on a 24-row terminal has to know the way back from the failure screen or
+from `--revert`'s own error, which names `ls -d ~/.dotfiles-backup-*` and `--restore=<one of
+them>`. This is presentation, not a command: what a run writes and undoes does not change with the
+width.
+
 **Two columns start at 124 terminal columns.** From that width the screen puts the body on the left
 and a panel on the right. The threshold is 124 and not 120 because the number the renderer checks is
 the *content* width: the frame spends two columns of padding on each side of every screen, so 120

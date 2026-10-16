@@ -241,6 +241,14 @@ func (r stepRecordedState) applyTo(m *Model) {
 // and a read-only or missing state directory must not fail an install that already
 // succeeded.
 func (m *Model) recordRun(status runStatus, failedSteps []string) {
+	// A dry run does nothing, so it has nothing to record -- and writing its empty record
+	// over the one a real run left destroys the evidence the revert and the content check
+	// read: the next --revert would report that the run changed nothing while the machine
+	// still holds every file that run wrote. The rule lives at the one place a run records,
+	// because the interface reaches it by routes of its own.
+	if dryRun() {
+		return
+	}
 	rec := lastInstallRecord(m, time.Now())
 	rec.Status = status
 	rec.FailedSteps = failedSteps

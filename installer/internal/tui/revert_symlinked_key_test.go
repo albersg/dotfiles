@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,10 +47,11 @@ func TestARevertOfASymlinkedKeyIsNotAFalseAlarmWhenOnlyCreatedFilesChanged(t *te
 	}
 }
 
-// A link that points at nothing and that the run's copy of the key does not hold is a
-// path the record cannot speak for: the run may have made it. A revert that calls
-// itself complete while it is still there leaves a path the run wrote behind.
-func TestARevertReportsADanglingLinkTheRunCreated(t *testing.T) {
+// The other direction, and a case a person can produce: the run's copy of the key holds a
+// link at this path and the machine points it somewhere else, so the machine is not where
+// the run found it. This report has to survive making a dead link quiet, and it has to name
+// the path and what the copy holds.
+func TestALinkTheRunDidNotLeaveWhereItsCopyHasItIsReported(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
@@ -59,13 +61,14 @@ func TestARevertReportsADanglingLinkTheRunCreated(t *testing.T) {
 		t.Skip("this machine has no nvim configuration path")
 	}
 	mustWrite(t, os.MkdirAll(nvim, 0o755))
-	broken := filepath.Join(nvim, "broken")
-	mustWrite(t, os.Symlink(filepath.Join(home, "nowhere"), broken))
+	link := filepath.Join(nvim, "current")
+	mustWrite(t, os.Symlink(filepath.Join(home, "one"), link))
 	mustWrite(t, os.WriteFile(filepath.Join(nvim, "init.lua"), []byte("two"), 0o644))
 
 	backup := filepath.Join(home, ".dotfiles-backup-1", "nvim")
 	mustWrite(t, os.MkdirAll(backup, 0o755))
 	mustWrite(t, os.WriteFile(filepath.Join(backup, "init.lua"), []byte("one"), 0o644))
+	mustWrite(t, os.Symlink(filepath.Join(home, "one"), filepath.Join(backup, "current")))
 
 	mustWrite(t, writeLastInstall(lastInstall{
 		Timestamp: time.Now(),
@@ -79,11 +82,16 @@ func TestARevertReportsADanglingLinkTheRunCreated(t *testing.T) {
 		}},
 	}))
 
+	// The machine's link now points somewhere else, and no change names it.
+	mustWrite(t, os.Remove(link))
+	mustWrite(t, os.Symlink(filepath.Join(home, "two"), link))
+
 	report, err := RevertLastRun(RevertOptions{})
-	if err == nil && report.Complete() {
-		if _, statErr := os.Lstat(broken); statErr == nil {
-			t.Fatalf("the revert calls itself complete while the link the run made, %s, is still there", broken)
-		}
+	if err == nil || report.Complete() {
+		t.Fatalf("the machine's link is not the one the copy holds, yet the revert answered %v (%+v)", err, report.Files)
+	}
+	if !strings.Contains(err.Error(), link) || !strings.Contains(err.Error(), "which the run's copy points at") {
+		t.Fatalf("the report does not name the path and what the copy holds: %v", err)
 	}
 }
 
@@ -124,5 +132,40 @@ func TestADanglingLinkTheKeyHeldBeforeIsNotReported(t *testing.T) {
 	report, err := RevertLastRun(RevertOptions{})
 	if err != nil || !report.Complete() {
 		t.Fatalf("the key held this dead link before the run and the copy says so; got %v (%+v)", err, report.Files)
+	}
+}
+
+// A dead link the key already held, with no backup taken, was where the run found it:
+// removing the file the run created restores the key, so reporting the link as one nothing
+// can account for is a false alarm. The record has no copy of the link, and this installer
+// never creates one -- a missing copy is not evidence that the run wrote it -- so a
+// legitimate revert must not fail.
+func TestAPreExistingDeadLinkInsideAKeyWithoutABackupIsNotAFalseAlarm(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+
+	nvim := system.ConfigPaths()["nvim"]
+	if nvim == "" {
+		t.Skip("this machine has no nvim configuration path")
+	}
+	mustWrite(t, os.MkdirAll(nvim, 0o755))
+	mustWrite(t, os.WriteFile(filepath.Join(nvim, "init.lua"), []byte("one"), 0o644))
+	mustWrite(t, os.Symlink(filepath.Join(home, "nowhere"), filepath.Join(nvim, "stale")))
+
+	m := NewModel()
+	m.ExistingConfigs = []string{"nvim: " + nvim}
+	m.ConfigFingerprints = configFingerprints()
+	m.ConfigFileIndex = configFileIndex()
+
+	mustWrite(t, os.WriteFile(filepath.Join(nvim, "new.lua"), []byte("new"), 0o644))
+	m.recordRun(runStatusComplete, nil)
+
+	report, err := RevertLastRun(RevertOptions{})
+	if err != nil || !report.Complete() {
+		t.Fatalf("the run created one file and the key already held its dead link; removing it restores the key, but the revert answered %v (%+v)", err, report.Files)
+	}
+	if _, statErr := os.Lstat(filepath.Join(nvim, "new.lua")); !os.IsNotExist(statErr) {
+		t.Fatalf("the created file the record names is still there: %v", statErr)
 	}
 }
