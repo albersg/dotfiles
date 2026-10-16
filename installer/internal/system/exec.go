@@ -594,6 +594,10 @@ type BackupInfo struct {
 	Path      string
 	Timestamp time.Time
 	Files     []string
+	// HasManifest says the directory carries the manifest this program writes.
+	// A backup without one was written before manifests existed, and only its
+	// contents can be trusted to say what it holds.
+	HasManifest bool
 }
 
 // ConfigPaths returns all config paths that dotfiles will modify
@@ -654,103 +658,6 @@ func GetBackupDir() string {
 	home := os.Getenv("HOME")
 	timestamp := time.Now().Format("2006-01-02-150405")
 	return home + "/.dotfiles-backup-" + timestamp
-}
-
-// ListBackups returns all existing backups
-func ListBackups() []BackupInfo {
-	home := os.Getenv("HOME")
-	backups := []BackupInfo{}
-
-	entries, err := os.ReadDir(home)
-	if err != nil {
-		return backups
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".dotfiles-backup-") {
-			backupPath := home + "/" + entry.Name()
-			info, err := entry.Info()
-			if err != nil {
-				continue
-			}
-
-			// List files in backup
-			files := []string{}
-			subEntries, _ := os.ReadDir(backupPath)
-			for _, sub := range subEntries {
-				files = append(files, sub.Name())
-			}
-
-			backups = append(backups, BackupInfo{
-				Path:      backupPath,
-				Timestamp: info.ModTime(),
-				Files:     files,
-			})
-		}
-	}
-
-	return backups
-}
-
-// CreateBackup copies the requested configurations into a new backup directory.
-// It returns the backup path and the entries it could not copy because they are
-// not regular files; those are skipped rather than fatal, because a live socket
-// such as ~/.config/herdr/herdr.sock lives beside real configuration and would
-// otherwise abort the whole installation.
-func CreateBackup(configs []string) (string, []string, error) {
-	backupDir := GetBackupDir()
-	if err := EnsureDir(backupDir); err != nil {
-		return "", nil, fmt.Errorf("failed to create backup directory: %w", err)
-	}
-
-	cleanupOnFailure := true
-	defer func() {
-		if cleanupOnFailure {
-			_ = os.RemoveAll(backupDir)
-		}
-	}()
-
-	configPaths := ConfigPaths()
-	skipped := []string{}
-
-	for _, configKey := range configs {
-		// Extract key from "key: path" format if present
-		key := configKey
-		if idx := strings.Index(configKey, ":"); idx > 0 {
-			key = configKey[:idx]
-		}
-
-		srcPath, exists := configPaths[key]
-		if !exists {
-			continue
-		}
-
-		// Check if source exists
-		info, err := os.Stat(srcPath)
-		if err != nil {
-			continue // File doesn't exist, skip
-		}
-
-		// Determine destination path
-		dstPath := backupDir + "/" + key
-
-		if info.IsDir() {
-			// Copy directory
-			dirSkipped, err := CopyDirReport(srcPath, dstPath)
-			skipped = append(skipped, dirSkipped...)
-			if err != nil {
-				return backupDir, skipped, fmt.Errorf("failed to backup %s: %w", key, err)
-			}
-		} else {
-			// Copy file
-			if err := CopyFile(srcPath, dstPath); err != nil {
-				return backupDir, skipped, fmt.Errorf("failed to backup %s: %w", key, err)
-			}
-		}
-	}
-
-	cleanupOnFailure = false
-	return backupDir, skipped, nil
 }
 
 // RestoreBackup restores configs from a backup directory
