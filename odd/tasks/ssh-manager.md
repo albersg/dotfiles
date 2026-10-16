@@ -2,9 +2,10 @@
 
 A developer-grade SSH manager inside the installer's Utilities section: the hosts
 the client would really use, the keys that exist, what the agent holds, what is
-misconfigured, and a connection test that runs only when asked. Nothing outside
-the tool's own managed block is rewritten, no private key is ever read by this
-program, and every write is backed up, validated and atomic.
+misconfigured, and a connection test that runs only when asked. A new entry goes
+inside the tool's own managed block and an entry the user's own file already
+declares is edited where it is; no private key is ever read by this program, and
+every write is backed up, validated and atomic.
 
 ## Specs
 
@@ -96,8 +97,9 @@ resolution with this package's own reading as the named fallback and its unevalu
 criteria listed. Evidence: 15 tests, plus the client's own answers checked by hand for inline
 comments, a repeated `Host` block (both apply; per key the first assignment wins) and the
 `IdentityFile` accumulation rule. S1-S4, S12.
-T2 — Managed-block writes (`write.go`, `write_test.go`): plan/create/update/duplicate/delete confined
-to the marked block, a preview with `+`/`-` lines, a never-overwritten `.bak-dotfiles-<stamp>`
+T2 — Writes (`write.go`, `write_test.go`): plan/create/update/duplicate/delete, a new entry inside
+the marked block and an entry the user's own file already declares edited where it is (its comments
+and the lines around it left as they were), a preview with `+`/`-` lines, a never-overwritten `.bak-dotfiles-<stamp>`
 backup, temp file + fsync + rename, validation by the client's own parser (a refused file is never
 installed), `0600` for new files and for a group/other-writable one, and a refusal when the file
 moved since the preview. Evidence: 13 tests, including byte-for-byte assertions on everything
@@ -197,7 +199,7 @@ L4 (repository gates on this machine, and what they do and do not prove):
 >   for. Nothing in this change touches the terminal step, `system.CommandExists` or PATH handling.
 > - Consequence: `make check` and `make preflight` report the `internal/tui` package as failed on
 >   this machine for that reason. Every check this change is responsible for passes:
->   `gofmt -l`, `go vet`, `go build ./...`, `go test ./internal/sshcfg/` (66 tests) and the SSH
+>   `gofmt -l`, `go vet`, `go build ./...`, `go test ./internal/sshcfg/` (81 tests) and the SSH
 >   manager's own TUI tests, the shared frame guards and the utilities golden.
 
 L5 (the native review could not run on this candidate, and what was decided):
@@ -234,3 +236,36 @@ L5 (the native review could not run on this candidate, and what was decided):
 > - Decision (user, this session, verbatim): "Seguir sin revisión nativa de los cortes". Verification
 > therefore rests on the feature's own checks and on an independent read-only verifier run over the
 > range, and delivery follows ordinary repository policy. The review switch stays on.
+
+L6 (independent verification: what it found, and what was fixed):
+
+> - An independent read-only verifier ran over the committed range and reported per spec. It confirmed
+>   the security invariants with probes of its own, including an strace of the key-listing test: the
+>   only private-key path touched is `os.Stat`, and the only file opened on a key path is the `.pub`
+>   half. It confirmed this machine's four Ghostty failures are environmental, with its own evidence.
+> - Two blockers, both change-caused, both fixed with a test that failed first:
+>   - B1: on a machine with no `~/.ssh` the first entry could not be written at all -- the write put a
+>     temporary file in a directory nothing had created, while the diagnosis promised the manager
+>     creates it. `Apply` now creates that directory 0700 before writing, pinned by
+>     `fresh_home_test.go`.
+>   - B2: the switch that allows replacing a pair never replaced anything, because ssh-keygen refuses
+>     an existing key and asks "already exists. Overwrite (y/n)?" on a terminal this interface owns:
+>     the option failed with a message about a prompt nobody saw. It now removes exactly the two files
+>     the request names before running the tool, and refuses when that removal fails, pinned by
+>     `replace_key_test.go`.
+> - One advisory fixed: `PlanCreate` refused only a name this tool already managed, so a caller could
+>   add a second stanza for a name the user's own file declares -- an entry the client would never use.
+>   It now refuses any name that is already taken (`duplicate_alias_test.go`).
+> - Low findings fixed: the jump host's source was looked up under a key derived from its label rather
+>   than the key the resolver records, so that row silently lost its file and line; source paths are
+>   now shortened against the manager's home, which is what the other rows show; the backup counter
+>   now falls back to a unique suffix instead of reusing a name past its search limit; and the two
+>   places that called the runner without the fallback the other four have (`AgentState`,
+>   `validateFile`) no longer panic on a Manager built without one.
+> - The block claim was too broad and was corrected where it is read (this document's header and T2,
+>   the README, and the package comment of `sshmanager.go`): the tool's own block is where a *new*
+>   entry goes, and an entry the user's own file declares is edited where it is, with every byte the
+>   change does not name left alone. That was a claim defect, not a behaviour defect: the in-place edit
+>   is deliberate and tested.
+> - The test count above is the real one; the verifier's four probes are part of the suite now, plus
+>   one for the runner fallback.
