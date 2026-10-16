@@ -140,7 +140,12 @@ screen lives in the Utilities section.
 >
 > ## Contexto y condiciones obligatorias
 >
-> Estás trabajando en un fork de los dotfiles de Gentleman Programming que ya incluye un installer/configurador TUI con navegación, estilos y temas dinámicos, mascota, utilidades e integración con el entorno de desarrollo. Tu cometido es **implementar esta funcionalidad realmente**, no entregar un diseño, pseudocódigo o una maqueta sin lógica.
+> Estás trabajando en un fork de los dotfiles de [el proyecto de origen] que ya incluye un installer/configurador TUI con navegación, estilos y temas dinámicos, mascota, utilidades e integración con el entorno de desarrollo. Tu cometido es **implementar esta funcionalidad realmente**, no entregar un diseño, pseudocódigo o una maqueta sin lógica.
+>
+> Nota: la marca del proyecto de origen va redactada en la cita anterior, porque el *branding audit*
+> del repositorio (`.github/workflows/ci.yml`) la rechaza fuera de las rutas de atribución y `odd/` no
+> es una de ellas. El resto de la cita es literal, y `odd/tasks/` conserva así la petición sin
+> introducir la marca en el árbol que audita CI.
 >
 > - **Antes de modificar nada**, examina el repositorio y localiza su arquitectura, convenciones, comandos, utilidades compartidas, navegación, estados, tratamiento de errores y tests. Adapta tu solución a lo que existe; no presupongas un lenguaje ni un framework.
 > - **Compatibilidad total con lo que soporte el proyecto:** todos sus sistemas operativos, plataformas, entornos (incluido WSL cuando corresponda), shells y emuladores de terminal. No acoples la implementación a una shell concreta ni confundas el entorno del host con el de WSL. Detecta capacidades reales y ofrece degradación elegante cuando alguna API/función no exista. Una plataforma sin capacidad específica no debe provocar un fallo global.
