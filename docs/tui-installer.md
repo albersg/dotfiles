@@ -849,7 +849,9 @@ same redaction instead of being trusted; the preview row shows the file line for
 row is offered only from that preview, so the file cannot differ from what was reviewed. The
 **anonymization** row replaces every address, the user name, the home directory and the machine name,
 which is what makes the file safe to send to somebody else, and the report says which of the two
-forms was written. It is saved under the installer's own state directory
+forms was written. The host being diagnosed is deliberately kept, and the screen says so: the report
+exists to say what could not be reached, and the preview shows the exact text before anything is
+written. It is saved under the installer's own state directory
 (`$XDG_STATE_HOME/dotfiles/network-report-<UTC start>.txt`), one file per run, readable by the user
 alone -- it still describes this machine's addresses, which is exactly why it is not written anywhere
 else and not written at all until it has been read.

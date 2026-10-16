@@ -217,10 +217,17 @@ func TestTextAnonymizesWhenTheUserChoosesIt(t *testing.T) {
 			t.Errorf("the anonymized text still contains %q:\n%s", secret, text)
 		}
 	}
-	for _, want := range []string{"<ipv4>/24", "~", "<host>", "2026-10-16 12:04:05 UTC"} {
+	for _, want := range []string{"<ipv4>/24", "~", "<host>", "2026-10-16 12:04:05 UTC",
+		"anonymized: every address, the user name, the home directory and the machine name"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the anonymized text lost %q:\n%s", want, text)
 		}
+	}
+
+	// The other half of the rule: a report that was not anonymized must not claim
+	// that it was, or a reader would take the machine name in it for a placeholder.
+	if plain := r.Text(TextOptions{HostName: "alber-pc"}); strings.Contains(plain, "anonymized:") {
+		t.Errorf("a report that was not anonymized says it was:\n%s", plain)
 	}
 }
 

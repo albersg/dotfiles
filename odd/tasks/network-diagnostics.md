@@ -278,6 +278,14 @@ used, so a wrong domain cannot be resolved silently. `go.mod`/`go.sum` show no d
 | T5 | (this commit) | `tui/netdiag.go` and the additive wiring; the screen's own tests pin the refusal before anything is dialled, one run at a time, Escape keeping what finished, the preview as the consent for the write, the mode of the saved file and the anonymized content. Four defects were found by those tests and fixed: the utilities list never offered the row, `handleEscape` had no case for the screen (so Escape fell through to an unrelated state), the save row was offered without the preview, and `1 interfaces` |
 | T6 | (this commit) | every screen guard green: the frame case is registered in the measured matrix (`measuredScreens` 63 → 64), `TestEveryScreenFitsEveryTerminalSize` renders the new screen at all twelve terminals, and `TestNetworkDiagnosticsGolden` pins the 80x24 frame |
 
+### L4 — the anonymized report keeps the diagnosed destination (the user's decision)
+
+The independent verification asked whether the anonymized form should also replace the host being
+diagnosed, since S10 names only this machine's identity. The user decided: the destination stays, and
+the copy has to say so plainly. S10 is unchanged -- it always named this machine's addresses and
+names -- and the row label, the preview paragraph and the docs now state that the diagnosed host is
+kept, with a test pinning it.
+
 ## Remaining
 
 T7 (independent verification over the whole diff, then the closing report) is open. T1–T6 are

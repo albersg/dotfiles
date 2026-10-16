@@ -328,6 +328,12 @@ func (r Report) Text(o TextOptions) string {
 	}
 	fmt.Fprintf(&b, "started: %s\n", r.Started.UTC().Format("2006-01-02 15:04:05 UTC"))
 	fmt.Fprintf(&b, "elapsed: %s\n", Duration(r.Elapsed))
+	if o.Anonymize {
+		// Whoever reads a shared report never saw the preview, so the file says what
+		// was replaced -- and what was kept on purpose.
+		b.WriteString("anonymized: every address, the user name, the home directory and the machine name\n")
+		b.WriteString("            were replaced; the host being diagnosed is kept\n")
+	}
 
 	s := r.Summary()
 	fmt.Fprintf(&b, "checks: %d run (%d ok, %d noted, %d failed, %d unknown, %d skipped)\n",

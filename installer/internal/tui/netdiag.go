@@ -76,7 +76,7 @@ const (
 	// networkAnonymizeRow toggles the anonymization the preview and the write use:
 	// every address, the user name, the home directory and the machine name are
 	// replaced, so the file can be sent to somebody else.
-	networkAnonymizeRow = "Anonymize the report before saving (no addresses or names)"
+	networkAnonymizeRow = "Anonymize the report before saving (local names and addresses)"
 
 	// networkReportPrefix names the file inside the installer's own state
 	// directory. It carries no secrets by construction, which is why it may live
@@ -517,7 +517,8 @@ func (m Model) networkPreviewDescription() []string {
 	switch {
 	case m.Network.Anonymize:
 		paragraphs = append(paragraphs, "Anonymization is on: every address, the user name, the home "+
-			"directory and the machine name are replaced, so this text can be sent to somebody else.")
+			"directory and the machine name are replaced, so this text can be sent to somebody else. The "+
+			"host being diagnosed is kept, because the report has to say what could not be reached.")
 	case m.Network.ReportPath != "":
 		paragraphs = append(paragraphs, "Anonymization is off: the report names this machine's addresses "+
 			"and interfaces. Turn it on to replace them.")

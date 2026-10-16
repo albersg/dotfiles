@@ -370,6 +370,25 @@ func TestNetworkScreenAnonymizesWhatItSaves(t *testing.T) {
 	}
 }
 
+// TestNetworkScreenSaysWhatAnonymizationKeeps pins the promise the copy makes. The
+// anonymized form is safe to send because it drops this machine's names and every
+// address; the host being diagnosed stays, and a reader has to be told that before
+// the write rather than discover it afterwards.
+func TestNetworkScreenSaysWhatAnonymizationKeeps(t *testing.T) {
+	m := networkDiagnosticsFrameCase(t)
+	m.Network.ReportPath = networkReportPath(m.Network.Report.Started)
+
+	for _, row := range []string{networkPreviewRow, networkAnonymizeRow} {
+		next, _ := networkPressRow(t, m, row)
+		m = next
+	}
+
+	body := strings.Join(strings.Fields(strings.Join(m.networkDescription(), " ")), " ")
+	if !strings.Contains(body, "The host being diagnosed is kept") {
+		t.Errorf("the anonymized preview does not say what it keeps:\n%s", body)
+	}
+}
+
 // TestNetworkScreenReportsWhenThereIsNowhereToSave pins the honest gap: a machine
 // with no state directory offers the review without the save, and says why
 // instead of failing at the press.
