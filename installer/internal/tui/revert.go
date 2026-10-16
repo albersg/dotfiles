@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -95,6 +96,104 @@ func (r RevertReport) Complete() bool {
 //
 // A machine with no record has nothing to revert, and that is the answer: the
 // error is errNoRecord, which the command line reports without a traceback.
+// firstUnaccountedFor returns the path inside a claim the record cannot put back --
+// the claim's own path, or something inside it -- or "" when the record accounts for
+// the whole of it.
+func firstUnaccountedFor(record *lastInstall, entry installEntry) string {
+	if entry.Path == "" {
+		return ""
+	}
+	for _, change := range record.Changes {
+		if change.Path == entry.Path {
+			return "" // the change names this very path and carries its before-state
+		}
+	}
+
+	info, err := os.Lstat(entry.Path)
+	if err != nil {
+		// Gone from the machine: a run that removed it lists the files it removed,
+		// and those are the evidence for the claim.
+		if namesPathUnder(record.Changes, entry.Path) {
+			return ""
+		}
+		return entry.Path
+	}
+	if !info.IsDir() {
+		// A file: the index holds every regular file and reads links through, so a
+		// path the record says the run wrote with no change naming it is a claim the
+		// record cannot back.
+		return entry.Path
+	}
+	if !namesPathUnder(record.Changes, entry.Path) {
+		return entry.Path
+	}
+	return firstUnaccountedInside(record, entry)
+}
+
+// firstUnaccountedInside walks a directory the record says the run wrote and returns
+// the first path inside it that the record cannot vouch for: a kind the per-file
+// index steps over -- a symlink, a socket, a device -- that no change names and that
+// the run's own copy does not match.
+func firstUnaccountedInside(record *lastInstall, entry installEntry) string {
+	unaccounted := ""
+	_ = filepath.WalkDir(entry.Path, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || unaccounted != "" {
+			return nil
+		}
+		if d.IsDir() || d.Type().IsRegular() {
+			return nil
+		}
+		for _, change := range record.Changes {
+			if change.Path == path {
+				return nil
+			}
+		}
+		if !sameShapeAsCopy(entry, path) {
+			unaccounted = path
+		}
+		return nil
+	})
+	return unaccounted
+}
+
+// namesPathUnder reports whether any change names a path inside the given one.
+func namesPathUnder(changes []fileChange, path string) bool {
+	prefix := strings.TrimSuffix(path, string(os.PathSeparator)) + string(os.PathSeparator)
+	for _, change := range changes {
+		if strings.HasPrefix(change.Path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// sameShapeAsCopy reports whether the run's own copy of a path holds what the machine
+// holds now: the same target for a link, the same kind for anything else. The copy is
+// the before-state the run took, so agreement is what makes an untouched link evidence
+// rather than a reason for alarm -- and a copy that is gone or differs is what keeps
+// the revert from vouching for a machine it cannot put back.
+func sameShapeAsCopy(entry installEntry, path string) bool {
+	if entry.Backup == "" || entry.Path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(entry.Path, path)
+	if err != nil {
+		return false
+	}
+	copied := filepath.Join(entry.Backup, rel)
+	onMachine, machineErr := os.Lstat(path)
+	inCopy, copyErr := os.Lstat(copied)
+	if machineErr != nil || copyErr != nil {
+		return false
+	}
+	if onMachine.Mode()&os.ModeSymlink != 0 && inCopy.Mode()&os.ModeSymlink != 0 {
+		target, targetErr := os.Readlink(path)
+		copiedTarget, copiedErr := os.Readlink(copied)
+		return targetErr == nil && copiedErr == nil && target == copiedTarget
+	}
+	return onMachine.Mode() == inCopy.Mode()
+}
+
 // writtenPaths returns the paths a record says the run wrote, for a record that
 // carries no per-file changes: the entries whose own action says the run wrote them
 // ("replaced", "created"), or -- for a record from before entries existed -- the
@@ -157,33 +256,44 @@ func RevertLastRun(opts RevertOptions) (RevertReport, error) {
 	items := make([]revertItem, 0, len(record.Changes))
 	keys := map[string]bool{}
 
-	// A record with no per-file changes cannot be undone one file at a time. What it
-	// can still say is which paths the run wrote, and whether it says any is the
-	// question that separates two records that look alike: one written before this
-	// command had per-file changes, and one written by a run that changed nothing.
-	// Reading the record for that answer -- instead of recognising a shape -- is what
-	// keeps a record written by any version this repository ever shipped from being
-	// told one thing when it means the other.
-	if len(record.Changes) == 0 {
-		written := writtenPaths(record)
-		directory := backupDirectoryFor(written)
-		for _, entry := range written {
-			action := fileActionModified
-			if entry.Action == installActionCreated {
-				action = fileActionCreated
-			}
-			reason := "the record names this path as one the run wrote, but not the file it is or what it held, so nothing here can put it back"
-			if directory != "" {
-				reason += "; `dotfiles --restore=" + directory + "` puts that whole backup back"
-			} else {
-				reason += "; `ls -d ~/.dotfiles-backup-*` names the backups this machine took, and `dotfiles --restore=<one of them>` puts a whole backup back"
-			}
-			items = append(items, revertItem{
-				change: fileChange{Key: entry.Key, Path: entry.Path, Action: action},
-				status: RevertUnrevertible,
-				reason: reason,
-			})
+	// Every path the record says the run wrote has to be accounted for by what the
+	// record can put back. Two halves of a record make that claim -- the entries and
+	// the Files list -- and only one of them carries a before-state file by file. The
+	// index behind that half steps over anything that is not a regular file, so a path
+	// can be named as written while the thing that changed inside it is a symlink the
+	// record never lists. Acting on the changes and staying silent about the rest is
+	// how a machine gets reported as back with a link still pointing where the run
+	// left it, so the two halves are cross-checked here instead of one being trusted.
+	// A record with no per-file changes at all reaches the same check with nothing
+	// accounted for, which is what it means: it names paths and no before-state.
+	written := writtenPaths(record)
+	directory := backupDirectoryFor(written)
+	for _, entry := range written {
+		missing := firstUnaccountedFor(record, entry)
+		if missing == "" {
+			continue
 		}
+
+		action := fileActionModified
+		if entry.Action == installActionCreated {
+			action = fileActionCreated
+		}
+		reason := ""
+		if missing == entry.Path {
+			reason = "the record names this path as one the run wrote, but not the file it is or what it held, so nothing here can put it back"
+		} else {
+			reason = "the record says the run wrote this path, and " + missing + " inside it is not a regular file the record lists, so nothing here can say what the run left there"
+		}
+		if directory != "" {
+			reason += "; `dotfiles --restore=" + directory + "` puts that whole backup back"
+		} else {
+			reason += "; `ls -d ~/.dotfiles-backup-*` names the backups this machine took, and `dotfiles --restore=<one of them>` puts a whole backup back"
+		}
+		items = append(items, revertItem{
+			change: fileChange{Key: entry.Key, Path: entry.Path, Action: action},
+			status: RevertUnrevertible,
+			reason: reason,
+		})
 	}
 
 	for _, change := range record.Changes {
