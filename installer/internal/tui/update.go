@@ -978,7 +978,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.DiskClean.Selection = diskclean.Selection{}
 		m.DiskClean.Planned = false
 		m.DiskClean.Plan = diskclean.Plan{}
-		m.Cursor = 0
+		// The cursor lands on the first finding rather than on the scan row: the
+		// card of the finding under the cursor is where the reason it was found and
+		// the paths it covers are read, and a scan that left the cursor above the
+		// list would hide the evidence until the first arrow key.
+		m.Cursor = m.diskCleanFirstItemCursor()
 		if msg.cancelled {
 			m.DiskClean.Notice = diskCleanScanCancelledNotice(msg.items)
 		} else {

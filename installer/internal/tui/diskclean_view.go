@@ -79,20 +79,15 @@ func (m Model) diskCleanerDescription() []string {
 		return []string{"The development stores are still being resolved. Nothing here has been measured."}
 	}
 
-	paragraphs := []string{fmt.Sprintf("%s looks at the caches, downloads, build directories, dependency "+
-		"trees and container stores of the development tools this machine actually has -- a tool is named only "+
-		"when a program on the PATH, an environment variable or an existing directory says it is used here. "+
-		"Every finding starts unmarked, and the dependencies, the container images and the volumes are never "+
-		"marked for you: a store is looked at, and then cleaned, only because you marked it and confirmed the "+
-		"preview. Nothing runs on its own.", m.GetScreenTitle())}
-
+	var paragraphs []string
 	if st.Reason != "" {
 		paragraphs = append(paragraphs, st.Reason)
 	}
 
-	// What has been measured, and the honest caveats about the numbers. These
-	// come before the selection because they are what the selection is a
-	// decision about.
+	// What has been measured, and the honest caveats about the numbers. This is a
+	// summary, so it comes after the finding being looked at: at a small terminal
+	// the cut must fall on the orientation text and never on the evidence of the
+	// store the user is deciding about.
 	switch {
 	case !st.Scanned && !st.Scanning:
 		paragraphs = append(paragraphs, fmt.Sprintf("%s measures each store without removing anything: a scan is "+
@@ -100,23 +95,48 @@ func (m Model) diskCleanerDescription() []string {
 			"at.", diskCleanScanRow))
 	case st.Scanning:
 		paragraphs = append(paragraphs, "Measuring the stores now. Nothing is removed by a scan, and Esc stops it.")
-	default:
-		paragraphs = append(paragraphs, diskCleanMeasurementParagraph(st.Items)...)
 	}
 
+	// The preview's head is what the confirmation below would mean, so it comes
+	// before the item it is about. The items of the preview are its rows, so the
+	// head counts them rather than repeating them here.
+	if st.Phase == diskCleanPreview {
+		paragraphs = append(paragraphs, diskCleanPreviewHead(st.Plan))
+	}
+
+	// The finding under the cursor, always: what it is, what it holds and where
+	// that number came from, why it was found, where it is or what it covers, and
+	// what removing it would cost to get back. The rows are the scan's index; this
+	// is the evidence for the one being looked at. In the preview the same card
+	// also carries the exact thing the confirmation would run, which is what the
+	// confirmation is a decision about.
+	if item, action, ok := m.diskCleanFocusedFinding(); ok {
+		paragraphs = append(paragraphs, diskCleanItemCard(item, action)...)
+	}
+
+	if st.Scanned && !st.Scanning {
+		paragraphs = append(paragraphs, diskCleanMeasurementParagraph(st.Items)...)
+	}
 	if len(st.Items) > 0 {
 		paragraphs = append(paragraphs, diskCleanSelectionParagraph(st))
 	}
 
-	// The preview and the result are the two states where the user is deciding
-	// about specific items, so the plan or the outcome is spelled out item by
-	// item rather than summarized into a number.
-	if st.Phase == diskCleanPreview {
-		paragraphs = append(paragraphs, diskCleanPlanParagraphs(st.Plan)...)
-	}
+	// The outcome once a run has finished, ahead of the standing prose: it is what
+	// the user came back to the screen for.
 	if st.Phase == diskCleanResults {
 		paragraphs = append(paragraphs, diskCleanResultParagraphs(st.CleanReport)...)
 	}
+
+	// The screen's own introduction, then the standing scope and safety notes, come
+	// last on purpose. They are what a first-time reader wants and what a small
+	// terminal can afford to lose; the evidence of the finding under the cursor is
+	// neither.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s looks at the caches, downloads, build directories, dependency "+
+		"trees and container stores of the development tools this machine actually has -- a tool is named only "+
+		"when a program on the PATH, an environment variable or an existing directory says it is used here. "+
+		"Every finding starts unmarked, and the dependencies, the container images and the volumes are never "+
+		"marked for you: a store is looked at, and then cleaned, only because you marked it and confirmed the "+
+		"preview. Nothing runs on its own.", m.GetScreenTitle()))
 
 	paragraphs = append(paragraphs, diskCleanScopeParagraph(st))
 	paragraphs = append(paragraphs, diskCleanSafetyParagraph(m))
@@ -243,36 +263,151 @@ func diskCleanSelectionParagraph(st diskCleanState) string {
 	return strings.Join(parts, " ") + " The preview names each one's command or path before anything runs."
 }
 
-// diskCleanPlanParagraphs is the dry run: one line per item saying exactly what
-// would run, and one line per item saying why it would not.
-func diskCleanPlanParagraphs(plan diskclean.Plan) []string {
-	if len(plan.Items) == 0 {
-		return []string{"The preview is empty: nothing is selected."}
+// diskCleanFocusedFinding is the finding the cursor is on, and in the preview the
+// exact thing the confirmation would do to it. It is how one screen can show
+// every finding's evidence without printing a list as long as the scan.
+func (m Model) diskCleanFocusedFinding() (diskclean.Item, string, bool) {
+	st := m.DiskClean
+	if len(st.Items) == 0 || !st.Scanned {
+		return diskclean.Item{}, "", false
 	}
-
-	would, wouldNot := 0, 0
-	var lines []string
-	for _, planned := range plan.Items {
-		if !planned.Runs() {
-			wouldNot++
-			lines = append(lines, fmt.Sprintf("%s: nothing would run. %s", planned.Item.Title, planned.Blocked))
+	rows := m.diskCleanRows()
+	if m.Cursor < 0 || m.Cursor >= len(rows) {
+		return diskclean.Item{}, "", false
+	}
+	row := rows[m.Cursor]
+	if row.item < 0 || row.item >= len(st.Items) {
+		return diskclean.Item{}, "", false
+	}
+	item := st.Items[row.item]
+	if st.Phase != diskCleanPreview || !st.Planned {
+		return item, "", true
+	}
+	for _, planned := range st.Plan.Items {
+		if planned.Item.ID != item.ID {
 			continue
 		}
-		would++
-		switch planned.Item.Mechanism.Kind {
-		case diskclean.MechanismTool:
-			lines = append(lines, fmt.Sprintf("%s: would run `%s`.", planned.Item.Title, planned.Item.Mechanism.Command()))
-		case diskclean.MechanismRemove:
-			lines = append(lines, fmt.Sprintf("%s: would remove %s, irreversibly.", planned.Item.Title,
-				strings.Join(planned.Item.Paths, ", ")))
-		default:
-			lines = append(lines, fmt.Sprintf("%s: reported only. %s", planned.Item.Title, planned.Item.Mechanism.Reason))
-		}
+		return item, diskCleanPlannedAction(planned), true
+	}
+	return item, "", true
+}
+
+// diskCleanPlannedAction is what the confirmation would do to one item, in the
+// words the item itself carries: the tool's own command, the exact path a removal
+// would take, or the reason nothing would run at all.
+func diskCleanPlannedAction(planned diskclean.PlannedItem) string {
+	if !planned.Runs() {
+		return "Nothing would run for this one. " + planned.Blocked
+	}
+	switch planned.Item.Mechanism.Kind {
+	case diskclean.MechanismTool:
+		return "The confirmation would run `" + planned.Item.Mechanism.Command() + "`."
+	case diskclean.MechanismRemove:
+		return "The confirmation would remove " + strings.Join(planned.Item.Paths, ", ") + " — irreversibly."
+	default:
+		return "Reported only: " + planned.Item.Mechanism.Reason
+	}
+}
+
+// diskCleanPreviewHead is the preview's headline: how much of the selection would
+// actually run, and the promise that nothing has yet.
+func diskCleanPreviewHead(plan diskclean.Plan) string {
+	if len(plan.Items) == 0 {
+		return "The preview is empty: nothing is selected."
+	}
+	runnable := len(selectedRunnable(plan.Items))
+	return fmt.Sprintf("Preview: nothing has run yet. %s would run and %s would not; the rows below carry each "+
+		"one's command, path or refusal, and Escape leaves this without running anything.",
+		diskCleanCount(runnable), diskCleanCount(len(plan.Items)-runnable))
+}
+
+// diskCleanItemCard is one finding's evidence, one line per fact: what it is and
+// how it is classified, what it holds and where that number came from, why the
+// scan found it, where it is or what it covers, and what removing it would cost
+// to get back. It is the answer to the question a row cannot hold, and it is the
+// reason a row never has to carry a number without its source.
+func diskCleanItemCard(item diskclean.Item, action string) []string {
+	head := item.Title
+	if item.Category != "" {
+		head += " — " + item.Category.Label()
+	}
+	head += " — " + item.Risk.Label()
+
+	// What it holds comes before why it was found: the number is the reason the row
+	// is interesting, and the evidence explains where it came from. Both are on
+	// screen at the smallest frame this screen is measured at.
+	lines := []string{head}
+	if strings.TrimSpace(action) != "" {
+		// In the preview the action is the fact the confirmation is about, so it sits
+		// directly under the title where a small terminal cannot cut it away from it.
+		lines = append(lines, action)
+	}
+	lines = append(lines, diskCleanSizeSentence(item))
+	if reason := strings.TrimSpace(item.Reason); reason != "" {
+		lines = append(lines, "Found because "+diskCleanSentence(reason))
+	}
+	if len(item.Paths) > 0 {
+		lines = append(lines, "On disk: "+strings.Join(item.Paths, ", "))
+	}
+	if len(item.VolatileObjects) > 0 && item.Size.Source != diskclean.SourceTool {
+		lines = append(lines, "Inside the engine: "+strings.Join(item.VolatileObjects, ", "))
+	}
+	if detail := strings.TrimSpace(item.Detail); detail != "" {
+		lines = append(lines, diskCleanSentence(detail))
+	}
+	return lines
+}
+
+// diskCleanSizeSentence says what the finding holds and which half of the number
+// is the disk's, in one line: the row above already carries the reclaimable
+// figure and the risk, and a second wrapped sentence about the same number would
+// push the reason and the paths off a small terminal. The caveats that qualify the
+// number -- a walk cut short, bytes shared with another finding -- are appended
+// here rather than kept for the paragraph below, because they say what the number
+// is worth and they belong beside it.
+func diskCleanSizeSentence(item diskclean.Item) string {
+	switch {
+	case item.Size.Missing:
+		return "Holds nothing: the store is not there any more, or was never created."
+	case item.Size.Err != "":
+		return "Its size could not be measured: " + diskCleanSentence(item.Size.Err)
 	}
 
-	head := fmt.Sprintf("Preview: %s would run and %s would not. This is what the confirmation below executes; "+
-		"nothing has run yet.", diskCleanCount(would), diskCleanCount(wouldNot))
-	return append([]string{head}, lines...)
+	parts := []string{fmt.Sprintf("Holds %s on disk", humanBytes(uint64(item.Size.Physical)))}
+	if item.Size.Logical != item.Size.Physical {
+		parts = append(parts, fmt.Sprintf("%s in contents", humanBytes(uint64(item.Size.Logical))))
+	}
+	if item.Size.Files > 0 {
+		parts = append(parts, fmt.Sprintf("%d files", item.Size.Files))
+	}
+	source := "walked"
+	if item.Size.Source == diskclean.SourceTool {
+		source = "tool-reported"
+	}
+	sentence := strings.Join(parts, ", ") + " (" + source + ")"
+	if len(item.VolatileObjects) > 0 {
+		sentence += ": " + strings.Join(item.VolatileObjects, ", ")
+	}
+	sentence += "."
+	if item.Size.Truncated {
+		sentence += " The walk stopped at its own ceiling, so this is a lower bound rather than the whole store."
+	}
+	if item.Size.Shared > 0 {
+		sentence += " Some files are counted under another finding too; they are counted once and listed here as shared."
+	}
+	return sentence
+}
+
+// diskCleanSentence makes a fragment written to be read into a sentence: one
+// terminal stop, no doubled one, so the pieces join without printing ".." when a
+// reason already ended in one.
+func diskCleanSentence(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+	trimmed = strings.TrimRight(trimmed, ". ")
+	return trimmed + "."
 }
 
 // diskCleanResultParagraphs is what the run did, item by item: what came back,

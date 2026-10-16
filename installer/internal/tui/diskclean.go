@@ -43,6 +43,9 @@ const (
 	diskCleanActionNone diskCleanAction = iota
 	// diskCleanActionItem is an item row: space toggles its selection.
 	diskCleanActionItem
+	// diskCleanActionPreviewItem is an item row inside the preview: the cursor can
+	// walk it and read its card, and no key changes the frozen plan through it.
+	diskCleanActionPreviewItem
 	// diskCleanActionScan starts a scan of the machine.
 	diskCleanActionScan
 	// diskCleanActionPreview builds the dry-run plan of the selection.
@@ -246,7 +249,7 @@ func (m Model) startDiskCleanPreview() Model {
 	m.DiskClean.Planned = true
 	m.DiskClean.Phase = diskCleanPreview
 	m.DiskClean.Notice = ""
-	m.Cursor = 0
+	m.Cursor = m.diskCleanFirstItemCursor()
 	return m
 }
 
@@ -298,11 +301,31 @@ func (m Model) diskCleanRows() []diskCleanRow {
 	case diskCleanRunning:
 		return []diskCleanRow{{label: diskCleanCancelRunRow, action: diskCleanActionCancelRun}}
 	case diskCleanPreview:
-		selected := st.Plan.Items
-		return []diskCleanRow{
-			{label: diskCleanConfirmRowPrefix + diskCleanCount(len(selectedRunnable(selected))) + " selected", action: diskCleanActionConfirm},
-			{label: diskCleanCancelRow, action: diskCleanActionCancelPreview},
+		// The preview lists the items it is about, in the plan's own order, so the
+		// cursor can walk them and read each one's exact action; the confirmation is
+		// the only row that runs anything. The rows carry the item's index into the
+		// last scan, which is how the card knows what the cursor is looking at.
+		rows := make([]diskCleanRow, 0, len(st.Plan.Items)+3)
+		for _, planned := range st.Plan.Items {
+			index := diskCleanItemIndex(st.Items, planned.Item.ID)
+			if index < 0 {
+				continue
+			}
+			rows = append(rows, diskCleanRow{
+				label:  diskCleanPreviewItemRow(planned),
+				action: diskCleanActionPreviewItem,
+				item:   index,
+			})
 		}
+		rows = append(rows, diskCleanRow{label: m.menuSeparator(), action: diskCleanActionNone, item: -1})
+		if len(st.Plan.Items) > 0 {
+			rows = append(rows, diskCleanRow{
+				label:  diskCleanConfirmRowPrefix + diskCleanCount(len(selectedRunnable(st.Plan.Items))) + " selected",
+				action: diskCleanActionConfirm,
+				item:   -1,
+			})
+		}
+		return append(rows, diskCleanRow{label: diskCleanCancelRow, action: diskCleanActionCancelPreview, item: -1})
 	case diskCleanResults:
 		return []diskCleanRow{
 			{label: diskCleanRescanRow, action: diskCleanActionScan},
@@ -385,6 +408,45 @@ func diskCleanRowLabels(rows []diskCleanRow) []string {
 	return labels
 }
 
+// diskCleanPreviewItemRow is one item as a preview row: what it is, what it is
+// expected to free, and -- in the row itself, so the list reads as the plan --
+// the exact thing it would do.
+func diskCleanPreviewItemRow(planned diskclean.PlannedItem) string {
+	label := planned.Item.Title + " — " + humanBytes(uint64(planned.Item.Reclaimable()))
+	switch {
+	case !planned.Runs():
+		return label + " — nothing would run"
+	case planned.Item.Mechanism.Kind == diskclean.MechanismTool:
+		return label + " — would run " + planned.Item.Mechanism.Command()
+	case planned.Item.Mechanism.Kind == diskclean.MechanismRemove:
+		return label + " — would remove " + diskCleanPathCount(len(planned.Item.Paths))
+	default:
+		return label + " — reported only"
+	}
+}
+
+// diskCleanItemIndex is where a finding sits in the last scan, so a preview row
+// and the card under the cursor can name the same one.
+func diskCleanItemIndex(items []diskclean.Item, id string) int {
+	for index, item := range items {
+		if item.ID == id {
+			return index
+		}
+	}
+	return -1
+}
+
+// diskCleanFirstItemCursor is the row of the first finding, so the evidence card
+// is on screen the moment a scan lands rather than only once the cursor moves.
+func (m Model) diskCleanFirstItemCursor() int {
+	for index, row := range m.diskCleanRows() {
+		if row.action == diskCleanActionItem || row.action == diskCleanActionPreviewItem {
+			return index
+		}
+	}
+	return 0
+}
+
 // diskCleanHasRoot reports whether a directory is already in the project scope.
 func diskCleanHasRoot(roots []string, dir string) bool {
 	for _, root := range roots {
@@ -402,6 +464,14 @@ func diskCleanCount(n int) string {
 		return "1 item"
 	}
 	return fmt.Sprintf("%d items", n)
+}
+
+// diskCleanPathCount names a number of paths the way a row reads.
+func diskCleanPathCount(n int) string {
+	if n == 1 {
+		return "1 path"
+	}
+	return fmt.Sprintf("%d paths", n)
 }
 
 // selectedRunnable filters a plan down to the items that would actually run, so
@@ -468,7 +538,7 @@ func (m Model) diskCleanerSpace(rows []diskCleanRow) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	row := rows[m.Cursor]
-	if row.action == diskCleanActionItem {
+	if row.action == diskCleanActionItem && m.DiskClean.Phase == diskCleanList {
 		return m.toggleDiskCleanItem(row.item), nil
 	}
 	return m.diskCleanerChoose(row)
@@ -478,6 +548,9 @@ func (m Model) diskCleanerSpace(rows []diskCleanRow) (tea.Model, tea.Cmd) {
 // done about cannot be selected at all: a checkbox that does nothing would be
 // a promise the run does not keep.
 func (m Model) toggleDiskCleanItem(index int) Model {
+	if m.DiskClean.Phase != diskCleanList {
+		return m
+	}
 	if index < 0 || index >= len(m.DiskClean.Items) {
 		return m
 	}

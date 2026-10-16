@@ -272,8 +272,20 @@ func TestDiskCleanerPreviewComesBeforeAnythingRuns(t *testing.T) {
 	}
 
 	rows := m.diskCleanRows()
-	if len(rows) != 2 || rows[0].action != diskCleanActionConfirm || rows[1].action != diskCleanActionCancelPreview {
+	confirm, cancel := -1, -1
+	for index, row := range rows {
+		switch row.action {
+		case diskCleanActionConfirm:
+			confirm = index
+		case diskCleanActionCancelPreview:
+			cancel = index
+		}
+	}
+	if confirm < 0 || cancel < 0 {
 		t.Fatalf("the preview offers %v, want a confirmation and a way back", diskCleanRowLabels(rows))
+	}
+	if confirm > cancel {
+		t.Errorf("the confirmation is below the way back in %v", diskCleanRowLabels(rows))
 	}
 }
 
@@ -478,11 +490,17 @@ func TestDiskCleanerRowCountsTheWorkNotTheSelection(t *testing.T) {
 	m, _ = diskCleanerPress(t, m, "enter")
 
 	rows := m.diskCleanRows()
-	if len(rows) == 0 || rows[0].action != diskCleanActionConfirm {
+	confirm := -1
+	for index, row := range rows {
+		if row.action == diskCleanActionConfirm {
+			confirm = index
+		}
+	}
+	if confirm < 0 {
 		t.Fatalf("the preview rows are %v", diskCleanRowLabels(rows))
 	}
-	if !strings.Contains(rows[0].label, "1 item") {
-		t.Errorf("the confirmation row promises %q, want one item", rows[0].label)
+	if !strings.Contains(rows[confirm].label, "1 item") {
+		t.Errorf("the confirmation row promises %q, want one item", rows[confirm].label)
 	}
 	if len(m.DiskClean.Plan.Items) != 2 {
 		t.Fatalf("the plan holds %d items, want both selected findings", len(m.DiskClean.Plan.Items))
@@ -622,26 +640,35 @@ func TestDiskCleanerScreenStatesWhatItWillNotDo(t *testing.T) {
 }
 
 // TestDiskCleanerPreviewRendersEachCommandAndEachRefusal pins what the dry run
-// puts on screen: the exact command for a tool, the exact path for a removal, and
-// the reason for a finding the plan refuses -- with the promise that nothing has
-// run yet.
+// puts on screen: every item it is about is a row, and the card under the cursor
+// says that item's exact command, its exact path for a removal, its reason and the
+// path it covers -- or the reason nothing would run -- with the promise that
+// nothing has run yet.
 func TestDiskCleanerPreviewRendersEachCommandAndEachRefusal(t *testing.T) {
 	m, _ := diskCleanerModel(t)
-	m.Width, m.Height = 160, 70
+	m.Width, m.Height = 200, 80
 	store := filepath.Join(t.TempDir(), "store")
 	writeTestFile(t, filepath.Join(store, "data.bin"), 1024)
 
+	npm := diskclean.Item{
+		ID: "npm-cache", Tool: "npm", Title: "The npm cache", Category: diskclean.CategoryCache,
+		Risk: diskclean.RiskSafe, Reason: "npm is on PATH and its cache directory exists",
+		Detail: "the packages npm downloaded and unpacked, addressed by content",
+		Paths:  []string{filepath.Join(m.DiskClean.Probe.HomeDir, ".npm", "_cacache")},
+		Size:   diskclean.Size{Logical: 4096, Physical: 4096},
+		Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismTool, Program: "npm",
+			Args: []string{"cache", "clean", "--force"}},
+	}
+
 	m.DiskClean.Items = []diskclean.Item{
-		{
-			ID: "npm-cache", Tool: "npm", Title: "The npm cache", Risk: diskclean.RiskSafe,
-			Size:      diskclean.Size{Logical: 4096, Physical: 4096},
-			Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismTool, Program: "npm", Args: []string{"cache", "clean", "--force"}},
-		},
+		npm,
 		diskCleanRemovalItem("store", "The store", store, 1024),
 		{
 			ID: "apt-archives", Tool: "apt", Title: "The apt cache", Risk: diskclean.RiskSafe,
-			Size:      diskclean.Size{Logical: 1 << 20, Physical: 1 << 20},
-			Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismReportOnly, Reason: "apt-get is not on PATH here"},
+			Reason: "the apt archive directory exists",
+			Size:   diskclean.Size{Logical: 1 << 20, Physical: 1 << 20},
+			Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismReportOnly,
+				Reason: "apt-get is not on PATH here"},
 		},
 	}
 	m.DiskClean.Scanned = true
@@ -653,15 +680,172 @@ func TestDiskCleanerPreviewRendersEachCommandAndEachRefusal(t *testing.T) {
 		t.Fatalf("the preview did not open: %v", m.DiskClean.Phase)
 	}
 
+	checked := map[string]bool{}
+	for index, row := range m.diskCleanRows() {
+		if row.action != diskCleanActionPreviewItem {
+			continue
+		}
+		item := m.DiskClean.Items[row.item]
+		m.Cursor = index
+		view := diskCleanFlatView(m)
+
+		want := []string{"Found because"}
+		switch item.ID {
+		case "npm-cache":
+			want = append(want, "would run `npm cache clean --force`",
+				"npm is on PATH and its cache directory exists", "regenerable cache",
+				"the packages npm downloaded and unpacked", item.Paths[0])
+		case "store":
+			want = append(want, "would remove "+store+" — irreversibly")
+		case "apt-archives":
+			want = append(want, "Nothing would run for this one.",
+				"This finding is reported, not cleaned: apt-get is not on PATH here")
+		default:
+			t.Fatalf("the preview carries an item the test does not know: %s", item.ID)
+		}
+		for _, phrase := range want {
+			if !strings.Contains(view, phrase) {
+				t.Errorf("the card for %s does not say %q:\n%s", item.ID, phrase, view)
+			}
+		}
+		checked[item.ID] = true
+	}
+	if len(checked) != 3 {
+		t.Fatalf("the preview listed %d items, want all three: %v", len(checked), checked)
+	}
+
+	// The preview promises that nothing has run yet, and the row for every planned
+	// item says what the confirmation would do to it.
+	rows := diskCleanRowLabels(m.diskCleanRows())
+	joined := strings.Join(rows, " | ")
+	if !strings.Contains(joined, "would run npm cache clean --force") ||
+		!strings.Contains(joined, "would remove 1 path") ||
+		!strings.Contains(joined, "nothing would run") {
+		t.Errorf("the preview rows do not carry each item's action: %s", joined)
+	}
 	view := diskCleanFlatView(m)
-	for _, want := range []string{
-		"would run `npm cache clean --force`",
-		"would remove " + store + ", irreversibly",
-		"nothing would run. This finding is reported, not cleaned: apt-get is not on PATH here",
-		"nothing has run yet",
-	} {
+	for _, want := range []string{"Preview: nothing has run yet. 2 items would run and 1 item would not",
+		"Escape leaves this without running anything"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the preview does not say %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestDiskCleanerShowsWhyEachFindingWasFoundAndWhereItIs pins S3 on the findings
+// list: the card of the finding under the cursor names its category, its risk,
+// what it holds and where that number came from, the evidence that found it, the
+// paths or engine objects it covers, and what removing it would cost to get back
+// -- and moving the cursor moves the card.
+func TestDiskCleanerShowsWhyEachFindingWasFoundAndWhereItIs(t *testing.T) {
+	m, home := diskCleanerModel(t)
+	m.Width, m.Height = 200, 80
+
+	m.DiskClean.Items = []diskclean.Item{
+		{
+			ID: "npm-cache", Tool: "npm", Title: "The npm cache", Category: diskclean.CategoryCache,
+			Risk:   diskclean.RiskSafe,
+			Reason: "npm is on PATH and its cache directory exists",
+			Detail: "the packages npm downloaded and unpacked, addressed by content",
+			Paths:  []string{filepath.Join(home, ".npm", "_cacache")},
+			Size:   diskclean.Size{Logical: 6 << 20, Physical: 4 << 20, Files: 12},
+			Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismTool, Program: "npm",
+				Args: []string{"cache", "clean", "--force"}},
+		},
+		{
+			ID: "docker-volumes", Tool: "docker", Title: "The container volumes",
+			Category: diskclean.CategoryVolumes, Risk: diskclean.RiskDelicate,
+			Reason:          "docker is on PATH and answered `system df` for the volumes",
+			Detail:          "the volumes a container wrote: data the engine owns and may not be reproducible",
+			VolatileObjects: []string{"volumes"},
+			Size: diskclean.Size{Logical: 1 << 30, Physical: 1 << 30,
+				Source: diskclean.SourceTool, Truncated: false},
+			Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismTool, Program: "docker",
+				Args: []string{"volume", "prune", "-f"}},
+		},
+	}
+	m.DiskClean.Scanned = true
+
+	m = diskCleanerCursorOnItem(t, m, "npm-cache")
+	card := diskCleanFlatView(m)
+	for _, want := range []string{
+		"The npm cache — regenerable cache — safe to rebuild",
+		"Holds 4.0 MiB on disk, 6.0 MiB in contents, 12 files (walked).",
+		"Found because npm is on PATH and its cache directory exists.",
+		"On disk: " + filepath.Join(home, ".npm", "_cacache"),
+		"the packages npm downloaded and unpacked",
+	} {
+		if !strings.Contains(card, want) {
+			t.Errorf("the card of the npm cache does not say %q:\n%s", want, card)
+		}
+	}
+	if strings.Contains(card, "Inside the engine: volumes") {
+		t.Errorf("the npm cache card carries the container objects of another finding:\n%s", card)
+	}
+
+	m = diskCleanerCursorOnItem(t, m, "docker-volumes")
+	volumes := diskCleanFlatView(m)
+	for _, want := range []string{
+		"The container volumes — persistent volumes — delicate",
+		"Holds 1.0 GiB on disk (tool-reported): volumes.",
+		"docker is on PATH and answered `system df` for the volumes.",
+		"data the engine owns and may not be reproducible",
+	} {
+		if !strings.Contains(volumes, want) {
+			t.Errorf("the card of the volumes does not say %q:\n%s", want, volumes)
+		}
+	}
+	if strings.Contains(volumes, filepath.Join(home, ".npm", "_cacache")) {
+		t.Errorf("the volumes card carries the npm cache's path:\n%s", volumes)
+	}
+}
+
+// TestDiskCleanerCardSaysWhyAnUnmeasuredFindingIsNotAZero pins the other half of
+// the card: a store that is gone, unreadable or cut short by the walk's own
+// ceiling says so, in words, instead of being printed as an empty store.
+func TestDiskCleanerCardSaysWhyAnUnmeasuredFindingIsNotAZero(t *testing.T) {
+	m, _ := diskCleanerModel(t)
+	m.Width, m.Height = 200, 80
+
+	m.DiskClean.Items = []diskclean.Item{
+		{
+			ID: "gone", Title: "The pip cache", Category: diskclean.CategoryCache, Risk: diskclean.RiskSafe,
+			Reason: "pip is on PATH", Size: diskclean.Size{Missing: true},
+			Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismRemove},
+			Paths:     []string{"/tmp/not-there"},
+		},
+		{
+			ID: "unreadable", Title: "The Go build cache", Category: diskclean.CategoryBuild, Risk: diskclean.RiskSafe,
+			Reason:    "go is on PATH and its build cache directory exists",
+			Size:      diskclean.Size{Err: "permission denied", Physical: 0},
+			Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismRemove},
+			Paths:     []string{"/tmp/unreadable"},
+		},
+		{
+			ID: "cut-short", Title: "The Cargo cache", Category: diskclean.CategoryDownloads, Risk: diskclean.RiskSafe,
+			Reason:    "cargo is on PATH and its registry cache exists",
+			Size:      diskclean.Size{Logical: 1 << 40, Physical: 1 << 40, Truncated: true, Shared: 2},
+			Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismRemove},
+			Paths:     []string{"/tmp/cargo"},
+		},
+	}
+	m.DiskClean.Scanned = true
+
+	m = diskCleanerCursorOnItem(t, m, "gone")
+	if view := diskCleanFlatView(m); !strings.Contains(view, "Holds nothing: the store is not there any more") {
+		t.Errorf("a store that is gone is not described as gone:\n%s", view)
+	}
+
+	m = diskCleanerCursorOnItem(t, m, "unreadable")
+	if view := diskCleanFlatView(m); !strings.Contains(view, "Its size could not be measured: permission denied.") {
+		t.Errorf("an unreadable store does not carry its reason:\n%s", view)
+	}
+
+	m = diskCleanerCursorOnItem(t, m, "cut-short")
+	view := diskCleanFlatView(m)
+	for _, want := range []string{"lower bound rather than the whole store", "counted once and listed here as shared"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("a walk cut short does not say %q:\n%s", want, view)
 		}
 	}
 }
@@ -711,9 +895,15 @@ func TestDiskCleanerResultsRenderEachOutcomeAndTheFilesystemNumber(t *testing.T)
 
 // diskCleanRemovalItem is a finding that removes a directory, with the path the
 // guard is asked to approve.
+// diskCleanRemovalItem is a finding of the plainest kind: a directory the scan
+// found, sized by walking it, removable directly. It carries a reason and a detail
+// because every real finding does, and the card renders them.
 func diskCleanRemovalItem(id, title, path string, size int64) diskclean.Item {
 	return diskclean.Item{
 		ID: id, Title: title, Risk: diskclean.RiskSafe, Paths: []string{path},
+		Category:  diskclean.CategoryCache,
+		Reason:    "the scan found this directory, and the test named it",
+		Detail:    "data the owning tool can build again",
 		Size:      diskclean.Size{Logical: size, Physical: size},
 		Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismRemove},
 	}

@@ -2,15 +2,15 @@
    Utilities                                                                    
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Development caches                                                            
-  Development caches looks at the caches, downloads, build directories,         
-  dependency trees and container stores of the development tools this machine   
-  actually has -- a tool is named only when a program on the PATH, an           
-  environment variable or an existing directory says it is used here. Every     
-  … and 39 more                                                                 
+  The npm cache — regenerable cache — safe to rebuild                           
+  Holds 900.0 MiB on disk, 1.0 GiB in contents, 4213 files (walked).            
+  Found because npm is on PATH and its cache directory exists.                  
+  On disk: /home/testuser/.npm/_cacache                                         
+  … and 45 more                                                                 
                                                                                 
-  ▸ Scan again                                                                  
+    Scan again                                                                  
   ────────────────────────────────────────────────────────────────────────────  
-    [x] The npm cache — 900.0 MiB — safe to rebuild                             
+  ▸ [x] The npm cache — 900.0 MiB — safe to rebuild                             
     [ ] The Go build cache — 640.0 MiB — safe to rebuild                        
     [ ] node_modules in /home/testuser/projects/app — 200.0 MiB — costs a re-…  
     [x] The container volumes — 500.0 MiB (tool-reported) — delicate — shares…  

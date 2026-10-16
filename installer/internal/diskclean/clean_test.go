@@ -136,6 +136,62 @@ func TestCleanRemovesWhatTheGuardApprovedAndReportsTheRelease(t *testing.T) {
 	}
 }
 
+// TestCleanNeverUnlinksAnEngineOrManagerStore pins the rule that protects the
+// engines and the package managers: even when their stores are selected and
+// planned, nothing inside them is unlinked by this package -- the owner's own
+// command runs, or the finding is reported, and the store is left standing for
+// the owner to maintain.
+func TestCleanNeverUnlinksAnEngineOrManagerStore(t *testing.T) {
+	probe := withPrograms(testProbe(t), "docker")
+	engineStore := filepath.Join(t.TempDir(), "docker")
+	writeTestFile(t, filepath.Join(engineStore, "image", "layer.bin"), 8192)
+	archives := filepath.Join(t.TempDir(), "archives")
+	writeTestFile(t, filepath.Join(archives, "pkg.deb"), 4096)
+
+	var ranProgram string
+	probe.Run = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		ranProgram = name + " " + strings.Join(args, " ")
+		return []byte("Deleted Images:\nTotal reclaimed space: 1GB\n"), nil
+	}
+
+	items := []Item{
+		{
+			ID: "docker-store", Tool: "docker", Title: "The Docker store",
+			Paths:           []string{engineStore},
+			VolatileObjects: []string{"images", "containers"},
+			Mechanism:       Mechanism{Kind: MechanismTool, Program: "docker", Args: []string{"image", "prune", "-f"}},
+		},
+		{
+			ID: "apt-archives", Tool: "apt", Title: "The apt cache",
+			Paths:     []string{archives},
+			Mechanism: Mechanism{Kind: MechanismReportOnly, Reason: "apt-get is not on PATH here"},
+		},
+	}
+	remover := newRecordingRemover(probe)
+	recording := remover.install()
+	guard := GuardFor(recording, items)
+	report := Clean(context.Background(), recording, guard, BuildPlan(items, guard), CleanOptions{})
+
+	if ranProgram != "docker image prune -f" {
+		t.Fatalf("the engine's own command ran as %q, want docker image prune -f", ranProgram)
+	}
+	for _, path := range remover.order {
+		t.Errorf("a store owned by an engine or a manager was unlinked directly: %s", path)
+	}
+	if _, err := os.Lstat(filepath.Join(engineStore, "image", "layer.bin")); err != nil {
+		t.Errorf("the engine's store was touched outside its own command: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(archives, "pkg.deb")); err != nil {
+		t.Errorf("a finding with no mechanism had something removed: %v", err)
+	}
+	if report.Results[1].Ran {
+		t.Errorf("the report-only finding claims it ran: %+v", report.Results[1])
+	}
+	if report.FreedMeasured && report.FreedBytes > 0 {
+		t.Errorf("the run claims the filesystem released %d bytes while nothing was removed", report.FreedBytes)
+	}
+}
+
 // TestCleanRefusesAPathReplacedAfterThePlan pins the TOCTOU guard at the last
 // moment: the plan approved a directory, the unlink meets a link, and nothing
 // is removed.

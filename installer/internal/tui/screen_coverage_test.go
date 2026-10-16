@@ -686,30 +686,43 @@ func diskCleanerFrameCase(t *testing.T) Model {
 				ID: "npm-cache", Tool: "npm", Title: "The npm cache", Category: diskclean.CategoryCache,
 				Risk:   diskclean.RiskSafe,
 				Reason: "npm is on PATH and its cache directory exists",
-				Size:   diskclean.Size{Logical: 1 << 30, Physical: 900 << 20},
+				Detail: "the packages npm downloaded and unpacked, addressed by content; removing it means downloading them again",
+				Paths:  []string{"/home/testuser/.npm/_cacache"},
+				Size:   diskclean.Size{Logical: 1 << 30, Physical: 900 << 20, Files: 4213},
 			},
 			{
 				ID: "go-build-cache", Tool: "go", Title: "The Go build cache", Category: diskclean.CategoryBuild,
-				Risk: diskclean.RiskSafe,
-				Size: diskclean.Size{Logical: 700 << 20, Physical: 640 << 20, Truncated: true},
+				Risk:   diskclean.RiskSafe,
+				Reason: "go is on PATH and its build cache directory exists",
+				Detail: "compiled package archives and test results; the next build compiles them again",
+				Paths:  []string{"/home/testuser/.cache/go-build"},
+				Size:   diskclean.Size{Logical: 700 << 20, Physical: 640 << 20, Truncated: true},
 			},
 			{
 				ID: "project-node_modules", Tool: "npm", Title: "node_modules in /home/testuser/projects/app",
 				Category: diskclean.CategoryDependencies, Risk: diskclean.RiskCareful,
 				Roots:  []string{"/home/testuser/projects"},
+				Paths:  []string{"/home/testuser/projects/app/node_modules"},
 				Size:   diskclean.Size{Logical: 200 << 20, Physical: 200 << 20},
 				Reason: "the project directory was added to the scope and its manifest is there",
+				Detail: "the dependencies of one project; an install downloads them again",
 			},
 			{
 				ID: "docker-volumes", Tool: "docker", Title: "The container volumes", Category: diskclean.CategoryVolumes,
-				Risk:      diskclean.RiskDelicate,
-				Size:      diskclean.Size{Logical: 500 << 20, Physical: 500 << 20, Source: diskclean.SourceTool},
-				Overlaps:  []string{"docker-images"},
-				Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismTool, Program: "docker", Args: []string{"volume", "prune", "-f"}},
+				Risk:            diskclean.RiskDelicate,
+				Reason:          "docker is on PATH and answered `system df` for the volumes",
+				Detail:          "the volumes a container wrote: data the engine owns, which may not be reproducible",
+				VolatileObjects: []string{"volumes"},
+				Size:            diskclean.Size{Logical: 500 << 20, Physical: 500 << 20, Source: diskclean.SourceTool},
+				Overlaps:        []string{"docker-images"},
+				Mechanism:       diskclean.Mechanism{Kind: diskclean.MechanismTool, Program: "docker", Args: []string{"volume", "prune", "-f"}},
 			},
 			{
 				ID: "apt-archives", Tool: "apt", Title: "The apt package cache", Category: diskclean.CategoryDownloads,
 				Risk:      diskclean.RiskSafe,
+				Reason:    "the apt archives directory exists, but apt-get is not on PATH here",
+				Detail:    "downloaded package archives; apt downloads them again when it needs them",
+				Paths:     []string{"/var/cache/apt/archives"},
 				Size:      diskclean.Size{Logical: 120 << 20, Physical: 120 << 20},
 				Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismReportOnly, Reason: "apt-get is not on PATH, so its cache cannot be cleaned from here"},
 			},
@@ -717,8 +730,10 @@ func diskCleanerFrameCase(t *testing.T) Model {
 	}
 	// The notice is left empty on purpose: this fixture is a machine that has
 	// scanned and then marked two rows, and the scan's own line ("nothing is
-	// selected") would contradict the checkboxes the guards are measuring.
-	m.Cursor = 0
+	// selected") would contradict the checkboxes the guards are measuring. The
+	// cursor sits on the first finding, which is where a scan leaves it and where
+	// the card of that finding is part of what the guards measure.
+	m.Cursor = m.diskCleanFirstItemCursor()
 	return m
 }
 
