@@ -683,7 +683,11 @@ func (m Model) contextHeadline() string {
 		return string(m.updateChannel()) + " channel"
 	case choiceUtilities:
 		if !m.ThemeSwitchFound {
-			return ""
+			// The section is more than the desktop switch. With no switch detected it
+			// still carries the dotfiles theme, the WSL resources, the shell's
+			// startup report, the install check and the terminal report, so a blank
+			// summary said the row opened nothing.
+			return "the machine's own settings"
 		}
 		return m.ThemeSwitch.Name + " theme switch"
 	case choiceExit:
@@ -1142,6 +1146,18 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		value:   shellAuditPanelValue(m.ShellAudit),
 		absent:  "The shell's startup is not measurable here.",
 		offered: m.ShellAudit.Available,
+	})
+
+	// The section's utilitiesVerifyRow. The check is read-only and offered
+	// everywhere, so the panel always names it: before the screen has been opened
+	// the value says so rather than answering with a fact nobody established, and
+	// afterwards it is the verdict's own count. Nothing here reads the record -- a
+	// panel is drawn on every keypress -- which is why the value comes from the
+	// model's verdict and not from the state file.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Install check",
+		value:   installVerifyPanelValue(m.InstallVerify),
+		offered: true,
 	})
 
 	// The section's utilitiesTerminalRow. The report is read-only and offered

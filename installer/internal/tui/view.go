@@ -487,7 +487,7 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate:
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenInstallVerify:
 		return true
 	}
 	return false
@@ -555,6 +555,9 @@ func (m Model) headerName() string {
 		return "Utilities"
 	case ScreenShellAudit:
 		// The shell's startup screen is one level in from the same section.
+		return "Utilities"
+	case ScreenInstallVerify:
+		// The verification screen is one level in from the same section.
 		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
@@ -1104,6 +1107,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenInstallVerify:
+		s.WriteString(m.renderInstallVerify())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1663,14 +1668,17 @@ func (m Model) dotfilesThemesPending() bool {
 // it does not. The rows are the data the user came for, so each is named in the
 // order it appears and the prose stays short enough to leave them on screen: a
 // wall of paragraphs above a list pushed the list and its own explanations past
-// the cut. The file it names is the installer's own record; the desktop's store
-// belongs to the desktop's tool.
+// the cut. Adding a fifth job is what made that budget real -- at the 80-column
+// floor the longer sentences this description used to carry no longer fit -- so
+// each line now names its job and leaves the detail to the screen that job opens,
+// where there is room for it. The file it names is the installer's own record; the
+// desktop's store belongs to the desktop's tool.
 func (m Model) utilitiesDescription() []string {
 	var paragraphs []string
 	if !m.ThemeSwitchFound {
 		paragraphs = append(paragraphs,
-			"No desktop theme switch is available here: switching needs a GNOME, KDE Plasma or macOS "+
-				"session with the theme tool on PATH, and this host has none.")
+			"No desktop theme switch is available here: it needs a GNOME, KDE Plasma or macOS session with "+
+				"its own theme tool.")
 	} else {
 		paragraphs = append(paragraphs, fmt.Sprintf(
 			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
@@ -1685,8 +1693,7 @@ func (m Model) utilitiesDescription() []string {
 	switch {
 	case len(m.DotfilesThemes) > 0:
 		paragraphs = append(paragraphs, fmt.Sprintf(
-			"%s opens the list of complete themes; each names the tools it cannot paint, and a theme is "+
-				"applied only when one is chosen there.", utilitiesThemeRow))
+			"%s opens the list of complete themes.", utilitiesThemeRow))
 	case m.dotfilesThemesPending():
 		// The definitions are read when the section opens, so an empty list with
 		// no recorded failure is a read in flight, not a verdict. The section says
@@ -1698,6 +1705,18 @@ func (m Model) utilitiesDescription() []string {
 		if reason == "" {
 			reason = themeDefinitionsNotFoundMessage()
 		}
+		// The row is offered when there are definitions OR when there is a record
+		// to put back, so this branch is reached in the one state where the row is
+		// still there with nothing to apply: the list cannot be read, and the undo
+		// the record names can still be offered. "Not switchable" would deny the
+		// row the list below it draws, which is the contradiction this sentence is
+		// worded from the row's own condition to avoid.
+		if m.DotfilesThemeRecord != nil {
+			paragraphs = append(paragraphs, fmt.Sprintf(
+				"The dotfiles' theme definitions cannot be read here (%s), so no theme can be applied; "+
+					"the change the record names can still be undone.", reason))
+			break
+		}
 		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
 	}
 
@@ -1707,23 +1726,28 @@ func (m Model) utilitiesDescription() []string {
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
 		paragraphs = append(paragraphs, reason)
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s shows the memory, processors and swap %s holds "+
-			"today, recommends values from this host, and writes back only the keys the template manages.",
+		paragraphs = append(paragraphs, fmt.Sprintf("%s shows what %s holds today.",
 			utilitiesWSLRow, m.WSLState.Path))
 	}
 
 	if reason := m.shellAuditUnavailableReason(); reason != "" {
 		paragraphs = append(paragraphs, reason)
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s runs %s several times and reports the median with "+
-			"the range; it changes nothing.", utilitiesShellAuditRow, m.ShellAudit.Command))
+		paragraphs = append(paragraphs, fmt.Sprintf("%s times %s; it changes nothing.",
+			utilitiesShellAuditRow, m.ShellAudit.Command))
 	}
 
 	// The terminal capability report. It is read-only and offered everywhere;
 	// where there is no terminal to read, the screen itself says so rather than
 	// the section leaving a hole. Naming it here is what makes the row findable.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s reads the colour depth, OSC 52, synchronized "+
-		"output and the Nerd Font glyphs, and names the source of every answer.", utilitiesTerminalRow))
+	paragraphs = append(paragraphs, fmt.Sprintf(
+		"%s reads the colour depth and OSC 52.", utilitiesTerminalRow))
+
+	// The record of the last install. It is read-only and offered everywhere for
+	// the same reason: the screen itself says when there is no record, so the
+	// section never leaves a hole where a utility should be, and it never promises
+	// more than presence -- the record holds no digest.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s reports which recorded paths are gone.", utilitiesVerifyRow))
 
 	return paragraphs
 }
@@ -1835,6 +1859,12 @@ const utilitiesWSLRow = "Adjust the WSL resources"
 // It is offered everywhere -- there is always a terminal to describe, and where
 // there is none the screen says so -- and it is read-only.
 const utilitiesTerminalRow = "Report the terminal capabilities"
+
+// utilitiesVerifyRow is the section's row for the record of the last install,
+// checked against this machine. It is offered everywhere -- there is always a
+// machine to compare with the record, and where there is no record the screen
+// says exactly that -- and it is read-only, like the report beside it.
+const utilitiesVerifyRow = "Check the machine against the last install"
 
 // The rows the arrow keys act on. The indices are part of the screen's contract:
 // the key handler adjusts the value under the cursor by its index, and the frame
@@ -1958,8 +1988,7 @@ func (m Model) wslResourcesUnavailableReason() string {
 		if m.SystemInfo != nil && m.SystemInfo.OSName != "" {
 			host = m.SystemInfo.OSName
 		}
-		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file read only by WSL, and %s does not run it. "+
-			"The utility is offered only on a WSL host.", host)
+		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file, and %s is not WSL.", host)
 	}
 	if !m.WSLState.Resolved {
 		return "WSL resources are not adjustable here yet: reading the Windows profile and the host's capacities."

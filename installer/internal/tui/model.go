@@ -137,6 +137,14 @@ const (
 	ScreenLearnTooling // What the shell step installs, and what uses it
 	ScreenLearnPlugins // The plugin set the run provisions, and what manages it
 	ScreenLearnToolset // The Brewfile directives, and what the run does with each
+	// The record of the last install, checked against this machine. Appended at
+	// the end for the same reason as the screens above, and reached from the
+	// utilities section's own row. It reports, for every path and backup the
+	// record names, whether the machine still has it -- from the one walk of the
+	// record the command line's --verify prints -- and says plainly that the record
+	// names no digest, so presence is all it can establish. It is read-only:
+	// nothing is written, no copy is restored and no path is removed.
+	ScreenInstallVerify // Is this machine still what the last install left
 )
 
 // InstallStep represents a single installation step
@@ -483,6 +491,12 @@ type Model struct {
 	// resolved once, here; the measurement runs only when the row is pressed,
 	// because starting the user's shell five times is not a render.
 	ShellAudit shellAuditState
+	// InstallVerify is what the last-install utility draws: the record of the last
+	// completed run checked against this machine. The check is a command, armed
+	// only when the screen is opened -- never at startup -- because it states the
+	// paths the record names and a render must not touch the filesystem; the
+	// verdict is stored here so a redraw never re-reads the machine.
+	InstallVerify installVerifyState
 	// UpdateCheck is what the installer knows about the latest published release:
 	// the tag, when it was read, and the reason it could not be read. The cached
 	// record is loaded on the startup path, so a start never waits on the network;
@@ -871,6 +885,12 @@ func (m Model) GetCurrentOptions() []string {
 		if m.ShellAudit.Available {
 			utilities = append(utilities, utilitiesShellAuditRow)
 		}
+		// The verification is read-only and offered everywhere for the same reason:
+		// there is always a machine to compare with the record, and where there is no
+		// record the screen's own body says exactly that rather than the row being
+		// silently absent. It sits above the terminal report so the capability row
+		// stays last, where a short frame cannot have it displace a utility above it.
+		utilities = append(utilities, utilitiesVerifyRow)
 		// The terminal capability report is read-only and offered everywhere: there
 		// is always a terminal to describe, and where there is not one the screen's
 		// own body says so rather than the row being silently absent.
@@ -892,6 +912,10 @@ func (m Model) GetCurrentOptions() []string {
 		return m.updateRows()
 	case ScreenTerminalCapabilities:
 		// The report is read-only: there is nothing to select, only the way back.
+		return []string{"← Back"}
+	case ScreenInstallVerify:
+		// The verification is read-only too: there is nothing to select and
+		// nothing to write, only the way back.
 		return []string{"← Back"}
 	case ScreenShellAudit:
 		return m.shellAuditRows()
@@ -1186,6 +1210,8 @@ func (m Model) GetScreenTitle() string {
 		return "Terminal capabilities"
 	case ScreenShellAudit:
 		return "The shell's startup"
+	case ScreenInstallVerify:
+		return "The last install"
 	case ScreenUpdate:
 		return "Updates"
 	default:
@@ -1246,6 +1272,8 @@ func (m Model) GetScreenDescription() string {
 		return "Includes LSP, TreeSitter, and dotfiles config"
 	case ScreenGhosttyWarning:
 		return "Ghostty installation may fail on Ubuntu/Debian.\nThe installer script only supports certain versions."
+	case ScreenInstallVerify:
+		return "Every path and backup the record of the last install names, checked against this machine"
 	default:
 		return ""
 	}

@@ -1683,6 +1683,7 @@ var screenNames = map[Screen]string{
 	ScreenLearnTooling:         "LearnTooling",
 	ScreenLearnPlugins:         "LearnPlugins",
 	ScreenLearnToolset:         "LearnToolset",
+	ScreenInstallVerify:        "InstallVerify",
 }
 
 func (s Screen) String() string {

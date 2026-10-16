@@ -786,13 +786,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case themeRecordLoadedMsg:
 		// The theme record follows the same rule as the last-install one: the
-		// startup read fills a model the writer did not already fill.
+		// startup read fills a model the writer did not already fill. The undo row
+		// it can add is inserted above the section's other rows, so the cursor is
+		// held by label here too.
+		held := m.selectedOption()
 		if m.ThemeRecord == nil {
 			m.ThemeRecord = msg.record
 		}
 		if m.DotfilesThemeRecord == nil {
 			m.DotfilesThemeRecord = msg.dotfiles
 		}
+		m.holdCursorOn(held)
 		// The record names the theme the run wears; the definitions are what turns
 		// that name into chrome. A run that opens with a theme applied reads them
 		// here, so the first frame is already painted rather than the utilities
@@ -821,9 +825,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.DotfilesThemesErr = msg.err.Error()
 			return m, nil
 		}
+		// The theme row is inserted at the TOP of the section's list, above every
+		// row the user could already see, so the index the cursor holds no longer
+		// names the row it was on. The label is kept and re-found, exactly as the
+		// main menu does when the Restore row arrives: the read is armed when the
+		// section opens, so the first frame is always drawn without it.
+		held := m.selectedOption()
 		m.DotfilesThemes = msg.themes
 		m.DotfilesRepoDir = msg.repoDir
 		m.DotfilesThemesErr = ""
+		m.holdCursorOn(held)
 		return m, nil
 
 	case terminalCapabilityMsg:
@@ -831,6 +842,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// protect and no write to refresh from; the first answer is the answer.
 		if !m.TerminalCapabilities.Resolved {
 			m.TerminalCapabilities = msg.caps
+		}
+		return m, nil
+
+	case installVerifyMsg:
+		// The verdict is filled once, by the same rule: the check is read-only, so
+		// the first answer is the answer and a return to the screen does not stat
+		// the machine again.
+		if !m.InstallVerify.Resolved {
+			m.InstallVerify = installVerifyState{Resolved: true, Verdict: msg.verdict}
 		}
 		return m, nil
 
@@ -891,7 +911,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the values the write just changed -- so it is accepted too, and the state
 		// it brings clears the refreshing mark by not carrying one.
 		if !m.WSLState.Resolved || m.WSLState.Refreshing {
+			// The WSL row is inserted above the section's read-only rows when the
+			// answer says there is a .wslconfig to edit, and the read is armed when
+			// the section opens, so the row arrives under a cursor that was placed
+			// on the rows already there. The label is kept and re-found.
+			held := m.selectedOption()
 			m.WSLState = msg.state
+			m.holdCursorOn(held)
 		}
 		return m, nil
 
@@ -1404,6 +1430,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
 
+	case ScreenInstallVerify:
+		return m.handleInstallVerifyKeys(key)
+
 	case ScreenUpdate:
 		return m.handleUpdateKeys(key)
 
@@ -1554,6 +1583,11 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// nothing: a measurement that is still running writes its answer onto the
 		// model regardless, which is what keeps the number from being lost because
 		// the user stepped back while it ran.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+	case ScreenInstallVerify:
+		// The verification screen is one level in as well, and read-only: leaving
+		// it cancels nothing, because nothing it does is a change.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	case ScreenUpdate:
@@ -1783,7 +1817,8 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// other main-menu keys, like `vim`.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
-		m.ThemeNotice = ""
+		// Not cleared, for the reason the row's own case states: the outcome of a
+		// switch that failed while the user was away has to survive the way back in.
 		return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
 	case "enter", " ":
 		selected := options[m.Cursor]
@@ -1842,7 +1877,11 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// user finds it, the key is the shortcut for someone who has.
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
-			m.ThemeNotice = ""
+			// The notice is deliberately NOT cleared here. A switch is bounded by
+			// themeCommandTimeout and its failure is the slow outcome, so a user who
+			// steps away before it lands would have the one result they must see
+			// erased by the act of coming back to read it. Leaving the section still
+			// clears it, which is where the user has already read it.
 			return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
 		case strings.Contains(selected, "Restore from Backup") && hasRestoreOption:
 			m.Screen = ScreenRestoreBackup
@@ -1911,6 +1950,13 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenWSLResources
 			m.Cursor = 0
 			m.WSLNotice = ""
+		case selected == utilitiesVerifyRow:
+			// The verification is one level in as well, and it is the check that runs
+			// off the update loop: the record and the paths it names are stated here,
+			// and a keypress must not wait on them.
+			m.Screen = ScreenInstallVerify
+			m.Cursor = 0
+			return m, m.installVerifyCmdIfNeeded()
 		case selected == utilitiesTerminalRow:
 			// The capability report is one level in as well, and it is read-only.
 			// The probe is armed here -- when the user opens the screen, never at
