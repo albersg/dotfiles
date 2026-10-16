@@ -467,6 +467,6 @@ func getRegexBoss() *BossExercise {
 				TimeLimit: 45,
 			},
 		},
-		BonusTime: 120,
+		BonusTime: 45,
 	}
 }

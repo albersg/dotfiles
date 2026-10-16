@@ -63,10 +63,10 @@ func TestTheSelectVisibleRowTakesTheCategoryTheFilterShows(t *testing.T) {
 	}
 
 	// The same row now reads as the way back, and puts the category down. The check
-	// is indexOfRow: hasRowWithName answers about entry rows, which is a different
+	// is updateCenterIndexOfRow: hasRowWithName answers about entry rows, which is a different
 	// question from whether an action row is on screen.
 	dropRow := updateCenterDropVisibleRowPrefix + "2 shown)"
-	if indexOfRow(m.GetCurrentOptions(), dropRow) < 0 {
+	if updateCenterIndexOfRow(m.GetCurrentOptions(), dropRow) < 0 {
 		t.Fatalf("the category row does not say it would put the category back: %v", m.GetCurrentOptions())
 	}
 	m, _ = pressUpdateCenterRow(t, m, dropRow)

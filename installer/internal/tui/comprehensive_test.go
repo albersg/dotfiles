@@ -93,12 +93,18 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 		{ScreenLearnShells, 4},
 		{ScreenLearnWM, 3},
 		{ScreenLearnNvim, 4},
+		{ScreenLearnTools, 5},
+		{ScreenLearnPrompts, 4},
+		// The reference menu offers every tool it has a page for: the eight rows plus
+		// the separator and Back.
+		{ScreenKeymapsMenu, 10},
+		{ScreenKeymapsKitty, 4},
 		{ScreenKeymaps, 3},
 		{ScreenLearnLazyVim, 3},
-		// The review screen lists one row per catalogued unit, so its count is the
-		// catalogue's own length rather than a number written here: a unit added to the
-		// table cannot leave this guard behind.
-		{ScreenInstallReview, len(installUnits)},
+		// The review screen lists the run's plan grouped by area, so its count is
+		// the plan's own: a negative minimum asks the loop to derive it from the
+		// model rather than writing a number here that the catalogue could move.
+		{ScreenInstallReview, -1},
 	}
 
 	for _, tc := range screens {
@@ -107,9 +113,13 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 			m.Screen = tc.name
 			m.Choices.OS = "mac" // For terminal options
 
+			minLen := tc.minLen
+			if minLen < 0 {
+				minLen = len(planFor(m.planOptions()))
+			}
 			opts := m.GetCurrentOptions()
-			if len(opts) < tc.minLen {
-				t.Errorf("Expected at least %d options, got %d: %v", tc.minLen, len(opts), opts)
+			if len(opts) < minLen {
+				t.Errorf("Expected at least %d options, got %d: %v", minLen, len(opts), opts)
 			}
 		})
 	}
@@ -223,6 +233,11 @@ func TestGetScreenTitleForAllScreens(t *testing.T) {
 		ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm,
 		ScreenInstalling, ScreenComplete, ScreenError,
 		ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim,
+		ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts,
+		ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset,
+		ScreenKeymaps, ScreenKeymapCategory, ScreenKeymapsMenu,
+		ScreenKeymapsKitty, ScreenKeymapsKittyCat,
+		ScreenKeymapsWezTerm, ScreenKeymapsAlacritty,
 		ScreenKeymaps, ScreenKeymapCategory, ScreenLearnLazyVim, ScreenLazyVimTopic,
 	}
 
@@ -541,6 +556,9 @@ func TestEscapeKeyBehavior(t *testing.T) {
 		// ScreenKeymapsMenu uses PrevScreen to go back to MainMenu
 		{ScreenKeymapsMenu, ScreenMainMenu, ScreenMainMenu},
 		{ScreenLearnLazyVim, ScreenMainMenu, ScreenMainMenu},
+		// The hub is the main menu's row into the wiki, so leaving it goes back
+		// there rather than to the page it replaced.
+		{ScreenLearnTools, ScreenMainMenu, ScreenMainMenu},
 	}
 
 	for _, tc := range testCases {
@@ -722,6 +740,9 @@ func TestMainMenuToStartInstallation(t *testing.T) {
 	}
 }
 
+// TestMainMenuToLearnTools holds the main menu's own Learn row to the hub. The
+// row used to open the terminal list directly, which left the shell, multiplexer
+// and Neovim pages reachable only from inside an installation run.
 func TestMainMenuToLearnTools(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenMainMenu
@@ -730,11 +751,22 @@ func TestMainMenuToLearnTools(t *testing.T) {
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	newModel := result.(Model)
 
-	if newModel.Screen != ScreenLearnTerminals {
-		t.Errorf("Expected ScreenLearnTerminals, got %v", newModel.Screen)
+	if newModel.Screen != ScreenLearnTools {
+		t.Errorf("Expected ScreenLearnTools, got %v", newModel.Screen)
 	}
 	if newModel.PrevScreen != ScreenMainMenu {
 		t.Error("PrevScreen should be MainMenu")
+	}
+
+	// The terminal page is still one Enter away, and its way back is the hub, not
+	// the main menu.
+	opened, _ := newModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	page := opened.(Model)
+	if page.Screen != ScreenLearnTerminals {
+		t.Errorf("the hub's first row should open ScreenLearnTerminals, got %v", page.Screen)
+	}
+	if page.PrevScreen != ScreenLearnTools {
+		t.Errorf("the terminal page should come back to the hub, PrevScreen = %v", page.PrevScreen)
 	}
 }
 
@@ -1606,13 +1638,14 @@ func TestInitReturnsCommands(t *testing.T) {
 // SCREEN STRING REPRESENTATION (for debugging)
 // =============================================================================
 
-// screenDisplayNames names every Screen constant. It is a map rather than the
-// slice this used to be: the slice was indexed by the constant's value, so a
-// screen added in the middle of model.go silently renamed every screen after it,
-// and the constants the slice did not reach printed "Unknown" -- which is how the
-// update center first appeared in a failing guard's message. A name that is
-// missing here is a gap the coverage guard now refuses to let pass.
-var screenDisplayNames = map[Screen]string{
+// screenNames names every Screen constant, for the failure messages of the tests
+// in this package. It is a map rather than a slice indexed by the constant's
+// value: a slice made a name a matter of counting, so a screen inserted above
+// another one was renamed after its neighbour and the newest ones printed as
+// "Unknown" in exactly the messages that were supposed to name them.
+// TestEveryDeclaredScreenHasAName fails by name when a constant is added without
+// an entry here.
+var screenNames = map[Screen]string{
 	ScreenWelcome:              "Welcome",
 	ScreenMainMenu:             "MainMenu",
 	ScreenOSSelect:             "OSSelect",
@@ -1651,6 +1684,10 @@ var screenDisplayNames = map[Screen]string{
 	ScreenTrainerBossResult:    "TrainerBossResult",
 	ScreenKeymapsHerdr:         "KeymapsHerdr",
 	ScreenKeymapsHerdrCat:      "KeymapsHerdrCat",
+	ScreenKeymapsKitty:         "KeymapsKitty",
+	ScreenKeymapsKittyCat:      "KeymapsKittyCat",
+	ScreenKeymapsWezTerm:       "KeymapsWezTerm",
+	ScreenKeymapsAlacritty:     "KeymapsAlacritty",
 	ScreenUtilities:            "Utilities",
 	ScreenThemePicker:          "ThemePicker",
 	ScreenWSLResources:         "WSLResources",
@@ -1659,12 +1696,35 @@ var screenDisplayNames = map[Screen]string{
 	ScreenUpdate:               "Update",
 	ScreenAdminPassword:        "AdminPassword",
 	ScreenInstallReview:        "InstallReview",
-	ScreenSetup:                "Setup",
-	ScreenUpdateCenter:         "UpdateCenter",
+	ScreenLearnTools:           "LearnTools",
+	ScreenLearnFont:            "LearnFont",
+	ScreenLearnPrompts:         "LearnPrompts",
+	ScreenLearnTooling:         "LearnTooling",
+	ScreenLearnPlugins:         "LearnPlugins",
+	ScreenLearnToolset:         "LearnToolset",
+	ScreenInstallVerify:        "InstallVerify",
+	// ScreenSetup is the last screen main's merge declared: it went after the screens
+	// above, so its name belongs here in the same order, and the guard that reads this
+	// map is what said so rather than a guess about where the line should go.
+	ScreenSetup: "Setup",
+	// The update center is declared after ScreenSetup and before the network
+	// diagnosis: the section's eighth destination, named here in the order model.go
+	// declares it.
+	ScreenUpdateCenter: "UpdateCenter",
+	// The network diagnosis is declared after ScreenSetup and is the last screen the
+	// enum holds: the same guard named it, and its name belongs in the same order.
+	ScreenNetworkDiagnostics: "NetworkDiagnostics",
+	// The WSL performance advisor and its two assistants are declared after the
+	// network diagnosis: the guard named them too, so they follow it in the same
+	// order -- the report and the reading state it shows before the facts land, the
+	// measurement screen, and the assisted copy.
+	ScreenWSLAdvisor:   "WSLAdvisor",
+	ScreenWSLBenchmark: "WSLBenchmark",
+	ScreenWSLMigration: "WSLMigration",
 }
 
 func (s Screen) String() string {
-	if name, ok := screenDisplayNames[s]; ok {
+	if name, ok := screenNames[s]; ok {
 		return name
 	}
 	return "Unknown"

@@ -389,6 +389,9 @@ func getChangeRepeatBoss() *BossExercise {
 		Module: ModuleChangeRepeat,
 		Name:   "The Change Master",
 		Lives:  3,
+		// A won step grants the next one this much extra: without it a win streak
+		// bought nothing, which made the fight's only reward the score.
+		BonusTime: 30,
 		Steps: []BossStep{
 			{
 				Exercise: Exercise{

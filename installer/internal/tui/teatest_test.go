@@ -1028,6 +1028,21 @@ func TestUtilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
 }
 
+// TestWSLAdvisorGolden pins the performance advisor's report at the 80x24 floor: the environment it
+// read, the findings ordered by severity with the one under the cursor opened out beside them, the
+// two rows that act and the way back. The reading is the advisor's own fixture -- a WSL instance whose
+// working directory is a project on the Windows host -- so the snapshot is the screen this repository
+// ships, not the machine that rendered it. It is the screen with the most prose in the installer, and
+// a snapshot is what catches a body that has become a wall of it.
+func TestWSLAdvisorGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
+}
+
 // TestWSLResourcesGolden pins the WSL resource screen on a WSL host: the
 // recommendation from the host's own capacity, the values the file holds, the
 // draft, the write row and the way back. The host and the file are forced, so the
@@ -1065,6 +1080,20 @@ func TestTerminalCapabilitiesGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Terminal capabilities"))
+}
+
+// TestNetworkDiagnosticsGolden pins the diagnosis screen: the verdict naming the
+// stage that stopped it, one row per check carrying its own status word, and the
+// detail of the step under the cursor with its evidence, its cause and the
+// command to run by hand. The report is forced rather than dialled, so the frame
+// does not become a snapshot of the network the runner happened to be on.
+func TestNetworkDiagnosticsGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := networkDiagnosticsFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Network diagnostics"))
 }
 
 // TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
@@ -1764,6 +1793,22 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m := base(ScreenLearnNvim)
 		m.ViewingTool = "features"
 		return m
+	case "learn-tools":
+		return base(ScreenLearnTools)
+	case "learn-font":
+		return base(ScreenLearnFont)
+	case "learn-prompts":
+		return base(ScreenLearnPrompts)
+	case "learn-prompts-info":
+		m := base(ScreenLearnPrompts)
+		m.ViewingTool = "powerlevel10k"
+		return m
+	case "learn-tooling":
+		return base(ScreenLearnTooling)
+	case "learn-plugins":
+		return base(ScreenLearnPlugins)
+	case "learn-toolset":
+		return base(ScreenLearnToolset)
 	case "keymaps":
 		return base(ScreenKeymaps)
 	case "keymap-category":
@@ -1786,6 +1831,14 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return base(ScreenKeymapsHerdr)
 	case "keymaps-herdr-category":
 		return base(ScreenKeymapsHerdrCat)
+	case "keymaps-kitty":
+		return base(ScreenKeymapsKitty)
+	case "keymaps-kitty-category":
+		return base(ScreenKeymapsKittyCat)
+	case "keymaps-wezterm":
+		return base(ScreenKeymapsWezTerm)
+	case "keymaps-alacritty":
+		return base(ScreenKeymapsAlacritty)
 	case "keymaps-herdr-long-keys":
 		// The category with a binding wider than a quarter of the frame, so the
 		// guard covers the widened keys column as well as the default one.
@@ -1862,6 +1915,19 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m.Metrics = pinnedMetrics(24)
 		m.ProgressSamples = pinnedProgress(24)
 		return m
+	case "wsl-advisor":
+		return wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	case "wsl-advisor-reading":
+		// The screen before its reading finished: the one state where the report says it is reading
+		// instead of stating a finding, and the state a frame guard must measure separately because
+		// its body is a single line where every other state has a page of them.
+		m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+		m.WSLAdvisor = wslAdvisorState{}
+		return m
+	case "wsl-benchmark":
+		return wslAdvisorFrameModel(t, ScreenWSLBenchmark)
+	case "wsl-migration":
+		return wslAdvisorFrameModel(t, ScreenWSLMigration)
 	case "complete":
 		m := base(ScreenComplete)
 		m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
@@ -1900,16 +1966,21 @@ var installerFrameScreenNames = []string{
 	"learn-shells", "learn-shells-info",
 	"learn-wm", "learn-wm-info",
 	"learn-nvim", "learn-nvim-features",
+	"learn-tools",
+	"learn-font", "learn-prompts", "learn-prompts-info",
+	"learn-tooling", "learn-plugins", "learn-toolset",
 	"keymaps", "keymap-category", "keymaps-menu",
 	"keymaps-tmux", "keymaps-tmux-category",
 	"keymaps-zellij", "keymaps-zellij-category",
 	"keymaps-ghostty", "keymaps-ghostty-category",
 	"keymaps-herdr", "keymaps-herdr-category", "keymaps-herdr-long-keys",
+	"keymaps-kitty", "keymaps-kitty-category", "keymaps-wezterm", "keymaps-alacritty",
 	"lazyvim", "lazyvim-topic",
 	"backup-confirm", "backup-confirm-many",
 	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
 	"installing", "installing-details", "installing-details-many", "installing-at-end",
 	"installing-live",
+	"wsl-advisor", "wsl-advisor-reading", "wsl-benchmark", "wsl-migration",
 	"complete", "error", "error-many-logs",
 	"admin-password", "admin-password-failed",
 }
@@ -2794,22 +2865,34 @@ func TestBossTabRevealsTheStepHint(t *testing.T) {
 	}
 }
 
-// TestBossTabRevealsNoLabelWithoutAHint pins the other half on the boss screen:
-// a step with no hint gets no label, exactly like the exercise screen. The
-// horizontal boss steps ship without hints, so that is the screen under test.
-func TestBossTabRevealsNoLabelWithoutAHint(t *testing.T) {
+// TestBossTabRevealsNoNudgeForAOneKeystrokeAnswer replaces the pin that said a
+// hint-less boss step shows nothing at all. That rule made the key dead on all 35
+// shipped steps, so the boss screen now asks trainer.BossStepNudge: the step's hint when
+// it ships one, and otherwise the first keystrokes of its answer. The one case the
+// fallback deliberately stays silent for is an answer of a single keystroke, whose first
+// keystroke is its solution.
+func TestBossTabRevealsNoNudgeForAOneKeystrokeAnswer(t *testing.T) {
 	m := newTrainerBossModel(t)
-	exercise := m.TrainerGameState.CurrentExercise
-	if exercise == nil {
+	step := m.TrainerGameState.CurrentExercise
+	if step == nil {
 		t.Fatal("test setup: no live boss step")
 	}
-	exercise.Hint = ""
+	// A step of its own rather than a mutation of the shipped one: the corpus is what
+	// every other test in this package reads.
+	m.TrainerGameState.CurrentExercise = &trainer.Exercise{
+		ID:        step.ID,
+		Module:    step.Module,
+		Level:     step.Level,
+		Mission:   "Go to the end of the line",
+		Solutions: []string{"$"},
+		Optimal:   "$",
+	}
 	m.TrainerMessage = ""
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	got := next.(Model)
 	if got.TrainerMessage != "" {
-		t.Errorf("TrainerMessage after Tab on a hint-less boss step = %q, want empty", got.TrainerMessage)
+		t.Errorf("TrainerMessage after Tab on a one-keystroke boss step = %q, want empty", got.TrainerMessage)
 	}
 }
 

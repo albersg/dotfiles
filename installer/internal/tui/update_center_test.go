@@ -844,7 +844,7 @@ func TestAManagerThatAnswersWithNothingSaysNothingToUpdate(t *testing.T) {
 		t.Errorf("the notice does not report the clean answer: %q", m.UpdateCenter.Notice)
 	}
 	options := m.GetCurrentOptions()
-	if indexOfRow(options, updateCenterCheckRow) < 0 || indexOfRow(options, "← Back") < 0 {
+	if updateCenterIndexOfRow(options, updateCenterCheckRow) < 0 || updateCenterIndexOfRow(options, "← Back") < 0 {
 		t.Errorf("the screen offers %v, want the check row and the way back", options)
 	}
 	for _, row := range options {
@@ -895,7 +895,7 @@ func TestTheUpdateCenterNeverOffersToUpdateEverything(t *testing.T) {
 
 	options = m.GetCurrentOptions()
 	apply := updateCenterApplyRow(1)
-	if indexOfRow(options, apply) < 0 {
+	if updateCenterIndexOfRow(options, apply) < 0 {
 		t.Fatalf("selecting one entry offered no %q row: %v", apply, options)
 	}
 	for _, row := range options {
@@ -943,7 +943,7 @@ func TestTheFilterRowNarrowsTheListToOneManagerAndComesBack(t *testing.T) {
 			label = string(current)
 		}
 		row := updateCenterFilterRowPrefix + label
-		if indexOfRow(m.GetCurrentOptions(), row) < 0 {
+		if updateCenterIndexOfRow(m.GetCurrentOptions(), row) < 0 {
 			t.Fatalf("the filter row is not %q: %v", row, m.GetCurrentOptions())
 		}
 		next, _ := pressUpdateCenterRow(t, m, row)
@@ -1008,7 +1008,7 @@ func TestNavigationSkipsTheRuleBetweenTwoManagersGroups(t *testing.T) {
 			gitRow = row
 		}
 	}
-	m.Cursor = indexOfRow(options, gitRow)
+	m.Cursor = updateCenterIndexOfRow(options, gitRow)
 
 	next, _ := pressUpdateCenterKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	if landed := next.GetCurrentOptions()[next.Cursor]; strings.HasPrefix(landed, menuSeparatorPrefix) {
@@ -1060,8 +1060,10 @@ func TestTheUtilitiesPanelNamesTheUpdateStateHonestly(t *testing.T) {
 	}
 }
 
-// indexOfRow is where a row sits in the list the screen draws, or -1.
-func indexOfRow(options []string, row string) int {
+// updateCenterIndexOfRow is where a row sits in the list the screen draws, or -1.
+// It is named for this screen because the package has a second helper of the same
+// shape for the network diagnosis, which takes a model rather than a list.
+func updateCenterIndexOfRow(options []string, row string) int {
 	for index, option := range options {
 		if option == row {
 			return index

@@ -487,7 +487,9 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenUpdateCenter:
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenUpdateCenter,
+		ScreenInstallVerify, ScreenNetworkDiagnostics, ScreenWSLAdvisor,
+		ScreenWSLBenchmark, ScreenWSLMigration:
 		return true
 	}
 	return false
@@ -533,12 +535,13 @@ func (m Model) headerName() string {
 		return "Installation complete"
 	case ScreenError:
 		return "Installation failed"
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		return "Learn"
 	case ScreenKeymaps, ScreenKeymapCategory, ScreenKeymapsMenu,
 		ScreenKeymapsTmux, ScreenKeymapsTmuxCat, ScreenKeymapsZellij,
 		ScreenKeymapsZellijCat, ScreenKeymapsGhostty, ScreenKeymapsGhosttyCat,
-		ScreenKeymapsHerdr, ScreenKeymapsHerdrCat:
+		ScreenKeymapsHerdr, ScreenKeymapsHerdrCat, ScreenKeymapsKitty,
+		ScreenKeymapsKittyCat, ScreenKeymapsWezTerm, ScreenKeymapsAlacritty:
 		return "Keymaps"
 	case ScreenLearnLazyVim, ScreenLazyVimTopic:
 		return "LazyVim"
@@ -552,8 +555,16 @@ func (m Model) headerName() string {
 		// picker is the same level in as the WSL and capability screens, so it names
 		// the same section instead of falling back to the program name.
 		return "Utilities"
-	case ScreenShellAudit:
-		// The shell's startup screen is one level in from the same section.
+	case ScreenShellAudit, ScreenWSLAdvisor, ScreenWSLBenchmark, ScreenWSLMigration:
+		// The shell's startup screen, the performance advisor and its two assistants
+		// are all one level in from the same section, so they name it rather than
+		// reading as sections of their own.
+		return "Utilities"
+	case ScreenInstallVerify:
+		// The verification screen is one level in from the same section.
+		return "Utilities"
+	case ScreenNetworkDiagnostics:
+		// The diagnosis screen is one level in from the same section.
 		return "Utilities"
 	case ScreenUpdateCenter:
 		// The update center is one level in from the same section, so it names the
@@ -1021,6 +1032,18 @@ func (m Model) View() string {
 		s.WriteString(m.renderLearnWM())
 	case ScreenLearnNvim:
 		s.WriteString(m.renderLearnNvim())
+	case ScreenLearnTools:
+		s.WriteString(m.renderLearnTools())
+	case ScreenLearnFont:
+		s.WriteString(m.renderLearnFont())
+	case ScreenLearnPrompts:
+		s.WriteString(m.renderLearnPrompts())
+	case ScreenLearnTooling:
+		s.WriteString(m.renderLearnTooling())
+	case ScreenLearnPlugins:
+		s.WriteString(m.renderLearnPlugins())
+	case ScreenLearnToolset:
+		s.WriteString(m.renderLearnToolset())
 	case ScreenKeymaps:
 		s.WriteString(m.renderKeymapsMenu())
 	case ScreenKeymapCategory:
@@ -1043,6 +1066,14 @@ func (m Model) View() string {
 		s.WriteString(m.renderHerdrKeymapsMenu())
 	case ScreenKeymapsHerdrCat:
 		s.WriteString(m.renderHerdrKeymapCategory())
+	case ScreenKeymapsKitty:
+		s.WriteString(m.renderKittyKeymapsMenu())
+	case ScreenKeymapsKittyCat:
+		s.WriteString(m.renderKittyKeymapCategory())
+	case ScreenKeymapsWezTerm:
+		s.WriteString(m.renderWezTermReference())
+	case ScreenKeymapsAlacritty:
+		s.WriteString(m.renderAlacrittyReference())
 	case ScreenLearnLazyVim:
 		s.WriteString(m.renderLazyVimMenu())
 	case ScreenLazyVimTopic:
@@ -1059,12 +1090,22 @@ func (m Model) View() string {
 		s.WriteString(m.renderThemePicker())
 	case ScreenWSLResources:
 		s.WriteString(m.renderWSLResources())
+	case ScreenWSLAdvisor:
+		s.WriteString(m.renderWSLAdvisor())
+	case ScreenWSLBenchmark:
+		s.WriteString(m.renderWSLBenchmark())
+	case ScreenWSLMigration:
+		s.WriteString(m.renderWSLMigration())
 	case ScreenTerminalCapabilities:
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
 	case ScreenUpdateCenter:
 		s.WriteString(m.renderUpdateCenter())
+	case ScreenInstallVerify:
+		s.WriteString(m.renderInstallVerify())
+	case ScreenNetworkDiagnostics:
+		s.WriteString(m.renderNetworkDiagnostics())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1624,14 +1665,16 @@ func (m Model) dotfilesThemesPending() bool {
 // it does not. The rows are the data the user came for, so each is named in the
 // order it appears and the prose stays short enough to leave them on screen: a
 // wall of paragraphs above a list pushed the list and its own explanations past
-// the cut. The file it names is the installer's own record; the desktop's store
-// belongs to the desktop's tool.
+// the cut. Adding a fifth job is what made that budget real -- at the 80-column
+// floor the longer sentences this description used to carry no longer fit -- so
+// each line now names its job and leaves the detail to the screen that job opens,
+// where there is room for it. The file it names is the installer's own record; the
+// desktop's store belongs to the desktop's tool.
 func (m Model) utilitiesDescription() []string {
 	var paragraphs []string
 	if !m.ThemeSwitchFound {
 		paragraphs = append(paragraphs,
-			"No desktop theme switch is available here: switching needs a GNOME, KDE Plasma or macOS "+
-				"session with the theme tool on PATH, and this host has none.")
+			"No desktop theme switch is available here: no GNOME, KDE or macOS session.")
 	} else {
 		paragraphs = append(paragraphs, fmt.Sprintf(
 			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
@@ -1646,8 +1689,7 @@ func (m Model) utilitiesDescription() []string {
 	switch {
 	case len(m.DotfilesThemes) > 0:
 		paragraphs = append(paragraphs, fmt.Sprintf(
-			"%s opens the list of complete themes; each names the tools it cannot paint, and a theme is "+
-				"applied only when one is chosen there.", utilitiesThemeRow))
+			"%s opens the list of complete themes.", utilitiesThemeRow))
 	case m.dotfilesThemesPending():
 		// The definitions are read when the section opens, so an empty list with
 		// no recorded failure is a read in flight, not a verdict. The section says
@@ -1659,6 +1701,18 @@ func (m Model) utilitiesDescription() []string {
 		if reason == "" {
 			reason = themeDefinitionsNotFoundMessage()
 		}
+		// The row is offered when there are definitions OR when there is a record
+		// to put back, so this branch is reached in the one state where the row is
+		// still there with nothing to apply: the list cannot be read, and the undo
+		// the record names can still be offered. "Not switchable" would deny the
+		// row the list below it draws, which is the contradiction this sentence is
+		// worded from the row's own condition to avoid.
+		if m.DotfilesThemeRecord != nil {
+			paragraphs = append(paragraphs, fmt.Sprintf(
+				"The dotfiles' theme definitions cannot be read here (%s), so no theme can be applied; "+
+					"the change the record names can still be undone.", reason))
+			break
+		}
 		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
 	}
 
@@ -1668,23 +1722,49 @@ func (m Model) utilitiesDescription() []string {
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
 		paragraphs = append(paragraphs, reason)
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s shows the memory, processors and swap %s holds "+
-			"today, recommends values from this host, and writes back only the keys the template manages.",
-			utilitiesWSLRow, m.WSLState.Path))
+		paragraphs = append(paragraphs, fmt.Sprintf("%s shows what %s holds today.", utilitiesWSLRow, m.WSLState.Path))
 	}
 
 	if reason := m.shellAuditUnavailableReason(); reason != "" {
 		paragraphs = append(paragraphs, reason)
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s runs %s several times and reports the median with "+
-			"the range; it changes nothing.", utilitiesShellAuditRow, m.ShellAudit.Command))
+		paragraphs = append(paragraphs, fmt.Sprintf("%s times %s; it changes nothing.",
+			utilitiesShellAuditRow, m.ShellAudit.Command))
+	}
+
+	// The WSL performance advisor, in one line when it is offered and with the reason when it is not
+	// -- but only on a host the installer already classified as WSL. On any other host, naming a WSL
+	// utility the section cannot offer would spend the body on a question nobody asked.
+	switch {
+	case m.wslAdvisorOffered():
+		paragraphs = append(paragraphs, fmt.Sprintf("%s reads this instance's mounts, memory, storage "+
+			"and resolver and states what it found, with the evidence behind every finding; the "+
+			"measurement and the assisted copy are one level in, and the report itself changes nothing.",
+			utilitiesWSLAdvisorRow))
+	case m.SystemInfo != nil && m.SystemInfo.IsWSL:
+		paragraphs = append(paragraphs, m.wslAdvisorUnavailableReason())
 	}
 
 	// The terminal capability report. It is read-only and offered everywhere;
 	// where there is no terminal to read, the screen itself says so rather than
 	// the section leaving a hole. Naming it here is what makes the row findable.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s reads the colour depth, OSC 52, synchronized "+
-		"output and the Nerd Font glyphs, and names the source of every answer.", utilitiesTerminalRow))
+	paragraphs = append(paragraphs, fmt.Sprintf(
+		"%s reads the colour depth and OSC 52.", utilitiesTerminalRow))
+
+	// The record of the last install. It is read-only and offered everywhere for
+	// the same reason: the screen itself says when there is no record, so the
+	// section never leaves a hole where a utility should be, and it never promises
+	// more than presence -- the record holds no digest.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s reports which recorded paths are gone.", utilitiesVerifyRow))
+
+	// The network diagnosis is named last, in a line short enough to be one row: the
+	// body shares the frame with the rows, and it has to carry every job without the
+	// cut marker -- TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on "… and N more"
+	// at 80x24. What the line leaves out -- the host an overview reaches for, and
+	// that every check is bounded -- is stated on the screen itself, where the runs
+	// that need it are started.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s runs read-only checks, stage by stage.",
+		utilitiesNetworkRow))
 
 	// The update center, one line naming what the row does with what it reads. It
 	// is the last paragraph on purpose: the section's body is a summary bounded by
@@ -1806,6 +1886,12 @@ const utilitiesWSLRow = "Adjust the WSL resources"
 // there is none the screen says so -- and it is read-only.
 const utilitiesTerminalRow = "Report the terminal capabilities"
 
+// utilitiesVerifyRow is the section's row for the record of the last install,
+// checked against this machine. It is offered everywhere -- there is always a
+// machine to compare with the record, and where there is no record the screen
+// says exactly that -- and it is read-only, like the report beside it.
+const utilitiesVerifyRow = "Check the machine against the last install"
+
 // The rows the arrow keys act on. The indices are part of the screen's contract:
 // the key handler adjusts the value under the cursor by its index, and the frame
 // guards measure the list this function returns.
@@ -1844,6 +1930,8 @@ func (m Model) wslResourceRows() []string {
 		m.menuSeparator(),
 		wslWriteRow,
 		m.menuSeparator(),
+		wslGuardRepairRow,
+		m.menuSeparator(),
 		"← Back",
 	}
 }
@@ -1858,8 +1946,9 @@ const wslOmittedZero = "omitted (WSL decides)"
 
 // wslResourceDescription is what the WSL resource screen says about itself: the
 // capacities the recommendation came from, the recommendation and the
-// proportions it follows, what the file holds today, what a write preserves, and
-// the one step the screen deliberately does not take.
+// proportions it follows, what the file holds today, what the memory guard holds
+// on the running machine, what a write preserves, and the one step the screen
+// deliberately does not take.
 func (m Model) wslResourceDescription() []string {
 	state := m.WSLState
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
@@ -1868,24 +1957,137 @@ func (m Model) wslResourceDescription() []string {
 
 	// The values come first: the host's capacities, the recommendation, and what
 	// the file holds today, so the three numbers the screen exists for are read
-	// before the derivation that produced them. How to apply the change follows,
-	// then the formula compressed to one sentence, then the file's own rules -- a
-	// short frame cuts the explanation, never the numbers or how to use them.
+	// before the derivation that produced them. The guard's report follows, ahead of
+	// the instruction that applies the change, because it is the one line here about
+	// the machine the user is working on rather than the file being edited, and it
+	// is the half with no second channel: the apply instruction is repeated by the
+	// write's own notice, so a short frame can afford to cut it, while a missing
+	// protection can stop the distribution before the write is ever made. Then the
+	// formula compressed to one sentence, then the file's own rules.
 	plan := state.Plan
-	return []string{
+	paragraphs := []string{
 		wslHostParagraph(state.Host),
 		fmt.Sprintf("Recommended for this host: memory %s, processors %s and swap %s.",
 			wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB")),
 		wslCurrentParagraph(state),
-		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal " +
-			"to apply it. This screen does not run it: that would close the session you are working in.",
-		fmt.Sprintf("Memory is half the host's RAM rounded down to %d MB, and never so much that Windows "+
-			"keeps less than 2 GiB; processors are every logical CPU the host reports; swap is a quarter of that memory.",
-			wslMemoryStepMB),
-		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept " +
-			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> " +
-			"before the write.",
 	}
+	// The guard follows the numbers and comes before how to apply them: what it
+	// reports is the running distribution's own limits, and the failure it names
+	// is the one a short frame must not cut.
+	paragraphs = append(paragraphs, wslGuardParagraphs(state.Guard)...)
+	paragraphs = append(paragraphs,
+		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal "+
+			"to apply it. This screen does not run it: that would close the session you are working in.",
+		fmt.Sprintf("Memory is three quarters of the host's RAM rounded down to %d MB, capped so Windows "+
+			"keeps 4 GiB wherever that can be honoured, and floored at half the host, which is what decides on "+
+			"a host too small to honour both; processors are every logical CPU the host reports except one, so "+
+			"Windows keeps one; swap is a quarter of that memory.",
+			wslMemoryStepMB),
+		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept "+
+			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> "+
+			"before the write.")
+	return paragraphs
+}
+
+// wslGuardRepairRow is the screen's row for the memory guard. It is the one row
+// here that is not about the .wslconfig: pressing it installs the guard's two
+// files, restarts its unit, and then reports what the host holds.
+const wslGuardRepairRow = "Repair the WSL memory guard"
+
+// wslGuardParagraphs is what the screen says about the memory guard. It names
+// what each missing protection costs rather than warning in general terms,
+// because the two halves fail in opposite directions and both were measured on
+// 2026-10-16: OOMPolicy=stop turned one OOM kill into the whole distribution
+// stopping, twice, and a numeric memory.high turned a spike into a six-minute
+// freeze instead of a kill.
+func wslGuardParagraphs(g wslGuardState) []string {
+	if !g.Installed {
+		reason := g.Reason
+		if reason == "" {
+			reason = "its payload and its unit are not where systemd reads them"
+		}
+		return []string{fmt.Sprintf("The WSL memory guard is not installed on this host: %s. It is what caps the "+
+			"distribution's own scope and what keeps one killed process from stopping it; the installation step "+
+			"installs it, and the row below installs it here without a full run.", reason)}
+	}
+
+	paragraphs := []string{fmt.Sprintf("The memory guard is installed and %s. init.scope carries memory.high=%s, "+
+		"memory.max=%s and OOMPolicy=%s.",
+		wslGuardActiveLabel(g), wslGuardText(g.HighBytes), wslGuardCapLabel(g.MaxBytes), wslGuardText(g.OOMPolicy))}
+
+	if failure := wslGuardFailureMode(g); failure != "" {
+		paragraphs = append(paragraphs, failure)
+	}
+	return paragraphs
+}
+
+// wslGuardFailureMode names what a missing protection costs, in the terms the
+// incident was measured in. It is empty when nothing is missing.
+func wslGuardFailureMode(g wslGuardState) string {
+	switch {
+	case g.OOMPolicy != "" && g.OOMPolicy != wslGuardWantOOMPolicy:
+		return fmt.Sprintf("OOMPolicy reads %s, so one OOM kill inside init.scope still stops the scope, and in "+
+			"WSL every process in the distribution lives in that one scope. On 2026-10-16 that killed the whole "+
+			"distribution twice.", g.OOMPolicy)
+	case g.HighBytes != "" && g.HighBytes != "max":
+		return fmt.Sprintf("memory.high is %s, which is a throttle rather than a limit: a spike is stalled "+
+			"instead of being killed, which is the six-minute freeze of 2026-10-16 rather than a crash.", g.HighBytes)
+	case g.MaxBytes == 0:
+		return "memory.max is unlimited, so nothing bounds the distribution's own scope and the OOM killer " +
+			"picks its victim by its own rules. On 2026-10-16 the victim was the distribution itself."
+	}
+	return ""
+}
+
+// wslGuardActiveLabel says whether systemd is running the guard, because
+// installed files that nothing runs hold no values.
+func wslGuardActiveLabel(g wslGuardState) string {
+	if g.Active {
+		return "systemd is running it"
+	}
+	return "systemd is not running it, so nothing is holding those values"
+}
+
+// wslGuardText renders a value the host may not have reported. An unread
+// attribute printed as an empty string would read as "unlimited" rather than
+// "not read".
+func wslGuardText(value string) string {
+	if value == "" {
+		return "unread"
+	}
+	return value
+}
+
+// wslGuardCapLabel renders the scope's memory cap. Zero is the reader's "not a
+// finite cap", which the cgroup spells "max".
+func wslGuardCapLabel(n uint64) string {
+	if n == 0 {
+		return "unlimited"
+	}
+	if n%bytesPerMiB == 0 {
+		return fmt.Sprintf("%d MB", n/bytesPerMiB)
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+
+// wslGuardRepairNotice is the one line the screen shows after a repair attempt.
+// It reports the state read afterwards, which is what decides whether the repair
+// worked; the install's own word for it is not enough.
+func wslGuardRepairNotice(g wslGuardState) string {
+	switch {
+	case !g.Installed:
+		return "The WSL memory guard is still not installed; the section above names why."
+	case !g.Active:
+		return "The WSL memory guard is installed but systemd is not running it, so nothing is holding those " +
+			"values; systemctl status wsl-memory-guard names the reason."
+	case g.OOMPolicy == wslGuardWantOOMPolicy && g.HighBytes == "max" && g.MaxBytes > 0:
+		return fmt.Sprintf("The WSL memory guard is in place: init.scope stops at %s with no throttle band, and "+
+			"OOMPolicy=%s.", wslGuardCapLabel(g.MaxBytes), g.OOMPolicy)
+	}
+	if failure := wslGuardFailureMode(g); failure != "" {
+		return "The WSL memory guard is installed, but " + failure
+	}
+	return "The WSL memory guard is installed; the section above says what the host holds."
 }
 
 // wslUnitLabel renders one planned value for prose, where a zero is a key the
@@ -1924,12 +2126,14 @@ func wslCurrentParagraph(state wslResourceState) string {
 // that is not Windows the answer is simply that this is not Windows.
 func (m Model) wslResourcesUnavailableReason() string {
 	if m.SystemInfo == nil || !m.SystemInfo.IsWSL {
-		host := "this machine"
-		if m.SystemInfo != nil && m.SystemInfo.OSName != "" {
-			host = m.SystemInfo.OSName
-		}
-		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file read only by WSL, and %s does not run it. "+
-			"The utility is offered only on a WSL host.", host)
+		// One line, without the host's name: the section's body is measured against the
+		// frame's floor, TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on the cut
+		// marker, and the sentence that named the host and quoted .wslconfig wrapped to
+		// two lines at 80 columns. The detail the shorter line leaves out -- what
+		// .wslconfig is and what reads it -- is the reason the resource screen itself
+		// states, and the section's own rule is that a line names its job and leaves the
+		// detail to the screen that job opens.
+		return "WSL resources are not adjustable here: this is not a WSL instance."
 	}
 	if !m.WSLState.Resolved {
 		return "WSL resources are not adjustable here yet: reading the Windows profile and the host's capacities."
@@ -2544,6 +2748,44 @@ func (m Model) renderSelection() string {
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintSelect, hintBack})
 }
 
+// renderLearnTools draws the hub: one row per page of the in-installer wiki,
+// built from learnToolRows() so the menu and the key handler read one table.
+func (m Model) renderLearnTools() string {
+	return m.renderMenu("Select what to learn about")
+}
+
+// renderLearnTooling, renderLearnPlugins and renderLearnToolset draw the three
+// read-only reference pages. They share one renderer and one scroll value: only
+// one of them is on screen at a time, and the value is reset when the page is
+// opened and when it is left.
+func (m Model) renderLearnTooling() string {
+	return m.renderReferenceTable(shellToolingTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderLearnPlugins() string {
+	return m.renderReferenceTable(pluginSetsTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderLearnToolset() string {
+	return m.renderReferenceTable(machineToolsetTable(), m.ReferenceTableScroll)
+}
+
+// renderLearnPrompts draws the prompt the reader is reading, or the list to pick
+// one from. The list keys its pages by the lowercased label the learn handler
+// already writes to ViewingTool.
+func (m Model) renderLearnPrompts() string {
+	if m.ViewingTool != "" {
+		return m.renderToolInfo(GetPromptInfo(), m.ViewingTool)
+	}
+	return m.renderLearnMenu("Select a prompt to learn more about it")
+}
+
+// renderLearnFont draws the font page. The run asks one font question and this is
+// the answer to it, so there is no list to pick from.
+func (m Model) renderLearnFont() string {
+	return m.renderSingleToolInfo(GetFontInfo())
+}
+
 func (m Model) renderLearnTerminals() string {
 	if m.ViewingTool != "" {
 		return m.renderToolInfo(GetTerminalInfo(), m.ViewingTool)
@@ -2679,40 +2921,58 @@ func keymapTableColumns(width, longestKey int) (keys, mode, description int) {
 	return keys, mode, description
 }
 
-// renderKeymapTable renders one keymap category: its title, description, a
-// column header and the rows the frame has room for. Its scroll value IS the
-// top-row offset (0 shows the first binding, offsetWindowMax shows the last), so
-// it windows through offsetWindow and the category key handlers clamp that same
-// value with offsetWindowMax; the last binding is reachable. It replaces five
-// copies of the same table that had each picked their own column widths, their
-// own window and their own 60-column rule.
+// renderKeymapTable renders one keymap category through the shared table
+// renderer: a keymap table is a three-column table whose headers happen to be
+// Keys, Mode and Description. It replaces five copies of the same table that had
+// each picked their own column widths, their own window and their own 60-column
+// rule.
 func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
-	width := contentWidth(m)
-	longestKey := 0
+	cells := make([]referenceRow, 0, len(category.Keymaps))
 	for _, km := range category.Keymaps {
-		if w := lipgloss.Width(km.Keys); w > longestKey {
-			longestKey = w
+		cells = append(cells, referenceRow{Name: km.Keys, Kind: km.Mode, What: km.Description})
+	}
+	return m.renderReferenceTable(referenceTable{
+		Name:        category.Name,
+		Description: category.Description,
+		Headers:     [3]string{"Keys", "Mode", "Description"},
+		Rows:        cells,
+	}, scroll)
+}
+
+// renderReferenceTable renders one read-only table page: its title, description,
+// a column header and the rows the frame has room for. Its scroll value IS the
+// top-row offset (0 shows the first row, offsetWindowMax shows the last), so it
+// windows through offsetWindow and the key handlers clamp that same value with
+// offsetWindowMax; the last row is reachable. The first column is sized from the
+// longest name it holds, so a 37-column Herdr binding is shown whole instead of
+// cut.
+func (m Model) renderReferenceTable(table referenceTable, scroll int) string {
+	width := contentWidth(m)
+	longestName := 0
+	for _, row := range table.Rows {
+		if w := lipgloss.Width(row.Name); w > longestName {
+			longestName = w
 		}
 	}
-	keys, mode, description := keymapTableColumns(width, longestKey)
+	name, kind, what := keymapTableColumns(width, longestName)
 
 	rows := keymapTableRows(m.Height)
-	start, end := offsetWindow(scroll, rows, len(category.Keymaps))
+	start, end := offsetWindow(scroll, rows, len(table.Rows))
 
 	body := []string{
-		BrandStyle.Render(category.Name),
-		MutedStyle.Render(truncate(category.Description, width)),
+		BrandStyle.Render(table.Name),
+		MutedStyle.Render(truncate(table.Description, width)),
 		"",
 	}
-	header := padRight("Keys", keys) + " " + padRight("Mode", mode) + " Description"
+	header := padRight(table.Headers[0], name) + " " + padRight(table.Headers[1], kind) + " " + table.Headers[2]
 	body = append(body, MutedStyle.Render(truncate(header, width)))
 	body = append(body, rule(width))
 	for i := start; i < end; i++ {
-		km := category.Keymaps[i]
+		row := table.Rows[i]
 		body = append(body,
-			KeyStyle.Render(padRight(truncate(km.Keys, keys), keys))+" "+
-				MutedStyle.Render(padRight(truncate(km.Mode, mode), mode))+" "+
-				InfoStyle.Render(truncate(km.Description, description)))
+			KeyStyle.Render(padRight(truncate(row.Name, name), name))+" "+
+				MutedStyle.Render(padRight(truncate(row.Kind, kind), kind))+" "+
+				InfoStyle.Render(truncate(row.What, what)))
 	}
 
 	// The scroll range is the table's vital sign, so it lives in the header and
@@ -2720,8 +2980,8 @@ func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
 	// fit, and reading it back out of the header still satisfies the scroll
 	// reachability tests.
 	vital := ""
-	if len(category.Keymaps) > rows {
-		vital = scrollVital("Showing", start+1, end, len(category.Keymaps))
+	if len(table.Rows) > rows {
+		vital = scrollVital("Showing", start+1, end, len(table.Rows))
 	}
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintReturn})
 }
@@ -2835,6 +3095,31 @@ func (m Model) renderHerdrKeymapCategory() string {
 		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
 	return m.renderKeymapTable(m.HerdrKeymapCategories[m.HerdrSelectedCategory], m.HerdrKeymapScroll)
+}
+
+// renderKittyKeymapsMenu renders the Kitty keymap categories menu
+func (m Model) renderKittyKeymapsMenu() string {
+	return m.renderMenu("Select a category to view Kitty keybindings")
+}
+
+// renderKittyKeymapCategory renders a specific Kitty keymap category
+func (m Model) renderKittyKeymapCategory() string {
+	if m.KittySelectedCategory >= len(m.KittyKeymapCategories) {
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
+	}
+	return m.renderKeymapTable(m.KittyKeymapCategories[m.KittySelectedCategory], m.KittyKeymapScroll)
+}
+
+// renderWezTermReference and renderAlacrittyReference answer the reference's
+// question for the two terminals whose configurations declare no bindings: they
+// draw the settings those files do carry, under a header that says so rather than
+// under one that promises key bindings.
+func (m Model) renderWezTermReference() string {
+	return m.renderReferenceTable(weztermConfigTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderAlacrittyReference() string {
+	return m.renderReferenceTable(alacrittyConfigTable(), m.ReferenceTableScroll)
 }
 
 func (m Model) renderLazyVimMenu() string {
@@ -3951,15 +4236,26 @@ func trainerModuleMeterText(progress *trainer.ModuleProgress, practice trainer.P
 }
 
 // trainerPracticeAccuracyText renders the selected module's practice accuracy,
-// the percentage the boss unlock threshold is measured against. It is omitted
-// until the module has a recorded attempt, so a fresh module does not claim 0%.
-// It names itself because it is now a line of the selected module's detail
-// block rather than a suffix on the row, where "Acc 60%" had to be terse.
-func trainerPracticeAccuracyText(progress *trainer.ModuleProgress) string {
+// the percentage the boss unlock threshold is measured against, and how many
+// mastered exercises have come due for review. It is omitted until the module has
+// a recorded attempt, so a fresh module does not claim 0%. It names itself because
+// it is now a line of the selected module's detail block rather than a suffix on
+// the row, where "Acc 60%" had to be terse. The due count shares the line rather
+// than taking a row of its own: the menu's row budget is fixed, and a new row here
+// would push the legend off an 80x24 screen.
+func trainerPracticeAccuracyText(progress *trainer.ModuleProgress, module trainer.ModuleID, now time.Time) string {
 	if progress == nil || progress.PracticeAttempts == 0 {
 		return ""
 	}
-	return fmt.Sprintf("Practice accuracy: %.0f%%", progress.PracticeAccuracy*100)
+	text := fmt.Sprintf("Practice accuracy: %.0f%%", progress.PracticeAccuracy*100)
+	if due := progress.ReviewsDue(module, now); due > 0 {
+		word := "reviews"
+		if due == 1 {
+			word = "review"
+		}
+		text += fmt.Sprintf(" · %d mastered %s due", due, word)
+	}
+	return text
 }
 
 // trainerWeakExerciseText renders the exercises a module misses most, in the
@@ -4063,7 +4359,7 @@ func (m Model) renderTrainerMenu() string {
 		// gutter.
 		if i == m.TrainerCursor {
 			detail := []string{InkStyle.Render(truncate(module.Description, inner-blockGutterWidth))}
-			if accuracy := trainerPracticeAccuracyText(progress); accuracy != "" {
+			if accuracy := trainerPracticeAccuracyText(progress, module.ID, time.Now()); accuracy != "" {
 				detail = append(detail, InfoStyle.Render(accuracy))
 			}
 			if weak := trainerWeakExerciseText(progress, practice, inner-blockGutterWidth); weak != "" {
@@ -4405,6 +4701,9 @@ func (m Model) trainerExerciseVital() string {
 		parts = append(parts, meterRendered(state.ExerciseIndex+1, len(state.Exercises), trainerHeaderMeterCells))
 	}
 	parts = append(parts, MeterStyle.Render(fmt.Sprintf("Score: %d · Streak: %d", state.SessionScore, state.CurrentStreak)))
+	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
+		parts = append(parts, MeterStyle.Render(combo))
+	}
 	if remaining := state.RemainingSeconds(); remaining > 0 {
 		parts = append(parts, WarningStyle.Render(fmt.Sprintf("⏳ Hint in %ds", int(math.Ceil(remaining)))))
 	}
@@ -4650,6 +4949,17 @@ func renderLineWithSelection(line string, startPos trainer.Position, sel trainer
 	return result.String()
 }
 
+// trainerComboText is the multiplier the score is paid by, named only once there is a
+// run to speak of: "Combo ×1" on every screen would be noise rather than a fact. It is
+// one function so the lesson, practice and boss headers cannot disagree about the
+// wording or about when the fact is worth showing.
+func trainerComboText(multiplier int) string {
+	if multiplier <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("Combo ×%d", multiplier)
+}
+
 // trainerBossVital is the boss screen's vital sign, carried by its header instead
 // of two stacked rows: the lives as a count and a glyph run, the step the fight
 // is on, and the live countdown, each as a chip. The countdown is derived from
@@ -4667,6 +4977,12 @@ func (m Model) trainerBossVital() string {
 	parts := []string{
 		chip(fmt.Sprintf("Lives: %d/%d %s", state.BossLives, boss.Lives, trainerLivesGlyphs(state.BossLives, boss.Lives))),
 		chip(fmt.Sprintf("Step %d/%d", state.BossStep+1, len(boss.Steps))),
+	}
+	// The combo sits before the countdown rather than after it: the header drops what
+	// does not fit from its tail, and a run of wins is worth less than the seconds
+	// left on the step.
+	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
+		parts = append(parts, chip(combo))
 	}
 	if remaining := state.BossStepSecondsLeft(); remaining > 0 {
 		parts = append(parts, chip(fmt.Sprintf("⏳ Time left: %ds", int(math.Ceil(remaining)))))
@@ -4827,6 +5143,30 @@ func (m Model) renderTrainerResult() string {
 	return strings.Join(rows, "\n")
 }
 
+// trainerFightDuration renders a fight's length the way the countdowns render theirs:
+// whole seconds, so a fast fight does not read as "39.999s" because a frame landed a
+// hair early.
+func trainerFightDuration(d time.Duration) string {
+	seconds := int(d.Round(time.Second).Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+// trainerBossBestTime is the module's recorded best fight, or 0 when it has none. It
+// reads the profile without creating a record, like every other question the trainer
+// asks of it.
+func (m Model) trainerBossBestTime(module trainer.ModuleID) time.Duration {
+	if m.TrainerStats == nil {
+		return 0
+	}
+	if progress := m.TrainerStats.ModuleProgressOrNil(module); progress != nil {
+		return progress.BossBestTime
+	}
+	return 0
+}
+
 func (m Model) renderTrainerBossResult() string {
 	inner := trainerInnerWidth(m)
 
@@ -4873,6 +5213,19 @@ func (m Model) renderTrainerBossResult() string {
 			summary = append(summary, MutedStyle.Render(state.CurrentBoss.Name+" wins this time..."))
 		}
 		summary = append(summary, InfoStyle.Render("Keep practicing and try again!"))
+	}
+
+	// The fight's own clock, which the state now measures: how long this fight took and
+	// the module's best. Both are omitted for a fight that never started, so the row
+	// appears only when there is a measurement behind it.
+	if state != nil && state.CurrentBoss != nil {
+		if elapsed := state.BossFightElapsed(); elapsed > 0 {
+			line := fmt.Sprintf("Fight time: %s", trainerFightDuration(elapsed))
+			if best := m.trainerBossBestTime(state.CurrentModule); best > 0 {
+				line += fmt.Sprintf(" · Best: %s", trainerFightDuration(best))
+			}
+			summary = append(summary, MeterStyle.Render(line))
+		}
 	}
 	rows = append(rows, gutteredBlock(summary)...)
 

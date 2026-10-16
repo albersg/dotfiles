@@ -2094,15 +2094,15 @@ func seedTrainerMenuProgress(t *testing.T, m *Model) {
 	// Master the first two exercises.
 	for i := 0; i < 2; i++ {
 		for j := 0; j < trainer.MasteryThreshold; j++ {
-			progress.RecordPracticeResult(lessons[i].ID, true)
+			progress.RecordPracticeResult(lessons[i].ID, true, time.Now())
 		}
 	}
 
 	// The third exercise is missed most, the fourth once.
 	for i := 0; i < 3; i++ {
-		progress.RecordPracticeResult(lessons[2].ID, false)
+		progress.RecordPracticeResult(lessons[2].ID, false, time.Now())
 	}
-	progress.RecordPracticeResult(lessons[3].ID, false)
+	progress.RecordPracticeResult(lessons[3].ID, false, time.Now())
 
 	m.TrainerStats.BossesDefeated = append(m.TrainerStats.BossesDefeated, trainer.ModuleHorizontal)
 	progress.BossDefeated = true
@@ -2305,7 +2305,7 @@ func TestTrainerWeakExerciseTextStaysWithinWidth(t *testing.T) {
 	}
 
 	// Give a third exercise misses so the list has three entries.
-	progress.RecordPracticeResult(lessons[4].ID, false)
+	progress.RecordPracticeResult(lessons[4].ID, false, time.Now())
 
 	practice := trainer.GetPracticeStatsForModule(trainer.ModuleHorizontal, progress)
 	if len(practice.WeakestExercises) != 3 {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,28 +22,83 @@ func generateWSLConfigScript(t *testing.T, m *Model) string {
 		t.Fatalf("the interactive WSL step produced no script")
 	}
 
-	// The script copies from a temporary file Go writes and deletes during the
-	// run. Keep the test tidy when it inspects the script without running it.
-	src := wslConfigSourceFromScript(t, script)
-	t.Cleanup(func() { _ = os.Remove(src) })
 	return script
 }
 
-// wslConfigSourceFromScript returns the rendered .wslconfig path the generated
-// script copies from. Those bytes are the whole point of the rendered install:
-// they are what the non-interactive step writes too.
-func wslConfigSourceFromScript(t *testing.T, script string) string {
+// wslConfigRenderedFromScript returns the rendered .wslconfig the generated
+// script carries into the copy it installs from. Those bytes are the whole point
+// of the rendered install: they are what the non-interactive step writes too, and
+// the script holds them itself rather than being pointed at a file Go left on
+// disk.
+func wslConfigRenderedFromScript(t *testing.T, script string) string {
 	t.Helper()
 
-	for _, line := range strings.Split(script, "\n") {
-		value, ok := strings.CutPrefix(line, "WSL_CONFIG_SRC=")
-		if !ok {
-			continue
+	opener := "cat > \"$WSL_CONFIG_SRC\" <<'" + wslConfigHeredocEnd + "'"
+	lines := strings.Split(script, "\n")
+	start := -1
+	for i, line := range lines {
+		if line == opener {
+			start = i + 1
+			break
 		}
-		return strings.Trim(value, "'")
 	}
-	t.Fatal("the generated script does not set WSL_CONFIG_SRC")
+	if start < 0 {
+		t.Fatalf("the generated script never writes the rendered .wslconfig into WSL_CONFIG_SRC")
+	}
+	for i := start; i < len(lines); i++ {
+		if lines[i] == wslConfigHeredocEnd {
+			return strings.Join(lines[start:i], "\n") + "\n"
+		}
+	}
+	t.Fatalf("the generated script opens the .wslconfig heredoc and never closes it")
 	return ""
+}
+
+// TestWSLConfigInteractiveScriptWritesNoTemporaryFile pins the rule that
+// building this step's script writes nothing into the machine's temporary
+// directory.
+//
+// The builder used to create a dotfiles-wslconfig-*.conf and leave its removal
+// to the generated script's last line. `set -e` skips that line on every
+// failure before it, and anyone who inspects the generated script without
+// running it never reaches it at all, so the file stayed behind: 70 of them had
+// collected in this machine's shared temporary directory, one per reader. A
+// function that renders a script should not be a side effect on disk.
+func TestWSLConfigInteractiveScriptWritesNoTemporaryFile(t *testing.T) {
+	t.Setenv(envBinfmtDir, t.TempDir())
+	repoDir, _, _ := newWSLLayout(t)
+	m := wslModel(repoDir, true)
+
+	before := wslConfigTempEntries(t)
+	if _, err := getInteractiveScript(wslStepID, &m); err != nil {
+		t.Fatalf("getInteractiveScript(%q) failed: %v", wslStepID, err)
+	}
+	after := wslConfigTempEntries(t)
+
+	for name := range after {
+		if !before[name] {
+			t.Errorf("building the script left %s in %s", name, os.TempDir())
+		}
+	}
+}
+
+// wslConfigTempEntries returns the entries of the system temporary directory
+// whose name the interactive WSL step gave the file it no longer creates, so the
+// guard above can tell "left nothing behind" from "left a file behind".
+func wslConfigTempEntries(t *testing.T) map[string]bool {
+	t.Helper()
+
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		t.Fatalf("reading %s: %v", os.TempDir(), err)
+	}
+	found := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "dotfiles-wslconfig-") {
+			found[entry.Name()] = true
+		}
+	}
+	return found
 }
 
 // runShell writes script to a file and runs it through sh. Both the syntax
@@ -263,7 +319,7 @@ func TestWSLConfigRoutesRenderIdenticalContent(t *testing.T) {
 	stepRepo, stepWinHome, _ := newWSLLayout(t)
 	// Pin one deterministic host for both routes, after the fixture so the plan
 	// does not depend on the machine running the test: 16 GiB and 8 CPUs become
-	// 8192 MB, 8 processors and 2048 MB of swap.
+	// 12288 MB, 7 processors and 3072 MB of swap.
 	t.Setenv(envWSLHostMemoryMB, "16384")
 	t.Setenv(envWSLHostCPUs, "8")
 
@@ -282,16 +338,13 @@ func TestWSLConfigRoutesRenderIdenticalContent(t *testing.T) {
 
 	scriptModel := wslModel(scriptRepo, true)
 	script := generateWSLConfigScript(t, &scriptModel)
-	rendered, err := os.ReadFile(wslConfigSourceFromScript(t, script))
-	if err != nil {
-		t.Fatalf("reading the rendered config the script copies from: %v", err)
-	}
+	rendered := []byte(wslConfigRenderedFromScript(t, script))
 
 	if string(installed) != string(rendered) {
 		t.Errorf("the step and the interactive script do not install the same bytes:\nstep:   %q\nscript: %q",
 			installed, rendered)
 	}
-	for _, want := range []string{"memory=8192MB", "processors=8", "swap=2048MB"} {
+	for _, want := range []string{"memory=12288MB", "processors=7", "swap=3072MB"} {
 		if !strings.Contains(string(installed), want) {
 			t.Errorf("both routes should render %q for the overridden host, got:\n%s", want, installed)
 		}
@@ -330,5 +383,148 @@ func TestWSLConfigInteractiveScriptKeepsWin32YankPinned(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Errorf("the interactive script does not carry the pinned win32yank value %q", want)
 		}
+	}
+}
+
+// TestWSLConfigInteractiveScriptIsEmptyForNonWSLHost is the other half of the
+// routing contract: a host that is not WSL gets no script at all, so the guard
+// half cannot appear on a machine it does not belong to.
+func TestWSLConfigInteractiveScriptIsEmptyForNonWSLHost(t *testing.T) {
+	m := wslModel("", false)
+
+	script, err := getInteractiveScript(wslStepID, &m)
+	if err != nil {
+		t.Fatalf("getInteractiveScript(%q) = %v", wslStepID, err)
+	}
+	if script != "" {
+		t.Errorf("a non-WSL host produced a script:\n%s", script)
+	}
+}
+
+// TestWSLConfigInteractiveScriptInstallsAndVerifiesTheGuard is T4's guard: the
+// route the TUI actually takes must not silently skip the safeguard. The script
+// installs the payload 0755 and the unit 0644, runs the unit, reads the
+// effective OOMPolicy and memory.max back, and requires the cap to survive a
+// second daemon-reload. Every host effect is a temporary directory and a stub
+// systemctl, so the test never touches /etc, /usr or the real systemd.
+func TestWSLConfigInteractiveScriptInstallsAndVerifiesTheGuard(t *testing.T) {
+	t.Setenv(envBinfmtDir, t.TempDir())
+	repoDir, _, _ := newWSLLayout(t)
+
+	guardRoot := t.TempDir()
+	scriptDst := filepath.Join(guardRoot, "wsl-memory-guard.sh")
+	unitDst := filepath.Join(guardRoot, "wsl-memory-guard.service")
+	cgroupDir := filepath.Join(guardRoot, "init.scope")
+	systemdDir := filepath.Join(guardRoot, "systemd")
+	for _, dir := range []string{cgroupDir, systemdDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, content := range map[string]string{
+		wslGuardCgroupHigh:    "max",
+		wslGuardCgroupMax:     "8388608",
+		wslGuardCgroupSwapMax: "536870912",
+	} {
+		if err := os.WriteFile(filepath.Join(cgroupDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv(envWSLGuardScript, scriptDst)
+	t.Setenv(envWSLGuardUnit, unitDst)
+	t.Setenv(envWSLGuardCgroup, cgroupDir)
+	t.Setenv(envWSLSystemdRunDir, systemdDir)
+
+	// A stub systemctl records what the script ran and answers the reads, and a
+	// stub sudo just executes its arguments, so the script's `sudo -n` needs no
+	// credential.
+	binDir := t.TempDir()
+	logPath := filepath.Join(guardRoot, "systemctl.log")
+	writeStubCommand(t, binDir, "systemctl", `#!/bin/sh
+printf '%s\n' "$*" >> "$DOTFILES_TEST_SYSTEMCTL_LOG"
+case "$1" in
+show) printf 'continue\n' ;;
+is-active) printf 'active\n' ;;
+esac
+exit 0
+`)
+	writeStubCommand(t, binDir, "sudo", "#!/bin/sh\n# Test stub for `sudo -n <cmd> ...`: drop the flag and run the command.\nshift\nexec \"$@\"\n")
+	t.Setenv("DOTFILES_TEST_SYSTEMCTL_LOG", logPath)
+	t.Setenv(envWSLGuardSystemctl, filepath.Join(binDir, "systemctl"))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	m := wslModel(repoDir, true)
+	script := generateWSLConfigScript(t, &m)
+	out, err := runShell(t, script)
+	if err != nil {
+		t.Fatalf("the generated script failed: %v\n%s", err, out)
+	}
+
+	for _, tc := range []struct {
+		name string
+		path string
+		mode os.FileMode
+	}{
+		{"payload", scriptDst, 0o755},
+		{"unit", unitDst, 0o644},
+	} {
+		info, err := os.Stat(tc.path)
+		if err != nil {
+			t.Fatalf("%s was not installed at %s: %v", tc.name, tc.path, err)
+		}
+		if info.Mode().Perm() != tc.mode {
+			t.Errorf("%s mode = %o, want %o", tc.name, info.Mode().Perm(), tc.mode)
+		}
+	}
+
+	logged, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("the stub systemctl was never called: %v", err)
+	}
+	calls := string(logged)
+	for _, want := range []string{
+		"daemon-reload",
+		"enable " + wslGuardUnitName,
+		"restart " + wslGuardUnitName,
+		"show init.scope -p OOMPolicy --value",
+	} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("the script did not run %q; it ran:\n%s", want, calls)
+		}
+	}
+
+	want := fmt.Sprintf("wsl-memory-guard verified: init.scope OOMPolicy=continue and %s held at 8388608 across a daemon-reload", filepath.Join(cgroupDir, wslGuardCgroupMax))
+	if !strings.Contains(out, want) {
+		t.Errorf("the script did not report the guard verified:\n%s", out)
+	}
+}
+
+// TestWSLConfigInteractiveScriptSkipsTheGuardWithoutSystemd is the honest
+// degradation on the interactive route: with no /run/systemd/system the script
+// installs nothing and says what it observed. The script is actually run, so the
+// skip branch is exercised rather than only parsed.
+func TestWSLConfigInteractiveScriptSkipsTheGuardWithoutSystemd(t *testing.T) {
+	t.Setenv(envBinfmtDir, t.TempDir())
+	repoDir, _, _ := newWSLLayout(t)
+
+	guardRoot := t.TempDir()
+	scriptDst := filepath.Join(guardRoot, "wsl-memory-guard.sh")
+	systemdDir := filepath.Join(guardRoot, "no-systemd")
+	t.Setenv(envWSLGuardScript, scriptDst)
+	t.Setenv(envWSLSystemdRunDir, systemdDir)
+
+	m := wslModel(repoDir, true)
+	script := generateWSLConfigScript(t, &m)
+	out, err := runShell(t, script)
+	if err != nil {
+		t.Fatalf("a missing systemd must not fail the script: %v\n%s", err, out)
+	}
+
+	if _, err := os.Stat(scriptDst); !os.IsNotExist(err) {
+		t.Errorf("nothing may be installed without systemd, stat = %v", err)
+	}
+	want := fmt.Sprintf("wsl-memory-guard: systemd is not the init of this distribution (%s is missing)", systemdDir)
+	if !strings.Contains(out, want) {
+		t.Errorf("the script did not say why the guard was skipped:\n%s", out)
 	}
 }

@@ -683,7 +683,11 @@ func (m Model) contextHeadline() string {
 		return string(m.updateChannel()) + " channel"
 	case choiceUtilities:
 		if !m.ThemeSwitchFound {
-			return ""
+			// The section is more than the desktop switch. With no switch detected it
+			// still carries the dotfiles theme, the WSL resources, the shell's
+			// startup report, the install check and the terminal report, so a blank
+			// summary said the row opened nothing.
+			return "the machine's own settings"
 		}
 		return m.ThemeSwitch.Name + " theme switch"
 	case choiceExit:
@@ -860,9 +864,11 @@ type keymapSource struct {
 	cats []KeymapCategory
 }
 
-// keymapSources is the keymap reference the panel counts: the five tools the
-// reference menu offers, in the order it offers them, read through the same
-// getters the tables are loaded from so the panel and the tables cannot disagree.
+// keymapSources is the keymap reference the panel counts: the tools whose
+// reference is a table of bindings, in the order the reference menu offers them,
+// read through the same getters the tables are loaded from so the panel and the
+// tables cannot disagree. WezTerm and Alacritty are absent on purpose: their
+// configurations declare no bindings, so there is no table of theirs to count.
 func keymapSources() []keymapSource {
 	return []keymapSource{
 		{"Neovim", GetNvimKeymaps()},
@@ -870,6 +876,7 @@ func keymapSources() []keymapSource {
 		{"Zellij", GetZellijKeymaps()},
 		{"Herdr", GetHerdrKeymaps()},
 		{"Ghostty", GetGhosttyKeymaps()},
+		{"Kitty", GetKittyKeymaps()},
 	}
 }
 
@@ -1129,6 +1136,17 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: m.WSLState.Available,
 	})
 
+	// The section's utilitiesWSLAdvisorRow, offered under the section's own
+	// condition: the process is inside a real WSL instance. The value is the last
+	// reading the model holds, and before the screen has been opened it says the
+	// machine has not been read yet rather than summarising nothing.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "WSL advisor",
+		value:   wslAdvisorSummary(m.WSLAdvisor),
+		absent:  "The WSL performance advisor is not offered here.",
+		offered: m.wslAdvisorOffered(),
+	})
+
 	// The section's utilitiesShellAuditRow, the utility that changes nothing. It
 	// is offered wherever the login shell and a terminal were resolved, and the
 	// value is the last measurement the model holds: nothing is measured until the
@@ -1141,6 +1159,30 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: m.ShellAudit.Available,
 	})
 
+	// The section's utilitiesVerifyRow. The check is read-only and offered
+	// everywhere, so the panel always names it: before the screen has been opened
+	// the value says so rather than answering with a fact nobody established, and
+	// afterwards it is the verdict's own count. Nothing here reads the record -- a
+	// panel is drawn on every keypress -- which is why the value comes from the
+	// model's verdict and not from the state file.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Install check",
+		value:   installVerifyPanelValue(m.InstallVerify),
+		offered: true,
+	})
+
+	// The section's utilitiesNetworkRow. It is offered everywhere -- there is always
+	// a machine whose connectivity can be described -- and the value is what the
+	// last run answered: nothing is dialled until the screen's own row is pressed,
+	// so before that the panel says so rather than printing a verdict nobody
+	// established. It is inserted above the terminal entry so the terminal row
+	// keeps the property its own comment claims: the last entry is the one a short
+	// frame may drop.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Network",
+		value:   networkPanelValue(m.Network),
+		offered: true,
+	})
 	// The section's utilitiesTerminalRow. The report is read-only and offered
 	// everywhere, so the panel always names it: before the screen has been
 	// opened the value says the terminal has not been inspected, and afterwards
@@ -1210,7 +1252,24 @@ func wslPanelValue(state wslResourceState) string {
 	if len(parts) == 0 {
 		return "capacities not read"
 	}
-	return strings.Join(parts, ", ")
+	// The guard is part of what this row is about: the row is where the section
+	// reports the WSL memory, and a missing guard is the one state in it that the
+	// user has to act on.
+	return strings.Join(parts, ", ") + ", guard " + wslGuardPanelLabel(state.Guard)
+}
+
+// wslGuardPanelLabel is the guard said in two words for the section's panel,
+// where the full account lives one row in on the WSL resource screen.
+func wslGuardPanelLabel(g wslGuardState) string {
+	switch {
+	case !g.Installed:
+		return "missing"
+	case !g.Active:
+		return "not running"
+	case g.OOMPolicy != wslGuardWantOOMPolicy || g.HighBytes != "max" || g.MaxBytes == 0:
+		return "unprotected"
+	}
+	return "active"
 }
 
 // planHeadline is the plan said in one short line: how many steps the run would
@@ -1766,10 +1825,14 @@ func trainerBossRequirement(stats *trainer.UserStats, mod trainer.ModuleInfo) st
 	}
 	accuracy, attempts := 0.0, 0
 	if progress := stats.ModuleProgressOrNil(mod.ID); progress != nil {
-		accuracy = progress.PracticeAccuracy * 100
-		attempts = progress.PracticeAttempts
+		// The recent window is what the gate reads, so it is what this line
+		// reports: a player shown the lifetime average would be told they need a
+		// number the gate does not look at.
+		accuracy, attempts = progress.RecentAccuracy()
+		accuracy *= 100
 	}
-	return fmt.Sprintf("80%% practice accuracy and 10 tries (at %.0f%%, %d)", accuracy, attempts)
+	return fmt.Sprintf("%.0f%% of the last %d practice answers (at %.0f%% over %d)",
+		trainer.BossGateAccuracy*100, trainer.BossGateWindow, accuracy, attempts)
 }
 
 // --- Did you know? ---------------------------------------------------------

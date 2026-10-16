@@ -79,27 +79,26 @@ func TestEveryScreenIsCoveredByAFrameGuard(t *testing.T) {
 		len(declared), len(measured), trainerFrameWidth, trainerFrameHeight)
 }
 
-// TestEveryScreenConstantNamesItself is the guard for the diagnostic label: a
-// screen that prints "Unknown" in a failing guard's message sends the next person
-// looking for a name that was never written down. The label is built from a map
-// now, so a constant added without a name fails here by name instead of appearing
-// silently as "Unknown" in somebody else's failure.
-func TestEveryScreenConstantNamesItself(t *testing.T) {
+// TestEveryDeclaredScreenHasAName pins the two halves of one list: model.go
+// declares the screens and the test helper names them, for the failure messages
+// every guard in this package writes. The names used to be a slice indexed by the
+// constant's value, so a screen inserted above another was renamed after its
+// neighbour and the newest ones printed as "Unknown" in exactly the message that
+// was supposed to name them.
+func TestEveryDeclaredScreenHasAName(t *testing.T) {
 	declared := screenConstantsInDeclarationOrder(t)
 	if len(declared) == 0 {
 		t.Fatal("model.go declares no Screen constants, so this guard proves nothing")
 	}
 
-	var unnamed []string
 	for value, name := range declared {
+		// The constant is ScreenKeymapsKitty; the name a failure should read is the
+		// one without the type's prefix.
 		want := strings.TrimPrefix(name, "Screen")
 		if got := Screen(value).String(); got != want {
-			unnamed = append(unnamed, fmt.Sprintf("%s prints %q", name, got))
+			t.Errorf("Screen(%d) is %s in model.go and prints as %q, want %q: add it to screenNames",
+				value, name, got, want)
 		}
-	}
-	if len(unnamed) > 0 {
-		t.Fatalf("%d of %d screens do not name themselves: %v\nAdd them to screenDisplayNames, next to "+
-			"the constant they name.", len(unnamed), len(declared), unnamed)
 	}
 }
 
@@ -357,8 +356,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 64 // 51 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + update-center + the trainer's 6
-
+const measuredScreens = 81 // measured on the merged tree, not added up from either side: main's 80 -- the 61 installer states + the 7 the utilities section opens (utilities, theme picker, theme activity, theme refresh, terminal capabilities, shell audit, install-verify) + the trainer's 6, plus the setup screen, plus network-diagnostics -- plus the advisor's four states (the report, its reading state, the measurement screen and the assisted copy) -- plus the update center, which is this branch's screen and the section's own destination for it
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
 // animating. Before the pass existed, the fit guard and the companion-coverage
@@ -496,17 +494,19 @@ func terminalFitCases() []terminalFitCase {
 	// one of the installer's states, so it is measured here the way the trainer's
 	// screens are. The theme picker is one level in from it, for the same reason,
 	// and its refresh review is a second state of that picker. The capability
-	// report and the shell audit are destinations in the section, each reached
-	// from its own row.
+	// report, the install verification and the shell audit are destinations in the
+	// section, each reached from its own row.
 	cases = append(cases, terminalFitCase{utilitiesCaseName, utilitiesFrameCase})
 	cases = append(cases, terminalFitCase{themePickerCaseName, themePickerFrameCase})
 	cases = append(cases, terminalFitCase{themeActivityCaseName, themeActivityFrameCase})
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
 	cases = append(cases, terminalFitCase{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase})
+	cases = append(cases, terminalFitCase{installVerifyCaseName, installVerifyFrameCase})
 	cases = append(cases, terminalFitCase{shellAuditCaseName, shellAuditFrameCase})
 	// The update center is the section's newest destination: the same section's key
 	// opens it, and it is measured with the rest of them.
 	cases = append(cases, terminalFitCase{updateCenterCaseName, updateCenterFrameCase})
+	cases = append(cases, terminalFitCase{networkDiagnosticsCaseName, networkDiagnosticsFrameCase})
 
 	return cases
 }
@@ -675,6 +675,8 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{wslResourcesCaseName, wslResourcesFrameCase(t)},
 		{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase(t)},
 		{shellAuditCaseName, shellAuditFrameCase(t)},
+		{installVerifyCaseName, installVerifyFrameCase(t)},
+		{networkDiagnosticsCaseName, networkDiagnosticsFrameCase(t)},
 		{updateCaseName, updateFrameCase(t)},
 		{updateCenterCaseName, updateCenterFrameCase(t)},
 	}
@@ -954,10 +956,10 @@ func wslResourcesFrameCase(t *testing.T) Model {
 		Path:      "/mnt/c/Users/alber/.wslconfig",
 		RepoDir:   repoRoot(t),
 		Host:      system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:      WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Plan:      WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 		Current:   WSLResources{MemoryMB: 4096, SwapMB: 1024},
 		HasFile:   true,
-		Draft:     WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Draft:     WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 	}
 	m.Cursor = wslResourceRowMemory
 	return m
@@ -1004,6 +1006,10 @@ func TestWSLResourcesFrameFitIsMeasuredAtEverySize(t *testing.T) {
 // shellAuditCaseName is the name the frame guards know the shell startup screen
 // by.
 const shellAuditCaseName = "shell-audit"
+
+// installVerifyCaseName is the name the frame guards know the install
+// verification screen by.
+const installVerifyCaseName = "install-verify"
 
 // shellAuditFrameCase builds the shell startup screen with a finished
 // measurement, a run that timed out and zprof's table, so the guards measure the
