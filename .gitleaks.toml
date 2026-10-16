@@ -26,7 +26,7 @@
 useDefault = true
 
 [allowlist]
-description = "Verified false positives: vendored oh-my-zsh example material and Vim trainer exercise text. Each path is justified in the comment above it."
+description = "Verified false positives: vendored oh-my-zsh example material, Vim trainer exercise text, and one test placeholder that no longer exists in the tree. Each entry is justified in the comment above it."
 
 paths = [
     # Vim trainer exercise text. The trainer shows this line as the material the
@@ -83,4 +83,25 @@ paths = [
     # fixed. The path is silenced rather than the value, and only this path: every
     # line the rule could match here is a fixture the guard asserts is hidden.
     '''^installer/internal/updates/updates_test\.go$''',
+]
+
+# One entry here matches a value rather than a path, because the finding is in a
+# commit rather than in the tree. `shellaudit_profile_test.go` proves that a
+# profile's command text never reaches the screen with its credential in it, so
+# its fixture has to carry something that looks like one; the first version used
+# `hunter2-secret-value`, which the entropy gate of `curl-auth-header` reads as a
+# real token. The fixture now uses `hunter2`, the placeholder the rest of this
+# suite already uses, and the rule lets it through.
+#
+# The commit that introduced the old value is still scanned, so the finding
+# outlives the line that caused it, and a path entry cannot be the answer: that
+# file is the subject of new commits, and silencing the path would silence
+# whatever a later commit puts in it. Matching the value that exists nowhere in
+# the tree now silences exactly the history it names. A credential anywhere else,
+# in that file or any other, still reports. Verified with gitleaks 8.30.1 locally
+# and 8.24.3, the version `Secret Scanning` installs: the range scan reports the
+# finding before this entry and none after it, while the same rule still reports a
+# different value written in the same shape.
+regexes = [
+    '''hunter2-secret-value''',
 ]

@@ -1405,11 +1405,18 @@ func shellAuditTestState() shellAuditState {
 		Shell:     "zsh",
 		ShellPath: "/usr/bin/zsh",
 		Command:   "zsh -i -c exit",
-		Runs:      shellAuditRuns,
-		Timeout:   shellAuditTimeout,
-		Measured:  true,
-		Samples:   samples,
-		Timeouts:  1,
+		Kind:      shellAuditKindZsh,
+		Version:   shellAuditVersion{Known: true, Raw: "zsh 5.9.2 (x86_64-pc-linux-gnu)", Number: "5.9.2", Major: 5, Minor: 9},
+		Terminal:  true,
+		// The plan the state is resolved with, so the screen a guard draws is the
+		// screen a user sees rather than a state with a zeroed plan beside a number
+		// measured under another one.
+		Plan:     shellAuditPlanDefault(shellAuditRuns),
+		Runs:     shellAuditRuns,
+		Timeout:  shellAuditTimeout,
+		Measured: true,
+		Samples:  samples,
+		Timeouts: 1,
 		Attribution: []shellAuditFunction{
 			{Name: "compdump", Calls: 1, Total: 725250 * time.Microsecond, Self: 725250 * time.Microsecond, Percent: "42.01%"},
 			{Name: "compdef", Calls: 1027, Total: 306380 * time.Microsecond, Self: 306380 * time.Microsecond, Percent: "17.75%"},
@@ -1420,13 +1427,23 @@ func shellAuditTestState() shellAuditState {
 		},
 	}
 	st.Median, st.Fastest, st.Slowest = shellAuditSummary(samples)
+	// The whole summary, not only its three flat numbers: the screen draws a
+	// paragraph from the statistics the runs support, and a fixture without them
+	// would leave that paragraph out of every frame the fit guards measure.
+	st.Stats = shellAuditStatsOf(samples)
 	return st
 }
 
 // TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure pins the availability
-// rule: the row is there where the login shell and a terminal were resolved, and
-// the section's own body names the reason everywhere else -- no login shell, no
-// terminal -- rather than leaving a hole the user has to guess at.
+// rule: the row is there wherever a login shell resolved, and the section's own
+// body names the reason where one did not -- no `$SHELL`, or a shell this machine
+// does not have -- rather than leaving a hole the user has to guess at.
+//
+// A run with no terminal attached is in the table on purpose, on the offered
+// side: the measurement starts the shell under the utility's own stdin and needs
+// no tty, so the number exists for a pipe, a container or a CI run. What the
+// terminal changes is what the number describes, and that is said on the screen
+// the row opens rather than by taking the row away.
 func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -1441,9 +1458,14 @@ func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 			false, "$SHELL",
 		},
 		{
-			"no terminal",
-			shellAuditState{Resolved: true, Shell: "zsh", Reason: "this run has no terminal attached, so zsh cannot be started the way a terminal starts it."},
-			false, "terminal",
+			"a login shell that this machine does not have",
+			shellAuditState{Resolved: true, Shell: "fish", Reason: "fish is the login shell named by $SHELL, but this machine has no such executable."},
+			false, "no such executable",
+		},
+		{
+			"a shell measured with no terminal attached",
+			shellAuditState{Resolved: true, Shell: "zsh", Available: true, Terminal: false, Command: "zsh -i -c exit"},
+			true, "",
 		},
 	}
 
@@ -1483,9 +1505,12 @@ func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 
 // TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution is the screen's
 // own guard: the number is on screen with the count it covers, the range, the
-// start that did not finish, the command and the bound it was run under, and the
-// function zprof put first -- so the number can be reproduced and the culprit can
-// be acted on.
+// start that did not finish, the command the press would run and the bound it was
+// run under, and the entry the instrument put first -- so the number can be
+// reproduced and the culprit can be acted on. The row is the winner of the
+// instrument's own ranking, and the prose carries the share: the line has room
+// for a name and a time, and a percentage in it pushed the name off a short
+// frame.
 func TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution(t *testing.T) {
 	m := installerFrameModel(t, ScreenShellAudit)
 	m.ShellAudit = shellAuditTestState()
@@ -1499,11 +1524,11 @@ func TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution(t *testing.T) 
 	for _, want := range []string{
 		"zsh -i -c exit",                                  // the exact command
 		"bounded by 10 s",                                 // the timeout every start ran under
-		"The measurement is 5 such starts",                // how many starts the method uses
+		"The plan runs 5 such starts",                     // how many starts the method uses
 		"Median of 4 of 5 runs: 924 ms",                   // the median, with the count it covers
 		"Range: 872 ms to 977 ms",                         // the spread
 		"1 of 5 runs did not finish: 1 timed out at 10 s", // the timeout, as its own result
-		"Slowest function: compdump (725.25 ms self, 1 call(s))",
+		"Heaviest entry: compdump (725 ms self, 1 call(s))",
 		"zsh/zprof profiled one further start",        // how the attribution was taken
 		"in zprof's own order",                        // what the order means
 		"_omz_source",                                 // the list, not only its head

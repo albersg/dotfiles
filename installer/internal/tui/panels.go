@@ -1148,10 +1148,10 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 	})
 
 	// The section's utilitiesShellAuditRow, the utility that changes nothing. It
-	// is offered wherever the login shell and a terminal were resolved, and the
-	// value is the last measurement the model holds: nothing is measured until the
-	// screen's own row is pressed, so before that the panel says so rather than
-	// printing a number nobody took.
+	// is offered wherever the login shell resolved, and the value is the last
+	// measurement the model holds: nothing is measured until the screen's own row
+	// is pressed, so before that the panel says so rather than printing a number
+	// nobody took.
 	entries = append(entries, utilitiesPanelEntry{
 		label:   "Shell start",
 		value:   shellAuditPanelValue(m.ShellAudit),

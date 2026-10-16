@@ -792,48 +792,133 @@ a utility that **changes nothing at all**: no startup file is opened for writing
 disabled, and no recommended edit is applied. It answers a question the user lives with every day and
 cannot see — why the terminal takes a second to open — and leaves the decision to them.
 
-**It measures the way a terminal starts the shell.** The shell named by `$SHELL` is started as
-`zsh -i -c exit` (or the same shape for the login shell this machine has), **five times**, and the
-screen reports the **median** with the **range** beside it, the count it covers, and every completed
-start in the order it ran. Five is odd on purpose, so the median is a run that really happened rather
-than the average of two, and it is enough that one cold start does not decide the answer. The number
-is never a single run and never an average, and the screen says so: the method travels with the
-number, so it can be reproduced by hand.
+**It measures a named start, and the screen says which one.** The shell named by `$SHELL` is started
+as a terminal starts it — `zsh -i -c exit`, or the same shape for the shell this machine has — and the
+start itself is the user's choice: the interactive start a terminal gives you, the login start, or a
+clean start with no configuration read at all. Three further settings are on the same line: how many
+runs to take (five by default, at most twenty), whether a warm-up run is thrown away first (none by
+default, at most three), and whether the run compares the configured start with a clean one. `[m]`,
+`[n]`, `[w]` and `[b]` change them, and the screen's first line draws the command the press would
+really run, flags included, so the plan on screen and the measurement cannot promise two different
+things.
 
-**Every start is bounded by a ten-second timeout, and a timeout is reported as a timeout.** A
-startup can hang — a plugin that waits on the network, a prompt reading a filesystem that is not
-answering — and the utility must not hang with it. A start that does not finish inside the bound is
-killed, counted, and named on the screen as a timeout; it is **left out of the median**, and the
-reason is that a hung start has no duration to report. Writing one down as `0.0 s` would be inventing
-a number, which is the one thing this utility cannot afford to do.
+**The number is a measurement, not a run.** The screen reports the **median** with the **mean** and the
+**range** beside it, the count it covers, the fastest and slowest start, and every completed start in
+the order it ran. Five runs is the default because it is odd, so the median is a start that really happened
+rather than the average of two, and it is enough that one cold start does not decide the answer. The
+number is never a single run and never an average, and the screen says so: the method travels with
+the number, so it can be reproduced by hand. Two more statistics join it **only when the runs behind
+them exist**, and the screen names what is missing rather than printing a zero: the **spread** as a
+share of the median, with the startup called steady, variable or erratic, once there are three runs;
+the **95th percentile** and a **trimmed median** that leaves out the starts outside 1.5 times the
+interquartile range, once there are eight. A statistic the count cannot support is named as missing
+with the runs it would need, and never printed as a zero: unreported is not the same number as none,
+and the difference is a number the user can act on.
 
-**It attributes with zsh's own profiler, or says it cannot.** On zsh, one further start is taken with
-`zmodload zsh/zprof` loaded before the startup runs, and the functions zprof reports are listed
-heaviest first — in zprof's own order, by the time each function spent on itself — with the total,
-the self time, the call count and zprof's own percentage. The utility does not diagnose by guessing:
-when `zprof` is not available, when the shell is not zsh, or when the profiled start reports no
-table, the screen says **only the total is measurable** and gives the reason. No function is ever
-named that zprof did not name.
+**Every start is bounded by a ten-second timeout, and a timeout is reported as a timeout.** A startup
+can hang — a plugin that waits on the network, a prompt reading a filesystem that is not answering —
+and the utility must not hang with it. A start that does not finish inside the bound is killed,
+counted, and named on the screen as a timeout; it is **left out of the median**, and the reason is
+that a hung start has no duration to report. Writing one down as `0.0 s` would be inventing a number,
+which is the one thing this utility cannot afford to do. A start that could not be made at all is
+named as a failure in the same way.
 
-**It is read-only, and it says so.** The profiled start writes two wrapper files and zprof's table
-into a directory of the utility's own under the system temporary directory, and removes it again.
-The user's own startup files are **sourced from where `ZDOTDIR` already pointed** — never copied,
-moved or rewritten — and the run's own environment is what tells the wrapper where they are. The
-screen states plainly that nothing is changed and that the fix belongs in the user's own
-configuration.
+**The runs can be stopped, and what finished is kept.** `Esc` while a measurement is running stops
+the starts that are left: the samples that already finished stay on screen and the run that was in
+flight is cut. A stop is a third outcome, counted as neither a timeout nor a failure, and the screen
+never calls a stopped measurement a complete one. `Esc` with nothing running is the way back, as it is
+everywhere else.
 
-**The profiled start is the one that can differ, and the screen says so rather than guessing.** For
-that single run `ZDOTDIR` points at the wrapper's directory, so a startup file that itself refers to
-`$ZDOTDIR` resolves it to the wrapper for that run — the one way the profiled start can behave
-differently from the five measured ones, which run with the environment exactly as it is. If that
-makes the startup fail, the screen reports that zprof named no table instead of a function, which is
-the honest answer: the total is still measured, and no culprit is invented.
+**It attributes with the shell's own instrument, or says it cannot.** A further start is taken with
+the instrument that shell has, and its rows are listed heaviest first, in the instrument's own order:
 
-**Where it cannot measure, it says why.** With no login shell named (`$SHELL` empty), a login shell
-this machine does not have, or a run with no terminal attached — a server, a container, a redirected
-run — the section offers no row and its own body names the reason. Without a terminal the interactive
-start cannot be reproduced faithfully: job control and the plugins that read the terminal behave
-differently, and the number would describe a start the user never gets.
+| Shell | The instrument | What its rows carry |
+|-------|----------------|---------------------|
+| zsh | `zmodload zsh/zprof` loaded before the startup | the function, the total, the time it spent on itself, the call count and zprof's own percentage |
+| -- | the paragraph introducing the table | written for the instrument that ran: it never introduces a trace as a profile, and a share the instrument did not print is not printed by the screen |
+| bash 5.0+ | `PS4` + `EPOCHREALTIME` tracing of the startup | the function or the file each traced command came from, with the time between trace lines, ranked by where the time went |
+| fish 3.6+ | the shell's own `--profile-startup` | the function and its own time; no percentage, because the table's total is the leaf's own time and a share would be invented |
+| anything else | none | only the total is measurable, and the screen says so |
+
+Which start is profiled is the user's: the instrument runs for the start the plan names, so a slow
+login start is attributed as a login start. The utility does not diagnose by guessing: when `zprof` is
+not available, when the shell's version is older than its instrument, when the instrument reports no
+table, or when the shell has no instrument here, the screen says **only the total is measurable** and
+gives the reason. No function is ever named that the instrument did not name, and the profiled start
+is a further start rather than one of the measured samples, so attribution never changes the number.
+
+**It is read-only, and it says so.** The profiled start writes its tables and the wrapper files it
+needs into a directory of the utility's own under the system temporary directory, and removes it
+again. The user's own startup files are **sourced from where the shell already looked for them —
+never copied, moved or rewritten**: zsh's wrapper points `ZDOTDIR` at its own directory and sources
+the real files from the path the environment already carried, and bash's wrapper sources the real
+`.bashrc` where it lives. A clean start is the same idea in reverse: the utility gives the shell an
+empty directory **of its own** to read instead of the user's, through the mechanism that shell
+honours (`ZDOTDIR`, `XDG_CONFIG_HOME`, `--noprofile --norc`, an empty `ENV`), because renaming the
+user's files for the length of a run would be a write. The screen states plainly that nothing is
+changed and that the fix belongs in the user's own configuration.
+
+**Any of them can be the one that hangs, and the profiled start is an extra start the plan counts.** A
+profiled start is bounded like the others, a start that cannot be made is reported as one that could
+not be made, and a measurement that ran out of time before the profiled start says the total was
+measured and no profile was taken. Nothing on this screen is inferred from a run that did not
+happen.
+
+**The clean start is taken so the configured one has something to be compared with.** With `[b]` on,
+the same shell is measured again with no configuration read, and the screen reports the difference
+between the two medians — **the shell and the machine's own time versus what the user's configuration
+adds** — with both medians beside it so the subtraction can be redone by hand, and the difference as a
+share of the configured start. The verdict is kept apart from the arithmetic: above a tenth of the
+start the screen says where the time goes, below it the screen says the startup is mostly the shell's
+own, and a difference that is negative or too small to separate is reported as exactly that rather
+than as a saving. The comparison refuses to answer when the two sides came from different shells,
+different versions, different starts, when either side was stopped, when a side could not be measured
+at all, or when there are fewer than three runs on a side — and it names which of those it was. A
+comparison of two medians taken from one run each would be a comparison of noise.
+
+**The stored measurements are the user's choice, and the file holds numbers and names only.** `[h]`
+turns on keeping the runs: the choice and each measurement are written to
+`shell-audit-history.json` in the state directory beside the install record (`$XDG_STATE_HOME`, else
+`~/.local/state`), **never in the configuration directory and never anywhere the installer's own
+files go**. At most the last fifty measurements are kept, newest first, and each holds the number and
+its context — the start, the shell and its version, the counts, the medians, the clean comparison —
+and at most the heaviest three rows the instrument already named, which is the same redaction the
+screen draws. The file is read once when the section is resolved and never while a screen is drawn; a
+machine with no file is a machine that has never kept a history, which is the normal first run; and a
+file that is there and cannot be read is **reported rather than silently overwritten**. It is written
+through a temporary neighbour and a rename, so a half-written history is not a state the next run can
+read. With the switch off the measurement is measured and stored nowhere.
+
+**What the stored runs allow is a trend, and the trend is refused rather than extrapolated.** From
+three stored measurements of the **same start, the same shell and the same version**, the screen
+compares this run with the median of their medians and calls it steady, a regression or an
+improvement — with a change under a tenth of the earlier number called steady. A measurement that was
+stopped is never a comparison point, and a version change makes the two sides **incomparable**, which
+the screen names rather than averaging across it: a new shell version is a different thing being
+measured.
+
+**The recommendations say what kind of claim each one is, and cite the evidence.** `[r]` opens them
+and they lead the text, and each one is one of three kinds: **Measured** (a fact about the
+measurement: the spread, the sample count, the runs that did not finish, the limit of what could be
+profiled), **Observed** (what the instrument named, which is not the same as why it was slow) and
+**Confirmed** (the only attribution the utility can make, and only through the clean comparison). The
+list is short on purpose, the screen shows at most three, and the utility says what it cannot know:
+the stored measurements show **what changed, never why**. No recommendation is written without
+evidence, and none contains a cause the utility did not measure.
+
+**Nothing from a profile is displayed raw or kept.** The tables are parsed into names and durations,
+the trace runs of bash's profiled start are read as they are produced and turned into the file and
+line each function was called from, and the captured output of every start is discarded — a startup
+that prints a token, an email address or a path does not put it on the screen and cannot put it in
+the history file. Error text is cut to a bounded length for the same reason.
+
+**Where it cannot measure, it says why, and the terminal is context rather than a gate.** With no
+login shell named (`$SHELL` empty) or a login shell this machine does not have, the section offers no
+row and its own body names the reason. A run with **no terminal attached** is measured: the shell is
+started under the utility's own stdin, which needs no tty, and the number is still worth having for a
+pipe, a container or a CI run — what the terminal changes is what the number describes, because job
+control and the plugins that read the terminal behave differently, and the screen **names the
+terminal it ran under** so the reader knows which start the number came from.
 
 ### The terminal capabilities
 
