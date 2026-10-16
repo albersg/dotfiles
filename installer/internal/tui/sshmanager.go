@@ -30,9 +30,11 @@ import (
 //  1. The effective configuration is the client's answer, not this tool's.
 //     sshcfg asks the client (`ssh -G`) and falls back to its own reading only
 //     when the client cannot be asked, saying so on the screen when it does.
-//  2. Nothing outside the block this tool owns is rewritten. An entry that
-//     cannot be edited safely is shown with the reason and no edit row exists
-//     for it.
+//  2. The only lines this tool rewrites are the ones a change names. A new entry
+//     goes inside the block it owns; an entry the user's own file declares is
+//     edited where it is, with its comments and the lines around it left as they
+//     were. An entry that cannot be edited safely is shown with the reason and no
+//     edit row exists for it.
 //  3. A private key is never read. Every key fact on these screens comes from
 //     the public half, from the agent's own listing, or from ssh-keygen.
 //  4. A connection is tested only when the user presses the row that tests it,
@@ -571,8 +573,7 @@ func (m Model) sshManagerDescription() []string {
 
 	paragraphs = append(paragraphs, sshToolSummary(mgr))
 	paragraphs = append(paragraphs, fmt.Sprintf(
-		"This tool writes only inside its own block in %s, after a backup beside the file and a validation "+
-			"with the client's own parser; every line outside that block is left byte-for-byte as it is.",
+		"This tool writes inside its own block in %s, and it rewrites an entry your own configuration already declares only when you ask it to. Either way: a backup beside the file first, the client's own parser validating the new text, and every line the change does not name left byte-for-byte as it is.",
 		sshManagerPath(mgr)))
 	return paragraphs
 }
@@ -662,7 +663,7 @@ func (m Model) sshHostDescription() []string {
 	if m.SSH.DetailErr != "" {
 		paragraphs = append(paragraphs, "The client could not be asked about this entry: "+m.SSH.DetailErr)
 	} else {
-		paragraphs = append(paragraphs, sshEffectiveRows(eff)...)
+		paragraphs = append(paragraphs, sshEffectiveRows(m.SSH.Manager, eff)...)
 	}
 	for _, warning := range eff.Warnings {
 		paragraphs = append(paragraphs, "Note: "+warning)
@@ -682,22 +683,26 @@ func (m Model) sshHostDescription() []string {
 // sshEffectiveRows renders the effective values with their source. A value the
 // client answered is named as the client's answer; one this package resolved is
 // named with its file and line, which is the part the client does not report.
-func sshEffectiveRows(eff sshcfg.Effective) []string {
+func sshEffectiveRows(mgr *sshcfg.Manager, eff sshcfg.Effective) []string {
 	rows := []string{}
-	add := func(label, value string) {
+	// The source is looked up by the key the effective configuration files the value
+	// under, not by the label: a label is written for a person ("Jump host") and the
+	// key is what the resolver records ("proxyjump"), so deriving one from the other
+	// is how a row quietly loses its source.
+	add := func(label, key, value string) {
 		if strings.TrimSpace(value) == "" {
 			return
 		}
-		rows = append(rows, fmt.Sprintf("%s: %s%s", label, value, sshSourceSuffix(eff, label)))
+		rows = append(rows, fmt.Sprintf("%s: %s%s", label, value, sshSourceSuffix(mgr, eff, key)))
 	}
-	add("Host name", eff.HostName)
-	add("User", eff.User)
-	add("Port", eff.Port)
+	add("Host name", "hostname", eff.HostName)
+	add("User", "user", eff.User)
+	add("Port", "port", eff.Port)
 	if len(eff.IdentityFiles) > 0 {
-		add("Identity file", strings.Join(eff.IdentityFiles, ", "))
+		add("Identity file", "identityfile", strings.Join(eff.IdentityFiles, ", "))
 	}
 	if eff.ProxyJump != "" {
-		add("Jump host", eff.ProxyJump)
+		add("Jump host", "proxyjump", eff.ProxyJump)
 	}
 	if len(rows) == 0 {
 		rows = append(rows, "The client's answer named no host name, user, port or identity for this entry.")
@@ -706,9 +711,9 @@ func sshEffectiveRows(eff sshcfg.Effective) []string {
 }
 
 // sshSourceSuffix is where a value came from, in words: the client's own answer,
-// or the file and line that declared it.
-func sshSourceSuffix(eff sshcfg.Effective, label string) string {
-	key := strings.ToLower(strings.ReplaceAll(label, " ", ""))
+// or the file and line that declared it, shortened against the home this manager
+// works in so the row names a path the user recognises.
+func sshSourceSuffix(mgr *sshcfg.Manager, eff sshcfg.Effective, key string) string {
 	source, ok := eff.Sources[key]
 	if !ok {
 		if eff.FromClient {
@@ -719,7 +724,7 @@ func sshSourceSuffix(eff sshcfg.Effective, label string) string {
 	if source.File == "" {
 		return ""
 	}
-	return fmt.Sprintf("  (%s:%d)", sshShortPath(nil, source.File), source.Line)
+	return fmt.Sprintf("  (%s:%d)", sshShortPath(mgr, source.File), source.Line)
 }
 
 // sshOptionList names the options of a stanza, cut to a bound with a count of
