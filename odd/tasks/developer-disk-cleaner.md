@@ -111,6 +111,7 @@ screen lives in the Utilities section.
 | T5 | TUI state, commands and key handlers | S2, S5, S10 | inline | `004d9da` |
 | T6 | Rendering, Utilities integration, frame and golden guards | S3, S9, S12 | inline | `004d9da` `feat(diskclean): the screen that shows what each store holds, and cleans what you mark` — T5 and T6 share this one work-unit commit on purpose: the frame, emoji and terminal-fit guards measure every declared screen, so a screen constant that nothing renders cannot be committed on its own without leaving the suite red |
 | T7 | Docs and closure | S12, S14 | inline | `docs(diskclean): the development caches in the README and the installer guide` |
+| T8 | The verification's S3/S5 defect: the screen must render the detection evidence, the covered paths or engine objects, the category and the reconstruction cost | S3, S5, S14 | inline | `29985dd` `fix(diskclean): the screen shows why each store was found and what removing it costs` — found by the independent verification (T7), not by this feature's own tests; see L9 |
 
 ## Log
 
@@ -221,8 +222,11 @@ Own checks, run inline as each task landed:
   same four, the same assertions, the same output. Every other package in the gate is `ok`, this
   feature's `internal/diskclean` among them.
 
-Independent verification (`gentle-ai-verify`, read-only, over `c1e4a64..HEAD`): pending the verdict
-per spec S1–S14; the result is recorded here and acted on before closure.
+Independent verification (`gentle-ai-verify`, read-only, over `c1e4a64..HEAD`) returned one verdict
+per spec: S1 PASS, S2 PASS, **S3 FAIL**, S4 PASS, **S5 PARTIAL**, S6–S13 PASS, S14 PARTIAL. S3 and
+S5 are the same defect — the screen showed a size and a risk and none of the evidence fields beside
+them — and its fix, with the checks that followed it, is L9. S14 was partial for that same open
+defect and was re-run closed by the fix.
 
 Native review (receipt-driven development) disposition: `gentle_review` inspect offered
 `review.start` for the frozen candidate. A START carrying the 4R lens selection was rejected as
@@ -239,6 +243,55 @@ review switch is off for this clone by its own record, the candidate is left unr
 decision, and the slice worktree was removed and pruned (`git worktree remove --force` +
 `git worktree prune`). Nothing has to be abandoned or repaired: no lineage, no authority, no
 mutation was left behind.
+
+**L9 — the one real defect the verification found, and its fix (T8).**
+
+The verifier read the screen against S3 ("mostrar espacio usado y espacio potencialmente recuperable
+... rutas u objetos de origen, motivo de detección y grado de certeza") and S5, and found that the
+rows rendered a title, a size and a risk while `Item.Reason`, `Item.Detail`, `Item.Paths`,
+`Item.VolatileObjects` and `Category.Label()` were never drawn anywhere: the evidence existed in the
+package and no screen showed it. Its own probe was red on the list and on the preview. Everything
+else it checked passed: the honest numbers (S2), the selection rules (S4), the mechanisms and the
+engine-owned stores (S6), the guard and its re-checks (S7), the plan and the release measurement
+(S8), the key handling and the frames (S9, S10), the scope (S11, S13) and the docs (S12). It made no
+writes to the workspace and worked from a scratch copy with its own `HOME`, `TMPDIR` and `GOCACHE`.
+
+The fix (`29985dd`): the finding under the cursor carries a card, in the findings list and inside the
+preview — its category and risk, what it holds and which half of that number is the disk's, where
+the number came from (walked, or the owner's own accounting), the evidence that found it, the paths
+or the engine objects it covers, and the reconstruction cost from `Detail`. In the preview the card
+opens with the exact command, the exact path or the exact refusal the confirmation would use. The
+preview also lists the items it is about as rows, so the cursor can walk them; space toggles nothing
+there and the confirmation counts only the runnable ones. The card sits above the measured summary,
+the introduction and the standing notes, so the smallest measured frame cuts the orientation text
+and never the evidence; the golden pins that and shows each finding's reason and paths. A store that
+is gone, unreadable, cut short by the walk's ceiling or sharing bytes with another finding says so in
+the same card.
+
+Checks run after the fix:
+
+- `gofmt -l` → nothing, `go build ./...` → clean, `go vet ./internal/diskclean/ ./internal/tui/` → clean.
+- `go test ./internal/diskclean/` → `ok`, including the new `TestCleanNeverUnlinksAnEngineOrManagerStore`:
+  an engine's or a manager's store is never unlinked file by file, even when it is selected and planned.
+- `go test -run 'TestDiskCleaner' ./internal/tui/` → `ok`, 18 screen tests, including
+  `TestDiskCleanerShowsWhyEachFindingWasFoundAndWhereItIs`,
+  `TestDiskCleanerCardSaysWhyAnUnmeasuredFindingIsNotAZero`, and
+  `TestDiskCleanerPreviewRendersEachCommandAndEachRefusal` rewritten to walk every preview row and
+  check each one's card.
+- Full `go test ./internal/tui/` → only the four pre-existing Ghostty failures, identical to the base
+  commit `c1e4a64`.
+- `TestDiskCleanerGolden` regenerated; re-read at 80x24 it carries the card — category, both sizes and
+  their source, the reason, the path. `TestUtilitiesGolden` did not change.
+- `make preflight` re-run after the fix: the same failure set as before it, nothing added. Step 4/7
+  (`go test ./... -count=1`) still fails only on the four Ghostty tests
+  (`TestStepInstallTerminalGhosttyReportsAFailedDownload`,
+  `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`,
+  `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`,
+  `TestInteractiveGhosttyScriptDownloadsThenRuns`), which were reproduced at the base commit
+  `c1e4a64`, plus the two end-to-end smoke steps that fail for the environment rather than for the
+  code: `Configure WSL` (`permission denied` writing `/etc/wsl.conf`) and `zsh installation failed`.
+  All six are present, identically, in this feature's pre-fix run of the same gate. Every other
+  package is `ok`, this feature's `internal/diskclean` among them.
 
 ## Remaining
 
