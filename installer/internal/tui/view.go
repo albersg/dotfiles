@@ -487,7 +487,8 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenInstallVerify:
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenInstallVerify,
+		ScreenNetworkDiagnostics:
 		return true
 	}
 	return false
@@ -558,6 +559,9 @@ func (m Model) headerName() string {
 		return "Utilities"
 	case ScreenInstallVerify:
 		// The verification screen is one level in from the same section.
+		return "Utilities"
+	case ScreenNetworkDiagnostics:
+		// The diagnosis screen is one level in from the same section.
 		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
@@ -1085,6 +1089,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderShellAudit())
 	case ScreenInstallVerify:
 		s.WriteString(m.renderInstallVerify())
+	case ScreenNetworkDiagnostics:
+		s.WriteString(m.renderNetworkDiagnostics())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1653,8 +1659,7 @@ func (m Model) utilitiesDescription() []string {
 	var paragraphs []string
 	if !m.ThemeSwitchFound {
 		paragraphs = append(paragraphs,
-			"No desktop theme switch is available here: it needs a GNOME, KDE Plasma or macOS session with "+
-				"its own theme tool.")
+			"No desktop theme switch is available here: no GNOME, KDE or macOS session.")
 	} else {
 		paragraphs = append(paragraphs, fmt.Sprintf(
 			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
@@ -1723,6 +1728,15 @@ func (m Model) utilitiesDescription() []string {
 	// section never leaves a hole where a utility should be, and it never promises
 	// more than presence -- the record holds no digest.
 	paragraphs = append(paragraphs, fmt.Sprintf("%s reports which recorded paths are gone.", utilitiesVerifyRow))
+
+	// The network diagnosis is named last, in a line short enough to be one row: the
+	// body shares the frame with the rows, and it has to carry every job without the
+	// cut marker -- TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on "… and N more"
+	// at 80x24. What the line leaves out -- the host an overview reaches for, and
+	// that every check is bounded -- is stated on the screen itself, where the runs
+	// that need it are started.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s runs read-only checks, stage by stage.",
+		utilitiesNetworkRow))
 
 	return paragraphs
 }

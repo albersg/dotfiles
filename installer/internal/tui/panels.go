@@ -1160,6 +1160,18 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: true,
 	})
 
+	// The section's utilitiesNetworkRow. It is offered everywhere -- there is always
+	// a machine whose connectivity can be described -- and the value is what the
+	// last run answered: nothing is dialled until the screen's own row is pressed,
+	// so before that the panel says so rather than printing a verdict nobody
+	// established. It is inserted above the terminal entry so the terminal row
+	// keeps the property its own comment claims: the last entry is the one a short
+	// frame may drop.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Network",
+		value:   networkPanelValue(m.Network),
+		offered: true,
+	})
 	// The section's utilitiesTerminalRow. The report is read-only and offered
 	// everywhere, so the panel always names it: before the screen has been
 	// opened the value says the terminal has not been inspected, and afterwards

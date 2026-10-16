@@ -34,7 +34,8 @@ configuration declares bindings; the two that declare none say so and list what 
 - **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
 - **Utilities**: The small jobs that are not part of an installation, starting with a
   reversible system light/dark theme switch and the reversible dotfiles-theme switch, in its own
-  main-menu row
+  main-menu row, and the read-only **network diagnosis** that names which stage of a connection
+  stopped it
 - **Progress Tracking**: Real-time installation progress with a frame-width progress bar whose
   filled part carries a travelling highlight during long steps, a percentage, the step the run is on
   with its name, the elapsed time and an estimate of what is left measured from the run's own clock,
@@ -114,10 +115,10 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the two
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the three
   read-only reports: the terminal capability report behind the **Report the terminal
-  capabilities** row, and the install check behind the **Check the machine against the last
-  install** row
+  capabilities** row, the install check behind the **Check the machine against the last
+  install** row, and the network diagnosis behind the **Diagnose the network** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -132,15 +133,23 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds six jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds seven jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
 host), the read-only **shell's startup** measurement (one level in), the read-only **terminal
-capability report**, and the read-only **install check**. The main menu's panel derives one row per
+capability report**, the read-only **install check**, and the read-only **network diagnosis** (one
+level in from the **Diagnose the network** row). The main menu's panel derives one row per
 job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
 is the only list -- so a utility added to the section shows up in the panel or is visibly missing
 from that one function. `TestTheUtilitiesDocNamesEveryJobTheSectionOffers` holds this sentence to
 that list, because a sentence that states a count and then lists fewer jobs than the section offers
 is the defect this doc has already shipped once.
+
+**The network diagnosis accumulates its checks instead of replacing them**: each one appears as it
+finishes, so a slow stage never hides a fast one, and the row that runs them keeps its own label
+while the count of finished steps lives in the notice line above the body (`Running the checks… 3
+finished so far`, with what stopping does). The cursor is held on the row it was on when the report
+lands, so a run that finishes while the user is reading one step does not hand the next `Enter` to a
+different row.
 
 The first utility is **the system theme switch**. It changes the desktop's light/dark theme through
 the desktop's own tool, and it offers only the desktops whose setting it can read back exactly as it
@@ -832,6 +841,84 @@ written; `TestChoosingTheVerificationRowRunsTheCheckOffTheUpdateLoop` pins the c
 `TestTheVerificationReadsTheVerdictRatherThanTheDiskAgain` pins that a keypress does not read the
 machine. `TestInstallVerifyGolden` holds the frame at 80x24.
 
+### The network diagnosis
+
+The seventh job is **the network diagnosis**, behind the section's **Diagnose the network** row. It
+answers the question every support thread starts with -- *why can I not reach it* -- and, like the
+reports beside it, it **changes nothing at all**: no resolver, route, firewall, proxy, VPN or
+certificate setting is written, no verification is ever skipped, no capability is probed by changing
+one, and no tool is installed. It reads, it names the stage that stopped, and it leaves the decision
+to the user.
+
+**It separates the stages, because they are different failures with different owners.** A name that
+does not resolve, a port that refuses, a socket a firewall keeps silent, a certificate this machine
+does not trust and a service that answers an error are five problems with five fixes, and a screen
+that reports "no internet" for all of them is worse than no screen at all. Each check belongs to one
+stage:
+
+| Stage | What it answers | The checks it holds |
+|-------|-----------------|---------------------|
+| Local | Does this machine have a network at all | the interfaces and their addresses, the default route |
+| Resolver | Can the name be turned into an address | the configured resolvers, the system resolution, a query to each server |
+| Transport | Is the way to the address open | the TCP handshake and its time, the optional traceroute |
+| Certificate | Is the far side who it claims to be | the TLS handshake, the chain, the expiry, the name on the certificate |
+| Application | Does the service answer as a service | the HTTP request, its status, the redirect chain, the proxy in the path |
+
+**The rows are the report.** One row per check carries its status word -- `ok`, `noted`, `failed`,
+`unknown` or `skipped` -- and the cursor on a row is what shows that step in full: what it measured,
+how long it took, the **cause** a failure most plausibly has, the **next check** to make, and the
+command to run **by hand** when a person can settle it outside this utility. `unknown` and `skipped`
+are first-class answers: a check that could not run says which capability was missing rather than
+being left out, and a step the run never reached -- because an earlier step made it meaningless, or
+because the run was stopped -- is named as skipped rather than quietly absent.
+
+**What it reaches for is named on the screen, never hidden.** The overview contacts one host: the
+release API this installer already talks to for its own update check, shown on the screen with that
+reason. Everything else is a destination the user types -- a host, an IPv4 or IPv6 address (zone
+included), a `host:port`, an internationalized name, or a complete `http`/`https` URL. It is
+**validated before anything is dialled**, and a destination the validator refuses reopens the field
+with the reason and dials nothing. Only `http` and `https` URLs are accepted, a URL's credentials are
+dropped before any request and the screen says so, and a request's query string is never part of the
+report.
+
+**Every check is bounded by construction, and the run is cancellable.** Each check has its own
+timeout and the run has an overall one, the checks run one at a time in a fixed order so a slow link
+is diagnosed rather
+than saturated, and `Esc` stops the run while **keeping what finished**: the report still lands, with
+the checks that completed listed and the rest named as skipped. The call that runs the checks never
+happens on the update loop, so the interface stays responsive while a stage is waiting, and the
+checks appear as they finish rather than all at once at the end.
+
+**Latency is the TCP handshake's, never a ping's.** A network that answers ICMP and one that drops it
+are diagnosed the same way, because a blocked ping is not evidence of anything about the connection
+the user is trying to make.
+
+**The one check that starts a program is off by default.** The traceroute row runs the system's own
+`tracepath` or `traceroute` -- only when the machine already has one, only for a destination the user
+typed, and never for the overview, which has no single host whose path would mean anything. It is the
+only check that leaves the machine's own network path to a third-party tool, and the screen says what
+a silent hop means: filtered, not a fault.
+
+**The report is written only after it has been read, and it is redacted either way.** Credentials
+never appear in it, whatever the check recorded, because every line of the text passes through the
+same redaction instead of being trusted; the preview row shows the file line for line, and the save
+row is offered only from that preview, so the file cannot differ from what was reviewed. The
+**anonymization** row replaces every address, the user name, the home directory and the machine name,
+which is what makes the file safe to send to somebody else, and the report says which of the two
+forms was written. The host being diagnosed is deliberately kept, and the screen says so: the report
+exists to say what could not be reached, and the preview shows the exact text before anything is
+written. It is saved under the installer's own state directory
+(`$XDG_STATE_HOME/dotfiles/network-report-<UTC start>.txt`), one file per run, readable by the user
+alone -- it still describes this machine's addresses, which is exactly why it is not written anywhere
+else and not written at all until it has been read.
+
+**On WSL the report says which side it is describing.** The host's resolver and interfaces are not
+the guest's, so the two are never mixed: a report written inside the distribution describes the
+distribution's own network and says so, and the interface names it prints are the ones that exist
+where the run happened. A machine where a capability is missing -- no interfaces to enumerate, no
+resolver configured, no TLS stack, no `traceroute` installed, a Termux host with none of the desktop
+tools -- degrades one check at a time, with the reason on that row, instead of failing the screen.
+
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -1102,7 +1189,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the terminal capability report, and what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`) — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
@@ -1884,12 +1971,14 @@ terminals again. The pass renders with the companion animating, which is the
 strictest frame, so a screen that overflows only with the creature on fails the
 fit guard instead of escaping it.
 
-The theme picker, the utilities section, the WSL resources, the shell's startup
-and the terminal capability report each have a frame pinned at the 80x24 floor as
+The theme picker, the utilities section, the WSL resources, the shell's startup,
+the terminal capability report and the network diagnosis each have a frame pinned
+at the 80x24 floor as
 well: `TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
 with a switch pending, `TestThemePickerResultGolden` with the report landed,
-`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden` and
-`TestTerminalCapabilitiesGolden`. They were guarded by measurements -- rows,
+`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden`,
+`TestTerminalCapabilitiesGolden` and `TestNetworkDiagnosticsGolden`. They were
+guarded by measurements -- rows,
 columns, fit at twelve sizes -- and by behaviour, and a measurement cannot see a
 block drawn above the list it belongs under, a list squashed to five rows to make
 room for it, or a screen that reads as a wall of prose. Looking at the frame is

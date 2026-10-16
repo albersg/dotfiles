@@ -890,6 +890,44 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case networkCheckMsg:
+		// One check finishing while the run goes on. It is appended to the streamed
+		// list and the next read is armed on the same run: the update loop keeps
+		// reading while the run keeps producing, so a slow stage never hides a fast
+		// one, and a run that is left in flight still lands its checks here.
+		if m.Network.Running && m.Network.Run != nil {
+			m.Network.Checks = append(m.Network.Checks, msg.check)
+		}
+		return m, waitNetworkEvent(m.Network.Run)
+
+	case networkDoneMsg:
+		// The finished report replaces the streamed checks whole, so the steps a stop
+		// left unrun are named as skipped rather than missing. The cursor is held on
+		// the row it was naming before the rows changed: a report that arrives while
+		// the user is moving through the list must not hand the next Enter to a
+		// different row.
+		held := m.selectedOption()
+		report := msg.report
+		m.Network.Report = &report
+		m.Network.Checks = nil
+		m.Network.Running = false
+		m.Network.Run = nil
+		m.Network.ReportPath = networkReportPath(time.Now())
+		if report.Stopped || msg.stopped {
+			m.Network.Notice = "The run was stopped: the checks that finished are listed, and the rest are skipped."
+		} else {
+			m.Network.Notice = "The run finished. Move the cursor onto a step to read what it measured."
+		}
+		m.holdCursorOn(held)
+		return m, nil
+
+	case networkClosedMsg:
+		// The event channel closed without a report, which is the run being
+		// abandoned. The screen stops saying a run is in flight rather than waiting
+		// for an answer that is not coming.
+		m.Network.Running = false
+		m.Network.Run = nil
+		return m, nil
 	case updateCheckMsg:
 		// An answer for a channel this run has left is not an answer. The channel
 		// row can be pressed while a check is in flight, so the older check's reply
@@ -1315,6 +1353,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// The network screen owns every key while its destination field is open: a space
+	// is not accepted by the field, backspace deletes a character and escape closes
+	// the field rather than leaving the screen, exactly as the password screen keeps
+	// its own keys. The field is dispatched here, before those global meanings,
+	// because a field that loses a character to a navigation key is not a field.
+	if m.Screen == ScreenNetworkDiagnostics && m.Network.InputActive {
+		return m.updateNetworkInput(msg)
+	}
+
 	// The password screen owns every key it uses. It is reached in the middle of an
 	// install, where the global meanings of these keys would take a character away
 	// from the field: space would open the leader key instead of being typed,
@@ -1489,6 +1536,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenInstallVerify:
 		return m.handleInstallVerifyKeys(key)
 
+	case ScreenNetworkDiagnostics:
+		return m.handleNetworkKeys(key)
 	case ScreenUpdate:
 		return m.handleUpdateKeys(key)
 
@@ -1659,6 +1708,12 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// it cancels nothing, because nothing it does is a change.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
+	case ScreenNetworkDiagnostics:
+		// The diagnosis is one level in, and it is the one screen of the section
+		// whose Esc has three meanings: it stops a run that is going, it closes an
+		// open preview, and only then does it leave. That order lives in one place,
+		// leaveNetworkScreen, so the key's meaning cannot drift between them.
+		return m.leaveNetworkScreen()
 	case ScreenUpdate:
 		// The update screen steps back to the main menu, which is where its row now
 		// lives. Leaving it clears the last update's notice so a later visit does
@@ -2036,6 +2091,13 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			// that screen's own row.
 			m.Screen = ScreenShellAudit
 			m.Cursor = 0
+		case selected == utilitiesNetworkRow:
+			// The diagnosis is one level in for the same reason, and it dials nothing
+			// on the way in either: the checks start from that screen's own row, and the
+			// host the overview contacts is named there.
+			m.Screen = ScreenNetworkDiagnostics
+			m.Cursor = 0
+			m.Network.Notice = ""
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			m.ThemeNotice = "Putting the previous desktop theme back…"
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
