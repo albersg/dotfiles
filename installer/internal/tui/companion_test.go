@@ -3759,20 +3759,21 @@ func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 		compared++
 	}
 	renderedCount := int(rendered.Load())
-	// 1088 rather than the 896 this was before the learn pages and the terminal
+	// 1152 rather than the 896 this was before the learn pages and the terminal
 	// keymaps: the pages the hub opens (Font, Prompts, Shell tooling, Plugins and
 	// Machine toolset), the category the keymap reference gained (Kitty, with its
-	// table) and the two terminals whose configurations declare no bindings
-	// (WezTerm and Alacritty) all join the list every frame guard renders, at each
-	// measured terminal. The number is written out so that adding a screen is a
-	// deliberate act: 68 frame states (61 installer + 6 trainer + the setup screen) at 4 sizes, 2
-	// pixel modes and 2 cursor states. It was 896 before the install review screen,
-	// and 848 before the administrator password screen, for the same reason. The 1088 is measured on the
-	// merged tree rather than added up from either side: the guard itself reported 1088 rendered and 1088
-	// compared when both sides' screens were present, which is 67 frame states from main's side plus the
-	// setup screen, at 4 sizes, 2 pixel modes and 2 cursor states.
-	if renderedCount != 1088 || compared != 1088 {
-		t.Fatalf("companion block guard rendered %d screens and compared %d, want 1088 of each", renderedCount, compared)
+	// table), the two terminals whose configurations declare no bindings (WezTerm
+	// and Alacritty) and the WSL performance advisor's four states (its report, the
+	// reading state before it, the measurement screen and the assisted copy) all
+	// join the list every frame guard renders, at each measured terminal. The number
+	// is written out so that adding a screen is a deliberate act: 72 frame states --
+	// the 68 the merged tree reported with main's screens present (61 installer
+	// states, the trainer's 6 and the setup screen) plus the advisor's four -- at 4
+	// sizes, 2 pixel modes and 2 cursor states. It was 1088 before the advisor,
+	// 896 before the setup screen and 880 before the install review screen, each for
+	// the same reason.
+	if renderedCount != 1152 || compared != 1152 {
+		t.Fatalf("companion block guard rendered %d screens and compared %d, want 1152 of each", renderedCount, compared)
 	}
 	t.Logf("companion block guard coverage: %d rendered screens, %d comparisons", renderedCount, compared)
 }
