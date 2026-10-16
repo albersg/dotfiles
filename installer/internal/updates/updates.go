@@ -362,6 +362,17 @@ func (s *Selection) Toggle(item Item) bool {
 	return true
 }
 
+// Drop removes an entry from the selection if it is there. It is the counterpart
+// Toggle needs for the one action that changes a whole group at once: selecting
+// what the filter shows and then putting it back must not depend on the group
+// still being on screen.
+func (s *Selection) Drop(item Item) {
+	if s.keys == nil {
+		return
+	}
+	delete(s.keys, item.Key())
+}
+
 // Clear empties the selection.
 func (s *Selection) Clear() {
 	for key := range s.keys {

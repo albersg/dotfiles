@@ -150,7 +150,7 @@ func (a AptAdapter) Read(ctx context.Context, runner Runner, env Env) Result {
 	}
 
 	items, keptBack := ParseAptSimulation(output.Stdout)
-	pins := aptHolds(ctx, runner, env)
+	pins, holdReason := aptHolds(ctx, runner, env)
 	items = aptApplyHolds(items, pins)
 
 	res := result(a, env, StatusCurrent, "", cmd, sortedItems(items))
@@ -161,6 +161,10 @@ func (a AptAdapter) Read(ctx context.Context, runner Runner, env Env) Result {
 		res.Notes = append(res.Notes, fmt.Sprintf(
 			"apt is holding these back on its own dependency grounds, so they are not offered here: %s",
 			strings.Join(keptBack, ", ")))
+	}
+	if holdReason != "" {
+		res.Notes = append(res.Notes, "apt's hold list could not be read here ("+holdReason+
+			"), so an entry apt is holding may be offered as movable")
 	}
 	res.Notes = append(res.Notes, aptReadNotes...)
 	return res
@@ -174,17 +178,19 @@ var aptReadNotes = []string{
 	"the installed and available versions are the ones apt printed, kept as printed",
 }
 
-// aptHolds reads apt's holds through apt-mark. A machine without apt-mark has no
-// holds this package can read, and saying nothing is better than claiming there
-// are none: the caller adds the note.
-func aptHolds(ctx context.Context, runner Runner, env Env) map[string]bool {
+// aptHolds reads apt's holds through apt-mark. It returns the holds it could read
+// and the reason it could not read them: the reason is empty when the read
+// answered. A machine without apt-mark, or an apt-mark that refused, leaves holds
+// this package cannot see, and the caller says so rather than presenting the list
+// as complete.
+func aptHolds(ctx context.Context, runner Runner, env Env) (map[string]bool, string) {
 	if _, ok := env.Resolve("apt-mark"); !ok {
-		return nil
+		return nil, "apt-mark is not installed here"
 	}
 	cmd := command("apt-mark", "showhold")
 	output := cmd.run(ctx, runner, env)
 	if status, _ := Classify(output); status != StatusCurrent {
-		return nil
+		return nil, "apt-mark showhold did not answer"
 	}
 	holds := map[string]bool{}
 	for _, line := range strings.Split(output.Stdout, "\n") {
@@ -194,7 +200,7 @@ func aptHolds(ctx context.Context, runner Runner, env Env) map[string]bool {
 		}
 		holds[name] = true
 	}
-	return holds
+	return holds, ""
 }
 
 // aptApplyHolds marks the entries apt has been told to hold. It works on a copy

@@ -59,7 +59,8 @@ func (a PkgAdapter) Read(ctx context.Context, runner Runner, env Env) Result {
 		items[i].Manager = ManagerPkg
 		items[i].Scope = ScopeUser
 	}
-	items = aptApplyHolds(items, aptHolds(ctx, runner, env))
+	pins, holdReason := aptHolds(ctx, runner, env)
+	items = aptApplyHolds(items, pins)
 
 	res := result(a, env, StatusCurrent, "", cmd, sortedItems(items))
 	if len(items) > 0 {
@@ -69,6 +70,10 @@ func (a PkgAdapter) Read(ctx context.Context, runner Runner, env Env) Result {
 		res.Notes = append(res.Notes, fmt.Sprintf(
 			"the channel is holding these back on its own dependency grounds, so they are not offered here: %s",
 			strings.Join(keptBack, ", ")))
+	}
+	if holdReason != "" {
+		res.Notes = append(res.Notes, "the channel's hold list could not be read here ("+holdReason+
+			"), so an entry it is holding may be offered as movable")
 	}
 	res.Notes = append(res.Notes, "Termux's packages are its own: they are not the distribution's, even though dpkg installs them.")
 	return res
