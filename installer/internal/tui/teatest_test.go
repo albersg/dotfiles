@@ -1028,6 +1028,21 @@ func TestUtilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
 }
 
+// TestWSLAdvisorGolden pins the performance advisor's report at the 80x24 floor: the environment it
+// read, the findings ordered by severity with the one under the cursor opened out beside them, the
+// two rows that act and the way back. The reading is the advisor's own fixture -- a WSL instance whose
+// working directory is a project on the Windows host -- so the snapshot is the screen this repository
+// ships, not the machine that rendered it. It is the screen with the most prose in the installer, and
+// a snapshot is what catches a body that has become a wall of it.
+func TestWSLAdvisorGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
+}
+
 // TestWSLResourcesGolden pins the WSL resource screen on a WSL host: the
 // recommendation from the host's own capacity, the values the file holds, the
 // draft, the write row and the way back. The host and the file are forced, so the
@@ -1900,6 +1915,19 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m.Metrics = pinnedMetrics(24)
 		m.ProgressSamples = pinnedProgress(24)
 		return m
+	case "wsl-advisor":
+		return wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	case "wsl-advisor-reading":
+		// The screen before its reading finished: the one state where the report says it is reading
+		// instead of stating a finding, and the state a frame guard must measure separately because
+		// its body is a single line where every other state has a page of them.
+		m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+		m.WSLAdvisor = wslAdvisorState{}
+		return m
+	case "wsl-benchmark":
+		return wslAdvisorFrameModel(t, ScreenWSLBenchmark)
+	case "wsl-migration":
+		return wslAdvisorFrameModel(t, ScreenWSLMigration)
 	case "complete":
 		m := base(ScreenComplete)
 		m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
@@ -1952,6 +1980,7 @@ var installerFrameScreenNames = []string{
 	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
 	"installing", "installing-details", "installing-details-many", "installing-at-end",
 	"installing-live",
+	"wsl-advisor", "wsl-advisor-reading", "wsl-benchmark", "wsl-migration",
 	"complete", "error", "error-many-logs",
 	"admin-password", "admin-password-failed",
 }

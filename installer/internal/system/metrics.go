@@ -175,7 +175,7 @@ func readLinuxSample(p metricsProbe) Sample {
 		}
 	}
 	if data, err := p.readFile("/proc/meminfo"); err == nil {
-		if used, total, ok := parseMeminfo(data); ok {
+		if used, total, ok := MeminfoUsed(data); ok {
 			s.MemOK, s.MemUsed, s.MemTotal = true, used, total
 		}
 	}
@@ -226,50 +226,6 @@ func parseProcStatCPU(data []byte) (total, idle uint64, ok bool) {
 		return total, idle, true
 	}
 	return 0, 0, false
-}
-
-// parseMeminfo reads MemTotal and the used share from /proc/meminfo.
-// MemAvailable is preferred because MemFree excludes reclaimable cache and
-// would read as "full" on a healthy desktop; MemFree is the fallback. Used is
-// total minus available, clamped so a nonsense pair cannot underflow.
-func parseMeminfo(data []byte) (used, total uint64, ok bool) {
-	var memTotal, memAvail, memFree uint64
-	var haveAvail, haveFree bool
-
-	for _, line := range strings.Split(string(data), "\n") {
-		key, rest, found := strings.Cut(line, ":")
-		if !found {
-			continue
-		}
-		fields := strings.Fields(rest)
-		if len(fields) == 0 {
-			continue
-		}
-		kb, err := strconv.ParseUint(fields[0], 10, 64)
-		if err != nil {
-			continue
-		}
-		switch key {
-		case "MemTotal":
-			memTotal = kb * 1024
-		case "MemAvailable":
-			memAvail, haveAvail = kb*1024, true
-		case "MemFree":
-			memFree, haveFree = kb*1024, true
-		}
-	}
-	if memTotal == 0 {
-		return 0, 0, false
-	}
-	switch {
-	case haveAvail:
-		used = memTotal - min(memAvail, memTotal)
-	case haveFree:
-		used = memTotal - min(memFree, memTotal)
-	default:
-		return 0, 0, false
-	}
-	return used, memTotal, true
 }
 
 // parseLoadavg reads the three load averages from /proc/loadavg.
