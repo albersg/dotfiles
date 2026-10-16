@@ -250,3 +250,38 @@ session.
     what evidence says so.
   - Fixed in `603a90a`, after RED tests of my own for each behaviour; the whole `tui`
     package is green again with the four environment-only Ghostty tests skipped.
+
+- **L13 (the released build's record, and the class behind all three passes).** The third pass
+  closed four of its six points and re-opened the blocker, on a shape neither of my fixes had
+  covered: the record written by the *base* build (`origin/main`, the released installer) has
+  `Entries` with actions and copies plus `Files`, and **no `Changes` field at all** -- it
+  predates it. `1b52dfe` caught that shape by accident (it keyed on "entries and no changes");
+  `603a90a` replaced that with a marker for the *older* shape (`Files` with no `Entries`), and
+  therefore missed it. The result was the same false success both earlier passes had found, on
+  the record every installed machine actually holds: `--revert` said the run changed nothing,
+  exit 0, with every file the run had changed left in place.
+  - The fix is the one the previous two were avoiding: the decision is **read from what the
+    record says**, not from the shape it has. No per-file changes and the record names paths
+    the run wrote (`Files` non-empty, or an entry whose action is `replaced`/`created`) -> this
+    command cannot act on it file by file: every named path is `unrevertible`, with the backup
+    directory taken from the entry's own `Backup` and a `--restore=<that directory>` that works.
+    No per-file changes and no named path -> the record says the run changed nothing. An entry
+    the backup step only copied or found is not a path the run wrote: that step copies what a
+    run *may* write.
+  - The interim `legacy` marker is gone, and with it L12's claim that the record carries one:
+    the marker was itself a shape test, which is the mistake it had been introduced to fix.
+  - The test that closes the class is a table of every record shape this repository has ever
+    written -- current with changes, current without, current without but with copies, released
+    with `replaced`, released with `created`, released without changes, the oldest `Files`-only
+    shape, and an empty record -- each with the answer it earns, and each unrevertible case
+    checked against the directory it names really being one `--restore` accepts.
+    `TestRevertOnAReleasedBuildRecordSaysItCannotActOnIt` pins the same shape through the
+    command line.
+  - Two limits that were only prose now have pins: an install stopped with `ctrl+c` leaves no
+    record (and a run that takes a backup takes it first, on each of the three systems), and the
+    copy a retried run records holds the state that run found.
+  - One of my own assertions was wrong and the test said so: I had pinned "the first step is
+    backup", and the first step of a run that takes no backup is the checkout step. The
+    invariant is the conditional one.
+  - `docs/ROLLBACK.md` and `--help` name the released-build case, because it is the one every
+    machine that already ran an installer will meet.
