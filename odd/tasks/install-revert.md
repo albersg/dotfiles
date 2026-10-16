@@ -416,3 +416,35 @@ session.
     probe fails at `2c50ca1` -- and it is a layout question, not a correctness one. The seventh
     pass judges whether it must be closed before the handoff.
   - Full gate after the four fixes: green (system, tui, trainer).
+
+- **L18 (the seventh pass: a rule that could not tell the difference, and the interface's own route).**
+  The pass closed claims 1, 3 and 4 and found the round before's rule inventing the alarm this branch
+  keeps producing: with no backup, a missing copy reported *every* link inside a written key, so a
+  dead link the key already held failed a revert whose only change -- a file the run created -- had
+  been put back correctly (`could not put back 1 of 2 files ... .config/nvim/stale, which the run's
+  copy of the key does not hold`, exit 1; the same probe at the baseline was quiet and right).
+  - Causality checked here, not taken on faith: `os.Symlink` appears only in
+    `internal/system/backup.go` (`:217`, `:264`, the copy code), and `copyDirTree` walks with
+    `filepath.Walk` + `os.Stat` and creates nothing. This installer never makes a link, so "the run
+    may have made it" was unreachable and the rule could only produce alarms.
+  - The rule now: **a missing copy is not evidence that the run wrote a path.** A link that reaches
+    nothing is left alone; one that lands inside a path the record says the run did not write is left
+    alone; one that lands outside every path the record names is reported; one that lands inside a
+    written key is reported only when a copy exists and a file behind it neither matches that copy nor
+    is named by a change. With no copy of the key, the files behind a link are judged as the same
+    files are when the key is walked directly, by the changes the record carries -- the report must not
+    depend on which route the reader took to a path.
+  - A copy pointing somewhere else is still reported, and that direction is now pinned by a case a
+    person can produce. The probe it replaces asserted "not complete and the link is present", which
+    passed on any error, and its scenario was not producible by the writer at all.
+  - The pass also found that the dry-run fix guarded only the scripted route: the interface reaches
+    `recordRun` by three routes of its own, so a `--dry-run` through the interface still overwrote the
+    last real record (919 bytes to 123). The rule now lives at the one place a run records,
+    `recordRun`, and the scripted epilogue's copy of it was removed as duplication. Pinned by a test
+    that finishes a dry run through the interface's own completion message and holds the last real
+    record against it byte for byte.
+  - The 80x24 review screen is **published as a named limit**, on the pass's recommendation and mine:
+    the marker renders, the actionable lines do not, and the same sentence is on the failure screen
+    and in `--revert`'s own error. It is presentation, not a command path; `docs/tui-installer.md`
+    names the width instead of leaving it to be discovered.
+  - Gate after the fixes: green (system, tui 208.8s, trainer).
