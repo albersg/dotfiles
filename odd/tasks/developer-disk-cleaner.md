@@ -112,6 +112,7 @@ screen lives in the Utilities section.
 | T6 | Rendering, Utilities integration, frame and golden guards | S3, S9, S12 | inline | `004d9da` `feat(diskclean): the screen that shows what each store holds, and cleans what you mark` — T5 and T6 share this one work-unit commit on purpose: the frame, emoji and terminal-fit guards measure every declared screen, so a screen constant that nothing renders cannot be committed on its own without leaving the suite red |
 | T7 | Docs and closure | S12, S14 | inline | `docs(diskclean): the development caches in the README and the installer guide` |
 | T8 | The verification's S3/S5 defect: the screen must render the detection evidence, the covered paths or engine objects, the category and the reconstruction cost | S3, S5, S14 | inline | `29985dd` `fix(diskclean): the screen shows why each store was found and what removing it costs` — found by the independent verification (T7), not by this feature's own tests; see L9 |
+| T9 | The re-verification's advisories: the identity re-check's test depended on the filesystem, and the findings were not grouped by the tool or the project the request names | S3, S7 | inline | `fix(diskclean): the identity check's test no longer depends on the filesystem`, `feat(diskclean): the findings are grouped by the tool or the project that owns them`, `test(diskclean): the verification's own S3/S5/S14 probe, made durable` — see L10 |
 
 ## Log
 
@@ -273,11 +274,12 @@ Checks run after the fix:
 - `gofmt -l` → nothing, `go build ./...` → clean, `go vet ./internal/diskclean/ ./internal/tui/` → clean.
 - `go test ./internal/diskclean/` → `ok`, including the new `TestCleanNeverUnlinksAnEngineOrManagerStore`:
   an engine's or a manager's store is never unlinked file by file, even when it is selected and planned.
-- `go test -run 'TestDiskCleaner' ./internal/tui/` → `ok`, 18 screen tests, including
+- `go test -run 'TestDiskCleaner' ./internal/tui/` → `ok`: the seventeen tests the re-verification counted, including
   `TestDiskCleanerShowsWhyEachFindingWasFoundAndWhereItIs`,
   `TestDiskCleanerCardSaysWhyAnUnmeasuredFindingIsNotAZero`, and
   `TestDiskCleanerPreviewRendersEachCommandAndEachRefusal` rewritten to walk every preview row and
-  check each one's card.
+  check each one's card. (A3: this said "18 screen tests"; the verifier observed 17 `RUN`s, and 18 is
+  what the count became once T9's grouping test landed.)
 - Full `go test ./internal/tui/` → only the four pre-existing Ghostty failures, identical to the base
   commit `c1e4a64`.
 - `TestDiskCleanerGolden` regenerated; re-read at 80x24 it carries the card — category, both sizes and
@@ -293,8 +295,81 @@ Checks run after the fix:
   All six are present, identically, in this feature's pre-fix run of the same gate. Every other
   package is `ok`, this feature's `internal/diskclean` among them.
 
+**L10 — the re-verification, its verdicts, and what its advisories changed (T9).**
+
+The independent verification was re-run (read-only, its own scratch copy, `HOME`, `TMPDIR` and
+`GOCACHE` inside it, `GOPROXY=off`) over the same range. Verdicts: **S3 PASS, S5 PASS, S14 PASS**,
+S1–S13 checked again with no regression, and **no blocker caused by the fix**. It reproduced the old
+defect as RED at `52be18a` and GREEN at `29985dd` on the rendered string -- not on the model -- and
+it checked the evidence at the 80x24 floor, which is the frame the specs care about.
+
+Its advisories, and what each one changed:
+
+- **A1 — the identity test depended on the filesystem.** `TestVerifyRefusesAPathReplacedAfterThePreview`
+  recreated the directory and expected a new inode, but a filesystem that recycles inode numbers
+  (ext4 in its default layout) hands the recreated directory the same `(device, inode)` pair, so the
+  guard verified it and the test failed there. Reproduced in this session with
+  `TMPDIR=/var/tmp/...`: `--- FAIL: TestVerifyRefusesAPathReplacedAfterThePreview`. Fixed by making
+  the identity injectable -- `Probe.Identity`, used by the guard, the walk's dedupe and the removal's
+  own identity -- so the test states the identity it is testing instead of hoping the filesystem
+  produces it. The residual risk is now stated instead of hidden behind a filesystem-dependent test:
+  `TestVerifyCannotTellASwapTheFilesystemHides` pins it, `Guard.Verify` documents it, and it is a
+  bullet under `## Remaining`.
+- **A2 — no visible grouping by tool or project**, which the request asks for verbatim. The findings
+  are grouped now: a heading row per tool and, for the artifacts of a project directory the user
+  added, a heading row per project -- the project's own directory name, not the word "project" --
+  with the headings ordered by name and, inside a group, the findings largest first. Two projects
+  whose last directory has the same name stay in two groups, because the group is keyed by the whole
+  project path. The preview groups its items the same way. A heading is inert: the cursor can rest on
+  it and no key does anything through it.
+- **A3 — L9's test count was wrong** (17 `TestDiskCleaner` tests, not 18). Corrected in L9.
+- **A4 — the preview's headline promised more than the rows carried**: a removal row carries the
+  count of paths, not the path. The rows now carry the exact path when there is one, and the headline
+  says what is true.
+- **A5 — the doc commit the verifier saw land mid-run** (`99a4db0`) is the L9 entry written by this
+  session; the verifier made no writes and reported the change instead of fixing it. Nothing to do.
+
+One consequence of the grouping that the durable probe caught immediately, and that is fixed here:
+heading rows cost the description its rows, and at 80x24 the cut landed on the very card the S3
+verdict rests on. The development-caches screen now declares a prose floor (`proseFloor`: the card's
+six rows, plus the preview's headline in the preview), and the frame honours it by windowing the list
+instead of handing it every row it asks for. A screen that declares no floor -- every other screen --
+is budgeted exactly as before.
+
+The verifier's own probe is part of the suite now: `internal/tui/diskclean_evidence_probe_test.go`,
+kept as it was written, unique markers and all, with its provenance in the header. It is the test
+that is red at `52be18a`.
+
+Checks after T9:
+
+- `gofmt -l` clean; `go build ./...` clean; `go vet ./internal/diskclean/ ./internal/tui/` clean.
+- `go test -count=1 ./internal/diskclean/` → `ok` on tmpfs (`/tmp`) **and** with `TMPDIR` on ext4
+  (`/var/tmp`), which is the filesystem where the old test failed.
+- `go test -count=1 -run 'TestVerifyS3|TestVerifyS5|TestDiskCleaner' ./internal/tui/` → `ok`.
+- Frame, emoji and terminal-fit guards → `ok`; `TestDiskCleanerGolden` regenerated at 80x24: the
+  grouped list with the card of the finding under the cursor on screen.
+- Full `go test ./internal/tui/` → only the four pre-existing Ghostty failures, the same at base
+  `c1e4a64`.
+- `make preflight` re-run after T9: the same failure groups as before the fix, plus one the
+  **environment** caused. Step 4/7 (`go test ./... -count=1`) fails on the four pre-existing Ghostty
+  tests, on the two end-to-end smoke steps that fail for the environment (`Configure WSL`:
+  `permission denied` writing `/etc/wsl.conf`; `zsh installation failed`), and on
+  `TestInstalledAssetsKeepTheRepositorysMode`, whose Neovim subtest failed with `Step 'Install
+  Neovim' failed` because the tmpfs that holds `TMPDIR` was at 100% -- 35 MB free of 4.9 GB, with the
+  scratch copies of several verification runs resident. That diagnosis was reproduced: the subtest
+  fails while the filesystem is full and passes once this session's own scratch copy (323 MB) was
+  removed, and it installs Neovim assets without ever touching the disk cleaner. Every other package
+  in the gate, `internal/diskclean` among them, is `ok`.
+
 ## Remaining
 
+- **The identity re-check is `(device, inode)`.** It is the cheapest pair that exists, and a
+  filesystem that recycles inode numbers can hand a directory recreated at the approved path the very
+  same pair, which makes that one swap invisible to the check. The window is between the preview and
+  the removal, only a process able to write inside the approved scope can race there, and every other
+  check is still re-established at the unlink: the approved scope, the blocklist, the kind of object,
+  no symbolic-link leaf and no mount point. `TestVerifyCannotTellASwapTheFilesystemHides` pins the
+  limit so it cannot be forgotten, and `Guard.Verify` states it where the check lives.
 - **Termux `pkg` has no cache command.** Termux's `pkg`/`apt` cache is reached through
   `apt-get clean` when that exists; where it does not, the finding is reported with the reason and
   cannot be selected. No direct removal of the package manager's cache is attempted on Termux.
