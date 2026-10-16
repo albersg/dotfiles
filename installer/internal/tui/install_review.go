@@ -67,25 +67,37 @@ func (m Model) unitIsDisabled(id string) bool {
 // toggleUnitAtCursor turns the unit under the cursor off or back on, and reports
 // whether it changed anything.
 //
-// The three units the run cannot do without are left alone: turning one off would
-// offer a choice the run cannot honour, so the key does nothing there and the row
-// says why. Both directions build a new slice rather than editing the one they
-// were given -- Update returns the model by value, so a slice shared with the
-// previous copy must be replaced, not written through.
+// The cursor may rest only on a row the key can act on: a heading, a plugin
+// set's row and the units the run cannot do without are not switches, so the key
+// does nothing there rather than offering a choice the run cannot honour. Both
+// directions build a new slice rather than editing the one they were given --
+// Update returns the model by value, so a slice shared with the previous copy
+// must be replaced, not written through.
 func (m *Model) toggleUnitAtCursor() bool {
-	if m.UnitCursor < 0 || m.UnitCursor >= len(installUnits) {
+	rows := m.planReviewRows()
+	if m.UnitCursor < 0 || m.UnitCursor >= len(rows) {
 		return false
 	}
-	unit := installUnits[m.UnitCursor]
-	if unit.Fixed {
+	row := rows[m.UnitCursor]
+	if row.Kind != planRowStep || !row.Switchable {
+		return false
+	}
+	return m.toggleUnit(row.StepID)
+}
+
+// toggleUnit turns one unit off or back on, and reports whether it changed
+// anything. It refuses the units the run cannot do without, whatever the row
+// that asked: the row and the key read the same catalogue flag.
+func (m *Model) toggleUnit(id string) bool {
+	if installUnitIsFixed(id) {
 		return false
 	}
 
-	if m.unitIsDisabled(unit.ID) {
+	if m.unitIsDisabled(id) {
 		kept := make([]string, 0, len(m.DisabledUnits))
-		for _, id := range m.DisabledUnits {
-			if id != unit.ID {
-				kept = append(kept, id)
+		for _, disabled := range m.DisabledUnits {
+			if disabled != id {
+				kept = append(kept, disabled)
 			}
 		}
 		m.DisabledUnits = kept
@@ -94,31 +106,71 @@ func (m *Model) toggleUnitAtCursor() bool {
 
 	turnedOff := make([]string, 0, len(m.DisabledUnits)+1)
 	turnedOff = append(turnedOff, m.DisabledUnits...)
-	turnedOff = append(turnedOff, unit.ID)
+	turnedOff = append(turnedOff, id)
 	m.DisabledUnits = turnedOff
 	return true
 }
 
-// moveUnitCursor moves the cursor through the catalogue and wraps at both ends, so
-// the list is a cycle the way the wizard's other lists are.
+// moveUnitCursor moves the cursor to the next row it may rest on and wraps at
+// both ends, so the list is a cycle the way the wizard's other lists are. It
+// steps over the rows Space cannot switch -- an area heading, a plugin set's row
+// and the units the run needs -- so every switchable unit is reachable and the
+// cursor never rests on a row that cannot be switched.
 func (m *Model) moveUnitCursor(delta int) {
-	if len(installUnits) == 0 {
+	rows := m.planReviewRows()
+	first := firstSwitchablePlanRow(rows)
+	if first < 0 {
 		return
 	}
-	next := m.UnitCursor + delta
-	if next < 0 {
-		next += len(installUnits)
+	if m.UnitCursor < 0 || m.UnitCursor >= len(rows) || !rows[m.UnitCursor].Switchable {
+		m.UnitCursor = first
+		return
 	}
-	m.UnitCursor = next % len(installUnits)
+
+	next := m.UnitCursor
+	for i := 0; i < len(rows); i++ {
+		next += delta
+		if next < 0 {
+			next = len(rows) - 1
+		}
+		if next >= len(rows) {
+			next = 0
+		}
+		if rows[next].Switchable {
+			m.UnitCursor = next
+			return
+		}
+	}
 }
 
-// installReviewCounts is how many units the selection keeps and how many it turns
-// off. The count is of the catalogue, not of the plan: the plan depends on the
-// machine as well, and this screen is answering what the user asked for, not what
-// this host will end up running.
+// snapUnitCursor puts the cursor on the first row a key can act on. It is what
+// the screen does when it opens, so the cursor never starts on a heading or on
+// one of the units the run needs.
+func (m *Model) snapUnitCursor() {
+	rows := m.planReviewRows()
+	if first := firstSwitchablePlanRow(rows); first >= 0 {
+		m.UnitCursor = first
+	}
+}
+
+// firstSwitchablePlanRow is the index of the first row Space can switch, or -1
+// when the plan holds none. It is a pure function of the rows so the cursor and
+// its guard read the same answer.
+func firstSwitchablePlanRow(rows []planReviewRow) int {
+	for i, row := range rows {
+		if row.Switchable {
+			return i
+		}
+	}
+	return -1
+}
+
+// installReviewCounts is how many steps of the plan the run will execute and how
+// many the selection turned off. It counts the plan's steps, not the catalogue:
+// the screen lists the plan, so the sentence under it describes the same list.
 func (m Model) installReviewCounts() (kept, off int) {
-	for _, unit := range installUnits {
-		if m.unitIsDisabled(unit.ID) {
+	for _, step := range planFor(m.planOptions()) {
+		if step.Status == StatusSkipped {
 			off++
 			continue
 		}
@@ -127,18 +179,119 @@ func (m Model) installReviewCounts() (kept, off int) {
 	return kept, off
 }
 
-// installReviewRow is one unit as the list draws it: what will happen to it, what
-// it is, and -- for the three the run needs -- that the choice is not the user's.
-func (m Model) installReviewRow(unit installUnit) string {
+// planRowKind says what a row of the plan screen is: the name of an area, one of
+// the plan's steps, or the plugin set a step provisions drawn directly under it.
+// Only a step row whose Switchable is set is a cursor stop.
+type planRowKind int
+
+const (
+	planRowHeading planRowKind = iota
+	planRowStep
+	planRowSet
+)
+
+// planReviewRow is one row of the plan screen. Text is what the screen draws;
+// Kind and Switchable are what the keyboard and the guards read. A row carries
+// no origin or area of its own: those come from the step the builder scheduled,
+// so the screen cannot invent a second vocabulary for them (S5).
+type planReviewRow struct {
+	Kind       planRowKind
+	Text       string
+	StepID     string
+	Switchable bool
+}
+
+// planReviewRows is the plan as the screen draws it: the run's own steps from
+// planFor, in the order the run takes them, with each area named once before the
+// first step it covers, and each step's plugin set indented directly under it.
+//
+// It is built from the plan rather than the catalogue, which is what S2 asks of
+// the screen: a row exists because the run will act on it, or because the
+// selection turned it off, not because the catalogue holds it. The origin and
+// the area are the builder's answers on the step, so there is no second table
+// here mapping step IDs to either.
+func (m Model) planReviewRows() []planReviewRow {
+	steps := planFor(m.planOptions())
+	rows := make([]planReviewRow, 0, len(steps))
+	area := ""
+	for _, step := range steps {
+		if step.Area != area {
+			area = step.Area
+			rows = append(rows, planReviewRow{Kind: planRowHeading, Text: area})
+		}
+		rows = append(rows, planReviewRow{
+			Kind:       planRowStep,
+			Text:       installReviewStepRow(step),
+			StepID:     step.ID,
+			Switchable: installUnitIsSwitchable(step.ID),
+		})
+		if step.PluginSet != nil {
+			rows = append(rows, planReviewRow{Kind: planRowSet, Text: pluginSetRowText(step.PluginSet)})
+		}
+	}
+	return rows
+}
+
+// fixedUnitClaim is what a row says about a unit the run cannot leave out. It
+// is a claim about fixity, a separate fact from provenance: the catalogue's Fixed
+// flag decides it (install_units.go), and only clone, setshell and cleanup carry
+// it. A step's origin never uses this sentence, so the phrase cannot come to mean
+// two things at once (S5 of odd/tasks/start-installation-flow.md).
+const fixedUnitClaim = "the run needs it"
+
+// installReviewStepRow is one step as the list draws it: what will happen to it,
+// what it is, and where it came from. The label is the screen's own name for the
+// unit. A unit the run cannot leave out says so, from the catalogue's Fixed flag
+// rather than from its origin; every other row says where it came from -- the
+// choice and the value it took, the machine, or the extra switch.
+func installReviewStepRow(step InstallStep) string {
 	marker := "[x]"
-	if m.unitIsDisabled(unit.ID) {
+	if step.Status == StatusSkipped {
 		marker = "[ ]"
 	}
-	row := marker + " " + installReviewLabel(unit.ID)
-	if unit.Fixed {
-		row += " — the run needs it"
+	row := marker + " " + installReviewLabel(step.ID)
+	if installUnitIsFixed(step.ID) {
+		return row + " — " + fixedUnitClaim
 	}
-	return row
+	return row + " — " + stepOriginSentence(step)
+}
+
+// stepOriginSentence is where a step's row says it comes from, with the value a
+// choice took where there was one. It is the builder's Origin read back, not a
+// second answer kept beside the step.
+func stepOriginSentence(step InstallStep) string {
+	sentence := step.Origin.sentence()
+	if sentence != "" && step.OriginValue != "" {
+		sentence += ": " + step.OriginValue
+	}
+	return sentence
+}
+
+// pluginSetRowText draws the set a step provisions, indented under the step. A
+// set a run can leave out reads as its switch -- [x] installed, [ ] left out --
+// and a set a run cannot leave out says where the set comes from instead, so the
+// row never offers a choice the run cannot honour.
+// pluginSetProvenance is what a set's row says instead of a switch, for a set a run
+// cannot leave out. It is short on purpose: the row also carries the set's name, and
+// the longest of those leaves nineteen characters inside the narrowest terminal the
+// frame matrix measures, so the full reason the registry holds would be cut off
+// exactly where a user reads it. The reason is not lost -- it is what `--skip` refuses
+// with and what the documentation explains -- and the registry's own guards keep it
+// non-empty, which is what this row's guard checks beside the phrase.
+const pluginSetProvenance = "the tool installs it"
+
+func pluginSetRowText(set *PluginSetState) string {
+	if set == nil {
+		return ""
+	}
+	if set.Switchable {
+		marker := "[x]"
+		if set.Off {
+			marker = "[ ]"
+		}
+		return "  " + marker + " " + set.Name
+	}
+	return "  " + set.Name + " — " + pluginSetProvenance
 }
 
 // installReviewCountLine is the sentence under the list: how many units the
@@ -163,19 +316,19 @@ func reviewPlural(count int, one, many string) string {
 	return strconv.Itoa(count) + " " + many
 }
 
-// installReviewWindowMin is the floor for the list window. A terminal too short for
+// listWindowMin is the floor for the list window. A terminal too short for
 // even this many rows is one where the frame has already given up: drawing three rows
 // and saying how many are hidden beats drawing none.
-const installReviewWindowMin = 3
+const listWindowMin = 3
 
-// installReviewWindowSize is how many list rows fit: what the body has left after the
+// listWindowSize is how many list rows fit: what the body has left after the
 // rows that are not the list, and never fewer than the floor.
 //
 // It is a pure function of three numbers, which is what lets its guard compare a
 // short terminal against a tall one in one pass instead of rendering both.
-func installReviewWindowSize(budget, chrome, total int) int {
-	if budget-chrome < installReviewWindowMin {
-		return installReviewWindowMin
+func listWindowSize(budget, chrome, total int) int {
+	if budget-chrome < listWindowMin {
+		return listWindowMin
 	}
 	if budget-chrome > total {
 		return total
@@ -183,13 +336,13 @@ func installReviewWindowSize(budget, chrome, total int) int {
 	return budget - chrome
 }
 
-// reviewWindowRows is the window of rows to draw for a given cursor, as the half
+// windowRowsFor is the window of rows to draw for a given cursor, as the half
 // open range [start, end).
 //
 // It is a pure function of the list length, the cursor and the window size. The
 // window is centred on the cursor and pushed back inside the list at both ends, so
 // the cursor is always inside what is drawn.
-func reviewWindowRows(total, cursor, size int) (start, end int) {
+func windowRowsFor(total, cursor, size int) (start, end int) {
 	if size <= 0 || total <= size {
 		return 0, total
 	}
@@ -203,10 +356,12 @@ func reviewWindowRows(total, cursor, size int) (start, end int) {
 	return start, start + size
 }
 
-// renderInstallReview draws the screen: the title, what the screen is for, a window
-// of the catalogue with its switches, and how the selection stands. The rows come
-// from GetCurrentOptions so the list the menu would draw and the list this draws
-// cannot disagree; the window and the cursor are the only things added here.
+// renderInstallReview draws the screen: the title, what the screen is for, the
+// run's own plan grouped by area with each row saying where it came from and each
+// tool's plugin set indented under it, and how the selection stands. The rows come
+// from planReviewRows, the same planFor the run will execute, so the list the user
+// reviews and the list the run executes cannot disagree; the window and the cursor
+// are the only things added here.
 //
 // The window is sized from the terminal rather than from a number chosen here, and
 // the rows that do not fit are reported rather than dropped: a list that silently
@@ -225,13 +380,13 @@ func (m Model) renderInstallReview() string {
 	kept, off := m.installReviewCounts()
 	count := wrapText(m.installReviewCountLine(kept, off), width, 0)
 
-	rows := m.GetCurrentOptions()
+	rows := m.planReviewRows()
 	// The rows that are not the list: the title, the description, the blank under it,
 	// the blank above the count, the count itself, and the two rows the "more above"
 	// and "more below" lines may take.
 	chrome := 1 + len(description) + 1 + 2 + 1 + len(count)
-	size := installReviewWindowSize(budget, chrome, len(rows))
-	start, end := reviewWindowRows(len(rows), m.UnitCursor, size)
+	size := listWindowSize(budget, chrome, len(rows))
+	start, end := windowRowsFor(len(rows), m.UnitCursor, size)
 
 	body := []string{BrandStyle.Render(m.GetScreenTitle())}
 	body = append(body, description...)
@@ -241,11 +396,20 @@ func (m Model) renderInstallReview() string {
 		body = append(body, MutedStyle.Render("↑ "+strconv.Itoa(start)+" more above"))
 	}
 	for i := start; i < end; i++ {
-		if i == m.UnitCursor {
-			body = append(body, BrandStyle.Render(rows[i]))
-			continue
+		// A row is one line, so an overlong one is cut with the visible marker
+		// rather than allowed to widen the frame: the frame's contract is that
+		// overlong text gives way in the open, not that it is clipped at the edge.
+		text := truncate(rows[i].Text, width)
+		switch {
+		case i == m.UnitCursor:
+			body = append(body, BrandStyle.Render(text))
+		case rows[i].Kind == planRowHeading:
+			// The area name is a heading, not a row the user acts on: it is muted so
+			// it does not read as a switch, and it is never the cursor's target.
+			body = append(body, SubtitleStyle.Render(text))
+		default:
+			body = append(body, text)
 		}
-		body = append(body, rows[i])
 	}
 	if end < len(rows) {
 		body = append(body, MutedStyle.Render("↓ "+strconv.Itoa(len(rows)-end)+" more below"))
@@ -253,6 +417,15 @@ func (m Model) renderInstallReview() string {
 
 	body = append(body, "")
 	body = append(body, count...)
+
+	// The plan is the second of the wizard's two mandatory screens, so it carries the
+	// meter's last step. Without it the header's vital sign disappears exactly where
+	// the flow ends: the screen a user reads last would be the one screen that says
+	// nothing about how far along they are.
+	vital := ""
+	if current, total := m.wizardProgress(); total > 0 {
+		vital = meterRendered(current, total, 10)
+	}
 
 	// The way back is named here, on the screen where a person can still decide not
 	// to start, and it is placed in the rows the list did not need -- the rule this
@@ -262,7 +435,7 @@ func (m Model) renderInstallReview() string {
 	// failure screen and in the panel that offers the run.
 	body = append(body, wayBackRows(wayBackBeforeTheRun(m.Choices.CreateBackup), width, budget-len(body))...)
 
-	return m.frame(m.headerName(), "", body, hints)
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 // openInstallReview puts the review screen in front of the run, with the screen it
@@ -276,7 +449,7 @@ func (m Model) renderInstallReview() string {
 func (m *Model) openInstallReview() {
 	m.PrevScreen = m.Screen
 	m.Screen = ScreenInstallReview
-	m.UnitCursor = 0
+	m.snapUnitCursor()
 }
 
 // beginInstallFromReview is the review screen's Enter: it records the plan from the
@@ -355,6 +528,15 @@ func installUnitIsFixed(id string) bool {
 		}
 	}
 	return false
+}
+
+// installUnitIsSwitchable reports whether Space can turn a planned step off. It
+// is the catalogue's own answer -- a unit it names and does not mark Fixed -- so
+// the row's cursor stop and the key that acts on it cannot disagree. A step the
+// catalogue does not name is not switchable: the screen may draw it, but there is
+// no flag to change and no command line name to change it by either.
+func installUnitIsSwitchable(id string) bool {
+	return installUnitIsCatalogued(id) && !installUnitIsFixed(id)
 }
 
 // installUnitIsCatalogued reports whether the catalogue names a unit at all, which

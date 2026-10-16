@@ -6552,6 +6552,13 @@ func installHerdrPlugins(m *Model, stepID string) error {
 	if m == nil || m.Choices.WindowMgr != "herdr" {
 		return nil
 	}
+	// A set the user turned off is not a failure and not a silent no-op: nothing is
+	// installed and nothing is updated, and the log says which set was left out, the
+	// way every other thing a run leaves out is reported.
+	if pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDHerdr) {
+		herdrLog(stepID, "The Herdr plugin set is turned off; nothing was installed or updated")
+		return nil
+	}
 	if !herdrBinaryPresent("herdr") {
 		herdrLog(stepID, "Herdr is not on PATH; the Herdr plugins were not touched")
 		return nil
@@ -6907,6 +6914,17 @@ func stepInstallShell(m *Model) error {
 
 	packages, unavailable := shellPlatformPackages(shell)
 
+	// The shell's plugin set is a switch (install_plugin_sets.go). With it off, none of
+	// the plugin work runs and no package that exists only to provide a plugin of the
+	// set is requested: the configuration this step installs names none of them, so a
+	// package installed for it would sit unused and the plugin itself is what the
+	// configuration no longer loads.
+	withPlugins := !pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDShell)
+	if shell == "zsh" && !withPlugins {
+		packages, unavailable = withoutZshPluginPackages(packages, unavailable)
+		SendLog(stepID, "The Zsh plugin set is turned off; Oh My Zsh and the plugin packages are not installed and the configuration names none of them")
+	}
+
 	// Common dependencies
 	SendLog(stepID, "Creating required directories...")
 	system.EnsureDir(filepath.Join(homeDir, ".config"))
@@ -7089,6 +7107,17 @@ func stepInstallShell(m *Model) error {
 				"Failed to configure .zshrc for window manager",
 				err)
 		}
+		// A run that left the plugin set out must not leave a configuration that sources
+		// $ZSH/oh-my-zsh.sh or loads a plugin that is not installed: the block the
+		// markers bound (zsh_plugins.go) is replaced with a line saying why, and the
+		// strip refuses rather than guesses when a marker is missing.
+		if !withPlugins {
+			if err := leaveZshPluginsOut(zshrcPath); err != nil {
+				return wrapStepError("shell", "Install Zsh",
+					"Failed to leave the plugin set out of .zshrc",
+					err)
+			}
+		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetP10k), filepath.Join(homeDir, ".p10k.zsh")); err != nil {
 			return wrapStepError("shell", "Install Zsh",
 				"Failed to copy Powerlevel10k configuration",
@@ -7178,14 +7207,18 @@ func stepInstallShell(m *Model) error {
 		// the autostash pop, so the official installer runs only when nothing is
 		// installed yet and an existing installation is never written into.
 		ohMyZshDir := filepath.Join(homeDir, ".oh-my-zsh")
-		if shouldInstallOhMyZsh(ohMyZshDir) {
+		switch {
+		case !withPlugins:
+			// The set was left out: no checkout, no installer, and nothing to repair.
+			SendLog(stepID, "Oh My Zsh left out with the plugin set")
+		case shouldInstallOhMyZsh(ohMyZshDir):
 			SendLog(stepID, "Installing Oh My Zsh...")
 			if err := installOhMyZsh(ohMyZshDir, stepID); err != nil {
 				return wrapStepError("shell", "Install Zsh",
 					"Failed to install Oh My Zsh",
 					err)
 			}
-		} else {
+		default:
 			SendLog(stepID, "Oh My Zsh already installed, leaving it untouched")
 		}
 		// Termux: Add zsh to $PREFIX/etc/shells so tmux doesn't complain
@@ -7499,17 +7532,28 @@ func stepInstallWM(m *Model) error {
 			SendLog(stepID, "Tmux already installed")
 		}
 
+		// The plugin set is a switch (install_plugin_sets.go). With it off, none of the
+		// plugin work runs, and the configuration this step installs carries no plugin
+		// declaration and no line that runs TPM, because a machine that left the set
+		// out must not be asked to run a checkout that is not there.
+		withPlugins := !pluginSetIsOff(m.Choices.DisabledPluginSets, pluginSetIDTmux)
+		if !withPlugins {
+			SendLog(stepID, "The Tmux plugin set is turned off; TPM is not installed and no plugin is downloaded")
+		}
+
 		// TPM
-		tpmDir := filepath.Join(homeDir, ".tmux/plugins/tpm")
-		if _, err := os.Stat(tpmDir); os.IsNotExist(err) {
-			SendLog(stepID, "Cloning TPM (Tmux Plugin Manager)...")
-			result := system.RunWithLogs(fmt.Sprintf("git clone https://github.com/tmux-plugins/tpm %s", tpmDir), nil, func(line string) {
-				SendLog(stepID, line)
-			})
-			if result.Error != nil {
-				return wrapStepError("wm", "Install Tmux",
-					"Failed to clone TPM (Tmux Plugin Manager)",
-					result.Error)
+		if withPlugins {
+			tpmDir := filepath.Join(homeDir, ".tmux/plugins/tpm")
+			if _, err := os.Stat(tpmDir); os.IsNotExist(err) {
+				SendLog(stepID, "Cloning TPM (Tmux Plugin Manager)...")
+				result := system.RunWithLogs(fmt.Sprintf("git clone https://github.com/tmux-plugins/tpm %s", tpmDir), nil, func(line string) {
+					SendLog(stepID, line)
+				})
+				if result.Error != nil {
+					return wrapStepError("wm", "Install Tmux",
+						"Failed to clone TPM (Tmux Plugin Manager)",
+						result.Error)
+				}
 			}
 		}
 
@@ -7522,15 +7566,17 @@ func stepInstallWM(m *Model) error {
 		// The plugin seed is optional: tmux.conf declares every plugin through TPM
 		// and the install_plugins run below downloads them. Copy only when the
 		// repository actually ships a seed, instead of failing the whole step.
-		pluginsSrc := filepath.Join(repoDir, repoAssetTmuxPlugins)
-		if system.DirExists(pluginsSrc) {
-			if err := system.CopyDir(pluginsSrc, filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
-				return wrapStepError("wm", "Install Tmux",
-					"Failed to copy Tmux plugins",
-					err)
+		if withPlugins {
+			pluginsSrc := filepath.Join(repoDir, repoAssetTmuxPlugins)
+			if system.DirExists(pluginsSrc) {
+				if err := system.CopyDir(pluginsSrc, filepath.Join(homeDir, ".tmux", "plugins")); err != nil {
+					return wrapStepError("wm", "Install Tmux",
+						"Failed to copy Tmux plugins",
+						err)
+				}
+			} else {
+				SendLog(stepID, "No seeded Tmux plugins in the repository; TPM will install them")
 			}
-		} else {
-			SendLog(stepID, "No seeded Tmux plugins in the repository; TPM will install them")
 		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetTmuxConf), filepath.Join(homeDir, ".tmux.conf")); err != nil {
 			return wrapStepError("wm", "Install Tmux",
@@ -7579,19 +7625,38 @@ func stepInstallWM(m *Model) error {
 			}
 		}
 
+		// A run that left the plugin set out must not install a configuration that
+		// declares the plugins or runs TPM: the checkout is not there, and tmux would be
+		// asked to run a missing file on every start. The configuration carries markers
+		// around exactly that text (tmux_plugins.go), and the patch refuses rather than
+		// guesses when they are missing.
+		if !withPlugins {
+			if err := leaveTmuxPluginsOut(tmuxConfPath); err != nil {
+				return wrapStepError("wm", "Install Tmux",
+					"Failed to leave the plugin set out of tmux.conf",
+					err)
+			}
+		}
+
 		// Install plugins. The result is checked instead of discarded: TPM fails
 		// here with no running tmux server or no network, and logging
 		// "✓ Tmux configured" over it left the user with an empty plugin set and
 		// no way to tell. The step's own work is already done and tmux retries
 		// the plugins through TPM at startup, so the failure is reported as a
 		// warning and the success line is withheld.
-		SendLog(stepID, "Installing Tmux plugins...")
-		result := system.RunWithLogs(filepath.Join(homeDir, ".tmux/plugins/tpm/bin/install_plugins"), nil, func(line string) {
-			SendLog(stepID, line)
-		})
-		if result.Error != nil {
-			SendLog(stepID, fmt.Sprintf("Warning: could not install the Tmux plugins: %v", result.Error))
+		if withPlugins {
+			SendLog(stepID, "Installing Tmux plugins...")
+			result := system.RunWithLogs(filepath.Join(homeDir, ".tmux/plugins/tpm/bin/install_plugins"), nil, func(line string) {
+				SendLog(stepID, line)
+			})
+			if result.Error != nil {
+				SendLog(stepID, fmt.Sprintf("Warning: could not install the Tmux plugins: %v", result.Error))
+			} else {
+				SendLog(stepID, "✓ Tmux configured")
+			}
 		} else {
+			// Nothing about the plugins ran, so nothing about them could have failed:
+			// the configuration this step installed is complete.
 			SendLog(stepID, "✓ Tmux configured")
 		}
 

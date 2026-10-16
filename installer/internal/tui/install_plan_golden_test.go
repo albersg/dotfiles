@@ -210,34 +210,43 @@ func TestTheNonInteractiveRunnerPlansWhatTheInterfacePlans(t *testing.T) {
 // the identifiers say which units run, and these say what each one is called and
 // says about itself, which is what the run prints and what the main menu's panel
 // shows. Measured from the tree as it stood before the builder changed.
+//
+// The steps that carry a plugin set name it (install_plugin_sets.go): the plan says
+// what each step would install, whether the run turned it off, and -- for a set a run
+// cannot leave out -- where it comes from, so the guard sees it here instead of the
+// step being blind to its own work. The shell's set is a switch now (T7), so its step
+// carries the switch rather than the reason it used to carry instead.
 func TestTheWholePlanIsWhatItWas(t *testing.T) {
 	fixture := planFixtures()[0]
 	m := fixture.fixtureModel()
 
 	got := planFor(m.planOptions())
 	want := []InstallStep{
-		{ID: "backup", Name: "Backup Existing Configs", Description: "Saves a copy of your current configuration first.", Status: StatusPending},
-		{ID: "deps", Name: "Install Dependencies", Description: "Installs base packages with your distribution's package manager.", Status: StatusPending, Interactive: true},
-		{ID: "clone", Name: "Clone Repository", Description: "Downloads your dotfiles repository.", Status: StatusPending},
-		{ID: "homebrew", Name: "Install Homebrew", Description: "Installs Homebrew, the package manager.", Status: StatusPending, Interactive: true},
-		{ID: "terminal", Name: "Install kitty", Description: "Installs your terminal emulator.", Status: StatusPending, Interactive: true},
-		{ID: "font", Name: "Install Meslo Nerd Font", Description: "Installs the Meslo Nerd Font for icons.", Status: StatusPending},
-		{ID: "shell", Name: "Install zsh", Description: "Installs your shell and its plugins.", Status: StatusPending},
-		{ID: "wm", Name: "Install tmux", Description: "Installs your terminal multiplexer.", Status: StatusPending},
-		{ID: "nvim", Name: "Install Neovim", Description: "Installs Neovim with your configuration.", Status: StatusPending},
-		{ID: "toolset", Name: "Install Toolset", Description: "Installs the command-line tools listed in your Brewfile.", Status: StatusPending},
-		{ID: "agentskills", Name: "Install Pi Agent Skills", Description: "Installs the pinned security-audit, archify and officecli skills.", Status: StatusPending},
-		{ID: "officecli", Name: "Install OfficeCLI", Description: "Installs the pinned, checksum-verified OfficeCLI binary.", Status: StatusPending},
-		{ID: "theme", Name: "Restore the Applied Theme", Description: "Writes the theme this machine has applied back into the files the install replaced.", Status: StatusPending},
-		{ID: "setshell", Name: "Set Default Shell", Description: "Sets your shell as the default.", Status: StatusPending, Interactive: true},
-		{ID: "cleanup", Name: "Cleanup", Description: "Removes the temporary files it created.", Status: StatusPending},
+		{ID: "backup", Name: "Backup Existing Configs", Description: "Saves a copy of your current configuration first.", Status: StatusPending, Origin: stepOriginExtra, Area: areaPreparation},
+		{ID: "deps", Name: "Install Dependencies", Description: "Installs base packages with your distribution's package manager.", Status: StatusPending, Interactive: true, Origin: stepOriginMachine, Area: areaPreparation},
+		{ID: "clone", Name: "Clone Repository", Description: "Downloads your dotfiles repository.", Status: StatusPending, Origin: stepOriginAlways, Area: areaPreparation},
+		{ID: "homebrew", Name: "Install Homebrew", Description: "Installs Homebrew, the package manager.", Status: StatusPending, Interactive: true, Origin: stepOriginMachine, Area: areaPreparation},
+		{ID: "terminal", Name: "Install kitty", Description: "Installs your terminal emulator.", Status: StatusPending, Interactive: true, Origin: stepOriginChoice, OriginValue: "kitty", Area: areaTools},
+		{ID: "font", Name: "Install Meslo Nerd Font", Description: "Installs the Meslo Nerd Font for icons.", Status: StatusPending, Origin: stepOriginExtra, Area: areaTools},
+		{ID: "shell", Name: "Install zsh", Description: "Installs your shell and its plugins.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-shell", Name: "Oh My Zsh with Powerlevel10k and the plugin packages", Switchable: true}, Origin: stepOriginChoice, OriginValue: "zsh", Area: areaTools},
+		{ID: "wm", Name: "Install tmux", Description: "Installs your terminal multiplexer.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-tmux", Name: "the plugins its configuration declares", Switchable: true}, Origin: stepOriginChoice, OriginValue: "tmux", Area: areaTools},
+		{ID: "nvim", Name: "Install Neovim", Description: "Installs Neovim with your configuration.", Status: StatusPending, PluginSet: &PluginSetState{ID: "plugins-nvim", Name: "the LazyVim plugin set", Because: "lazy.nvim installs it on first launch from the configuration this repository ships"}, Origin: stepOriginExtra, Area: areaTools},
+		{ID: "toolset", Name: "Install Toolset", Description: "Installs the command-line tools listed in your Brewfile.", Status: StatusPending, Origin: stepOriginAlways, Area: areaExtras},
+		{ID: "agentskills", Name: "Install Pi Agent Skills", Description: "Installs the pinned security-audit, archify and officecli skills.", Status: StatusPending, Origin: stepOriginAlways, Area: areaExtras},
+		{ID: "officecli", Name: "Install OfficeCLI", Description: "Installs the pinned, checksum-verified OfficeCLI binary.", Status: StatusPending, Origin: stepOriginAlways, Area: areaExtras},
+		{ID: "theme", Name: "Restore the Applied Theme", Description: "Writes the theme this machine has applied back into the files the install replaced.", Status: StatusPending, Origin: stepOriginAlways, Area: areaFinishing},
+		{ID: "setshell", Name: "Set Default Shell", Description: "Sets your shell as the default.", Status: StatusPending, Interactive: true, Origin: stepOriginAlways, Area: areaFinishing},
+		{ID: "cleanup", Name: "Cleanup", Description: "Removes the temporary files it created.", Status: StatusPending, Origin: stepOriginAlways, Area: areaFinishing},
 	}
 
 	if len(got) != len(want) {
 		t.Fatalf("the plan has %d steps, want %d:\n  %s", len(got), len(want), planIDList(got))
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		// Compared by value rather than with ==: the plan carries a pointer to the set
+		// its step provisions, and == would compare the pointer, so an expectation that
+		// says the same thing would still fail for having been built separately.
+		if !reflect.DeepEqual(got[i], want[i]) {
 			t.Errorf("step %d (%s):\n  got  %+v\n  want %+v", i, want[i].ID, got[i], want[i])
 		}
 	}

@@ -523,7 +523,7 @@ func (m Model) headerName() string {
 		return "Main Menu"
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect,
 		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning,
-		ScreenInstallReview:
+		ScreenInstallReview, ScreenSetup:
 		return "Setup"
 	case ScreenInstalling:
 		return "Installing dotfiles"
@@ -568,51 +568,25 @@ func (m Model) headerName() string {
 }
 
 // wizardProgress is the current step and the number of steps the wizard shows
-// for this run. WSL and Termux skip the terminal and font questions, so their
-// counter counts the four steps they actually answer rather than the six the
-// wizard's fixed chip list used to imply. A screen that is not one of the
-// wizard's questions (the Ghostty warning, for instance) reports 0/0 so its
-// header gets no filler meter.
+// for this run. The meter counts the two mandatory screens: the setup screen,
+// where every decision is a row, and the plan. The rich per-question screens are
+// optional detours of the setup screen now, so they inherit its meter rather
+// than claiming a step of their own; a screen that is not part of the wizard (the
+// main menu, the backup confirmation screen the flow no longer walks through)
+// reports 0/0 so its header gets no filler meter.
 func (m Model) wizardProgress() (current, total int) {
 	switch m.Screen {
+	case ScreenSetup:
+		return 1, 2
+	case ScreenInstallReview:
+		return 2, 2
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect,
-		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect:
-	default:
-		return 0, 0
+		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
+		// A detour inherits the meter of the screen it returns to, which is the
+		// setup screen and the first of the two mandatory screens.
+		return 1, 2
 	}
-
-	skipped := m.SystemInfo != nil && (m.SystemInfo.IsWSL || m.SystemInfo.IsTermux)
-	total = 6
-	if skipped {
-		total = 4
-	}
-	switch m.Screen {
-	case ScreenOSSelect:
-		current = 1
-	case ScreenTerminalSelect:
-		current = 2
-	case ScreenFontSelect:
-		current = 3
-	case ScreenShellSelect:
-		if skipped {
-			current = 2
-		} else {
-			current = 4
-		}
-	case ScreenWMSelect:
-		if skipped {
-			current = 3
-		} else {
-			current = 5
-		}
-	case ScreenNvimSelect:
-		if skipped {
-			current = 4
-		} else {
-			current = 6
-		}
-	}
-	return current, total
+	return 0, 0
 }
 
 // meterRendered draws a progress meter of cells with filled of total done: the
@@ -1035,6 +1009,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderMainMenu())
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		s.WriteString(m.renderSelection())
+	case ScreenSetup:
+		s.WriteString(m.renderSetup())
 	case ScreenInstallReview:
 		s.WriteString(m.renderInstallReview())
 	case ScreenLearnTerminals:
@@ -2515,6 +2491,61 @@ func stripStepPrefix(title string) string {
 		}
 	}
 	return title
+}
+
+// renderSetup draws the one screen the wizard's questions moved to: every
+// decision of the flow as a row, each carrying the value the choices hold, with
+// the cursor on the row the value keys act on. The rows and their values come
+// from setup_rows.go, so a decision cannot lose its row by being left out of a
+// renderer written a second time.
+func (m Model) renderSetup() string {
+	width := contentWidth(m)
+
+	hints := []installerHint{hintUp, hintDown, hintAdjust, hintSelect, hintBack}
+	footer := footerHints(layoutFor(m).Inner, m.panelHints(m.panelsFor(), hints))
+	budget := installerBodyRows(m.Height, len(footer))
+
+	var description []string
+	for _, line := range strings.Split(m.GetScreenDescription(), "\n") {
+		description = append(description, wrapText(line, width, 0)...)
+	}
+
+	rows := m.setupRows()
+	// The rows that are not the list: the title, the description, the blank under it,
+	// and the two rows the "more above" and "more below" lines may take. The window is
+	// sized from the terminal because the row list grew with the plugin sets and then
+	// did not fit the twenty-row terminal the frame matrix measures: the guard reported
+	// this screen drawing 21 rows where 20 fit. The arithmetic is the plan's, which
+	// solved the same problem for a longer list.
+	chrome := 1 + len(description) + 1 + 2
+	size := listWindowSize(budget, chrome, len(rows))
+	start, end := windowRowsFor(len(rows), m.SetupCursor, size)
+
+	body := []string{BrandStyle.Render(stripStepPrefix(m.GetScreenTitle()))}
+	for _, line := range description {
+		body = append(body, MutedStyle.Render(line))
+	}
+	body = append(body, "")
+
+	if start > 0 {
+		body = append(body, MutedStyle.Render("↑ "+strconv.Itoa(start)+" more above"))
+	}
+	for i := start; i < end; i++ {
+		row := rows[i]
+		body = append(body, m.rowBar(row.rowLabel(), i == m.SetupCursor, m.setupRowValue(row)))
+	}
+	if end < len(rows) {
+		body = append(body, MutedStyle.Render("↓ "+strconv.Itoa(len(rows)-end)+" more below"))
+	}
+
+	// The step counter is the wizard's vital sign: the setup screen is the first
+	// of the two mandatory screens, and the detours of this screen inherit the
+	// same count rather than claiming a step the flow does not have.
+	vital := ""
+	if current, total := m.wizardProgress(); total > 0 {
+		vital = meterRendered(current, total, 10)
+	}
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 func (m Model) renderSelection() string {
