@@ -1607,14 +1607,28 @@ func TestInitReturnsCommands(t *testing.T) {
 // =============================================================================
 
 func (s Screen) String() string {
+	// The list is in Screen's own order, so a screen added in the middle of the
+	// enum has to be added in the middle here too. The seven SSH manager screens
+	// are the tail of the enum as it stands.
 	names := []string{
 		"Welcome", "MainMenu", "OSSelect", "TerminalSelect",
 		"FontSelect", "ShellSelect", "WMSelect", "NvimSelect",
 		"Installing", "Complete", "Error",
 		"LearnTerminals", "LearnShells", "LearnWM", "LearnNvim",
 		"Keymaps", "KeymapCategory",
+		"KeymapsMenu", "KeymapsTmux", "KeymapsTmuxCat",
+		"KeymapsZellij", "KeymapsZellijCat",
+		"KeymapsGhostty", "KeymapsGhosttyCat",
 		"LearnLazyVim", "LazyVimTopic",
 		"BackupConfirm", "RestoreBackup", "RestoreConfirm",
+		"GhosttyWarning",
+		"TrainerMenu", "TrainerLesson", "TrainerPractice", "TrainerBoss",
+		"TrainerResult", "TrainerBossResult",
+		"KeymapsHerdr", "KeymapsHerdrCat",
+		"Utilities", "ThemePicker", "WSLResources", "TerminalCapabilities",
+		"ShellAudit", "Update", "AdminPassword", "InstallReview", "Setup",
+		"SSHManager", "SSHHost", "SSHForm", "SSHKeys", "SSHAgent",
+		"SSHDiagnostics", "SSHTest",
 	}
 	if int(s) < len(names) {
 		return names[s]

@@ -3748,12 +3748,15 @@ func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 		compared++
 	}
 	renderedCount := int(rendered.Load())
-	// 912 rather than the 896 this was before the setup screen: its states join the
-	// list every frame guard renders, at each measured terminal, in both sprite
-	// modes. The number is written out so that adding a screen is a deliberate act.
-	// It was 880 before the install review screen, for the same reason.
-	if renderedCount != 912 || compared != 912 {
-		t.Fatalf("companion block guard rendered %d screens and compared %d, want 912 of each", renderedCount, compared)
+	// 1072 rather than the 912 this was before the SSH manager: its seven screens
+	// join the list every frame guard renders, and the states that make them
+	// measurable (an editable and a read-only entry, the form and its plan, the key
+	// list and its generation form) join it too, at each measured terminal, in both
+	// sprite modes. The number is written out so that adding a screen is a deliberate
+	// act. It was 912 before the SSH manager, 896 before the setup screen and 880
+	// before the install review screen, for the same reason.
+	if renderedCount != 1072 || compared != 1072 {
+		t.Fatalf("companion block guard rendered %d screens and compared %d, want 1072 of each", renderedCount, compared)
 	}
 	t.Logf("companion block guard coverage: %d rendered screens, %d comparisons", renderedCount, compared)
 }
