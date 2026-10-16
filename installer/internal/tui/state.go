@@ -79,6 +79,43 @@ type installEntry struct {
 	Backup string        `json:"backup,omitempty"`
 }
 
+// fileAction names what a run did to one file. The path-level record could not
+// tell a rewritten directory from a deleted one, and neither could be undone
+// from it, so the file is the unit the record names.
+type fileAction string
+
+const (
+	fileActionCreated  fileAction = "created"
+	fileActionModified fileAction = "modified"
+	fileActionDeleted  fileAction = "deleted"
+)
+
+// fileChange is one file a run changed, named with the digests that make the
+// change checkable after the fact: Before is what the file held before the run
+// (empty when the run created it), After is what it held when the run recorded
+// itself (empty when the run removed it), and Backup is the copy that puts Before
+// back, when the backup holds one. A change with no copy is a change nothing can
+// undo, and the revert has to report that rather than perform it.
+type fileChange struct {
+	Key    string     `json:"key,omitempty"`
+	Path   string     `json:"path"`
+	Action fileAction `json:"action"`
+	Before string     `json:"before,omitempty"`
+	After  string     `json:"after,omitempty"`
+	Backup string     `json:"backup,omitempty"`
+}
+
+// runStatus says how a run ended. A run that stopped at a failed step is recorded
+// as failed and names the steps that failed: the record of the last run is what a
+// reader trusts to know the state of the machine, and a failed run that left no
+// record made that state unreadable at exactly the moment it mattered.
+type runStatus string
+
+const (
+	runStatusComplete runStatus = "complete"
+	runStatusFailed   runStatus = "failed"
+)
+
 // lastInstall is what the installer writes when a run completes: when it
 // finished (RFC 3339 through the JSON encoder), the build that produced it, and
 // what the run did to each configuration path it names.
@@ -94,11 +131,18 @@ type installEntry struct {
 // reader turns each of those paths into an entry whose outcome is unknown and is
 // therefore reported as "found", never as a replacement the old build did not
 // establish.
+// Status, FailedSteps and Changes are what the record added for a person who has
+// to know what a run did to their machine. A record written by an older build
+// carries none of them, and reads as what it was: a run of unknown outcome whose
+// files are listed as found.
 type lastInstall struct {
-	Timestamp time.Time      `json:"timestamp"`
-	Version   string         `json:"version"`
-	Files     []string       `json:"files"`
-	Entries   []installEntry `json:"entries,omitempty"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Version     string         `json:"version"`
+	Status      runStatus      `json:"status,omitempty"`
+	FailedSteps []string       `json:"failedSteps,omitempty"`
+	Files       []string       `json:"files"`
+	Entries     []installEntry `json:"entries,omitempty"`
+	Changes     []fileChange   `json:"changes,omitempty"`
 }
 
 // stateDir returns the directory the record lives in: $XDG_STATE_HOME/dotfiles
@@ -221,6 +265,10 @@ func lastInstallRecord(m *Model, now time.Time) lastInstall {
 	before := m.ConfigFingerprints
 	after := configFingerprints()
 
+	// What the run did file by file, which is the granularity a revert needs and
+	// the only one that can name a file the run removed.
+	rec.Changes = m.resolveChanges(fileChanges(m.ConfigFileIndex, configFileIndex()))
+
 	paths := system.ConfigPaths()
 	keys := make([]string, 0, len(paths))
 	for key := range paths {
@@ -342,12 +390,157 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
+// configFileIndex is every regular file under every configuration path, mapped to
+// the digest of its bytes. A run takes it before its first step and again when it
+// records itself; the two are what name the individual files the run created,
+// modified and deleted.
+//
+// It walks the same trees fingerprintPath does, and it is deliberately a second
+// read rather than a rewrite of the path-level fingerprint: this happens once per
+// install, and the record it enables is worth one pass over the configuration.
+func configFileIndex() map[string]string {
+	index := make(map[string]string)
+
+	for _, path := range system.ConfigPaths() {
+		info, err := os.Lstat(path)
+		if err != nil {
+			continue
+		}
+
+		if !info.IsDir() {
+			// A symlink is read through on purpose: the file's content is what a
+			// change is measured against, and the backup keeps the link itself.
+			if digest := fileDigest(path); digest != "" {
+				index[path] = digest
+			}
+			continue
+		}
+
+		_ = filepath.WalkDir(path, func(p string, entry fs.DirEntry, err error) error {
+			if err != nil || !entry.Type().IsRegular() {
+				return nil
+			}
+			if digest := fileDigest(p); digest != "" {
+				index[p] = digest
+			}
+			return nil
+		})
+	}
+
+	return index
+}
+
+// fileDigest returns the digest of a file's bytes, or "" when it cannot be read.
+// A file that cannot be read stays out of the index rather than being recorded as
+// empty, so "not there" and "unreadable" never read as a change to nothing.
+func fileDigest(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// fileChanges compares the index taken before a run with the one taken after it
+// and names every file the run created, modified or removed. It is the whole
+// answer to "what did this run change", one file at a time, and it is what the
+// record's Changes holds and what a revert reads.
+//
+// An index that was never taken is not evidence: a model built by hand in a test,
+// or a run that failed before its first step, would otherwise have every file on
+// the machine recorded as one this run created.
+func fileChanges(before, after map[string]string) []fileChange {
+	if before == nil || after == nil {
+		return nil
+	}
+
+	changes := []fileChange{}
+	for path, digest := range after {
+		was, existed := before[path]
+		switch {
+		case !existed:
+			changes = append(changes, fileChange{Path: path, Action: fileActionCreated, After: digest})
+		case was != digest:
+			changes = append(changes, fileChange{Path: path, Action: fileActionModified, Before: was, After: digest})
+		}
+	}
+	for path, digest := range before {
+		if _, still := after[path]; !still {
+			changes = append(changes, fileChange{Path: path, Action: fileActionDeleted, Before: digest})
+		}
+	}
+
+	// Lexical order, so two records of the same machine are comparable by eye and
+	// by diff, and a revert walks the files in the order a reader expects.
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	return changes
+}
+
+// resolveChanges names the configuration key each changed file belongs to and the
+// copy that puts it back, so the record is readable and actionable on its own.
+func (m *Model) resolveChanges(changes []fileChange) []fileChange {
+	if len(changes) == 0 {
+		return changes
+	}
+	paths := system.ConfigPaths()
+	for i := range changes {
+		changes[i].Key, changes[i].Backup = changeOwner(changes[i].Path, m.BackupDir, paths)
+	}
+	return changes
+}
+
+// changeOwner names the configuration key a file belongs to and, when the backup
+// took a copy of it, the copy's path. The copy holds what the file was before the
+// run -- the backup step runs before anything writes -- so a file the run deleted
+// is still in there, and it is what a revert copies back.
+func changeOwner(path, backupDir string, paths map[string]string) (string, string) {
+	key := ownerKey(path, paths)
+	if key == "" || backupDir == "" {
+		return key, ""
+	}
+
+	rel, err := filepath.Rel(paths[key], path)
+	if err != nil {
+		return key, ""
+	}
+	copy := filepath.Join(backupDir, key, rel)
+	if _, err := os.Lstat(copy); err != nil {
+		// The backup does not hold this file, so nothing here can put it back.
+		// Naming a path that is not there would be worse than naming none.
+		return key, ""
+	}
+	return key, copy
+}
+
+// ownerKey names the configuration key a file belongs to: the longest root that
+// holds it, so a key nested inside another one wins over the directory that
+// contains it.
+func ownerKey(path string, paths map[string]string) string {
+	key, best := "", -1
+	for candidate, root := range paths {
+		if path == root {
+			return candidate
+		}
+		if strings.HasPrefix(path, root+string(filepath.Separator)) && len(root) > best {
+			key, best = candidate, len(root)
+		}
+	}
+	return key
+}
+
 // --- Verification against the record ---------------------------------------
 
-// errNoRecord is the one read failure that is not a failure: the machine has no
-// record because nothing was installed here. It is a sentinel so the report can
-// tell it apart from a record that is present and cannot be read.
-var errNoRecord = errors.New("no record of an install")
+// ErrNoRecord is the one read failure that is not a failure: the machine has no
+// record because nothing was installed here, so there is nothing to verify and
+// nothing to revert. It is a sentinel so a caller -- the report inside this
+// package, and the command line outside it -- can tell it apart from a record
+// that is present and cannot be read: "nothing to do" and "it went wrong" are
+// different answers, and they carry different exit statuses.
+var ErrNoRecord = errors.New("no record of an install")
+
+// errNoRecord is the name this package reads it by.
+var errNoRecord = ErrNoRecord
 
 // VerifyReport is what --verify found and what it could not. Lines is the report
 // the user reads, in order. Consistent is true only when every path and backup

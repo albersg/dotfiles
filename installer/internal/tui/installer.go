@@ -4538,6 +4538,11 @@ func executeStep(stepID string, m *Model) error {
 	if m.ConfigFingerprints == nil {
 		m.ConfigFingerprints = configFingerprints()
 	}
+	// The same pass, one level finer: the record names the individual files the
+	// run changed, which is what a revert and a content check read.
+	if m.ConfigFileIndex == nil {
+		m.ConfigFileIndex = configFileIndex()
+	}
 
 	execute, ok := stepExecutors[stepID]
 	if !ok {

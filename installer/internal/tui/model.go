@@ -377,11 +377,16 @@ type Model struct {
 	LastInstall *lastInstall
 	// ConfigFingerprints is the content hash of every configuration path as it
 	// was before the run wrote anything. executeStep takes it before the first
-	// step, and recordLastInstall compares the paths against it so the record
+	// step, and recordRun compares the paths against it so the record
 	// names an outcome per path instead of copying the pre-run detection. It is
 	// nil until a run starts and for a model built by hand in a test, which then
 	// claims no replacement.
 	ConfigFingerprints map[string]string
+	// ConfigFileIndex is the digest of every file under every configuration path
+	// as it was before the run wrote anything, taken by the same step and for the
+	// same reason, one level finer: it is what the record names per file. It is
+	// nil until a run starts, and the record then claims no file change at all.
+	ConfigFileIndex map[string]string
 	// Repository checkout created by the clone step
 	WorkDir string // Private temporary directory owned by this run (empty until clone)
 	RepoDir string // Repository checkout inside WorkDir (empty until clone)

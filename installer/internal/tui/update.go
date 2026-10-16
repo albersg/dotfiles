@@ -197,6 +197,11 @@ type stepRecordedState struct {
 	// because the record built at the end of the run is written from the UI model,
 	// which never saw the copy the step ran against.
 	ConfigFingerprints map[string]string
+	// ConfigFileIndex is the before-run digest of every file under every
+	// configuration path, taken by the same step and travelling with it for the
+	// same reason: the record built at the end of the run is written from the UI
+	// model, which never saw the copy the step ran against.
+	ConfigFileIndex map[string]string
 }
 
 // recordedState takes the state a step recorded off the model it ran against.
@@ -206,6 +211,7 @@ func (m Model) recordedState() stepRecordedState {
 		RepoDir:            m.RepoDir,
 		BackupDir:          m.BackupDir,
 		ConfigFingerprints: m.ConfigFingerprints,
+		ConfigFileIndex:    m.ConfigFileIndex,
 	}
 }
 
@@ -215,18 +221,29 @@ func (r stepRecordedState) applyTo(m *Model) {
 	m.RepoDir = r.RepoDir
 	m.BackupDir = r.BackupDir
 	m.ConfigFingerprints = r.ConfigFingerprints
+	m.ConfigFileIndex = r.ConfigFileIndex
 }
 
-// recordLastInstall writes the record of a completed run and puts it on the
+// recordRun writes the record of the run that just finished and puts it on the
 // model, so the "Last install" panel shows the run that just finished without
 // waiting for the next startup read. The record itself is built in state.go from
-// what the run did to each configuration path, not from the pre-run detection;
-// copying m.ExistingConfigs here is the defect reported in issue #239. The file
-// write is deliberately unchecked: it is a convenience for the next run, and a
-// read-only or missing state directory must not fail an install that already
+// what the run did to each configuration path and to each file under it, not from
+// the pre-run detection; copying m.ExistingConfigs here is the defect reported in
+// issue #239.
+//
+// It is called for a run that failed as well as for one that finished, and by the
+// scripted route as well as by the interface. A run that stopped halfway is
+// exactly the run whose changes a person needs to read -- those are the changes
+// that are already on their machine -- and the record is the only place they are
+// written down.
+//
+// The file write is deliberately unchecked: it is a convenience for the next run,
+// and a read-only or missing state directory must not fail an install that already
 // succeeded.
-func (m *Model) recordLastInstall() {
+func (m *Model) recordRun(status runStatus, failedSteps []string) {
 	rec := lastInstallRecord(m, time.Now())
+	rec.Status = status
+	rec.FailedSteps = failedSteps
 	m.LastInstall = &rec
 	_ = writeLastInstall(rec)
 }
@@ -728,6 +745,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.Screen = ScreenError
 					// Include step name in error message for clarity
 					m.ErrorMsg = fmt.Sprintf("Step '%s' failed:\n%s", m.Steps[i].Name, msg.err.Error())
+					// The run stops here, and the changes it already made are on
+					// the machine: this record is what names them.
+					m.recordRun(runStatusFailed, []string{m.Steps[i].Name})
 					return m, nil
 				}
 				m.Steps[i].Status = StatusDone
@@ -754,7 +774,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The run finished, so record it for the next one. The write is best effort:
 		// a state directory the machine will not let us write must not fail an
 		// install that has already succeeded.
-		m.recordLastInstall()
+		m.recordRun(runStatusComplete, nil)
 		return m, nil
 
 	case loadBackupsMsg:

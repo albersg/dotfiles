@@ -48,8 +48,8 @@ reproduce them).
 
 | ID | Specs | What it delivers | Route | Commit |
 |----|-------|------------------|-------|--------|
-| T1 | S8 | Backup integrity: owned marker, no directory collision, symlinks preserved, skipped entries written into the backup, a bad entry cannot delete the good copies | inline | |
-| T2 | S9 | Safe restore: verify before removing, stage then swap, pre-restore snapshot, no silent skip, confirm text that matches the code | inline | |
+| T1 | S8 | Backup integrity: owned marker, no directory collision, symlinks preserved, skipped entries written into the backup, a bad entry cannot delete the good copies | inline | `aac0eb8`, `cd80338` |
+| T2 | S9 | Safe restore: verify before removing, stage then swap, pre-restore snapshot, no silent skip, confirm text that matches the code | inline | `4d2db65` |
 | T3 | S10 | Run manifest: per path action + digest + backup reference, written on failure and by `--non-interactive` | inline | |
 | T4 | S4, S5, S6 | `--revert` and `--restore` from the manifest, with `--dry-run`, idempotent, plus the round-trip test | inline | |
 | T5 | S11 | `--verify` compares content against the manifest digests | inline | |
@@ -83,3 +83,32 @@ session.
   empty directory in the backup without being reported; a single non-regular entry that
   destroys the whole backup including the copies already made. Details and the other eight
   defects in the audit document.
+- **L4 (T1, done).** `cd80338`. A backup now carries its own manifest, so it can say what it
+  holds and what it does not: `Entries` names every entry written, `Skipped` names every
+  entry it could not write with the reason, and `Failed` keeps the copies already made
+  instead of deleting the whole directory. A symlink stays a symlink, including a dangling
+  one. Two directories can no longer collide inside one second. `ListBackups` accepts a
+  directory this program wrote and no longer offers a stranger's directory as restorable and
+  deletable. Evidence: five tests in `backup_integrity_test.go` that failed to compile before
+  the change; two stale pins rewritten, one of which passed by accident because `Stat`
+  followed the link the test meant to check.
+- **L5 (T2, done).** `4d2db65`. The restore verifies before it removes: the replacement is
+  copied beside the destination and only a complete copy moves into position, so the
+  destination is never absent because a copy failed halfway, and a swap that cannot finish
+  puts the user's own file back. The state it replaces is copied into a backup of its own
+  first, so a restore is itself undoable, and a directory this program did not write is
+  refused. The restore now accounts for itself per entry, which is what separates "your
+  configuration is back" from "two of the five files are back". Evidence: six tests in
+  `restore_safety_test.go`, two of them covering the two ways an entry cannot be put back
+  (a named pipe, and a file the process cannot read). One of my own tests was wrong on the
+  first run and the failure taught the rule: a dangling symlink *is* restorable, because the
+  backup preserves it as a symlink, so it cannot serve as the unrestorable case. The old pin
+  that hand-made an empty directory inside the developer's real `$HOME` now pins what happens
+  for a backup this program wrote and for one it did not.
+- **L6 (T3, done).** The record names every file the run changed, one line per file, with the
+  digest it held before the run and the digest it held after, the configuration key it
+  belongs to, and the copy in the backup that puts it back. It is written by a run that
+  failed as well as by one that finished, and by the scripted route as well as by the
+  interface: before this, a run that stopped at a failed step left no record at all, which is
+  precisely the run whose changes are already on the machine. Evidence: five tests in
+  `install_manifest_test.go`, and the existing record tests keep passing with the new fields.
