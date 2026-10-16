@@ -487,7 +487,7 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate:
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenInstallVerify:
 		return true
 	}
 	return false
@@ -533,12 +533,13 @@ func (m Model) headerName() string {
 		return "Installation complete"
 	case ScreenError:
 		return "Installation failed"
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		return "Learn"
 	case ScreenKeymaps, ScreenKeymapCategory, ScreenKeymapsMenu,
 		ScreenKeymapsTmux, ScreenKeymapsTmuxCat, ScreenKeymapsZellij,
 		ScreenKeymapsZellijCat, ScreenKeymapsGhostty, ScreenKeymapsGhosttyCat,
-		ScreenKeymapsHerdr, ScreenKeymapsHerdrCat:
+		ScreenKeymapsHerdr, ScreenKeymapsHerdrCat, ScreenKeymapsKitty,
+		ScreenKeymapsKittyCat, ScreenKeymapsWezTerm, ScreenKeymapsAlacritty:
 		return "Keymaps"
 	case ScreenLearnLazyVim, ScreenLazyVimTopic:
 		return "LazyVim"
@@ -554,6 +555,9 @@ func (m Model) headerName() string {
 		return "Utilities"
 	case ScreenShellAudit:
 		// The shell's startup screen is one level in from the same section.
+		return "Utilities"
+	case ScreenInstallVerify:
+		// The verification screen is one level in from the same section.
 		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
@@ -1017,6 +1021,18 @@ func (m Model) View() string {
 		s.WriteString(m.renderLearnWM())
 	case ScreenLearnNvim:
 		s.WriteString(m.renderLearnNvim())
+	case ScreenLearnTools:
+		s.WriteString(m.renderLearnTools())
+	case ScreenLearnFont:
+		s.WriteString(m.renderLearnFont())
+	case ScreenLearnPrompts:
+		s.WriteString(m.renderLearnPrompts())
+	case ScreenLearnTooling:
+		s.WriteString(m.renderLearnTooling())
+	case ScreenLearnPlugins:
+		s.WriteString(m.renderLearnPlugins())
+	case ScreenLearnToolset:
+		s.WriteString(m.renderLearnToolset())
 	case ScreenKeymaps:
 		s.WriteString(m.renderKeymapsMenu())
 	case ScreenKeymapCategory:
@@ -1039,6 +1055,14 @@ func (m Model) View() string {
 		s.WriteString(m.renderHerdrKeymapsMenu())
 	case ScreenKeymapsHerdrCat:
 		s.WriteString(m.renderHerdrKeymapCategory())
+	case ScreenKeymapsKitty:
+		s.WriteString(m.renderKittyKeymapsMenu())
+	case ScreenKeymapsKittyCat:
+		s.WriteString(m.renderKittyKeymapCategory())
+	case ScreenKeymapsWezTerm:
+		s.WriteString(m.renderWezTermReference())
+	case ScreenKeymapsAlacritty:
+		s.WriteString(m.renderAlacrittyReference())
 	case ScreenLearnLazyVim:
 		s.WriteString(m.renderLazyVimMenu())
 	case ScreenLazyVimTopic:
@@ -1059,6 +1083,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenInstallVerify:
+		s.WriteString(m.renderInstallVerify())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1618,14 +1644,17 @@ func (m Model) dotfilesThemesPending() bool {
 // it does not. The rows are the data the user came for, so each is named in the
 // order it appears and the prose stays short enough to leave them on screen: a
 // wall of paragraphs above a list pushed the list and its own explanations past
-// the cut. The file it names is the installer's own record; the desktop's store
-// belongs to the desktop's tool.
+// the cut. Adding a fifth job is what made that budget real -- at the 80-column
+// floor the longer sentences this description used to carry no longer fit -- so
+// each line now names its job and leaves the detail to the screen that job opens,
+// where there is room for it. The file it names is the installer's own record; the
+// desktop's store belongs to the desktop's tool.
 func (m Model) utilitiesDescription() []string {
 	var paragraphs []string
 	if !m.ThemeSwitchFound {
 		paragraphs = append(paragraphs,
-			"No desktop theme switch is available here: switching needs a GNOME, KDE Plasma or macOS "+
-				"session with the theme tool on PATH, and this host has none.")
+			"No desktop theme switch is available here: it needs a GNOME, KDE Plasma or macOS session with "+
+				"its own theme tool.")
 	} else {
 		paragraphs = append(paragraphs, fmt.Sprintf(
 			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
@@ -1640,8 +1669,7 @@ func (m Model) utilitiesDescription() []string {
 	switch {
 	case len(m.DotfilesThemes) > 0:
 		paragraphs = append(paragraphs, fmt.Sprintf(
-			"%s opens the list of complete themes; each names the tools it cannot paint, and a theme is "+
-				"applied only when one is chosen there.", utilitiesThemeRow))
+			"%s opens the list of complete themes.", utilitiesThemeRow))
 	case m.dotfilesThemesPending():
 		// The definitions are read when the section opens, so an empty list with
 		// no recorded failure is a read in flight, not a verdict. The section says
@@ -1653,6 +1681,18 @@ func (m Model) utilitiesDescription() []string {
 		if reason == "" {
 			reason = themeDefinitionsNotFoundMessage()
 		}
+		// The row is offered when there are definitions OR when there is a record
+		// to put back, so this branch is reached in the one state where the row is
+		// still there with nothing to apply: the list cannot be read, and the undo
+		// the record names can still be offered. "Not switchable" would deny the
+		// row the list below it draws, which is the contradiction this sentence is
+		// worded from the row's own condition to avoid.
+		if m.DotfilesThemeRecord != nil {
+			paragraphs = append(paragraphs, fmt.Sprintf(
+				"The dotfiles' theme definitions cannot be read here (%s), so no theme can be applied; "+
+					"the change the record names can still be undone.", reason))
+			break
+		}
 		paragraphs = append(paragraphs, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
 	}
 
@@ -1662,23 +1702,28 @@ func (m Model) utilitiesDescription() []string {
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
 		paragraphs = append(paragraphs, reason)
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s shows the memory, processors and swap %s holds "+
-			"today, recommends values from this host, and writes back only the keys the template manages.",
+		paragraphs = append(paragraphs, fmt.Sprintf("%s shows what %s holds today.",
 			utilitiesWSLRow, m.WSLState.Path))
 	}
 
 	if reason := m.shellAuditUnavailableReason(); reason != "" {
 		paragraphs = append(paragraphs, reason)
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s runs %s several times and reports the median with "+
-			"the range; it changes nothing.", utilitiesShellAuditRow, m.ShellAudit.Command))
+		paragraphs = append(paragraphs, fmt.Sprintf("%s times %s; it changes nothing.",
+			utilitiesShellAuditRow, m.ShellAudit.Command))
 	}
 
 	// The terminal capability report. It is read-only and offered everywhere;
 	// where there is no terminal to read, the screen itself says so rather than
 	// the section leaving a hole. Naming it here is what makes the row findable.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s reads the colour depth, OSC 52, synchronized "+
-		"output and the Nerd Font glyphs, and names the source of every answer.", utilitiesTerminalRow))
+	paragraphs = append(paragraphs, fmt.Sprintf(
+		"%s reads the colour depth and OSC 52.", utilitiesTerminalRow))
+
+	// The record of the last install. It is read-only and offered everywhere for
+	// the same reason: the screen itself says when there is no record, so the
+	// section never leaves a hole where a utility should be, and it never promises
+	// more than presence -- the record holds no digest.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s reports which recorded paths are gone.", utilitiesVerifyRow))
 
 	return paragraphs
 }
@@ -1790,6 +1835,12 @@ const utilitiesWSLRow = "Adjust the WSL resources"
 // It is offered everywhere -- there is always a terminal to describe, and where
 // there is none the screen says so -- and it is read-only.
 const utilitiesTerminalRow = "Report the terminal capabilities"
+
+// utilitiesVerifyRow is the section's row for the record of the last install,
+// checked against this machine. It is offered everywhere -- there is always a
+// machine to compare with the record, and where there is no record the screen
+// says exactly that -- and it is read-only, like the report beside it.
+const utilitiesVerifyRow = "Check the machine against the last install"
 
 // The rows the arrow keys act on. The indices are part of the screen's contract:
 // the key handler adjusts the value under the cursor by its index, and the frame
@@ -1913,8 +1964,7 @@ func (m Model) wslResourcesUnavailableReason() string {
 		if m.SystemInfo != nil && m.SystemInfo.OSName != "" {
 			host = m.SystemInfo.OSName
 		}
-		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file read only by WSL, and %s does not run it. "+
-			"The utility is offered only on a WSL host.", host)
+		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file, and %s is not WSL.", host)
 	}
 	if !m.WSLState.Resolved {
 		return "WSL resources are not adjustable here yet: reading the Windows profile and the host's capacities."
@@ -2529,6 +2579,44 @@ func (m Model) renderSelection() string {
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintSelect, hintBack})
 }
 
+// renderLearnTools draws the hub: one row per page of the in-installer wiki,
+// built from learnToolRows() so the menu and the key handler read one table.
+func (m Model) renderLearnTools() string {
+	return m.renderMenu("Select what to learn about")
+}
+
+// renderLearnTooling, renderLearnPlugins and renderLearnToolset draw the three
+// read-only reference pages. They share one renderer and one scroll value: only
+// one of them is on screen at a time, and the value is reset when the page is
+// opened and when it is left.
+func (m Model) renderLearnTooling() string {
+	return m.renderReferenceTable(shellToolingTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderLearnPlugins() string {
+	return m.renderReferenceTable(pluginSetsTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderLearnToolset() string {
+	return m.renderReferenceTable(machineToolsetTable(), m.ReferenceTableScroll)
+}
+
+// renderLearnPrompts draws the prompt the reader is reading, or the list to pick
+// one from. The list keys its pages by the lowercased label the learn handler
+// already writes to ViewingTool.
+func (m Model) renderLearnPrompts() string {
+	if m.ViewingTool != "" {
+		return m.renderToolInfo(GetPromptInfo(), m.ViewingTool)
+	}
+	return m.renderLearnMenu("Select a prompt to learn more about it")
+}
+
+// renderLearnFont draws the font page. The run asks one font question and this is
+// the answer to it, so there is no list to pick from.
+func (m Model) renderLearnFont() string {
+	return m.renderSingleToolInfo(GetFontInfo())
+}
+
 func (m Model) renderLearnTerminals() string {
 	if m.ViewingTool != "" {
 		return m.renderToolInfo(GetTerminalInfo(), m.ViewingTool)
@@ -2664,40 +2752,58 @@ func keymapTableColumns(width, longestKey int) (keys, mode, description int) {
 	return keys, mode, description
 }
 
-// renderKeymapTable renders one keymap category: its title, description, a
-// column header and the rows the frame has room for. Its scroll value IS the
-// top-row offset (0 shows the first binding, offsetWindowMax shows the last), so
-// it windows through offsetWindow and the category key handlers clamp that same
-// value with offsetWindowMax; the last binding is reachable. It replaces five
-// copies of the same table that had each picked their own column widths, their
-// own window and their own 60-column rule.
+// renderKeymapTable renders one keymap category through the shared table
+// renderer: a keymap table is a three-column table whose headers happen to be
+// Keys, Mode and Description. It replaces five copies of the same table that had
+// each picked their own column widths, their own window and their own 60-column
+// rule.
 func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
-	width := contentWidth(m)
-	longestKey := 0
+	cells := make([]referenceRow, 0, len(category.Keymaps))
 	for _, km := range category.Keymaps {
-		if w := lipgloss.Width(km.Keys); w > longestKey {
-			longestKey = w
+		cells = append(cells, referenceRow{Name: km.Keys, Kind: km.Mode, What: km.Description})
+	}
+	return m.renderReferenceTable(referenceTable{
+		Name:        category.Name,
+		Description: category.Description,
+		Headers:     [3]string{"Keys", "Mode", "Description"},
+		Rows:        cells,
+	}, scroll)
+}
+
+// renderReferenceTable renders one read-only table page: its title, description,
+// a column header and the rows the frame has room for. Its scroll value IS the
+// top-row offset (0 shows the first row, offsetWindowMax shows the last), so it
+// windows through offsetWindow and the key handlers clamp that same value with
+// offsetWindowMax; the last row is reachable. The first column is sized from the
+// longest name it holds, so a 37-column Herdr binding is shown whole instead of
+// cut.
+func (m Model) renderReferenceTable(table referenceTable, scroll int) string {
+	width := contentWidth(m)
+	longestName := 0
+	for _, row := range table.Rows {
+		if w := lipgloss.Width(row.Name); w > longestName {
+			longestName = w
 		}
 	}
-	keys, mode, description := keymapTableColumns(width, longestKey)
+	name, kind, what := keymapTableColumns(width, longestName)
 
 	rows := keymapTableRows(m.Height)
-	start, end := offsetWindow(scroll, rows, len(category.Keymaps))
+	start, end := offsetWindow(scroll, rows, len(table.Rows))
 
 	body := []string{
-		BrandStyle.Render(category.Name),
-		MutedStyle.Render(truncate(category.Description, width)),
+		BrandStyle.Render(table.Name),
+		MutedStyle.Render(truncate(table.Description, width)),
 		"",
 	}
-	header := padRight("Keys", keys) + " " + padRight("Mode", mode) + " Description"
+	header := padRight(table.Headers[0], name) + " " + padRight(table.Headers[1], kind) + " " + table.Headers[2]
 	body = append(body, MutedStyle.Render(truncate(header, width)))
 	body = append(body, rule(width))
 	for i := start; i < end; i++ {
-		km := category.Keymaps[i]
+		row := table.Rows[i]
 		body = append(body,
-			KeyStyle.Render(padRight(truncate(km.Keys, keys), keys))+" "+
-				MutedStyle.Render(padRight(truncate(km.Mode, mode), mode))+" "+
-				InfoStyle.Render(truncate(km.Description, description)))
+			KeyStyle.Render(padRight(truncate(row.Name, name), name))+" "+
+				MutedStyle.Render(padRight(truncate(row.Kind, kind), kind))+" "+
+				InfoStyle.Render(truncate(row.What, what)))
 	}
 
 	// The scroll range is the table's vital sign, so it lives in the header and
@@ -2705,8 +2811,8 @@ func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
 	// fit, and reading it back out of the header still satisfies the scroll
 	// reachability tests.
 	vital := ""
-	if len(category.Keymaps) > rows {
-		vital = scrollVital("Showing", start+1, end, len(category.Keymaps))
+	if len(table.Rows) > rows {
+		vital = scrollVital("Showing", start+1, end, len(table.Rows))
 	}
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintReturn})
 }
@@ -2820,6 +2926,31 @@ func (m Model) renderHerdrKeymapCategory() string {
 		return deadEnd("Category not found", "Press [Esc] to pick another category.")
 	}
 	return m.renderKeymapTable(m.HerdrKeymapCategories[m.HerdrSelectedCategory], m.HerdrKeymapScroll)
+}
+
+// renderKittyKeymapsMenu renders the Kitty keymap categories menu
+func (m Model) renderKittyKeymapsMenu() string {
+	return m.renderMenu("Select a category to view Kitty keybindings")
+}
+
+// renderKittyKeymapCategory renders a specific Kitty keymap category
+func (m Model) renderKittyKeymapCategory() string {
+	if m.KittySelectedCategory >= len(m.KittyKeymapCategories) {
+		return deadEnd("Category not found", "Press [Esc] to pick another category.")
+	}
+	return m.renderKeymapTable(m.KittyKeymapCategories[m.KittySelectedCategory], m.KittyKeymapScroll)
+}
+
+// renderWezTermReference and renderAlacrittyReference answer the reference's
+// question for the two terminals whose configurations declare no bindings: they
+// draw the settings those files do carry, under a header that says so rather than
+// under one that promises key bindings.
+func (m Model) renderWezTermReference() string {
+	return m.renderReferenceTable(weztermConfigTable(), m.ReferenceTableScroll)
+}
+
+func (m Model) renderAlacrittyReference() string {
+	return m.renderReferenceTable(alacrittyConfigTable(), m.ReferenceTableScroll)
 }
 
 func (m Model) renderLazyVimMenu() string {
@@ -3936,15 +4067,26 @@ func trainerModuleMeterText(progress *trainer.ModuleProgress, practice trainer.P
 }
 
 // trainerPracticeAccuracyText renders the selected module's practice accuracy,
-// the percentage the boss unlock threshold is measured against. It is omitted
-// until the module has a recorded attempt, so a fresh module does not claim 0%.
-// It names itself because it is now a line of the selected module's detail
-// block rather than a suffix on the row, where "Acc 60%" had to be terse.
-func trainerPracticeAccuracyText(progress *trainer.ModuleProgress) string {
+// the percentage the boss unlock threshold is measured against, and how many
+// mastered exercises have come due for review. It is omitted until the module has
+// a recorded attempt, so a fresh module does not claim 0%. It names itself because
+// it is now a line of the selected module's detail block rather than a suffix on
+// the row, where "Acc 60%" had to be terse. The due count shares the line rather
+// than taking a row of its own: the menu's row budget is fixed, and a new row here
+// would push the legend off an 80x24 screen.
+func trainerPracticeAccuracyText(progress *trainer.ModuleProgress, module trainer.ModuleID, now time.Time) string {
 	if progress == nil || progress.PracticeAttempts == 0 {
 		return ""
 	}
-	return fmt.Sprintf("Practice accuracy: %.0f%%", progress.PracticeAccuracy*100)
+	text := fmt.Sprintf("Practice accuracy: %.0f%%", progress.PracticeAccuracy*100)
+	if due := progress.ReviewsDue(module, now); due > 0 {
+		word := "reviews"
+		if due == 1 {
+			word = "review"
+		}
+		text += fmt.Sprintf(" · %d mastered %s due", due, word)
+	}
+	return text
 }
 
 // trainerWeakExerciseText renders the exercises a module misses most, in the
@@ -4048,7 +4190,7 @@ func (m Model) renderTrainerMenu() string {
 		// gutter.
 		if i == m.TrainerCursor {
 			detail := []string{InkStyle.Render(truncate(module.Description, inner-blockGutterWidth))}
-			if accuracy := trainerPracticeAccuracyText(progress); accuracy != "" {
+			if accuracy := trainerPracticeAccuracyText(progress, module.ID, time.Now()); accuracy != "" {
 				detail = append(detail, InfoStyle.Render(accuracy))
 			}
 			if weak := trainerWeakExerciseText(progress, practice, inner-blockGutterWidth); weak != "" {
@@ -4390,6 +4532,9 @@ func (m Model) trainerExerciseVital() string {
 		parts = append(parts, meterRendered(state.ExerciseIndex+1, len(state.Exercises), trainerHeaderMeterCells))
 	}
 	parts = append(parts, MeterStyle.Render(fmt.Sprintf("Score: %d · Streak: %d", state.SessionScore, state.CurrentStreak)))
+	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
+		parts = append(parts, MeterStyle.Render(combo))
+	}
 	if remaining := state.RemainingSeconds(); remaining > 0 {
 		parts = append(parts, WarningStyle.Render(fmt.Sprintf("⏳ Hint in %ds", int(math.Ceil(remaining)))))
 	}
@@ -4635,6 +4780,17 @@ func renderLineWithSelection(line string, startPos trainer.Position, sel trainer
 	return result.String()
 }
 
+// trainerComboText is the multiplier the score is paid by, named only once there is a
+// run to speak of: "Combo ×1" on every screen would be noise rather than a fact. It is
+// one function so the lesson, practice and boss headers cannot disagree about the
+// wording or about when the fact is worth showing.
+func trainerComboText(multiplier int) string {
+	if multiplier <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("Combo ×%d", multiplier)
+}
+
 // trainerBossVital is the boss screen's vital sign, carried by its header instead
 // of two stacked rows: the lives as a count and a glyph run, the step the fight
 // is on, and the live countdown, each as a chip. The countdown is derived from
@@ -4652,6 +4808,12 @@ func (m Model) trainerBossVital() string {
 	parts := []string{
 		chip(fmt.Sprintf("Lives: %d/%d %s", state.BossLives, boss.Lives, trainerLivesGlyphs(state.BossLives, boss.Lives))),
 		chip(fmt.Sprintf("Step %d/%d", state.BossStep+1, len(boss.Steps))),
+	}
+	// The combo sits before the countdown rather than after it: the header drops what
+	// does not fit from its tail, and a run of wins is worth less than the seconds
+	// left on the step.
+	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
+		parts = append(parts, chip(combo))
 	}
 	if remaining := state.BossStepSecondsLeft(); remaining > 0 {
 		parts = append(parts, chip(fmt.Sprintf("⏳ Time left: %ds", int(math.Ceil(remaining)))))
@@ -4812,6 +4974,30 @@ func (m Model) renderTrainerResult() string {
 	return strings.Join(rows, "\n")
 }
 
+// trainerFightDuration renders a fight's length the way the countdowns render theirs:
+// whole seconds, so a fast fight does not read as "39.999s" because a frame landed a
+// hair early.
+func trainerFightDuration(d time.Duration) string {
+	seconds := int(d.Round(time.Second).Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+// trainerBossBestTime is the module's recorded best fight, or 0 when it has none. It
+// reads the profile without creating a record, like every other question the trainer
+// asks of it.
+func (m Model) trainerBossBestTime(module trainer.ModuleID) time.Duration {
+	if m.TrainerStats == nil {
+		return 0
+	}
+	if progress := m.TrainerStats.ModuleProgressOrNil(module); progress != nil {
+		return progress.BossBestTime
+	}
+	return 0
+}
+
 func (m Model) renderTrainerBossResult() string {
 	inner := trainerInnerWidth(m)
 
@@ -4858,6 +5044,19 @@ func (m Model) renderTrainerBossResult() string {
 			summary = append(summary, MutedStyle.Render(state.CurrentBoss.Name+" wins this time..."))
 		}
 		summary = append(summary, InfoStyle.Render("Keep practicing and try again!"))
+	}
+
+	// The fight's own clock, which the state now measures: how long this fight took and
+	// the module's best. Both are omitted for a fight that never started, so the row
+	// appears only when there is a measurement behind it.
+	if state != nil && state.CurrentBoss != nil {
+		if elapsed := state.BossFightElapsed(); elapsed > 0 {
+			line := fmt.Sprintf("Fight time: %s", trainerFightDuration(elapsed))
+			if best := m.trainerBossBestTime(state.CurrentModule); best > 0 {
+				line += fmt.Sprintf(" · Best: %s", trainerFightDuration(best))
+			}
+			summary = append(summary, MeterStyle.Render(line))
+		}
 	}
 	rows = append(rows, gutteredBlock(summary)...)
 

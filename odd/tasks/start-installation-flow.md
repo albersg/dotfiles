@@ -92,7 +92,7 @@ it, and the screen has to exist before the plan can show which choice each row c
 - [x] **T4. The command line and the plan agree** (S6): the sets and the switches the screen
       gains reach the flags and `--skip`, through the one builder.
 - [x] **T5. Docs and changelog** (S1-S7).
-- [ ] **T6. The guards move with the screens** (S7): frame lists, counts, the plan-name
+- [x] **T6. The guards move with the screens** (S7): frame lists, counts, the plan-name
       golden, the teatest paths and the E2E expectations.
 - [x] **T7. The shell's set becomes a switch too** (S3, S4), the user's decision at L13.
 
@@ -534,3 +534,31 @@ L18 -- T5: the docs and the changelog were checked against the front, and they w
   task, so its gate result is the one the previous commit recorded on the same code tree: a doc-only
   change cannot alter what the guards measure, and claiming a fresh suite run for it would be a claim
   without a subject.
+
+L19 -- T6: main merged in, and every pinned number moved by measurement.
+
+  Four paths conflicted, exactly the four the dry run had named, and each was read from both sides
+  before anything was written. `model.go` and `CHANGELOG.md` are unions: main's seven screens keep their
+  places and this front's setup screen follows them inside one enum closed by one paren, with this
+  front's `stepOrigin`, its `sentence()` and its areas after them; this front's five changelog entries
+  precede main's under a single `Added` heading and main's `Fixed` section is untouched. The two pinned
+  counts were measured rather than added up: the companion block guard reported 1088 screens rendered and
+  1088 compared once both sides' screens were present -- main's 67 frame states plus the setup screen, at
+  four sizes, two pixel modes and two cursor states -- and the matrix guard reported that it enumerates 75
+  screens, so `measuredScreens` is 75, main's 74 plus the setup screen. Each number now carries the
+  measurement that produced it rather than a sum somebody did in their head, and the frame-name list in
+  `teatest_test.go` merged on its own carrying both sides.
+
+  The merge ran clean enough to tempt anyone into calling it done, and the gate is what refused that:
+  `TestEveryDeclaredScreenHasAName` reported `Screen(57) is ScreenSetup in model.go and prints as
+  "Unknown", want "Setup": add it to screenNames`. The union had put the setup screen after main's
+  screens and the map that names screens had no key for it, so a screen could be drawn that no failure
+  message could identify. The entry was added where the enum puts it, with the reason written beside it.
+  That is the second time this front was saved by a guard that already existed rather than by review, and
+  the first time it was saved inside a merge, which is where a guard list is worth the most: git's silent
+  agreement covered sixty-eight paths and could not cover this one.
+
+  Evidence: `gofmt -l` and `go vet` clean; the naming, matrix and companion guards green with the measured
+  numbers; `scripts/preflight.sh` on the merged tree passing all seven of its steps with only the four
+  host-condition Ghostty tests failing, the same four that fail on every tree on this host for the reason
+  RECORDED earlier rather than rediscovered. The commit that carries this entry is the merge commit.

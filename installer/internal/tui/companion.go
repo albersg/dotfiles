@@ -269,6 +269,10 @@ const (
 	companionJumpingState
 	companionCharmedState
 	companionCuriousState
+	// companionPossessedState is the trainer's boss screen: the creature is not on the
+	// player's side there, and this is that made visible (see
+	// companion_possession.go for the form and what escalates it).
+	companionPossessedState
 )
 
 // companionStateNames names every state, in the order they are declared. A state
@@ -288,6 +292,7 @@ var companionStateNames = map[companionState]string{
 	companionJumpingState:   "jumping",
 	companionCharmedState:   "charmed",
 	companionCuriousState:   "curious",
+	companionPossessedState: "possessed",
 }
 
 // ============================================================================
@@ -571,14 +576,23 @@ var companionMiniFrames = []companionFrame{
 // the ladder cannot choose -- anything but the three steps -- draws the one-row
 // art rather than nothing, so a missing table is visible instead of silent.
 func companionFramesAt(height int) []companionFrame {
+	var frames []companionFrame
 	switch height {
 	case companionFullHeight:
-		return companionFullFrames
+		frames = companionFullFrames
 	case companionCompactHeight:
-		return companionCompactFrames
+		frames = companionCompactFrames
 	default:
-		return companionMiniFrames
+		frames = companionMiniFrames
 	}
+	// The possessed art is declared beside the form it belongs to
+	// (companion_possession.go) and appended here, so the frame guard, the gaze
+	// composer and the state machine see one table. The three-index slice keeps the
+	// append from writing into the shared table's spare capacity.
+	if extra, ok := companionPossessedFrames[height]; ok {
+		frames = append(frames[:len(frames):len(frames)], extra...)
+	}
+	return frames
 }
 
 // companionSpriteWidth is the columns the sprite's cell takes at one height: the
@@ -1419,10 +1433,7 @@ func companionPoseFor(state companionState, tick int, gaze companionGaze, shiver
 		neck:   companionBlobAt(0.38+tremble, 0.73+lift, 0.15, 0.25, lean),
 		head:   companionBlobAt(headX, headY, 0.29, 0.275, 0),
 		muzzle: companionBlobAt(muzzleX, muzzleY, 0.17, 0.105, 0),
-		ears: [2]companionTriangle{
-			{points: [3][2]float64{{headX - 0.22 + earBack, headY + 0.17}, {headX - 0.13 + earBack + earTilt, headY + 0.50 + earLift}, {headX + 0.01 + earBack, headY + 0.17}}, r: 0.025},
-			{points: [3][2]float64{{headX + 0.02 + earBack, headY + 0.17}, {headX + 0.20 + earBack + earTilt, headY + 0.50 + earLift}, {headX + 0.26 + earBack, headY + 0.17}}, r: 0.025},
-		},
+		ears:   companionEarsFor(state, headX, headY, earBack, earTilt, earLift),
 		legs: [4]companionCapsule{
 			{x0: 0.16 + tremble, y0: 0.40 + lift, x1: 0.19 + tremble + reach[0], y1: 0.06 + swing[0], r: 0.072},
 			{x0: 0.02 + tremble, y0: 0.38 + lift, x1: -0.01 + tremble + reach[1], y1: 0.06 + swing[1], r: 0.072},
@@ -1614,6 +1625,12 @@ const (
 	companionTonePupil companionTone = 6 // a pupil, and the lid or the mouth line that is the same dark
 	companionToneGlint companionTone = 7 // the one bright pixel in the whole sprite
 	companionToneNose  companionTone = 8 // the rose nose
+
+	// The possessed form's own two marks, for the same reason the eye and the nose are
+	// marks: they are drawn rather than shaded, and the palette answers them with
+	// colours that are not on the fur's ramp at all.
+	companionToneEmber companionTone = 9  // the possessed eye's disc
+	companionToneHorn  companionTone = 10 // the crest and the fangs
 )
 
 // companionToneNames names every tone, in the order they are declared, so a tone added
@@ -1629,6 +1646,8 @@ var companionToneNames = map[companionTone]string{
 	companionTonePupil: "pupil",
 	companionToneGlint: "glint",
 	companionToneNose:  "nose",
+	companionToneEmber: "ember",
+	companionToneHorn:  "horn",
 }
 
 // companionTones is every tone the art draws, the empty one included, which is the list
@@ -1638,6 +1657,7 @@ func companionTones() []companionTone {
 		companionToneNone,
 		companionToneRamp0, companionToneRamp1, companionToneRamp2, companionToneRamp3, companionToneRamp4,
 		companionToneEye, companionTonePupil, companionToneGlint, companionToneNose,
+		companionToneEmber, companionToneHorn,
 	}
 }
 
@@ -1653,6 +1673,9 @@ const (
 	companionEyeArc
 	companionEyeSquint
 	companionEyeHalfShut
+	// companionEyeSlit is the possessed eye: the same disc drawn in the ember tone, with
+	// the pupil the shared code paints as a vertical slit.
+	companionEyeSlit
 )
 
 // companionEyeMarkFor is the state's own eye mark. The shut eye is shared by a blink and
@@ -1671,6 +1694,8 @@ func companionEyeMarkFor(state companionState) companionEyeMark {
 		return companionEyeArc
 	case companionFlinchingState:
 		return companionEyeSquint
+	case companionPossessedState:
+		return companionEyeSlit
 	default:
 		return companionEyeOpen
 	}
@@ -1733,7 +1758,25 @@ func companionEyeAt(dx, dy int, size companionVolumeSize, mark companionEyeMark,
 	if dx == pupilX && dy >= pupilY && dy < pupilY+pupilHeight {
 		return companionTonePupil
 	}
+	return companionEyeDiscTone(mark)
+}
+
+// companionEyeDiscTone is the tone an eye's disc is drawn in: the sclera's own light tone,
+// or the possessed form's ember. It is a function of the mark rather than a second switch
+// in the painting code, so "which tone is this eye's disc" has one owner and the tests can
+// ask the same question the art answers.
+func companionEyeDiscTone(mark companionEyeMark) companionTone {
+	if mark == companionEyeSlit {
+		return companionToneEmber
+	}
 	return companionToneEye
+}
+
+// companionEyeHasGlint reports whether an eye carries its one highlight pixel. The arc of a
+// pleased eye and the slit of a possessed one carry none: a highlight is what makes an eye
+// look alive and friendly, which is the opposite of what those two are for.
+func companionEyeHasGlint(mark companionEyeMark) bool {
+	return mark != companionEyeArc && mark != companionEyeSlit
 }
 
 // companionEyeCentres is where the pair of eyes sits: one pixel row above the head's own
@@ -1790,7 +1833,7 @@ func companionPaintEye(grid [][]companionTone, centre [2]int, size companionVolu
 			}
 		}
 	}
-	if mark != companionEyeArc {
+	if companionEyeHasGlint(mark) {
 		glintX, glintY := centre[0]-halfW, centre[1]-halfH
 		if glintY >= 0 && glintY < len(grid) && glintX >= 0 && glintX < len(grid[glintY]) {
 			grid[glintY][glintX] = companionToneGlint
@@ -1831,6 +1874,14 @@ func companionPaintMuzzle(grid [][]companionTone, inside func(int, int) bool, mu
 			companionPaintTone(grid, inside, mouth[0]+dx, mouth[1]+1, companionTonePupil)
 		}
 	}
+
+	if state == companionPossessedState {
+		// Two fangs under the mouth line, in the horn tone: the mouth's own two columns,
+		// one row lower, which is as much of a snarl as a head this wide can carry.
+		for dx := 0; dx < 2; dx++ {
+			companionPaintTone(grid, inside, mouth[0]+dx, mouth[1]+2, companionToneHorn)
+		}
+	}
 }
 
 // companionWhiskerPixel places one whisker landmark. If its nominal pixel overlaps the
@@ -1853,7 +1904,14 @@ func companionWhiskerPixel(muzzle companionBlob, offset, side float64, step int,
 
 // companionPaintAnatomyDetails draws the small landmarks that do not belong to the
 // smooth field: inner ears, paw pads and the largest rung's whiskers.
-func companionPaintAnatomyDetails(grid [][]companionTone, pose companionPose, size companionVolumeSize, scale float64) {
+func companionPaintAnatomyDetails(grid [][]companionTone, pose companionPose, size companionVolumeSize, scale float64, state companionState) {
+	// The inner-ear detail is the horn's own colour on the possessed form: the same two
+	// triangles are the creature's ears or its horns, and the mark inside them is what
+	// says which.
+	innerTone := companionTonePupil
+	if state == companionPossessedState {
+		innerTone = companionToneHorn
+	}
 	for _, ear := range pose.ears {
 		var centre [2]float64
 		for _, point := range ear.points {
@@ -1868,7 +1926,7 @@ func companionPaintAnatomyDetails(grid [][]companionTone, pose companionPose, si
 		for py := range grid {
 			for px := range grid[py] {
 				if inner.contains(companionWorldX(px, size, scale), companionWorldY(py, size, scale)) && grid[py][px] != companionToneNone {
-					grid[py][px] = companionTonePupil
+					grid[py][px] = innerTone
 				}
 			}
 		}
@@ -1935,7 +1993,7 @@ func companionVolumeTones(state companionState, tick int, gaze companionGaze, sh
 		}
 	}
 
-	companionPaintAnatomyDetails(grid, pose, size, scale)
+	companionPaintAnatomyDetails(grid, pose, size, scale, state)
 	for _, centre := range companionEyeCentres(pose.head, size, scale) {
 		companionPaintEye(grid, centre, size, companionEyeMarkFor(state), gaze)
 	}
@@ -1976,6 +2034,12 @@ func companionVolumeTones(state companionState, tick int, gaze companionGaze, sh
 // a tremble that stops after three frames leaves the creature crouched, which is the part
 // of a startle a reader can still see at this size.
 func (m Model) companionShiverPx() int {
+	// The possessed creature at its last life shakes for as long as the fight lasts:
+	// the same one-pixel tremble a startle draws, held instead of decaying. It is the
+	// escalation, and it costs nothing new -- the pose already knows how to tremble.
+	if m.companionPossessionDepth() == companionPossessionRage {
+		return companionShiverPx - 2*companionShiverPx*(m.AnimTick%2)
+	}
 	if m.companionStateNow() != companionFlinchingState || m.CompanionIdle >= companionShiverTicks {
 		return 0
 	}
@@ -2004,7 +2068,22 @@ type companionInk struct {
 	pupil color.RGBA
 	glint color.RGBA
 	nose  color.RGBA
+	// ember and horn are the possessed form's two marks, and the only colours in the
+	// palette that do not come from the theme: the possession is the one place the
+	// creature is drawn as something the theme has no opinion about. Both are chosen to
+	// read on a light terminal and on a dark one, because the trainer is played on both.
+	ember color.RGBA
+	horn  color.RGBA
 }
+
+// The possessed form's two colours.
+var (
+	// companionEmberColour is the red the possessed eyes are drawn in.
+	companionEmberColour = color.RGBA{R: 0xff, G: 0x2d, B: 0x2d, A: 0xff}
+	// companionHornColour is the crest and the fangs: brass rather than bone, because a
+	// bone-white horn disappears against the pale fur of a light terminal.
+	companionHornColour = color.RGBA{R: 0xb8, G: 0x86, B: 0x0b, A: 0xff}
+)
 
 // companionInkFor resolves that palette against the terminal's background. The two
 // ramps run in the same direction -- darkest fold first -- but they are built from
@@ -2051,6 +2130,8 @@ func companionInkFor(dark bool) companionInk {
 		pupil: pupil,
 		glint: parseHexColour(pick(Accent)),
 		nose:  pupil,
+		ember: companionEmberColour,
+		horn:  companionHornColour,
 	}
 }
 
@@ -2094,6 +2175,10 @@ func (ink companionInk) colour(tone companionTone) color.RGBA {
 		return ink.glint
 	case tone == companionToneNose:
 		return ink.nose
+	case tone == companionToneEmber:
+		return ink.ember
+	case tone == companionToneHorn:
+		return ink.horn
 	}
 	return ink.ramp[0]
 }
@@ -2228,6 +2313,11 @@ func companionStageWidth(m Model) int {
 // sleeping creature has no business blinking, and a reaction outranks both.
 func (m Model) companionStateNow() companionState {
 	switch {
+	case m.companionPossessionDepth() > companionPossessionCalm:
+		// A boss fight is the one screen where the creature is not the player's pet,
+		// so the possession outranks every reaction: a flinch or a cheer on that
+		// screen is the fight's business, not the creature's.
+		return companionPossessedState
 	case m.companionFlinching():
 		return companionFlinchingState
 	case m.companionAlerting():
@@ -2619,7 +2709,7 @@ func (m Model) companionSprite(stage, height int) []string {
 	}
 	rows := make([]string, len(art))
 	for i, row := range art {
-		rows[i] = strings.Repeat(" ", pos) + CompanionStyle.Render(row)
+		rows[i] = strings.Repeat(" ", pos) + companionGlyphRow(row)
 	}
 	return rows
 }

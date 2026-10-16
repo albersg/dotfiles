@@ -409,7 +409,7 @@ func getHorizontalBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_1",
 					Module:    ModuleHorizontal,
@@ -420,11 +420,12 @@ func getHorizontalBoss() *BossExercise {
 					Mission:   "Move to the 'e' in 'getUser'",
 					Solutions: []string{"fe", "wl"},
 					Optimal:   "fe",
+					Hint:      "`f` searches the line for the character you give it; the mission names the one to find.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_2",
 					Module:    ModuleHorizontal,
@@ -435,11 +436,12 @@ func getHorizontalBoss() *BossExercise {
 					Mission:   "Move to the start of 'fetchUserData'",
 					Solutions: []string{"ff", "ll"},
 					Optimal:   "ff",
+					Hint:      "A character search reaches a letter on the current line, so one keystroke crosses the whole word instead of stepping through it.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_3",
 					Module:    ModuleHorizontal,
@@ -450,11 +452,12 @@ func getHorizontalBoss() *BossExercise {
 					Mission:   "Move to 'processProfile'",
 					Solutions: []string{"fp", "2f(l"},
 					Optimal:   "fp",
+					Hint:      "Skip the words and search the line for the target's first letter.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_4",
 					Module:    ModuleHorizontal,
@@ -465,11 +468,12 @@ func getHorizontalBoss() *BossExercise {
 					Mission:   "Move to the end of the line",
 					Solutions: []string{"$"},
 					Optimal:   "$",
+					Hint:      "One keystroke reaches the last character of the line, wherever you start.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:        "horizontal_boss_5",
 					Module:    ModuleHorizontal,
@@ -480,6 +484,7 @@ func getHorizontalBoss() *BossExercise {
 					Mission:   "Go back to the start of the line",
 					Solutions: []string{"0", "^"},
 					Optimal:   "0",
+					Hint:      "Column zero has its own one-key motion; `^` would stop at the first non-blank instead.",
 					Points:    50,
 				},
 			},
@@ -1031,7 +1036,7 @@ func getVerticalBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:     "vertical_boss_1",
 					Module: ModuleVertical,
@@ -1053,11 +1058,12 @@ func getVerticalBoss() *BossExercise {
 					Mission:   "Jump to the blank line after imports",
 					Solutions: []string{"}", "3j"},
 					Optimal:   "}",
+					Hint:      "A paragraph motion stops on a blank line, so the blank line itself is the landing point instead of the last import.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 6,
 				Exercise: Exercise{
 					ID:     "vertical_boss_2",
 					Module: ModuleVertical,
@@ -1079,11 +1085,12 @@ func getVerticalBoss() *BossExercise {
 					Mission:   "Jump to the last line (app.listen)",
 					Solutions: []string{"G"},
 					Optimal:   "G",
+					Hint:      "One keystroke goes to the last line of the file, no count needed.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 5,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "vertical_boss_3",
 					Module: ModuleVertical,
@@ -1105,11 +1112,12 @@ func getVerticalBoss() *BossExercise {
 					Mission:   "Jump back to the very first line",
 					Solutions: []string{"gg"},
 					Optimal:   "gg",
+					Hint:      "The first line takes two keys: the same motion as the last line, doubled.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "vertical_boss_4",
 					Module: ModuleVertical,
@@ -1131,11 +1139,12 @@ func getVerticalBoss() *BossExercise {
 					Mission:   "Jump to line 7 (app.use(cors))",
 					Solutions: []string{"7G", "6j", "2}"},
 					Optimal:   "7G",
+					Hint:      "A count in front of the last-line motion jumps straight to that line number.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 7,
 				Exercise: Exercise{
 					ID:     "vertical_boss_5",
 					Module: ModuleVertical,
@@ -1157,6 +1166,7 @@ func getVerticalBoss() *BossExercise {
 					Mission:   "Jump back to 'const app' line using {",
 					Solutions: []string{"{k", "2k"},
 					Optimal:   "{k",
+					Hint:      "The paragraph motion goes up without a count, then one line motion finishes it.",
 					Points:    50,
 				},
 			},

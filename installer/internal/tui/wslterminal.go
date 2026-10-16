@@ -1169,8 +1169,13 @@ func installAndVerifyWindowsFont(profileDir string) error {
 // not the default.
 //
 // The scheme's name does not change with the theme: it is the one dotfiles
-// scheme and a theme change repaints it, because Windows Terminal resolves it by
-// the name profiles.defaults.colorScheme holds.
+// scheme, and Windows Terminal resolves a scheme by the name
+// profiles.defaults.colorScheme holds, so a scheme per theme would leave every
+// profile pointing at the old one. The palette inside it is written only when
+// this step runs. The Linux-side theme switch rewrites the files it owns and
+// cannot reach settings.json, so the Windows side follows a later theme change
+// the next time the WSL terminal settings step runs -- see
+// odd/tasks/windows-terminal-scheme-theme.md for why that half is its own front.
 //
 // Three answers end at the default theme, and all three are deliberate. A
 // machine with no record has applied nothing, so the default -- the theme a fresh

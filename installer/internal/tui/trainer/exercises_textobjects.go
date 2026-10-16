@@ -360,7 +360,7 @@ func getTextObjectsBoss() *BossExercise {
 		BonusTime: 30,
 		Steps: []BossStep{
 			{
-				TimeLimit: 6,
+				TimeLimit: 8,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_1",
 					Module:    ModuleTextObjects,
@@ -371,11 +371,12 @@ func getTextObjectsBoss() *BossExercise {
 					Mission:   "Select 'userAuthentication' with viw",
 					Solutions: []string{"viw"},
 					Optimal:   "viw",
+					Hint:      "The inner word object stops at the word's end, so the punctuation and whitespace around it stay out of the selection.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_2",
 					Module:    ModuleTextObjects,
@@ -386,11 +387,12 @@ func getTextObjectsBoss() *BossExercise {
 					Mission:   `Select the URL path inside quotes with vi"`,
 					Solutions: []string{`vi"`},
 					Optimal:   `vi"`,
+					Hint:      "The inner quote object selects what the quotes enclose, so the quotes themselves stay out of the selection.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_3",
 					Module:    ModuleTextObjects,
@@ -401,11 +403,12 @@ func getTextObjectsBoss() *BossExercise {
 					Mission:   "Select inside the filter parentheses with vi(",
 					Solutions: []string{"vi(", "vi)", "vib"},
 					Optimal:   "vi(",
+					Hint:      "The parenthesis object works from anywhere inside the brackets, so the cursor does not have to sit on the bracket itself.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_4",
 					Module:    ModuleTextObjects,
@@ -416,11 +419,12 @@ func getTextObjectsBoss() *BossExercise {
 					Mission:   "Select all properties inside braces with vi{",
 					Solutions: []string{"vi{", "vi}", "viB"},
 					Optimal:   "vi{",
+					Hint:      "Same shape as the parentheses, with the brace that opens the block.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 6,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:        "textobjects_boss_5",
 					Module:    ModuleTextObjects,
@@ -431,6 +435,7 @@ func getTextObjectsBoss() *BossExercise {
 					Mission:   "Select entire <article> element with vat",
 					Solutions: []string{"vat"},
 					Optimal:   "vat",
+					Hint:      "`a` takes the delimiter with it, and `t` is the tag text object rather than the word.",
 					Points:    50,
 				},
 			},
