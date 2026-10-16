@@ -605,9 +605,12 @@ Flags:
                        as written but cannot vouch for file by file -- a symlink inside
                        a configuration directory is the ordinary case, and a record
                        written before the installer recorded files one by one is the
-                       same shape of claim. The report names the backup directory that
-                       puts a whole entry back when the record names one. The state it
-                       replaces is kept in a backup of its own. Exits 0 when the machine is back (or
+                       same shape of claim. A link is not reported when the copy the
+                       run took of it still points where it points and what it reaches
+                       is inside a path the record names, with the files there holding
+                       what the copies hold or named by the record. The report names the
+                       backup directory that puts a whole entry back when the record
+                       names one. The state it replaces is kept in a backup of its own. Exits 0 when the machine is back (or
                        already was), 1 when a file could not be put back, and 2 when
                        there is no record. Honours --dry-run
   --restore=<path>     Put a backup directory back, the same operation the main

@@ -44,9 +44,16 @@ anything, so the command reports a measurement rather than an attempt.
   on, rather than reporting success on a machine whose files it never restored. The same
   check covers a path it *does* name as written but cannot vouch for file by file, which
   is what a configuration directory holding a symlink looks like: the per-file record
-  lists regular files, so the link is reported unless the copy the run took of it matches
-  where it points now. When the record names a backup of that path, the report names the
-  directory that puts the whole entry back; when it does not, it says so.
+  lists regular files. A link is reported unless both of these hold: the copy the run took
+  of it still points where it points now, and what it reaches is inside a path this record
+  names. When that path is one the record says the run wrote, being inside it is not enough
+  either: each file there has to hold what the run's copy of it holds, or be named by a
+  change -- a record that names a tree while omitting a file inside it is caught by the
+  copy, not by its own silence. A key that is itself a link to a directory is read through
+  when the record is written, so what the run wrote inside it is named; a path the record
+  says the run created and that is a directory now is reported rather than removed, because
+  putting it back would mean removing a tree. When the record names a backup of a path, the
+  report names the directory that puts the whole entry back; when it does not, it says so.
 - **Exit status:** `0` when the machine is back where the run found it (or already was),
   `1` when a file could not be put back, `2` when there is no record to revert. A run that
   changed no file is `0` and says so.

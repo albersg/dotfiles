@@ -344,10 +344,29 @@ func configFingerprints() map[string]string {
 // file under a directory, or "" when the path does not exist. The empty string
 // is the value for a path that is not there, so a fingerprint that is no longer
 // empty is a path the run created.
+// namedPath maps a path inside a walked tree back to the name the record uses for it.
+// A walk that follows a link visits the paths behind it, and the record has to name
+// what a person sees -- the key's path -- or the revert looks for a copy that the
+// backup, which keeps the link, was never going to hold under that name.
+func namedPath(keyPath, walkRoot, walked string) string {
+	rel, err := filepath.Rel(walkRoot, walked)
+	if err != nil || rel == "." {
+		return keyPath
+	}
+	return filepath.Join(keyPath, rel)
+}
+
 func fingerprintPath(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
 		return ""
+	}
+
+	// The walk follows a key that is a link, for the same reason the index does: a
+	// fingerprint taken at the link sees a key that never changes, and a run that
+	// wrote through it would be recorded as having found it.
+	if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
+		path = resolved
 	}
 
 	digest := sha256.New()
@@ -411,21 +430,39 @@ func configFileIndex() map[string]string {
 			continue
 		}
 
-		if !info.IsDir() {
-			// A symlink is read through on purpose: the file's content is what a
-			// change is measured against, and the backup keeps the link itself.
+		// A key is read through its link on purpose: the file's content is what a
+		// change is measured against, and the backup keeps the link itself. A link to
+		// a DIRECTORY is the same question one level up, and getting it wrong is how a
+		// run that wrote through one is recorded as having found a key it changed: the
+		// run writes through the link (the install copies into the key), so the files
+		// inside it are files this run can change, and a walk that stops at the link
+		// records none of them.
+		walkRoot := path
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, resolveErr := filepath.EvalSymlinks(path)
+			resolvedInfo, statErr := os.Stat(path)
+			if resolveErr != nil || statErr != nil || !resolvedInfo.IsDir() {
+				if digest := fileDigest(path); digest != "" {
+					index[path] = digest
+				}
+				continue
+			}
+			walkRoot = resolved
+		} else if !info.IsDir() {
 			if digest := fileDigest(path); digest != "" {
 				index[path] = digest
 			}
 			continue
 		}
 
-		_ = filepath.WalkDir(path, func(p string, entry fs.DirEntry, err error) error {
+		_ = filepath.WalkDir(walkRoot, func(p string, entry fs.DirEntry, err error) error {
 			if err != nil || !entry.Type().IsRegular() {
 				return nil
 			}
+			// The record names the paths a person sees, never the paths behind their
+			// links: the same file has two names once a key is a link.
 			if digest := fileDigest(p); digest != "" {
-				index[p] = digest
+				index[namedPath(path, walkRoot, p)] = digest
 			}
 			return nil
 		})
