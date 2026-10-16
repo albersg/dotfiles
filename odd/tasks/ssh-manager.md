@@ -269,3 +269,17 @@ L6 (independent verification: what it found, and what was fixed):
 >   is deliberate and tested.
 > - The test count above is the real one; the verifier's four probes are part of the suite now, plus
 >   one for the runner fallback.
+
+L7 (the fix commits are a new mutation generation, and the disposition for them):
+
+> - The five fix commits above are a new candidate (the range `4191baf..HEAD`), so receipt-driven
+>   development asked for a review of that target as well. No transaction was started: the user's
+>   decision recorded in L5 ("continue without the native review of the slices") applies to this
+>   work, and the blocker it was made against is unchanged -- the reviewer roles still have no model
+>   in the agent model routing config, so a capture would be refused typed again before running
+>   anything, leaving another transaction that cannot close.
+> - The verification this range rests on is the independent one described in L6: each defect the
+>   verifier found now has a test that failed before the fix and passes after it.
+> - If the reviewer roles get models assigned (from `/gentle:models`; global agents write
+>   `~/.pi/agent/subagents.json`), the review can be resumed without redoing anything: the slice 1
+>   transaction is intact, and this range is a candidate of its own with `base-ref 4191baf`.
