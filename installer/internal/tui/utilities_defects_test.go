@@ -74,6 +74,17 @@ func TestTheSectionHoldsItsCursorWhenABackgroundReadInsertsARow(t *testing.T) {
 				return wslResourceLoadedMsg{state: wslResourceTestState(t)}
 			},
 		},
+		{
+			"the theme record read",
+			// The third read the fix touches, and the one the first version of this
+			// guard left out: the record is loaded with no definitions readable here,
+			// and the dotfiles theme row is offered from a record alone, so the answer
+			// inserts a row above the rows that were already on the screen.
+			func(m Model) Model { return m },
+			func(t *testing.T) tea.Msg {
+				return themeRecordLoadedMsg{dotfiles: &dotfilesThemeRecord{Theme: "catppuccin-mocha"}}
+			},
+		},
 	}
 
 	for _, tt := range tests {
