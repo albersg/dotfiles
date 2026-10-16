@@ -293,9 +293,10 @@ puts each file back, and skips a file it cannot recognize while carrying on with
 
 **Adjust the WSL resources.** On a WSL host, **Adjust the WSL resources** opens the memory,
 processors and swap the WSL 2 VM may use. The screen prints the Windows host's real RAM and logical
-processor count, recommends values from them — half the host's RAM rounded down to 512 MB (never so
-much that Windows keeps under 2 GiB), every logical CPU, and a quarter of that memory for swap — and
-lets you move each value with **←/→** or put everything back on the recommendation with **`r`**. It
+processor count, recommends values from them — two thirds of the host's RAM rounded down to 512 MB
+(never so much that Windows keeps less than 4 GiB, and never below half the host), every logical CPU
+except one, and a quarter of that memory for swap — and lets you move each value with **←/→** or put
+everything back on the recommendation with **`r`**. It
 is the same values and the same writer the installation step uses, not a second calculation, and it
 is offered only where there is a `.wslconfig` to edit: elsewhere the section says why. The template
 it renders is read from a checkout when one is present — `$DOTFILES_DIR`, the clone, the working

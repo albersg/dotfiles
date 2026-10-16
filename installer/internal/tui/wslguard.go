@@ -189,9 +189,12 @@ func wslGuardSystemctlBinary(getenv func(string) string) string {
 // systemd, a property systemd refused and a cap a reload clears each produce
 // their own line naming what was observed, and the step continues.
 //
-// The only error it returns is a packaging one -- a checkout that does not ship
-// the payload or the unit -- because that is a defect in the distribution
-// rather than a property of the machine.
+// The error it returns is an installation one, and it fires only when the
+// payload or the unit could not be put in place: a checkout that does not ship
+// them, or a host that refused the write. Nothing it then measures about the
+// running scope is an error -- an unreadable policy, a refused property and a
+// cap a reload clears are all reported as lines -- because the step calls this
+// for its report and carries on either way.
 func installWSLMemoryGuard(repoDir, stepID string) error {
 	return installWSLMemoryGuardWith(repoDir, stepID, defaultWSLGuardProbe())
 }

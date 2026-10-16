@@ -78,7 +78,7 @@ bytes_per_mib=1048576
 
 # want_policy is the OOMPolicy the scope needs so that one killed task does not
 # become every killed task.
-want_policy=continue
+want_policy="continue"
 
 # It cannot be asked for the way the cap is. Measured on systemd 257:
 # `set-property --runtime init.scope OOMPolicy=continue` is refused, because
