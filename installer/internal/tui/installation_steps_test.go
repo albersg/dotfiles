@@ -617,7 +617,13 @@ start_multiplexer`
 	}
 }
 
-// TestNavigationToEachScreen tests navigation to every screen
+// TestNavigationToEachScreen walks the flow the way it now runs: the main menu
+// opens the setup screen, Enter on a row opens that row's detour, a choice in the
+// detour records it and returns to the setup screen, and Escape there returns
+// without changing anything. The question-to-question steps this test used to
+// walk are gone by design (T2 of odd/tasks/start-installation-flow.md): the setup
+// screen is the only entry to the question screens, so the assertions are the
+// detour contract rather than the old chain.
 func TestNavigationToEachScreen(t *testing.T) {
 	t.Run("welcome -> main menu", func(t *testing.T) {
 		m := NewModel()
@@ -631,109 +637,61 @@ func TestNavigationToEachScreen(t *testing.T) {
 		}
 	})
 
-	t.Run("main menu -> start installation -> OS select", func(t *testing.T) {
+	t.Run("main menu -> start installation -> setup", func(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0 // Start Installation
 
 		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenOSSelect {
-			t.Errorf("Expected OSSelect, got %v", m.Screen)
+		if m.Screen != ScreenSetup {
+			t.Errorf("Expected Setup, got %v", m.Screen)
 		}
 	})
 
-	t.Run("OS select mac -> terminal select", func(t *testing.T) {
+	t.Run("setup Enter opens the platform row's detour", func(t *testing.T) {
 		m := NewModel()
-		m.SystemInfo.IsWSL = false // Test standard (non-WSL) flow
+		m.SystemInfo.IsWSL = false
+		m.Screen = ScreenSetup
+		m.SetupCursor = 0 // Platform
+
+		m, _ = simulateKeyPress(m, "enter")
+		if m.Screen != ScreenOSSelect {
+			t.Errorf("Expected OSSelect as the platform row's detour, got %v", m.Screen)
+		}
+		if !m.SetupDetour {
+			t.Error("the detour should remember it was opened from the setup screen")
+		}
+	})
+
+	t.Run("a choice in the platform detour records it and returns to setup", func(t *testing.T) {
+		m := NewModel()
+		m.SystemInfo.IsWSL = false
 		m.Screen = ScreenOSSelect
+		m.SetupDetour = true
 		m.Cursor = 0 // macOS
 
 		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenTerminalSelect {
-			t.Errorf("Expected TerminalSelect, got %v", m.Screen)
-		}
 		if m.Choices.OS != "mac" {
 			t.Errorf("Expected OS=mac, got %s", m.Choices.OS)
 		}
-	})
-
-	t.Run("OS select linux -> terminal select", func(t *testing.T) {
-		m := NewModel()
-		m.SystemInfo.IsWSL = false // Test standard (non-WSL) flow
-		m.Screen = ScreenOSSelect
-		m.Cursor = 1 // Linux
-
-		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenTerminalSelect {
-			t.Errorf("Expected TerminalSelect, got %v", m.Screen)
-		}
-		if m.Choices.OS != "linux" {
-			t.Errorf("Expected OS=linux, got %s", m.Choices.OS)
+		if m.Screen != ScreenSetup {
+			t.Errorf("Expected Setup after the detour, got %v", m.Screen)
 		}
 	})
 
-	t.Run("terminal select -> font select (when terminal selected)", func(t *testing.T) {
-		m := NewModel()
-		m.Screen = ScreenTerminalSelect
-		m.Choices.OS = "mac"
-		m.Cursor = 0 // Alacritty
-
-		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenFontSelect {
-			t.Errorf("Expected FontSelect, got %v", m.Screen)
-		}
-	})
-
-	t.Run("terminal select none -> shell select (skip font)", func(t *testing.T) {
-		m := NewModel()
-		m.Screen = ScreenTerminalSelect
-		m.Choices.OS = "mac"
-
-		// Find None option
-		options := m.GetCurrentOptions()
-		for i, opt := range options {
-			if opt == "None" {
-				m.Cursor = i
-				break
-			}
-		}
-
-		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenShellSelect {
-			t.Errorf("Expected ShellSelect when terminal=none, got %v", m.Screen)
-		}
-	})
-
-	t.Run("font select -> shell select", func(t *testing.T) {
-		m := NewModel()
-		m.Screen = ScreenFontSelect
-		m.Cursor = 0 // Yes
-
-		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenShellSelect {
-			t.Errorf("Expected ShellSelect, got %v", m.Screen)
-		}
-	})
-
-	t.Run("shell select -> WM select", func(t *testing.T) {
+	t.Run("Escape in a detour returns without changing the choice", func(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenShellSelect
-		m.Cursor = 0 // Fish
+		m.SetupDetour = true
+		m.Choices.Shell = "fish"
+		m.Cursor = 1 // zsh
 
-		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenWMSelect {
-			t.Errorf("Expected WMSelect, got %v", m.Screen)
+		m, _ = simulateKeyPress(m, "esc")
+		if m.Screen != ScreenSetup {
+			t.Errorf("Expected Setup after Escape, got %v", m.Screen)
 		}
-	})
-
-	t.Run("WM select -> nvim select", func(t *testing.T) {
-		m := NewModel()
-		m.Screen = ScreenWMSelect
-		m.Cursor = 0 // Tmux
-
-		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenNvimSelect {
-			t.Errorf("Expected NvimSelect, got %v", m.Screen)
+		if m.Choices.Shell != "fish" {
+			t.Errorf("Escape changed the shell to %q, want it left at fish", m.Choices.Shell)
 		}
 	})
 }
@@ -936,8 +894,11 @@ func TestBackupOptions(t *testing.T) {
 		m.Cursor = 2 // Cancel
 
 		m, _ = simulateKeyPress(m, "enter")
-		if m.Screen != ScreenMainMenu {
-			t.Errorf("Expected MainMenu after cancel, got %v", m.Screen)
+		// The screen is a detour now: its third row leaves the screen for the setup
+		// screen instead of aborting the wizard, and Escape on the setup screen is
+		// the abort.
+		if m.Screen != ScreenSetup {
+			t.Errorf("Expected the setup screen after cancel, got %v", m.Screen)
 		}
 	})
 }

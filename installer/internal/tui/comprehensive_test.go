@@ -84,6 +84,9 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 		{ScreenShellSelect, 4},
 		{ScreenWMSelect, 4},
 		{ScreenNvimSelect, 5},
+		// The setup screen lists one row per decision, its values on the same line:
+		// seven always, and the backup row too when the machine holds configs.
+		{ScreenSetup, 7},
 		{ScreenBackupConfirm, 3},
 		{ScreenRestoreConfirm, 3},
 		{ScreenLearnTerminals, 5},
@@ -98,10 +101,10 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 		{ScreenKeymapsKitty, 4},
 		{ScreenKeymaps, 3},
 		{ScreenLearnLazyVim, 3},
-		// The review screen lists one row per catalogued unit, so its count is the
-		// catalogue's own length rather than a number written here: a unit added to the
-		// table cannot leave this guard behind.
-		{ScreenInstallReview, len(installUnits)},
+		// The review screen lists the run's plan grouped by area, so its count is
+		// the plan's own: a negative minimum asks the loop to derive it from the
+		// model rather than writing a number here that the catalogue could move.
+		{ScreenInstallReview, -1},
 	}
 
 	for _, tc := range screens {
@@ -110,9 +113,13 @@ func TestGetCurrentOptionsForAllScreens(t *testing.T) {
 			m.Screen = tc.name
 			m.Choices.OS = "mac" // For terminal options
 
+			minLen := tc.minLen
+			if minLen < 0 {
+				minLen = len(planFor(m.planOptions()))
+			}
 			opts := m.GetCurrentOptions()
-			if len(opts) < tc.minLen {
-				t.Errorf("Expected at least %d options, got %d: %v", tc.minLen, len(opts), opts)
+			if len(opts) < minLen {
+				t.Errorf("Expected at least %d options, got %d: %v", minLen, len(opts), opts)
 			}
 		})
 	}
@@ -222,7 +229,7 @@ func TestGetScreenTitleForAllScreens(t *testing.T) {
 	allScreens := []Screen{
 		ScreenWelcome, ScreenMainMenu, ScreenOSSelect, ScreenTerminalSelect,
 		ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect,
-		ScreenInstallReview,
+		ScreenSetup, ScreenInstallReview,
 		ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm,
 		ScreenInstalling, ScreenComplete, ScreenError,
 		ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim,
@@ -728,8 +735,8 @@ func TestMainMenuToStartInstallation(t *testing.T) {
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	newModel := result.(Model)
 
-	if newModel.Screen != ScreenOSSelect {
-		t.Errorf("Expected ScreenOSSelect, got %v", newModel.Screen)
+	if newModel.Screen != ScreenSetup {
+		t.Errorf("Expected ScreenSetup, got %v", newModel.Screen)
 	}
 }
 
@@ -838,8 +845,11 @@ func TestOSSelectMac(t *testing.T) {
 	if newModel.Choices.OS != "mac" {
 		t.Errorf("Expected OS 'mac', got '%s'", newModel.Choices.OS)
 	}
-	if newModel.Screen != ScreenTerminalSelect {
-		t.Errorf("Expected ScreenTerminalSelect, got %v", newModel.Screen)
+	// The platform question is a detour of the setup screen now: the choice is
+	// recorded and the flow returns to the screen that opened it instead of
+	// advancing to the terminal question.
+	if newModel.Screen != ScreenSetup {
+		t.Errorf("Expected ScreenSetup after the platform detour, got %v", newModel.Screen)
 	}
 }
 
@@ -856,7 +866,7 @@ func TestOSSelectLinux(t *testing.T) {
 	}
 }
 
-func TestTerminalSelectNoneSkipsFont(t *testing.T) {
+func TestTerminalSelectNoneReturnsToSetup(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenTerminalSelect
 	m.Choices.OS = "mac"
@@ -872,12 +882,15 @@ func TestTerminalSelectNoneSkipsFont(t *testing.T) {
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	newModel := result.(Model)
 
-	if newModel.Screen != ScreenShellSelect {
-		t.Errorf("Terminal 'none' should skip to ShellSelect, got %v", newModel.Screen)
+	if newModel.Choices.Terminal != "none" {
+		t.Errorf("Expected terminal 'none', got %q", newModel.Choices.Terminal)
+	}
+	if newModel.Screen != ScreenSetup {
+		t.Errorf("A detour returns to the setup screen, got %v", newModel.Screen)
 	}
 }
 
-func TestTerminalSelectWithTerminalGoesToFont(t *testing.T) {
+func TestTerminalSelectWithTerminalReturnsToSetup(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenTerminalSelect
 	m.Choices.OS = "mac"
@@ -886,8 +899,8 @@ func TestTerminalSelectWithTerminalGoesToFont(t *testing.T) {
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	newModel := result.(Model)
 
-	if newModel.Screen != ScreenFontSelect {
-		t.Errorf("Terminal selection should go to FontSelect, got %v", newModel.Screen)
+	if newModel.Screen != ScreenSetup {
+		t.Errorf("A detour returns to the setup screen, got %v", newModel.Screen)
 	}
 	if newModel.Choices.Terminal != "alacritty" {
 		t.Errorf("Expected terminal 'alacritty', got '%s'", newModel.Choices.Terminal)
@@ -906,8 +919,8 @@ func TestFontSelect(t *testing.T) {
 		if !newModel.Choices.InstallFont {
 			t.Error("Cursor 0 should set InstallFont true")
 		}
-		if newModel.Screen != ScreenShellSelect {
-			t.Error("Should go to ShellSelect")
+		if newModel.Screen != ScreenSetup {
+			t.Errorf("A detour returns to the setup screen, got %v", newModel.Screen)
 		}
 	})
 
@@ -940,8 +953,8 @@ func TestShellSelect(t *testing.T) {
 			if newModel.Choices.Shell != shell {
 				t.Errorf("Expected shell '%s', got '%s'", shell, newModel.Choices.Shell)
 			}
-			if newModel.Screen != ScreenWMSelect {
-				t.Errorf("Expected ScreenWMSelect, got %v", newModel.Screen)
+			if newModel.Screen != ScreenSetup {
+				t.Errorf("A detour returns to the setup screen, got %v", newModel.Screen)
 			}
 		})
 	}
@@ -962,8 +975,8 @@ func TestWMSelect(t *testing.T) {
 			if newModel.Choices.WindowMgr != wm {
 				t.Errorf("Expected WM '%s', got '%s'", wm, newModel.Choices.WindowMgr)
 			}
-			if newModel.Screen != ScreenNvimSelect {
-				t.Errorf("Expected ScreenNvimSelect, got %v", newModel.Screen)
+			if newModel.Screen != ScreenSetup {
+				t.Errorf("A detour returns to the setup screen, got %v", newModel.Screen)
 			}
 		})
 	}
@@ -1003,17 +1016,15 @@ func TestBackupConfirmWithBackup(t *testing.T) {
 	if !newModel.Choices.CreateBackup {
 		t.Error("Should set CreateBackup true")
 	}
-	// The decision is recorded, and then the review screen -- the wizard's last step
-	// -- shows what will be installed before anything runs. Enter here starts the
-	// review, not the run: the run's own key is on that screen.
-	if newModel.Screen != ScreenInstallReview {
-		t.Errorf("Expected ScreenInstallReview, got %v", newModel.Screen)
-	}
-	if newModel.PrevScreen != ScreenBackupConfirm {
-		t.Errorf("the review does not remember the question it came from: %v", newModel.PrevScreen)
+	// The decision is recorded, and then the setup screen the answer belongs to --
+	// the review is its action row now, not this screen's Enter. The screen is a
+	// detour: it lists the configurations the run would replace and records the
+	// answer, which is what this guard holds.
+	if newModel.Screen != ScreenSetup {
+		t.Errorf("Expected the setup screen after the backup answer, got %v", newModel.Screen)
 	}
 	if cmd != nil {
-		t.Error("Enter on the backup question started something before the review")
+		t.Error("Enter on the backup question started something before the plan")
 	}
 }
 
@@ -1029,16 +1040,13 @@ func TestBackupConfirmWithoutBackup(t *testing.T) {
 	if newModel.Choices.CreateBackup {
 		t.Error("Should set CreateBackup false")
 	}
-	// Same contract as the backup answer above: the decision is recorded, and the
-	// review comes next rather than the run.
-	if newModel.Screen != ScreenInstallReview {
-		t.Errorf("Expected ScreenInstallReview, got %v", newModel.Screen)
-	}
-	if newModel.PrevScreen != ScreenBackupConfirm {
-		t.Errorf("the review does not remember the question it came from: %v", newModel.PrevScreen)
+	// Same contract as the backup answer above: the decision is recorded and the
+	// setup screen comes back, with the review reached from its action row.
+	if newModel.Screen != ScreenSetup {
+		t.Errorf("Expected the setup screen after the backup answer, got %v", newModel.Screen)
 	}
 	if cmd != nil {
-		t.Error("Enter on the backup question started something before the review")
+		t.Error("Enter on the backup question started something before the plan")
 	}
 }
 
@@ -1050,8 +1058,16 @@ func TestBackupConfirmCancel(t *testing.T) {
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	newModel := result.(Model)
 
-	if newModel.Screen != ScreenMainMenu {
-		t.Errorf("Cancel should return to MainMenu, got %v", newModel.Screen)
+	// The screen is a detour of the setup screen's backup row now, so its third row
+	// is the way out of the screen rather than an abort: back to the setup screen
+	// with nothing changed, which is its Escape too. Aborting the wizard is the
+	// setup screen's own Escape, and it is the screen that offers it, not a row
+	// buried in a list of configurations.
+	if newModel.Screen != ScreenSetup {
+		t.Errorf("Cancel should return to the setup screen, got %v", newModel.Screen)
+	}
+	if newModel.Choices.CreateBackup {
+		t.Error("Cancel recorded a backup decision")
 	}
 }
 
@@ -1062,8 +1078,11 @@ func TestBackupConfirmEscape(t *testing.T) {
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	newModel := result.(Model)
 
-	if newModel.Screen != ScreenNvimSelect {
-		t.Errorf("Escape should go back to NvimSelect, got %v", newModel.Screen)
+	// Every detour's Escape goes back where it came from. It used to return to the
+	// Neovim question, which was the backup question's predecessor in the chain the
+	// setup screen replaced.
+	if newModel.Screen != ScreenSetup {
+		t.Errorf("Escape on the backup detour should return to the setup screen, got %v", newModel.Screen)
 	}
 }
 
@@ -1684,6 +1703,10 @@ var screenNames = map[Screen]string{
 	ScreenLearnPlugins:         "LearnPlugins",
 	ScreenLearnToolset:         "LearnToolset",
 	ScreenInstallVerify:        "InstallVerify",
+	// ScreenSetup is the last screen the enum declares: the merge put it after main's
+	// screens, so its name belongs here in the same order, and the guard that reads
+	// this map is what said so rather than a guess about where the line should go.
+	ScreenSetup: "Setup",
 }
 
 func (s Screen) String() string {

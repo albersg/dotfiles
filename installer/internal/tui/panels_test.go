@@ -889,6 +889,11 @@ func TestPanelsForListsWhatEachScreenOffers(t *testing.T) {
 		{ScreenShellSelect, []panelID{panelPlan}},
 		{ScreenWMSelect, []panelID{panelPlan}},
 		{ScreenNvimSelect, []panelID{panelPlan}},
+		// The setup screen carries the flow's decisions on one screen and draws them
+		// itself, row by row, so it offers no side panel of its own; a plan panel
+		// beside a screen whose rows already say what each choice would do would be
+		// a second copy of the same state.
+		{ScreenSetup, nil},
 		{ScreenGhosttyWarning, []panelID{panelPlan}},
 		{ScreenInstallReview, []panelID{panelPlan}},
 		{ScreenLearnTerminals, nil},

@@ -38,14 +38,18 @@ type cliFlags struct {
 	verify         bool
 	channel        string
 	terminal       string
-	shell          string
-	windowMgr      string
-	nvim           bool
-	font           bool
-	backup         bool
-	noAnim         bool
-	noMouse        bool
-	noSprite       bool
+	// os is the platform the run works from. It is a choice like the terminal, and it is
+	// read before anything is planned: the non-interactive path used to impose the
+	// detected platform over whatever the caller said.
+	os        string
+	shell     string
+	windowMgr string
+	nvim      bool
+	font      bool
+	backup    bool
+	noAnim    bool
+	noMouse   bool
+	noSprite  bool
 
 	// skip is the comma-separated list of units the run is told to leave out. It is a
 	// string rather than a list because that is what a command line carries; the set
@@ -71,12 +75,13 @@ func registerFlags(fs *flag.FlagSet, flags *cliFlags) {
 	fs.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed without doing it")
 	fs.BoolVar(&flags.nonInteractive, "non-interactive", false, "Run without TUI, use CLI flags")
 	fs.StringVar(&flags.terminal, "terminal", "", "Terminal: "+strings.Join(tui.SupportedTerminals(runtime.GOOS), ", "))
+	fs.StringVar(&flags.os, "os", "", "Platform to work from: "+strings.Join(tui.SupportedOperatingSystems(), ", ")+" (default: the machine this runs on)")
 	fs.StringVar(&flags.shell, "shell", "", "Shell: fish, zsh, nushell")
 	fs.StringVar(&flags.windowMgr, "wm", "", "Window manager: tmux, zellij, herdr, none")
 	fs.BoolVar(&flags.nvim, "nvim", false, "Install Neovim configuration")
 	fs.BoolVar(&flags.font, "font", false, "Install Nerd Font")
 	fs.BoolVar(&flags.backup, "backup", true, "Backup existing configs (default: true)")
-	fs.StringVar(&flags.skip, "skip", "", "Leave these units out, comma-separated: "+strings.Join(tui.SwitchableUnitIDs(), ", "))
+	fs.StringVar(&flags.skip, "skip", "", "Leave these units and plugin sets out, comma-separated: "+strings.Join(tui.SwitchableSkipIDs(), ", "))
 	fs.BoolVar(&flags.noAnim, "no-anim", false, "Disable animations (same as DOTFILES_ANIM=0)")
 	fs.BoolVar(&flags.noMouse, "no-mouse", false, "Do not track the mouse pointer (same as DOTFILES_MOUSE=0)")
 	fs.BoolVar(&flags.noSprite, "no-sprite", false, "Draw the creature as glyphs, not as the shaded sprite (same as DOTFILES_SPRITE=0)")
@@ -272,6 +277,17 @@ func reportVerify() int {
 	}
 }
 
+// platformFromFlags reads --os and validates it before the run plans anything. The
+// refusal is the tui package's, so the flag and the setup screen's first row keep one
+// vocabulary; an unknown value stops the run instead of being read as Linux, which is
+// what the non-interactive path did before the flag existed.
+func platformFromFlags(flags *cliFlags) (string, error) {
+	if err := tui.ValidateOperatingSystem(flags.os); err != nil {
+		return "", err
+	}
+	return flags.os, nil
+}
+
 func runNonInteractive(flags *cliFlags) error {
 	// Validate required flags
 	if flags.shell == "" {
@@ -297,7 +313,7 @@ func runNonInteractive(flags *cliFlags) error {
 	// The selection the flag carries is read and validated against the catalogue here,
 	// so a unit the run cannot leave out -- or a name nothing recognises -- stops the
 	// run before anything is installed rather than being quietly dropped.
-	skipUnits, err := tui.ParseUnitSelection(flags.skip)
+	skipUnits, skipSets, err := tui.ParseSkipSelection(flags.skip)
 	if err != nil {
 		return err
 	}
@@ -311,6 +327,13 @@ func runNonInteractive(flags *cliFlags) error {
 	if !validWMs[wm] {
 		return fmt.Errorf("invalid window manager: %s (valid: tmux, zellij, herdr, none)", wm)
 	}
+	// The platform is checked with the other values, before anything is planned: an
+	// absent one is the machine's answer and an unknown one is refused rather than
+	// replaced by it.
+	platform, err := platformFromFlags(flags)
+	if err != nil {
+		return err
+	}
 
 	// Default an empty window manager to "none"
 	if wm == "" {
@@ -319,17 +342,21 @@ func runNonInteractive(flags *cliFlags) error {
 
 	// Create choices
 	choices := tui.UserChoices{
+		OS:           platform,
 		Terminal:     terminal,
 		Shell:        shell,
 		WindowMgr:    wm,
 		InstallNvim:  flags.nvim,
 		InstallFont:  flags.font,
 		CreateBackup: flags.backup,
+
+		DisabledPluginSets: skipSets,
 	}
 
 	fmt.Println("🚀 dotfiles Non-Interactive Installer")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("  Terminal:    %s\n", choices.Terminal)
+	fmt.Printf("  OS:          %s\n", tui.PlatformFor(choices))
 	fmt.Printf("  Shell:       %s\n", choices.Shell)
 	fmt.Printf("  Window Mgr:  %s\n", choices.WindowMgr)
 	fmt.Printf("  Neovim:      %v\n", choices.InstallNvim)
@@ -387,13 +414,15 @@ Flags:
   -t, --test           Run in test mode (uses temporary directory)
   --dry-run            Show what would be installed without doing it
   --non-interactive    Run without TUI, use CLI flags instead
-  --skip=<units>       Leave units out of the run, comma-separated. The run needs
-                       clone, cleanup and setshell and refuses to leave those out;
-                       everything else it installs can be skipped, and a skipped
-                       unit is reported rather than silently dropped. It is the
-                       same selection the review screen offers before an
-                       interactive run, and the plan is built by the same builder
-                       either way
+  --skip=<names>       Leave units and plugin sets out of the run,
+                       comma-separated (--skip=officecli,plugins-herdr). The run
+                       needs clone, cleanup and setshell and refuses to leave those
+                       out; everything else it installs can be skipped, and the
+                       plugin sets this installer installs itself can be turned
+                       off the same way. A skipped unit is reported rather than
+                       silently dropped. It is the same selection the review
+                       screen offers before an interactive run, and the plan is
+                       built by the same builder either way
   --check-update       Read the release the chosen channel offers and print it
                        beside this build. Exits 0 when this build is that release,
                        1 when a newer one exists, and 2 when the answer could not
@@ -426,6 +455,8 @@ Flags:
                        (same as DOTFILES_SPRITE=0)
 
 Non-Interactive Options:
+  --os=<platform>      Platform to work from: mac, linux, termux (default: the
+                       machine this runs on)
   --shell=<shell>      Shell to install (required): fish, zsh, nushell
   --terminal=<term>    Terminal: alacritty, wezterm, ghostty, none
                        (kitty is available on macOS only)

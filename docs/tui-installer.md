@@ -780,11 +780,46 @@ machine. `TestInstallVerifyGolden` holds the frame at 80x24.
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
 either axis, and overlong text is cut with a visible marker or wrapped rather
-than clipped silently. The installer first asks for the choices (operating
-system, terminal emulator, font, shell, window manager, Neovim and backup), then
-shows every unit it is about to install and lets each one be turned off, and then
-runs the steps that fit that machine; the set of steps depends on the platform
-and the choices, so a run shows only the ones that apply.
+than clipped silently. **The choices are one screen; the rich per-question screens are detours.** The
+installer opens a **setup screen** listing every decision the flow takes as a row
+-- platform, shell, terminal, font, multiplexer, editor (Neovim) and, when the
+machine holds configurations the run would replace, the backup decision -- each
+row carrying the value the choices hold on the same line, and a final row that
+continues to the plan. `↑`/`↓` move the cursor, `←`/`→` cycle the focused row's
+value in place, `Space` turns the font, editor and backup switches on or off,
+`Enter` opens the focused row's rich screen as a detour, and `Esc` leaves for the
+main menu with the answers forgotten. Inside a detour the original screen is
+unchanged -- its list, its `Learn about ...` rows and the Ghostty compatibility
+warning keep their own behaviour -- but choosing an answer records it and returns
+to the setup screen instead of advancing to a next question, and `Esc` returns
+without changing anything. The backup row opens the screen that names the
+configurations the run would replace, so the decision and the list it applies to
+are both on screen; its third row leaves that screen the way `Esc` does. The setup
+screen is the only entry to those screens:
+the chain of one question leading to the next is gone. The platform's forced
+answers (no terminal emulator on WSL or Termux, the Nerd Font on Termux) are
+applied when the screen is entered and shown as the rows' values rather than
+asked as questions that were never put. The wizard's counter counts the two
+screens the flow cannot skip: the setup screen shows `1/2`, the plan is the
+second, and a detour inherits the setup screen's half.
+
+**The plugin set a tool's step installs is a row under that tool.** A set a run installs
+used to be work inside its tool's step and nothing else, so the screen that asks which
+tools to install said nothing about the plugins they would bring. The set the registry
+carries for the chosen tool is drawn indented under the row that chose it, because it is
+that tool's work rather than a decision of its own. The sets a run can leave out carry
+the same switch the flag carries -- `Space`, `←`/`→` or `Enter` on the row -- and that
+switch writes the very list `--skip=plugins-…` writes, so the two routes are one state
+rather than two that have to agree. The sets a run cannot leave out say `always
+installed` and carry no key at all: a switch there would promise to leave out work the
+run does anyway, and the plan says where each of those sets comes from instead. The row
+list is drawn as a window sized by the terminal, with the rows outside it counted above
+and below: the plugin rows took the screen past the twenty-row terminal the frame matrix
+measures, and a list that hides rows without saying so is a list the user reviews by
+pressing Enter.
+
+The run then executes the steps that fit that machine; the set of steps depends
+on the platform and the choices, so a run shows only the ones that apply.
 
 | Step | What it does |
 |------|--------------|
@@ -805,19 +840,35 @@ and the choices, so a run shows only the ones that apply.
 | Set Default Shell | Sets your shell as the default |
 | Cleanup | Removes the temporary files it created |
 
-**Every unit is shown with its switch before anything runs, and a unit turned off is reported rather
-than dropped.** After the last question the installer opens a review screen listing every unit the run
-can install, in the order the run takes them, each one on or off, with the three it cannot do without
-marked and refusing to change: `clone`, the repository the run works from; `cleanup`, the state the run
-created; and `setshell`, the default shell that was chosen. `Space` turns the unit under the cursor off
-or back on, `Enter` starts the run, and `Esc` returns to the question the screen was opened from. The
-list is drawn as a window sized by the terminal, and the rows that do not fit are counted above and
-below it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off
-the bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A
-unit that is turned off stays in the plan, is never executed, is not a failure, and is reported as
-skipped in the run's own output and in its step list. The command line reaches the same selection with
-`--skip`, and both routes plan through the same builder, so one selection produces the same steps
-either way.
+**The plan screen shows the run's plan, grouped by area, and every row says where it came from.**
+The plan the setup screen's action row opens is the plan the run will execute -- the same builder
+(`planFor`) the command line reads -- so nothing reaches it that the flow never mentioned (S2). Its
+rows are grouped under an area heading -- `Preparation`, `The tools you chose`, `The extras` and
+`Finishing up` -- in the order the run takes them, and each row carries where it came from, one of
+four honest sentences: *your choice decided it* with the value the choice took (`Install kitty —
+your choice decided it: kitty`), *an extra you turned on* for a switch that was turned on, *this
+machine needs it* for the dependency step, the Apple developer tools, Homebrew and the WSL
+configuration, and *every run installs it* for the toolset, the agent skills, OfficeCLI and
+the theme. None of those four says the run cannot leave the step out: the three units it really
+needs -- `clone`, the repository the run works from; `cleanup`, the state the run created; and
+`setshell`, the default shell that was chosen -- read *the run needs it* instead, which is the
+catalogue's fixed flag and a separate fact from where the step came from. A step's plugin set is
+indented directly under it, saying either the switch's state (`[x]` installed, `[ ]` left out) or,
+for a set a run cannot leave out, where the set comes from. That last sentence is deliberately
+short: the frame draws a row instead of wrapping it, and the longest set name leaves nineteen
+characters inside the narrowest terminal the frame matrix measures, so the registry's full reason
+would be cut off exactly where a user reads it -- the reason keeps its own guards and its other
+carriers, `--skip`'s refusal and this documentation. `Space` turns the unit under the cursor
+off or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened
+from. The cursor rests only on rows it can switch: it steps over the area headings, the plugin-set
+rows and the three fixed units, so no row ever offers a switch for something the run needs. The list
+is drawn as a window sized by the terminal, and the rows that do not fit are counted above and below
+it: at 80x24 eleven rows fit, and a short terminal shows fewer rather than pushing the frame off the
+bottom. With nothing turned off the plan is exactly what the wizard's answers alone produced. A unit
+that is turned off stays in the plan as `[ ]`, is never executed, is not a failure, and is reported
+as skipped in the run's own output and in its step list. The command line reaches the same selection
+with `--skip`, and both routes plan through the same builder, so one selection produces the same
+steps either way.
 
 **The administrator password is asked once, on the installer's own screen.** Before the first step
 that needs root, the installer asks sudo whether it already has a credential it can use
@@ -860,7 +911,22 @@ installed everything.
 **The installer provisions plugins for five tools.** It installs the plugin set
 this repository declares for Tmux (it clones TPM and runs `install_plugins`),
 Fish, Zsh and Neovim, because in each case the set is a decision the repository
-has already made. For Herdr it installs the two plugins declared in the
+has already made. Tmux's, Herdr's and the shell's sets are the ones a run can
+leave out: `--skip=plugins-tmux`, `--skip=plugins-herdr` and
+`--skip=plugins-shell` turn them off, and the step then runs no TPM, no `herdr`
+command and no Oh My Zsh installer, installs nothing and reports the set as left
+out. A run that leaves Tmux's out also writes a configuration that declares no
+plugin and runs no TPM, between the markers `dotfiles-tmux/tmux.conf` carries for
+exactly that. A run that leaves the shell's out installs no package that exists
+only to provide a plugin of the set, and the `.zshrc` it writes replaces the
+block the `dotfiles-plugins` markers bound -- the `plugins=(...)` declaration, the
+`source "$ZSH/oh-my-zsh.sh"` line and the third-party loaders -- with a line
+saying why, so the configuration it left behind starts on a machine without Oh My
+Zsh. Fish's and Neovim's sets are named on the same row and are not switches:
+they are not the installer's to leave out at all, because `config.fish`
+bootstraps Fisher on first start and lazy.nvim installs the Neovim set on first
+launch, which is what [Tools Reference](tools.md#plugins) says each of them does.
+For Herdr it installs the two plugins declared in the
 installer's own source — `aigora.lantern` and `herdr.auto-title` — with `herdr
 plugin install <owner>/<repo> --yes`, then updates them with `herdr plugin
 update --yes`, and finally verifies each with `herdr plugin list` and reports
@@ -1470,13 +1536,14 @@ dotfiles --non-interactive --shell=<shell> [options]
 
 | Flag | Values | Description |
 |------|--------|-------------|
+| `--os` | `mac`, `linux`, `termux` | Platform to work from. Absent, the machine the run is on decides. The values are the ones the setup screen's first row records, read from that row rather than written out again, so a platform the screen gains cannot leave the flag behind; WSL is deliberately not one of them, because WSL is a fact about the machine and not something a person chooses. Anything else is refused before anything is planned, with the accepted values named, instead of being quietly read as Linux. The platform chosen here is the platform the plan is built for: `--os mac` schedules the Apple developer tools even on a Linux host |
 | `--shell` | `fish`, `zsh`, `nushell` | Shell to install (required) |
 | `--terminal` | `alacritty`, `wezterm`, `ghostty`, `none`, `kitty` (macOS only) | Terminal emulator |
 | `--wm` | `tmux`, `zellij`, `herdr`, `none` | Window manager |
 | `--nvim` | | Install Neovim configuration |
 | `--font` | | Install Nerd Font |
 | `--backup` | `true`/`false` | Backup existing configs (default: true) |
-| `--skip` | unit names, comma-separated | Leave units out of the run: `clone`, `cleanup` and `setshell` cannot be left out and are refused, and a skipped unit is reported as skipped rather than dropped. The interface's review screen makes the same choice by hand |
+| `--skip` | unit or plugin-set names, comma-separated | Leave units and plugin sets out of the run: `clone`, `cleanup` and `setshell` cannot be left out and are refused, while `--skip=plugins-tmux`, `--skip=plugins-herdr` and `--skip=plugins-shell` turn a plugin set off and are reported as such rather than dropped. The interface's setup and review screens make the same choices by hand |
 
 ### Examples
 

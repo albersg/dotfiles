@@ -5,15 +5,19 @@ import (
 	"testing"
 )
 
-// unitIndex is where a unit sits in the catalogue, which is also the row the
-// screen draws it on and the value the cursor holds.
-func unitIndex(id string) int {
-	for i, unit := range installUnits {
-		if unit.ID == id {
-			return i
+// focusUnitRow puts the cursor on the plan row for a step, failing when the plan
+// does not hold one. It is how a guard says "the row for this unit" without
+// writing an index down: the row list is the plan's, and the plan's length moves
+// with the machine and the choices.
+func focusUnitRow(t *testing.T, m *Model, id string) {
+	t.Helper()
+	for i, row := range m.planReviewRows() {
+		if row.Kind == planRowStep && row.StepID == id {
+			m.UnitCursor = i
+			return
 		}
 	}
-	return -1
+	t.Fatalf("the plan has no row for %q", id)
 }
 
 // TestEveryCataloguedUnitHasALabelOnTheScreen holds the screen's own copy of the
@@ -39,28 +43,33 @@ func TestEveryCataloguedUnitHasALabelOnTheScreen(t *testing.T) {
 	}
 }
 
-// TestTheScreenListsEveryUnitTurnedOn pins S5's first half and S4 with it: every
-// catalogued unit has a row, and with nothing touched every row is on, because the
-// default selection is the empty disabled set.
-func TestTheScreenListsEveryUnitTurnedOn(t *testing.T) {
-	m := Model{Screen: ScreenInstallReview}
-	rows := m.GetCurrentOptions()
+// TestTheScreenListsEveryPlannedStepTurnedOn pins S2 with S4: the screen's rows
+// are the run's plan, each step once, and with nothing touched every row is on,
+// because the default selection is the empty disabled set.
+func TestTheScreenListsEveryPlannedStepTurnedOn(t *testing.T) {
+	m := planFixtures()[0].fixtureModel()
+	m.Screen = ScreenInstallReview
 
-	if len(rows) != len(installUnits) {
-		t.Fatalf("the screen draws %d rows for %d catalogued units", len(rows), len(installUnits))
+	steps := planFor(m.planOptions())
+	rows := planReviewStepRows(m.planReviewRows())
+	if len(rows) != len(steps) {
+		t.Fatalf("the screen draws %d step rows for a plan of %d steps", len(rows), len(steps))
 	}
-	for i, unit := range installUnits {
-		if !strings.Contains(rows[i], installReviewLabel(unit.ID)) {
-			t.Errorf("row %d does not name %q: %q", i, unit.ID, rows[i])
+	for i, step := range steps {
+		if rows[i].StepID != step.ID {
+			t.Errorf("step row %d is %q, want %q", i, rows[i].StepID, step.ID)
 		}
-		if !strings.HasPrefix(rows[i], "[x] ") {
-			t.Errorf("row %d is not shown as installed with nothing touched: %q", i, rows[i])
+		if !strings.Contains(rows[i].Text, installReviewLabel(step.ID)) {
+			t.Errorf("the row for %q does not name it: %q", step.ID, rows[i].Text)
+		}
+		if !strings.HasPrefix(rows[i].Text, "[x] ") {
+			t.Errorf("the row for %q is not shown as installed with nothing touched: %q", step.ID, rows[i].Text)
 		}
 	}
 
 	kept, off := m.installReviewCounts()
-	if kept != len(installUnits) || off != 0 {
-		t.Errorf("an untouched selection counts %d on and %d off, want %d and 0", kept, off, len(installUnits))
+	if kept != len(steps) || off != 0 {
+		t.Errorf("an untouched selection counts %d on and %d off, want %d and 0", kept, off, len(steps))
 	}
 }
 
@@ -68,32 +77,44 @@ func TestTheScreenListsEveryUnitTurnedOn(t *testing.T) {
 // of it matter: the key must not change the selection, and the row has to say why,
 // because a row that simply refuses to change reads as a broken key.
 func TestTheThreeUnitsTheRunNeedsCannotBeTurnedOff(t *testing.T) {
-	for _, unit := range installUnits {
-		if !unit.Fixed {
+	m := planFixtures()[0].fixtureModel()
+	m.Screen = ScreenInstallReview
+
+	checked := 0
+	for _, step := range planFor(m.planOptions()) {
+		if !installUnitIsFixed(step.ID) {
 			continue
 		}
-		m := Model{Screen: ScreenInstallReview, UnitCursor: unitIndex(unit.ID)}
+		checked++
+		focusUnitRow(t, m, step.ID)
 		if m.toggleUnitAtCursor() {
-			t.Errorf("toggling %q changed the selection, but the run needs it", unit.ID)
+			t.Errorf("toggling %q changed the selection, but the run needs it", step.ID)
 		}
-		if m.unitIsDisabled(unit.ID) {
-			t.Errorf("%q ended up turned off", unit.ID)
+		if m.unitIsDisabled(step.ID) {
+			t.Errorf("%q ended up turned off", step.ID)
 		}
 
-		row := m.installReviewRow(unit)
+		row := installReviewStepRow(step)
 		if !strings.Contains(row, "the run needs it") {
-			t.Errorf("the row for %q does not say the run needs it: %q", unit.ID, row)
+			t.Errorf("the row for %q does not say the run needs it: %q", step.ID, row)
 		}
 		if !strings.HasPrefix(row, "[x] ") {
-			t.Errorf("the row for %q does not read as installed: %q", unit.ID, row)
+			t.Errorf("the row for %q does not read as installed: %q", step.ID, row)
 		}
+	}
+	if checked != 3 {
+		t.Errorf("the full plan carries %d of the three units the run needs, want 3", checked)
 	}
 }
 
 // TestTurningAUnitOffAndOnAgainLeavesTheSelectionAsItWas is the round trip: the key
 // works on an ordinary unit, the row follows it, and the count with it.
 func TestTurningAUnitOffAndOnAgainLeavesTheSelectionAsItWas(t *testing.T) {
-	m := Model{Screen: ScreenInstallReview, UnitCursor: unitIndex("toolset")}
+	m := planFixtures()[0].fixtureModel()
+	m.Screen = ScreenInstallReview
+	steps := planFor(m.planOptions())
+
+	focusUnitRow(t, m, "toolset")
 
 	if !m.toggleUnitAtCursor() {
 		t.Fatalf("toggling toolset reported no change")
@@ -101,12 +122,12 @@ func TestTurningAUnitOffAndOnAgainLeavesTheSelectionAsItWas(t *testing.T) {
 	if !m.unitIsDisabled("toolset") {
 		t.Fatalf("toolset is not turned off after the toggle")
 	}
-	if row := m.installReviewRow(installUnits[m.UnitCursor]); !strings.HasPrefix(row, "[ ] ") {
-		t.Errorf("the row does not follow the switch: %q", row)
+	if row := m.planReviewRows()[m.UnitCursor]; !strings.HasPrefix(row.Text, "[ ] ") {
+		t.Errorf("the row does not follow the switch: %q", row.Text)
 	}
 	kept, off := m.installReviewCounts()
-	if off != 1 || kept != len(installUnits)-1 {
-		t.Errorf("counts are %d on and %d off, want %d and 1", kept, off, len(installUnits)-1)
+	if off != 1 || kept != len(steps)-1 {
+		t.Errorf("counts are %d on and %d off, want %d and 1", kept, off, len(steps)-1)
 	}
 
 	if !m.toggleUnitAtCursor() {
@@ -127,35 +148,23 @@ func TestTurningAUnitOffAndOnAgainLeavesTheSelectionAsItWas(t *testing.T) {
 // which is the kind of defect that shows up as a selection that cannot be undone.
 func TestTurningAUnitOffDoesNotWriteThroughTheSliceItWasGiven(t *testing.T) {
 	shared := []string{"toolset"}
-	m := Model{Screen: ScreenInstallReview, UnitCursor: unitIndex("nvim"), DisabledUnits: shared}
+	m := planFixtures()[0].fixtureModel()
+	m.Screen = ScreenInstallReview
+	m.DisabledUnits = shared
+	focusUnitRow(t, m, "officecli")
 
 	m.toggleUnitAtCursor()
 	if len(shared) != 1 || shared[0] != "toolset" {
 		t.Fatalf("turning a unit off wrote through the slice it was given: %v", shared)
 	}
 
-	back := Model{Screen: ScreenInstallReview, UnitCursor: unitIndex("toolset"), DisabledUnits: shared}
+	back := planFixtures()[0].fixtureModel()
+	back.Screen = ScreenInstallReview
+	back.DisabledUnits = shared
+	focusUnitRow(t, back, "toolset")
 	back.toggleUnitAtCursor()
 	if len(shared) != 1 || shared[0] != "toolset" {
 		t.Fatalf("turning a unit back on wrote through the slice it was given: %v", shared)
-	}
-}
-
-// TestTheCursorWalksTheListAndWraps keeps the screen navigable at both ends rather
-// than stuck on the first row, which is what a clamp looks like from the keyboard.
-func TestTheCursorWalksTheListAndWraps(t *testing.T) {
-	m := Model{Screen: ScreenInstallReview}
-	m.moveUnitCursor(-1)
-	if m.UnitCursor != len(installUnits)-1 {
-		t.Errorf("moving up from the first row landed on %d, want the last row", m.UnitCursor)
-	}
-	m.moveUnitCursor(1)
-	if m.UnitCursor != 0 {
-		t.Errorf("moving down from the last row landed on %d, want the first row", m.UnitCursor)
-	}
-	m.moveUnitCursor(1)
-	if m.UnitCursor != 1 {
-		t.Errorf("moving down landed on %d, want 1", m.UnitCursor)
 	}
 }
 
@@ -242,13 +251,14 @@ func TestTheBodySaysWhatTheKeysDo(t *testing.T) {
 // screen would let a screen that stopped sizing its window hide the defect.
 func TestTheWindowKeepsTheCursorInsideIt(t *testing.T) {
 	const window = 7
-	total := len(installUnits)
+	m := planFixtures()[0].fixtureModel()
+	total := len(m.planReviewRows())
 	if total <= window {
-		t.Fatalf("the catalogue holds %d units and the guard's window shows %d, so this guard would test nothing", total, window)
+		t.Fatalf("the plan draws %d rows and the guard's window shows %d, so this guard would test nothing", total, window)
 	}
 
 	for cursor := 0; cursor < total; cursor++ {
-		start, end := reviewWindowRows(total, cursor, window)
+		start, end := windowRowsFor(total, cursor, window)
 		if start < 0 || end > total || end < start {
 			t.Fatalf("cursor %d gives the window [%d,%d) out of %d", cursor, start, end, total)
 		}
@@ -260,10 +270,10 @@ func TestTheWindowKeepsTheCursorInsideIt(t *testing.T) {
 		}
 	}
 
-	if start, _ := reviewWindowRows(total, 0, window); start != 0 {
+	if start, _ := windowRowsFor(total, 0, window); start != 0 {
 		t.Errorf("on the first row the window starts at %d, want 0", start)
 	}
-	if _, end := reviewWindowRows(total, total-1, window); end != total {
+	if _, end := windowRowsFor(total, total-1, window); end != total {
 		t.Errorf("on the last row the window ends at %d, want %d", end, total)
 	}
 }
@@ -273,26 +283,26 @@ func TestTheWindowKeepsTheCursorInsideIt(t *testing.T) {
 // shorter list, and the one that leaves more has to show all of it. The 60x20 case of
 // the matrix is the size that made a fixed number wrong.
 func TestTheWindowIsSizedByTheTerminalAndNotByANumber(t *testing.T) {
-	total := len(installUnits)
+	m := planFixtures()[0].fixtureModel()
+	total := len(m.planReviewRows())
 
-	short := installReviewWindowSize(14, 8, total)
-	tall := installReviewWindowSize(25, 8, total)
+	short := listWindowSize(14, 8, total)
+	tall := listWindowSize(40, 8, total)
 
 	if short >= tall {
-		t.Errorf("a body of 14 rows gives a window of %d and one of 25 gives %d, so the window is not following the terminal", short, tall)
+		t.Errorf("a body of 14 rows gives a window of %d and one of 40 gives %d, so the window is not following the terminal", short, tall)
 	}
 	if tall != total {
-		t.Errorf("a body of 25 rows shows %d of %d units, want all of them", tall, total)
+		t.Errorf("a body of 40 rows shows %d of %d rows, want all of them", tall, total)
 	}
 	if short < 1 {
 		t.Errorf("a body of 14 rows with 8 rows of chrome gives a window of %d rows", short)
 	}
-
-	if got := installReviewWindowSize(1, 8, total); got != installReviewWindowMin {
-		t.Errorf("a body too short for any list gives a window of %d, want the floor of %d", got, installReviewWindowMin)
+	if got := listWindowSize(1, 8, total); got != listWindowMin {
+		t.Errorf("a body too short for any list gives a window of %d, want the floor of %d", got, listWindowMin)
 	}
-	if got := installReviewWindowSize(100, 8, total); got != total {
-		t.Errorf("a tall terminal gives a window of %d, want the catalogue's %d", got, total)
+	if got := listWindowSize(100, 8, total); got != total {
+		t.Errorf("a tall terminal gives a window of %d, want the plan's %d rows", got, total)
 	}
 }
 
@@ -304,17 +314,33 @@ func TestTheWindowIsSizedByTheTerminalAndNotByANumber(t *testing.T) {
 // its terminal draws nothing useful at 0x0, and a guard that renders nothing would
 // pass while the screen was broken.
 func TestTheScreenFollowsTheCursorAndReportsWhatItHides(t *testing.T) {
-	last := len(installUnits) - 1
-	m := Model{Screen: ScreenInstallReview, Width: 80, Height: 24, UnitCursor: last}
+	m := planFixtures()[0].fixtureModel()
+	m.Screen = ScreenInstallReview
+	// Wide enough for the rows whole, and still single-column, so the check is of
+	// the plan's own text rather than a cut of it.
+	m.Width, m.Height = 100, 24
+
+	rows := m.planReviewRows()
+	last := -1
+	for i, row := range rows {
+		if row.Switchable {
+			last = i
+		}
+	}
+	if last < 0 {
+		t.Fatal("the plan holds no switchable row, so this guard tests nothing")
+	}
+	m.UnitCursor = last
 	rendered := m.renderInstallReview()
 
-	if !strings.Contains(rendered, installReviewLabel(installUnits[last].ID)) {
-		t.Errorf("the unit the cursor is on is not drawn")
+	if !strings.Contains(rendered, rows[last].Text) {
+		t.Errorf("the row the cursor is on is not drawn")
 	}
 	if !strings.Contains(rendered, "more above") {
 		t.Errorf("the screen does not say that rows are hidden above the window:\n%s", rendered)
 	}
-	if strings.Contains(rendered, installReviewLabel(installUnits[0].ID)) {
-		t.Errorf("the first unit is still drawn while the cursor is %d rows below it:\n%s", last, rendered)
+	first := firstSwitchablePlanRow(rows)
+	if strings.Contains(rendered, rows[first].Text) {
+		t.Errorf("the first switchable row is still drawn while the cursor is %d rows below it:\n%s", last, rendered)
 	}
 }

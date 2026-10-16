@@ -414,10 +414,10 @@ func requireGoldenCapture(t *testing.T, got []byte) {
 // TestGoldenCaptureNeverRunsAnInstallationStep is the guard for the rule every
 // capture follows: a golden renders a screen, it never installs. goldenTranscript
 // is the one path every teatest snapshot takes and stepExecutor is the seam the
-// TUI's own install loop runs through. The screen used is the neovim question,
-// where Enter is the key that starts the run, so a capture that ever sent more
-// than its quit key would be caught here rather than on a runner with the
-// privilege to write /etc/wsl.conf. The executor is replaced with a spy, so the
+// TUI's own install loop runs through. The screen used is the setup screen, whose
+// action row opens the plan where Enter starts the run, so a capture that ever
+// sent more than its quit key would be caught here rather than on a runner with
+// the privilege to write /etc/wsl.conf. The executor is replaced with a spy, so the
 // guard reads the call and nothing is installed either way.
 func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
 	skipIfTermux(t)
@@ -433,19 +433,27 @@ func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
 	// The teeth: pressing the install key on this same screen reaches the spy, so
 	// the capture below passing means the key was not pressed rather than the spy
 	// being on the wrong seam. Since the review screen interposes, the install key is
-	// two presses: the wizard's last one opens the review, and the review's own Enter
-	// starts the run. Walking both is what keeps the teeth on the real seam.
-	start := installerFrameCase(t, "nvim-select")
+	// two presses: the setup screen's action row opens the review, and the review's
+	// own Enter starts the run. Walking both is what keeps the teeth on the real seam.
+	start := installerFrameCase(t, "setup")
+	// The first planned step must be one that reaches the executor without asking
+	// for the administrator credential first, or this spy sits behind the
+	// credential request and proves nothing. A macOS plan whose developer tools are
+	// not yet installed starts with a step that needs no root.
+	start.SystemInfo = goldenSystemInfo()
+	start.Choices = UserChoices{OS: "mac", Terminal: "none"}
+	start.ExistingConfigs = nil
+	start.SetupCursor = setupRowIndexFor(t, start, "Continue to the plan")
 	reviewed, first := start.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if first != nil {
-		t.Fatal("Enter on the neovim screen returned a command, so it started the run without the review")
+		t.Fatal("Enter on the setup screen's action row returned a command, so it started the run without the review")
 	}
 	review, ok := reviewed.(Model)
 	if !ok {
-		t.Fatalf("Enter on the neovim screen returned %T, want a Model", reviewed)
+		t.Fatalf("Enter on the setup screen's action row returned %T, want a Model", reviewed)
 	}
 	if review.Screen != ScreenInstallReview {
-		t.Fatalf("Enter on the neovim screen landed on %v, want the review screen", review.Screen)
+		t.Fatalf("Enter on the setup screen's action row landed on %v, want the review screen", review.Screen)
 	}
 
 	next, press := review.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -462,11 +470,11 @@ func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
 	}
 	ran = nil
 
-	m := installerFrameCase(t, "nvim-select")
+	m := installerFrameCase(t, "setup")
 	m.Animating = false
 	// The transcript is not compared here: this guard is about what the capture did,
 	// not about the bytes it drew.
-	_ = goldenTranscript(t, m, 80, 24, "Neovim Configuration")
+	_ = goldenTranscript(t, m, 80, 24, "Set Up the Installation")
 
 	if len(ran) != 0 {
 		t.Fatalf("the capture ran installation steps %v: a golden snapshots a screen and must not install", ran)
@@ -705,7 +713,11 @@ func TestNavigationFlowE2E(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }
 
-// TestInstallFlowE2E simulates a complete installation flow selection
+// TestInstallFlowE2E simulates a complete installation flow selection.
+//
+// The wizard opens on the setup screen now (T2), so the flow is: the main menu's
+// Start Installation opens it, and Enter on the Platform row opens that row's
+// detour, which returns to the setup screen with the choice recorded.
 func TestInstallFlowE2E(t *testing.T) {
 	m := NewModel()
 	m.Width = 80
@@ -725,26 +737,18 @@ func TestInstallFlowE2E(t *testing.T) {
 	// Main Menu -> Start Installation (already cursor=0)
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
-	// Should be at OS Select now
+	// The setup screen lists every decision as a row.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return bytes.Contains(bts, []byte("Operating System")) ||
-			bytes.Contains(bts, []byte("macOS")) ||
-			bytes.Contains(bts, []byte("Linux"))
+		return bytes.Contains(bts, []byte("Set Up the Installation")) ||
+			bytes.Contains(bts, []byte("Platform"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
-	// Select macOS (cursor=0)
+	// Enter on the Platform row opens the platform detour.
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-
-	// Should be at Terminal Select now. On WSL and Termux the wizard skips the
-	// terminal and font questions and goes straight to Shell Select, so the shell
-	// screen is a valid next screen too. The assertion used to pass on those hosts
-	// only because the body listed every step name, including "Terminal"; the step
-	// counter now lives in the frame's header, so the check names the screens.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return bytes.Contains(bts, []byte("Terminal")) ||
-			bytes.Contains(bts, []byte("Alacritty")) ||
-			bytes.Contains(bts, []byte("WezTerm")) ||
-			bytes.Contains(bts, []byte("Shell"))
+		return bytes.Contains(bts, []byte("Select Your Operating System")) ||
+			bytes.Contains(bts, []byte("macOS")) ||
+			bytes.Contains(bts, []byte("Linux"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -1536,89 +1540,48 @@ func plainOutput(bts []byte) string {
 	return ansiEscape.ReplaceAllString(string(bts), "")
 }
 
-// TestBackupFlowE2E walks the install wizard far enough to prove the choices it
-// collects lead where the flow says they lead.
+// TestBackupFlowE2E proves the backup decision is a row of the setup screen: it
+// is offered when the machine holds a configuration, it carries the choice, and
+// the action row beside it opens the plan. The confirmation screen the flow used
+// to stop at is no longer on the path (T2), so the decision is taken in place.
 //
-// It pins the host and waits for each screen before sending the next key. Both
-// matter: the wizard skips the terminal and font steps on WSL and Termux, so the
-// sequence used to depend on where the test ran, and a fixed sleep between
-// keypresses raced the renderer, so a loaded runner lost keypresses and the flow
-// ended on the wrong terminal.
+// It pins the state and the host and waits for each screen before sending the
+// next key: a fixed sleep between keypresses raced the renderer, so a loaded
+// runner lost keypresses and the flow ended on the wrong screen.
 func TestBackupFlowE2E(t *testing.T) {
-	t.Run("full flow: wizard -> backup confirm -> install", func(t *testing.T) {
-		m := NewModel()
-		isolateGoldenTest(t, &m)
-		// Pin the host so every run walks the same wizard: Linux, not WSL, so the
-		// terminal and font steps are part of the flow everywhere.
-		m.SystemInfo = goldenSystemInfo()
+	t.Run("the backup decision is a row and the plan follows it", func(t *testing.T) {
+		// The setup screen with a configuration on the machine and the backup
+		// chosen: entering through the main menu re-detects the machine, and the
+		// isolated HOME has no configuration to detect, so the state is given to the
+		// screen directly.
+		m := installerFrameCase(t, "setup")
 		m.Width = 80
 		m.Height = 24
-		// Simulate having existing configs
-		m.ExistingConfigs = []string{"nvim: ~/.config/nvim"}
+		rows := m.setupRows()
 
 		tm := teatest.NewTestModel(t, m,
 			teatest.WithInitialTermSize(80, 24),
 		)
 
-		// Send a key and wait for the screen it should produce, rather than sleeping
-		// a fixed amount and hoping the model caught up.
 		send := func(key tea.KeyMsg, marker string) {
 			t.Helper()
 			tm.Send(key)
 			teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-				return bytes.Contains(bts, []byte(marker))
+				return strings.Contains(plainOutput(bts), marker)
 			}, teatest.WithCheckInterval(20*time.Millisecond), teatest.WithDuration(5*time.Second))
 		}
 
-		// Welcome -> Main Menu -> the wizard's first step -> the terminal step.
-		send(tea.KeyMsg{Type: tea.KeyEnter}, "Start Installation")
-		send(tea.KeyMsg{Type: tea.KeyEnter}, "Select Your Operating System")
-		send(tea.KeyMsg{Type: tea.KeyEnter}, "Choose Terminal Emulator")
-
-		// Choose "None" so the font step is skipped. The list carries a separator and
-		// a learn-more entry after the choices, so the index is read from a model
-		// driven through the same two steps rather than counted by hand or taken from
-		// a list built for a different host: counting assumed "None" was the last
-		// entry, which stopped being true when the list grew, and a probe that pinned
-		// the OS by hand listed a terminal the pinned host does not offer, so the
-		// marker landed one row past None.
-		probe := installerFrameModel(t, ScreenMainMenu)
-		step, _ := probe.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		step, _ = step.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
-		probe = step.(Model)
-		if probe.Screen != ScreenTerminalSelect {
-			t.Fatalf("driving the wizard from the main menu landed on screen %v, want the terminal step", probe.Screen)
-		}
-		noneIndex := -1
-		for i, opt := range probe.GetCurrentOptions() {
-			if opt == "None" {
-				noneIndex = i
-				break
-			}
-		}
-		if noneIndex < 0 {
-			t.Fatalf("the terminal step has no None option: %v", probe.GetCurrentOptions())
-		}
-		for i := 0; i < noneIndex; i++ {
-			tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-		}
-		// Confirm the marker reached None before committing to it, so a lost key is
-		// reported here instead of as a puzzling failure three screens later. The
-		// marker and the label are styled apart, so the escape sequences between them
-		// are stripped before the search; the assertion still means the marker is on
-		// None, not merely that None is on screen.
+		// The row is offered because the machine holds a configuration, and it
+		// carries the decision.
 		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-			return strings.Contains(plainOutput(bts), "▸ None")
+			return strings.Contains(plainOutput(bts), "Existing configurations")
 		}, teatest.WithCheckInterval(20*time.Millisecond), teatest.WithDuration(5*time.Second))
 
-		tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-
-		// Should now be at Shell Select (font is skipped because terminal=none).
-		teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-			return bytes.Contains(bts, []byte("Shell")) ||
-				bytes.Contains(bts, []byte("Fish")) ||
-				bytes.Contains(bts, []byte("Zsh"))
-		}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(5*time.Second))
+		// Walk to the action row, past the backup decision, and open the plan.
+		for i := 0; i < len(rows)-1; i++ {
+			tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+		}
+		send(tea.KeyMsg{Type: tea.KeyEnter}, "Choose What Gets Installed")
 
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
@@ -1762,6 +1725,17 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return base(ScreenWMSelect)
 	case "nvim-select":
 		return base(ScreenNvimSelect)
+	case "setup":
+		// The decisions at once, every row carrying the value the choices hold,
+		// and with a configuration on the machine so the backup row is offered
+		// too: this is the state the screen exists for.
+		m := base(ScreenSetup)
+		m.Choices = UserChoices{
+			OS: "linux", Terminal: "ghostty", InstallFont: true, Shell: "fish",
+			WindowMgr: "tmux", InstallNvim: true, CreateBackup: true,
+		}
+		m.ExistingConfigs = []string{"nvim: ~/.config/nvim", "fish: ~/.config/fish"}
+		return m
 	case "ghostty-warning":
 		return base(ScreenGhosttyWarning)
 	case "install-review":
@@ -1945,7 +1919,7 @@ var installerFrameScreenNames = []string{
 	"main-menu", "main-menu-restore",
 	"os-select", "terminal-select", "terminal-select-wsl", "font-select",
 	"shell-select", "wm-select", "nvim-select", "ghostty-warning",
-	"install-review",
+	"install-review", "setup",
 	"learn-terminals", "learn-terminals-info",
 	"learn-shells", "learn-shells-info",
 	"learn-wm", "learn-wm-info",

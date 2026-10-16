@@ -221,6 +221,7 @@ func TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow(t *t
 		{ScreenShellSelect, true},
 		{ScreenWMSelect, true},
 		{ScreenNvimSelect, true},
+		{ScreenSetup, true},
 		{ScreenGhosttyWarning, true},
 		{ScreenLearnTerminals, true},
 		{ScreenKeymaps, true},
