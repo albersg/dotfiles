@@ -651,6 +651,15 @@ type Model struct {
 	// resolved once, here; the measurement runs only when the row is pressed,
 	// because starting the user's shell five times is not a render.
 	ShellAudit shellAuditState
+	// ShellAuditSession is the measurement in flight, and nil when nothing is
+	// running. It is held so the screen can stop the starts the user asked it to
+	// stop: without it, a cancel would only stop watching a measurement that goes
+	// on running the user's shell.
+	ShellAuditSession *shellAuditSession
+	// shellAuditTestProbe is how a guard drives the screen's own start and cancel
+	// path without starting the runner's real shell. It is nil everywhere but in a
+	// test, and the default probe is the only one a real run can reach.
+	shellAuditTestProbe func() shellAuditProbe
 	// InstallVerify is what the last-install utility draws: the record of the last
 	// completed run checked against this machine. The check is a command, armed
 	// only when the screen is opened -- never at startup -- because it states the
@@ -1113,9 +1122,11 @@ func (m Model) GetCurrentOptions() []string {
 		if m.wslAdvisorOffered() {
 			utilities = append(utilities, utilitiesWSLAdvisorRow)
 		}
-		// The shell's startup is offered wherever the login shell and a terminal
-		// were both resolved. It is the utility that changes nothing, so it is
-		// offered rather than gated: reading a number is always safe.
+		// The shell's startup is offered wherever the login shell resolved. It is the
+		// utility that changes nothing, so it is offered rather than gated: reading a
+		// number is always safe. A run with no terminal attached is measured too and
+		// says so on its own screen, because a pipe, a container or a CI run is
+		// exactly where a slow startup is worth knowing about.
 		if m.ShellAudit.Available {
 			utilities = append(utilities, utilitiesShellAuditRow)
 		}
