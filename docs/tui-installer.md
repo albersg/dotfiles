@@ -109,8 +109,9 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the
-  read-only terminal capability report behind the **Report the terminal capabilities** row
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the
+  read-only terminal capability report behind the **Report the terminal capabilities** row, and the
+  SSH configuration behind the **Manage the SSH configuration** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -714,6 +715,91 @@ produces an honest empty reply within the timeout rather than a frozen interface
 controlling terminal (a container, a service, a run with no TTY) gets the empty reply too and the
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
+
+### The SSH configuration
+
+The fifth utility is **the SSH configuration**, behind the **Manage the SSH configuration** row, and
+it is the one utility that **writes** — inside a block it owns, after a backup and a validation, and
+never anywhere else. It exists because the client's real answer is spread over the user's file,
+everything it `Include`s, the system-wide file and the command line, and the parts a developer most
+needs (which key a host really uses, why a host is unreachable, whether the agent is running at all)
+are exactly the parts no single file states.
+
+**The hosts list is the client's answer, not this tool's.** For each alias the screen asks
+`ssh -G -- <alias>` and reports the effective `HostName`, `User`, `Port`, `ProxyJump` and **every**
+`IdentityFile` in the order the client accumulates them, with the file and line of each value this
+tool's own reading can corroborate. Where the two readings disagree, no source is claimed rather
+than one being invented: the client does not report provenance, so a source appears only where the
+declaration matches the answer. A `Match` criterion this tool deliberately does not evaluate — an
+`exec`, a `canonical`, a `final`, a `localnetwork`, a `tagged` — is **named on the screen** and the
+entries it governs are shown as declared, because guessing which block won would produce a
+confident wrong answer. When the client cannot be asked at all, the values come from this tool's own
+reading and the screen **says so**, in the same paragraph as the values.
+
+**An entry that cannot be rewritten safely is shown read-only, with the reason, and has no edit
+row.** That covers a `Host` line with a wildcard, a negation or more than one pattern; a line with
+an `Include` under it; a `Match` line after it; a value carrying an unquoted comment or a directive
+with no value at all; and a file this tool may not write. The reason is a sentence on the screen —
+*"the Host pattern contains a wildcard, so it matches more than this one entry, so this tool will
+not rewrite it"* — not a disabled row with no explanation.
+
+**Writes live in one block, and everything outside it keeps its bytes.** The tool marks the region
+it owns with two comments, `# >>> dotfiles ssh-manager >>>` and `# <<< dotfiles ssh-manager <<<`,
+and appends that block when the file has none. A create inserts the new entry before the closing
+marker; an edit rewrites **only the lines whose value changes**, leaving the entry's other
+directives, their order and their spacing exactly as they were; a delete takes the entry and its own
+blank line and nothing else. Comments, unknown options, `Include`s, `Match` blocks and the file's
+final newline are preserved byte for byte, because a write that reformats a file the user maintains
+by hand is worse than no write at all.
+
+**Every write is previewed, backed up, validated by the client, and atomic.** The confirmation shows
+the summary, the file, the backup path and the change as `+`/`-` lines, so the plan and the write
+cannot describe different changes. On confirmation the tool checks that the file still holds the
+bytes the plan was built from — if anything changed since the preview it **refuses and writes
+nothing** — copies the file to `<file>.bak-dotfiles-<stamp>` (never overwriting an existing backup),
+writes the new content to a temporary file in the same directory, has **the client's own parser**
+validate it with `ssh -G -F <tempfile>`, and only then renames it into place. A configuration the
+client refuses is never installed: the temporary file is discarded and the old file is untouched. A
+mode others can write is tightened to `0600` while it is written; read bits are left as they are.
+
+**A private key is never opened.** The key inventory describes a pair from its **public half** —
+type, bits, fingerprint, comment — and the private side is only `stat`ed, for its mode. A key with no
+public half is described by `ssh-keygen -l` and `-y`, which is the tool that owns the format. A key
+whose facts cannot be learned without a passphrase is reported with what is known and a warning;
+"not encrypted" is claimed **only** after `ssh-keygen -y` accepted the key with nothing on the pipe.
+A `0644` private key is reported as too open with the `chmod` that fixes it. Generation asks
+`ssh-keygen` for `ed25519` (100 KDF rounds) by default, `rsa 4096` or `ecdsa 521` on request, and
+passes the passphrase on the child's **standard input with the graphical prompter disabled** — never
+in the argument list, never in the environment, never in a log — then proves the passphrase by
+reopening the key with it and sets `0600`/`0644` explicitly, because `ssh-keygen` honours the umask.
+`known_hosts` is listed by parsing, never by reversing a hash, and `known_hosts.old` is never read:
+it is a previous revision, so trusting it would claim a trust the client is not using.
+
+**The agent screen says which agent it is talking to.** The socket path and the platform identify the
+agent, and the screen states what that agent does differently: `gpg-agent` ignores `ssh-add -t` and
+serves what its own configuration decides, 1Password and KeePassXC serve the keys they own and may
+refuse an add or a removal, an unknown agent gets a sentence saying exactly that. An agent that
+answers `ssh-add -l` with exit 1 is reported as **running and empty**, not as broken. Removal takes
+the public key file, never a fingerprint, because translating one would mean deciding which file the
+agent meant.
+
+**A connection is tested only when the row that tests it is pressed.** The screen says so before the
+press, and the test then runs the client with every option that keeps it from doing anything else:
+
+| Option | What it prevents |
+|--------|------------------|
+| `BatchMode=yes`, `NumberOfPasswordPrompts=0`, `PasswordAuthentication=no`, `KbdInteractiveAuthentication=no` | any authentication prompt, which a non-interactive test could only hang on |
+| `StrictHostKeyChecking=yes`, `UpdateHostKeys=no` | accepting a new host key or writing anything to `known_hosts` |
+| `ControlMaster=no`, `ControlPath=none` | an existing multiplexed session answering for the test and producing a false "ok" |
+| `ClearAllForwardings=yes`, `-n`, `-T` | carrying the user's forwards, reading input, or allocating a terminal |
+
+The host key of a host that is not in `known_hosts` is reported as **unknown with the fingerprint
+question**; a host key that **changed** is reported as what it looks like — a man-in-the-middle
+attempt — and the test does not accept, replace or remove any key. The result names the client's own
+exit status, its first words and the exact command that ran, bounded so a host cannot paste a wall
+of text into the frame. On WSL the Windows-side configuration under `/mnt/c` belongs to another
+system: the diagnosis names it as a separate file to reconcile by hand and **never opens, lists or
+writes it**.
 
 ### Installation Flow
 
