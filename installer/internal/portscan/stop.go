@@ -301,45 +301,68 @@ func portsSentence(held []Listener, blind []string) string {
 	}
 }
 
-// blindTo names the transports a fresh reading could not answer for, out of
-// those the screen showed. It is what keeps the verification from describing a
-// reading that never happened as a clean bill of health.
+// blindTo names the protocols a fresh reading could not answer for, out of those
+// the screen showed. It is what keeps the verification from describing a reading
+// that never happened as a clean bill of health.
 func blindTo(fresh Snapshot, shown []Listener) []string {
 	var blind []string
-	seen := make(map[string]bool, 2)
+	seen := make(map[Protocol]bool, 2)
 	for _, l := range shown {
-		transport := l.Protocol.Transport()
-		if seen[transport] {
+		if seen[l.Protocol] {
 			continue
 		}
-		seen[transport] = true
-		if !answeredFor(fresh, transport) {
-			blind = append(blind, transport)
+		seen[l.Protocol] = true
+		if !answeredFor(fresh, l.Protocol) {
+			blind = append(blind, string(l.Protocol))
 		}
 	}
 	return blind
 }
 
 // answeredFor reports whether at least one reader that completed without an
-// error can speak for the ports of one transport. A reader names itself after
-// what it read -- /proc/net/tcp, /proc/net/udp, lsof TCP, lsof UDP, ss, netstat
-// -- so a reader whose own name names the other transport cannot stand in for
-// this one, while a reader that names no transport read the whole table.
-func answeredFor(fresh Snapshot, transport string) bool {
-	other := "udp"
-	if transport == "UDP" {
-		other = "tcp"
-	}
+// error can speak for one protocol.
+func answeredFor(fresh Snapshot, protocol Protocol) bool {
 	for _, src := range fresh.Sources {
 		if src.Err != "" {
 			continue
 		}
-		if strings.Contains(strings.ToLower(src.Name), other) {
-			continue
+		if readerCovers(src.Name, protocol) {
+			return true
 		}
-		return true
 	}
 	return false
+}
+
+// readerCovers reports whether a reader's own name says it read the table a
+// protocol lives in. The names are the readers' own and they differ in how much
+// one call covers: the /proc/net files are one table each, so tcp is IPv4 and
+// tcp6 is IPv6 and a reading that lost tcp6 cannot answer for an IPv6 row while
+// its IPv4 sibling answered; lsof, netstat and ss are asked per transport and
+// answer for both families in one call, so a name that carries only a transport
+// covers the whole transport; and a reader that carries no transport at all read
+// the whole socket table.
+func readerCovers(name string, protocol Protocol) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	transport := strings.ToLower(protocol.Transport())
+	other := "udp"
+	if transport == "udp" {
+		other = "tcp"
+	}
+
+	// A reader named after the other transport read the other transport.
+	if strings.Contains(lower, other) {
+		return false
+	}
+
+	if strings.Contains(lower, "/net/") {
+		if strings.HasSuffix(lower, transport+"6") {
+			return protocol.Family() == "IPv6"
+		}
+		if strings.HasSuffix(lower, transport) {
+			return protocol.Family() == "IPv4"
+		}
+	}
+	return true
 }
 
 // waitForExit reports whether the process is still running, asking the kernel

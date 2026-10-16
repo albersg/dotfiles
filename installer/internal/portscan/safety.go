@@ -21,9 +21,11 @@ const redacted = "****"
 var secretNames = map[string]bool{
 	"password":      true,
 	"passwd":        true,
+	"pass":          true,
 	"passphrase":    true,
 	"pwd":           true,
 	"pw":            true,
+	"sessionid":     true,
 	"token":         true,
 	"secret":        true,
 	"apikey":        true,
@@ -43,8 +45,11 @@ var secretNames = map[string]bool{
 // diagnostic:
 //
 //   - a flag whose own name is a secret (--password, --api-key,
-//     POSTGRES_PASSWORD) masks its separate value, its =value and its joined
-//     -pvalue form;
+//     POSTGRES_PASSWORD, --pass) masks its separate value and its =value, and a
+//     short password flag (-p) masks the value apart from it;
+//   - a short flag that carries its secret joined to it (-ps3cret, how mysql(1)
+//     takes a password) is masked when the value carries a character a flag
+//     name would not, because -print and -path begin with the same letter;
 //   - a name:value or name=value pair inside a larger argument is masked
 //     wherever it appears, which is what catches a JSON body on a command
 //     line;
@@ -53,30 +58,25 @@ var secretNames = map[string]bool{
 //   - Bearer and Basic credentials are masked whole.
 //
 // What is left alone is what carries no credential: a bare account name, a
-// host:port pair, a path. Over-masking costs a diagnostic the fidelity it is
-// read for, so the rules stop at the values that are credentials by their own
-// shape or by their flag's name.
+// host:port pair, a port mapping, a path, a flag that merely begins with a
+// secret letter. Over-masking costs a diagnostic the fidelity it is read for,
+// so the rules stop at the values that are credentials by their own shape or by
+// their flag's name.
 func RedactArgs(args []string) []string {
 	if len(args) == 0 {
 		return nil
 	}
 
 	out := make([]string, len(args))
-	maskNext, maskPairNext := false, false
+	maskNext := false
 	for i, arg := range args {
-		switch {
-		case maskNext:
+		if maskNext {
+			// A flag whose own name is a secret was given this argument as its
+			// value, so it is masked whatever it looks like: a password that
+			// begins with a dash is still a password.
 			out[i] = redacted
-			maskNext, maskPairNext = false, false
+			maskNext = false
 			continue
-		case maskPairNext:
-			maskPairNext = false
-			if looksLikeCredentialPair(arg) {
-				out[i] = redacted
-				continue
-			}
-			// A bare account name is not a secret on its own. The value still
-			// gets the embedded scan below, in case it carries one anyway.
 		}
 
 		switch {
@@ -86,11 +86,15 @@ func RedactArgs(args []string) []string {
 		case isSecretFlag(arg):
 			out[i] = arg
 			maskNext = i+1 < len(args)
+		case isShortSecretFlag(arg):
+			// -p is a password where its value is joined to it (mysql -ps3cret)
+			// and a port where it is not (ssh -p 2222), so the value decides: a
+			// value that reads as a port or an address is left alone.
+			out[i] = arg
+			maskNext = i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && !looksLikePortOrAddress(args[i+1])
 		case isCredentialFlag(arg):
 			out[i] = arg
-			maskPairNext = i+1 < len(args)
-		case isAttachedShortSecret(arg):
-			out[i] = arg[:2] + redacted
+			maskNext = i+1 < len(args) && looksLikeCredentialPair(args[i+1])
 		case isCredentialAssignment(arg):
 			key, value, _ := strings.Cut(arg, "=")
 			if looksLikeCredentialPair(value) {
@@ -98,6 +102,8 @@ func RedactArgs(args []string) []string {
 			} else {
 				out[i] = key + "=" + value
 			}
+		case isJoinedShortSecret(arg):
+			out[i] = arg[:2] + redacted
 		default:
 			out[i] = redactValue(arg)
 		}
@@ -167,13 +173,65 @@ func isCredentialAssignment(arg string) bool {
 // guess would mask arguments that are not secrets at all.
 const shortSecretLetters = "p"
 
-// isAttachedShortSecret reports whether an argument is a short flag with its
-// value joined to it, where the letter is one of the secret letters.
-func isAttachedShortSecret(arg string) bool {
+// isShortSecretFlag reports whether an argument is a short secret flag standing
+// on its own (-p), whose separate value is the secret: sshpass -p s3cret.
+func isShortSecretFlag(arg string) bool {
+	return len(arg) == 2 && arg[0] == '-' && strings.ContainsRune(shortSecretLetters, rune(arg[1]))
+}
+
+// isJoinedShortSecret reports whether a short flag carries its value joined to
+// it and that value is a secret. Two things keep the rule from eating a flag's
+// own name: a joined value that reads as a port mapping (-p8080:80) is a port,
+// and one that carries nothing a flag name would (-print, -path) is a flag.
+func isJoinedShortSecret(arg string) bool {
 	if len(arg) < 3 || arg[0] != '-' || arg[1] == '-' {
 		return false
 	}
-	return strings.ContainsRune(shortSecretLetters, rune(arg[1]))
+	if !strings.ContainsRune(shortSecretLetters, rune(arg[1])) {
+		return false
+	}
+	tail := arg[2:]
+	return !looksLikePortOrAddress(tail) && carriesNonFlagCharacter(tail)
+}
+
+// looksLikePortOrAddress reports whether a value reads as a port, a port
+// mapping or an address rather than as a credential: 2222, 8080:80,
+// 0.0.0.0:3000, [::1]:3000. It is what keeps ssh -p 2222 and docker -p 8080:80
+// readable in a diagnostic.
+func looksLikePortOrAddress(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+			continue
+		}
+		switch r {
+		case '.', ':', ',', '/', '-', '[', ']', '*':
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// carriesNonFlagCharacter reports whether a value carries a character a flag
+// name would not: a digit, an upper-case letter or one of the punctuation
+// characters a password uses. No rule separates a joined password from a flag
+// name that begins with the same letter on the value alone, so a value with no
+// such character is read as the flag name it most often is.
+func carriesNonFlagCharacter(value string) bool {
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9', r >= 'A' && r <= 'Z':
+			return true
+		}
+		if strings.ContainsRune("!$%&*#@+?=~^", r) {
+			return true
+		}
+	}
+	return false
 }
 
 // looksLikeCredentialPair reports whether a value is the user:password form
@@ -241,8 +299,22 @@ func redactEmbeddedSecrets(arg string) string {
 			valueStart++
 		}
 		end := valueStart
+		escaped := false
 		for end < len(arg) {
 			c := arg[end]
+			if escaped {
+				// The character after a backslash is part of the value, quote or
+				// not: a JSON body escapes its quotes, and stopping at the escaped
+				// one would leave the rest of the secret in the clear.
+				escaped = false
+				end++
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				end++
+				continue
+			}
 			if quote != 0 {
 				if c == quote {
 					break

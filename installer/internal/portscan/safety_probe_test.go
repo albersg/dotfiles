@@ -127,7 +127,7 @@ func TestBlindToNamesTheTransportsTheReadingCouldNotAnswerFor(t *testing.T) {
 				{Name: "/proc/net/tcp", Rows: 2},
 				{Name: "/proc/net/udp", Err: "not readable here"},
 			}},
-			want: []string{"UDP"},
+			want: []string{"udp"},
 		},
 		{
 			name:    "a reader that names no transport answered",
@@ -145,7 +145,7 @@ func TestBlindToNamesTheTransportsTheReadingCouldNotAnswerFor(t *testing.T) {
 				{Name: "lsof TCP", Rows: 1},
 				{Name: "lsof UDP", Err: "timed out"},
 			}},
-			want: []string{"UDP"},
+			want: []string{"udp"},
 		},
 	}
 
@@ -210,5 +210,114 @@ func TestStopRefusalFailsClosedWhenTheScopeIsUnknown(t *testing.T) {
 	}
 	if len(p.signals) != 0 {
 		t.Errorf("a process whose scope is unknown was signalled: %+v", p.signals)
+	}
+}
+
+// TestRedactedArgumentsMaskAPasswordFlag covers the second round of the
+// verification: the word pass is a credential name, and sshpass takes its
+// password as the value apart from -p.
+func TestRedactedArgumentsMaskAPasswordFlag(t *testing.T) {
+	const secret = "s3cret"
+
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{"openssl's password flag", []string{"openssl", "-pass", "pass:" + secret}},
+		{"a long pass flag with its value joined", []string{"app", "--pass=" + secret}},
+		{"a long pass flag with its value apart", []string{"app", "--pass", secret}},
+		{"an environment assignment", []string{"app", "DB_PASS=" + secret}},
+		{"sshpass's password apart from -p", []string{"sshpass", "-p", secret, "ssh", "alice@host"}},
+		{"a password that begins with a dash", []string{"app", "--password", "-" + secret}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := strings.Join(RedactArgs(tc.argv), " "); strings.Contains(got, secret) {
+				t.Errorf("RedactArgs(%q) = %q, and the credential survived", tc.argv, got)
+			}
+		})
+	}
+}
+
+// TestRedactedArgumentsMaskAnEscapedQuoteValue pins the third leak: a JSON body
+// escapes its inner quotes, and a scan that stops at the escaped one leaves the
+// rest of the secret in the clear.
+func TestRedactedArgumentsMaskAnEscapedQuoteValue(t *testing.T) {
+	const secret = "s3cret"
+	argv := []string{"app", `{"password":"a\"` + secret + `"}`}
+
+	if got := strings.Join(RedactArgs(argv), " "); strings.Contains(got, secret) {
+		t.Errorf("RedactArgs(%q) = %q, and the credential survived", argv, got)
+	}
+}
+
+// TestRedactedArgumentsKeepAPortOrAFlagAfterTheShortLetter is the no-over-mask
+// guard for the same rules: -p is a port where the tools take a port, and
+// -print and -path are flag names that merely begin with the secret letter.
+func TestRedactedArgumentsKeepAPortOrAFlagAfterTheShortLetter(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{"ssh's port", []string{"ssh", "-p", "2222", "host"}},
+		{"a published port", []string{"docker", "run", "-p8080:80", "img"}},
+		{"a flag whose name begins with p", []string{"find", ".", "-print"}},
+		{"a path flag", []string{"find", ".", "-path", "*.go"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RedactArgs(tc.argv); strings.Join(got, " ") != strings.Join(tc.argv, " ") {
+				t.Errorf("RedactArgs(%q) = %q, want it unchanged", tc.argv, got)
+			}
+		})
+	}
+}
+
+// TestBlindToTreatsEachSocketFamilyAsItsOwnReader pins the advisory the second
+// verification raised: the /proc/net files are one table each, so a reading that
+// lost tcp6 cannot answer for an IPv6 row on the strength of its IPv4 sibling.
+func TestBlindToTreatsEachSocketFamilyAsItsOwnReader(t *testing.T) {
+	shown := []Listener{{Protocol: ProtocolTCP6, Port: 3000}}
+
+	lostIPv6 := Snapshot{Sources: []Source{
+		{Name: "/proc/net/tcp6", Err: "not readable here"},
+		{Name: "/proc/net/tcp", Rows: 0},
+	}}
+	if got := blindTo(lostIPv6, shown); len(got) == 0 {
+		t.Errorf("blindTo = %v, want tcp6 named because its own reader failed", got)
+	}
+
+	answeredIPv6 := Snapshot{Sources: []Source{
+		{Name: "/proc/net/tcp", Err: "not readable here"},
+		{Name: "/proc/net/tcp6", Rows: 1},
+	}}
+	if got := blindTo(answeredIPv6, shown); len(got) != 0 {
+		t.Errorf("blindTo = %v, want nothing: the tcp6 reader answered", got)
+	}
+
+	wholeTransport := Snapshot{Sources: []Source{{Name: "lsof TCP", Rows: 2}}}
+	if got := blindTo(wholeTransport, shown); len(got) != 0 {
+		t.Errorf("blindTo = %v, want nothing: lsof answers for both families", got)
+	}
+}
+
+// TestDiscoverReportsADeniedFileDescriptorLinkAsAPermissionLimit pins the last
+// advisory: a link read the kernel refuses is the same limit as a directory it
+// refuses, and the row says so instead of blaming an exit.
+func TestDiscoverReportsADeniedFileDescriptorLinkAsAPermissionLimit(t *testing.T) {
+	p := linuxHost(999, 3000, "777")
+	p.linkErr["/proc/999/fd/3"] = permissionDenied("/proc/999/fd/3")
+
+	snap := discoverFixture(p)
+	if len(snap.Listeners) != 1 {
+		t.Fatalf("the fixture produced %d listeners, want 1", len(snap.Listeners))
+	}
+	if owner := snap.Listeners[0].Owner; owner != nil {
+		t.Fatalf("the owner was resolved through a denied link: %+v", owner)
+	}
+	if err := snap.Listeners[0].OwnerErr; !strings.Contains(err, "privilege") {
+		t.Errorf("OwnerErr = %q, want the permission limit named", err)
 	}
 }
