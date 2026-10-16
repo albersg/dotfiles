@@ -386,3 +386,33 @@ session.
     reported, because the copy of a key cannot hold that kind and the record cannot say whether
     the run made it or found it.
   - Full gate after the six: green (system, tui, trainer).
+
+- **L17 (the sixth pass: my own fix, caught turning a false success into a false alarm).** The
+  pass closed points 3, 5 and 6 and five of the six fixes, and reopened the first: closing the
+  writer defect (L16) made the writer mark a key that is a link as written and name the files
+  inside it, and `firstUnaccountedFor` then decided whether that key was a tree with `os.Lstat`,
+  which reports a link to a directory as "not a directory". Every key of that shape was reported
+  as one this command cannot act on -- with the claim that it could not be put back -- even when
+  the revert had put every change back: with `~/.config/nvim -> ~/repo/nvim` and a run that only
+  created a file, `--revert` removed the file and still exited 1.
+  - Fixed: the tree decision is `os.Stat` (it follows), and the walk inside a key follows the
+    key's own link and names every path as a person sees it (`namedPath`), instead of walking an
+    empty tree that starts at a link.
+  - A second advisory of the same family, also mine: a link the run's copy of the key does not
+    hold is one the run may have made, and is reported -- the per-file record never lists a link,
+    so the copy is the only thing that can say one was already there. A dead link the key held
+    before, with a copy holding the same dead target, stays quiet; both directions are pinned in
+    `revert_symlinked_key_test.go`.
+  - A third: `--non-interactive --dry-run` wrote its empty record over the one a real run left, so
+    the next `--revert` reported that the run changed nothing while the machine held every file
+    that run wrote -- this branch's own false success, arriving through the flag that promises to
+    change nothing. A dry run records nothing now, held against a real record byte for byte.
+  - A stale comment in `cmd/dotfiles/main.go` said the verify report never claims contents match
+    because entries carry no digest; that describes the behaviour before T5, where `--verify`
+    compares the digests the record does carry and says so per line. Corrected.
+  - **Known limit, recorded rather than fixed**: the way-back block does not fit the review screen
+    at 80x24 (the failure screen does show it), so at that size the screen where a person can
+    still decide not to start says nothing about the way back. It is not merge-caused -- the same
+    probe fails at `2c50ca1` -- and it is a layout question, not a correctness one. The seventh
+    pass judges whether it must be closed before the handoff.
+  - Full gate after the four fixes: green (system, tui, trainer).
