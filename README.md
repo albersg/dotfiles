@@ -314,10 +314,11 @@ your shell — and the **start is yours to name**: the interactive start a termi
 login start, or a clean start that reads no configuration at all, with `[m]`/`[n]`/`[w]`/`[b]` for
 the start, the number of runs (five by default, at most twenty), a warm-up run to throw away, and a
 clean comparison. The line above the rule draws the exact command a press would run, so the plan and
-the measurement cannot disagree. It reports the **median** with the **range** and every completed
-start, so the number is a measurement and not a single run: the method travels with it and it can be
+the measurement cannot disagree. It reports the **median** with the **mean** and the **range** and
+every completed start, so the number is a measurement and not a single run: the method travels with it and it can be
 reproduced by hand. The **spread**, the **95th percentile** and a **trimmed median** join it only once
-there are enough runs behind them, and the screen names what is missing instead of printing a zero.
+there are enough runs behind them, and the screen names what is missing, with the runs it would need,
+instead of printing a zero.
 Every start is bounded by a **ten-second timeout**, because a startup can hang on a plugin that waits
 for the network and the utility must not hang with it — a start that does not finish is reported as a
 timeout and left out of the median, never written down as `0.0 s` — and **`Esc` stops the runs that

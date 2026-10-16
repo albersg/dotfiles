@@ -13,7 +13,7 @@
                                                                                 
   ▸ Measure the shell's startup                                                 
   ────────────────────────────────────────────────────────────────────────────  
-    Median of 4 of 5 runs: 924 ms                                               
+    Median of 4 of 5 runs: 924 ms (mean 924 ms)                                 
     Range: 872 ms to 977 ms                                                     
     1 of 5 runs did not finish: 1 timed out at 10 s                             
     Heaviest entry: compdump (725 ms self, 1 call(s))                           

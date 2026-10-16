@@ -649,17 +649,18 @@ default, at most three), and whether the run compares the configured start with 
 really run, flags included, so the plan on screen and the measurement cannot promise two different
 things.
 
-**The number is a measurement, not a run.** The screen reports the **median** with the **range**
-beside it, the count it covers, the fastest and slowest start, and every completed start in the order
-it ran. Five runs is the default because it is odd, so the median is a start that really happened
+**The number is a measurement, not a run.** The screen reports the **median** with the **mean** and the
+**range** beside it, the count it covers, the fastest and slowest start, and every completed start in
+the order it ran. Five runs is the default because it is odd, so the median is a start that really happened
 rather than the average of two, and it is enough that one cold start does not decide the answer. The
 number is never a single run and never an average, and the screen says so: the method travels with
 the number, so it can be reproduced by hand. Two more statistics join it **only when the runs behind
 them exist**, and the screen names what is missing rather than printing a zero: the **spread** as a
 share of the median, with the startup called steady, variable or erratic, once there are three runs;
 the **95th percentile** and a **trimmed median** that leaves out the starts outside 1.5 times the
-interquartile range, once there are eight. Unreported is not zero, and the difference is a number the
-user can act on.
+interquartile range, once there are eight. A statistic the count cannot support is named as missing
+with the runs it would need, and never printed as a zero: unreported is not the same number as none,
+and the difference is a number the user can act on.
 
 **Every start is bounded by a ten-second timeout, and a timeout is reported as a timeout.** A startup
 can hang — a plugin that waits on the network, a prompt reading a filesystem that is not answering —
@@ -681,6 +682,7 @@ the instrument that shell has, and its rows are listed heaviest first, in the in
 | Shell | The instrument | What its rows carry |
 |-------|----------------|---------------------|
 | zsh | `zmodload zsh/zprof` loaded before the startup | the function, the total, the time it spent on itself, the call count and zprof's own percentage |
+| -- | the paragraph introducing the table | written for the instrument that ran: it never introduces a trace as a profile, and a share the instrument did not print is not printed by the screen |
 | bash 5.0+ | `PS4` + `EPOCHREALTIME` tracing of the startup | the function or the file each traced command came from, with the time between trace lines, ranked by where the time went |
 | fish 3.6+ | the shell's own `--profile-startup` | the function and its own time; no percentage, because the table's total is the leaf's own time and a share would be invented |
 | anything else | none | only the total is measurable, and the screen says so |

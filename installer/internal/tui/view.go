@@ -2177,11 +2177,21 @@ func shellAuditSummaryRows(st shellAuditState) []string {
 	if st.Median > 0 {
 		// The count is on the row because a median without one is not a
 		// measurement: the reader has to be able to see how many starts it covers
-		// and how many did not finish.
+		// and how many did not finish. The mean rides the same row: it is supported
+		// by the same runs, and a row of its own would cost a line on the terminals
+		// where the rows are the scarce part of the frame.
+		stats := st.Stats
+		if stats.Count == 0 && len(st.Samples) > 0 {
+			stats = shellAuditStatsOf(st.Samples)
+		}
+		mean := ""
+		if stats.Count > 1 {
+			mean = fmt.Sprintf(" (mean %s)", shellAuditDuration(stats.Mean))
+		}
 		if len(st.Samples) == st.Runs {
-			rows = append(rows, fmt.Sprintf("Median of %d runs: %s", st.Runs, shellAuditDuration(st.Median)))
+			rows = append(rows, fmt.Sprintf("Median of %d runs: %s%s", st.Runs, shellAuditDuration(st.Median), mean))
 		} else {
-			rows = append(rows, fmt.Sprintf("Median of %d of %d runs: %s", len(st.Samples), st.Runs, shellAuditDuration(st.Median)))
+			rows = append(rows, fmt.Sprintf("Median of %d of %d runs: %s%s", len(st.Samples), st.Runs, shellAuditDuration(st.Median), mean))
 		}
 		rows = append(rows, fmt.Sprintf("Range: %s to %s", shellAuditDuration(st.Fastest), shellAuditDuration(st.Slowest)))
 	} else {
@@ -2250,6 +2260,14 @@ func (m Model) shellAuditDescription() []string {
 	// The plan and the keys that change it. It is prose rather than rows because of
 	// what a row cannot say: why a warm-up exists, what a clean comparison measures
 	// against, and where a history would be written.
+	// The statistics the finished runs support. Each appears with the count it
+	// needs, and one the count cannot support is named as missing rather than
+	// printed as a zero: "variability 0 ms" from a single run would describe a
+	// perfectly steady shell nobody watched.
+	if st.Measured && st.Stats.Count > 0 {
+		paragraphs = append(paragraphs, shellAuditStatisticsParagraph(st))
+	}
+
 	paragraphs = append(paragraphs, fmt.Sprintf("What the press will measure: the %s start, %d runs, %s, and %s. "+
 		"[m] changes the start, [n] the number of runs, [w] the warm-up, and [b] the clean comparison. That comparison "+
 		"is the one measurement here that separates the shell's own startup from what you put in front of it, and it is "+
@@ -2268,6 +2286,15 @@ func (m Model) shellAuditDescription() []string {
 	}
 
 	if !st.Measured {
+		// A run the utility refused to make is a result about the start, not a
+		// missing measurement: the reason is the answer to the press, and a screen
+		// that said only "nothing has been measured yet" would leave the user
+		// pressing a row that will refuse again without saying why.
+		if st.RunReason != "" {
+			return append(paragraphs, "The last press could not take the measurement: "+st.RunReason+" "+
+				"Choosing the row above tries again; each start ends by itself or at the timeout, so the screen "+
+				"cannot be held open by your shell.")
+		}
 		return append(paragraphs, "Nothing has been measured yet. Choosing the row above starts the runs; each one ends "+
 			"by itself or at the timeout, so the screen cannot be held open by your shell, it stays usable while they "+
 			"run, and [Esc] stops the ones that are left.")
@@ -2376,32 +2403,155 @@ func shellAuditRunList(samples []time.Duration) string {
 	return " The starts, in the order they ran: " + strings.Join(parts, ", ") + "."
 }
 
-// shellAuditAttributionParagraph names the functions zprof blamed, heaviest by
-// their own time first -- the order zprof itself sorted them in -- and says how
-// many it profiled, so the cut is declared rather than silent. The functions come
-// before the explanation of self time: on a short frame the prose is what is cut,
-// and the named functions are the part the reader can act on.
+// shellAuditStatisticsParagraph reports what the finished runs support beyond the
+// median and the range, and names what they do not. The floors are the ones the
+// statistics layer gates on, so the sentence and the number cannot disagree: a
+// spread from three runs, a percentile from eight, and a trimmed median whenever
+// there is an outlier to leave out.
+func shellAuditStatisticsParagraph(st shellAuditState) string {
+	stats := st.Stats
+	if stats.Count == 0 && len(st.Samples) > 0 {
+		stats = shellAuditStatsOf(st.Samples)
+	}
+	if stats.Count == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Across the %d finished %s: mean %s", stats.Count, reviewPlural(stats.Count, "start", "starts"),
+		shellAuditDuration(stats.Mean))
+
+	if word, ratio, ok := stats.steadiness(); ok {
+		fmt.Fprintf(&b, ", spread %s (%.0f%% of the median), which reads as a %s startup",
+			shellAuditDuration(stats.StdDev), ratio*100, word)
+	} else {
+		fmt.Fprintf(&b, ", with no spread to read: a spread needs %s and this measurement has %d",
+			reviewPlural(shellAuditSpreadFloor, "run", "runs"), stats.Count)
+	}
+
+	if stats.P95Reported {
+		fmt.Fprintf(&b, ", 95th percentile %s", shellAuditDuration(stats.P95))
+	} else {
+		// The missing statistic is named without the words it would have been
+		// printed with, so a reader scanning for a percentile does not find one that
+		// was never taken: only what it would take to have one.
+		fmt.Fprintf(&b, ", and no percentile: it is reported from %s and this measurement has %d",
+			reviewPlural(shellAuditPercentileFloor, "run", "runs"), stats.Count)
+	}
+
+	if stats.TrimmedMedianReported {
+		fmt.Fprintf(&b, ", and a trimmed median of %s, with the %d %s beyond %s times the interquartile range left out",
+			shellAuditDuration(stats.TrimmedMedian), len(stats.Outliers),
+			reviewPlural(len(stats.Outliers), "start", "starts"), strconv.FormatFloat(shellAuditOutlierFence, 'g', -1, 64))
+	}
+	b.WriteString(". A number the runs cannot support is named here rather than printed in the rows.")
+
+	return b.String()
+}
+
+// shellAuditAttributionParagraph names what the instrument that actually ran put
+// first, heaviest by its own time, and says how many rows it reported, so the cut
+// is declared rather than silent. The rows come before the explanation of what
+// they mean: on a short frame the prose is what is cut, and the named entries are
+// the part the reader can act on.
+//
+// The paragraph is drawn for every shell, so it belongs to the instrument of the
+// state it describes: zsh's zprof table carries a total, a self time and a share,
+// bash's trace carries one number per identity -- the function a traced command
+// ran inside, or the file it came from -- and fish prints its own table with no
+// denominator a reader could re-derive. A sentence borrowed from another shell's
+// instrument would describe a measurement that did not happen.
 func shellAuditAttributionParagraph(st shellAuditState) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "zsh/zprof profiled one further start and reported %d functions, heaviest by the time "+
-		"each spent on itself, in zprof's own order:", len(st.Attribution))
+	b.WriteString(shellAuditAttributionIntro(st))
 
 	shown := len(st.Attribution)
 	if shown > shellAuditNamedFunctions {
 		shown = shellAuditNamedFunctions
 	}
 	for i, fn := range st.Attribution[:shown] {
-		fmt.Fprintf(&b, " %d. %s -- %s total, %s self, %d call(s), %s of the profiled start.",
-			i+1, fn.Name, shellAuditZprofTime(shellAuditMillis(fn.Total)),
-			shellAuditZprofTime(shellAuditMillis(fn.Self)), fn.Calls, fn.Percent)
+		b.WriteString(shellAuditAttributionRow(st.Kind, i+1, fn))
 	}
 	if len(st.Attribution) > shown {
-		fmt.Fprintf(&b, " %d more were profiled and are not named here.", len(st.Attribution)-shown)
+		fmt.Fprintf(&b, " %d more were %s and are not named here.", len(st.Attribution)-shown,
+			shellAuditAttributionVerb(st.Kind))
 	}
-	b.WriteString(" The self time is the function's own cost: a function whose total is larger than its self " +
-		"time is waiting on the ones it called. The profiled start is a start of its own, so its numbers stand " +
-		"beside the median rather than inside it.")
+	b.WriteString(" " + shellAuditAttributionClosing(st.Kind))
 	return b.String()
+}
+
+// shellAuditAttributionIntro says which instrument took the attribution and how
+// its order was decided, in that instrument's own terms.
+func shellAuditAttributionIntro(st shellAuditState) string {
+	switch st.Kind {
+	case shellAuditKindZsh:
+		return fmt.Sprintf("zsh/zprof profiled one further start and reported %d functions, heaviest by the time "+
+			"each spent on itself, in zprof's own order:", len(st.Attribution))
+	case shellAuditKindBash:
+		return fmt.Sprintf("bash's own trace of one further start reported %d entries -- the function a traced "+
+			"command ran inside, or the file it came from -- ranked by the time between their trace lines:",
+			len(st.Attribution))
+	case shellAuditKindFish:
+		return fmt.Sprintf("fish's own --profile-startup profiled one further start and reported %d entries, "+
+			"heaviest by the time each spent on itself:", len(st.Attribution))
+	default:
+		return fmt.Sprintf("one further start was profiled and reported %d entries, heaviest first:",
+			len(st.Attribution))
+	}
+}
+
+// shellAuditAttributionVerb is what the instrument did to the rows it did not
+// report here, so the declared cut is in the paragraph's own words.
+func shellAuditAttributionVerb(kind shellAuditKind) string {
+	switch kind {
+	case shellAuditKindZsh, shellAuditKindFish:
+		return "profiled"
+	case shellAuditKindBash:
+		return "traced"
+	default:
+		return "reported"
+	}
+}
+
+// shellAuditAttributionRow is one named entry as its own instrument reports it:
+// zsh's table prints a total, a self time, a call count and a share, and the
+// other two print a time of their own and a count. A share is only drawn when the
+// instrument printed one.
+func shellAuditAttributionRow(kind shellAuditKind, index int, fn shellAuditFunction) string {
+	if kind == shellAuditKindZsh {
+		row := fmt.Sprintf(" %d. %s -- %s total, %s self, %d call(s)", index, fn.Name,
+			shellAuditZprofTime(shellAuditMillis(fn.Total)), shellAuditZprofTime(shellAuditMillis(fn.Self)), fn.Calls)
+		if fn.Percent != "" {
+			row += fmt.Sprintf(", %s of the profiled start", fn.Percent)
+		}
+		return row + "."
+	}
+
+	row := fmt.Sprintf(" %d. %s -- %s", index, fn.Name, shellAuditDuration(fn.Self))
+	if fn.Total > fn.Self {
+		row += fmt.Sprintf(", %s counting everything it called", shellAuditDuration(fn.Total))
+	}
+	return fmt.Sprintf("%s, %d call(s).", row, fn.Calls)
+}
+
+// shellAuditAttributionClosing says what the numbers mean for this instrument:
+// the self time of a table that prints a total, or the double counting of a
+// trace, which is a ranking rather than a partition.
+func shellAuditAttributionClosing(kind shellAuditKind) string {
+	closing := "The profiled start is a start of its own, so its numbers stand beside the median rather than inside it."
+	switch kind {
+	case shellAuditKindZsh:
+		return "The self time is the function's own cost: a function whose total is larger than its self " +
+			"time is waiting on the ones it called. " + closing
+	case shellAuditKindBash:
+		return "A traced command inside a function is counted under both the function and the file it came " +
+			"from, so these rows are a ranking of where the time went rather than a partition of it. " + closing
+	case shellAuditKindFish:
+		return "No share is printed for this table: every row's own sum already counts the rows under it, " +
+			"so a percentage taken from those sums would count the same time again. " + closing
+	default:
+		return closing
+	}
 }
 
 // shellAuditNotice is the footer's result line: what is running, while something

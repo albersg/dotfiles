@@ -551,6 +551,25 @@ func TestShellAuditProfilerReadsNoMoreThanItMust(t *testing.T) {
 			shellAuditAttributionRows, shellAuditNamedFunctions)
 	}
 
+	// A table larger than the bound is refused rather than parsed, and the refusal
+	// says the size: a guard that only read the constant would pass while the read
+	// path took everything the file held.
+	oversized := zshAuditFixture()
+	oversized.profileData = strings.Repeat("x", shellAuditProfileFileLimit+1)
+
+	st := resolveShellAudit(oversized.probe())
+	st.Plan = shellAuditPlan{Mode: shellAuditModeInteractive, Samples: 2}
+	st = measureShellAudit(st, oversized.probe())
+	if st.Median <= 0 {
+		t.Fatalf("the oversized table took the total with it: %s", st.AttributionReason)
+	}
+	if len(st.Attribution) != 0 {
+		t.Errorf("a table past the %d-byte bound named %d rows", shellAuditProfileFileLimit, len(st.Attribution))
+	}
+	if !strings.Contains(st.AttributionReason, shellAuditSizeLabel(shellAuditProfileFileLimit)) {
+		t.Errorf("the refusal does not name the bound: %q", st.AttributionReason)
+	}
+
 	// A trace line longer than the bound is dropped rather than kept.
 	profile := newShellAuditTraceProfile()
 	profile.line("+1780000000.000000+/home/alberto/.bashrc:1+ " + strings.Repeat("x", shellAuditTraceLineLimit+1))

@@ -87,6 +87,8 @@ Measured capability of the shells on this machine (read-only probes):
 | T7 | S7, S8 | inline | UI: a plan the user cycles, progress with the run it is on, cancel, the history and advice view, frame guards |
 | T8 | S12 | inline | Documentation and the utility's own prose brought in line with the new measurement |
 | T9 | S11, S12 | verifier | `make preflight` once, then an independent read-only verification of the change |
+| T10 | S3, S4, S9, S11 | inline | The verification's findings: per-shell attribution prose, the statistics the plan promised drawn, the profile-table bound enforced, a refusal kept out of the section's availability, a per-write temporary name |
+| T11 | S11, S12 | verifier | Re-run the full package and the focused guards, then re-verify the findings against the fixed tree |
 
 ## Log
 
@@ -300,6 +302,58 @@ here, so the step's real detection answers before the test's fake download path 
 package is green in the same run, including `installer/internal/tui` with those four skipped (the same
 tree as the 257 s focused run above), so the front's own surface has no failing check.
 
+L18. T9's independent verification (read-only, `gentle-ai-verify`, over `c1e4a64..HEAD`) returned a
+verdict per spec and six confirmed findings. It confirmed S1, S2, S5, S6, S8, S10, S12 as covered, S9
+as covered with a caveat, and found S3 and S4 only partially covered, both of them by the same kind of
+fault the front exists to prevent: the screen holding a number or a sentence the measurement did not
+support. Two were blocking. (1) The paragraph introducing the attribution was written for zsh and drawn
+for every shell: a bash trace and a fish profile were introduced as "zsh/zprof ... reported N functions
+... in zprof's own order", and a row without a share printed an empty percentage ("call(s), of the
+profiled start"). (2) The mean, the spread, the 95th percentile and the trimmed median were computed by
+the statistics layer and drawn nowhere: the plan promised numbers the screen never printed, and the docs
+promised them too. Four findings were smaller: the profile-table bound existed as a constant that no
+read path used, so the guard holding it only read the constant back; the history's temporary name was
+unique per process but could collide across two installers, and the last of two overlapping saves wins;
+a run-level refusal was stored in the state's availability field while `Available` stayed true, so the
+section reported "not measurable here" about a row it still offered, and -- found while fixing it -- a
+refused start was folded as a measurement, because the early return only read the event's reason and not
+the run's; and the row label change from "Slowest function" to "Heaviest entry" was noted as intended.
+The verification also named three guards that restate their implementation (the profile bound, the
+worst-case plan arithmetic, the comparison floor's constant identity) and one that compared five fields
+of a stored measurement instead of the whole entry.
+
+L19. T10 fixes all six. The attribution paragraph is now three per-shell paragraphs with one row
+formatter each: zsh's zprof table keeps its total, self time, call count and share (drawn only when the
+table printed one), bash's trace says it is a trace of identities -- the function a traced command ran
+inside, or the file it came from, ranked by the time between their trace lines -- and explains its own
+double counting rather than zsh's self-time fan-out, and fish says the table is fish's own
+`--profile-startup` and why no share is printed for it. The statistics the runs support are drawn: the
+mean rides the median row (a row of its own would cost a line on the terminals where rows are the scarce
+part of the frame), and a paragraph after the method reports the spread with its steady/variable/erratic
+reading, the 95th percentile, and the trimmed median with the outliers it left out -- each named as
+missing, with the count it would need, where the count does not support it, and without the words it
+would have been printed with. The bound is enforced where the table is read (`shellAuditProfileFileLimit`
+in both the zprof and the fish path, with the size named in the refusal), and the guard now measures
+that: a table past the bound names no row and the total still stands. The temporary name carries the
+process id as well as the counter. A refusal is written to the run's reason and never to the section's
+availability, and the screen draws it: the paragraph for an unmeasured state says what the press could
+not do and why, and the early return in `withShellAuditResult` reads both the event's reason and the
+run's, so a start the shell does not offer is no longer folded as a measurement with an empty number in
+it. The history round-trip guard now compares the whole stored entry with `reflect.DeepEqual`, which is
+the rule it was written to hold.
+
+L20. T10's guards: the verification supplied two failing probes, which were taken into the repository as
+`shellaudit_attribution_prose_test.go` (`TestShellAuditProfileParagraphNamesTheInstrumentThatRan` and
+`TestShellAuditScreenPresentsTheStatisticsItMeasured`), observed red before the fix -- the bash and fish
+subtests failed on the zsh wording and the empty share, and the statistics guard failed on all three
+numbers plus the missing-statistic sentence -- and green after it. The file also holds the negative half
+of the statistics rule: three runs may not produce a percentile, and the screen has to say how many
+runs it would need. `TestShellAuditARefusedRunSaysWhyWithoutCondemningTheSection` was written for the
+third finding and is the guard that found the deeper half of it (the refused run folded as a
+measurement); it holds both channels -- the reason reaches the screen, the section keeps offering the
+row, and `Reason` stays empty. The profile bound and the history round-trip guards were strengthened
+rather than added.
+
 ## Remaining
 
-T9's independent verification, and the final report to the user.
+T11: the full package over the fixed tree, then the verification's findings re-checked.

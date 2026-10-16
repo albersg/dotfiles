@@ -159,6 +159,13 @@ func profileShellAuditZprof(run shellAuditRun, probe shellAuditProbe, ctx contex
 			"reported nothing here, and only the total above stands."
 	}
 
+	if len(data) > shellAuditProfileFileLimit {
+		return nil, fmt.Sprintf("the table zsh/zprof wrote is larger than the %s this utility reads, so nothing is "+
+			"named from it: only the total above stands. A table that size is not a startup's cost, and reading "+
+			"it whole would spend the run's memory on a file the instrument did not mean to write.",
+			shellAuditSizeLabel(shellAuditProfileFileLimit))
+	}
+
 	functions, reported := parseZprofProfile(data)
 	if !reported {
 		return nil, "zsh/zprof reported no table at all, so no function can be named: the module could not be loaded " +
@@ -309,6 +316,13 @@ func profileShellAuditFish(run shellAuditRun, probe shellAuditProbe, ctx context
 	if err != nil {
 		return nil, "the profiled start wrote no table (" + err.Error() + "), so nothing can be named: fish reported " +
 			"nothing here, and only the total above stands."
+	}
+
+	if len(data) > shellAuditProfileFileLimit {
+		return nil, fmt.Sprintf("the table fish wrote is larger than the %s this utility reads, so nothing is named "+
+			"from it: only the total above stands. A table that size is not a startup's cost, and reading it whole "+
+			"would spend the run's memory on a file the shell did not mean to write.",
+			shellAuditSizeLabel(shellAuditProfileFileLimit))
 	}
 
 	rows, reported := parseFishProfile(data)
@@ -470,6 +484,14 @@ const fishProfileHeaderPrefix = "Time (μs)"
 // is named `set`; a command whose arguments carry a token, a password or a URL
 // is named by its command word alone. The cost is right and the secret is not
 // there.
+// shellAuditSizeLabel writes a byte count the way the screen says it out loud.
+func shellAuditSizeLabel(size int) string {
+	if size >= 1024*1024 {
+		return fmt.Sprintf("%d MB", size/(1024*1024))
+	}
+	return fmt.Sprintf("%d KB", size/1024)
+}
+
 func shellAuditRedactCommand(command string) (string, shellAuditAttributionKind) {
 	fields := strings.Fields(command)
 	if len(fields) == 0 {

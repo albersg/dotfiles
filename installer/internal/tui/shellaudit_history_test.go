@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -705,16 +706,14 @@ func TestShellAuditHistoryRoundTripsThroughItsFile(t *testing.T) {
 	if len(back.Entries) != len(history.Entries) {
 		t.Fatalf("the round trip kept %d of %d measurements", len(back.Entries), len(history.Entries))
 	}
+	// The comparison is the whole entry: a field the file stopped carrying -- the
+	// fastest run, the version, the counts, the comparison -- would be a stored
+	// measurement read back as something narrower than it was, and a guard that
+	// named five fields would keep passing after the sixth was lost.
 	for i := range back.Entries {
 		got, want := back.Entries[i], history.Entries[i]
-		if got.At != want.At || got.Median != want.Median || got.Shell != want.Shell || got.Mode != want.Mode {
+		if !reflect.DeepEqual(got, want) {
 			t.Errorf("measurement %d came back as %+v, want %+v", i, got, want)
-		}
-		if got.Profile != want.Profile {
-			t.Errorf("measurement %d lost the reason: %q", i, got.Profile)
-		}
-		if len(got.Heaviest) != len(want.Heaviest) {
-			t.Errorf("measurement %d kept %d profile rows of %d", i, len(got.Heaviest), len(want.Heaviest))
 		}
 	}
 

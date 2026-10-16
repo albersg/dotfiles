@@ -707,14 +707,16 @@ func writeShellAuditHistory(probe shellAuditProbe, path string, history shellAud
 	return nil
 }
 
-// shellAuditHistoryWrites counts the writes this process has started, and it is
-// what makes each temporary name its own. A counter rather than a random name
-// because the file has to be readable in a test without a seam for chance.
+// shellAuditHistoryWrites counts the writes this process has started, and with the
+// process id it is what makes each temporary name its own. A counter rather than a
+// random name because the file has to be readable in a test without a seam for
+// chance, and the process id beside it because two installers can be open at once
+// and both write the same history.
 var shellAuditHistoryWrites atomic.Uint64
 
 // shellAuditHistoryTempPath is the name one write uses until it lands.
 func shellAuditHistoryTempPath(path string) string {
-	return fmt.Sprintf("%s%d%s", path, shellAuditHistoryWrites.Add(1), shellAuditHistoryTempSuffix)
+	return fmt.Sprintf("%s.%d-%d%s", path, os.Getpid(), shellAuditHistoryWrites.Add(1), shellAuditHistoryTempSuffix)
 }
 
 // saveShellAuditHistory stores the measurements this state holds, and does

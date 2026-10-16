@@ -581,3 +581,52 @@ func TestShellAuditNoticeNamesTheStartInFlight(t *testing.T) {
 		t.Errorf("the notice %q does not report the history problem", notice)
 	}
 }
+
+// TestShellAuditARefusedRunSaysWhyWithoutCondemningTheSection pins the two places
+// a refusal may not be written. A start the shell does not have is a result about
+// that start: it belongs in the run's own reason, it has to reach the screen --
+// a user told only "nothing has been measured yet" is being asked to press a row
+// that will refuse again -- and it may not be stored as the section's own
+// availability, which says whether the row is offered at all and would take the
+// row away from a section that can still measure the start it does have.
+func TestShellAuditARefusedRunSaysWhyWithoutCondemningTheSection(t *testing.T) {
+	f := zshAuditFixture()
+	f.env["SHELL"] = "/usr/bin/elvish"
+
+	st := resolveShellAudit(f.probe())
+	if !st.Available {
+		t.Fatalf("the section does not offer the measurement at all: %s", st.Reason)
+	}
+
+	// The login start is one this shell does not have, and the run refuses it.
+	st.Plan = shellAuditPlan{Mode: shellAuditModeLogin, Samples: 2}
+	st = measureShellAudit(st, f.probe())
+
+	if st.Measured {
+		t.Fatal("a refused start was recorded as a measurement")
+	}
+	if st.Reason != "" {
+		t.Errorf("the refusal was written into the section's availability: %q", st.Reason)
+	}
+	if st.RunReason == "" {
+		t.Fatal("the refusal left no reason on the run")
+	}
+
+	m := installerFrameModel(t, ScreenShellAudit)
+	m.ShellAudit = st
+	if reason := m.shellAuditUnavailableReason(); reason != "" {
+		t.Errorf("the section calls itself unmeasurable after a refused start: %q", reason)
+	}
+	offered := false
+	for _, row := range m.GetCurrentOptions() {
+		if row == utilitiesShellAuditRow {
+			offered = true
+		}
+	}
+	if !offered {
+		t.Error("the section stopped offering the measurement after one start was refused")
+	}
+	if text := strings.Join(m.shellAuditDescription(), "\n"); !strings.Contains(text, st.RunReason) {
+		t.Errorf("the screen does not say why the last press could not measure anything:\n%s", text)
+	}
+}

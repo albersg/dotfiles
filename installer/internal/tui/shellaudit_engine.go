@@ -417,12 +417,23 @@ func (st shellAuditState) withShellAuditResult(event shellAuditEvent) shellAudit
 	st.Measuring = false
 	st.Progress = shellAuditProgress{}
 	st.Cancelled = run.Cancelled
-	st.Reason = event.Reason
-	st.RunReason = run.Reason
+	// A run the utility refused to make -- a shell whose starts are unknown, a
+	// clean directory that could not be made -- is a result about the start, so it
+	// belongs in the run's own field. Putting it in Reason, which says whether the
+	// row is offered at all, made a section that still offers the measurement
+	// report "not measurable here" with the announcement inside it.
+	st.RunReason = event.Reason
+	if st.RunReason == "" {
+		st.RunReason = run.Reason
+	}
 
-	if event.Reason != "" {
-		// Nothing was measured: keep whatever the state already had, so a refused
-		// clean start does not erase the measurement that was on screen.
+	// Nothing was measured: the run was refused before it made a start, and the
+	// state keeps whatever it already had, so a refused start does not erase the
+	// measurement that was on screen. Both channels are read here because a start
+	// the shell does not offer arrives as the run's own reason, and folding it as a
+	// measurement would put an empty number on the screen under the label of the
+	// start that was refused.
+	if event.Reason != "" || run.Reason != "" {
 		return st
 	}
 
