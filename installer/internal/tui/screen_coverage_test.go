@@ -11,6 +11,7 @@ import (
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
+	"github.com/albersg/dotfiles/installer/internal/updates"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -76,6 +77,30 @@ func TestEveryScreenIsCoveredByAFrameGuard(t *testing.T) {
 
 	t.Logf("%d screens declared, %d of them measured by a frame guard at %dx%d",
 		len(declared), len(measured), trainerFrameWidth, trainerFrameHeight)
+}
+
+// TestEveryScreenConstantNamesItself is the guard for the diagnostic label: a
+// screen that prints "Unknown" in a failing guard's message sends the next person
+// looking for a name that was never written down. The label is built from a map
+// now, so a constant added without a name fails here by name instead of appearing
+// silently as "Unknown" in somebody else's failure.
+func TestEveryScreenConstantNamesItself(t *testing.T) {
+	declared := screenConstantsInDeclarationOrder(t)
+	if len(declared) == 0 {
+		t.Fatal("model.go declares no Screen constants, so this guard proves nothing")
+	}
+
+	var unnamed []string
+	for value, name := range declared {
+		want := strings.TrimPrefix(name, "Screen")
+		if got := Screen(value).String(); got != want {
+			unnamed = append(unnamed, fmt.Sprintf("%s prints %q", name, got))
+		}
+	}
+	if len(unnamed) > 0 {
+		t.Fatalf("%d of %d screens do not name themselves: %v\nAdd them to screenDisplayNames, next to "+
+			"the constant they name.", len(unnamed), len(declared), unnamed)
+	}
 }
 
 // TestNoInstallerScreenDrawsAnEmojiBox is the class guard for the rule the
@@ -332,7 +357,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 63 // 51 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + the trainer's 6
+const measuredScreens = 64 // 51 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + update-center + the trainer's 6
 
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
@@ -479,6 +504,9 @@ func terminalFitCases() []terminalFitCase {
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
 	cases = append(cases, terminalFitCase{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase})
 	cases = append(cases, terminalFitCase{shellAuditCaseName, shellAuditFrameCase})
+	// The update center is the section's newest destination: the same section's key
+	// opens it, and it is measured with the rest of them.
+	cases = append(cases, terminalFitCase{updateCenterCaseName, updateCenterFrameCase})
 
 	return cases
 }
@@ -648,6 +676,7 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase(t)},
 		{shellAuditCaseName, shellAuditFrameCase(t)},
 		{updateCaseName, updateFrameCase(t)},
+		{updateCenterCaseName, updateCenterFrameCase(t)},
 	}
 }
 
@@ -670,6 +699,61 @@ func updateFrameCase(t *testing.T) Model {
 		Notice:    "Installed over this binary; the binary it replaced is kept at /tmp/dotfiles.previous.",
 	}
 	m.UpdateTarget = updateTarget{Path: "/home/alber/.local/bin/dotfiles", Asset: "dotfiles-linux-amd64"}
+	return m
+}
+
+// updateCenterCaseName is the name the frame guards know the update center by.
+const updateCenterCaseName = "update-center"
+
+// updateCenterFrameCase builds the update center with managers answering and a
+// selection made, so the guards measure the screen carrying its rows -- the
+// entries with their markers, the group rules, the action rows and the way back
+// -- rather than the empty state a first visit draws.
+//
+// The state is built here rather than asked of the machine. A guard that let the
+// engine detect this runner's own package managers would measure whatever happens
+// to be installed on the machine that ran it, and its rows would change with the
+// host instead of describing the screen. Nothing in this case starts a command:
+// the engine is a value with an environment and no adapters, and the screen only
+// reads it for the two facts the confirmation must not guess -- whether an
+// elevation program exists, and what the entries are.
+func updateCenterFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenUpdateCenter)
+	m.UpdateCenter = updateCenterState{
+		Engine:    &updates.Center{Env: updates.Env{GOOS: "linux", SudoAvailable: true}},
+		Resolved:  true,
+		CheckedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC),
+		Channels: []updates.Channel{
+			{Manager: updates.ManagerApt, Label: "apt", Scope: updates.ScopeSystem, Available: true},
+			{Manager: updates.ManagerSnap, Label: "snap", Scope: updates.ScopeSystem, Available: true},
+			{Manager: updates.ManagerRustup, Label: "rustup", Scope: updates.ScopeUser,
+				Status: updates.StatusUnavailable, Reason: "rustup is not on PATH"},
+		},
+		Order: []updates.ManagerID{updates.ManagerApt, updates.ManagerSnap},
+		Results: []updates.Result{
+			{
+				Manager: updates.ManagerApt,
+				Status:  updates.StatusUpdates,
+				Command: "apt-get --simulate -o Debug::NoLocking=1 upgrade",
+				Items: []updates.Item{
+					{Manager: updates.ManagerApt, Scope: updates.ScopeSystem, Name: "libc6",
+						Current: "2.41-1", Available: "2.41-2"},
+					{Manager: updates.ManagerApt, Scope: updates.ScopeSystem, Name: "tar",
+						Current: "1.35-1", Available: "1.35-2", Pinned: true,
+						PinReason: "apt-mark holds tar"},
+				},
+			},
+			{
+				Manager: updates.ManagerSnap,
+				Status:  updates.StatusCurrent,
+				Command: "snap refresh --list",
+			},
+		},
+		Notice: "2 updates are available.",
+	}
+	m.UpdateCenter.Selected.Toggle(m.UpdateCenter.Results[0].Items[0])
 	return m
 }
 

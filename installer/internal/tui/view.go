@@ -487,7 +487,7 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate:
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenUpdateCenter:
 		return true
 	}
 	return false
@@ -554,6 +554,10 @@ func (m Model) headerName() string {
 		return "Utilities"
 	case ScreenShellAudit:
 		// The shell's startup screen is one level in from the same section.
+		return "Utilities"
+	case ScreenUpdateCenter:
+		// The update center is one level in from the same section, so it names the
+		// section rather than a heading of its own.
 		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
@@ -1059,6 +1063,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenUpdateCenter:
+		s.WriteString(m.renderUpdateCenter())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1673,6 +1679,13 @@ func (m Model) utilitiesDescription() []string {
 		paragraphs = append(paragraphs, fmt.Sprintf("%s runs %s several times and reports the median with "+
 			"the range; it changes nothing.", utilitiesShellAuditRow, m.ShellAudit.Command))
 	}
+
+	// The update center, one line naming what the row does with what it reads. The
+	// section's body is a summary bounded by the frame: at the floor size the
+	// description runs a line or two past what the frame can show and the frame says
+	// "… and N more" rather than clipping in silence, so the sentence is kept to a
+	// single line and the screen itself is where the whole rule is written out.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s changes only what you select.", utilitiesUpdatesRow))
 
 	// The terminal capability report. It is read-only and offered everywhere;
 	// where there is no terminal to read, the screen itself says so rather than

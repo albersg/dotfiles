@@ -1152,6 +1152,17 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: true,
 	})
 
+	// The section's utilitiesUpdatesRow, the update center. It is offered
+	// everywhere -- every manager it knows may be missing on this host, and the
+	// screen says which ones are and why -- and its value is what the last reading
+	// pass found. Before that pass it says the question has not been asked yet,
+	// which is a different fact from "nothing to update".
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Updates",
+		value:   updateCenterPanelValue(m.UpdateCenter),
+		offered: true,
+	})
+
 	return entries
 }
 

@@ -116,6 +116,13 @@ const (
 	// optional detours reached from the row that decides them (T2 of
 	// odd/tasks/start-installation-flow.md).
 	ScreenSetup // Every decision of the flow, on one screen
+	// The update center. Appended at the end for the same reason as the screens
+	// above. It is reached from the Utilities section, and it is the only screen in
+	// the program that asks the machine's package managers anything: which managers
+	// are really here, what each one reports as out of date, and -- after a
+	// confirmed selection -- what each one did. Nothing on it runs when it is drawn:
+	// opening it reads, and the rows begin the only commands this screen has.
+	ScreenUpdateCenter // What the machine's own managers have to update
 )
 
 // InstallStep represents a single installation step
@@ -488,6 +495,15 @@ type Model struct {
 	// not ask. UpdateTargetErr is why it could not be resolved at all.
 	UpdateTarget    updateTarget
 	UpdateTargetErr string
+	// UpdateCenter is what the update center draws and does: the managers this
+	// machine really has, what each one reports, the selection, the plan the
+	// selection would run, and the results of the plan that ran.
+	//
+	// It is empty until the screen is opened, and that is deliberate: the engine it
+	// carries is built on the first visit, so a run that never opens the update
+	// center never asks a package manager anything, and the startup path stays free
+	// of the machine's own managers.
+	UpdateCenter updateCenterState
 	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
 	// no detection has run. The review names it before anything is written.
 	ThemeRefreshCandidates []themeRefreshCandidate
@@ -898,10 +914,16 @@ func (m Model) GetCurrentOptions() []string {
 		if m.ShellAudit.Available {
 			utilities = append(utilities, utilitiesShellAuditRow)
 		}
+		// The update center is offered everywhere. Every manager it knows may be
+		// missing on this host, and the screen says which ones are and why; a row the
+		// section hid would leave the user with no way to find that out. It reads
+		// nothing until it is opened, so offering it costs a startup path nothing.
+		utilities = append(utilities, utilitiesUpdatesRow)
 		// The terminal capability report is read-only and offered everywhere: there
 		// is always a terminal to describe, and where there is not one the screen's
 		// own body says so rather than the row being silently absent.
 		utilities = append(utilities, utilitiesTerminalRow)
+
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -922,6 +944,12 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"← Back"}
 	case ScreenShellAudit:
 		return m.shellAuditRows()
+	case ScreenUpdateCenter:
+		// The rows are the state: one row per entry the managers reported, grouped by
+		// manager, then the action rows, then the way back. A confirmation and a
+		// running update are states of this same screen, and their rows are the two
+		// answers or the one stop row.
+		return m.updateCenterRows()
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:

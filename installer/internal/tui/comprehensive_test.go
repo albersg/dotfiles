@@ -1606,18 +1606,66 @@ func TestInitReturnsCommands(t *testing.T) {
 // SCREEN STRING REPRESENTATION (for debugging)
 // =============================================================================
 
+// screenDisplayNames names every Screen constant. It is a map rather than the
+// slice this used to be: the slice was indexed by the constant's value, so a
+// screen added in the middle of model.go silently renamed every screen after it,
+// and the constants the slice did not reach printed "Unknown" -- which is how the
+// update center first appeared in a failing guard's message. A name that is
+// missing here is a gap the coverage guard now refuses to let pass.
+var screenDisplayNames = map[Screen]string{
+	ScreenWelcome:              "Welcome",
+	ScreenMainMenu:             "MainMenu",
+	ScreenOSSelect:             "OSSelect",
+	ScreenTerminalSelect:       "TerminalSelect",
+	ScreenFontSelect:           "FontSelect",
+	ScreenShellSelect:          "ShellSelect",
+	ScreenWMSelect:             "WMSelect",
+	ScreenNvimSelect:           "NvimSelect",
+	ScreenInstalling:           "Installing",
+	ScreenComplete:             "Complete",
+	ScreenError:                "Error",
+	ScreenLearnTerminals:       "LearnTerminals",
+	ScreenLearnShells:          "LearnShells",
+	ScreenLearnWM:              "LearnWM",
+	ScreenLearnNvim:            "LearnNvim",
+	ScreenKeymaps:              "Keymaps",
+	ScreenKeymapCategory:       "KeymapCategory",
+	ScreenKeymapsMenu:          "KeymapsMenu",
+	ScreenKeymapsTmux:          "KeymapsTmux",
+	ScreenKeymapsTmuxCat:       "KeymapsTmuxCat",
+	ScreenKeymapsZellij:        "KeymapsZellij",
+	ScreenKeymapsZellijCat:     "KeymapsZellijCat",
+	ScreenKeymapsGhostty:       "KeymapsGhostty",
+	ScreenKeymapsGhosttyCat:    "KeymapsGhosttyCat",
+	ScreenLearnLazyVim:         "LearnLazyVim",
+	ScreenLazyVimTopic:         "LazyVimTopic",
+	ScreenBackupConfirm:        "BackupConfirm",
+	ScreenRestoreBackup:        "RestoreBackup",
+	ScreenRestoreConfirm:       "RestoreConfirm",
+	ScreenGhosttyWarning:       "GhosttyWarning",
+	ScreenTrainerMenu:          "TrainerMenu",
+	ScreenTrainerLesson:        "TrainerLesson",
+	ScreenTrainerPractice:      "TrainerPractice",
+	ScreenTrainerBoss:          "TrainerBoss",
+	ScreenTrainerResult:        "TrainerResult",
+	ScreenTrainerBossResult:    "TrainerBossResult",
+	ScreenKeymapsHerdr:         "KeymapsHerdr",
+	ScreenKeymapsHerdrCat:      "KeymapsHerdrCat",
+	ScreenUtilities:            "Utilities",
+	ScreenThemePicker:          "ThemePicker",
+	ScreenWSLResources:         "WSLResources",
+	ScreenTerminalCapabilities: "TerminalCapabilities",
+	ScreenShellAudit:           "ShellAudit",
+	ScreenUpdate:               "Update",
+	ScreenAdminPassword:        "AdminPassword",
+	ScreenInstallReview:        "InstallReview",
+	ScreenSetup:                "Setup",
+	ScreenUpdateCenter:         "UpdateCenter",
+}
+
 func (s Screen) String() string {
-	names := []string{
-		"Welcome", "MainMenu", "OSSelect", "TerminalSelect",
-		"FontSelect", "ShellSelect", "WMSelect", "NvimSelect",
-		"Installing", "Complete", "Error",
-		"LearnTerminals", "LearnShells", "LearnWM", "LearnNvim",
-		"Keymaps", "KeymapCategory",
-		"LearnLazyVim", "LazyVimTopic",
-		"BackupConfirm", "RestoreBackup", "RestoreConfirm",
-	}
-	if int(s) < len(names) {
-		return names[s]
+	if name, ok := screenDisplayNames[s]; ok {
+		return name
 	}
 	return "Unknown"
 }

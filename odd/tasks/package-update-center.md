@@ -116,3 +116,42 @@ two managers stay two entries.
   it cannot show.
 - **L5 (evidence).** `go build ./...` and `go test ./...` green in `installer/`; the new package's
   tests plus the screen's guards are listed in the commit bodies.
+- **L6 (evidence, T1–T3 + T5a).** The engine landed as `c0ea7ad`
+  ("feat(installer): the machine's own managers answer what has an update") — 17 files, +5087,
+  including this document. `go build ./...` and `go vet ./internal/updates/` clean;
+  `go test ./internal/updates/` green at 72.2% coverage, with the three test files named above.
+  Defects the suite found and the fix they forced: `unsupported()` had to report
+  `Available:false`; apt's parser read the `[amd64]` architecture tag as a version and skipped
+  `Inst` lines that name a package being installed; `rpm -q` had to skip "package X is not
+  installed"; `FirstLine` had to bound runes rather than bytes; plan ordering had to be fixed by
+  kind and scope so a formula precedes a cask and a user plan precedes a system plan.
+- **L7 (evidence, T4).** The screen is `installer/internal/tui/update_center.go`, wired through
+  `model.go` (`ScreenUpdateCenter`, `GetCurrentOptions`, the section's row), `view.go` (render
+  dispatch, screen title, the panel's own body anchor, the section's one-line description),
+  `update.go` (key dispatch, the `handleEscape` route, the four messages, the space-key exemption)
+  and `panels.go` (the `Updates` entry). `TestUtilitiesGolden` was regenerated for the new row (the
+  section's body is bounded by the frame, so the sentence is one line and the frame says
+  `… and 3 more` rather than clipping); the screen joined the twelve-size frame matrix as
+  `updateCenterFrameCase`, and `measuredScreens` moved 63 → 64 with the reason commented beside it.
+- **L8 (evidence, T5b + two real defects).** Seventeen guards in
+  `installer/internal/tui/update_center_test.go`, driving the real dispatch with a fake adapter
+  per manager and a runner that records instead of running — no test in the file can start a
+  package manager. They found two defects that are now fixed with their own regression guards:
+  `Selection.Toggle` took the selection **by value**, so the first press on a screen whose
+  selection was still its zero value created the map on a copy and threw it away (the row looked
+  selected and the count stayed zero); and a line arriving from a command that had already been
+  reported on was appended to the log of whatever ran next, because the handler kept lines before
+  checking that a run was open. The suite also found a wording defect in the screen's own notice
+  ("One one update is available") which is now a single `countedNoun`.
+- **L9 (evidence, a defect the screen exposed).** `Screen.String()` — the diagnostic label used in
+  failing guards' messages — was a slice indexed by the constant's value, so it was both
+  incomplete (the last 26 screens printed `Unknown`, which is how this screen first appeared) and
+  misaligned for every screen after the first two. It is a `map[Screen]string` naming all 48
+  constants now, and `TestEveryScreenConstantNamesItself` fails by name for a constant added
+  without one.
+- **L10 (evidence, T6).** `docs/tui-installer.md` gained **The package update center** — the row,
+  the eight managers with the exact command each is read with and moved with, the identity rule,
+  the four honest answers, the confirmation and elevation rules, the one-manager-at-a-time rule,
+  the three result facts and the re-read, and the argv/redaction rules — plus the Utilities body,
+  the main menu's panel row and the golden list. `README.md` gained the fifth utility, and
+  `CHANGELOG.md` the entry with every guard named.

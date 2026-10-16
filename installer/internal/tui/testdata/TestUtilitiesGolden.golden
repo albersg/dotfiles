@@ -11,12 +11,12 @@
   host.                                                                         
   Measure the shell's startup runs zsh -i -c exit several times and reports     
   the median with the range; it changes nothing.                                
-  Report the terminal capabilities reads the colour depth, OSC 52,              
-  synchronized output and the Nerd Font glyphs, and names the source of every   
-  answer.                                                                       
+  Check the installed tools for updates changes only what you select.           
+  … and 3 more                                                                  
                                                                                 
   ▸ Change the dotfiles theme                                                   
     Measure the shell's startup                                                 
+    Check the installed tools for updates                                       
     Report the terminal capabilities                                            
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
