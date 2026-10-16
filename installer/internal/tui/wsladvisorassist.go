@@ -105,7 +105,7 @@ func (m Model) wslBenchmarkNotice() string {
 	state := m.WSLAdvisor.Benchmark
 	if state.Running {
 		if state.Notice != "" {
-			return "Measuring stored storage… " + state.Notice
+			return "Measuring storage… " + state.Notice
 		}
 		return "Measuring storage…"
 	}
@@ -211,7 +211,8 @@ func wslBenchmarkResultsParagraphs(report system.BenchReport) []string {
 	cleaned := "Every scratch directory this run created was removed."
 	if !report.Cleaned {
 		cleaned = "A scratch directory this run created is still on disk: the run says so rather than " +
-			"reporting a clean disk it cannot prove. Its name begins " + "with " + wslBenchScratchHint() + "."
+			"reporting a clean disk it cannot prove, and its own report names the directory it could not " +
+			"remove."
 	}
 	paragraphs = append(paragraphs, cleaned+" The whole run took "+wslDurationLabel(report.Duration)+".")
 
@@ -223,11 +224,6 @@ func wslBenchmarkResultsParagraphs(report system.BenchReport) []string {
 	}
 	return paragraphs
 }
-
-// wslBenchScratchHint names the prefix every scratch directory carries, so a reader who finds one
-// after a crash knows what made it. It is written from the constant the engine uses, in the only way
-// this package can see it: the pattern is part of what the screen tells the reader.
-func wslBenchScratchHint() string { return ".dotfiles-wsl-bench-" }
 
 // handleWSLBenchmarkKeys drives the measurement screen.
 func (m Model) handleWSLBenchmarkKeys(key string) (tea.Model, tea.Cmd) {
