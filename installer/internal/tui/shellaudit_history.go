@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -496,6 +497,11 @@ func (r shellAuditReport) advice() []shellAuditAdvice {
 
 	if len(run.Attribution) > 0 {
 		heaviest := run.Attribution[0]
+		// The evidence names the same rows the list above names and no more. A screen
+		// that said "1 more were profiled and are not named here" in one paragraph and
+		// then named that row in the next would be reading two claims against each
+		// other, and the reader has no way to tell which one the instrument supports.
+		rest, unnamed := shellAuditNamedRows(run.Attribution[1:])
 		advice = append(advice, shellAuditAdvice{
 			Kind: shellAuditAdviceObserved,
 			Headline: fmt.Sprintf("%s is the heaviest entry in this start: %s.", heaviest.Name,
@@ -503,9 +509,9 @@ func (r shellAuditReport) advice() []shellAuditAdvice {
 			Detail: "This is where the time went, which is not the same as why: the instrument named a function " +
 				"or a command, and what is inside it is what to read next. Nothing was changed for you, and " +
 				"anything you change in your startup files is yours to review.",
-			Evidence: fmt.Sprintf("%s's own profile: %s first, then %s. The names and the times are the "+
+			Evidence: fmt.Sprintf("%s's own profile: %s first, then %s.%s The names and the times are the "+
 				"instrument's own, read from the table it writes itself.",
-				run.Shell, heaviest.Name, shellAuditNamedList(run.Attribution[1:])),
+				run.Shell, heaviest.Name, shellAuditNamedList(rest), shellAuditUnnamedCount(unnamed)),
 		})
 	} else if run.AttributionReason != "" {
 		advice = append(advice, shellAuditAdvice{
@@ -575,6 +581,33 @@ func shellAuditRowCost(row shellAuditFunction) string {
 		cost += fmt.Sprintf(", %s of the table as the instrument measured it", row.Percent)
 	}
 	return cost
+}
+
+// shellAuditNamedRows cuts the instrument's rows to the number the screen names
+// and says how many it left out. The list in the profile paragraph and the
+// evidence under the recommendation are the same cut, so the two cannot disagree
+// about what was named and what the instrument holds unread.
+func shellAuditNamedRows(rows []shellAuditFunction) (named []shellAuditFunction, unnamed int) {
+	named = rows
+	limit := shellAuditNamedFunctions - 1
+	if limit < 0 {
+		limit = 0
+	}
+	if len(named) > limit {
+		unnamed = len(named) - limit
+		named = named[:limit]
+	}
+	return named, unnamed
+}
+
+// shellAuditUnnamedCount says how many rows the cut left out, in the same words
+// the profile paragraph uses, so a reader who counts the names in both places
+// reads one cut and not two.
+func shellAuditUnnamedCount(unnamed int) string {
+	if unnamed <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %d more were profiled and are not named here.", unnamed)
 }
 
 // shellAuditNamedList names the rest of the instrument's rows for an evidence
@@ -648,6 +681,13 @@ func readShellAuditHistory(probe shellAuditProbe, path string) (shellAuditHistor
 // same directory, which is then rolled onto the real one: a process that dies
 // mid-write leaves the history it had rather than half of a new one, and the
 // rename is what the filesystem guarantees to be whole.
+//
+// The temporary name is unique per write. The writes are started from the update
+// loop, and two of them can be in flight at once -- the switch being turned on
+// while a measurement lands, two presses a moment apart -- so a name two writers
+// shared would let them interleave their bytes into the one file that is about to
+// become the history. The rename stays last, so the file that readers see is
+// always one whole history: whichever write lands last.
 func writeShellAuditHistory(probe shellAuditProbe, path string, history shellAuditHistory) error {
 	data, err := json.MarshalIndent(history, "", "  ")
 	if err != nil {
@@ -656,7 +696,7 @@ func writeShellAuditHistory(probe shellAuditProbe, path string, history shellAud
 	if err := probe.mkdirAll(filepath.Dir(path)); err != nil {
 		return err
 	}
-	temp := path + shellAuditHistoryTempSuffix
+	temp := shellAuditHistoryTempPath(path)
 	if err := probe.writeFile(temp, data); err != nil {
 		return err
 	}
@@ -665,6 +705,16 @@ func writeShellAuditHistory(probe shellAuditProbe, path string, history shellAud
 		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	return nil
+}
+
+// shellAuditHistoryWrites counts the writes this process has started, and it is
+// what makes each temporary name its own. A counter rather than a random name
+// because the file has to be readable in a test without a seam for chance.
+var shellAuditHistoryWrites atomic.Uint64
+
+// shellAuditHistoryTempPath is the name one write uses until it lands.
+func shellAuditHistoryTempPath(path string) string {
+	return fmt.Sprintf("%s%d%s", path, shellAuditHistoryWrites.Add(1), shellAuditHistoryTempSuffix)
 }
 
 // saveShellAuditHistory stores the measurements this state holds, and does

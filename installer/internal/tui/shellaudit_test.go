@@ -114,6 +114,19 @@ type fakeShellAuditProbe struct {
 	traceCalls int
 }
 
+// historyWrites is how many writes went to the history file, as opposed to the
+// wrapper files the profiler writes through the same hook.
+func (f *fakeShellAuditProbe) historyWrites() int {
+	path := shellAuditHistoryPath(func(key string) string { return f.env[key] })
+	count := 0
+	for _, written := range f.writes {
+		if strings.HasPrefix(written, path) {
+			count++
+		}
+	}
+	return count
+}
+
 // probe converts the fixture into the injected probe under test.
 func (f *fakeShellAuditProbe) probe() shellAuditProbe {
 	timeout := f.timeout
@@ -185,6 +198,11 @@ func (f *fakeShellAuditProbe) probe() shellAuditProbe {
 			if path == shellAuditHistoryPath(func(key string) string { return f.env[key] }) {
 				if f.readErr != nil {
 					return nil, f.readErr
+				}
+				if f.readData == nil {
+					// A machine that has never kept history is the normal first run,
+					// and it is what a fixture means unless it says otherwise.
+					return nil, os.ErrNotExist
 				}
 				return f.readData, nil
 			}

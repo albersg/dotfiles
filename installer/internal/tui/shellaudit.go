@@ -165,6 +165,11 @@ type shellAuditState struct {
 	// Progress is the start in flight, so the screen can say which one it is
 	// waiting on instead of only that it is waiting.
 	Progress shellAuditProgress
+	// AdviceOpen reports that the user asked to read the recommendations, which
+	// moves them to the top of the screen's text: the frame cuts prose from the
+	// bottom, so a list that stayed in place would be what a short frame took away
+	// first. It is a screen state rather than a measurement fact.
+	AdviceOpen bool
 	// Cancelled reports that the last measurement was stopped by the user rather
 	// than finished. The starts that had finished by then are still reported, and
 	// the summary says how many of the plan they are.
@@ -338,13 +343,14 @@ func shellAuditMergedEnv(base, extra []string) []string {
 }
 
 // resolveShellAudit answers everything about the measurement that does not need
-// the measurement: which shell, whether it exists, and whether this run can start
-// an interactive one at all.
+// the measurement: which shell, whether it exists, and what this run can offer.
 //
 // Every refusal is a reason in the screen's own words. A utility that is missing
-// without saying why is the failure this shape exists to prevent, and the three
-// refusals are different situations: no login shell named, a login shell this
-// machine does not have, and a run with no terminal to reproduce the start on.
+// without saying why is the failure this shape exists to prevent, and the two
+// refusals are different situations: no login shell named, and a login shell this
+// machine does not have. A run with no terminal attached is not one of them --
+// the shell starts the same way under our own stdin, and the screen names the
+// terminal it ran under instead of withholding a number it can take.
 func resolveShellAudit(probe shellAuditProbe) shellAuditState {
 	plan := shellAuditPlanDefault(probe.runs)
 	st := shellAuditState{Resolved: true, Runs: plan.Samples, Timeout: probe.timeout, Plan: plan}

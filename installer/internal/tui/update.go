@@ -169,11 +169,36 @@ type (
 	}
 
 	// shellAuditMeasuredMsg carries a finished measurement back to the screen: the
-	// runs, their median and range, and the functions zprof named or the reason it
-	// named none. The measurement starts the user's shell several times, so it is a
-	// command rather than something a keypress does.
+	// runs, their median and range, and the functions the shell's own instrument
+	// named or the reason it named none. The measurement starts the user's shell
+	// several times, so it is a command rather than something a keypress does.
+	//
+	// It is the whole-state form, kept for the callers that have a finished state
+	// already -- verification, a guard -- while a measurement the screen started
+	// reports itself one event at a time through shellAuditEventMsg.
 	shellAuditMeasuredMsg struct {
 		state shellAuditState
+	}
+
+	// shellAuditEventMsg carries one thing that happened during a measurement: a
+	// start that began or ended, and at the end the result itself. One event per
+	// message is what lets the screen say which start it is waiting on and lets
+	// the user stop the ones that are left, instead of showing a single wait that
+	// cannot be interrupted.
+	shellAuditEventMsg struct {
+		event shellAuditEvent
+	}
+
+	// shellAuditClosedMsg reports that the events ended without a result, which is
+	// the case of a measurement that died with its process. The screen stops
+	// saying it is measuring rather than waiting for an answer that is not coming.
+	shellAuditClosedMsg struct{}
+
+	// shellAuditHistorySavedMsg reports how storing the measurements went. The
+	// measurement itself is not affected by it: what failed is the file, and the
+	// screen says so rather than letting the user believe their runs are kept.
+	shellAuditHistorySavedMsg struct {
+		err error
 	}
 )
 
@@ -433,15 +458,55 @@ func (m Model) appendInstallLog(lines ...string) Model {
 	return m
 }
 
-// shellAuditCmd runs one measurement off the update loop. The resolved state
-// travels with it, so what is measured is the shell the screen named, and the
-// answer is the whole state the screen draws from. It changes nothing on the
-// machine: the runs start the login shell and read back what zprof wrote into a
-// directory of the utility's own.
-func (m Model) shellAuditCmd() tea.Cmd {
-	state := m.ShellAudit
+// shellAuditProbe is the probe the screen measures with. The seam is the model's
+// own field so a guard can drive the screen's start, progress and cancel path
+// without starting the runner's real shell; in a real run the field is nil and the
+// default probe is the only one reachable.
+func (m Model) shellAuditProbe() shellAuditProbe {
+	if m.shellAuditTestProbe != nil {
+		return m.shellAuditTestProbe()
+	}
+	return defaultShellAuditProbe()
+}
+
+// shellAuditCmd starts one measurement off the update loop and answers its first
+// event. The resolved state travels with it, so what is measured is the shell the
+// screen named and the plan the rows show, and it changes nothing on the machine:
+// the runs start the shell the user asked for and read back what the shell's own
+// instrument wrote into a directory of the utility's own.
+//
+// The session it creates is returned as well as the command, because it is what a
+// cancel reaches: a screen that only stopped listening would leave the user's
+// shell being started behind it.
+func (m Model) shellAuditCmd() (*shellAuditSession, tea.Cmd) {
+	session := startShellAuditSession(m.ShellAudit, m.shellAuditProbe())
+	return session, awaitShellAuditEvent(session)
+}
+
+// awaitShellAuditEvent reads one event from a measurement in flight. The reads are
+// re-armed one at a time, so the update loop turns over between the starts and the
+// frame redraws with them: a command that drained the channel would deliver the
+// finished measurement in one step and the progress the user is watching would
+// never be drawn.
+func awaitShellAuditEvent(session *shellAuditSession) tea.Cmd {
 	return func() tea.Msg {
-		return shellAuditMeasuredMsg{state: measureShellAudit(state, defaultShellAuditProbe())}
+		event, ok := <-session.events
+		if !ok {
+			return shellAuditClosedMsg{}
+		}
+		return shellAuditEventMsg{event: event}
+	}
+}
+
+// saveShellAuditHistoryCmd stores the measurements off the update loop, and it is
+// the only thing on this screen that writes to the user's disk. It is a command
+// for the same reason the install record is written from one: a render must not
+// wait on a filesystem, and the answer the user is reading is already drawn.
+func (m Model) saveShellAuditHistoryCmd() tea.Cmd {
+	state := m.ShellAudit
+	probe := m.shellAuditProbe()
+	return func() tea.Msg {
+		return shellAuditHistorySavedMsg{err: saveShellAuditHistory(state, probe)}
 	}
 }
 
@@ -963,6 +1028,46 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShellAudit = msg.state
 		return m, nil
 
+	case shellAuditEventMsg:
+		// A start or the result itself. The result is folded in by the one
+		// projection the engine and the screen share, and it is then stored when
+		// the user asked for that; everything else is progress, and the next read
+		// is armed from the same session so the measurement keeps reporting itself.
+		if msg.event.Done {
+			m.ShellAudit = m.ShellAudit.withShellAuditResult(msg.event)
+			m.ShellAuditSession = nil
+			if m.ShellAudit.History.Enabled {
+				return m, m.saveShellAuditHistoryCmd()
+			}
+			return m, nil
+		}
+		m.ShellAudit.Progress = msg.event.Progress
+		if m.ShellAuditSession == nil {
+			// The session was cancelled and cleared while this event was in flight.
+			// The reader is not re-armed: the channel is buffered for the whole
+			// measurement, so nothing is left waiting on this end of it.
+			return m, nil
+		}
+		return m, awaitShellAuditEvent(m.ShellAuditSession)
+
+	case shellAuditClosedMsg:
+		// The events ended without a result, which is not a measurement the screen
+		// can draw. It stops claiming to be measuring and says which shell it was
+		// waiting on, so the row can be pressed again.
+		m.ShellAudit.Measuring = false
+		m.ShellAudit.Progress = shellAuditProgress{}
+		m.ShellAuditSession = nil
+		return m, nil
+
+	case shellAuditHistorySavedMsg:
+		if msg.err != nil {
+			m.ShellAudit.HistoryError = fmt.Sprintf("the measurements could not be stored (%v), so this run "+
+				"keeps them only until it closes.", msg.err)
+			return m, nil
+		}
+		m.ShellAudit.HistoryError = ""
+		return m, nil
+
 	case dotfilesThemeChangedMsg:
 		// The dotfiles switch is not an install step, so a failure is told on the
 		// picker rather than taking the run to a failed screen. The outcome is
@@ -1281,6 +1386,18 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// The shell startup screen is the one screen where Escape means two things: the
+	// way back when nothing is running, and the stop while the runs are still
+	// coming. The stop has to be taken here, before the global Escape below,
+	// because that dispatch leaves the screen -- and a screen the user has left
+	// would go on starting their shell with nothing on screen saying so.
+	if key == "esc" && m.Screen == ScreenShellAudit && m.ShellAudit.Measuring {
+		if m.ShellAuditSession != nil {
+			m.ShellAuditSession.cancel()
+		}
+		return m, nil
+	}
+
 	// ESC goes back from content/learn screens (and cancels leader mode implicitly)
 	if key == "esc" {
 		return m.handleEscape()
@@ -1541,10 +1658,10 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	case ScreenShellAudit:
-		// The shell startup screen is one level in as well. Leaving it cancels
-		// nothing: a measurement that is still running writes its answer onto the
-		// model regardless, which is what keeps the number from being lost because
-		// the user stepped back while it ran.
+		// The shell startup screen is one level in as well, and with nothing running
+		// this is the way back. Escape while a measurement runs never reaches this
+		// dispatch: it is the stop, taken above, so the starts the user asked for
+		// are the starts that are running.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	case ScreenUpdate:
@@ -2020,14 +2137,14 @@ func (m Model) handleTerminalCapabilitiesKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleShellAuditKeys drives the shell startup screen. It only ever changes the
-// screen, the cursor or the one flag that says a measurement is in flight: the
-// measurement itself is a command, because it starts the user's shell several
-// times and a keypress must not block the update loop.
+// handleShellAuditKeys drives the shell startup screen: the plan the rows above
+// the measure row carry, the measurement itself, the keys that stop it, and the
+// one setting on this screen that writes to the user's disk.
 //
-// The measure row is the only row that does anything. The result rows under it
-// are the data and are inert by design: this screen offers no way to change the
-// shell's configuration, so there is nothing for them to do.
+// The measurement is a command rather than something a keypress does, because it
+// starts the user's shell several times; the session it starts is kept on the
+// model, so the starts the user asks to stop are really stopped rather than
+// watched from a screen they have left.
 func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -2046,30 +2163,82 @@ func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "esc":
-		m.Screen = ScreenUtilities
-		m.Cursor = 0
+	case "m", "n", "w", "b":
+		// The plan. None of it can change while a measurement is running: the run
+		// carries the plan it started with, and a screen that redrew a new one beside
+		// a number measured under the old one would be describing a measurement that
+		// never happened.
+		if m.ShellAudit.Measuring {
+			return m, nil
+		}
+		m = m.cycleShellAuditPlan(key)
+	case "h":
+		// The history switch has a key of its own, because it is the one setting
+		// here that writes a file into the user's home: turning it on and off should
+		// not require finding a row first.
+		return m.toggleShellAuditHistory()
+	case "r":
+		// Opening the recommendations moves them to the top of the text below, where
+		// the frame's own cut cannot reach them first.
+		m.ShellAudit.AdviceOpen = !m.ShellAudit.AdviceOpen
 	case "enter", " ":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
+		row := options[m.Cursor]
 		switch {
-		case options[m.Cursor] == utilitiesShellAuditRow:
+		case row == utilitiesShellAuditRow:
 			// One measurement at a time: a second press while the first is still
-			// running its five starts would start five more beside it and report
+			// running its starts would start more of them beside it and report
 			// whichever finished last.
 			if m.ShellAudit.Measuring || !m.ShellAudit.Available {
 				return m, nil
 			}
 			m.ShellAudit.Measuring = true
-			return m, m.shellAuditCmd()
-		case strings.Contains(options[m.Cursor], "Back"):
+			m.ShellAudit.Cancelled = false
+			m.ShellAudit.Progress = shellAuditProgress{Part: shellAuditPartVersion}
+			session, cmd := m.shellAuditCmd()
+			m.ShellAuditSession = session
+			return m, cmd
+		case strings.Contains(row, "Back"):
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
 		}
 	}
 
 	return m, nil
+}
+
+// cycleShellAuditPlan is the plan key: one setting moves one step, and the others
+// are left where they are. The cycles are the engine's own lists, so a setting the
+// screen offers is a setting the measurement can make.
+func (m Model) cycleShellAuditPlan(key string) Model {
+	switch key {
+	case "m":
+		m.ShellAudit.Plan.Mode = nextShellAuditMode(m.ShellAudit.Plan.Mode, m.ShellAudit.Kind)
+	case "n":
+		m.ShellAudit.Plan.Samples = nextShellAuditSamples(m.ShellAudit.Plan.Samples)
+	case "w":
+		m.ShellAudit.Plan.Warmup = nextShellAuditWarmup(m.ShellAudit.Plan.Warmup)
+	case "b":
+		m.ShellAudit.Plan.Baseline = !m.ShellAudit.Plan.Baseline
+	}
+	return m
+}
+
+// toggleShellAuditHistory turns the local history on and off and stores the
+// choice. The measurements already stored are kept when it is turned off: the
+// switch is about whether this utility keeps measuring, and throwing away what
+// the user did ask for would be a deletion nobody asked for. Turning it on writes
+// the file, so the choice survives the next start.
+func (m Model) toggleShellAuditHistory() (tea.Model, tea.Cmd) {
+	m.ShellAudit.History.Enabled = !m.ShellAudit.History.Enabled
+	if m.ShellAudit.History.Enabled {
+		return m, m.saveShellAuditHistoryCmd()
+	}
+	// Turning it off is also worth writing down: the file keeps the decisions, so
+	// the switch is where the next run reads it from.
+	return m, m.saveShellAuditHistoryCmd()
 }
 
 // handleUpdateKeys drives this installer's own release screen. Like the other

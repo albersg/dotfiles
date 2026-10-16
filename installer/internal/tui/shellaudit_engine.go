@@ -94,6 +94,76 @@ type shellAuditPlan struct {
 	Baseline bool
 }
 
+// shellAuditDisplayCleanDir is what a clean start's own directory is called on
+// screen. The real directory is made when the measurement runs and is gone by the
+// time the number is drawn, so the flags are what the line has to show: printing a
+// temporary path that no longer exists would read as a path the user could go and
+// look at.
+const shellAuditDisplayCleanDir = "<a directory of the utility's own>"
+
+// shellAuditPlanCommand is the line the plan will run, for the screen to print
+// before the measurement is made. It is built by the same function the run uses,
+// so the line the user reads is the line that runs.
+func shellAuditPlanCommand(shell string, kind shellAuditKind, mode shellAuditMode) string {
+	start, reason := shellAuditStartFor(kind, mode, shellAuditDisplayCleanDir)
+	if reason != "" {
+		// A start this family does not offer falls back to the one it does: the
+		// cycle never reaches the others, and naming flags that would never run is
+		// worse than naming the ones that will.
+		start, _ = shellAuditStartFor(kind, shellAuditModeInteractive, "")
+	}
+	return shellAuditCommandLine(shell, start)
+}
+
+// nextShellAuditMode is the start the row moves to: the next one this family
+// offers, so a shell that has no login start cannot be made to ask for one by
+// pressing the row. The cycle never leaves the user without a start, because the
+// interactive one is offered by every family.
+func nextShellAuditMode(mode shellAuditMode, kind shellAuditKind) shellAuditMode {
+	modes := shellAuditModes()
+	for offset := 1; offset <= len(modes); offset++ {
+		candidate := modes[(shellAuditModeIndex(mode)+offset)%len(modes)]
+		if shellAuditModeOffered(kind, candidate) {
+			return candidate
+		}
+	}
+	return mode
+}
+
+// shellAuditModeIndex is where a start sits in the cycle. A start this list does
+// not hold -- which is every combination the list does not name -- starts the
+// cycle from the first entry rather than from nowhere.
+func shellAuditModeIndex(mode shellAuditMode) int {
+	for index, candidate := range shellAuditModes() {
+		if candidate == mode {
+			return index
+		}
+	}
+	return 0
+}
+
+// nextShellAuditSamples is the size the runs row moves to. The row's own list is
+// the sizes the utility prints through the plan, so a size the row offers is a
+// size the measurement can make.
+func nextShellAuditSamples(samples int) int {
+	sizes := shellAuditSampleSizes()
+	for index, size := range sizes {
+		if size.Samples == samples {
+			return sizes[(index+1)%len(sizes)].Samples
+		}
+	}
+	return sizes[0].Samples
+}
+
+// nextShellAuditWarmup cycles the warm-up from none to the bound and back, which
+// is the whole range the plan accepts; the clamp above would refuse anything more.
+func nextShellAuditWarmup(warmup int) int {
+	if warmup < 0 || warmup >= shellAuditMaxWarmup {
+		return 0
+	}
+	return warmup + 1
+}
+
 // shellAuditPlanDefault is the plan a resolved state starts with: the
 // interactive start, the shipped run count, no warm-up, no baseline. It is the
 // measurement the utility made before this front, so nothing a reader of the

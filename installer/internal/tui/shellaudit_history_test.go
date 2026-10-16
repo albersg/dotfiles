@@ -871,3 +871,67 @@ func TestShellAuditHistoryFileIsWrittenForRealWithoutLeavingATempBehind(t *testi
 		t.Errorf("the file holds %+v, want the measurement that was written", back.Entries)
 	}
 }
+
+// TestShellAuditAdviceNamesTheSameRowsTheScreenNames is the guard for the cut the
+// profile paragraph declares. When the instrument reports more functions than the
+// screen names, the list says how many it left out -- and the evidence under the
+// recommendation may not name one of them. Two paragraphs on one screen making
+// opposite claims about the same table is a contradiction the reader cannot
+// resolve, because only one of them can be what the instrument holds.
+func TestShellAuditAdviceNamesTheSameRowsTheScreenNames(t *testing.T) {
+	st := shellAuditTestState()
+	if len(st.Attribution) <= shellAuditNamedFunctions {
+		t.Fatalf("the fixture holds %d functions, and this guard needs more than the %d the screen names",
+			len(st.Attribution), shellAuditNamedFunctions)
+	}
+
+	var observed string
+	for _, item := range shellAuditReportOf(st).advice() {
+		if item.Kind == shellAuditAdviceObserved {
+			observed = item.Evidence
+		}
+	}
+	if observed == "" {
+		t.Fatal("the profile produced no observed advice to read")
+	}
+
+	named := st.Attribution[:shellAuditNamedFunctions]
+	unnamed := st.Attribution[shellAuditNamedFunctions:]
+	for _, row := range named {
+		if !strings.Contains(observed, row.Name) {
+			t.Errorf("the evidence left out %q, which the profile paragraph names: %q", row.Name, observed)
+		}
+	}
+	for _, row := range unnamed {
+		if strings.Contains(observed, row.Name) {
+			t.Errorf("the evidence names %q, which the profile paragraph says is not named here: %q", row.Name, observed)
+		}
+	}
+	if want := fmt.Sprintf("%d more were profiled and are not named here.", len(unnamed)); !strings.Contains(observed, want) {
+		t.Errorf("the evidence does not declare the cut with %q: %q", want, observed)
+	}
+}
+
+// TestShellAuditHistoryWritesUnderANameOfItsOwn pins the write's temporary name.
+// The saves are started from the update loop and two of them can be in flight at
+// once -- the switch being turned on while a measurement lands -- so a name two
+// writers shared would let them interleave their bytes into the file that is
+// about to become the history. The guard also pins that the write never lands on
+// the history's own name: the rename is what makes the file a whole history.
+func TestShellAuditHistoryWritesUnderANameOfItsOwn(t *testing.T) {
+	path := "/state/dotfiles/shell-audit-history.json"
+	first := shellAuditHistoryTempPath(path)
+	second := shellAuditHistoryTempPath(path)
+
+	if first == second {
+		t.Errorf("two writes share the temporary name %q", first)
+	}
+	for _, temp := range []string{first, second} {
+		if temp == path {
+			t.Errorf("the temporary name is the history's own name: %q", temp)
+		}
+		if !strings.HasPrefix(temp, path) || !strings.HasSuffix(temp, shellAuditHistoryTempSuffix) {
+			t.Errorf("the temporary name %q is not a neighbour of %q", temp, path)
+		}
+	}
+}

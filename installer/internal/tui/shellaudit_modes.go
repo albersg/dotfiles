@@ -240,6 +240,19 @@ func shellAuditStartFor(kind shellAuditKind, mode shellAuditMode, cleanDir strin
 	return start, ""
 }
 
+// shellAuditModeOffered reports whether a family has this start at all. It is the
+// decision shellAuditStartFor makes, asked without a prepared directory: a clean
+// start is offered -- the utility's own empty directory is made when the
+// measurement runs, not when the row is drawn -- and an unknown family offers the
+// one start every shell that answers `-c` accepts. The screen cycles with this, so
+// a start that would be refused at the run is not a start the user can choose.
+func shellAuditModeOffered(kind shellAuditKind, mode shellAuditMode) bool {
+	if kind == shellAuditKindUnknown {
+		return mode.Interactive && !mode.Login && !mode.Clean
+	}
+	return true
+}
+
 // shellAuditCommandLine is the line the screen prints and the line that runs. It
 // is built from the same arguments the run gets, so a reader who copies it
 // reproduces the number instead of something near it.

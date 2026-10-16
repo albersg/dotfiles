@@ -975,10 +975,10 @@ func TestShellAuditFrameFitIsMeasuredAtEverySize(t *testing.T) {
 }
 
 // TestShellAuditUnavailableFitsEveryTerminalSize measures the other half at the
-// same twelve terminals: the state a server, a container or a run with no
-// terminal attached sees, where the screen names why nothing can be measured
-// rather than offering a row that would fail. The copy that explains the absence
-// is rows too, and rows can overflow a frame.
+// same twelve terminals: the state a machine with no login shell named sees,
+// where the screen names why nothing can be measured rather than offering a row
+// that would fail. The copy that explains the absence is rows too, and rows can
+// overflow a frame.
 func TestShellAuditUnavailableFitsEveryTerminalSize(t *testing.T) {
 	checked := 0
 	for _, size := range measuredTerminalSizes {

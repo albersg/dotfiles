@@ -214,6 +214,61 @@ one state rather than four. The measurement also records the bound each start wa
 (`shellAuditRun.Timeout`), because a start killed at it has no duration and the number on screen has to
 say which of the two it is.
 
+L12. T7 in place: the screen is driven by the measurement instead of announcing one. The plan is the
+screen's first line as prose with the keys that change it (`[m/n/w/b]`: the start, the runs, the
+warm-up, the clean comparison) rather than as rows, because the frame gives its rows to the numbers and
+the prose to what rows cannot say; `shellAuditPlanCommand` draws the exact command line each mode would
+run, including the flags, so the line on screen and the press cannot promise two different measurements.
+The runs are watched one event at a time (`awaitShellAuditEvent`), which is what lets the line above the
+rule say which start is in flight; the session is held on the model (`ShellAuditSession`) so the key
+that stops it reaches the starts themselves. Escape is the one key this screen takes differently from
+every other: while runs are still coming it is the stop, and that dispatch is taken before the global
+way-back in `handleKeyPress`, because the global one would leave the screen and go on starting the
+user's shell with nothing on screen saying so. With nothing running it is the way back it is everywhere.
+Turning history on is the one write the section can make and it stores the choice as well as the
+measurement; the recommendations open with `[r]` and lead the text, because the frame cuts prose from
+the bottom and a list that stayed where it belongs would be the first thing a short frame took away.
+
+L13. T7's guards are `shellaudit_ui_test.go`. They drive the real update loop over a fake probe: the plan
+keys are checked to change one setting each and to stay inside the starts the shell has; the plan is
+checked to reach the measurement by reading the arguments the probe was really called with; the progress
+is checked to report every start's beginning and end, the version once and the profiled start as its own
+part; the cancel is pressed while a read of the event stream is already in flight, which is the read that
+brings the events the stop produces, and the finished samples are kept while the stop is counted as
+neither a timeout nor a failure; the history key is checked to write nothing with the switch off and to
+write through a temporary neighbour with it on; the recommendations are checked to lead the text and to
+stay inside their bound; and the screen is measured at the fit guard's own twelve terminals with a
+measurement in flight and the recommendations open. Two guards outside this file were stale and are
+updated rather than deleted: the utilities section's availability table still expected no row without a
+terminal (the row is offered, and the terminal is what the number describes), and the unavailable frame
+guard's comment still described the no-terminal state as the unavailable one.
+
+L14. The full-package run after T7 found a third stale guard, `TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution`,
+which the focused filters had never matched (the name does not begin with `TestShellAudit`): it still
+expected the old prose ("The measurement is 5 such starts") and the old row label ("Slowest function"),
+and it asserted that zprof's sixth function is not named anywhere on the screen. Updating the first two
+was mechanical; the third found a real contradiction. The profile paragraph names five functions and
+declares the cut ("1 more were profiled and are not named here"), while the evidence line under the
+Observed recommendation was built from every row the report held, so the same screen named the function
+it had just said it was not naming. The fix is one cut used twice: `shellAuditNamedRows` trims the
+evidence to the number the paragraph names and reports how many it left out, `shellAuditUnnamedCount`
+says so in the paragraph's own words, and the advice now names the same rows the screen does. A second
+guard holds the rule at the advice layer (`TestShellAuditAdviceNamesTheSameRowsTheScreenNames`, six-row
+fixture: the five named rows must all appear in the evidence, the sixth must not, and the cut must be
+declared) because the screen guard can only see the frame, and the frame draws the first three advice
+items. The golden moved with the prose, one line of it: the shorter evidence line frees a line, so the
+frame's own footer counts one more line below the cut.
+
+L16. A real hazard in the history write path was found while reading it for the docs: the temporary
+name was fixed (`<history>.tmp`), and two saves can be in flight at once -- the switch being turned on
+while a measurement lands. Two writers sharing one temporary name can interleave their bytes into the
+file that is about to be renamed onto the history, which is stored data and the one thing this section
+promised not to lose. `shellAuditHistoryTempPath` now adds a per-process counter to the name, so each
+write has a file of its own and the rename stays the only step that touches the history; the guard
+`TestShellAuditHistoryWritesUnderANameOfItsOwn` holds the uniqueness and that no write lands on the
+history's own name. The fixed suffix is still what identifies a temporary neighbour, which is why the
+file's own guards read a prefix and a suffix rather than the whole name.
+
 L11. T6's guards are `shellaudit_history_test.go`. Two things they pinned that are worth naming: the
 stored fields are compared as the exact set of JSON keys, so a field added to the entry is a failing
 guard rather than a number that quietly leaves the machine's memory; and the advice is checked for
