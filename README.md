@@ -343,9 +343,11 @@ looks for the stores this machine's development tools actually keep — a tool i
 program on `PATH`, an environment variable that names a store, or an existing directory says it is
 used here — covering the JavaScript and TypeScript package managers, `pip`, `uv`, Poetry and Conda,
 Cargo and Go, Gradle, Maven and Coursier, the system package managers, the container engines, and
-the project directories you add. The scan is bounded to those known locations and to the project
-directories you name (the installer offers the directory it was started from); it never walks a whole
-disk, and inside WSL it never touches host data.
+the project directories you add. The findings are listed under the tool that owns them, and the
+artifacts of an added project directory are listed under that project rather than under a generic
+heading, so the list reads as the grouping the space belongs to. The scan is bounded to those known
+locations and to the project directories you name (the installer offers the directory it was started
+from); it never walks a whole disk, and inside WSL it never touches host data.
 
 **Every number says where it came from.** A filesystem store is measured by a bounded walk that
 reports both the **logical** size the files hold and the **physical** space the filesystem spends on

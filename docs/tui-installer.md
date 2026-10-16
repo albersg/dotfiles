@@ -734,7 +734,11 @@ Maven, Coursier), the system package managers (apt, dnf, pacman, Homebrew) and t
 (Docker and Podman). An ecosystem that cannot be detected reliably is left out rather than guessed
 at, and every row carries **the reason it was found** -- `npm is on PATH and its cache directory
 exists`, `$GOPATH names …`, `docker is on PATH and answered \`system df\`` -- so the list can be
-argued with.
+argued with. The findings are listed **under the tool that owns them**, and the artifacts of an added
+project directory are listed **under that project** -- named after the project's own directory, not
+after the word "project", and kept apart from another project whose last directory happens to have
+the same name -- so a machine with several ecosystems and several projects reads as groups rather
+than as one flat column of stores.
 
 **What is looked at, and what is not.** The scan visits the stores those tools document, plus the
 project directories the user adds. It never walks a whole disk; it stops at filesystem boundaries; it
