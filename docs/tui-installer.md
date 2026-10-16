@@ -804,11 +804,14 @@ has already made. Tmux's and Herdr's sets are the ones a run can leave out:
 runs no TPM and no `herdr` command, installs nothing and reports the set as left
 out. A run that leaves Tmux's out also writes a configuration that declares no
 plugin and runs no TPM, between the markers `dotfiles-tmux/tmux.conf` carries for
-exactly that. A set this installer does not
-install itself is not offered as a switch, because a switch there would install
-nothing -- Fish's `config.fish` bootstraps Fisher on first start and Neovim's set
-is installed by lazy.nvim on first launch, which is what
-[Tools Reference](tools.md#plugins) says each of them does. For Herdr it installs the two plugins declared in the
+exactly that. The other three sets are named on the same row and are not
+switches. The shell's is installed by this installer and cannot be left out: the
+zsh configuration this repository ships is built on it -- the `.zshrc` declares
+the plugins, sources `$ZSH/oh-my-zsh.sh` and sources `~/.p10k.zsh` for the prompt
+-- so a switch there would mean shipping a second, plain-zsh configuration. Fish's
+and Neovim's are not the installer's to leave out at all: `config.fish` bootstraps
+Fisher on first start and lazy.nvim installs the Neovim set on first launch, which
+is what [Tools Reference](tools.md#plugins) says each of them does. For Herdr it installs the two plugins declared in the
 installer's own source — `aigora.lantern` and `herdr.auto-title` — with `herdr
 plugin install <owner>/<repo> --yes`, then updates them with `herdr plugin
 update --yes`, and finally verifies each with `herdr plugin list` and reports

@@ -1367,7 +1367,12 @@ func planFor(opts planOptions) []InstallStep {
 			ID:          "shell",
 			Name:        "Install " + opts.Shell,
 			Description: "Installs your shell and its plugins.",
-			Status:      StatusPending,
+			// The set the shell carries is named here like the multiplexer's, one commit
+			// later and for the same reason (install_plugin_sets.go): the row says what
+			// the step would install, whether the run turned it off, and -- for a shell
+			// whose configuration is built on its set -- why it cannot be left out.
+			PluginSet: planPluginSet("shell", opts),
+			Status:    StatusPending,
 		})
 	}
 
@@ -1391,7 +1396,10 @@ func planFor(opts planOptions) []InstallStep {
 			ID:          "nvim",
 			Name:        "Install Neovim",
 			Description: "Installs Neovim with your configuration.",
-			Status:      StatusPending,
+			// Neovim's set is the one a tool bootstraps for itself, so its row says
+			// where the set comes from instead of offering a switch.
+			PluginSet: planPluginSet("nvim", opts),
+			Status:    StatusPending,
 		})
 	}
 

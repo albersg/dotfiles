@@ -49,8 +49,11 @@ Two of those sets are work this installer does and can be left out of a run:
 Tmux's, with `--skip=plugins-tmux`, and Herdr's, with `--skip=plugins-herdr`. A
 run that leaves Tmux's out installs no TPM, downloads no plugin, and strips the
 plugin declarations and the line that runs TPM out of the `tmux.conf` it writes,
-so tmux is never asked to run a checkout that is not there. The others are not
-offered as switches, because a switch there would install nothing.
+so tmux is never asked to run a checkout that is not there. The others are named
+on the same row and are not switches: the shell's set cannot be left out because
+the zsh configuration this repository ships is built on it -- the `.zshrc`
+declares the plugins, sources `$ZSH/oh-my-zsh.sh` and sources `~/.p10k.zsh` for the
+prompt -- and Fish's and Neovim's are not the installer's to leave out at all.
 
 | Tool | Where the set is declared | What the installer does |
 |------|---------------------------|-------------------------|

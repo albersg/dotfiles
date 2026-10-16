@@ -41,13 +41,30 @@ type pluginSet struct {
 	// is turned off would be a lie; those sets are named on screen with where they
 	// come from instead.
 	Provisioned bool
+
+	// Switchable says a run can leave the set out. It is a separate question from
+	// Provisioned, and the shell's set is why: this installer does install it, and a
+	// run cannot leave it out, because the shell configuration this repository ships
+	// is built on it -- its .zshrc declares the plugins, sources $ZSH/oh-my-zsh.sh
+	// and sources ~/.p10k.zsh for the prompt -- so leaving it out would mean shipping
+	// a second, unverified shell configuration rather than patching this one.
+	Switchable bool
+
+	// Because is why a set a run cannot leave out is not offered as a switch, and it
+	// is what the row says instead of a switch. It is empty for a switchable set, and
+	// a guard fails on a set that is neither switchable nor explained.
+	Because string
 }
 
 // pluginSetIDTmux and pluginSetIDHerdr name the sets the executor honours, so the
-// registry and the steps that install them cannot drift apart over the string.
+// registry and the steps that install them cannot drift apart over the string. The
+// other three are named here too, because the interface names them on screen.
 const (
+	pluginSetIDShell = "plugins-shell"
+	pluginSetIDFish  = "plugins-fish"
 	pluginSetIDTmux  = "plugins-tmux"
 	pluginSetIDHerdr = "plugins-herdr"
+	pluginSetIDNvim  = "plugins-nvim"
 )
 
 // Label is the set's name as the interface shows it: what it is called, and what
@@ -72,11 +89,28 @@ func (s pluginSet) Label() string {
 // registered with Provisioned false when the screen that explains it arrives.
 var pluginSets = []pluginSet{
 	{
+		ID:          pluginSetIDShell,
+		Step:        "shell",
+		Tool:        "zsh",
+		Named:       "Oh My Zsh with Powerlevel10k and the plugin packages",
+		Provisioned: true,
+		Because:     "the zsh configuration this repository ships is built on it: its .zshrc declares the plugins, sources $ZSH/oh-my-zsh.sh and sources ~/.p10k.zsh for the prompt",
+	},
+	{
+		ID:    pluginSetIDFish,
+		Step:  "shell",
+		Tool:  "fish",
+		Named: "fisher and the fish functions this repository vendors",
+		Because: "the fish configuration this repository ships bootstraps it on first start, " +
+			"so there is nothing a run could leave out",
+	},
+	{
 		ID:          pluginSetIDTmux,
 		Step:        "wm",
 		Tool:        "tmux",
 		Named:       "the plugins its configuration declares",
 		Provisioned: true,
+		Switchable:  true,
 	},
 	{
 		ID:          pluginSetIDHerdr,
@@ -85,6 +119,15 @@ var pluginSets = []pluginSet{
 		Named:       "its declared plugins",
 		Declared:    herdrPluginNames(),
 		Provisioned: true,
+		Switchable:  true,
+	},
+	{
+		ID:    pluginSetIDNvim,
+		Step:  "nvim",
+		Tool:  "nvim",
+		Named: "the LazyVim plugin set",
+		Because: "lazy.nvim installs it on first launch from the configuration this " +
+			"repository ships",
 	},
 }
 
@@ -115,7 +158,7 @@ func pluginSetByID(id string) (pluginSet, bool) {
 func SwitchablePluginSetIDs() []string {
 	ids := make([]string, 0, len(pluginSets))
 	for _, set := range pluginSets {
-		if set.Provisioned {
+		if set.Switchable {
 			ids = append(ids, set.ID)
 		}
 	}
@@ -123,12 +166,15 @@ func SwitchablePluginSetIDs() []string {
 }
 
 // pluginSetIsSwitchable reports whether a run can turn a set off. A set is
-// switchable exactly when this installer installs it itself: for a set a tool
-// bootstraps from the configuration this repository ships, there is nothing a run
-// could leave out, and offering it would promise a switch that does nothing.
+// switchable exactly when this installer can leave it out and the configuration it
+// installs survives the absence: for the tmux and herdr sets the configuration is
+// patched to name nothing, and for the shell's, fish's and Neovim's the
+// configuration the repository ships is built on the set, which is why they are
+// named with the reason instead of offered as a switch that would install nothing
+// or ship a second, unverified configuration.
 func pluginSetIsSwitchable(id string) bool {
 	set, ok := pluginSetByID(id)
-	return ok && set.Provisioned
+	return ok && set.Switchable
 }
 
 // SwitchableSkipIDs names everything --skip accepts: the units a run can leave
@@ -140,15 +186,20 @@ func SwitchableSkipIDs() []string {
 }
 
 // PluginSetState is the plugin set a step provisions, as the interface reads it:
-// which set it is, what it is called, and whether this run turned it off.
+// which set it is, what it is called, whether this run turned it off, and -- for a
+// set a run cannot leave out -- why it is not offered as a switch.
 //
 // A set that was turned off is still carried, with Off set: the row has to say
 // what the run is leaving out rather than disappear, which is the whole reason
-// the set is on the step instead of in the step.
+// the set is on the step instead of in the step. A set that cannot be turned off
+// is carried for the same reason: the user reads what the run installs and why it
+// is not theirs to change, instead of finding it later.
 type PluginSetState struct {
-	ID   string
-	Name string
-	Off  bool
+	ID         string
+	Name       string
+	Off        bool
+	Switchable bool
+	Because    string
 }
 
 // planPluginSet returns the set this step provisions for these choices, or nil
@@ -157,17 +208,21 @@ type PluginSetState struct {
 // honours it cannot disagree.
 func planPluginSet(stepID string, opts planOptions) *PluginSetState {
 	for _, set := range pluginSets {
-		if set.Step != stepID || !set.Provisioned {
+		if set.Step != stepID || !pluginSetToolChosen(set, opts) {
 			continue
 		}
-		if !pluginSetToolChosen(set, opts) {
-			continue
+		state := &PluginSetState{
+			ID:         set.ID,
+			Name:       set.Label(),
+			Switchable: set.Switchable,
+			Because:    set.Because,
 		}
-		return &PluginSetState{
-			ID:   set.ID,
-			Name: set.Label(),
-			Off:  pluginSetIsOff(opts.DisabledPluginSets, set.ID),
+		// A set a run cannot leave out has no off state to read: nothing a user can
+		// type turns it off, so the plan never reports one.
+		if set.Switchable {
+			state.Off = pluginSetIsOff(opts.DisabledPluginSets, set.ID)
 		}
+		return state
 	}
 	return nil
 }
@@ -179,6 +234,8 @@ func pluginSetToolChosen(set pluginSet, opts planOptions) bool {
 		return opts.Shell == set.Tool
 	case "wm":
 		return opts.WindowMgr == set.Tool
+	case "nvim":
+		return opts.InstallNvim
 	}
 	return false
 }
@@ -214,9 +271,9 @@ func ParseSkipSelection(list string) (units, sets []string, err error) {
 			continue
 		}
 		if set, ok := pluginSetByID(name); ok {
-			if !set.Provisioned {
-				return nil, nil, fmt.Errorf("%q is a plugin set this installer does not install: %s installs it from the configuration this repository ships, so there is nothing to leave out; this run can skip: %s",
-					name, set.Tool, strings.Join(SwitchableSkipIDs(), ", "))
+			if !set.Switchable {
+				return nil, nil, fmt.Errorf("%q is a plugin set this run cannot leave out: %s; this run can skip: %s",
+					name, set.Because, strings.Join(SwitchableSkipIDs(), ", "))
 			}
 			wanted[name] = true
 			continue

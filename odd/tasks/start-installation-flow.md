@@ -65,10 +65,17 @@ it, and the screen has to exist before the plan can show which choice each row c
         guard fails if a marker is missing, duplicated, or wide enough to take a key binding.
         The declarations and the key bindings that sat between them were grouped accordingly,
         and that regrouping is the only thing that moved in the file.
-      - **The shell's set: next**, the most entangled of the three: it carries Oh My Zsh,
-        the plugin packages and Powerlevel10k, all of which the installed `.zshrc` names, so
-        skipping it needs the `.zshrc` to be patched the way `PatchZshForWM` already patches
-        it.
+      - **The shell's set: not a switch, and the reason is measured.** It carries Oh My Zsh,
+        the plugin packages and Powerlevel10k, and the `.zshrc` this installer installs is
+        built on them: it declares the plugins (`plugins=(`), sources `$ZSH/oh-my-zsh.sh`
+        (unguarded, so a machine without Oh My Zsh errors on every shell start) and sources
+        `~/.p10k.zsh` for the prompt. Leaving the set out is therefore not a patch but a
+        second, plain-zsh configuration this repository would have to ship and stand behind.
+        The registry gained a third state for exactly this -- named, provisioned, not
+        switchable, with the reason the row shows -- and
+        `TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt` reads the asset, so the
+        reason cannot quietly stop being true. **This is a question back to the user**:
+        whether the shell's set should become a switch at that price.
 - [ ] **T2. The setup screen** (S1, S2, S7): rows for shell, terminal, multiplexer, editor,
       font and the extras, each cycling its value or taking a switch, with a plugin row
       indented under the tool it belongs to; all visible at once; `Enter` opens the row's rich
@@ -170,5 +177,42 @@ it, and the screen has to exist before the plan can show which choice each row c
   `TestTurningOffTmuxsSetLeavesNoTPMAndNoPluginInTheServer` (both halves on the machine: with
   the set off no checkout and no declaration, with it on the configuration this repository
   ships), and `TestThePlanCarriesThePluginSetOfItsTool` raised from one set to a table over
-  every set the registry calls provisioned, so a set added later without a plan row fails
-  there instead of arriving in silence.
+  every **switchable** set, so a set added later without a plan row fails there instead of
+  arriving in silence.
+
+- **L8.** The shell's set, and the decision this front took against its own first plan. The
+  plan the user approved said one switch per set, naming the shell among them; the
+  measurement says that would be a lie, or a much bigger change than a patch. Evidence, read
+  from the asset the run installs: `dotfiles-zsh/.zshrc:367` declares `plugins=(`, `:370` is
+  `source "$ZSH/oh-my-zsh.sh"` (unguarded, so a machine without Oh My Zsh gets an error on
+  every shell start), `:39-40` is Powerlevel10k's instant prompt and `:850-851` sources
+  `~/.p10k.zsh` for the prompt itself. The plugin packages are installed by the shell step
+  from the platform's packages (`installer.go` around `:6685`). So the registry gained a third
+  state: `Switchable` separate from `Provisioned`, and `Because` for every set that is named
+  and cannot be left out (the shell's, whose configuration is built on it; fish's and
+  Neovim's, which their tools bootstrap themselves). The plan now carries the set of every
+  tool a run installs -- `planFor` calls `planPluginSet` on the `shell` and `nvim` steps as
+  well as the multiplexer's -- with `Switchable` and the reason, so the row can say what the
+  run installs and why it is not the user's to change. Guards, red first:
+  `TestEveryRegisteredSetIsNamedOnThePlanOfARunThatInstallsItsTool` (over the whole registry)
+  and `TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt` (the asset still carries
+  the three facts, and `--skip` refuses the set with the same sentence the row will show).
+  The whole-plan golden caught the wiring gap this left: the plan's `shell` and `nvim` steps
+  attached no set until `planFor` was fixed.
+
+  **Left with the user**: whether the shell's set should become a switch after all, at the
+  price of this repository shipping and maintaining a second, plain-zsh configuration. That is
+  a product decision about what the project supports, not a patch, so the row explains the set
+  in the meantime instead of pretending.
+
+- **L9.** Preflight on this tree: exit 1, and the four Ghostty tests are the only
+  failures (`TestStepInstallTerminalGhosttyReportsAFailedDownload`,
+  `TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`,
+  `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`,
+  `TestInteractiveGhosttyScriptDownloadsThenRuns`). That is the host baseline every
+  earlier tree carried and the one the v0.9.0 release preflight recorded. The two
+  step-runner lines in the same output (`❌ FAILED: Step 'Configure WSL' failed`,
+  `❌ FAILED: zsh installation failed`) are progress printed by tests that assert the
+  failure path -- `step_loop_test.go:133` returns that error on purpose and
+  `non_interactive_test.go:27` asserts the failure names its step -- not failures:
+  the whole run has exactly four `--- FAIL` markers.

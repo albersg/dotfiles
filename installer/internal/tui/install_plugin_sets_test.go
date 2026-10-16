@@ -66,16 +66,85 @@ func TestThePlanCarriesThePluginSetOfItsTool(t *testing.T) {
 		})
 	}
 
-	// The registry is what the plan reads and the executor is what honours the
-	// switch, so every set the registry calls provisioned has to be one a run can
-	// turn off: this is the seam between the two.
+	// A set the run can leave out is a set this installer installs itself, and a set
+	// it cannot leave out says why: the first is a promise the executor has to keep,
+	// the second is what stops a row from leaving the user to wonder.
 	for _, set := range pluginSets {
-		if !set.Provisioned {
+		if set.Switchable && !set.Provisioned {
+			t.Errorf("%q is offered as a switch, but this installer does not install it", set.ID)
+		}
+		if !set.Switchable && set.Because == "" {
+			t.Errorf("%q cannot be left out and the registry says nothing about why, so no screen can explain it", set.ID)
+		}
+	}
+}
+
+// TestEveryRegisteredSetIsNamedOnThePlanOfARunThatInstallsItsTool is the S3 guard
+// for the whole registry: a set nobody can see is the defect this front exists to
+// remove, so every set has to appear on the step of the tool that installs it,
+// switchable or not.
+func TestEveryRegisteredSetIsNamedOnThePlanOfARunThatInstallsItsTool(t *testing.T) {
+	for _, set := range pluginSets {
+		choices := UserChoices{OS: "linux", Terminal: "kitty", Shell: "zsh", WindowMgr: "tmux", InstallNvim: true}
+		switch set.Tool {
+		case "zsh", "fish", "nushell":
+			choices.Shell = set.Tool
+		case "tmux", "herdr", "zellij":
+			choices.WindowMgr = set.Tool
+		case "nvim":
+			choices.InstallNvim = true
+		default:
+			t.Fatalf("%q belongs to a tool this guard cannot choose: %s", set.ID, set.Tool)
+		}
+
+		m := &Model{SystemInfo: &system.SystemInfo{OS: system.OSLinux}, Choices: choices}
+		step := pluginSetOnStep(t, planFor(m.planOptions()), set.Step)
+		if step.PluginSet == nil {
+			t.Errorf("a run that installs %s does not name its plugin set (%s) on the %s step", set.Tool, set.ID, set.Step)
 			continue
 		}
-		if !pluginSetIsSwitchable(set.ID) {
-			t.Errorf("the registry calls %q provisioned, but a run cannot turn it off", set.ID)
+		if step.PluginSet.ID != set.ID {
+			t.Errorf("the %s step carries %q, want %q", set.Step, step.PluginSet.ID, set.ID)
 		}
+		if step.PluginSet.Switchable != set.Switchable {
+			t.Errorf("%q is carried as Switchable=%v, want %v", set.ID, step.PluginSet.Switchable, set.Switchable)
+		}
+		if !set.Switchable && step.PluginSet.Because == "" {
+			t.Errorf("%q cannot be left out and the plan does not say why", set.ID)
+		}
+	}
+}
+
+// TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt holds the one
+// decision this front took against its own first plan (L8): the shell's set is
+// named, it is not a switch, and the reason is a measured fact about the
+// configuration this repository ships rather than a preference. If that
+// configuration ever stops depending on the set, this guard fails and the row has
+// to become a switch.
+func TestTheShellsSetIsNotASwitchBecauseTheConfigurationSourcesIt(t *testing.T) {
+	set, ok := pluginSetByID(pluginSetIDShell)
+	if !ok {
+		t.Fatal("the registry does not name the shell's plugin set")
+	}
+	if set.Switchable {
+		t.Fatal("the shell's set is a switch now, so this guard holds nothing: delete it and cover the switch like the others")
+	}
+
+	zshrc, err := os.ReadFile(filepath.Join(repoRoot(t), "dotfiles-zsh", ".zshrc"))
+	if err != nil {
+		t.Fatalf("the zsh configuration this installer ships could not be read: %v", err)
+	}
+	for _, needed := range []string{`source "$ZSH/oh-my-zsh.sh"`, "plugins=(", "~/.p10k.zsh"} {
+		if !strings.Contains(string(zshrc), needed) {
+			t.Errorf("the zsh configuration no longer carries %q, so \"its configuration sources it\" is no longer measured: this set can become a switch", needed)
+		}
+	}
+
+	// The command line refuses it for the same reason the screen will explain.
+	if _, _, err := ParseSkipSelection(pluginSetIDShell); err == nil {
+		t.Error("a set the run cannot leave out was accepted by --skip")
+	} else if !strings.Contains(err.Error(), set.Because) {
+		t.Errorf("the refusal does not give the reason the registry holds: %v", err)
 	}
 }
 
