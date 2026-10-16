@@ -351,3 +351,38 @@ session.
     as hard as for false positives -- five passes have each found one more defect in the fix
     before, and a rule that fixes a false success by inventing a false alarm is not a fix.
 
+- **L16 (the fifth pass: five findings, and the writer among them).** The pass attacked both
+  directions and closed points 4 and 5; points 1, 2, 3 and 6 came back open. The largest finding
+  is not in the rule at all: a configuration key whose path is a **symlink to a directory** --
+  `~/.config/nvim -> ~/repo/nvim`, which is what a dotfiles checkout looks like -- made the
+  run's own writer record `entries=[{nvim found}]` and `changes=[]`, because `configFileIndex`
+  stopped at the link and `fingerprintPath` walked the link itself. `dotfiles --revert` then
+  exited 0 with every file the run wrote through that key still holding what it left. A silent
+  false success on an ordinary layout, predating the reviewed delta, and not fixable inside the
+  rule: the record never named the path.
+  - The writer now reads through a linked key, naming the paths a person sees (`namedPath`), so
+    what the run wrote inside it is recorded. The backup keeps the link and not what it reaches,
+    so a revert of such a key reports that it holds no copy of the file -- the truth, with the
+    tree the link points at as the way back. That is the audit's N4 boundary, now surfaced per
+    path instead of hidden.
+  - **A false alarm of my own making** (`565ccb8`): a link into a key the record says the run
+    did not write was reported, although the record's own word is that the run left that key
+    alone. The reach is now covered by *every* entry the record names, not only the written
+    ones.
+  - A change naming the entry's own directory short-circuited the walk; a directory is not a
+    file a change carries a before-state for, so the shortcut now applies only to non-directories.
+  - A path the record says the run created and that is not there is where the machine already
+    was: accounted for, not reported.
+  - **"Inside a path the record wrote" was a claim, not a check.** For a tree the run wrote,
+    every file inside the reach must now hold what the run's copy of it holds or be named by a
+    change. The copy is the before-state; the record's silence about a file that disagrees with
+    it is evidence of nothing.
+  - A sixth, found by my own tests while fixing: undoing a path the record says the run created
+    read an unreadable path (a directory) as an absent one, so a directory declared itself
+    already gone. It is reported now: putting a directory back means removing a tree.
+  - `revert_probes_test.go` holds probes for all six, RED first; the subcase that must NOT alarm
+    (a file inside a reached tree matching its copy) is pinned beside the one that must.
+  - Accepted and documented rather than fixed: a named pipe or socket inside a written key is
+    reported, because the copy of a key cannot hold that kind and the record cannot say whether
+    the run made it or found it.
+  - Full gate after the six: green (system, tui, trainer).
