@@ -198,7 +198,7 @@ del fallo**, o declarar incertidumbre cuando no hay evidencia suficiente.
 
 ## Contexto y condiciones obligatorias
 
-Estás trabajando en un fork de los dotfiles de Gentleman Programming que ya incluye un
+Estás trabajando en un fork de los dotfiles de su proyecto upstream que ya incluye un
 installer/configurador TUI con navegación, estilos y temas dinámicos, mascota, utilidades e
 integración con el entorno de desarrollo. Tu cometido es **implementar esta funcionalidad realmente**,
 no entregar un diseño, pseudocódigo o una maqueta sin lógica.
@@ -286,7 +286,46 @@ the copy has to say so plainly. S10 is unchanged -- it always named this machine
 names -- and the row label, the preview paragraph and the docs now state that the diagnosed host is
 kept, with a test pinning it.
 
+### L5 — the front was rebased onto main, and the section's seventh job moved three things
+
+`main` advanced 36 commits while this front was being verified -- the `utilities-refresh-v2` and
+`start-installation-flow-next` fronts merged as #340 and #341 -- and it touched all seven shared files
+this front edits, so the branch could not be merged or CI-verified as it stood. `docs/GIT-BRANCHING.md`
+asks a feature branch that has fallen behind to be rebased before merging, and the seven commits were
+replayed onto `origin/main` (`7906f06`), becoming `a67b61e`, `a8258ff`, `20e74d8`, `218304d`, `289454c`,
+`9613ccd` and `8996e71`. Every conflicted hunk in the screen's commit had the same shape -- main added
+its own utility, this front added this one -- so both sides were kept at every switch, and the commit's
+message carries the resolution it needed.
+
+Three things the merge moved, each with the guard that proves it:
+
+- The section holds **seven** jobs now, so the job-count sentence says seven and names the network
+diagnosis; `TestTheUtilitiesDocNamesEveryJobTheSectionOffers` reads that sentence against the rows and
+was moved with it, because a sentence that states a count it cannot derive is exactly what that guard
+exists for.
+- The measured screen matrix went from main's 75 to **76**, measured by the guard rather than added up
+from either side, and `TestUtilitiesGolden` was regenerated on the merged tree: three insertions and
+three deletions, reviewed line by line (the theme-switch sentence in one row, the network line, and the
+new panel row).
+- Main's `TestUtilitiesBodyCarriesEveryJobAtTheFloor` forbids the 80x24 section from cutting any job,
+and the seventh one pushed the body past its ten-row budget ("… and 3 more"). The network line is one
+row now and the theme-switch line lost its second one, so the body carries all seven jobs with a row to
+spare. This guard did not exist when the screen was written: it is the one thing the rebase could not
+have known, and the failure was the guard doing its job.
+
+Two fixes closed the front after the rebase: the package doc and the sentence the screen prints no
+longer claim a concurrency bound the runner never had (`1599cb3`), and `CHANGELOG.md` records the screen
+for a reader who never opens this file.
+
+Also recorded here: **L1's first sentence no longer names the upstream project.** That token was the only
+occurrence of the upstream brand anywhere in the tree outside the attribution files, so the CI's
+`branding-audit` job failed on this front's own task record; the sentence says "su proyecto upstream" now
+and the rest of the record is verbatim.
+
 ## Remaining
 
-T7 (independent verification over the whole diff, then the closing report) is open. T1–T6 are
-complete and committed.
+T1–T7, T9, T10 and T14–T16 are complete and committed; T8 was dropped by the user's decision to deliver
+without a native review, and that lineage stays open and unburned. What remains is not code: the branch
+is published as `feat/network-diagnostics` with a pull request against `main`, and the four `Ghostty`
+test failures that red `make preflight` belong to another front -- they fail identically at `c1e4a64`,
+before this work.
