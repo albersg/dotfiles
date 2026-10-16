@@ -83,21 +83,28 @@ type fakeShellAuditProbe struct {
 	hangAll bool
 	// failAt holds the start indices that cannot be started at all.
 	failAt map[int]error
-	// profileData is what the profiled start writes where zprof's table goes;
-	// profileMissing makes it write no file at all.
+	// profileData is what the profiled start writes where the instrument's table
+	// goes; profileMissing makes it write no file at all.
 	profileData    string
 	profileMissing bool
-	timeout        time.Duration
-	runs           int
+	// versionRaw is what the shell answers its own version command with.
+	versionRaw string
+	// traceLines is what the profiled bash start writes to its stderr, in order,
+	// and traceErr is how that start ends when it is not a clean exit.
+	traceLines []string
+	traceErr   error
+	timeout    time.Duration
+	runs       int
 
-	clock   time.Time
-	step    int
-	calls   [][]string
-	envs    [][]string
-	writes  []string
-	bodies  []string
-	removed []string
-	tempDir string
+	clock      time.Time
+	step       int
+	calls      [][]string
+	envs       [][]string
+	writes     []string
+	bodies     []string
+	removed    []string
+	tempDir    string
+	traceCalls int
 }
 
 // probe converts the fixture into the injected probe under test.
@@ -124,6 +131,18 @@ func (f *fakeShellAuditProbe) probe() shellAuditProbe {
 		},
 		isTerminal: func() bool { return f.terminal },
 		now:        func() time.Time { return f.clock },
+		version: func(ctx context.Context, path string) (string, error) {
+			return f.versionRaw, nil
+		},
+		trace: func(ctx context.Context, name string, args, env []string, parse func(string)) error {
+			f.traceCalls++
+			f.calls = append(f.calls, append([]string{name}, args...))
+			f.envs = append(f.envs, env)
+			for _, line := range f.traceLines {
+				parse(line)
+			}
+			return f.traceErr
+		},
 		run: func(ctx context.Context, name string, args, env []string) ([]byte, error) {
 			index := len(f.calls)
 			f.calls = append(f.calls, append([]string{name}, args...))
@@ -367,31 +386,39 @@ func TestShellAuditNamesTheFunctionsZprofBlames(t *testing.T) {
 	}
 }
 
-// TestShellAuditSaysOnlyTheTotalIsMeasurableWithoutZprof is the honesty rule for
-// a shell zprof cannot profile: the total is still measured, the screen says why
-// nothing is named, and no function is invented to fill the gap.
-func TestShellAuditSaysOnlyTheTotalIsMeasurableWithoutZprof(t *testing.T) {
+// TestShellAuditSaysOnlyTheTotalIsMeasurableWithoutAnInstrument is the honesty
+// rule for a shell that carries nothing to profile: the total is still measured,
+// the screen says why nothing is named, and no culprit is invented to fill the
+// gap. The POSIX shells are that case -- and so is zsh's own case now that bash
+// is traced with bash's own instrument instead of being told it has none.
+func TestShellAuditSaysOnlyTheTotalIsMeasurableWithoutAnInstrument(t *testing.T) {
 	f := zshAuditFixture()
-	f.env["SHELL"] = "/usr/bin/bash"
+	f.env["SHELL"] = "/bin/dash"
 
 	st := measureShellAudit(resolveShellAudit(f.probe()), f.probe())
 
-	if st.Shell != "bash" {
-		t.Fatalf("the measured shell = %q, want bash", st.Shell)
+	if st.Shell != "dash" {
+		t.Fatalf("the measured shell = %q, want dash", st.Shell)
+	}
+	if st.Kind != shellAuditKindPosix {
+		t.Errorf("the measured family = %q, want the POSIX family", st.Kind)
 	}
 	if len(st.Samples) != 5 {
-		t.Errorf("%d samples, want the total measured for bash too", len(st.Samples))
+		t.Errorf("%d samples, want the total measured for dash too", len(st.Samples))
 	}
 	if len(st.Attribution) != 0 {
-		t.Errorf("bash was given a culprit: %+v", st.Attribution)
+		t.Errorf("dash was given a culprit: %+v", st.Attribution)
 	}
-	if !strings.Contains(st.AttributionReason, "zprof") || !strings.Contains(st.AttributionReason, "bash") {
-		t.Errorf("the reason does not say that zprof is zsh's and that bash has no equivalent: %q", st.AttributionReason)
+	if !strings.Contains(st.AttributionReason, "POSIX") {
+		t.Errorf("the reason does not say that this family carries no profiler: %q", st.AttributionReason)
 	}
 	for _, invented := range []string{"compinit", "compdump", "compdef"} {
 		if strings.Contains(st.AttributionReason, invented) {
 			t.Errorf("the reason names %q, which nothing measured: %q", invented, st.AttributionReason)
 		}
+	}
+	if f.traceCalls != 0 {
+		t.Errorf("a shell with no instrument was still traced %d times", f.traceCalls)
 	}
 }
 
@@ -473,9 +500,14 @@ func TestShellAuditDoesNotAttributeWhenTheProfiledStartTimesOut(t *testing.T) {
 	}
 }
 
-// TestShellAuditRefusesToMeasureWhatItCannotMeasure pins the three refusals: no
-// login shell named, a login shell that is not on this machine, and a run with no
-// terminal. Each says which one it is, and none of them starts anything.
+// TestShellAuditRefusesToMeasureWhatItCannotMeasure pins the two refusals that
+// are refusals: no login shell named, and a login shell that is not on this
+// machine. Each says which one it is, and neither starts anything.
+//
+// A run with no terminal is not one of them any more. The start is the same one
+// -- `-i -c exit` on the utility's own stdin needs no tty -- and the state says
+// the terminal was absent instead of refusing: the refusal was the case where a
+// pipe, a container or a CI run got no number and no explanation.
 func TestShellAuditRefusesToMeasureWhatItCannotMeasure(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -494,11 +526,6 @@ func TestShellAuditRefusesToMeasureWhatItCannotMeasure(t *testing.T) {
 				f.lookErr = errors.New("executable file not found in $PATH")
 			},
 			want: "/usr/bin/zsh",
-		},
-		{
-			name:    "no terminal",
-			fixture: func(f *fakeShellAuditProbe) { f.terminal = false },
-			want:    "terminal",
 		},
 	}
 
@@ -646,21 +673,24 @@ func TestShellAuditReplacesTheEnvironmentItOverrides(t *testing.T) {
 }
 
 // TestShellAuditWrapperQuotesThePathsItBakesIn pins the one thing about the
-// generated wrapper that no compile can check: the user's directory and the
-// profile's destination are baked into its text, so they have to be quoted. A
-// home directory with a space or a quote in it would otherwise turn the wrapper
+// generated wrappers that no compile can check: the user's directory and the
+// profile's destination are baked into their text, so they have to be quoted. A
+// home directory with a space or a quote in it would otherwise turn a wrapper
 // into shell syntax, the profiled start would source the wrong file or nothing,
 // and the screen would report that zprof named nobody.
 func TestShellAuditWrapperQuotesThePathsItBakesIn(t *testing.T) {
 	home := "/home/a user's files"
 	profile := "/tmp/it's a profile/zprof.txt"
 
-	env := shellAuditZshEnvWrapper(home)
+	env := shellAuditZshEnvWrapper(home, profile)
+	profileStep := shellAuditZshStepWrapper(home, ".zprofile")
 	rc := shellAuditZshRCWrapper(home, profile)
 
 	for _, want := range []string{
 		shellAuditQuote(home + "/.zshenv"),
 		"zmodload zsh/zprof",
+		"builtin zprof > " + shellAuditQuote(profile),
+		"function zshexit()",
 	} {
 		if !strings.Contains(env, want) {
 			t.Errorf("the .zshenv wrapper does not carry %q:\n%s", want, env)
@@ -668,14 +698,54 @@ func TestShellAuditWrapperQuotesThePathsItBakesIn(t *testing.T) {
 	}
 	for _, want := range []string{
 		shellAuditQuote(home + "/.zshrc"),
-		"builtin zprof > " + shellAuditQuote(profile),
+		"function zshexit()",
 	} {
 		if !strings.Contains(rc, want) {
 			t.Errorf("the .zshrc wrapper does not carry %q:\n%s", want, rc)
 		}
 	}
+	// A login start reads .zprofile from the wrapper's directory: without this
+	// step the wrapper would hide the user's own .zprofile from it, and the
+	// profile would describe a startup the user never gets.
+	if !strings.Contains(profileStep, shellAuditQuote(home+"/.zprofile")) {
+		t.Errorf("the .zprofile wrapper does not step to the user's own .zprofile:\n%s", profileStep)
+	}
+	if strings.Contains(profileStep, home+"/.zprofile") {
+		t.Errorf("the .zprofile wrapper baked in an unquoted path:\n%s", profileStep)
+	}
 	if strings.Contains(env, home+"/.zshenv") || strings.Contains(rc, home+"/.zshrc") {
-		t.Errorf("an unquoted path reached the wrapper, so a space or a quote in it is shell syntax:\n%s\n%s", env, rc)
+		t.Errorf("an unquoted path reached a wrapper, so a space or a quote in it is shell syntax:\n%s\n%s", env, rc)
+	}
+}
+
+// TestShellAuditBashWrapperTurnsOnTheTraceAndKeepsTheUserSConfig pins the bash
+// wrapper: the prompt carries the stamp, the file and the line every trace line
+// is attributed by, the trace is on, and the user's own .bashrc is sourced from
+// where it already is -- never copied into the wrapper's directory.
+func TestShellAuditBashWrapperTurnsOnTheTraceAndKeepsTheUserSConfig(t *testing.T) {
+	home := "/home/a user's files"
+	wrapper := shellAuditBashTraceWrapper(home)
+
+	for _, want := range []string{
+		"EPOCHREALTIME",
+		"BASH_SOURCE",
+		"LINENO",
+		"FUNCNAME",
+		"builtin set -x",
+		shellAuditQuote(home + "/.bashrc"),
+	} {
+		if !strings.Contains(wrapper, want) {
+			t.Errorf("the bash wrapper does not carry %q:\n%s", want, wrapper)
+		}
+	}
+	if strings.Contains(wrapper, home+"/.bashrc") {
+		t.Errorf("the bash wrapper baked in an unquoted path:\n%s", wrapper)
+	}
+	// With no HOME there is nothing to source, and the wrapper still traces: the
+	// profiled start must not fail because a path could not be named.
+	plain := shellAuditBashTraceWrapper("")
+	if strings.Contains(plain, "HOME/") || !strings.Contains(plain, "builtin set -x") {
+		t.Errorf("the wrapper built without a HOME is wrong:\n%s", plain)
 	}
 }
 
@@ -693,6 +763,60 @@ func TestShellAuditQuoteIsShellSafe(t *testing.T) {
 		if got := shellAuditQuote(tt.path); got != tt.want {
 			t.Errorf("shellAuditQuote(%q) = %q, want %q", tt.path, got, tt.want)
 		}
+	}
+}
+
+// TestShellAuditMeasuresWithoutATerminalAndSaysSo pins what replaced the third
+// refusal: the measurement is made, and the state carries the fact that no
+// terminal was attached, which is what the screen prints beside the number.
+func TestShellAuditMeasuresWithoutATerminalAndSaysSo(t *testing.T) {
+	f := zshAuditFixture()
+	f.terminal = false
+
+	st := resolveShellAudit(f.probe())
+	if !st.Available {
+		t.Fatalf("a run with no terminal is not measurable: %s", st.Reason)
+	}
+	if st.Terminal {
+		t.Error("the state claims a terminal was attached")
+	}
+	if st.Reason != "" {
+		t.Errorf("a run with no terminal kept the reason %q", st.Reason)
+	}
+
+	st = measureShellAudit(st, f.probe())
+	if len(st.Samples) != 5 {
+		t.Errorf("%d samples, want the total measured without a terminal", len(st.Samples))
+	}
+	if st.Terminal {
+		t.Error("the finished measurement claims a terminal was attached")
+	}
+}
+
+// TestShellAuditNamesTheTerminalItRanUnder pins the other half of the context: a
+// terminal that names itself is named on screen, and $TERM is the fallback.
+func TestShellAuditNamesTheTerminalItRanUnder(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"an emulator that names itself", map[string]string{"TERM_PROGRAM": "iTerm.app", "TERM_PROGRAM_VERSION": "3.5.0", "TERM": "xterm-256color"}, "iTerm.app 3.5.0"},
+		{"an emulator with no version", map[string]string{"TERM_PROGRAM": "Apple_Terminal", "TERM": "xterm-256color"}, "Apple_Terminal"},
+		{"a plain terminal", map[string]string{"TERM": "xterm-256color"}, "xterm-256color"},
+		{"nothing at all", map[string]string{}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := zshAuditFixture()
+			for key, value := range tt.env {
+				f.env[key] = value
+			}
+			if got := resolveShellAudit(f.probe()).TerminalName; got != tt.want {
+				t.Errorf("the terminal = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

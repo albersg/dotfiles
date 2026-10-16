@@ -336,20 +336,25 @@ const (
 	shellAuditProfilerNone shellAuditProfiler = ""
 )
 
-// shellAuditProfilerFor answers which instrument a shell has, or why it has
-// none here. The reason is a sentence the screen prints in place of the
-// attribution, so a shell that cannot be profiled is explained rather than left
-// with a blank where a culprit would be.
+// shellAuditProfilerFor answers which instrument a shell has for one start, or
+// why it has none here. The reason is a sentence the screen prints in place of
+// the attribution, so a shell that cannot be profiled is explained rather than
+// left with a blank where a culprit would be.
 //
-// The version matters for two of the four. bash cannot timestamp a traced
-// command before 5.0, and fish's `--profile` deliberately starts after the
-// configuration has been read -- the flag that profiles the startup itself is
-// `--profile-startup`, which arrived in fish 3.6. Using `--profile` on fish
-// would be worse than using nothing: it would produce a table that answers a
-// different question.
-func shellAuditProfilerFor(kind shellAuditKind, version shellAuditVersion) (shellAuditProfiler, string) {
+// Both the version and the start matter. The version: bash cannot timestamp a
+// traced command before 5.0, and fish's `--profile` deliberately begins after
+// the configuration has been read -- the flag that profiles the startup itself
+// is `--profile-startup`, which arrived in fish 3.6, and a table from the older
+// flag would answer a different question. The start: an interactive bash reads
+// the rc file the trace can be pointed at, while a login bash reads its profile
+// files and could only be traced by moving HOME, which would describe a start
+// nobody gets.
+func shellAuditProfilerFor(kind shellAuditKind, version shellAuditVersion, mode shellAuditMode) (shellAuditProfiler, string) {
 	switch kind {
 	case shellAuditKindZsh:
+		// zprof is loaded from a wrapper directory that ZDOTDIR points at, and zsh
+		// reads its startup files from there in every mode, so every start of zsh
+		// can be profiled.
 		return shellAuditProfilerZprof, ""
 
 	case shellAuditKindBash:
@@ -357,6 +362,11 @@ func shellAuditProfilerFor(kind shellAuditKind, version shellAuditVersion) (shel
 			return shellAuditProfilerNone, fmt.Sprintf("bash's own trace can be told when each command ran only "+
 				"through EPOCHREALTIME, which arrived in bash 5.0, and this bash reports %s: on this shell only the "+
 				"total above is measurable, and no function is guessed at in its place.", version.Number)
+		}
+		if mode.Login {
+			return shellAuditProfilerNone, "a bash login shell reads its profile files instead of the rc file the " +
+				"trace can be pointed at, and pointing HOME at a wrapper would describe a start nobody gets: for " +
+				"this start only the total above is measurable, and nothing is named in its place."
 		}
 		// A bash whose version would not be read is still tried: the trace either
 		// carries its timestamps or it does not, and the parser names nothing when

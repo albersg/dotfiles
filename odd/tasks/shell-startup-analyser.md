@@ -158,6 +158,31 @@ zsh table keeps zprof's own names, the bash trace is parsed from the stream and 
 elapsed deltas are kept, and the fish table keeps only the first word of a command (plus the path after
 `source`). No raw capture is written to the state file or drawn on screen.
 
+L6. T3 in place: `shellaudit_engine.go` holds the plan (`shellAuditPlan`: mode, samples, warm-up,
+baseline), the clamping (`shellAuditMaxSamples = 20`, `shellAuditMaxWarmup = 3`), the session
+(buffered event channel, own context and cancel), the per-start events with their part and place, the
+outcomes (finished, timed out, failed, cancelled) and `shellAuditRun` as the single record which the
+flat state is a projection of. A timeout is never folded into a sample, a cancelled start is neither a
+timeout nor a failure, and the last event carries the clamped plan that really ran, so a cancel cannot
+shrink the plan a user chose. The version probe is now what the capability matrix decides the
+instrument with, and the run reads the version once.
+
+L7. T4 in place: `shellaudit_profile.go` reads the shell's own instrument where the shell has one --
+zprof's table for zsh (wrapper directory with the user's own startup files stepped through, in all
+four modes), bash's own `EPOCHREALTIME` trace read from the live stream (the elapsed time of a traced
+command is the distance to the next stamp, attributed to the file it came from and the function it ran
+in), and fish's `--profile-startup` table. Redaction is applied before anything is kept: a command is
+reduced to its first word, a `source` keeps its path, and the bash trace is parsed line by line and
+never stored. Bash's login start is not traced at all -- a login bash reads its profile files instead
+of the rc file a trace can be pointed at -- and says so. Every profiled start is an extra start, never
+one of the samples. Fish rows carry no share: every row's own sum already contains the rows under it,
+so a denominator cannot be recovered from the table, and a percentage nobody can re-derive is exactly
+the invented per-plugin number this front refuses to print.
+
+L8. T3 and T4 landed under one work-unit commit: the engine dispatches into the instruments, so a tree
+with the engine and without the profilers does not build, and a commit that does not build is not a
+review unit. The two fronts' guards are in `shellaudit_engine_test.go` and `shellaudit_profile_test.go`.
+
 ## Remaining
 
-T1..T9, with their evidence recorded here as each one lands.
+T5..T9, with their evidence recorded here as each one lands.

@@ -339,28 +339,32 @@ func TestShellAuditStartForRefusesWhatItCannotReproduce(t *testing.T) {
 // a failed run.
 func TestShellAuditProfilerFollowsTheShell(t *testing.T) {
 	tests := []struct {
-		name        string
-		kind        shellAuditKind
-		version     string
-		want        shellAuditProfiler
-		reasonIn    string
-		wantNoProbe bool
+		name     string
+		kind     shellAuditKind
+		version  string
+		mode     shellAuditMode
+		want     shellAuditProfiler
+		reasonIn string
 	}{
-		{name: "zsh with zprof", kind: shellAuditKindZsh, version: "zsh 5.9.2 (x86_64-pc-linux-gnu)", want: shellAuditProfilerZprof},
-		{name: "bash 5 with its own trace", kind: shellAuditKindBash, version: "GNU bash, version 5.3.20(1)-release", want: shellAuditProfilerXtrace},
-		{name: "bash 4 without nanosecond timestamps", kind: shellAuditKindBash, version: "GNU bash, version 4.4.20(1)-release", reasonIn: "5.0"},
-		{name: "a bash that would not name its version", kind: shellAuditKindBash, version: "", want: shellAuditProfilerXtrace},
-		{name: "fish 4 with its own profile", kind: shellAuditKindFish, version: "fish, version 4.9.3", want: shellAuditProfilerFishStartup},
-		{name: "fish 3 with its own profile", kind: shellAuditKindFish, version: "fish, version 3.6.0", want: shellAuditProfilerFishStartup},
-		{name: "fish 2 without a profile", kind: shellAuditKindFish, version: "fish, version 2.7.1", reasonIn: "3"},
-		{name: "nushell has none", kind: shellAuditKindNushell, version: "0.116.1", reasonIn: "nushell"},
-		{name: "a posix shell has none", kind: shellAuditKindPosix, version: "", reasonIn: "dash"},
-		{name: "an unknown shell has none", kind: shellAuditKindUnknown, version: "", reasonIn: "unknown"},
+		{name: "zsh with zprof", kind: shellAuditKindZsh, version: "zsh 5.9.2 (x86_64-pc-linux-gnu)", mode: shellAuditModeInteractive, want: shellAuditProfilerZprof},
+		{name: "zsh's login start too", kind: shellAuditKindZsh, version: "zsh 5.9.2 (x86_64-pc-linux-gnu)", mode: shellAuditModeLogin, want: shellAuditProfilerZprof},
+		{name: "zsh's clean start too", kind: shellAuditKindZsh, version: "zsh 5.9.2 (x86_64-pc-linux-gnu)", mode: shellAuditModeClean, want: shellAuditProfilerZprof},
+		{name: "bash 5 with its own trace", kind: shellAuditKindBash, version: "GNU bash, version 5.3.20(1)-release", mode: shellAuditModeInteractive, want: shellAuditProfilerXtrace},
+		{name: "bash 4 without nanosecond timestamps", kind: shellAuditKindBash, version: "GNU bash, version 4.4.20(1)-release", mode: shellAuditModeInteractive, reasonIn: "5.0"},
+		{name: "a bash that would not name its version", kind: shellAuditKindBash, version: "", mode: shellAuditModeInteractive, want: shellAuditProfilerXtrace},
+		{name: "a bash login start has no rc file to trace", kind: shellAuditKindBash, version: "GNU bash, version 5.3.20(1)-release", mode: shellAuditModeLogin, reasonIn: "profile files"},
+		{name: "fish 4 with its own profile", kind: shellAuditKindFish, version: "fish, version 4.9.3", mode: shellAuditModeInteractive, want: shellAuditProfilerFishStartup},
+		{name: "fish 3.6 with its own profile", kind: shellAuditKindFish, version: "fish, version 3.6.0", mode: shellAuditModeInteractive, want: shellAuditProfilerFishStartup},
+		{name: "fish 3.5 without a startup profile", kind: shellAuditKindFish, version: "fish, version 3.5.1", mode: shellAuditModeInteractive, reasonIn: "3.6"},
+		{name: "fish 2 without a profile", kind: shellAuditKindFish, version: "fish, version 2.7.1", mode: shellAuditModeInteractive, reasonIn: "3.6"},
+		{name: "nushell has none", kind: shellAuditKindNushell, version: "0.116.1", mode: shellAuditModeInteractive, reasonIn: "nushell"},
+		{name: "a posix shell has none", kind: shellAuditKindPosix, version: "", mode: shellAuditModeInteractive, reasonIn: "POSIX"},
+		{name: "an unknown shell has none", kind: shellAuditKindUnknown, version: "", mode: shellAuditModeInteractive, reasonIn: "unknown"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, reason := shellAuditProfilerFor(tt.kind, shellAuditParseVersion(tt.version))
+			got, reason := shellAuditProfilerFor(tt.kind, shellAuditParseVersion(tt.version), tt.mode)
 			if got != tt.want {
 				t.Fatalf("the instrument = %q, want %q (reason %q)", got, tt.want, reason)
 			}
