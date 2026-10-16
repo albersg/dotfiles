@@ -296,7 +296,7 @@ L8 (the secret scan read a fixture as a secret, and the chain was rewritten to c
 >   in the pull request range contains it; `gitleaks --log-opts c1e4a64..HEAD` reports no leaks. The tip tree
 >   differs from the pre-rewrite tip only in those three test files and in this record, and the table above lists
 >   the SHAs of the rewritten chain.
-> - The other two findings are pre-existing and outside this range, both in commits that are ancestors of `main`:
->   `internal/tui/shellaudit_profile_test.go` (a curl authorization-header string) and
->   `internal/updates/updates_test.go` (a generic API-key pattern). They are reported to the maintainer rather
->   than touched here, because they are not this change's to fix.
+> - The other two findings are not in this range and not in `main`: they sit in commits of other in-flight
+>   branches of the same clone -- `internal/tui/shellaudit_profile_test.go` (a curl authorization-header string)
+>   and `internal/updates/updates_test.go` (a generic API-key pattern). They are reported to the maintainer
+>   rather than touched here: they belong to work that is not this change's.
