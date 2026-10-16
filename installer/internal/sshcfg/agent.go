@@ -93,7 +93,15 @@ func (m *Manager) AgentState(ctx context.Context) AgentState {
 		return state
 	}
 
-	res := m.Run.Run(ctx, Command{Name: m.Caps.Add, Args: []string{"-l"}})
+	run := m.Run
+	if run == nil {
+		// A Manager built without a runner still has to work: the injected runner is how
+		// the tests stay off the machine, and a caller that did not inject one is asking
+		// for the real tool rather than for a panic.
+		run = ExecRunner{}
+	}
+
+	res := run.Run(ctx, Command{Name: m.Caps.Add, Args: []string{"-l"}})
 	switch {
 	case res.Err != nil:
 		state.Reason = "the agent could not be asked: " + res.Message()
