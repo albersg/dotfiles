@@ -11,7 +11,7 @@
   host.                                                                         
   Measure the shell's startup runs zsh -i -c exit several times and reports     
   the median with the range; it changes nothing.                                
-  Check the installed tools for updates changes only what you select.           
+  Report the terminal capabilities reads the colour depth, OSC 52,              
   … and 3 more                                                                  
                                                                                 
   ▸ Change the dotfiles theme                                                   

@@ -1680,18 +1680,20 @@ func (m Model) utilitiesDescription() []string {
 			"the range; it changes nothing.", utilitiesShellAuditRow, m.ShellAudit.Command))
 	}
 
-	// The update center, one line naming what the row does with what it reads. The
-	// section's body is a summary bounded by the frame: at the floor size the
-	// description runs a line or two past what the frame can show and the frame says
-	// "… and N more" rather than clipping in silence, so the sentence is kept to a
-	// single line and the screen itself is where the whole rule is written out.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s changes only what you select.", utilitiesUpdatesRow))
-
 	// The terminal capability report. It is read-only and offered everywhere;
 	// where there is no terminal to read, the screen itself says so rather than
 	// the section leaving a hole. Naming it here is what makes the row findable.
 	paragraphs = append(paragraphs, fmt.Sprintf("%s reads the colour depth, OSC 52, synchronized "+
 		"output and the Nerd Font glyphs, and names the source of every answer.", utilitiesTerminalRow))
+
+	// The update center, one line naming what the row does with what it reads. It
+	// is the last paragraph on purpose: the section's body is a summary bounded by
+	// the frame, and at the floor size the frame shows what fits and says "… and N
+	// more" rather than clipping in silence. A job added at the end spends its own
+	// line and never pushes an older job's explanation behind the counter -- which
+	// is exactly what happened when this paragraph was first written above the
+	// terminal capability line.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s changes only what you select.", utilitiesUpdatesRow))
 
 	return paragraphs
 }

@@ -63,6 +63,14 @@ const (
 	// updateCenterApplyRowPrefix leads the row that confirms a selection. Its
 	// count is the selection's own count, never a number kept beside it.
 	updateCenterApplyRowPrefix = "Apply the selected updates ("
+	// updateCenterSelectVisibleRowPrefix and updateCenterDropVisibleRowPrefix lead
+	// the row that takes the category on screen in one press. Its count is how
+	// many entries the filter is showing that can be selected -- a pinned entry is
+	// shown and never taken -- so the row cannot claim a number the list does not
+	// have. The second prefix is the same row once the whole category is already
+	// selected: a row that says "select" and drops is a row that lies about itself.
+	updateCenterSelectVisibleRowPrefix = "Select the "
+	updateCenterDropVisibleRowPrefix   = "Drop the "
 	// updateCenterFilterRowPrefix leads the one filter row, whose value cycles
 	// through the managers that have entries. One row rather than one row per
 	// manager: the filter is a view of the same list, not a second list.
@@ -141,6 +149,11 @@ type updateCenterState struct {
 	Confirming bool
 	Plans      []updates.Plan
 	LeftOut    []updates.LeftOut
+	// NotReached is what the run was asked to move and never got to: the entries
+	// of the plans a stopped sequence did not start. They are not left out -- an
+	// entry left out is one no command could carry -- and keeping the two apart
+	// is what lets the report say which of the two actually happened.
+	NotReached []updates.Item
 
 	// Applying reports that the confirmed plans are running, PlanIndex is the one
 	// running now, and Applied is what the finished ones did.
@@ -193,6 +206,21 @@ type updateCenterLinesClosedMsg struct{}
 // either path -- checking or applying.
 func (m *Model) startUpdateCenterScan() tea.Cmd {
 	state := &m.UpdateCenter
+
+	// A pass that is still out is the whole answer: starting a second one beside
+	// it would put two managers on the machine at once, which is the lock this
+	// screen exists never to take. Asking again means waiting for this one -- on
+	// the re-check key, on the section's row, and on the model that re-enters the
+	// screen while a read is still outstanding.
+	if state.InFlight {
+		if state.Pending != "" {
+			state.Notice = "Already reading " + string(state.Pending) + ": one manager at a time."
+		} else {
+			state.Notice = "A reading pass is already running: one manager at a time."
+		}
+		return nil
+	}
+
 	if state.Engine == nil {
 		state.Engine = updates.Default(m.SystemInfo != nil && m.SystemInfo.IsTermux)
 	}
@@ -248,7 +276,10 @@ func (m *Model) updateCenterNextManager(manager updates.ManagerID) updates.Manag
 // the screen shows them as they come.
 func (m *Model) startUpdateCenterApply() tea.Cmd {
 	state := &m.UpdateCenter
-	if state.Applying || state.Engine == nil || len(state.Plans) == 0 {
+	// A pass that is still running is refused here as well as on the row: the plan
+	// is built from what the managers answered, and a plan confirmed from half an
+	// answer is a command built from half a list.
+	if state.Applying || state.InFlight || state.Engine == nil || len(state.Plans) == 0 {
 		return nil
 	}
 
@@ -351,8 +382,21 @@ func (m Model) updateCenterRows() []string {
 	}
 
 	var actions []string
+	// One row takes the category the filter is showing. It is offered before the
+	// per-entry actions and only on a settled list: taking a manager's worth of
+	// updates one entry at a time is the work a list exists to save, and doing it
+	// while the list is still being read would take a number the read has not
+	// finished.
+	if selectable := m.updateCenterSelectableVisible(); !state.InFlight && len(selectable) > 1 {
+		actions = append(actions, m.updateCenterSelectVisibleRow(selectable))
+	}
 	if state.Selected.Count() > 0 {
-		actions = append(actions, updateCenterApplyRow(state.Selected.Count()), updateCenterClearRow)
+		// Confirming is offered only once every manager has answered: the plan is
+		// built from the answers, so a list still being read is not a plan.
+		if !state.InFlight {
+			actions = append(actions, updateCenterApplyRow(state.Selected.Count()))
+		}
+		actions = append(actions, updateCenterClearRow)
 	}
 	if !state.InFlight {
 		actions = append(actions, updateCenterCheckRow)
@@ -394,7 +438,72 @@ func updateCenterItemRow(item updates.Item, selected bool) string {
 	if item.Available != "" {
 		versions += " → " + item.Available
 	}
-	return fmt.Sprintf("%s%s  %s  %s", mark, item.Name, versions, item.Origin())
+	row := fmt.Sprintf("%s%s  %s  %s", mark, item.Name, versions, item.Origin())
+
+	// What the manager said about this one entry that is neither a version nor a
+	// hold -- a version it does not report, a cask the vendor maintains itself --
+	// belongs on the row the reader decides about. The row is truncated to the
+	// list's own measure like every other row, so a narrow terminal cuts the note
+	// rather than wrapping the list out of the frame.
+	if item.Note != "" {
+		row += "  — " + item.Note
+	}
+	return row
+}
+
+// updateCenterSelectableVisible is what the filter is showing that this screen
+// would actually move: a pinned entry is on the screen and is never selected,
+// because selecting it would mean a row that accepts a press it will refuse.
+func (m Model) updateCenterSelectableVisible() []updates.Item {
+	var selectable []updates.Item
+	for _, item := range m.updateCenterVisibleItems() {
+		if !item.Pinned {
+			selectable = append(selectable, item)
+		}
+	}
+	return selectable
+}
+
+// updateCenterSelectVisibleRow is the category row as the current selection makes
+// it read: taking the shown entries, or putting them back once they are all taken.
+func (m Model) updateCenterSelectVisibleRow(selectable []updates.Item) string {
+	prefix := updateCenterSelectVisibleRowPrefix
+	if m.updateCenterAllVisibleSelected(selectable) {
+		prefix = updateCenterDropVisibleRowPrefix
+	}
+	return fmt.Sprintf("%s%d shown)", prefix, len(selectable))
+}
+
+// updateCenterAllVisibleSelected reports whether every selectable entry on screen
+// is already selected. An empty group is not "all selected": there is nothing to
+// put back.
+func (m Model) updateCenterAllVisibleSelected(selectable []updates.Item) bool {
+	if len(selectable) == 0 {
+		return false
+	}
+	for _, item := range selectable {
+		if !m.UpdateCenter.Selected.Has(item) {
+			return false
+		}
+	}
+	return true
+}
+
+// updateCenterToggleVisibleSelection takes the whole category or puts it back. It
+// touches only what the filter is showing, so narrowing to one manager and taking
+// the category cannot reach another manager's entries -- and it cannot reach a
+// pinned one, which is left where the manager holds it.
+func (m *Model) updateCenterToggleVisibleSelection() {
+	selectable := m.updateCenterSelectableVisible()
+	drop := m.updateCenterAllVisibleSelected(selectable)
+	for _, item := range selectable {
+		switch {
+		case drop:
+			m.UpdateCenter.Selected.Drop(item)
+		case !m.UpdateCenter.Selected.Has(item):
+			m.UpdateCenter.Selected.Toggle(item)
+		}
+	}
 }
 
 // updateCenterApplyRow is the row that opens the confirmation. Its count is the
@@ -605,7 +714,7 @@ func (m Model) updateCenterDescription() []string {
 	}
 
 	for _, channel := range state.Channels {
-		paragraphs = append(paragraphs, m.updateCenterChannelParagraph(channel))
+		paragraphs = append(paragraphs, m.updateCenterChannelParagraphs(channel)...)
 	}
 
 	if !state.CheckedAt.IsZero() {
@@ -629,20 +738,28 @@ func (m Model) updateCenterDescription() []string {
 	return paragraphs
 }
 
-// updateCenterChannelParagraph is one manager's line of the inventory: what it
-// answered, with the command it was asked with, or why it could not be asked.
-func (m Model) updateCenterChannelParagraph(channel updates.Channel) string {
+// updateCenterChannelParagraphs is one manager's part of the inventory: the line
+// that says what it answered, with the command it was asked with, or why it could
+// not be asked -- followed by the manager's own caveats about that answer.
+//
+// The caveats are not part of the answer's line on purpose. apt says which entries
+// it is keeping back, pacman says when it could not read its ignore list,
+// Homebrew says when its metadata was not refreshed, flatpak says when it assumed
+// an installation: each one is a statement that the list is incomplete, stale or
+// built on an assumption, and a screen that drops them presents an incomplete
+// answer as a complete one.
+func (m Model) updateCenterChannelParagraphs(channel updates.Channel) []string {
 	if !channel.Available {
 		kind := "is not installed here"
 		if channel.Status == updates.StatusUnsupported {
 			kind = "does not serve this host"
 		}
-		return fmt.Sprintf("%s %s: %s.", channel.Label, kind, channel.Reason)
+		return []string{fmt.Sprintf("%s %s: %s.", channel.Label, kind, channel.Reason)}
 	}
 
 	result, answered := m.updateCenterResult(channel.Manager)
 	if !answered {
-		return fmt.Sprintf("%s: not read yet.", channel.Label)
+		return []string{fmt.Sprintf("%s: not read yet.", channel.Label)}
 	}
 
 	var line string
@@ -660,7 +777,12 @@ func (m Model) updateCenterChannelParagraph(channel updates.Channel) string {
 	if result.Command != "" {
 		line += " Read with " + result.Command + "."
 	}
-	return line
+
+	paragraphs := []string{line}
+	for _, note := range result.Notes {
+		paragraphs = append(paragraphs, "   note: "+note)
+	}
+	return paragraphs
 }
 
 // updateCenterPlanParagraphs is the plan the confirmation state shows: every
@@ -752,26 +874,82 @@ func (m Model) updateCenterSudoAvailable() bool {
 	return m.UpdateCenter.Engine.Env.SudoAvailable
 }
 
-// updateCenterApplyNotice is the one line the screen shows once the sequence has
-// finished: what was requested, what the managers confirmed, and that the list is
-// being read again.
-func (m Model) updateCenterApplyNotice() string {
-	confirmed, executed, failed, leftOut := 0, 0, 0, 0
-	for _, applied := range m.UpdateCenter.Applied {
+// updateCenterItemOutcomes is every entry this run was asked to move, with what
+// became of it. The manager's own result is used where the command ran; an entry
+// whose command was never started is reported as requested, because that is what
+// it is -- a request the run did not reach, which is the state a stopped sequence
+// leaves behind; and an entry no command carried at all is reported as left out
+// with the reason its own manager gave.
+//
+// The four states are the distinction the screen exists to make. Reading them off
+// one list is what keeps the summary from counting an entry that never ran as if
+// the manager had refused it.
+func (m Model) updateCenterItemOutcomes() []updates.Outcome {
+	state := m.UpdateCenter
+	var outcomes []updates.Outcome
+	reported := map[string]bool{}
+	for _, applied := range state.Applied {
 		for _, outcome := range applied.Outcomes {
-			switch outcome.Step {
-			case updates.StepConfirmed:
-				confirmed++
-			case updates.StepExecuted:
-				executed++
-			default:
-				failed++
-			}
+			outcomes = append(outcomes, outcome)
+			reported[outcome.Item.Key()] = true
 		}
 	}
-	for _, outcome := range m.UpdateCenter.LeftOut {
-		_ = outcome
-		leftOut++
+	for _, item := range state.NotReached {
+		if reported[item.Key()] {
+			continue
+		}
+		reported[item.Key()] = true
+		outcomes = append(outcomes, updates.Outcome{
+			Item:   item,
+			Step:   updates.StepRequested,
+			Detail: "the run was stopped before this command ran",
+		})
+	}
+	for _, plan := range state.Plans {
+		for _, item := range plan.Items {
+			if reported[item.Key()] {
+				continue
+			}
+			reported[item.Key()] = true
+			outcomes = append(outcomes, updates.Outcome{
+				Item:   item,
+				Step:   updates.StepRequested,
+				Detail: "the command that would move this has not run yet",
+			})
+		}
+	}
+	for _, leftOut := range state.LeftOut {
+		if reported[leftOut.Item.Key()] {
+			continue
+		}
+		reported[leftOut.Item.Key()] = true
+		outcomes = append(outcomes, updates.Outcome{
+			Item:   leftOut.Item,
+			Step:   updates.StepLeftOut,
+			Detail: leftOut.Reason,
+		})
+	}
+	return outcomes
+}
+
+// updateCenterApplyNotice is the one line the screen shows once the sequence has
+// finished: what was requested, what the managers confirmed, what was requested
+// and never reached, and that the list is being read again.
+func (m Model) updateCenterApplyNotice() string {
+	confirmed, executed, failed, requested, leftOut := 0, 0, 0, 0, 0
+	for _, outcome := range m.updateCenterItemOutcomes() {
+		switch outcome.Step {
+		case updates.StepConfirmed:
+			confirmed++
+		case updates.StepExecuted:
+			executed++
+		case updates.StepRequested:
+			requested++
+		case updates.StepLeftOut:
+			leftOut++
+		default:
+			failed++
+		}
 	}
 	parts := []string{fmt.Sprintf("%d confirmed", confirmed)}
 	if executed > 0 {
@@ -779,6 +957,10 @@ func (m Model) updateCenterApplyNotice() string {
 	}
 	if failed > 0 {
 		parts = append(parts, fmt.Sprintf("%d not moved", failed))
+	}
+	if requested > 0 {
+		parts = append(parts, countedNoun(requested,
+			"entry was requested and never run", "entries were requested and never run"))
 	}
 	if leftOut > 0 {
 		parts = append(parts, fmt.Sprintf("%d left out", leftOut))
@@ -951,7 +1133,10 @@ func (m Model) handleUpdateCenterKeys(key string) (tea.Model, tea.Cmd) {
 			scan := m.startUpdateCenterScan()
 			return m, scan
 		case strings.HasPrefix(selected, updateCenterApplyRowPrefix):
-			if state.Selected.Count() == 0 || state.Applying {
+			// The row is not drawn while a manager is still being read, and the
+			// handler refuses it anyway: a row the screen declines to draw is not a
+			// guarantee, and this is the one action that runs commands.
+			if state.Selected.Count() == 0 || state.Applying || state.InFlight {
 				return m, nil
 			}
 			m.updateCenterPlanSelection()
@@ -967,6 +1152,9 @@ func (m Model) handleUpdateCenterKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 		case selected == updateCenterStopRow:
 			return m.stopUpdateCenterRun()
+		case strings.HasPrefix(selected, updateCenterSelectVisibleRowPrefix),
+			strings.HasPrefix(selected, updateCenterDropVisibleRowPrefix):
+			m.updateCenterToggleVisibleSelection()
 		case strings.HasPrefix(selected, updateCenterFilterRowPrefix):
 			m.updateCenterCycleFilter()
 			m.Cursor = 0
@@ -1020,13 +1208,10 @@ func (m Model) updateCenterHandleApplyDone(msg updateCenterApplyDoneMsg) (tea.Mo
 	state.Applied = append(state.Applied, msg.result)
 
 	if msg.result.Status == updates.StatusCancelled {
+		// The plans that were never started are requests the run did not reach,
+		// not entries left out: nothing refused them, the stop did.
 		for _, plan := range state.Plans[msg.index+1:] {
-			for _, item := range plan.Items {
-				state.LeftOut = append(state.LeftOut, updates.LeftOut{
-					Item:   item,
-					Reason: "the run was stopped before this command ran",
-				})
-			}
+			state.NotReached = append(state.NotReached, plan.Items...)
 		}
 	}
 
@@ -1082,12 +1267,29 @@ func updateCenterPanelValue(state updateCenterState) string {
 		return fmt.Sprintf("%d selected", state.Selected.Count())
 	}
 
-	available := 0
+	// An answer and a failure are not the same fact, so they are not counted
+	// together: "nothing to update" may only be said about channels that said so
+	// themselves. A channel that could not be read is reported beside whatever
+	// the others answered.
+	available, unread := 0, 0
 	for _, result := range state.Results {
 		available += result.Updates()
+		switch result.Status {
+		case updates.StatusUpdates, updates.StatusCurrent:
+			// A channel that answered.
+		default:
+			unread++
+		}
 	}
-	if available == 0 {
+
+	switch {
+	case available == 0 && unread == 0:
 		return "nothing to update"
+	case available == 0:
+		return fmt.Sprintf("%d could not be read", unread)
+	case unread > 0:
+		return fmt.Sprintf("%d update%s available, %d could not be read",
+			available, plural(available, "", "s"), unread)
 	}
 	if available == 1 {
 		return "1 update available"

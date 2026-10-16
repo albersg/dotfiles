@@ -698,14 +698,22 @@ func TestAStoppedRunEndsTheSequenceAndReportsWhatWasNotReached(t *testing.T) {
 	if m.UpdateCenter.Applying {
 		t.Error("a stopped run is still marked as applying")
 	}
-	leftOut := false
-	for _, out := range m.UpdateCenter.LeftOut {
-		if out.Item.Name == "libc6" && strings.Contains(out.Reason, "stopped") {
-			leftOut = true
+	requested, claimedLeftOut := false, false
+	for _, item := range m.UpdateCenter.NotReached {
+		if item.Name == "libc6" {
+			requested = true
 		}
 	}
-	if !leftOut {
-		t.Errorf("the command that was never reached is not reported as left out: %+v", m.UpdateCenter.LeftOut)
+	for _, out := range m.UpdateCenter.LeftOut {
+		if out.Item.Name == "libc6" {
+			claimedLeftOut = true
+		}
+	}
+	if !requested {
+		t.Errorf("the command that was never reached is not kept as requested and never run: %+v", m.UpdateCenter.NotReached)
+	}
+	if claimedLeftOut {
+		t.Error("a command that was never started is reported as an entry left out, which claims no command could carry it")
 	}
 	if cmd == nil || !m.UpdateCenter.InFlight {
 		t.Error("a stopped run did not read the managers again, so the screen cannot say what the machine holds")
