@@ -91,7 +91,7 @@ it, and the screen has to exist before the plan can show which choice each row c
       row indented under its tool saying either its switch state or where the set comes from.
 - [x] **T4. The command line and the plan agree** (S6): the sets and the switches the screen
       gains reach the flags and `--skip`, through the one builder.
-- [ ] **T5. Docs and changelog** (S1-S7).
+- [x] **T5. Docs and changelog** (S1-S7).
 - [ ] **T6. The guards move with the screens** (S7): frame lists, counts, the plan-name
       golden, the teatest paths and the E2E expectations.
 - [x] **T7. The shell's set becomes a switch too** (S3, S4), the user's decision at L13.
@@ -507,3 +507,30 @@ L17 -- T4 delivered: the command line can name the platform, and the non-interac
   The gate for this entry, its work-unit commit and the push are recorded in the todo board and in the
   commit message; `docs/tui-installer.md` documents the flag where the other non-interactive flags are,
   and `CHANGELOG.md` carries the entry.
+
+L18 -- T5: the docs and the changelog were checked against the front, and they were already right.
+
+  This task was written as "docs and changelog" because a front that changes what a user sees leaves
+  stale prose behind. It did not, and the check is recorded rather than asserted. The changelog's
+  Unreleased section carries one bullet per change of this front -- the setup screen and its detours, the
+  plugin set a step provisions being leaveable out, the plan screen reading the plan, the shell's set
+  becoming a switch, and the platform flag -- in the Added section and in commit order, which is the
+  file's convention. The documentation describes the setup screen with its rows, its cursor and its
+  detours including the fact that a detour's answers survive (docs/tui-installer.md), the plan screen's
+  areas and its four provenance sentences, the four sets with the two that are not switches and the
+  reason each of those carries (docs/tools.md and docs/tui-installer.md), and the flags with the values
+  they accept.
+
+  The checks that would have found a gap came back empty, which is the finding: no document still counts
+  the six question screens as the flow's steps, none still describes the screen between the last choice
+  and the run as a catalogue of the repository's units, and the flag table names the accepted platform
+  values, which the help guard also holds. One gap was found and closed while checking rather than after:
+  the set row's short phrase, which is L15's defect, is described where the rows are described, together
+  with the reason the registry's longer reason does not appear there.
+
+  Evidence: read in place -- the changelog's bullet list, the setup-screen and plan-screen sections of
+  docs/tui-installer.md, the plugins sections of docs/tools.md and docs/tui-installer.md, and the flag
+  tables -- plus the greps quoted above, all of them negative for stale text. No code changed in this
+  task, so its gate result is the one the previous commit recorded on the same code tree: a doc-only
+  change cannot alter what the guards measure, and claiming a fresh suite run for it would be a claim
+  without a subject.
