@@ -207,3 +207,82 @@ func nameCopies(t *testing.T, record *lastInstall, keyPath, copyOfKey string) {
 		record.Changes[i].Backup = filepath.Join(copyOfKey, rel)
 	}
 }
+
+// A link inside a written key whose target still matches the run's copy is only half
+// the question: what it reaches can be somewhere the record never walked. A link into
+// a checkout, a shared directory or a cache is a place this run could have written
+// with nothing on the other side of the record -- reporting the machine back there
+// claims knowledge the record does not have, and saying nothing is the same false
+// success in a quieter voice.
+func TestALinkIntoATreeTheRecordDoesNotCoverIsReportedNotAssumed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+
+	nvim := system.ConfigPaths()["nvim"]
+	if nvim == "" {
+		t.Skip("this machine has no nvim configuration path")
+	}
+	reach := filepath.Join(home, "checkout", "lua")
+	if err := os.MkdirAll(reach, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reach, "plugin.lua"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(nvim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lua := filepath.Join(nvim, "lua")
+	if err := os.Symlink(reach, lua); err != nil {
+		t.Fatal(err)
+	}
+	initLua := filepath.Join(nvim, "init.lua")
+	if err := os.WriteFile(initLua, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	copyOfNvim := filepath.Join(home, ".dotfiles-backup-2026-01-01-000000", "nvim")
+	if err := os.MkdirAll(copyOfNvim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(copyOfNvim, "init.lua"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(reach, filepath.Join(copyOfNvim, "lua")); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.ExistingConfigs = []string{"nvim: " + nvim}
+	m.ConfigFingerprints = configFingerprints()
+	m.ConfigFileIndex = configFileIndex()
+
+	if err := os.WriteFile(initLua, []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.recordRun(runStatusComplete, nil)
+
+	record := readLastInstall()
+	if record == nil {
+		t.Fatal("the run wrote no record")
+	}
+	for i := range record.Entries {
+		if record.Entries[i].Key == "nvim" {
+			record.Entries[i].Backup = copyOfNvim
+		}
+	}
+	nameCopies(t, record, nvim, copyOfNvim)
+	if err := writeLastInstall(*record); err != nil {
+		t.Fatal(err)
+	}
+
+	// The link is exactly where the run found it; what it reaches is not.
+	_, err := RevertLastRun(RevertOptions{})
+	if err == nil {
+		t.Fatalf("%s reaches %s, a tree the record covers nowhere, and the revert answered nothing", lua, reach)
+	}
+	if !strings.Contains(err.Error(), lua) || !strings.Contains(err.Error(), reach) {
+		t.Errorf("the answer names neither the link nor where it reaches: %v", err)
+	}
+}

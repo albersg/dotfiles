@@ -148,12 +148,84 @@ func firstUnaccountedInside(record *lastInstall, entry installEntry) string {
 				return nil
 			}
 		}
-		if !sameShapeAsCopy(entry, path) {
+		if unaccountedInside(record, entry, path) != "" {
 			unaccounted = path
 		}
 		return nil
 	})
 	return unaccounted
+}
+
+// unaccountedInside explains why a path inside a key the record says the run wrote is
+// one the record cannot vouch for, or returns "" when it can. Only the kinds the
+// per-file record does not hold reach here: a change naming the path settles it first.
+func unaccountedInside(record *lastInstall, entry installEntry, path string) string {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return path + ", which the record lists no change for and which cannot be read now"
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return path + ", which the record lists no change for and which is not a kind the copy of the key keeps"
+	}
+
+	// A link. Against the copy the run took, the target it holds says whether the link
+	// itself moved; where that target resolves to says whether what it reaches is
+	// inside what the record covers at all. The path is named in every answer, because
+	// a report that says only which key failed leaves the reader looking.
+	if copiedTarget, target := linkTarget(copiedFor(entry, path)), linkTarget(path); copiedTarget != "" && copiedTarget != target {
+		return path + ", which the run's copy points at " + copiedTarget + " and the machine points at " + target + ", and which the record lists no change for"
+	}
+	if reach := reachOutsideRecord(record, path); reach != "" {
+		return path + ", which is a link into " + reach + " -- outside every path this record covers, so nothing here can say what the run left there"
+	}
+	return ""
+}
+
+// copiedFor returns the path the run's backup holds of one path inside a key, or "".
+func copiedFor(entry installEntry, path string) string {
+	if entry.Backup == "" || entry.Path == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(entry.Path, path)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(entry.Backup, rel)
+}
+
+// linkTarget returns what a link points at, or "" when it is not a link that can be read.
+func linkTarget(path string) string {
+	if path == "" {
+		return ""
+	}
+	target, err := os.Readlink(path)
+	if err != nil {
+		return ""
+	}
+	return target
+}
+
+// reachOutsideRecord returns the path a link resolves to when that path is inside
+// none of the paths the record says the run wrote, and "" when what it reaches is
+// covered or reaches nothing at all. A link into a tree the record covers is one whose
+// contents the record lists file by file; a link out of it is a place this run may have
+// written where nothing it recorded can reach -- a checkout, a shared directory, a
+// cache -- and saying nothing about it would claim a machine is back on the strength of
+// a path the record never saw.
+func reachOutsideRecord(record *lastInstall, path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "" // nothing at the other end: there is nothing to reach
+	}
+	for _, entry := range writtenPaths(record) {
+		if entry.Path == "" {
+			continue
+		}
+		if resolved == entry.Path || strings.HasPrefix(resolved, strings.TrimSuffix(entry.Path, string(os.PathSeparator))+string(os.PathSeparator)) {
+			return ""
+		}
+	}
+	return resolved
 }
 
 // namesPathUnder reports whether any change names a path inside the given one.
@@ -165,33 +237,6 @@ func namesPathUnder(changes []fileChange, path string) bool {
 		}
 	}
 	return false
-}
-
-// sameShapeAsCopy reports whether the run's own copy of a path holds what the machine
-// holds now: the same target for a link, the same kind for anything else. The copy is
-// the before-state the run took, so agreement is what makes an untouched link evidence
-// rather than a reason for alarm -- and a copy that is gone or differs is what keeps
-// the revert from vouching for a machine it cannot put back.
-func sameShapeAsCopy(entry installEntry, path string) bool {
-	if entry.Backup == "" || entry.Path == "" {
-		return false
-	}
-	rel, err := filepath.Rel(entry.Path, path)
-	if err != nil {
-		return false
-	}
-	copied := filepath.Join(entry.Backup, rel)
-	onMachine, machineErr := os.Lstat(path)
-	inCopy, copyErr := os.Lstat(copied)
-	if machineErr != nil || copyErr != nil {
-		return false
-	}
-	if onMachine.Mode()&os.ModeSymlink != 0 && inCopy.Mode()&os.ModeSymlink != 0 {
-		target, targetErr := os.Readlink(path)
-		copiedTarget, copiedErr := os.Readlink(copied)
-		return targetErr == nil && copiedErr == nil && target == copiedTarget
-	}
-	return onMachine.Mode() == inCopy.Mode()
 }
 
 // writtenPaths returns the paths a record says the run wrote, for a record that
@@ -281,6 +326,8 @@ func RevertLastRun(opts RevertOptions) (RevertReport, error) {
 		reason := ""
 		if missing == entry.Path {
 			reason = "the record names this path as one the run wrote, but not the file it is or what it held, so nothing here can put it back"
+		} else if why := unaccountedInside(record, entry, missing); why != "" {
+			reason = "the record says the run wrote this path, and this is what it cannot account for: " + why
 		} else {
 			reason = "the record says the run wrote this path, and " + missing + " inside it is not a regular file the record lists, so nothing here can say what the run left there"
 		}
