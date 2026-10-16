@@ -359,7 +359,9 @@ Checks after T9:
   scratch copies of several verification runs resident. That diagnosis was reproduced: the subtest
   fails while the filesystem is full and passes once this session's own scratch copy (323 MB) was
   removed, and it installs Neovim assets without ever touching the disk cleaner. Every other package
-  in the gate, `internal/diskclean` among them, is `ok`.
+  in the gate, `internal/diskclean` among them, is `ok`. The gate was run once more with the space
+  free, and it then fails on exactly the same set as before this feature: the four Ghostty tests and
+  the two environmental smoke steps, and nothing else.
 
 ## Remaining
 
