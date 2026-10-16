@@ -143,15 +143,22 @@ func CreateBackup(configs []string) (string, []string, error) {
 		// Lstat, not Stat: a symlink the user made is part of the tree they had,
 		// and following it here would replace it in the backup with whatever it
 		// pointed at, so restoring would hand back a tree they never had.
-		info, err := os.Lstat(srcPath)
-		if err != nil {
+		if _, err := os.Lstat(srcPath); err != nil {
 			// Nothing to protect: the path does not exist yet, and the record of
 			// the run is what says the install created it.
 			continue
 		}
 
 		dstPath := filepath.Join(backupDir, key)
-		entries, omissions, copyErr := copyBackupEntry(key, srcPath, dstPath, info)
+		entries := []backupManifestEntry{}
+		omissions := []backupManifestOmission{}
+		copyErr := copyTreePreservingShape(srcPath, dstPath,
+			func(rel, path, kind string) {
+				entries = append(entries, backupManifestEntry{Key: key, Rel: rel, Path: path, Kind: kind})
+			},
+			func(rel, path, reason string) {
+				omissions = append(omissions, backupManifestOmission{Key: key, Rel: rel, Path: path, Reason: reason})
+			})
 		manifest.Entries = append(manifest.Entries, entries...)
 		manifest.Skipped = append(manifest.Skipped, omissions...)
 		for _, omission := range omissions {
@@ -180,109 +187,289 @@ func CreateBackup(configs []string) (string, []string, error) {
 	return backupDir, skippedPaths, nil
 }
 
-// copyBackupEntry copies one configuration path and reports what it holds.
-func copyBackupEntry(key, src, dst string, info os.FileInfo) ([]backupManifestEntry, []backupManifestOmission, error) {
+// copyTreePreservingShape copies a file, a directory or a symlink, keeping the
+// shape of what it finds: a symlink stays a symlink and a directory stays a
+// directory, because a copy that resolves a link hands back a tree the user
+// never had. It is the one copier behind the backup and the restore, so both
+// agree about what "a copy of this" means.
+//
+// record is told about every entry written and omit about every entry that could
+// not be written; either may be nil. An entry that is not a regular file, a
+// directory or a symlink is omitted rather than fatal when it lives inside a
+// directory, and is an error when it is the path itself: a whole configuration
+// path that cannot be copied is a path the caller cannot promise to protect.
+func copyTreePreservingShape(src, dst string, record func(rel, path, kind string), omit func(rel, path, reason string)) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+
 	switch {
 	case info.Mode()&os.ModeSymlink != 0:
 		target, err := os.Readlink(src)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return nil, nil, err
+			return err
 		}
 		if err := os.Symlink(target, dst); err != nil {
-			return nil, nil, err
+			return err
 		}
-		return []backupManifestEntry{{Key: key, Rel: filepath.Base(src), Path: src, Kind: "symlink"}}, nil, nil
-
-	case info.IsDir():
-		return copyDirForBackup(key, src, dst)
+		if record != nil {
+			record(filepath.Base(src), src, "symlink")
+		}
+		return nil
 
 	case info.Mode().IsRegular():
 		if err := CopyFile(src, dst); err != nil {
-			return nil, nil, err
+			return err
 		}
-		return []backupManifestEntry{{Key: key, Rel: filepath.Base(src), Path: src, Kind: "file"}}, nil, nil
+		if record != nil {
+			record(filepath.Base(src), src, "file")
+		}
+		return nil
+
+	case info.IsDir():
+		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+			return err
+		}
+		if record != nil {
+			record(".", src, "dir")
+		}
+		return filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if path == src {
+				return nil
+			}
+
+			rel, err := filepath.Rel(src, path)
+			if err != nil {
+				return err
+			}
+			target := filepath.Join(dst, rel)
+
+			switch {
+			case d.Type()&os.ModeSymlink != 0:
+				link, err := os.Readlink(path)
+				if err != nil {
+					return err
+				}
+				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+					return err
+				}
+				if err := os.Symlink(link, target); err != nil {
+					return err
+				}
+				if record != nil {
+					record(rel, path, "symlink")
+				}
+
+			case d.IsDir():
+				childInfo, err := d.Info()
+				if err != nil {
+					return err
+				}
+				if err := os.MkdirAll(target, childInfo.Mode().Perm()); err != nil {
+					return err
+				}
+				if record != nil {
+					record(rel, path, "dir")
+				}
+
+			case d.Type().IsRegular():
+				if err := CopyFile(path, target); err != nil {
+					return err
+				}
+				if record != nil {
+					record(rel, path, "file")
+				}
+
+			default:
+				if omit != nil {
+					omit(rel, path, describeNonRegular(d.Type()))
+				}
+			}
+			return nil
+		})
 
 	default:
-		return nil, nil, fmt.Errorf("copy %s: %w", src, ErrNotRegularFile)
+		return fmt.Errorf("copy %s: %w", src, ErrNotRegularFile)
 	}
 }
 
-// copyDirForBackup copies a directory tree for the backup, preserving the shape
-// of what it finds: a symlink stays a symlink, a directory stays a directory,
-// and an entry that cannot be copied is left out and named in the manifest.
-func copyDirForBackup(key, src, dst string) ([]backupManifestEntry, []backupManifestOmission, error) {
-	rootInfo, err := os.Lstat(src)
+// RestoreEntryReport is what happened to one entry of a backup.
+type RestoreEntryReport struct {
+	Key    string `json:"key"`
+	Path   string `json:"path,omitempty"`
+	Status string `json:"status"` // restored | skipped | failed
+	Reason string `json:"reason,omitempty"`
+}
+
+// RestoreReport is the account a restore gives of itself: what it put back, what
+// it could not place and why, and where the state it replaced is kept. "Your
+// configuration is back" and "two of the five files are back" are different
+// answers, and only the report can tell them apart.
+type RestoreReport struct {
+	SnapshotDir    string               `json:"snapshotDir,omitempty"`
+	SnapshotReason string               `json:"snapshotReason,omitempty"`
+	Entries        []RestoreEntryReport `json:"entries"`
+	Restored       int                  `json:"restored"`
+	Skipped        int                  `json:"skipped"`
+	Failed         int                  `json:"failed"`
+}
+
+// RestoreBackupReport puts a backup back and reports what it did, entry by
+// entry. Three rules make it safe to run on a machine whose configuration the
+// user still cares about:
+//
+//   - It verifies before it removes. The replacement is copied beside the
+//     destination first, so an entry that cannot be put back leaves the
+//     destination exactly as it was.
+//   - It keeps the state it replaces. The paths about to be overwritten are
+//     copied into a backup of their own first, so a restore is itself a change
+//     the user can undo.
+//   - It refuses a directory this program did not write. The listing only offers
+//     real backups, but a directory can be named by hand, and deleting a
+//     configuration on the strength of a stranger's file is not a service.
+func RestoreBackupReport(backupDir string) (RestoreReport, error) {
+	report := RestoreReport{Entries: []RestoreEntryReport{}}
+	configPaths := ConfigPaths()
+
+	entries, err := os.ReadDir(backupDir)
 	if err != nil {
-		return nil, nil, err
-	}
-	if err := os.MkdirAll(dst, rootInfo.Mode().Perm()); err != nil {
-		return nil, nil, err
+		return report, fmt.Errorf("failed to read backup directory: %w", err)
 	}
 
-	entries := []backupManifestEntry{{Key: key, Rel: ".", Path: src, Kind: "dir"}}
-	omissions := []backupManifestOmission{}
+	if _, manifestErr := readBackupManifest(backupDir); manifestErr != nil && !looksLikeLegacyBackup(backupDir) {
+		return report, fmt.Errorf("%s is not a backup this program wrote: it holds neither %s nor the shape backups had before manifests existed",
+			backupDir, backupManifestName)
+	}
 
-	err = filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	type restoreItem struct{ key, src, dst string }
+	plan := []restoreItem{}
+	keys := []string{}
+
+	for _, entry := range entries {
+		key := entry.Name()
+		if key == backupManifestName {
+			continue
 		}
-		if path == src {
-			return nil
-		}
 
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-
-		switch {
-		case d.Type()&os.ModeSymlink != 0:
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			if err := os.Symlink(link, target); err != nil {
-				return err
-			}
-			entries = append(entries, backupManifestEntry{Key: key, Rel: rel, Path: path, Kind: "symlink"})
-
-		case d.IsDir():
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			if err := os.MkdirAll(target, info.Mode().Perm()); err != nil {
-				return err
-			}
-			entries = append(entries, backupManifestEntry{Key: key, Rel: rel, Path: path, Kind: "dir"})
-
-		case d.Type().IsRegular():
-			if err := CopyFile(path, target); err != nil {
-				return err
-			}
-			entries = append(entries, backupManifestEntry{Key: key, Rel: rel, Path: path, Kind: "file"})
-
-		default:
-			omissions = append(omissions, backupManifestOmission{
+		dstPath, exists := configPaths[key]
+		if !exists {
+			report.Entries = append(report.Entries, RestoreEntryReport{
 				Key:    key,
-				Rel:    rel,
-				Path:   path,
-				Reason: describeNonRegular(d.Type()),
+				Status: "skipped",
+				Reason: "no configuration path is named " + key + ", so there is nothing to put this entry back to",
 			})
+			report.Skipped++
+			continue
 		}
-		return nil
-	})
-	if err != nil {
-		return entries, omissions, err
+
+		srcPath := filepath.Join(backupDir, key)
+		if _, statErr := os.Lstat(srcPath); statErr != nil {
+			report.Entries = append(report.Entries, RestoreEntryReport{
+				Key:    key,
+				Path:   dstPath,
+				Status: "skipped",
+				Reason: "the entry cannot be read, so nothing replaced anything: " + statErr.Error(),
+			})
+			report.Skipped++
+			continue
+		}
+
+		plan = append(plan, restoreItem{key: key, src: srcPath, dst: dstPath})
+		keys = append(keys, key)
 	}
-	return entries, omissions, nil
+
+	if len(keys) > 0 {
+		snapshotDir, _, snapshotErr := CreateBackup(keys)
+		if snapshotErr != nil {
+			// The restore still runs: the user asked for the earlier state back,
+			// and refusing because the safety copy failed would deny them that.
+			// What is not allowed is going quiet about it.
+			report.SnapshotReason = snapshotErr.Error()
+		} else {
+			report.SnapshotDir = snapshotDir
+		}
+	}
+
+	failures := []string{}
+	for _, item := range plan {
+		if err := swapIn(item.src, item.dst); err != nil {
+			report.Entries = append(report.Entries, RestoreEntryReport{
+				Key:    item.key,
+				Path:   item.dst,
+				Status: "failed",
+				Reason: err.Error(),
+			})
+			report.Failed++
+			failures = append(failures, item.key+": "+err.Error())
+			continue
+		}
+		report.Entries = append(report.Entries, RestoreEntryReport{
+			Key:    item.key,
+			Path:   item.dst,
+			Status: "restored",
+		})
+		report.Restored++
+	}
+
+	if len(failures) > 0 {
+		return report, fmt.Errorf("restoring %s failed for %d of %d entries: %s",
+			backupDir, report.Failed, len(plan), strings.Join(failures, "; "))
+	}
+	return report, nil
+}
+
+// swapIn puts src in place at dst: the copy is made beside the destination and
+// only a complete copy is moved into position, so the destination is never
+// absent because a copy failed halfway. A destination that cannot be moved aside
+// stops the swap before anything is replaced.
+func swapIn(src, dst string) error {
+	parent := filepath.Dir(dst)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+
+	staging, err := os.MkdirTemp(parent, ".dotfiles-restore-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+
+	staged := filepath.Join(staging, filepath.Base(dst))
+	if err := copyTreePreservingShape(src, staged, nil, nil); err != nil {
+		return err
+	}
+
+	if _, statErr := os.Lstat(dst); os.IsNotExist(statErr) {
+		// Nothing to replace: the path did not exist when the backup was taken.
+		return os.Rename(staged, dst)
+	} else if statErr != nil {
+		return statErr
+	}
+
+	aside, err := os.MkdirTemp(parent, ".dotfiles-restore-aside-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(aside)
+
+	held := filepath.Join(aside, filepath.Base(dst))
+	if err := os.Rename(dst, held); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, dst); err != nil {
+		// Put the user's own back: a swap that cannot finish is a swap that did
+		// not happen.
+		_ = os.Rename(held, dst)
+		return err
+	}
+	return nil
 }
 
 // describeNonRegular says what a socket, a pipe or a device is, in the words the

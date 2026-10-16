@@ -742,17 +742,42 @@ func TestRestoreBackup(t *testing.T) {
 		}
 	})
 
-	t.Run("should restore files from backup", func(t *testing.T) {
-		// This is a complex integration test - we'll just verify it doesn't panic
-		home := os.Getenv("HOME")
-		testBackupDir := filepath.Join(home, ".dotfiles-backup-restore-test")
-		os.MkdirAll(testBackupDir, 0755)
-		defer os.RemoveAll(testBackupDir)
+	t.Run("should not error for a backup this program wrote with nothing in it", func(t *testing.T) {
+		home := t.TempDir()
+		originalHome := os.Getenv("HOME")
+		if err := os.Setenv("HOME", home); err != nil {
+			t.Fatalf("Failed to set HOME: %v", err)
+		}
+		defer os.Setenv("HOME", originalHome)
 
-		// RestoreBackup with empty backup dir should not error
-		err := RestoreBackup(testBackupDir)
+		// Nothing existed to copy, so the directory holds its manifest and no
+		// entries. Putting nothing back is not an error.
+		backupDir, _, err := CreateBackup([]string{"zsh"})
 		if err != nil {
-			t.Errorf("RestoreBackup should not error for empty backup: %v", err)
+			t.Fatalf("Unexpected error creating backup: %v", err)
+		}
+		defer os.RemoveAll(backupDir)
+
+		if err := RestoreBackup(backupDir); err != nil {
+			t.Errorf("RestoreBackup should not error for an empty backup: %v", err)
+		}
+	})
+
+	t.Run("should refuse a directory this program did not write", func(t *testing.T) {
+		home := t.TempDir()
+		originalHome := os.Getenv("HOME")
+		if err := os.Setenv("HOME", home); err != nil {
+			t.Fatalf("Failed to set HOME: %v", err)
+		}
+		defer os.Setenv("HOME", originalHome)
+
+		foreign := filepath.Join(home, ".dotfiles-backup-empty-dir")
+		if err := os.MkdirAll(foreign, 0755); err != nil {
+			t.Fatalf("Failed to create the foreign directory: %v", err)
+		}
+
+		if err := RestoreBackup(foreign); err == nil {
+			t.Error("an empty directory carrying no manifest was accepted for restore")
 		}
 	})
 

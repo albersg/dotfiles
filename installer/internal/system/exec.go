@@ -660,44 +660,12 @@ func GetBackupDir() string {
 	return home + "/.dotfiles-backup-" + timestamp
 }
 
-// RestoreBackup restores configs from a backup directory
+// RestoreBackup restores configs from a backup directory. It is
+// RestoreBackupReport without the account of what it did, for callers that only
+// need to know whether it worked.
 func RestoreBackup(backupDir string) error {
-	configPaths := ConfigPaths()
-
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		return fmt.Errorf("failed to read backup directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		key := entry.Name()
-		dstPath, exists := configPaths[key]
-		if !exists {
-			continue
-		}
-
-		srcPath := backupDir + "/" + key
-
-		// Remove current config
-		os.RemoveAll(dstPath)
-
-		srcInfo, err := os.Stat(srcPath)
-		if err != nil {
-			continue
-		}
-
-		if srcInfo.IsDir() {
-			if err := CopyDir(srcPath, dstPath); err != nil {
-				return fmt.Errorf("failed to restore %s: %w", key, err)
-			}
-		} else {
-			if err := CopyFile(srcPath, dstPath); err != nil {
-				return fmt.Errorf("failed to restore %s: %w", key, err)
-			}
-		}
-	}
-
-	return nil
+	_, err := RestoreBackupReport(backupDir)
+	return err
 }
 
 // DeleteBackup removes a backup directory
