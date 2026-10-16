@@ -264,9 +264,11 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
        not survive a reload is reported rather than claimed.
 4. [x] The Utilities screen shows the guard, the measured failure mode, and a row that repairs it.
 5. [x] S7's four contracts still hold, each with a test that would fail if it stopped holding.
-6. [ ] Focused and full Go tests, `go vet` and `gofmt` pass, with skipped checks recorded. Focused
-       tests, `gofmt` and `go vet` are green; the full-module run is in flight and its result is
-       recorded here when it lands, including anything it fails.
+6. [x] Focused and full Go tests, `go vet` and `gofmt` pass, with skipped checks recorded. The
+       module run landed with five failures: one is this front's (five environment hooks the branding
+       guide did not name, fixed in the fifth commit) and four are the environmental Ghostty tests,
+       recorded in L14 rather than fixed. `gofmt` is clean and `go vet ./...` exits 0 on the whole
+       module; the independent verifier ran no Go test at all (L12).
 7. [x] No push and no pull request without a separate explicit decision. Nothing was pushed.
 
 ## Log
@@ -355,3 +357,47 @@ S10. A guard that exits non-zero must never be reported as a bare "Job failed". 
   quotes the value and `shellcheck` exits 0. The verifier's script-level probes are committed as
   `wsl_memory_guard_script_test.go`, together with the two boundaries it described but did not write,
   so the payload's half of S8, S9 and S10 are a test rather than an argument. Both run and pass.
+- L14: T7's module-wide run landed, and it found a real defect of this front that neither the targeted
+  runs nor the independent verifier could catch. Five failures in total:
+  - `TestBrandingDocNamesEveryInstallerEnvironmentVariable`, this front's: the test reads the
+    `DOTFILES_*` names out of the installer's own source and requires the branding guide to name
+    each one. This front added five hooks -- `DOTFILES_WSL_GUARD_SCRIPT`, `DOTFILES_WSL_GUARD_UNIT`,
+    `DOTFILES_WSL_GUARD_CGROUP`, `DOTFILES_WSL_GUARD_SYSTEMCTL` and `DOTFILES_WSL_SYSTEMD_DIR` -- and
+    documented none of them, so a reader who followed the source to `docs/BRANDING.md` found no entry
+    and could not tell a switch to set from a hook to ignore. Fixed in the fifth commit. The suite is
+    the reason this was caught at all: the verifier could run no Go test (L12) and the targeted runs
+    stopped at `./internal/tui/`, never entering `cmd/dotfiles` where the guard lives.
+  - the four Ghostty tests (`TestStepInstallTerminalGhostty*`, `TestInteractiveGhostty*`), which are
+    environmental and predate this front: this machine has a real `/usr/bin/ghostty` (27 MB, root,
+    2026-04-01), so the step finds the terminal present and reports "Ghostty already installed" where
+    the test expects a download. Recorded and not "fixed": nothing in this change touches that step,
+    and the failure is a property of the machine, not of the change.
+  Checks observed: the focused `-run` groups and the documentation group pass at
+  `-p 1`/`GOMAXPROCS=2`; `gofmt -l installer/internal/` is empty; `go vet ./internal/tui/
+  ./cmd/dotfiles/` exits 0, and so does `go vet ./...` on the whole module, in one second against a
+  warm build cache. That suite run ended with the scope at 8211 MiB of its 8409 MiB cap, `oom_kill`
+  still 10 and `high 0`: the guard held the distribution through the same shape of load that produced
+  the incident.
+- L15: The native review was attempted and the provider refused it twice, for two different reasons.
+  Both are recorded, because the second is a fact about this front rather than about the transport:
+  - The first START was rejected before any authority existed (`lenses-invalid`,
+    `lineage_created: false`, `mutation_performed: false`): the contract caps the lens reason at 500
+    bytes on one line and this front's was 941. That limit is written down in
+    `gentle-pi/docs/readme-reference.md:809` and its negative cases are pinned in the package's own
+    test, so it was a limit to read, not to discover.
+  - The second START, with a 462-byte reason, was refused **terminally**:
+    `lens_context_budget_exceeded` -- "The candidate's complete reviewer evidence exceeds the native
+    context budget, so no review authority was created". `mutation_performed: false`,
+    `retry_safe: true`, and the cause states that retrying this exact candidate cannot succeed. The
+    provider's own continuation is to split the work into smaller candidates that each fit under the
+    budget and to refresh the transition with `review status --next-transition` for the reduced scope.
+  Measured before deciding: this front is 28 files, 3012 insertions and 157 deletions, and its single
+  largest commit is 23 files and 2399 insertions. Because a candidate is the committed range from
+  `base-ref` to `HEAD`, the only slices reachable without moving `HEAD` are prefixes, and the prefixes
+  that fit under the budget exclude the commit that carries the risk.
+  **Decision (the user's, asked and recorded): close the front here**, without rewriting the history
+  or forcing a slice that would review documentation instead of the code that writes to `/etc`. The
+  outside view this front did get was the independent verifier's, and it earned its place: it
+  falsified the README claim at L11 and found the false comment and the shellcheck warning. No review
+  authority exists or is left hanging: both refusals created no lineage, so there is nothing to
+  abandon, quarantine or repair.
