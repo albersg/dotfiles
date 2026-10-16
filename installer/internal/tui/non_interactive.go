@@ -72,15 +72,21 @@ func RunNonInteractive(choices UserChoices, disabledUnits ...string) error {
 // record that the revert and the content check read. It used to be printing
 // alone, which is how a scripted install came to leave no record of itself.
 func finishNonInteractiveRun(model *Model, failures []error) error {
-	status := runStatusComplete
-	failedSteps := []string{}
-	if len(failures) > 0 {
-		status = runStatusFailed
-		for _, failure := range failures {
-			failedSteps = append(failedSteps, failure.Error())
+	// A dry run does nothing, so it has nothing to record -- and writing its empty
+	// record over the one a real run left destroys the evidence the revert and the
+	// content check read: the next --revert would report that the run changed nothing
+	// while the machine still holds every file that run wrote.
+	if !dryRun() {
+		status := runStatusComplete
+		failedSteps := []string{}
+		if len(failures) > 0 {
+			status = runStatusFailed
+			for _, failure := range failures {
+				failedSteps = append(failedSteps, failure.Error())
+			}
 		}
+		model.recordRun(status, failedSteps)
 	}
-	model.recordRun(status, failedSteps)
 
 	if len(failures) > 0 {
 		return errors.Join(failures...)

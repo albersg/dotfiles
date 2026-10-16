@@ -433,9 +433,10 @@ func runSelfUpdate() error {
 // could not be read. A machine with no record is not a failure: the report says
 // nothing was installed here and the status is 0.
 //
-// The report never claims a file's contents match the install. installEntry
-// names no digest, so the honest statement is presence, the action and the
-// backup, with the unverifiable part said per line rather than in a footer.
+// The report claims a file's contents only where the record carries a digest for it:
+// the per-file changes do, and a record written before they existed does not. Where
+// there is no digest the honest statement is presence, the action and the backup, with
+// the unverifiable part said per line rather than in a footer.
 func reportVerify() int {
 	report := tui.VerifyInstall()
 	for _, line := range report.Lines {
