@@ -317,6 +317,7 @@ type RestoreReport struct {
 	SnapshotReason string               `json:"snapshotReason,omitempty"`
 	Entries        []RestoreEntryReport `json:"entries"`
 	Restored       int                  `json:"restored"`
+	Planned        int                  `json:"planned"`
 	Skipped        int                  `json:"skipped"`
 	Failed         int                  `json:"failed"`
 }
@@ -335,6 +336,21 @@ type RestoreReport struct {
 //     real backups, but a directory can be named by hand, and deleting a
 //     configuration on the strength of a stranger's file is not a service.
 func RestoreBackupReport(backupDir string) (RestoreReport, error) {
+	return restoreBackup(backupDir, false)
+}
+
+// RestorePlan says what a restore would do, entry by entry, without touching the
+// machine: the same ownership check, the same entries it can place and the same
+// ones it cannot. It is what `--restore --dry-run` prints, so a person can read
+// what a backup holds before letting it replace their configuration.
+func RestorePlan(backupDir string) (RestoreReport, error) {
+	return restoreBackup(backupDir, true)
+}
+
+// restoreBackup is the one implementation behind the restore and its plan. Only
+// the last three steps differ: a plan stops after it has decided what to do,
+// before a snapshot is taken or anything is put in place.
+func restoreBackup(backupDir string, planOnly bool) (RestoreReport, error) {
 	report := RestoreReport{Entries: []RestoreEntryReport{}}
 	configPaths := ConfigPaths()
 
@@ -385,6 +401,18 @@ func RestoreBackupReport(backupDir string) (RestoreReport, error) {
 		keys = append(keys, key)
 	}
 
+	if planOnly {
+		for _, item := range plan {
+			report.Entries = append(report.Entries, RestoreEntryReport{
+				Key:    item.key,
+				Path:   item.dst,
+				Status: "would-restore",
+			})
+			report.Planned++
+		}
+		return report, nil
+	}
+
 	if len(keys) > 0 {
 		snapshotDir, _, snapshotErr := CreateBackup(keys)
 		if snapshotErr != nil {
@@ -423,6 +451,14 @@ func RestoreBackupReport(backupDir string) (RestoreReport, error) {
 			backupDir, report.Failed, len(plan), strings.Join(failures, "; "))
 	}
 	return report, nil
+}
+
+// PutBack copies one file or directory over a destination without ever leaving
+// the destination absent: the copy is made beside it and only a complete copy
+// moves into position. It is the swap the restore uses, exported for the revert,
+// which puts individual files back rather than whole configuration keys.
+func PutBack(src, dst string) error {
+	return swapIn(src, dst)
 }
 
 // swapIn puts src in place at dst: the copy is made beside the destination and
