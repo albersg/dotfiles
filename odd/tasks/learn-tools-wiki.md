@@ -163,4 +163,13 @@ Confirmación medida después de ese arreglo: `go test ./... -count=1` deja `int
 guard del compañero pasa con 1072 estados. Queda una decisión del humano: si esos cuatro tests deben
 volverse independientes del host (hoy stubean `curl` pero no la pregunta "¿ya está instalado?"), es
 un frente aparte, fuera del alcance de esta wiki.
+
+**L11.** Entrega. La rama cumplía la política del repo (`docs/GIT-BRANCHING.md`: `main` protegida,
+todas las PRs van a `main`, nombre `feat/<descripción>`): 0 commits por detrás de `origin/main`
+(base `4ba4332`) y 10 por delante. Push no forzado de `feat/learn-tools-wiki` y PR **#336** contra
+`main`. `CONTRIBUTING.md` no pide issue previo y `.github/` no trae plantilla de PR, así que se sigue
+su checklist: rama convencional, tests donde aplican, `go build` + `go vet`, documentación al día,
+auditoría de marca y commits convencionales. En el cuerpo de la PR se declara el fallo previo y
+dependiente del host (los cuatro tests de Ghostty), con la prueba en `4ba4332` y la nota de que en CI
+pasan.
 ```
