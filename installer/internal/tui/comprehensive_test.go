@@ -1731,6 +1731,12 @@ var screenNames = map[Screen]string{
 	ScreenSSHAgent:       "SSHAgent",
 	ScreenSSHDiagnostics: "SSHDiagnostics",
 	ScreenSSHTest:        "SSHTest",
+
+	// The port and process manager and its stop confirmation, in an alignment group
+	// of their own: their names are longer than every key above, and gofmt aligns a
+	// block as one, so sharing it would re-space the whole map.
+	ScreenPortManager: "PortManager",
+	ScreenPortStop:    "PortStop",
 }
 
 func (s Screen) String() string {

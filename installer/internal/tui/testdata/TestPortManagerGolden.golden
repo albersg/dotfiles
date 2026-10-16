@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   Utilities                                                                    
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  Ports in use                                                                  
+  Scope: this machine. Every row is a socket this kernel holds.                 
+  Filter none  Transport all  Owner all  Sort port  Auto off  read at 03:04:05  
+                                                                                
+  ▸ :3000  tcp  LISTEN  127.0.0.1  node (pid 4242, alber)  loopback only        
+    :5353  udp  UNCONN  127.0.0.1  owner not readable  loopback only            
+    :8080  tcp  LISTEN  0.0.0.0  python3 (pid 900, alber)  all interfaces       
+  Selected: :3000 tcp LISTEN 127.0.0.1                                          
+  Family: IPv4  Port: 3000  State: LISTEN  Source: /proc/net/tcp                
+  Owner: node (pid 4242, user alber).                                           
+  Executable: /usr/bin/node                                                     
+  Arguments (redacted): node server.js --token ****                             
+  Identity cannot be revalidated on this platform; a stop checks liveness       
+  only.                                                                         
+  Limitation: some sockets have no readable owner here: reading another user's  
+  file descriptors needs privileges this run does not have. The ports are       
+  real; the process behind them is not shown.                                   
+  1 new, 1 gone since the last reading                                          
+  ────────────────────────────────────────────────────────────────────────────  
+  ↑/k up • ↓/j down • [Enter] select • [/] filter • [f/o/s] cycle               
+  [r] refresh • [p] auto • [x] stop • [y] copy • [Esc] back                     [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

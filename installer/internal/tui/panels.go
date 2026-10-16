@@ -1216,6 +1216,15 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: true,
 	})
 
+	// The section's utilitiesPortRow. It is offered everywhere and the value is
+	// read from the model's own snapshot: the panel is drawn on every keypress,
+	// and reading the machine is a command, not a render.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Ports",
+		value:   portsPanelValue(m.Ports),
+		offered: true,
+	})
+
 	return entries
 }
 
@@ -1248,6 +1257,24 @@ func shellAuditPanelValue(st shellAuditState) string {
 		return fmt.Sprintf("%s: median %s of %d runs", st.Shell, shellAuditDuration(st.Median), len(st.Samples))
 	default:
 		return st.Shell + ": no start finished"
+	}
+}
+
+// portsPanelValue is what the Utilities panel says the port manager row holds.
+// It reads the model's snapshot and counts it; it never opens /proc, runs a
+// command or contacts the probe, because a panel is drawn on every keypress.
+func portsPanelValue(st portManagerState) string {
+	switch {
+	case st.Loading:
+		return "reading now"
+	case !st.Loaded:
+		return "not read yet"
+	default:
+		n := len(st.Snapshot.Listeners)
+		if n == 1 {
+			return "1 socket"
+		}
+		return fmt.Sprintf("%d sockets", n)
 	}
 }
 

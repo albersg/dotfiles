@@ -113,6 +113,12 @@ func TestUtilitiesBodyCarriesEveryJobAtTheFloor(t *testing.T) {
 		// the merged section gained, and the body's floor budget is what its line had to
 		// fit inside, so the row that cost the line is read by name here.
 		utilitiesUpdatesRow,
+		// The network diagnosis's body line yielded to the port manager's row, so the
+		// row is what still names the job at the floor; the guard reads it here.
+		utilitiesNetworkRow,
+		// The port and process manager's row, added with the job itself: the guard
+		// exists so a job cannot be named on a screen no one reads at the floor.
+		utilitiesPortRow,
 	} {
 		if !strings.Contains(view, job) {
 			t.Errorf("the 80x24 section does not name the %q job:\n%s", job, view)
