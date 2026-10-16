@@ -206,3 +206,47 @@ session.
     race in `CreateBackup`. It also reported that this document changed under it while
     it ran, which was true: the log entries above were being written by the parent
     session during the pass. Its own copies of what it read are in its report.
+
+- **L12 (the verification caught a regression the fix itself introduced).** This is the
+  entry to read before touching the revert again. The second pass (which had to be
+  launched twice: the first launch reported a task id that never appeared in the task
+  list, so nothing had been checked) closed four of the five findings and re-opened the
+  second one as a blocker -- not in the original work, but in `1b52dfe`, the fix for it:
+
+  - `1b52dfe` recognised a legacy record by its *shape*: entries and no per-file changes.
+    That is also the shape a modern completed run writes when it changed nothing (entries
+    with actions `found`/`backed-up`, no changes, empty files), so the machine's most
+    ordinary state -- a second run that found everything already in place -- became
+    "everything is unrevertible, exit 1". The pass reported it with the probe output:
+    `the revert could not put back 1 of 1 files: …/.zshrc: the record predates per-file
+    digests`. My own RED reproduced it before I touched the code.
+  - The way back the legacy message printed was `--restore=<BackupDir>/key`, a *file*:
+    `--restore` takes the directory, so the printed command exited 2. The reason now names
+    the directory, which is the copy's parent by the writer's own convention for a file
+    key and a directory key alike.
+  - A record's digests and its copies have to describe the same moment. A retry after a
+    failure starts a new run, but the baseline the record compared against was the failed
+    attempt's, so the retry recorded a "before" it never saw: the pass logged
+    `before=0270da4…` and my test failed naming *the same digest*, which is what made it
+    clear the two were the same defect. `beginInstallFromReview` now clears both
+    baselines, and `captureRunBaseline` (extracted from `executeStep`, which still fills
+    only what is empty) takes the new run's own.
+  - Two smaller answers: a restore whose manifest names an entry the directory no longer
+    holds said "failed for 1 of 0 entries", and a `--dry-run` of such a backup exited 0,
+    so a script could not tell a backup that can go back from one that cannot. The account
+    counts what the manifest says should be there, and the dry run of a plan with a failed
+    entry exits 1.
+  - Two limits are now stated instead of left to be found: an install stopped with
+    `ctrl+c` leaves no record (nothing failed; the backup it had already taken before its
+    first write is still the way back), and the baseline a record keeps belongs to its own
+    run.
+  - **The lesson, which is the reason this entry exists.** A fix for a false *success* was
+    checked against records that were broken and not against records that were fine: the
+    legacy shape was inferred, and the shape it was inferred from is one the current writer
+    also produces. What a reader needs is not a shape but a fact -- the record now carries
+    an explicit marker for "read from the older shape" (unserialized, set where the fold
+    happens, in both readers). Any future change to what the revert believes about a
+    record has to answer that question first: which *state* is this record describing, and
+    what evidence says so.
+  - Fixed in `603a90a`, after RED tests of my own for each behaviour; the whole `tui`
+    package is green again with the four environment-only Ghostty tests skipped.
