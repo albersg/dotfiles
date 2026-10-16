@@ -448,3 +448,36 @@ session.
     and in `--revert`'s own error. It is presentation, not a command path; `docs/tui-installer.md`
     names the width instead of leaving it to be discovered.
   - Gate after the fixes: green (system, tui 208.8s, trainer).
+
+- **L19 (the eighth pass: safe to publish, and what it left named).** The pass closed F1, F2 and F3
+  with RED at `04f0d1b` and GREEN at HEAD, showed the two routes to the same file agreeing, showed all
+  five dry-run routes leaving the record of a real run byte for byte while real runs still record what
+  they did (including the failed steps), and answered the product question: the 80x24 review screen is
+  publishable as a named limit, because it is presentation and the same way back is on the failure
+  screen and in `--revert`'s own error.
+  - It handed over its probes. Five became durable tests with their bodies verbatim (names and helper
+    changed): the no-copy link judged the same by both routes, the modified file inside a linked key
+    with no backup that must not be a silent success, the five dry-run routes, the real runs that must
+    still record, and the stopped run that leaves the previous record alone. The 80x24 probe only
+    logged, so its assertions are new: a probe that cannot fail is not a pin.
+  - The probes that measured a pre-existing advisory were deliberately **not** kept: a test asserting
+    one would pin a known false alarm as the contract. They are advisories instead, all measured at
+    `04f0d1b` and at HEAD, so none is caused by this delta:
+    - **A1** a fifo or socket inside a written key with no copy still reports and exits 1 for a run
+      whose only change was a created file. It is the same shape F1 had, for another kind, and it is
+      **left for a decision rather than fixed here**: the discriminator is not the one this round used
+      (`copied == ""` conflates "the run took no backup" with "the copy ran and did not take that
+      path", which are different facts), and the case is rare. The rule the code holds today is the
+      one the docs now describe.
+    - **A2** a no-copy link reaching outside every named path is still reported, which is rule (ii) as
+      stated, and there the alarm guards a real invisibility: the run may have written through that
+      link where the record names nothing.
+    - **A3** with a copy holding a regular file where the machine holds a link, the dead and
+      inside-a-written-tree cases are silent: that is the intended leniency of F1, now pinned in both
+      directions.
+  - Two document sentences the pass showed to be inexact are corrected: the 80x24 block shows the
+    marker and its first row and does not show the command, and the link rules are a bullet of their
+    own, with the no-copy exception named instead of leaving the previous bullet's sentences about a
+    key that is itself a link inside them.
+  - No behavioural code changed after the verdict. What changed is documentation and test files the
+    pass itself wrote and ran at HEAD, and the full gate ran green over the final tree.
