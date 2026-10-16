@@ -25,6 +25,7 @@ func TestRedactedArgumentsDoNotLeakCredentials(t *testing.T) {
 		{"a URL's userinfo", []string{"psql", "postgres://alice:" + secret + "@localhost/db"}},
 		{"a curl login", []string{"curl", "-u", "alice:" + secret, "https://api.example.com"}},
 		{"a long-form login", []string{"app", "--user=alice:" + secret}},
+		{"an SMB login", []string{"smbclient", "-U", "alice%" + secret, "//host/share"}},
 		{"a JSON body on the command line", []string{"app", "--json", `{"password":"` + secret + `"}`}},
 		{"a joined short password", []string{"mysql", "-u", "root", "-p" + secret, "db"}},
 		{"a secret flag's separate value", []string{"app", "--token", secret}},

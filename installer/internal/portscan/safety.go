@@ -237,12 +237,14 @@ func carriesNonFlagCharacter(value string) bool {
 // looksLikeCredentialPair reports whether a value is the user:password form
 // rather than a host:port, a path or a URL. A URL carries its credential after
 // a scheme and is masked by redactURLUserinfo instead, and a host:port pair has
-// no second part to keep secret.
+// no second part to keep secret. The separators are the two the login flags of
+// the tools this utility runs under use: a colon, and the per cent that the SMB
+// clients separate the account from the password with.
 func looksLikeCredentialPair(value string) bool {
 	if strings.Contains(value, "://") {
 		return false
 	}
-	colon := strings.Index(value, ":")
+	colon := strings.IndexAny(value, ":%")
 	return colon > 0 && colon < len(value)-1
 }
 
