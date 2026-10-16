@@ -218,6 +218,12 @@ type Item struct {
 	// Paths are the filesystem paths the item covers. They are also what is
 	// measured and, for a removal mechanism, what is removed.
 	Paths []string
+	// Roots are the approved scopes a removal of Paths may happen under. They
+	// are what the guard is built from, and for most items that is the path
+	// itself; a project artifact declares its project directory instead, so the
+	// scope is the directory the user added rather than a path a detector
+	// computed.
+	Roots []string
 	// Mechanism is how it may be cleaned.
 	Mechanism Mechanism
 	// Size is what it holds, filled in by Measure.
