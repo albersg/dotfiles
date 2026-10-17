@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/albersg/dotfiles/installer/internal/diskclean"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1278,6 +1279,48 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShellAudit = msg.state
 		return m, nil
 
+	case diskCleanScanMsg:
+		// A scan is not an install step, so its answer lands on this screen rather
+		// than on a failed one. It replaces the findings whole -- the selection goes
+		// with them, so nothing from an older scan can be confirmed against a
+		// number that has since changed -- and it says plainly when the answer is
+		// only what the walk reached before it was cancelled or bounded.
+		m.DiskClean.Scanning = false
+		m.DiskClean.Scanned = true
+		m.DiskClean.Cancel = nil
+		m.DiskClean.Progress = ""
+		m.DiskClean.Items = msg.items
+		m.DiskClean.Selection = diskclean.Selection{}
+		m.DiskClean.Planned = false
+		m.DiskClean.Plan = diskclean.Plan{}
+		// The cursor lands on the first finding rather than on the scan row: the
+		// card of the finding under the cursor is where the reason it was found and
+		// the paths it covers are read, and a scan that left the cursor above the
+		// list would hide the evidence until the first arrow key.
+		m.Cursor = m.diskCleanFirstItemCursor()
+		if msg.cancelled {
+			m.DiskClean.Notice = diskCleanScanCancelledNotice(msg.items)
+		} else {
+			m.DiskClean.Notice = diskCleanScanNotice(msg.items)
+		}
+		return m, nil
+
+	case diskCleanProgressMsg:
+		// Progress is a label, not a measurement: it names the store being worked
+		// on so a long scan does not look like a frozen screen.
+		m.DiskClean.Progress = msg.label
+		return m, nil
+
+	case diskCleanCleanedMsg:
+		m.DiskClean.CleanReport = msg.report
+		m.DiskClean.Phase = diskCleanResults
+		m.DiskClean.Cancel = nil
+		m.DiskClean.Progress = ""
+		m.DiskClean.Notice = diskCleanResultNotice(msg.report)
+		m.DiskClean.Planned = false
+		m.Cursor = 0
+		return m, nil
+
 	case shellAuditEventMsg:
 		// A start or the result itself. The result is folded in by the one
 		// projection the engine and the screen share, and it is then stored when
@@ -1652,6 +1695,11 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// editor and the backup, and turning a switch on or off is the whole
 			// point of the row. Passing it to the leader key would leave every
 			// switch in the interface advertised and unreachable.
+		case m.Screen == ScreenDiskCleaner:
+			// The disk cleaner owns space too: it is the switch key on every
+			// finding, and marking a finding for cleanup is the whole point of the
+			// row. Passing it to the leader key would leave every checkbox on the
+			// screen advertised and unreachable.
 		case m.Screen == ScreenUpdateCenter:
 			// The update center owns space for the same reason the setup screen's
 			// switches do: on that list space selects or drops the entry the cursor is
@@ -1810,6 +1858,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
+
+	case ScreenDiskCleaner:
+		return m.handleDiskCleanerKeys(key)
 
 	case ScreenUpdateCenter:
 		return m.handleUpdateCenterKeys(key)
@@ -2098,6 +2149,12 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.SSH.Notice = ""
 	case ScreenSSHTest:
 		m = m.leaveSSHTest()
+	case ScreenDiskCleaner:
+		// The disk cleaner owns this key: escape is the way out of a preview, it
+		// stops a scan or a cleanup in flight, and only when there is nothing to
+		// step back from does it leave for the section. Its own handler says which
+		// of those it is, so this case and its footer cannot drift apart.
+		return m.diskCleanerEscape()
 	case ScreenUpdate:
 		// The update screen steps back to the main menu, which is where its row now
 		// lives. Leaving it clears the last update's notice so a later visit does
@@ -2469,6 +2526,15 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenTerminalCapabilities
 			m.Cursor = 0
 			return m, m.terminalCapabilityCmdIfNeeded()
+		case selected == utilitiesDiskCleanerRow:
+			// The disk cleaner is one level in, for the same reason the other
+			// utilities are: the section is a list of jobs. Nothing is scanned on the
+			// way in -- the screen's own scan row starts that -- so opening the screen
+			// never puts a walk of the machine between the press and the screen.
+			m.Screen = ScreenDiskCleaner
+			m.Cursor = 0
+			m.DiskClean.Notice = ""
+			return m, nil
 		case selected == utilitiesShellAuditRow:
 			// The shell's startup is one level in too. Nothing is measured on the way
 			// in: starting the user's shell five times is a choice, and it is made on
