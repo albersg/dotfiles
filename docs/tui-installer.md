@@ -1403,7 +1403,9 @@ screen carries the same way back the failure screen does: the directory that hol
 replaced and the command that puts it back. At 80x24 the marker and the first row of that block
 render and the lines naming the backup directory and `--revert` do not, so a reader deciding on a
 24-row terminal has to know the way back from the failure screen or from `--revert`'s own error, which
-names `ls -d ~/.dotfiles-backup-*` and `--restore=<one of them>`. This is presentation, not a command: what a run writes and undoes does not change with the
+names `ls -d ~/.dotfiles-backup-*` and `--restore=<one of them>`. A backup path longer than its row
+is shown cut, with a trailing `\u2026`: the command beside it is never cut, and the directory is named
+in full in the run's record, which names the copy it took of every file. This is presentation, not a command: what a run writes and undoes does not change with the
 width.
 
 **Two columns start at 124 terminal columns.** From that width the screen puts the body on the left

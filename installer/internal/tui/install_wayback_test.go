@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -25,7 +24,12 @@ func TestTheFailureScreenNamesTheWayBack(t *testing.T) {
 	m.Height = 30
 	m.Screen = ScreenError
 	m.ErrorMsg = "Step 'Install zsh shell' failed"
-	m.BackupDir = filepath.Join(t.TempDir(), ".dotfiles-backup-2026-10-16-120000")
+	// A short, absolute path written out by hand, and not one built from t.TempDir(). This screen can
+	// only name a path that fits its row, and a temp directory is long enough on a macOS runner for
+	// the path to be cut with a trailing ellipsis -- which made this test pass on a machine with a
+	// short temp directory and fail in CI (macos-latest, PR 354). The cut itself is deliberate and
+	// is pinned, separately, by TestALongBackupPathIsCutButTheCommandIsNot.
+	m.BackupDir = "/home/testuser/.dotfiles-backup-2026-10-16-120000"
 	m.LogLines = []string{"a log line for context"}
 
 	view := plainView(m)
@@ -77,6 +81,33 @@ func TestTheReviewScreenNamesTheWayBackBeforeTheRun(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("the review screen does not name %q:\n%s", want, view)
 		}
+	}
+}
+
+// A path longer than its row cannot be named in full: the screen cuts it rather than spending the
+// block on it. What it must never cut is the command, because that row is the reason the block is
+// there, and the directory it cuts is named in full in the run's record. A stated limit in
+// docs/tui-installer.md, not an accident.
+func TestALongBackupPathIsCutButTheCommandIsNot(t *testing.T) {
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 100
+	m.Height = 30
+	m.Screen = ScreenError
+	m.ErrorMsg = "Step 'Install zsh shell' failed"
+	long := "/Users/somebody-with-a-long-account-name/Documents/things/backups/.dotfiles-backup-2026-10-16-120000"
+	m.BackupDir = long
+
+	view := plainView(m)
+
+	if !strings.Contains(view, "\u2026") {
+		t.Errorf("a path longer than its row is not shown as cut:\n%s", view)
+	}
+	if strings.Contains(view, long) {
+		t.Errorf("the screen claims to name a path longer than its row:\n%s", view)
+	}
+	if !strings.Contains(view, "--revert") {
+		t.Errorf("the command was cut together with the path:\n%s", view)
 	}
 }
 

@@ -503,3 +503,29 @@ session.
   - The rest of the documentation is intact: lines of `origin/main` missing from the merged file, 0;
     lines this branch added, 0 missing; the 55 branch lines absent are prose main legitimately rewrote;
     both sections whole, one heading each, and main's own text verbatim where it belongs.
+
+- **L21 (the CI that saw what this machine could not).** The pull request's first CI round came back 13
+  of 14 green -- `Go tests`, `Go Validation`, both `Build` jobs, the four Linux E2E distributions,
+  Termux, shell validation, branding and secret scanning -- and `macOS smoke test` failed. I read it
+  first as environmental, and that reading was wrong: the failing test was
+  `TestTheFailureScreenNamesTheWayBack`, written by this branch in `6727d33`, and it was green here only
+  because this machine's temp directory is short.
+  - The cause: the fixture anchored the backup directory to `t.TempDir()` and the assertion demanded
+    that the screen name that path in full. A macOS runner's temp path is long enough (98 characters
+    with the test's own suffix) that the screen cuts it with a trailing ellipsis, because a screen row
+    has a width. Reproduced here with a 54-character `TMPDIR`: the same assertion, the same failure.
+  - The other branches failing that workflow the same morning were failing their own unrelated
+    Linux process-discovery tests, which is what made "the runner is broken today" look plausible: a
+    correlated failure is not a shared cause, and a green local gate is not evidence of a green runner.
+  - The fix is in the fixture and in the documentation, never in what the assertion talks about: the
+    fixture uses a short literal path, as the rest of the package's tests do, and
+    `TestALongBackupPathIsCutButTheCommandIsNot` pins what the screen really promises -- a path longer
+    than its row is cut, and the command beside it is never cut. `docs/tui-installer.md` names that cut
+    next to the 80x24 limit it already named.
+  - **The lesson: my gate was blind in one dimension that CI measures, and the blind spot was a test
+    that passes for a reason I did not choose.** "Fails identically at base" is a claim about an
+    artifact that has to exist at base; here it was made about a test this branch had just added, and
+    that is how a false success survives nine passes. From now on every gate runs once with a long
+    `TMPDIR`, and the base claim is checked against the base tree before it is written down.
+  - The gate over the fixed tree: green twice, once with a 54-character `TMPDIR` and once with the
+    normal one.
