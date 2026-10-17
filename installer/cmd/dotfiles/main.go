@@ -211,6 +211,21 @@ func main() {
 	// from and, on Windows, what it enables virtual terminal processing on.
 	options = append(options, tea.WithOutput(outputWriter(os.Stdout)))
 
+	// The terminal gets one reader. bubbletea reads it through the wrapper the
+	// capability probe takes its answer from, so a reply to the probe's query
+	// cannot be eaten by the interface's own reader, and cannot arrive at the
+	// interface as keystrokes; outside the probe's window the wrapper hands every
+	// byte on untouched. It keeps the stream's descriptor, like the output
+	// wrapper above, which is what bubbletea turns raw and reads the terminal
+	// from (odd/tasks/terminal-probe-ownership.md measured both halves).
+	//
+	// The option is passed only when stdin is that terminal: programInput explains
+	// what handing it over would cost a run whose stdin is a pipe, a file or
+	// /dev/null, and why bubbletea's own rule has to survive here.
+	if input := programInput(os.Stdin); input != nil {
+		options = append(options, tea.WithInput(input))
+	}
+
 	p := tea.NewProgram(model, options...)
 	tui.SetGlobalProgram(p)
 

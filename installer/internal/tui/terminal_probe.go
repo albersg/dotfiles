@@ -250,7 +250,16 @@ func readTerminalReplyWithTimer(in io.Reader, timeout time.Duration) string {
 // A host with no controlling terminal -- a container, a service, a run whose
 // stdin is a pipe and whose /dev/tty does not exist -- gets an empty reply, and
 // the screen then reports unknown with that reason instead of failing.
+//
+// When the program was started through TerminalInput, the query is still written
+// to the controlling terminal and the answer is read out of the interface's own
+// input stream, so the two readers that would otherwise race for it are one
+// (odd/tasks/terminal-probe-ownership.md).
 func terminalReply() string {
+	if reader := activeTerminalInput(); reader != nil {
+		return reader.ask(writeTerminalQuery, terminalQueryTimeout)
+	}
+
 	f, err := os.OpenFile(controllingTerminal, os.O_RDWR, 0)
 	if err != nil {
 		return ""
@@ -270,6 +279,19 @@ func loadTerminalCapabilityCmd() tea.Cmd {
 	return func() tea.Msg {
 		return terminalCapabilityMsg{caps: detectTerminalCapabilities(os.Getenv, terminalReply())}
 	}
+}
+
+// writeTerminalQuery sends the three questions to the controlling terminal. It
+// writes and does not read: the answer is taken from the interface's input
+// stream, which is the reader that owns the terminal now.
+func writeTerminalQuery() error {
+	f, err := os.OpenFile(controllingTerminal, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.WriteString(f, terminalCapabilityQuery)
+	return err
 }
 
 // terminalCapabilityCmdIfNeeded arms the probe the first time the capability
