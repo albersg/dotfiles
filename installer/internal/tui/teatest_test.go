@@ -1067,6 +1067,30 @@ func TestTerminalCapabilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Terminal capabilities"))
 }
 
+// TestDoctorGolden pins the doctor's list: findings with their states as words,
+// the retry and filter rows beside them, and the closing line that counts what
+// was found with where the report was kept. The run is built rather than
+// performed, so the frame is not a snapshot of the runner's machine.
+func TestDoctorGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := doctorFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Development environment"))
+}
+
+// TestDoctorFixGolden pins the confirmation screen: the before/after of the one
+// path, the risk, the permission and the backup, and the row that applies it.
+func TestDoctorFixGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := doctorFixFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Confirm the fix"))
+}
+
 // TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
 // pleased companion at a frame a few ticks into the two seconds. The burst is
 // model state, so its positions are the same on every machine that renders it.

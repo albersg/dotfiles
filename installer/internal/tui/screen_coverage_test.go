@@ -332,7 +332,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 63 // 51 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + the trainer's 6
+const measuredScreens = 65 // 51 installer states + utilities + theme-picker + theme-activity + theme-refresh + terminal-capabilities + shell-audit + doctor + doctor-fix + the trainer's 6
 
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
@@ -479,6 +479,8 @@ func terminalFitCases() []terminalFitCase {
 	cases = append(cases, terminalFitCase{themeRefreshCaseName, themeRefreshReviewFrameCase})
 	cases = append(cases, terminalFitCase{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase})
 	cases = append(cases, terminalFitCase{shellAuditCaseName, shellAuditFrameCase})
+	cases = append(cases, terminalFitCase{doctorCaseName, doctorFrameCase})
+	cases = append(cases, terminalFitCase{doctorFixCaseName, doctorFixFrameCase})
 
 	return cases
 }
@@ -647,6 +649,8 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{wslResourcesCaseName, wslResourcesFrameCase(t)},
 		{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase(t)},
 		{shellAuditCaseName, shellAuditFrameCase(t)},
+		{doctorCaseName, doctorFrameCase(t)},
+		{doctorFixCaseName, doctorFixFrameCase(t)},
 		{updateCaseName, updateFrameCase(t)},
 	}
 }
@@ -675,6 +679,114 @@ func updateFrameCase(t *testing.T) Model {
 
 // utilitiesCaseName is the name the frame guards know the utilities section by.
 const utilitiesCaseName = "utilities"
+
+// doctorCaseName and doctorFixCaseName are the names the frame guards know the
+// doctor's two screens by.
+const (
+	doctorCaseName    = "doctor"
+	doctorFixCaseName = "doctor-fix"
+)
+
+// doctorFrameCase builds the doctor with a finished run held in the model: an
+// error, a warning, a question the checks could not answer and a clean answer,
+// so the guards measure the list carrying its own four states and the body of
+// the finding under the cursor. Nothing here reads the machine: the run is built
+// from findings, which is also what makes the state a guard measures the state
+// the guard describes.
+func doctorFrameCase(t *testing.T) Model {
+	t.Helper()
+	m := installerFrameModel(t, ScreenDoctor)
+	m.Doctor.Run = doctorFrameRun()
+	// The unknown answer is what makes the retry row and the filter row appear
+	// together, which is the fullest the list ever gets.
+	m.Doctor.Run.Message = "5 checks: 1 error, 1 warning, 1 unknown, 1 not applicable, 1 ok. Kept at ~/.local/state/dotfiles/doctor-report.txt"
+	m.Cursor = 0
+	return m
+}
+
+// doctorFixFrameCase builds the confirmation for the one finding the doctor can
+// repair, with the state that was read when the screen opened: the effect as a
+// before/after pair, the risk, the permission and the backup, all of which are
+// rows that have to fit the same twelve terminals.
+func doctorFixFrameCase(t *testing.T) Model {
+	t.Helper()
+	m := installerFrameModel(t, ScreenDoctorFix)
+	finding := doctorFrameFinding(doctorError)
+	finding.Fix = &doctorFix{Kind: doctorFixChmodDir, Path: "/home/testuser/.ssh", Mode: 0o700}
+	m.Doctor.Pending = &finding
+	m.Doctor.PendingPreview = doctorFixPreview{
+		Effect: []string{
+			"before: /home/testuser/.ssh has mode 0755",
+			"after:  /home/testuser/.ssh has mode 0700",
+		},
+		Risk:       "A mode that is too open is a way into every tool that reads this path, and OpenSSH refuses to use a key inside a directory others can read.",
+		Permission: "Ownership of /home/testuser/.ssh; no administrator rights are needed when this user owns it.",
+		Backup:     "The mode it has now (0755) is written into the fix record with the command that puts it back: `chmod 0755 /home/testuser/.ssh`.",
+	}
+	m.Doctor.FixNotice = ""
+	return m
+}
+
+// doctorFrameRun is a finished run over five answers, one of each state, with the
+// check IDs and titles the catalogue really uses so the report groups them as it
+// would a real one.
+func doctorFrameRun() *doctorRun {
+	checks := doctorChecks()
+	run := &doctorRun{
+		ID:       1,
+		Results:  map[string]doctorCheckResult{},
+		Started:  time.Date(2026, time.January, 4, 12, 0, 0, 0, time.UTC),
+		Finished: time.Date(2026, time.January, 4, 12, 0, 4, 0, time.UTC),
+	}
+	statuses := []doctorStatus{doctorError, doctorWarning, doctorUnknown, doctorNotApplicable, doctorOK}
+	for index, status := range statuses {
+		check := checks[index%len(checks)]
+		finding := doctorFrameFinding(status)
+		finding.Check = check.ID
+		run.Order = append(run.Order, check.ID)
+		run.Results[check.ID] = doctorCheckResult{
+			ID:       check.ID,
+			Title:    check.Title,
+			Category: check.Category,
+			Status:   status,
+			Findings: []doctorFinding{finding},
+		}
+	}
+	return run
+}
+
+// doctorFrameFinding is one finding of a given state, with the four fields a
+// result has to carry: the subject, the evidence, the impact and the advice.
+func doctorFrameFinding(status doctorStatus) doctorFinding {
+	finding := doctorFinding{
+		Subject:  "~/.ssh has mode 0755",
+		Status:   status,
+		Evidence: "the directory has mode 0755, and OpenSSH wants 0700",
+		Impact:   "OpenSSH refuses a private key inside a directory others can read, so every ssh command fails until it is fixed.",
+		Advice:   "The doctor can set it to 0700 for you, or run `chmod 700 ~/.ssh`.",
+	}
+	switch status {
+	case doctorOK:
+		finding.Subject = "PATH holds 9 entries, every one a directory that can be searched"
+		finding.Evidence = "9 entries, no duplicates, every one a directory that can be searched"
+		finding.Impact = "Command resolution works."
+		finding.Advice = "Nothing to do."
+	case doctorNotApplicable:
+		finding.Subject = "zsh configuration"
+		finding.Evidence = "zsh is installed and none of the files this installer writes for it is present"
+		finding.Impact = "This installer never configured this shell here."
+		finding.Advice = "Nothing to do."
+	case doctorUnknown:
+		finding.Subject = "git resolves to /usr/bin/git, 2 copies, and no version could be read"
+		finding.Evidence = "/usr/local/bin/git: the command did not finish inside its bound"
+		finding.Impact = "The precedence is known and whether the copies differ is not."
+		finding.Advice = "Ask each copy directly: `git --version`."
+	case doctorWarning:
+		finding.Subject = "PATH entry 4 of 9: ~/bin"
+		finding.Evidence = "the entry starts with ~, which the shell does not expand inside PATH"
+	}
+	return finding
+}
 
 // utilitiesFrameCase builds the utilities section with a desktop detected and a
 // record to undo, so the guards measure the screen carrying its utility rows

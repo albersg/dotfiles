@@ -487,7 +487,8 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate:
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenDoctor,
+		ScreenDoctorFix:
 		return true
 	}
 	return false
@@ -554,6 +555,9 @@ func (m Model) headerName() string {
 		return "Utilities"
 	case ScreenShellAudit:
 		// The shell's startup screen is one level in from the same section.
+		return "Utilities"
+	case ScreenDoctor, ScreenDoctorFix:
+		// The doctor and its confirmation are one level in from the same section.
 		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
@@ -1059,6 +1063,10 @@ func (m Model) View() string {
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenDoctor:
+		s.WriteString(m.renderDoctor())
+	case ScreenDoctorFix:
+		s.WriteString(m.renderDoctorFix())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1679,6 +1687,14 @@ func (m Model) utilitiesDescription() []string {
 	// the section leaving a hole. Naming it here is what makes the row findable.
 	paragraphs = append(paragraphs, fmt.Sprintf("%s reads the colour depth, OSC 52, synchronized "+
 		"output and the Nerd Font glyphs, and names the source of every answer.", utilitiesTerminalRow))
+
+	// The doctor. It is read-only until one of its two fixes is confirmed, and it
+	// is offered everywhere for the same reason the capability report is: there is
+	// always a machine to diagnose.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s runs the checks of its own catalogue -- PATH, the "+
+		"shells, the tools this installer manages, the dotfiles it owns, git and SSH, and the environment -- "+
+		"and reports each answer with its evidence, its impact and what to do; the only change it can make is "+
+		"the fix you confirm on its own screen.", utilitiesDoctorRow))
 
 	return paragraphs
 }

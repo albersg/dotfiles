@@ -116,6 +116,18 @@ const (
 	// optional detours reached from the row that decides them (T2 of
 	// odd/tasks/start-installation-flow.md).
 	ScreenSetup // Every decision of the flow, on one screen
+	// The development-environment doctor. Appended at the end for the same
+	// reason as the screens above. The utilities section opens it from its own
+	// row, one level in so the section stays a list of jobs. It runs the checks
+	// of doctor.go off the update loop -- one check per command, so progress is
+	// real and Escape cancels -- and every answer is ok, a warning, an error,
+	// not applicable or unknown with its evidence, its impact and what to do.
+	ScreenDoctor // What this machine's development environment looks like
+	// The confirmation for one fix. Appended at the end for the same reason. It
+	// states the exact effect, the risk, the permission and the backup before
+	// anything is changed, and its single action row is the only row in the
+	// doctor that writes anything at all.
+	ScreenDoctorFix // One deterministic repair, seen before it is applied
 )
 
 // InstallStep represents a single installation step
@@ -474,6 +486,11 @@ type Model struct {
 	// resolved once, here; the measurement runs only when the row is pressed,
 	// because starting the user's shell five times is not a render.
 	ShellAudit shellAuditState
+	// Doctor is what the development-environment doctor draws: the scan in
+	// flight or the last one that finished, the list's filter, and the finding
+	// whose fix is being confirmed. Nothing is scanned until a row inside the
+	// screen is pressed, so opening the section never reads the machine.
+	Doctor doctorState
 	// UpdateCheck is what the installer knows about the latest published release:
 	// the tag, when it was read, and the reason it could not be read. The cached
 	// record is loaded on the startup path, so a start never waits on the network;
@@ -902,6 +919,10 @@ func (m Model) GetCurrentOptions() []string {
 		// is always a terminal to describe, and where there is not one the screen's
 		// own body says so rather than the row being silently absent.
 		utilities = append(utilities, utilitiesTerminalRow)
+		// The doctor is read-only until a fix is confirmed, and it is offered
+		// everywhere: there is always a machine to diagnose. It sits last, so it
+		// never displaces a utility above it on a short frame.
+		utilities = append(utilities, utilitiesDoctorRow)
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -922,6 +943,10 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"← Back"}
 	case ScreenShellAudit:
 		return m.shellAuditRows()
+	case ScreenDoctor:
+		return m.doctorRows()
+	case ScreenDoctorFix:
+		return m.doctorFixRows()
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:
@@ -1195,6 +1220,10 @@ func (m Model) GetScreenTitle() string {
 		return "Terminal capabilities"
 	case ScreenShellAudit:
 		return "The shell's startup"
+	case ScreenDoctor:
+		return "Development environment"
+	case ScreenDoctorFix:
+		return "Confirm the fix"
 	case ScreenUpdate:
 		return "Updates"
 	default:
