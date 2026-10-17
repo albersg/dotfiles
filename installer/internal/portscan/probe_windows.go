@@ -56,3 +56,30 @@ func (defaultProbe) Signal(pid int, sig Signal) error {
 }
 
 func (defaultProbe) LookupUser(uid int) (string, error) { return strconv.Itoa(uid), nil }
+
+// The platform fact readers below exist so the untagged listener builder and
+// the stop path compile on this platform too. They deliberately answer
+// nothing: Windows has no /proc to read and this package has no Windows
+// process API, so a reading here cannot claim an identity it never had. The
+// empty token is what makes the stop path refuse with "identity could not be
+// read again" instead of pretending a revalidation happened.
+
+// readBootFacts answers the zero value: there is no boot id or boot time this
+// probe can read, and inventing one would be an identity no second reading
+// could match.
+func readBootFacts(Probe) bootFacts { return bootFacts{} }
+
+// parseProcStat is the /proc/<pid>/stat parser, and this platform has no
+// /proc. The signature matches the other platforms' readers; the answer is a
+// refusal rather than a guess.
+func parseProcStat([]byte) (ppid int, comm string, startTicks uint64, ok bool) {
+	return 0, "", 0, false
+}
+
+// readProcProcess cannot read a process here. It names the PID it was asked
+// about and leaves every fact and the identity token empty, so the caller
+// reports that the identity cannot be revalidated instead of showing made-up
+// fields.
+func readProcProcess(_ Probe, pid int, scope string, _ bootFacts) Process {
+	return Process{PID: pid, Scope: scope}
+}
