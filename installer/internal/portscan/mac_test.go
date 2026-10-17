@@ -161,3 +161,105 @@ func TestDarwinIdentityIsTheRawPSLstartString(t *testing.T) {
 		t.Errorf("the same lstart did not compare equal: %q vs %q", proc.token, current.token)
 	}
 }
+
+// TestTheFlowFixtureAnswersTheDarwinReaderToo is the local half of the macOS
+// fix: readDarwinProcess is untagged, so the very fixture the stop tests build
+// (linuxHost) can be driven through the darwin reader here on Linux, and the
+// facts must be the ones the /proc reader yields from the same fixture in
+// TestDiscoverResolvesOwnerIdentityOnLinux. Without this, the ps bridge could
+// only be validated by a macOS runner, and a typo in it would look like a
+// platform failure instead of a fixture bug.
+//
+// The expected literals are the /proc reader's own answers, so the two dialects
+// are pinned to one result rather than each being self-consistent: node,
+// alber, /usr/bin/node, ps's start wording as the token, and the masked token
+// argument. The start time is asserted as the instant btime plus the start
+// ticks name, which is the same 1700000123 the /proc test asserts.
+func TestTheFlowFixtureAnswersTheDarwinReaderToo(t *testing.T) {
+	p := linuxHost(999, 3000, "777")
+
+	proc := readDarwinProcess(context.Background(), p, 999, ScopeSelf)
+
+	if !proc.IdentityKnown() {
+		t.Fatal("the darwin reader got no identity token from the shared fixture")
+	}
+	if proc.Name != "node" {
+		t.Errorf("name = %q, want node", proc.Name)
+	}
+	if proc.User != "alber" {
+		t.Errorf("user = %q, want alber", proc.User)
+	}
+	if proc.Exe != "/usr/bin/node" {
+		t.Errorf("exe = %q, want /usr/bin/node", proc.Exe)
+	}
+	if proc.StartedLabel == "" || proc.token != proc.StartedLabel {
+		t.Errorf("token = %q with label %q; want ps's own start wording as the token", proc.token, proc.StartedLabel)
+	}
+	if got, want := proc.StartedAt.Unix(), int64(1700000123); got != want {
+		t.Errorf("started = %d, want %d (boot time plus the start ticks)", got, want)
+	}
+	if got, want := strings.Join(proc.Args, " "), "node server.js --token ****"; got != want {
+		t.Errorf("args = %q, want %q: a token must not survive into the reading", got, want)
+	}
+
+	// The snapshot's owner is read by the platform's compiled fact reader: on
+	// Linux this comparison is genuinely between the /proc reader and the ps
+	// bridge, and on macOS it re-affirms that the snapshot and the stop path
+	// read one process the same way. Two facts are platform-shaped by D6: the
+	// identity token's wording (Linux boot id plus start ticks, macOS ps's
+	// lstart), and the start time's precision (10 ms ticks against lstart's whole
+	// second). Every other fact must be identical.
+	snap := discoverFixture(p)
+	listener := soleListener(t, snap)
+	owner := listener.Owner
+	if owner == nil {
+		t.Fatalf("the snapshot resolved no owner to compare with: %q", listener.OwnerErr)
+	}
+	if owner.Name != proc.Name || owner.User != proc.User || owner.Exe != proc.Exe {
+		t.Errorf("snapshot owner = %s/%s/%s, darwin reader = %s/%s/%s; want the same facts",
+			owner.Name, owner.User, owner.Exe, proc.Name, proc.User, proc.Exe)
+	}
+	// StartedAt is compared to the second, not to the instant: the /proc reader
+	// has 10 ms start ticks while ps's lstart has one-second granularity (D6),
+	// so the same process is only pinnable to the second on both. The sub-second
+	// remainder is a precision Linux has and macOS does not.
+	if owner.StartedAt.Unix() != proc.StartedAt.Unix() {
+		t.Errorf("snapshot started = %v, darwin started = %v; want the same second", owner.StartedAt, proc.StartedAt)
+	}
+	if strings.Join(owner.Args, " ") != strings.Join(proc.Args, " ") {
+		t.Errorf("snapshot args = %q, darwin args = %q; want the same redacted argv", owner.Args, proc.Args)
+	}
+}
+
+// TestTheFlowFixtureMovesTheDarwinIdentityWithTheStartTicks is the proof that
+// the two readings a stop compares are both served by the darwin dialect: the
+// recycled PID and the vanished start file are the two ways a fixture changes
+// identity between two readings, and they must change it for the darwin reader
+// exactly as they do for /proc. It is the local stand-in for the macOS runner's
+// TestStopRefusesARecycledPID and TestStopRefusesWhenTheIdentityCannotBeReadAgain.
+func TestTheFlowFixtureMovesTheDarwinIdentityWithTheStartTicks(t *testing.T) {
+	p := linuxHost(999, 3000, "777")
+	shown := readDarwinProcess(context.Background(), p, 999, ScopeSelf)
+	if !shown.IdentityKnown() {
+		t.Fatal("the shared fixture gave the darwin reader no identity to start from")
+	}
+
+	// A live PID whose start ticks changed is a different incarnation, and the
+	// start ticks are the only fact that changed.
+	p.files["/proc/999/stat"] = []byte(procStatLine(999, 1, "python3", 99999))
+	recycled := readDarwinProcess(context.Background(), p, 999, ScopeSelf)
+	if !recycled.IdentityKnown() {
+		t.Fatal("the recycled process produced no darwin identity token")
+	}
+	if shown.SameIdentity(recycled) {
+		t.Errorf("the darwin reader compared %q and %q as one process", shown.token, recycled.token)
+	}
+
+	// A start file the fixture no longer has is an identity the darwin reader
+	// must report as unreadable, not invent one for.
+	delete(p.files, "/proc/999/stat")
+	unreadable := readDarwinProcess(context.Background(), p, 999, ScopeSelf)
+	if unreadable.IdentityKnown() {
+		t.Errorf("the darwin reader invented the token %q for a process with no start file", unreadable.token)
+	}
+}
