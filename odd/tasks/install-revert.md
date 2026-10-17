@@ -529,3 +529,30 @@ session.
     `TMPDIR`, and the base claim is checked against the base tree before it is written down.
   - The gate over the fixed tree: green twice, once with a 54-character `TMPDIR` and once with the
     normal one.
+
+- **L22 (the second merge, and a merge audit that can be trusted).** `origin/main` moved again while the
+  pull request was open: 22 commits to `dd3c48b` (the developer disk cleaner), with five files both sides
+  had touched -- `docs/tui-installer.md`, `installer/internal/tui/model.go`, `teatest_test.go`, `update.go`,
+  `view.go`. Git merged all five without a conflict, and a clean merge is exactly what the first integration
+  taught me not to trust, so this one got its own audit before anything was pushed. The integrated tree
+  (`4798b94`) is 45 files and +6807/-281 over the new main.
+  - The audit tool started by reporting six problems and every one of them was wrong, which is the lesson:
+    `=======` appears 78 times in a Go file as a comment separator, not as a conflict marker; four lines of
+    mine were "missing" from `docs/tui-installer.md` only because the disk cleaner had **re-wrapped** the same
+    sentence, which a line comparison cannot survive; and seven lines of main's `update.go` and `model.go`
+    looked lost because they are `recordLastInstall`, the function this branch rewrote as `recordRun` plus
+    `writeLastInstall` in `0ff4ce6`.
+  - Worse than the false positives was a false negative: the first version computed its "lost lines" from
+    lines it had already checked as present, so that check could never fire. A tool that can only say "clean"
+    is not evidence, and this one happened to crash with a TypeError on its way there, which is how it got
+    caught.
+  - The rules the tool now follows, and they are the general form of L20 and L21: compare **normalized** text,
+    with every whitespace run collapsed, so re-wrapping by either side is invisible; treat an absence as a
+    loss only when the line was on **both** sides, or when the side that lacks it did **not** delete it
+    deliberately, measured against the merge base; and count sentences rather than lines, or a sentence that
+    is already a suffix of a longer line disappears from the accounting. The tool lives outside the
+    repository at `$HOME/odd-verify/merge-audit.py`: offered, not committed.
+  - Result on the five files: 3701/3705, 2604/2605, 3631/3631, 4716/4722 and 6816/6816 lines present, eleven
+    deliberate absences, **no** loss and no sentence duplicated. The rename is confirmed by the check a line
+    audit cannot make: `go build ./...` and `go vet` are clean on the merged tree, so no code main added
+    calls the API this branch replaced.
