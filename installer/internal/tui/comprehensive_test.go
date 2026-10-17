@@ -1703,10 +1703,34 @@ var screenNames = map[Screen]string{
 	ScreenLearnPlugins:         "LearnPlugins",
 	ScreenLearnToolset:         "LearnToolset",
 	ScreenInstallVerify:        "InstallVerify",
-	// ScreenSetup is the last screen the enum declares: the merge put it after main's
-	// screens, so its name belongs here in the same order, and the guard that reads
-	// this map is what said so rather than a guess about where the line should go.
+	// ScreenSetup is the last screen main's merge declared: it went after the screens
+	// above, so its name belongs here in the same order, and the guard that reads this
+	// map is what said so rather than a guess about where the line should go.
 	ScreenSetup: "Setup",
+	// The update center is declared after ScreenSetup and before the network
+	// diagnosis: the section's eighth destination, named here in the order model.go
+	// declares it.
+	ScreenUpdateCenter: "UpdateCenter",
+	// The network diagnosis is declared after ScreenSetup and is the last screen the
+	// enum holds: the same guard named it, and its name belongs in the same order.
+	ScreenNetworkDiagnostics: "NetworkDiagnostics",
+	// The WSL performance advisor and its two assistants are declared after the
+	// network diagnosis: the guard named them too, so they follow it in the same
+	// order -- the report and the reading state it shows before the facts land, the
+	// measurement screen, and the assisted copy.
+	ScreenWSLAdvisor:   "WSLAdvisor",
+	ScreenWSLBenchmark: "WSLBenchmark",
+	ScreenWSLMigration: "WSLMigration",
+	// The SSH manager's seven screens follow the advisor's in the enum, so their names
+	// follow its here. The guard in screen_coverage_test.go walks every Screen value in model.go
+	// and fails until each one has an entry, which is what asked for these.
+	ScreenSSHManager:     "SSHManager",
+	ScreenSSHHost:        "SSHHost",
+	ScreenSSHForm:        "SSHForm",
+	ScreenSSHKeys:        "SSHKeys",
+	ScreenSSHAgent:       "SSHAgent",
+	ScreenSSHDiagnostics: "SSHDiagnostics",
+	ScreenSSHTest:        "SSHTest",
 }
 
 func (s Screen) String() string {

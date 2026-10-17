@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   Utilities                                                                    
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  Network diagnostics                                                           
+  … and 10 more                                                                 
+                                                                                
+  ▸ Run the connectivity checks                                                 
+    Check a host, URL or port…                                                  
+  ────────────────────────────────────────────────────────────────────────────  
+    [ok] local — Interfaces and addresses                                       
+    [ok] local — Default route                                                  
+    [ok] DNS — Resolve api.github.com                                           
+    [failed] transport — Connect to api.github.com:443                          
+    [skipped] certificate — TLS handshake                                       
+    [unknown] application — HTTP request                                        
+  ────────────────────────────────────────────────────────────────────────────  
+    Include a traceroute (needs the system's own tool)                          
+    Review the report as text                                                   
+  ────────────────────────────────────────────────────────────────────────────  
+    ← Back                                                                      
+                                                                                
+  The run finished. Move the cursor onto a step to read what it measured.       
+  ────────────────────────────────────────────────────────────────────────────  
+  ↑/k up • ↓/j down • [Enter] select • [Esc] back                               [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

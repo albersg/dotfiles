@@ -103,8 +103,11 @@ func TestTheSectionOffersTheInstallVerification(t *testing.T) {
 	}
 	// The row's own sentence is the one that is there, and it does not deny the
 	// utility it offers: a sentence that says the verification is not available
-	// would be the section contradicting its own list.
-	if !strings.Contains(body, "reports which recorded paths are gone") {
+	// would be the section contradicting its own list. The sentence is one row now
+	// -- the section's body is measured against the 80x24 floor, and a wrapped line
+	// pushed three jobs behind the cut marker -- and the claim it makes is the same
+	// one: the report is about the paths that are gone.
+	if !strings.Contains(body, "reports the paths that are gone") {
 		t.Errorf("the section does not say what the verification reports: %q", body)
 	}
 	if strings.Contains(body, utilitiesVerifyRow+" is not") {

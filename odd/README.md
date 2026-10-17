@@ -69,6 +69,8 @@ repository's memory of why something is the way it is.
 | [vim-trainer-improvements.md](tasks/vim-trainer-improvements.md) | Improvements to the trainer |
 | [visual-dashboard.md](tasks/visual-dashboard.md) | The visual dashboard |
 | [wsl-host-derived-config.md](tasks/wsl-host-derived-config.md) | WSL configuration derived from the host |
+| [wsl-memory-guard.md](tasks/wsl-memory-guard.md) | The WSL memory guard and the policy that stops the distribution from dying |
+| [network-diagnostics.md](tasks/network-diagnostics.md) | The read-only network diagnosis and its redacted report |
 
 Add a file to this index in the same change that adds it: an index that lags is an index nobody
 trusts, and the task file is the only place the front's reasoning exists.

@@ -5240,6 +5240,13 @@ func stepInstallTerminal(m *Model) error {
 				SendLog(stepID, "Cloning Alacritty repository...")
 				alacrittyDir := filepath.Join(os.TempDir(), "alacritty-build")
 				os.RemoveAll(alacrittyDir)
+				// The clone and its release target directory are gigabytes, and every
+				// way out of this block below is an error return. Removing the tree
+				// only after the last command succeeded left the whole build in the
+				// shared temporary directory whenever anything failed, which on a
+				// tmpfs distribution is memory no process can reclaim. The defer is
+				// what makes the removal follow the block instead of its happy path.
+				defer os.RemoveAll(alacrittyDir)
 				result = system.RunWithLogs(fmt.Sprintf("git clone https://github.com/alacritty/alacritty.git %s", alacrittyDir), nil, func(line string) {
 					SendLog(stepID, line)
 				})
@@ -5274,7 +5281,6 @@ func stepInstallTerminal(m *Model) error {
 				runSudoWithLogs(fmt.Sprintf("cp %s/extra/linux/Alacritty.desktop /usr/share/applications/", alacrittyDir), nil, func(line string) {
 					SendLog(stepID, line)
 				})
-				os.RemoveAll(alacrittyDir)
 				SendLog(stepID, "✓ Alacritty built and installed from source")
 			} else {
 				return wrapStepError("terminal", "Install Alacritty",

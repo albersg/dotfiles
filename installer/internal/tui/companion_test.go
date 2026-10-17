@@ -26,9 +26,18 @@ import (
 // carry the companion on one host and not on another. Tests that are about the
 // animation itself turn the gate on directly through the model's own field,
 // which is what the field is for.
+//
+// It also gives the whole package a state directory of its own and removes it on
+// the way out. That is the one thing this file can do that no individual test
+// can: removal has to happen after the tests and while the process is still
+// alive, and TestMain is the only place that runs there.
 func TestMain(m *testing.M) {
 	os.Setenv(envAnim, "0")
-	os.Exit(m.Run())
+
+	cleanupStateDir := pointStateDirAtATemporaryOne()
+	code := m.Run()
+	cleanupStateDir()
+	os.Exit(code)
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -3750,20 +3759,20 @@ func TestCompanionBlockDependsOnlyOnTheTerminal(t *testing.T) {
 		compared++
 	}
 	renderedCount := int(rendered.Load())
-	// 1088 rather than the 896 this was before the learn pages and the terminal
-	// keymaps: the pages the hub opens (Font, Prompts, Shell tooling, Plugins and
-	// Machine toolset), the category the keymap reference gained (Kitty, with its
-	// table) and the two terminals whose configurations declare no bindings
-	// (WezTerm and Alacritty) all join the list every frame guard renders, at each
-	// measured terminal. The number is written out so that adding a screen is a
-	// deliberate act: 68 frame states (61 installer + 6 trainer + the setup screen) at 4 sizes, 2
-	// pixel modes and 2 cursor states. It was 896 before the install review screen,
-	// and 848 before the administrator password screen, for the same reason. The 1088 is measured on the
-	// merged tree rather than added up from either side: the guard itself reported 1088 rendered and 1088
-	// compared when both sides' screens were present, which is 67 frame states from main's side plus the
-	// setup screen, at 4 sizes, 2 pixel modes and 2 cursor states.
-	if renderedCount != 1088 || compared != 1088 {
-		t.Fatalf("companion block guard rendered %d screens and compared %d, want 1088 of each", renderedCount, compared)
+	// 1312 rather than the 896 this was before the learn pages and the terminal
+	// keymaps, than the 1088 main measured before its advisor and than the 1152 it
+	// measured after: the pages the hub opens (Font, Prompts, Shell tooling, Plugins
+	// and Machine toolset), the category the keymap reference gained (Kitty, with its
+	// table), the two terminals whose configurations declare no bindings (WezTerm and
+	// Alacritty), the advisor's own screens and the SSH manager's ten case names in
+	// their two states all join the list every frame guard renders, at each measured
+	// terminal. The number is written out so that adding a screen is a deliberate act:
+	// 82 frame states at 4 sizes, 2 pixel modes and 2 cursor states. The 1312 is
+	// measured on the merged tree rather than added up from either side: the guard
+	// itself reported 1312 rendered and 1312 compared when both sides' screens were
+	// present.
+	if renderedCount != 1312 || compared != 1312 {
+		t.Fatalf("companion block guard rendered %d screens and compared %d, want 1312 of each", renderedCount, compared)
 	}
 	t.Logf("companion block guard coverage: %d rendered screens, %d comparisons", renderedCount, compared)
 }

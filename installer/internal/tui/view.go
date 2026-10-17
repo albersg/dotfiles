@@ -103,6 +103,10 @@ var (
 	hintAdjust      = installerHint{"[←/→]", "adjust"}
 	hintRecommended = installerHint{"[r]", "recommended"}
 	hintMove        = installerHint{"↑/k ↓/j", "move"}
+	// hintType is the hint for a screen that has a text field: the keyboard writes
+	// into the field, and the arrows move between fields, so no key can be named for
+	// typing itself. It is the same shape as the trainer's "Type command".
+	hintType = installerHint{"", "type"}
 	// hintTab cycles the panels of a screen that offers more than one. It is only
 	// ever added to a screen that has something to cycle, so the footer never
 	// advertises a key that does nothing.
@@ -112,6 +116,15 @@ var (
 	// so it always fits one footer row beside the details hint, and it spells both
 	// answers because the offer writes nothing until one of them is pressed.
 	hintWSLTerminalOffer = installerHint{"[y/n]", "configure Windows Terminal or leave it unchanged"}
+	// The shell startup screen's own keys. The plan is four settings in one hint:
+	// they are the same kind of decision, they are named together where the plan is
+	// described, and four separate pairs would take the footer row the way back
+	// needs on a narrow terminal.
+	hintShellAuditPlan   = installerHint{"[m/n/w/b]", "what to measure"}
+	hintShellAuditExtras = installerHint{"[h/r]", "history / recommendations"}
+	// hintShellAuditStop is the Esc hint while a measurement is running, where the
+	// key stops the starts that are left rather than leaving the screen.
+	hintShellAuditStop = installerHint{"[Esc]", "stop the runs that are left"}
 )
 
 // helpHintSeparator is the one separator the installer footer shares with the
@@ -487,7 +500,11 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 func (m Model) bodyAnchorsToTheRule() bool {
 	switch m.Screen {
 	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenInstallVerify:
+		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenUpdateCenter,
+		ScreenInstallVerify, ScreenNetworkDiagnostics, ScreenWSLAdvisor,
+		ScreenWSLBenchmark, ScreenWSLMigration, ScreenSSHManager, ScreenSSHHost,
+		ScreenSSHForm, ScreenSSHKeys, ScreenSSHAgent, ScreenSSHDiagnostics,
+		ScreenSSHTest:
 		return true
 	}
 	return false
@@ -553,11 +570,27 @@ func (m Model) headerName() string {
 		// picker is the same level in as the WSL and capability screens, so it names
 		// the same section instead of falling back to the program name.
 		return "Utilities"
-	case ScreenShellAudit:
-		// The shell's startup screen is one level in from the same section.
+	case ScreenShellAudit, ScreenWSLAdvisor, ScreenWSLBenchmark, ScreenWSLMigration:
+		// The shell's startup screen, the performance advisor and its two assistants
+		// are all one level in from the same section, so they name it rather than
+		// reading as sections of their own.
 		return "Utilities"
 	case ScreenInstallVerify:
 		// The verification screen is one level in from the same section.
+		return "Utilities"
+	case ScreenNetworkDiagnostics:
+		// The diagnosis screen is one level in from the same section.
+		return "Utilities"
+	case ScreenUpdateCenter:
+		// The update center is one level in from the same section, so it names the
+		// section rather than a heading of its own.
+		return "Utilities"
+	case ScreenSSHManager, ScreenSSHHost, ScreenSSHForm, ScreenSSHKeys,
+		ScreenSSHAgent, ScreenSSHDiagnostics, ScreenSSHTest:
+		// The SSH manager is the section's own job: its hub is one level in, like
+		// the other utility screens, and everything it opens stays under the same
+		// heading. A header that changed as the user walked into a host's detail
+		// would name a section that does not exist in the menu.
 		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
@@ -1079,12 +1112,36 @@ func (m Model) View() string {
 		s.WriteString(m.renderThemePicker())
 	case ScreenWSLResources:
 		s.WriteString(m.renderWSLResources())
+	case ScreenWSLAdvisor:
+		s.WriteString(m.renderWSLAdvisor())
+	case ScreenWSLBenchmark:
+		s.WriteString(m.renderWSLBenchmark())
+	case ScreenWSLMigration:
+		s.WriteString(m.renderWSLMigration())
 	case ScreenTerminalCapabilities:
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenUpdateCenter:
+		s.WriteString(m.renderUpdateCenter())
 	case ScreenInstallVerify:
 		s.WriteString(m.renderInstallVerify())
+	case ScreenNetworkDiagnostics:
+		s.WriteString(m.renderNetworkDiagnostics())
+	case ScreenSSHManager:
+		s.WriteString(m.renderSSHManager())
+	case ScreenSSHHost:
+		s.WriteString(m.renderSSHHost())
+	case ScreenSSHForm:
+		s.WriteString(m.renderSSHForm())
+	case ScreenSSHKeys:
+		s.WriteString(m.renderSSHKeys())
+	case ScreenSSHAgent:
+		s.WriteString(m.renderSSHAgent())
+	case ScreenSSHDiagnostics:
+		s.WriteString(m.renderSSHDiagnostics())
+	case ScreenSSHTest:
+		s.WriteString(m.renderSSHTest())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenInstalling:
@@ -1444,8 +1501,15 @@ func (m Model) terminalCapabilitiesDescription() []string {
 // can be named, and the one row that starts the measurement. It is the same shape
 // as the other utilities screens, so it uses the same budget arithmetic.
 func (m Model) renderShellAudit() string {
+	// The way back is the way to stop while the runs are still coming: Esc leaves
+	// the screen when nothing is running and stops the starts that are left when
+	// something is, so the footer names the one the press will really do.
+	back := hintBack
+	if m.ShellAudit.Measuring {
+		back = hintShellAuditStop
+	}
 	return m.renderThemeScreen(m.shellAuditDescription(), m.shellAuditNotice(),
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+		[]installerHint{hintUp, hintDown, hintSelect, hintShellAuditPlan, hintShellAuditExtras, back})
 }
 
 // renderThemePicker draws the dotfiles theme list: the complete themes, each
@@ -1653,8 +1717,7 @@ func (m Model) utilitiesDescription() []string {
 	var paragraphs []string
 	if !m.ThemeSwitchFound {
 		paragraphs = append(paragraphs,
-			"No desktop theme switch is available here: it needs a GNOME, KDE Plasma or macOS session with "+
-				"its own theme tool.")
+			"No desktop theme switch is available here: no GNOME, KDE or macOS session.")
 	} else {
 		paragraphs = append(paragraphs, fmt.Sprintf(
 			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
@@ -1702,8 +1765,7 @@ func (m Model) utilitiesDescription() []string {
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
 		paragraphs = append(paragraphs, reason)
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%s shows what %s holds today.",
-			utilitiesWSLRow, m.WSLState.Path))
+		paragraphs = append(paragraphs, fmt.Sprintf("%s shows what %s holds today.", utilitiesWSLRow, m.WSLState.Path))
 	}
 
 	if reason := m.shellAuditUnavailableReason(); reason != "" {
@@ -1712,6 +1774,27 @@ func (m Model) utilitiesDescription() []string {
 		paragraphs = append(paragraphs, fmt.Sprintf("%s times %s; it changes nothing.",
 			utilitiesShellAuditRow, m.ShellAudit.Command))
 	}
+
+	// The WSL performance advisor, in one line when it is offered and with the reason when it is not
+	// -- but only on a host the installer already classified as WSL. On any other host, naming a WSL
+	// utility the section cannot offer would spend the body on a question nobody asked.
+	switch {
+	case m.wslAdvisorOffered():
+		paragraphs = append(paragraphs, fmt.Sprintf("%s reads this instance's mounts, memory, storage "+
+			"and resolver and states what it found, with the evidence behind every finding; the "+
+			"measurement and the assisted copy are one level in, and the report itself changes nothing.",
+			utilitiesWSLAdvisorRow))
+	case m.SystemInfo != nil && m.SystemInfo.IsWSL:
+		paragraphs = append(paragraphs, m.wslAdvisorUnavailableReason())
+	}
+
+	// The SSH manager, in one line: what it shows and what it may change. It is
+	// offered everywhere, so no reason line is needed here; the screen itself says
+	// what a host without an ssh client can still do. It is kept to a single line,
+	// like the rows it sits beside: the section's prose shares a row budget with the
+	// list, and a longer paragraph is what pushes another row's own line behind the
+	// "… and n more" marker.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s shows the hosts and keys the client uses.", utilitiesSSHRow))
 
 	// The terminal capability report. It is read-only and offered everywhere;
 	// where there is no terminal to read, the screen itself says so rather than
@@ -1723,8 +1806,36 @@ func (m Model) utilitiesDescription() []string {
 	// the same reason: the screen itself says when there is no record, so the
 	// section never leaves a hole where a utility should be, and it never promises
 	// more than presence -- the record holds no digest.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s reports which recorded paths are gone.", utilitiesVerifyRow))
+	//
+	// The sentence is one row and has to stay one: the section's body shares the
+	// frame with its rows, TestUtilitiesBodyCarriesEveryJobAtTheFloor reads the
+	// 80x24 frame, and the update center's line is the job that spent the last row
+	// this section had (main's own fix gave the SSH manager's line back by making
+	// the WSL reason one row). The longer sentence -- "reports which recorded paths
+	// are gone" -- wrapped to two rows, and the wrap put three job lines behind the
+	// cut marker; the claim is the same one and it fits in fewer words.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s reports the paths that are gone.", utilitiesVerifyRow))
 
+	// The network diagnosis is named last, in a line short enough to be one row: the
+	// body shares the frame with the rows, and it has to carry every job without the
+	// cut marker -- TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on "… and N more"
+	// at 80x24. What the line leaves out -- the host an overview reaches for, and
+	// that every check is bounded -- is stated on the screen itself, where the runs
+	// that need it are started.
+	paragraphs = append(paragraphs, fmt.Sprintf("%s runs read-only checks, stage by stage.",
+		utilitiesNetworkRow))
+
+	// The update center is deliberately the one job with no line of its own here.
+	// The section's body shares the frame with its rows, and the rows take their
+	// budget first (renderThemeScreen: descBudget = available - len(menu)); at 80x24
+	// with nine jobs the body has eight lines, and
+	// TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on the cut marker a ninth line
+	// produces. Every line above is one line and earns its place, so the newest job
+	// is the one that yields rather than pushing a peer's line behind the counter.
+	// Nothing a user needs is lost: the rows list names it ("%s"), and what its line
+	// would have said -- that a command runs only for what was selected, after a
+	// confirmation -- is stated on the screen itself, in updateCenterDescription,
+	// where the selection is made rather than where it is summed up.
 	return paragraphs
 }
 
@@ -1880,6 +1991,8 @@ func (m Model) wslResourceRows() []string {
 		m.menuSeparator(),
 		wslWriteRow,
 		m.menuSeparator(),
+		wslGuardRepairRow,
+		m.menuSeparator(),
 		"← Back",
 	}
 }
@@ -1894,8 +2007,9 @@ const wslOmittedZero = "omitted (WSL decides)"
 
 // wslResourceDescription is what the WSL resource screen says about itself: the
 // capacities the recommendation came from, the recommendation and the
-// proportions it follows, what the file holds today, what a write preserves, and
-// the one step the screen deliberately does not take.
+// proportions it follows, what the file holds today, what the memory guard holds
+// on the running machine, what a write preserves, and the one step the screen
+// deliberately does not take.
 func (m Model) wslResourceDescription() []string {
 	state := m.WSLState
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
@@ -1904,24 +2018,137 @@ func (m Model) wslResourceDescription() []string {
 
 	// The values come first: the host's capacities, the recommendation, and what
 	// the file holds today, so the three numbers the screen exists for are read
-	// before the derivation that produced them. How to apply the change follows,
-	// then the formula compressed to one sentence, then the file's own rules -- a
-	// short frame cuts the explanation, never the numbers or how to use them.
+	// before the derivation that produced them. The guard's report follows, ahead of
+	// the instruction that applies the change, because it is the one line here about
+	// the machine the user is working on rather than the file being edited, and it
+	// is the half with no second channel: the apply instruction is repeated by the
+	// write's own notice, so a short frame can afford to cut it, while a missing
+	// protection can stop the distribution before the write is ever made. Then the
+	// formula compressed to one sentence, then the file's own rules.
 	plan := state.Plan
-	return []string{
+	paragraphs := []string{
 		wslHostParagraph(state.Host),
 		fmt.Sprintf("Recommended for this host: memory %s, processors %s and swap %s.",
 			wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB")),
 		wslCurrentParagraph(state),
-		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal " +
-			"to apply it. This screen does not run it: that would close the session you are working in.",
-		fmt.Sprintf("Memory is half the host's RAM rounded down to %d MB, and never so much that Windows "+
-			"keeps less than 2 GiB; processors are every logical CPU the host reports; swap is a quarter of that memory.",
-			wslMemoryStepMB),
-		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept " +
-			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> " +
-			"before the write.",
 	}
+	// The guard follows the numbers and comes before how to apply them: what it
+	// reports is the running distribution's own limits, and the failure it names
+	// is the one a short frame must not cut.
+	paragraphs = append(paragraphs, wslGuardParagraphs(state.Guard)...)
+	paragraphs = append(paragraphs,
+		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal "+
+			"to apply it. This screen does not run it: that would close the session you are working in.",
+		fmt.Sprintf("Memory is three quarters of the host's RAM rounded down to %d MB, capped so Windows "+
+			"keeps 4 GiB wherever that can be honoured, and floored at half the host, which is what decides on "+
+			"a host too small to honour both; processors are every logical CPU the host reports except one, so "+
+			"Windows keeps one; swap is a quarter of that memory.",
+			wslMemoryStepMB),
+		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept "+
+			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> "+
+			"before the write.")
+	return paragraphs
+}
+
+// wslGuardRepairRow is the screen's row for the memory guard. It is the one row
+// here that is not about the .wslconfig: pressing it installs the guard's two
+// files, restarts its unit, and then reports what the host holds.
+const wslGuardRepairRow = "Repair the WSL memory guard"
+
+// wslGuardParagraphs is what the screen says about the memory guard. It names
+// what each missing protection costs rather than warning in general terms,
+// because the two halves fail in opposite directions and both were measured on
+// 2026-10-16: OOMPolicy=stop turned one OOM kill into the whole distribution
+// stopping, twice, and a numeric memory.high turned a spike into a six-minute
+// freeze instead of a kill.
+func wslGuardParagraphs(g wslGuardState) []string {
+	if !g.Installed {
+		reason := g.Reason
+		if reason == "" {
+			reason = "its payload and its unit are not where systemd reads them"
+		}
+		return []string{fmt.Sprintf("The WSL memory guard is not installed on this host: %s. It is what caps the "+
+			"distribution's own scope and what keeps one killed process from stopping it; the installation step "+
+			"installs it, and the row below installs it here without a full run.", reason)}
+	}
+
+	paragraphs := []string{fmt.Sprintf("The memory guard is installed and %s. init.scope carries memory.high=%s, "+
+		"memory.max=%s and OOMPolicy=%s.",
+		wslGuardActiveLabel(g), wslGuardText(g.HighBytes), wslGuardCapLabel(g.MaxBytes), wslGuardText(g.OOMPolicy))}
+
+	if failure := wslGuardFailureMode(g); failure != "" {
+		paragraphs = append(paragraphs, failure)
+	}
+	return paragraphs
+}
+
+// wslGuardFailureMode names what a missing protection costs, in the terms the
+// incident was measured in. It is empty when nothing is missing.
+func wslGuardFailureMode(g wslGuardState) string {
+	switch {
+	case g.OOMPolicy != "" && g.OOMPolicy != wslGuardWantOOMPolicy:
+		return fmt.Sprintf("OOMPolicy reads %s, so one OOM kill inside init.scope still stops the scope, and in "+
+			"WSL every process in the distribution lives in that one scope. On 2026-10-16 that killed the whole "+
+			"distribution twice.", g.OOMPolicy)
+	case g.HighBytes != "" && g.HighBytes != "max":
+		return fmt.Sprintf("memory.high is %s, which is a throttle rather than a limit: a spike is stalled "+
+			"instead of being killed, which is the six-minute freeze of 2026-10-16 rather than a crash.", g.HighBytes)
+	case g.MaxBytes == 0:
+		return "memory.max is unlimited, so nothing bounds the distribution's own scope and the OOM killer " +
+			"picks its victim by its own rules. On 2026-10-16 the victim was the distribution itself."
+	}
+	return ""
+}
+
+// wslGuardActiveLabel says whether systemd is running the guard, because
+// installed files that nothing runs hold no values.
+func wslGuardActiveLabel(g wslGuardState) string {
+	if g.Active {
+		return "systemd is running it"
+	}
+	return "systemd is not running it, so nothing is holding those values"
+}
+
+// wslGuardText renders a value the host may not have reported. An unread
+// attribute printed as an empty string would read as "unlimited" rather than
+// "not read".
+func wslGuardText(value string) string {
+	if value == "" {
+		return "unread"
+	}
+	return value
+}
+
+// wslGuardCapLabel renders the scope's memory cap. Zero is the reader's "not a
+// finite cap", which the cgroup spells "max".
+func wslGuardCapLabel(n uint64) string {
+	if n == 0 {
+		return "unlimited"
+	}
+	if n%bytesPerMiB == 0 {
+		return fmt.Sprintf("%d MB", n/bytesPerMiB)
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+
+// wslGuardRepairNotice is the one line the screen shows after a repair attempt.
+// It reports the state read afterwards, which is what decides whether the repair
+// worked; the install's own word for it is not enough.
+func wslGuardRepairNotice(g wslGuardState) string {
+	switch {
+	case !g.Installed:
+		return "The WSL memory guard is still not installed; the section above names why."
+	case !g.Active:
+		return "The WSL memory guard is installed but systemd is not running it, so nothing is holding those " +
+			"values; systemctl status wsl-memory-guard names the reason."
+	case g.OOMPolicy == wslGuardWantOOMPolicy && g.HighBytes == "max" && g.MaxBytes > 0:
+		return fmt.Sprintf("The WSL memory guard is in place: init.scope stops at %s with no throttle band, and "+
+			"OOMPolicy=%s.", wslGuardCapLabel(g.MaxBytes), g.OOMPolicy)
+	}
+	if failure := wslGuardFailureMode(g); failure != "" {
+		return "The WSL memory guard is installed, but " + failure
+	}
+	return "The WSL memory guard is installed; the section above says what the host holds."
 }
 
 // wslUnitLabel renders one planned value for prose, where a zero is a key the
@@ -1956,15 +2183,33 @@ func wslCurrentParagraph(state wslResourceState) string {
 
 // wslResourcesUnavailableReason says why the section offers no WSL resource row,
 // and is empty when it does. The reason is always stated: a gap the user cannot
-// see the reason for is the failure this exists to prevent, and on a machine
-// that is not Windows the answer is simply that this is not Windows.
+// see the reason for is the failure this exists to prevent, and on a machine that
+// is not WSL the answer names that machine.
+//
+// The sentence stays one row for every host name a machine reports in practice,
+// and that is a budget rule rather than a style: the section's body shares the
+// frame with its rows, so each job's line has to fit at 80x24 without the cut
+// marker (the guard that reads that frame is
+// TestUtilitiesBodyCarriesEveryJobAtTheFloor), and the SSH manager's own line
+// spent the last row the section had. It used to name the host *and* the file's
+// nature -- "and .wslconfig is a Windows file, and %s is not WSL" -- which
+// wrapped it to two rows on every host; the host is the half that says why the
+// utility cannot run here.
 func (m Model) wslResourcesUnavailableReason() string {
 	if m.SystemInfo == nil || !m.SystemInfo.IsWSL {
+		// The reason names the host: util_screen_test.go's own guard reads the body
+		// for the machine's name, and a sentence about "not WSL" that never says which
+		// machine it is talking about is the hole that guard exists to prevent. It
+		// stays one row for the host names a machine reports in practice, which is what
+		// the section's floor budget requires
+		// (TestUtilitiesBodyCarriesEveryJobAtTheFloor); the version that also quoted
+		// .wslconfig wrapped to two rows on every host, and that wrap is what put three
+		// job lines behind the cut marker before the update center's own line yielded.
 		host := "this machine"
 		if m.SystemInfo != nil && m.SystemInfo.OSName != "" {
 			host = m.SystemInfo.OSName
 		}
-		return fmt.Sprintf("WSL resources are not adjustable here: .wslconfig is a Windows file, and %s is not WSL.", host)
+		return fmt.Sprintf("WSL resources are not adjustable here: %s is not WSL.", host)
 	}
 	if !m.WSLState.Resolved {
 		return "WSL resources are not adjustable here yet: reading the Windows profile and the host's capacities."
@@ -1981,6 +2226,19 @@ func (m Model) wslResourcesUnavailableReason() string {
 // and a terminal were resolved, and the section's body names the reason
 // everywhere else.
 const utilitiesShellAuditRow = "Measure the shell's startup"
+
+// shellAuditAdviceListLimit is how many recommendations the screen's text lists,
+// and shellAuditAdviceOpenKey is the key that opens them.
+const (
+	shellAuditAdviceListLimit = 3
+	shellAuditAdviceOpenKey   = "r"
+)
+
+// utilitiesSSHRow is the section's row for the SSH manager. It is offered on
+// every host because the manager's own screen says what it cannot do -- a host
+// with no ssh client still has a configuration file worth reading -- and the
+// gap is declared on that screen rather than by a missing row.
+const utilitiesSSHRow = "Manage the SSH configuration"
 
 // updateInstallerRow is the main menu's button for this installer's own release.
 // It is offered only when a later release is published and the running file is
@@ -2141,6 +2399,13 @@ func (m Model) updateDescription() []string {
 // row that measures, the last measurement's summary when there is one, and the
 // way back. The result rows are drawn from the state, so the rows and the prose
 // cannot disagree about the number.
+//
+// The plan the press will measure is not a row, and deliberately so. The frame
+// gives its rows to the numbers and its prose to everything a row cannot say --
+// what will be measured, what the clean comparison measures against, what each
+// recommendation rests on -- and the plan is four rows of settings that would
+// take the sentences away from the numbers they explain. It lives in the text
+// below with keys of its own, and the keys are named where it is described.
 func (m Model) shellAuditRows() []string {
 	rows := []string{utilitiesShellAuditRow}
 	if m.ShellAudit.Measured {
@@ -2148,6 +2413,44 @@ func (m Model) shellAuditRows() []string {
 		rows = append(rows, shellAuditSummaryRows(m.ShellAudit)...)
 	}
 	return append(rows, m.menuSeparator(), "← Back")
+}
+
+// shellAuditWarmupPhrase is the warm-up inside a sentence. A sentence that read
+// "0 warm-up starts" is a count where a word belongs, and the count is the thing
+// the plan does not do.
+func shellAuditWarmupPhrase(warmup int) string {
+	switch {
+	case warmup <= 0:
+		return "no warm-up first"
+	case warmup == 1:
+		return "one warm-up start first, thrown away"
+	default:
+		return fmt.Sprintf("%d warm-up starts first, thrown away", warmup)
+	}
+}
+
+// shellAuditOnOff is a setting inside a sentence: a phrase for each state, because
+// "on"/"off" alone does not say what is on.
+func shellAuditOnOff(on bool, whenOn, whenOff string) string {
+	if on {
+		return whenOn
+	}
+	return whenOff
+}
+
+// shellAuditAdvicePrefix names what kind of claim a recommendation is. A reader
+// has to be able to tell a fact about the measurement from an observation of the
+// profile and from the one thing the clean comparison separated, and this prefix
+// is where that is said once for all of them.
+func shellAuditAdvicePrefix(kind shellAuditAdviceKind) string {
+	switch kind {
+	case shellAuditAdviceObserved:
+		return "Observed:"
+	case shellAuditAdviceConfirmed:
+		return "Confirmed:"
+	default:
+		return "Measured:"
+	}
 }
 
 // shellAuditSummaryRows is the last measurement as rows: the median with the
@@ -2159,11 +2462,21 @@ func shellAuditSummaryRows(st shellAuditState) []string {
 	if st.Median > 0 {
 		// The count is on the row because a median without one is not a
 		// measurement: the reader has to be able to see how many starts it covers
-		// and how many did not finish.
+		// and how many did not finish. The mean rides the same row: it is supported
+		// by the same runs, and a row of its own would cost a line on the terminals
+		// where the rows are the scarce part of the frame.
+		stats := st.Stats
+		if stats.Count == 0 && len(st.Samples) > 0 {
+			stats = shellAuditStatsOf(st.Samples)
+		}
+		mean := ""
+		if stats.Count > 1 {
+			mean = fmt.Sprintf(" (mean %s)", shellAuditDuration(stats.Mean))
+		}
 		if len(st.Samples) == st.Runs {
-			rows = append(rows, fmt.Sprintf("Median of %d runs: %s", st.Runs, shellAuditDuration(st.Median)))
+			rows = append(rows, fmt.Sprintf("Median of %d runs: %s%s", st.Runs, shellAuditDuration(st.Median), mean))
 		} else {
-			rows = append(rows, fmt.Sprintf("Median of %d of %d runs: %s", len(st.Samples), st.Runs, shellAuditDuration(st.Median)))
+			rows = append(rows, fmt.Sprintf("Median of %d of %d runs: %s%s", len(st.Samples), st.Runs, shellAuditDuration(st.Median), mean))
 		}
 		rows = append(rows, fmt.Sprintf("Range: %s to %s", shellAuditDuration(st.Fastest), shellAuditDuration(st.Slowest)))
 	} else {
@@ -2187,9 +2500,13 @@ func shellAuditSummaryRows(st shellAuditState) []string {
 	if len(st.Attribution) == 0 {
 		rows = append(rows, "No function is named; the screen says why")
 	} else {
+		// The row is the name and the two numbers a row can hold at 80 columns: the
+		// share the instrument printed and the way it measured are in the prose below,
+		// where the table it came from is described. A row wider than the frame is a
+		// row the shortest frame drops, and this one is the data.
 		first := st.Attribution[0]
-		rows = append(rows, fmt.Sprintf("Slowest function: %s (%s self, %d call(s))",
-			first.Name, shellAuditZprofTime(shellAuditMillis(first.Self)), first.Calls))
+		rows = append(rows, fmt.Sprintf("Heaviest entry: %s (%s self, %d call(s))",
+			first.Name, shellAuditDuration(first.Self), first.Calls))
 	}
 
 	return rows
@@ -2205,26 +2522,124 @@ func (m Model) shellAuditDescription() []string {
 		return []string{reason}
 	}
 
-	paragraphs := []string{fmt.Sprintf("%s is started the way a terminal starts it -- `%s`, each start bounded by %s -- "+
-		"so the number describes the start you wait through when you open a terminal. The measurement is %d such "+
-		"starts, and the median is the middle one: not an average, and not a single run.",
-		st.Shell, st.Command, shellAuditDuration(st.Timeout), st.Runs)}
+	// The plan as the measurement would really run it: a state whose plan was never
+	// set draws the plan that would run rather than a zero, because the line on
+	// screen and the press may not promise two different measurements.
+	plan := clampShellAuditPlan(st.Plan)
+	report := shellAuditReportOf(st)
 
-	if !st.Measured {
-		return append(paragraphs, "Nothing has been measured yet. Choosing the row above starts the runs; each one ends "+
-			"by itself or at the timeout, so the screen cannot be held open by your shell, and it stays usable while "+
-			"they run.")
+	// The recommendations, when the user asked to open them, come before everything
+	// else: they are the part of this screen a reader comes back for, and the frame
+	// cuts prose from the bottom, so a list that stayed where it belongs would be
+	// the first thing a short frame took away.
+	var paragraphs []string
+	if st.AdviceOpen {
+		paragraphs = append(paragraphs, shellAuditAdviceParagraphs(report)...)
 	}
 
-	// The attribution comes right after the method, before the runs behind the
+	paragraphs = append(paragraphs, fmt.Sprintf("%s is started the way a terminal starts it -- `%s`, each start bounded by %s -- "+
+		"so the number describes the start you wait through when you open a terminal. The plan runs %d such starts, and "+
+		"the median is the middle one: not an average, and not a single run.",
+		st.Shell, shellAuditPlanCommand(st.Shell, st.Kind, plan.Mode), shellAuditDuration(st.Timeout), plan.Samples))
+
+	// The plan and the keys that change it. It is prose rather than rows because of
+	// what a row cannot say: why a warm-up exists, what a clean comparison measures
+	// against, and where a history would be written.
+	paragraphs = append(paragraphs, fmt.Sprintf("What the press will measure: the %s start, %d runs, %s, and %s. "+
+		"[m] changes the start, [n] the number of runs, [w] the warm-up, and [b] the clean comparison. That comparison "+
+		"is the one measurement here that separates the shell's own startup from what you put in front of it, and it is "+
+		"made in a directory of the utility's own: your files are read, never moved and never rewritten.",
+		plan.Mode.label(), plan.Samples, shellAuditWarmupPhrase(plan.Warmup),
+		shellAuditOnOff(plan.Baseline, "the same start is measured again without your configuration",
+			"no clean comparison is measured")))
+
+	// The statistics the finished runs support come after the plan, not before it:
+	// the keys are what the reader acts on, and on a short frame the paragraph a
+	// reader can do something with is the one that stays.
+	if st.Measured && st.Stats.Count > 0 {
+		paragraphs = append(paragraphs, shellAuditStatisticsParagraph(st))
+	}
+
+	if st.History.Enabled {
+		paragraphs = append(paragraphs, fmt.Sprintf("The measurements are stored in %s beside the installer's own "+
+			"record: a stamp, the counts, the median and the top of the profile, and nothing else about this machine. "+
+			"[h] stops keeping them, and what is already stored is kept.", defaultShellAuditHistoryPath()))
+	} else {
+		paragraphs = append(paragraphs, "Nothing is written to this machine: this screen keeps a history of the runs "+
+			"only if you ask it to, with [h].")
+	}
+
+	if !st.Measured {
+		// A run the utility refused to make is a result about the start, not a
+		// missing measurement: the reason is the answer to the press, and a screen
+		// that said only "nothing has been measured yet" would leave the user
+		// pressing a row that will refuse again without saying why.
+		if st.RunReason != "" {
+			return append(paragraphs, "The last press could not take the measurement: "+st.RunReason+" "+
+				"Choosing the row above tries again; each start ends by itself or at the timeout, so the screen "+
+				"cannot be held open by your shell.")
+		}
+		return append(paragraphs, "Nothing has been measured yet. Choosing the row above starts the runs; each one ends "+
+			"by itself or at the timeout, so the screen cannot be held open by your shell, it stays usable while they "+
+			"run, and [Esc] stops the ones that are left.")
+	}
+
+	// The same refusal after an earlier measurement: the numbers on screen are the
+	// ones measured before the press that could not be made, and a screen that kept
+	// them without saying so would present a rejected start as a fresh result.
+	if st.RunReason != "" {
+		paragraphs = append(paragraphs, "The last press could not take the measurement: "+st.RunReason+" "+
+			"The numbers above are the measurement before it.")
+	}
+
+	// The context of the measurement: which shell it was, which start, and whether
+	// a terminal was attached. A number whose context is missing is the number this
+	// utility exists not to print.
+	context := fmt.Sprintf("Measured: %s", st.Shell)
+	if st.Version.Raw != "" {
+		context += fmt.Sprintf(" (%s)", st.Version.Raw)
+	}
+	context += fmt.Sprintf(", the %s start, `%s`", st.Mode.label(), st.Command)
+	if st.Terminal {
+		if st.TerminalName != "" {
+			context += fmt.Sprintf(", under %s", st.TerminalName)
+		}
+	} else {
+		context += ", with no terminal attached"
+	}
+	if st.Note != "" {
+		context += ". " + st.Note
+	}
+	paragraphs = append(paragraphs, context+".")
+
+	// The attribution comes right after the context, before the runs behind the
 	// number: it is the answer to "why is the start slow", and the median and its
-	// range are already rows below, so the prose does not repeat them. A cut on a
-	// short frame then falls on the runs that support the number rather than on the
-	// one thing the user can act on.
+	// range are already rows below. A cut on a short frame then falls on the runs
+	// that support the number rather than on the one thing the user can act on.
 	if len(st.Attribution) == 0 {
 		paragraphs = append(paragraphs, st.AttributionReason)
 	} else {
 		paragraphs = append(paragraphs, shellAuditAttributionParagraph(st))
+	}
+
+	// The clean comparison and the stored trend: what part of the start is the
+	// user's own doing, and whether it changed since the runs already stored. Both
+	// say what they measured and neither claims more: the comparison separates the
+	// configuration as a whole, and the trend is a change between two dates.
+	if report.Comparison.Reason == "" {
+		paragraphs = append(paragraphs, report.Comparison.headline(), report.Comparison.verdict())
+	} else if st.Plan.Baseline {
+		paragraphs = append(paragraphs, "The clean comparison was asked for and could not be made: "+report.Comparison.Reason)
+	}
+
+	if sentence := report.Trend.sentence(); sentence != "" {
+		paragraphs = append(paragraphs, sentence)
+	} else if report.Trend.Reason != "" && st.History.Enabled {
+		paragraphs = append(paragraphs, "No trend to read: "+report.Trend.Reason)
+	}
+
+	if !st.AdviceOpen {
+		paragraphs = append(paragraphs, shellAuditAdviceParagraphs(report)...)
 	}
 
 	// The runs behind the median, listed so the number can be reproduced by hand.
@@ -2232,18 +2647,39 @@ func (m Model) shellAuditDescription() []string {
 		shellAuditRunList(st.Samples))
 
 	if st.Timeouts > 0 {
-		paragraphs = append(paragraphs, fmt.Sprintf("A start that did not finish inside %s was killed at that "+
-			"bound and left out of the median: a hung start has no time to report, and writing one down as a "+
-			"number would be inventing it.", shellAuditDuration(st.Timeout)))
+		paragraphs = append(paragraphs, fmt.Sprintf("A start killed at %s is left out of the median: a hung start "+
+			"has no time to report, and writing one down as a number would be inventing it.",
+			shellAuditDuration(st.Timeout)))
 	}
 	if st.Failures > 0 {
-		paragraphs = append(paragraphs, fmt.Sprintf("A start that could not be completed (%s) was left out of "+
-			"the median too.", st.Failure))
+		paragraphs = append(paragraphs, fmt.Sprintf("A start that could not be completed (%s) is left out too.", st.Failure))
 	}
 
-	return append(paragraphs, "Nothing here is changed: no startup file is written and no plugin is disabled. The "+
-		"utility reports what it found and leaves the decision to you, because a slower function is not by itself a "+
-		"mistake -- and the fix belongs in your own configuration, applied by you.")
+	return append(paragraphs, "Nothing here is changed: no startup file is written and no plugin is disabled. A "+
+		"slower function is not by itself a mistake, and the fix belongs in your own configuration, applied by you.")
+}
+
+// shellAuditAdviceParagraphs renders the recommendations with the measurement each
+// one came from. The kind prefix is part of the sentence on purpose: a reader has
+// to be able to tell a fact about the measurement from an observation of the
+// profile and from the one attribution the clean comparison separated.
+func shellAuditAdviceParagraphs(report shellAuditReport) []string {
+	advice := report.advice()
+	if len(advice) == 0 {
+		return nil
+	}
+
+	paragraphs := []string{fmt.Sprintf("Recommendations (%d), each with the measurement it came from:", len(advice))}
+	for index, item := range advice {
+		if index == shellAuditAdviceListLimit {
+			paragraphs = append(paragraphs, fmt.Sprintf("… and %d more, all of them from the same measurement.",
+				len(advice)-index))
+			break
+		}
+		paragraphs = append(paragraphs, fmt.Sprintf("%s %s %s It comes from: %s",
+			shellAuditAdvicePrefix(item.Kind), item.Headline, item.Detail, item.Evidence))
+	}
+	return paragraphs
 }
 
 // shellAuditRunList names every start that finished, in the order it ran, so the
@@ -2259,43 +2695,193 @@ func shellAuditRunList(samples []time.Duration) string {
 	return " The starts, in the order they ran: " + strings.Join(parts, ", ") + "."
 }
 
-// shellAuditAttributionParagraph names the functions zprof blamed, heaviest by
-// their own time first -- the order zprof itself sorted them in -- and says how
-// many it profiled, so the cut is declared rather than silent. The functions come
-// before the explanation of self time: on a short frame the prose is what is cut,
-// and the named functions are the part the reader can act on.
+// shellAuditStatisticsParagraph reports what the finished runs support beyond the
+// median and the range, and names what they do not. The floors are the ones the
+// statistics layer gates on, so the sentence and the number cannot disagree: a
+// spread from three runs, a percentile from eight, and a trimmed median whenever
+// there is an outlier to leave out.
+func shellAuditStatisticsParagraph(st shellAuditState) string {
+	stats := st.Stats
+	if stats.Count == 0 && len(st.Samples) > 0 {
+		stats = shellAuditStatsOf(st.Samples)
+	}
+	if stats.Count == 0 {
+		return ""
+	}
+
+	// The count is carried by the plural helper, which prints it with its word:
+	// adding the number again beside it produced "Across the 10 finished 10
+	// starts", a sentence that reads as a measurement nobody made.
+	var b strings.Builder
+	fmt.Fprintf(&b, "Across the %s: mean %s", reviewPlural(stats.Count, "finished start", "finished starts"),
+		shellAuditDuration(stats.Mean))
+
+	if word, ratio, ok := stats.steadiness(); ok {
+		fmt.Fprintf(&b, ", spread %s (%.0f%% of the median), which reads as %s %s startup",
+			shellAuditDuration(stats.StdDev), ratio*100, shellAuditArticle(word), word)
+	} else {
+		fmt.Fprintf(&b, ", with no spread to read: a spread needs %s and this measurement has %d",
+			reviewPlural(shellAuditSpreadFloor, "run", "runs"), stats.Count)
+	}
+
+	if stats.P95Reported {
+		fmt.Fprintf(&b, ", 95th percentile %s", shellAuditDuration(stats.P95))
+	} else {
+		// The missing statistic is named without the words it would have been
+		// printed with, so a reader scanning for a percentile does not find one that
+		// was never taken: only what it would take to have one.
+		fmt.Fprintf(&b, ", and no percentile: it is reported from %s and this measurement has %d",
+			reviewPlural(shellAuditPercentileFloor, "run", "runs"), stats.Count)
+	}
+
+	if stats.TrimmedMedianReported {
+		fmt.Fprintf(&b, ", and a trimmed median of %s, with %s beyond %s times the interquartile range left out",
+			shellAuditDuration(stats.TrimmedMedian),
+			reviewPlural(len(stats.Outliers), "start", "starts"), strconv.FormatFloat(shellAuditOutlierFence, 'g', -1, 64))
+	}
+	b.WriteString(". A number the runs cannot support is named here rather than printed in the rows.")
+
+	return b.String()
+}
+
+// shellAuditAttributionParagraph names what the instrument that actually ran put
+// first, heaviest by its own time, and says how many rows it reported, so the cut
+// is declared rather than silent. The rows come before the explanation of what
+// they mean: on a short frame the prose is what is cut, and the named entries are
+// the part the reader can act on.
+//
+// The paragraph is drawn for every shell, so it belongs to the instrument of the
+// state it describes: zsh's zprof table carries a total, a self time and a share,
+// bash's trace carries one number per identity -- the function a traced command
+// ran inside, or the file it came from -- and fish prints its own table with no
+// denominator a reader could re-derive. A sentence borrowed from another shell's
+// instrument would describe a measurement that did not happen.
 func shellAuditAttributionParagraph(st shellAuditState) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "zsh/zprof profiled one further start and reported %d functions, heaviest by the time "+
-		"each spent on itself, in zprof's own order:", len(st.Attribution))
+	b.WriteString(shellAuditAttributionIntro(st))
 
 	shown := len(st.Attribution)
 	if shown > shellAuditNamedFunctions {
 		shown = shellAuditNamedFunctions
 	}
 	for i, fn := range st.Attribution[:shown] {
-		fmt.Fprintf(&b, " %d. %s -- %s total, %s self, %d call(s), %s of the profiled start.",
-			i+1, fn.Name, shellAuditZprofTime(shellAuditMillis(fn.Total)),
-			shellAuditZprofTime(shellAuditMillis(fn.Self)), fn.Calls, fn.Percent)
+		b.WriteString(shellAuditAttributionRow(st.Kind, i+1, fn))
 	}
 	if len(st.Attribution) > shown {
-		fmt.Fprintf(&b, " %d more were profiled and are not named here.", len(st.Attribution)-shown)
+		fmt.Fprintf(&b, " %d more were %s and are not named here.", len(st.Attribution)-shown,
+			shellAuditAttributionVerb(st.Kind))
 	}
-	b.WriteString(" The self time is the function's own cost: a function whose total is larger than its self " +
-		"time is waiting on the ones it called. The profiled start is a start of its own, so its numbers stand " +
-		"beside the median rather than inside it.")
+	b.WriteString(" " + shellAuditAttributionClosing(st.Kind))
 	return b.String()
+}
+
+// shellAuditAttributionIntro says which instrument took the attribution and how
+// its order was decided, in that instrument's own terms.
+func shellAuditAttributionIntro(st shellAuditState) string {
+	switch st.Kind {
+	case shellAuditKindZsh:
+		return fmt.Sprintf("zsh/zprof profiled one further start and reported %d functions, heaviest by the time "+
+			"each spent on itself, in zprof's own order:", len(st.Attribution))
+	case shellAuditKindBash:
+		return fmt.Sprintf("bash's own trace of one further start reported %d entries -- the function a traced "+
+			"command ran inside, or the file it came from -- ranked by the time between their trace lines:",
+			len(st.Attribution))
+	case shellAuditKindFish:
+		return fmt.Sprintf("fish's own --profile-startup profiled one further start and reported %d entries, "+
+			"heaviest by the time each spent on itself:", len(st.Attribution))
+	default:
+		return fmt.Sprintf("one further start was profiled and reported %d entries, heaviest first:",
+			len(st.Attribution))
+	}
+}
+
+// shellAuditAttributionVerb is what the instrument did to the rows it did not
+// report here, so the declared cut is in the paragraph's own words.
+func shellAuditAttributionVerb(kind shellAuditKind) string {
+	switch kind {
+	case shellAuditKindZsh, shellAuditKindFish:
+		return "profiled"
+	case shellAuditKindBash:
+		return "traced"
+	default:
+		return "reported"
+	}
+}
+
+// shellAuditAttributionRow is one named entry as its own instrument reports it:
+// zsh's table prints a total, a self time, a call count and a share, and the
+// other two print a time of their own and a count. A share is only drawn when the
+// instrument printed one.
+func shellAuditAttributionRow(kind shellAuditKind, index int, fn shellAuditFunction) string {
+	if kind == shellAuditKindZsh {
+		row := fmt.Sprintf(" %d. %s -- %s total, %s self, %d call(s)", index, fn.Name,
+			shellAuditZprofTime(shellAuditMillis(fn.Total)), shellAuditZprofTime(shellAuditMillis(fn.Self)), fn.Calls)
+		if fn.Percent != "" {
+			row += fmt.Sprintf(", %s of the profiled start", fn.Percent)
+		}
+		return row + "."
+	}
+
+	row := fmt.Sprintf(" %d. %s -- %s", index, fn.Name, shellAuditDuration(fn.Self))
+	if fn.Total > fn.Self {
+		row += fmt.Sprintf(", %s counting everything it called", shellAuditDuration(fn.Total))
+	}
+	return fmt.Sprintf("%s, %d call(s).", row, fn.Calls)
+}
+
+// shellAuditAttributionClosing says what the numbers mean for this instrument:
+// the self time of a table that prints a total, or the double counting of a
+// trace, which is a ranking rather than a partition.
+func shellAuditAttributionClosing(kind shellAuditKind) string {
+	closing := "The profiled start is a start of its own, so its numbers stand beside the median rather than inside it."
+	switch kind {
+	case shellAuditKindZsh:
+		return "The self time is the function's own cost: a function whose total is larger than its self " +
+			"time is waiting on the ones it called. " + closing
+	case shellAuditKindBash:
+		return "A traced command inside a function is counted under both the function and the file it came " +
+			"from, so these rows are a ranking of where the time went rather than a partition of it. " + closing
+	case shellAuditKindFish:
+		return "No share is printed for this table: every row's own sum already counts the rows under it, " +
+			"so a percentage taken from those sums would count the same time again. " + closing
+	default:
+		return closing
+	}
+}
+
+// shellAuditArticle is the indefinite article for the word the screen prints after
+// it, so the sentence reads as English rather than as a template with a slot in
+// it. Only the words this screen actually prints need it, and the rule is the one
+// a reader applies.
+func shellAuditArticle(word string) string {
+	if word == "" {
+		return "a"
+	}
+	switch word[0] {
+	case 'a', 'e', 'i', 'o', 'u':
+		return "an"
+	}
+	return "a"
 }
 
 // shellAuditNotice is the footer's result line: what is running, while something
 // is. It is empty the rest of the time, so a finished measurement spends no row
 // on a stale "done".
+// shellAuditNotice is the line above the frame's rule: the measurement in flight,
+// start by start, and how to stop it; or, when nothing is running, what the last
+// thing this screen had to write down could not do.
 func (m Model) shellAuditNotice() string {
-	if !m.ShellAudit.Measuring {
-		return ""
+	st := m.ShellAudit
+	if !st.Measuring {
+		return st.HistoryError
 	}
-	return fmt.Sprintf("Measuring: %d starts of %s, each bounded by %s.",
-		m.ShellAudit.Runs, m.ShellAudit.Shell, shellAuditDuration(m.ShellAudit.Timeout))
+
+	progress := st.Progress
+	if progress.Part == "" {
+		progress.Part = shellAuditPartVersion
+	}
+	return fmt.Sprintf("Measuring: %s -- %d starts of %s, each bounded by %s. [Esc] stops the starts that are left.",
+		progress.label(), st.Runs, st.Shell, shellAuditDuration(st.Timeout))
 }
 
 // shellAuditUnavailableReason says why the section offers no shell startup row,

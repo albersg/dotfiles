@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/albersg/dotfiles/installer/internal/sshcfg"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1032,6 +1033,21 @@ func TestUtilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
 }
 
+// TestWSLAdvisorGolden pins the performance advisor's report at the 80x24 floor: the environment it
+// read, the findings ordered by severity with the one under the cursor opened out beside them, the
+// two rows that act and the way back. The reading is the advisor's own fixture -- a WSL instance whose
+// working directory is a project on the Windows host -- so the snapshot is the screen this repository
+// ships, not the machine that rendered it. It is the screen with the most prose in the installer, and
+// a snapshot is what catches a body that has become a wall of it.
+func TestWSLAdvisorGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
+}
+
 // TestWSLResourcesGolden pins the WSL resource screen on a WSL host: the
 // recommendation from the host's own capacity, the values the file holds, the
 // draft, the write row and the way back. The host and the file are forced, so the
@@ -1069,6 +1085,20 @@ func TestTerminalCapabilitiesGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Terminal capabilities"))
+}
+
+// TestNetworkDiagnosticsGolden pins the diagnosis screen: the verdict naming the
+// stage that stopped it, one row per check carrying its own status word, and the
+// detail of the step under the cursor with its evidence, its cause and the
+// command to run by hand. The report is forced rather than dialled, so the frame
+// does not become a snapshot of the network the runner happened to be on.
+func TestNetworkDiagnosticsGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := networkDiagnosticsFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Network diagnostics"))
 }
 
 // TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
@@ -1703,6 +1733,15 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return m
 	}
 
+	sshState := func(screen Screen, adjust func(*Model)) Model {
+		m := installerFrameModel(t, screen)
+		m.SSH = sshTestManagerState()
+		if adjust != nil {
+			adjust(&m)
+		}
+		return m
+	}
+
 	switch name {
 	case "welcome":
 		return base(ScreenWelcome)
@@ -1890,6 +1929,19 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m.Metrics = pinnedMetrics(24)
 		m.ProgressSamples = pinnedProgress(24)
 		return m
+	case "wsl-advisor":
+		return wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	case "wsl-advisor-reading":
+		// The screen before its reading finished: the one state where the report says it is reading
+		// instead of stating a finding, and the state a frame guard must measure separately because
+		// its body is a single line where every other state has a page of them.
+		m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+		m.WSLAdvisor = wslAdvisorState{}
+		return m
+	case "wsl-benchmark":
+		return wslAdvisorFrameModel(t, ScreenWSLBenchmark)
+	case "wsl-migration":
+		return wslAdvisorFrameModel(t, ScreenWSLMigration)
 	case "complete":
 		m := base(ScreenComplete)
 		m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
@@ -1909,6 +1961,48 @@ func installerFrameCase(t *testing.T, name string) Model {
 			m.LogLines = append(m.LogLines, fmt.Sprintf("log line %d", i+1))
 		}
 		return m
+	case "ssh-manager":
+		return sshState(ScreenSSHManager, nil)
+	case "ssh-host":
+		return sshState(ScreenSSHHost, func(m *Model) { m.SSH.HostIndex = 0 })
+	case "ssh-host-read-only":
+		// The read-only entry adds the sentences that explain why it cannot be
+		// edited, which is the tallest the detail screen gets.
+		return sshState(ScreenSSHHost, func(m *Model) { m.SSH.HostIndex = 1 })
+	case "ssh-form":
+		return sshState(ScreenSSHForm, func(m *Model) {
+			m.SSH.FormMode = "create"
+			m.SSH.Form = sshHostForm{Alias: "work", HostName: "work.example.com", User: "alice", Port: "2222", Identity: "~/.ssh/id_work"}
+		})
+	case "ssh-form-plan":
+		// The confirmation replaces the fields with the preview of the change, so it
+		// is measured in its own right: it is the one state of the form that draws
+		// lines taken from a file.
+		return sshState(ScreenSSHForm, func(m *Model) {
+			m.SSH.FormMode = "create"
+			m.SSH.Plan = &sshcfg.WritePlan{
+				Path:    "/home/testuser/.ssh/config",
+				Kind:    "managed",
+				Alias:   "work",
+				Summary: "Add the entry work inside the block this tool manages in /home/testuser/.ssh/config.",
+				Preview: []string{"  Host github.com", "- ", "+ Host work", "+     HostName work.example.com", "+     User alice"},
+			}
+		})
+	case "ssh-keys":
+		return sshState(ScreenSSHKeys, nil)
+	case "ssh-keys-generate":
+		// The generation form is the tallest state of the key screen: it replaces the
+		// action rows with six fields and their own hints.
+		return sshState(ScreenSSHKeys, func(m *Model) {
+			m.SSH.KeysMode = "generate"
+			m.SSH.Keygen = sshKeygenForm{Path: "~/.ssh/id_ed25519", Type: "ssh-ed25519", Comment: "testuser@host"}
+		})
+	case "ssh-agent":
+		return sshState(ScreenSSHAgent, nil)
+	case "ssh-diagnostics":
+		return sshState(ScreenSSHDiagnostics, nil)
+	case "ssh-test":
+		return sshState(ScreenSSHTest, nil)
 	default:
 		t.Fatalf("no frame case named %q", name)
 		return Model{}
@@ -1942,8 +2036,17 @@ var installerFrameScreenNames = []string{
 	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
 	"installing", "installing-details", "installing-details-many", "installing-at-end",
 	"installing-live",
+	"wsl-advisor", "wsl-advisor-reading", "wsl-benchmark", "wsl-migration",
 	"complete", "error", "error-many-logs",
 	"admin-password", "admin-password-failed",
+	// The SSH manager's seven screens. Each one is a state it reaches in normal
+	// use: the hub with hosts, the detail of an editable and of a read-only entry,
+	// the form and its plan, the key list and its generation form, the agent, the
+	// diagnosis and a finished connection test.
+	"ssh-manager", "ssh-host", "ssh-host-read-only",
+	"ssh-form", "ssh-form-plan",
+	"ssh-keys", "ssh-keys-generate",
+	"ssh-agent", "ssh-diagnostics", "ssh-test",
 }
 
 // TestInstallerScreensFitTheFrame is the counterpart to

@@ -1136,11 +1136,22 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: m.WSLState.Available,
 	})
 
+	// The section's utilitiesWSLAdvisorRow, offered under the section's own
+	// condition: the process is inside a real WSL instance. The value is the last
+	// reading the model holds, and before the screen has been opened it says the
+	// machine has not been read yet rather than summarising nothing.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "WSL advisor",
+		value:   wslAdvisorSummary(m.WSLAdvisor),
+		absent:  "The WSL performance advisor is not offered here.",
+		offered: m.wslAdvisorOffered(),
+	})
+
 	// The section's utilitiesShellAuditRow, the utility that changes nothing. It
-	// is offered wherever the login shell and a terminal were resolved, and the
-	// value is the last measurement the model holds: nothing is measured until the
-	// screen's own row is pressed, so before that the panel says so rather than
-	// printing a number nobody took.
+	// is offered wherever the login shell resolved, and the value is the last
+	// measurement the model holds: nothing is measured until the screen's own row
+	// is pressed, so before that the panel says so rather than printing a number
+	// nobody took.
 	entries = append(entries, utilitiesPanelEntry{
 		label:   "Shell start",
 		value:   shellAuditPanelValue(m.ShellAudit),
@@ -1160,6 +1171,29 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: true,
 	})
 
+	// The section's utilitiesNetworkRow. It is offered everywhere -- there is always
+	// a machine whose connectivity can be described -- and the value is what the
+	// last run answered: nothing is dialled until the screen's own row is pressed,
+	// so before that the panel says so rather than printing a verdict nobody
+	// established. It is inserted above the terminal entry so the terminal row
+	// keeps the property its own comment claims: the last entry is the one a short
+	// frame may drop.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Network",
+		value:   networkPanelValue(m.Network),
+		offered: true,
+	})
+
+	// The section's utilitiesSSHRow. The manager lives one level in, so the panel
+	// names it with what it currently holds: how many hosts were read, or the
+	// honest fact that nothing has been read yet.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "SSH",
+		value:   sshManagerPanelValue(m.SSH),
+		absent:  "The SSH configuration has not been read yet.",
+		offered: true,
+	})
+
 	// The section's utilitiesTerminalRow. The report is read-only and offered
 	// everywhere, so the panel always names it: before the screen has been
 	// opened the value says the terminal has not been inspected, and afterwards
@@ -1171,7 +1205,34 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: true,
 	})
 
+	// The section's utilitiesUpdatesRow, the update center. It is offered
+	// everywhere -- every manager it knows may be missing on this host, and the
+	// screen says which ones are and why -- and its value is what the last reading
+	// pass found. Before that pass it says the question has not been asked yet,
+	// which is a different fact from "nothing to update".
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Updates",
+		value:   updateCenterPanelValue(m.UpdateCenter),
+		offered: true,
+	})
+
 	return entries
+}
+
+// sshManagerPanelValue is what the Utilities panel says the SSH row holds. It
+// reads the model and probes nothing: a panel is drawn on every keypress, and
+// asking the client for its answer is not a render.
+func sshManagerPanelValue(st sshManagerState) string {
+	switch {
+	case st.Manager == nil:
+		return "not read yet"
+	case !st.HostsLoaded:
+		return "reading"
+	case st.HostsErr != "":
+		return "unreadable"
+	default:
+		return fmt.Sprintf("%d %s", len(st.Hosts), sshPlural(len(st.Hosts), "host", "hosts"))
+	}
 }
 
 // shellAuditPanelValue is what the Utilities panel says the shell startup row
@@ -1218,7 +1279,24 @@ func wslPanelValue(state wslResourceState) string {
 	if len(parts) == 0 {
 		return "capacities not read"
 	}
-	return strings.Join(parts, ", ")
+	// The guard is part of what this row is about: the row is where the section
+	// reports the WSL memory, and a missing guard is the one state in it that the
+	// user has to act on.
+	return strings.Join(parts, ", ") + ", guard " + wslGuardPanelLabel(state.Guard)
+}
+
+// wslGuardPanelLabel is the guard said in two words for the section's panel,
+// where the full account lives one row in on the WSL resource screen.
+func wslGuardPanelLabel(g wslGuardState) string {
+	switch {
+	case !g.Installed:
+		return "missing"
+	case !g.Active:
+		return "not running"
+	case g.OOMPolicy != wslGuardWantOOMPolicy || g.HighBytes != "max" || g.MaxBytes == 0:
+		return "unprotected"
+	}
+	return "active"
 }
 
 // planHeadline is the plan said in one short line: how many steps the run would

@@ -151,6 +151,50 @@ const (
 	// optional detours reached from the row that decides them (T2 of
 	// odd/tasks/start-installation-flow.md).
 	ScreenSetup // Every decision of the flow, on one screen
+	// The update center. Appended at the end for the same reason as the screens
+	// above. It is reached from the Utilities section, and it is the only screen in
+	// the program that asks the machine's package managers anything: which managers
+	// are really here, what each one reports as out of date, and -- after a
+	// confirmed selection -- what each one did. Nothing on it runs when it is drawn:
+	// opening it reads, and the rows begin the only commands this screen has.
+	ScreenUpdateCenter // What the machine's own managers have to update
+	// The network diagnosis. Appended at the end for the same reason as the screens
+	// above. The utilities section opens it from its own row, one level in so the
+	// section stays a list of jobs. It separates the local network, DNS, the
+	// transport, the certificate and the application, reports each step with its
+	// evidence, causes, next checks and manual commands, and reaches only for the
+	// host this installer already contacts for its own update check, plus whatever
+	// destination the user types. Nothing is changed, and nothing is written except
+	// the report the user reviews and chooses to save
+	// (odd/tasks/network-diagnostics.md).
+	ScreenNetworkDiagnostics // Why a destination cannot be reached, stage by stage
+	// The WSL performance advisor. Appended at the end for the same reason as the
+	// screens above. The utilities section offers it only inside a real WSL
+	// instance, decided from the evidence such an instance leaves behind rather
+	// than from an inherited variable, and everywhere else the section's own body
+	// states what was looked for instead of leaving a hole in the list.
+	ScreenWSLAdvisor // What this WSL instance is doing with the storage it has
+	// The advisor's two assistants, one level further in. They are appended at the end for the same
+	// reason as the screens above. The benchmark measures storage inside scratch directories of its
+	// own and removes them; the assisted copy writes a project's files into a directory the user
+	// chose on the preview, and neither ever deletes anything, so both are reached only through the
+	// report's own rows and only where the engine can finish.
+	ScreenWSLBenchmark // How fast the storage behind this project answers, measured
+	ScreenWSLMigration // A project copied to the distribution's own storage, previewed and verified
+	// The SSH manager. Appended at the end for the same reason as the screens
+	// above. The utilities section opens it from its own row, and it is the hub of
+	// seven screens: the hosts the client would use, one entry's detail, the
+	// add/edit form, the public keys, the agent, the diagnosis and a connection
+	// test. Every one of them reads the client's own answer rather than guessing
+	// at it, and the only writes it makes are inside the block it owns in the
+	// user's configuration file.
+	ScreenSSHManager     // The hosts the client would use, and the jobs on them
+	ScreenSSHHost        // One entry: the effective values, their sources and the actions
+	ScreenSSHForm        // Add, edit or duplicate one managed entry
+	ScreenSSHKeys        // The public keys, the known hosts and key generation
+	ScreenSSHAgent       // What the agent holds and what may be done with it
+	ScreenSSHDiagnostics // What is wrong with the setup, and what to do about it
+	ScreenSSHTest        // One connection, tested only when the user asks
 )
 
 // stepOrigin says why a step is on the plan, in the three answers S2 of
@@ -558,6 +602,17 @@ type Model struct {
 	// WSLNotice is the one-line result of the last write, cleared when the screen
 	// is left, exactly as ThemeNotice is.
 	WSLNotice string
+	// WSLRuntime is the strict answer to "is this process inside a WSL instance".
+	// It is read once here, from the evidence the kernel and the instance leave in
+	// the filesystem, and never from an inherited environment variable: a Windows
+	// host that merely has WSL installed cannot set it, and neither can a parent
+	// process. It is what gates the advisor's row.
+	WSLRuntime system.WSLRuntime
+	// WSLAdvisor is what the performance advisor draws: the reading it took, the
+	// findings built from it, and the two screens one level in. The reading is
+	// held rather than re-taken so no render probes the machine and the report
+	// cannot change under the cursor mid-scroll.
+	WSLAdvisor wslAdvisorState
 	// WSLTerminalOffer is the Windows Terminal decision the interactive WSL step
 	// puts to the user before the run writes anything there: the read-only offer,
 	// the lines the installing screen shows for it, the Windows profile the font
@@ -608,12 +663,35 @@ type Model struct {
 	// resolved once, here; the measurement runs only when the row is pressed,
 	// because starting the user's shell five times is not a render.
 	ShellAudit shellAuditState
+	// ShellAuditSession is the measurement in flight, and nil when nothing is
+	// running. It is held so the screen can stop the starts the user asked it to
+	// stop: without it, a cancel would only stop watching a measurement that goes
+	// on running the user's shell.
+	ShellAuditSession *shellAuditSession
+	// shellAuditTestProbe is how a guard drives the screen's own start and cancel
+	// path without starting the runner's real shell. It is nil everywhere but in a
+	// test, and the default probe is the only one a real run can reach.
+	shellAuditTestProbe func() shellAuditProbe
 	// InstallVerify is what the last-install utility draws: the record of the last
 	// completed run checked against this machine. The check is a command, armed
 	// only when the screen is opened -- never at startup -- because it states the
 	// paths the record names and a render must not touch the filesystem; the
 	// verdict is stored here so a redraw never re-reads the machine.
 	InstallVerify installVerifyState
+	// Network is what the network diagnosis draws: the destination field, the run
+	// in flight, the checks as they arrive, the finished report and the export. It
+	// is filled only when the screen's own row is pressed -- opening the screen
+	// dials nothing -- and its Probe field is nil in a real run, where the checks
+	// go through this machine, and set by a test that must not touch a network.
+	Network networkState
+	// SSH is everything the SSH manager's screens draw: the resolved client and
+	// its tools, the hosts the client would use, the effective answer for the
+	// entry being shown, the public keys and known hosts, the agent's state, the
+	// diagnosis and the last connection test. It is filled by commands and read by
+	// renders, and it is the only place a screen in sshmanager.go reads a fact
+	// from: no render in that file opens a file, runs a process or asks the
+	// environment anything.
+	SSH sshManagerState
 	// UpdateCheck is what the installer knows about the latest published release:
 	// the tag, when it was read, and the reason it could not be read. The cached
 	// record is loaded on the startup path, so a start never waits on the network;
@@ -628,6 +706,15 @@ type Model struct {
 	// not ask. UpdateTargetErr is why it could not be resolved at all.
 	UpdateTarget    updateTarget
 	UpdateTargetErr string
+	// UpdateCenter is what the update center draws and does: the managers this
+	// machine really has, what each one reports, the selection, the plan the
+	// selection would run, and the results of the plan that ran.
+	//
+	// It is empty until the screen is opened, and that is deliberate: the engine it
+	// carries is built on the first visit, so a run that never opens the update
+	// center never asks a package manager anything, and the startup path stays free
+	// of the machine's own managers.
+	UpdateCenter updateCenterState
 	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
 	// no detection has run. The review names it before anything is written.
 	ThemeRefreshCandidates []themeRefreshCandidate
@@ -734,6 +821,10 @@ func NewModel() Model {
 	// reason: which shell, and whether this run can start an interactive one, are
 	// questions a render must not ask. The measurement itself is a keypress away.
 	m.ShellAudit = resolveShellAudit(defaultShellAuditProbe())
+	// The strict WSL answer is read here, from files alone, for the same reason:
+	// an environment variable is not evidence, and the row that offers the advisor
+	// has to be drawn from what this process can verify about itself.
+	m.WSLRuntime = system.DetectWSLRuntime()
 	// The last release check is read here, from its own state file, exactly as the
 	// last-install record is: one file read, no waiting. The request itself is a
 	// command the run arms from the drawing gate, so the startup path never reaches
@@ -1046,22 +1137,44 @@ func (m Model) GetCurrentOptions() []string {
 		if m.WSLState.Available {
 			utilities = append(utilities, utilitiesWSLRow)
 		}
-		// The shell's startup is offered wherever the login shell and a terminal
-		// were both resolved. It is the utility that changes nothing, so it is
-		// offered rather than gated: reading a number is always safe.
+		// The performance advisor is offered only inside a WSL instance: that is
+		// what it is about, and running it anywhere else would report on a host it
+		// cannot see. The condition is answered in one place, wslAdvisorOffered.
+		if m.wslAdvisorOffered() {
+			utilities = append(utilities, utilitiesWSLAdvisorRow)
+		}
+		// The shell's startup is offered wherever the login shell resolved. It is the
+		// utility that changes nothing, so it is offered rather than gated: reading a
+		// number is always safe. A run with no terminal attached is measured too and
+		// says so on its own screen, because a pipe, a container or a CI run is
+		// exactly where a slow startup is worth knowing about.
 		if m.ShellAudit.Available {
 			utilities = append(utilities, utilitiesShellAuditRow)
 		}
+		// The update center is offered everywhere. Every manager it knows may be
+		// missing on this host, and the screen says which ones are and why; a row the
+		// section hid would leave the user with no way to find that out. It reads
+		// nothing until it is opened, so offering it costs a startup path nothing.
+		utilities = append(utilities, utilitiesUpdatesRow)
 		// The verification is read-only and offered everywhere for the same reason:
 		// there is always a machine to compare with the record, and where there is no
 		// record the screen's own body says exactly that rather than the row being
 		// silently absent. It sits above the terminal report so the capability row
 		// stays last, where a short frame cannot have it displace a utility above it.
 		utilities = append(utilities, utilitiesVerifyRow)
+		// The SSH manager is offered on every host: a machine with no ssh client
+		// still has a configuration file worth reading, and the manager's own
+		// screen says what it cannot do rather than the row being silently absent.
+		utilities = append(utilities, utilitiesSSHRow)
 		// The terminal capability report is read-only and offered everywhere: there
 		// is always a terminal to describe, and where there is not one the screen's
 		// own body says so rather than the row being silently absent.
 		utilities = append(utilities, utilitiesTerminalRow)
+
+		// The network diagnosis is read-only too, and offered for the same reason:
+		// there is always a machine whose connectivity is worth describing, and it
+		// dials nothing until its own screen's row is pressed.
+		utilities = append(utilities, utilitiesNetworkRow)
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -1086,6 +1199,28 @@ func (m Model) GetCurrentOptions() []string {
 		return []string{"← Back"}
 	case ScreenShellAudit:
 		return m.shellAuditRows()
+	case ScreenUpdateCenter:
+		// The rows are the state: one row per entry the managers reported, grouped by
+		// manager, then the action rows, then the way back. A confirmation and a
+		// running update are states of this same screen, and their rows are the two
+		// answers or the one stop row.
+		return m.updateCenterRows()
+	case ScreenNetworkDiagnostics:
+		return m.networkRows()
+	case ScreenSSHManager:
+		return m.sshManagerRows()
+	case ScreenSSHHost:
+		return m.sshHostRows()
+	case ScreenSSHForm:
+		return m.sshFormRows()
+	case ScreenSSHKeys:
+		return m.sshKeyRows()
+	case ScreenSSHAgent:
+		return m.sshAgentRows()
+	case ScreenSSHDiagnostics:
+		return m.sshDiagnosticRows()
+	case ScreenSSHTest:
+		return m.sshTestRows()
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:
@@ -1376,12 +1511,44 @@ func (m Model) GetScreenTitle() string {
 		return "Change the dotfiles theme"
 	case ScreenWSLResources:
 		return "WSL resources"
+	case ScreenWSLAdvisor:
+		return "WSL performance"
+	case ScreenWSLBenchmark:
+		return "WSL storage measurement"
+	case ScreenWSLMigration:
+		return "Copy to native storage"
 	case ScreenTerminalCapabilities:
 		return "Terminal capabilities"
 	case ScreenShellAudit:
 		return "The shell's startup"
 	case ScreenInstallVerify:
 		return "The last install"
+	case ScreenNetworkDiagnostics:
+		return "Network diagnostics"
+	case ScreenSSHManager:
+		return "The SSH configuration"
+	case ScreenSSHHost:
+		return "SSH host " + m.SSH.DetailAlias
+	case ScreenSSHForm:
+		switch m.SSH.FormMode {
+		case "create":
+			return "A new SSH host"
+		case "duplicate":
+			return "Duplicate " + m.SSH.Form.EditTarget
+		case "edit":
+			return "Edit " + m.SSH.Form.EditTarget
+		case "delete":
+			return "Remove " + m.SSH.DetailAlias
+		}
+		return "SSH host entry"
+	case ScreenSSHKeys:
+		return "SSH keys"
+	case ScreenSSHAgent:
+		return "The SSH agent"
+	case ScreenSSHDiagnostics:
+		return "The SSH configuration's diagnosis"
+	case ScreenSSHTest:
+		return "Test an SSH connection"
 	case ScreenUpdate:
 		return "Updates"
 	default:
@@ -1449,6 +1616,11 @@ func (m Model) GetScreenDescription() string {
 		return "Ghostty installation may fail on Ubuntu/Debian.\nThe installer script only supports certain versions."
 	case ScreenInstallVerify:
 		return "Every path and backup the record of the last install names, checked against this machine"
+	case ScreenNetworkDiagnostics:
+		// It says what the stages are and what the screen does with them, and it
+		// stops there: the rows below carry the report, and repeating a verdict here
+		// would be a second copy of the state the rows already hold.
+		return "Which stage of the connection stopped, with what each step measured"
 	default:
 		return ""
 	}
