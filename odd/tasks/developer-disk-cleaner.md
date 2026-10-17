@@ -368,6 +368,46 @@ Checks after T9:
   free, and it then fails on exactly the same set as before this feature: the four Ghostty tests and
   the two environmental smoke steps, and nothing else.
 
+- **L11 -- the delivery: the merge with main, and the four failures it caused.** The request was to
+  take the work to `main` with a push and a pull request. `origin/main` had moved 132 commits since
+  this branch was cut, and eight files were in conflict: `model.go`, `update.go`, `view.go`,
+  `panels.go`, `screen_coverage_test.go`, the utilities golden, `README.md` and
+  `docs/tui-installer.md`. Every conflict was "both sides appended", so the resolution kept both
+  sides, with the exceptions the merge itself made wrong:
+
+  - `go vet` reported the disk clearer's escape case as unreachable code, because the union had
+    landed it inside the WSL advisor's case body; it moved to the end of the dispatch group.
+  - The Utilities body at 80x24 was already exactly full on main, so the disk cleaner's own row
+    costs one of the rows that body holds there. The first resolution paid for it by dropping the
+    sentence that says why no desktop theme switch is offered. The full suite found what that broke:
+    `TestEveryDeclaredScreenHasAName` (the `screenNames` entry was missing),
+    `TestUtilitiesUnavailableIsAboutTheModelNotTheHost` and
+    `TestUtilitiesUnavailableSaysSoAndFitsTheFrame` (the switch's absence sentence is content the
+    section must carry), and this front's own
+    `TestUtilitiesSectionOffersTheDevelopmentCacheCleaner`, which asserted a body line that no longer
+    fits. The repair: the switch sentence came back; the row came from the **blank line between the
+    prose and the list**, which yields only on the screen whose prose the guard holds
+    (`proseIsRequired`: the utilities section and nothing else, so the other screens' goldens are
+    untouched); `screenNames` gained its entry; and the front's own test now reads the screen the row
+    opens instead of a body line. The disk cleaner's body line yields for good, exactly as the update
+    center's does (`utilitiesDescription`). A first attempt declared a prose floor for the section
+    and windowed its list by one row; the golden showed it hiding "← Back", which no floor may do,
+    and the approach was replaced.
+  - The section's job sentence in the guide says eleven jobs rather than nine: it had been one job
+    short of the section since the SSH configuration landed, and the disk cleaner is the eleventh.
+    L1's quote carries its brand redacted (`ce3ed47`), because the repository's branding audit reads
+    `odd/` and would fail the pull request's own CI job on it.
+
+  The merge commit is `777cfe6`, amended after the repair so the conflict resolution is one commit
+  with both parents. Checks on the merged tree: `gofmt`/`go vet`/`go build` clean; the diskclean
+  suite ok; the screen guards (frame, emoji, terminal fit, declared-screen names, utilities
+  obligations) ok; every golden in the package re-run, with the utilities frame the only one that
+  changed; and `go test ./...` failing only on the four Ghostty tests that fail identically at the
+  base commit. `make preflight` on the repaired tree exits 2 for exactly those four tests and the two
+  environment smoke steps (`Configure WSL` cannot write `/etc/wsl.conf` here, and the zsh step has no
+  network to download from): the same set the base commit produces, and nothing new. The branch is
+  pushed and the pull request opened as the delivery.
+
 ## Remaining
 
 - **The identity re-check is `(device, inode)`.** It is the cheapest pair that exists, and a
