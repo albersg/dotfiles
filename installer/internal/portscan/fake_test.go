@@ -38,6 +38,11 @@ type fakeProbe struct {
 	tools     map[string]string
 	commands  map[string]CommandResult
 	commandFn map[string]func() (CommandResult, error)
+	// derived answers a tool whose output the fake can render from the state it
+	// already holds, when no exact argv was scripted. The ps bridge is the one
+	// user: a flow fixture states one process's facts in /proc, and the macOS
+	// reader asks ps about the same process.
+	derived map[string]func(p *fakeProbe, args []string) (CommandResult, error)
 
 	alive    map[int]bool
 	aliveErr map[int]error
@@ -68,6 +73,7 @@ func newFakeProbe(goos string) *fakeProbe {
 		tools:     map[string]string{},
 		commands:  map[string]CommandResult{},
 		commandFn: map[string]func() (CommandResult, error){},
+		derived:   map[string]func(p *fakeProbe, args []string) (CommandResult, error){},
 		alive:     map[int]bool{},
 		aliveErr:  map[int]error{},
 	}
@@ -134,6 +140,9 @@ func (p *fakeProbe) Run(ctx context.Context, name string, args []string, env []s
 	if result, ok := p.commands[key]; ok {
 		return result, nil
 	}
+	if fn, ok := p.derived[path.Base(name)]; ok {
+		return fn(p, args)
+	}
 	return CommandResult{}, fmt.Errorf("%s: no scripted answer for %q", name, strings.Join(args, " "))
 }
 
@@ -199,6 +208,226 @@ func (p *fakeProbe) addCommandErr(name string, args []string, result CommandResu
 	return p
 }
 
+// answerPSFromProc makes the fake answer the two ps runs the macOS identity
+// reader issues, rendered from the same /proc files the Linux reader reads. A
+// flow fixture therefore states each process fact once: whichever reader the
+// platform compiled is the one that asks, and this fake answers both from one
+// state. Registering the tool is part of the bridge because readDarwinProcess
+// calls LookPath("ps") before it runs anything, and a fake that answered ps
+// without ps on PATH would not exercise that gate.
+//
+// The answers are derived rather than scripted so a test that changes a fact
+// between two readings -- the start ticks of a recycled PID, the file that
+// disappeared, the port that moved -- changes it in one place and both dialects
+// follow.
+func (p *fakeProbe) answerPSFromProc() *fakeProbe {
+	p.addTool("ps")
+	p.derived["ps"] = renderPSFromProc
+	return p
+}
+
+// renderPSFromProc renders one ps argv from the fake's /proc state. The two
+// shapes the darwin reader asks for are the identity run (lstart, user, comm)
+// and the command run (command), and each is answered by reading the files the
+// Linux reader would have read.
+func renderPSFromProc(p *fakeProbe, args []string) (CommandResult, error) {
+	spec := ""
+	if len(args) >= 2 && args[0] == "-o" {
+		spec = args[1]
+	}
+	switch {
+	case strings.Contains(spec, "lstart="):
+		return psIdentityFromProc(p, psTargetPIDs(args)), nil
+	case strings.Contains(spec, "command="):
+		return psCommandsFromProc(p, psTargetPIDs(args)), nil
+	default:
+		return CommandResult{}, fmt.Errorf("the fake has no ps renderer for %q", strings.Join(args, " "))
+	}
+}
+
+// psTargetPIDs reads the repeated -p flags one ps run carries.
+func psTargetPIDs(args []string) []int {
+	var pids []int
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] != "-p" {
+			continue
+		}
+		if pid, err := strconv.Atoi(args[i+1]); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+		i++
+	}
+	return pids
+}
+
+// psIdentityFromProc renders the lstart/user/comm line the macOS reader parses.
+// A pid whose start time or account the fixture does not carry gets no line at
+// all, which is the same answer ps gives for a process it cannot read: the
+// reader then reports that the identity cannot be revalidated instead of being
+// handed a row with empty fields.
+func psIdentityFromProc(p *fakeProbe, pids []int) CommandResult {
+	var out strings.Builder
+	for _, pid := range pids {
+		user := psAccountFromProc(p, pid)
+		comm := psExecutableFromProc(p, pid)
+		started := psStartedFromProc(p, pid)
+		if user == "" || comm == "" || started == "" {
+			continue
+		}
+		fmt.Fprintf(&out, " %d %s %s %s\n", pid, started, user, comm)
+	}
+	return CommandResult{Stdout: []byte(out.String())}
+}
+
+// psAccountFromProc resolves the account the way the Linux reader does: the
+// real uid from /proc/<pid>/status, then the account name, then the number when
+// the host has no passwd entry for it.
+func psAccountFromProc(p *fakeProbe, pid int) string {
+	data, err := p.ReadFile(procPath(pid, "status"))
+	if err != nil {
+		return ""
+	}
+	uid, ok := procStatusUID(data)
+	if !ok {
+		return ""
+	}
+	if name, err := p.LookupUser(uid); err == nil && name != "" {
+		return name
+	}
+	return strconv.Itoa(uid)
+}
+
+// psExecutableFromProc is the path ps prints for comm: the /proc/<pid>/exe
+// target when the fixture set one, and the command name otherwise, which is the
+// same preference the Linux reader applies.
+func psExecutableFromProc(p *fakeProbe, pid int) string {
+	if exe, err := p.Readlink(procPath(pid, "exe")); err == nil {
+		return strings.TrimSuffix(exe, " (deleted)")
+	}
+	if data, err := p.ReadFile(procPath(pid, "comm")); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return ""
+}
+
+// psStartedFromProc renders ps's own lstart wording from the boot time in
+// /proc/stat and the start ticks in /proc/<pid>/stat, which are the two facts
+// the Linux reader turns into the same instant. The fake prints the wording in
+// UTC so a test that parses it back gets one answer whatever zone the host
+// running the test is in.
+func psStartedFromProc(p *fakeProbe, pid int) string {
+	btime, ok := procBtime(p)
+	if !ok {
+		return ""
+	}
+	ticks, ok := procStartTicks(p, pid)
+	if !ok {
+		return ""
+	}
+	when := time.Unix(btime, 0).Add(time.Duration(ticks) * (time.Second / fakeUserHZ))
+	return when.UTC().Format("Mon Jan _2 15:04:05 2006")
+}
+
+// psCommandsFromProc renders the pid/command line from /proc/<pid>/cmdline.
+func psCommandsFromProc(p *fakeProbe, pids []int) CommandResult {
+	var out strings.Builder
+	for _, pid := range pids {
+		data, err := p.ReadFile(procPath(pid, "cmdline"))
+		if err != nil {
+			continue
+		}
+		args := splitNULTokens(data)
+		if len(args) == 0 {
+			continue
+		}
+		fmt.Fprintf(&out, " %d %s\n", pid, strings.Join(args, " "))
+	}
+	return CommandResult{Stdout: []byte(out.String())}
+}
+
+// The small /proc parsers below are deliberately test-local: they let the fake
+// read the same files the Linux reader reads instead of keeping a second copy
+// of the facts, and the production parsers are not visible to this untagged
+// file on every platform.
+
+func procPath(pid int, rest string) string {
+	return "/proc/" + strconv.Itoa(pid) + "/" + rest
+}
+
+// procBtime reads the boot time out of /proc/stat.
+func procBtime(p *fakeProbe) (int64, bool) {
+	data, err := p.ReadFile("/proc/stat")
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		rest, found := strings.CutPrefix(line, "btime ")
+		if !found {
+			continue
+		}
+		seconds, err := strconv.ParseInt(strings.TrimSpace(rest), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return seconds, true
+	}
+	return 0, false
+}
+
+// procStartTicks reads field 22 out of /proc/<pid>/stat, counting from the last
+// closing parenthesis the way the production parser does.
+func procStartTicks(p *fakeProbe, pid int) (uint64, bool) {
+	data, err := p.ReadFile(procPath(pid, "stat"))
+	if err != nil {
+		return 0, false
+	}
+	text := string(data)
+	closing := strings.LastIndex(text, ")")
+	if closing < 0 {
+		return 0, false
+	}
+	fields := strings.Fields(text[closing+1:])
+	if len(fields) < 20 {
+		return 0, false
+	}
+	ticks, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return ticks, true
+}
+
+// procStatusUID reads the real uid from /proc/<pid>/status.
+func procStatusUID(data []byte) (int, bool) {
+	for _, line := range strings.Split(string(data), "\n") {
+		rest, found := strings.CutPrefix(line, "Uid:")
+		if !found {
+			continue
+		}
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			return 0, false
+		}
+		uid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return 0, false
+		}
+		return uid, true
+	}
+	return 0, false
+}
+
+// splitNULTokens splits the NUL-separated argv /proc/<pid>/cmdline carries.
+func splitNULTokens(data []byte) []string {
+	var out []string
+	for _, part := range strings.Split(string(data), "\x00") {
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 // commandKey is the identity one scripted command is looked up by: the tool's
 // name and its whole argv, so two invocations of the same tool are two answers.
 func commandKey(name string, args []string) string {
@@ -225,6 +454,10 @@ func notExist(name string) error {
 func permissionDenied(name string) error {
 	return &fs.PathError{Op: "open", Path: name, Err: fs.ErrPermission}
 }
+
+// fakeUserHZ mirrors USER_HZ, the unit /proc counts start times in, which the
+// ps bridge needs to turn start ticks into ps's own start wording.
+const fakeUserHZ = 100
 
 // procStatLine renders one /proc/<pid>/stat line with the fixed field count the
 // parser counts from: state, parent, the counters, then the start ticks at
@@ -253,8 +486,55 @@ func procNetRow(hexAddress, hexPort, state string, uid int, inode string) string
 		hexAddress, hexPort, state, uid, inode)
 }
 
+// procFacts is one process as a fixture states it. The facts are written to the
+// /proc files the Linux reader reads; the ps bridge renders the macOS dialect
+// from those same files, so a test states each fact once and the compiled
+// platform reader picks the dialect it asks in.
+type procFacts struct {
+	pid        int
+	ppid       int
+	name       string
+	exe        string
+	args       []string
+	uid        int
+	startTicks uint64
+}
+
+// addProcProcess writes one process's facts the way /proc presents them. It is
+// callable again: writing the same paths a second time replaces the process's
+// identity in both dialects at once, which is what a recycled-PID or a
+// disappeared-start-file test needs.
+func (p *fakeProbe) addProcProcess(f procFacts) *fakeProbe {
+	uid := strconv.Itoa(f.uid)
+	p.addFile(procPath(f.pid, "comm"), f.name+"\n")
+	p.addRawFile(procPath(f.pid, "cmdline"), []byte(joinNUL(f.args)))
+	p.addFile(procPath(f.pid, "status"), "Name:\t"+f.name+"\nUid:\t"+uid+"\t"+uid+"\t"+uid+"\t"+uid+"\n")
+	if f.exe != "" {
+		p.addLink(procPath(f.pid, "exe"), f.exe)
+	}
+	p.addFile(procPath(f.pid, "stat"), procStatLine(f.pid, f.ppid, f.name, f.startTicks))
+	return p
+}
+
+// joinNUL renders an argv the way the kernel writes /proc/<pid>/cmdline: the
+// arguments joined by NUL bytes and terminated by one.
+func joinNUL(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return strings.Join(args, "\x00") + "\x00"
+}
+
 // linuxHost builds a fake Linux host with a process that holds one TCP socket,
 // which is the fixture almost every discovery and stop test starts from.
+//
+// The fixture answers in both dialects on purpose. Its GOOS is linux, so
+// Discover and the stop path dispatch to the linux branches, but the compiled
+// fact reader behind those branches is the platform's own: on Linux it reads
+// these /proc files, and on macOS the same names drive ps, which this fixture
+// answers through answerPSFromProc. That is what lets one stop test pin the
+// platform-independent decision while the macOS runner exercises the darwin
+// identity path.
 func linuxHost(pid, port int, inode string) *fakeProbe {
 	p := newFakeProbe("linux")
 	p.alive[pid] = true
@@ -266,15 +546,20 @@ func linuxHost(pid, port int, inode string) *fakeProbe {
 	p.addFile("/proc/stat", "cpu  1 2 3 4\nbtime 1700000000\n")
 	p.addFile("/proc/sys/kernel/random/boot_id", "boot-1\n")
 	p.addDir("/proc", fakeEntry{name: strconv.Itoa(pid), isDir: true})
+	p.addProcProcess(procFacts{
+		pid:        pid,
+		ppid:       1,
+		name:       "node",
+		exe:        "/usr/bin/node",
+		args:       []string{"node", "server.js", "--token", "SECRET"},
+		uid:        1000,
+		startTicks: 12345,
+	})
+	p.answerPSFromProc()
 
-	base := "/proc/" + strconv.Itoa(pid)
-	p.addFile(base+"/comm", "node\n")
-	p.addRawFile(base+"/cmdline", []byte("node\x00server.js\x00--token\x00SECRET\x00"))
-	p.addFile(base+"/status", "Name:\tnode\nUid:\t1000\t1000\t1000\t1000\n")
-	p.addLink(base+"/exe", "/usr/bin/node")
-	p.addFile(base+"/stat", procStatLine(pid, 1, "node", 12345))
-	p.addDir(base+"/fd", fakeEntry{name: "3"})
-	p.addLink(base+"/fd/3", "socket:["+inode+"]")
+	base := procPath(pid, "")
+	p.addDir(base+"fd", fakeEntry{name: "3"})
+	p.addLink(base+"fd/3", "socket:["+inode+"]")
 
 	p.addFile("/proc/net/tcp", procNetHeader+procNetRow("0100007F", fmt.Sprintf("%04X", port), "0A", 1000, inode))
 	p.addFile("/proc/net/tcp6", procNetHeader)
