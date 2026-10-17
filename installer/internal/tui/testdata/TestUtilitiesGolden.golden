@@ -9,7 +9,6 @@
   Manage the SSH configuration shows the hosts and keys the client uses.        
   Report the terminal capabilities reads the colour depth and OSC 52.           
   Check the machine against the last install reports the paths that are gone.   
-  Diagnose the network runs read-only checks, stage by stage.                   
   ▸ Change the dotfiles theme                                                   
     Measure the shell's startup                                                 
     Check the installed tools for updates                                       
@@ -18,6 +17,7 @@
     Report the terminal capabilities                                            
     Clean up development caches                                                 
     Diagnose the network                                                        
+    Find what holds a port                                                      
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
   ────────────────────────────────────────────────────────────────────────────  

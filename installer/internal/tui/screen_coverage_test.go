@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/diskclean"
+	"github.com/albersg/dotfiles/installer/internal/portscan"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	"github.com/albersg/dotfiles/installer/internal/updates"
@@ -356,7 +357,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 92 // measured on the merged tree by the guard's own report, not added up from either side: main's 91 -- the 61 installer states + the 7 the utilities section opens + the trainer's 6, the setup screen, network-diagnostics and the advisor's four states, plus the SSH manager's 7 screens and the 3 extra states that make them measurable, plus the update center, the section's own destination for the machine's package managers -- plus the developer disk cleaner, this branch's screen
+const measuredScreens = 94 // measured on the merged tree by the guard's own report, not added up from either side: main's 92 -- the 61 installer states + the 7 the utilities section opens + the trainer's 6, the setup screen, network-diagnostics, the advisor's four states, the SSH manager's 7 screens and the 3 extra states that make them measurable, plus the update center and the developer disk cleaner -- plus the port and process manager and its stop confirmation, the two this front adds
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
 // animating. Before the pass existed, the fit guard and the companion-coverage
@@ -510,6 +511,8 @@ func terminalFitCases() []terminalFitCase {
 	// opens it, and it is measured with the rest of them.
 	cases = append(cases, terminalFitCase{updateCenterCaseName, updateCenterFrameCase})
 	cases = append(cases, terminalFitCase{networkDiagnosticsCaseName, networkDiagnosticsFrameCase})
+	cases = append(cases, terminalFitCase{portManagerCaseName, portManagerFrameCase})
+	cases = append(cases, terminalFitCase{portStopCaseName, portStopFrameCase})
 
 	return cases
 }
@@ -683,6 +686,8 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{networkDiagnosticsCaseName, networkDiagnosticsFrameCase(t)},
 		{updateCaseName, updateFrameCase(t)},
 		{updateCenterCaseName, updateCenterFrameCase(t)},
+		{portManagerCaseName, portManagerFrameCase(t)},
+		{portStopCaseName, portStopFrameCase(t)},
 	}
 }
 
@@ -1107,6 +1112,105 @@ func shellAuditFrameCase(t *testing.T) Model {
 
 	m := installerFrameModel(t, ScreenShellAudit)
 	m.ShellAudit = shellAuditTestState()
+	m.Cursor = 0
+	return m
+}
+
+// portManagerCaseName is the name the frame guards know the port manager by.
+const portManagerCaseName = "port-manager"
+
+// portStopCaseName is the name the frame guards know the stop confirmation by.
+const portStopCaseName = "port-stop"
+
+// portManagerTestSnapshot is the reading the port frame cases render. It is a
+// fixture and not the runner's machine: a couple of listeners with owners, one
+// socket whose owner the reader could not resolve, and the limitation sentence
+// that explains it. The arguments are already redacted, exactly as the package
+// leaves them.
+func portManagerTestSnapshot() portscan.Snapshot {
+	return portscan.Snapshot{
+		At:    time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC),
+		Scope: portscan.ScopeSelf,
+		Listeners: []portscan.Listener{
+			{
+				Protocol: portscan.ProtocolTCP,
+				State:    portscan.StateListen,
+				Address:  "127.0.0.1",
+				Port:     3000,
+				Inode:    "11111",
+				Owner: &portscan.Process{
+					PID: 4242, Name: "node", User: "alber", Exe: "/usr/bin/node",
+					Args: []string{"node", "server.js", "--token", "****"}, Scope: portscan.ScopeSelf,
+				},
+				Source: "/proc/net/tcp",
+			},
+			{
+				Protocol: portscan.ProtocolTCP,
+				State:    portscan.StateListen,
+				Address:  "0.0.0.0",
+				Port:     8080,
+				Inode:    "22222",
+				Owner: &portscan.Process{
+					PID: 900, Name: "python3", User: "alber", Exe: "/usr/bin/python3", Scope: portscan.ScopeSelf,
+				},
+				Source: "/proc/net/tcp",
+			},
+			{
+				Protocol: portscan.ProtocolUDP,
+				State:    portscan.StateUnconn,
+				Address:  "127.0.0.1",
+				Port:     5353,
+				Inode:    "33333",
+				OwnerErr: "the owner is not readable here: reading another user's file descriptors needs privileges this run does not have.",
+				Source:   "/proc/net/udp",
+			},
+		},
+		Sources: []portscan.Source{
+			{Name: "/proc/net/tcp", Rows: 2},
+			{Name: "/proc/net/udp", Rows: 1},
+		},
+		Limits: []string{
+			"some sockets have no readable owner here: reading another user's file descriptors needs privileges this run does not have. " +
+				"The ports are real; the process behind them is not shown.",
+		},
+	}
+}
+
+// portManagerFrameCase builds the port manager with a populated reading and the
+// detail block open, so the guards measure the scope line, the state line, the
+// windowed list, the detail block, the notice and the limitation sentence.
+func portManagerFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenPortManager)
+	m.Ports.Snapshot = portManagerTestSnapshot()
+	m.Ports.Loaded = true
+	m.Ports.Detail = true
+	m.Ports.Notice = "1 new, 1 gone since the last reading"
+	m.Ports.Cursor = 0
+	return m
+}
+
+// portStopFrameCase builds the stop confirmation for one of the reading's own
+// processes, with a finished soft-stop outcome, so the guards measure the
+// identity, the owner, every affected port, the consequences and the result.
+func portStopFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenPortStop)
+	snap := portManagerTestSnapshot()
+	proc := *snap.Listeners[0].Owner
+	result := portscan.StopResult{
+		Outcome:  portscan.OutcomeStopped,
+		Signal:   portscan.SignalTerminate,
+		Message:  "pid 4242 (node) exited. The ports it held are free.",
+		Alive:    false,
+		Verified: true,
+	}
+	m.PortStop = portStopState{
+		Target: portscan.StopTarget{Process: proc, Sockets: snap.ListenersFor(proc.PID)},
+		Result: &result,
+	}
 	m.Cursor = 0
 	return m
 }

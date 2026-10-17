@@ -1115,6 +1115,32 @@ func TestNetworkDiagnosticsGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Network diagnostics"))
 }
 
+// TestPortManagerGolden pins the port manager: the scope line, the filter and
+// sort state, the windowed list of real sockets, and the detail block for the
+// selected row with its limitation sentence. The reading is a fixture on the
+// model, so the frame is the same on every runner instead of a snapshot of the
+// machine that rendered it.
+func TestPortManagerGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := portManagerFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Ports in use"))
+}
+
+// TestPortStopGolden pins the stop confirmation: the process identity, its
+// owner, every port it holds, the soft-stop consequences and the verified
+// outcome. Nothing is signalled while it draws; the result is a fixture.
+func TestPortStopGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := portStopFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Stop a process"))
+}
+
 // TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
 // pleased companion at a frame a few ticks into the two seconds. The burst is
 // model state, so its positions are the same on every machine that renders it.

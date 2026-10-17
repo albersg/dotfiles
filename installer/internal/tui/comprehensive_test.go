@@ -1735,6 +1735,12 @@ var screenNames = map[Screen]string{
 	// every screen above -- the guard in screen_coverage_test.go named it as
 	// Screen(58) printing as "Unknown", which is the failure this entry answers.
 	ScreenDiskCleaner: "DiskCleaner",
+
+	// The port and process manager and its stop confirmation, in an alignment group
+	// of their own: their names are longer than every key above, and gofmt aligns a
+	// block as one, so sharing it would re-space the whole map.
+	ScreenPortManager: "PortManager",
+	ScreenPortStop:    "PortStop",
 }
 
 func (s Screen) String() string {

@@ -119,9 +119,16 @@ func TestUtilitiesBodyCarriesEveryJobAtTheFloor(t *testing.T) {
 		// the merged section gained, and the body's floor budget is what its line had to
 		// fit inside, so the row that cost the line is read by name here.
 		utilitiesUpdatesRow,
-		// The disk cleaner's row is the one this merge added: its line is the one that
-		// yields to the section's own body (a row of budget, as the update center's did
-		// before it), so the job is read by the name the list gives it.
+		// The network diagnosis's body line yielded to the port manager's row, so the
+		// row is what still names the job at the floor; the guard reads it here.
+		utilitiesNetworkRow,
+		// The port and process manager's row, added with the job itself: the guard
+		// exists so a job cannot be named on a screen no one reads at the floor.
+		utilitiesPortRow,
+		// The disk cleaner's row came in with the other front's merge: its line is the
+		// one that yields to the section's own body (a row of budget, as the update
+		// center's did before it), so that job is read by the name the list gives it
+		// rather than by a line the floor cuts.
 		utilitiesDiskCleanerRow,
 	} {
 		if !strings.Contains(view, job) {

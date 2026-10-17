@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/albersg/dotfiles/installer/internal/portscan"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
@@ -203,6 +204,21 @@ const (
 	ScreenSSHAgent       // What the agent holds and what may be done with it
 	ScreenSSHDiagnostics // What is wrong with the setup, and what to do about it
 	ScreenSSHTest        // One connection, tested only when the user asks
+	// The port and process manager. Appended at the end for the same reason as
+	// the screens above: the numeric values of the screens before it stay put.
+	// The utilities section opens it from its own row, one level in so the
+	// section stays a list of jobs. It reads the sockets this kernel holds, the
+	// process behind each one where the kernel allows it, and offers one
+	// deliberate, revalidated stop. Nothing is read while it draws: the reading
+	// is a command and its result lives on the model.
+	ScreenPortManager // What holds a port, and what may be stopped
+	// The stop confirmation. Appended at the end for the same reason. It is one
+	// level in from the manager, opened only for the process behind the selected
+	// row, and it names the identity, the owner, every affected port and the
+	// consequences before anything is signalled. The soft stop is its default;
+	// the forced signal appears only after a soft attempt left the process
+	// running, as a second, differently-worded action.
+	ScreenPortStop // One process, its ports, and the stop to confirm
 )
 
 // stepOrigin says why a step is on the plan, in the three answers S2 of
@@ -708,6 +724,16 @@ type Model struct {
 	// from: no render in that file opens a file, runs a process or asks the
 	// environment anything.
 	SSH sshManagerState
+	// Ports is what the port and process manager draws: the last reading, the
+	// filter, filters, sort and detail state, the cursor and the notice. The
+	// reading itself is a command, so no render ever opens /proc or runs a tool,
+	// and the probe it reads through is injectable so a test can answer in memory.
+	Ports portManagerState
+	// PortStop is the stop confirmation: the one process the user chose, the
+	// refusal that stops the screen from offering a signal, whether an attempt is
+	// in flight, and the account of the last attempt. It is always a single PID:
+	// the manager never kills by name and never iterates a port's processes.
+	PortStop portStopState
 	// UpdateCheck is what the installer knows about the latest published release:
 	// the tag, when it was read, and the reason it could not be read. The cached
 	// record is loaded on the startup path, so a start never waits on the network;
@@ -846,6 +872,10 @@ func NewModel() Model {
 	// an environment variable is not evidence, and the row that offers the advisor
 	// has to be drawn from what this process can verify about itself.
 	m.WSLRuntime = system.DetectWSLRuntime()
+	// The port manager's probe is the real machine surface. It is stored on the
+	// model rather than fetched when the reading runs, so a test can hand in a
+	// double and so the command and the protection check read the same surface.
+	m.Ports = portManagerState{Probe: portscan.DefaultProbe(), Transport: "all", Owner: "all", Sort: "port"}
 	// The last release check is read here, from its own state file, exactly as the
 	// last-install record is: one file read, no waiting. The request itself is a
 	// command the run arms from the drawing gate, so the startup path never reaches
@@ -1200,6 +1230,11 @@ func (m Model) GetCurrentOptions() []string {
 		// there is always a machine whose connectivity is worth describing, and it
 		// dials nothing until its own screen's row is pressed.
 		utilities = append(utilities, utilitiesNetworkRow)
+		// The port and process manager changes nothing until a stop is confirmed on
+		// its own screen, so it is offered unconditionally: reading what holds a port
+		// is always safe, and a platform with no reader says so in the screen's own
+		// body instead of the row vanishing.
+		utilities = append(utilities, utilitiesPortRow)
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -1248,6 +1283,13 @@ func (m Model) GetCurrentOptions() []string {
 		return m.sshDiagnosticRows()
 	case ScreenSSHTest:
 		return m.sshTestRows()
+	case ScreenPortManager:
+		// The manager's rows are its own list of sockets, not a menu of options:
+		// the cursor walks the filtered reading. The rows are built here so any
+		// generic reader of a screen's options sees the same list the body draws.
+		return m.portManagerRows()
+	case ScreenPortStop:
+		return m.portStopRows()
 	case ScreenWSLResources:
 		return m.wslResourceRows()
 	case ScreenThemePicker:
@@ -1580,6 +1622,10 @@ func (m Model) GetScreenTitle() string {
 		return "Test an SSH connection"
 	case ScreenUpdate:
 		return "Updates"
+	case ScreenPortManager:
+		return portManagerTitle
+	case ScreenPortStop:
+		return portStopTitle
 	default:
 		return ""
 	}
