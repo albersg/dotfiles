@@ -952,12 +952,57 @@ unsupported. Whether a Nerd Font is installed cannot be asked of the terminal at
 is always unknown with a manual check.
 
 **Nothing blocks and nothing runs at startup.** The probe runs only when the screen is opened,
-off the update loop, never when the model is built or when the installer starts. The terminal query
-is bounded by a timeout and the read is taken under a read deadline, so a terminal that never answers
-produces an honest empty reply within the timeout rather than a frozen interface; a host with no
+off the update loop, never when the model is built or when the installer starts. The exchange is
+bounded by a timeout -- the read is taken under a read deadline, or, when the program handed the probe
+the reader described below, answers are collected within the same timeout -- so a terminal that never
+answers produces an honest empty reply within the timeout rather than a frozen interface; a host with no
 controlling terminal (a container, a service, a run with no TTY) gets the empty reply too and the
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
+
+=======
+**The terminal has one reader.** The reply to a query is written into the terminal's input queue,
+which is the queue a keystroke goes into and the queue the interface reads, so with the interface
+reading the terminal and the probe opening it for itself the answer went to whichever read first.
+Measured on one pty with a terminal that answers all three queries: the probe alone received the whole
+reply in 5 of 5 runs, and with a second reader attached to the same terminal it received nothing in 1 of
+20 -- while in that run the terminal's answer reached the interface as seven input messages, `\x1bP` read
+as alt-`P` and an XTGETTCAP body read as typed text. *Which* second reader matters, and the harness is
+what says which one it was: that sample put the interface on its own open of the terminal, the
+arrangement bubbletea creates whenever stdin is not a terminal, and the reading did not say so until the
+harness was corrected. With the pty on stdin -- the arrangement the installer commonly runs in -- the
+same twenty runs gave the probe the whole reply every time. The race is real; it is not equally likely in
+both arrangements, and neither sample is large enough to be quoted as a rate. The interface now reads the
+terminal through one reader, and while a
+query is outstanding that reader takes the answer out of the stream: the reply cannot be eaten by the
+interface's reader and cannot arrive as keystrokes. Outside that window every byte is handed on
+untouched, so nothing about typing changes. One case cannot be told apart: a read boundary that falls
+inside an answer's own header leaves a fragment no keystroke could have produced, and the reader hands
+it on rather than holding it back, so that answer is lost -- bounded, one-sided, and pinned by its own
+guard rather than left to be discovered.
+
+The reader is handed over only when stdin is the terminal this run is attached to, and the test for that is
+bubbletea's own: `charmbracelet/x/term`'s `IsTerminal` is the function bubbletea calls before it decides
+whether to read stdin or open `/dev/tty`, so the interface reads exactly the stream it would have read and
+only the answer leaves it. The decision is made at all because bubbletea opens the controlling terminal by
+itself when stdin is not one, and any input option at all takes that
+choice away: a program given a pipe reads the pipe. the consequence is worth stating plainly, because the
+measurement above names it: in that one configuration -- stdin not the terminal, which is the one the
+1-in-20 came from -- the interface and the probe would be two readers on one terminal, and the probe
+therefore does not ask anything there at all.
+
+**The probe asks nothing when it is not the one reading the terminal.** A run whose input is not the
+terminal has bubbletea reading the controlling terminal for itself, so a query would put its answer in a
+queue two readers share -- and that answer is not worth having: in the sample the measurement above comes
+from it was lost to the interface one run in twenty, and when it was not lost it arrived as keys. The rows
+that only a query can answer then say why they are unknown (`this run does not read the terminal from its
+own input, so the probe did not ask it anything`) instead of describing a terminal that was never asked as
+one that stayed silent, and the check by hand is to run the installer with the terminal as its input. The
+colour depth still comes from the environment, which is not a query, so a run with `COLORTERM` set and its
+input redirected reports its colour exactly as it did before. The probe now touches the terminal in one
+place, and it writes: `TestTheProbeNeverReadsTheTerminalForItself` reads the probe's own source to keep it
+that way, because on a host with no terminal a behavioural guard cannot tell "did not ask" from "asked
+and nothing came back".
 
 ### The development caches
 

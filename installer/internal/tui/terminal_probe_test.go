@@ -57,75 +57,33 @@ type terminalClosedError struct{}
 
 func (*terminalClosedError) Error() string { return "terminal closed" }
 
-// TestTerminalQueryDoesNotHangWhenTheTerminalNeverAnswers is the guard the whole
+// TestTheProbeDoesNotHangWhenTheTerminalNeverAnswers is the guard the whole
 // utility exists under. A probe that waits for a reply it never receives leaves
-// the interface dead, which is worse than not probing at all, so the read is
-// bounded and a terminal that says nothing produces an empty answer within the
-// timeout rather than a frozen frame.
+// the interface dead, which is worse than not probing at all, so the probe returns
+// an honest empty answer within its timeout instead of a frozen frame.
 //
-// The reader is the strictest case: it supports SetReadDeadline (as the real
-// controlling terminal does), so the deadline path is what is measured.
-func TestTerminalQueryDoesNotHangWhenTheTerminalNeverAnswers(t *testing.T) {
-	readEnd, writeEnd, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer readEnd.Close()
-	// The write end is held open and nothing is written: a terminal that is
-	// silent rather than closed, which is exactly the case that would hang.
-	defer writeEnd.Close()
+// It runs through the reader, which is the only way the probe asks now, and the
+// source is the strictest case: a stream that never yields while the write
+// succeeds, so nothing but the probe's own deadline can end the wait.
+func TestTheProbeDoesNotHangWhenTheTerminalNeverAnswers(t *testing.T) {
+	blocking := newBlockingTerminal()
+	defer blocking.close()
+	reader := newReplyDivertingReader(blocking)
 
-	var out bytes.Buffer
 	done := make(chan string, 1)
 	started := time.Now()
-	go func() {
-		done <- queryTerminal(&out, readEnd, terminalCapabilityQuery, 60*time.Millisecond)
-	}()
+	go func() { done <- reader.ask(func() error { return nil }, 60*time.Millisecond) }()
 
 	select {
 	case got := <-done:
 		if elapsed := time.Since(started); elapsed > 3*time.Second {
-			t.Fatalf("the query took %s to give up, so a silent terminal would stall the interface", elapsed)
+			t.Fatalf("the probe took %s to give up, so a silent terminal would stall the interface", elapsed)
 		}
 		if got != "" {
 			t.Errorf("a silent terminal produced an answer %q, want the honest empty reply", got)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("queryTerminal never returned against a terminal that never answers: the interface would hang")
-	}
-}
-
-// TestTerminalQueryReturnsWhatTheTerminalSends is the other half: a bounded read
-// must still capture a real reply, so the bound is not achieved by ignoring the
-// terminal.
-func TestTerminalQueryReturnsWhatTheTerminalSends(t *testing.T) {
-	const reply = "\x1b[?2026;1$y\x1bP1+r524742=1\x1b\\"
-	var out bytes.Buffer
-	got := queryTerminal(&out, strings.NewReader(reply), terminalCapabilityQuery, time.Second)
-	if got != reply {
-		t.Errorf("the reply = %q, want %q", got, reply)
-	}
-	if out.String() != terminalCapabilityQuery {
-		t.Errorf("the query written = %q, want %q", out.String(), terminalCapabilityQuery)
-	}
-}
-
-// TestTerminalQueryFallsBackToATimerWhenDeadlinesAreUnsupported covers the
-// stream that cannot take a read deadline. The bound has to hold there too, and
-// the abandoned read has to be the only leak: the guard closes the reader so the
-// goroutine it left behind ends rather than outliving the test.
-func TestTerminalQueryFallsBackToATimerWhenDeadlinesAreUnsupported(t *testing.T) {
-	blocking := newBlockingTerminal()
-	defer blocking.close()
-
-	var out bytes.Buffer
-	started := time.Now()
-	got := queryTerminal(&out, blocking, terminalCapabilityQuery, 60*time.Millisecond)
-	if elapsed := time.Since(started); elapsed > 3*time.Second {
-		t.Fatalf("the fallback took %s, want the bounded timeout", elapsed)
-	}
-	if got != "" {
-		t.Errorf("a silent terminal produced %q, want the empty reply", got)
+		t.Fatal("the probe never returned against a terminal that never answers: the interface would hang")
 	}
 }
 
@@ -320,5 +278,139 @@ func TestTheQueryCarriesTheChecksTheProbeParses(t *testing.T) {
 		if !strings.Contains(terminalCapabilityQuery, want) {
 			t.Errorf("the query does not ask %q, so the reply it parses can never arrive", want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Who the probe is allowed to ask
+// ---------------------------------------------------------------------------
+
+// withoutTerminalInput puts the package back into the state of a program started
+// without the one reader -- the run whose input is not the terminal, so bubbletea
+// opens the controlling terminal by itself. It is the arrangement in which the
+// probe must not ask anything (odd/tasks/terminal-probe-ownership.md, T5).
+func withoutTerminalInput(t *testing.T) {
+	t.Helper()
+	terminalInputMu.Lock()
+	previous := terminalInput
+	terminalInput = nil
+	terminalInputMu.Unlock()
+	t.Cleanup(func() {
+		terminalInputMu.Lock()
+		terminalInput = previous
+		terminalInputMu.Unlock()
+	})
+}
+
+// capabilityReportFrom runs the probe the way the capability screen arms it and
+// returns the report it produced.
+func capabilityReportFrom(t *testing.T) terminalCapabilities {
+	t.Helper()
+	msg := loadTerminalCapabilityCmd()()
+	capabilityMsg, ok := msg.(terminalCapabilityMsg)
+	if !ok {
+		t.Fatalf("the probe produced %T, want a terminalCapabilityMsg", msg)
+	}
+	return capabilityMsg.caps
+}
+
+// TestTheProbeDoesNotAskWhenTheInterfaceIsNotTheReader is T5's guard. With the
+// interface reading the terminal for itself there is no reader to take the answer
+// out of, and a probe that opened the terminal anyway races it: measured, one run
+// in twenty lost the answer, and in that run the terminal's answer arrived as
+// seven input messages. So the probe asks nothing, and the rows that only a query
+// can answer say why -- never that the terminal stayed silent, which it was.
+func TestTheProbeDoesNotAskWhenTheInterfaceIsNotTheReader(t *testing.T) {
+	withoutTerminalInput(t)
+
+	caps := capabilityReportFrom(t)
+
+	const wantReason = "this run does not read the terminal from its own input, so the probe did not ask it anything (asking would put two readers on one terminal)"
+	if !caps.Resolved {
+		t.Error("the report is unresolved with nothing to wait for: no query was written, so there is nothing to answer it")
+	}
+	for _, row := range []struct {
+		name   string
+		answer terminalAnswer
+	}{
+		{"clipboard", caps.Clipboard},
+		{"sync", caps.Sync},
+	} {
+		if row.answer.State != capabilityUnknown {
+			t.Errorf("%s reports %s, want unknown: nothing was asked", row.name, row.answer.State)
+		}
+		if row.answer.Reason != wantReason {
+			t.Errorf("%s says %q\nwant %q", row.name, row.answer.Reason, wantReason)
+		}
+		if row.answer.Source != "not determined" {
+			t.Errorf("%s names %q as its source, want %q: there is no answer to name", row.name, row.answer.Source, "not determined")
+		}
+	}
+}
+
+// TestAnUnaskedProbeStillReportsTheColourFromTheEnvironment guards what the
+// decision not to ask must NOT cost: reading the environment is not a query, so a
+// depth COLORTERM describes is reported exactly as it was before.
+func TestAnUnaskedProbeStillReportsTheColourFromTheEnvironment(t *testing.T) {
+	withoutTerminalInput(t)
+	t.Setenv(envColorTerm, "truecolor")
+
+	caps := capabilityReportFrom(t)
+
+	if caps.Color.State != capabilitySupported || caps.Color.Value != colorValueTrueColor {
+		t.Errorf("colour reports %s/%s, want truecolor: reading the environment is not a query, so it survives not asking",
+			caps.Color.State, caps.Color.Value)
+	}
+	if caps.Color.Source != envColorTerm+"=truecolor" {
+		t.Errorf("colour names %q as its source, want %q", caps.Color.Source, envColorTerm+"=truecolor")
+	}
+}
+
+// TestTheProbeNeverReadsTheTerminalForItself is the structural half of the same
+// rule, and it is a source guard rather than a behavioural one for a reason a
+// terminal-less host makes plain: with no terminal here, behaviour cannot tell
+// "the probe did not ask" from "the probe asked and nothing answered". What it
+// pins is the code that could race -- a private read of the controlling terminal
+// -- so the one place the probe opens it stays write-only.
+func TestTheProbeNeverReadsTheTerminalForItself(t *testing.T) {
+	source, err := os.ReadFile("terminal_probe.go")
+	if err != nil {
+		t.Fatalf("reading the probe's source: %v", err)
+	}
+	for _, readMode := range []string{"os.O_RDWR", "os.O_RDONLY"} {
+		if bytes.Contains(source, []byte(readMode)) {
+			t.Errorf("terminal_probe.go opens the controlling terminal with %s: a second reader on the terminal the interface reads is the race this front measured", readMode)
+		}
+	}
+	if !bytes.Contains(source, []byte("os.O_WRONLY")) {
+		t.Error("terminal_probe.go no longer opens the controlling terminal write-only: the query still has to be written to it")
+	}
+}
+
+// TestAProbeWithItsOwnReaderStillAsks is the other side of the decision: when the
+// interface does read the terminal through the one reader, the probe asks, and a
+// terminal that stays silent is reported as one that did not answer -- not as one
+// that was never asked.
+func TestAProbeWithItsOwnReaderStillAsks(t *testing.T) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer read.Close()
+	defer write.Close()
+	TerminalInput(read)
+	t.Cleanup(func() {
+		terminalInputMu.Lock()
+		terminalInput = nil
+		terminalInputMu.Unlock()
+	})
+
+	caps := capabilityReportFrom(t)
+
+	if strings.Contains(caps.Sync.Reason, "did not ask") {
+		t.Errorf("sync says %q with the reader registered, want the silent-terminal reason: the probe did ask", caps.Sync.Reason)
+	}
+	if !strings.Contains(caps.Sync.Reason, "did not answer") {
+		t.Errorf("sync says %q, want the reason that the terminal did not answer", caps.Sync.Reason)
 	}
 }
