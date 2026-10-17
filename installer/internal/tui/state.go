@@ -241,8 +241,8 @@ func legacyEntries(files []string) []installEntry {
 }
 
 // lastInstallRecord builds the record of the run that just finished. It names
-// what the run did from the change in each configuration path's bytes, not from
-// the pre-run detection that recordLastInstall used to copy:
+// what the run did from the change in each configuration path's bytes, rather
+// than from the pre-run detection the earlier implementation copied:
 //
 //   - a configuration path whose content the run wrote is "replaced" when it
 //     existed before the run and "created" when it did not;

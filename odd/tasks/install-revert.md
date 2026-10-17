@@ -556,3 +556,45 @@ session.
     deliberate absences, **no** loss and no sentence duplicated. The rename is confirmed by the check a line
     audit cannot make: `go build ./...` and `go vet` are clean on the merged tree, so no code main added
     calls the API this branch replaced.
+
+- **L23 (two verdicts, four fixes of my own, and three lessons about my own tooling).** The tenth pass (the
+  test-and-documentation delta) and the eleventh (the second merge) came back **SAFE**, both with methods I
+  had not used: a difflib added-line comparison, a sha256 of all 693 tracked files, an empty
+  `git show --remerge-diff`, and a width probe that found the exact column (94) at which the failure screen
+  cuts a path. Both passes also reported that `HEAD` moved while they ran, which is true and is not a defect:
+  `2461757` is L22, documentation only (`odd/tasks/install-revert.md`), the full gate ran on it (both `TMPDIR`
+  lengths, no failures) and CI round 3 is green on it (14 of 14, `macOS smoke test` included). Nothing was
+  ever verified against a tree that is not published.
+  - **Four things the tenth pass found in this branch's own delta, all fixed here.** (1) The pin I added for a
+    long backup path asserted only the substring `--revert`, so a cut *after* the flag passed: it now flattens
+    the view and asserts the whole row that says how to put the machine back. (2)
+    `TestTheBackupLocationParagraphAppearsOnce` counted raw text, so a future re-wrap of that paragraph would
+    have failed it: it counts flattened text now. (3) `docs/tui-installer.md` carried a literal `\u2026` where
+    the file uses a real ellipsis, because I wrote the sentence through an escape. (4) The sentence about the
+    record over-claimed ("the directory is named in full"), while the record names each copy and the directory
+    follows from it; it now says exactly that, and the `state.go` comment that still named the function this
+    branch renamed away was brought up to date.
+  - The two fixes that matter were shown to be fixes rather than acts of faith, in a detached worktree with the
+    product deliberately broken: with the command row cut after `--revert`, the old flag-only probe **passes**
+    and the strengthened test **fails**; with the paragraph legitimately re-wrapped, the old line-based count
+    **fails** and the normalized count **passes**. The worktree was removed afterwards and the repository
+    carries only the intended edits.
+  - The merge-audit tool had a false negative that the eleventh pass reproduced in a scratch repository: its
+    "deliberate deletion" excuse is satisfied by a re-wrap, so a line lost inside a re-wrapped paragraph is
+    excused. The tool now prints every excused absence and every base line that survives in neither side, and
+    its docstring states its scope in as many words: it audits merge-induced loss and duplication between two
+    versions, it cannot judge intent, and the decision belongs to a person with the list in front of them.
+  - Advisories, not mine to fix in this branch: `wslterminal_test.go` (fails with a temp path of 60 or more
+    characters, and present at `b3fdc04`, so pre-existing) and `diskclean_test.go` (fails at 120, and it comes
+    from `4798b94`, the new main). Both are the same class of defect this branch has just fixed in its own
+    test: a fixture anchored to the machine's temp directory. One line each, for whoever owns those files.
+  - I declined the two durable probes the eleventh pass offered, for this branch's own reasons: one asserts
+    another feature's name in the guide, which would pin a neighbour's choice, and the other counts `recordRun`
+    call sites, which `record_routes_test.go` already covers behaviourally and more strictly (five routes,
+    each proven not to write a record on a dry run).
+  - **Three lessons about my own tooling, all of the same shape.** A scratch `git` command hung for 96 minutes
+    because it could wait for input: scratch work now runs with `GIT_EDITOR`, `GIT_PAGER` and
+    `GIT_TERMINAL_PROMPT` closed. An `rm -rf` over a Go module cache printed 262k tokens of "Permission denied"
+    instead of saying it once: `chmod -R u+w` first, and every command's output is bounded. And my own patch
+    script asserted a single occurrence of a string that occurs twice, in the two branches of one screen: an
+    assertion about my tool's preconditions is still an assertion, and it has to be measured, not assumed.

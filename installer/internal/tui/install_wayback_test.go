@@ -100,14 +100,20 @@ func TestALongBackupPathIsCutButTheCommandIsNot(t *testing.T) {
 
 	view := plainView(m)
 
-	if !strings.Contains(view, "\u2026") {
+	if !strings.Contains(view, "…") {
 		t.Errorf("a path longer than its row is not shown as cut:\n%s", view)
 	}
 	if strings.Contains(view, long) {
 		t.Errorf("the screen claims to name a path longer than its row:\n%s", view)
 	}
-	if !strings.Contains(view, "--revert") {
-		t.Errorf("the command was cut together with the path:\n%s", view)
+	// The promise is about the whole row, not about a substring of it: what has to survive the cut is
+	// the sentence that says how to put the machine back, wherever the renderer wraps it. Asserting on
+	// a flattened view keeps this about the words rather than about the wrapping -- and it fails on a
+	// cut anywhere in that sentence, not only before the flag.
+	flat := strings.Join(strings.Fields(view), " ")
+	const wayBack = "Put it back with dotfiles --revert, or Restore from Backup in the main menu."
+	if !strings.Contains(flat, wayBack) {
+		t.Errorf("a long path cut the row that says how to put the machine back:\n%s", view)
 	}
 }
 
