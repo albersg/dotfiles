@@ -430,9 +430,9 @@ limitaciones detectadas. No te quedes en un plan: implementa.
 
   | Slice | Branch | Commits | Changed lines |
   |---|---|---|---|
-  | the package | `feat/port-process-manager` | `33b01a8`, `954ffb6`, `5de1f6f`, `d86b55f`, `e0079e7`, `535e738`, `d757bb1` | 16 files, 5,514 insertions |
-  | the screen | `feat/port-process-manager-tui` | `7ededd7`, `a83d2d4` | 13 files, 2,157 insertions, 22 deletions |
-  | the documents | `feat/port-process-manager-docs` | `83b1029`, `23b272d`, `5c1e956` | 5 files, 582 insertions, 9 deletions before this entry |
+  | the package | `feat/port-process-manager` | `33b01a8`, `954ffb6`, `5de1f6f`, `d86b55f`, `e0079e7`, `535e738`, `d757bb1`, `11a610e` | 20 files, 5,946 insertions |
+  | the screen | `feat/port-process-manager-tui` | `7ededd7`, `a83d2d4`, and a merge of the package branch in `59585e3` | 13 files, 2,157 insertions, 22 deletions |
+  | the documents | `feat/port-process-manager-docs` | `83b1029`, `23b272d`, `5c1e956`, `52efeb5`, `de32fd1`, `51f1484`, and a merge of the screen branch in `f9f47ad` | 5 files, 616 insertions, 9 deletions |
 
   The chain is built on `a24ced6`, the `main` the work was rebased onto, because `main` moved while the
   feature was in flight: two screens landed in the same list, so `ScreenPortManager` and
@@ -456,3 +456,46 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   against `main`), **#352** (the screen, based on #351's branch) and **#353** (the documents, based on
   #352's branch): each base is the previous branch so that every pull request's diff is its own slice,
   and each one is retargeted as the one before it merges.
+
+- **L9 — the macOS runner found the defect every host-only check had hidden.** The first CI run of #351
+  failed exactly one job: `macOS smoke test`, which runs `go test ./...` on a macOS runner. The package
+  did not compile there at all -- `undefined: splitEndpoint`, `normalizeHostForFamily`, `socketState`,
+  `discoverLinux`, `parseProcStat`, `readProcProcess`, `readBootFacts` -- while the same command was
+  green on Linux, and it had been green in every earlier round of verification, because every one of
+  them ran on this host, and this host is Linux. Two things had hidden it: `discover_mac.go` carries no
+  build constraint, since `_mac.go` is not a GOOS suffix, so the macOS reader compiled everywhere while
+  the helpers it used lived in the Linux-only `discover_linux.go`; and `Discover`'s deliberate *runtime*
+  switch on `p.GOOS()` named `discoverLinux` in a case body, so the reference itself only compiled where
+  that symbol existed. The untagged `stop.go` and the `!windows` probe called `/proc` fact readers the
+  same way, and `parsers_test.go` was untagged and named a Linux-only helper, which is the same defect
+  inside the test tree. `go build ./cmd/dotfiles` passed on macOS throughout because nothing in this
+  slice imports the package yet -- the TUI does, in slice B -- so only the compile of the tests could
+  see it.
+
+  The fix is `11a610e`, and it puts the OS boundary back where the design already had it, in the Probe:
+  the readers are portable Go over a Probe, so the `/proc` reader moved to the untagged
+  `discover_proc.go` and the shared parsers to `parse.go`, which leaves the runtime switch compiling on
+  every platform and keeps the macOS reader reachable from a Linux test through a fake probe. What is
+  genuinely per-platform is the process facts: `probe_linux.go` reads `/proc`, `probe_darwin.go` asks
+  `ps -o lstart=`, and `probe_windows.go` answers honestly that it cannot revalidate. On macOS
+  `readBootFacts` is the zero value on purpose, because there is no boot id to compare and the identity
+  token is the raw `ps` string -- that is D6, not a gap -- and the unreachable `parseProcStat` parity
+  stub says so in its own words. The fixtures split with the readers: the `/proc`, `ss` and `netstat`
+  tables became `//go:build linux`, the `lsof` and `ps` fixtures stayed untagged so the macOS runner
+  executes them, and one new test pins the macOS identity as the raw `ps lstart` string while running on
+  Linux. `TestThePackageTypeChecksForEveryPlatformItClaims` vets the package for linux, darwin and
+  windows in child processes and names the platform that broke, so a host-only build cannot hide the
+  next one of these. The plan in T1 named `discover_darwin.go` for the macOS reader; a `_darwin.go`
+  suffix is what must *not* be used there, because it would hide the reader from the Linux-side tests
+  that cover it, so the file kept its untagged name and this entry records the deviation.
+
+  Verification of the fix, run by the parent on this worktree: `GOOS=linux|darwin|windows go build` and
+  `go vet` for the package are clean, the new guard passes for the three platforms, the package suite is
+  green, the TUI consumer's port tests are green, the moved test bodies are byte-identical under
+  comparison (twelve of them, none lost, two added), and the exported API has nothing added or removed.
+  Real macOS execution remains CI's: the darwin probe's `Parent`, `Alive` and `Signal` and the real
+  `lsof` run only type-check here. The second CI run of #351 is what confirms the fix, and it was still
+  running when this entry was written. Slices B and C carry the fix through merge commits (`59585e3`,
+  `f9f47ad`) rather than a history rewrite, because the harness blocked a force-push of those branches
+  and the user chose the merge: each pull request's diff is still its own slice, because each base is
+  the previous branch.
