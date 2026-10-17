@@ -598,44 +598,61 @@ type BackupInfo struct {
 
 // ConfigPaths returns all config paths that dotfiles will modify
 func ConfigPaths() map[string]string {
-	home := os.Getenv("HOME")
-	return map[string]string{
-		"nvim":      home + "/.config/nvim",
-		"fish":      home + "/.config/fish",
-		"zsh":       home + "/.zshrc",
-		"zsh_p10k":  home + "/.p10k.zsh",
-		"oh-my-zsh": home + "/.oh-my-zsh",
-		"nushell":   home + "/.config/nushell",
-		"tmux":      home + "/.tmux.conf",
-		"zellij":    home + "/.config/zellij",
-		"herdr":     home + "/.config/herdr",
-		"alacritty": home + "/.config/alacritty",
-		// WezTerm is installed into the XDG directory, so that is the file the
-		// terminal step replaces and the one this key has to name; the loose
-		// ~/.wezterm.lua it used to name is a config WezTerm also reads but this
-		// installer never writes.
-		"wezterm":  home + "/.config/wezterm",
-		"kitty":    home + "/.config/kitty",
-		"ghostty":  home + "/.config/ghostty",
-		"starship": home + "/.config/starship.toml",
-		"bat":      home + "/.config/bat",
-		// Overwritten by the shell step, which copies the repository's version, so
-		// it has to be backed up like every other config the installer replaces.
-		"gitconfig": home + "/.gitconfig",
-		// The rest of the files the installer replaces in the user's home. They are
-		// named here for the same reason as .gitconfig: the backup step copies only
-		// what this map lists, and the overwrite count and the last-install record
-		// are built from the same map, so a path missing here is replaced with no
-		// copy and with nothing on screen or on disk saying it happened (#238).
-		// TestEveryHomePathTheInstallerWritesIsClassified fails when a write in the
-		// installer targets a home path this map does not cover.
-		"gitconfig-personal": home + "/.gitconfig-personal",                 // identity, included by .gitconfig
-		"zshenv":             home + "/.zshenv",                             // read by every zsh invocation
-		"bashrc":             home + "/.bashrc",                             // appended to by the Homebrew and default-shell steps
-		"bash-env-json":      home + "/.config/bash-env-json",               // read by the nushell environment
-		"bash-env-nu":        home + "/.config/bash-env.nu",                 // ditto
-		"nushell_macos":      home + "/Library/Application Support/nushell", // where macOS nushell reads its config
+	return ConfigPathsFor(os.Getenv("HOME"))
+}
+
+// ConfigPathsFor is ConfigPaths with the home directory injected. The keys and
+// the paths are the same map; only the home the relative entries are joined to
+// changes, so a caller that reads a machine of its own -- the doctor does --
+// derives this list instead of typing a second copy of it that could drift from
+// the one the backup step, the overwrite count and the last-install record read.
+func ConfigPathsFor(home string) map[string]string {
+	paths := make(map[string]string, len(configPathSubdirs))
+	for key, subdir := range configPathSubdirs {
+		paths[key] = filepath.Join(home, subdir)
 	}
+	return paths
+}
+
+// configPathSubdirs is every path this installer writes inside the user's home,
+// keyed by the name the interface and the record use, in the order ConfigPaths
+// has always named them.
+var configPathSubdirs = map[string]string{
+	"nvim":      ".config/nvim",
+	"fish":      ".config/fish",
+	"zsh":       ".zshrc",
+	"zsh_p10k":  ".p10k.zsh",
+	"oh-my-zsh": ".oh-my-zsh",
+	"nushell":   ".config/nushell",
+	"tmux":      ".tmux.conf",
+	"zellij":    ".config/zellij",
+	"herdr":     ".config/herdr",
+	"alacritty": ".config/alacritty",
+	// WezTerm is installed into the XDG directory, so that is the file the
+	// terminal step replaces and the one this key has to name; the loose
+	// ~/.wezterm.lua it used to name is a config WezTerm also reads but this
+	// installer never writes.
+	"wezterm":  ".config/wezterm",
+	"kitty":    ".config/kitty",
+	"ghostty":  ".config/ghostty",
+	"starship": ".config/starship.toml",
+	"bat":      ".config/bat",
+	// Overwritten by the shell step, which copies the repository's version, so
+	// it has to be backed up like every other config the installer replaces.
+	"gitconfig": ".gitconfig",
+	// The rest of the files the installer replaces in the user's home. They are
+	// named here for the same reason as .gitconfig: the backup step copies only
+	// what this map lists, and the overwrite count and the last-install record
+	// are built from the same map, so a path missing here is replaced with no
+	// copy and with nothing on screen or on disk saying it happened (#238).
+	// TestEveryHomePathTheInstallerWritesIsClassified fails when a write in the
+	// installer targets a home path this map does not cover.
+	"gitconfig-personal": ".gitconfig-personal",                 // identity, included by .gitconfig
+	"zshenv":             ".zshenv",                             // read by every zsh invocation
+	"bashrc":             ".bashrc",                             // appended to by the Homebrew and default-shell steps
+	"bash-env-json":      ".config/bash-env-json",               // read by the nushell environment
+	"bash-env-nu":        ".config/bash-env.nu",                 // ditto
+	"nushell_macos":      "Library/Application Support/nushell", // where macOS nushell reads its config
 }
 
 // DetectExistingConfigs checks which config files/directories already exist
