@@ -15,7 +15,7 @@ import (
 // means for the interface.
 //
 // The probe is deliberately the only place in the installer that talks to the
-// terminal. Everything else draws; this reads. Three rules keep it honest:
+// terminal. Everything else draws; this reads. Four rules keep it honest:
 //
 //   - Nothing blocks. The queries are written and the replies are read under a
 //     deadline, so a terminal that never answers produces an honest empty reply
@@ -27,6 +27,12 @@ import (
 //   - Every answer names its source: the exact environment variable, the
 //     terminal's own reply to a query, or "not determined". A reader can audit
 //     each row.
+//   - Nothing races. The probe asks only while the interface reads the terminal
+//     through the one reader it was given, and it writes the query without reading
+//     anything itself: the answer leaves the interface's own input stream. A run
+//     whose input is not the terminal is not asked at all, because the interface
+//     reads the terminal itself there and a query would put a second reader on it
+//     (odd/tasks/terminal-probe-ownership.md).
 //
 // Nothing here runs at startup. The probe is a command the utilities section
 // arms only when the capability screen is opened, so a run that never visits
@@ -61,6 +67,36 @@ const (
 	// a quarter of a second is treated as one that will not.
 	terminalQueryTimeout = 250 * time.Millisecond
 )
+
+// notAskedReason and notAskedManual explain the rows only a query can answer in a
+// run that did not ask, which is the run whose input is not the terminal: the
+// interface reads the terminal itself there, so a query would put a second reader
+// on it and race it for the answer. The rows then say that, instead of reporting a
+// terminal that was never asked as one that stayed silent.
+const (
+	notAskedReason = "this run does not read the terminal from its own input, so the probe did not ask it anything (asking would put two readers on one terminal)"
+	notAskedManual = "run the installer with the terminal as its input and open this screen again"
+)
+
+// terminalQuery is what the probe has to work with: the terminal's reply, and
+// whether the probe was in a position to ask at all. Silence means two different
+// things -- a terminal that did not answer, and a probe that never asked -- and
+// the report has to tell them apart, because only one of them is the terminal's
+// doing.
+type terminalQuery struct {
+	reply string
+	asked bool
+}
+
+// silence explains a row the query would have answered: the caller's own reason
+// when the terminal was asked and did not answer, and why nothing was asked when
+// the probe was not in a position to ask.
+func (q terminalQuery) silence(reason, manual string) (string, string) {
+	if !q.asked {
+		return notAskedReason, notAskedManual
+	}
+	return reason, manual
+}
 
 // The three capability states. unknown is the zero value on purpose: an answer
 // the probe did not build is unknown, never a silent "no".
@@ -188,96 +224,33 @@ var trueColorTerminalPrograms = map[string]bool{
 	"ghostty":   true,
 }
 
-// queryTerminal writes the capability payload to out and reads the terminal's
-// reply from in for at most timeout. It is the only place the installer touches
-// the terminal, and the only place a silent terminal could stall the interface,
-// so the read is bounded: whatever arrived by the deadline is the answer, and
-// what did not arrive is treated as no answer at all.
-func queryTerminal(out io.Writer, in io.Reader, payload string, timeout time.Duration) string {
-	if _, err := io.WriteString(out, payload); err != nil {
-		return ""
-	}
-	return readTerminalReply(in, timeout)
-}
-
-// readTerminalReply reads for at most timeout. A stream that supports a read
-// deadline -- the controlling terminal does -- is read under that deadline; a
-// stream that does not is read on a goroutine the deadline abandons. Either way
-// the call returns by the deadline.
-func readTerminalReply(in io.Reader, timeout time.Duration) string {
-	if d, ok := in.(interface{ SetReadDeadline(time.Time) error }); ok {
-		if err := d.SetReadDeadline(time.Now().Add(timeout)); err == nil {
-			defer func() { _ = d.SetReadDeadline(time.Time{}) }()
-			return drainTerminal(in)
-		}
-	}
-	return readTerminalReplyWithTimer(in, timeout)
-}
-
-// drainTerminal collects everything the stream has until it errors or the
-// deadline fires. A read deadline surfaces as an error, which is what ends the
-// loop, so this cannot outlive the deadline set by readTerminalReply.
-func drainTerminal(in io.Reader) string {
-	var b strings.Builder
-	buf := make([]byte, 256)
-	for {
-		n, err := in.Read(buf)
-		if n > 0 {
-			b.Write(buf[:n])
-		}
-		if err != nil {
-			return b.String()
-		}
-	}
-}
-
-// readTerminalReplyWithTimer is the fallback for a stream that cannot take a
-// read deadline. The read is abandoned on the timeout rather than cancelled (a
-// Reader cannot be cancelled), so the abandoned goroutine is the price of a
-// bound the caller cannot otherwise get; the probe never waits on it.
-func readTerminalReplyWithTimer(in io.Reader, timeout time.Duration) string {
-	done := make(chan string, 1)
-	go func() { done <- drainTerminal(in) }()
-	select {
-	case reply := <-done:
-		return reply
-	case <-time.After(timeout):
-		return ""
-	}
-}
-
-// terminalReply opens the controlling terminal and runs the capability query.
-// A host with no controlling terminal -- a container, a service, a run whose
-// stdin is a pipe and whose /dev/tty does not exist -- gets an empty reply, and
-// the screen then reports unknown with that reason instead of failing.
-//
-// When the program was started through TerminalInput, the query is still written
-// to the controlling terminal and the answer is read out of the interface's own
-// input stream, so the two readers that would otherwise race for it are one
-// (odd/tasks/terminal-probe-ownership.md).
-func terminalReply() string {
-	if reader := activeTerminalInput(); reader != nil {
-		return reader.ask(writeTerminalQuery, terminalQueryTimeout)
-	}
-
-	f, err := os.OpenFile(controllingTerminal, os.O_RDWR, 0)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	return queryTerminal(f, f, terminalCapabilityQuery, terminalQueryTimeout)
+// askTerminalThroughTheReader writes the query and returns the answer the reader
+// diverts out of the interface's input stream. It is the only way the probe asks
+// the terminal, and that is exactly the point: the answer is taken from the one
+// stream the interface reads, so there is no second reader to race it for the
+// reply (odd/tasks/terminal-probe-ownership.md).
+func askTerminalThroughTheReader(reader *replyDivertingReader) string {
+	return reader.ask(writeTerminalQuery, terminalQueryTimeout)
 }
 
 // ============================================================================
 // The interpretation half
 // ============================================================================
 
-// loadTerminalCapabilityCmd runs the whole probe off the update loop: the
-// terminal open, the bounded query and the interpretation. It is armed when the
-// user opens the capability screen.
+// loadTerminalCapabilityCmd runs the whole probe off the update loop: the bounded
+// query and the interpretation, or neither, when this run is not the one reader of
+// the terminal. It is armed when the user opens the capability screen.
+//
+// The decision is made here, at the one place that can ask: no query is written
+// without the reader that takes its answer out of the interface's input stream, so
+// the two-reader arrangement cannot come back through a later caller.
 func loadTerminalCapabilityCmd() tea.Cmd {
 	return func() tea.Msg {
-		return terminalCapabilityMsg{caps: detectTerminalCapabilities(os.Getenv, terminalReply())}
+		reader := activeTerminalInput()
+		if reader == nil {
+			return terminalCapabilityMsg{caps: detectNotAskedCapabilities(os.Getenv)}
+		}
+		return terminalCapabilityMsg{caps: detectTerminalCapabilities(os.Getenv, askTerminalThroughTheReader(reader))}
 	}
 }
 
@@ -306,14 +279,26 @@ func (m *Model) terminalCapabilityCmdIfNeeded() tea.Cmd {
 }
 
 // detectTerminalCapabilities turns the environment and the terminal's reply into
-// the report. It performs no I/O, so the three-state rules are testable without
-// a terminal.
+// the report, for the run that asked. It performs no I/O, so the three-state rules
+// are testable without a terminal.
 func detectTerminalCapabilities(getenv func(string) string, reply string) terminalCapabilities {
+	return capabilityReport(getenv, terminalQuery{reply: reply, asked: true})
+}
+
+// detectNotAskedCapabilities is the report for a run that wrote no query, because
+// the interface is not the one reader of the terminal. Colour still comes from the
+// environment, which is not a query, and the two answers only the terminal can
+// give say why they are unknown (odd/tasks/terminal-probe-ownership.md, T5).
+func detectNotAskedCapabilities(getenv func(string) string) terminalCapabilities {
+	return capabilityReport(getenv, terminalQuery{})
+}
+
+func capabilityReport(getenv func(string) string, query terminalQuery) terminalCapabilities {
 	return terminalCapabilities{
 		Resolved:  true,
-		Color:     probeColour(getenv, reply),
-		Clipboard: probeClipboard(reply),
-		Sync:      probeSync(getenv, reply),
+		Color:     probeColour(getenv, query),
+		Clipboard: probeClipboard(query),
+		Sync:      probeSync(getenv, query),
 		NerdFont:  probeNerdFont(),
 	}
 }
@@ -323,8 +308,8 @@ func detectTerminalCapabilities(getenv func(string) string, reply string) termin
 // which is what modern terminals export for exactly this; then the terminal's
 // name; then TERM, which carries the depth in its suffix. Nothing knows is
 // unknown.
-func probeColour(getenv func(string) string, reply string) terminalAnswer {
-	if state, ok := parseXTGetTCAP(reply, xtgettcapRGBKey); ok && state == capabilitySupported {
+func probeColour(getenv func(string) string, query terminalQuery) terminalAnswer {
+	if state, ok := parseXTGetTCAP(query.reply, xtgettcapRGBKey); ok && state == capabilitySupported {
 		return terminalAnswer{
 			State:  capabilitySupported,
 			Value:  colorValueTrueColor,
@@ -376,13 +361,16 @@ func probeColour(getenv func(string) string, reply string) terminalAnswer {
 			Source: envTerm + "=dumb",
 		}
 	default:
+		reason, manual := query.silence(
+			fmt.Sprintf("the terminal did not answer the colour query and neither %s nor %s describes a depth",
+				envColorTerm, envTerm),
+			fmt.Sprintf("run `echo \"$%s $%s\"` and compare it with the terminal's documentation", envTerm, envColorTerm))
 		return terminalAnswer{
 			State:  capabilityUnknown,
 			Value:  "unknown",
 			Source: "not determined",
-			Reason: fmt.Sprintf("the terminal did not answer the colour query and neither %s nor %s describes a depth",
-				envColorTerm, envTerm),
-			Manual: fmt.Sprintf("run `echo \"$%s $%s\"` and compare it with the terminal's documentation", envTerm, envColorTerm),
+			Reason: reason,
+			Manual: manual,
 		}
 	}
 }
@@ -390,20 +378,23 @@ func probeColour(getenv func(string) string, reply string) terminalAnswer {
 // probeClipboard answers OSC 52 support from the terminal's terminfo reply. The
 // environment does not describe it -- a terminal can support OSC 52 without any
 // variable saying so -- so silence is unknown, not a no.
-func probeClipboard(reply string) terminalAnswer {
-	if state, ok := parseXTGetTCAP(reply, xtgettcapClipboardKey); ok {
+func probeClipboard(query terminalQuery) terminalAnswer {
+	if state, ok := parseXTGetTCAP(query.reply, xtgettcapClipboardKey); ok {
 		return terminalAnswer{
 			State:  state,
 			Value:  state.String(),
 			Source: "the terminal's reply to the Ms capability query",
 		}
 	}
+	reason, manual := query.silence(
+		"the terminal did not answer the Ms capability query and no environment variable describes OSC 52",
+		"copy text here and paste it into another window; over SSH that is the check that matters")
 	return terminalAnswer{
 		State:  capabilityUnknown,
 		Value:  "unknown",
 		Source: "not determined",
-		Reason: "the terminal did not answer the Ms capability query and no environment variable describes OSC 52",
-		Manual: "copy text here and paste it into another window; over SSH that is the check that matters",
+		Reason: reason,
+		Manual: manual,
 	}
 }
 
@@ -411,12 +402,24 @@ func probeClipboard(reply string) terminalAnswer {
 // for mode 2026: the mode itself saying whether it is recognized. DOTFILES_SYNC
 // is read only to explain the report -- it is the installer's own switch, not
 // the terminal's capability -- and silence is unknown.
-func probeSync(getenv func(string) string, reply string) terminalAnswer {
-	if state, ok := parseSyncSupport(reply); ok {
+func probeSync(getenv func(string) string, query terminalQuery) terminalAnswer {
+	if state, ok := parseSyncSupport(query.reply); ok {
 		return terminalAnswer{
 			State:  state,
 			Value:  state.String(),
 			Source: "the terminal's reply to the mode 2026 query",
+		}
+	}
+
+	if !query.asked {
+		// Nothing was asked, so the installer's own switch is not what explains this
+		// row: the explanation is the decision not to ask.
+		return terminalAnswer{
+			State:  capabilityUnknown,
+			Value:  "unknown",
+			Source: "not determined",
+			Reason: notAskedReason,
+			Manual: notAskedManual,
 		}
 	}
 

@@ -986,11 +986,23 @@ bubbletea's own: `charmbracelet/x/term`'s `IsTerminal` is the function bubbletea
 whether to read stdin or open `/dev/tty`, so the interface reads exactly the stream it would have read and
 only the answer leaves it. The decision is made at all because bubbletea opens the controlling terminal by
 itself when stdin is not one, and any input option at all takes that
-choice away: a program given a pipe reads the pipe. The consequence is worth stating plainly, because the
+choice away: a program given a pipe reads the pipe. the consequence is worth stating plainly, because the
 measurement above names it: in that one configuration -- stdin not the terminal, which is the one the
-1-in-20 came from -- the interface and the probe are still two readers on one terminal. Closing it is an
-open task with its own measured round (`odd/tasks/terminal-probe-ownership.md`, T5), not a property this
-section claims.
+1-in-20 came from -- the interface and the probe would be two readers on one terminal, and the probe
+therefore does not ask anything there at all.
+
+**The probe asks nothing when it is not the one reading the terminal.** A run whose input is not the
+terminal has bubbletea reading the controlling terminal for itself, so a query would put its answer in a
+queue two readers share -- and that answer is not worth having: in the sample the measurement above comes
+from it was lost to the interface one run in twenty, and when it was not lost it arrived as keys. The rows
+that only a query can answer then say why they are unknown (`this run does not read the terminal from its
+own input, so the probe did not ask it anything`) instead of describing a terminal that was never asked as
+one that stayed silent, and the check by hand is to run the installer with the terminal as its input. The
+colour depth still comes from the environment, which is not a query, so a run with `COLORTERM` set and its
+input redirected reports its colour exactly as it did before. The probe now touches the terminal in one
+place, and it writes: `TestTheProbeNeverReadsTheTerminalForItself` reads the probe's own source to keep it
+that way, because on a host with no terminal a behavioural guard cannot tell "did not ask" from "asked
+and nothing came back".
 
 ### The development caches
 
