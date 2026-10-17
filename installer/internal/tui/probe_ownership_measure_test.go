@@ -32,8 +32,10 @@ func TestMeasureWhoReadsTheTerminal(t *testing.T) {
 		measureProbeAlone(t)
 	case "shared":
 		measureProbeShared(t)
+	case "diverted":
+		measureProbeDiverted(t)
 	default:
-		t.Skip("set DOTFILES_PROBE_MEASURE=alone or shared, or run scripts/measure-terminal-ownership.sh")
+		t.Skip("set DOTFILES_PROBE_MEASURE=alone, shared or diverted, or run scripts/measure-terminal-ownership.sh")
 	}
 }
 
@@ -48,16 +50,31 @@ func measureProbeAlone(t *testing.T) {
 	t.Logf("case A: interpretation: %s", describeProbe(reply))
 }
 
-// measureProbeShared is the installer's arrangement: a bubbletea program reading
-// os.Stdin with no tea.WithInput option, exactly as cmd/dotfiles starts it, and
-// the probe running while that reader is attached.
+// measureProbeShared is the arrangement the installer had: a bubbletea program
+// reading os.Stdin with no input option, and the probe running while that reader
+// is attached. It is kept because it is the measurement of the defect itself.
 func measureProbeShared(t *testing.T) {
+	measureSharedWith(t)
+}
+
+// measureProbeDiverted is the arrangement the installer has now: the interface
+// reads the terminal through TerminalInput, the one reader the probe takes its
+// answer from. The same reading, so the two arrangements compare line by line.
+func measureProbeDiverted(t *testing.T) {
+	measureSharedWith(t, tea.WithInput(TerminalInput(os.Stdin)))
+}
+
+func measureSharedWith(t *testing.T, options ...tea.ProgramOption) {
 	recorded := &recordingModel{}
-	program := tea.NewProgram(recorded)
+	program := tea.NewProgram(recorded, options...)
+	// The program's own error is reported rather than discarded: a program that
+	// could not start reads nothing, and the reading below would then look like an
+	// answer nobody could read rather than like a program that never ran.
 	done := make(chan struct{})
+	var runErr error
 	go func() {
 		defer close(done)
-		_, _ = program.Run()
+		_, runErr = program.Run()
 	}()
 
 	// The interface's input reader attaches during Run; the probe in production
@@ -76,6 +93,17 @@ func measureProbeShared(t *testing.T) {
 	program.Quit()
 	<-done
 
+	// Which stream the program's stdin actually is decides what this reading
+	// means: bubbletea reads stdin only when it is the terminal, and opens the
+	// controlling terminal itself when it is not. Naming it here is what keeps a
+	// reading of "nothing arrived" from being read as a defect in the reader.
+	stdinTarget, readlinkErr := os.Readlink("/proc/self/fd/0")
+	if readlinkErr != nil {
+		stdinTarget = readlinkErr.Error()
+	}
+	t.Logf("case B: the program's stdin is %s", stdinTarget)
+
+	t.Logf("case B: the program's own error: %v", runErr)
 	t.Logf("case B: probe with the interface reading stdin received %d bytes after %s: %q",
 		len(reply), elapsed.Round(time.Millisecond), reply)
 	t.Logf("case B: interpretation: %s", describeProbe(reply))
