@@ -139,11 +139,23 @@ fi
 exit "$%s"
 `, ghosttyStubLogEnv, ghosttyStubExitEnv, ghosttyStubLogEnv, ghosttyStubExitEnv)
 
-// stubGhosttyCommands installs the curl stub and points PATH at it, so the
-// step's own download call is the thing under test and the host's Ghostty (and
-// curl) cannot leak in.
+// stubGhosttyCommands installs the curl stub and points PATH at a directory that
+// holds nothing else the host could answer the step's questions with. The step
+// asks whether Ghostty is installed by looking it up on PATH, so a directory list
+// that still carried /usr/bin let a Ghostty installed on the machine running the
+// tests answer "already installed": no download happened, and these four tests
+// failed there while passing on an image without one. The shell GetShell()
+// resolves and the tools the generated script calls are the only other names
+// reachable.
 func stubGhosttyCommands(t *testing.T, curlExit int) string {
 	t.Helper()
+
+	// GetShell() caches its first answer for the whole process, and that answer is
+	// a path looked up on PATH. Asking before the stub PATH is installed keeps the
+	// cached shell the host's own, which outlives this test's temporary directory;
+	// a cached stub would be a file this test had already removed by the time the
+	// next one runs a command.
+	system.GetShell()
 
 	logPath := filepath.Join(t.TempDir(), "ghostty-step-commands.log")
 	t.Setenv(ghosttyStubLogEnv, logPath)
@@ -151,9 +163,32 @@ func stubGhosttyCommands(t *testing.T, curlExit int) string {
 
 	binDir := t.TempDir()
 	writeStubCommand(t, binDir, "curl", ghosttyStubCurlScript)
-	t.Setenv("PATH", strings.Join([]string{binDir, "/usr/bin", "/bin"}, string(os.PathListSeparator)))
+	stubGhosttyTools(t, binDir)
+	t.Setenv("PATH", binDir)
 
 	return logPath
+}
+
+// stubGhosttyTools links the tools that are run by name into the stub directory:
+// the shell GetShell() resolves, and the ones the generated script calls to hold
+// its temporary file and copy the configuration. Each one is a link to the
+// host's own binary, so the script still copies with the real mkdir and cp while
+// the host's Ghostty stays out of reach.
+func stubGhosttyTools(t *testing.T, binDir string) {
+	t.Helper()
+
+	for _, tool := range []string{"bash", "sh", "mktemp", "mkdir", "cp", "rm"} {
+		real, err := exec.LookPath(tool)
+		if err != nil {
+			t.Fatalf("the %s binary is not on the PATH this test runs with: %v", tool, err)
+		}
+		if real, err = filepath.Abs(real); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(real, filepath.Join(binDir, tool)); err != nil {
+			t.Fatalf("could not link %s into the stub directory: %v", tool, err)
+		}
+	}
 }
 
 // stageGhosttyCheckout stages the one asset the step copies after the install,

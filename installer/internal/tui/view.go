@@ -504,7 +504,8 @@ func (m Model) bodyAnchorsToTheRule() bool {
 		ScreenInstallVerify, ScreenNetworkDiagnostics, ScreenWSLAdvisor,
 		ScreenWSLBenchmark, ScreenWSLMigration, ScreenSSHManager, ScreenSSHHost,
 		ScreenSSHForm, ScreenSSHKeys, ScreenSSHAgent, ScreenSSHDiagnostics,
-		ScreenSSHTest:
+		ScreenSSHTest, ScreenDoctor,
+		ScreenDoctorFix:
 		return true
 	}
 	return false
@@ -597,6 +598,9 @@ func (m Model) headerName() string {
 		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
+		return "Utilities"
+	case ScreenDoctor, ScreenDoctorFix:
+		// The doctor and its confirmation are one level in from the same section.
 		return "Utilities"
 	default:
 		return "dotfiles"
@@ -1149,6 +1153,10 @@ func (m Model) View() string {
 		s.WriteString(m.renderSSHTest())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
+	case ScreenDoctor:
+		s.WriteString(m.renderDoctor())
+	case ScreenDoctorFix:
+		s.WriteString(m.renderDoctorFix())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
 	case ScreenAdminPassword:
@@ -1782,8 +1790,14 @@ func (m Model) utilitiesDescription() []string {
 	// instead of showing rows that would fail.
 	switch {
 	case len(m.DotfilesThemes) > 0:
-		paragraphs = append(paragraphs, fmt.Sprintf(
-			"%s opens the list of complete themes.", utilitiesThemeRow))
+		// The line this case used to add -- that the row opens the list of complete
+		// themes -- only restated the row drawn directly above it, and it is the line
+		// that yields now that the section carries the doctor as its tenth job: the row
+		// is one line of budget the body no longer has, and a row that names the job
+		// and opens it cannot be missed, while the sentences below say why a row is
+		// absent and no row can carry that. Every other sentence here earns its line
+		// the same way, and TestUtilitiesBodyCarriesEveryJobAtTheFloor fails if one of
+		// them is pushed behind the cut instead.
 	case m.dotfilesThemesPending():
 		// The definitions are read when the section opens, so an empty list with
 		// no recorded failure is a read in flight, not a verdict. The section says

@@ -1735,6 +1735,11 @@ var screenNames = map[Screen]string{
 	// every screen above -- the guard in screen_coverage_test.go named it as
 	// Screen(58) printing as "Unknown", which is the failure this entry answers.
 	ScreenDiskCleaner: "DiskCleaner",
+	// The doctor and its confirmation are the screens this branch adds, declared after
+	// every screen above -- the same guard named them as Screen(71) and Screen(72)
+	// printing as "Unknown", which is the failure these entries answer.
+	ScreenDoctor:    "Doctor",
+	ScreenDoctorFix: "DoctorFix",
 }
 
 func (s Screen) String() string {

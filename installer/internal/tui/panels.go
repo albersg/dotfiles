@@ -1227,6 +1227,17 @@ func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
 		offered: true,
 	})
 
+	// The section's utilitiesDoctorRow. It is read-only until one of its two
+	// fixes is confirmed, and it is offered everywhere: there is always a machine
+	// to diagnose. The value is the last run the model holds, so before the screen
+	// has been opened the panel says it has not run rather than printing a verdict
+	// nobody took.
+	entries = append(entries, utilitiesPanelEntry{
+		label:   "Doctor",
+		value:   doctorPanelValue(m.Doctor),
+		offered: true,
+	})
+
 	return entries
 }
 

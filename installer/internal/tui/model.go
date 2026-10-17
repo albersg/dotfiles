@@ -203,6 +203,18 @@ const (
 	ScreenSSHAgent       // What the agent holds and what may be done with it
 	ScreenSSHDiagnostics // What is wrong with the setup, and what to do about it
 	ScreenSSHTest        // One connection, tested only when the user asks
+	// The development-environment doctor. Appended at the end for the same
+	// reason as the screens above. The utilities section opens it from its own
+	// row, one level in so the section stays a list of jobs. It runs the checks
+	// of doctor.go off the update loop -- one check per command, so progress is
+	// real and Escape cancels -- and every answer is ok, a warning, an error,
+	// not applicable or unknown with its evidence, its impact and what to do.
+	ScreenDoctor // What this machine's development environment looks like
+	// The confirmation for one fix. Appended at the end for the same reason. It
+	// states the exact effect, the risk, the permission and the backup before
+	// anything is changed, and its single action row is the only row in the
+	// doctor that writes anything at all.
+	ScreenDoctorFix // One deterministic repair, seen before it is applied
 )
 
 // stepOrigin says why a step is on the plan, in the three answers S2 of
@@ -731,6 +743,11 @@ type Model struct {
 	// center never asks a package manager anything, and the startup path stays free
 	// of the machine's own managers.
 	UpdateCenter updateCenterState
+	// Doctor is what the development-environment doctor draws: the scan in
+	// flight or the last one that finished, the list's filter, and the finding
+	// whose fix is being confirmed. Nothing is scanned until a row inside the
+	// screen is pressed, so opening the section never reads the machine.
+	Doctor doctorState
 	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
 	// no detection has run. The review names it before anything is written.
 	ThemeRefreshCandidates []themeRefreshCandidate
@@ -1200,6 +1217,10 @@ func (m Model) GetCurrentOptions() []string {
 		// there is always a machine whose connectivity is worth describing, and it
 		// dials nothing until its own screen's row is pressed.
 		utilities = append(utilities, utilitiesNetworkRow)
+		// The doctor is read-only until a fix is confirmed, and it is offered
+		// everywhere: there is always a machine to diagnose. It sits last, so it
+		// never displaces a utility above it on a short frame.
+		utilities = append(utilities, utilitiesDoctorRow)
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -1226,6 +1247,10 @@ func (m Model) GetCurrentOptions() []string {
 		return m.shellAuditRows()
 	case ScreenDiskCleaner:
 		return diskCleanRowLabels(m.diskCleanRows())
+	case ScreenDoctor:
+		return m.doctorRows()
+	case ScreenDoctorFix:
+		return m.doctorFixRows()
 	case ScreenUpdateCenter:
 		// The rows are the state: one row per entry the managers reported, grouped by
 		// manager, then the action rows, then the way back. A confirmation and a
@@ -1578,6 +1603,10 @@ func (m Model) GetScreenTitle() string {
 		return "The SSH configuration's diagnosis"
 	case ScreenSSHTest:
 		return "Test an SSH connection"
+	case ScreenDoctor:
+		return "Development environment"
+	case ScreenDoctorFix:
+		return "Confirm the fix"
 	case ScreenUpdate:
 		return "Updates"
 	default:
