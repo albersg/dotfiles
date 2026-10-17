@@ -481,3 +481,25 @@ session.
     key that is itself a link inside them.
   - No behavioural code changed after the verdict. What changed is documentation and test files the
     pass itself wrote and ran at HEAD, and the full gate ran green over the final tree.
+
+- **L20 (the ninth pass: the integration, verified except for my own resolution).** The pass judged the
+  merge itself and answered route by route: `recordRun` opens with the dry-run guard and has four
+  callers in the merged tree, none of them added by main (main never records a run), so no route
+  bypasses it; `revert.go`, `state.go` and `internal/system/backup.go` are byte-identical to the branch
+  because main never had them; the way-back block, the review and error screens and the single
+  `InspectInstall` walk are untouched by main's reworks; every file the branch added or changed, and
+  every one of the 135 files only main changed, is byte-identical to its own parent, and the merged file
+  set is the exact union of the two parents. No silent loss of a helper, a test, a config entry or a
+  doc claim. Code verdict: safe.
+  - It found one blocker, and it was mine: the merge resolution's restore step left **a duplicated
+    paragraph** in `Backup Location`. A whole-line set audit cannot see text that is already present
+    inside a longer line: main's drop-ins paragraph was already a suffix of my own paragraph, so its
+    whole line looked missing and I restored it as a standalone copy. Before removing anything I
+    checked it sentence by sentence: every sentence of main's paragraph was in the file twice, and the
+    only text unique to my paragraph is its 284 characters about the manifest.
+  - **The lesson, and it is the same class as L15-L18: a comparison that cannot see the overlap will
+    invent the difference.** Auditing a merge needs substring-aware evidence, not whole-line sets, and
+    the removal is pinned by a test that counts the sentence instead of trusting a reading.
+  - The rest of the documentation is intact: lines of `origin/main` missing from the merged file, 0;
+    lines this branch added, 0 missing; the 55 branch lines absent are prose main legitimately rewrote;
+    both sections whole, one heading each, and main's own text verbatim where it belongs.
