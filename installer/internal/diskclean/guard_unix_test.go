@@ -37,10 +37,15 @@ func TestGuardRefusesAMountPoint(t *testing.T) {
 		t.Fatalf("stat the store: %v", err)
 	}
 
+	// The guard judges the canonical path, and this probe's own path can have
+	// been reached through a link (macOS resolves /var to /private/var), so the
+	// replacement is matched on the canonical form of both names: a path that
+	// only looks different because of a link in an ancestor is the same path.
+	canonicalStore := canonicalPath(probe, store)
 	realLstat := probe.Lstat
 	probe.Lstat = func(path string) (os.FileInfo, error) {
 		info, statErr := realLstat(path)
-		if statErr != nil || path != store {
+		if statErr != nil || canonicalPath(probe, path) != canonicalStore {
 			return info, statErr
 		}
 		return fakeDeviceInfo{FileInfo: storeInfo, device: device + 1}, nil

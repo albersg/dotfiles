@@ -62,8 +62,14 @@ type Guard struct {
 // exists because a detector was wrong is not an approval.
 func NewGuard(probe Probe, approved []string) Guard {
 	guard := Guard{probe: probe}
-	guard.blocked = DefaultBlockedRoots(probe)
-	guard.protected = DefaultProtectedZones(probe)
+	// The lists are built from the home directory as the environment names it,
+	// while every path this guard is asked about is canonical, so the rules are
+	// canonicalized here too. One directory can have two names -- macOS
+	// resolves /var to /private/var, and a home on another volume is the same
+	// shape -- and comparing the two forms leaves the home root and the
+	// configuration zones unblocked without a word.
+	guard.blocked = canonicalPaths(probe, DefaultBlockedRoots(probe))
+	guard.protected = canonicalPaths(probe, DefaultProtectedZones(probe))
 
 	for _, root := range approved {
 		canonical := canonicalPath(probe, root)
@@ -146,11 +152,22 @@ func (g Guard) Check(path string) (Approval, error) {
 	if clean == string(os.PathSeparator) {
 		return Approval{}, fmt.Errorf("the filesystem root is never removed")
 	}
+	// The rules below compare this path against lists that are canonical, so it
+	// is canonicalized once and every comparison uses that form. The name the
+	// caller passed stays the name that would be removed: removing it removes
+	// the same object, and the scope check further down resolves it as well.
+	canonical := canonicalPath(g.probe, clean)
+	if canonical == "" {
+		canonical = clean
+	}
 	// A repository and its history are never a cache: no removal may touch a
-	// .git directory or anything that would contain one.
-	for _, element := range strings.Split(clean, string(os.PathSeparator)) {
-		if element == ".git" {
-			return Approval{}, fmt.Errorf("%s is inside a Git repository's metadata; a repository is never removed by this utility", clean)
+	// .git directory or anything that would contain one. A store can reach a
+	// repository's metadata through a link, so both names are read for it.
+	for _, candidate := range []string{clean, canonical} {
+		for _, element := range strings.Split(candidate, string(os.PathSeparator)) {
+			if element == ".git" {
+				return Approval{}, fmt.Errorf("%s is inside a Git repository's metadata; a repository is never removed by this utility", clean)
+			}
 		}
 	}
 
@@ -171,10 +188,10 @@ func (g Guard) Check(path string) (Approval, error) {
 		return Approval{}, fmt.Errorf("%s is neither a directory nor a regular file, so it is not a store this utility removes", clean)
 	}
 
-	if reason := g.blockedReason(clean); reason != "" {
+	if reason := g.blockedReason(canonical); reason != "" {
 		return Approval{}, fmt.Errorf("%s is not removable: %s", clean, reason)
 	}
-	if reason := g.protectedReason(clean); reason != "" {
+	if reason := g.protectedReason(canonical); reason != "" {
 		return Approval{}, fmt.Errorf("%s is not removable: %s", clean, reason)
 	}
 
@@ -282,6 +299,19 @@ func (g Guard) approvingRoot(path string) string {
 		}
 	}
 	return best
+}
+
+// canonicalPaths canonicalizes a list of rules. A rule that cannot be stated
+// in the same form as the paths it judges is dropped: this guard refuses what
+// it cannot compare, and it never keeps an approval it cannot justify.
+func canonicalPaths(probe Probe, paths []string) []string {
+	list := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if canonical := canonicalPath(probe, path); canonical != "" {
+			list = appendUnique(list, canonical)
+		}
+	}
+	return list
 }
 
 // canonicalPath resolves a path as far as it exists and leaves the rest as it

@@ -305,3 +305,64 @@ func TestCanonicalPathResolvesWhatExistsAndKeepsTheRest(t *testing.T) {
 		t.Error("a relative path was canonicalized")
 	}
 }
+
+// TestGuardKeepsItsRulesWhenTheHomeIsReachedThroughALink pins the form the
+// rules are compared in. The blocklist and the protected zones are built from
+// the home directory as the environment names it, and the paths the guard
+// judges are canonical; when one directory has two names -- macOS resolves
+// /var to /private/var, and a home on another volume is the same shape -- the
+// rule that refuses the home root and the rule that protects the configuration
+// zones stop applying without a word. The test builds that shape on any
+// platform: a real directory and a link that reaches it.
+func TestGuardKeepsItsRulesWhenTheHomeIsReachedThroughALink(t *testing.T) {
+	real := t.TempDir()
+	home := filepath.Join(real, "home")
+	cache := filepath.Join(home, ".cache", "tool")
+	zone := filepath.Join(home, ".config", "some-tool")
+	writeTestFile(t, filepath.Join(cache, "data.bin"), 64)
+	writeTestFile(t, filepath.Join(zone, "config.json"), 32)
+
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("this platform cannot create a symbolic link: %v", err)
+	}
+
+	probe := testProbe(t)
+	probe.HomeDir = filepath.Join(link, "home")
+	guard := NewGuard(probe, []string{cache, home, zone})
+
+	for _, refused := range []string{canonicalPath(probe, home), canonicalPath(probe, zone)} {
+		if _, err := guard.Check(refused); err == nil {
+			t.Errorf("%s was approved, but its canonical form is a home root or a protected zone", refused)
+		}
+	}
+	if roots := guard.ApprovedRoots(); len(roots) != 1 || roots[0] != canonicalPath(probe, cache) {
+		t.Errorf("the approved roots are %v, want only the cache under the linked home", roots)
+	}
+	if _, err := guard.Check(canonicalPath(probe, cache)); err != nil {
+		t.Errorf("the cache under the linked home was refused: %v", err)
+	}
+}
+
+// TestGuardRefusesARepositoryReachedThroughALink pins the repository rule in
+// the same canonical form. A detector builds a name, and a name that has no
+// .git in it can still land inside a repository's metadata; the rule is about
+// where the path is, not about how it is spelled.
+func TestGuardRefusesARepositoryReachedThroughALink(t *testing.T) {
+	repository := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repository, ".git", "objects", "pack"), 0o755); err != nil {
+		t.Fatalf("create the repository metadata: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(filepath.Join(repository, ".git"), link); err != nil {
+		t.Skipf("this platform cannot create a symbolic link: %v", err)
+	}
+
+	probe := testProbe(t)
+	store := filepath.Join(link, "objects", "pack")
+	guard := NewGuard(probe, []string{store})
+
+	if _, err := guard.Check(store); err == nil {
+		t.Error("a store inside a repository's metadata was approved through a name that never spells .git")
+	}
+}

@@ -425,6 +425,40 @@ Checks after T9:
   own loop, and the pull request's gate is what does it. The merge waits for that gate to be green;
   L11 stays as it was written, because it is what the tree was before this fix.
 
+- **L13 -- the same gate, one layer deeper: three guard rules that stopped applying because two
+  names for one directory were compared.** The second run of the pull request's gate compiled the
+  macOS job and then failed three guard tests at run time:
+  `TestGuardRefusesTheHomeRootAndTheFilesystemRoot`, `TestGuardRefusesAProtectedZoneEvenWhenADetectorApprovedIt`
+  and `TestGuardRefusesAMountPoint`. This was not the tests misbehaving. The blocklist and the
+  protected zones were built from the home directory as the environment names it, while every path
+  the guard is asked about is canonical, so wherever one directory has two names -- macOS resolves
+  `/var` to `/private/var`, and a home on another volume or reached through a link is the same shape
+  -- the rule that refuses the home root and the rule that protects `~/.config`, `~/.ssh` and the
+  other configuration zones simply stopped matching. On that host the guard would have approved
+  `$HOME` and a store inside the credential zone for removal, which is the one outcome the guard
+  exists to prevent; the third failure was the same mistake in a test, which replaced the probe's
+  `stat` by matching the name it built instead of the canonical name the guard judges, so the
+  simulated mount point was invisible to it.
+
+  Reproduced on Linux before touching the code, which is what makes the repair verifiable from this
+  machine: a `TMPDIR` under a directory reached through a link makes `t.TempDir()` return the same
+  two-name shape macOS has, and the same three tests failed with the same messages. The repair
+  canonicalizes the two rule lists in `NewGuard` and canonicalizes the path once in `Check`, so
+  every rule is read in the form the lists were written in; the `.git` component rule got the same
+  treatment, because a name that never spells `.git` can still land inside a repository's metadata
+  through a link. Two regression tests now build that shape themselves
+  (`TestGuardKeepsItsRulesWhenTheHomeIsReachedThroughALink`,
+  `TestGuardRefusesARepositoryReachedThroughALink`), so the condition no longer depends on the
+  host's temporary directory being ordinary, and the mount-point test matches the replacement on the
+  canonical form.
+
+  Verified: both tests were red before the change and green after; the package suite is green with
+  an ordinary `TMPDIR` and with the linked one; the full tree fails only on the pre-existing set
+  (four Ghostty tests and the two environment-dependent E2E steps); `GOOS=darwin GOARCH=arm64 go vet
+  ./...` is clean and all eight darwin test binaries build. The honest limit of that evidence: there
+  is no macOS machine here, so darwin's run-time signal is the pull request's macOS job, and what
+  this record can claim is that the Linux reproduction of the same condition is fixed and pinned.
+
 ## Remaining
 
 - **The identity re-check is `(device, inode)`.** It is the cheapest pair that exists, and a
