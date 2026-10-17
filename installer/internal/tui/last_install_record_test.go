@@ -229,7 +229,7 @@ func TestTheLastInstallRecordNamesWhatTheRunDid(t *testing.T) {
 		}
 	}
 
-	m.recordLastInstall()
+	m.recordRun(runStatusComplete, nil)
 
 	rec := readLastInstall()
 	if rec == nil {
