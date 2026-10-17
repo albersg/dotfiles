@@ -255,8 +255,10 @@ doctor goldens, and the documentation -- the guide's own section, its row list, 
 job-count sentence, its panel description and its goldens list, the README paragraph
 and the CHANGELOG entry.
 
-The one decision the merge forced: the section's tenth row costs the body one line at
-80x24, and `main` was exactly at the floor. The repository's policy for that is that
+The one decision the merge forced: the doctor's row costs the body one line at 80x24,
+where the section draws nine rows -- the condition-gated jobs (a desktop theme switch
+the host does not have, the WSL rows) are absent there -- and `main` was exactly at the
+floor. The repository's policy for that is that
 the section's newest job yields its body line; here the line that yields is the one
 that only restated its own row (`Change the dotfiles theme opens the list of complete
 themes.`), because a row that names the job and opens it cannot be missed, while the
@@ -311,3 +313,23 @@ body of at most 24 base64 characters, the footer -- so a key written in the real
 still reports. Verified with gitleaks 8.30.1: the range scan reports the finding
 before the entry and none after it (exit 0), and a scratch scan under the same config
 reports a real-shaped key while letting the synthetic block through.
+
+L13 (independent verification of the merge): the resolution was checked by a
+separate read-only pass rather than by the hand that resolved it, and what it
+observed is recorded here as it reported it. The tree is committed and clean. Every
+one of the ten files equals `main`'s version plus additions except for one deliberate
+removal -- the utilities-body sentence this log records in L10 -- and the guide's
+seven removals are rewrites that keep `main`'s text, two of them numeric corrections
+(`eleven` -> `twelve` jobs, `55` -> `94` screens). The named guards and goldens pass,
+including the doctor's two frame cases at 80x24. `.gitleaks.toml` is purely additive
+over `main`'s (`106a107,123`): the workflow's own range scan reports no leaks, and a
+scratch scan under the same config still reports a real-shaped key while the synthetic
+fixture stays silent -- the two checks L12 made, remade by another hand.
+
+The same pass corrected this log's own wording, and the correction is kept: the row
+that costs the body a line is the last of the nine rows the frame draws at 80x24 on
+this host, not a "tenth row". The section can offer twelve jobs, but several are
+condition-gated -- the desktop theme switch the host does not have, the WSL rows --
+and the frame that is pinned is the one without them. The claims that matter hold:
+the doctor's row is the newest, it sits last, and the line it displaced is the one
+that only restated its own row.
