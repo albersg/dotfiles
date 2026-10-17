@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   Utilities                                                Showing 1-11 of 17  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  Development caches                                                            
+  The apt package cache — downloads — safe to rebuild                           
+  Holds 120.0 MiB on disk (walked).                                             
+  Found because the apt archives directory exists, but apt-get is not on PATH   
+  here.                                                                         
+  On disk: /var/cache/apt/archives                                              
+  … and 44 more                                                                 
+                                                                                
+    Scan again                                                                  
+  ────────────────────────────────────────────────────────────────────────────  
+    apt — 1 finding                                                             
+  ▸ [ ] The apt package cache — 120.0 MiB — safe to rebuild                     
+    docker — 1 finding                                                          
+    [x] The container volumes — 500.0 MiB (tool-reported) — delicate — shares…  
+    go — 1 finding                                                              
+    [ ] The Go build cache — 640.0 MiB — safe to rebuild                        
+    npm — 1 finding                                                             
+    [x] The npm cache — 900.0 MiB — safe to rebuild                             
+    projects — 1 finding                                                        
+  ────────────────────────────────────────────────────────────────────────────  
+  ↑/k up • ↓/j down • [Enter] select                                            [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

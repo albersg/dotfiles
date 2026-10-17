@@ -1731,6 +1731,10 @@ var screenNames = map[Screen]string{
 	ScreenSSHAgent:       "SSHAgent",
 	ScreenSSHDiagnostics: "SSHDiagnostics",
 	ScreenSSHTest:        "SSHTest",
+	// The disk cleaner is the screen this front added, and model.go declares it after
+	// every screen above -- the guard in screen_coverage_test.go named it as
+	// Screen(58) printing as "Unknown", which is the failure this entry answers.
+	ScreenDiskCleaner: "DiskCleaner",
 
 	// The port and process manager and its stop confirmation, in an alignment group
 	// of their own: their names are longer than every key above, and gofmt aligns a
