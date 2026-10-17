@@ -12,10 +12,20 @@ import (
 	"time"
 )
 
-// The Linux reader, which is also the Termux and WSL reader: /proc is the
+// The /proc reader, which is also the Termux and WSL reader: /proc is the
 // kernel's own answer, needs no tool on PATH and cannot be shadowed by a binary
 // of the same name. /proc/net holds the bound sockets; /proc/<pid>/fd is how a
 // socket inode is matched to the process holding it.
+//
+// This file carries no GOOS constraint on purpose. The reader is portable Go
+// over the Probe -- it names /proc paths but takes every byte through the
+// interface -- and Discover dispatches to it with a runtime switch on
+// Probe.GOOS. A _linux.go suffix would hide the code from darwin and Windows,
+// where the switch still has to compile, and would also hide it from the tests
+// that run this reader on Linux against a fake probe reported as another
+// platform. The one genuinely platform-bound part, the fact reader that only
+// /proc can answer, lives in probe_linux.go and has the same name on every
+// platform.
 //
 // Reading another user's file descriptors needs privileges, so ownership
 // degrades in two steps rather than failing: the sockets are still listed with
@@ -23,12 +33,6 @@ import (
 // so. `ss` and `netstat` are tried only when /proc/net itself is unreadable.
 
 const (
-	// linuxUserHZ is USER_HZ, the unit /proc counts process start times in. The
-	// kernel has fixed it at 100 for everything a user-space reader sees since
-	// 2.6, whatever the internal timer frequency is, so no sysconf call is
-	// needed and no cgo is pulled in for one number.
-	linuxUserHZ = 100
-
 	// procReaderTimeout bounds one fallback command. The utilities screen is
 	// waiting on this reading, and a host where `ss` hangs must produce a
 	// reported failure instead of a frozen interface.
@@ -328,97 +332,14 @@ func socketInode(link string) (string, bool) {
 }
 
 // bootFacts is the boot time and the boot id, read once per snapshot. Both are
-// part of the identity token: the boot id separates two runs of the kernel, and
-// the boot time turns start ticks into a wall-clock time.
+// part of the Linux identity token: the boot id separates two runs of the
+// kernel, and the boot time turns start ticks into a wall-clock time. The type
+// lives here rather than with its reader because the portable listener builder
+// passes it to whichever platform's readProcProcess is compiled in; on macOS it
+// is the zero value, since ps's own lstart string is that platform's token.
 type bootFacts struct {
 	at time.Time
 	id string
-}
-
-// readBootFacts reads /proc/stat and the kernel's boot id once.
-func readBootFacts(p Probe) bootFacts {
-	var facts bootFacts
-	if data, err := p.ReadFile("/proc/stat"); err == nil {
-		facts.at = parseBtime(data)
-	}
-	if data, err := p.ReadFile("/proc/sys/kernel/random/boot_id"); err == nil {
-		facts.id = strings.TrimSpace(string(data))
-	}
-	// A kernel that hides the boot id still has a boot time; using its seconds
-	// as the identity half keeps the token comparable across two readings.
-	if facts.id == "" && !facts.at.IsZero() {
-		facts.id = strconv.FormatInt(facts.at.Unix(), 10)
-	}
-	return facts
-}
-
-// parseBtime reads the boot time out of /proc/stat.
-func parseBtime(data []byte) time.Time {
-	for _, line := range strings.Split(string(data), "\n") {
-		rest, found := strings.CutPrefix(line, "btime ")
-		if !found {
-			continue
-		}
-		seconds, err := strconv.ParseInt(strings.TrimSpace(rest), 10, 64)
-		if err != nil {
-			return time.Time{}
-		}
-		return time.Unix(seconds, 0)
-	}
-	return time.Time{}
-}
-
-// readProcProcess reads everything /proc will tell about one PID. Every field
-// is best effort: another user's process still has a readable stat file, which
-// is where the identity token comes from, while its command line may be
-// withheld.
-func readProcProcess(p Probe, pid int, scope string, boot bootFacts) Process {
-	proc := Process{PID: pid, Scope: scope}
-	base := "/proc/" + strconv.Itoa(pid)
-
-	if data, err := p.ReadFile(base + "/comm"); err == nil {
-		proc.Name = strings.TrimSpace(string(data))
-	}
-
-	if data, err := p.ReadFile(base + "/cmdline"); err == nil {
-		proc.Args = RedactArgs(splitNUL(data))
-	}
-
-	if data, err := p.ReadFile(base + "/status"); err == nil {
-		if uid, ok := parseStatusUID(data); ok {
-			proc.User = userLabel(p, uid)
-		}
-	}
-
-	if exe, err := p.Readlink(base + "/exe"); err == nil {
-		proc.Exe = strings.TrimSuffix(exe, " (deleted)")
-	}
-
-	if data, err := p.ReadFile(base + "/stat"); err == nil {
-		if _, comm, startTicks, ok := parseProcStat(data); ok {
-			if proc.Name == "" {
-				proc.Name = comm
-			}
-			if boot.id != "" || startTicks > 0 {
-				proc.token = boot.id + ":" + strconv.FormatUint(startTicks, 10)
-			}
-			if !boot.at.IsZero() {
-				proc.StartedAt = boot.at.Add(time.Duration(startTicks) * (time.Second / linuxUserHZ))
-			}
-		}
-	}
-
-	// The executable's own name is the process's real name; comm is truncated
-	// to fifteen characters by the kernel and would name a long binary wrongly.
-	if proc.Exe != "" {
-		if name := filepath.Base(proc.Exe); name != "" && name != "." {
-			proc.Name = name
-		}
-	}
-	if proc.Name == "" && len(proc.Args) > 0 {
-		proc.Name = filepath.Base(proc.Args[0])
-	}
-	return proc
 }
 
 // userLabel resolves a uid, falling back to its number. A number is a fact the
@@ -428,74 +349,6 @@ func userLabel(p Probe, uid int) string {
 		return name
 	}
 	return strconv.Itoa(uid)
-}
-
-// parseProcStat reads the parent pid, the command name and the start ticks out
-// of /proc/<pid>/stat.
-//
-// The command name is wrapped in parentheses and may itself contain spaces and
-// parentheses, so the fields are split at the LAST closing parenthesis and the
-// fixed-position fields after it are counted from there: rest[0] is field 3,
-// which makes the parent field 4 at rest[1] and the start time field 22 at
-// rest[19].
-func parseProcStat(data []byte) (ppid int, comm string, startTicks uint64, ok bool) {
-	text := string(data)
-	open := strings.Index(text, "(")
-	closing := strings.LastIndex(text, ")")
-	if open < 0 || closing <= open {
-		return 0, "", 0, false
-	}
-	comm = text[open+1 : closing]
-	rest := strings.Fields(text[closing+1:])
-	if len(rest) < 20 {
-		return 0, comm, 0, false
-	}
-
-	parent, err := strconv.Atoi(rest[1])
-	if err != nil {
-		return 0, comm, 0, false
-	}
-	ticks, err := strconv.ParseUint(rest[19], 10, 64)
-	if err != nil {
-		return 0, comm, 0, false
-	}
-	return parent, comm, ticks, true
-}
-
-// parseStatusUID reads the real uid from /proc/<pid>/status. The line's four
-// numbers are real, effective, saved and filesystem; the first is the account
-// the process belongs to.
-func parseStatusUID(data []byte) (int, bool) {
-	for _, line := range strings.Split(string(data), "\n") {
-		rest, found := strings.CutPrefix(line, "Uid:")
-		if !found {
-			continue
-		}
-		fields := strings.Fields(rest)
-		if len(fields) == 0 {
-			return 0, false
-		}
-		uid, err := strconv.Atoi(fields[0])
-		if err != nil {
-			return 0, false
-		}
-		return uid, true
-	}
-	return 0, false
-}
-
-// splitNUL splits a NUL-separated list, which is how the kernel writes
-// /proc/<pid>/cmdline. Empty parts are dropped: they are the separator's own
-// tail, not empty arguments worth showing.
-func splitNUL(data []byte) []string {
-	var out []string
-	for _, part := range strings.Split(string(data), "\x00") {
-		if part == "" {
-			continue
-		}
-		out = append(out, part)
-	}
-	return out
 }
 
 // ownerUnknownReason is the sentence a row carries when its owner could not be
@@ -756,77 +609,4 @@ func parseNetstatOwner(field string) (int, string, bool) {
 		return 0, "", false
 	}
 	return pid, name, true
-}
-
-// socketState names the state a socket really has: a TCP socket that reached
-// this point was listening, and every UDP socket is unconnected by nature.
-func socketState(proto Protocol) State {
-	if proto.Stream() {
-		return StateListen
-	}
-	return StateUnconn
-}
-
-// splitEndpoint splits "127.0.0.1:8080", "[::1]:8080" or "::1:8080" into a
-// numeric host and a port. Brackets are the unambiguous form and are used when
-// present; a bare IPv6 endpoint is split at its last colon.
-func splitEndpoint(endpoint string) (string, int, bool) {
-	if endpoint == "" {
-		return "", 0, false
-	}
-
-	host, portText := "", ""
-	bracketed := false
-	if strings.HasPrefix(endpoint, "[") {
-		closing := strings.Index(endpoint, "]")
-		if closing < 0 {
-			return "", 0, false
-		}
-		bracketed = true
-		host = endpoint[1:closing]
-		rest := endpoint[closing+1:]
-		if !strings.HasPrefix(rest, ":") {
-			return "", 0, false
-		}
-		portText = rest[1:]
-	} else {
-		colon := strings.LastIndex(endpoint, ":")
-		if colon < 0 {
-			return "", 0, false
-		}
-		host, portText = endpoint[:colon], endpoint[colon+1:]
-	}
-
-	port, err := strconv.Atoi(portText)
-	if err != nil || port <= 0 || port > 65535 {
-		return "", 0, false
-	}
-	host = strings.Trim(host, "[]")
-	if host == "*" {
-		// A bracketed wildcard is an IPv6 socket: lsof prints [*] when the
-		// binding is on ::, and 0.0.0.0 would name the wrong family.
-		if bracketed {
-			host = "::"
-		} else {
-			host = "0.0.0.0"
-		}
-	}
-	if host == "" {
-		host = "0.0.0.0"
-	}
-	return host, port, true
-}
-
-// normalizeHostForFamily makes an anonymous wildcard agree with its family: a
-// tool that prints "*" for both IPv4 and IPv6 gets "::" for an IPv6 socket and
-// "0.0.0.0" for an IPv4 one, so the two never look like the same binding.
-func normalizeHostForFamily(host string, v6 bool) string {
-	switch {
-	case v6 && host == "0.0.0.0":
-		return "::"
-	case !v6 && host == "::":
-		return "0.0.0.0"
-	default:
-		return host
-	}
 }
