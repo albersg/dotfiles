@@ -109,8 +109,9 @@ From the main menu you can access:
   system light/dark theme switch, the reversible dotfiles-theme switch, whose list of themes is
   one level in behind the **Change the dotfiles theme** row, the WSL resources, one level in
   behind the **Adjust the WSL resources** row on a WSL host, the shell's startup, one level in
-  behind the **Measure the shell's startup** row -- a utility that changes nothing -- and the
-  read-only terminal capability report behind the **Report the terminal capabilities** row
+  behind the **Measure the shell's startup** row -- a utility that changes nothing -- the
+  read-only terminal capability report behind the **Report the terminal capabilities** row, and
+  the development environment's diagnosis behind the **Diagnose the development environment** row
 - **Restore from Backup**: Restore previous configurations (if backups exist)
 - **Exit**: Quit the installer
 
@@ -125,9 +126,11 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds three jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds five jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
-host), and the read-only **terminal capability report**. The main menu's panel derives one row per
+host), the read-only **terminal capability report**, and the **development environment's diagnosis**
+(one level in, behind the **Diagnose the development environment** row), which reads the machine and
+offers the two repairs it can prove. The main menu's panel derives one row per
 job from the same model state the section's own options are built from -- `utilitiesPanelEntries`
 is the only list -- so a utility added to the section shows up in the panel or is visibly missing
 from that one function.
@@ -715,6 +718,78 @@ controlling terminal (a container, a service, a run with no TTY) gets the empty 
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
 
+### The development environment
+
+The fifth utility is **the development environment's diagnosis**, behind the **Diagnose the
+development environment** row. It answers the question a broken machine hides behind three symptoms
+at once — a command that is not found, a shell that starts slowly, a tool that cannot read its own
+configuration — and it is **read-only**: the scan opens no file for writing, runs no command that
+changes anything, sends nothing anywhere and asks no model. What it can repair, it repairs only
+after the user has seen the change and pressed for it.
+
+**A run is one check at a time, so the screen is never frozen.** A full run covers
+`doctorChecks()` — one list that feeds the rows, the progress line, the report and the frame guard
+— over six categories: `PATH` and tool resolution, the shells and their configuration, the tools
+this installer manages and the commands a run needs, the dotfiles it wrote, git and ssh, and the
+environment (home, the XDG directories, the temporary directory, room on disk, descriptors, the
+locale, terminfo, the installer's own variables, and the faults a platform has of its own). Each
+check is scheduled as its own command, so the progress line names the check it is running and how
+many are left, `Esc` cancels a run in flight, and a machine with a hanging command cannot stop the
+interface. Cancelling is a real state: the checks that never ran are recorded as **unknown** with
+the reason, and the report says how far the run got rather than reading as a clean machine.
+
+The screen's own keys are on its last line: `↑`/`k` and `↓`/`j` move, `Enter` or `Space` acts on the
+row, **`t`** shows the problems or every finding, **`w`** writes the report, **`r`** retries the
+checks that could not answer, and `Esc` cancels a run in flight or leaves the screen. A row is what
+acts: the run rows, the filter, the export, and any finding that offers a repair.
+
+**Every finding carries its evidence, its impact and what to do.** A finding is a subject, the
+exact thing that was read (`df -Pk $HOME → 60000000 KB available`, `~/.ssh/id_ed25519 has mode
+0644`, `the directory does not exist`), what it means for the user, and the command or the row that
+settles it. Nothing is reported from a name alone: a tool is asked for its version, a shell is asked
+for its own syntax check rather than parsed here, a file's mode is read rather than assumed.
+
+**Five states, and `unknown` is one of them.** A check reports `ok`, a `warning`, an `error`,
+`not applicable` — the shell this machine does not have, the platform check that belongs to another
+platform — or **`unknown`**, which is what a check that could not establish anything reports, with
+the reason and the manual command that replaces it. `unknown` is deliberately the zero value of the
+state and outranks `ok` when a scan produced both: a machine nobody finished looking at may never be
+summarised as a clean one. The screen prints the state as a word and a plain glyph as well as a
+colour, so the five answers survive a terminal with no colour.
+
+**The report is one renderer, written twice: kept beside the installer's own state and exported.**
+A finished run writes `$XDG_STATE_HOME/dotfiles/doctor-report.txt` (under `~/.local/state` when the
+variable is unset) and the screen names the file; the **Write the report to a file** row exports the
+same text under `doctor-report-<stamp>.txt` so two exports are two files. The report names the build
+and the platform, counts every state, and states that the scan changed nothing. **Every line goes
+through one redactor** before it is written: a credential inside a URL, an assignment whose name
+announces a secret, a PEM private key body, an authorization header and the shapes of the tokens the
+services this installer touches issue are replaced with `<redacted>`, so a check that printed a line
+of a configuration file cannot leak through it. No secret is read in the first place: the git
+credential helper is reported by kind and its command is never printed, `.git-credentials` is
+reported by presence and mode, and `ssh-add -l` is counted rather than listed.
+
+**Two repairs exist, and each is a preview, a confirmation and a re-read.** The doctor offers to
+**create a directory** the environment itself names (a missing `TMPDIR`, or an XDG directory) and to
+**set the mode** of `~/.ssh` to `0700` or of a private key to `0600`. The confirmation screen states
+the effect as `before`/`after` of one path, the risk, the permission needed, and what is kept so the
+change can be put back; the apply then re-reads the state and refuses if it moved, makes exactly the
+one change, reads the result back and reports whether it verified it. What it changed is recorded in
+`$XDG_STATE_HOME/dotfiles/doctor-fixes.json` (mode `0600`, newest fifty) with the previous state and
+the exact command that puts it back. Everything else the scan finds is advice, not a repair: the
+doctor does not edit a shell's startup file, install a package, rewrite a configuration or delete a
+file.
+
+**Every platform is covered, and a check that does not apply says so.** macOS, the Linux
+distributions, Termux and WSL are each answered with their own faults: `xcode-select` and
+`/opt/homebrew/bin` on macOS, the distribution's package manager and `sudo` on Linux, `$PREFIX` and
+shared storage on Termux, `/mnt/c`, the interop setting and the Windows PATH on WSL — where the
+installer runs in the distribution and the fault is on the host. A platform-specific check reports
+`not applicable` with the reason everywhere else, and a platform that was never detected reports
+`unknown` rather than a guess. On a machine with nothing wrong with it the whole catalogue reports
+no warning and no error at all, which `TestAHealthyMachineRaisesNoAlarm` holds as a guard: a doctor
+that cries wolf is a doctor nobody reads.
+
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -969,7 +1044,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, and the terminal capability report — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the terminal capability report, and the doctor's own last line — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
@@ -1663,12 +1738,13 @@ terminals again. The pass renders with the companion animating, which is the
 strictest frame, so a screen that overflows only with the creature on fails the
 fit guard instead of escaping it.
 
-The theme picker, the utilities section, the WSL resources, the shell's startup
-and the terminal capability report each have a frame pinned at the 80x24 floor as
-well: `TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
-with a switch pending, `TestThemePickerResultGolden` with the report landed,
-`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden` and
-`TestTerminalCapabilitiesGolden`. They were guarded by measurements -- rows,
+The theme picker, the utilities section, the WSL resources, the shell's startup,
+the terminal capability report and the development environment's diagnosis each
+have a frame pinned at the 80x24 floor as well: `TestThemePickerGolden` with
+nothing running, `TestThemePickerActivityGolden` with a switch pending,
+`TestThemePickerResultGolden` with the report landed, `TestUtilitiesGolden`,
+`TestWSLResourcesGolden`, `TestShellAuditGolden`, `TestTerminalCapabilitiesGolden`,
+`TestDoctorGolden` and `TestDoctorFixGolden`. They were guarded by measurements -- rows,
 columns, fit at twelve sizes -- and by behaviour, and a measurement cannot see a
 block drawn above the list it belongs under, a list squashed to five rows to make
 room for it, or a screen that reads as a wall of prose. Looking at the frame is
