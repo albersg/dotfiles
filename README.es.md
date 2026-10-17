@@ -242,15 +242,15 @@ lee el archivo cuando arranca la VM, así que la pantalla dice que hay que ejecu
 `wsl --shutdown` en Windows para aplicar el cambio y deliberadamente no lo ejecuta;
 `--dry-run` omite la escritura.
 
-**Encontrar qué ocupa un puerto.** La sexta utilidad responde la pregunta que una máquina de
-desarrollo hace más seguido — *¿qué está usando el puerto 3000, y puedo liberarlo?* — a partir de
+**Encontrar qué ocupa un puerto.** Esta utilidad responde la pregunta que una máquina de
+desarrollo hace con más frecuencia — *¿qué está usando el puerto 3000, y puedo liberarlo?* — leyendo
 las tablas de sockets de la propia máquina: `/proc/net` en Linux, Termux y WSL, y `lsof -nP` en
 macOS, con `ss` y `netstat` solo cuando el lector principal no puede responder, y cada fila dice de
 qué lector salió. Un **socket TCP en LISTEN** y un **socket UDP ligado a un puerto** son hechos
 distintos y se muestran como tales — UDP no tiene estado de escucha, así que sus receptores se
 rotulan `UNCONN` — y IPv4 nunca se mezcla con IPv6. Una ligadura en todas las interfaces dice **all
 interfaces** y una en `127.0.0.1` o `::1` dice **loopback only**, que es la diferencia detrás de
-casi todo "anda local y no desde el teléfono"; un puerto compartido por dos filas se marca
+casi todo "funciona en local y no desde el teléfono"; un puerto compartido por dos filas se marca
 **shared**. El dueño — PID, nombre, cuenta, ejecutable, hora de inicio y los argumentos con cada
 contraseña, token y clave **enmascarada antes de guardar la lectura** — se resuelve donde el kernel
 lo permite, y un socket cuyo dueño el kernel reserva conserva su puerto y su estado reales con el
@@ -261,8 +261,8 @@ La pantalla es de teclado: `/` filtra por puerto, proceso o protocolo, `f` alter
 `o` filtra por dueño, `s` recorre el orden, `r` refresca ahora y `p` enciende un refresco cada cinco
 segundos que deja el cursor en la misma fila e informa cuántas filas aparecieron o desaparecieron en
 lugar de saltar. Su línea de alcance nombra el kernel que leyó — **this machine** o **WSL guest** — y
-dentro de WSL dice con todas las letras que los puertos y procesos del host Windows no se ven desde
-acá y no se pueden detener desde acá.
+dentro de WSL dice explícitamente que los puertos y procesos del host Windows no se ven desde aquí y
+no se pueden detener desde aquí.
 
 Detener es una acción deliberada. `x` abre una confirmación que nombra la identidad, el dueño,
 **todos los puertos que ese proceso tiene** y qué hace cada señal; `SIGTERM` es lo que envían `t` y
