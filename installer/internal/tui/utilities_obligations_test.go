@@ -36,7 +36,11 @@ import (
 // to nine when the package update center did -- this branch's job, merged after the
 // advisor. It is the section's own destination for the machine's package managers,
 // so the sentence names it and this guard reads it the same way rather than leaving
-// the sentence one job short of what the section offers.
+// the sentence one job short of what the section offers. Merging this front with the
+// disk cleaner moved it twice more: to ten for the **SSH configuration**, which the
+// sentence had been one job short of since that section landed, and to eleven for the
+// **developer disk cleaner**, which is the job this front added. Both are read by name
+// below, because a count that no phrase backs is the drift this guard keeps finding.
 func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	doc := readRepoFile(t, filepath.Join("docs", "tui-installer.md"))
 
@@ -53,8 +57,8 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	// that is named across a line break would read as a job that is missing.
 	sentence := strings.Join(strings.Fields(doc[start:start+end]), " ")
 
-	if !strings.Contains(sentence, "nine jobs") {
-		t.Errorf("the sentence no longer says the section holds nine jobs: %q", sentence)
+	if !strings.Contains(sentence, "eleven jobs") {
+		t.Errorf("the sentence no longer says the section holds eleven jobs: %q", sentence)
 	}
 	for _, job := range []string{
 		"system theme switch",
@@ -66,6 +70,8 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 		"network diagnosis",
 		"package update center",
 		"WSL performance advisor",
+		"SSH configuration",
+		"developer disk cleaner",
 	} {
 		if !strings.Contains(sentence, job) {
 			t.Errorf("the section's job-count sentence does not name %q: %q", job, sentence)
@@ -113,6 +119,10 @@ func TestUtilitiesBodyCarriesEveryJobAtTheFloor(t *testing.T) {
 		// the merged section gained, and the body's floor budget is what its line had to
 		// fit inside, so the row that cost the line is read by name here.
 		utilitiesUpdatesRow,
+		// The disk cleaner's row is the one this merge added: its line is the one that
+		// yields to the section's own body (a row of budget, as the update center's did
+		// before it), so the job is read by the name the list gives it.
+		utilitiesDiskCleanerRow,
 	} {
 		if !strings.Contains(view, job) {
 			t.Errorf("the 80x24 section does not name the %q job:\n%s", job, view)

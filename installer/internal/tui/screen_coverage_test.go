@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/albersg/dotfiles/installer/internal/diskclean"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	"github.com/albersg/dotfiles/installer/internal/updates"
@@ -154,7 +155,6 @@ func TestNoInstallerScreenDrawsAnEmojiBox(t *testing.T) {
 	update := updateFrameCase(t)
 	update.Width, update.Height = trainerFrameWidth, trainerFrameHeight
 	check(updateCaseName, update.Screen, update.View())
-
 	missing := 0
 	for i, name := range declared {
 		screen := Screen(i)
@@ -356,7 +356,7 @@ func TestEveryScreenFitsEveryTerminalSize(t *testing.T) {
 // in, and the trainer's own. It is pinned rather than derived on purpose -- the
 // point of the guard is that every screen is in it -- so a screen added to the
 // package has to be added here and fails loudly until it is.
-const measuredScreens = 91 // measured on the merged tree by the guard's own report, not added up from either side: main's 90 -- the 61 installer states + the 7 the utilities section opens + the trainer's 6, the setup screen, network-diagnostics and the advisor's four states, plus the SSH manager's 7 screens and the 3 extra states that make them measurable -- plus the update center, this branch's screen and the section's own destination for the machine's package managers
+const measuredScreens = 92 // measured on the merged tree by the guard's own report, not added up from either side: main's 91 -- the 61 installer states + the 7 the utilities section opens + the trainer's 6, the setup screen, network-diagnostics and the advisor's four states, plus the SSH manager's 7 screens and the 3 extra states that make them measurable, plus the update center, the section's own destination for the machine's package managers -- plus the developer disk cleaner, this branch's screen
 // terminalMatrixFrame is one frame of the single render pass the matrix guards
 // share: one screen case rendered at one measured terminal with the companion
 // animating. Before the pass existed, the fit guard and the companion-coverage
@@ -503,6 +503,9 @@ func terminalFitCases() []terminalFitCase {
 	cases = append(cases, terminalFitCase{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase})
 	cases = append(cases, terminalFitCase{installVerifyCaseName, installVerifyFrameCase})
 	cases = append(cases, terminalFitCase{shellAuditCaseName, shellAuditFrameCase})
+	// The disk cleaner is a destination in the section too, reached from its own
+	// row, and it is a state the installer's own flow never walks through.
+	cases = append(cases, terminalFitCase{diskCleanerCaseName, diskCleanerFrameCase})
 	// The update center is the section's newest destination: the same section's key
 	// opens it, and it is measured with the rest of them.
 	cases = append(cases, terminalFitCase{updateCenterCaseName, updateCenterFrameCase})
@@ -675,11 +678,94 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 		{wslResourcesCaseName, wslResourcesFrameCase(t)},
 		{terminalCapabilitiesCaseName, terminalCapabilitiesFrameCase(t)},
 		{shellAuditCaseName, shellAuditFrameCase(t)},
+		{diskCleanerCaseName, diskCleanerFrameCase(t)},
 		{installVerifyCaseName, installVerifyFrameCase(t)},
 		{networkDiagnosticsCaseName, networkDiagnosticsFrameCase(t)},
 		{updateCaseName, updateFrameCase(t)},
 		{updateCenterCaseName, updateCenterFrameCase(t)},
 	}
+}
+
+// diskCleanerCaseName is the name the frame guards know the developer disk
+// cleaner by.
+const diskCleanerCaseName = "disk-cleaner"
+
+// diskCleanerFrameCase builds the disk cleaner with a finished scan, so the
+// guards measure the rows the findings produce -- a safe cache, a careful
+// dependency tree, a delicate container volume, a number the engine reported
+// itself, and a store nothing can be done about -- and the prose that carries
+// them. Every field is forced: a guard that scanned the runner's own machine
+// would measure whatever that machine happens to keep, and would walk a real
+// filesystem to do it. Nothing is selected, because nothing is ever selected
+// for the user.
+func diskCleanerFrameCase(t *testing.T) Model {
+	t.Helper()
+
+	m := installerFrameModel(t, ScreenDiskCleaner)
+	m.DiskClean = diskCleanState{
+		Resolved: true,
+		Scanned:  true,
+		// The directory the run was started from is forced rather than read: a
+		// guard that named the runner's working directory would change with it.
+		Cwd: "/home/testuser/projects",
+		Selection: diskclean.Selection{
+			"npm-cache":      true,
+			"docker-volumes": true,
+		},
+		Items: []diskclean.Item{
+			{
+				ID: "npm-cache", Tool: "npm", Title: "The npm cache", Category: diskclean.CategoryCache,
+				Risk:   diskclean.RiskSafe,
+				Reason: "npm is on PATH and its cache directory exists",
+				Detail: "the packages npm downloaded and unpacked, addressed by content; removing it means downloading them again",
+				Paths:  []string{"/home/testuser/.npm/_cacache"},
+				Size:   diskclean.Size{Logical: 1 << 30, Physical: 900 << 20, Files: 4213},
+			},
+			{
+				ID: "go-build-cache", Tool: "go", Title: "The Go build cache", Category: diskclean.CategoryBuild,
+				Risk:   diskclean.RiskSafe,
+				Reason: "go is on PATH and its build cache directory exists",
+				Detail: "compiled package archives and test results; the next build compiles them again",
+				Paths:  []string{"/home/testuser/.cache/go-build"},
+				Size:   diskclean.Size{Logical: 700 << 20, Physical: 640 << 20, Truncated: true},
+			},
+			{
+				ID: "project-node_modules", Tool: "project", Title: "node_modules in /home/testuser/projects/app",
+				Category: diskclean.CategoryDependencies, Risk: diskclean.RiskCareful,
+				Roots:  []string{"/home/testuser/projects"},
+				Paths:  []string{"/home/testuser/projects/app/node_modules"},
+				Size:   diskclean.Size{Logical: 200 << 20, Physical: 200 << 20},
+				Reason: "the project directory was added to the scope and its manifest is there",
+				Detail: "the dependencies of one project; an install downloads them again",
+			},
+			{
+				ID: "docker-volumes", Tool: "docker", Title: "The container volumes", Category: diskclean.CategoryVolumes,
+				Risk:            diskclean.RiskDelicate,
+				Reason:          "docker is on PATH and answered `system df` for the volumes",
+				Detail:          "the volumes a container wrote: data the engine owns, which may not be reproducible",
+				VolatileObjects: []string{"volumes"},
+				Size:            diskclean.Size{Logical: 500 << 20, Physical: 500 << 20, Source: diskclean.SourceTool},
+				Overlaps:        []string{"docker-images"},
+				Mechanism:       diskclean.Mechanism{Kind: diskclean.MechanismTool, Program: "docker", Args: []string{"volume", "prune", "-f"}},
+			},
+			{
+				ID: "apt-archives", Tool: "apt", Title: "The apt package cache", Category: diskclean.CategoryDownloads,
+				Risk:      diskclean.RiskSafe,
+				Reason:    "the apt archives directory exists, but apt-get is not on PATH here",
+				Detail:    "downloaded package archives; apt downloads them again when it needs them",
+				Paths:     []string{"/var/cache/apt/archives"},
+				Size:      diskclean.Size{Logical: 120 << 20, Physical: 120 << 20},
+				Mechanism: diskclean.Mechanism{Kind: diskclean.MechanismReportOnly, Reason: "apt-get is not on PATH, so its cache cannot be cleaned from here"},
+			},
+		},
+	}
+	// The notice is left empty on purpose: this fixture is a machine that has
+	// scanned and then marked two rows, and the scan's own line ("nothing is
+	// selected") would contradict the checkboxes the guards are measuring. The
+	// cursor sits on the first finding, which is where a scan leaves it and where
+	// the card of that finding is part of what the guards measure.
+	m.Cursor = m.diskCleanFirstItemCursor()
+	return m
 }
 
 // updateCaseName is the name the frame guards know this installer's own release

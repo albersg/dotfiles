@@ -44,6 +44,7 @@ repository's memory of why something is the way it is.
 | [admin-password-in-the-interface.md](tasks/admin-password-in-the-interface.md) | The administrator password, asked inside the interface |
 | [fish-parity.md](tasks/fish-parity.md) | The fish shell's parity with zsh |
 | [contextual-panel.md](tasks/contextual-panel.md) | The contextual panel |
+| [developer-disk-cleaner.md](tasks/developer-disk-cleaner.md) | The developer disk cleaner in the Utilities section |
 | [install-update-release.md](tasks/install-update-release.md) | The installer's own release: checking it, updating from it, shipping it |
 | [installer-companion.md](tasks/installer-companion.md) | The companion in the installer |
 | [installer-ux.md](tasks/installer-ux.md) | Installer user experience |
