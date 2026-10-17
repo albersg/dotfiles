@@ -20,7 +20,12 @@ type fakeDeviceInfo struct {
 }
 
 func (f fakeDeviceInfo) Sys() any {
-	return &syscall.Stat_t{Dev: uint64(f.device), Ino: uint64(4242)}
+	stat := &syscall.Stat_t{Ino: uint64(4242)}
+	// The device is set through a per-platform helper: Stat_t.Dev is a uint64 on
+	// every unix this package builds for except darwin, where it is an int32, and a
+	// struct literal with one conversion cannot serve both.
+	setStatDevice(stat, f.device)
+	return stat
 }
 
 // fakeDeviceEntry is a directory entry whose Info reports that simulated

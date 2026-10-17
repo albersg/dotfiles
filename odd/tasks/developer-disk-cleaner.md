@@ -408,6 +408,23 @@ Checks after T9:
   network to download from): the same set the base commit produces, and nothing new. The branch is
   pushed and the pull request opened as the delivery.
 
+- **L12 -- the CI's macOS job found a build failure no Linux run could see.** The pull request's
+  first CI run passed fourteen of its fifteen checks and failed `macOS smoke test` with
+  `internal/diskclean/measure_mount_unix_test.go:23:30: cannot use uint64(f.device) (value of type
+  uint64) as int32 value in struct literal`. `syscall.Stat_t.Dev` is a `uint64` on every unix this
+  package builds for except darwin, where it is an `int32`, and the mount-simulation test built its
+  fake stat with a struct literal that converted to `uint64`. Every local run, and every Linux job
+  of the gate, compiled that file without a word: the defect lived in the one place the Linux signal
+  cannot reach. The repair is a per-platform setter (`setStatDevice`, one file for darwin and one for
+  the other unices, the same shape `stat_unix.go`/`stat_other.go` already use), so the fake stat
+  takes the value in the platform's own type and the narrowing is stated where it happens. Verified
+  with the cross-compilation that would have caught it before the push: `GOOS=darwin GOARCH=arm64 go
+  vet ./...` is clean for the whole tree, `GOOS=darwin GOARCH=arm64 go test -c` builds every
+  package's test binary, and the Linux suite still passes. The lesson belongs in this record, not
+  only in a comment: this package has platform-shaped code, so a darwin typecheck is part of its
+  own loop, and the pull request's gate is what does it. The merge waits for that gate to be green;
+  L11 stays as it was written, because it is what the tree was before this fix.
+
 ## Remaining
 
 - **The identity re-check is `(device, inode)`.** It is the cheapest pair that exists, and a
