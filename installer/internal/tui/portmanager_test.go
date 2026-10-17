@@ -91,12 +91,14 @@ func (p *portTestProbe) Readlink(name string) (string, error) {
 	return "", &fs.PathError{Op: "readlink", Path: name, Err: fs.ErrNotExist}
 }
 
-// LookPath answers for ps and refuses every other tool. The darwin reader asks
-// for ps before it reads anything, because that is where a macOS build gets its
-// process facts; every other name belongs to the Linux reader's fallback path,
-// where a test that leaves the tool out means it to be missing.
+// LookPath answers for ps and refuses every other tool. The darwin reader starts
+// with the bare name "ps" and only then runs the path this returns, so the
+// fixture has to answer the name as well as the path it hands back: answering
+// one half of that sequence is what left the process facts empty on macOS while
+// this file's own guard passed. Every other name belongs to the Linux reader's
+// fallback path, where a test that leaves the tool out means it to be missing.
 func (p *portTestProbe) LookPath(name string) (string, error) {
-	if name == portTestPS {
+	if portTestIsPS(name) {
 		return portTestPS, nil
 	}
 	return "", fmt.Errorf("exec: %q: executable file not found in $PATH", name)
@@ -106,11 +108,11 @@ func (p *portTestProbe) LookPath(name string) (string, error) {
 // The process readers are chosen when the package is compiled -- a darwin build
 // reads ps where a Linux build reads /proc -- so a fixture that carries only
 // /proc files leaves every process unnamed on a macOS runner, which is what
-// made five manager tests fail there while passing on Linux. Rendering ps from
+// made four manager tests fail there while passing on Linux. Rendering ps from
 // that same /proc state keeps one fixture and one set of facts for both
 // dialects, exactly as the portscan package's own fake does.
 func (p *portTestProbe) Run(ctx context.Context, name string, args []string, env []string) (portscan.CommandResult, error) {
-	if name == portTestPS {
+	if portTestIsPS(name) {
 		if result, ok := p.runPS(args); ok {
 			return result, nil
 		}
@@ -183,6 +185,11 @@ const (
 	portTestPS     = "/usr/bin/ps"
 	portTestUserHZ = 100
 )
+
+// portTestIsPS matches both the bare name the darwin reader looks up and the
+// path it then runs, because a fixture that answered only one of them would
+// answer the wrong half of the sequence and be found out on a macOS runner.
+func portTestIsPS(name string) bool { return name == "ps" || name == portTestPS }
 
 // runPS renders one ps argv from the fixture's /proc state. The two shapes the
 // darwin reader asks for are the identity run (lstart, user, comm) and the
@@ -427,16 +434,22 @@ func newPortTestProbe() *portTestProbe {
 // TestTheTUIProbeAnswersTheDarwinPSRuns holds the fixture to the reader a darwin
 // build uses. The process reader is chosen when the package is compiled rather
 // than from the probe's own GOOS value, so the /proc files this file carries
-// leave every process unnamed on a macOS runner -- which is what made five
+// leave every process unnamed on a macOS runner -- which is what made four
 // manager tests fail there while passing here, the first time this slice ran on
-// macOS at all. The two shapes the reader asks for, and the fields it takes by
-// position, are stated here, so a fixture that stops answering ps fails on any
-// machine instead of only on the one nobody runs locally.
+// macOS at all. The guard walks the sequence the reader walks rather than only
+// its last step: the bare-name lookup first, then the two shapes it runs with
+// what it was handed. A fixture that answers the run but refuses the lookup
+// leaves the facts empty exactly as the one that answers neither did.
 func TestTheTUIProbeAnswersTheDarwinPSRuns(t *testing.T) {
 	probe := newPortTestProbe()
 	ctx := context.Background()
 
-	identity, err := probe.Run(ctx, portTestPS, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "2000"}, []string{"LC_ALL=C"})
+	ps, err := probe.LookPath("ps")
+	if err != nil {
+		t.Fatalf("the fixture refuses the lookup the darwin reader starts with: %v", err)
+	}
+
+	identity, err := probe.Run(ctx, ps, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "2000"}, []string{"LC_ALL=C"})
 	if err != nil {
 		t.Fatalf("the fixture does not answer the identity run: %v", err)
 	}
@@ -454,7 +467,7 @@ func TestTheTUIProbeAnswersTheDarwinPSRuns(t *testing.T) {
 
 	// The same process asked for twice answers with the same wording, which is
 	// what lets a stop revalidate the identity it was shown.
-	again, err := probe.Run(ctx, portTestPS, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "2000"}, []string{"LC_ALL=C"})
+	again, err := probe.Run(ctx, ps, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "2000"}, []string{"LC_ALL=C"})
 	if err != nil {
 		t.Fatalf("the fixture stops answering the identity run: %v", err)
 	}
@@ -462,7 +475,7 @@ func TestTheTUIProbeAnswersTheDarwinPSRuns(t *testing.T) {
 		t.Errorf("two identity runs for one process differ: %q then %q", identity.Stdout, again.Stdout)
 	}
 
-	commands, err := probe.Run(ctx, portTestPS, []string{"-o", "pid=,command=", "-p", "2000"}, []string{"LC_ALL=C"})
+	commands, err := probe.Run(ctx, ps, []string{"-o", "pid=,command=", "-p", "2000"}, []string{"LC_ALL=C"})
 	if err != nil {
 		t.Fatalf("the fixture does not answer the command run: %v", err)
 	}
@@ -473,7 +486,7 @@ func TestTheTUIProbeAnswersTheDarwinPSRuns(t *testing.T) {
 	// A process the fixture does not carry is absent from the run rather than
 	// answered with empty fields, which is how the reader learns that this
 	// process's identity cannot be read at all.
-	missing, err := probe.Run(ctx, portTestPS, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "9999"}, []string{"LC_ALL=C"})
+	missing, err := probe.Run(ctx, ps, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "9999"}, []string{"LC_ALL=C"})
 	if err != nil {
 		t.Fatalf("the fixture refuses an unknown pid instead of answering with no line: %v", err)
 	}
