@@ -1111,7 +1111,7 @@ writes it**.
 
 ### The ports in use
 
-The sixth utility is **the ports in use**, behind the **Find what holds a port** row. It answers the
+The utility behind the **Find what holds a port** row is **the ports in use**. It answers the
 question a development machine asks more than any other -- *what is using port 3000, and may I free
 it?* -- from the machine's own socket tables. It is the one utility in the section that can stop
 something, so everything it draws is a fact a reading produced, and nothing is written or configured

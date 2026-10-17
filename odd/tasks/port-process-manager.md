@@ -5,7 +5,7 @@
 A utility inside the installer's Utilities section that answers "what is holding this port, and may I
 free it?" with real data from the machine: the bound sockets it can actually see, the process identity
 behind each one where the kernel allows it, and one deliberate, revalidated stop of a single process.
-It is the sixth utility of the section, shaped like the others: a read-only-capable screen one level in
+It sits with the section's other utilities and is shaped like them: a read-only-capable screen one level in
 from `ScreenUtilities`, a command off the update loop, and honest degradation when a platform, a
 permission or a missing tool hides part of the answer.
 
@@ -189,29 +189,29 @@ const ScopeSelf, ScopeWSLGuest = "this machine", "WSL guest"
 - **T1 — the `portscan` package: types, probe leaves and the Linux/Termux reader.** S1, S2, S10, S12.
   Route: inline (parent). Files: `installer/internal/portscan/{portscan.go,probe_unix.go,probe_windows.go,
   discover_linux.go,discover_darwin.go,discover_unsupported.go}`. Commit: `feat(portscan): read the
-  sockets a machine has bound and the processes behind them` (`250c627`).
+  sockets a machine has bound and the processes behind them` (`33b01a8`).
 - **T2 — the safety path: redaction, protection, revalidation and the verified stop.** S2, S6-S9, S14.
   Route: inline (parent). Files: `installer/internal/portscan/{safety.go,stop.go}` plus the darwin
-  reader. Commit: `feat(portscan): stop one process only after revalidating its identity` (`e059c88`).
+  reader. Commit: `feat(portscan): stop one process only after revalidating its identity` (`954ffb6`).
 - **T3 — `portscan` tests, doubles and the own-child integration test.** S1-S11. Route: inline (parent).
   Files: `installer/internal/portscan/*_test.go`. Commit: `test(portscan): pin the readers, the
-  protection rules and the revalidated stop` (`82826f1`).
+  protection rules and the revalidated stop` (`5de1f6f`).
 - **T4 — the TUI state and wiring: screen constants, model, options, utilities row, panel, dispatch and
   keys.** S3, S5, S9, S12, S13, S14. Route: worker `gentle-ai-worker`, independent of T1-T3 file sets,
   frozen interface above. Files: `installer/internal/tui/{model.go,update.go,view.go,panels.go}` and
   `installer/internal/tui/portmanager.go`. Commit: `feat(installer): the Utilities section finds what
-  holds a port` (`d5648ff`), which carries T5 and T6 with it on purpose: a screen's code, its tests, its
+  holds a port` (`7ededd7`), which carries T5 and T6 with it on purpose: a screen's code, its tests, its
   frame guards and its goldens are one reviewable unit, because a screen that landed without its guard
   would leave `TestEveryScreenIsCoveredByAFrameGuard` red and a guard landed without its screen measures
   nothing.
 - **T5 — the port screens render: list, search, filters, details, refresh and the stop confirmation.**
   S3, S4, S6, S7, S8, S13. Route: worker `gentle-ai-worker`, same unit as T4. Commit included in T4
-  (`d5648ff`).
+  (`7ededd7`).
 - **T6 — TUI tests and frame guards for the new screens.** S3, S5-S8, S11, S13. Route: worker
   `gentle-ai-worker` then inspected by the parent. Files: `installer/internal/tui/portmanager_test.go`
   and the guard lists in `teatest_test.go` / `screen_coverage_test.go`. Commit: rolled into T4's
-  (`d5648ff`) for the reason recorded there, plus `test(installer): pin what the port copy action puts on
-  the clipboard` (`f590702`) for the one behaviour the worker's tests left open -- what the copy action
+  (`7ededd7`) for the reason recorded there, plus `test(installer): pin what the port copy action puts on
+  the clipboard` (`a83d2d4`) for the one behaviour the worker's tests left open -- what the copy action
   hands to the terminal, and the two gates in front of it -- written by the parent because the independent
   review of this section came back unavailable.
 - **T7 — docs and help text.** S1-S10. Route: inline (parent). Files: `docs/tui-installer.md`,
@@ -219,11 +219,11 @@ const ScopeSelf, ScopeWSLGuest = "this machine", "WSL guest"
   the port and process utility` (this commit).
 - **T8 — verification: `make check`, the full suite, and an independent verifier over the safety path.**
   S6, S7, S9, S11. Route: `gentle-ai-verify` + parent. Commit: none of its own; its findings are fixed
-  in `9760fe7` (`fix(portscan): mask every credential and never call an unread port free`), `47b4136`
-  (`fix(portscan): mask the pass flag, a joined password and an escaped quote`) and `1531bd1`
+  in `d86b55f` (`fix(portscan): mask every credential and never call an unread port free`), `e0079e7`
+  (`fix(portscan): mask the pass flag, a joined password and an escaped quote`) and `535e738`
   (`fix(portscan): mask the user%password form the SMB clients take`), recorded in L5 and L6, and
   re-verified by two further bounded verifiers, whose third round found six more credential forms and the
-  over-masks fixed in `1115eb1` (L7). The independent review of the TUI section was launched three times:
+  over-masks fixed in `d757bb1` (L7). The independent review of the TUI section was launched three times:
   the first pair never started (the worker's cleanup failure quarantined capacity), the relaunched
   reviewer failed after sixty-two turns without a report, and that is recorded here as an **unavailable
   verifier rather than retried**, because a third launch is ceremony and not evidence. What stands in its
@@ -370,14 +370,14 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   one-second granularity `ps lstart` reports (D6): a PID reused inside that second is still not
   distinguishable, and the screen says which token it compared.
 - **L6 — the second verification round, and what its three leaks changed.** A bounded re-verification of
-  `9760fe7` confirmed both blockers closed and the fail-closed scope honest, then found three more
+  `d86b55f` confirmed both blockers closed and the fail-closed scope honest, then found three more
   credential forms that still survived `RedactArgs`, all of them argv a real process can carry: the word
   `pass` was not a secret name, so `openssl -pass pass:s3cret`, `--pass=`, `--pass` and `DB_PASS=`
   leaked; a short password flag was only masked when its value was joined, so `sshpass -p s3cret`
   leaked; and the embedded scan stopped at an escaped quote, so a JSON body that escapes its quotes
   (`{"password":"a\"s3cret"}`) left the rest of the secret in the clear. It also found the reverse
   cost, over-masking: `-print`, `-path` and `-p8080:80` were eaten by the joined-short rule. All five
-  are fixed in `47b4136`, and `blindTo` now compares **protocols rather than transports**, because the
+  are fixed in `e0079e7`, and `blindTo` now compares **protocols rather than transports**, because the
   `/proc/net` files are one table each: a reading that lost `tcp6` cannot call an IPv6 port free on the
   strength of its IPv4 sibling, while `lsof`, `netstat` and `ss` answer for a whole transport in one
   call. Four decisions are recorded with the fix: `pass` and `sessionid` join the secret names, the
@@ -390,7 +390,7 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   is a bare word with no digit, upper-case letter or punctuation (`-psecret`) is read as the flag name
   it most often is, and an all-digit `-p 123456` is read as the port it most often is. Both are the
   price of the diagnostics that stay legible, and both are stated rather than hidden.
-- **L7 — the third verification round, and the rules it rewrote.** A bounded re-verification of `dca9211`
+- **L7 — the third verification round, and the rules it rewrote.** A bounded re-verification of `23b272d`
   ran the redaction rules against the argv real tools take rather than against the shapes the rules were
   written for, and six of those forms survived: curl's `--proxy-user alice:s3cret`; `redis-cli -a
   s3cret`; `mysql -psecret db`, which both showed the password and masked the database name after it,
@@ -401,7 +401,7 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   `--bypass=true`, `--compass north`, `--overpass x`, `--pass-through x` and `--token-file /etc/token`,
   and three coverage gaps: `sessionid=` had no test, the decision that `--user=alice` stays readable was
   unpinned, and the empty-scope refusal was asserted by its neighbour's wording. All of it is fixed in
-  `1115eb1`, with `credential_probe_test.go` carrying one regression test per finding. The rules that
+  `d757bb1`, with `credential_probe_test.go` carrying one regression test per finding. The rules that
   changed, and why: the short secret words (`pass`, `pw`, `pwd`) count **only at the end of a name**,
   because `bypass`, `compass`, `overpass` and `--pass-through` contain them and name no credential; a
   segment after a **negation** is not a secret, because `--no-auth` takes none; a secret word followed by
@@ -421,4 +421,35 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   standalone `-p` or `-a` (`grep -a foo file`, `tar -p notes.txt`) is masked, and a compound name whose
   container word is not on the list (`--api-key-file`) keeps the secret reading. Both are the safe side
   of the same trade: a value the diagnostic hides costs fidelity, a value it shows costs a credential.
-  The same round's review of this repository's own copy action is `f590702`.
+  The same round's review of this repository's own copy action is `a83d2d4`.
+
+- **L8 — the delivery, as a chain of three pull requests.** The user authorized the remote work and,
+  when one pull request was measured against the review budget, chose a **chain of three stacked pull
+  requests to `main`** over a single oversized one. The three slices are the package, the screen and the
+  documents, each separately green:
+
+  | Slice | Branch | Commits | Changed lines |
+  |---|---|---|---|
+  | the package | `feat/port-process-manager` | `33b01a8`, `954ffb6`, `5de1f6f`, `d86b55f`, `e0079e7`, `535e738`, `d757bb1` | 16 files, 5,514 insertions |
+  | the screen | `feat/port-process-manager-tui` | `7ededd7`, `a83d2d4` | 13 files, 2,157 insertions, 22 deletions |
+  | the documents | `feat/port-process-manager-docs` | `83b1029`, `23b272d`, `5c1e956` | 5 files, 582 insertions, 9 deletions before this entry |
+
+  The chain is built on `a24ced6`, the `main` the work was rebased onto, because `main` moved while the
+  feature was in flight: two screens landed in the same list, so `ScreenPortManager` and
+  `ScreenPortStop` had to leave the areas block for the end of the screens block or the section's own
+  rows would have read `Finishing up`; the Utilities body gained a tenth job's line at 80x24, where a
+  job's line is pushed past the cut unless the newest one yields; and the guard's measured screen count
+  became 93. Each was resolved by `main`'s own rule rather than by loosening a guard -- the newest line
+  yields in the body, and the count that is measured is not the count that is summed -- and slice B also
+  folded in the guards, the golden and the screen names its own screens changed, so the slice is green on
+  its own rather than green only after the next one.
+
+  The commits above are the delivered identities. The hashes the earlier entries name belong to the
+  pre-rebase branch and are superseded by these; each pair is the same commit by subject, verified
+  before the rewrite. `main`'s documents changed the same regions the port utility's own documents
+  touch, so slice C keeps `main`'s sentences and adds the port utility to them: the section now holds
+  **ten** jobs, the count `TestTheUtilitiesDocNamesEveryJobTheSectionOffers` reads went from `nine` to
+  `ten` with the new job in its list, and the panel table keeps `main`'s newest row with the port reading
+  appended. One claim did not survive that merge and was dropped rather than renumbered: the utility is
+  no longer described as "the sixth", because the row that holds it is not the sixth of the section's
+  rows and the ordinal had become a false statement.
