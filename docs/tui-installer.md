@@ -122,9 +122,11 @@ From the main menu you can access:
   SSH configuration behind the **Manage the SSH configuration** row, the package update
   center behind the **Check the installed tools for updates** row, which asks every package
   manager this machine really has what it has to update and moves only what is selected,
-  through the manager that owns each entry, and the port and process manager behind the
-  **Find what holds a port** row, which lists the bound sockets with the process behind each
-  one and stops a single process only after revalidating its identity. On a real WSL
+  through the manager that owns each entry. The one utility here that removes anything is the
+  developer disk cleaner behind the **Clean up development caches** row, which names a store
+  only when this machine shows evidence of it, measures the space it holds, and cleans only what
+  the scan found and a preview named. The **Find what holds a port** row opens the port and
+  process manager, the one job here that reads what is bound to a socket. On a real WSL
   instance the list also carries the performance advisor behind the **Diagnose this WSL
   environment** row, which is a report until one of its own rows is pressed
 - **Restore from Backup**: Restore previous configurations (if backups exist)
@@ -141,15 +143,18 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds ten jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds twelve jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
 host), the read-only **shell's startup** measurement (one level in), the read-only **terminal
 capability report**, the read-only **install check**, the read-only **network diagnosis** (one
 level in from the **Diagnose the network** row), the **package update center** (which reads what the
-machine's own package managers have to update and moves only what is selected), the **port and
-process manager** (which lists the bound sockets with the process behind each one and stops a single
-process only after revalidating its identity), and the **WSL performance advisor** (one level in, and
-only inside a real WSL instance). Each job is offered
+machine's own package managers have to update and moves only what is selected), the **SSH
+configuration** (one level in, and the hub of the screens that read and edit it), the **port and
+process manager** (which lists the bound sockets with the process behind each one and stops a
+single process only after revalidating its identity), the **WSL performance advisor** (one level
+in, and only inside a real WSL instance), and the **developer disk cleaner** -- the one job here
+that removes anything, and only what the scan found on this machine and the user marked after a
+preview. Each job is offered
 exactly where it can finish: a row that would fail when it is pressed is not in the list, and the
 section's own body says why it is absent.
 The main menu's panel derives one row per job from the same model state the section's own options
@@ -956,6 +961,101 @@ produces an honest empty reply within the timeout rather than a frozen interface
 controlling terminal (a container, a service, a run with no TTY) gets the empty reply too and the
 report then says `unknown` with that reason. The screen never writes, so a run that never opens it
 writes not a single query byte.
+
+### The development caches
+
+**The developer disk cleaner** is the utility behind the **Clean up development caches** row,
+and it is the only utility here that **removes** anything. It answers a question every machine a
+development tool has been installed on eventually asks -- what is actually taking the space, and
+what of it can be had back -- and it is built around three rules: a finding is only reported when
+there is evidence for it, a number is only printed with the place it came from, and nothing is
+removed that the user did not mark and preview.
+
+**Evidence, never guessing.** A tool is named only when a program on `PATH`, an environment variable
+that names one of its stores, or an existing directory says it is used on this machine. The detectors
+cover the JavaScript and TypeScript package managers (npm, pnpm, Yarn, Bun), the Python ones (pip's
+cache, `uv`, Poetry, Conda), Rust's Cargo, Go's build and module caches, the JVM tools (Gradle,
+Maven, Coursier), the system package managers (apt, dnf, pacman, Homebrew) and the container engines
+(Docker and Podman). An ecosystem that cannot be detected reliably is left out rather than guessed
+at, and every row carries **the reason it was found** -- `npm is on PATH and its cache directory
+exists`, `$GOPATH names …`, `docker is on PATH and answered \`system df\`` -- so the list can be
+argued with. The findings are listed **under the tool that owns them**, and the artifacts of an added
+project directory are listed **under that project** -- named after the project's own directory, not
+after the word "project", and kept apart from another project whose last directory happens to have
+the same name -- so a machine with several ecosystems and several projects reads as groups rather
+than as one flat column of stores.
+
+**What is looked at, and what is not.** The scan visits the stores those tools document, plus the
+project directories the user adds. It never walks a whole disk; it stops at filesystem boundaries; it
+never follows a symbolic link out of a store it knows; and inside WSL it never touches host data.
+Adding a project directory is done by naming a directory the installer can already see -- the
+section offers the directory the run was started from, and a row takes the last one back out -- so no
+free-form path ever reaches a command. Inside those directories a fixed list of artifact names is
+looked for (`node_modules`, `target`, `build`, `dist`, `.next`, `.venv`, `__pycache__` and the like),
+and each is only reported when its project's own marker file is beside it (`package.json`,
+`Cargo.toml`, `pyproject.toml`, `go.mod`), because `build` alone is a directory many things have.
+
+**Two sizes, and one number per file.** A filesystem store is measured by a bounded walk -- with
+ceilings on the file count, the time and the traversal depth -- that reports the **logical** size the
+files hold and the **physical** space the filesystem spends on them; the physical one is what the
+rows carry, because it is what a removal can give back. Each file is counted once even when two
+findings overlap (a project inside a cache directory, several names for one store), the scan is
+symmetric about that overlap, and the rows say when they share bytes, so adding them up cannot
+overshoot the disk. A store a tool owns is **never walked**: the container engines report their own
+numbers through `docker system df` / `podman system df`, and those rows are labelled
+**(tool-reported)**, because walking an engine's internal store describes the files rather than what
+the engine could actually reclaim. A store that is gone, refused, or cut short by the scan's own
+ceilings is reported as **not measured** or as a **lower bound**, never as zero, and the screen names
+the difference between an empty store and an unmeasured one.
+
+**Nothing is selected for you.** Every finding starts unmarked. `Space` marks or unmarks the row under
+the cursor, and `a` marks **only the findings that are safe to rebuild**: the dependencies, the build
+output, the container images and the volumes -- the **careful** and **delicate** rows -- are never
+taken by a bulk key, and the row itself says what removing it costs. A finding the plan cannot act on
+is not selectable at all, and the screen states the reason -- the tool is not installed, the store is
+gone, the size could not be read -- instead of letting a mark do nothing. The rows are a list of
+jobs, and every one of them is a decision the user makes.
+
+**The preview is the contract.** Confirming a selection opens a **dry run**, and nothing runs before
+it: for every marked item it names the exact command that would run (`npm cache clean --force`) or
+the exact path that would be removed, and for every item the plan refuses it gives the reason. The
+preview says plainly that **removal is irreversible** -- there is no quarantine, and a removed cache
+is a cache the next install downloads again, a removed `node_modules` is one the next install
+rebuilds, and a removed container volume is data a tool owns that may not be reproducible -- and it
+says which items are delicate before the confirmation rather than after. Escape leaves the preview
+without running it, and the plan is dropped rather than left to be confirmed.
+
+**The tool's own mechanism comes first, always.** A container engine's or a package manager's
+internal store is **never** deleted file by file, because that leaves the engine inconsistent about
+what it holds: Docker and Podman are cleaned through their own `prune` commands, npm through
+`npm cache clean --force`, Go through `go clean -cache` and `go clean -modcache`, Cargo through
+`cargo-cache` when it is installed, apt/dnf/pacman/Homebrew through their own cache commands. Where
+no such command exists the finding is **reported** with that reason and cannot be selected. A command
+that needs administrator rights is attempted with `sudo -n` -- never with a prompt -- and when it is
+refused the screen names the exact command to run by hand.
+
+**What a direct removal may touch is checked twice.** The guard approves only the paths the item
+declared, and refuses `/`, the home directory, the system roots, `.git`, configuration and credential
+directories, a symbolic link where a directory was approved, and any tree containing a mount point --
+refusing that tree whole, because deleting around a mount leaves the store half-empty and the other
+filesystem untouched. The approved scope and the path's identity are verified **again at the moment
+of the unlink**, so a path replaced between the preview and the run is refused rather than followed;
+a cancelled run unlinks nothing; and a removal walks the tree bottom-up, recording every entry it
+could not remove (a file another program holds open, a directory another user owns) instead of
+silently skipping it.
+
+**The result is measured, not estimated.** Every run reports two numbers: what each item's own
+removal or command freed, and the **filesystem's own free-space delta** taken around the run. The
+second is the number the screen leads with, because it is the one the disk itself reports; when it
+cannot be read, or when the filesystem gained nothing because other processes were writing during
+the run, the screen says exactly that rather than printing a zero as an answer. A run that was
+stopped says which items it never reached, and a partial removal lists what it left in place.
+
+**It is honest about the two things it cannot do.** Nothing is quarantined: a removal is a removal.
+And inside WSL, freeing space in the Linux filesystem does **not** shrink the distribution's virtual
+disk -- the screen says so, and it will not compact the VHDX for you, because compacting is a
+separate decision made from Windows after the space has actually been freed. Nothing is reported
+anywhere: there is no telemetry, no network call, and no cleanup that runs in the background.
 
 ### The package update center
 
