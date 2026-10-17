@@ -452,4 +452,7 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   `ten` with the new job in its list, and the panel table keeps `main`'s newest row with the port reading
   appended. One claim did not survive that merge and was dropped rather than renumbered: the utility is
   no longer described as "the sixth", because the row that holds it is not the sixth of the section's
-  rows and the ordinal had become a false statement.
+  rows and the ordinal had become a false statement. The three pull requests are **#351** (the package,
+  against `main`), **#352** (the screen, based on #351's branch) and **#353** (the documents, based on
+  #352's branch): each base is the previous branch so that every pull request's diff is its own slice,
+  and each one is retargeted as the one before it merges.
