@@ -23,8 +23,14 @@ import time
 QUERY = b"\x1b[?2026$p" + b"\x1bP+q524742\x1b\\" + b"\x1bP+q4D73\x1b\\"
 REPLY = b"\x1b[?2026;2$y" + b"\x1bP1+r524742=31\x1b\\" + b"\x1bP1+r4D73=31\x1b\\"
 
-# Lines of the child's output worth showing the human reading the measurement.
-REPORTABLE = (b"case A:", b"case B:", b"case C:", b"PASS", b"FAIL", b"skip")
+# Lines of the child's own report worth showing the human reading the measurement.
+#
+# The match is on the file the test logs from, not on a list of case letters. A
+# whitelist of letters silently dropped the `case E:` line this front added for T5:
+# the line was printed, the filter did not forward it, and a line that was never
+# forwarded reads exactly like a line that was never printed. Anything the
+# diagnostic says, it now says through this prefix.
+REPORTABLE = (b"probe_ownership_measure_test.go:", b"PASS", b"FAIL", b"skip")
 
 
 def log(message):
