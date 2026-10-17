@@ -64,6 +64,26 @@ func RunNonInteractive(choices UserChoices, disabledUnits ...string) error {
 	}
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
+	return finishNonInteractiveRun(model, failures)
+}
+
+// finishNonInteractiveRun is the epilogue of a scripted run: it records the run
+// the same way the interface does, so a machine installed from a script has the
+// record that the revert and the content check read. It used to be printing
+// alone, which is how a scripted install came to leave no record of itself.
+func finishNonInteractiveRun(model *Model, failures []error) error {
+	// A dry run records nothing; that rule lives in recordRun, where both this epilogue
+	// and the interface reach it.
+	status := runStatusComplete
+	failedSteps := []string{}
+	if len(failures) > 0 {
+		status = runStatusFailed
+		for _, failure := range failures {
+			failedSteps = append(failedSteps, failure.Error())
+		}
+	}
+	model.recordRun(status, failedSteps)
+
 	if len(failures) > 0 {
 		return errors.Join(failures...)
 	}
