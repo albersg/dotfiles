@@ -44,12 +44,16 @@ because other sessions write to the same clone.
   limitation the screen can disclose; the answer arriving as keystrokes is not).
 - [x] **T4** (S5, S6) The change, its guards, and the doc updates. Route: inline, test-first. Commits:
   `56f1494` (the instrument), `83c092e` (the change), and this file.
-- [ ] **T5** (S4, S5) The configuration the gate deliberately leaves alone: when stdin is not the
-  terminal, bubbletea opens the controlling terminal itself and the probe opens it too, so the arrangement
-  the one-in-twenty was measured in still has two readers. Closing it means opening the controlling
-  terminal in `cmd/dotfiles`, handing that stream to the same one reader, closing it when the program
-  ends, and measuring it the same way (the diagnostic under `script(1)` with stdin away from the pty).
-  Open, with its evidence in "What the corrected instrument read".
+- [x] **T5** (S4, S5) The configuration the gate deliberately leaves alone: when stdin is not the
+  terminal, bubbletea opens the controlling terminal itself while the probe opened it too, so the
+  arrangement the one-in-twenty was measured in still had two readers. Closed by the owner's decision
+  (option C): the probe writes **no query at all** there, which removes both halves of the hazard by
+  construction -- no answer to lose, no reply bytes to arrive as keys -- at the cost of the capability
+  report in that one configuration. The racing path was deleted rather than gated, so the two-reader
+  arrangement cannot come back. Route: inline, test-first for the five guards; the arrangement itself
+  measured with the diagnostic under `script(1)`. Commits: `277dca2` (the instrument and its own two
+  corrections), `887e4df` (the change), and this file. Evidence: "The round, measured" and "The gate, and one
+  incident that is not this branch's" above.
 
 ## What is known, with the code it rests on
 
@@ -296,6 +300,81 @@ four and nothing else, with the same causing line (`Ghostty already installed`, 
 on this host). Four failures, the same four names, and the identical result when the same two gates were
 run on the pristine `8fbc87d` before this front began: this branch adds no failure to either gate.
 
+## T5: the arrangement the first change left alone (owner's decision, option C)
+
+The owner chose the option this document listed as cheapest: **the probe writes no query when it is not the
+one reader of the terminal**. The alternative -- opening the controlling terminal in `cmd/dotfiles` and
+handing it to the same one reader -- preserves the capability report in that configuration, at the cost of
+owning a descriptor, of a platform difference (bubbletea's opener is `/dev/tty` on Unix and `CONIN$` on
+Windows, and its helper is internal) and of another measured round. The chosen option removes both halves
+of the hazard by construction: with no query written there is no answer to lose and no reply bytes to
+arrive as keys. What it costs is the capability report in that one configuration.
+
+**The racing path is deleted, not gated.** `terminalReply` opened the controlling terminal itself
+(`os.O_RDWR`) and ran the whole query on that descriptor whenever no reader of ours was installed. That
+function is gone, and with it the read machinery it needed (`queryTerminal`, `readTerminalReply`,
+`drainTerminal`, `readTerminalReplyWithTimer`): the probe now touches the terminal in exactly one place,
+`writeTerminalQuery`, which opens it write-only, and a write cannot take anything out of the terminal's
+input queue. So the two-reader arrangement cannot come back through a later caller, and the change is not
+a flag somebody could flip back. The guards that pinned the deleted path did not disappear with it: the
+no-hang guard now runs through the reader, where the probe's deadline actually lives, and "a bounded read
+must still capture a real reply" is the wiring guard on a pipe.
+
+**The report says why nothing was asked.** `detectNotAskedCapabilities` builds the report from the
+environment alone. The rows only a query can answer carry a reason that names the decision instead of
+describing a terminal that stayed silent, and the colour depth still comes from `COLORTERM`, `TERM` or
+`TERM_PROGRAM`, because reading the environment is not a query -- a run with `COLORTERM` set and its input
+redirected reports its colour exactly as before. The three states and `unknown` with a reason it can
+check by hand are untouched, which is what S6 asked for, and silence still means two different things in
+the report because the reason tells them apart.
+
+**Five guards, and one of them had to be structural.**
+`TestTheProbeDoesNotAskWhenTheInterfaceIsNotTheReader` runs the production entry point with no reader and
+pins the report; `TestAnUnaskedProbeStillReportsTheColourFromTheEnvironment` pins what not asking must not
+cost; `TestAProbeWithItsOwnReaderStillAsks` pins that the decision is not over-applied (with a reader the
+probe asks, and a silent terminal is reported as one that did not answer);
+`TestTheProbeDoesNotHangWhenTheTerminalNeverAnswers` was repointed at the reader. The fifth,
+`TestTheProbeNeverReadsTheTerminalForItself`, reads the probe's own source and fails if anything can read
+from a terminal the probe opened, because on a host with no terminal behaviour alone cannot tell "did not
+ask" from "asked and nothing came back" -- which is the distinction this whole task is about.
+
+**The round, measured.** The two arrangements that remain, twenty runs each, on one pty with a stub
+terminal answering all three queries (`scripts/measure-terminal-ownership.sh diverted|notowner 20`):
+
+| arrangement | runs | the probe | the interface | the stub's own witness |
+| --- | --- | --- | --- | --- |
+| `diverted` -- the interface reading through `TerminalInput` | 20, every run exited 0 | asked and received the whole **41-byte reply in 20 of 20** | **0 messages in 20 of 20** | `query seen` 20 times, one per run |
+| `notowner` -- no reader of ours, stdin `/dev/null` | 20, every run exited 0 | **asked in 0 of 20**: the no-query line printed in all 20 | **0 messages in 20 of 20** | `query seen` **0 times** |
+
+The only message either arrangement ever recorded at the interface is bubbletea's own
+`tea.WindowSizeMsg`, so `0 messages` is a reading about the probe's reply and not a reading about a
+program that never ran -- every run reports the program's own error as `<nil>` and its stdin by name.
+
+The `notowner` half is the one T5 is about, and it is a reading of **absence on both sides**: the report
+comes from the environment (`colour=COLORTERM=truecolor`), `clipboard` and `sync` carry the reason rather
+than a description of a terminal that stayed silent, and the stub -- whose whole job is to log every query
+it sees -- saw none. `0 messages` here is by construction rather than by luck: with no query written there
+is nothing that could come back, which is exactly what choosing option C bought.
+
+**The gate, and one incident that is not this branch's.** `make check` and `make preflight` fail on this host
+on the same four Ghostty tests, before and after this front (`TestStepInstallTerminalGhosttyReportsAFailedDownload`,
+`TestStepInstallTerminalGhosttyRunsTheDownloadItFetches`, `TestInteractiveGhosttyScriptFailsWhenTheDownloadFails`,
+`TestInteractiveGhosttyScriptDownloadsThenRuns`), because `/usr/bin/ghostty` exists here -- the T4 gate
+measured that on the pristine `8fbc87d` and found those same four names. The first run of this gate added one
+more thing, which is a failure of neither this branch nor the suite: `make check` **panicked** with `panic:
+test timed out after 10m0s` inside `TestStepCloneRepository`, whose stack is eight minutes of a read on a
+child's pipe. That test runs a real `git clone --progress https://github.com/albersg/dotfiles.git` and skips
+when the clone **fails** -- a stalled transfer is not a failure, so it hangs instead. Three readings settled
+it, none of them a guess: `make preflight` in the *same job*, minutes later, ran that test and failed on the
+four Ghostty names only; a bounded re-run of the same test on this tree passed in **8.5 s**; and this branch
+touches neither the clone step nor its test (`git diff 8fbc87d..HEAD` over `installer.go` and
+`installation_steps_test.go` is empty). The bound was 150 s, and the remote answered in seconds both before
+and after. Re-measured on the same tree with the episode absent, `make check` failed on those same four
+names and nothing else -- `FAIL github.com/albersg/dotfiles/installer/internal/tui 210.7s`, no panic, and
+the four names are the ones job-4's baseline recorded -- so the gate's result is the four pre-existing
+failures. The episode is recorded rather than absorbed: an unbounded network clone inside the inner loop can
+hang the whole gate for ten minutes, and the panic it produces reads like a failure of whatever was on trial.
+
 ## Log
 
 - **L1.** The defect is not this front's discovery; it comes from the audit of the Utilities section and
@@ -364,3 +443,33 @@ run on the pristine `8fbc87d` before this front began: this branch adds no failu
   of only that they could not. Predicate corrected to bubbletea's own (`x/term IsTerminal`); the positive
   guard passes under `script(1)`. Both lessons have the shape of this front's earlier ones: **what makes a
   check worthless is not its failure but its silence.**
+- **L8.** T5's round (the owner chose the option recorded as cheapest: the probe writes no query when it is
+  not the one reader). Four things this round taught, all kept. First, **the instrument's modes are part of
+  its claim**: the runner's `shared` mode produced the readings L4 and L6 quote, and the fix deleted the
+  code that could produce that arrangement, so the mode retires with it rather than being left there
+  pointing at a path that no longer exists. Its replacement, `notowner`, measures the new rule in the
+  configuration T5 is about. The same round retired `alone` and `canonical`, and for a reason worth
+  keeping: with the racing path gone there is no arrangement in which the probe asks while nobody else
+  reads, so its last round read `case A: probe alone received 0 bytes` while the stub on the far side
+  logged `query seen ... answering with 41 bytes` -- the query was written and answered and, with no reader
+  loop running, nobody read the answer. A mode can survive the code it measured and start reporting the
+  instrument instead of the product; the round is what caught it. Second, the `notowner` reading of `0
+  messages to the interface` is *by construction* rather than by luck: no query is written, so nothing can
+  come back. Third, **the `case E:` line was printed in every run and reached the log in none of them**, and
+  the cause was the stub: it forwards only the lines matching its own whitelist
+  (`b"case A:", b"case B:", b"case C:", ...`), and the new case was not in it. The filter now matches the
+  diagnostic's own file name instead of a list of letters, so a new case cannot be dropped by forgetting to
+  add it -- and this is L5 and L7 again from the instrument's side: **a line the instrument drops and a line
+  that was never printed are the same line in the log.** Fourth, the correction the first draft of this
+  entry needed: I had explained the missing line as my own `grep` not surviving the stub's interleaving,
+  which was a guess dressed as a cause. The stub's source settled it in one read. The round below quotes
+  the lines themselves, for the same reason.
+- **L9.** A gate that hangs is not a gate that failed, and telling the two apart cost this round a
+  re-measure. `make check` came back `panic: test timed out after 10m0s` inside `TestStepCloneRepository`, a
+  test that clones the repository over the network and skips on a *failed* clone -- so a stalled transfer
+  hangs instead -- and the inner loop has no bound of its own under which that would be reported as
+  anything but a timeout. What made the reading decidable was naming the test, bounding it (150 s, and it
+  passed in 8.5 s), and finding that the same job's `make preflight` had passed it minutes later. **A
+  timeout panic names the test that hung, not the change that is on trial**, and the comparison that
+  settles it is the one already on record: the four names this gate does fail on are the four that were
+  red on the pristine base before the front began.
