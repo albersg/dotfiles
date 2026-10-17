@@ -1,10 +1,15 @@
 package trainer
 
 import (
+	"math/rand"
 	"time"
 )
 
 // GameState manages the current game session state
+// MaxComboMultiplier is the highest the combo goes. A cap keeps a long run from making
+// the score meaningless, and it is a named constant because two screens print it.
+const MaxComboMultiplier = 4
+
 type GameState struct {
 	// Stats & Progress (persisted)
 	Stats *UserStats
@@ -22,13 +27,21 @@ type GameState struct {
 	IsBossMode     bool
 
 	// Streak and scoring
-	CurrentStreak   int
+	CurrentStreak int
+	// ComboMultiplier is what the score of the answer after this one is multiplied
+	// by. It is owned by RecordCorrectAnswer (raised, capped at MaxComboMultiplier)
+	// and RecordIncorrectAnswer (reset to 1).
 	ComboMultiplier int
 	SessionScore    int
 
 	// Boss state
 	BossLives int
 	BossStep  int
+	// bossFightStartedAt and bossFightEndedAt are the fight's own clock, so a fight
+	// measures itself. They are the fight's and not a step's: the countdowns are per
+	// step and the bonus time a won step grants is not time the fight took.
+	bossFightStartedAt time.Time
+	bossFightEndedAt   time.Time
 	// IsBossDefeated is true once the player has defeated the current boss. It
 	// is set only by RecordBossVictory. Losing a fight is not a defeat of the
 	// boss: an exhausted fight is read from BossLives reaching zero, never from
@@ -55,6 +68,11 @@ type GameState struct {
 	// through SetClock in tests so no test has to sleep to advance time.
 	now func() time.Time
 
+	// rng is the session's randomness source for practice selection, replaced
+	// through SetRandomSource. The session owns it rather than calling the
+	// package-level rand functions so a test can pin which exercise comes next.
+	rng *rand.Rand
+
 	// exerciseStartedAt is when the current exercise was presented on screen.
 	// presentExercise is its only writer. It is deliberately not reset by a
 	// wrong answer: ElapsedSeconds measures the time to solve the current
@@ -68,6 +86,7 @@ func NewGameState() *GameState {
 		Stats:           NewUserStats(),
 		ComboMultiplier: 1,
 		now:             time.Now,
+		rng:             newPracticeRand(),
 	}
 }
 
@@ -80,7 +99,32 @@ func NewGameStateWithStats(stats *UserStats) *GameState {
 		Stats:           stats,
 		ComboMultiplier: 1,
 		now:             time.Now,
+		rng:             newPracticeRand(),
 	}
+}
+
+// newPracticeRand is the session's own clock-seeded source.
+func newPracticeRand() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
+// SetRandomSource replaces the source practice selection draws from. It exists
+// so a test can pin the exercise order instead of flaking on the global source;
+// production passes nothing and keeps the clock-seeded one. Passing nil restores
+// a fresh clock-seeded source.
+func (g *GameState) SetRandomSource(rng *rand.Rand) {
+	if rng == nil {
+		rng = newPracticeRand()
+	}
+	g.rng = rng
+}
+
+// Now reads the injected clock. It is the exported view of the same clock the
+// score, the countdown and the practice stamps use, so a caller that owns a
+// ModuleProgress (the trainer's key handlers) can stamp an answer with the
+// session's time instead of a second wall clock.
+func (g *GameState) Now() time.Time {
+	return g.clockNow()
 }
 
 // SetClock replaces the clock the state uses to measure answer time. It exists
@@ -243,9 +287,14 @@ func (g *GameState) StartPractice(module ModuleID) {
 	g.CurrentStreak = 0
 	g.ComboMultiplier = 1
 
-	// Use weighted random selection for intelligent practice
+	// Use weighted random selection for intelligent practice. A module with
+	// nothing left to practise presents nothing: the menu reports that instead of
+	// opening a session that would end on its first answer.
+	if g.Stats.PracticeComplete(module, g.Now()) {
+		return
+	}
 	progress := g.Stats.GetModuleProgress(module)
-	exercise := SelectRandomPracticeExercise(module, progress)
+	exercise := SelectRandomPracticeExercise(module, progress, g.rng, g.Now())
 	g.presentExercise(exercise)
 }
 
@@ -254,18 +303,26 @@ func (g *GameState) SetPracticeExercise(exercise *Exercise) {
 	g.presentExercise(exercise)
 }
 
-// NextPracticeExercise selects the next random exercise for practice
-// Returns false if practice is complete (all mastered)
+// NextPracticeExercise selects the next random exercise for practice.
+//
+// It returns false only when there is nothing left to do: every exercise
+// mastered AND the boss unlocked (see UserStats.PracticeComplete). While the
+// boss gate is unmet an all-mastered module keeps offering review, which is what
+// removes the deadlock where the player could neither practise nor fight and the
+// only exit was erasing their progress.
 func (g *GameState) NextPracticeExercise() bool {
 	if !g.IsPracticeMode {
 		return false
 	}
+	if g.Stats.PracticeComplete(g.CurrentModule, g.Now()) {
+		return false
+	}
 
 	progress := g.Stats.GetModuleProgress(g.CurrentModule)
-	exercise := SelectRandomPracticeExercise(g.CurrentModule, progress)
+	exercise := SelectRandomPracticeExercise(g.CurrentModule, progress, g.rng, g.Now())
 
 	if exercise == nil {
-		// All exercises mastered - practice complete!
+		// Only reachable for a module with no exercises at all.
 		return false
 	}
 
@@ -286,6 +343,8 @@ func (g *GameState) StartBoss(module ModuleID) {
 	g.CurrentStreak = 0
 	g.ComboMultiplier = 1
 	g.IsBossDefeated = false
+	g.bossFightStartedAt = g.clockNow()
+	g.bossFightEndedAt = time.Time{}
 
 	if g.CurrentBoss != nil {
 		g.BossLives = g.CurrentBoss.Lives
@@ -305,7 +364,9 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	}
 	g.Stats.CurrentStreak = g.CurrentStreak
 
-	// Calculate and add points
+	// Calculate and add points. The multiplier is the one the run has already earned:
+	// this answer is paid for the streak behind it, and the raise below is what the
+	// next answer will be paid with.
 	points := CalculatePoints(g.CurrentExercise, timeSeconds, isOptimal, g.ComboMultiplier)
 	g.SessionScore += points
 	g.Stats.TotalScore += points
@@ -317,9 +378,18 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	g.Stats.TotalTime += time.Duration(timeSeconds * float64(time.Second))
 	g.Stats.LastPlayed = g.clockNow()
 
-	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
-	// the single owner of PracticeAttempts/PracticeCorrect and per-exercise
-	// mastery. Counting it here too double-counted every practice submission.
+	// The answer is recorded against its own exercise in every mode, and against
+	// the module's practice counters in practice mode. One owner per counter: the
+	// screens do not record anything themselves.
+	g.recordAnswer(true)
+
+	// The combo is raised by the answer rather than by the screen that advances
+	// after it, which is what makes it real in lessons and practice as well as in a
+	// boss fight. It used to live in the boss branch of NextExercise, so the
+	// multiplier the score is paid by stayed at one everywhere else.
+	if g.ComboMultiplier < MaxComboMultiplier {
+		g.ComboMultiplier++
+	}
 
 	// Update lesson progress
 	if g.IsLessonMode {
@@ -333,6 +403,26 @@ func (g *GameState) RecordCorrectAnswer(timeSeconds float64, isOptimal bool) {
 	if g.IsBossMode {
 		g.recordBossAttempt()
 	}
+}
+
+// recordAnswer records one answer against the exercise that is on screen: the
+// per-exercise record in every mode, plus the module-level practice counters
+// when the answer was given in practice. It is the single owner of both, so no
+// screen counts a submission and the practice accuracy the boss gate reads
+// cannot be moved by a lesson or a boss step.
+//
+// It is a no-op when there is no current exercise or the exercise carries no ID,
+// which keeps an unnamed fixture from writing a record keyed by the empty string.
+func (g *GameState) recordAnswer(correct bool) {
+	if g.CurrentExercise == nil || g.CurrentExercise.ID == "" {
+		return
+	}
+	progress := g.Stats.GetModuleProgress(g.CurrentModule)
+	if g.IsPracticeMode {
+		progress.RecordPracticeResult(g.CurrentExercise.ID, correct, g.clockNow())
+		return
+	}
+	progress.RecordExerciseResult(g.CurrentExercise.ID, correct, g.clockNow())
 }
 
 // recordBossAttempt counts one boss step answered. ModuleProgress.BossAttempts
@@ -359,8 +449,10 @@ func (g *GameState) RecordIncorrectAnswer() {
 	// answer already covers the seconds spent on this mistake.
 	g.Stats.LastPlayed = g.clockNow()
 
-	// Practice attempt accounting lives in ModuleProgress.RecordPracticeResult,
-	// the single owner of PracticeAttempts/PracticeCorrect.
+	// A wrong answer is an answer: it counts against the exercise that was on
+	// screen in every mode, which is what makes the weakest list and the mastery
+	// state describe real play.
+	g.recordAnswer(false)
 
 	// Boss mode: a lost life is one failed boss step. Re-arming the deadline here,
 	// rather than in each failure path, is what gives the retry a full window
@@ -372,6 +464,11 @@ func (g *GameState) RecordIncorrectAnswer() {
 		g.BossLives--
 		if g.BossLives < 0 {
 			g.BossLives = 0
+		}
+		if g.BossLives == 0 {
+			// The last life ends the fight, so the clock stops with it: a defeat's
+			// duration is the fact the result screen reports.
+			g.finishBossFight()
 		}
 		g.startBossDeadline()
 	}
@@ -395,9 +492,6 @@ func (g *GameState) RecordBossStepTimeout() {
 // NextExercise advances to the next exercise
 func (g *GameState) NextExercise() bool {
 	if g.IsBossMode {
-		if g.ComboMultiplier < 4 {
-			g.ComboMultiplier++
-		}
 		return g.NextBossExercise()
 	}
 
@@ -434,6 +528,31 @@ func (g *GameState) NextBossExercise() bool {
 	return true
 }
 
+// BossFightElapsed is how long the fight on screen has lasted, measured with the
+// injected clock from the moment its first step was presented. It is 0 for a state that
+// is not in a fight. Once the fight ends the duration is frozen, so the result screen
+// reports what the fight took instead of a clock that keeps running while it is read.
+func (g *GameState) BossFightElapsed() time.Duration {
+	if g.bossFightStartedAt.IsZero() {
+		return 0
+	}
+	end := g.bossFightEndedAt
+	if end.IsZero() {
+		end = g.clockNow()
+	}
+	return end.Sub(g.bossFightStartedAt)
+}
+
+// finishBossFight freezes the fight's duration. It is idempotent, so the first end wins
+// and a later one -- a defeat recorded after a victory, or a second expiry tick -- cannot
+// stretch the time the fight is reported to have taken.
+func (g *GameState) finishBossFight() {
+	if g.bossFightStartedAt.IsZero() || !g.bossFightEndedAt.IsZero() {
+		return
+	}
+	g.bossFightEndedAt = g.clockNow()
+}
+
 // RecordBossVictory records defeating a boss
 func (g *GameState) RecordBossVictory() {
 	// The player defeated the boss this session.
@@ -456,7 +575,14 @@ func (g *GameState) RecordBossVictory() {
 	progress := g.Stats.GetModuleProgress(g.CurrentModule)
 	progress.BossDefeated = true
 
-	if progress.BossBestTime == 0 || g.TimeElapsed < progress.BossBestTime {
+	// TimeElapsed is the finished fight's own duration. It used to be a field nothing
+	// ever wrote, so BossBestTime could only ever stay at zero and the result screen
+	// had no time to show.
+	g.finishBossFight()
+	g.TimeElapsed = g.BossFightElapsed()
+	// A fight that measured no time records no best: writing a zero would replace a real
+	// record with nothing, and "no time at all" is not a time a player can beat.
+	if g.TimeElapsed > 0 && (progress.BossBestTime == 0 || g.TimeElapsed < progress.BossBestTime) {
 		progress.BossBestTime = g.TimeElapsed
 	}
 	progress.BossLivesLeft = g.BossLives
@@ -486,6 +612,8 @@ func (g *GameState) Reset() {
 	g.BossStep = 0
 	g.bossStepBonus = 0
 	g.bossStepDeadline = time.Time{}
+	g.bossFightStartedAt = time.Time{}
+	g.bossFightEndedAt = time.Time{}
 	g.IsBossDefeated = false
 
 	g.TimeElapsed = 0

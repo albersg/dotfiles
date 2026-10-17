@@ -67,7 +67,7 @@ func TestParseProcStatCPU(t *testing.T) {
 
 func TestParseMeminfo(t *testing.T) {
 	t.Run("MemAvailable is preferred over MemFree", func(t *testing.T) {
-		used, total, ok := parseMeminfo([]byte(
+		used, total, ok := MeminfoUsed([]byte(
 			"MemTotal:       1000 kB\nMemFree:         100 kB\nMemAvailable:    400 kB\n"))
 		if !ok {
 			t.Fatal("parse failed")
@@ -81,27 +81,27 @@ func TestParseMeminfo(t *testing.T) {
 	})
 
 	t.Run("MemFree is the fallback", func(t *testing.T) {
-		used, _, ok := parseMeminfo([]byte("MemTotal: 1000 kB\nMemFree: 250 kB\n"))
+		used, _, ok := MeminfoUsed([]byte("MemTotal: 1000 kB\nMemFree: 250 kB\n"))
 		if !ok || used != 750*1024 {
 			t.Errorf("(used, ok) = (%d, %v), want (%d, true)", used, ok, 750*1024)
 		}
 	})
 
 	t.Run("available larger than total is clamped", func(t *testing.T) {
-		used, _, ok := parseMeminfo([]byte("MemTotal: 100 kB\nMemAvailable: 200 kB\n"))
+		used, _, ok := MeminfoUsed([]byte("MemTotal: 100 kB\nMemAvailable: 200 kB\n"))
 		if !ok || used != 0 {
 			t.Errorf("(used, ok) = (%d, %v), want (0, true)", used, ok)
 		}
 	})
 
 	t.Run("no total is no reading", func(t *testing.T) {
-		if _, _, ok := parseMeminfo([]byte("MemFree: 100 kB\n")); ok {
+		if _, _, ok := MeminfoUsed([]byte("MemFree: 100 kB\n")); ok {
 			t.Error("a meminfo without MemTotal parsed as a reading")
 		}
 	})
 
 	t.Run("no capacity pair is no reading", func(t *testing.T) {
-		if _, _, ok := parseMeminfo([]byte("MemTotal: 100 kB\nBuffers: 1 kB\n")); ok {
+		if _, _, ok := MeminfoUsed([]byte("MemTotal: 100 kB\nBuffers: 1 kB\n")); ok {
 			t.Error("a meminfo without available or free parsed as a reading")
 		}
 	})

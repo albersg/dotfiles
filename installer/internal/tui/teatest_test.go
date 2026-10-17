@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/albersg/dotfiles/installer/internal/sshcfg"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1028,6 +1029,21 @@ func TestUtilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
 }
 
+// TestWSLAdvisorGolden pins the performance advisor's report at the 80x24 floor: the environment it
+// read, the findings ordered by severity with the one under the cursor opened out beside them, the
+// two rows that act and the way back. The reading is the advisor's own fixture -- a WSL instance whose
+// working directory is a project on the Windows host -- so the snapshot is the screen this repository
+// ships, not the machine that rendered it. It is the screen with the most prose in the installer, and
+// a snapshot is what catches a body that has become a wall of it.
+func TestWSLAdvisorGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
+}
+
 // TestWSLResourcesGolden pins the WSL resource screen on a WSL host: the
 // recommendation from the host's own capacity, the values the file holds, the
 // draft, the write row and the way back. The host and the file are forced, so the
@@ -1054,6 +1070,20 @@ func TestShellAuditGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "The shell's startup"))
 }
 
+// TestDiskCleanerGolden pins the disk cleaner on findings that are forced: each
+// store with the reason it was found, the number it holds and where that number
+// came from, the two rows that are marked beside the ones that are not, and the
+// prose that says what would have to be downloaded or rebuilt again. No scan is
+// run and no machine is read, so the frame is the same on every runner.
+func TestDiskCleanerGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := diskCleanerFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Development caches"))
+}
+
 // TestTerminalCapabilitiesGolden pins the capability report: every answer with
 // the source it came from, the one answer that is unknown with the manual check
 // that replaces it, and the read-only promise. The answers are forced rather than
@@ -1067,6 +1097,23 @@ func TestTerminalCapabilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Terminal capabilities"))
 }
 
+// TestNetworkDiagnosticsGolden pins the diagnosis screen: the verdict naming the
+// stage that stopped it, one row per check carrying its own status word, and the
+// detail of the step under the cursor with its evidence, its cause and the
+// command to run by hand. The report is forced rather than dialled, so the frame
+// does not become a snapshot of the network the runner happened to be on.
+func TestNetworkDiagnosticsGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := networkDiagnosticsFrameCase(t)
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Network diagnostics"))
+}
+
+// TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
+// pleased companion at a frame a few ticks into the two seconds. The burst is
+// model state, so its positions are the same on every machine that renders it.
 // TestDoctorGolden pins the doctor's list: findings with their states as words,
 // the retry and filter rows beside them, and the closing line that counts what
 // was found with where the report was kept. The run is built rather than
@@ -1091,9 +1138,6 @@ func TestDoctorFixGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Confirm the fix"))
 }
 
-// TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the
-// pleased companion at a frame a few ticks into the two seconds. The burst is
-// model state, so its positions are the same on every machine that renders it.
 func TestCompleteCelebrationGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := NewModel()
@@ -1723,6 +1767,15 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return m
 	}
 
+	sshState := func(screen Screen, adjust func(*Model)) Model {
+		m := installerFrameModel(t, screen)
+		m.SSH = sshTestManagerState()
+		if adjust != nil {
+			adjust(&m)
+		}
+		return m
+	}
+
 	switch name {
 	case "welcome":
 		return base(ScreenWelcome)
@@ -1788,6 +1841,22 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m := base(ScreenLearnNvim)
 		m.ViewingTool = "features"
 		return m
+	case "learn-tools":
+		return base(ScreenLearnTools)
+	case "learn-font":
+		return base(ScreenLearnFont)
+	case "learn-prompts":
+		return base(ScreenLearnPrompts)
+	case "learn-prompts-info":
+		m := base(ScreenLearnPrompts)
+		m.ViewingTool = "powerlevel10k"
+		return m
+	case "learn-tooling":
+		return base(ScreenLearnTooling)
+	case "learn-plugins":
+		return base(ScreenLearnPlugins)
+	case "learn-toolset":
+		return base(ScreenLearnToolset)
 	case "keymaps":
 		return base(ScreenKeymaps)
 	case "keymap-category":
@@ -1810,6 +1879,14 @@ func installerFrameCase(t *testing.T, name string) Model {
 		return base(ScreenKeymapsHerdr)
 	case "keymaps-herdr-category":
 		return base(ScreenKeymapsHerdrCat)
+	case "keymaps-kitty":
+		return base(ScreenKeymapsKitty)
+	case "keymaps-kitty-category":
+		return base(ScreenKeymapsKittyCat)
+	case "keymaps-wezterm":
+		return base(ScreenKeymapsWezTerm)
+	case "keymaps-alacritty":
+		return base(ScreenKeymapsAlacritty)
 	case "keymaps-herdr-long-keys":
 		// The category with a binding wider than a quarter of the frame, so the
 		// guard covers the widened keys column as well as the default one.
@@ -1886,6 +1963,19 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m.Metrics = pinnedMetrics(24)
 		m.ProgressSamples = pinnedProgress(24)
 		return m
+	case "wsl-advisor":
+		return wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	case "wsl-advisor-reading":
+		// The screen before its reading finished: the one state where the report says it is reading
+		// instead of stating a finding, and the state a frame guard must measure separately because
+		// its body is a single line where every other state has a page of them.
+		m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+		m.WSLAdvisor = wslAdvisorState{}
+		return m
+	case "wsl-benchmark":
+		return wslAdvisorFrameModel(t, ScreenWSLBenchmark)
+	case "wsl-migration":
+		return wslAdvisorFrameModel(t, ScreenWSLMigration)
 	case "complete":
 		m := base(ScreenComplete)
 		m.Choices = UserChoices{OS: "mac", Terminal: "ghostty", Shell: "fish", WindowMgr: "tmux", InstallFont: true, InstallNvim: true}
@@ -1905,6 +1995,48 @@ func installerFrameCase(t *testing.T, name string) Model {
 			m.LogLines = append(m.LogLines, fmt.Sprintf("log line %d", i+1))
 		}
 		return m
+	case "ssh-manager":
+		return sshState(ScreenSSHManager, nil)
+	case "ssh-host":
+		return sshState(ScreenSSHHost, func(m *Model) { m.SSH.HostIndex = 0 })
+	case "ssh-host-read-only":
+		// The read-only entry adds the sentences that explain why it cannot be
+		// edited, which is the tallest the detail screen gets.
+		return sshState(ScreenSSHHost, func(m *Model) { m.SSH.HostIndex = 1 })
+	case "ssh-form":
+		return sshState(ScreenSSHForm, func(m *Model) {
+			m.SSH.FormMode = "create"
+			m.SSH.Form = sshHostForm{Alias: "work", HostName: "work.example.com", User: "alice", Port: "2222", Identity: "~/.ssh/id_work"}
+		})
+	case "ssh-form-plan":
+		// The confirmation replaces the fields with the preview of the change, so it
+		// is measured in its own right: it is the one state of the form that draws
+		// lines taken from a file.
+		return sshState(ScreenSSHForm, func(m *Model) {
+			m.SSH.FormMode = "create"
+			m.SSH.Plan = &sshcfg.WritePlan{
+				Path:    "/home/testuser/.ssh/config",
+				Kind:    "managed",
+				Alias:   "work",
+				Summary: "Add the entry work inside the block this tool manages in /home/testuser/.ssh/config.",
+				Preview: []string{"  Host github.com", "- ", "+ Host work", "+     HostName work.example.com", "+     User alice"},
+			}
+		})
+	case "ssh-keys":
+		return sshState(ScreenSSHKeys, nil)
+	case "ssh-keys-generate":
+		// The generation form is the tallest state of the key screen: it replaces the
+		// action rows with six fields and their own hints.
+		return sshState(ScreenSSHKeys, func(m *Model) {
+			m.SSH.KeysMode = "generate"
+			m.SSH.Keygen = sshKeygenForm{Path: "~/.ssh/id_ed25519", Type: "ssh-ed25519", Comment: "testuser@host"}
+		})
+	case "ssh-agent":
+		return sshState(ScreenSSHAgent, nil)
+	case "ssh-diagnostics":
+		return sshState(ScreenSSHDiagnostics, nil)
+	case "ssh-test":
+		return sshState(ScreenSSHTest, nil)
 	default:
 		t.Fatalf("no frame case named %q", name)
 		return Model{}
@@ -1924,18 +2056,31 @@ var installerFrameScreenNames = []string{
 	"learn-shells", "learn-shells-info",
 	"learn-wm", "learn-wm-info",
 	"learn-nvim", "learn-nvim-features",
+	"learn-tools",
+	"learn-font", "learn-prompts", "learn-prompts-info",
+	"learn-tooling", "learn-plugins", "learn-toolset",
 	"keymaps", "keymap-category", "keymaps-menu",
 	"keymaps-tmux", "keymaps-tmux-category",
 	"keymaps-zellij", "keymaps-zellij-category",
 	"keymaps-ghostty", "keymaps-ghostty-category",
 	"keymaps-herdr", "keymaps-herdr-category", "keymaps-herdr-long-keys",
+	"keymaps-kitty", "keymaps-kitty-category", "keymaps-wezterm", "keymaps-alacritty",
 	"lazyvim", "lazyvim-topic",
 	"backup-confirm", "backup-confirm-many",
 	"restore-backup", "restore-backup-many", "restore-confirm", "restore-confirm-many-files",
 	"installing", "installing-details", "installing-details-many", "installing-at-end",
 	"installing-live",
+	"wsl-advisor", "wsl-advisor-reading", "wsl-benchmark", "wsl-migration",
 	"complete", "error", "error-many-logs",
 	"admin-password", "admin-password-failed",
+	// The SSH manager's seven screens. Each one is a state it reaches in normal
+	// use: the hub with hosts, the detail of an editable and of a read-only entry,
+	// the form and its plan, the key list and its generation form, the agent, the
+	// diagnosis and a finished connection test.
+	"ssh-manager", "ssh-host", "ssh-host-read-only",
+	"ssh-form", "ssh-form-plan",
+	"ssh-keys", "ssh-keys-generate",
+	"ssh-agent", "ssh-diagnostics", "ssh-test",
 }
 
 // TestInstallerScreensFitTheFrame is the counterpart to
@@ -2818,22 +2963,34 @@ func TestBossTabRevealsTheStepHint(t *testing.T) {
 	}
 }
 
-// TestBossTabRevealsNoLabelWithoutAHint pins the other half on the boss screen:
-// a step with no hint gets no label, exactly like the exercise screen. The
-// horizontal boss steps ship without hints, so that is the screen under test.
-func TestBossTabRevealsNoLabelWithoutAHint(t *testing.T) {
+// TestBossTabRevealsNoNudgeForAOneKeystrokeAnswer replaces the pin that said a
+// hint-less boss step shows nothing at all. That rule made the key dead on all 35
+// shipped steps, so the boss screen now asks trainer.BossStepNudge: the step's hint when
+// it ships one, and otherwise the first keystrokes of its answer. The one case the
+// fallback deliberately stays silent for is an answer of a single keystroke, whose first
+// keystroke is its solution.
+func TestBossTabRevealsNoNudgeForAOneKeystrokeAnswer(t *testing.T) {
 	m := newTrainerBossModel(t)
-	exercise := m.TrainerGameState.CurrentExercise
-	if exercise == nil {
+	step := m.TrainerGameState.CurrentExercise
+	if step == nil {
 		t.Fatal("test setup: no live boss step")
 	}
-	exercise.Hint = ""
+	// A step of its own rather than a mutation of the shipped one: the corpus is what
+	// every other test in this package reads.
+	m.TrainerGameState.CurrentExercise = &trainer.Exercise{
+		ID:        step.ID,
+		Module:    step.Module,
+		Level:     step.Level,
+		Mission:   "Go to the end of the line",
+		Solutions: []string{"$"},
+		Optimal:   "$",
+	}
 	m.TrainerMessage = ""
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	got := next.(Model)
 	if got.TrainerMessage != "" {
-		t.Errorf("TrainerMessage after Tab on a hint-less boss step = %q, want empty", got.TrainerMessage)
+		t.Errorf("TrainerMessage after Tab on a one-keystroke boss step = %q, want empty", got.TrainerMessage)
 	}
 }
 

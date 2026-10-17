@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/albersg/dotfiles/installer/internal/diskclean"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
@@ -146,6 +147,15 @@ type (
 		err    error
 	}
 
+	// wslGuardRepairedMsg carries a guard repair back to Update: the state read
+	// afterwards, and the error the install reported. The install runs in a command
+	// because it writes two files and runs systemctl, and the read that follows it
+	// is what the screen then reports rather than the install's own word for it.
+	wslGuardRepairedMsg struct {
+		state wslGuardState
+		err   error
+	}
+
 	// wslTerminalOfferMsg carries the Windows Terminal offer the interactive WSL
 	// step shows. It is built in a command because resolving the face asks the
 	// Windows font store through interop, and the offer has to be on the model
@@ -169,11 +179,36 @@ type (
 	}
 
 	// shellAuditMeasuredMsg carries a finished measurement back to the screen: the
-	// runs, their median and range, and the functions zprof named or the reason it
-	// named none. The measurement starts the user's shell several times, so it is a
-	// command rather than something a keypress does.
+	// runs, their median and range, and the functions the shell's own instrument
+	// named or the reason it named none. The measurement starts the user's shell
+	// several times, so it is a command rather than something a keypress does.
+	//
+	// It is the whole-state form, kept for the callers that have a finished state
+	// already -- verification, a guard -- while a measurement the screen started
+	// reports itself one event at a time through shellAuditEventMsg.
 	shellAuditMeasuredMsg struct {
 		state shellAuditState
+	}
+
+	// shellAuditEventMsg carries one thing that happened during a measurement: a
+	// start that began or ended, and at the end the result itself. One event per
+	// message is what lets the screen say which start it is waiting on and lets
+	// the user stop the ones that are left, instead of showing a single wait that
+	// cannot be interrupted.
+	shellAuditEventMsg struct {
+		event shellAuditEvent
+	}
+
+	// shellAuditClosedMsg reports that the events ended without a result, which is
+	// the case of a measurement that died with its process. The screen stops
+	// saying it is measuring rather than waiting for an answer that is not coming.
+	shellAuditClosedMsg struct{}
+
+	// shellAuditHistorySavedMsg reports how storing the measurements went. The
+	// measurement itself is not affected by it: what failed is the file, and the
+	// screen says so rather than letting the user believe their runs are kept.
+	shellAuditHistorySavedMsg struct {
+		err error
 	}
 )
 
@@ -368,6 +403,33 @@ func (m Model) wslResourceWriteCmd() tea.Cmd {
 	}
 }
 
+// wslGuardInstaller and wslGuardReader are what the guard row runs and what it
+// reads back afterwards. They are variables for the same reason stepExecutor is
+// one: the row's own test has to observe the press without writing to /etc or
+// restarting a real unit on the machine running the tests, and the two are kept
+// apart so a test can prove the notice reports the read and not the install.
+var (
+	wslGuardInstaller = installWSLMemoryGuard
+	wslGuardReader    = readWSLGuardState
+)
+
+// wslGuardRepairCmd installs the guard and then reads the host back, so the
+// screen reports what the machine holds rather than what the install claims. It
+// runs off the update loop for the same reason the write does: it writes to /etc
+// and runs systemctl, and a render must never wait for either.
+//
+// The install returns an error only for a packaging defect -- a checkout that no
+// longer ships the payload or the unit. A machine that cannot be guarded prints
+// its reason and does not become an error, so the notice carries the reporting
+// and the state carries the verdict.
+func (m Model) wslGuardRepairCmd() tea.Cmd {
+	repoDir := m.WSLState.RepoDir
+	return func() tea.Msg {
+		err := wslGuardInstaller(repoDir, "utilities")
+		return wslGuardRepairedMsg{state: wslGuardReader(repoDir), err: err}
+	}
+}
+
 // wslTerminalOfferCmd builds the interactive WSL step's Windows Terminal offer
 // off the update loop: it resolves the Windows profile, reads the settings.json
 // under it and asks the font store, so it runs as a command like every other
@@ -433,15 +495,55 @@ func (m Model) appendInstallLog(lines ...string) Model {
 	return m
 }
 
-// shellAuditCmd runs one measurement off the update loop. The resolved state
-// travels with it, so what is measured is the shell the screen named, and the
-// answer is the whole state the screen draws from. It changes nothing on the
-// machine: the runs start the login shell and read back what zprof wrote into a
-// directory of the utility's own.
-func (m Model) shellAuditCmd() tea.Cmd {
-	state := m.ShellAudit
+// shellAuditProbe is the probe the screen measures with. The seam is the model's
+// own field so a guard can drive the screen's start, progress and cancel path
+// without starting the runner's real shell; in a real run the field is nil and the
+// default probe is the only one reachable.
+func (m Model) shellAuditProbe() shellAuditProbe {
+	if m.shellAuditTestProbe != nil {
+		return m.shellAuditTestProbe()
+	}
+	return defaultShellAuditProbe()
+}
+
+// shellAuditCmd starts one measurement off the update loop and answers its first
+// event. The resolved state travels with it, so what is measured is the shell the
+// screen named and the plan the rows show, and it changes nothing on the machine:
+// the runs start the shell the user asked for and read back what the shell's own
+// instrument wrote into a directory of the utility's own.
+//
+// The session it creates is returned as well as the command, because it is what a
+// cancel reaches: a screen that only stopped listening would leave the user's
+// shell being started behind it.
+func (m Model) shellAuditCmd() (*shellAuditSession, tea.Cmd) {
+	session := startShellAuditSession(m.ShellAudit, m.shellAuditProbe())
+	return session, awaitShellAuditEvent(session)
+}
+
+// awaitShellAuditEvent reads one event from a measurement in flight. The reads are
+// re-armed one at a time, so the update loop turns over between the starts and the
+// frame redraws with them: a command that drained the channel would deliver the
+// finished measurement in one step and the progress the user is watching would
+// never be drawn.
+func awaitShellAuditEvent(session *shellAuditSession) tea.Cmd {
 	return func() tea.Msg {
-		return shellAuditMeasuredMsg{state: measureShellAudit(state, defaultShellAuditProbe())}
+		event, ok := <-session.events
+		if !ok {
+			return shellAuditClosedMsg{}
+		}
+		return shellAuditEventMsg{event: event}
+	}
+}
+
+// saveShellAuditHistoryCmd stores the measurements off the update loop, and it is
+// the only thing on this screen that writes to the user's disk. It is a command
+// for the same reason the install record is written from one: a render must not
+// wait on a filesystem, and the answer the user is reading is already drawn.
+func (m Model) saveShellAuditHistoryCmd() tea.Cmd {
+	state := m.ShellAudit
+	probe := m.shellAuditProbe()
+	return func() tea.Msg {
+		return shellAuditHistorySavedMsg{err: saveShellAuditHistory(state, probe)}
 	}
 }
 
@@ -619,6 +721,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// not run for a message that changed no screen and no cursor.
 		return m.handleCompanionMouse(msg)
 
+	case sshManagerLoadedMsg, sshEffectiveMsg, sshKeysLoadedMsg, sshAgentLoadedMsg,
+		sshDiagnosticsMsg, sshTestedMsg, sshWrittenMsg, sshGeneratedMsg,
+		sshCopiedMsg, sshAgentActionMsg:
+		// The SSH manager's own answers, applied by one function in sshmanager.go so
+		// the message types and the fields they fill live beside each other: a write
+		// re-reads the configuration, a generated key re-reads the inventory, and an
+		// agent action re-reads both. The case names every type on purpose -- a
+		// default here would swallow the messages the rest of the file handles. The
+		// third result says whether the message was one of them.
+		if next, cmd, handled := m.handleSSHMessage(msg); handled {
+			return next, cmd
+		}
+		return m, nil
+
 	case tickMsg:
 		// A menu gag's lifetime uses this model tick, including when animation is
 		// gated off. The renderer sees only the resulting state and never a clock.
@@ -786,13 +902,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case themeRecordLoadedMsg:
 		// The theme record follows the same rule as the last-install one: the
-		// startup read fills a model the writer did not already fill.
+		// startup read fills a model the writer did not already fill. The undo row
+		// it can add is inserted above the section's other rows, so the cursor is
+		// held by label here too.
+		held := m.selectedOption()
 		if m.ThemeRecord == nil {
 			m.ThemeRecord = msg.record
 		}
 		if m.DotfilesThemeRecord == nil {
 			m.DotfilesThemeRecord = msg.dotfiles
 		}
+		m.holdCursorOn(held)
 		// The record names the theme the run wears; the definitions are what turns
 		// that name into chrome. A run that opens with a theme applied reads them
 		// here, so the first frame is already painted rather than the utilities
@@ -821,9 +941,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.DotfilesThemesErr = msg.err.Error()
 			return m, nil
 		}
+		// The theme row is inserted at the TOP of the section's list, above every
+		// row the user could already see, so the index the cursor holds no longer
+		// names the row it was on. The label is kept and re-found, exactly as the
+		// main menu does when the Restore row arrives: the read is armed when the
+		// section opens, so the first frame is always drawn without it.
+		held := m.selectedOption()
 		m.DotfilesThemes = msg.themes
 		m.DotfilesRepoDir = msg.repoDir
 		m.DotfilesThemesErr = ""
+		m.holdCursorOn(held)
 		return m, nil
 
 	case terminalCapabilityMsg:
@@ -834,6 +961,53 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case installVerifyMsg:
+		// The verdict is filled once, by the same rule: the check is read-only, so
+		// the first answer is the answer and a return to the screen does not stat
+		// the machine again.
+		if !m.InstallVerify.Resolved {
+			m.InstallVerify = installVerifyState{Resolved: true, Verdict: msg.verdict}
+		}
+		return m, nil
+
+	case networkCheckMsg:
+		// One check finishing while the run goes on. It is appended to the streamed
+		// list and the next read is armed on the same run: the update loop keeps
+		// reading while the run keeps producing, so a slow stage never hides a fast
+		// one, and a run that is left in flight still lands its checks here.
+		if m.Network.Running && m.Network.Run != nil {
+			m.Network.Checks = append(m.Network.Checks, msg.check)
+		}
+		return m, waitNetworkEvent(m.Network.Run)
+
+	case networkDoneMsg:
+		// The finished report replaces the streamed checks whole, so the steps a stop
+		// left unrun are named as skipped rather than missing. The cursor is held on
+		// the row it was naming before the rows changed: a report that arrives while
+		// the user is moving through the list must not hand the next Enter to a
+		// different row.
+		held := m.selectedOption()
+		report := msg.report
+		m.Network.Report = &report
+		m.Network.Checks = nil
+		m.Network.Running = false
+		m.Network.Run = nil
+		m.Network.ReportPath = networkReportPath(time.Now())
+		if report.Stopped || msg.stopped {
+			m.Network.Notice = "The run was stopped: the checks that finished are listed, and the rest are skipped."
+		} else {
+			m.Network.Notice = "The run finished. Move the cursor onto a step to read what it measured."
+		}
+		m.holdCursorOn(held)
+		return m, nil
+
+	case networkClosedMsg:
+		// The event channel closed without a report, which is the run being
+		// abandoned. The screen stops saying a run is in flight rather than waiting
+		// for an answer that is not coming.
+		m.Network.Running = false
+		m.Network.Run = nil
+		return m, nil
 	case updateCheckMsg:
 		// An answer for a channel this run has left is not an answer. The channel
 		// row can be pressed while a check is in flight, so the older check's reply
@@ -884,6 +1058,87 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			installed, source, msg.kept)
 		return m, nil
 
+	case doctorCheckDoneMsg:
+		// A message from a run that was cancelled and restarted belongs to the run
+		// that asked for it, never to the one on screen now.
+		run := m.Doctor.Run
+		if run == nil || run.ID != msg.RunID {
+			return m, nil
+		}
+		run.Results[msg.Result.ID] = msg.Result
+		run.Next = msg.Index + 1
+		if run.Canceled {
+			m.doctorFinishRun("the run was cancelled before this check ran")
+			return m, nil
+		}
+		if run.Next < len(run.Plan) {
+			run.Message = m.doctorProgressLine()
+			return m, m.doctorCheckCmd()
+		}
+		m.doctorFinishRun("")
+		return m, nil
+
+	case doctorFixDoneMsg:
+		m.Doctor.FixNotice = msg.Outcome.Notice
+		if !msg.Outcome.Applied {
+			return m, nil
+		}
+		// The finding that offered the fix is re-checked, so the list states the
+		// state after the change rather than what the check found before it.
+		m.Doctor.Pending = nil
+		m.Screen = ScreenDoctor
+		m.settleDoctorCursor()
+		check, found := doctorCheckByID(msg.Finding.Check)
+		if !found {
+			m.Doctor.Notice = msg.Outcome.Notice
+			return m, nil
+		}
+		m.Doctor.Notice = msg.Outcome.Notice
+		return m, m.doctorStartRun([]doctorCheck{check}, false)
+
+	case doctorReportWrittenMsg:
+		switch {
+		case msg.Err != "":
+			m.Doctor.Notice = "The report could not be written: " + msg.Err
+		case dryRun():
+			m.Doctor.Notice = "A dry run wrote nothing. The report would have gone to " + doctorRelHomePath(msg.Path)
+		default:
+			m.Doctor.Notice = "Report written to " + doctorRelHomePath(msg.Path)
+		}
+		return m, nil
+
+	case updateCenterReadMsg:
+		// One manager's answer. The pass stores it and asks the next channel that can
+		// be asked, so the screen fills in as the machine answers rather than waiting
+		// for the slowest manager. A read that lands after the screen was left is
+		// still stored: the answer belongs to the model, and losing it would make the
+		// next visit pay for the same question again.
+		return m.updateCenterHandleRead(msg)
+
+	case updateCenterApplyDoneMsg:
+		// One command of the confirmed sequence. The engine has already re-read the
+		// manager this command belongs to, so the result carries what the manager says
+		// now rather than what the exit status suggested. A cancelled command ends the
+		// sequence: the remaining plans were not reached, and they are reported as
+		// left out rather than run.
+		return m.updateCenterHandleApplyDone(msg)
+
+	case updateCenterLineMsg:
+		// One line of a running command's output, kept as the tail the screen draws.
+		// A line that arrives with no run open is a straggler from a command that has
+		// already been reported on: the result keeps its own bounded copy, so the line
+		// is dropped rather than appended to the log of whatever runs next.
+		if m.UpdateCenter.Lines == nil {
+			return m, nil
+		}
+		m.updateCenterAppendLine(string(msg))
+		return m, updateCenterWaitForLine(m.UpdateCenter.Lines)
+
+	case updateCenterLinesClosedMsg:
+		// The command stopped writing. Nothing is left to read: the result itself is
+		// what carries the outcome, and this message only ends the read loop.
+		return m, nil
+
 	case wslResourceLoadedMsg:
 		// The first read fills the state once: a later answer arriving after the
 		// screen has been written would roll the draft back to what the file held.
@@ -891,8 +1146,26 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the values the write just changed -- so it is accepted too, and the state
 		// it brings clears the refreshing mark by not carrying one.
 		if !m.WSLState.Resolved || m.WSLState.Refreshing {
+			// The WSL row is inserted above the section's read-only rows when the
+			// answer says there is a .wslconfig to edit, and the read is armed when
+			// the section opens, so the row arrives under a cursor that was placed
+			// on the rows already there. The label is kept and re-found.
+			held := m.selectedOption()
 			m.WSLState = msg.state
+			m.holdCursorOn(held)
 		}
+		return m, nil
+
+	case wslGuardRepairedMsg:
+		// The state is replaced by what the host holds after the repair, never by
+		// what the install reported: a guard whose unit exited non-zero leaves the
+		// screen saying exactly which protection is still missing.
+		m.WSLState.Guard = msg.state
+		if msg.err != nil {
+			m.WSLNotice = fmt.Sprintf("The WSL memory guard could not be installed: %v", msg.err)
+			return m, nil
+		}
+		m.WSLNotice = wslGuardRepairNotice(msg.state)
 		return m, nil
 
 	case wslResourceWrittenMsg:
@@ -955,6 +1228,70 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.WSLTerminalOfferDone = true
 		return m, m.runNextStep()
 
+	case wslBenchmarkDoneMsg:
+		// The report replaces the previous one whole, so the screen never shows a
+		// mixture of two runs; a run that measured nothing says so through the same
+		// fields as a run that measured everything.
+		m.WSLAdvisor.Benchmark.Running = false
+		m.WSLAdvisor.Benchmark.Ran = true
+		m.WSLAdvisor.Benchmark.Report = msg.report
+		m.WSLAdvisor.Benchmark.Notice = wslBenchmarkPanelValue(m.WSLAdvisor.Benchmark)
+		return m, nil
+
+	case wslMigrationPlannedMsg:
+		// The preview is only accepted for the pair the screen is still on: a plan
+		// for a source the user has already left behind must not appear as if it
+		// described the current choice.
+		migration := &m.WSLAdvisor.Migration
+		if migration.Phase != wslMigrateReadingSource {
+			return m, nil
+		}
+		if msg.err != "" {
+			migration.PlanErr = msg.err
+		} else {
+			migration.Plan = msg.plan
+			migration.PlanErr = ""
+		}
+		migration.Phase = wslMigratePreview
+		m.Cursor = 0
+		return m, nil
+
+	case wslMigrationProgressMsg:
+		m.WSLAdvisor.Migration.Progress = msg.progress
+		m.WSLAdvisor.Migration.ProgressSeen = true
+		return m, nil
+
+	case wslMigrationCopiedMsg:
+		// The outcome lands even when it arrived after the user stepped back, and
+		// the run's own report is what the screen shows, including a cancelled run
+		// and a partial copy: neither is turned into a success here.
+		migration := &m.WSLAdvisor.Migration
+		migration.Running = false
+		migration.Cancel = nil
+		migration.Report = msg.report
+		migration.ReportErr = msg.err
+		if msg.report.Destination != "" {
+			migration.Plan.Destination = msg.report.Destination
+		}
+		migration.Phase = wslMigrateDone
+		m.Cursor = 0
+		migration.Notice = ""
+		return m, nil
+
+	case wslAdvisorLoadedMsg:
+		// The reading replaces the old one whole, so the report never shows a
+		// mixture of two readings: a half-updated table would let a reader compare
+		// a mount table from one moment with a memory figure from another.
+		msg.state.Notice = m.WSLAdvisor.Notice
+		m.WSLAdvisor = msg.state
+		// The cursor is clamped rather than reset: a re-read while the reader is on
+		// a row should leave them on that row when the list is the same length, and
+		// never past the end when it is not.
+		if rows := m.wslAdvisorRows(); m.Cursor >= len(rows) {
+			m.Cursor = 0
+		}
+		return m, nil
+
 	case shellAuditMeasuredMsg:
 		// The measurement is not an install step and cannot fail as one: every run
 		// it could not complete is already part of the state it brings back, with
@@ -963,53 +1300,86 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShellAudit = msg.state
 		return m, nil
 
-	case doctorCheckDoneMsg:
-		// A message from a run that was cancelled and restarted belongs to the run
-		// that asked for it, never to the one on screen now.
-		run := m.Doctor.Run
-		if run == nil || run.ID != msg.RunID {
-			return m, nil
+	case diskCleanScanMsg:
+		// A scan is not an install step, so its answer lands on this screen rather
+		// than on a failed one. It replaces the findings whole -- the selection goes
+		// with them, so nothing from an older scan can be confirmed against a
+		// number that has since changed -- and it says plainly when the answer is
+		// only what the walk reached before it was cancelled or bounded.
+		m.DiskClean.Scanning = false
+		m.DiskClean.Scanned = true
+		m.DiskClean.Cancel = nil
+		m.DiskClean.Progress = ""
+		m.DiskClean.Items = msg.items
+		m.DiskClean.Selection = diskclean.Selection{}
+		m.DiskClean.Planned = false
+		m.DiskClean.Plan = diskclean.Plan{}
+		// The cursor lands on the first finding rather than on the scan row: the
+		// card of the finding under the cursor is where the reason it was found and
+		// the paths it covers are read, and a scan that left the cursor above the
+		// list would hide the evidence until the first arrow key.
+		m.Cursor = m.diskCleanFirstItemCursor()
+		if msg.cancelled {
+			m.DiskClean.Notice = diskCleanScanCancelledNotice(msg.items)
+		} else {
+			m.DiskClean.Notice = diskCleanScanNotice(msg.items)
 		}
-		run.Results[msg.Result.ID] = msg.Result
-		run.Next = msg.Index + 1
-		if run.Canceled {
-			m.doctorFinishRun("the run was cancelled before this check ran")
-			return m, nil
-		}
-		if run.Next < len(run.Plan) {
-			run.Message = m.doctorProgressLine()
-			return m, m.doctorCheckCmd()
-		}
-		m.doctorFinishRun("")
 		return m, nil
 
-	case doctorFixDoneMsg:
-		m.Doctor.FixNotice = msg.Outcome.Notice
-		if !msg.Outcome.Applied {
-			return m, nil
-		}
-		// The finding that offered the fix is re-checked, so the list states the
-		// state after the change rather than what the check found before it.
-		m.Doctor.Pending = nil
-		m.Screen = ScreenDoctor
-		m.settleDoctorCursor()
-		check, found := doctorCheckByID(msg.Finding.Check)
-		if !found {
-			m.Doctor.Notice = msg.Outcome.Notice
-			return m, nil
-		}
-		m.Doctor.Notice = msg.Outcome.Notice
-		return m, m.doctorStartRun([]doctorCheck{check}, false)
+	case diskCleanProgressMsg:
+		// Progress is a label, not a measurement: it names the store being worked
+		// on so a long scan does not look like a frozen screen.
+		m.DiskClean.Progress = msg.label
+		return m, nil
 
-	case doctorReportWrittenMsg:
-		switch {
-		case msg.Err != "":
-			m.Doctor.Notice = "The report could not be written: " + msg.Err
-		case dryRun():
-			m.Doctor.Notice = "A dry run wrote nothing. The report would have gone to " + doctorRelHomePath(msg.Path)
-		default:
-			m.Doctor.Notice = "Report written to " + doctorRelHomePath(msg.Path)
+	case diskCleanCleanedMsg:
+		m.DiskClean.CleanReport = msg.report
+		m.DiskClean.Phase = diskCleanResults
+		m.DiskClean.Cancel = nil
+		m.DiskClean.Progress = ""
+		m.DiskClean.Notice = diskCleanResultNotice(msg.report)
+		m.DiskClean.Planned = false
+		m.Cursor = 0
+		return m, nil
+
+	case shellAuditEventMsg:
+		// A start or the result itself. The result is folded in by the one
+		// projection the engine and the screen share, and it is then stored when
+		// the user asked for that; everything else is progress, and the next read
+		// is armed from the same session so the measurement keeps reporting itself.
+		if msg.event.Done {
+			m.ShellAudit = m.ShellAudit.withShellAuditResult(msg.event)
+			m.ShellAuditSession = nil
+			if m.ShellAudit.History.Enabled {
+				return m, m.saveShellAuditHistoryCmd()
+			}
+			return m, nil
 		}
+		m.ShellAudit.Progress = msg.event.Progress
+		if m.ShellAuditSession == nil {
+			// The session was cancelled and cleared while this event was in flight.
+			// The reader is not re-armed: the channel is buffered for the whole
+			// measurement, so nothing is left waiting on this end of it.
+			return m, nil
+		}
+		return m, awaitShellAuditEvent(m.ShellAuditSession)
+
+	case shellAuditClosedMsg:
+		// The events ended without a result, which is not a measurement the screen
+		// can draw. It stops claiming to be measuring and says which shell it was
+		// waiting on, so the row can be pressed again.
+		m.ShellAudit.Measuring = false
+		m.ShellAudit.Progress = shellAuditProgress{}
+		m.ShellAuditSession = nil
+		return m, nil
+
+	case shellAuditHistorySavedMsg:
+		if msg.err != nil {
+			m.ShellAudit.HistoryError = fmt.Sprintf("the measurements could not be stored (%v), so this run "+
+				"keeps them only until it closes.", msg.err)
+			return m, nil
+		}
+		m.ShellAudit.HistoryError = ""
 		return m, nil
 
 	case dotfilesThemeChangedMsg:
@@ -1290,6 +1660,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// The network screen owns every key while its destination field is open: a space
+	// is not accepted by the field, backspace deletes a character and escape closes
+	// the field rather than leaving the screen, exactly as the password screen keeps
+	// its own keys. The field is dispatched here, before those global meanings,
+	// because a field that loses a character to a navigation key is not a field.
+	if m.Screen == ScreenNetworkDiagnostics && m.Network.InputActive {
+		return m.updateNetworkInput(msg)
+	}
+
 	// The password screen owns every key it uses. It is reached in the middle of an
 	// install, where the global meanings of these keys would take a character away
 	// from the field: space would open the leader key instead of being typed,
@@ -1298,6 +1677,16 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// dispatch here, before any of them, is what keeps the field a field.
 	if m.Screen == ScreenAdminPassword {
 		return m.updateAdminPassword(msg)
+	}
+
+	// The SSH manager's screens own every key they use, for the same reason the
+	// password screen does: the form, the generation form and the test's alias
+	// field are text fields, and the global meanings of space and backspace would
+	// take characters away from them. The dispatch is taken here, before the
+	// leader key and before Escape, and each screen's own handler decides what its
+	// Escape means -- cancelling a plan or a sub-state before it leaves the screen.
+	if isSSHManagerScreen(m.Screen) {
+		return m.handleKeyPressSSH(msg)
 	}
 
 	// <space> activates leader mode EXCEPT in screens that need space for input
@@ -1323,11 +1712,37 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// editor and the backup, and turning a switch on or off is the whole
 			// point of the row. Passing it to the leader key would leave every
 			// switch in the interface advertised and unreachable.
+		case m.Screen == ScreenDiskCleaner:
+			// The disk cleaner owns space too: it is the switch key on every
+			// finding, and marking a finding for cleanup is the whole point of the
+			// row. Passing it to the leader key would leave every checkbox on the
+			// screen advertised and unreachable.
+		case m.Screen == ScreenUpdateCenter:
+			// The update center owns space for the same reason the setup screen's
+			// switches do: on that list space selects or drops the entry the cursor is
+			// on, which is the whole point of a row. Leaving it to the leader key would
+			// advertise a key the screen never receives, and the first press would
+			// silently arm the leader so the *next* key was read as a leader command.
+		case isSSHManagerScreen(m.Screen):
+			// The SSH manager's screens are dispatched above, before this switch:
+			// the space belongs to the field or the row it is pressed on.
 		default:
 			// All other screens: activate leader mode
 			m.LeaderMode = true
 			return m, nil
 		}
+	}
+
+	// The shell startup screen is the one screen where Escape means two things: the
+	// way back when nothing is running, and the stop while the runs are still
+	// coming. The stop has to be taken here, before the global Escape below,
+	// because that dispatch leaves the screen -- and a screen the user has left
+	// would go on starting their shell with nothing on screen saying so.
+	if key == "esc" && m.Screen == ScreenShellAudit && m.ShellAudit.Measuring {
+		if m.ShellAuditSession != nil {
+			m.ShellAuditSession.cancel()
+		}
+		return m, nil
 	}
 
 	// ESC goes back from content/learn screens (and cancels leader mode implicitly)
@@ -1380,8 +1795,20 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning:
 		return m.handleSelectionKeys(key)
 
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnPrompts:
 		return m.handleLearnMenuKeys(key)
+
+	case ScreenLearnTools:
+		return m.handleLearnHubKeys(key)
+
+	case ScreenLearnTooling:
+		return m.handleReferenceTableKeys(key, len(shellToolingRows()))
+
+	case ScreenLearnPlugins:
+		return m.handleReferenceTableKeys(key, len(pluginSetRows()))
+
+	case ScreenLearnToolset:
+		return m.handleReferenceTableKeys(key, len(toolsetDirectives()))
 
 	case ScreenKeymaps:
 		return m.handleKeymapsMenuKeys(key)
@@ -1416,6 +1843,18 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenKeymapsHerdrCat:
 		return m.handleHerdrKeymapCategoryKeys(key)
 
+	case ScreenKeymapsKitty:
+		return m.handleKittyKeymapsMenuKeys(key)
+
+	case ScreenKeymapsKittyCat:
+		return m.handleKittyKeymapCategoryKeys(key)
+
+	case ScreenKeymapsWezTerm:
+		return m.handleReferenceTableKeys(key, len(weztermConfigTable().Rows))
+
+	case ScreenKeymapsAlacritty:
+		return m.handleReferenceTableKeys(key, len(alacrittyConfigTable().Rows))
+
 	case ScreenLearnLazyVim:
 		return m.handleLazyVimMenuKeys(key)
 
@@ -1436,6 +1875,48 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenShellAudit:
 		return m.handleShellAuditKeys(key)
+
+	case ScreenDiskCleaner:
+		return m.handleDiskCleanerKeys(key)
+
+	case ScreenUpdateCenter:
+		return m.handleUpdateCenterKeys(key)
+
+	case ScreenInstallVerify:
+		return m.handleInstallVerifyKeys(key)
+
+	case ScreenNetworkDiagnostics:
+		return m.handleNetworkKeys(key)
+
+	case ScreenWSLAdvisor:
+		return m.handleWSLAdvisorKeys(key)
+
+	case ScreenWSLBenchmark:
+		return m.handleWSLBenchmarkKeys(key)
+
+	case ScreenWSLMigration:
+		return m.handleWSLMigrationKeys(key)
+
+	case ScreenSSHManager:
+		return m.handleSSHManagerKeys(key)
+
+	case ScreenSSHHost:
+		return m.handleSSHHostKeys(key)
+
+	case ScreenSSHForm:
+		return m.handleSSHFormKeys(key)
+
+	case ScreenSSHKeys:
+		return m.handleSSHKeysKeys(key)
+
+	case ScreenSSHAgent:
+		return m.handleSSHAgentKeys(key)
+
+	case ScreenSSHDiagnostics:
+		return m.handleSSHDiagnosticsKeys(key)
+
+	case ScreenSSHTest:
+		return m.handleSSHTestKeys(key)
 
 	case ScreenUpdate:
 		return m.handleUpdateKeys(key)
@@ -1529,19 +2010,25 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenKeymapsHerdrCat:
 		m.Screen = ScreenKeymapsHerdr
 		m.HerdrKeymapScroll = 0
+	case ScreenKeymapsKittyCat:
+		m.Screen = ScreenKeymapsKitty
+		m.KittyKeymapScroll = 0
 	case ScreenLazyVimTopic:
 		m.Screen = ScreenLearnLazyVim
 		m.LazyVimScroll = 0
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim:
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
 		m.ViewingTool = ""
+		m.ReferenceTableScroll = 0
 	case ScreenKeymaps:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
-	case ScreenKeymapsTmux, ScreenKeymapsZellij, ScreenKeymapsGhostty, ScreenKeymapsHerdr:
+	case ScreenKeymapsTmux, ScreenKeymapsZellij, ScreenKeymapsGhostty, ScreenKeymapsHerdr,
+		ScreenKeymapsKitty, ScreenKeymapsWezTerm, ScreenKeymapsAlacritty:
 		m.Screen = ScreenKeymapsMenu
 		m.Cursor = 0
+		m.ReferenceTableScroll = 0
 	case ScreenKeymapsMenu, ScreenLearnLazyVim:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
@@ -1589,13 +2076,102 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// back to the section that opened it.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
-	case ScreenShellAudit:
-		// The shell startup screen is one level in as well. Leaving it cancels
-		// nothing: a measurement that is still running writes its answer onto the
-		// model regardless, which is what keeps the number from being lost because
-		// the user stepped back while it ran.
+	case ScreenWSLAdvisor:
+		// The report is one level in from the section. Leaving it clears the
+		// notice of the last action, exactly as the other utility screens do, so a
+		// later visit does not open on a stale result; the reading itself stays,
+		// because it is what the panel shows.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
+		m.WSLAdvisor.Notice = ""
+	case ScreenWSLBenchmark:
+		// The measurement screen is one level further in. A run in flight keeps
+		// running and writes its report onto the model, exactly as the shell audit's
+		// measurement does: stepping back must not lose a number that was paid for.
+		m.Screen = ScreenWSLAdvisor
+		m.Cursor = 0
+		m.WSLAdvisor.Benchmark.Notice = ""
+	case ScreenWSLMigration:
+		// The copy screen walks its own phases in reverse, and stops a copy in
+		// flight: a copy is the one action here that keeps costing something while
+		// the user is elsewhere.
+		return m.wslMigrationEscape()
+	case ScreenShellAudit:
+		// The shell startup screen is one level in as well, and with nothing running
+		// this is the way back. Escape while a measurement runs never reaches this
+		// dispatch: it is the stop, taken above, so the starts the user asked for
+		// are the starts that are running.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+	case ScreenUpdateCenter:
+		// The update center owns its own Escape, because what it means depends on the
+		// state the screen is in: the confirmation cancels and returns to the list, a
+		// running update is refused a way out (hiding the screen mid-transaction would
+		// hide the only place that can stop it), and the list itself steps back to the
+		// section it was opened from. Routing it to the screen's own handler keeps
+		// those three in one place instead of splitting them between two files.
+		return m.handleUpdateCenterKeys("esc")
+	case ScreenInstallVerify:
+		// The verification screen is one level in as well, and read-only: leaving
+		// it cancels nothing, because nothing it does is a change.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+	case ScreenNetworkDiagnostics:
+		// The diagnosis is one level in, and it is the one screen of the section
+		// whose Esc has three meanings: it stops a run that is going, it closes an
+		// open preview, and only then does it leave. That order lives in one place,
+		// leaveNetworkScreen, so the key's meaning cannot drift between them.
+		return m.leaveNetworkScreen()
+
+	case ScreenSSHManager:
+		// The manager is one level in from the utilities section. A test that is
+		// still running is cancelled on the way out: an answer nobody is waiting for
+		// must not land on a screen the user has left.
+		m.cancelSSHTest("")
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.SSH.Notice = ""
+	case ScreenSSHHost:
+		m.Screen = ScreenSSHManager
+		m.Cursor = m.SSH.HostIndex
+		m.SSH.Notice = ""
+	case ScreenSSHForm:
+		// The form's Escape is the cancel its footer names: a plan is discarded
+		// first, and only a second Escape leaves the form.
+		if m.SSH.Plan != nil {
+			m.SSH.Plan = nil
+			m.SSH.Notice = "Nothing was written."
+			return m, nil
+		}
+		m = m.leaveSSHForm()
+	case ScreenSSHKeys:
+		if m.SSH.KeysMode != "" {
+			m.SSH.KeysMode = ""
+			m.SSH.AddPassphrase = ""
+			m.Cursor = 0
+			m.SSH.Notice = ""
+			return m, nil
+		}
+		m.Screen = ScreenSSHManager
+		m.Cursor = 0
+		m.SSH.Notice = ""
+	case ScreenSSHAgent:
+		m.Screen = ScreenSSHManager
+		m.Cursor = 0
+		m.SSH.Notice = ""
+		m.SSH.AgentConfirm = false
+	case ScreenSSHDiagnostics:
+		m.Screen = ScreenSSHManager
+		m.Cursor = 0
+		m.SSH.Notice = ""
+	case ScreenSSHTest:
+		m = m.leaveSSHTest()
+	case ScreenDiskCleaner:
+		// The disk cleaner owns this key: escape is the way out of a preview, it
+		// stops a scan or a cleanup in flight, and only when there is nothing to
+		// step back from does it leave for the section. Its own handler says which
+		// of those it is, so this case and its footer cannot drift apart.
+		return m.diskCleanerEscape()
 	case ScreenUpdate:
 		// The update screen steps back to the main menu, which is where its row now
 		// lives. Leaving it clears the last update's notice so a later visit does
@@ -1783,7 +2359,10 @@ func (m Model) shellCursor() int {
 // when it records the detected shell.
 
 func (m Model) startTrainer() (tea.Model, tea.Cmd) {
-	stats := trainer.LoadStats()
+	// The reporting load is the one the trainer's own entry point uses: a profile that
+	// could not be read is moved aside and the player is told where it went, instead of
+	// being handed a silent zero that the next save would write over.
+	stats, problem := trainer.LoadStatsReport()
 	if stats == nil {
 		stats = trainer.NewUserStats()
 	}
@@ -1791,7 +2370,7 @@ func (m Model) startTrainer() (tea.Model, tea.Cmd) {
 	m.TrainerGameState = nil
 	m.TrainerCursor = 0
 	m.TrainerInput = ""
-	m.TrainerMessage = ""
+	m.TrainerMessage = problem
 	m.Screen = ScreenTrainerMenu
 	m.PrevScreen = ScreenMainMenu
 	return m, nil
@@ -1817,7 +2396,8 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// other main-menu keys, like `vim`.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
-		m.ThemeNotice = ""
+		// Not cleared, for the reason the row's own case states: the outcome of a
+		// switch that failed while the user was away has to survive the way back in.
 		return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
 	case "enter", " ":
 		selected := options[m.Cursor]
@@ -1829,7 +2409,9 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// question's cursor rule lives inside enterSetup now.
 			m.enterSetup()
 		case strings.Contains(selected, "Learn About Tools"):
-			m.Screen = ScreenLearnTerminals
+			// The row opens the hub rather than the terminal list: the hub is the one
+			// route the main menu has to the shell, multiplexer and Neovim pages.
+			m.Screen = ScreenLearnTools
 			m.PrevScreen = ScreenMainMenu
 			m.Cursor = 0
 		case strings.Contains(selected, "Keymaps Reference"):
@@ -1873,7 +2455,11 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// user finds it, the key is the shortcut for someone who has.
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
-			m.ThemeNotice = ""
+			// The notice is deliberately NOT cleared here. A switch is bounded by
+			// themeCommandTimeout and its failure is the slow outcome, so a user who
+			// steps away before it lands would have the one result they must see
+			// erased by the act of coming back to read it. Leaving the section still
+			// clears it, which is where the user has already read it.
 			return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
 		case strings.Contains(selected, "Restore from Backup") && hasRestoreOption:
 			m.Screen = ScreenRestoreBackup
@@ -1942,6 +2528,13 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenWSLResources
 			m.Cursor = 0
 			m.WSLNotice = ""
+		case selected == utilitiesVerifyRow:
+			// The verification is one level in as well, and it is the check that runs
+			// off the update loop: the record and the paths it names are stated here,
+			// and a keypress must not wait on them.
+			m.Screen = ScreenInstallVerify
+			m.Cursor = 0
+			return m, m.installVerifyCmdIfNeeded()
 		case selected == utilitiesTerminalRow:
 			// The capability report is one level in as well, and it is read-only.
 			// The probe is armed here -- when the user opens the screen, never at
@@ -1950,12 +2543,36 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenTerminalCapabilities
 			m.Cursor = 0
 			return m, m.terminalCapabilityCmdIfNeeded()
+		case selected == utilitiesDiskCleanerRow:
+			// The disk cleaner is one level in, for the same reason the other
+			// utilities are: the section is a list of jobs. Nothing is scanned on the
+			// way in -- the screen's own scan row starts that -- so opening the screen
+			// never puts a walk of the machine between the press and the screen.
+			m.Screen = ScreenDiskCleaner
+			m.Cursor = 0
+			m.DiskClean.Notice = ""
+			return m, nil
 		case selected == utilitiesShellAuditRow:
 			// The shell's startup is one level in too. Nothing is measured on the way
 			// in: starting the user's shell five times is a choice, and it is made on
 			// that screen's own row.
 			m.Screen = ScreenShellAudit
 			m.Cursor = 0
+		case selected == utilitiesUpdatesRow:
+			// The update center is one level in, and it is the one row of this section
+			// that asks the machine's package managers anything. The read starts here
+			// -- when the user opens the screen, never at startup -- and it runs off the
+			// update loop one manager at a time, so the rows appear as the machine
+			// answers instead of the frame waiting on the slowest manager.
+			//
+			// The command is built before the model is returned: the call records which
+			// manager is being read, and a `return m, m.startUpdateCenterScan()` would
+			// copy the model before that call wrote to it, so the first answer would
+			// arrive for a pass the screen does not believe is running.
+			m.Screen = ScreenUpdateCenter
+			m.Cursor = 0
+			scan := m.startUpdateCenterScan()
+			return m, scan
 		case selected == utilitiesDoctorRow:
 			// The doctor is one level in as well, and nothing is checked on the way
 			// in: a scan reads the whole machine, so it is started from the screen's
@@ -1963,6 +2580,29 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenDoctor
 			m.Cursor = 0
 			m.Doctor.Notice = ""
+		case selected == utilitiesNetworkRow:
+			// The diagnosis is one level in for the same reason, and it dials nothing
+			// on the way in either: the checks start from that screen's own row, and the
+			// host the overview contacts is named there.
+			m.Screen = ScreenNetworkDiagnostics
+			m.Cursor = 0
+			m.Network.Notice = ""
+
+		case selected == utilitiesSSHRow:
+			// The SSH manager is one level in as well. The client and the
+			// configuration are read on the way in, because which hosts exist is what
+			// the screen is for and a screen that opened empty and filled a moment
+			// later would make the user press twice. The read runs as a command, so
+			// probing the client cannot block the update loop.
+			m.Screen = ScreenSSHManager
+			m.Cursor = 0
+			m.SSH.HostIndex = 0
+			m.SSH.KeysMode = ""
+			m.SSH.Notice = ""
+			if m.SSH.Manager == nil {
+				return m, sshLoadCmd()
+			}
+			return m, sshConfigCmd(m.SSH.Manager)
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			m.ThemeNotice = "Putting the previous desktop theme back…"
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
@@ -2053,6 +2693,13 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 			// wait is visible and the result replaces it in the same rows.
 			m.WSLNotice = fmt.Sprintf("Writing %s…", m.WSLState.Path)
 			return m, m.wslResourceWriteCmd()
+		case options[m.Cursor] == wslGuardRepairRow:
+			// The guard is the part of this screen that is not the .wslconfig, so
+			// its row says what it is doing before it starts: the install writes two
+			// files and restarts a unit, and a silent press would read as nothing
+			// having happened while it runs.
+			m.WSLNotice = "Installing the WSL memory guard…"
+			return m, m.wslGuardRepairCmd()
 		case strings.Contains(options[m.Cursor], "Back"):
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
@@ -2076,14 +2723,14 @@ func (m Model) handleTerminalCapabilitiesKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleShellAuditKeys drives the shell startup screen. It only ever changes the
-// screen, the cursor or the one flag that says a measurement is in flight: the
-// measurement itself is a command, because it starts the user's shell several
-// times and a keypress must not block the update loop.
+// handleShellAuditKeys drives the shell startup screen: the plan the rows above
+// the measure row carry, the measurement itself, the keys that stop it, and the
+// one setting on this screen that writes to the user's disk.
 //
-// The measure row is the only row that does anything. The result rows under it
-// are the data and are inert by design: this screen offers no way to change the
-// shell's configuration, so there is nothing for them to do.
+// The measurement is a command rather than something a keypress does, because it
+// starts the user's shell several times; the session it starts is kept on the
+// model, so the starts the user asks to stop are really stopped rather than
+// watched from a screen they have left.
 func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -2102,30 +2749,82 @@ func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "esc":
-		m.Screen = ScreenUtilities
-		m.Cursor = 0
+	case "m", "n", "w", "b":
+		// The plan. None of it can change while a measurement is running: the run
+		// carries the plan it started with, and a screen that redrew a new one beside
+		// a number measured under the old one would be describing a measurement that
+		// never happened.
+		if m.ShellAudit.Measuring {
+			return m, nil
+		}
+		m = m.cycleShellAuditPlan(key)
+	case "h":
+		// The history switch has a key of its own, because it is the one setting
+		// here that writes a file into the user's home: turning it on and off should
+		// not require finding a row first.
+		return m.toggleShellAuditHistory()
+	case "r":
+		// Opening the recommendations moves them to the top of the text below, where
+		// the frame's own cut cannot reach them first.
+		m.ShellAudit.AdviceOpen = !m.ShellAudit.AdviceOpen
 	case "enter", " ":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
+		row := options[m.Cursor]
 		switch {
-		case options[m.Cursor] == utilitiesShellAuditRow:
+		case row == utilitiesShellAuditRow:
 			// One measurement at a time: a second press while the first is still
-			// running its five starts would start five more beside it and report
+			// running its starts would start more of them beside it and report
 			// whichever finished last.
 			if m.ShellAudit.Measuring || !m.ShellAudit.Available {
 				return m, nil
 			}
 			m.ShellAudit.Measuring = true
-			return m, m.shellAuditCmd()
-		case strings.Contains(options[m.Cursor], "Back"):
+			m.ShellAudit.Cancelled = false
+			m.ShellAudit.Progress = shellAuditProgress{Part: shellAuditPartVersion}
+			session, cmd := m.shellAuditCmd()
+			m.ShellAuditSession = session
+			return m, cmd
+		case strings.Contains(row, "Back"):
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
 		}
 	}
 
 	return m, nil
+}
+
+// cycleShellAuditPlan is the plan key: one setting moves one step, and the others
+// are left where they are. The cycles are the engine's own lists, so a setting the
+// screen offers is a setting the measurement can make.
+func (m Model) cycleShellAuditPlan(key string) Model {
+	switch key {
+	case "m":
+		m.ShellAudit.Plan.Mode = nextShellAuditMode(m.ShellAudit.Plan.Mode, m.ShellAudit.Kind)
+	case "n":
+		m.ShellAudit.Plan.Samples = nextShellAuditSamples(m.ShellAudit.Plan.Samples)
+	case "w":
+		m.ShellAudit.Plan.Warmup = nextShellAuditWarmup(m.ShellAudit.Plan.Warmup)
+	case "b":
+		m.ShellAudit.Plan.Baseline = !m.ShellAudit.Plan.Baseline
+	}
+	return m
+}
+
+// toggleShellAuditHistory turns the local history on and off and stores the
+// choice. The measurements already stored are kept when it is turned off: the
+// switch is about whether this utility keeps measuring, and throwing away what
+// the user did ask for would be a deletion nobody asked for. Turning it on writes
+// the file, so the choice survives the next start.
+func (m Model) toggleShellAuditHistory() (tea.Model, tea.Cmd) {
+	m.ShellAudit.History.Enabled = !m.ShellAudit.History.Enabled
+	if m.ShellAudit.History.Enabled {
+		return m, m.saveShellAuditHistoryCmd()
+	}
+	// Turning it off is also worth writing down: the file keeps the decisions, so
+	// the switch is where the next run reads it from.
+	return m, m.saveShellAuditHistoryCmd()
 }
 
 // handleUpdateKeys drives this installer's own release screen. Like the other
@@ -2471,6 +3170,86 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleLearnHubKeys walks the Learn About Tools hub. Enter resolves the row
+// through learnToolRows() rather than by its position, so the page a row opens
+// and the row the menu draws cannot drift apart, and Escape is the way back to
+// whatever opened the hub.
+// handleReferenceTableKeys scrolls a read-only reference page and leaves it. The
+// pages share one scroll value because only one of them is on screen at a time,
+// and the value is reset when the page is opened and when it is left, so a page
+// never opens part-way down a table the reader has not seen. The window and its
+// clamp come from the same helper the renderer windows with, so the last row is
+// reachable.
+func (m Model) handleReferenceTableKeys(key string, rows int) (tea.Model, tea.Cmd) {
+	maxScroll := offsetWindowMax(keymapTableRows(m.Height), rows)
+
+	switch key {
+	case "up", "k":
+		if m.ReferenceTableScroll > 0 {
+			m.ReferenceTableScroll--
+		}
+	case "down", "j":
+		if m.ReferenceTableScroll < maxScroll {
+			m.ReferenceTableScroll++
+		}
+	case "enter", " ", "q":
+		m.Screen = m.PrevScreen
+		m.ReferenceTableScroll = 0
+	}
+
+	return m, nil
+}
+
+func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if m.learnSeparatorAt(options, m.Cursor) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if m.learnSeparatorAt(options, m.Cursor) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "enter", " ":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		if m.learnSeparatorAt(options, m.Cursor) || strings.Contains(selected, "Back") {
+			m.Screen = m.PrevScreen
+			m.Cursor = 0
+			return m, nil
+		}
+		row, ok := learnToolRowByLabel(selected)
+		if !ok {
+			return m, nil
+		}
+		m.PrevScreen = ScreenLearnTools
+		m.Screen = row.Screen
+		m.Cursor = 0
+		m.ViewingTool = ""
+		m.ReferenceTableScroll = 0
+	}
+
+	return m, nil
+}
+
+// learnSeparatorAt reports whether the option at an index is the menu's rule.
+func (m Model) learnSeparatorAt(options []string, index int) bool {
+	if index < 0 || index >= len(options) {
+		return false
+	}
+	return strings.HasPrefix(options[index], m.menuSeparator())
+}
+
 func (m Model) handleLearnMenuKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -2621,24 +3400,29 @@ func (m Model) handleToolKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Navigate to specific tool's keymaps
-		switch m.Cursor {
-		case 0: // Neovim
+		// The menu routes by the label rather than by the row index it used to
+		// switch on: a positional switch silently sent a new row to the wrong
+		// tool's reference as soon as a row was inserted above another one.
+		switch selected {
+		case "Neovim":
 			m.Screen = ScreenKeymaps
-			m.Cursor = 0
-		case 1: // Tmux
+		case "Tmux":
 			m.Screen = ScreenKeymapsTmux
-			m.Cursor = 0
-		case 2: // Zellij
+		case "Zellij":
 			m.Screen = ScreenKeymapsZellij
-			m.Cursor = 0
-		case 3: // Herdr
+		case "Herdr":
 			m.Screen = ScreenKeymapsHerdr
-			m.Cursor = 0
-		case 4: // Ghostty
+		case "Ghostty":
 			m.Screen = ScreenKeymapsGhostty
-			m.Cursor = 0
+		case "Kitty":
+			m.Screen = ScreenKeymapsKitty
+		case "WezTerm":
+			m.Screen = ScreenKeymapsWezTerm
+		case "Alacritty":
+			m.Screen = ScreenKeymapsAlacritty
 		}
+		m.Cursor = 0
+		m.ReferenceTableScroll = 0
 	}
 
 	return m, nil
@@ -2828,6 +3612,68 @@ func (m Model) handleGhosttyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) 
 	case "enter", " ", "q", "esc":
 		m.Screen = ScreenKeymapsGhostty
 		m.GhosttyKeymapScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleKittyKeymapsMenuKeys handles Kitty keymap category selection
+func (m Model) handleKittyKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], "───") && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], "───") && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "enter", " ":
+		selected := options[m.Cursor]
+		if strings.Contains(selected, "Back") {
+			m.Screen = ScreenKeymapsMenu
+			m.Cursor = 0
+			return m, nil
+		}
+		if strings.HasPrefix(selected, "───") {
+			return m, nil
+		}
+
+		m.KittySelectedCategory = m.Cursor
+		m.Screen = ScreenKeymapsKittyCat
+		m.KittyKeymapScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleKittyKeymapCategoryKeys handles scrolling in the Kitty keymap category view
+func (m Model) handleKittyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
+	category := m.KittyKeymapCategories[m.KittySelectedCategory]
+
+	visibleItems := keymapTableRows(m.Height)
+	maxScroll := offsetWindowMax(visibleItems, len(category.Keymaps))
+
+	switch key {
+	case "up", "k":
+		if m.KittyKeymapScroll > 0 {
+			m.KittyKeymapScroll--
+		}
+	case "down", "j":
+		if m.KittyKeymapScroll < maxScroll {
+			m.KittyKeymapScroll++
+		}
+	case "enter", " ", "q", "esc":
+		m.Screen = ScreenKeymapsKitty
+		m.KittyKeymapScroll = 0
 	}
 
 	return m, nil
@@ -3274,11 +4120,15 @@ func (m *Model) revealExerciseHintOnDeadline() {
 // no label", so the lesson, the practice and the boss handlers, and the
 // automatic deadline reveal, cannot disagree about what a missing hint looks
 // like.
+// trainerHintPrefix is what every hint the trainer reveals is labelled with, so the
+// exercise screen and the boss screen say the same thing about the same kind of help.
+const trainerHintPrefix = "💡 Hint: "
+
 func trainerHintLabel(exercise *trainer.Exercise) string {
 	if exercise == nil || exercise.Hint == "" {
 		return ""
 	}
-	return "💡 Hint: " + exercise.Hint
+	return trainerHintPrefix + exercise.Hint
 }
 
 // expireBossStepOnDeadline charges the clock when a boss step is left
@@ -3397,29 +4247,47 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// P key for Practice mode (if ready)
 		if m.TrainerCursor < len(m.TrainerModules) {
 			module := m.TrainerModules[m.TrainerCursor]
-			if m.TrainerStats.IsPracticeReady(module.ID) {
-				// Check if practice is complete
-				progress := m.TrainerStats.GetModuleProgress(module.ID)
-				if progress.IsPracticeComplete(module.ID) {
-					m.TrainerMessage = "🎉 Practice complete! All exercises mastered! Press [r] to reset."
-					return m, nil
-				}
-
-				m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
-				m.TrainerGameState.StartPractice(module.ID)
-
-				// Check if we got an exercise (shouldn't fail if not complete, but safety check)
-				if m.TrainerGameState.CurrentExercise == nil {
-					m.TrainerMessage = "🎉 Practice complete! All exercises mastered! Press [r] to reset."
-					return m, nil
-				}
-
-				m.TrainerInput = ""
-				m.TrainerMessage = ""
-				m.Screen = ScreenTrainerPractice
-			} else {
+			if !m.TrainerStats.IsPracticeReady(module.ID) {
 				m.TrainerMessage = "Complete all lessons first to unlock practice!"
+				return m, nil
 			}
+
+			// Nothing left to practise means every exercise is mastered AND the boss
+			// is unlocked. That is the only state in which the session would end on
+			// its first answer, so it is the only state that refuses to start; an
+			// all-mastered module whose boss gate is unmet keeps offering review,
+			// which is how the player reaches the gate at all.
+			// time.Now is the menu's own clock: the rule lives in the trainer package
+			// and takes the moment as an argument, and the menu is the view layer that
+			// has to supply one. A due review is work, so a module with reviews due
+			// starts a session even when the boss is already unlocked.
+			if m.TrainerStats.PracticeComplete(module.ID, time.Now()) {
+				m.TrainerMessage = "🎉 Nothing left to practise in " + module.Name + ": the boss is unlocked. Press [b]."
+				return m, nil
+			}
+
+			m.TrainerGameState = trainer.NewGameStateWithStats(m.TrainerStats)
+			m.TrainerGameState.StartPractice(module.ID)
+
+			if m.TrainerGameState.CurrentExercise == nil {
+				m.TrainerMessage = "No exercises to practise in " + module.Name + " yet."
+				return m, nil
+			}
+
+			m.TrainerInput = ""
+			if due := m.TrainerStats.ReviewsDue(module.ID, time.Now()); due > 0 {
+				word := "reviews"
+				if due == 1 {
+					word = "review"
+				}
+				m.TrainerMessage = fmt.Sprintf("🔁 Review run: %d mastered %s due.", due, word)
+			} else if m.TrainerStats.IsPracticeComplete(module.ID) {
+				m.TrainerMessage = fmt.Sprintf("🔁 Review run: every exercise is mastered, and the boss still needs %.0f%% of your last %d practice answers.",
+					trainer.BossGateAccuracy*100, trainer.BossGateWindow)
+			} else {
+				m.TrainerMessage = ""
+			}
+			m.Screen = ScreenTrainerPractice
 		}
 	case "r":
 		// R key to reset practice progress for selected module
@@ -3613,10 +4481,11 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 			m.TrainerMessage = "✗ Incorrect. " + mismatch + "Solutions: " + trainer.FormatSolutionsHint(exercise)
 		}
 
-		// Record practice result for intelligent practice system
-		if m.TrainerGameState.IsPracticeMode && exercise.ID != "" {
-			progress := m.TrainerStats.GetModuleProgress(m.TrainerGameState.CurrentModule)
-			progress.RecordPracticeResult(exercise.ID, validation.IsCorrect)
+		// The answer recorders above own every counter, practice included, so the
+		// screen records nothing itself: counting the submission here as well is
+		// what used to double every practice attempt. The screen only persists the
+		// profile the answer moved.
+		if m.TrainerGameState.IsPracticeMode {
 			saveTrainerStats(&m)
 		}
 
@@ -3668,13 +4537,13 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		// The boss screen reveals its step's hint on the same terms as the
-		// exercise screen: trainerHintLabel's label, its empty check, and no
-		// label at all when the step carries none. Before this case the hint the
-		// rewritten Change & Repeat boss steps ship was unreachable copy: it sat
-		// in the data and no boss key could show it.
-		if label := trainerHintLabel(m.TrainerGameState.CurrentExercise); label != "" {
-			m.TrainerMessage = label
+		// The boss screen asks trainer.BossStepNudge rather than trainerHintLabel:
+		// the step's own hint when it ships one, and the first keystrokes of its
+		// answer when it does not. Tab used to be dead on every step without an
+		// authored hint, which was all 35 of them, so the key did nothing at all in
+		// the one place the player most wants a nudge.
+		if nudge := trainer.BossStepNudge(m.TrainerGameState.CurrentExercise); nudge != "" {
+			m.TrainerMessage = trainerHintPrefix + nudge
 		}
 		return m, nil
 
@@ -3780,9 +4649,11 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			// Session complete. The save runs after the celebration message so a
-			// failed save is reported instead of being hidden behind it.
+			// failed save is reported instead of being hidden behind it. A practice
+			// session ends only when there is nothing left to do, so the message
+			// names the thing that is now open rather than claiming mastery twice.
 			if m.TrainerGameState.IsPracticeMode {
-				m.TrainerMessage = "🎉 All exercises mastered! You're a Vim master! 🏆"
+				m.TrainerMessage = "🎉 Practice complete — every exercise mastered and the boss is unlocked. Press [b] on the menu."
 			} else {
 				m.TrainerMessage = "🎉 Lesson complete! Practice mode unlocked!"
 			}

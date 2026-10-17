@@ -237,3 +237,58 @@ before installing that PATH, because `GetShell()` caches its first answer for th
 cached stub would be a deleted file by the next test. The tests still bite: with the command
 substitution idiom put back in both production paths, all four fail again, and they pass once it is
 removed.
+
+L10 (integration, after the PR was opened): the pull request never got a check
+because it could not be merged -- `gh pr view 355` reports `mergeable_state: dirty`,
+and GitHub does not build the merge commit for a conflicted pull request, so no
+workflow ever fired on the head any of the seven commits produced. The branch stood
+154 commits behind `main`, and `git merge origin/main` conflicted in ten files over
+25 hunks. Both sides were additive -- this branch's doctor against the disk cleaner,
+the update center, the network diagnostics and the WSL work `main` had merged -- so
+every conflict was resolved by keeping `main`'s version of the file and placing the
+doctor's additions back on top: the utilities row (which sits last, so a short frame
+cannot have it displace a utility above it), its panel entry, the two screens'
+constants, titles and render cases, the body anchors, the three messages and the key
+handler, the two screen cases in the terminal matrix (`measuredScreens` 92 -> 94,
+which the enumerated-vs-measured guard had already reported before the fix), the two
+doctor goldens, and the documentation -- the guide's own section, its row list, its
+job-count sentence, its panel description and its goldens list, the README paragraph
+and the CHANGELOG entry.
+
+The one decision the merge forced: the section's tenth row costs the body one line at
+80x24, and `main` was exactly at the floor. The repository's policy for that is that
+the section's newest job yields its body line; here the line that yields is the one
+that only restated its own row (`Change the dotfiles theme opens the list of complete
+themes.`), because a row that names the job and opens it cannot be missed, while the
+sentences that explain a row that is *absent* cannot be carried by any row at all.
+The pinned ones (`Check the machine against the last install reports the paths that
+are gone`, pinned by `install_verify_test.go`) were not touched, and
+`TestUtilitiesBodyCarriesEveryJobAtTheFloor` -- the guard that caught the fifth job's
+line being cut when this front's utility landed -- is green with the sentence gone.
+`TestUtilitiesGolden` was regenerated on the merged tree, and the guard that watches
+the guide's job-count sentence was extended with the doctor's phrase and moved to
+"twelve jobs", so the sentence cannot go stale around this section again.
+
+L11 (the merge's own gate, and the two things it caught): the first full run over
+the merged tree failed on exactly one guard, `TestEveryDeclaredScreenHasAName` --
+a guard `main` added in 3f0a29b that walks every Screen constant in model.go and
+fails until `screenNames`, in `comprehensive_test.go`, names it. This branch never
+had that guard, so the merge inherited it and both of the doctor's screens printed
+as "Unknown": Screen(71) and Screen(72) wanted "Doctor" and "DoctorFix". Both
+entries were added with the file's own comment convention, and the guard, the
+screen guards and the frame guards are green.
+
+The run that closed the merge is the second one: `go test ./... -count=1` exits 0,
+every package ok, `internal/tui` 249.262s -- which on this machine, the one with
+Ghostty installed and `/usr/bin/ghostty` present, means the four tests L9 repaired
+are green in the same suite as everything else. The gate the merge is committed
+with is that run; nothing in the merge commit is content that run did not measure.
+
+One number was measured rather than assumed. The guide claimed the shared frame
+pass replaced "the same 55 screens at the same 12 terminals"; a one-off test over
+this tree reports `terminalFitCases()` = 94 -- 76 installer names + 6 trainer names
++ the 12 cases the section's own destinations append -- and `measuredScreens` is 94
+for the same reason. The 55 was left over from before the pass grew, so the
+sentence now says 94, while the past-tense comment in `screen_coverage_test.go`
+("Before the pass existed, the fit guard and the companion-coverage guard each
+built the same 55 models 660 times") is history and stays as it is written.

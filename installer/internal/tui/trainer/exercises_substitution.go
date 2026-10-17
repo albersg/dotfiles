@@ -363,7 +363,7 @@ func getSubstitutionLessons() []Exercise {
 		{
 			ID:     "substitution_022",
 			Module: ModuleSubstitution,
-			Level:  11,
+			Level:  10,
 			Type:   ExerciseLesson,
 			Code: []string{
 				"// Keep this line unchanged",
@@ -394,7 +394,7 @@ func getSubstitutionBoss() *BossExercise {
 		BonusTime: 45,
 		Steps: []BossStep{
 			{
-				TimeLimit: 8,
+				TimeLimit: 9,
 				Exercise: Exercise{
 					ID:     "substitution_boss_1",
 					Module: ModuleSubstitution,
@@ -408,11 +408,12 @@ func getSubstitutionBoss() *BossExercise {
 					Mission:   "Change 'todo' to 'TODO' using gU",
 					Solutions: []string{"gUw", "gUe", "gUiw"},
 					Optimal:   "gUiw",
+					Hint:      "Uppercasing is an operator, so it takes a motion or a text object like any other.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 10,
+				TimeLimit: 12,
 				Exercise: Exercise{
 					ID:     "substitution_boss_2",
 					Module: ModuleSubstitution,
@@ -426,11 +427,12 @@ func getSubstitutionBoss() *BossExercise {
 					Mission:   "Fix 'htps' to 'https' using r twice (replace 'p' with 't', then 's' with 'p')",
 					Solutions: []string{"rtlrp", "rt$F:hrp"},
 					Optimal:   "rtlrp",
+					Hint:      "`r` replaces one character without leaving normal mode; two typos need two of them.",
 					Points:    50,
 				},
 			},
 			{
-				TimeLimit: 8,
+				TimeLimit: 10,
 				Exercise: Exercise{
 					ID:     "substitution_boss_3",
 					Module: ModuleSubstitution,
@@ -444,6 +446,7 @@ func getSubstitutionBoss() *BossExercise {
 					Mission:   "Change 'maxRetries' to 'MAX_RETRIES' using gU",
 					Solutions: []string{"gUiW", "gUe", "gU2e"},
 					Optimal:   "gUiW",
+					Hint:      "The capitalised word motion takes the underscores with the word, so the whole identifier is uppercased in one go.",
 					Points:    50,
 				},
 			},
@@ -462,6 +465,7 @@ func getSubstitutionBoss() *BossExercise {
 					Mission:   "Join the two lines into one using J",
 					Solutions: []string{"J"},
 					Optimal:   "J",
+					Hint:      "The join leaves one space where the line break was, so the two words do not run together.",
 					Points:    50,
 				},
 			},
@@ -477,6 +481,7 @@ func getSubstitutionBoss() *BossExercise {
 					Mission:   "Enter Replace mode with R to change version (in real Vim: type 2.5.0)",
 					Solutions: []string{"R"},
 					Optimal:   "R",
+					Hint:      "Replace mode overwrites rather than inserting, so nothing has to be deleted before the new text goes in.",
 					Points:    50,
 				},
 			},

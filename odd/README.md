@@ -44,6 +44,7 @@ repository's memory of why something is the way it is.
 | [admin-password-in-the-interface.md](tasks/admin-password-in-the-interface.md) | The administrator password, asked inside the interface |
 | [fish-parity.md](tasks/fish-parity.md) | The fish shell's parity with zsh |
 | [contextual-panel.md](tasks/contextual-panel.md) | The contextual panel |
+| [developer-disk-cleaner.md](tasks/developer-disk-cleaner.md) | The developer disk cleaner in the Utilities section |
 | [install-update-release.md](tasks/install-update-release.md) | The installer's own release: checking it, updating from it, shipping it |
 | [installer-companion.md](tasks/installer-companion.md) | The companion in the installer |
 | [installer-ux.md](tasks/installer-ux.md) | Installer user experience |
@@ -61,6 +62,7 @@ repository's memory of why something is the way it is.
 | [unified-themes.md](tasks/unified-themes.md) | The unified theme library |
 | [upstream-activity-tracker.md](tasks/upstream-activity-tracker.md) | Watching upstream activity |
 | [upstream-triage.md](tasks/upstream-triage.md) | Triaging upstream |
+| [utilities-refresh.md](tasks/utilities-refresh.md) | The utilities section: what it gets wrong and what it is missing |
 | [vim-trainer-buffer-engine.md](tasks/vim-trainer-buffer-engine.md) | The trainer's buffer engine |
 | [windows-font-registration.md](tasks/windows-font-registration.md) | The per-user font registration Windows has to resolve |
 | [windows-terminal-scheme-theme.md](tasks/windows-terminal-scheme-theme.md) | The Windows Terminal scheme and the theme that is applied |
@@ -68,6 +70,8 @@ repository's memory of why something is the way it is.
 | [vim-trainer-improvements.md](tasks/vim-trainer-improvements.md) | Improvements to the trainer |
 | [visual-dashboard.md](tasks/visual-dashboard.md) | The visual dashboard |
 | [wsl-host-derived-config.md](tasks/wsl-host-derived-config.md) | WSL configuration derived from the host |
+| [wsl-memory-guard.md](tasks/wsl-memory-guard.md) | The WSL memory guard and the policy that stops the distribution from dying |
+| [network-diagnostics.md](tasks/network-diagnostics.md) | The read-only network diagnosis and its redacted report |
 
 Add a file to this index in the same change that adds it: an index that lags is an index nobody
 trusts, and the task file is the only place the front's reasoning exists.

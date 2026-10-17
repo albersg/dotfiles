@@ -2,21 +2,21 @@
    Utilities                                                                    
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Utilities                                                                     
-  No desktop theme switch is available here: switching needs a GNOME, KDE       
-  Plasma or macOS session with the theme tool on PATH, and this host has none.  
-  Change the dotfiles theme opens the list of complete themes; each names the   
-  tools it cannot paint, and a theme is applied only when one is chosen there.  
-  WSL resources are not adjustable here: .wslconfig is a Windows file read      
-  only by WSL, and Linux does not run it. The utility is offered only on a WSL  
-  host.                                                                         
-  Measure the shell's startup runs zsh -i -c exit several times and reports     
-  the median with the range; it changes nothing.                                
-  Report the terminal capabilities reads the colour depth, OSC 52,              
-  … and 7 more                                                                  
-                                                                                
+  No desktop theme switch is available here: no GNOME, KDE or macOS session.    
+  WSL resources are not adjustable here: Linux is not WSL.                      
+  Measure the shell's startup times zsh -i -c exit; it changes nothing.         
+  Manage the SSH configuration shows the hosts and keys the client uses.        
+  Report the terminal capabilities reads the colour depth and OSC 52.           
+  Check the machine against the last install reports the paths that are gone.   
+  Diagnose the network runs read-only checks, stage by stage.                   
   ▸ Change the dotfiles theme                                                   
     Measure the shell's startup                                                 
+    Check the installed tools for updates                                       
+    Check the machine against the last install                                  
+    Manage the SSH configuration                                                
     Report the terminal capabilities                                            
+    Clean up development caches                                                 
+    Diagnose the network                                                        
     Diagnose the development environment                                        
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      

@@ -42,10 +42,10 @@ func wslResourceTestState(t *testing.T) wslResourceState {
 		Path:      "/mnt/c/Users/alber/.wslconfig",
 		RepoDir:   repoRoot(t),
 		Host:      system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:      WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Plan:      WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 		Current:   WSLResources{MemoryMB: 4096, Processors: 0, SwapMB: 1024},
 		HasFile:   true,
-		Draft:     WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Draft:     WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 	}
 }
 
@@ -251,13 +251,13 @@ func TestScreenWSLResourcesShowsTheHostNumbersAndTheRecommendation(t *testing.T)
 	for _, want := range []string{
 		"16384 MiB",                     // the host's RAM, in the unit WSL uses
 		"8 logical processors",          // the host's CPUs
-		"8192 MB",                       // the recommended memory, half the host
-		"2048 MB",                       // the recommended swap, a quarter of it
+		"12288 MB",                      // the recommended memory, as the state this test builds it
+		"3072 MB",                       // the recommended swap, a quarter of that memory
 		"4096MB",                        // what the file holds today, as the file writes it
 		"/mnt/c/Users/alber/.wslconfig", // where the file is
 		"wsl --shutdown",                // the effect, and the command the screen does not run
-		"Memory: 8192 MB",               // the draft, as a row
-		"Processors: 8",                 // the draft, as a row
+		"Memory: 12288 MB",              // the draft, as a row
+		"Processors: 7",                 // the draft, as a row
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the WSL resources screen does not show %q:\n%s", want, view)
@@ -286,25 +286,26 @@ func TestWSLResourceScreenAdjustsTheDraftAndReturnsToTheRecommendation(t *testin
 
 	m.Cursor = wslResourceRowMemory
 	m = press(m, tea.KeyRight)
-	if got := m.WSLState.Draft.MemoryMB; got != 8192+wslMemoryStepMB {
-		t.Errorf("memory after one step right = %d, want %d", got, 8192+wslMemoryStepMB)
+	const recommended = 12288 // what the 16 GiB / 8 CPU fixture plans
+	if got := m.WSLState.Draft.MemoryMB; got != recommended+wslMemoryStepMB {
+		t.Errorf("memory after one step right = %d, want %d", got, recommended+wslMemoryStepMB)
 	}
 	m = press(m, tea.KeyLeft)
-	if got := m.WSLState.Draft.MemoryMB; got != 8192 {
-		t.Errorf("memory after one step back = %d, want the recommendation 8192", got)
+	if got := m.WSLState.Draft.MemoryMB; got != recommended {
+		t.Errorf("memory after one step back = %d, want the recommendation %d", got, recommended)
 	}
 	// Left at the recommendation is not a floor: it goes down, because the
 	// recommendation is a starting point rather than a minimum.
 	m = press(m, tea.KeyLeft)
-	if got := m.WSLState.Draft.MemoryMB; got != 8192-wslMemoryStepMB {
-		t.Errorf("memory below the recommendation = %d, want %d", got, 8192-wslMemoryStepMB)
+	if got := m.WSLState.Draft.MemoryMB; got != recommended-wslMemoryStepMB {
+		t.Errorf("memory below the recommendation = %d, want %d", got, recommended-wslMemoryStepMB)
 	}
 
 	// The processors row moves by one CPU, not by a memory step.
 	m.Cursor = wslResourceRowProcessors
 	m = press(m, tea.KeyRight)
-	if got := m.WSLState.Draft.Processors; got != 9 {
-		t.Errorf("processors after one step right = %d, want 9", got)
+	if got := m.WSLState.Draft.Processors; got != 8 {
+		t.Errorf("processors after one step right = %d, want 8", got)
 	}
 
 	// The recommendation is reachable again without remembering the numbers.
@@ -331,8 +332,8 @@ func TestWSLResourceWriteIsDryRunGated(t *testing.T) {
 	st := wslResourceState{
 		Resolved: true, Available: true, Path: dst, RepoDir: repoDir,
 		Host:  system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:  WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
-		Draft: WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Plan:  WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
+		Draft: WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 	}
 
 	notice, wrote, err := writeWSLResourceDraft(st, "utilities")
@@ -378,8 +379,8 @@ func TestWSLResourceWritePreservesTheKeysThatAreNotOurs(t *testing.T) {
 	st := wslResourceState{
 		Resolved: true, Available: true, Path: dst, RepoDir: repoDir,
 		Host:  system.HostResources{MemoryBytes: 16 * testGiB, LogicalCPUs: 8},
-		Plan:  WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
-		Draft: WSLResources{MemoryMB: 8192, Processors: 8, SwapMB: 2048},
+		Plan:  WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
+		Draft: WSLResources{MemoryMB: 12288, Processors: 7, SwapMB: 3072},
 	}
 
 	if _, _, err := writeWSLResourceDraft(st, "utilities"); err != nil {
@@ -396,7 +397,7 @@ func TestWSLResourceWritePreservesTheKeysThatAreNotOurs(t *testing.T) {
 			t.Errorf("the write dropped the user's own line %q:\n%s", kept, got)
 		}
 	}
-	for _, managed := range []string{"memory=8192MB", "processors=8", "swap=2048MB"} {
+	for _, managed := range []string{"memory=12288MB", "processors=7", "swap=3072MB"} {
 		if !strings.Contains(got, managed) {
 			t.Errorf("the write did not apply %q:\n%s", managed, got)
 		}
@@ -513,11 +514,11 @@ func TestTheRecommendationComesFromTheHost(t *testing.T) {
 	small := PlanWSLResources(system.HostResources{MemoryBytes: 8 * testGiB, LogicalCPUs: 4})
 	large := PlanWSLResources(system.HostResources{MemoryBytes: 32 * testGiB, LogicalCPUs: 16})
 
-	if small.MemoryMB != 4096 || small.Processors != 4 {
-		t.Errorf("an 8 GiB / 4 CPU host plans %+v, want 4096 MB and 4 processors", small)
+	if small.MemoryMB != 4096 || small.Processors != 3 {
+		t.Errorf("an 8 GiB / 4 CPU host plans %+v, want 4096 MB and 3 processors", small)
 	}
-	if large.MemoryMB != 16384 || large.Processors != 16 {
-		t.Errorf("a 32 GiB / 16 CPU host plans %+v, want 16384 MB and 16 processors", large)
+	if large.MemoryMB != 24576 || large.Processors != 15 {
+		t.Errorf("a 32 GiB / 16 CPU host plans %+v, want 24576 MB and 15 processors", large)
 	}
 	if small == large {
 		t.Error("two different hosts produced the same plan")
@@ -554,11 +555,7 @@ func TestTheInteractiveRoutePreservesTheUsersOwnKeys(t *testing.T) {
 	m := wslModel(repoDir, true)
 	script := generateWSLConfigScript(t, &m)
 
-	rendered, err := os.ReadFile(wslConfigSourceFromScript(t, script))
-	if err != nil {
-		t.Fatalf("reading the content the interactive script copies: %v", err)
-	}
-	got := string(rendered)
+	got := wslConfigRenderedFromScript(t, script)
 
 	for _, kept := range []string{"# my own kernel", "kernel=C:\\\\kernel"} {
 		if !strings.Contains(got, kept) {
@@ -610,9 +607,9 @@ func TestUtilitiesPanelNamesTheWSLResourcesWithTheHostsValues(t *testing.T) {
 	flat := utilitiesPanelFlat(t, m)
 	for _, want := range []string{
 		"WSL resources",
-		"memory 8192 MB",
-		"processors 8",
-		"swap 2048 MB",
+		"memory 12288 MB",
+		"processors 7",
+		"swap 3072 MB",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the Utilities panel does not name %q:\n%s", want, flat)
@@ -781,7 +778,7 @@ func TestUtilitiesPanelFactsAreDerivedFromTheModelState(t *testing.T) {
 	withWSL.WSLState = wslResourceTestState(t)
 	wslFlat := utilitiesPanelFlat(t, withWSL)
 	t.Logf("utilities panel, WSL resource state:\n%s", wslFlat)
-	if !strings.Contains(wslFlat, "WSL resources") || !strings.Contains(wslFlat, "8192 MB") {
+	if !strings.Contains(wslFlat, "WSL resources") || !strings.Contains(wslFlat, "12288 MB") {
 		t.Errorf("the panel did not pick up the WSL resource state:\n%s", wslFlat)
 	}
 
@@ -1408,11 +1405,18 @@ func shellAuditTestState() shellAuditState {
 		Shell:     "zsh",
 		ShellPath: "/usr/bin/zsh",
 		Command:   "zsh -i -c exit",
-		Runs:      shellAuditRuns,
-		Timeout:   shellAuditTimeout,
-		Measured:  true,
-		Samples:   samples,
-		Timeouts:  1,
+		Kind:      shellAuditKindZsh,
+		Version:   shellAuditVersion{Known: true, Raw: "zsh 5.9.2 (x86_64-pc-linux-gnu)", Number: "5.9.2", Major: 5, Minor: 9},
+		Terminal:  true,
+		// The plan the state is resolved with, so the screen a guard draws is the
+		// screen a user sees rather than a state with a zeroed plan beside a number
+		// measured under another one.
+		Plan:     shellAuditPlanDefault(shellAuditRuns),
+		Runs:     shellAuditRuns,
+		Timeout:  shellAuditTimeout,
+		Measured: true,
+		Samples:  samples,
+		Timeouts: 1,
 		Attribution: []shellAuditFunction{
 			{Name: "compdump", Calls: 1, Total: 725250 * time.Microsecond, Self: 725250 * time.Microsecond, Percent: "42.01%"},
 			{Name: "compdef", Calls: 1027, Total: 306380 * time.Microsecond, Self: 306380 * time.Microsecond, Percent: "17.75%"},
@@ -1423,13 +1427,23 @@ func shellAuditTestState() shellAuditState {
 		},
 	}
 	st.Median, st.Fastest, st.Slowest = shellAuditSummary(samples)
+	// The whole summary, not only its three flat numbers: the screen draws a
+	// paragraph from the statistics the runs support, and a fixture without them
+	// would leave that paragraph out of every frame the fit guards measure.
+	st.Stats = shellAuditStatsOf(samples)
 	return st
 }
 
 // TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure pins the availability
-// rule: the row is there where the login shell and a terminal were resolved, and
-// the section's own body names the reason everywhere else -- no login shell, no
-// terminal -- rather than leaving a hole the user has to guess at.
+// rule: the row is there wherever a login shell resolved, and the section's own
+// body names the reason where one did not -- no `$SHELL`, or a shell this machine
+// does not have -- rather than leaving a hole the user has to guess at.
+//
+// A run with no terminal attached is in the table on purpose, on the offered
+// side: the measurement starts the shell under the utility's own stdin and needs
+// no tty, so the number exists for a pipe, a container or a CI run. What the
+// terminal changes is what the number describes, and that is said on the screen
+// the row opens rather than by taking the row away.
 func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -1444,9 +1458,14 @@ func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 			false, "$SHELL",
 		},
 		{
-			"no terminal",
-			shellAuditState{Resolved: true, Shell: "zsh", Reason: "this run has no terminal attached, so zsh cannot be started the way a terminal starts it."},
-			false, "terminal",
+			"a login shell that this machine does not have",
+			shellAuditState{Resolved: true, Shell: "fish", Reason: "fish is the login shell named by $SHELL, but this machine has no such executable."},
+			false, "no such executable",
+		},
+		{
+			"a shell measured with no terminal attached",
+			shellAuditState{Resolved: true, Shell: "zsh", Available: true, Terminal: false, Command: "zsh -i -c exit"},
+			true, "",
 		},
 	}
 
@@ -1486,9 +1505,12 @@ func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 
 // TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution is the screen's
 // own guard: the number is on screen with the count it covers, the range, the
-// start that did not finish, the command and the bound it was run under, and the
-// function zprof put first -- so the number can be reproduced and the culprit can
-// be acted on.
+// start that did not finish, the command the press would run and the bound it was
+// run under, and the entry the instrument put first -- so the number can be
+// reproduced and the culprit can be acted on. The row is the winner of the
+// instrument's own ranking, and the prose carries the share: the line has room
+// for a name and a time, and a percentage in it pushed the name off a short
+// frame.
 func TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution(t *testing.T) {
 	m := installerFrameModel(t, ScreenShellAudit)
 	m.ShellAudit = shellAuditTestState()
@@ -1502,11 +1524,11 @@ func TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution(t *testing.T) 
 	for _, want := range []string{
 		"zsh -i -c exit",                                  // the exact command
 		"bounded by 10 s",                                 // the timeout every start ran under
-		"The measurement is 5 such starts",                // how many starts the method uses
+		"The plan runs 5 such starts",                     // how many starts the method uses
 		"Median of 4 of 5 runs: 924 ms",                   // the median, with the count it covers
 		"Range: 872 ms to 977 ms",                         // the spread
 		"1 of 5 runs did not finish: 1 timed out at 10 s", // the timeout, as its own result
-		"Slowest function: compdump (725.25 ms self, 1 call(s))",
+		"Heaviest entry: compdump (725 ms self, 1 call(s))",
 		"zsh/zprof profiled one further start",        // how the attribution was taken
 		"in zprof's own order",                        // what the order means
 		"_omz_source",                                 // the list, not only its head
