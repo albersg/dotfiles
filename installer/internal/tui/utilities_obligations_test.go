@@ -40,7 +40,9 @@ import (
 // disk cleaner moved it twice more: to ten for the **SSH configuration**, which the
 // sentence had been one job short of since that section landed, and to eleven for the
 // **developer disk cleaner**, which is the job this front added. Both are read by name
-// below, because a count that no phrase backs is the drift this guard keeps finding.
+// below, because a count that no phrase backs is the drift this guard keeps finding. The
+// port and process manager moved it to twelve: it is this front's own job, and it is read by
+// name below with the others.
 func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	doc := readRepoFile(t, filepath.Join("docs", "tui-installer.md"))
 
@@ -57,8 +59,8 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	// that is named across a line break would read as a job that is missing.
 	sentence := strings.Join(strings.Fields(doc[start:start+end]), " ")
 
-	if !strings.Contains(sentence, "eleven jobs") {
-		t.Errorf("the sentence no longer says the section holds eleven jobs: %q", sentence)
+	if !strings.Contains(sentence, "twelve jobs") {
+		t.Errorf("the sentence no longer says the section holds twelve jobs: %q", sentence)
 	}
 	for _, job := range []string{
 		"system theme switch",
@@ -69,6 +71,7 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 		"install check",
 		"network diagnosis",
 		"package update center",
+		"port and process manager",
 		"WSL performance advisor",
 		"SSH configuration",
 		"developer disk cleaner",

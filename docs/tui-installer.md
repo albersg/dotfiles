@@ -119,13 +119,14 @@ From the main menu you can access:
   read-only reports: the terminal capability report behind the **Report the terminal
   capabilities** row, the install check behind the **Check the machine against the last
   install** row, and the network diagnosis behind the **Diagnose the network** row, plus the
-  SSH configuration behind the **Manage the SSH configuration** row and the package update
+  SSH configuration behind the **Manage the SSH configuration** row, the package update
   center behind the **Check the installed tools for updates** row, which asks every package
   manager this machine really has what it has to update and moves only what is selected,
   through the manager that owns each entry. The one utility here that removes anything is the
   developer disk cleaner behind the **Clean up development caches** row, which names a store
   only when this machine shows evidence of it, measures the space it holds, and cleans only what
-  the scan found and a preview named. On a real WSL
+  the scan found and a preview named. The **Find what holds a port** row opens the port and
+  process manager, the one job here that reads what is bound to a socket. On a real WSL
   instance the list also carries the performance advisor behind the **Diagnose this WSL
   environment** row, which is a report until one of its own rows is pressed
 - **Restore from Backup**: Restore previous configurations (if backups exist)
@@ -142,16 +143,18 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds eleven jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds twelve jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
 host), the read-only **shell's startup** measurement (one level in), the read-only **terminal
 capability report**, the read-only **install check**, the read-only **network diagnosis** (one
 level in from the **Diagnose the network** row), the **package update center** (which reads what the
 machine's own package managers have to update and moves only what is selected), the **SSH
-configuration** (one level in, and the hub of the screens that read and edit it), the **WSL
-performance advisor** (one level in, and only inside a real WSL instance), and the **developer disk
-cleaner** -- the one job here that removes anything, and only what the scan found on this machine
-and the user marked after a preview. Each job is offered
+configuration** (one level in, and the hub of the screens that read and edit it), the **port and
+process manager** (which lists the bound sockets with the process behind each one and stops a
+single process only after revalidating its identity), the **WSL performance advisor** (one level
+in, and only inside a real WSL instance), and the **developer disk cleaner** -- the one job here
+that removes anything, and only what the scan found on this machine and the user marked after a
+preview. Each job is offered
 exactly where it can finish: a row that would fail when it is pressed is not in the list, and the
 section's own body says why it is absent.
 The main menu's panel derives one row per job from the same model state the section's own options
@@ -1206,6 +1209,79 @@ of text into the frame. On WSL the Windows-side configuration under `/mnt/c` bel
 system: the diagnosis names it as a separate file to reconcile by hand and **never opens, lists or
 writes it**.
 
+### The ports in use
+
+The utility behind the **Find what holds a port** row is **the ports in use**. It answers the
+question a development machine asks more than any other -- *what is using port 3000, and may I free
+it?* -- from the machine's own socket tables. It is the one utility in the section that can stop
+something, so everything it draws is a fact a reading produced, and nothing is written or configured
+by the screen itself.
+
+**The reading is the real visibility of this kernel.** On Linux, Termux and inside WSL the sockets
+come from `/proc/net/tcp`, `tcp6`, `udp` and `udp6`; on macOS they come from `lsof -nP` and its field
+output. `ss -H -tulpn` and `netstat -tulpn` (or `netstat -anv` on macOS) are tried only when the
+primary reader cannot answer, and every row names the reader it came from. A **TCP socket in LISTEN**
+and a **bound UDP socket** are different facts and are labelled differently: TCP keeps only the
+listening state, because an established socket is a connection rather than a port anyone can bind,
+while every UDP socket with a real local port is a receiver and is shown as `UNCONN` -- UDP has no
+listening state to report. IPv4 and IPv6 are never merged. An all-interfaces binding (`0.0.0.0`,
+`::`) is named **all interfaces** and a `127.0.0.1` or `::1` binding **loopback only**, which is the
+difference behind most "it works locally and not from the phone" moments, and a port two rows share
+is marked **shared**.
+
+**The owner is resolved when the kernel allows it, and the gap is declared.** On Linux the socket's
+inode is matched against `/proc/<pid>/fd`, which yields the PID, the command, the account, the
+executable, the start time and the arguments -- with every password, token and key in those arguments
+**masked before the reading is stored**, and with the process environment never read at all. Reading
+another user's file descriptors needs privileges, so a socket whose owner the kernel withholds keeps
+its real port and state: the row says the owner is not readable, the screen says why, and no PID is
+invented. On macOS the same identity is read from `lsof` and one `ps` run. Each row's detail names the
+reader that reported it.
+
+**Finding, filtering and refresh.** `/` filters the list by port, process, account or protocol; `f`
+cycles all / TCP / UDP; `o` filters by owner; `s` cycles the sort (port, process, family); `r`
+refreshes now; `p` turns on a **five-second refresh** that pauses while a filter is being typed and
+while the stop screen is open. A refresh **never moves the cursor**: the row under it is remembered
+by the socket's identity, the cursor clamps when that socket is gone, and the notice reports how many
+rows appeared and disappeared since the last reading. `Enter` opens the detail of the row under the
+cursor and `y` copies a diagnostic built from the same redacted facts.
+
+**The scope line is part of the answer.** The screen names the kernel the reading came from -- **this
+machine**, or **WSL guest** inside a WSL distro -- and inside WSL it states that the Windows host's
+own ports and processes are not visible from here and cannot be stopped from here. A PID only means
+something inside one kernel, so nothing is mixed across that boundary and no host process is offered
+as stoppable.
+
+**Stopping is one deliberate action.** `x` opens the **Stop a process** confirmation, which names the
+identity (PID, name, account, executable, start time), the owner, **every port that process holds**
+-- not only the selected row -- and what each signal does. The soft signal (`SIGTERM`) is what `t`
+and `Enter` send. The forced signal (`SIGKILL`) is a **separate row with its own wording** that
+appears only after a soft attempt left the process running, so it can never ride along with the first
+press.
+
+**Nothing is sent until the screen's facts are revalidated, and the outcome is measured.** Before the
+signal, the PID is asked about again, its start time or identity token is compared with the one that
+was on screen (Linux uses the boot id plus the process's start ticks; macOS uses the raw start-time
+string `ps` reported), and the ports the screen showed must still be held by that same process. A
+reading that cannot confirm the identity sends nothing and says so. PID 1, the installer's own process
+and its ancestors, and the operating system's init and session daemons (`systemd`, `launchd`,
+`kernel_task`, `WindowServer`, `loginwindow`, `dbus-daemon` and the Windows session processes) are
+refused with the reason. A signal the kernel refuses is reported as **permission denied**, and the
+installer never elevates its privileges to turn that into a success. No name is ever killed and no
+port's processes are ever killed in bulk: one signal, one PID.
+
+After the attempt the screen reports what a **fresh reading** found -- the process exited and the
+ports are free, the process was still running after the grace period, the port is now bound by
+another process (named), the PID belongs to a different process now, the process had already exited,
+or the kernel refused the signal. A process that has exited but has not been reaped is a zombie, which
+the kernel still answers for; the check reads the process state as well, so a zombie is reported as
+the exit it is rather than as "still running". Leaving the screen never cancels a stop in flight:
+the result lands on the model and the screen it belongs to shows it.
+
+Where nothing can be read -- a platform with no reader, a `/proc` this run may not open, a tool that
+is not on `PATH` -- the screen says which reader failed and why rather than showing an empty list,
+because an empty list that reads as "nothing is in use" is the one answer this utility must not give.
+
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -1476,8 +1552,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the shell audit's command, the terminal capability report, and the update center's state: what the last read found, how many entries are selected, or that the question has not been asked yet — or one honest line when there is no desktop; one honest line for **Exit** |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the advisor's own findings by severity inside WSL (or the copy it is running), the shell startup, the terminal capability report, and what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`) — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the advisor's own findings by severity inside WSL (or the copy it is running), the shell startup, the terminal capability report, the port utility's last reading (how many sockets it found, or that it has not been read yet), and and what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`) — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
