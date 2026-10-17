@@ -108,10 +108,15 @@ func TestDiscoverFallsBackToSSWhenProcNetIsUnreadable(t *testing.T) {
 	p.alive[1234] = true
 	p.addFile("/proc/stat", "btime 1700000000\n")
 	p.addFile("/proc/sys/kernel/random/boot_id", "boot-1\n")
-	p.addFile("/proc/1234/comm", "cupsd\n")
-	p.addRawFile("/proc/1234/cmdline", []byte("cupsd\x00--password\x00hunter2\x00"))
-	p.addFile("/proc/1234/status", "Uid:\t1000\t1000\t1000\t1000\n")
-	p.addFile("/proc/1234/stat", procStatLine(1234, 1, "cupsd", 42))
+	p.addProcProcess(procFacts{
+		pid:        1234,
+		ppid:       1,
+		name:       "cupsd",
+		args:       []string{"cupsd", "--password", "hunter2"},
+		uid:        1000,
+		startTicks: 42,
+	})
+	p.answerPSFromProc()
 	p.addDir("/proc", fakeEntry{name: "1234", isDir: true})
 	// /proc/net is not readable at all.
 	for _, name := range []string{"/proc/net/tcp", "/proc/net/tcp6", "/proc/net/udp", "/proc/net/udp6"} {
