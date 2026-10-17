@@ -235,6 +235,54 @@ func enrichDarwinProcesses(ctx context.Context, p Probe, listeners []Listener, s
 	return listeners
 }
 
+// readDarwinProcess reads one process's identity through ps, the same two
+// runs the snapshot uses and in the same field mode. It is portable code over
+// the Probe rather than a darwin-tagged function, so the identity path the
+// platform's fact reader relies on can be exercised on any host through a
+// fake ps; probe_darwin.go's readProcProcess is the thin wrapper that adds the
+// command deadline.
+//
+// The identity token is ps's own lstart string, unparsed: locale-specific
+// parsing would sit between two readings that must compare equal, and D6 keeps
+// the platform's wording for exactly that reason. StartedAt is the parsed form
+// for display only, and a parse failure leaves it zero without losing the
+// token.
+func readDarwinProcess(ctx context.Context, p Probe, pid int, scope string) Process {
+	proc := Process{PID: pid, Scope: scope}
+
+	ps, err := p.LookPath("ps")
+	if err != nil {
+		return proc
+	}
+
+	if details, err := darwinPSIdentity(ctx, p, ps, []int{pid}); err == nil {
+		if detail, ok := details[pid]; ok {
+			proc.User = detail.user
+			proc.Exe = detail.comm
+			proc.StartedLabel = detail.started
+			if when, ok := parsePSLstart(detail.started); ok {
+				proc.StartedAt = when
+			}
+			if detail.started != "" {
+				proc.token = detail.started
+			}
+			if name := filepath.Base(detail.comm); name != "" && name != "." {
+				proc.Name = name
+			}
+		}
+	}
+
+	if commands, err := darwinPSCommands(ctx, p, ps, []int{pid}); err == nil {
+		if command, ok := commands[pid]; ok && command != "" {
+			proc.Args = RedactArgs(strings.Fields(command))
+			if proc.Name == "" && len(proc.Args) > 0 {
+				proc.Name = filepath.Base(proc.Args[0])
+			}
+		}
+	}
+	return proc
+}
+
 // darwinPSDetail is one line of the identity ps run.
 type darwinPSDetail struct {
 	user    string

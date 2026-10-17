@@ -1,6 +1,7 @@
 package portscan
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -107,5 +108,56 @@ func TestDiscoverDarwinSaysWhenTheIdentityCannotBeRead(t *testing.T) {
 	}
 	if joined := strings.Join(snap.Limits, " "); !strings.Contains(joined, "identity cannot be revalidated") {
 		t.Errorf("limits = %q, want the revalidation limitation named", snap.Limits)
+	}
+}
+
+// TestDarwinIdentityIsTheRawPSLstartString pins D6 on the platform that has no
+// boot id and no /proc: the identity token is ps's own lstart wording, compared
+// as a string and never re-derived. It runs on Linux because the reader is
+// portable Go over the Probe and the fake probe reports darwin, which is the
+// same seam the snapshot uses to exercise the macOS reader here at all. The
+// second reading goes through currentProcessIdentity, so the comparison the
+// stop path makes is what is pinned, not a helper beside it.
+func TestDarwinIdentityIsTheRawPSLstartString(t *testing.T) {
+	const started = "Thu Oct 16 11:21:00 2025"
+
+	p := newFakeProbe("darwin")
+	p.addTool("ps")
+	p.addCommand("ps", []string{"-o", "pid=,lstart=,user=,comm=", "-p", "1234"}, CommandResult{
+		Stdout: []byte(" 1234 " + started + " alber /usr/local/bin/node\n"),
+	})
+	p.addCommand("ps", []string{"-o", "pid=,command=", "-p", "1234"}, CommandResult{
+		Stdout: []byte(" 1234 /usr/local/bin/node server.js --api-key abc123\n"),
+	})
+
+	proc := readDarwinProcess(context.Background(), p, 1234, ScopeSelf)
+	if !proc.IdentityKnown() {
+		t.Fatal("the darwin reader produced no identity token")
+	}
+	if proc.token != started {
+		t.Errorf("identity token = %q, want ps's own lstart string %q", proc.token, started)
+	}
+	if proc.StartedLabel != started {
+		t.Errorf("started label = %q, want %q", proc.StartedLabel, started)
+	}
+	if proc.StartedAt.IsZero() {
+		t.Error("the start time was not parsed from ps's format")
+	}
+	if proc.Name != "node" {
+		t.Errorf("name = %q, want the executable's own name node", proc.Name)
+	}
+	if got := strings.Join(proc.Args, " "); !strings.Contains(got, "--api-key ****") {
+		t.Errorf("args = %q, want the api key masked", got)
+	}
+
+	// A second ps reading with the same lstart is the same process, which is
+	// the only revalidation this platform can offer: no boot id exists to
+	// compare, so the token is the platform's wording and nothing more.
+	current, known := currentProcessIdentity(context.Background(), p, proc)
+	if !known {
+		t.Fatal("the second darwin reading carried no identity token")
+	}
+	if !proc.SameIdentity(current) {
+		t.Errorf("the same lstart did not compare equal: %q vs %q", proc.token, current.token)
 	}
 }

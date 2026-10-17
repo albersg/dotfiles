@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build darwin
 
 package portscan
 
@@ -16,58 +16,34 @@ import (
 	"time"
 )
 
-// defaultProbe is the real machine surface. Every method is a leaf over the
-// standard library, and the two that can change the machine -- Signal and
-// Alive -- are the only ones that touch a process at all.
+// defaultProbe is the real machine surface on macOS. Every method is a leaf
+// over the standard library, and the two that can change the machine -- Signal
+// and Alive -- are the only ones that touch a process at all.
+//
+// It is a separate implementation from the Linux one because the fact readers
+// below are: the process facts macOS can honestly give come from ps, not from
+// /proc, and keeping a runtime branch for both in one file is what let a
+// symbol that only exists behind a GOOS suffix break the other platform's
+// build. The Probe seam and its method set stay identical, so nothing that
+// consumes the probe has to know which file answered.
 type defaultProbe struct{}
 
 func (defaultProbe) Now() time.Time { return time.Now() }
 
 func (defaultProbe) GOOS() string { return runtime.GOOS }
 
-// IsWSL reports whether this run is a guest inside Windows. The environment
-// variable is the cheap answer and the kernel version the fallback, so a distro
-// that does not export the variable is still recognized.
-func (defaultProbe) IsWSL() bool {
-	if os.Getenv("WSL_DISTRO_NAME") != "" {
-		return true
-	}
-	data, err := os.ReadFile("/proc/version")
-	if err != nil {
-		return false
-	}
-	return isWSLKernelText(string(data))
-}
-
-// isWSLKernelText reports whether a kernel version string identifies a WSL
-// kernel. It is a separate function so the detection can be tested on any host.
-func isWSLKernelText(version string) bool {
-	lower := strings.ToLower(version)
-	return strings.Contains(lower, "microsoft") || strings.Contains(lower, "wsl")
-}
+// IsWSL is false: a macOS process is not a guest inside Windows, and this
+// platform has no /proc/version to consult.
+func (defaultProbe) IsWSL() bool { return false }
 
 func (defaultProbe) SelfPID() int { return os.Getpid() }
 
-// Parent reports a process's parent. Linux answers from /proc, where the third
-// field after the command is the ppid; every other Unix asks ps, with the same
-// locale-forced argv the readers use so the number is parsed the same way
-// everywhere.
+// Parent asks ps for the parent pid, with the same locale-forced argv the
+// readers use so the number is parsed the same way everywhere.
 func (defaultProbe) Parent(pid int) (int, bool) {
 	if pid <= 1 {
 		return 0, false
 	}
-	if runtime.GOOS == "linux" {
-		data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-		if err != nil {
-			return 0, false
-		}
-		ppid, _, _, ok := parseProcStat(data)
-		if !ok || ppid <= 0 {
-			return 0, false
-		}
-		return ppid, true
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	result, err := (defaultProbe{}).Run(ctx, "ps", []string{"-o", "ppid=", "-p", strconv.Itoa(pid)}, []string{"LC_ALL=C"})
@@ -184,13 +160,27 @@ func (defaultProbe) LookupUser(uid int) (string, error) {
 	return account.Username, nil
 }
 
-// firstNonEmptyLine returns the first line of a tool's stderr that carries
-// text, trimmed. It is what a failure reports instead of a blank message.
-func firstNonEmptyLine(data []byte) string {
-	for _, line := range strings.Split(string(data), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line
-		}
-	}
-	return ""
+// readBootFacts is the zero value here on purpose. macOS has no boot id and no
+// /proc/stat to read one from; its identity token is the raw `ps -o lstart=`
+// string, which one-second granularity makes comparable between two readings
+// (D6). Pretending to a boot id would be a token no macOS reading could carry.
+func readBootFacts(Probe) bootFacts { return bootFacts{} }
+
+// parseProcStat is the /proc/<pid>/stat parser, and macOS has no /proc. The
+// signature is kept alongside the other platform fact readers so every
+// platform declares the same set; the only callers are the Linux fact reader
+// and the Linux probe, so this answer is never reached here.
+func parseProcStat([]byte) (ppid int, comm string, startTicks uint64, ok bool) {
+	return 0, "", 0, false
+}
+
+// readProcProcess reads one process's identity the way macOS can: through ps.
+// The untagged readDarwinProcess does the reading so the path is exercised on
+// any host through the Probe, and this wrapper only supplies the deadline the
+// reader commands use. The boot argument is accepted for signature parity with
+// Linux and is unused, because macOS has no boot facts to add.
+func readProcProcess(p Probe, pid int, scope string, _ bootFacts) Process {
+	ctx, cancel := context.WithTimeout(context.Background(), darwinReaderTimeout)
+	defer cancel()
+	return readDarwinProcess(ctx, p, pid, scope)
 }
