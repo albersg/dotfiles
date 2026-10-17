@@ -430,9 +430,9 @@ limitaciones detectadas. No te quedes en un plan: implementa.
 
   | Slice | Branch | Commits | Changed lines |
   |---|---|---|---|
-  | the package | `feat/port-process-manager` | `33b01a8`, `954ffb6`, `5de1f6f`, `d86b55f`, `e0079e7`, `535e738`, `d757bb1`, `11a610e` | 20 files, 5,946 insertions |
-  | the screen | `feat/port-process-manager-tui` | `7ededd7`, `a83d2d4`, and a merge of the package branch in `59585e3` | 13 files, 2,157 insertions, 22 deletions |
-  | the documents | `feat/port-process-manager-docs` | `83b1029`, `23b272d`, `5c1e956`, `52efeb5`, `de32fd1`, `51f1484`, and a merge of the screen branch in `f9f47ad` | 5 files, 616 insertions, 9 deletions |
+  | the package | `feat/port-process-manager` | `33b01a8`, `954ffb6`, `5de1f6f`, `d86b55f`, `e0079e7`, `535e738`, `d757bb1`, `11a610e`, `9abd43c` | 20 files, 6,338 insertions |
+  | the screen | `feat/port-process-manager-tui` | `7ededd7`, `a83d2d4`, and a merge of the package branch in `59585e3` and again in `561d0d1` | 13 files, 2,157 insertions, 22 deletions |
+  | the documents | `feat/port-process-manager-docs` | `83b1029`, `23b272d`, `5c1e956`, `52efeb5`, `de32fd1`, `51f1484`, and a merge of the screen branch in `f9f47ad` and again in `c7efc0b` | 5 files, 659 insertions, 9 deletions |
 
   The chain is built on `a24ced6`, the `main` the work was rebased onto, because `main` moved while the
   feature was in flight: two screens landed in the same list, so `ScreenPortManager` and
@@ -499,3 +499,25 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   `f9f47ad`) rather than a history rewrite, because the harness blocked a force-push of those branches
   and the user chose the merge: each pull request's diff is still its own slice, because each base is
   the previous branch.
+
+  The second macOS run confirmed the build fix and found the next layer of the same blindness: fourteen
+  flow tests failed, not because they compiled wrongly but because they were written in one platform's
+  dialect. On darwin the identity reader asks `ps`, the fixtures stated each process only in the `/proc`
+  files, and every stop therefore read an identity it could not revalidate and refused before reaching the
+  decision the test pins -- the refusal was right behaviour and the fixture was one-sided. `9abd43c`
+  makes the fake derive the two `ps` runs from the same `/proc` state: the account from `status`, the
+  executable from `exe` or `comm`, the start wording built from `/proc/stat`'s `btime` plus the process's
+  start ticks, and the argv from `cmdline`, with `ps` on the fake's PATH because the reader asks
+  `LookPath` first, and no identity line at all for a pid whose start fact is absent, which is what keeps
+  an unreadable identity testable on both platforms. A test now states each fact once, and the mutations
+  a test already made between two readings -- recycled start ticks, a vanished start file, a port that
+  moved -- reach the darwin dialect with no second fixture: `stop_test.go` did not change at all for this.
+  Two new untagged tests drive the very fixture the flow tests build through `readDarwinProcess`, which is
+  untagged and therefore runs on Linux, and pin the same facts the `/proc` reader yields from it; a typo
+  in the bridge would otherwise arrive as a platform failure on the runner instead of as a fixture bug in
+  this worktree. No assertion was weakened, no test gained a build constraint, and no production file
+  changed. The cross-dialect start time is compared to the second rather than to the instant, because
+  `/proc` counts start ticks in 10 ms while `ps lstart` is one-second granular (D6). The third run of both
+  workflows is green, the macOS smoke job included, and that job is the only place those fourteen tests
+  run against the darwin reader. What stays outside this worktree's reach is unchanged: the darwin
+  probe's `Parent`, `Alive` and `Signal` and the real `lsof` run only type-check here.
