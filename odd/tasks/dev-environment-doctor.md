@@ -222,3 +222,18 @@ fails on those four alone. `go vet ./...` is clean, `gofmt -l` reports nothing, 
 suite, the frame guards at twelve sizes, the two doctor goldens, the Utilities golden and the
 home-path guard are green. The commits add no content the run above did not cover: the tree the suite
 measured is the tree they record.
+
+L9 (the four Ghostty failures, a separate unit): they were not the defect the tests describe. The
+step they exercise already downloads to a file and keeps curl's own exit status, in both the
+non-interactive path (`installer.go`: the temporary file, then `/bin/bash <file>`) and the generated
+interactive one (`interactive.go`: `curl -fsSL <url> -o "$ghostty_installer"`, then `/bin/bash`). What
+was broken was the isolation the tests claim: `stubGhosttyCommands` put `/usr/bin` and `/bin` on PATH
+beside the curl stub, so the step's own "is Ghostty installed?" lookup found the Ghostty this machine
+has installed, took the already-installed branch and never reached the download. That is why the four
+tests pass on a CI image without Ghostty and failed here. They now run with PATH pointing at one
+directory that holds the curl stub and links to the shell and the four command-line tools the
+generated script calls (`bash`, `sh`, `mktemp`, `mkdir`, `cp`, `rm`); the helper asks for the shell
+before installing that PATH, because `GetShell()` caches its first answer for the whole process and a
+cached stub would be a deleted file by the next test. The tests still bite: with the command
+substitution idiom put back in both production paths, all four fail again, and they pass once it is
+removed.
