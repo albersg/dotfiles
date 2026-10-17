@@ -592,6 +592,9 @@ func (m Model) headerName() string {
 		// heading. A header that changed as the user walked into a host's detail
 		// would name a section that does not exist in the menu.
 		return "Utilities"
+	case ScreenDiskCleaner:
+		// The disk cleaner is one level in from the same section.
+		return "Utilities"
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
 		return "Utilities"
@@ -1122,6 +1125,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderTerminalCapabilities())
 	case ScreenShellAudit:
 		s.WriteString(m.renderShellAudit())
+	case ScreenDiskCleaner:
+		s.WriteString(m.renderDiskCleaner())
 	case ScreenUpdateCenter:
 		s.WriteString(m.renderUpdateCenter())
 	case ScreenInstallVerify:
@@ -1574,12 +1579,38 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	// too short to hold the list whole.
 	menuBudget, descBudget := available, 0
 	activityRows := 0
+	proseGap := 1
 	if m.pickerActivity() != nil {
 		menuBudget = min(len(menu), max(1, available-themeActivitySlotFloor))
 		activityRows = available - menuBudget
 	} else if len(menu) <= available {
 		menuBudget = len(menu)
 		descBudget = available - len(menu)
+		// The blank row between the prose and the list is spacing, and on the utilities
+		// section the spacing yields before a line of the prose does: that screen's body
+		// is where a job's own reason is read, and TestUtilitiesBodyCarriesEveryJobAtTheFloor
+		// fails the section on the cut marker a shorter budget produces. The row comes
+		// from the gap rather than from the list, because the list ends with the way back
+		// and no screen may window that away. Every other screen keeps the gap: their
+		// prose is orientation, and the section's guard is the one that makes this prose
+		// evidence (m.proseIsRequired).
+		if m.proseIsRequired() && proseRows(paragraphs, width) > descBudget {
+			descBudget++
+			proseGap = 0
+		}
+	}
+	// A screen whose prose is evidence rather than orientation reserves a floor of
+	// rows for it, and the list is windowed instead of being handed every row it
+	// asks for. Only the development-caches screen declares one, and only while a
+	// finding under the cursor has a card to draw: that card carries the reason the
+	// store was found, the paths it covers and what removing it would cost, and the
+	// frame the request treats as the floor must not cut it. Screens that declare no
+	// floor are budgeted exactly as before.
+	if floor := m.proseFloor(); floor > 0 && descBudget < floor {
+		if take := min(floor-descBudget, menuBudget-1); take > 0 {
+			menuBudget -= take
+			descBudget += take
+		}
 	}
 	start, end := listWindow(m.Cursor, menuBudget, len(menu))
 
@@ -1594,7 +1625,9 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	for _, line := range descriptionLines(paragraphs, width, descBudget) {
 		body = append(body, MutedStyle.Render(line))
 	}
-	body = append(body, "")
+	for i := 0; i < proseGap; i++ {
+		body = append(body, "")
+	}
 	body = append(body, menu[start:end]...)
 
 	// The activity is drawn under the list, in the rows the result will land in,
@@ -1622,6 +1655,18 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 		vital = scrollVital("Showing", start+1, end, len(menu))
 	}
 	return m.frame(m.headerName(), vital, body, hints)
+}
+
+// proseRows is the rows a screen's prose takes when it is wrapped to width, with
+// no budget cutting it. renderThemeScreen asks it before it decides where the
+// rows above the list come from, so a screen can spend its gap between the prose
+// and the list on a line that would otherwise be cut.
+func proseRows(paragraphs []string, width int) int {
+	rows := 0
+	for _, paragraph := range paragraphs {
+		rows += len(wrapText(paragraph, width, 0))
+	}
+	return rows
 }
 
 // descriptionLines is a screen's prose wrapped to the width it will be drawn at
@@ -1715,6 +1760,12 @@ func (m Model) dotfilesThemesPending() bool {
 // desktop's store belongs to the desktop's tool.
 func (m Model) utilitiesDescription() []string {
 	var paragraphs []string
+	// The desktop switch, in the sentence that matches whether there is one. When
+	// there is none the sentence says so and names what was looked for, because the
+	// section is what a user reads when a row they expected is not in the list
+	// (TestUtilitiesUnavailableIsAboutTheModelNotTheHost, and the frame arms of
+	// TestUtilitiesUnavailableSaysSoAndFitsTheFrame); the section's own panel states
+	// the same absence in its own entry.
 	if !m.ThemeSwitchFound {
 		paragraphs = append(paragraphs,
 			"No desktop theme switch is available here: no GNOME, KDE or macOS session.")
@@ -1801,6 +1852,17 @@ func (m Model) utilitiesDescription() []string {
 	// the section leaving a hole. Naming it here is what makes the row findable.
 	paragraphs = append(paragraphs, fmt.Sprintf(
 		"%s reads the colour depth and OSC 52.", utilitiesTerminalRow))
+
+	// The development disk cleaner is the section's newest job, and it is the one that
+	// yields here for the same reason the update center's line does: the section's body
+	// shares the frame with its rows, its own guard fails on the cut marker a longer
+	// body produces, and every line above is one row and earns its place. What its line
+	// would have said -- that a store is reported only when the machine shows evidence
+	// of it, that nothing is cleaned that was not marked, and that a store a tool owns
+	// is cleaned through the tool's own command -- is stated on the screen itself, in
+	// diskCleanDescription, where the marks are made rather than where the section sums
+	// the jobs up. The list still names it (utilitiesDiskCleanerRow), and its own panel
+	// entry reports what the last scan measured.
 
 	// The record of the last install. It is read-only and offered everywhere for
 	// the same reason: the screen itself says when there is no record, so the
@@ -1946,6 +2008,12 @@ const utilitiesWSLRow = "Adjust the WSL resources"
 // It is offered everywhere -- there is always a terminal to describe, and where
 // there is none the screen says so -- and it is read-only.
 const utilitiesTerminalRow = "Report the terminal capabilities"
+
+// utilitiesDiskCleanerRow is the section's row for the developer disk cleaner.
+// It is offered everywhere: a machine a development tool is installed on always
+// keeps something, and where the user-level stores cannot be located the
+// screen's own body names the reason rather than the row going missing.
+const utilitiesDiskCleanerRow = "Clean up development caches"
 
 // utilitiesVerifyRow is the section's row for the record of the last install,
 // checked against this machine. It is offered everywhere -- there is always a

@@ -10,13 +10,13 @@
   Report the terminal capabilities reads the colour depth and OSC 52.           
   Check the machine against the last install reports the paths that are gone.   
   Diagnose the network runs read-only checks, stage by stage.                   
-                                                                                
   ▸ Change the dotfiles theme                                                   
     Measure the shell's startup                                                 
     Check the installed tools for updates                                       
     Check the machine against the last install                                  
     Manage the SSH configuration                                                
     Report the terminal capabilities                                            
+    Clean up development caches                                                 
     Diagnose the network                                                        
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
