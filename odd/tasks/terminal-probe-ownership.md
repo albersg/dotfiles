@@ -43,7 +43,8 @@ because other sessions write to the same clone.
   **mechanism 2**, the one reader, for the reason the measurement made plain (a lost answer is a
   limitation the screen can disclose; the answer arriving as keystrokes is not).
 - [x] **T4** (S5, S6) The change, its guards, and the doc updates. Route: inline, test-first. Commits:
-  `56f1494` (the instrument), `83c092e` (the change), and this file.
+  `57ad0e7` (the instrument), `b82e6d7` (the change), and this file -- rebased onto `dd3c48b`, where
+  `56f1494` and `83c092e` are the same two commits before the rebase (L10).
 - [x] **T5** (S4, S5) The configuration the gate deliberately leaves alone: when stdin is not the
   terminal, bubbletea opens the controlling terminal itself while the probe opened it too, so the
   arrangement the one-in-twenty was measured in still had two readers. Closed by the owner's decision
@@ -51,9 +52,10 @@ because other sessions write to the same clone.
   construction -- no answer to lose, no reply bytes to arrive as keys -- at the cost of the capability
   report in that one configuration. The racing path was deleted rather than gated, so the two-reader
   arrangement cannot come back. Route: inline, test-first for the five guards; the arrangement itself
-  measured with the diagnostic under `script(1)`. Commits: `277dca2` (the instrument and its own two
-  corrections), `887e4df` (the change), and this file. Evidence: "The round, measured" and "The gate, and one
-  incident that is not this branch's" above.
+  measured with the diagnostic under `script(1)`. Commits: `580b43e` (the instrument and its own two
+  corrections), `c473125` (the change), and this file -- rebased onto `dd3c48b`, where `277dca2` and
+  `887e4df` are the same two commits before the rebase (L10). Evidence: "The round, measured" and "The gate,
+  and one incident that is not this branch's" above.
 
 ## What is known, with the code it rests on
 
@@ -473,3 +475,21 @@ hang the whole gate for ten minutes, and the panic it produces reads like a fail
   timeout panic names the test that hung, not the change that is on trial**, and the comparison that
   settles it is the one already on record: the four names this gate does fail on are the four that were
   red on the pristine base before the front began.
+- **L10.** The front was rebased onto `main` at `dd3c48b` (the development-caches merge, 130 commits after
+  `8fbc87d`), because the branch had fallen behind and `docs/GIT-BRANCHING.md` asks a feature branch to be
+  rebased before it merges. The rebase rewrote every commit this front is made of, so the SHAs the tasks
+  carried are no longer the ones in the published line: "Commits" above names the commits that are, with the
+  pre-rebase map beside them, and this log keeps the literals it was written with, because a log that
+  rewrites its own past is worth less than one that says what happened and gives the map. One conflict, in
+  `docs/tui-installer.md`, and it was an addition against an addition: `main` added the development-caches
+  section at that point and T4 added the two reader paragraphs, which belong to the section immediately
+  above it -- so the resolution keeps this front's paragraphs, then `main`'s section, then the document as it
+  was. Everything else auto-merged, `CHANGELOG.md` included, where this front's entry is the first of the
+  `### Fixed` sub-section, which is where it belongs. One claim the rebase could have quietly invalidated, and
+  checked rather than assumed: the four Ghostty failures are still pre-existing, because `installer_test.go`
+  -- the file that holds them -- is untouched by those 130 commits and the cause is this host
+  (`/usr/bin/ghostty` exists, so the generated script takes the "already installed" branch the tests do not
+  stub). The gate was then re-measured on the rebased tip rather than taken on trust: `make check` and
+  `make preflight` fail on those same four names and nothing else -- `FAIL
+  github.com/albersg/dotfiles/installer/internal/tui 236.959s`, no panic -- which is the identical set the
+  pre-rebase run produced, and the front's own guards are green in both.
