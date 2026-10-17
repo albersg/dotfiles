@@ -292,3 +292,22 @@ for the same reason. The 55 was left over from before the pass grew, so the
 sentence now says 94, while the past-tense comment in `screen_coverage_test.go`
 ("Before the pass existed, the fit guard and the companion-coverage guard each
 built the same 55 models 660 times") is history and stays as it is written.
+
+L12 (the secret scan, which is the merge's last gate): `Secret Scanning` failed on
+commit eb8379c with one finding -- rule `private-key`, `installer/internal/tui/doctor_test.go`
+line 410. It is the synthetic OpenSSH block `doctorRichHost` writes into the fake
+host's `~/.ssh`, which exists so the report's redactor is asserted to replace a PEM
+body before the line is written: a fixture of the guard, not a credential. The
+workflow's own command was reproduced locally with gitleaks 8.30.1
+(`--log-opts="--no-merges --first-parent adc502c^..9c3200c"`) and reports exactly the
+one finding CI reports, in the same commit, file, line and rule.
+
+The fix follows the reasoning `.gitleaks.toml` already carries for the same case, in
+its own words: a value entry rather than a path entry, because `doctor_test.go` is
+the subject of new commits and silencing the path would silence whatever a later
+commit puts in it, while the finding was raised against a commit the pull request's
+own scan reads. The pattern is written to the fixture's shape -- an OpenSSH header, a
+body of at most 24 base64 characters, the footer -- so a key written in the real shape
+still reports. Verified with gitleaks 8.30.1: the range scan reports the finding
+before the entry and none after it (exit 0), and a scratch scan under the same config
+reports a real-shaped key while letting the synthetic block through.

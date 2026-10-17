@@ -104,4 +104,21 @@ paths = [
 # different value written in the same shape.
 regexes = [
     '''hunter2-secret-value''',
+
+    # The development environment doctor's own fixtures. `doctor_test.go` writes a
+    # synthetic OpenSSH private-key block into the fake host's `~/.ssh` -- and
+    # `doctor_checks_test.go` does the same -- because the report's redactor is
+    # asserted to replace a PEM body before the line is written, and that is only a
+    # test of anything if the fixture really has one. The block is the header, the
+    # handful of letters the fixture uses as a body, and the footer. The pattern is
+    # written to that synthetic shape rather than to the rule: it matches a body of
+    # at most 24 base64 characters, so a real key, whose body runs to hundreds,
+    # still reports. It is a value entry rather than a path entry for the reason
+    # the entry above gives -- `doctor_test.go` is the subject of new commits, and
+    # silencing the path would silence whatever a later commit puts in it -- and the
+    # finding this answers was raised against commit eb8379c, which the pull
+    # request's own scan reads. Verified with gitleaks 8.30.1 locally: the range
+    # scan reports the finding before this entry and none after it, while the same
+    # rule still reports a key written in the real shape in the same file.
+    '''-----BEGIN OPENSSH PRIVATE KEY-----(\\n[A-Za-z0-9+/=]{0,24})?\\n-----END OPENSSH PRIVATE KEY-----''',
 ]
