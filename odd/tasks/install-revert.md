@@ -654,3 +654,95 @@ session.
     before `unaccountedInside` is asked, so it could never have reached the line I was trying to cover. A test asserting the outcome I had guessed would have been a lie, so it was dropped,
     the function stays where it is, and its comment now says what it does instead of when it is asked. A
     device node could not be tested at all: `mknod` needs a privilege this machine does not have.
+
+- **L25 (the fingerprint, and the rule that already existed one file over).** The twelfth pass's probes had the
+  revert as their subject and never reached it: they hung in `configFingerprints` -> `fingerprintPath` ->
+  `writeFileFingerprint` -> `os.ReadFile`, which is the installer's own startup reading every path that is not a
+  directory without looking at its kind. A machine with a named pipe anywhere under a configuration path it
+  fingerprints hangs the installer before any run starts. That is a different command path from the revert, which
+  is why it got a round of its own. This entry is numbered after the L24 that travels in the open pull request for
+  that round, so that neither pull request renumbers the other's record.
+  - **Four routes, measured by execution.** A pipe inside a key (the walk), a pipe that *is* the key, a link to a
+    pipe as the key, and the same link seen by the file index: each blocked for five seconds before this round and
+    returns now, with the five-second bound inside the test so that a regression fails the suite instead of
+    hanging it.
+  - **The asymmetry that pointed at the fix.** `configFileIndex` already guards its walk -- `if err != nil ||
+    !entry.Type().IsRegular() { return nil }` -- while `fingerprintPath` reads every non-directory it meets. The
+    rule existed one file over; the fingerprint had never learned it. Two guards say it now: one in
+    `writeFileFingerprint`, the only place the fingerprint reads, and one in `fileDigest`, because the index
+    digests a key that is not a directory through it. `writeFileFingerprint`'s own comment had said "a file that
+    cannot be read contributes nothing" the whole time: the intent was written and the code did not hold it.
+  - **What this round does not claim.** The other `os.ReadFile` sites are not all safe, and the first version of
+    this entry said they were: it called them "known paths", which describes them and does not excuse them. An
+    exact named file is as able to be a pipe as one inside a walk, and the pass over this commit named six that
+    would still block on one: `installer.go:8183` (`$HOME/.bashrc`), `installer.go:7626` (`.tmux.conf`),
+    `installer.go:7470` (the herdr config), `wsl.go:866` (`.wslconfig`), `zsh_plugins.go:112`,
+    `tmux_plugins.go:43`; plus repo and data-dir walks that check `IsDir()` or a suffix but not the regular type
+    (`installer.go:694`, `:699`, `:1009`, `wslterminal.go:1129`). They are pre-existing and a different command
+    path, and each of them reads one named file that the user's own tooling needs to be a file, which is a
+    boundary and not a guarantee: this entry names it as a boundary. The same guard would close them; the
+    installer's own startup walk is where foreign content plausibly lands, and that is what this round fixed.
+  - **It closes the two advisories the previous round left open, and the probes had to be replaced to say so.**
+    The pass over the revert's commit reported two routes that could still block -- the run's own copy read for
+    comparison, and the change loop reading the path the record names -- both needing data a run cannot produce.
+    They are the same unguarded `fileDigest`, so the guard closes them. The two probes first written for them
+    passed at the base and measured nothing: with `Before` empty, `revert.go:484` answers "unrevertible" before
+    `revert.go:487` reads anything, so those probes left `currentFileDigest`, `unvouchedInside` and `copiedFor` at
+    zero coverage. The pass measured that, handed over probes with a non-empty `Before`, and those run now:
+    `currentFileDigest` 100%, `unvouchedInside` 72%, `copiedFor` 66.7%. `sameKindAsCopy` is still reached by no
+    test, as the previous round recorded.
+  - **The same pass proved the positives**, the direction this round had least evidence for: a link to a regular
+    file is still read and digested, a regular file and a directory key keep their digests, a socket key returns,
+    a link to a device is not read, and a pipe behind two links or inside a tree reached through a linked key
+    returns on all three entry points, including the production wrapper `configFingerprints()`. Those probes are
+    committed as they were handed over.
+  - **One advisory, decided rather than left open.** A record whose `created` entry now holds a named pipe reports
+    "already gone" and completes, with the pipe still there. Before this round that shape blocked. It stands
+    deliberately: the file the run created is gone, the pipe is not the run's to remove, and the rule from the
+    previous round is exactly that a kind the run cannot make is never its doing. A reader who thinks "complete"
+    should mean the path is free can disagree, which is why it is written here.
+  - **Two integration costs, and Git only sees one.** The open pull request for the revert round defines the same
+    predicate in `revert.go` under the same name from the same reasoning, so the merged tree fails to build with
+    `readsAsAFile redeclared` and one copy has to go. And both branches append to this same file: `git merge-tree`
+    reports `CONFLICT (content): merge conflict in odd/tasks/install-revert.md`, because L24 and L25 both land at
+    the end of it. Integrating the two is resolving this log and deleting one predicate copy. The first version of
+    this entry claimed the merge would be clean; the tool said otherwise, which is what an independent pass is for.
+
+- **L26 (integrating the two rounds, and the build break they both announced).** The two rounds were taken to
+  main on the owner's instruction, the required review bypassed with `--admin` after the base-branch policy
+  refused the ordinary merge, exactly as the audit round was. The order was the revert round first, because
+  either order leaves main needing one predicate copy deleted and only that order leaves it building: with
+  `readsAsAFile` in `state.go` and in `revert.go` at once, `go build ./...` fails with `readsAsAFile redeclared
+  in this block` -- which is what the pass over this round predicted, and what was measured before resolving.
+  - **What the integration needed.** One conflict, in this file: the revert round appended L24 and this round
+    appended L25 at the same point. Both entries are kept whole and in order, L24 first, and the resolution
+    asserts the entry count on both sides of itself (23 in, 25 out) instead of trusting a three-way diff. Then
+    one copy of the predicate: the one in `state.go` stays, beside the digest helpers that carry the rule into
+    both files, and `revert.go` keeps a pointer where its copy was, so a reader looking there is told where the
+    rule lives rather than finding nothing.
+  - **A correction, for the record.** The first version of L25 said the merge would be clean and that Git would
+    catch the duplicate. Git caught neither: the log conflict is Git's to report, and the duplicate is a build
+    failure Git cannot see. Both costs were real; only one of them was announced correctly at first.
+  - **The claims held.** This is the merge the fingerprint round's body described: one content conflict in this
+    file and one predicate to delete. Nothing in either body needed correcting after the fact.
+- **L27 (the marker I left in the record, and the check that was blind to it).** The integration that brought
+  the two rounds together committed a leftover diff3 base marker: `||||||| 516c760` at line 709 of this file,
+  in the slot where the blank line between L25 and L26 belonged, while the separator between L24 and L25 was
+  missing. No compiler and no test of behavior can see that; the verification of the integration found it by
+  grepping the tree, not by reading the resolution.
+  - **Why my own check missed it.** My resolution script looked for the three markers I expected -- `<<<<<<<`,
+    `=======`, `>>>>>>>` -- and Git wrote a fourth: in diff3 style the base section is introduced by `|||||||`.
+    The check was defined by what I expected to find, which is the one way a check for leftovers can be useless.
+    A repo-wide search for all four tokens finds exactly that one line and nothing else, which also settles the
+    earlier attempt: the committed tree never carried a `=======` line at all.
+  - **The fix, and the guard.** The marker becomes a blank line and the missing separator becomes a blank line,
+    with an assertion that the file's non-empty lines are unchanged apart from the marker itself, so the repair
+    cannot have edited an entry. The durable guard is `installer/internal/tui/conflict_markers_test.go`: it walks
+    every file of the tree, fails on any of the four markers, and before saying it found none it names the files
+    it actually walked, because a check that walks nothing reports nothing and reporting nothing is exactly what
+    it is meant to do. It went red on this exact line before the fix, which is how the guard is known to work
+    instead of assumed to.
+  - **What the integration pass established still stands.** The predicate is defined once (`state.go:486`) with a
+    pointer comment where the other copy was, nothing else in `revert.go` moved, L24 and L25 are byte-identical to
+    their source branches (checked with `cmp` and md5), and the whole package is green from a fresh cache. The
+    only defect that pass found is the one this entry fixes.

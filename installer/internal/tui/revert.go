@@ -328,13 +328,8 @@ func aKindTheRunNeverWrites(mode os.FileMode) bool {
 	return !mode.IsRegular() && !mode.IsDir() && mode&os.ModeSymlink == 0
 }
 
-// readsAsAFile reports whether a path holds content that can be read: a regular file, named
-// directly or reached through a link. os.Stat follows the link, so a link into a named pipe
-// answers no, and answering costs no read -- reading a pipe blocks until a writer appears.
-func readsAsAFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
-}
+// readsAsAFile, the rule the guards above and the fingerprint both need, lives in state.go
+// beside the digest helpers it serves: the rule is one and the callers are two files.
 
 // sameKindAsCopy reports whether the run's copy of a path holds the same kind of thing the machine
 // holds there. The copy is the state before the run, so a path whose copy holds the same kind is one

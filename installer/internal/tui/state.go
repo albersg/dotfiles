@@ -394,8 +394,15 @@ func fingerprintPath(path string) string {
 
 // writeFileFingerprint folds one file's bytes into a digest. A file that cannot
 // be read contributes nothing, which keeps the fingerprint over the files that
-// are readable rather than failing the run's bookkeeping over one of them.
+// are readable rather than failing the run's bookkeeping over one of them. That
+// includes a file that cannot be read at all: a named pipe, a socket or a device
+// is not a file with bytes to fold in, and reading a pipe waits for a writer that
+// never comes. A link is followed on purpose -- a key read through a link is the
+// same key -- and a link into a pipe is exactly the case to skip.
 func writeFileFingerprint(digest hash.Hash, path string) {
+	if !readsAsAFile(path) {
+		return
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -471,10 +478,25 @@ func configFileIndex() map[string]string {
 	return index
 }
 
-// fileDigest returns the digest of a file's bytes, or "" when it cannot be read.
-// A file that cannot be read stays out of the index rather than being recorded as
-// empty, so "not there" and "unreadable" never read as a change to nothing.
+// readsAsAFile reports whether a path holds content that can be read: a regular file, named
+// directly or reached through a link. os.Stat follows the link, so a link into a named pipe
+// answers no, and answering costs no read -- reading a pipe blocks until a writer appears.
+// The same rule is what the revert's report follows, where a path of such a kind is not the
+// run's doing; here it is what keeps the fingerprint out of a read that never returns.
+func readsAsAFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// fileDigest returns the digest of a file's bytes, or "" when there is no answer: a path that
+// is not a regular file is not read, because a pipe waits for a writer and a socket or a device
+// has no bytes a digest can speak for. A file that cannot be read stays out of the index rather
+// than being recorded as empty, so "not there" and "unreadable" never read as a change to
+// nothing, and an empty answer is not evidence of a change.
 func fileDigest(path string) string {
+	if !readsAsAFile(path) {
+		return ""
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
