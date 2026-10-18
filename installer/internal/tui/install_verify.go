@@ -70,8 +70,9 @@ func (m Model) installVerifyCmdIfNeeded() tea.Cmd {
 // way to it would be cut on exactly the machines a user most wants an answer on.
 func (m Model) installVerifyDescription() []string {
 	paragraphs := []string{
-		"Read-only: this checks that every path and backup the record names is still here, and nothing else. " +
-			"The record names no digest, so it cannot say whether a file is still what the install left.",
+		"Read-only, and it writes nothing. Every path and backup the record names is here or gone, and every file " +
+			"the run changed is compared against the digest it held when the run finished: still holding it, changed " +
+			"since, or unreadable. Where the record carries no digest, being here is all this can say.",
 	}
 
 	if !m.InstallVerify.Resolved {
@@ -99,23 +100,48 @@ func (m Model) installVerifyDescription() []string {
 			"The record names no path, so there is nothing to compare with this machine.")
 	}
 
-	missing := verdict.Missing()
-	if missing == 0 {
+	missing := 0
+	changed := 0
+	for _, finding := range verdict.Findings {
+		switch {
+		case finding.Kind.Missing():
+			missing++
+		case finding.Kind.ChangedSinceTheRun():
+			changed++
+		}
+	}
+
+	if missing == 0 && changed == 0 {
 		return append(paragraphs, fmt.Sprintf(
-			"Every one of the %d paths and backups the record names is still here.", len(verdict.Findings)))
+			"Every one of the %d paths, copies and files the record names is here and holds what the run left.",
+			len(verdict.Findings)))
+	}
+
+	if missing > 0 {
+		paragraphs = append(paragraphs, fmt.Sprintf(
+			"%d of the %d paths and backups the record names are not here:", missing, len(verdict.Findings)))
+		for _, finding := range verdict.Findings {
+			if finding.Kind.Missing() {
+				paragraphs = append(paragraphs, installVerifyRowLine(finding))
+			}
+		}
+	}
+
+	// A file that changed after the install is not a path that is gone, and it is
+	// not a pass either. It is the difference between "the machine is here" and
+	// "the machine is what the install left", and this screen answers the second.
+	if changed > 0 {
+		paragraphs = append(paragraphs, fmt.Sprintf("%d file(s) no longer hold what the run left:", changed))
+		for _, finding := range verdict.Findings {
+			if finding.Kind.ChangedSinceTheRun() {
+				paragraphs = append(paragraphs, installVerifyRowLine(finding))
+			}
+		}
 	}
 
 	paragraphs = append(paragraphs, fmt.Sprintf(
-		"%d of the %d paths and backups the record names are not here:", missing, len(verdict.Findings)))
-	for _, finding := range verdict.Findings {
-		if !finding.Kind.Missing() {
-			continue
-		}
-		paragraphs = append(paragraphs, installVerifyRowLine(finding))
-	}
-	paragraphs = append(paragraphs, fmt.Sprintf(
-		"Still here: %d of the %d paths and backups the record names. dotfiles --verify prints every one of them, "+
-			"including the ones that are here.", len(verdict.Findings)-missing, len(verdict.Findings)))
+		"Still what the run left: %d of the %d. dotfiles --verify prints every one of them.",
+		len(verdict.Findings)-missing-changed, len(verdict.Findings)))
 	return paragraphs
 }
 
@@ -125,10 +151,20 @@ func (m Model) installVerifyDescription() []string {
 // column so the rows read as a list of one thing, the way the command line's own
 // report is aligned.
 func installVerifyRowLine(finding installFinding) string {
-	if finding.Kind.Copy() {
+	switch {
+	case finding.Kind.Copy():
 		return fmt.Sprintf("missing  backup of %s  %s", finding.Key, finding.Path)
+	case finding.Kind.Missing():
+		return fmt.Sprintf("missing  %s  %s  %s", finding.Key, finding.Path, verifyActionPhrase(finding.Action))
+	case finding.Kind == findingFileUnreadable:
+		return fmt.Sprintf("unknown  %s  %s  the file could not be read", finding.Key, finding.Path)
+	default:
+		row := fmt.Sprintf("changed  %s  %s  no longer holds what the run left", finding.Key, finding.Path)
+		if finding.Detail != "" {
+			row += ": " + finding.Detail
+		}
+		return row
 	}
-	return fmt.Sprintf("missing  %s  %s  %s", finding.Key, finding.Path, verifyActionPhrase(finding.Action))
 }
 
 // renderInstallVerify draws the verification screen: what it checked, what the
@@ -174,5 +210,8 @@ func installVerifyPanelValue(st installVerifyState) string {
 	if missing := verdict.Missing(); missing > 0 {
 		return fmt.Sprintf("%d not here", missing)
 	}
-	return fmt.Sprintf("all %d still here", len(verdict.Findings))
+	if changed := verdict.Divergent(); changed > 0 {
+		return fmt.Sprintf("%d changed since the install", changed)
+	}
+	return fmt.Sprintf("all %d as the run left them", len(verdict.Findings))
 }

@@ -233,6 +233,11 @@ type stepRecordedState struct {
 	// because the record built at the end of the run is written from the UI model,
 	// which never saw the copy the step ran against.
 	ConfigFingerprints map[string]string
+	// ConfigFileIndex is the before-run digest of every file under every
+	// configuration path, taken by the same step and travelling with it for the
+	// same reason: the record built at the end of the run is written from the UI
+	// model, which never saw the copy the step ran against.
+	ConfigFileIndex map[string]string
 }
 
 // recordedState takes the state a step recorded off the model it ran against.
@@ -242,6 +247,7 @@ func (m Model) recordedState() stepRecordedState {
 		RepoDir:            m.RepoDir,
 		BackupDir:          m.BackupDir,
 		ConfigFingerprints: m.ConfigFingerprints,
+		ConfigFileIndex:    m.ConfigFileIndex,
 	}
 }
 
@@ -251,18 +257,37 @@ func (r stepRecordedState) applyTo(m *Model) {
 	m.RepoDir = r.RepoDir
 	m.BackupDir = r.BackupDir
 	m.ConfigFingerprints = r.ConfigFingerprints
+	m.ConfigFileIndex = r.ConfigFileIndex
 }
 
-// recordLastInstall writes the record of a completed run and puts it on the
+// recordRun writes the record of the run that just finished and puts it on the
 // model, so the "Last install" panel shows the run that just finished without
 // waiting for the next startup read. The record itself is built in state.go from
-// what the run did to each configuration path, not from the pre-run detection;
-// copying m.ExistingConfigs here is the defect reported in issue #239. The file
-// write is deliberately unchecked: it is a convenience for the next run, and a
-// read-only or missing state directory must not fail an install that already
+// what the run did to each configuration path and to each file under it, not from
+// the pre-run detection; copying m.ExistingConfigs here is the defect reported in
+// issue #239.
+//
+// It is called for a run that failed as well as for one that finished, and by the
+// scripted route as well as by the interface. A run that stopped halfway is
+// exactly the run whose changes a person needs to read -- those are the changes
+// that are already on their machine -- and the record is the only place they are
+// written down.
+//
+// The file write is deliberately unchecked: it is a convenience for the next run,
+// and a read-only or missing state directory must not fail an install that already
 // succeeded.
-func (m *Model) recordLastInstall() {
+func (m *Model) recordRun(status runStatus, failedSteps []string) {
+	// A dry run does nothing, so it has nothing to record -- and writing its empty record
+	// over the one a real run left destroys the evidence the revert and the content check
+	// read: the next --revert would report that the run changed nothing while the machine
+	// still holds every file that run wrote. The rule lives at the one place a run records,
+	// because the interface reaches it by routes of its own.
+	if dryRun() {
+		return
+	}
 	rec := lastInstallRecord(m, time.Now())
+	rec.Status = status
+	rec.FailedSteps = failedSteps
 	m.LastInstall = &rec
 	_ = writeLastInstall(rec)
 }
@@ -845,6 +870,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.Screen = ScreenError
 					// Include step name in error message for clarity
 					m.ErrorMsg = fmt.Sprintf("Step '%s' failed:\n%s", m.Steps[i].Name, msg.err.Error())
+					// The run stops here, and the changes it already made are on
+					// the machine: this record is what names them.
+					m.recordRun(runStatusFailed, []string{m.Steps[i].Name})
 					return m, nil
 				}
 				m.Steps[i].Status = StatusDone
@@ -871,7 +899,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The run finished, so record it for the next one. The write is best effort:
 		// a state directory the machine will not let us write must not fail an
 		// install that has already succeeded.
-		m.recordLastInstall()
+		m.recordRun(runStatusComplete, nil)
 		return m, nil
 
 	case loadBackupsMsg:
@@ -1057,6 +1085,55 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.UpdateCheck.Notice = fmt.Sprintf(
 			"Updated to %s%s; the previous binary is kept at %s. Restart dotfiles to run the new release.",
 			installed, source, msg.kept)
+		return m, nil
+
+	case doctorCheckDoneMsg:
+		// A message from a run that was cancelled and restarted belongs to the run
+		// that asked for it, never to the one on screen now.
+		run := m.Doctor.Run
+		if run == nil || run.ID != msg.RunID {
+			return m, nil
+		}
+		run.Results[msg.Result.ID] = msg.Result
+		run.Next = msg.Index + 1
+		if run.Canceled {
+			m.doctorFinishRun("the run was cancelled before this check ran")
+			return m, nil
+		}
+		if run.Next < len(run.Plan) {
+			run.Message = m.doctorProgressLine()
+			return m, m.doctorCheckCmd()
+		}
+		m.doctorFinishRun("")
+		return m, nil
+
+	case doctorFixDoneMsg:
+		m.Doctor.FixNotice = msg.Outcome.Notice
+		if !msg.Outcome.Applied {
+			return m, nil
+		}
+		// The finding that offered the fix is re-checked, so the list states the
+		// state after the change rather than what the check found before it.
+		m.Doctor.Pending = nil
+		m.Screen = ScreenDoctor
+		m.settleDoctorCursor()
+		check, found := doctorCheckByID(msg.Finding.Check)
+		if !found {
+			m.Doctor.Notice = msg.Outcome.Notice
+			return m, nil
+		}
+		m.Doctor.Notice = msg.Outcome.Notice
+		return m, m.doctorStartRun([]doctorCheck{check}, false)
+
+	case doctorReportWrittenMsg:
+		switch {
+		case msg.Err != "":
+			m.Doctor.Notice = "The report could not be written: " + msg.Err
+		case dryRun():
+			m.Doctor.Notice = "A dry run wrote nothing. The report would have gone to " + doctorRelHomePath(msg.Path)
+		default:
+			m.Doctor.Notice = "Report written to " + doctorRelHomePath(msg.Path)
+		}
 		return m, nil
 
 	case updateCenterReadMsg:
@@ -1533,6 +1610,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.Screen = ScreenError
 					// Include step name in error message for clarity
 					m.ErrorMsg = fmt.Sprintf("Step '%s' failed:\n%s", m.Steps[i].Name, msg.err.Error())
+					// The steps before this one have already written configuration
+					// files, and this run stops here: the record is what names them,
+					// exactly as it is for a step that fails through its own status.
+					m.recordRun(runStatusFailed, []string{m.Steps[i].Name})
 					return m, nil
 				}
 				m.Steps[i].Status = StatusDone
@@ -2598,6 +2679,13 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 			scan := m.startUpdateCenterScan()
 			return m, scan
+		case selected == utilitiesDoctorRow:
+			// The doctor is one level in as well, and nothing is checked on the way
+			// in: a scan reads the whole machine, so it is started from the screen's
+			// own row rather than by opening it.
+			m.Screen = ScreenDoctor
+			m.Cursor = 0
+			m.Doctor.Notice = ""
 		case selected == utilitiesNetworkRow:
 			// The diagnosis is one level in for the same reason, and it dials nothing
 			// on the way in either: the checks start from that screen's own row, and the

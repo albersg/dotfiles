@@ -219,6 +219,18 @@ const (
 	// the forced signal appears only after a soft attempt left the process
 	// running, as a second, differently-worded action.
 	ScreenPortStop // One process, its ports, and the stop to confirm
+	// The development-environment doctor. Appended at the end for the same
+	// reason as the screens above. The utilities section opens it from its own
+	// row, one level in so the section stays a list of jobs. It runs the checks
+	// of doctor.go off the update loop -- one check per command, so progress is
+	// real and Escape cancels -- and every answer is ok, a warning, an error,
+	// not applicable or unknown with its evidence, its impact and what to do.
+	ScreenDoctor // What this machine's development environment looks like
+	// The confirmation for one fix. Appended at the end for the same reason. It
+	// states the exact effect, the risk, the permission and the backup before
+	// anything is changed, and its single action row is the only row in the
+	// doctor that writes anything at all.
+	ScreenDoctorFix // One deterministic repair, seen before it is applied
 )
 
 // stepOrigin says why a step is on the plan, in the three answers S2 of
@@ -557,11 +569,16 @@ type Model struct {
 	LastInstall *lastInstall
 	// ConfigFingerprints is the content hash of every configuration path as it
 	// was before the run wrote anything. executeStep takes it before the first
-	// step, and recordLastInstall compares the paths against it so the record
+	// step, and recordRun compares the paths against it so the record
 	// names an outcome per path instead of copying the pre-run detection. It is
 	// nil until a run starts and for a model built by hand in a test, which then
 	// claims no replacement.
 	ConfigFingerprints map[string]string
+	// ConfigFileIndex is the digest of every file under every configuration path
+	// as it was before the run wrote anything, taken by the same step and for the
+	// same reason, one level finer: it is what the record names per file. It is
+	// nil until a run starts, and the record then claims no file change at all.
+	ConfigFileIndex map[string]string
 	// Repository checkout created by the clone step
 	WorkDir string // Private temporary directory owned by this run (empty until clone)
 	RepoDir string // Repository checkout inside WorkDir (empty until clone)
@@ -752,6 +769,11 @@ type Model struct {
 	// center never asks a package manager anything, and the startup path stays free
 	// of the machine's own managers.
 	UpdateCenter updateCenterState
+	// Doctor is what the development-environment doctor draws: the scan in
+	// flight or the last one that finished, the list's filter, and the finding
+	// whose fix is being confirmed. Nothing is scanned until a row inside the
+	// screen is pressed, so opening the section never reads the machine.
+	Doctor doctorState
 	// ThemeRefreshCandidates is the list the refresh detection found, or nil when
 	// no detection has run. The review names it before anything is written.
 	ThemeRefreshCandidates []themeRefreshCandidate
@@ -1230,6 +1252,10 @@ func (m Model) GetCurrentOptions() []string {
 		// is always safe, and a platform with no reader says so in the screen's own
 		// body instead of the row vanishing.
 		utilities = append(utilities, utilitiesPortRow)
+		// The doctor is read-only until a fix is confirmed, and it is offered
+		// everywhere: there is always a machine to diagnose. It sits last, so it
+		// never displaces a utility above it on a short frame.
+		utilities = append(utilities, utilitiesDoctorRow)
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
@@ -1256,6 +1282,10 @@ func (m Model) GetCurrentOptions() []string {
 		return m.shellAuditRows()
 	case ScreenDiskCleaner:
 		return diskCleanRowLabels(m.diskCleanRows())
+	case ScreenDoctor:
+		return m.doctorRows()
+	case ScreenDoctorFix:
+		return m.doctorFixRows()
 	case ScreenUpdateCenter:
 		// The rows are the state: one row per entry the managers reported, grouped by
 		// manager, then the action rows, then the way back. A confirmation and a
@@ -1615,6 +1645,10 @@ func (m Model) GetScreenTitle() string {
 		return "The SSH configuration's diagnosis"
 	case ScreenSSHTest:
 		return "Test an SSH connection"
+	case ScreenDoctor:
+		return "Development environment"
+	case ScreenDoctorFix:
+		return "Confirm the fix"
 	case ScreenUpdate:
 		return "Updates"
 	case ScreenPortManager:

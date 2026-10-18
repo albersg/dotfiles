@@ -520,7 +520,8 @@ func (m Model) bodyAnchorsToTheRule() bool {
 		ScreenInstallVerify, ScreenNetworkDiagnostics, ScreenWSLAdvisor,
 		ScreenWSLBenchmark, ScreenWSLMigration, ScreenSSHManager, ScreenSSHHost,
 		ScreenSSHForm, ScreenSSHKeys, ScreenSSHAgent, ScreenSSHDiagnostics,
-		ScreenSSHTest, ScreenPortManager, ScreenPortStop:
+		ScreenSSHTest, ScreenPortManager, ScreenPortStop,
+		ScreenDoctor, ScreenDoctorFix:
 		return true
 	}
 	return false
@@ -614,9 +615,10 @@ func (m Model) headerName() string {
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
 		return "Utilities"
-	case ScreenPortManager, ScreenPortStop:
-		// Both port screens are one level in from the utilities section, exactly as
-		// the shell audit and the update screen are.
+	case ScreenPortManager, ScreenPortStop, ScreenDoctor, ScreenDoctorFix:
+		// All four are one level in from the utilities section, exactly as the
+		// shell audit and the update screen are: the port screens belong to that
+		// section's own row, and so do the doctor and its confirmation.
 		return "Utilities"
 	default:
 		return "dotfiles"
@@ -1173,6 +1175,10 @@ func (m Model) View() string {
 		s.WriteString(m.renderPortStop())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
+	case ScreenDoctor:
+		s.WriteString(m.renderDoctor())
+	case ScreenDoctorFix:
+		s.WriteString(m.renderDoctorFix())
 	case ScreenInstalling:
 		s.WriteString(m.renderInstalling())
 	case ScreenAdminPassword:
@@ -1806,8 +1812,14 @@ func (m Model) utilitiesDescription() []string {
 	// instead of showing rows that would fail.
 	switch {
 	case len(m.DotfilesThemes) > 0:
-		paragraphs = append(paragraphs, fmt.Sprintf(
-			"%s opens the list of complete themes.", utilitiesThemeRow))
+		// The line this case used to add -- that the row opens the list of complete
+		// themes -- only restated the row drawn directly above it, and it is the line
+		// that yields now that the section carries the doctor as its tenth job: the row
+		// is one line of budget the body no longer has, and a row that names the job
+		// and opens it cannot be missed, while the sentences below say why a row is
+		// absent and no row can carry that. Every other sentence here earns its line
+		// the same way, and TestUtilitiesBodyCarriesEveryJobAtTheFloor fails if one of
+		// them is pushed behind the cut instead.
 	case m.dotfilesThemesPending():
 		// The definitions are read when the section opens, so an empty list with
 		// no recorded failure is a read in flight, not a verdict. The section says
@@ -4239,6 +4251,15 @@ func (m Model) renderError() string {
 		errLines = append(errLines, ErrorStyle.Render(row))
 	}
 	body = append(body, gutteredBlock(errLines)...)
+
+	// The way back is named before the log: a failure is where a person needs to
+	// know what the run already changed and how to put it back, and the log is
+	// context for that rather than a substitute for it. The block is three rows so
+	// it cannot be the reason the log disappears from a short frame.
+	body = append(body, "", chip("Way back"))
+	for _, line := range wayBackAfterAFailure(m.BackupDir) {
+		body = append(body, gutteredBlock(wrapText(line, width-2, 2))...)
+	}
 
 	// Show the freshest log lines for context, as many as the frame leaves rather
 	// than a fixed five. One dim row names the earlier lines the panel could not

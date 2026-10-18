@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -48,8 +49,16 @@ type cliFlags struct {
 	font      bool
 	backup    bool
 	noAnim    bool
-	noMouse   bool
-	noSprite  bool
+	// revert is the write half of the record --verify reads: it puts this machine
+	// back where the last run found it. restore is the same operation for a backup
+	// directory named by hand, which is the way back for a machine whose record is
+	// gone. Neither is a flag of the run: they are commands of their own, and both
+	// honour --dry-run.
+	revert  bool
+	restore string
+
+	noMouse  bool
+	noSprite bool
 
 	// skip is the comma-separated list of units the run is told to leave out. It is a
 	// string rather than a list because that is what a command line carries; the set
@@ -72,7 +81,9 @@ func registerFlags(fs *flag.FlagSet, flags *cliFlags) {
 	fs.StringVar(&flags.channel, "channel", "", "Release channel to follow: stable (default) or dev")
 	fs.BoolVar(&flags.test, "test", false, "Run in test mode (uses temporary directory)")
 	fs.BoolVar(&flags.test, "t", false, "Run in test mode (shorthand)")
-	fs.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed without doing it")
+	fs.BoolVar(&flags.dryRun, "dry-run", false, "Show what would be installed, restored or reverted without doing it")
+	fs.BoolVar(&flags.revert, "revert", false, "Put this machine back where the last install found it")
+	fs.StringVar(&flags.restore, "restore", "", "Put a backup directory back: dotfiles --restore ~/.dotfiles-backup-<timestamp>")
 	fs.BoolVar(&flags.nonInteractive, "non-interactive", false, "Run without TUI, use CLI flags")
 	fs.StringVar(&flags.terminal, "terminal", "", "Terminal: "+strings.Join(tui.SupportedTerminals(runtime.GOOS), ", "))
 	fs.StringVar(&flags.os, "os", "", "Platform to work from: "+strings.Join(tui.SupportedOperatingSystems(), ", ")+" (default: the machine this runs on)")
@@ -144,6 +155,17 @@ func main() {
 	// change that either could gate.
 	if flags.verify {
 		os.Exit(reportVerify())
+	}
+
+	// --revert and --restore are the other half of the record --verify reads: what
+	// a run changed, put back. They sit below the dry-run gate so --dry-run reaches
+	// them the same way it reaches a run, and above test mode so a script can ask
+	// for either without a temporary directory being invented for it.
+	if flags.revert {
+		os.Exit(reportRevert(flags.dryRun))
+	}
+	if flags.restore != "" {
+		os.Exit(reportRestore(flags.restore, flags.dryRun))
 	}
 
 	if flags.test {
@@ -220,6 +242,159 @@ func main() {
 	}
 }
 
+// reportRevert puts this machine back where the last install found it and returns
+// the exit status a script reads: 0 when every file the run changed is back, or was
+// already in the state the revert restores, 1 when a file could not be put back,
+// and 2 when there is no record to revert.
+//
+// It prints what it did file by file, because this is the one command whose reader
+// has to be able to check it: a summary that says "done" while a file is still
+// changed is the defect this command exists to answer.
+func reportRevert(dryRun bool) int {
+	report, err := tui.RevertLastRun(tui.RevertOptions{DryRun: dryRun})
+
+	if errors.Is(err, tui.ErrNoRecord) {
+		fmt.Println("No record of an install on this machine, so there is nothing to revert.")
+		fmt.Println("A record is written by a run that installs; `dotfiles --restore=<backup>` puts one backup directory back.")
+		return 2
+	}
+
+	if report.Record != nil && len(report.Files) > 0 {
+		// The record's own count, not this run's plan: on a second run nothing is
+		// left to do, and "changed 0 file(s)" would misdescribe the record the
+		// lines below are read from.
+		fmt.Printf("The run of %s changed %d file(s):\n\n",
+			report.Record.Timestamp.Local().Format("2006-01-02 15:04:05"), len(report.Files))
+	}
+	for _, file := range report.Files {
+		fmt.Printf("  %s %s (%s) %s\n", revertMark(file.Status), file.Path, file.Action, revertPhrase(file))
+	}
+
+	if report.SnapshotDir != "" {
+		fmt.Printf("\nThe state this replaced is kept in %s\n", report.SnapshotDir)
+	} else if report.SnapshotReason != "" {
+		fmt.Printf("\nThe state this replaced could not be kept: %s\n", report.SnapshotReason)
+	}
+
+	if len(report.Irreversible) > 0 {
+		fmt.Println("\nNot undone by this command:")
+		for _, item := range report.Irreversible {
+			fmt.Println("  - " + item)
+		}
+	}
+
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
+		return 1
+	case dryRun:
+		fmt.Println("\nDry run: nothing was changed.")
+		return 0
+	case len(report.Files) == 0:
+		// A run that changed no file has nothing to put back. Saying that every
+		// file "already holds what it held before it" would describe a revert that
+		// examined files the record never named.
+		fmt.Println("The run changed no configuration file, so there is nothing to put back.")
+		return 0
+	case report.Reverted == 0:
+		fmt.Println("\nEvery file the run changed already holds what it held before it.")
+		return 0
+	default:
+		fmt.Printf("\n%d file(s) are back where the run found them.\n", report.Reverted)
+		return 0
+	}
+}
+
+// revertMark is the one-character summary of what happened to a file.
+func revertMark(status tui.RevertStatus) string {
+	switch status {
+	case tui.RevertReverted:
+		return "✓"
+	case tui.RevertWouldRevert:
+		return "→"
+	case tui.RevertAlready:
+		return "·"
+	case tui.RevertUnrevertible, tui.RevertFailed:
+		return "!"
+	}
+	return "?"
+}
+
+// revertPhrase is the sentence that follows a file's name: what the revert did to
+// it, or why it could not.
+func revertPhrase(file tui.RevertFileReport) string {
+	switch file.Status {
+	case tui.RevertReverted:
+		if file.Reason != "" {
+			return "put back -- " + file.Reason
+		}
+		return "put back"
+	case tui.RevertWouldRevert:
+		if string(file.Action) == "created" {
+			return "would be removed"
+		}
+		return "would be put back"
+	case tui.RevertAlready:
+		return "already in the state the revert restores"
+	case tui.RevertUnrevertible:
+		return "cannot be put back -- " + file.Reason
+	case tui.RevertFailed:
+		return "FAILED -- " + file.Reason
+	}
+	return string(file.Status)
+}
+
+// reportRestore puts a backup directory back and returns the exit status a script
+// reads: 0 when every entry went back, 1 when an entry could not be placed, and 2
+// when the path is not a backup this program wrote or could not be read at all.
+func reportRestore(path string, dryRun bool) int {
+	report, err := tui.RestoreBackupDir(path, dryRun)
+
+	if err != nil && report.Planned == 0 && report.Restored == 0 && report.Failed == 0 {
+		// Nothing was planned and nothing was attempted: the directory itself was
+		// refused, which is a different answer from an entry that did not fit.
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 2
+	}
+
+	fmt.Printf("Restoring %s\n\n", path)
+	for _, entry := range report.Entries {
+		switch entry.Status {
+		case "restored":
+			fmt.Printf("  ✓ %s put back\n", entry.Path)
+		case "would-restore":
+			fmt.Printf("  → %s would be put back\n", entry.Path)
+		case "skipped":
+			fmt.Printf("  · %s %s\n", entry.Path, entry.Reason)
+		default:
+			fmt.Printf("  ! %s %s\n", entry.Path, entry.Reason)
+		}
+	}
+
+	if report.SnapshotDir != "" {
+		fmt.Printf("\nThe state this replaced is kept in %s\n", report.SnapshotDir)
+	} else if report.SnapshotReason != "" {
+		fmt.Printf("\nThe state this replaced could not be kept: %s\n", report.SnapshotReason)
+	}
+
+	switch {
+	case dryRun && report.Failed > 0:
+		// A plan that names an entry it cannot place is not a yes: a script asking
+		// whether this backup can go back has to be able to read the answer.
+		fmt.Printf("\nDry run: nothing was changed, and %d entr(ies) could not be put back.\n", report.Failed)
+		return 1
+	case dryRun:
+		fmt.Println("\nDry run: nothing was changed.")
+		return 0
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
+		return 1
+	default:
+		fmt.Printf("\n%d entr(ies) are back where they were.\n", report.Restored)
+		return 0
+	}
+}
+
 // reportUpdate prints what the latest published release is beside this build and
 // returns the exit status a script reads: 0 when this build is the published one,
 // 1 when a newer one exists, 2 when the answer could not be read at all.
@@ -258,9 +433,10 @@ func runSelfUpdate() error {
 // could not be read. A machine with no record is not a failure: the report says
 // nothing was installed here and the status is 0.
 //
-// The report never claims a file's contents match the install. installEntry
-// names no digest, so the honest statement is presence, the action and the
-// backup, with the unverifiable part said per line rather than in a footer.
+// The report claims a file's contents only where the record carries a digest for it:
+// the per-file changes do, and a record written before they existed does not. Where
+// there is no digest the honest statement is presence, the action and the backup, with
+// the unverifiable part said per line rather than in a footer.
 func reportVerify() int {
 	report := tui.VerifyInstall()
 	for _, line := range report.Lines {
@@ -412,7 +588,7 @@ Flags:
   -h, --help           Show this help message
   -v, --version        Show version information
   -t, --test           Run in test mode (uses temporary directory)
-  --dry-run            Show what would be installed without doing it
+  --dry-run            Show what would be installed, restored or reverted without doing it
   --non-interactive    Run without TUI, use CLI flags instead
   --skip=<names>       Leave units and plugin sets out of the run,
                        comma-separated (--skip=officecli,plugins-herdr). The run
@@ -434,14 +610,51 @@ Flags:
                        package manager installed is refused (run
                        brew upgrade dotfiles for that one)
   --verify             Check this machine against the record the last install
-                       wrote: every configuration path and backup that run named
-                       is reported as here or missing, with what the run did to
-                       it. The record holds no digest, so a path that is here is
-                       reported as here and unverifiable, never as matching.
-                       Exits 0 when every path and backup it names is still here,
-                       1 when something it names is gone, and 2 when a record is
-                       present and could not be read. A machine with no record
-                       exits 0 and says nothing was installed here
+                       wrote. Every configuration path and backup that run named
+                       is reported as here or missing, and every file the run
+                       changed is compared against the digest it held when the run
+                       finished: still holding what the run left, changed since,
+                       or unreadable. Where the record carries no digest -- one
+                       written before it kept them, or a path the run did not
+                       write -- the report says the path is here and unverifiable,
+                       never that it matches. The digests are content digests, so
+                       a path that is now a link to the same content reads as
+                       still holding what the run left.
+                       Exits 0 when the machine is what that run left, 1 when a
+                       path or backup it names is gone or a file no longer holds
+                       what the run left, and 2 when a record is present and could
+                       not be read. A machine with no record exits 0 and says
+                       nothing was installed here
+  --revert             Put this machine back where the last install found it: every
+                       file the run modified or removed is copied back out of the
+                       backup, and every file it created is removed. The record the
+                       run writes names them per file, and each file is checked
+                       against the digest the run took before it wrote it, so the
+                       command proves what it did. A file whose backup copy is gone
+                       is reported, never skipped, and so is a path the record names
+                       as written but cannot vouch for file by file -- a symlink inside
+                       a configuration directory is the ordinary case, and a record
+                       written before the installer recorded files one by one is the
+                       same shape of claim. A link is not reported when the copy the
+                       run took of it still points where it points and what it reaches
+                       is inside a path the record names, with the files there holding
+                       what the copies hold or named by the record. The report names the
+                       backup directory that puts a whole entry back when the record
+                       names one. The state it replaces is kept in a backup of its own. Exits 0 when the machine is back (or
+                       already was), 1 when a file could not be put back, and 2 when
+                       there is no record. Honours --dry-run
+  --restore=<path>     Put a backup directory back, the same operation the main
+                       menu's "Restore from Backup" offers: dotfiles --restore
+                       ~/.dotfiles-backup-2026-10-16-120000. The replacement is
+                       copied beside the destination and only a complete copy moves
+                       into place, so a destination is never absent because a copy
+                       failed halfway; the state it replaces is kept in a backup of
+                       its own; and a directory this program did not write is
+                       refused. Exits 0 when every entry went back, 1 when an entry
+                       could not be placed, 2 when the directory is not a backup
+                       this program wrote. --dry-run prints the plan and changes
+                       nothing, and exits 1 when that plan names an entry the
+                       backup does not hold
   --channel=<name>     Channel to follow: stable (the latest published release,
                        the default) or dev (the highest-versioned pre-release). The choice
                        is remembered in update-check.json and offered again as
@@ -503,6 +716,15 @@ Examples:
 
   # Check this machine against the last install's record
   dotfiles --verify
+
+  # Read what reverting the last install would do, without doing it
+  dotfiles --revert --dry-run
+
+  # Put the last install back where it found this machine
+  dotfiles --revert
+
+  # Put one backup directory back
+  dotfiles --restore ~/.dotfiles-backup-2026-10-16-120000
 
 Navigation (TUI mode):
   ↑/k, ↓/j        Navigate up/down

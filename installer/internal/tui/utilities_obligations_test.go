@@ -57,8 +57,8 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	// that is named across a line break would read as a job that is missing.
 	sentence := strings.Join(strings.Fields(doc[start:start+end]), " ")
 
-	if !strings.Contains(sentence, "eleven jobs") {
-		t.Errorf("the sentence no longer says the section holds eleven jobs: %q", sentence)
+	if !strings.Contains(sentence, "twelve jobs") {
+		t.Errorf("the sentence no longer says the section holds twelve jobs: %q", sentence)
 	}
 	for _, job := range []string{
 		"system theme switch",
@@ -72,6 +72,7 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 		"WSL performance advisor",
 		"SSH configuration",
 		"developer disk cleaner",
+		"development environment's diagnosis",
 	} {
 		if !strings.Contains(sentence, job) {
 			t.Errorf("the section's job-count sentence does not name %q: %q", job, sentence)

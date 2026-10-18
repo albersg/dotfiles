@@ -4521,6 +4521,28 @@ var stepExecutors = map[string]func(*Model) error{
 	"setshell":    stepSetDefaultShell,
 }
 
+// captureRunBaseline records the state of every configuration path when the first
+// step of a run begins, before any step has written one. The record written when
+// the run ends compares the paths against it, so it names what each path's outcome
+// was instead of what merely existed before the run (issue #239), and the per-file
+// pass below is what a revert reads. No step before the first writes a
+// configuration path: the backup step copies out of the home, and the dependency
+// and clone steps install packages and a checkout rather than a configuration
+// file.
+//
+// It fills what is empty and leaves what is set, so calling it at every step is
+// the same as calling it at the first. A run that follows another one has to
+// start from a clean baseline -- beginInstallFromReview clears both -- because a
+// baseline is what a run found, and a failed attempt's baseline is not.
+func (m *Model) captureRunBaseline() {
+	if m.ConfigFingerprints == nil {
+		m.ConfigFingerprints = configFingerprints()
+	}
+	if m.ConfigFileIndex == nil {
+		m.ConfigFileIndex = configFileIndex()
+	}
+}
+
 // executeStep runs the actual installation for a step
 func executeStep(stepID string, m *Model) error {
 	if dryRun() {
@@ -4528,16 +4550,7 @@ func executeStep(stepID string, m *Model) error {
 		return nil
 	}
 
-	// The first step of a run takes the content fingerprint of every
-	// configuration path, before any step has written one. The record written when
-	// the run ends compares the paths against it, so it names what each path's
-	// outcome was instead of what merely existed before the run (issue #239). No
-	// step before the first writes a configuration path: the backup step copies
-	// out of the home, and the dependency and clone steps install packages and a
-	// checkout rather than a configuration file.
-	if m.ConfigFingerprints == nil {
-		m.ConfigFingerprints = configFingerprints()
-	}
+	m.captureRunBaseline()
 
 	execute, ok := stepExecutors[stepID]
 	if !ok {

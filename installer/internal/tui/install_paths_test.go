@@ -73,12 +73,15 @@ func TestRepoAssetsExist(t *testing.T) {
 // it resolves to relative to that home. path is empty when the join is built from
 // something other than string literals, which the guard reports rather than
 // skipping: an unresolvable destination is exactly where an unprotected write can
-// hide.
+// hide. funcName is the function the join sits in, which is the key the read-only
+// expansion table below classifies when the destination comes from a file the
+// user wrote.
 type installerHomeJoin struct {
-	file string
-	line int
-	path string
-	expr string
+	file     string
+	line     int
+	funcName string
+	path     string
+	expr     string
 }
 
 // installerHomeJoinRE matches the joins that land in the user's home. The home
@@ -86,6 +89,30 @@ type installerHomeJoin struct {
 // functions take, the home local the resolution helpers take, and a direct
 // os.Getenv("HOME").
 var installerHomeJoinRE = regexp.MustCompile(`filepath\.Join\((?:(?:homeDir|home)|os\.Getenv\("HOME"\))\s*,\s*([^)]*)\)`)
+
+// installerReadOnlyHomePaths are the home paths the installer reads and never
+// writes, so the backup step has nothing to copy: a path this installer does not
+// replace cannot be lost by an installation. It is a different statement from
+// installerOwnedHomePaths, which says the path holds state or a cache the
+// installer rebuilds. This table is for the user's own material, which the
+// backup step would be the right protection for if the installer touched it. The
+// reason says what the installer does there, and an entry no join targets is
+// reported as stale.
+var installerReadOnlyHomePaths = map[string]string{
+	".ssh": "the doctor reads the user's ssh directory and can set the mode of the directory or a key; it never writes a file into it, and the mode it changes is recorded in the doctor's own fix record together with the command that puts it back",
+}
+
+// installerReadOnlyHomeExpansions are the functions whose $HOME joins the guard
+// cannot resolve because the destination comes from a file the user wrote: a
+// shell configuration that sources ~/something. There is no literal to classify,
+// so the function is classified instead, and the test reports an entry whose
+// function no longer produces an unresolvable join, so the table cannot
+// accumulate excuses. An entry here is only for a function that reads what it
+// resolves; the reason has to say so, and review of that function is what keeps
+// it true.
+var installerReadOnlyHomeExpansions = map[string]string{
+	"doctorResolveShellLiteral": "the doctor resolves the literal after source -- ~/, $HOME/ and ${HOME}/ -- only to read the file it names; a scan writes nothing into $HOME",
+}
 
 // installerOwnedHomePaths are the home paths the installer creates, reads or runs
 // that are not user configuration, so the backup step could not restore anything
@@ -97,6 +124,8 @@ var installerOwnedHomePaths = map[string]string{
 	".cache/starship":                       "starship's own cache directory",
 	".cache/carapace":                       "carapace's own cache directory",
 	".local/share":                          "the XDG data root; every path under it here is tool data, not configuration",
+	".local/state":                          "the XDG state root: this installer's own record and the doctor's report live under it at .local/state/dotfiles, which is classified by its own entry; state is rebuilt by the run that writes it, not restored by the backup step",
+	".cache":                                "the XDG cache root, whose contents are rebuilt rather than restored; the caches the installer knows about under it are classified by their own entries",
 	".local/share/atuin":                    "atuin's own data directory, created empty by the shell step",
 	".local/share/fonts":                    "the user's font directory: font files, and the fonts are installed from an archive rather than copied by the installer",
 	".local/share/fnm":                      "fnm's own installation directory",
@@ -125,8 +154,12 @@ var installerOwnedHomePaths = map[string]string{
 // comment eight lines above the write shows the pair was meant to be protected.
 //
 // It reads the installer's own sources rather than a hand-written list, so a new
-// write into $HOME fails here until its destination is either named in the map or
-// classified below as something the backup step could not restore anyway.
+// write into $HOME fails here until its destination is either named in the map,
+// classified below as something the backup step could not restore anyway, or
+// classified as a read-only expansion of a path the user's own configuration
+// names. A join the guard cannot resolve is never exempted by name matching: only
+// the function listed in installerReadOnlyHomeExpansions is, and only while it
+// still produces such a join.
 func TestEveryHomePathTheInstallerWritesIsClassified(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -155,6 +188,9 @@ func TestEveryHomePathTheInstallerWritesIsClassified(t *testing.T) {
 	for _, problem := range staleOwnedHomePaths(joins) {
 		t.Error(problem)
 	}
+	for _, problem := range staleReadOnlyClassifications(joins) {
+		t.Error(problem)
+	}
 }
 
 // staleOwnedHomePaths reports every installer-owned path no join in the sources
@@ -181,6 +217,39 @@ func staleOwnedHomePaths(joins []installerHomeJoin) []string {
 	return problems
 }
 
+// staleReadOnlyClassifications reports the read-only entries no join backs any
+// more: a path the sources stopped reading, or a function whose joins all became
+// resolvable. Either one is an entry waiting to excuse a write, which is the
+// defect this guard exists for, so they are reported like a stale map key. It is
+// separate from homePathViolations so the pinned test below can feed that
+// function a synthetic join without tripping over today's tables.
+func staleReadOnlyClassifications(joins []installerHomeJoin) []string {
+	var problems []string
+
+	targeted := make(map[string]bool, len(joins))
+	unresolvable := make(map[string]bool, len(joins))
+	for _, join := range joins {
+		if join.path == "" {
+			unresolvable[join.funcName] = true
+			continue
+		}
+		targeted[join.path] = true
+	}
+
+	for path, reason := range installerReadOnlyHomePaths {
+		if !targeted[path] {
+			problems = append(problems, fmt.Sprintf("installerReadOnlyHomePaths classifies ~/%s (%s), but no join in the installer targets it; the entry is stale", path, reason))
+		}
+	}
+	for fn, reason := range installerReadOnlyHomeExpansions {
+		if !unresolvable[fn] {
+			problems = append(problems, fmt.Sprintf("installerReadOnlyHomeExpansions classifies %s (%s), but no join of its own is unresolvable; the entry is stale", fn, reason))
+		}
+	}
+
+	return problems
+}
+
 // homePathViolations returns the problems the guard reports for a set of joins,
 // as the messages a reader would see. It is separated from the scan so the test
 // below can feed it the exact join a defect adds without editing the sources.
@@ -189,6 +258,9 @@ func homePathViolations(joins []installerHomeJoin, protected []string, byKey map
 
 	for _, join := range joins {
 		if join.path == "" {
+			if _, ok := installerReadOnlyHomeExpansions[join.funcName]; ok {
+				continue
+			}
 			problems = append(problems, fmt.Sprintf("%s:%d joins $HOME with %s, which this guard cannot resolve: name the destination with string literals so it can be classified", join.file, join.line, join.expr))
 			continue
 		}
@@ -196,6 +268,9 @@ func homePathViolations(joins []installerHomeJoin, protected []string, byKey map
 			continue
 		}
 		if _, ok := installerOwnedHomePaths[join.path]; ok {
+			continue
+		}
+		if _, ok := installerReadOnlyHomePaths[join.path]; ok {
 			continue
 		}
 		problems = append(problems, fmt.Sprintf("%s:%d writes ~/%s, which ConfigPaths() does not name: the backup step would not copy it and the last-install record would not mention it", join.file, join.line, join.path))
@@ -268,6 +343,26 @@ func TestTheHomePathGuardFailsOnAnUnprotectedWrite(t *testing.T) {
 			join: installerHomeJoin{file: "installer.go", line: 4388, expr: "rcFile"},
 			want: "installer.go:4388 joins $HOME with rcFile, which this guard cannot resolve",
 		},
+		{
+			name:     "a path the installer only reads is not reported",
+			join:     installerHomeJoin{file: "doctor_git.go", line: 451, path: ".ssh"},
+			wantNone: true,
+		},
+		{
+			name: "a path under one it only reads is still reported",
+			join: installerHomeJoin{file: "doctor_git.go", line: 452, path: ".ssh/config"},
+			want: "writes ~/.ssh/config",
+		},
+		{
+			name:     "a read-only expansion of a path the user named is not reported",
+			join:     installerHomeJoin{file: "doctor_shell.go", line: 789, funcName: "doctorResolveShellLiteral", expr: `strings.TrimPrefix(raw, "~/")`},
+			wantNone: true,
+		},
+		{
+			name: "an unresolvable join outside the classified function is reported",
+			join: installerHomeJoin{file: "doctor_shell.go", line: 1, funcName: "doctorSomethingElse", expr: "raw"},
+			want: "cannot resolve",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			problems := homePathViolations([]installerHomeJoin{tc.join}, protected, nil)
@@ -296,6 +391,29 @@ func TestTheHomePathGuardFailsOnAnUnprotectedWrite(t *testing.T) {
 		}
 		if !stale {
 			t.Errorf("a ConfigPaths() key no write targets was not reported: %v", problems)
+		}
+	})
+
+	t.Run("a read-only classification nothing uses is reported as stale", func(t *testing.T) {
+		problems := staleReadOnlyClassifications([]installerHomeJoin{{file: "installer.go", line: 1702, path: ".zshrc"}})
+		for _, want := range []string{"installerReadOnlyHomePaths classifies ~/.ssh", "installerReadOnlyHomeExpansions classifies doctorResolveShellLiteral"} {
+			found := false
+			for _, problem := range problems {
+				if strings.Contains(problem, want) {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("a read-only classification nothing uses was not reported: want %q among %v", want, problems)
+			}
+		}
+
+		used := staleReadOnlyClassifications([]installerHomeJoin{
+			{file: "doctor_git.go", line: 451, path: ".ssh"},
+			{file: "doctor_shell.go", line: 789, funcName: "doctorResolveShellLiteral"},
+		})
+		if len(used) != 0 {
+			t.Errorf("a classification the sources still use was reported as stale: %v", used)
 		}
 	})
 }
@@ -349,6 +467,11 @@ func scanInstallerHomeJoins(t *testing.T) []installerHomeJoin {
 		}
 	}
 
+	// installerFuncRE names the function a join sits in. The scan is line-based, so
+	// the most recent declaration above a join is its enclosing function: enough for
+	// the read-only expansion table, which classifies one small resolution helper.
+	funcRE := regexp.MustCompile(`^func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+
 	var joins []installerHomeJoin
 	files := make([]string, 0, len(sources))
 	for name := range sources {
@@ -356,9 +479,13 @@ func scanInstallerHomeJoins(t *testing.T) []installerHomeJoin {
 	}
 	sort.Strings(files)
 	for _, name := range files {
+		enclosing := ""
 		for i, line := range strings.Split(sources[name], "\n") {
+			if m := funcRE.FindStringSubmatch(line); m != nil {
+				enclosing = m[1]
+			}
 			for _, m := range installerHomeJoinRE.FindAllStringSubmatch(line, -1) {
-				join := installerHomeJoin{file: name, line: i + 1, expr: strings.TrimSpace(m[1])}
+				join := installerHomeJoin{file: name, line: i + 1, funcName: enclosing, expr: strings.TrimSpace(m[1])}
 				join.path = resolveHomeJoin(m[1], consts)
 				joins = append(joins, join)
 			}

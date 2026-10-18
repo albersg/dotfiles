@@ -666,8 +666,20 @@ func TestCreateBackup(t *testing.T) {
 		}
 		defer os.RemoveAll(backupDir)
 
-		if _, err := os.Stat(filepath.Join(backupDir, "oh-my-zsh", "themes", "dotfiles.zsh-theme")); err != nil {
-			t.Fatalf("Expected backed up oh-my-zsh theme file: %v", err)
+		// T1, S8: the shape of what the user had is part of it. A symlinked
+		// configuration directory is stored as the symlink it is, so a restore
+		// returns the tree the user had instead of a copy of whatever the link
+		// happened to point at. Stat follows the link and passes either way,
+		// which is why this asks Lstat.
+		info, err := os.Lstat(filepath.Join(backupDir, "oh-my-zsh"))
+		if err != nil {
+			t.Fatalf("Expected the symlinked oh-my-zsh config in the backup: %v", err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the symlinked config was stored as %v, so restoring this backup would not return the tree the user had", info.Mode())
+		}
+		if target, err := os.Readlink(filepath.Join(backupDir, "oh-my-zsh")); err != nil || target != realOhMyZsh {
+			t.Fatalf("the backed-up symlink points at %q (err %v), want %q", target, err, realOhMyZsh)
 		}
 		data, err := os.ReadFile(filepath.Join(backupDir, "zsh"))
 		if err != nil {
@@ -679,7 +691,11 @@ func TestCreateBackup(t *testing.T) {
 	})
 }
 
-func TestCreateBackupRemovesPartialBackupOnFailure(t *testing.T) {
+// T1, S8: a symlink the user made is part of the tree they had, and a dangling
+// one is not a failure to copy: it is copied as the symlink it is. The rule this
+// replaces aborted the whole backup and deleted the copies it had already made,
+// so a link pointing at nothing cost the user every backup of that run.
+func TestCreateBackupKeepsADanglingSymlinkAsASymlink(t *testing.T) {
 	home := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	if err := os.Setenv("HOME", home); err != nil {
@@ -691,20 +707,30 @@ func TestCreateBackupRemovesPartialBackupOnFailure(t *testing.T) {
 	if err := os.MkdirAll(nvimDir, 0o755); err != nil {
 		t.Fatalf("Failed to create nvim config dir: %v", err)
 	}
-	if err := os.Symlink(filepath.Join(home, "missing-target"), filepath.Join(nvimDir, "broken-link")); err != nil {
+	missingTarget := filepath.Join(home, "missing-target")
+	if err := os.Symlink(missingTarget, filepath.Join(nvimDir, "broken-link")); err != nil {
 		t.Skipf("Symlinks not supported in this environment: %v", err)
 	}
 
 	backupDir, _, err := CreateBackup([]string{"nvim"})
-	if err == nil {
-		defer os.RemoveAll(backupDir)
-		t.Fatal("Expected backup to fail for broken symlink")
+	if err != nil {
+		t.Fatalf("a dangling symlink must not fail the backup: %v", err)
 	}
-	if backupDir == "" {
-		t.Fatal("Expected backup path to be returned with the error")
+	defer os.RemoveAll(backupDir)
+
+	info, err := os.Lstat(filepath.Join(backupDir, "nvim", "broken-link"))
+	if err != nil {
+		t.Fatalf("Expected the dangling symlink in the backup: %v", err)
 	}
-	if _, statErr := os.Stat(backupDir); !os.IsNotExist(statErr) {
-		t.Fatalf("Expected partial backup %s to be removed, stat error: %v", backupDir, statErr)
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the dangling symlink came back as %v, so restoring this backup would not return the tree the user had", info.Mode())
+	}
+	target, err := os.Readlink(filepath.Join(backupDir, "nvim", "broken-link"))
+	if err != nil {
+		t.Fatalf("Failed to read the backed-up symlink: %v", err)
+	}
+	if target != missingTarget {
+		t.Errorf("the backed-up symlink points at %q, want %q", target, missingTarget)
 	}
 }
 
@@ -716,17 +742,42 @@ func TestRestoreBackup(t *testing.T) {
 		}
 	})
 
-	t.Run("should restore files from backup", func(t *testing.T) {
-		// This is a complex integration test - we'll just verify it doesn't panic
-		home := os.Getenv("HOME")
-		testBackupDir := filepath.Join(home, ".dotfiles-backup-restore-test")
-		os.MkdirAll(testBackupDir, 0755)
-		defer os.RemoveAll(testBackupDir)
+	t.Run("should not error for a backup this program wrote with nothing in it", func(t *testing.T) {
+		home := t.TempDir()
+		originalHome := os.Getenv("HOME")
+		if err := os.Setenv("HOME", home); err != nil {
+			t.Fatalf("Failed to set HOME: %v", err)
+		}
+		defer os.Setenv("HOME", originalHome)
 
-		// RestoreBackup with empty backup dir should not error
-		err := RestoreBackup(testBackupDir)
+		// Nothing existed to copy, so the directory holds its manifest and no
+		// entries. Putting nothing back is not an error.
+		backupDir, _, err := CreateBackup([]string{"zsh"})
 		if err != nil {
-			t.Errorf("RestoreBackup should not error for empty backup: %v", err)
+			t.Fatalf("Unexpected error creating backup: %v", err)
+		}
+		defer os.RemoveAll(backupDir)
+
+		if err := RestoreBackup(backupDir); err != nil {
+			t.Errorf("RestoreBackup should not error for an empty backup: %v", err)
+		}
+	})
+
+	t.Run("should refuse a directory this program did not write", func(t *testing.T) {
+		home := t.TempDir()
+		originalHome := os.Getenv("HOME")
+		if err := os.Setenv("HOME", home); err != nil {
+			t.Fatalf("Failed to set HOME: %v", err)
+		}
+		defer os.Setenv("HOME", originalHome)
+
+		foreign := filepath.Join(home, ".dotfiles-backup-empty-dir")
+		if err := os.MkdirAll(foreign, 0755); err != nil {
+			t.Fatalf("Failed to create the foreign directory: %v", err)
+		}
+
+		if err := RestoreBackup(foreign); err == nil {
+			t.Error("an empty directory carrying no manifest was accepted for restore")
 		}
 	})
 
