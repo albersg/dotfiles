@@ -42,7 +42,13 @@ import (
 // **developer disk cleaner**, which is the job this front added. Both are read by name
 // below, because a count that no phrase backs is the drift this guard keeps finding. The
 // port and process manager moved it to twelve: it is this front's own job, and it is read by
-// name below with the others.
+// name below with the others. The other front's doctor moved it to thirteen, and that move is
+// the reason this guard compares the sentence with its whitespace folded: both fronts had
+// written "twelve jobs" for different sets -- this front's sentence named the port manager
+// without the doctor, the doctor's branch named its own diagnosis without the port manager --
+// so merging the two kept one of the two identical words and the count was a job short again,
+// which no per-name check can catch. The doctor is read by name below with the others, because
+// the number is only true while every job is named.
 func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	doc := readRepoFile(t, filepath.Join("docs", "tui-installer.md"))
 
@@ -59,8 +65,8 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 	// that is named across a line break would read as a job that is missing.
 	sentence := strings.Join(strings.Fields(doc[start:start+end]), " ")
 
-	if !strings.Contains(sentence, "twelve jobs") {
-		t.Errorf("the sentence no longer says the section holds twelve jobs: %q", sentence)
+	if !strings.Contains(sentence, "thirteen jobs") {
+		t.Errorf("the sentence no longer says the section holds thirteen jobs: %q", sentence)
 	}
 	for _, job := range []string{
 		"system theme switch",
@@ -75,6 +81,7 @@ func TestTheUtilitiesDocNamesEveryJobTheSectionOffers(t *testing.T) {
 		"WSL performance advisor",
 		"SSH configuration",
 		"developer disk cleaner",
+		"development environment's diagnosis",
 	} {
 		if !strings.Contains(sentence, job) {
 			t.Errorf("the section's job-count sentence does not name %q: %q", job, sentence)

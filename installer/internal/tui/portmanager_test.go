@@ -91,11 +91,32 @@ func (p *portTestProbe) Readlink(name string) (string, error) {
 	return "", &fs.PathError{Op: "readlink", Path: name, Err: fs.ErrNotExist}
 }
 
+// LookPath answers for ps and refuses every other tool. The darwin reader starts
+// with the bare name "ps" and only then runs the path this returns, so the
+// fixture has to answer the name as well as the path it hands back: answering
+// one half of that sequence is what left the process facts empty on macOS while
+// this file's own guard passed. Every other name belongs to the Linux reader's
+// fallback path, where a test that leaves the tool out means it to be missing.
 func (p *portTestProbe) LookPath(name string) (string, error) {
+	if portTestIsPS(name) {
+		return portTestPS, nil
+	}
 	return "", fmt.Errorf("exec: %q: executable file not found in $PATH", name)
 }
 
+// Run answers the two ps shapes the darwin reader asks for and nothing else.
+// The process readers are chosen when the package is compiled -- a darwin build
+// reads ps where a Linux build reads /proc -- so a fixture that carries only
+// /proc files leaves every process unnamed on a macOS runner, which is what
+// made four manager tests fail there while passing on Linux. Rendering ps from
+// that same /proc state keeps one fixture and one set of facts for both
+// dialects, exactly as the portscan package's own fake does.
 func (p *portTestProbe) Run(ctx context.Context, name string, args []string, env []string) (portscan.CommandResult, error) {
+	if portTestIsPS(name) {
+		if result, ok := p.runPS(args); ok {
+			return result, nil
+		}
+	}
 	return portscan.CommandResult{}, fmt.Errorf("%s: no scripted answer for %q", name, strings.Join(args, " "))
 }
 
@@ -158,6 +179,204 @@ func (p *portTestProbe) addNet(path string, rows ...string) {
 	p.files[path] = []byte(portTestNetHeader + strings.Join(rows, ""))
 }
 
+// portTestPS is the tool a darwin build reads its process facts from, and
+// portTestUserHZ is the rate /proc counts start times in.
+const (
+	portTestPS     = "/usr/bin/ps"
+	portTestUserHZ = 100
+)
+
+// portTestIsPS matches both the bare name the darwin reader looks up and the
+// path it then runs, because a fixture that answered only one of them would
+// answer the wrong half of the sequence and be found out on a macOS runner.
+func portTestIsPS(name string) bool { return name == "ps" || name == portTestPS }
+
+// runPS renders one ps argv from the fixture's /proc state. The two shapes the
+// darwin reader asks for are the identity run (lstart, user, comm) and the
+// command run (command), and each is answered by reading the files the Linux
+// reader would have read. Any other argv is left unscripted, so a test that
+// wants a tool to be missing still gets the refusal it expects.
+func (p *portTestProbe) runPS(args []string) (portscan.CommandResult, bool) {
+	spec := ""
+	if len(args) >= 2 && args[0] == "-o" {
+		spec = args[1]
+	}
+	switch {
+	case strings.Contains(spec, "lstart="):
+		return p.psIdentity(portTestPSPids(args)), true
+	case strings.Contains(spec, "command="):
+		return p.psCommands(portTestPSPids(args)), true
+	default:
+		return portscan.CommandResult{}, false
+	}
+}
+
+// portTestPSPids reads the repeated -p flags one ps run carries.
+func portTestPSPids(args []string) []int {
+	var pids []int
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] != "-p" {
+			continue
+		}
+		if pid, err := strconv.Atoi(args[i+1]); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+		i++
+	}
+	return pids
+}
+
+// psIdentity renders the pid/lstart/user/comm lines the darwin reader parses by
+// position: the pid, the five lstart tokens, the account and the executable. A
+// pid whose start time or account the fixture does not carry gets no line at
+// all, which is ps's own answer for a process it cannot read; the reader then
+// reports that the identity cannot be read instead of being handed a row of
+// empty fields.
+func (p *portTestProbe) psIdentity(pids []int) portscan.CommandResult {
+	var out strings.Builder
+	for _, pid := range pids {
+		account := p.psAccount(pid)
+		executable := p.psExecutable(pid)
+		started := p.psStarted(pid)
+		if account == "" || executable == "" || started == "" {
+			continue
+		}
+		fmt.Fprintf(&out, " %d %s %s %s\n", pid, started, account, executable)
+	}
+	return portscan.CommandResult{Stdout: []byte(out.String())}
+}
+
+// psCommands renders the pid/command lines from /proc/<pid>/cmdline, which is
+// the same argv the Linux reader joins from that file.
+func (p *portTestProbe) psCommands(pids []int) portscan.CommandResult {
+	var out strings.Builder
+	for _, pid := range pids {
+		data, err := p.ReadFile(portTestProcPath(pid, "cmdline"))
+		if err != nil {
+			continue
+		}
+		var argv []string
+		for _, field := range strings.Split(string(data), "\x00") {
+			if field != "" {
+				argv = append(argv, field)
+			}
+		}
+		if len(argv) == 0 {
+			continue
+		}
+		fmt.Fprintf(&out, " %d %s\n", pid, strings.Join(argv, " "))
+	}
+	return portscan.CommandResult{Stdout: []byte(out.String())}
+}
+
+// psAccount is the account ps prints: the real uid from /proc/<pid>/status
+// resolved through the fixture's passwd table, or the number when the table has
+// no entry, which is what the Linux reader does with the same fact.
+func (p *portTestProbe) psAccount(pid int) string {
+	data, err := p.ReadFile(portTestProcPath(pid, "status"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		rest, found := strings.CutPrefix(line, "Uid:")
+		if !found {
+			continue
+		}
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			return ""
+		}
+		uid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return ""
+		}
+		if name, err := p.LookupUser(uid); err == nil && name != "" {
+			return name
+		}
+		return strconv.Itoa(uid)
+	}
+	return ""
+}
+
+// psExecutable is the path ps prints for comm: the target of /proc/<pid>/exe
+// when the fixture set one, which is where the reader takes the process name
+// from, and the comm name otherwise.
+func (p *portTestProbe) psExecutable(pid int) string {
+	if target, err := p.Readlink(portTestProcPath(pid, "exe")); err == nil {
+		return strings.TrimSuffix(target, " (deleted)")
+	}
+	data, err := p.ReadFile(portTestProcPath(pid, "comm"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// psStarted renders ps's own lstart wording from the boot time in /proc/stat
+// and the start ticks in /proc/<pid>/stat, the two facts the Linux reader turns
+// into the same instant. The wording is UTC so a test that parses it back gets
+// one answer whatever zone the machine running it is in.
+func (p *portTestProbe) psStarted(pid int) string {
+	btime, ok := p.psBtime()
+	if !ok {
+		return ""
+	}
+	ticks, ok := p.psStartTicks(pid)
+	if !ok {
+		return ""
+	}
+	when := time.Unix(btime, 0).Add(time.Duration(ticks) * (time.Second / portTestUserHZ))
+	return when.UTC().Format("Mon Jan _2 15:04:05 2006")
+}
+
+// psBtime reads the boot time out of /proc/stat.
+func (p *portTestProbe) psBtime() (int64, bool) {
+	data, err := p.ReadFile("/proc/stat")
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		rest, found := strings.CutPrefix(line, "btime ")
+		if !found {
+			continue
+		}
+		seconds, err := strconv.ParseInt(strings.TrimSpace(rest), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return seconds, true
+	}
+	return 0, false
+}
+
+// psStartTicks reads field 22 of /proc/<pid>/stat, which is where the fixture
+// writes the start ticks and where the Linux reader reads them from.
+func (p *portTestProbe) psStartTicks(pid int) (uint64, bool) {
+	data, err := p.ReadFile(portTestProcPath(pid, "stat"))
+	if err != nil {
+		return 0, false
+	}
+	text := string(data)
+	close := strings.LastIndex(text, ")")
+	if close < 0 {
+		return 0, false
+	}
+	fields := strings.Fields(text[close+1:])
+	if len(fields) < 20 {
+		return 0, false
+	}
+	ticks, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return ticks, true
+}
+
+// portTestProcPath is the /proc path of one fact about one process.
+func portTestProcPath(pid int, rest string) string {
+	return "/proc/" + strconv.Itoa(pid) + "/" + rest
+}
+
 // newPortTestProbe builds the in-memory machine the manager tests read:
 //
 //   - pid 1 systemd on 0.0.0.0:22 (protected)
@@ -210,6 +429,70 @@ func newPortTestProbe() *portTestProbe {
 	)
 	p.addNet("/proc/net/udp6")
 	return p
+}
+
+// TestTheTUIProbeAnswersTheDarwinPSRuns holds the fixture to the reader a darwin
+// build uses. The process reader is chosen when the package is compiled rather
+// than from the probe's own GOOS value, so the /proc files this file carries
+// leave every process unnamed on a macOS runner -- which is what made four
+// manager tests fail there while passing here, the first time this slice ran on
+// macOS at all. The guard walks the sequence the reader walks rather than only
+// its last step: the bare-name lookup first, then the two shapes it runs with
+// what it was handed. A fixture that answers the run but refuses the lookup
+// leaves the facts empty exactly as the one that answers neither did.
+func TestTheTUIProbeAnswersTheDarwinPSRuns(t *testing.T) {
+	probe := newPortTestProbe()
+	ctx := context.Background()
+
+	ps, err := probe.LookPath("ps")
+	if err != nil {
+		t.Fatalf("the fixture refuses the lookup the darwin reader starts with: %v", err)
+	}
+
+	identity, err := probe.Run(ctx, ps, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "2000"}, []string{"LC_ALL=C"})
+	if err != nil {
+		t.Fatalf("the fixture does not answer the identity run: %v", err)
+	}
+	line := strings.TrimSpace(string(identity.Stdout))
+	// The boot time is /proc/stat's btime and the start ticks are field 22 of
+	// the process's stat line, which the fixture writes as 12345 -- a hundredth
+	// of a second each, so 123 s after the boot time.
+	const wantIdentity = "2000 Tue Nov 14 22:15:23 2023 alber /usr/bin/python3"
+	if line != wantIdentity {
+		t.Errorf("the identity line is %q, want %q", line, wantIdentity)
+	}
+	if fields := strings.Fields(line); len(fields) < 8 {
+		t.Errorf("the identity line carries %d fields, want at least 8: the reader takes the pid, five start tokens, the account and the executable by position", len(fields))
+	}
+
+	// The same process asked for twice answers with the same wording, which is
+	// what lets a stop revalidate the identity it was shown.
+	again, err := probe.Run(ctx, ps, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "2000"}, []string{"LC_ALL=C"})
+	if err != nil {
+		t.Fatalf("the fixture stops answering the identity run: %v", err)
+	}
+	if string(again.Stdout) != string(identity.Stdout) {
+		t.Errorf("two identity runs for one process differ: %q then %q", identity.Stdout, again.Stdout)
+	}
+
+	commands, err := probe.Run(ctx, ps, []string{"-o", "pid=,command=", "-p", "2000"}, []string{"LC_ALL=C"})
+	if err != nil {
+		t.Fatalf("the fixture does not answer the command run: %v", err)
+	}
+	if got, want := strings.TrimSpace(string(commands.Stdout)), "2000 python3 --serve"; got != want {
+		t.Errorf("the command line is %q, want %q", got, want)
+	}
+
+	// A process the fixture does not carry is absent from the run rather than
+	// answered with empty fields, which is how the reader learns that this
+	// process's identity cannot be read at all.
+	missing, err := probe.Run(ctx, ps, []string{"-o", "pid=,lstart=,user=,comm=", "-p", "9999"}, []string{"LC_ALL=C"})
+	if err != nil {
+		t.Fatalf("the fixture refuses an unknown pid instead of answering with no line: %v", err)
+	}
+	if strings.TrimSpace(string(missing.Stdout)) != "" {
+		t.Errorf("an unknown pid answered %q, want no line", missing.Stdout)
+	}
 }
 
 // portTestModel is a model parked on the manager with the fake probe and the

@@ -355,6 +355,27 @@ when you open the screen (never at startup), writes nothing, and its terminal qu
 timeout so a terminal that never answers cannot freeze the interface. See the
 [TUI Installer Guide](docs/tui-installer.md#the-terminal-capabilities).
 
+**Diagnose the development environment.** The doctor reads the machine and **changes
+nothing** until you tell it to. One full run — or one category at a time — covers `PATH` and tool
+resolution, the shells and their configuration, the tools this installer manages and the commands a
+run itself needs, the dotfiles it wrote, git and ssh, and the environment (home, the XDG
+directories, the temporary directory, room on disk and open-file limits, the locale, terminfo, the
+installer's own variables, and the faults a platform has of its own). Each check runs as its own
+step, so the screen says which check is running and how many are left and `Esc` cancels a run in
+flight — and a cancelled run records the checks that never ran as **unknown** rather than reporting
+a clean machine. Every finding states the **evidence** it was read from, the **impact** it has and
+**what to do about it**, and every answer is one of five states: `ok`, a `warning`, an `error`,
+`not applicable`, or **`unknown`** with the reason and the manual command that replaces it — never an
+invented "fine". The finished run writes a **redacted report** to
+`~/.local/state/dotfiles/doctor-report.txt` (or `$XDG_STATE_HOME/dotfiles/`) and can export it, and no
+secret is read in the first place: the git credential helper is reported by kind, `.git-credentials`
+by presence and mode, and `ssh-add -l` is counted rather than listed. Only two repairs are offered —
+**create a directory** the environment names, and **set the mode** of `~/.ssh` to `0700` or of a key
+to `0600` — and each one shows its before/after, its risk, the permission it needs and what is kept
+so it can be put back, re-reads the state before touching it, verifies the result afterwards, and
+records the previous state with the exact command that restores it in `doctor-fixes.json`. Everything
+else is advice. See the [TUI Installer Guide](docs/tui-installer.md#the-development-environment).
+
 **Clean up development caches.** **The developer disk cleaner** is the utility behind the **Clean up
 development caches** row, and it is the one utility here that **removes** anything. It
 looks for the stores this machine's development tools actually keep — a tool is named only when a

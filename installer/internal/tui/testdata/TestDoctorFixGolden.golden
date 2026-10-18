@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   Utilities                                                                    
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  Confirm the fix                                                               
+  ~/.ssh has mode 0755 offers one deterministic change, and this is exactly     
+  it. Nothing else on the machine is touched.                                   
+  before: /home/testuser/.ssh has mode 0755                                     
+  after:  /home/testuser/.ssh has mode 0700                                     
+  Risk: A mode that is too open is a way into every tool that reads this path,  
+  and OpenSSH refuses to use a key inside a directory others can read.          
+  Permission needed: Ownership of /home/testuser/.ssh; no administrator rights  
+  are needed when this user owns it.                                            
+  Backup: The mode it has now (0755) is written into the fix record with the    
+  command that puts it back: `chmod 0755 /home/testuser/.ssh`.                  
+  Press Enter to apply it, or Escape to leave without changing anything.        
+                                                                                
+  ▸ Set the mode to 0700                                                        
+    ← Back                                                                      
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  ────────────────────────────────────────────────────────────────────────────  
+  [Enter] select • [Esc] back                                                   [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

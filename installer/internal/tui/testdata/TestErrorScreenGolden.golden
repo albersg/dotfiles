@@ -5,16 +5,16 @@
                                                                                 
                                                                                 
                                                                                 
-                                                                                
-                                                                                
   Error                                                                         
   │ Test error: something went wrong during installation                        
                                                                                 
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
+  Way back                                                                      
+  │ What this run replaced is in                                                
+  │ /home/testuser/.dotfiles-backup-20261016-120000                             
+  │ Put it back with dotfiles --revert, or Restore from Backup in the main      
+  │ menu.                                                                       
+  │ Not undone by a revert: packages, the Xcode tools, the login shell,         
+  │ downloaded scripts, and files outside the paths it backs up.                
                                                                                 
                                                                                 
                                                                                 

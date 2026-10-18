@@ -119,7 +119,9 @@ From the main menu you can access:
   read-only reports: the terminal capability report behind the **Report the terminal
   capabilities** row, the install check behind the **Check the machine against the last
   install** row, and the network diagnosis behind the **Diagnose the network** row, plus the
-  SSH configuration behind the **Manage the SSH configuration** row, the package update
+  development environment's diagnosis behind the **Diagnose the development environment**
+  row, which reads the machine and offers the two repairs it can prove, the SSH
+  configuration behind the **Manage the SSH configuration** row and the package update
   center behind the **Check the installed tools for updates** row, which asks every package
   manager this machine really has what it has to update and moves only what is selected,
   through the manager that owns each entry. The one utility here that removes anything is the
@@ -143,7 +145,7 @@ from the main menu by its own **Utilities** row, just above **Exit**, and `u` is
 for anyone who learned it. The row is the discoverable route: a section reachable only by an
 undocumented key is a section most users never find.
 
-It holds twelve jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
+It holds thirteen jobs: the reversible **system theme switch**, the reversible **dotfiles-theme
 switch** (whose theme list is one level in), the **WSL resources** (one level in, and only on a WSL
 host), the read-only **shell's startup** measurement (one level in), the read-only **terminal
 capability report**, the read-only **install check**, the read-only **network diagnosis** (one
@@ -152,9 +154,10 @@ machine's own package managers have to update and moves only what is selected), 
 configuration** (one level in, and the hub of the screens that read and edit it), the **port and
 process manager** (which lists the bound sockets with the process behind each one and stops a
 single process only after revalidating its identity), the **WSL performance advisor** (one level
-in, and only inside a real WSL instance), and the **developer disk cleaner** -- the one job here
+in, and only inside a real WSL instance), the **developer disk cleaner** -- the one job here
 that removes anything, and only what the scan found on this machine and the user marked after a
-preview. Each job is offered
+preview -- and the read-only **development environment's diagnosis** behind the **Diagnose the
+development environment** row, which repairs only what the user has seen and pressed for. Each job is offered
 exactly where it can finish: a row that would fail when it is pressed is not in the list, and the
 section's own body says why it is absent.
 The main menu's panel derives one row per job from the same model state the section's own options
@@ -1124,6 +1127,64 @@ that assigns a secret -- are redacted before the text reaches the screen or the 
 
 ### The install check
 
+The check answers one question -- **is this machine still what the last install left** -- and it is a
+utility that writes nothing and changes nothing. It is reached from the section's **Check the machine
+against the last install** row and is read-only: its only key is the way back.
+
+A completed run writes a record, `$XDG_STATE_HOME/dotfiles/last-install.json` (or
+`~/.local/state/dotfiles/last-install.json` when `XDG_STATE_HOME` is unset), with one entry per
+configuration path naming what the run did to that path and where the copy it took went. The check
+walks that record once and compares each entry with the machine:
+
+| The record names | The check asks | The screen says |
+|------------------|----------------|-----------------|
+| a path the run wrote | is it still here | `missing  <key>  <path>  <what the run did>` when it is gone |
+| a backup the run took | is the copy still here | `missing  backup of <key>  <path>` when it is gone |
+| a file the run changed | does it still hold the digest the run recorded | `changed  <key>  <path>  no longer holds what the run left: expected <digest>, found <digest>` |
+| a file the run removed | is it still gone | `changed  <key>  <path>  was removed by the run and is here again` |
+| a file that cannot be read | can this be answered at all | `unknown  <key>  <path>  the file could not be read` |
+
+The screen names what is gone and what changed, and counts what is still what the run left (`Still
+what the run left: 12 of the 14.`), because a record written by a normal run names every
+configuration path the installer touches and that list is longer than any frame. It says where the
+full list is -- `dotfiles --verify` prints every entry, including the ones that are here -- rather
+than printing a truncated version of it.
+
+**A path that is here is not a path that is unchanged.** Where the record carries a digest the check
+compares content, so `changed` is its own answer: the file is present and it is no longer what the
+run left, which is what a person checking their machine needs to know and what `dotfiles --revert`
+puts back. A file the run removed is part of the state it left, so it is named both while it stays
+gone and when something puts it back; and a file that cannot be read is `unknown`, because calling it
+changed and calling it fine are both claims the record does not support. Where the record carries no
+digest -- one written before it kept them, or a path the run did not write -- being here is all the
+report claims, in the same words it always used. The digests are content digests, so a path that is
+now a symlink to content that matches reads as holding what the run left: the record says what the
+bytes are, not what shape the path had, and the screen does not claim the second from the first.
+
+**Four states, never a guess.** No record means no run has completed on this machine, so there is
+nothing to check yet; a record that cannot be read says why; a record that names no path says there
+is nothing the record and the machine can be compared on -- which is neither a pass nor a failure; and
+a record with entries reports the missing ones. The panel's own row says `not checked yet` before the
+check has run instead of answering with a fact nobody established.
+
+**One walk, two presenters.** `InspectInstall` walks the record, and the command line's `--verify`
+and this screen are two presenters of the facts it returns. Two walks of one record could disagree
+about the same file, and only one of them would be right, so the screen is the second reader of the
+same verification rather than a second verification.
+
+**Nothing blocks and nothing runs at startup.** The check runs when the screen is opened, as a
+command off the update loop, never when the model is built. The panel's row reads the model and never
+the filesystem, so a keystroke never waits on a machine whose disks are not answering, and coming back
+to the screen does not stat the machine a second time: the first answer is the answer.
+
+`TestTheVerificationScreenShowsWhatIsGoneAndSaysWhatIsStillHere`,
+`TestTheVerificationScreenSaysWhenNothingIsGone` and
+`TestTheVerificationScreenSaysWhatItCannotCheck` pin the three bodies;
+`TestTheVerificationScreenIsReadOnly` pins that the only key is the way back and that nothing is
+written; `TestChoosingTheVerificationRowRunsTheCheckOffTheUpdateLoop` pins the command, and
+`TestTheVerificationReadsTheVerdictRatherThanTheDiskAgain` pins that a keypress does not read the
+machine. `TestInstallVerifyGolden` holds the frame at 80x24.
+
 ### The SSH configuration
 
 **The SSH configuration** is the utility behind the **Manage the SSH configuration** row, and it is
@@ -1281,7 +1342,77 @@ the result lands on the model and the screen it belongs to shows it.
 Where nothing can be read -- a platform with no reader, a `/proc` this run may not open, a tool that
 is not on `PATH` -- the screen says which reader failed and why rather than showing an empty list,
 because an empty list that reads as "nothing is in use" is the one answer this utility must not give.
+### The development environment
 
+The **development environment's diagnosis** is behind the **Diagnose the
+development environment** row. It answers the question a broken machine hides behind three symptoms
+at once — a command that is not found, a shell that starts slowly, a tool that cannot read its own
+configuration — and it is **read-only**: the scan opens no file for writing, runs no command that
+changes anything, sends nothing anywhere and asks no model. What it can repair, it repairs only
+after the user has seen the change and pressed for it.
+
+**A run is one check at a time, so the screen is never frozen.** A full run covers
+`doctorChecks()` — one list that feeds the rows, the progress line, the report and the frame guard
+— over six categories: `PATH` and tool resolution, the shells and their configuration, the tools
+this installer manages and the commands a run needs, the dotfiles it wrote, git and ssh, and the
+environment (home, the XDG directories, the temporary directory, room on disk, descriptors, the
+locale, terminfo, the installer's own variables, and the faults a platform has of its own). Each
+check is scheduled as its own command, so the progress line names the check it is running and how
+many are left, `Esc` cancels a run in flight, and a machine with a hanging command cannot stop the
+interface. Cancelling is a real state: the checks that never ran are recorded as **unknown** with
+the reason, and the report says how far the run got rather than reading as a clean machine.
+
+The screen's own keys are on its last line: `↑`/`k` and `↓`/`j` move, `Enter` or `Space` acts on the
+row, **`t`** shows the problems or every finding, **`w`** writes the report, **`r`** retries the
+checks that could not answer, and `Esc` cancels a run in flight or leaves the screen. A row is what
+acts: the run rows, the filter, the export, and any finding that offers a repair.
+
+**Every finding carries its evidence, its impact and what to do.** A finding is a subject, the
+exact thing that was read (`df -Pk $HOME → 60000000 KB available`, `~/.ssh/id_ed25519 has mode
+0644`, `the directory does not exist`), what it means for the user, and the command or the row that
+settles it. Nothing is reported from a name alone: a tool is asked for its version, a shell is asked
+for its own syntax check rather than parsed here, a file's mode is read rather than assumed.
+
+**Five states, and `unknown` is one of them.** A check reports `ok`, a `warning`, an `error`,
+`not applicable` — the shell this machine does not have, the platform check that belongs to another
+platform — or **`unknown`**, which is what a check that could not establish anything reports, with
+the reason and the manual command that replaces it. `unknown` is deliberately the zero value of the
+state and outranks `ok` when a scan produced both: a machine nobody finished looking at may never be
+summarised as a clean one. The screen prints the state as a word and a plain glyph as well as a
+colour, so the five answers survive a terminal with no colour.
+
+**The report is one renderer, written twice: kept beside the installer's own state and exported.**
+A finished run writes `$XDG_STATE_HOME/dotfiles/doctor-report.txt` (under `~/.local/state` when the
+variable is unset) and the screen names the file; the **Write the report to a file** row exports the
+same text under `doctor-report-<stamp>.txt` so two exports are two files. The report names the build
+and the platform, counts every state, and states that the scan changed nothing. **Every line goes
+through one redactor** before it is written: a credential inside a URL, an assignment whose name
+announces a secret, a PEM private key body, an authorization header and the shapes of the tokens the
+services this installer touches issue are replaced with `<redacted>`, so a check that printed a line
+of a configuration file cannot leak through it. No secret is read in the first place: the git
+credential helper is reported by kind and its command is never printed, `.git-credentials` is
+reported by presence and mode, and `ssh-add -l` is counted rather than listed.
+
+**Two repairs exist, and each is a preview, a confirmation and a re-read.** The doctor offers to
+**create a directory** the environment itself names (a missing `TMPDIR`, or an XDG directory) and to
+**set the mode** of `~/.ssh` to `0700` or of a private key to `0600`. The confirmation screen states
+the effect as `before`/`after` of one path, the risk, the permission needed, and what is kept so the
+change can be put back; the apply then re-reads the state and refuses if it moved, makes exactly the
+one change, reads the result back and reports whether it verified it. What it changed is recorded in
+`$XDG_STATE_HOME/dotfiles/doctor-fixes.json` (mode `0600`, newest fifty) with the previous state and
+the exact command that puts it back. Everything else the scan finds is advice, not a repair: the
+doctor does not edit a shell's startup file, install a package, rewrite a configuration or delete a
+file.
+
+**Every platform is covered, and a check that does not apply says so.** macOS, the Linux
+distributions, Termux and WSL are each answered with their own faults: `xcode-select` and
+`/opt/homebrew/bin` on macOS, the distribution's package manager and `sudo` on Linux, `$PREFIX` and
+shared storage on Termux, `/mnt/c`, the interop setting and the Windows PATH on WSL — where the
+installer runs in the distribution and the fault is on the host. A platform-specific check reports
+`not applicable` with the reason everywhere else, and a platform that was never detected reports
+`unknown` rather than a guess. On a machine with nothing wrong with it the whole catalogue reports
+no warning and no error at all, which `TestAHealthyMachineRaisesNoAlarm` holds as a guard: a doctor
+that cries wolf is a doctor nobody reads.
 ### Installation Flow
 
 Every screen is built to fit an 80×24 terminal: it never runs past the frame on
@@ -1517,6 +1648,17 @@ the way back. The body is therefore never wider than 160 columns, and when the t
 the surplus becomes a margin on each side: the composition sits centred rather than pinned left,
 because one void on the right is not a layout.
 
+**The way back needs rows, and a short terminal drops it before anything else.** The review
+screen carries the same way back the failure screen does: the directory that holds what the run
+replaced and the command that puts it back. At 80x24 the marker and the first row of that block
+render and the lines naming the backup directory and `--revert` do not, so a reader deciding on a
+24-row terminal has to know the way back from the failure screen or from `--revert`'s own error, which
+names `ls -d ~/.dotfiles-backup-*` and `--restore=<one of them>`. A backup path longer than its row
+is shown cut, with a trailing `…`: the command beside it is never cut, and every copy the run took
+is named in the run's record, so the directory can be read from the run itself when the row is too
+narrow to show it. This is presentation, not a command: what a run writes and undoes does not change
+with the width.
+
 **Two columns start at 124 terminal columns.** From that width the screen puts the body on the left
 and a panel on the right. The threshold is 124 and not 120 because the number the renderer checks is
 the *content* width: the frame spends two columns of padding on each side of every screen, so 120
@@ -1552,7 +1694,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the advisor's own findings by severity inside WSL (or the copy it is running), the shell startup, the terminal capability report, the port utility's last reading (how many sockets it found, or that it has not been read yet), and and what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`) — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the advisor's own findings by severity inside WSL (or the copy it is running), the shell startup, the terminal capability report, the update center's state: what the last read found, how many entries are selected, or that the question has not been asked yet, the port utility's last reading (how many sockets it found, or that it has not been read yet), what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`), and the doctor's own last line — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
@@ -2113,7 +2255,7 @@ Backups are stored in your home directory with a timestamp:
 ~/.dotfiles-backup-YYYY-MM-DD-HHMMSS/
 ```
 
-Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongside single-file configs like `~/.zshrc`. When installing Fish or Zsh, an existing shell startup file without the shipped ownership marker is also preserved as a dated, sourced drop-in: Fish at `~/.config/fish/dotfiles.d/dotfiles-user-config-*.fish`, Zsh at `~/.zshrc.d/dotfiles-user-config-*.zsh`. The install log names the exact saved path. The shipped `config.fish` sources Fish drop-ins last so personal settings override managed defaults; `.zshrc` likewise sources `.zshrc.d` files last. Fish uses `dotfiles.d` rather than native `conf.d`, because Fish loads `conf.d` before `config.fish`. Files already marked as dotfiles-managed are replaced silently without accumulating drop-ins. For future personal changes, edit or add files in those drop-in directories rather than the managed startup file.
+Each backup carries a `backup.json` manifest naming every entry it took, every entry it could not copy and why, and the entries a run deliberately left out; two backups taken in the same second get separate directories rather than sharing one; and a symlink is preserved as a symlink. Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongside single-file configs like `~/.zshrc`. When installing Fish or Zsh, an existing shell startup file without the shipped ownership marker is also preserved as a dated, sourced drop-in: Fish at `~/.config/fish/dotfiles.d/dotfiles-user-config-*.fish`, Zsh at `~/.zshrc.d/dotfiles-user-config-*.zsh`. The install log names the exact saved path. The shipped `config.fish` sources Fish drop-ins last so personal settings override managed defaults; `.zshrc` likewise sources `.zshrc.d` files last. Fish uses `dotfiles.d` rather than native `conf.d`, because Fish loads `conf.d` before `config.fish`. Files already marked as dotfiles-managed are replaced silently without accumulating drop-ins. For future personal changes, edit or add files in those drop-in directories rather than the managed startup file.
 
 ### Restoring a Backup
 
@@ -2121,6 +2263,40 @@ Directory-based configs such as `~/.oh-my-zsh` are backed up recursively, alongs
 2. Choose the backup you want to restore
 3. Confirm the restoration
 4. Your previous configurations will be restored
+
+Three rules make that safe on a machine whose configuration you still care about. The replacement is
+copied beside the destination and only a complete copy moves into place, so a destination is never
+absent because a copy failed halfway, and a swap that cannot finish restores what was there. The
+state the restore replaces is copied into a backup of its own first, so a restore can itself be
+undone. And a directory this program did not write is refused rather than trusted. The screen
+accounts for itself entry by entry: `restored`, `skipped` with the reason, or `failed` with the
+reason, which is also the exit status -- a backup whose manifest names an entry the directory no
+longer holds is refused as a complete restore and says which one, because a backup that holds three
+of the four things it says it holds is not a machine that is back. A directory with no `backup.json`
+that carries the shape of the backups written before manifests existed is still accepted, because it
+is still someone's way back.
+
+### Putting the last install back
+
+`dotfiles --revert --dry-run` reads the record of the last run and names what it would put back;
+`dotfiles --revert` does it. A file the run modified or removed is copied back out of the backup and
+a file it created is removed, and each file is compared afterwards against the digest the run
+recorded, so the command reports a measurement rather than an attempt. It is idempotent, it keeps
+what it replaces in a backup of its own, and it reports a file whose copy is gone as `unrevertible`
+instead of skipping it. A run that changed no file is not a failure and not a legacy record: the
+machine already holds what that run left, and the command says so instead of calling every path
+unrevertible. A run stopped with `ctrl+c` leaves no record at all -- nothing failed -- but the
+backup it had taken before writing anything is still on disk, and `dotfiles --restore=<that
+directory>` is the way back. A retry after a failure starts a new run whose record names the
+state that run found, so a record's digests and its copies always describe the same moment. `dotfiles --restore <backup>` does the same for one backup directory named by
+hand, which is the way back for a machine whose record is gone; its `--dry-run` prints the plan
+and changes nothing, and exits 1 rather than 0 when that plan names an entry the backup does not
+hold, so asking whether a backup can go back and asking it to go back are two different answers.
+
+The failure screen names the same way back: it says which directory holds what the run replaced, that
+`dotfiles --revert` puts it back, and what no command undoes. See
+[Rollback Procedures](ROLLBACK.md) for the exit statuses and the manual path for a machine where the
+installer cannot run.
 
 ## Learn Mode
 
@@ -2329,7 +2505,7 @@ go test ./internal/tui -run TestX -count=1 -v   # reproduce one failure, uncache
 The terminal matrix guards share one render pass. `terminalFrames`
 (`screen_coverage_test.go`) builds each screen case once and renders it once per
 measured terminal; the fit guard and the companion-coverage guard both read those
-frames rather than building and drawing the same 55 screens at the same 12
+frames rather than building and drawing the same 94 screens at the same 12
 terminals again. The pass renders with the companion animating, which is the
 strictest frame, so a screen that overflows only with the creature on fails the
 fit guard instead of escaping it.
@@ -2343,8 +2519,9 @@ advisor, the shell's startup, the terminal capability report and the network
 diagnosis each have a frame pinned at the 80x24 floor as well:
 `TestThemePickerGolden` with nothing running, `TestThemePickerActivityGolden`
 with a switch pending, `TestThemePickerResultGolden` with the report landed,
-`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden` and
-`TestTerminalCapabilitiesGolden`, and the update center's own frame in the frame
+`TestUtilitiesGolden`, `TestWSLResourcesGolden`, `TestShellAuditGolden`,
+`TestTerminalCapabilitiesGolden`, `TestDoctorGolden` and `TestDoctorFixGolden`, and the
+update center's own frame in the frame
 matrix (`updateCenterFrameCase`, state `update-center`), which is where a screen
 whose rows and prose come from the machine belongs: the case is built by hand
 -- two managers answering, one entry pinned, one manager absent -- so the frame
