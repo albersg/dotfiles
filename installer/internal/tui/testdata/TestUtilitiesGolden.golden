@@ -3,7 +3,6 @@
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Utilities                                                                     
   No desktop theme switch is available here: no GNOME, KDE or macOS session.    
-  Change the dotfiles theme opens the list of complete themes.                  
   WSL resources are not adjustable here: Linux is not WSL.                      
   Measure the shell's startup times zsh -i -c exit; it changes nothing.         
   Manage the SSH configuration shows the hosts and keys the client uses.        
@@ -18,6 +17,7 @@
     Report the terminal capabilities                                            
     Clean up development caches                                                 
     Diagnose the network                                                        
+    Diagnose the development environment                                        
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
   ────────────────────────────────────────────────────────────────────────────  

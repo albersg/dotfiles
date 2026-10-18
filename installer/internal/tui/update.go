@@ -1086,6 +1086,55 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			installed, source, msg.kept)
 		return m, nil
 
+	case doctorCheckDoneMsg:
+		// A message from a run that was cancelled and restarted belongs to the run
+		// that asked for it, never to the one on screen now.
+		run := m.Doctor.Run
+		if run == nil || run.ID != msg.RunID {
+			return m, nil
+		}
+		run.Results[msg.Result.ID] = msg.Result
+		run.Next = msg.Index + 1
+		if run.Canceled {
+			m.doctorFinishRun("the run was cancelled before this check ran")
+			return m, nil
+		}
+		if run.Next < len(run.Plan) {
+			run.Message = m.doctorProgressLine()
+			return m, m.doctorCheckCmd()
+		}
+		m.doctorFinishRun("")
+		return m, nil
+
+	case doctorFixDoneMsg:
+		m.Doctor.FixNotice = msg.Outcome.Notice
+		if !msg.Outcome.Applied {
+			return m, nil
+		}
+		// The finding that offered the fix is re-checked, so the list states the
+		// state after the change rather than what the check found before it.
+		m.Doctor.Pending = nil
+		m.Screen = ScreenDoctor
+		m.settleDoctorCursor()
+		check, found := doctorCheckByID(msg.Finding.Check)
+		if !found {
+			m.Doctor.Notice = msg.Outcome.Notice
+			return m, nil
+		}
+		m.Doctor.Notice = msg.Outcome.Notice
+		return m, m.doctorStartRun([]doctorCheck{check}, false)
+
+	case doctorReportWrittenMsg:
+		switch {
+		case msg.Err != "":
+			m.Doctor.Notice = "The report could not be written: " + msg.Err
+		case dryRun():
+			m.Doctor.Notice = "A dry run wrote nothing. The report would have gone to " + doctorRelHomePath(msg.Path)
+		default:
+			m.Doctor.Notice = "Report written to " + doctorRelHomePath(msg.Path)
+		}
+		return m, nil
+
 	case updateCenterReadMsg:
 		// One manager's answer. The pass stores it and asks the next channel that can
 		// be asked, so the screen fills in as the machine answers rather than waiting
@@ -2556,6 +2605,13 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 			scan := m.startUpdateCenterScan()
 			return m, scan
+		case selected == utilitiesDoctorRow:
+			// The doctor is one level in as well, and nothing is checked on the way
+			// in: a scan reads the whole machine, so it is started from the screen's
+			// own row rather than by opening it.
+			m.Screen = ScreenDoctor
+			m.Cursor = 0
+			m.Doctor.Notice = ""
 		case selected == utilitiesNetworkRow:
 			// The diagnosis is one level in for the same reason, and it dials nothing
 			// on the way in either: the checks start from that screen's own row, and the
