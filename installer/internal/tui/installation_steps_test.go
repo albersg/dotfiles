@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
 	tea "github.com/charmbracelet/bubbletea"
@@ -148,6 +149,46 @@ func assertStepExists(t *testing.T, steps []InstallStep, id, msg string) {
 		}
 	}
 	t.Error(msg)
+}
+
+// TestStepCloneRepoIsBoundedWhenTheTransferStalls is the guard for a transfer
+// that neither fails nor returns. Before the step carried a bound, a stalled
+// clone left the installer -- and any test that drove it -- waiting with no
+// deadline, so what is under test here is the bound itself: the step has to
+// come back and report the failure instead of hanging the run.
+func TestStepCloneRepoIsBoundedWhenTheTransferStalls(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping clone test in short mode")
+	}
+
+	bin := t.TempDir()
+	stallingGit := filepath.Join(bin, "git")
+	if err := os.WriteFile(stallingGit, []byte("#!/bin/sh\nexec sleep 30\n"), 0o755); err != nil {
+		t.Fatalf("write the stalling git: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	previous := cloneTimeout
+	cloneTimeout = 2 * time.Second
+	defer func() { cloneTimeout = previous }()
+
+	m := NewModel()
+	m.Choices = UserChoices{OS: "mac", Shell: "fish"}
+
+	done := make(chan error, 1)
+	go func() { done <- stepCloneRepo(&m) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("the clone step reported success although the transfer never completed")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the clone step never returned: an unbounded transfer hangs the run instead of failing it")
+	}
 }
 
 // TestStepCloneRepository tests the clone step
