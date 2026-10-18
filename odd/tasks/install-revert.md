@@ -631,3 +631,23 @@ session.
     taken on `e50075b`, and this round does not touch that file), it is a different command path, and it is
     why the probes here write the record by hand: a probe must measure its own subject. Recorded as its own
     finding and not fixed here.
+  - **The independent pass, and what it changed here.** The pass came back **SAFE** on the commit, in both
+    directions: no true alarm goes silent (it re-ran every test that pins one, and added its own, a nested
+    link retargeted to a named pipe that is still reported and costs no read), the change check still runs
+    before the read, the claim that nothing in the installer creates these kinds is true (its grep found
+    only the comment this round wrote), and all four probes are red at `e50075b` and green at the commit.
+    It mapped six read routes by execution instead of reasoning: a fifo named directly, a socket, a fifo
+    behind one link and behind two all return now. Its probe is kept, because it pins the direction a fix
+    like this one breaks.
+  - **Two advisories, both pre-existing and both left as they are.** (1) The run's own copy is read without
+    a guard (`fileDigest(copied)`), and the main change loop reads `change.Path` the same way: a fifo at
+    either blocks, at the base too. Neither can come from the copier, which omits every kind that is not a
+    file, a link or a directory, and a record naming a fifo cannot come from a run either, because the
+    installer's fingerprint hangs on such a tree first (the finding at the end of this entry). So both need
+    a hand-written record, and both are recorded rather than fixed. (2) `sameKindAsCopy` is reached by no
+    test. I tried to pin it with a key the record says it wrote, holding a copy and no change naming anything
+    inside it, and the product answered with a different rule -- "the record names this path as one the run
+    wrote, but not the file it is or what it held" -- which is that shape's real contract and is already
+    pinned elsewhere. A test asserting the outcome I had guessed would have been a lie, so it was dropped,
+    the function stays where it is, and its comment now says what it does instead of when it is asked. A
+    device node could not be tested at all: `mknod` needs a privilege this machine does not have.

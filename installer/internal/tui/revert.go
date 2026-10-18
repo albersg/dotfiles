@@ -336,10 +336,11 @@ func readsAsAFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// sameKindAsCopy reports whether the run's copy of a path holds the same kind of thing the
-// machine holds there. It is asked about a directory the record says the run wrote without
-// naming any change inside it, where the copy answers whether the run found that tree or
-// made it.
+// sameKindAsCopy reports whether the run's copy of a path holds the same kind of thing the machine
+// holds there. The copy is the state before the run, so a path whose copy holds the same kind is one
+// the run found rather than made, and a path with no copy at all is one nothing here can speak for.
+// The twelfth pass found no test that reaches it: the record shapes it was written for are settled by
+// earlier rules today. It is kept because deleting it would guess what other shapes need.
 func sameKindAsCopy(entry installEntry, path string) bool {
 	copied := copiedFor(entry, path)
 	if copied == "" {
