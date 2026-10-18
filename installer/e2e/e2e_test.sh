@@ -1081,16 +1081,31 @@ test_gai_prefers_ipv4() {
 
     gai_factory_conf
 
-    # Run the step through the installer's own non-interactive route. gai runs
-    # before deps, so it has run even if a later step of this minimal install
-    # fails; the file is what this test reads.
-    DOTFILES_VERBOSE=1 dotfiles --non-interactive \
-        --shell=zsh --wm=none --backup=false >/dev/null 2>&1 || true
+    # The run's own log is captured, not discarded: it is what proves the step
+    # reported what it did. The install is load-bearing -- every other install
+    # test in this image already requires it to succeed -- so a run that fails
+    # before the gai step cannot pass this test.
+    gai_before=$(getent ahosts github.com 2>/dev/null | head -n1 | awk '{print $1}')
+    gai_log=$(mktemp)
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
+        --shell=zsh --wm=none --backup=false >"$gai_log" 2>&1; then
+        log_pass "the non-interactive install succeeded"
+    else
+        log_fail "the non-interactive install failed"
+        sed -n '1,40p' "$gai_log"
+    fi
+
+    if grep -q 'Added the dotfiles IPv4-first block' "$gai_log"; then
+        log_pass "the run's log reports the block it added"
+    else
+        log_fail "the run's log does not report the block it added"
+    fi
 
     if grep -q '^precedence ::ffff:0:0/96 100$' "$GAI_CONF"; then
         log_pass "the deciding precedence line is present"
     else
         log_fail "the deciding precedence line was not written to $GAI_CONF"
+        rm -f "$gai_log"
         return
     fi
 
@@ -1107,15 +1122,16 @@ test_gai_prefers_ipv4() {
         log_fail "the factory comment lines were altered"
     fi
 
-    first=$(getent ahosts github.com 2>/dev/null | head -n1 | awk '{print $1}')
-    case "$first" in
+    gai_after=$(getent ahosts github.com 2>/dev/null | head -n1 | awk '{print $1}')
+    case "$gai_after" in
         [0-9]*.[0-9]*.[0-9]*.[0-9]*)
-            log_pass "getent ahosts returns IPv4 first ($first)"
+            log_pass "getent ahosts returns IPv4 first after the step ($gai_after; before: ${gai_before:-none})"
             ;;
         *)
-            log_fail "getent ahosts returns '$first' first, not an IPv4 address"
+            log_fail "getent ahosts returns '$gai_after' first after the step, not an IPv4 address (before: ${gai_before:-none})"
             ;;
     esac
+    rm -f "$gai_log"
 }
 
 # Test: a precedence the owner set is left byte-identical (S9, S7).
@@ -1129,12 +1145,24 @@ GAI
 
     before=$(mktemp)
     after=$(mktemp)
-    sudo cat "$GAI_CONF" > "$before"
+    gai_log=$(mktemp)
+    sudo cp "$GAI_CONF" "$before"
 
-    DOTFILES_VERBOSE=1 dotfiles --non-interactive \
-        --shell=zsh --wm=none --backup=false >/dev/null 2>&1 || true
+    if DOTFILES_VERBOSE=1 dotfiles --non-interactive \
+        --shell=zsh --wm=none --backup=false >"$gai_log" 2>&1; then
+        log_pass "the non-interactive install succeeded"
+    else
+        log_fail "the non-interactive install failed"
+        sed -n '1,40p' "$gai_log"
+    fi
 
-    sudo cat "$GAI_CONF" > "$after"
+    if grep -q 'precedence ::ffff:0:0/96 50' "$gai_log"; then
+        log_pass "the run's log names the precedence it found"
+    else
+        log_fail "the run's log does not name the precedence it found"
+    fi
+
+    sudo cp "$GAI_CONF" "$after"
     if cmp -s "$before" "$after"; then
         log_pass "the foreign precedence was left byte-identical"
     else
@@ -1145,7 +1173,7 @@ GAI
     else
         log_pass "the step added no block"
     fi
-    rm -f "$before" "$after"
+    rm -f "$before" "$after" "$gai_log"
 }
 
 # ============================================
