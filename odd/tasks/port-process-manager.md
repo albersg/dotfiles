@@ -521,3 +521,45 @@ limitaciones detectadas. No te quedes en un plan: implementa.
   workflows is green, the macOS smoke job included, and that job is the only place those fourteen tests
   run against the darwin reader. What stays outside this worktree's reach is unchanged: the darwin
   probe's `Parent`, `Alive` and `Signal` and the real `lsof` run only type-check here.
+
+- **L10 — all three slices are on `main`, and the two fixture defects the macOS runner found on the way.**
+  The user's instruction to continue and land the code was carried out with the admin override they chose
+  (`gh pr merge --admin`, which covers only the missing approval and never a red check). Every slice's head
+  was green on both workflows before its merge, and `main` now carries the whole utility: #351 the package,
+  merged as `d17a5a1` on 2026-10-17 (20 files, +6338/-0); #352 the screen, merged as `dd23549` on
+  2026-10-18 (13 files, +2448/-31); #353 the documents, merged as `4473462` on 2026-10-18 (5 files,
+  +690/-15). `main` advanced twice under the chain -- the install reversibility slice (`5845a97`) and the
+  development-environment doctor (`e50075b`) -- so B and C each had to carry current `main` before they
+  could merge. Both merges kept both fronts' work and arrived as merge commits, never as a history
+  rewrite, because the harness blocks a force-push of a branch and the user chose the merge.
+
+  The macOS smoke job failed twice more on B, and both failures were this front's own. The TUI's process
+  fixture answered only the `/proc` dialect, so on a darwin build -- where the reader is
+  `readDarwinProcess` while the fixture's own `GOOS` still says linux -- every identity came back empty and
+  four flow tests read a manager that could not name an owner. `d4dcccc` (test-only, +270 lines) makes one
+  fixture answer both dialects: the two `ps` runs are rendered from the fixture's own `/proc` state, the
+  account from `status`, the executable from `exe` or `comm`, the start wording from `/proc/stat`'s `btime`
+  plus the process's start ticks, and the argv from `cmdline`, with an unknown pid yielding no line rather
+  than an empty one. The job failed again, and the second failure was the sharper one: `readDarwinProcess`
+  begins with `p.LookPath("ps")` -- the bare name -- and the fixture refused it, so the reader returned
+  before either `ps` run happened. `87f232e` accepts the bare name too, and the guard now walks the whole
+  sequence instead of the half it was covering. That is the lesson this entry exists for: a guard that
+  calls the reader's second step directly passes while the reader's first step is still refusing, so a
+  guard has to start where the reader starts.
+
+  Two things the merges taught that no conflict marker showed. The section's job count was silently wrong
+  for the length of one merge: B's guide said "twelve jobs" naming the port manager without the doctor,
+  `main`'s said "twelve jobs" naming the doctor without the port manager, and the two sentences were
+  byte-identical at that word, so git merged them without a marker and the count stayed a job short while
+  every job was named. The merged section holds thirteen, the guard reads thirteen, and its own comment now
+  records why that word cannot be trusted across a merge. The same merge's panel table carried a duplicated
+  `What will happen` row, kept by an earlier resolution on this front; it is now one row that states the
+  doctor's last line, the update center's state and the port utility's last reading together. The measured
+  screen count on the merged tree is 96 -- read from the guard's own report, not added up from either side
+  -- and the Utilities golden was regenerated from the merged code, twice: the first regeneration was left
+  out of the merge commit and had to be amended into it locally, before anything was pushed.
+
+  Not part of this delivery, and unchanged: four installer tests in `installer_test.go` fail on this host
+  only, because they re-add `/usr/bin` to `PATH` and this host has `/usr/bin/ghostty`; the CI runner does
+  not, which is why they pass there. The chain's verification leftovers (~1.5 GB under `/tmp`) sit on a
+  tmpfs that is full on this host and are safe to remove.
