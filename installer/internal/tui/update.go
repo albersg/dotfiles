@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/diskclean"
+	"github.com/albersg/dotfiles/installer/internal/portscan"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	"github.com/albersg/dotfiles/installer/internal/tui/trainer"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1410,6 +1411,47 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShellAudit.HistoryError = ""
 		return m, nil
 
+	case portsLoadedMsg:
+		// One reading has landed. The cursor is restored by the identity captured
+		// when the reading started, and the notice reports what changed without
+		// ever moving the cursor itself.
+		wasLoaded := m.Ports.Loaded
+		m.Ports.Loading = false
+		m.Ports.Loaded = true
+		m.Ports.LoadErr = ""
+		m.applyPortSnapshot(msg.snap, wasLoaded)
+		return m, nil
+
+	case portsStopDoneMsg:
+		// The account of one attempt replaces any older one whole. A terminate that
+		// left the process running turns the forced signal into its own visible
+		// action; every other outcome settles the screen. The manager is re-read
+		// afterwards so the ports column reflects what the verification actually
+		// found rather than what was on screen before the signal.
+		result := msg.result
+		m.PortStop.Result = &result
+		m.PortStop.Running = false
+		m.PortStop.Forced = result.Signal == portscan.SignalKill
+		m.Ports.SelectedKey = m.portSelectedKey()
+		return m, m.portScanCmd()
+
+	case portsTickMsg:
+		// The periodic refresh is the manager's own while it is drawn, and never
+		// fires while the filter is being typed, while the stop screen is in front,
+		// or while a reading is already in flight. It re-arms itself for as long as
+		// the refresh is on, so a screen that is left and returned to keeps the
+		// choice. The cursor is captured before the reading, exactly as a manual
+		// refresh does, so a tick can never move it.
+		if m.Screen != ScreenPortManager || !m.Ports.Auto {
+			return m, nil
+		}
+		if m.Ports.Filtering || m.Ports.Loading {
+			return m, portsTickCmd()
+		}
+		m.Ports.SelectedKey = m.portSelectedKey()
+		m.Ports.Loading = true
+		return m, tea.Batch(m.portScanCmd(), portsTickCmd())
+
 	case dotfilesThemeChangedMsg:
 		// The dotfiles switch is not an install step, so a failure is told on the
 		// picker rather than taking the run to a failed screen. The outcome is
@@ -1657,6 +1699,14 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// The port manager's filter is a text field: while it is open it owns every
+	// key, including space, escape and backspace, which would otherwise be taken
+	// by the leader key or the global back dispatch before the field ever saw
+	// them. It is taken before all of them so a filter really is text.
+	if m.Screen == ScreenPortManager && m.Ports.Filtering {
+		return m.handlePortFilterKeys(key)
+	}
+
 	// The interactive WSL step pauses the run on the Windows Terminal offer. Its
 	// answer keys are taken here, before the navigation keys, so Esc is the refusal
 	// the offer names rather than a way out of a screen the run still owns. A key
@@ -1758,6 +1808,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case isSSHManagerScreen(m.Screen):
 			// The SSH manager's screens are dispatched above, before this switch:
 			// the space belongs to the field or the row it is pressed on.
+		case m.Screen == ScreenPortManager:
+			// The port manager owns space too: it expands the selected row, which is
+			// a read and never a write, and the footer names the key.
 		default:
 			// All other screens: activate leader mode
 			m.LeaderMode = true
@@ -1949,6 +2002,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenSSHTest:
 		return m.handleSSHTestKeys(key)
+
+	case ScreenPortManager:
+		return m.handlePortManagerKeys(key)
+
+	case ScreenPortStop:
+		return m.handlePortStopKeys(key)
 
 	case ScreenUpdate:
 		return m.handleUpdateKeys(key)
@@ -2198,6 +2257,21 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.SSH.Notice = ""
 	case ScreenSSHTest:
 		m = m.leaveSSHTest()
+	case ScreenPortManager:
+		// The filter field owns Escape while it is open, so this path is reached
+		// only when it is not: the manager then steps back to the section that
+		// opened it. The reading is not cancelled -- a reading already in flight
+		// still lands on the model -- and the notice is cleared so a later visit
+		// does not open on a stale line.
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.Ports.Notice = ""
+		m.Ports.Filtering = false
+	case ScreenPortStop:
+		// The confirmation is one level in from the manager, so Escape steps back
+		// there rather than all the way to the section.
+		m.Screen = ScreenPortManager
+		m.Cursor = 0
 	case ScreenDiskCleaner:
 		// The disk cleaner owns this key: escape is the way out of a preview, it
 		// stops a scan or a cleanup in flight, and only when there is nothing to
@@ -2635,6 +2709,19 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 				return m, sshLoadCmd()
 			}
 			return m, sshConfigCmd(m.SSH.Manager)
+		case selected == utilitiesPortRow:
+			// The port manager is one level in as well. The first reading starts on the
+			// way in, off the update loop, so the screen says it is reading instead of
+			// opening empty; a second reading is a keypress away.
+			m.Screen = ScreenPortManager
+			m.Cursor = 0
+			m.Ports.Cursor = 0
+			m.Ports.Notice = ""
+			m.Ports.Detail = false
+			m.Ports.SelectedKey = ""
+			m.Ports.Loading = true
+			m.Ports.LoadErr = ""
+			return m, m.portScanCmd()
 		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
 			m.ThemeNotice = "Putting the previous desktop theme back…"
 			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
@@ -2857,6 +2944,254 @@ func (m Model) toggleShellAuditHistory() (tea.Model, tea.Cmd) {
 	// Turning it off is also worth writing down: the file keeps the decisions, so
 	// the switch is where the next run reads it from.
 	return m, m.saveShellAuditHistoryCmd()
+}
+
+// handlePortManagerKeys drives the manager. It only ever changes the cursor,
+// the controls, the detail flag or the notice. The reading is a command and the
+// stop is a screen of its own, so nothing here reads the machine or signals
+// anything: the two expensive halves stay off the update loop.
+func (m Model) handlePortManagerKeys(key string) (tea.Model, tea.Cmd) {
+	visible := m.portVisibleListeners()
+
+	switch key {
+	case "up", "k":
+		if m.Ports.Cursor > 0 {
+			m.Ports.Cursor--
+		}
+	case "down", "j":
+		if m.Ports.Cursor < len(visible)-1 {
+			m.Ports.Cursor++
+		}
+	case "enter", " ":
+		// The detail block is an expansion of the selected row, so the same key
+		// opens and closes it and nothing is written.
+		m.Ports.Detail = !m.Ports.Detail
+	case "/":
+		// The filter field starts empty of control and owns the keys until it is
+		// kept or discarded; the current text stays editable rather than being
+		// cleared, so a filter can be refined.
+		m.Ports.Filtering = true
+		m.Ports.Notice = ""
+	case "f":
+		m.Ports.Transport = nextPortTransport(m.Ports.Transport)
+		m.clampPortCursor()
+	case "o":
+		m.Ports.Owner = nextPortOwner(m.Ports.Owner)
+		m.clampPortCursor()
+	case "s":
+		m.Ports.Sort = nextPortSort(m.Ports.Sort)
+		m.clampPortCursor()
+	case "r":
+		// A manual refresh captures the selected row's identity first, so the
+		// reading lands with the cursor still on the same socket.
+		m.Ports.SelectedKey = m.portSelectedKey()
+		m.Ports.Loading = true
+		m.Ports.LoadErr = ""
+		return m, m.portScanCmd()
+	case "p":
+		m.Ports.Auto = !m.Ports.Auto
+		if m.Ports.Auto {
+			return m, portsTickCmd()
+		}
+	case "x":
+		// The confirmation opens only for a row whose owner is known and whose
+		// stop the package's own rules allow. Anything else is a refusal on the
+		// notice line, so no screen ever offers a signal that would be refused.
+		target, ok := m.portStopTarget()
+		if !ok {
+			m.Ports.Notice = "The process behind this socket is not known to this run, so there is nothing to stop here."
+			return m, nil
+		}
+		if refusal := portscan.StopRefusal(m.Ports.Probe, target); refusal != "" {
+			m.Ports.Notice = refusal
+			return m, nil
+		}
+		m.PortStop = portStopState{Target: target}
+		m.Screen = ScreenPortStop
+		m.Cursor = 0
+	case "y":
+		text := m.portDiagnosticText()
+		if text == "" {
+			m.Ports.Notice = "There is no row to copy."
+			return m, nil
+		}
+		if m.TerminalCapabilities.Clipboard.State != capabilitySupported {
+			m.Ports.Notice = "This terminal has not confirmed OSC 52, so the diagnostic was left on screen to copy by hand."
+			return m, nil
+		}
+		m.Ports.Notice = "Sent the diagnostic to the terminal's clipboard over OSC 52."
+		return m, copyPortDiagnosticCmd(text)
+	case "esc":
+		m.Screen = ScreenUtilities
+		m.Cursor = 0
+		m.Ports.Notice = ""
+	}
+	return m, nil
+}
+
+// handlePortFilterKeys edits the filter field. Escape and Enter both keep the
+// text (leaving it to be refined later); backspace deletes the last rune and a
+// printable rune appends. Everything else is ignored, so a control key cannot
+// grow the filter with its own name.
+func (m Model) handlePortFilterKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "enter":
+		m.Ports.Filtering = false
+	case "backspace":
+		if runes := []rune(m.Ports.Filter); len(runes) > 0 {
+			m.Ports.Filter = string(runes[:len(runes)-1])
+		}
+		m.clampPortCursor()
+	default:
+		if runes := []rune(key); len(runes) == 1 && runes[0] >= ' ' && runes[0] != 0x7f {
+			m.Ports.Filter += key
+			m.clampPortCursor()
+		}
+	}
+	return m, nil
+}
+
+// handlePortStopKeys drives the confirmation. The soft stop is the only action
+// until a soft attempt leaves the process running; then the forced signal is the
+// only one offered, and it is spelled as its own action. Escape returns to the
+// manager without sending anything.
+func (m Model) handlePortStopKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.Screen = ScreenPortManager
+		m.Cursor = 0
+	case "t", "enter":
+		if m.PortStop.Refusal != "" || m.PortStop.Running || m.portStopForcedOffered() {
+			return m, nil
+		}
+		if r := m.PortStop.Result; r != nil && r.Outcome != portscan.OutcomeStillRunning {
+			return m, nil
+		}
+		m.PortStop.Running = true
+		m.PortStop.Forced = false
+		return m, m.portStopCmd(portscan.SignalTerminate)
+	case "k":
+		if !m.portStopForcedOffered() || m.PortStop.Running {
+			return m, nil
+		}
+		m.PortStop.Running = true
+		m.PortStop.Forced = true
+		return m, m.portStopCmd(portscan.SignalKill)
+	}
+	return m, nil
+}
+
+// applyPortSnapshot folds one reading into the model. The cursor is restored by
+// the identity captured when the reading started, never by index; a row that is
+// gone clamps the cursor instead. The counts of rows that appeared and
+// disappeared are put on the notice so a refresh reports what changed without
+// moving anything.
+func (m *Model) applyPortSnapshot(snap portscan.Snapshot, wasLoaded bool) {
+	beforeKeys := portListenerKeySet(m.portVisibleListeners())
+	m.Ports.Snapshot = snap
+	visible := m.portVisibleListeners()
+	m.Ports.Cursor = portCursorForKey(visible, m.Ports.SelectedKey, m.Ports.Cursor)
+
+	afterKeys := portListenerKeySet(visible)
+	newCount, goneCount := 0, 0
+	for key := range afterKeys {
+		if !beforeKeys[key] {
+			newCount++
+		}
+	}
+	for key := range beforeKeys {
+		if !afterKeys[key] {
+			goneCount++
+		}
+	}
+	if !wasLoaded {
+		// The first reading has nothing to compare against; every row would count
+		// as new and the notice would be noise.
+		m.Ports.NewSince, m.Ports.GoneSince = 0, 0
+		return
+	}
+	m.Ports.NewSince, m.Ports.GoneSince = newCount, goneCount
+	if newCount > 0 || goneCount > 0 {
+		m.Ports.Notice = fmt.Sprintf("%d new, %d gone since the last reading", newCount, goneCount)
+	}
+}
+
+// portListenerKeySet is the set of socket identities in a list.
+func portListenerKeySet(list []portscan.Listener) map[string]bool {
+	out := make(map[string]bool, len(list))
+	for _, l := range list {
+		out[l.Key()] = true
+	}
+	return out
+}
+
+// portCursorForKey puts the cursor on the row whose identity matches, and clamps
+// a cursor whose row is gone rather than leaving it past the end.
+func portCursorForKey(visible []portscan.Listener, key string, fallback int) int {
+	if key != "" {
+		for i, l := range visible {
+			if l.Key() == key {
+				return i
+			}
+		}
+	}
+	if fallback < 0 {
+		fallback = 0
+	}
+	if fallback >= len(visible) {
+		fallback = len(visible) - 1
+	}
+	if fallback < 0 {
+		fallback = 0
+	}
+	return fallback
+}
+
+// clampPortCursor keeps the manager's cursor inside the filtered list after the
+// list changed under it.
+func (m *Model) clampPortCursor() {
+	n := len(m.portVisibleListeners())
+	if m.Ports.Cursor >= n {
+		m.Ports.Cursor = n - 1
+	}
+	if m.Ports.Cursor < 0 {
+		m.Ports.Cursor = 0
+	}
+}
+
+// The three cycles the manager's keys walk. Each is a small closed set, so the
+// value the screen prints is a member of the vocabulary the handler accepts.
+func nextPortTransport(value string) string {
+	switch value {
+	case "all":
+		return "tcp"
+	case "tcp":
+		return "udp"
+	default:
+		return "all"
+	}
+}
+
+func nextPortOwner(value string) string {
+	switch value {
+	case "all":
+		return "me"
+	case "me":
+		return "others"
+	default:
+		return "all"
+	}
+}
+
+func nextPortSort(value string) string {
+	switch value {
+	case "port":
+		return "process"
+	case "process":
+		return "family"
+	default:
+		return "port"
+	}
 }
 
 // handleUpdateKeys drives this installer's own release screen. Like the other

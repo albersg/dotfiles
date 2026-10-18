@@ -111,6 +111,22 @@ var (
 	// ever added to a screen that has something to cycle, so the footer never
 	// advertises a key that does nothing.
 	hintTab = installerHint{"[Tab]", "panel"}
+	// The port manager's own keys. hintFilter opens the filter field and
+	// hintFilterTyping is what the footer says while the field owns the keys;
+	// hintCycle names the three value cycles (transport, owner, sort), hintRefresh
+	// asks for an immediate reading, hintAuto toggles the periodic one, hintStop
+	// opens the confirmation and hintCopy writes the diagnostic. The stop
+	// confirmation spells its own two actions, because the soft stop and the
+	// forced one are deliberately different words.
+	hintFilter       = installerHint{"[/]", "filter"}
+	hintFilterTyping = installerHint{"[Enter/Esc]", "keep filter"}
+	hintRefresh      = installerHint{"[r]", "refresh"}
+	hintAuto         = installerHint{"[p]", "auto"}
+	hintStop         = installerHint{"[x]", "stop"}
+	hintCopy         = installerHint{"[y]", "copy"}
+	hintCycle        = installerHint{"[f/o/s]", "cycle"}
+	hintTerminate    = installerHint{"[t/Enter]", "stop gently"}
+	hintForce        = installerHint{"[k]", "force stop"}
 	// hintWSLTerminalOffer is the installing screen's hint while the interactive
 	// WSL step waits on the Windows Terminal offer. It is one hint rather than two
 	// so it always fits one footer row beside the details hint, and it spells both
@@ -504,8 +520,8 @@ func (m Model) bodyAnchorsToTheRule() bool {
 		ScreenInstallVerify, ScreenNetworkDiagnostics, ScreenWSLAdvisor,
 		ScreenWSLBenchmark, ScreenWSLMigration, ScreenSSHManager, ScreenSSHHost,
 		ScreenSSHForm, ScreenSSHKeys, ScreenSSHAgent, ScreenSSHDiagnostics,
-		ScreenSSHTest, ScreenDoctor,
-		ScreenDoctorFix:
+		ScreenSSHTest, ScreenPortManager, ScreenPortStop,
+		ScreenDoctor, ScreenDoctorFix:
 		return true
 	}
 	return false
@@ -599,8 +615,10 @@ func (m Model) headerName() string {
 	case ScreenUpdate:
 		// The update screen is one level in from the same section.
 		return "Utilities"
-	case ScreenDoctor, ScreenDoctorFix:
-		// The doctor and its confirmation are one level in from the same section.
+	case ScreenPortManager, ScreenPortStop, ScreenDoctor, ScreenDoctorFix:
+		// All four are one level in from the utilities section, exactly as the
+		// shell audit and the update screen are: the port screens belong to that
+		// section's own row, and so do the doctor and its confirmation.
 		return "Utilities"
 	default:
 		return "dotfiles"
@@ -1151,6 +1169,10 @@ func (m Model) View() string {
 		s.WriteString(m.renderSSHDiagnostics())
 	case ScreenSSHTest:
 		s.WriteString(m.renderSSHTest())
+	case ScreenPortManager:
+		s.WriteString(m.renderPortManager())
+	case ScreenPortStop:
+		s.WriteString(m.renderPortStop())
 	case ScreenUpdate:
 		s.WriteString(m.renderUpdate())
 	case ScreenDoctor:
@@ -1892,26 +1914,30 @@ func (m Model) utilitiesDescription() []string {
 	// cut marker; the claim is the same one and it fits in fewer words.
 	paragraphs = append(paragraphs, fmt.Sprintf("%s reports the paths that are gone.", utilitiesVerifyRow))
 
-	// The network diagnosis is named last, in a line short enough to be one row: the
-	// body shares the frame with the rows, and it has to carry every job without the
-	// cut marker -- TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on "… and N more"
-	// at 80x24. What the line leaves out -- the host an overview reaches for, and
-	// that every check is bounded -- is stated on the screen itself, where the runs
-	// that need it are started.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s runs read-only checks, stage by stage.",
-		utilitiesNetworkRow))
+	// The network diagnosis is the third job whose body line the floor budget asks
+	// for. It yields where the two below do, and for the same reason: the rows list
+	// names it, and what its line would have said -- the host an overview reaches
+	// for, and that every check is bounded -- is stated on the screen itself, where
+	// the run that needs it is started.
 
-	// The update center is deliberately the one job with no line of its own here.
-	// The section's body shares the frame with its rows, and the rows take their
-	// budget first (renderThemeScreen: descBudget = available - len(menu)); at 80x24
-	// with nine jobs the body has eight lines, and
-	// TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on the cut marker a ninth line
-	// produces. Every line above is one line and earns its place, so the newest job
-	// is the one that yields rather than pushing a peer's line behind the counter.
-	// Nothing a user needs is lost: the rows list names it ("%s"), and what its line
+	// The update center, the network diagnosis and the port and process manager are
+	// the jobs with no line of their own here. The section's body shares the frame
+	// with its rows, and the rows take their budget first (renderThemeScreen:
+	// descBudget = available - len(menu)); the body is cut rather than allowed to run
+	// off the frame, and TestUtilitiesBodyCarriesEveryJobAtTheFloor fails on the cut
+	// marker a body longer than the budget produces. Every line above is one line and
+	// earns its place, so the line that yields is the newest one rather than a peer's.
+	// The update center was the first job to arrive without a line, the network
+	// diagnosis gave up its line when the port manager's row took the last one the
+	// body had, and the port manager itself arrived without one.
+	//
+	// Nothing a user needs is lost: the rows list names them, and what their lines
 	// would have said -- that a command runs only for what was selected, after a
-	// confirmation -- is stated on the screen itself, in updateCenterDescription,
-	// where the selection is made rather than where it is summed up.
+	// confirmation; that a stop is confirmed on its own screen after the process
+	// and its ports are shown and revalidated -- is stated on the screens
+	// themselves, in updateCenterDescription and on the manager's own confirmation,
+	// where the choices are made rather than where the section sums them up.
+
 	return paragraphs
 }
 
@@ -2034,6 +2060,11 @@ const utilitiesDiskCleanerRow = "Clean up development caches"
 // machine to compare with the record, and where there is no record the screen
 // says exactly that -- and it is read-only, like the report beside it.
 const utilitiesVerifyRow = "Check the machine against the last install"
+
+// utilitiesPortRow is the section's row for the port and process manager. It is
+// offered everywhere: reading what holds a port is always safe, and a platform
+// with no reader says so in the screen's own body rather than the row vanishing.
+const utilitiesPortRow = "Find what holds a port"
 
 // The rows the arrow keys act on. The indices are part of the screen's contract:
 // the key handler adjusts the value under the cursor by its index, and the frame

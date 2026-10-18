@@ -1735,9 +1735,16 @@ var screenNames = map[Screen]string{
 	// every screen above -- the guard in screen_coverage_test.go named it as
 	// Screen(58) printing as "Unknown", which is the failure this entry answers.
 	ScreenDiskCleaner: "DiskCleaner",
-	// The doctor and its confirmation are the screens this branch adds, declared after
-	// every screen above -- the same guard named them as Screen(71) and Screen(72)
-	// printing as "Unknown", which is the failure these entries answer.
+	// The port and process manager and its stop confirmation, in an alignment group
+	// of their own: their names are longer than every key above, and gofmt aligns a
+	// block as one, so sharing it would re-space the whole map.
+	ScreenPortManager: "PortManager",
+	ScreenPortStop:    "PortStop",
+
+	// The doctor and its confirmation arrived with the other front's merge -- the
+	// guard named them as Screen(71) and Screen(72) printing as "Unknown" on the
+	// front that added them, which is the failure these entries answer. They keep a
+	// group of their own for the same reason as the pair above.
 	ScreenDoctor:    "Doctor",
 	ScreenDoctorFix: "DoctorFix",
 }
