@@ -203,9 +203,10 @@ writes nothing and says the file already prefers IPv4; if it carries any other
 uncommented `precedence` line outside the block the step writes nothing, names
 what it found, and says the choice is the owner's (S7). A value inside the block
 is the installer's, so a stale one is restored to the deciding line and the log
-names the value it replaced. A block that is half-written (a start marker with no
-end marker) or duplicated is left alone with a message rather than repaired
-blindly. None of these cases fails the run, and a file the run cannot read or
+names the value it replaced. A marker shape the step does not own -- a start
+marker with no end marker, an end marker with no start, more than one of either,
+or the two in the wrong order -- is left alone with a message rather than
+repaired blindly. None of these cases fails the run, and a file the run cannot read or
 write is reported and left alone too.
 
 `/etc/gai.conf` belongs to `libc-bin` (`dpkg -S /etc/gai.conf`). When dpkg is

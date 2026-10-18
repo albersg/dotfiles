@@ -1695,10 +1695,11 @@ uncommented `precedence` line **outside** the marked block, the step writes
 nothing, names the line it found, and says the choice is the owner's rather than
 imposing an order he chose the other way (S7). A value **inside** the block is the
 installer's own: a stale one there is restored to the deciding line, and the log
-names the value it replaced so the restore is never silent. A half-written block
-(a start marker with no end marker) or a duplicated one is not a shape the step
-owns, so it writes nothing and logs what it found rather than repairing it
-blindly. None of these cases fails the run, and neither does a file the run cannot
+names the value it replaced so the restore is never silent. A marker shape the
+step does not own -- a start marker with no end marker, an end marker with no
+start, more than one of either, or the two in the wrong order -- is left alone:
+it writes nothing and logs the shape it found rather than repairing it blindly.
+None of these cases fails the run, and neither does a file the run cannot
 read or write -- a read-only `/etc`, say -- which is reported and left alone.
 
 **What the step cannot promise about a future `libc-bin` upgrade.** `/etc/gai.conf`

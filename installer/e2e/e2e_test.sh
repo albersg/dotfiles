@@ -1122,10 +1122,25 @@ test_gai_prefers_ipv4() {
         log_fail "the factory comment lines were altered"
     fi
 
+    # The before/after pair is what makes this reading evidence rather than a
+    # coincidence. A host that answered an IPv6 address before the step and
+    # answers IPv4 after it is the flip this step makes; a host that already
+    # answered IPv4 cannot attribute the order to the step, and the pass says so
+    # instead of claiming a causality the reading does not carry.
     gai_after=$(getent ahosts github.com 2>/dev/null | head -n1 | awk '{print $1}')
     case "$gai_after" in
         [0-9]*.[0-9]*.[0-9]*.[0-9]*)
-            log_pass "getent ahosts returns IPv4 first after the step ($gai_after; before: ${gai_before:-none})"
+            case "${gai_before:-}" in
+                *:*)
+                    log_pass "the host answered IPv6 first before the step ($gai_before) and IPv4 first after it ($gai_after), which is the flip this step makes"
+                    ;;
+                "")
+                    log_pass "getent ahosts returns IPv4 first after the step ($gai_after); the before reading was empty, so no flip could be observed"
+                    ;;
+                *)
+                    log_pass "getent ahosts returns IPv4 first after the step ($gai_after; it also did before: $gai_before, so this reading cannot attribute the order to the step)"
+                    ;;
+            esac
             ;;
         *)
             log_fail "getent ahosts returns '$gai_after' first after the step, not an IPv4 address (before: ${gai_before:-none})"
