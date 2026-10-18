@@ -57,6 +57,7 @@ repository's memory of why something is the way it is.
 | [themes-integration.md](tasks/themes-integration.md) | Theme integration |
 | [theme-switch-reach.md](tasks/theme-switch-reach.md) | What the theme switch actually reaches |
 | [theme-survives-install.md](tasks/theme-survives-install.md) | The theme an install has to preserve |
+| [terminal-probe-ownership.md](tasks/terminal-probe-ownership.md) | Who reads the terminal when the capability probe queries it |
 | [trainer-hint-coherence.md](tasks/trainer-hint-coherence.md) | The trainer's hints |
 | [tui-facelift.md](tasks/tui-facelift.md) | The TUI facelift |
 | [unified-themes.md](tasks/unified-themes.md) | The unified theme library |
