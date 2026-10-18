@@ -59,6 +59,11 @@ anything, so the command reports a measurement rather than an attempt.
   by a change -- a record that names a tree while omitting a file inside it is caught by the copy,
   not by its own silence. That third question needs a copy to answer: a run that took none is what
   the next bullet is about.
+- **A kind only the machine makes is not judged.** A named pipe, a socket or a device inside a path the
+  record says the run wrote is not this run's doing: the installer writes files and links, its copier
+  omits every other kind, so no copy of a key can hold one and the record cannot carry one either. The
+  revert leaves such a path where it is and says nothing about it -- which is also what keeps it from
+  reading a pipe, a read that blocks until a writer appears.
 - **It acts on what the record names.** A run that took no backup leaves its record with no copies,
   and a missing copy is not evidence that the run wrote a path. With no copy of a key, the files
   behind a link there are judged as the same files are when the key is walked directly -- by the
