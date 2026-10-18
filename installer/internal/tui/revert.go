@@ -178,6 +178,15 @@ func unaccountedInside(record *lastInstall, entry installEntry, path string) str
 		return path + ", which the record lists no change for and which cannot be read now"
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
+		if aKindTheRunNeverWrites(info.Mode()) {
+			// A named pipe, a socket or a device: the installer writes files and links and
+			// nothing else, and the copier that takes its backups omits these kinds, so no
+			// copy of a key can hold one and the record's silence about it is not evidence
+			// of anything. Reporting it would fail a revert whose every change was put back
+			// over a path the run never wrote, and over one the reader of the report cannot
+			// act on either.
+			return ""
+		}
 		if sameKindAsCopy(entry, path) {
 			return "" // the copy holds this kind at this path: the run found it, it did not make it
 		}
@@ -289,6 +298,13 @@ func unvouchedInside(record *lastInstall, entry installEntry, root string) strin
 				return nil
 			}
 		}
+		// Only a name that reads as a regular file has content to compare, and a named pipe
+		// blocks the reader until a writer appears. A pipe, a socket or a device -- named
+		// here directly or reached through a link -- is not the run's doing, and this check
+		// has nothing to say about it.
+		if !readsAsAFile(p) {
+			return nil
+		}
 		copied := copiedFor(entry, named)
 		if copied == "" {
 			unvouched = named + " is inside it and no change names it"
@@ -303,10 +319,27 @@ func unvouchedInside(record *lastInstall, entry installEntry, root string) strin
 	return unvouched
 }
 
-// sameKindAsCopy reports whether the run's copy of a path holds the same kind of thing
-// the machine holds there. For a kind the per-file record cannot carry -- a named pipe,
-// a socket, a device -- the copy answers the only question that matters: whether the
-// run found it or made it.
+// aKindTheRunNeverWrites reports whether a mode names something this installer cannot have
+// put on a machine: a named pipe, a socket or a device. It writes regular files and links,
+// the copier that takes its backups omits every other kind, and nothing in it calls mkfifo,
+// mknod or opens a listener on a path. A path of such a kind is therefore never this run's
+// doing, and the per-file record cannot carry one either.
+func aKindTheRunNeverWrites(mode os.FileMode) bool {
+	return !mode.IsRegular() && !mode.IsDir() && mode&os.ModeSymlink == 0
+}
+
+// readsAsAFile reports whether a path holds content that can be read: a regular file, named
+// directly or reached through a link. os.Stat follows the link, so a link into a named pipe
+// answers no, and answering costs no read -- reading a pipe blocks until a writer appears.
+func readsAsAFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// sameKindAsCopy reports whether the run's copy of a path holds the same kind of thing the
+// machine holds there. It is asked about a directory the record says the run wrote without
+// naming any change inside it, where the copy answers whether the run found that tree or
+// made it.
 func sameKindAsCopy(entry installEntry, path string) bool {
 	copied := copiedFor(entry, path)
 	if copied == "" {

@@ -3,7 +3,6 @@ package tui
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -221,10 +220,13 @@ func TestAReachInsideAWrittenKeyIsVouchedForByItsFiles(t *testing.T) {
 	}
 }
 
-// A named pipe or a socket inside a key the run wrote is not a kind the per-file record
-// carries, and the copy of the key cannot hold it either: the record cannot say whether
-// the run made it or found it. It is reported, and the report says why.
-func TestAKindTheRecordCannotCarryIsReportedWithItsReason(t *testing.T) {
+// A named pipe inside a key the run wrote is a kind the per-file record cannot carry, the
+// copier cannot copy and this installer never makes: it writes files and links, and nothing
+// in the installer calls mkfifo, mkfifo-like syscalls or a listener on a path. So the pipe
+// is not the run's doing, and the revert, whose job is to put the run's changes back, must
+// keep quiet about it. The eleventh pass reported this shape as an advisory; the round that
+// fixed the links with no copy fixed its shape, not its kinds.
+func TestANamedPipeInsideAWrittenKeyIsNotTheRunsDoing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
@@ -256,12 +258,15 @@ func TestAKindTheRecordCannotCarryIsReportedWithItsReason(t *testing.T) {
 		}},
 	}))
 
-	_, err := RevertLastRun(RevertOptions{})
-	if err == nil {
-		t.Fatalf("a named pipe inside a written key is a path the record cannot account for, and nothing was said about it")
+	report, err := RevertLastRun(RevertOptions{})
+	if err != nil || !report.Complete() {
+		t.Fatalf("a named pipe the run never made failed the revert: %v (%+v)", err, report.Files)
 	}
-	if !strings.Contains(err.Error(), agent) {
-		t.Errorf("the answer does not name the path it cannot account for: %v", err)
+	if _, statErr := os.Lstat(agent); statErr != nil {
+		t.Fatalf("the revert removed the pipe: %v", statErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(nvim, "init.lua")); statErr != nil {
+		t.Fatalf("the file the run modified is gone: %v", statErr)
 	}
 }
 
