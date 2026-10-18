@@ -1,24 +1,24 @@
                                                                                 
-   Installing dotfiles                                         ▓▓░░░░░░░░ 3/15  
+   Installing dotfiles                                         ▓▓░░░░░░░░ 3/16  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  ▒██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  17%     
+  ▒██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  16%     
                                                                                 
-  Step 3 of 15 · Clone Repository                                               
-  Elapsed 42s · ~3m 30s left                                                    
+  Step 3 of 16 · Install Dependencies                                           
+  Elapsed 42s · ~3m 46s left                                                    
   cpu ▅▆▄▆▄▅▃▅▆ 75%  mem ▃▃▃▃▃▃▃▃▃ 34%  load 1.40  disk 314.2 GiB free          
   run ▃▃▃▄▄▄▅▅▅▅▆▆▆▇▇▇▇█                                                        
   ╭─ Steps ──────────────────────────────────────────────────────────────────╮  
   │ ✓ Backup Existing Configs                                     ▓▓▓▓▓▓▓▓▓▓ │  
-  │ ✓ Install Dependencies                                        ▓▓▓▓▓▓▓▓▓▓ │  
-  │ ● Clone Repository                                            ▓▓▓▓▓░░░░░ │  
-  │    Downloads your dotfiles repository.                                   │  
+  │ ✓ Prefer IPv4                                                 ▓▓▓▓▓▓▓▓▓▓ │  
+  │ ● Install Dependencies                                        ▓▓▓▓▓░░░░░ │  
+  │    Installs base packages with your distribution's package manager.      │  
+  │ ○ Clone Repository                                            ░░░░░░░░░░ │  
   │ ○ Install Homebrew                                            ░░░░░░░░░░ │  
   │ ○ Install alacritty                                           ░░░░░░░░░░ │  
   │ ○ Install Meslo Nerd Font                                     ░░░░░░░░░░ │  
   │ ○ Install fish                                                ░░░░░░░░░░ │  
   │ ○ Install tmux                                                ░░░░░░░░░░ │  
   │ ○ Install Neovim                                              ░░░░░░░░░░ │  
-  │ ○ Install Toolset                                             ░░░░░░░░░░ │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
   ────────────────────────────────────────────────────────────────────────────  
   [Space d] details                                                             

@@ -564,7 +564,7 @@ func TestInstallStepsSetup(t *testing.T) {
 			},
 			sysInfo:       &system.SystemInfo{OS: system.OSLinux, HasBrew: false},
 			existConfigs:  []string{},
-			expectedSteps: []string{"deps", "clone", "homebrew", "terminal", "font", "shell", "wm", "nvim", "toolset", "agentskills", "officecli", "theme", "setshell", "cleanup"},
+			expectedSteps: []string{"gai", "deps", "clone", "homebrew", "terminal", "font", "shell", "wm", "nvim", "toolset", "agentskills", "officecli", "theme", "setshell", "cleanup"},
 		},
 	}
 

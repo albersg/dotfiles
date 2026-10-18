@@ -47,6 +47,7 @@ tells a WSL user without interop to set the two host overrides.
 | `DOTFILES_WSL_WINDOWS_HOME` | Points the Windows profile lookup at a Windows drive mounted somewhere other than `/mnt/c` |
 | `DOTFILES_WSL_USERS_DIR` | Points the Windows users mount the profile lookup scans away from the default `/mnt/c/Users` |
 | `DOTFILES_WSL_CONF_PATH` | Points the `wsl.conf` destination away from `/etc/wsl.conf` for a distribution that keeps the file elsewhere |
+| `DOTFILES_GAI_CONF_PATH` | Points the `gai.conf` destination away from `/etc/gai.conf` for a distribution that keeps the file elsewhere |
 
 #### Names the installer reads or writes that are not user switches
 

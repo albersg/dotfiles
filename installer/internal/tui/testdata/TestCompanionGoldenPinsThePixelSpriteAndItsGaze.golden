@@ -11,10 +11,10 @@
   What would you like to do?                                              ────────────────────────────────────────────────────────────────────────────────────  
   ╭─ dotfiles ─────────────────────────────────────────────────────────╮  Selected        Start Installation                                                    
   │ ▸ Start Installation                                               │  on Linux (detected)                                                                   
-  │   Learn About Tools                                                │  Steps           9                                                                     
-  │   Keymaps Reference                                                │  ▸ 1  Install Dependencies                                                             
-  │   LazyVim Guide                                                    │       Installs base packages with your distribution's package manager.                 
-  │   Vim Trainer                                                      │                                                                                        
+  │   Learn About Tools                                                │  Steps           10                                                                    
+  │   Keymaps Reference                                                │  ▸  1  Prefer IPv4                                                                     
+  │   LazyVim Guide                                                    │        Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into broken    
+  │   Vim Trainer                                                      │        IPv6 routes.                                                                    
   │   Utilities                                                        │                                                                                        
   │   Exit                                                             │                                                                                        
   ╰────────────────────────────────────────────────────────────────────╯                                                                                        

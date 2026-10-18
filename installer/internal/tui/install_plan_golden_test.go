@@ -48,7 +48,7 @@ func planFixtures() []planFixture {
 			choices: all("linux"),
 			info:    &system.SystemInfo{OS: system.OSDebian},
 			configs: twoConfigs,
-			wantIDs: "backup,deps,clone,homebrew,terminal,font,shell,wm,nvim,toolset,agentskills,officecli,theme,setshell,cleanup",
+			wantIDs: "backup,gai,deps,clone,homebrew,terminal,font,shell,wm,nvim,toolset,agentskills,officecli,theme,setshell,cleanup",
 		},
 		{
 			name:    "macos with xcode, no brew",
@@ -76,14 +76,14 @@ func planFixtures() []planFixture {
 			choices: all("linux"),
 			info:    &system.SystemInfo{OS: system.OSFedora, HasBrew: true},
 			configs: twoConfigs,
-			wantIDs: "backup,deps,clone,terminal,font,shell,wm,nvim,toolset,agentskills,officecli,theme,setshell,cleanup",
+			wantIDs: "backup,gai,deps,clone,terminal,font,shell,wm,nvim,toolset,agentskills,officecli,theme,setshell,cleanup",
 		},
 		{
 			name:    "linux with nothing to back up",
 			choices: all("linux"),
 			info:    &system.SystemInfo{OS: system.OSDebian},
 			configs: nil,
-			wantIDs: "deps,clone,homebrew,terminal,font,shell,wm,nvim,toolset,agentskills,officecli,theme,setshell,cleanup",
+			wantIDs: "gai,deps,clone,homebrew,terminal,font,shell,wm,nvim,toolset,agentskills,officecli,theme,setshell,cleanup",
 		},
 	}
 }
@@ -129,6 +129,7 @@ func TestThePlanNamesWhatItInstalls(t *testing.T) {
 	got := planNameList(planFor(fixture.fixtureModel().planOptions()))
 	want := []string{
 		"backup:Backup Existing Configs",
+		"gai:Prefer IPv4",
 		"deps:Install Dependencies",
 		"clone:Clone Repository",
 		"homebrew:Install Homebrew",
@@ -223,6 +224,7 @@ func TestTheWholePlanIsWhatItWas(t *testing.T) {
 	got := planFor(m.planOptions())
 	want := []InstallStep{
 		{ID: "backup", Name: "Backup Existing Configs", Description: "Saves a copy of your current configuration first.", Status: StatusPending, Origin: stepOriginExtra, Area: areaPreparation},
+		{ID: "gai", Name: "Prefer IPv4", Description: "Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into broken IPv6 routes.", Status: StatusPending, Origin: stepOriginMachine, Area: areaPreparation},
 		{ID: "deps", Name: "Install Dependencies", Description: "Installs base packages with your distribution's package manager.", Status: StatusPending, Interactive: true, Origin: stepOriginMachine, Area: areaPreparation},
 		{ID: "clone", Name: "Clone Repository", Description: "Downloads your dotfiles repository.", Status: StatusPending, Origin: stepOriginAlways, Area: areaPreparation},
 		{ID: "homebrew", Name: "Install Homebrew", Description: "Installs Homebrew, the package manager.", Status: StatusPending, Interactive: true, Origin: stepOriginMachine, Area: areaPreparation},

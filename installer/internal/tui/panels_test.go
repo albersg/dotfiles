@@ -330,8 +330,8 @@ func TestWillHappenPanelPreviewsThePlan(t *testing.T) {
 
 	for _, want := range []string{
 		"on Linux (detected)",
-		"Steps 9",
-		"Install Dependencies",
+		"Steps 10",
+		"Prefer IPv4",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the previewed plan does not show %q:\n%s", want, text)
@@ -347,7 +347,7 @@ func TestWillHappenPanelPreviewsThePlan(t *testing.T) {
 	if got := strings.Count(text, "▸"); got != 1 {
 		t.Errorf("the previewed plan marks %d steps as where the run starts, want exactly one:\n%s", got, text)
 	}
-	if !strings.Contains(text, "▸ 1") {
+	if !strings.Contains(text, "▸  1") {
 		t.Errorf("the previewed plan does not mark the first step as where the run starts:\n%s", text)
 	}
 	// A choice that has not been made is not in the plan: the shell step has no
@@ -368,7 +368,7 @@ func TestWillHappenPanelDropsTheHostLineWhenTheChoiceMatchesDetection(t *testing
 	if strings.Contains(text, "(detected)") {
 		t.Errorf("the panel still labels a host the player has chosen:\n%s", text)
 	}
-	if !strings.Contains(text, "Install Dependencies") {
+	if !strings.Contains(text, "Prefer IPv4") {
 		t.Errorf("the panel does not show the chosen Linux host's plan:\n%s", text)
 	}
 }
@@ -1783,8 +1783,8 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 			name:   "Start Installation",
 			want: []string{
 				"Selected Start Installation",
-				"Steps 9",
-				"Install Dependencies",
+				"Steps 10",
+				"Prefer IPv4",
 				"Overwrites 1 config",
 				"nvim: /home/testuser/.config/nvim",
 				"Newest backup",
@@ -2059,7 +2059,7 @@ func TestWizardChoicePanelDescribesTheChoiceUnderTheCursor(t *testing.T) {
 
 		m.Cursor = 1 // Linux, what detection found
 		linux := panelFlat(m.mainMenuPanel(l, 200))
-		for _, want := range []string{"Selected Linux", "Install Dependencies"} {
+		for _, want := range []string{"Selected Linux", "Prefer IPv4"} {
 			if !strings.Contains(linux, want) {
 				t.Errorf("the Linux choice panel does not show %q:\n%s", want, linux)
 			}
@@ -2089,7 +2089,7 @@ func TestWizardChoicePanelDescribesTheChoiceUnderTheCursor(t *testing.T) {
 			}
 			// The panel still answers what the choice would do: the plan's count is on
 			// screen and the step the run would start at is named.
-			if !strings.Contains(flat, "Steps") || !strings.Contains(flat, "Install Dependencies") {
+			if !strings.Contains(flat, "Steps") || !strings.Contains(flat, "Prefer IPv4") {
 				t.Errorf("the shell panel at cursor %d lost the plan:\n%s", c.cursor, flat)
 			}
 		}

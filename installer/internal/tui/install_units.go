@@ -45,6 +45,7 @@ type installUnit struct {
 // could drift.
 var installUnits = []installUnit{
 	{ID: "backup"},
+	{ID: "gai"},
 	{ID: "deps"},
 	{ID: "xcode"},
 	{ID: "clone", Fixed: true},

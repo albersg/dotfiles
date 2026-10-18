@@ -4503,6 +4503,7 @@ func renderBatTheme(def themeDefinition) (string, error) {
 // enumerated, so nothing could close that agreement for more than one step.
 var stepExecutors = map[string]func(*Model) error{
 	"backup":      stepBackupConfigs,
+	"gai":         stepInstallGAIConf,
 	"clone":       stepCloneRepo,
 	"homebrew":    stepInstallHomebrew,
 	"deps":        stepInstallDeps,

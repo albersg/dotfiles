@@ -23,6 +23,7 @@ import (
 // ID on screen.
 var installReviewLabels = map[string]string{
 	"backup":      "Back up the configuration it would replace",
+	"gai":         "Prefer IPv4; a libc-bin upgrade may reset it",
 	"deps":        "Install the base dependencies",
 	"xcode":       "Install the Apple developer tools",
 	"clone":       "Clone the dotfiles repository",
