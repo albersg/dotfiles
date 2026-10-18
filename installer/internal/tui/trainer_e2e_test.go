@@ -38,12 +38,15 @@ func TestTrainerMenuGolden(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	out := waitForTrainerText(t, tm, "trainer module menu to render", "Horizontal", "Vertical", "Module")
+	// Wait for the screen to render, then pin the frame the seeded model
+	// renders. The captured stream used to be compared whole, so how many
+	// frames the runner emitted between the wait and the quit could decide the
+	// result; the model's own render is the same screen on every runner.
+	waitForTrainerText(t, tm, "trainer module menu to render", "Horizontal", "Vertical", "Module")
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-	out = append(out, readAll(t, tm.FinalOutput(t))...)
-	teatest.RequireEqualOutput(t, out)
+	requireGoldenCapture(t, []byte(m.View()))
 }
 
 // TestTrainerLessonGolden tests a lesson exercise screen
