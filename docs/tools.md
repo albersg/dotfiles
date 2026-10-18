@@ -179,3 +179,40 @@ rather than silently skipping. A run with no checkout has already failed at the
 clone step, and a silent skip there would hide that. Termux and any host without
 a usable Homebrew skip the step, and `DOTFILES_SKIP_TOOLSET=1` skips it
 explicitly.
+
+## IPv4 preference (`/etc/gai.conf`)
+
+On Linux and WSL the installer appends a marked block to `/etc/gai.conf` so the
+machine prefers IPv4 over IPv6. The block holds one line,
+`precedence ::ffff:0:0/96 100`, quoted from the owner's own file
+(S2 of `odd/tasks/gai-preference.md`, issue #361): raising IPv4-mapped addresses
+above every other precedence is the documented way to make `getaddrinfo(3)`
+return IPv4 first, and it keeps the downloads and package managers that follow
+from falling into broken IPv6 routes. The step runs immediately before the
+dependency step for that reason, on Linux and WSL only.
+
+Only the deciding line is written. The other precedence lines `gai.conf`
+documents are the RFC 3484 defaults glibc already applies, so restating them
+would write the default back as though the installer had chosen it (S2, S6). The
+block is marked and replaced in place on a later run, so running the installer
+again leaves the file byte for byte the same (S8).
+
+The step never overrides a precedence the owner set. If the file already carries
+an uncommented `precedence ::ffff:0:0/96 100` the step writes nothing and says the
+file already prefers IPv4; if it carries any other uncommented `precedence` line
+the step writes nothing, names what it found, and says the choice is the owner's
+(S7). Neither case fails the run.
+
+`/etc/gai.conf` belongs to `libc-bin` (`dpkg -S /etc/gai.conf`). When dpkg is
+available the step logs which package owns the file and what a future
+`apt upgrade` of it may do: as a **conffile**, a new version with a locally
+changed file makes dpkg ask -- and a question during an unattended upgrade blocks
+it -- and a package that replaces the file loses this preference. The installer
+never touches dpkg's state (S3); when dpkg is absent, or the lookup fails, the
+step says so and the run continues.
+
+To undo the change, restore the `/etc/gai.conf.bak-dotfiles-<timestamp>` backup
+the writer leaves (named in the install log), or delete the block between the
+`# >>> dotfiles: prefer IPv4 (gai) >>>` and `# <<< dotfiles: prefer IPv4 (gai) <<<`
+markers. The destination is overridable through `DOTFILES_GAI_CONF_PATH` for
+tests.

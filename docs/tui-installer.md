@@ -1506,6 +1506,7 @@ on the platform and the choices, so a run shows only the ones that apply.
 
 | Step | What it does |
 |------|--------------|
+| Prefer IPv4 | Raises IPv4 above IPv6 in `/etc/gai.conf` by appending a marked block, so downloads and package managers do not fall into broken IPv6 routes (Linux and WSL; never overrides a precedence the owner already set) |
 | Install Dependencies | Installs the base packages the system needs (needs sudo on Linux) |
 | Install Xcode CLI | Installs the Apple developer command-line tools (macOS, when missing) |
 | Install Homebrew | Installs Homebrew, the package manager |
@@ -1667,6 +1668,50 @@ the frame was.
 name exist on the run and are shown. The run does not count the files it installs
 — no step reports a file tally — so the screen has no file counter and does not
 invent one.
+
+### The IPv4 preference
+
+On Linux and WSL the run raises IPv4 above IPv6 before it installs anything else:
+the `Prefer IPv4` step appends a marked block to `/etc/gai.conf` holding
+`precedence ::ffff:0:0/96 100`, the deciding line quoted from the owner's own file
+(S2 of `odd/tasks/gai-preference.md`, issue #361). Raising IPv4-mapped addresses
+above every other precedence is the documented way to make `getaddrinfo(3)` return
+IPv4 first, which is what stops the downloads and package managers that follow --
+the dependency step right after it -- from falling into broken IPv6 routes. The
+destination is `/etc/gai.conf`, overridable for tests through
+`DOTFILES_GAI_CONF_PATH`, exactly as the WSL step's destination is overridable
+through `DOTFILES_WSL_CONF_PATH`.
+
+The block holds the deciding line and nothing else. The other precedence lines
+`gai.conf` documents are the RFC 3484 defaults glibc already applies, so restating
+them would write the default back as though the installer had chosen it (S2, S6).
+The block is marked, so the step can replace it in place, and a second run leaves
+the file byte for byte the same (S8).
+
+**A precedence the owner set is never overridden.** If the file has no marker but
+already carries an uncommented `precedence ::ffff:0:0/96 100`, the step writes
+nothing and says the file already prefers IPv4. If it carries any other
+uncommented `precedence` line, the step writes nothing, names the line it found,
+and says the choice is the owner's rather than imposing an order he chose the
+other way (S7). Neither case fails the run.
+
+**What the step cannot promise about a future `libc-bin` upgrade.** `/etc/gai.conf`
+belongs to `libc-bin` (`dpkg -S /etc/gai.conf`), so the step asks dpkg which
+package owns the file and logs the answer and its consequence: a future
+`apt upgrade` of `libc-bin` treats the file as a **conffile**, so if the package
+ships a new version and the file changed, dpkg asks -- and a question in the middle
+of an unattended upgrade blocks it -- and if the package does replace the file,
+this IPv4 preference is lost. The installer never touches dpkg's state: it asks
+`dpkg -S` and nothing else. When dpkg is absent (some WSL images, and the tests),
+the step says so instead of guessing, and a lookup that fails does not fail the
+run (S3).
+
+**Undoing it.** The step writes through the same writer the WSL step uses, which
+backs the previous file up to `/etc/gai.conf.bak-dotfiles-<timestamp>` before it
+replaces it and verifies what it wrote. To undo the change, restore that backup,
+or delete the block between the `# >>> dotfiles: prefer IPv4 (gai) >>>` and
+`# <<< dotfiles: prefer IPv4 (gai) <<<` markers; the block's own comment says so.
+The backup path is named in the install log.
 
 ### Keyboard Shortcuts
 
