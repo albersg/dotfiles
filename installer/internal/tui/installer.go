@@ -4596,6 +4596,12 @@ func stepBackupConfigs(m *Model) error {
 // dotfilesRepoURL is the repository the installer clones at run time.
 const dotfilesRepoURL = "https://github.com/albersg/dotfiles.git"
 
+// cloneTimeout bounds the clone step. A transfer that stalls neither fails nor
+// returns, so an unbounded clone leaves the installer -- and any test that
+// drives it -- waiting with no deadline. It is a variable so a test can lower
+// it instead of waiting minutes to observe the bound.
+var cloneTimeout = 5 * time.Minute
+
 // envDotfilesRepoRef selects the revision to clone, defaulting to the
 // repository's default branch.
 //
@@ -4629,7 +4635,7 @@ func stepCloneRepo(m *Model) error {
 		branch = fmt.Sprintf(" --branch %q", ref)
 		SendLog(stepID, fmt.Sprintf("Using revision %s", ref))
 	}
-	result := system.RunWithLogs(fmt.Sprintf("git clone --progress%s %s %q", branch, dotfilesRepoURL, repoDir), nil, func(line string) {
+	result := system.RunWithLogs(fmt.Sprintf("git clone --progress%s %s %q", branch, dotfilesRepoURL, repoDir), &system.ExecOptions{Timeout: cloneTimeout}, func(line string) {
 		SendLog(stepID, line)
 	})
 	if result.Error != nil {
