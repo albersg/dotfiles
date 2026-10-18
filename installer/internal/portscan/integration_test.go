@@ -153,11 +153,28 @@ func TestDiscoverAndStopAProcessTheTestOwns(t *testing.T) {
 	if result.Alive {
 		t.Error("the child is still alive after the stop reported it exited")
 	}
-	if len(result.PortsStillHeld) != 0 {
-		t.Errorf("the port is still bound by %+v, so the outcome should not say it is free", result.PortsStillHeld)
+	// The stop has to tell the truth about the port, not promise that the port
+	// happens to be free on this runner: an ephemeral port can be taken again
+	// by another process between the exit and the fresh reading, and a reader
+	// that cannot name that owner is still right to report the port as bound.
+	// What must never happen is the child's own socket staying behind, or a
+	// sentence that contradicts the facts the result carries. The package pins
+	// the "still bound by another pid" message in stop_test.go, so this test
+	// does not need to depend on which process the runner lets it read.
+	for _, held := range result.PortsStillHeld {
+		if held.Owner != nil && held.Owner.PID == child.Process.Pid {
+			t.Errorf("the child's own socket is still reported as held after it exited: %+v", held)
+		}
+		if listener.Inode != "" && held.Inode == listener.Inode {
+			t.Errorf("the socket the child held (inode %s) is still in the fresh reading: %+v", listener.Inode, held)
+		}
 	}
-	if !strings.Contains(result.Message, "free") {
-		t.Errorf("message = %q, want the port reported free", result.Message)
+	if len(result.PortsStillHeld) == 0 {
+		if !strings.Contains(result.Message, "free") {
+			t.Errorf("message = %q, want the ports reported free", result.Message)
+		}
+	} else if strings.Contains(result.Message, "free") {
+		t.Errorf("message = %q claims the ports are free while %d are still bound", result.Message, len(result.PortsStillHeld))
 	}
 
 	done := make(chan error, 1)
