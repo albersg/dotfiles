@@ -615,19 +615,38 @@ session.
     `writeFileFingerprint`, the only place the fingerprint reads, and one in `fileDigest`, because the index
     digests a key that is not a directory through it. `writeFileFingerprint`'s own comment had said "a file that
     cannot be read contributes nothing" the whole time: the intent was written and the code did not hold it.
-  - **It closes the two advisories the previous round left open.** The pass over the revert's commit reported two
-    routes that could still block -- the run's own copy read for comparison, and the change loop reading the path
-    the record names -- both needing data a run cannot produce. They are the same unguarded `fileDigest`, so the
-    guard here closes them, and two probes for them are part of this round's set. Mine do not reproduce the block
-    that pass measured, since a different construction did: they pin the rule rather than the incident, and the
-    pass's own reproductions were left uncommitted, as it asked.
-  - **What this round does not claim.** The other `os.ReadFile` sites in the tree read known paths -- repository
-    assets, `/proc`, files the installer itself wrote -- not a walk or a decision over whatever a user's
-    configuration path happens to hold. The rule applied here is the one the revert's round proved: read what
-    resolves to a regular file, and give an empty answer for the rest, because a read that never returns is not an
-    answer. No command, option or message changes, so beyond this record the documentation is the code's own
-    comments: the manual never described the fingerprint, and it still does not have to.
-  - **One integration cost, stated here because Git cannot see it.** The open pull request for the revert round
-    defines the same predicate in `revert.go`, under the same name, from the same reasoning. Neither branch
-    touches the other's file, so the merge will be clean and the build will fail on the duplicate function:
-    integrating the two is deleting one copy, and the compiler is what catches it.
+  - **What this round does not claim.** The other `os.ReadFile` sites are not all safe, and the first version of
+    this entry said they were: it called them "known paths", which describes them and does not excuse them. An
+    exact named file is as able to be a pipe as one inside a walk, and the pass over this commit named six that
+    would still block on one: `installer.go:8183` (`$HOME/.bashrc`), `installer.go:7626` (`.tmux.conf`),
+    `installer.go:7470` (the herdr config), `wsl.go:866` (`.wslconfig`), `zsh_plugins.go:112`,
+    `tmux_plugins.go:43`; plus repo and data-dir walks that check `IsDir()` or a suffix but not the regular type
+    (`installer.go:694`, `:699`, `:1009`, `wslterminal.go:1129`). They are pre-existing and a different command
+    path, and each of them reads one named file that the user's own tooling needs to be a file, which is a
+    boundary and not a guarantee: this entry names it as a boundary. The same guard would close them; the
+    installer's own startup walk is where foreign content plausibly lands, and that is what this round fixed.
+  - **It closes the two advisories the previous round left open, and the probes had to be replaced to say so.**
+    The pass over the revert's commit reported two routes that could still block -- the run's own copy read for
+    comparison, and the change loop reading the path the record names -- both needing data a run cannot produce.
+    They are the same unguarded `fileDigest`, so the guard closes them. The two probes first written for them
+    passed at the base and measured nothing: with `Before` empty, `revert.go:484` answers "unrevertible" before
+    `revert.go:487` reads anything, so those probes left `currentFileDigest`, `unvouchedInside` and `copiedFor` at
+    zero coverage. The pass measured that, handed over probes with a non-empty `Before`, and those run now:
+    `currentFileDigest` 100%, `unvouchedInside` 72%, `copiedFor` 66.7%. `sameKindAsCopy` is still reached by no
+    test, as the previous round recorded.
+  - **The same pass proved the positives**, the direction this round had least evidence for: a link to a regular
+    file is still read and digested, a regular file and a directory key keep their digests, a socket key returns,
+    a link to a device is not read, and a pipe behind two links or inside a tree reached through a linked key
+    returns on all three entry points, including the production wrapper `configFingerprints()`. Those probes are
+    committed as they were handed over.
+  - **One advisory, decided rather than left open.** A record whose `created` entry now holds a named pipe reports
+    "already gone" and completes, with the pipe still there. Before this round that shape blocked. It stands
+    deliberately: the file the run created is gone, the pipe is not the run's to remove, and the rule from the
+    previous round is exactly that a kind the run cannot make is never its doing. A reader who thinks "complete"
+    should mean the path is free can disagree, which is why it is written here.
+  - **Two integration costs, and Git only sees one.** The open pull request for the revert round defines the same
+    predicate in `revert.go` under the same name from the same reasoning, so the merged tree fails to build with
+    `readsAsAFile redeclared` and one copy has to go. And both branches append to this same file: `git merge-tree`
+    reports `CONFLICT (content): merge conflict in odd/tasks/install-revert.md`, because L24 and L25 both land at
+    the end of it. Integrating the two is resolving this log and deleting one predicate copy. The first version of
+    this entry claimed the merge would be clean; the tool said otherwise, which is what an independent pass is for.

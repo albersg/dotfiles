@@ -478,9 +478,6 @@ func configFileIndex() map[string]string {
 	return index
 }
 
-// fileDigest returns the digest of a file's bytes, or "" when it cannot be read.
-// A file that cannot be read stays out of the index rather than being recorded as
-// empty, so "not there" and "unreadable" never read as a change to nothing.
 // readsAsAFile reports whether a path holds content that can be read: a regular file, named
 // directly or reached through a link. os.Stat follows the link, so a link into a named pipe
 // answers no, and answering costs no read -- reading a pipe blocks until a writer appears.
@@ -493,8 +490,9 @@ func readsAsAFile(path string) bool {
 
 // fileDigest returns the digest of a file's bytes, or "" when there is no answer: a path that
 // is not a regular file is not read, because a pipe waits for a writer and a socket or a device
-// has no bytes a digest can speak for. An empty answer is not evidence of a change, which is the
-// rule the revert already follows.
+// has no bytes a digest can speak for. A file that cannot be read stays out of the index rather
+// than being recorded as empty, so "not there" and "unreadable" never read as a change to
+// nothing, and an empty answer is not evidence of a change.
 func fileDigest(path string) string {
 	if !readsAsAFile(path) {
 		return ""
