@@ -598,3 +598,36 @@ session.
     instead of saying it once: `chmod -R u+w` first, and every command's output is bounded. And my own patch
     script asserted a single occurrence of a string that occurs twice, in the two branches of one screen: an
     assertion about my tool's preconditions is still an assertion, and it has to be measured, not assumed.
+- **L25 (the fingerprint, and the rule that already existed one file over).** The twelfth pass's probes had the
+  revert as their subject and never reached it: they hung in `configFingerprints` -> `fingerprintPath` ->
+  `writeFileFingerprint` -> `os.ReadFile`, which is the installer's own startup reading every path that is not a
+  directory without looking at its kind. A machine with a named pipe anywhere under a configuration path it
+  fingerprints hangs the installer before any run starts. That is a different command path from the revert, which
+  is why it got a round of its own. This entry is numbered after the L24 that travels in the open pull request for
+  that round, so that neither pull request renumbers the other's record.
+  - **Four routes, measured by execution.** A pipe inside a key (the walk), a pipe that *is* the key, a link to a
+    pipe as the key, and the same link seen by the file index: each blocked for five seconds before this round and
+    returns now, with the five-second bound inside the test so that a regression fails the suite instead of
+    hanging it.
+  - **The asymmetry that pointed at the fix.** `configFileIndex` already guards its walk -- `if err != nil ||
+    !entry.Type().IsRegular() { return nil }` -- while `fingerprintPath` reads every non-directory it meets. The
+    rule existed one file over; the fingerprint had never learned it. Two guards say it now: one in
+    `writeFileFingerprint`, the only place the fingerprint reads, and one in `fileDigest`, because the index
+    digests a key that is not a directory through it. `writeFileFingerprint`'s own comment had said "a file that
+    cannot be read contributes nothing" the whole time: the intent was written and the code did not hold it.
+  - **It closes the two advisories the previous round left open.** The pass over the revert's commit reported two
+    routes that could still block -- the run's own copy read for comparison, and the change loop reading the path
+    the record names -- both needing data a run cannot produce. They are the same unguarded `fileDigest`, so the
+    guard here closes them, and two probes for them are part of this round's set. Mine do not reproduce the block
+    that pass measured, since a different construction did: they pin the rule rather than the incident, and the
+    pass's own reproductions were left uncommitted, as it asked.
+  - **What this round does not claim.** The other `os.ReadFile` sites in the tree read known paths -- repository
+    assets, `/proc`, files the installer itself wrote -- not a walk or a decision over whatever a user's
+    configuration path happens to hold. The rule applied here is the one the revert's round proved: read what
+    resolves to a regular file, and give an empty answer for the rest, because a read that never returns is not an
+    answer. No command, option or message changes, so beyond this record the documentation is the code's own
+    comments: the manual never described the fingerprint, and it still does not have to.
+  - **One integration cost, stated here because Git cannot see it.** The open pull request for the revert round
+    defines the same predicate in `revert.go`, under the same name, from the same reasoning. Neither branch
+    touches the other's file, so the merge will be clean and the build will fail on the duplicate function:
+    integrating the two is deleting one copy, and the compiler is what catches it.
