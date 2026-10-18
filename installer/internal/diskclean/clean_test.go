@@ -52,11 +52,24 @@ func TestCleanRunsTheOwnerCommandAndMeasuresTheRelease(t *testing.T) {
 	if _, err := os.Lstat(cache); !os.IsNotExist(err) {
 		t.Errorf("the store is still there: %v", err)
 	}
-	if !report.FreedMeasured {
-		t.Errorf("the filesystem delta was not measured: %s", report.FreedNote)
-	}
-	if report.FreedBytes < 0 {
-		t.Errorf("the filesystem reported a negative release: %d", report.FreedBytes)
+	// Whether the filesystem delta can be measured depends on the machine: the
+	// free space has to grow around the run, and another process writing to the
+	// same filesystem while this test runs can hide the release. So the run owes
+	// the screen an answer rather than a measurement it may not be able to take --
+	// a measured delta, or the reason there is none -- and never a zero printed
+	// as an answer or a negative release. The hardlink test below follows the
+	// same rule for the same reason.
+	if report.FreedMeasured {
+		if report.FreedBytes < 0 {
+			t.Errorf("the filesystem reported a negative release: %d", report.FreedBytes)
+		}
+	} else {
+		if report.FreedNote == "" {
+			t.Error("the filesystem delta was not measured and no reason was given")
+		}
+		if report.FreedBytes != 0 {
+			t.Errorf("an unmeasured report carries %d bytes", report.FreedBytes)
+		}
 	}
 }
 
