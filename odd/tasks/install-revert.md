@@ -707,3 +707,20 @@ session.
     the end of it. Integrating the two is resolving this log and deleting one predicate copy. The first version of
     this entry claimed the merge would be clean; the tool said otherwise, which is what an independent pass is for.
 ||||||| 516c760
+- **L26 (integrating the two rounds, and the build break they both announced).** The two rounds were taken to
+  main on the owner's instruction, the required review bypassed with `--admin` after the base-branch policy
+  refused the ordinary merge, exactly as the audit round was. The order was the revert round first, because
+  either order leaves main needing one predicate copy deleted and only that order leaves it building: with
+  `readsAsAFile` in `state.go` and in `revert.go` at once, `go build ./...` fails with `readsAsAFile redeclared
+  in this block` -- which is what the pass over this round predicted, and what was measured before resolving.
+  - **What the integration needed.** One conflict, in this file: the revert round appended L24 and this round
+    appended L25 at the same point. Both entries are kept whole and in order, L24 first, and the resolution
+    asserts the entry count on both sides of itself (23 in, 25 out) instead of trusting a three-way diff. Then
+    one copy of the predicate: the one in `state.go` stays, beside the digest helpers that carry the rule into
+    both files, and `revert.go` keeps a pointer where its copy was, so a reader looking there is told where the
+    rule lives rather than finding nothing.
+  - **A correction, for the record.** The first version of L25 said the merge would be clean and that Git would
+    catch the duplicate. Git caught neither: the log conflict is Git's to report, and the duplicate is a build
+    failure Git cannot see. Both costs were real; only one of them was announced correctly at first.
+  - **The claims held.** This is the merge the fingerprint round's body described: one content conflict in this
+    file and one predicate to delete. Nothing in either body needed correcting after the fact.
