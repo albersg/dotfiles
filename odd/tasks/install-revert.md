@@ -598,3 +598,59 @@ session.
     instead of saying it once: `chmod -R u+w` first, and every command's output is bounded. And my own patch
     script asserted a single occurrence of a string that occurs twice, in the two branches of one screen: an
     assertion about my tool's preconditions is still an assertion, and it has to be measured, not assumed.
+- **L24 (a rule that asks what the run did has to ask what the run can do).** The eleventh pass left an
+  advisory: a named pipe or a socket inside a key the run wrote, with no copy of it, was reported as a path
+  the record cannot account for, and the revert failed. The user chose a round of its own for it, so this is
+  that round -- and the advisory turned out to be half of it.
+  - **Four routes to the same wrong answer, two of them answering never.** (1) A pipe inside a written key
+    with no copy at all: reported, over a path the run never touched. (2) A pipe in a key whose copy exists
+    but does not hold it: reported the same way -- this one was pinned by a test from the round that fixed
+    the links, whose premise ("the record cannot say whether the run made it or found it") is false. (3) A
+    pipe reached through a link: the revert **blocked**, because the content check read it. (4) A link
+    pointing at a pipe: the same block, through a name the check follows. The read is `os.ReadFile`, which
+    on a named pipe waits for a writer that never comes.
+  - **The rule is not about evidence, it is about ability.** "A missing copy is not evidence" was the ninth
+    pass's rule, and it does not settle this one: what settles it is something the code can prove about
+    itself. **The installer never makes one** -- it writes regular files and links, the copier that takes
+    its backups omits every other kind, and grep over the whole non-test tree finds no `mkfifo`, no
+    `mknod` and no listener opened on a path. A pipe, a socket or a device is therefore never this run's
+    doing, and a command whose job is to put the run's changes back has nothing to say about it.
+  - **The fix, and how it was proved.** Two predicates in `revert.go`: `aKindTheRunNeverWrites` (not a
+    regular file, not a directory, not a link) keeps `unaccountedInside` quiet, and `readsAsAFile` (a
+    regular file, named directly or reached through a link) keeps the content check from reading anything
+    that is not one -- the second is what closes the block, including its link route. Test-first, four
+    probes, each red before the fix and green after: two false alarms and two blocks, the blocks bounded by
+    a timer inside the test so that a regression fails the suite instead of hanging it. The test that pinned
+    route 2 was rewritten: it was pinning a false alarm as the contract, which is the one thing the ninth
+    pass's comment says a probe must never do.
+  - **A worse finding came out of the probes themselves.** The first version of the probe never reached the
+    revert: it blocked in `configFingerprints` -> `fingerprintPath` -> `writeFileFingerprint` ->
+    `os.ReadFile` (`state.go:338/380/399`), which reads every file under a configuration path without
+    looking at its kind. A machine with a named pipe anywhere under a config tree that gets fingerprinted
+    hangs the installer itself, before any revert is asked for. That is pre-existing in main (the stack was
+    taken on `e50075b`, and this round does not touch that file), it is a different command path, and it is
+    why the probes here write the record by hand: a probe must measure its own subject. Recorded as its own
+    finding and not fixed here.
+  - **The independent pass, and what it changed here.** The pass came back **SAFE** on the commit, in both
+    directions: no true alarm goes silent (it re-ran every test that pins one, and added its own, a nested
+    link retargeted to a named pipe that is still reported and costs no read), the change check still runs
+    before the read, the claim that nothing in the installer creates these kinds is true (its grep found
+    only the comment this round wrote), and all four probes are red at `e50075b` and green at the commit.
+    It mapped six read routes by execution instead of reasoning: a fifo named directly, a socket, a fifo
+    behind one link and behind two all return now -- of those, only the one-link route was a block at the
+    base; the other two returned there too, and what this round removed is the false alarm in front of
+    them. Its probe is kept, because it pins the direction a fix like this one breaks.
+  - **Two advisories, both pre-existing and both left as they are.** (1) The run's own copy is read without
+    a guard (`fileDigest(copied)`), and the main change loop reads `change.Path` the same way: a fifo at
+    either blocks, at the base too. Neither can come from the copier, which omits every kind that is not a
+    file, a link or a directory, and a record naming a fifo cannot come from a run either, because the
+    installer's fingerprint hangs on such a tree first (the finding at the end of this entry). So neither can come from a run: the first needs a pipe placed at the copy's own path -- a backup
+    modified by hand -- and the second a record edited by hand. Both are recorded rather than fixed. (2) `sameKindAsCopy` is reached by no
+    test. I tried to pin it with a key the record says it wrote, holding a copy and no change naming anything
+    inside it, and the product answered with a different rule -- "the record names this path as one the run
+    wrote, but not the file it is or what it held" -- which is that shape's real contract and is
+    pinned at the outcome level elsewhere (`revert_shapes_test.go`: unrevertible, with an error), though
+    no test asserts its exact wording. That shape is settled at the `missing == entry.Path` branch
+    before `unaccountedInside` is asked, so it could never have reached the line I was trying to cover. A test asserting the outcome I had guessed would have been a lie, so it was dropped,
+    the function stays where it is, and its comment now says what it does instead of when it is asked. A
+    device node could not be tested at all: `mknod` needs a privilege this machine does not have.
