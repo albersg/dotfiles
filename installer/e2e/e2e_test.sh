@@ -1049,6 +1049,106 @@ test_backup_contents() {
 }
 
 # ============================================
+# gai.conf: the IPv4 preference (S9)
+# ============================================
+
+# GAI_CONF is the file the gai step manages. The step writes it as root, so these
+# tests use the container's passwordless sudo, like the setshell tests.
+GAI_CONF=/etc/gai.conf
+
+# gai_factory_conf writes a factory-shaped gai.conf: every line a comment or
+# blank, the way the distribution ships it. It is not a copy of the real file, so
+# the test does not depend on the distribution's wording.
+gai_factory_conf() {
+    sudo tee "$GAI_CONF" >/dev/null <<'GAI'
+# /etc/gai.conf -- the GNU C Library address-selection policy.
+#
+# The default precedence table is built into glibc. The lines below are the
+# RFC 3484 defaults this file documents; they are commented out so the built-in
+# default applies.
+#
+#precedence ::1/128 50
+#precedence ::/0 40
+#precedence 2002::/16 30
+#precedence ::/96 20
+#precedence ::ffff:0:0/96 100
+GAI
+}
+
+# Test: a factory gai.conf becomes IPv4-first and getent lists IPv4 first (S9).
+test_gai_prefers_ipv4() {
+    log_test "gai.conf: factory file becomes IPv4-first"
+
+    gai_factory_conf
+
+    # Run the step through the installer's own non-interactive route. gai runs
+    # before deps, so it has run even if a later step of this minimal install
+    # fails; the file is what this test reads.
+    DOTFILES_VERBOSE=1 dotfiles --non-interactive \
+        --shell=zsh --wm=none --backup=false >/dev/null 2>&1 || true
+
+    if grep -q '^precedence ::ffff:0:0/96 100$' "$GAI_CONF"; then
+        log_pass "the deciding precedence line is present"
+    else
+        log_fail "the deciding precedence line was not written to $GAI_CONF"
+        return
+    fi
+
+    if grep -q 'dotfiles: prefer IPv4 (gai)' "$GAI_CONF"; then
+        log_pass "the marked block is present"
+    else
+        log_fail "the marked block is missing"
+    fi
+
+    # The factory file's own lines are untouched.
+    if grep -q '^#precedence ::ffff:0:0/96 100$' "$GAI_CONF"; then
+        log_pass "the factory comment lines are untouched"
+    else
+        log_fail "the factory comment lines were altered"
+    fi
+
+    first=$(getent ahosts github.com 2>/dev/null | head -n1 | awk '{print $1}')
+    case "$first" in
+        [0-9]*.[0-9]*.[0-9]*.[0-9]*)
+            log_pass "getent ahosts returns IPv4 first ($first)"
+            ;;
+        *)
+            log_fail "getent ahosts returns '$first' first, not an IPv4 address"
+            ;;
+    esac
+}
+
+# Test: a precedence the owner set is left byte-identical (S9, S7).
+test_gai_leaves_foreign_precedence() {
+    log_test "gai.conf: a foreign precedence is left alone"
+
+    sudo tee "$GAI_CONF" >/dev/null <<'GAI'
+# hand-written by the machine's owner
+precedence ::ffff:0:0/96 50
+GAI
+
+    before=$(mktemp)
+    after=$(mktemp)
+    sudo cat "$GAI_CONF" > "$before"
+
+    DOTFILES_VERBOSE=1 dotfiles --non-interactive \
+        --shell=zsh --wm=none --backup=false >/dev/null 2>&1 || true
+
+    sudo cat "$GAI_CONF" > "$after"
+    if cmp -s "$before" "$after"; then
+        log_pass "the foreign precedence was left byte-identical"
+    else
+        log_fail "the foreign precedence was rewritten"
+    fi
+    if grep -q 'dotfiles: prefer IPv4 (gai)' "$GAI_CONF"; then
+        log_fail "the step added its block despite the foreign precedence"
+    else
+        log_pass "the step added no block"
+    fi
+    rm -f "$before" "$after"
+}
+
+# ============================================
 # RUN TESTS
 # ============================================
 
@@ -1101,6 +1201,12 @@ if [ "$RUN_FULL_E2E" = "1" ]; then
     test_shell_functional
     test_wm_installed
     test_nvim_configured
+
+    # gai.conf runs last: it rewrites /etc/gai.conf, and the second test leaves a
+    # foreign precedence behind, so nothing after it should depend on the file.
+    log_section "gai.conf Precedence Tests"
+    test_gai_prefers_ipv4
+    test_gai_leaves_foreign_precedence
 fi
 
 # Summary
