@@ -1506,7 +1506,7 @@ on the platform and the choices, so a run shows only the ones that apply.
 
 | Step | What it does |
 |------|--------------|
-| Prefer IPv4 | Raises IPv4 above IPv6 in `/etc/gai.conf` by appending a marked block, so downloads and package managers do not fall into broken IPv6 routes (Linux and WSL; never overrides a precedence the owner already set) |
+| Prefer IPv4 | Raises IPv4 above IPv6 in `/etc/gai.conf` by appending a marked block, so downloads and package managers do not fall into broken IPv6 routes (Linux and WSL; never overrides a precedence the owner set outside its own block) |
 | Install Dependencies | Installs the base packages the system needs (needs sudo on Linux) |
 | Install Xcode CLI | Installs the Apple developer command-line tools (macOS, when missing) |
 | Install Homebrew | Installs Homebrew, the package manager |
@@ -1691,9 +1691,15 @@ the file byte for byte the same (S8).
 **A precedence the owner set is never overridden.** If the file has no marker but
 already carries an uncommented `precedence ::ffff:0:0/96 100`, the step writes
 nothing and says the file already prefers IPv4. If it carries any other
-uncommented `precedence` line, the step writes nothing, names the line it found,
-and says the choice is the owner's rather than imposing an order he chose the
-other way (S7). Neither case fails the run.
+uncommented `precedence` line **outside** the marked block, the step writes
+nothing, names the line it found, and says the choice is the owner's rather than
+imposing an order he chose the other way (S7). A value **inside** the block is the
+installer's own: a stale one there is restored to the deciding line, and the log
+names the value it replaced so the restore is never silent. A half-written block
+(a start marker with no end marker) or a duplicated one is not a shape the step
+owns, so it writes nothing and logs what it found rather than repairing it
+blindly. None of these cases fails the run, and neither does a file the run cannot
+read or write -- a read-only `/etc`, say -- which is reported and left alone.
 
 **What the step cannot promise about a future `libc-bin` upgrade.** `/etc/gai.conf`
 belongs to `libc-bin` (`dpkg -S /etc/gai.conf`), so the step asks dpkg which

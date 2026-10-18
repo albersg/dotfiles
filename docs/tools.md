@@ -197,11 +197,16 @@ would write the default back as though the installer had chosen it (S2, S6). The
 block is marked and replaced in place on a later run, so running the installer
 again leaves the file byte for byte the same (S8).
 
-The step never overrides a precedence the owner set. If the file already carries
-an uncommented `precedence ::ffff:0:0/96 100` the step writes nothing and says the
-file already prefers IPv4; if it carries any other uncommented `precedence` line
-the step writes nothing, names what it found, and says the choice is the owner's
-(S7). Neither case fails the run.
+The step never overrides a precedence the owner set outside the marked block. If
+the file already carries an uncommented `precedence ::ffff:0:0/96 100` the step
+writes nothing and says the file already prefers IPv4; if it carries any other
+uncommented `precedence` line outside the block the step writes nothing, names
+what it found, and says the choice is the owner's (S7). A value inside the block
+is the installer's, so a stale one is restored to the deciding line and the log
+names the value it replaced. A block that is half-written (a start marker with no
+end marker) or duplicated is left alone with a message rather than repaired
+blindly. None of these cases fails the run, and a file the run cannot read or
+write is reported and left alone too.
 
 `/etc/gai.conf` belongs to `libc-bin` (`dpkg -S /etc/gai.conf`). When dpkg is
 available the step logs which package owns the file and what a future
