@@ -1821,10 +1821,27 @@ func planFor(opts planOptions) []InstallStep {
 		})
 	}
 
+	// Prefer IPv4 by raising the precedence of IPv4-mapped addresses in
+	// /etc/gai.conf. It runs on the two Linux hosts -- native and WSL -- and
+	// immediately before deps, because deps is what benefits: downloads and
+	// package managers stop falling into broken IPv6 routes (S4, S5). Termux has
+	// no /etc and no glibc gai.conf, so it is left out.
+	//
 	// Dependencies based on OS
 	// Check both the OS choice and the detected host for Termux (redundancy)
 	// Must run BEFORE clone and homebrew on Linux so git is available for clone
 	isTermux := opts.OS == "termux" || opts.DetectedTermux
+	if (opts.OS == "linux" || opts.IsWSL) && !isTermux {
+		steps = append(steps, InstallStep{
+			ID:          "gai",
+			Name:        "Prefer IPv4",
+			Description: "Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into broken IPv6 routes.",
+			Status:      StatusPending,
+			Origin:      stepOriginMachine,
+			Area:        areaPreparation,
+		})
+	}
+
 	if opts.OS == "linux" && !isTermux {
 		steps = append(steps, InstallStep{
 			ID:          "deps",
