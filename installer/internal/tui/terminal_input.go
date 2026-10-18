@@ -52,9 +52,9 @@ func TerminalInput(stdin *os.File) io.Reader {
 }
 
 // activeTerminalInput is the registered reader, or nil when the program was
-// started without TerminalInput. The probe then reads the controlling terminal
-// itself, which is what it has always done and what a program built without this
-// reader still needs.
+// started without TerminalInput. Nil is not "read it yourself": the probe writes
+// no query in that arrangement, because the answer would land in a queue two
+// readers share, which is the race this reader exists to remove.
 func activeTerminalInput() *replyDivertingReader {
 	terminalInputMu.Lock()
 	defer terminalInputMu.Unlock()

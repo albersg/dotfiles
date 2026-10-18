@@ -371,7 +371,12 @@ func TestAnUnaskedProbeStillReportsTheColourFromTheEnvironment(t *testing.T) {
 // terminal-less host makes plain: with no terminal here, behaviour cannot tell
 // "the probe did not ask" from "the probe asked and nothing answered". What it
 // pins is the code that could race -- a private read of the controlling terminal
-// -- so the one place the probe opens it stays write-only.
+// -- so the one place the probe opens it stays write-only, and the only open in
+// the file is that one. The first version of this guard looked for the read modes
+// by name, which let `os.Open`, `os.NewFile` or a read through a variable pass
+// while the document claimed the guard "fails if anything can read from a
+// terminal the probe opened": it now names the shape of the whole file rather
+// than one forbidden constant.
 func TestTheProbeNeverReadsTheTerminalForItself(t *testing.T) {
 	source, err := os.ReadFile("terminal_probe.go")
 	if err != nil {
@@ -384,6 +389,40 @@ func TestTheProbeNeverReadsTheTerminalForItself(t *testing.T) {
 	}
 	if !bytes.Contains(source, []byte("os.O_WRONLY")) {
 		t.Error("terminal_probe.go no longer opens the controlling terminal write-only: the query still has to be written to it")
+	}
+	// One open, and it is the write-only one above: another way in, or a read
+	// taken from this one, is the race coming back through a shape the two
+	// constants above would not name.
+	if got := bytes.Count(source, []byte("os.OpenFile(")); got != 1 {
+		t.Errorf("terminal_probe.go has %d os.OpenFile calls, want exactly the one write-only open of the controlling terminal", got)
+	}
+	for _, forbidden := range []string{"os.Open(", "os.NewFile(", "bufio.NewReader", "io.ReadAll", ".Read("} {
+		if bytes.Contains(source, []byte(forbidden)) {
+			t.Errorf("terminal_probe.go contains %q: the probe writes to the terminal and never reads it, and the answer arrives through the reader the interface reads", forbidden)
+		}
+	}
+}
+
+// TestTheDocumentsThisFrontPublishesCarryNoConflictMarkers pins the class of
+// defect a hand resolution can leave behind. The rebase that put this branch on
+// top of main resolved one conflict in the guide by hand and left the separator
+// line in the published file: the check the resolution ran looked for the
+// opening, the closing and the base markers and never for the separator, so a
+// line no reader expects shipped in the guide, in the commit and in the pull
+// request, and nothing in the suite could see it. The documents this front
+// publishes are read by people and by nothing else, so the guard is here.
+func TestTheDocumentsThisFrontPublishesCarryNoConflictMarkers(t *testing.T) {
+	for _, path := range []string{"../../../docs/tui-installer.md", "../../../CHANGELOG.md"} {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		for i, line := range strings.Split(string(source), "\n") {
+			if line == "=======" || strings.HasPrefix(line, "<<<<<<<") ||
+				strings.HasPrefix(line, ">>>>>>>") || strings.HasPrefix(line, "|||||||") {
+				t.Errorf("%s:%d carries a merge-conflict marker %q", path, i+1, line)
+			}
+		}
 	}
 }
 

@@ -956,11 +956,12 @@ off the update loop, never when the model is built or when the installer starts.
 bounded by a timeout -- the read is taken under a read deadline, or, when the program handed the probe
 the reader described below, answers are collected within the same timeout -- so a terminal that never
 answers produces an honest empty reply within the timeout rather than a frozen interface; a host with no
-controlling terminal (a container, a service, a run with no TTY) gets the empty reply too and the
-report then says `unknown` with that reason. The screen never writes, so a run that never opens it
+controlling terminal (a container, a service, a run with no TTY) is not asked at all where the interface is
+not the one reading -- the report carries that reason -- and where it is reading, the query is written to a
+terminal that is not there and the report answers `unknown` for a terminal that did not answer. The screen
+never writes, so a run that never opens it
 writes not a single query byte.
 
-=======
 **The terminal has one reader.** The reply to a query is written into the terminal's input queue,
 which is the queue a keystroke goes into and the queue the interface reads, so with the interface
 reading the terminal and the probe opening it for itself the answer went to whichever read first.

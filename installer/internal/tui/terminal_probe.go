@@ -55,11 +55,13 @@ const (
 	// envSyncOff is the value of envSync that turns the writer off.
 	envSyncOff = "0"
 
-	// controllingTerminal is the terminal the probe reads and writes: the
-	// controlling terminal, opened separately so the queries do not depend on
-	// whether the run's stdin was redirected. It does not exist in a container or
-	// a service without a terminal, and the probe then answers unknown with that
-	// reason.
+	// controllingTerminal is the terminal the probe writes its query to: the
+	// controlling terminal, opened separately so the query does not depend on
+	// whether the run's stdin was redirected. The probe never reads it -- the
+	// answer arrives through the reader the interface reads -- and it does not
+	// exist in a container or a service without a terminal, where the write has
+	// nowhere to go and the read that follows it ends in the empty reply the
+	// report calls unknown.
 	controllingTerminal = "/dev/tty"
 
 	// terminalQueryTimeout bounds the whole exchange. It is short on purpose: a
