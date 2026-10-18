@@ -654,6 +654,7 @@ session.
     before `unaccountedInside` is asked, so it could never have reached the line I was trying to cover. A test asserting the outcome I had guessed would have been a lie, so it was dropped,
     the function stays where it is, and its comment now says what it does instead of when it is asked. A
     device node could not be tested at all: `mknod` needs a privilege this machine does not have.
+
 - **L25 (the fingerprint, and the rule that already existed one file over).** The twelfth pass's probes had the
   revert as their subject and never reached it: they hung in `configFingerprints` -> `fingerprintPath` ->
   `writeFileFingerprint` -> `os.ReadFile`, which is the installer's own startup reading every path that is not a
@@ -706,7 +707,7 @@ session.
     reports `CONFLICT (content): merge conflict in odd/tasks/install-revert.md`, because L24 and L25 both land at
     the end of it. Integrating the two is resolving this log and deleting one predicate copy. The first version of
     this entry claimed the merge would be clean; the tool said otherwise, which is what an independent pass is for.
-||||||| 516c760
+
 - **L26 (integrating the two rounds, and the build break they both announced).** The two rounds were taken to
   main on the owner's instruction, the required review bypassed with `--admin` after the base-branch policy
   refused the ordinary merge, exactly as the audit round was. The order was the revert round first, because
@@ -724,3 +725,24 @@ session.
     failure Git cannot see. Both costs were real; only one of them was announced correctly at first.
   - **The claims held.** This is the merge the fingerprint round's body described: one content conflict in this
     file and one predicate to delete. Nothing in either body needed correcting after the fact.
+- **L27 (the marker I left in the record, and the check that was blind to it).** The integration that brought
+  the two rounds together committed a leftover diff3 base marker: `||||||| 516c760` at line 709 of this file,
+  in the slot where the blank line between L25 and L26 belonged, while the separator between L24 and L25 was
+  missing. No compiler and no test of behavior can see that; the verification of the integration found it by
+  grepping the tree, not by reading the resolution.
+  - **Why my own check missed it.** My resolution script looked for the three markers I expected -- `<<<<<<<`,
+    `=======`, `>>>>>>>` -- and Git wrote a fourth: in diff3 style the base section is introduced by `|||||||`.
+    The check was defined by what I expected to find, which is the one way a check for leftovers can be useless.
+    A repo-wide search for all four tokens finds exactly that one line and nothing else, which also settles the
+    earlier attempt: the committed tree never carried a `=======` line at all.
+  - **The fix, and the guard.** The marker becomes a blank line and the missing separator becomes a blank line,
+    with an assertion that the file's non-empty lines are unchanged apart from the marker itself, so the repair
+    cannot have edited an entry. The durable guard is `installer/internal/tui/conflict_markers_test.go`: it walks
+    every file of the tree, fails on any of the four markers, and before saying it found none it names the files
+    it actually walked, because a check that walks nothing reports nothing and reporting nothing is exactly what
+    it is meant to do. It went red on this exact line before the fix, which is how the guard is known to work
+    instead of assumed to.
+  - **What the integration pass established still stands.** The predicate is defined once (`state.go:486`) with a
+    pointer comment where the other copy was, nothing else in `revert.go` moved, L24 and L25 are byte-identical to
+    their source branches (checked with `cmp` and md5), and the whole package is green from a fresh cache. The
+    only defect that pass found is the one this entry fixes.
