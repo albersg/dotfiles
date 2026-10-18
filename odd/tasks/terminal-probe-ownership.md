@@ -484,7 +484,9 @@ hang the whole gate for ten minutes, and the panic it produces reads like a fail
   `docs/tui-installer.md`, and it was an addition against an addition: `main` added the development-caches
   section at that point and T4 added the two reader paragraphs, which belong to the section immediately
   above it -- so the resolution keeps this front's paragraphs, then `main`'s section, then the document as it
-  was. Everything else auto-merged, `CHANGELOG.md` included, where this front's entry is the first of the
+  was. It kept the content and it left one thing behind: the separator line of that conflict, which the
+  resolution's own check did not look for and which stayed in the published guide until the independent
+  verification found it (L11). Everything else auto-merged, `CHANGELOG.md` included, where this front's entry is the first of the
   `### Fixed` sub-section, which is where it belongs. One claim the rebase could have quietly invalidated, and
   checked rather than assumed: the four Ghostty failures are still pre-existing, because `installer_test.go`
   -- the file that holds them -- is untouched by those 130 commits and the cause is this host
@@ -493,3 +495,36 @@ hang the whole gate for ten minutes, and the panic it produces reads like a fail
   `make preflight` fail on those same four names and nothing else -- `FAIL
   github.com/albersg/dotfiles/installer/internal/tui 236.959s`, no panic -- which is the identical set the
   pre-rebase run produced, and the front's own guards are green in both.
+- **L11.** The independent read-only verification (a subagent, on the owner's decision, over the branch and
+  this document) returned four verdicts of VERIFIED, one verified by structure with its numbers explicitly
+  not re-run, and one NOT VERIFIED -- and the last one is why the pass was worth its cost. It found two
+  blockers, both real and both invisible to the gate:
+
+  1. `docs/tui-installer.md:963` carried a bare `=======` -- the separator of the conflict L10 describes.
+     The resolution dropped the opening, base and closing markers and left that line, and the check run
+     afterwards looked for exactly those three and never for the separator, so the artifact shipped in the
+     guide, in `b82e6d7`, in the merge and in the published branch. Nothing in the suite reads the guide, so
+     no test could see it; the guard written for the class now exists
+     (`TestTheDocumentsThisFrontPublishesCarryNoConflictMarkers`, red against that line before it was
+     removed).
+  2. `CHANGELOG.md` claimed that "a program started without this reader reads the controlling terminal
+     under its read deadline exactly as before" -- the T4 sentence that T5 had made false, forty lines above
+     the same entry's own account of the not-asked rule. A published claim contradicting the change it
+     describes, which is the failure mode these lessons are about: a sentence that outlived the code it was
+     written for.
+
+  Four advisories were corrected with them: the stale comment in `terminal_input.go` that still said the
+  probe reads the terminal itself when no reader is installed; the `controllingTerminal` comment that called
+  it a terminal the probe "reads and writes"; the guide's sentence that promised an empty reply and an
+  `unknown` naming a missing terminal, which is not what the no-reader arrangement reports; and the
+  structural guard, which forbade two read-mode constants by name while the document claimed it "fails if
+  anything can read from a terminal the probe opened" -- it now counts the opens (exactly one) and rejects
+  `os.Open`, `os.NewFile`, `bufio.NewReader`, `io.ReadAll` and any `.Read(`.
+
+  What it could not check, and said so: the 20-of-20 and 0-message readings (the pty round is not a
+  read-only exercise) and anything stated only in the pull request, which is not in the tree. What it did
+  check, by running it and by structure: the five guards by name, the three `cmd/dotfiles` guards including
+  the positive one under `script(1)`, the single write-only open, the direction of the dependency
+  (`diskclean` cannot see this change), the stub's 41-byte reply, and the four Ghostty names with the reason
+  they fail on this host. **A verification that returns no findings is worth less than one that returns the
+  artifact you left behind.**
