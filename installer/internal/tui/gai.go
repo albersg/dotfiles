@@ -58,6 +58,11 @@ var gaiDpkgOwner = func(dst string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// gaiApplyArtifactContent is the shared writer the step installs through (S11).
+// It is a variable so a test can exercise a failed write -- a read-only /etc, a
+// refused sudo -- without needing either.
+var gaiApplyArtifactContent = applyArtifactContent
+
 // gaiBlockLines is the marked block the installer appends or replaces: a marker
 // pair, a comment naming where it came from, and the deciding precedence line.
 //
@@ -96,26 +101,48 @@ const (
 	// gaiAlreadyIPv4 leaves a file whose uncommented precedence already makes
 	// IPv4 first.
 	gaiAlreadyIPv4
-	// gaiForeign leaves a file whose uncommented precedence is the owner's.
+	// gaiForeign leaves a file whose uncommented precedence, outside the managed
+	// block, is the owner's.
 	gaiForeign
+	// gaiMalformed leaves a file whose markers are not a shape the step owns:
+	// half-written, duplicated, or out of order.
+	gaiMalformed
 )
 
 // gaiDecision is the step's answer for one file: what it will do, the bytes to
-// write when it writes, and the foreign line to name when it does not.
+// write when it writes, the foreign line to name when it does not, the reason a
+// malformed file is left alone, and the precedence line the replacement restored.
 type gaiDecision struct {
-	kind   gaiDecisionKind
-	result []byte
-	found  string
+	kind     gaiDecisionKind
+	result   []byte
+	found    string
+	reason   string
+	replaced string
 }
 
 // gaiDecide reads the file the step found and says what to do with it, without
 // writing anything. Splitting and joining on "\n" is byte-preserving, so the
 // bytes outside the block come back exactly as they went in.
+//
+// The whole file is read before a decision, even when the marker is present: a
+// precedence the owner set outside the managed block governs the file, and the
+// step must not rewrite its own block over a choice it would then be hiding (F2).
 func gaiDecide(existing []byte) gaiDecision {
 	lines := strings.Split(string(existing), "\n")
 
-	if start, end, ok := gaiMarkerSpan(lines); ok {
-		return gaiDecision{kind: gaiReplace, result: gaiReplaceSpan(lines, start, end)}
+	start, end, span := gaiMarkerSpan(lines)
+	switch span {
+	case gaiSpanMalformed:
+		return gaiDecision{kind: gaiMalformed, reason: gaiMalformedReason(lines)}
+	case gaiSpanFound:
+		if found, example := gaiForeignOutside(lines, start, end); found {
+			return gaiDecision{kind: gaiForeign, found: example}
+		}
+		return gaiDecision{
+			kind:     gaiReplace,
+			result:   gaiReplaceSpan(lines, start, end),
+			replaced: gaiSpanPrecedence(lines[start : end+1]),
+		}
 	}
 
 	found, deciding, example := gaiUncommentedPrecedence(lines)
@@ -129,29 +156,122 @@ func gaiDecide(existing []byte) gaiDecision {
 	return gaiDecision{kind: gaiAppend, result: gaiAppendBlock(existing)}
 }
 
-// gaiMarkerSpan finds the line the block starts on and the line it ends on. A
-// start marker without an end marker runs to the end of the file, so a
-// half-written block is still replaced rather than duplicated.
-func gaiMarkerSpan(lines []string) (start, end int, ok bool) {
+// gaiSpanKind is whether the file holds no marker pair, exactly one, or a shape
+// the step does not own.
+type gaiSpanKind int
+
+const (
+	gaiSpanNone gaiSpanKind = iota
+	gaiSpanFound
+	gaiSpanMalformed
+)
+
+// gaiMarkerSpan finds the one start marker and the one end marker that make up a
+// block the step owns. Anything else -- a start without an end, an end without a
+// start, more than one of either, or the end before the start -- is malformed:
+// replacing part of it would silently drop the lines the step cannot see, which
+// is the defect an unterminated block used to carry (F1, F3).
+func gaiMarkerSpan(lines []string) (start, end int, kind gaiSpanKind) {
 	start, end = -1, -1
+	starts, ends := 0, 0
 	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if start < 0 && trimmed == gaiMarkerStart {
-			start = i
+		switch strings.TrimSpace(line) {
+		case gaiMarkerStart:
+			starts++
+			if start < 0 {
+				start = i
+			}
+		case gaiMarkerEnd:
+			ends++
+			if end < 0 {
+				end = i
+			}
+		}
+	}
+	switch {
+	case starts == 0 && ends == 0:
+		return 0, 0, gaiSpanNone
+	case starts == 1 && ends == 1 && start <= end:
+		return start, end, gaiSpanFound
+	default:
+		return 0, 0, gaiSpanMalformed
+	}
+}
+
+// gaiMalformedReason says, in the log's own words, which marker shape the step
+// refused. It reads the same lines gaiMarkerSpan did, so the message cannot
+// describe a shape the decision did not see.
+func gaiMalformedReason(lines []string) string {
+	starts, ends := 0, 0
+	for _, line := range lines {
+		switch strings.TrimSpace(line) {
+		case gaiMarkerStart:
+			starts++
+		case gaiMarkerEnd:
+			ends++
+		}
+	}
+	switch {
+	case starts > 1 || ends > 1:
+		return "the file holds more than one marked block"
+	case starts == 1 && ends == 0:
+		return "a marked block is missing its end marker"
+	case starts == 0 && ends == 1:
+		return "an end marker has no start marker"
+	default:
+		return "the markers are out of order"
+	}
+}
+
+// gaiForeignOutside reports the first uncommented precedence line outside the
+// managed span that is not the deciding line. The deciding line outside the span
+// is harmless -- it is the same preference -- so it is not foreign; any other
+// precedence is the owner's and governs the file (F2).
+func gaiForeignOutside(lines []string, start, end int) (found bool, example string) {
+	for i, line := range lines {
+		if i >= start && i <= end {
 			continue
 		}
-		if start >= 0 && trimmed == gaiMarkerEnd {
-			end = i
-			break
+		if trimmed := gaiPrecedenceLineOrEmpty(line); trimmed != "" && !gaiIsDecidingPrecedence(trimmed) {
+			return true, trimmed
 		}
 	}
-	if start < 0 {
-		return 0, 0, false
+	return false, ""
+}
+
+// gaiSpanPrecedence returns the precedence line inside the managed span that the
+// replacement would restore, or an empty string when the block already holds the
+// deciding line. It is what lets the step name the value it replaced instead of
+// restoring it silently (F4).
+func gaiSpanPrecedence(span []string) string {
+	for _, line := range span {
+		if trimmed := gaiPrecedenceLineOrEmpty(line); trimmed != "" && !gaiIsDecidingPrecedence(trimmed) {
+			return trimmed
+		}
 	}
-	if end < 0 {
-		end = len(lines) - 1
+	return ""
+}
+
+// gaiPrecedenceLineOrEmpty returns the trimmed text of an uncommented line whose
+// first field is "precedence", or an empty string for anything else.
+func gaiPrecedenceLineOrEmpty(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return ""
 	}
-	return start, end, true
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 || fields[0] != "precedence" {
+		return ""
+	}
+	return trimmed
+}
+
+// gaiIsDecidingPrecedence reports whether a precedence line is the IPv4-first
+// line, which is the one the block installs and the one that is not foreign.
+func gaiIsDecidingPrecedence(line string) bool {
+	fields := strings.Fields(line)
+	return len(fields) >= 3 && fields[0] == "precedence" &&
+		fields[1] == gaiIPv4MappedPrefix && fields[2] == gaiIPv4MappedValue
 }
 
 // gaiReplaceSpan swaps the marked lines for the canonical block, leaving every
@@ -186,16 +306,12 @@ func gaiAppendBlock(existing []byte) []byte {
 // precedence line would report those as a foreign choice (S2, S7).
 func gaiUncommentedPrecedence(lines []string) (found, deciding bool, example string) {
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		fields := strings.Fields(trimmed)
-		if len(fields) == 0 || fields[0] != "precedence" {
+		trimmed := gaiPrecedenceLineOrEmpty(line)
+		if trimmed == "" {
 			continue
 		}
 		found = true
-		if len(fields) >= 3 && fields[1] == gaiIPv4MappedPrefix && fields[2] == gaiIPv4MappedValue {
+		if gaiIsDecidingPrecedence(trimmed) {
 			deciding = true
 			continue
 		}
@@ -209,22 +325,31 @@ func gaiUncommentedPrecedence(lines []string) (found, deciding bool, example str
 // installGAIConf applies the IPv4-first preference to dst through the same
 // writer the WSL step uses: applyArtifactContent backs up the file it replaces
 // and verifies what it wrote (S11). The step reads the file first and decides,
-// so a file that already prefers IPv4, or one whose precedence the owner set, is
+// so a file that already prefers IPv4, one whose precedence the owner set
+// outside the block, or one whose markers are not a shape this step owns, is
 // never rewritten (S7, S8).
-func installGAIConf(dst, stepID string) error {
+//
+// A file the run cannot read or write is reported and left alone rather than
+// failing the step: the preference is an improvement, and a read-only /etc must
+// not abort an interactive run or make a non-interactive one exit non-zero (F5).
+func installGAIConf(dst, stepID string) {
 	existing, err := os.ReadFile(dst)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		gaiLog(stepID, fmt.Sprintf("Could not read %s, so the installer leaves the IPv4 preference unchanged: %v", dst, err))
+		return
 	}
 
 	decision := gaiDecide(existing)
 	switch decision.kind {
 	case gaiAlreadyIPv4:
 		gaiLog(stepID, fmt.Sprintf("%s already prefers IPv4: %s is uncommented, so the installer leaves the file unchanged.", dst, gaiPrecedenceLine))
-		return nil
+		return
 	case gaiForeign:
-		gaiLog(stepID, fmt.Sprintf("%s already sets a precedence of its own (%q). The installer leaves it alone: overriding a precedence the owner chose is his decision, not this run's.", dst, decision.found))
-		return nil
+		gaiLog(stepID, fmt.Sprintf("%s already sets a precedence of its own (%q) outside the managed block. The installer leaves it alone: overriding a precedence the owner chose is his decision, not this run's.", dst, decision.found))
+		return
+	case gaiMalformed:
+		gaiLog(stepID, fmt.Sprintf("%s holds a marked block the installer will not rewrite: %s. Leaving the file unchanged rather than repairing it blindly.", dst, decision.reason))
+		return
 	}
 
 	// A file that already holds the canonical block is left untouched rather than
@@ -232,35 +357,37 @@ func installGAIConf(dst, stepID string) error {
 	// it would only add another backup (S8).
 	if bytes.Equal(existing, decision.result) {
 		gaiLog(stepID, fmt.Sprintf("%s already holds the dotfiles IPv4-first block; leaving it unchanged.", dst))
-		return nil
+		return
 	}
 
-	if err := applyArtifactContent(decision.result, dst, stepID); err != nil {
-		return err
+	if err := gaiApplyArtifactContent(decision.result, dst, stepID); err != nil {
+		gaiLog(stepID, fmt.Sprintf("Could not write %s, so the IPv4 preference was not applied: %v", dst, err))
+		return
+	}
+	// The block is the installer's, so a stale value inside it is restored; naming
+	// the value it replaced keeps the restore from being a silent edit (F4).
+	if decision.replaced != "" {
+		gaiLog(stepID, fmt.Sprintf("Restored the dotfiles precedence in %s: replaced %q with %q.", dst, decision.replaced, gaiPrecedenceLine))
 	}
 	if decision.kind == gaiReplace {
 		gaiLog(stepID, fmt.Sprintf("Updated the dotfiles IPv4-first block in %s", dst))
 	} else {
 		gaiLog(stepID, fmt.Sprintf("Added the dotfiles IPv4-first block to %s", dst))
 	}
-	return nil
 }
 
 // stepInstallGAIConf is the gai step: it makes the machine prefer IPv4 by
 // raising the precedence of IPv4-mapped addresses, and reports what a future
-// libc-bin upgrade may do to the file it edited. The report never fails the
-// step (S3), and the file itself is only written through the shared writer
-// (S11).
+// libc-bin upgrade may do to the file it edited. Neither the write nor the
+// report fails the step (S3, F5), and the file itself is only written through
+// the shared writer (S11).
 func stepInstallGAIConf(_ *Model) error {
 	dst := os.Getenv(envGAIConfPath)
 	if dst == "" {
 		dst = defaultGAIConfPath
 	}
 
-	if err := installGAIConf(dst, gaiStepID); err != nil {
-		return wrapStepError(gaiStepID, "Prefer IPv4", "Failed to configure "+dst, err)
-	}
-
+	installGAIConf(dst, gaiStepID)
 	reportGAIPackage(dst, gaiStepID)
 	return nil
 }
