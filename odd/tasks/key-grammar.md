@@ -31,14 +31,14 @@ Issue #375, decided with the owner on 2026-10-19. Every list in the installer sa
 
 | # | Unit | Screens and files | Specs | Commit |
 |---|---|---|---|---|
-| U1 | The vocabulary, in one place | `view.go` (hints), the guard that pins the constants | S1, S3, S4 | |
-| U2 | Utilities drawn like the lists inside it | Utilities section (`model.go`, `update.go`, `panels.go`), the switcher rows | S5, S6 | |
-| U3 | The first list and the two form screens | install review, admin password, install verify | S1, S3 | |
+| U1 | The vocabulary, in one place | `view.go` (hints), the guard that pins the constants | S1, S3, S4 | `314b68b` |
+| U2 | Utilities drawn like the lists inside it | Utilities section (`model.go`, `update.go`, `panels.go`), the switcher rows | S5, S6 | `d6f8480` |
+| U3 | The first list and the two form screens | install review, admin password, install verify | S1, S3 | `ed288f6` |
 | U4 | The two machine readers | disk cleaner, network diagnosis | S1, S3 | |
 | U5 | The two managers | port manager, update centre | S1, S3, S4 | |
 | U6 | The doctor | doctor, doctor fix | S1, S3 | |
 | U7 | The SSH screens | manager, host, form, keys, agent, diagnostics, test | S1, S3 | |
-| U8 | The WSL screens | resources, advisor, benchmark, migration | S1, S3 | |
+| U8 | The WSL screens | resources, advisor, benchmark, migration | S1, S3 | `0f27bc6` (resources) |
 | U9 | The remaining lists | shell audit, theme refresh, selection, restore confirm, setup wizard | S1, S3 | |
 | U10 | The docs | `docs/tui-installer.md`, and any README that names a key | S1–S6 | |
 
@@ -52,3 +52,6 @@ Out of scope by design: the Vim Trainer's own screens keep their game keys — `
 - L4 (evidence): the hints are declared in `installer/internal/tui/view.go:79-105`; there are 56 key handlers; Enter today means open, select, start, see-the-fix, validate, apply and confirm depending on the screen, and Space is a second Enter on the network diagnosis, the doctor, the update centre and the port manager while being absent from others.
 - L5 (decision): a text field commits with Enter because its letters are its content; the alternative would make a typed letter ambiguous with a command.
 - L6 (decision): the trainer is excluded — its keys are the game, and its spec already fixes them.
+- L7 (decision, U2): a row says what it is on the row itself — `→ label` opens a screen, `[key] label` runs where it stands, `[ ]`/`[x]` is a switch, `← Back` goes back. The end-of-list guard presses the key the row declares, so the mark and the handler cannot drift.
+- L8 (decision, U3): the review's run is `[s] start` because starting is not opening; the password field keeps `[Enter] validate` because its letters are its text (rule 6), and no key can be named for typing.
+- L9 (decision, U8): the WSL resources screen writes on `[w]` and repairs the guard on `[g]`; the value rows end with `[←/→]` because the arrows, not Enter, adjust them.
