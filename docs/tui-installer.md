@@ -1408,10 +1408,12 @@ many are left, `Esc` cancels a run in flight, and a machine with a hanging comma
 interface. Cancelling is a real state: the checks that never ran are recorded as **unknown** with
 the reason, and the report says how far the run got rather than reading as a clean machine.
 
-The screen's own keys are on its last line: `↑`/`k` and `↓`/`j` move, `Enter` or `Space` acts on the
-row, **`t`** shows the problems or every finding, **`w`** writes the report, **`r`** retries the
-checks that could not answer, and `Esc` cancels a run in flight or leaves the screen. A row is what
-acts: the run rows, the filter, the export, and any finding that offers a repair.
+The screen's own keys are on its last line: `↑`/`k` and `↓`/`j` move, **`a`** runs every check,
+**`c`** runs only the category under the cursor, **`r`** retries the checks that could not
+answer, **`w`** writes the report, **`t`** shows the problems or every finding, and `Esc` cancels a
+run in flight or leaves the screen. `Enter` opens a finding's repair and does nothing on a row that
+acts where it stands; `Space` is not offered, because the list has no switch. A row is what acts:
+the run rows, the filter, the export, and any finding that offers a repair.
 
 **Every finding carries its evidence, its impact and what to do.** A finding is a subject, the
 exact thing that was read (`df -Pk $HOME → 60000000 KB available`, `~/.ssh/id_ed25519 has mode
@@ -1543,7 +1545,7 @@ short: the frame draws a row instead of wrapping it, and the longest set name le
 characters inside the narrowest terminal the frame matrix measures, so the registry's full reason
 would be cut off exactly where a user reads it -- the reason keeps its own guards and its other
 carriers, `--skip`'s refusal and this documentation. `Space` turns the unit under the cursor
-off or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened
+off or back on, **`s`** starts the run, and `Esc` returns to the setup screen the plan was opened
 from. The cursor rests only on rows it can switch: it steps over the area headings, the plugin-set
 rows and the three fixed units, so no row ever offers a switch for something the run needs. The list
 is drawn as a window sized by the terminal, and the rows that do not fit are counted above and below
