@@ -6,7 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.11.0] — 2026-10-19
+
 ### Changed
+
+- **Every screen of the installer answers one key grammar, and a guard fails the build when a screen invents its own.**
+
+  `Enter` opens a screen, opens a row's detail, or chooses the value under the cursor; `Space` turns the switch under the cursor off or on, and is not offered where a screen has no switch; every command a row can run carries its own letter on the row, so the footer and the rows name the keys the handler accepts; `Esc` goes back, and stops a run in flight where the screen says so; `j`/`k` move wherever the arrows do. A text field keeps `Enter`, because its letters are its content.
+
+  `TestEveryHintObeysTheKeyGrammar` reads the hint literals out of the source with `go/ast` and fails when a hint contradicts the grammar or when two live hints collide on one key. The legacy list it started with was emptied one unit at a time, so nothing can be added back: a screen that breaks the grammar fails the moment the break is written.
+
+  Two defects surfaced on the way. `GetCurrentOptions()` had no case for the WSL advisor, benchmark and migration screens, so those three screens drew **no rows at all** while the cursor moved over them. And `Esc` during the update centre's apply, and during a WSL benchmark, showed a refusal instead of stopping the run; both stop it now, and the footer says which of the two `Esc` is doing.
 
 - **The doctor walks the machine with a pool of checks instead of one check at a time, so a scan the owner reported as frozen now finishes in one pass of four rather than in the sum of twenty-seven.** The walk handed one check to Bubble Tea per answer, which is why the screen read as stuck rather than busy: the catalogue measures 27 checks and 2.3-3.1 s on the machine it was measured on, every check is bounded but the scan was their sum, and one slow tool held every remaining answer behind it -- the worst case, every check reaching its own bound, was 4 m 30 s. **The bound is what the pool buys, not the normal case.** The same walk measured 1.8-3.2 s over three runs, in eight rounds with at most four checks out at once, against 2.3-3.1 s over two runs on the sequential walk: one check -- `path.shadowed`, 1.25 s -- sets the floor for any ordering, so the tail is compressed and a typical walk barely moves, while the worst case becomes `ceil(checks/concurrency) x` the longest bound, about 70 s instead of 4 m 30 s, and Escape ends the run at the keystroke instead of at the next answer. `doctorConcurrency` is 4: `doctorStartRun` and every answer now start as many pending checks as the pool has room for (`doctorScheduleCmd`, returned as one `tea.Batch` so the runtime runs each check in its own goroutine), the run tracks `InFlight` and `Answered`, and `doctorFinishRun` closes it when every check in `run.Plan` has an answer. Nothing is reordered: the answers land in `run.Results` keyed by check ID and the report is still built from `run.Order`, which is the catalogue's order. The per-check bounds (`doctorVersionTimeout`, `doctorShellStartTimeout`, `doctorProbeTimeout`) did not move; the walk is bounded by `ceil(checks/concurrency) x` the longest bound.
 
