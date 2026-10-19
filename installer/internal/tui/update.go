@@ -1089,23 +1089,31 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case doctorCheckDoneMsg:
 		// A message from a run that was cancelled and restarted belongs to the run
-		// that asked for it, never to the one on screen now.
+		// that asked for it, never to the one on screen now. A run that has already
+		// ended -- cancelled, or closed once every check answered -- takes no more
+		// answers: the checks that were in flight when it ended are still on their
+		// way, and writing one into the run now would rewrite a report that has
+		// already been written. This is what makes cancelling the checks in flight
+		// safe to implement.
 		run := m.Doctor.Run
-		if run == nil || run.ID != msg.RunID {
+		if run == nil || run.ID != msg.RunID || !run.running() {
 			return m, nil
 		}
 		run.Results[msg.Result.ID] = msg.Result
-		run.Next = msg.Index + 1
-		if run.Canceled {
-			m.doctorFinishRun("the run was cancelled before this check ran")
+		if run.InFlight > 0 {
+			run.InFlight--
+		}
+		run.Answered++
+		if run.Canceled || run.Answered >= len(run.Plan) {
+			// Nothing is left to start: the run was cancelled, or every check in
+			// the plan has an answer.
+			m.doctorFinishRun("")
 			return m, nil
 		}
-		if run.Next < len(run.Plan) {
-			run.Message = m.doctorProgressLine()
-			return m, m.doctorCheckCmd()
-		}
-		m.doctorFinishRun("")
-		return m, nil
+		// The answer freed a place in the pool, and the progress line moves with it.
+		cmd := m.doctorScheduleCmd()
+		run.Message = m.doctorProgressLine()
+		return m, cmd
 
 	case doctorFixDoneMsg:
 		m.Doctor.FixNotice = msg.Outcome.Notice

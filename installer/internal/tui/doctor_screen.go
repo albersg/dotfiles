@@ -22,10 +22,13 @@ import (
 // and the body states the evidence, the impact and what to do -- which is what
 // makes a scan readable instead of a wall of rows.
 //
-// **The run is a sequence of commands.** One check per command, so progress is
-// real ("checking 4 of 27"), the interface never waits on a command that hangs,
-// and Escape cancels: the checks that did not run are recorded as unknown with
-// the reason rather than disappearing.
+// **The run is a small pool of commands.** Several checks are in flight at once,
+// each of them its own command, so the interface never waits on one that hangs
+// and one slow tool does not hold every answer behind it. The answers land in a
+// map keyed by check ID, so the report is still built in the order the
+// catalogue runs them. The notice states how many have answered out of how
+// many, and Escape cancels: the checks that did not answer are recorded as
+// unknown with the reason rather than disappearing.
 //
 // **A fix is confirmed on its own screen.** The confirmation shows the exact
 // effect, the risk, the permission and the backup before anything is changed,
@@ -48,9 +51,14 @@ type doctorRun struct {
 	// them: the catalogue's order for a full run, and the order a category or a
 	// retry added them in.
 	Order []string
-	// Plan is what this run is still to execute, and Next is how far it has got.
-	Plan []doctorCheck
-	Next int
+	// Plan is what this run is still to execute. Next is the index of the next
+	// check to start, InFlight is how many started checks have not answered, and
+	// Answered is how many of Plan have answered -- which is the number the
+	// notice counts, because a pool with four checks out has finished none.
+	Plan     []doctorCheck
+	Next     int
+	InFlight int
+	Answered int
 	// Results is keyed by check ID so a retry replaces one answer instead of
 	// renumbering the report.
 	Results map[string]doctorCheckResult
@@ -68,7 +76,7 @@ type doctorRun struct {
 	ReportErr  string
 }
 
-// running reports whether a check is in flight.
+// running reports whether the run still takes answers.
 func (r *doctorRun) running() bool {
 	return r != nil && r.Finished.IsZero()
 }
@@ -301,6 +309,17 @@ func (m *Model) settleDoctorCursor() {
 // The run
 // ============================================================================
 
+// doctorConcurrency is how many checks the walk keeps in flight at once. Four
+// is enough that one slowed check holds back three answers instead of every
+// answer behind it -- the walk measured 27 checks and 2.3-3.1 s one at a time,
+// and the worst case, every check reaching its own bound, was 27 x 10 s -- and
+// small enough that a walk still reads as one walk: the machine sees four
+// bounded commands, never an unbounded scan. The per-check bounds
+// (doctorVersionTimeout, doctorShellStartTimeout, doctorProbeTimeout) do not
+// move with it; the whole walk is bounded by ceil(checks/concurrency) x the
+// longest bound.
+const doctorConcurrency = 4
+
 // doctorCheckDoneMsg carries one finished check back to the update loop.
 type doctorCheckDoneMsg struct {
 	RunID  uint64
@@ -337,7 +356,7 @@ func (m *Model) doctorStartRun(checks []doctorCheck, fresh bool) tea.Cmd {
 	}
 	run.Scan = newDoctorScan(osDoctorHost{}, m.SystemInfo, time.Now())
 	run.Plan = checks
-	run.Next = 0
+	run.Next, run.InFlight, run.Answered = 0, 0, 0
 	run.Canceled = false
 	run.Started = time.Now()
 	run.Finished = time.Time{}
@@ -355,35 +374,74 @@ func (m *Model) doctorStartRun(checks []doctorCheck, fresh bool) tea.Cmd {
 		}
 		delete(run.Results, check.ID)
 	}
+	cmd := m.doctorScheduleCmd()
 	run.Message = m.doctorProgressLine()
 	m.Doctor.Notice = ""
-	return m.doctorCheckCmd()
+	return cmd
 }
 
-// doctorProgressLine is what the notice says while a run is in flight: which
-// check, and how many are left, so a slow machine is legible rather than frozen.
+// doctorProgressLine is what the notice says while a run is in flight: how many
+// checks have answered out of how many, how many are out at once, and the check
+// the pool started last, so a slow machine is legible rather than frozen. The
+// count is answers and not starts: a pool with four checks out has finished
+// none of them, and a line that claimed otherwise would be the old frozen one
+// in different words.
 func (m Model) doctorProgressLine() string {
 	run := m.Doctor.Run
 	if run == nil || len(run.Plan) == 0 {
 		return ""
 	}
-	index := run.Next + 1
-	if index > len(run.Plan) {
-		index = len(run.Plan)
+	started := run.Next - 1
+	if started < 0 {
+		started = 0
 	}
-	return fmt.Sprintf("Checking %d of %d: %s…", index, len(run.Plan), run.Plan[run.Next%len(run.Plan)].Title)
+	if started > len(run.Plan)-1 {
+		started = len(run.Plan) - 1
+	}
+	if run.InFlight > 1 {
+		return fmt.Sprintf("Checked %d of %d, %d at once: %s…",
+			run.Answered, len(run.Plan), run.InFlight, run.Plan[started].Title)
+	}
+	return fmt.Sprintf("Checked %d of %d: %s…", run.Answered, len(run.Plan), run.Plan[started].Title)
 }
 
-// doctorCheckCmd runs one check off the update loop.
-func (m Model) doctorCheckCmd() tea.Cmd {
+// doctorScheduleCmd starts as many pending checks as the pool has room for, and
+// hands them to the update loop together. Each check is its own command, so the
+// loop never waits on one that hangs; the batch is what lets several be in
+// flight at once, because the runtime runs every command of a batch in its own
+// goroutine. It starts none when the run has ended, was cancelled, or has
+// nothing left, which is what keeps a cancelled run from starting more work.
+func (m Model) doctorScheduleCmd() tea.Cmd {
 	run := m.Doctor.Run
-	if run == nil || run.Next >= len(run.Plan) {
+	if run == nil || !run.running() || run.Canceled {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for run.InFlight < doctorConcurrency && run.Next < len(run.Plan) {
+		cmds = append(cmds, m.doctorCheckCmdAt(run.Next))
+		run.Next++
+		run.InFlight++
+	}
+	switch len(cmds) {
+	case 0:
+		return nil
+	case 1:
+		return cmds[0]
+	}
+	return tea.Batch(cmds...)
+}
+
+// doctorCheckCmdAt runs one check off the update loop. The index is the check's
+// place in the plan, and it travels with the answer so the run can say where an
+// answer came from even though the answers arrive out of order.
+func (m Model) doctorCheckCmdAt(index int) tea.Cmd {
+	run := m.Doctor.Run
+	if run == nil || index < 0 || index >= len(run.Plan) {
 		return nil
 	}
 	scan := run.Scan
-	check := run.Plan[run.Next]
+	check := run.Plan[index]
 	runID := run.ID
-	index := run.Next
 	return func() tea.Msg {
 		return doctorCheckDoneMsg{RunID: runID, Index: index, Result: runDoctorCheck(scan, check)}
 	}
@@ -427,7 +485,7 @@ func (m *Model) doctorFinishRun(reason string) {
 		run.Message += ". Kept at " + doctorRelHomePath(run.ReportPath)
 	}
 	if run.Canceled {
-		run.Message = "Cancelled after " + fmt.Sprintf("%d of %d", len(run.Plan), len(run.Order)) + ". " + run.Message
+		run.Message = "Cancelled after " + fmt.Sprintf("%d of %d", run.Answered, len(run.Plan)) + ". " + run.Message
 	}
 	m.settleDoctorCursor()
 }
@@ -580,10 +638,13 @@ func (m Model) handleDoctorKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "esc":
 		if run != nil && run.running() {
-			// The check in flight finishes inside its own bound; the ones after it
-			// are recorded as unknown rather than skipped silently.
+			// The checks in flight cannot be interrupted -- a command already
+			// handed to the runtime runs to its own bound -- so the run ends here
+			// and the answers still on their way are dropped by the guard in the
+			// update loop. What did not answer is recorded as unknown with the
+			// reason rather than disappearing.
 			run.Canceled = true
-			run.Message = "Cancelling after the check in flight…"
+			m.doctorFinishRun("the run was cancelled before this check answered")
 			return m, nil
 		}
 		m.Screen = ScreenUtilities
@@ -856,7 +917,10 @@ func doctorPanelValue(state doctorState) string {
 	case run == nil:
 		return "not run yet"
 	case run.running():
-		return fmt.Sprintf("checking %d of %d", run.Next+1, len(run.Plan))
+		// The panel counts the answers, the same number the run's own notice
+		// counts: with several checks out at once, "started" would claim work is
+		// finished that is still running.
+		return fmt.Sprintf("checking %d of %d", run.Answered, len(run.Plan))
 	default:
 		counts := run.report().counts()
 		worst := counts.worst()
