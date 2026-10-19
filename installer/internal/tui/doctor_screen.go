@@ -349,6 +349,15 @@ func (m *Model) doctorStartRun(checks []doctorCheck, fresh bool) tea.Cmd {
 	if m.Doctor.Run == nil || fresh {
 		m.Doctor.NextRunID++
 		m.Doctor.Run = &doctorRun{ID: m.Doctor.NextRunID, Results: map[string]doctorCheckResult{}}
+	} else {
+		// The plan is being replaced on the run that is already there -- a retry, or
+		// a category run -- and the commands of the plan it replaces may still be in
+		// flight. They carry the ID it was started with, so a new ID is what drops
+		// their answers instead of counting them against a plan they were not
+		// started for: counted, they can close the new plan before its own checks
+		// have answered.
+		m.Doctor.NextRunID++
+		m.Doctor.Run.ID = m.Doctor.NextRunID
 	}
 	run := m.Doctor.Run
 	if fresh {

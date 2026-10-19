@@ -71,6 +71,28 @@ func doctorAnswerableChecks(count int) []doctorCheck {
 	return checks
 }
 
+// doctorRetryChecks builds answerable checks whose IDs share nothing with the
+// plan a test replaces, so "the answer was kept" and "the answer was dropped"
+// cannot be confused by two plans naming the same check.
+func doctorRetryChecks(count int) []doctorCheck {
+	checks := make([]doctorCheck, 0, count)
+	for index := 0; index < count; index++ {
+		id := fmt.Sprintf("test.retry.%02d", index)
+		checks = append(checks, doctorCheck{
+			ID:       id,
+			Category: doctorCategoryEnvironment,
+			Title:    "the retry check " + id,
+			Run: func(*doctorScan) []doctorFinding {
+				return []doctorFinding{{
+					Check: id, Subject: id, Status: doctorOK,
+					Evidence: "the check answered", Impact: "none", Advice: "nothing",
+				}}
+			},
+		})
+	}
+	return checks
+}
+
 // doctorStartedCommands expands the command a run starts into the commands it
 // put in flight. It fails when the run started only one, because that is the
 // contract this file exists to hold.
@@ -255,6 +277,73 @@ func TestDoctorCancelledRunDropsTheAnswersStillInFlight(t *testing.T) {
 	}
 	if !bytes.Equal(after, written) {
 		t.Error("a late answer rewrote the report of a cancelled run")
+	}
+}
+
+// TestDoctorRetryDropsTheAnswersOfThePlanItReplaced covers the hazard the pool
+// widens rather than introduces: a retry, or a category run, replaces the plan on
+// the run that is already there, and the commands of the plan it replaces are
+// still in flight. Their answers belong to the plan that asked for them, so they
+// must neither be counted nor written into the plan that replaced it -- counted,
+// two of them close a two-check retry before its own checks have answered.
+//
+// The answers the retry does not replace are kept: that is what makes a retry a
+// retry rather than a new run.
+func TestDoctorRetryDropsTheAnswersOfThePlanItReplaced(t *testing.T) {
+	m := doctorScreenModel(t)
+
+	first := doctorAnswerableChecks(doctorConcurrency)
+	inFlight := doctorStartedCommands(t, m.doctorStartRun(first, true))
+	firstID := m.Doctor.Run.ID
+
+	// One check answers before the plan is replaced, so the retry has an answer it
+	// must keep.
+	next, _ := m.Update(inFlight[0]())
+	m = next.(Model)
+	if got := m.Doctor.Run.Answered; got != 1 {
+		t.Fatalf("the first plan counted %d of its answers, want 1", got)
+	}
+
+	// The retry replaces the plan while the rest of its checks are still out.
+	retry := doctorRetryChecks(2)
+	m.doctorStartRun(retry, false)
+	run := m.Doctor.Run
+	if run.ID == firstID {
+		t.Error("the replaced plan kept its run ID, so an answer to it cannot be told apart from an answer to the plan that replaced it")
+	}
+	if got := run.Answered; got != 0 {
+		t.Errorf("the retry starts with %d answers, want 0", got)
+	}
+	if _, kept := run.Results[first[0].ID]; !kept {
+		t.Error("the retry dropped an answer it does not replace")
+	}
+	if got := len(run.Plan); got != len(retry) {
+		t.Fatalf("the retry plan holds %d checks, want %d", got, len(retry))
+	}
+	if got := run.InFlight; got != len(retry) {
+		t.Fatalf("the retry has %d checks in flight, want %d", got, len(retry))
+	}
+
+	// Every answer of the plan that was replaced arrives now.
+	for _, started := range inFlight[1:] {
+		next, _ = m.Update(started())
+		m = next.(Model)
+	}
+
+	run = m.Doctor.Run
+	if !run.running() {
+		t.Fatal("answers to the plan that was replaced closed the plan that replaced it")
+	}
+	if got := run.Answered; got != 0 {
+		t.Errorf("answers to the plan that was replaced were counted: answered %d, want 0", got)
+	}
+	if got := run.InFlight; got != len(retry) {
+		t.Errorf("answers to the plan that was replaced freed pool slots: %d in flight, want %d", got, len(retry))
+	}
+	for _, check := range first[1:] {
+		if _, written := run.Results[check.ID]; written {
+			t.Errorf("an answer to the plan that was replaced was written into the retry: %s", check.ID)
+		}
 	}
 }
 
