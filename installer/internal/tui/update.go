@@ -2679,6 +2679,16 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 			scan := m.startUpdateCenterScan()
 			return m, scan
+		case selected == utilitiesWSLAdvisorRow:
+			// The advisor is one level in like the doctor and the network
+			// diagnosis, and it reads nothing on the way in either: the reading is
+			// started from the screen's own row, so opening it cannot leave the
+			// user watching a walk they did not ask for. Before this branch
+			// existed the row was drawn and handled by nothing, so Enter on it did
+			// nothing at all.
+			m.Screen = ScreenWSLAdvisor
+			m.Cursor = 0
+			m.WSLAdvisor.Notice = ""
 		case selected == utilitiesDoctorRow:
 			// The doctor is one level in as well, and nothing is checked on the way
 			// in: a scan reads the whole machine, so it is started from the screen's
