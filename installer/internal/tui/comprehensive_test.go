@@ -719,7 +719,12 @@ func TestWelcomeToMainMenu(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenWelcome
 
-	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Starting the flow is a command on its own letter: Enter does nothing here.
+	if result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); result.(Model).Screen == ScreenMainMenu {
+		t.Error("Enter left the welcome screen; starting the flow runs on s")
+	}
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	newModel := result.(Model)
 
 	if newModel.Screen != ScreenMainMenu {
@@ -1408,14 +1413,19 @@ func TestErrorScreenRetry(t *testing.T) {
 }
 
 func TestErrorScreenQuit(t *testing.T) {
+	// Quitting is a command: the error screen retries on r and quits on q, and
+	// Enter opens nothing here.
 	m := NewModel()
 	m.Screen = ScreenError
+	if result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); result.(Model).Quitting {
+		t.Error("Enter quit the error screen; quitting runs on q")
+	}
 
-	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	newModel := result.(Model)
 
 	if !newModel.Quitting {
-		t.Error("Enter on error screen should quit")
+		t.Error("q on the error screen should quit")
 	}
 }
 
@@ -1424,23 +1434,24 @@ func TestErrorScreenQuit(t *testing.T) {
 // =============================================================================
 
 func TestCompleteScreenQuit(t *testing.T) {
-	keys := []tea.KeyMsg{
+	// Quitting is a command and runs on its own letter: Enter opens and Space
+	// toggles a switch, and this screen has nothing to open and no switch.
+	for _, key := range []tea.KeyMsg{
 		{Type: tea.KeyEnter},
 		{Type: tea.KeyRunes, Runes: []rune{' '}},
+	} {
+		m := NewModel()
+		m.Screen = ScreenComplete
+		if result, _ := m.Update(key); result.(Model).Quitting {
+			t.Errorf("%s quit the completion screen; quitting runs on q", key.String())
+		}
 	}
 
-	for _, key := range keys {
-		t.Run(key.String(), func(t *testing.T) {
-			m := NewModel()
-			m.Screen = ScreenComplete
-
-			result, _ := m.Update(key)
-			newModel := result.(Model)
-
-			if !newModel.Quitting {
-				t.Error("Should quit from complete screen")
-			}
-		})
+	m := NewModel()
+	m.Screen = ScreenComplete
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if !result.(Model).Quitting {
+		t.Error("q should quit from the complete screen")
 	}
 }
 
@@ -1449,36 +1460,25 @@ func TestCompleteScreenQuit(t *testing.T) {
 // =============================================================================
 
 func TestInstallingToggleDetails(t *testing.T) {
+	// Space is not the details key: it toggles a switch, and this screen has none.
 	m := NewModel()
 	m.Screen = ScreenInstalling
+	if result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}); result.(Model).ShowDetails {
+		t.Error("Space toggled the details box")
+	}
+
+	// The box opens and closes on its own letter, in one press.
+	m = NewModel()
+	m.Screen = ScreenInstalling
 	m.ShowDetails = false
-
-	// First press space to enter leader mode
-	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	newModel := result.(Model)
-
-	if !newModel.LeaderMode {
-		t.Error("space should activate leader mode")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if !result.(Model).ShowDetails {
+		t.Error("d should toggle ShowDetails to true")
 	}
 
-	// Then press d to toggle details
-	result, _ = newModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	newModel = result.(Model)
-
-	if !newModel.ShowDetails {
-		t.Error("space+d should toggle ShowDetails to true")
-	}
-
-	// Press space again for leader mode
-	result, _ = newModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	newModel = result.(Model)
-
-	// Then press d again
-	result, _ = newModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	newModel = result.(Model)
-
-	if newModel.ShowDetails {
-		t.Error("space+d should toggle ShowDetails back to false")
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if result.(Model).ShowDetails {
+		t.Error("a second d should toggle ShowDetails back to false")
 	}
 }
 

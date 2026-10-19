@@ -168,7 +168,7 @@ func TestShellAuditPlanReachesTheMeasurementItStarts(t *testing.T) {
 	m.ShellAudit.Plan = shellAuditPlan{Mode: shellAuditModeLogin, Samples: 1}
 
 	cmd := func() tea.Cmd {
-		next, c := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		next, c := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 		var ok bool
 		m, ok = next.(Model)
 		if !ok {
@@ -213,7 +213,7 @@ func TestShellAuditMeasureRowReportsEveryStartThenTheResult(t *testing.T) {
 	m := shellAuditUIModel(t, f)
 	m.ShellAudit.Plan = shellAuditPlan{Mode: shellAuditModeInteractive, Samples: 3, Warmup: 1}
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m, ok := next.(Model)
 	if !ok {
 		t.Fatalf("the update returned %T, want the model", next)
@@ -270,7 +270,7 @@ func TestShellAuditMeasureRowReportsEveryStartThenTheResult(t *testing.T) {
 
 	// A second press while the first measurement is in flight starts nothing: it
 	// would start more of the user's shell beside the ones already running.
-	mid, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mid, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	running, ok := mid.(Model)
 	if !ok {
 		t.Fatalf("the update returned %T, want the model", mid)
@@ -279,7 +279,7 @@ func TestShellAuditMeasureRowReportsEveryStartThenTheResult(t *testing.T) {
 	if !running.ShellAudit.Measuring {
 		t.Fatal("the measurement is not running, so this guard proves nothing")
 	}
-	if _, again := running.Update(tea.KeyMsg{Type: tea.KeyEnter}); again != nil {
+	if _, again := running.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}); again != nil {
 		t.Error("a second press started a second measurement")
 	}
 }
@@ -297,7 +297,7 @@ func TestShellAuditEscStopsTheStartsThatAreLeft(t *testing.T) {
 	m := shellAuditUIModel(t, f)
 	m.ShellAudit.Plan = shellAuditPlan{Mode: shellAuditModeInteractive, Samples: 5}
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m, ok := next.(Model)
 	if !ok {
 		t.Fatalf("the update returned %T, want the model", next)
@@ -380,7 +380,7 @@ func TestShellAuditHistoryKeyStoresTheMeasurementsAndTheChoice(t *testing.T) {
 	}
 
 	// Off: no measurement is stored and the file is not written.
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m, ok := next.(Model)
 	if !ok {
 		t.Fatalf("the update returned %T, want the model", next)
@@ -418,7 +418,7 @@ func TestShellAuditHistoryKeyStoresTheMeasurementsAndTheChoice(t *testing.T) {
 		}
 	}
 
-	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m, ok = next.(Model)
 	if !ok {
 		t.Fatalf("the update returned %T, want the model", next)
@@ -517,7 +517,7 @@ func TestShellAuditScreenFitsWithAMeasurementInFlight(t *testing.T) {
 		if rows > size.height {
 			t.Errorf("the measuring screen at %dx%d drew %d rows", size.width, size.height, rows)
 		}
-		for _, want := range []string{utilitiesShellAuditRow, "← Back", "Measuring:"} {
+		for _, want := range []string{shellAuditMeasureRow, "← Back", "Measuring:"} {
 			if !strings.Contains(view, want) {
 				t.Errorf("the measuring screen at %dx%d dropped %q", size.width, size.height, want)
 			}
@@ -619,7 +619,7 @@ func TestShellAuditARefusedRunSaysWhyWithoutCondemningTheSection(t *testing.T) {
 	}
 	offered := false
 	for _, row := range m.GetCurrentOptions() {
-		if row == utilitiesShellAuditRow {
+		if row == shellAuditMeasureRow {
 			offered = true
 		}
 	}

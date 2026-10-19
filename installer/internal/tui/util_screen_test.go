@@ -1586,11 +1586,11 @@ func TestShellAuditScreenMeasuresOnceAndSaysSo(t *testing.T) {
 	m := installerFrameModel(t, ScreenShellAudit)
 	m.ShellAudit = shellAuditTestState()
 	m.Cursor = 0 // the measure row is the first row.
-	if rows := m.GetCurrentOptions(); rows[0] != utilitiesShellAuditRow {
-		t.Fatalf("the first row is %q, want the measure row %q", rows[0], utilitiesShellAuditRow)
+	if rows := m.GetCurrentOptions(); rows[0] != shellAuditMeasureRow {
+		t.Fatalf("the first row is %q, want the measure row %q", rows[0], shellAuditMeasureRow)
 	}
 
-	next, cmd := m.handleShellAuditKeys("enter")
+	next, cmd := m.handleShellAuditKeys("s")
 	m = next.(Model)
 	if cmd == nil {
 		t.Fatal("the measure row returned no command")
@@ -1602,7 +1602,13 @@ func TestShellAuditScreenMeasuresOnceAndSaysSo(t *testing.T) {
 		t.Errorf("the footer does not say what is running: %q", notice)
 	}
 
-	next, second := m.handleShellAuditKeys("enter")
+	next, viaEnter := m.handleShellAuditKeys("enter")
+	m = next.(Model)
+	if viaEnter != nil {
+		t.Error("Enter started a measurement; the measure row runs on its own letter")
+	}
+
+	next, second := m.handleShellAuditKeys("s")
 	m = next.(Model)
 	if second != nil {
 		t.Error("a second press while a measurement was running started a second one")

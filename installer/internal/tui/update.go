@@ -1727,7 +1727,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Leader key mode: <space> activates, next key executes command
-	// Commands: <space>q = quit, <space>d = toggle details
+	// Commands: <space>q = quit
 	if m.LeaderMode {
 		m.LeaderMode = false // Reset leader mode
 		switch key {
@@ -1738,16 +1738,19 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			return m, nil
-		case "d":
-			// Toggle details during installation
-			if m.Screen == ScreenInstalling {
-				m.ShowDetails = !m.ShowDetails
-			}
-			return m, nil
 		default:
 			// Unknown leader command, ignore
 			return m, nil
 		}
+	}
+
+	// The installing screen's details run on their own letter: d toggles the log
+	// box where it stands, in one press. It is read after the leader key, so Space
+	// no longer carries the toggle -- Space toggles a switch, and this screen has
+	// none -- and before the screen dispatch, so one d really does it.
+	if key == "d" && m.Screen == ScreenInstalling {
+		m.ShowDetails = !m.ShowDetails
+		return m, nil
 	}
 
 	// The network screen owns every key while its destination field is open: a space
@@ -1780,19 +1783,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// <space> activates leader mode EXCEPT in screens that need space for input
-	// (Trainer screens use space in commands, Welcome screen uses space to continue)
+	// (Trainer screens use space in commands) or where it is a row's switch. The
+	// welcome, complete and error screens used to spend it on continue and quit;
+	// they have no switch, so it no longer does anything there but arm the leader
+	// key, and the letters the footer names are what actually act.
 	if key == " " {
 		// Screens where space should NOT activate leader mode
 		switch {
-		case m.Screen == ScreenWelcome:
-			// Welcome screen: space continues to main menu
-			m.Screen = ScreenMainMenu
-			m.Cursor = 0
-			return m, nil
-		case m.Screen == ScreenComplete || m.Screen == ScreenError:
-			// Complete/Error screens: space quits the app
-			m.Quitting = true
-			return m, tea.Quit
 		case isTrainerScreen(m.Screen):
 			// Trainer screens own space: the exercise screens append it to the
 			// answer input, and the menu and result screens treat it like enter.
@@ -1867,13 +1864,24 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// The single-tool info pages are read-only, and their footer names [q] quit, so
+	// q quits here instead of arming the leader key. A list with a cursor is not one
+	// of these pages: the same screens read it only while a tool is being viewed.
+	if key == "q" && m.isSingleToolInfoScreen() {
+		m.Quitting = true
+		return m, tea.Quit
+	}
+
 	// Screen-specific keys
 	switch m.Screen {
 	case ScreenWelcome:
 		switch key {
-		case "enter":
+		case "s":
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
+		case "q":
+			m.Quitting = true
+			return m, tea.Quit
 		}
 
 	case ScreenMainMenu:
@@ -2047,14 +2055,14 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenComplete:
 		switch key {
-		case "enter", " ":
+		case "q":
 			m.Quitting = true
 			return m, tea.Quit
 		}
 
 	case ScreenError:
 		switch key {
-		case "enter", " ":
+		case "q":
 			m.Quitting = true
 			return m, tea.Quit
 		case "r":
@@ -2513,7 +2521,12 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 		// Not cleared, for the reason the row's own case states: the outcome of a
 		// switch that failed while the user was away has to survive the way back in.
 		return m, tea.Batch(m.dotfilesThemesCmdIfNeeded(), m.wslResourceStateCmdIfNeeded())
-	case "enter", " ":
+	case "q":
+		// Quit is its own key. The Exit row is still chosen with Enter, and the
+		// footer names q so the leaving key is readable without opening the menu.
+		m.Quitting = true
+		return m, tea.Quit
+	case "enter":
 		selected := options[m.Cursor]
 		switch {
 		case strings.Contains(selected, "Start Installation"):
@@ -2867,8 +2880,10 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 // does is leave. The probe itself is a command armed when the screen is opened,
 // never work done here.
 func (m Model) handleTerminalCapabilitiesKeys(key string) (tea.Model, tea.Cmd) {
+	// The report is read-only, so Esc is its only key: Enter opens, and there is
+	// nothing here to open.
 	switch key {
-	case "esc", "enter", " ":
+	case "esc":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	}
@@ -2919,26 +2934,26 @@ func (m Model) handleShellAuditKeys(key string) (tea.Model, tea.Cmd) {
 		// Opening the recommendations moves them to the top of the text below, where
 		// the frame's own cut cannot reach them first.
 		m.ShellAudit.AdviceOpen = !m.ShellAudit.AdviceOpen
-	case "enter", " ":
+	case "s":
+		// The measure row runs on its own letter: it starts the runs where it stands,
+		// and Enter is left to the row that leaves the screen. One measurement at a
+		// time, and none at all where the shell could not be resolved.
+		if m.ShellAudit.Measuring || !m.ShellAudit.Available {
+			return m, nil
+		}
+		m.ShellAudit.Measuring = true
+		m.ShellAudit.Cancelled = false
+		m.ShellAudit.Progress = shellAuditProgress{Part: shellAuditPartVersion}
+		session, cmd := m.shellAuditCmd()
+		m.ShellAuditSession = session
+		return m, cmd
+	case "enter":
+		// Enter opens, and the only row here it can open is the way back: the
+		// measure row acts where it stands, so Enter on it does nothing.
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
-		row := options[m.Cursor]
-		switch {
-		case row == utilitiesShellAuditRow:
-			// One measurement at a time: a second press while the first is still
-			// running its starts would start more of them beside it and report
-			// whichever finished last.
-			if m.ShellAudit.Measuring || !m.ShellAudit.Available {
-				return m, nil
-			}
-			m.ShellAudit.Measuring = true
-			m.ShellAudit.Cancelled = false
-			m.ShellAudit.Progress = shellAuditProgress{Part: shellAuditPartVersion}
-			session, cmd := m.shellAuditCmd()
-			m.ShellAuditSession = session
-			return m, cmd
-		case strings.Contains(row, "Back"):
+		if strings.Contains(options[m.Cursor], "Back") {
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
 		}
@@ -3257,27 +3272,32 @@ func (m Model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 		m.UpdateCheck.Notice = ""
-	case "enter", " ":
+	case "i":
+		// Installing the release writes the running binary, so it runs on its own
+		// letter rather than Enter. The swap is one command: the ownership question,
+		// the two downloads, the checksum and the rename all happen off the update
+		// loop, and the row is only ever drawn when this run may replace its own file.
+		if !m.UpdateInstallable() || m.UpdateCheck.InFlight {
+			return m, nil
+		}
+		m.UpdateCheck.InFlight = true
+		m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
+		return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
+	case "r":
+		// Asking again is always allowed: an answer that is stale, wrong or missing
+		// is exactly what a user asks a second time for. One check at a time, so the
+		// last answer to arrive is the answer that was asked for.
+		if m.UpdateCheck.InFlight {
+			return m, nil
+		}
+		return m, m.startUpdateCheck()
+	case "enter":
+		// Enter opens, and the only row it opens here is the way back: the two rows
+		// above act where they stand and say so on themselves.
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
-		switch {
-		case options[m.Cursor] == updateInstallRow:
-			// The swap is one command: the ownership question, the two downloads, the
-			// checksum and the rename all happen off the update loop, and the row is
-			// only ever drawn when this run may replace its own file.
-			if !m.UpdateInstallable() || m.UpdateCheck.InFlight {
-				return m, nil
-			}
-			m.UpdateCheck.InFlight = true
-			m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
-			return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
-		case options[m.Cursor] == updateCheckRow:
-			// Asking again is always allowed: an answer that is stale, wrong or
-			// missing is exactly what a user asks a second time for. One check at a
-			// time, so the last answer to arrive is the answer that was asked for.
-			return m, m.startUpdateCheck()
-		case strings.Contains(options[m.Cursor], "Back"):
+		if strings.Contains(options[m.Cursor], "Back") {
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 			m.UpdateCheck.Notice = ""
@@ -3319,7 +3339,7 @@ func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 		m.ThemeNotice = ""
 		m.resetThemeRefresh()
-	case "enter", " ":
+	case "enter":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
@@ -3337,25 +3357,37 @@ func (m Model) handleThemePickerKeys(key string) (tea.Model, tea.Cmd) {
 				m.startThemeActivity(fmt.Sprintf("Applying the %s theme…", def.Name))
 				return m, m.applyDotfilesThemeCmd(def)
 			}
-		case selected == themeRefreshRow:
-			return m, detectThemeRefreshCmd(os.Getenv("HOME"), m.DotfilesThemes)
-		case selected == dotfilesThemeUndoRow && m.DotfilesThemeRecord != nil:
-			m.startThemeActivity("Undoing the last dotfiles theme change…")
-			return m, undoDotfilesThemeCmd(*m.DotfilesThemeRecord)
 		case strings.Contains(selected, "Back"):
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
 			m.ThemeNotice = ""
 			m.resetThemeRefresh()
 		}
+	case "r":
+		// The refresh only opens the review; nothing is written until its own
+		// confirmation is answered, so it runs on its own letter without taking the
+		// screen away from the theme the cursor is previewing.
+		if len(m.DotfilesThemes) == 0 || m.themeActivityPending() {
+			return m, nil
+		}
+		return m, detectThemeRefreshCmd(os.Getenv("HOME"), m.DotfilesThemes)
+	case "u":
+		// The undo puts back what the last apply replaced. It is a write, so it runs
+		// on its own letter, and it is offered only while a record exists.
+		if m.DotfilesThemeRecord == nil || m.themeActivityPending() {
+			return m, nil
+		}
+		m.startThemeActivity("Undoing the last dotfiles theme change…")
+		return m, undoDotfilesThemeCmd(*m.DotfilesThemeRecord)
 	}
 
 	return m, nil
 }
 
 // handleThemeRefreshKeys drives the refresh review: the confirmation before
-// anything is written, and the result after. Cancel and esc leave every file as
-// it is; the only command it returns is the confirmed refresh.
+// anything is written, and the result after. The confirmation writes files, so it
+// runs on its own letter rather than Enter, and the cancel leaves every file as
+// it is on the letter the row spells; Enter is left to the result's way back.
 func (m Model) handleThemeRefreshKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -3371,21 +3403,25 @@ func (m Model) handleThemeRefreshKeys(key string) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.resetThemeRefresh()
 		m.ThemeNotice = ""
-	case "enter", " ":
-		if m.Cursor < 0 || m.Cursor >= len(options) {
+	case "y":
+		if m.ThemeRefreshDone {
 			return m, nil
 		}
-		selected := options[m.Cursor]
-		switch {
-		case m.ThemeRefreshDone:
-			// The result's only row is the way back to the list.
-			m.resetThemeRefresh()
-			m.ThemeNotice = ""
-		case selected == themeRefreshCancelRow:
-			m.resetThemeRefresh()
-		case strings.HasPrefix(selected, "Yes, refresh"):
-			return m, refreshThemeFilesCmd(os.Getenv("HOME"), m.DotfilesThemes, m.ThemeRefreshCandidates)
+		return m, refreshThemeFilesCmd(os.Getenv("HOME"), m.DotfilesThemes, m.ThemeRefreshCandidates)
+	case "n":
+		if m.ThemeRefreshDone {
+			return m, nil
 		}
+		m.resetThemeRefresh()
+		m.ThemeNotice = ""
+	case "enter":
+		// The result's only row is the way back to the list, and Enter opens it.
+		// The review's own answers run on their letters, so Enter writes nothing.
+		if !m.ThemeRefreshDone {
+			return m, nil
+		}
+		m.resetThemeRefresh()
+		m.ThemeNotice = ""
 	}
 
 	return m, nil
@@ -3440,7 +3476,7 @@ func (m Model) handleSelectionKeys(key string) (tea.Model, tea.Cmd) {
 		// Go back to previous installation step
 		return m.goBackInstallStep()
 
-	case "enter", " ":
+	case "enter":
 		return m.handleSelection()
 	}
 
@@ -3592,7 +3628,7 @@ func (m Model) handleReferenceTableKeys(key string, rows int) (tea.Model, tea.Cm
 		if m.ReferenceTableScroll < maxScroll {
 			m.ReferenceTableScroll++
 		}
-	case "enter", " ", "q":
+	case "enter":
 		m.Screen = m.PrevScreen
 		m.ReferenceTableScroll = 0
 	}
@@ -3618,7 +3654,7 @@ func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
@@ -3640,6 +3676,23 @@ func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// isSingleToolInfoScreen reports whether the screen is showing one tool's page
+// rather than a list. The learn screens borrow the same handler for the list and
+// the page, so the page's own key -- quit -- is read before that dispatch; a
+// screen showing its menu is not one of these, and the list keeps only its own
+// keys.
+func (m Model) isSingleToolInfoScreen() bool {
+	switch m.Screen {
+	case ScreenLearnFont:
+		return true
+	case ScreenLearnPrompts, ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM:
+		return m.ViewingTool != ""
+	case ScreenLearnNvim:
+		return m.ViewingTool == "features"
+	}
+	return false
 }
 
 // learnSeparatorAt reports whether the option at an index is the menu's rule.
@@ -3668,7 +3721,7 @@ func (m Model) handleLearnMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = m.PrevScreen
@@ -3724,7 +3777,7 @@ func (m Model) handleKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = m.PrevScreen
@@ -3762,7 +3815,7 @@ func (m Model) handleKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 		if m.KeymapScroll < maxScroll {
 			m.KeymapScroll++
 		}
-	case "enter", " ", "q", "esc":
+	case "enter", "esc":
 		m.Screen = ScreenKeymaps
 		m.KeymapScroll = 0
 	}
@@ -3789,7 +3842,7 @@ func (m Model) handleToolKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = m.PrevScreen
@@ -3847,7 +3900,7 @@ func (m Model) handleTmuxKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = ScreenKeymapsMenu
@@ -3883,7 +3936,7 @@ func (m Model) handleTmuxKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 		if m.TmuxKeymapScroll < maxScroll {
 			m.TmuxKeymapScroll++
 		}
-	case "enter", " ", "q", "esc":
+	case "enter", "esc":
 		m.Screen = ScreenKeymapsTmux
 		m.TmuxKeymapScroll = 0
 	}
@@ -3910,7 +3963,7 @@ func (m Model) handleZellijKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = ScreenKeymapsMenu
@@ -3946,7 +3999,7 @@ func (m Model) handleZellijKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 		if m.ZellijKeymapScroll < maxScroll {
 			m.ZellijKeymapScroll++
 		}
-	case "enter", " ", "q", "esc":
+	case "enter", "esc":
 		m.Screen = ScreenKeymapsZellij
 		m.ZellijKeymapScroll = 0
 	}
@@ -3973,7 +4026,7 @@ func (m Model) handleGhosttyKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = ScreenKeymapsMenu
@@ -4009,7 +4062,7 @@ func (m Model) handleGhosttyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) 
 		if m.GhosttyKeymapScroll < maxScroll {
 			m.GhosttyKeymapScroll++
 		}
-	case "enter", " ", "q", "esc":
+	case "enter", "esc":
 		m.Screen = ScreenKeymapsGhostty
 		m.GhosttyKeymapScroll = 0
 	}
@@ -4036,7 +4089,7 @@ func (m Model) handleKittyKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = ScreenKeymapsMenu
@@ -4071,7 +4124,7 @@ func (m Model) handleKittyKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 		if m.KittyKeymapScroll < maxScroll {
 			m.KittyKeymapScroll++
 		}
-	case "enter", " ", "q", "esc":
+	case "enter", "esc":
 		m.Screen = ScreenKeymapsKitty
 		m.KittyKeymapScroll = 0
 	}
@@ -4098,7 +4151,7 @@ func (m Model) handleHerdrKeymapsMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = ScreenKeymapsMenu
@@ -4134,7 +4187,7 @@ func (m Model) handleHerdrKeymapCategoryKeys(key string) (tea.Model, tea.Cmd) {
 		if m.HerdrKeymapScroll < maxScroll {
 			m.HerdrKeymapScroll++
 		}
-	case "enter", " ", "q", "esc":
+	case "enter", "esc":
 		m.Screen = ScreenKeymapsHerdr
 		m.HerdrKeymapScroll = 0
 	}
@@ -4160,7 +4213,7 @@ func (m Model) handleLazyVimMenuKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		selected := options[m.Cursor]
 		if strings.Contains(selected, "Back") {
 			m.Screen = m.PrevScreen
@@ -4206,7 +4259,7 @@ func (m Model) handleLazyVimTopicKeys(key string) (tea.Model, tea.Cmd) {
 		if m.LazyVimScroll > maxScroll {
 			m.LazyVimScroll = maxScroll
 		}
-	case "enter", " ", "q", "esc":
+	case "enter", "esc":
 		m.Screen = ScreenLearnLazyVim
 		m.LazyVimScroll = 0
 	}
@@ -4226,7 +4279,7 @@ func (m Model) handleBackupConfirmKeys(key string) (tea.Model, tea.Cmd) {
 		if m.Cursor < len(options)-1 {
 			m.Cursor++
 		}
-	case "enter", " ":
+	case "enter":
 		switch m.Cursor {
 		case 0: // Install with Backup
 			m.Choices.CreateBackup = true
@@ -4271,7 +4324,7 @@ func (m Model) handleRestoreBackupKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
 		// Check if Back option
 		if strings.Contains(options[m.Cursor], "Back") {
 			m.Screen = ScreenMainMenu
@@ -4308,7 +4361,7 @@ func (m Model) handleRestoreConfirmKeys(key string) (tea.Model, tea.Cmd) {
 		if m.Cursor < len(options)-1 {
 			m.Cursor++
 		}
-	case "enter", " ":
+	case "enter":
 		backup := m.AvailableBackups[m.SelectedBackup]
 		switch m.Cursor {
 		case 0: // Restore

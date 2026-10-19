@@ -232,7 +232,7 @@ func TestMainMenuFrameWaitSurvivesASplitFrame(t *testing.T) {
 	chunks := [][]byte{
 		[]byte("\x1b[?25l\x1b[?2004h\x1b]2;dotfiles Installer\x07"),
 		[]byte("  Main Menu\n  ...\n  \u25b8 \U0001F680 Start Instal"),
-		[]byte("lation\n  \u274c Exit\n  [Space q] quit\n"),
+		[]byte("lation\n  \u274c Exit\n  [q] quit\n"),
 	}
 
 	// The old "two length-positive events" wait is not a frame barrier: it stops
@@ -252,7 +252,7 @@ func TestMainMenuFrameWaitSurvivesASplitFrame(t *testing.T) {
 
 	// The frame wait reads through the footer, so everything above it -- the
 	// option included -- is in the transcript.
-	got := waitForGoldenFrame(t, &stagedOutputReader{chunks: chunks}, "[Space q] quit").Bytes()
+	got := waitForGoldenFrame(t, &stagedOutputReader{chunks: chunks}, "[q] quit").Bytes()
 	if !bytes.Contains(got, []byte("Start Installation")) {
 		t.Fatalf("the frame wait returned before the option was whole: %q", got)
 	}
@@ -700,9 +700,9 @@ func TestNavigationFlowE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	// Start at welcome screen, press Enter to go to main menu
+	// Start at welcome screen, press s to go to main menu
 	waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 
 	// Wait for main menu render and verify we can read output
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -728,9 +728,9 @@ func TestInstallFlowE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	// Welcome -> Enter
+	// Welcome -> s
 	waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
@@ -766,9 +766,9 @@ func TestKeymapsE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	// Welcome -> Enter
+	// Welcome -> s
 	waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
@@ -819,9 +819,9 @@ func TestLearnToolsE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	// Welcome -> Enter
+	// Welcome -> s
 	waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
@@ -1284,9 +1284,9 @@ func TestLazyVimGuideE2E(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24),
 	)
 
-	// Welcome -> Enter
+	// Welcome -> s
 	waitForAnyOutput(t, tm)
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
@@ -1619,7 +1619,7 @@ func TestMainMenuWithRestoreOption(t *testing.T) {
 		// same class e3ed85c fixed for the goldens. The footer is the frame's
 		// last row, so waiting for it proves the whole frame, option included,
 		// was buffered before the assertion reads it.
-		out := waitForGoldenFrame(t, tm.Output(), "[Space q] quit").Bytes()
+		out := waitForGoldenFrame(t, tm.Output(), "[q] quit").Bytes()
 		if !bytes.Contains(out, []byte("Start Installation")) {
 			t.Error("Should show Start Installation option")
 		}
@@ -2669,8 +2669,11 @@ func TestLeaderBannerReplacesTheLegend(t *testing.T) {
 	if !strings.Contains(view, "Leader mode") {
 		t.Errorf("the leader banner does not name the mode:\n%s", view)
 	}
-	if !strings.Contains(view, "[q] quit") || !strings.Contains(view, "[d] details") {
+	if !strings.Contains(view, "[q] quit") {
 		t.Errorf("the leader banner does not use the shared notation:\n%s", view)
+	}
+	if strings.Contains(view, "[d] details") {
+		t.Errorf("the leader banner still offers the details toggle the leader key no longer runs:\n%s", view)
 	}
 	if rows := renderedRowCount(view); rows > trainerFrameHeight {
 		t.Errorf("the leader banner grew the screen to %d rows, want <= %d:\n%s", rows, trainerFrameHeight, view)

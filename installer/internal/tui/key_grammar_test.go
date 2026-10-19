@@ -72,23 +72,10 @@ func TestEveryHintObeysTheKeyGrammar(t *testing.T) {
 
 // keyGrammarLegacy is the shrink-only list of hints that still break the
 // grammar, keyed by the hint's identity (hintID) and valued with the unit of
-// odd/tasks/key-grammar.md that fixes its screen. Each unit removes its entries
-// in the commit that fixes them, and the guard fails if an entry outlives the
-// violation it names.
-var keyGrammarLegacy = map[string]string{
-	// The install review starts the run with Enter and the welcome screen starts
-	// the wizard with it. U3 fixed the review; U9 fixes the welcome, and the entry
-	// goes when both have.
-	`"[Enter]" "start"`: "U9",
-	// The screens the pass reaches last: the completion screen exits with Enter,
-	// the reference and topic screens return to the menu with Enter/Space/Esc/q,
-	// the installing screen toggles details with Space, and the screens that quit
-	// spend Space and q on it.
-	`"[Enter]" "exit"`:                       "U9",
-	`"[Enter/Space/Esc/q]" "return to menu"`: "U9",
-	`"[Space d]" "details"`:                  "U9",
-	`"[Space q]" "quit"`:                     "U9",
-}
+// odd/tasks/key-grammar.md that fixes its screen. The pass reached every screen,
+// so the list is empty and the guard is strict: the next hint that breaks the
+// grammar fails here, and no entry may be added back.
+var keyGrammarLegacy = map[string]string{}
 
 // hintSite is one installerHint literal the guard read, with the variable it is
 // assigned to when it has one and the position it was written at.
