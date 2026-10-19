@@ -120,6 +120,11 @@ var (
 	// wrapped and left the way back alone on a line of its own.
 	hintAdjust      = installerHint{"[←/→]", "adjust"}
 	hintRecommended = installerHint{"[r]", "recommended"}
+	// The resource screen's two commands act where they stand -- they write the file
+	// or repair the guard -- so they run on their own letters, and Enter is left to
+	// the rows that open something.
+	hintWriteWSL    = installerHint{"[w]", "write"}
+	hintRepairGuard = installerHint{"[g]", "repair guard"}
 	hintMove        = installerHint{"↑/k ↓/j", "move"}
 	// hintType is the hint for a screen that has a text field: the keyboard writes
 	// into the field, and the arrows move between fields, so no key can be named for
@@ -1504,7 +1509,7 @@ func (m Model) renderUpdate() string {
 // are in the legend rather than in prose.
 func (m Model) renderWSLResources() string {
 	return m.renderThemeScreen(m.wslResourceDescription(), m.wslNoticeLine(),
-		[]installerHint{hintMove, hintAdjust, hintRecommended, hintSelect, hintBack})
+		[]installerHint{hintMove, hintAdjust, hintRecommended, hintWriteWSL, hintRepairGuard, hintBack})
 }
 
 // wslNoticeLine is the WSL screen's result line: the write's outcome, and while
@@ -2126,8 +2131,10 @@ const (
 	wslResourceRowSwap
 )
 
-// wslWriteRow is the one row that touches the file.
-const wslWriteRow = "Write the .wslconfig"
+// wslWriteRow is the one row that touches the file. Its letter is on the row
+// because the write is a command, not an opening: Enter opens and chooses, so the
+// row that writes says which key writes.
+const wslWriteRow = "[w] Write the .wslconfig"
 
 // wslValueLabel renders one value for the screen. Zero is named rather than
 // printed as a zero, which would read as a real limit; the caller says which
@@ -2149,9 +2156,9 @@ func wslValueLabel(value int, unit, zero string) string {
 func (m Model) wslResourceRows() []string {
 	draft := m.WSLState.Draft
 	return []string{
-		"Memory: " + wslValueLabel(draft.MemoryMB, "MB", wslDraftZero),
-		"Processors: " + wslValueLabel(draft.Processors, "", wslDraftZero),
-		"Swap: " + wslValueLabel(draft.SwapMB, "MB", wslDraftZero),
+		"Memory: " + wslValueLabel(draft.MemoryMB, "MB", wslDraftZero) + " [←/→]",
+		"Processors: " + wslValueLabel(draft.Processors, "", wslDraftZero) + " [←/→]",
+		"Swap: " + wslValueLabel(draft.SwapMB, "MB", wslDraftZero) + " [←/→]",
 		m.menuSeparator(),
 		wslWriteRow,
 		m.menuSeparator(),
@@ -2215,9 +2222,9 @@ func (m Model) wslResourceDescription() []string {
 }
 
 // wslGuardRepairRow is the screen's row for the memory guard. It is the one row
-// here that is not about the .wslconfig: pressing it installs the guard's two
-// files, restarts its unit, and then reports what the host holds.
-const wslGuardRepairRow = "Repair the WSL memory guard"
+// here that is not about the .wslconfig: pressing its letter installs the guard's
+// two files, restarts its unit, and then reports what the host holds.
+const wslGuardRepairRow = "[g] Repair the WSL memory guard"
 
 // wslGuardParagraphs is what the screen says about the memory guard. It names
 // what each missing protection costs rather than warning in general terms,

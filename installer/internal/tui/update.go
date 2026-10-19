@@ -2790,8 +2790,9 @@ func (m Model) handleWSLTerminalOfferKeys(key string) (tea.Model, tea.Cmd, bool)
 // the installation step runs behind.
 //
 // The arrow keys (and h/l) move the value under the cursor by one step, `r` puts
-// every row back on the host's recommendation, and the write row is the only row
-// that touches the file.
+// every row back on the host's recommendation, `w` writes the .wslconfig and `g`
+// repairs the memory guard. Enter opens the row that leads somewhere -- the way
+// back -- and does nothing to the two rows that act where they stand.
 func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -2835,24 +2836,23 @@ func (m Model) handleWSLResourceKeys(key string) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		m.WSLNotice = ""
-	case "enter", " ":
+	case "w":
+		// The write's own notice names the file before the write starts, so the
+		// wait is visible and the result replaces it in the same rows.
+		m.WSLNotice = fmt.Sprintf("Writing %s…", m.WSLState.Path)
+		return m, m.wslResourceWriteCmd()
+	case "g":
+		// The guard is the part of this screen that is not the .wslconfig, so its
+		// row says what it is doing before it starts: the install writes two files
+		// and restarts a unit, and a silent press would read as nothing having
+		// happened while it runs.
+		m.WSLNotice = "Installing the WSL memory guard…"
+		return m, m.wslGuardRepairCmd()
+	case "enter":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
-		switch {
-		case options[m.Cursor] == wslWriteRow:
-			// The write's own notice names the file before the write starts, so the
-			// wait is visible and the result replaces it in the same rows.
-			m.WSLNotice = fmt.Sprintf("Writing %s…", m.WSLState.Path)
-			return m, m.wslResourceWriteCmd()
-		case options[m.Cursor] == wslGuardRepairRow:
-			// The guard is the part of this screen that is not the .wslconfig, so
-			// its row says what it is doing before it starts: the install writes two
-			// files and restarts a unit, and a silent press would read as nothing
-			// having happened while it runs.
-			m.WSLNotice = "Installing the WSL memory guard…"
-			return m, m.wslGuardRepairCmd()
-		case strings.Contains(options[m.Cursor], "Back"):
+		if strings.Contains(options[m.Cursor], "Back") {
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
 			m.WSLNotice = ""

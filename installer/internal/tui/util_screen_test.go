@@ -693,7 +693,7 @@ func TestWritingTheWSLConfigKeepsTheTableWhileItRereads(t *testing.T) {
 
 	// The press names the file in the notice slot before the write starts, and
 	// the answer lands in that same slot.
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
 	m = next.(Model)
 	next, _ = m.Update(wslResourceWrittenMsg{wrote: true, notice: "wrote the file"})
 	m = next.(Model)

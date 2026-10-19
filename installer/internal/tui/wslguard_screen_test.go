@@ -239,7 +239,7 @@ func TestWSLResourceScreenRepairsTheGuardAndReportsWhatItRead(t *testing.T) {
 	m := wslGuardScreenModel(t, wslGuardState{})
 	m.Cursor = wslGuardRepairRowIndex(t, m)
 
-	next, cmd := m.handleWSLResourceKeys("enter")
+	next, cmd := m.handleWSLResourceKeys("g")
 	if cmd == nil {
 		t.Fatal("pressing the guard row started no work")
 	}
