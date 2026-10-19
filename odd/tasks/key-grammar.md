@@ -37,10 +37,10 @@ Issue #375, decided with the owner on 2026-10-19. Every list in the installer sa
 | U4 | The two machine readers | disk cleaner, network diagnosis | S1, S3 | `17f29ed` |
 | U5 | The two managers | port manager, update centre | S1, S3, S4 | `6eb8ccb` |
 | U6 | The doctor | doctor, doctor fix | S1, S3 | `64ccb23` |
-| U7 | The SSH screens | manager, host, form, keys, agent, diagnostics, test | S1, S3 | |
+| U7 | The SSH screens | manager, host, form, keys, agent, diagnostics, test | S1, S3 | `0b35340` |
 | U8 | The WSL screens | resources, advisor, benchmark, migration | S1, S3 | `0f27bc6`, `efc91e4` |
 | U9 | The remaining lists | shell audit, theme refresh, selection, restore confirm, setup wizard | S1, S3 | `f754934` |
-| U10 | The docs | `docs/tui-installer.md`, and any README that names a key | S1–S6 | |
+| U10 | The docs | `docs/tui-installer.md`, and any README that names a key | S1–S6 | `ac51b42`, `37f5c48`, `b80fcca`, `b49562d`, `7fc5637`, `bdd037f`, `0a94278` |
 | U11 | The gaps the units could not reach | Escape stops the benchmark and the update centre's apply; the port detail and the setup switch name their keys | S1, S3, S4 | `6c7ef66`, `ed406d4` |
 
 Out of scope by design: the Vim Trainer's own screens keep their game keys — `docs/vim-trainer-spec.md` is their spec, and its keys are the lesson.
@@ -58,3 +58,4 @@ Out of scope by design: the Vim Trainer's own screens keep their game keys — `
 - L9 (decision, U8): the WSL resources screen writes on `[w]` and repairs the guard on `[g]`; the value rows end with `[←/→]` because the arrows, not Enter, adjust them.
 - L10 (decision, U11): Escape stops every run it can reach — the doctor's checks, the shell audit's starts, the update centre's apply and the WSL benchmark — and the footer says which of the two Esc is doing. The port manager's detail and the setup screen's switches name the key that runs them ([Enter] and [Space]), so the footer and the handler cannot drift.
 - L11 (tradeoff, U11): the WSL advisor's prose at 80×24 is cut once its rows are drawn. The environment and the selected finding's card do not both fit at the frame floor, and a prose floor would window the findings list to a row or two without fitting the card either; the cut is the honest choice, and the frame guards measure it.
+- L12 (owner, verbatim): "llevatelo a main, merge a main bypassea admin y deja main perfecto estable" — the branch lands on main, and the merge waits for the checks to come back green so main is left whole rather than merely rebased.
