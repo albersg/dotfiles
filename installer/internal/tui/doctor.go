@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
@@ -550,11 +551,20 @@ const (
 // already detected, and the small caches that keep a tool from being looked up
 // or started twice by two checks. The caches are per scan on purpose: a check
 // must not see a stale answer from an earlier run.
+//
+// The caches are the one mutable state a scan has, and the walk keeps several
+// checks in flight at once, so they are guarded by mu. The guard is held for a
+// lookup or for writing an answer back, never across the command that produces
+// one: a bound of ten seconds spent holding a lock would put the checks back in
+// single file, which is the defect the pool exists to remove. Two checks that
+// ask the same question at the same moment can therefore both ask it; they
+// answer with the same thing, and the cache is written whichever finishes first.
 type doctorScan struct {
 	host doctorHost
 	info *system.SystemInfo
 	now  time.Time
 
+	mu       sync.Mutex
 	lookups  map[string]doctorLookup
 	versions map[string]doctorVersion
 	runs     map[string]doctorCommandResult
@@ -624,7 +634,10 @@ func (s *doctorScan) environ() []string {
 // lookup resolves one name the way a shell would: the first match in PATH wins,
 // and PATH is read once per scan.
 func (s *doctorScan) lookup(name string) doctorLookup {
-	if cached, ok := s.lookups[name]; ok {
+	s.mu.Lock()
+	cached, ok := s.lookups[name]
+	s.mu.Unlock()
+	if ok {
 		return cached
 	}
 	lookup := doctorLookup{}
@@ -635,7 +648,9 @@ func (s *doctorScan) lookup(name string) doctorLookup {
 	} else {
 		lookup.Path = path
 	}
+	s.mu.Lock()
 	s.lookups[name] = lookup
+	s.mu.Unlock()
 	return lookup
 }
 
@@ -645,7 +660,10 @@ func (s *doctorScan) lookup(name string) doctorLookup {
 // states its version on the first line.
 func (s *doctorScan) toolVersion(path string, args ...string) doctorVersion {
 	key := path + "\x00" + strings.Join(args, "\x00")
-	if cached, ok := s.versions[key]; ok {
+	s.mu.Lock()
+	cached, ok := s.versions[key]
+	s.mu.Unlock()
+	if ok {
 		return cached
 	}
 	command := strings.Join(append([]string{filepath.Base(path)}, args...), " ")
@@ -668,7 +686,9 @@ func (s *doctorScan) toolVersion(path string, args ...string) doctorVersion {
 	if result.TimedOut {
 		version.Command = command + " (bounded at " + doctorDuration(doctorVersionTimeout) + ")"
 	}
+	s.mu.Lock()
 	s.versions[key] = version
+	s.mu.Unlock()
 	return version
 }
 
@@ -689,11 +709,16 @@ func (s *doctorScan) run(timeout time.Duration, name string, args ...string) doc
 // terminfo entry exists). The key is the whole command line.
 func (s *doctorScan) probe(timeout time.Duration, name string, args ...string) doctorCommandResult {
 	key := name + "\x00" + strings.Join(args, "\x00")
-	if cached, ok := s.runs[key]; ok {
+	s.mu.Lock()
+	cached, ok := s.runs[key]
+	s.mu.Unlock()
+	if ok {
 		return cached
 	}
 	result := s.run(timeout, name, args...)
+	s.mu.Lock()
 	s.runs[key] = result
+	s.mu.Unlock()
 	return result
 }
 

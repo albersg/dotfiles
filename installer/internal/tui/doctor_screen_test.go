@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ============================================================================
@@ -51,21 +53,42 @@ func doctorScreenRunModel(t *testing.T, host doctorHost, ids ...string) Model {
 }
 
 // doctorRunToTheEnd feeds the run's own messages back into the model until it
-// finishes, which is what the update loop does in the application.
-func doctorRunToTheEnd(t *testing.T, m Model) Model {
+// finishes, which is what the update loop does in the application. The runtime
+// runs every command in its own goroutine and expands a batch into the commands
+// it holds; these tests run them one at a time instead, which is one of the
+// orders a concurrent walk can take, so the walk is exercised without any test
+// depending on which check wins a race. Commands already handed to somebody who
+// threw them away can be passed in.
+func doctorRunToTheEnd(t *testing.T, m Model, pending ...tea.Cmd) Model {
 	t.Helper()
-	for step := 0; step < 64; step++ {
+	if len(pending) == 0 && m.Doctor.Run != nil && m.Doctor.Run.running() {
+		pending = append(pending, m.doctorScheduleCmd())
+	}
+	for step := 0; step < 4096; step++ {
 		if m.Doctor.Run == nil || !m.Doctor.Run.running() {
 			return m
 		}
-		cmd := m.doctorCheckCmd()
-		if cmd == nil {
-			t.Fatalf("the run stopped before it finished: %d of %d", m.Doctor.Run.Next, len(m.Doctor.Run.Plan))
+		if len(pending) == 0 {
+			t.Fatalf("the run stopped before it finished: %d of %d answered",
+				m.Doctor.Run.Answered, len(m.Doctor.Run.Plan))
 		}
-		next, _ := m.Update(cmd())
+		cmd := pending[0]
+		pending = pending[1:]
+		if cmd == nil {
+			continue
+		}
+		message := cmd()
+		if batch, ok := message.(tea.BatchMsg); ok {
+			pending = append(pending, batch...)
+			continue
+		}
+		next, follow := m.Update(message)
 		m = next.(Model)
+		if follow != nil {
+			pending = append(pending, follow)
+		}
 	}
-	t.Fatal("the run did not finish in 64 steps")
+	t.Fatal("the run did not finish in 4096 steps")
 	return m
 }
 
@@ -102,10 +125,12 @@ func TestDoctorScreenOffersEveryRunBeforeAnyRunIsStarted(t *testing.T) {
 	}
 }
 
-// TestDoctorScreenRunsOneCheckAtATimeAndSaysWhich pins the progress line: the
-// screen states which check is running and how many are left, because a run over
-// a slow machine must be legible rather than frozen.
-func TestDoctorScreenRunsOneCheckAtATimeAndSaysWhich(t *testing.T) {
+// TestDoctorScreenSaysHowManyChecksAreDoneOutOfHowMany pins the progress line:
+// the screen states how many checks have answered out of how many, because a run
+// over a slow machine must be legible rather than frozen. It counted starts
+// while the walk was one check per message; it counts answers now, because a
+// pool with several checks out has finished none of them.
+func TestDoctorScreenSaysHowManyChecksAreDoneOutOfHowMany(t *testing.T) {
 	host := newDoctorFakeHost()
 	host.addDir("/usr/bin")
 	host.addDir("/bin")
@@ -115,32 +140,29 @@ func TestDoctorScreenRunsOneCheckAtATimeAndSaysWhich(t *testing.T) {
 	if m.Doctor.Run.Message == "" {
 		t.Fatal("a run in flight says nothing about what it is doing")
 	}
-	if !strings.Contains(m.Doctor.Run.Message, m.Doctor.Run.Plan[0].Title) {
-		t.Errorf("the progress line does not name the check it is running: %q", m.Doctor.Run.Message)
+	if !strings.Contains(m.Doctor.Run.Message, "Checked 0 of 2") {
+		t.Errorf("the progress line does not count the checks that have answered: %q", m.Doctor.Run.Message)
 	}
 
-	cmd := m.doctorCheckCmd()
-	if cmd == nil {
-		t.Fatal("no check was scheduled")
-	}
-	message, ok := cmd().(doctorCheckDoneMsg)
-	if !ok {
-		t.Fatalf("the run produced %T, want a check result", cmd())
-	}
-	if message.RunID != m.Doctor.Run.ID || message.Index != 0 {
-		t.Fatalf("the message names run %d index %d, want run %d index 0", message.RunID, message.Index, m.Doctor.Run.ID)
+	started := doctorStartedCommands(t, m.doctorScheduleCmd())
+	if len(started) != 2 {
+		t.Fatalf("the pool put %d of the run's 2 checks in flight", len(started))
 	}
 
-	next, _ := m.Update(message)
+	next, follow := m.Update(started[0]())
 	m = next.(Model)
-	if m.Doctor.Run.Next != 1 {
-		t.Errorf("the run is at check %d after one result, want 1", m.Doctor.Run.Next)
+	if follow != nil {
+		t.Error("the run started work although both of its checks were already in flight")
 	}
-	if _, ok := m.Doctor.Run.Results["path.entries"]; !ok {
-		t.Error("the result was not kept")
+	if !strings.Contains(m.Doctor.Run.Message, "Checked 1 of 2") {
+		t.Errorf("the progress line did not count the answer that came back: %q", m.Doctor.Run.Message)
+	}
+	if len(m.Doctor.Run.Results) != 1 {
+		t.Errorf("the run kept %d answers after one answer, want 1", len(m.Doctor.Run.Results))
 	}
 
-	m = doctorRunToTheEnd(t, m)
+	next, _ = m.Update(started[1]())
+	m = next.(Model)
 	if m.Doctor.Run.running() {
 		t.Fatal("the run is still in flight after every check answered")
 	}
@@ -177,12 +199,17 @@ func TestDoctorScreenIgnoresAnAnswerFromARunThatWasReplaced(t *testing.T) {
 }
 
 // TestDoctorScreenCancellingFillsInTheChecksThatNeverRan is the cancellation
-// rule: Escape stops the run, the checks that never ran are recorded as unknown
-// with the reason, and the report says how far the run got rather than reading
-// as a clean machine.
+// rule: Escape stops the run there and then -- the checks in flight cannot be
+// interrupted, so waiting for them is what made the screen unreadable -- and the
+// checks that did not answer are recorded as unknown with the reason, so the
+// report says how far the run got rather than reading as a clean machine.
 func TestDoctorScreenCancellingFillsInTheChecksThatNeverRan(t *testing.T) {
 	host := doctorHealthyHost()
 	m := doctorScreenRunModel(t, host, "env.home", "env.locale", "env.term")
+	inFlight := doctorStartedCommands(t, m.doctorScheduleCmd())
+	if len(inFlight) != len(m.Doctor.Run.Plan) {
+		t.Fatalf("the run put %d of %d checks in flight", len(inFlight), len(m.Doctor.Run.Plan))
+	}
 
 	next, cmd := m.handleDoctorKeys("esc")
 	m = next.(Model)
@@ -192,26 +219,13 @@ func TestDoctorScreenCancellingFillsInTheChecksThatNeverRan(t *testing.T) {
 	if !m.Doctor.Run.Canceled {
 		t.Fatal("escape did not mark the run as cancelled")
 	}
-	if !strings.Contains(m.Doctor.Run.Message, "Cancelling") {
-		t.Errorf("the screen does not say it is cancelling: %q", m.Doctor.Run.Message)
-	}
-
-	// The check in flight finishes, and the run then closes with the rest
-	// unknown rather than absent.
-	message, ok := m.doctorCheckCmd()().(doctorCheckDoneMsg)
-	if !ok {
-		t.Fatal("the check in flight did not produce a result")
-	}
-	next, _ = m.Update(message)
-	m = next.(Model)
-
 	if m.Doctor.Run.running() {
-		t.Fatal("the run did not close after the check in flight finished")
+		t.Fatal("escape left the run in flight, so the checks in flight were not cancelled")
 	}
-	if !strings.Contains(m.Doctor.Run.Message, "Cancelled after") {
-		t.Errorf("the closing line does not say the run was cancelled: %q", m.Doctor.Run.Message)
+	if !strings.Contains(m.Doctor.Run.Message, "Cancelled after 0 of 3") {
+		t.Errorf("the closing line does not say how far the run got: %q", m.Doctor.Run.Message)
 	}
-	for _, id := range []string{"env.locale", "env.term"} {
+	for _, id := range []string{"env.home", "env.locale", "env.term"} {
 		result, ok := m.Doctor.Run.Results[id]
 		if !ok {
 			t.Fatalf("the check %q that never ran has no result, so the report would leave it out", id)
@@ -445,7 +459,7 @@ func TestDoctorFixScreenAppliesAndReChecksTheFinding(t *testing.T) {
 		t.Fatal("the fix reported success without changing the machine")
 	}
 
-	next, _ = m.Update(outcome)
+	next, cmd = m.Update(outcome)
 	m = next.(Model)
 	if m.Screen != ScreenDoctor {
 		t.Fatalf("after applying, the screen is on %v", m.Screen)
@@ -458,11 +472,12 @@ func TestDoctorFixScreenAppliesAndReChecksTheFinding(t *testing.T) {
 	}
 
 	// The re-check runs the one check the finding came from, and the machine is
-	// now in the state the fix produced.
+	// now in the state the fix produced. The command the update loop was handed
+	// is the re-check itself, so it is passed on rather than thrown away.
 	if m.Doctor.Run == nil || len(m.Doctor.Run.Plan) != 1 || m.Doctor.Run.Plan[0].ID != "git.sshauth" {
 		t.Fatalf("the re-check runs %+v, want the one check the fix came from", m.Doctor.Run.Plan)
 	}
-	m = doctorRunToTheEnd(t, m)
+	m = doctorRunToTheEnd(t, m, cmd)
 	after := m.Doctor.Run.Results["git.sshauth"]
 	for _, leftover := range after.Findings {
 		if leftover.Status == doctorWarning && strings.Contains(leftover.Subject, "readable by others") {
