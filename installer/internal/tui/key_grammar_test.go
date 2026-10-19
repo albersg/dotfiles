@@ -80,12 +80,6 @@ var keyGrammarLegacy = map[string]string{
 	// the wizard with it. U3 fixed the review; U9 fixes the welcome, and the entry
 	// goes when both have.
 	`"[Enter]" "start"`: "U9",
-	// The port manager's stop confirmation names Enter as the gentle stop and
-	// runs the forced one on k, which is the move-down key.
-	`"[t/Enter]" "stop gently"`: "U5",
-	`"[k]" "force stop"`:        "U5",
-	// The update centre's confirmation applies the plan with Enter.
-	`"[Enter]" "apply the plan"`: "U5",
 	// The screens the pass reaches last: the completion screen exits with Enter,
 	// the reference and topic screens return to the menu with Enter/Space/Esc/q,
 	// the installing screen toggles details with Space, and the screens that quit

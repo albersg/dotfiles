@@ -209,8 +209,12 @@ func updateCenterReadEveryManager(t *testing.T, m Model, cmd tea.Cmd) Model {
 	return m
 }
 
-// pressUpdateCenterRow puts the cursor on a row and presses Enter, exactly as a
-// user arrives at it: through the screen's own rows.
+// pressUpdateCenterRow presses the key the row declares on itself: a row that
+// opens a screen carries Enter, a switch row carries its state and is toggled
+// with Space, a command row carries its own letter in brackets, and the way back
+// is Esc. Nothing here knows which row is which: the row says how it is pressed,
+// and a row that says nothing is a row this helper cannot press, which is the
+// failure the grammar wants.
 func pressUpdateCenterRow(t *testing.T, m Model, row string) (Model, tea.Cmd) {
 	t.Helper()
 
@@ -220,11 +224,33 @@ func pressUpdateCenterRow(t *testing.T, m Model, row string) (Model, tea.Cmd) {
 			continue
 		}
 		m.Cursor = index
-		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		next, cmd := m.Update(updateCenterRowKeyMsg(t, row))
 		return next.(Model), cmd
 	}
 	t.Fatalf("the screen offers no row %q, so no keypress could reach it: %v", row, options)
 	return m, nil
+}
+
+// updateCenterRowKeyMsg reads the key a row declares and spells it as a terminal
+// delivers it.
+func updateCenterRowKeyMsg(t *testing.T, row string) tea.KeyMsg {
+	t.Helper()
+
+	switch {
+	case strings.HasPrefix(row, "→ "):
+		// A row that opens a screen.
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case isUpdateCenterItemRow(row):
+		// A switch row: its state is in front of it and Space flips it.
+		return updateCenterKeySpace()
+	case row == "← Back":
+		return updateCenterKeyEsc()
+	}
+	if len(row) >= 3 && row[0] == '[' && row[2] == ']' && row[3] == ' ' {
+		return updateCenterKeyRune(rune(row[1]))
+	}
+	t.Fatalf("the row %q declares no key, so nothing says how it is pressed", row)
+	return tea.KeyMsg{}
 }
 
 // pressUpdateCenterKey sends one key through the real dispatch.
@@ -1084,4 +1110,281 @@ func hasRowWithName(options []string, name string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// The key grammar
+// ---------------------------------------------------------------------------
+//
+// The screen's rows are what they are: entries whose marker is a switch, actions
+// that run on their own letter, and the way back. Nothing here is pressed with
+// Enter, which belongs to the rows that open a screen or a detail -- this screen
+// has neither.
+
+// updateCenterGrammarModel is the screen as a user leaves it: two managers that
+// answered with entries, one entry selected, so the list draws its switches, its
+// category row, its plan and clear rows, its re-check and its filter.
+func updateCenterGrammarModel(t *testing.T) (Model, *tuiFakeRunner) {
+	t.Helper()
+
+	brew := updateCenterAvailableAdapter(updates.ManagerBrew, updates.ScopeUser)
+	brew.reads[0].Items = []updates.Item{
+		updateCenterFakeItem(brew, "git", "2.50.0", "2.51.0"),
+		updateCenterFakeItem(brew, "jq", "1.7.1", "1.8.0"),
+	}
+	apt := updateCenterAvailableAdapter(updates.ManagerApt, updates.ScopeSystem)
+	apt.reads[0].Items = []updates.Item{updateCenterFakeItem(apt, "tar", "1.35-1", "1.35-2")}
+
+	m, runner := updateCenterTestModel(t, brew, apt)
+	m, cmd := updateCenterOpened(t, m)
+	return updateCenterReadEveryManager(t, m, cmd), runner
+}
+
+// updateCenterRowKey is the key a drawn row says it answers to: Space on a row
+// whose marker is a switch, the bracketed letter on a command row, and Esc on the
+// way back. A row that says nothing is a failure, because then nothing on screen
+// tells the reader how to press it.
+func updateCenterRowKey(t *testing.T, row string) string {
+	t.Helper()
+
+	switch {
+	case isUpdateCenterItemRow(row):
+		return "Space"
+	case row == "← Back":
+		return "Esc"
+	}
+	if len(row) >= 4 && row[0] == '[' && row[2] == ']' && row[3] == ' ' {
+		return string(row[1])
+	}
+	t.Fatalf("the row %q carries no key, so nothing says how it is pressed", row)
+	return ""
+}
+
+// assertUpdateCenterRowsDeclareTheirKeys is the grammar's guard on one drawn
+// state: every row names its key, no letter runs two rows, no letter is a move
+// key, and the footer names exactly the keys the rows offer.
+func assertUpdateCenterRowsDeclareTheirKeys(t *testing.T, m Model) {
+	t.Helper()
+
+	drawn := map[string]string{}
+	for _, row := range m.GetCurrentOptions() {
+		if strings.HasPrefix(row, menuSeparatorPrefix) {
+			continue
+		}
+		key := updateCenterRowKey(t, row)
+		// Space is the switch's, and there is more than one switch on the list:
+		// it acts on the row under the cursor, so it is the one key several rows
+		// may declare. Every other key is a command, and a command has one row.
+		if key != "Space" {
+			if other, ok := drawn[key]; ok {
+				t.Errorf("%q runs two rows on this screen: %q and %q", key, other, row)
+			}
+		}
+		drawn[key] = row
+		if key == "j" || key == "k" {
+			t.Errorf("the row %q runs on %q, which is a move key", row, key)
+		}
+	}
+
+	// The arrows and the letters beside them are the cursor's, not a command's,
+	// and Esc is the way back in every state of the screen -- including the
+	// confirmation, whose two answer rows are drawn without it.
+	moves := map[string]bool{"↑": true, "↓": true, "k": true, "j": true, "Esc": true}
+	offered := map[string]bool{}
+	for _, hint := range m.updateCenterHints() {
+		for _, key := range hintKeyTokens(hint.keys) {
+			offered[key] = true
+		}
+	}
+	for key, row := range drawn {
+		if !offered[key] {
+			t.Errorf("the row %q declares %q and the footer does not name it", row, key)
+		}
+	}
+	for key := range offered {
+		if _, ok := drawn[key]; !ok && !moves[key] {
+			t.Errorf("the footer names %q and no row on the screen offers it", key)
+		}
+	}
+
+	// The footer spends two rows at most and drops what does not fit without a
+	// word, so every key it names has to be on the screen: a hint the packing
+	// dropped is a key the footer no longer advertises.
+	plain := ansiEscape.ReplaceAllString(m.View(), "")
+	for _, hint := range m.updateCenterHints() {
+		if hint.keys != "" && !strings.Contains(plain, hint.keys) {
+			t.Errorf("the footer draws no %q, so the hint was packed away: %v", hint.keys, m.updateCenterHints())
+		}
+	}
+}
+
+// updateCenterCursorTo puts the cursor on a row the screen draws.
+func updateCenterCursorTo(t *testing.T, m Model, row string) Model {
+	t.Helper()
+
+	for index, option := range m.GetCurrentOptions() {
+		if option == row {
+			m.Cursor = index
+			return m
+		}
+	}
+	t.Fatalf("the screen offers no row %q, so nothing could be pressed on it: %v", row, m.GetCurrentOptions())
+	return m
+}
+
+// updateCenterRowContaining is the one drawn row that carries the name given.
+func updateCenterRowContaining(t *testing.T, m Model, name string) string {
+	t.Helper()
+
+	for _, option := range m.GetCurrentOptions() {
+		if isUpdateCenterItemRow(option) && strings.Contains(option, " "+name+" ") {
+			return option
+		}
+	}
+	t.Fatalf("no entry row carries %q: %v", name, m.GetCurrentOptions())
+	return ""
+}
+
+// TestTheUpdateCentreSaysHowEveryRowIsPressed pins the screen's half of the
+// grammar: an entry row shows its state and is a switch, every action row carries
+// its own letter, the letters are unique and none of them is a move key, and the
+// footer names those same keys and no others. It is checked in the three states
+// the rows differ in -- settled, with a selection, and the confirmation.
+func TestTheUpdateCentreSaysHowEveryRowIsPressed(t *testing.T) {
+	m, _ := updateCenterGrammarModel(t)
+
+	// Settled with nothing selected: the switches, the category row, the re-check
+	// and the filter.
+	if m.UpdateCenter.Selected.Count() != 0 {
+		t.Fatalf("the fixture starts with %d entries selected", m.UpdateCenter.Selected.Count())
+	}
+	assertUpdateCenterRowsDeclareTheirKeys(t, m)
+
+	// With an entry taken: the plan row and the clear row join them.
+	m, _ = pressUpdateCenterRow(t, m, updateCenterRowContaining(t, m, "git"))
+	if m.UpdateCenter.Selected.Count() != 1 {
+		t.Fatalf("%d entries are selected after flipping one switch, want 1", m.UpdateCenter.Selected.Count())
+	}
+	assertUpdateCenterRowsDeclareTheirKeys(t, m)
+
+	// The confirmation: two answers and the way back, each on its own key.
+	m, _ = pressUpdateCenterRow(t, m, updateCenterApplyRow(1))
+	if !m.UpdateCenter.Confirming {
+		t.Fatal("the plan row opened no confirmation")
+	}
+	assertUpdateCenterRowsDeclareTheirKeys(t, m)
+
+	// Space is on the entries and nowhere else, and Enter is on nothing at all.
+	for _, row := range m.GetCurrentOptions() {
+		if strings.HasPrefix(row, menuSeparatorPrefix) {
+			continue
+		}
+		key := updateCenterRowKey(t, row)
+		if isUpdateCenterItemRow(row) && key != "Space" {
+			t.Errorf("the entry row %q is pressed with %q, and an entry is a switch", row, key)
+		}
+		if !isUpdateCenterItemRow(row) && key == "Space" {
+			t.Errorf("the row %q claims Space, which belongs to a switch", row)
+		}
+		if key == "Enter" {
+			t.Errorf("the row %q runs on Enter, which opens or chooses", row)
+		}
+	}
+}
+
+// TestTheUpdateCentreRunsEachCommandOnItsLetter presses what each row says and
+// checks that row, and only that row, happened: the plan opens, the cancel goes
+// back, the plan runs, the running update stops, the selection clears, the shown
+// category is taken, the filter cycles, the managers are asked again, and Enter
+// runs none of it.
+func TestTheUpdateCentreRunsEachCommandOnItsLetter(t *testing.T) {
+	m, runner := updateCenterGrammarModel(t)
+
+	// Enter is not a command on this screen. On the plan row it opens nothing, on
+	// an entry row it flips nothing, and it issues no command.
+	planRow := updateCenterApplyRow(1)
+	itemRow := updateCenterRowContaining(t, m, "git")
+	m, _ = pressUpdateCenterRow(t, m, itemRow)
+	onPlan := updateCenterCursorTo(t, m, planRow)
+	next, cmd := pressUpdateCenterKey(t, onPlan, tea.KeyMsg{Type: tea.KeyEnter})
+	if next.UpdateCenter.Confirming {
+		t.Fatal("Enter opened the plan; applying is not opening or choosing")
+	}
+	if cmd != nil {
+		t.Fatal("Enter issued a command")
+	}
+	onItem := updateCenterCursorTo(t, m, updateCenterRowContaining(t, m, "git"))
+	if next, _ = pressUpdateCenterKey(t, onItem, tea.KeyMsg{Type: tea.KeyEnter}); next.UpdateCenter.Selected.Count() != 1 {
+		t.Fatalf("Enter changed the selection to %d entries; an entry is a switch", next.UpdateCenter.Selected.Count())
+	}
+
+	// Space belongs to the switch: on a command row it is not a second Enter.
+	if next, cmd = pressUpdateCenterKey(t, onPlan, updateCenterKeySpace()); next.UpdateCenter.Confirming || cmd != nil {
+		t.Fatal("Space opened the plan; Space only toggles a switch")
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("pressing keys that do nothing ran %d command(s)", len(runner.commands))
+	}
+
+	// The plan row's letter opens the plan, and no command runs on the way in.
+	m, cmd = pressUpdateCenterKey(t, m, updateCenterKeyRune('a'))
+	if !m.UpdateCenter.Confirming {
+		t.Fatal("the plan row's letter did not open the confirmation")
+	}
+	if cmd != nil || len(runner.commands) != 0 {
+		t.Fatal("opening the plan issued a command; a selection is not a run")
+	}
+
+	// The confirmation's "no" goes back with the selection kept.
+	m, _ = pressUpdateCenterKey(t, m, updateCenterKeyRune('n'))
+	if m.UpdateCenter.Confirming {
+		t.Fatal("the cancel's letter left the screen confirming")
+	}
+	if m.UpdateCenter.Selected.Count() != 1 {
+		t.Fatal("the cancel dropped the selection as well as the plan")
+	}
+
+	// The confirmation's "yes" starts the run.
+	m, _ = pressUpdateCenterKey(t, m, updateCenterKeyRune('a'))
+	m, cmd = pressUpdateCenterKey(t, m, updateCenterKeyRune('y'))
+	if !m.UpdateCenter.Applying {
+		t.Fatal("the confirmation's letter did not start the run")
+	}
+	if cmd == nil {
+		t.Fatal("the run started no command")
+	}
+
+	// While it runs, its own row is the stop, on its own letter.
+	if next, _ = pressUpdateCenterKey(t, m, updateCenterKeyRune('i')); next.UpdateCenter.Notice == "" {
+		t.Fatal("the stop row's letter did not ask the manager to stop")
+	}
+
+	// A settled list again: the clear row empties the selection.
+	m, _ = updateCenterGrammarModel(t)
+	m, _ = pressUpdateCenterRow(t, m, updateCenterRowContaining(t, m, "git"))
+	m, _ = pressUpdateCenterKey(t, m, updateCenterKeyRune('c'))
+	if m.UpdateCenter.Selected.Count() != 0 {
+		t.Fatalf("%d entries are still selected after the clear row's letter", m.UpdateCenter.Selected.Count())
+	}
+
+	// The category row takes everything the filter shows, in one press.
+	m, _ = pressUpdateCenterKey(t, m, updateCenterKeyRune('s'))
+	if m.UpdateCenter.Selected.Count() != 3 {
+		t.Fatalf("the category row selected %d of the 3 shown entries", m.UpdateCenter.Selected.Count())
+	}
+
+	// The filter row cycles to the first manager that answered.
+	m, _ = pressUpdateCenterKey(t, m, updateCenterKeyRune('f'))
+	if m.UpdateCenter.Filter != updates.ManagerBrew {
+		t.Fatalf("the filter row set the filter to %q, want %q", m.UpdateCenter.Filter, updates.ManagerBrew)
+	}
+
+	// The re-check row asks the managers again, and runs nothing.
+	m, cmd = pressUpdateCenterKey(t, m, updateCenterKeyRune('r'))
+	if cmd == nil || !m.UpdateCenter.InFlight {
+		t.Fatal("the re-check row's letter did not start a reading pass")
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("asking the managers again ran %d update command(s)", len(runner.commands))
+	}
 }

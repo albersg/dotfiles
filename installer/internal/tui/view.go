@@ -139,8 +139,7 @@ var (
 	// hintCycle names the three value cycles (transport, owner, sort), hintRefresh
 	// asks for an immediate reading, hintAuto toggles the periodic one, hintStop
 	// opens the confirmation and hintCopy writes the diagnostic. The stop
-	// confirmation spells its own two actions, because the soft stop and the
-	// forced one are deliberately different words.
+	// confirmation declares its own two hints beside its rows, where the rows are.
 	hintFilter       = installerHint{"[/]", "filter"}
 	hintFilterTyping = installerHint{"[Enter/Esc]", "keep filter"}
 	hintRefresh      = installerHint{"[r]", "refresh"}
@@ -148,8 +147,6 @@ var (
 	hintStop         = installerHint{"[x]", "stop"}
 	hintCopy         = installerHint{"[y]", "copy"}
 	hintCycle        = installerHint{"[f/o/s]", "cycle"}
-	hintTerminate    = installerHint{"[t/Enter]", "stop gently"}
-	hintForce        = installerHint{"[k]", "force stop"}
 	// hintWSLTerminalOffer is the installing screen's hint while the interactive
 	// WSL step waits on the Windows Terminal offer. It is one hint rather than two
 	// so it always fits one footer row beside the details hint, and it spells both

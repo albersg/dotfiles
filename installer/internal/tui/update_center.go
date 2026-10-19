@@ -55,38 +55,40 @@ const (
 	// updateCenterCheckRow asks the managers again. It is always offered when
 	// nothing is running: an answer that is stale, wrong or missing is exactly
 	// what a second look is for.
-	updateCenterCheckRow = "Check for updates again"
+	updateCenterCheckRow = "[r] Check for updates again"
 	// updateCenterClearRow drops the whole selection. It is offered only when
 	// there is one, so the row count never changes for a press that would do
 	// nothing.
-	updateCenterClearRow = "Clear the selection"
+	updateCenterClearRow = "[c] Clear the selection"
 	// updateCenterApplyRowPrefix leads the row that confirms a selection. Its
 	// count is the selection's own count, never a number kept beside it.
-	updateCenterApplyRowPrefix = "Apply the selected updates ("
+	updateCenterApplyRowPrefix = "[a] Apply the selected updates ("
 	// updateCenterSelectVisibleRowPrefix and updateCenterDropVisibleRowPrefix lead
 	// the row that takes the category on screen in one press. Its count is how
 	// many entries the filter is showing that can be selected -- a pinned entry is
 	// shown and never taken -- so the row cannot claim a number the list does not
 	// have. The second prefix is the same row once the whole category is already
 	// selected: a row that says "select" and drops is a row that lies about itself.
-	updateCenterSelectVisibleRowPrefix = "Select the "
-	updateCenterDropVisibleRowPrefix   = "Drop the "
+	updateCenterSelectVisibleRowPrefix = "[s] Select the "
+	updateCenterDropVisibleRowPrefix   = "[s] Drop the "
 	// updateCenterFilterRowPrefix leads the one filter row, whose value cycles
 	// through the managers that have entries. One row rather than one row per
 	// manager: the filter is a view of the same list, not a second list.
-	updateCenterFilterRowPrefix = "Filter: "
+	updateCenterFilterRowPrefix = "[f] Filter: "
 	// updateCenterFilterEvery is the filter's value when every manager is shown.
 	updateCenterFilterEvery = "every manager"
 	// updateCenterConfirmRow and updateCenterCancelConfirmRow are the
 	// confirmation state's two rows. Confirming is a state and not a keystroke:
 	// the command the run would execute is on the screen while the question is
 	// asked.
-	updateCenterConfirmRow       = "Yes, apply the plan"
-	updateCenterCancelConfirmRow = "No, go back to the list"
+	updateCenterConfirmRow       = "[y] Yes, apply the plan"
+	updateCenterCancelConfirmRow = "[n] No, go back to the list"
 	// updateCenterStopRow is the running state's only row. It asks the manager to
 	// stop the way an interrupt does -- finish what you are doing and stop -- and
-	// the result of that request is what the screen reports.
-	updateCenterStopRow = "Stop the update that is running"
+	// the result of that request is what the screen reports. Its letter is the
+	// interrupt it is, and the stop screen of the port manager's own `x` is a
+	// different screen's command.
+	updateCenterStopRow = "[i] Stop the update that is running"
 
 	// updateCenterLogRows is how many lines of a running command's output the
 	// screen shows. The end of the log is where the progress is, and the whole of
@@ -1039,32 +1041,76 @@ func updateCenterItemNames(items []updates.Item) string {
 // The screen
 // ---------------------------------------------------------------------------
 
-// renderUpdateCenter draws the screen. Its hints name the keys it honours: while
-// the plan is being confirmed, Enter applies it and Esc cancels; while an update
-// runs, the stop row and `c` are the only actions, so the footer says so rather
-// than advertising a way back that the handler refuses.
+// renderUpdateCenter draws the screen. Its hints name the keys it honours, and
+// they are the rows': a switch row carries its state and Space toggles it, so
+// Space is offered only while the list has entries; every action row carries its
+// own letter, so the footer names that letter; and while the plan is being
+// confirmed the two answers carry `y` and `n` with Esc still the way back. Enter
+// is not offered for anything: this screen opens no screen of its own and the
+// list's rows are switches, not details.
 func (m Model) renderUpdateCenter() string {
-	hints := []installerHint{hintUp, hintDown, updateCenterHintPick, hintSelect, hintBack}
-	switch {
-	case m.UpdateCenter.Applying:
-		hints = []installerHint{updateCenterHintStop}
-	case m.UpdateCenter.Confirming:
-		hints = []installerHint{updateCenterHintConfirm, hintCancel}
-	}
-	return m.renderThemeScreen(m.updateCenterDescription(), m.UpdateCenter.Notice, hints)
+	return m.renderThemeScreen(m.updateCenterDescription(), m.UpdateCenter.Notice, m.updateCenterHints())
 }
 
-// updateCenterHintPick is this screen's Space hint. The section's other screens
-// use Space to turn a switch off or on; here it selects one entry of a list, and
-// the verb says which of the two it is.
-var updateCenterHintPick = installerHint{"[Space]", "select or drop"}
+// updateCenterHints is the footer of the state the screen is in. It names the
+// keys the handler accepts in that state and nothing else: an action whose row is
+// not drawn is not advertised, because a key the footer offers and the screen
+// refuses is the same lie as a row that does not say how it is pressed.
+func (m Model) updateCenterHints() []installerHint {
+	state := m.UpdateCenter
+	switch {
+	case state.Applying:
+		return []installerHint{updateCenterHintStop}
+	case state.Confirming:
+		return []installerHint{updateCenterHintConfirm, updateCenterHintCancel, hintCancel}
+	}
 
-// updateCenterHintConfirm is the confirmation state's Enter. It applies a plan
-// rather than selecting a row, so it names that instead of borrowing "select".
-var updateCenterHintConfirm = installerHint{"[Enter]", "apply the plan"}
+	// The list's own navigation and its one switch come first, in the canonical
+	// order: navigation, then the action, then the way back.
+	hints := []installerHint{hintMove, updateCenterHintPick}
+	if !state.InFlight && len(m.updateCenterSelectableVisible()) > 1 {
+		hints = append(hints, updateCenterHintSelectShown)
+	}
+	if count := state.Selected.Count(); count > 0 && !state.InFlight {
+		hints = append(hints, updateCenterHintApply, updateCenterHintClear)
+	}
+	if !state.InFlight {
+		hints = append(hints, updateCenterHintCheck)
+	}
+	if filter := m.updateCenterFilterRow(); filter != "" {
+		hints = append(hints, updateCenterHintFilter)
+	}
+	return append(hints, hintBack)
+}
 
-// updateCenterHintStop is the running state's only key.
-var updateCenterHintStop = installerHint{"[c]", "stop the running update"}
+// This screen's hints, one per command. The letter on each one is the letter its
+// row carries, so the footer and the row cannot name different keys, and no
+// letter carries two commands on this screen: the entries are switches, the
+// actions have their own letters, and `y`/`n` answer the confirmation. None of
+// them is a move key: the cursor moves on ↑/k and ↓/j.
+var (
+	// updateCenterHintPick is this screen's Space hint. The section's other screens
+	// use Space to turn a switch off or on; here it takes one entry of the list or
+	// puts it back, and the verb says which of the two it is.
+	updateCenterHintPick = installerHint{"[Space]", "select or drop"}
+	// updateCenterHintCheck asks the managers again. "check" rather than "refresh"
+	// because the row asks rather than re-reads what it already has.
+	updateCenterHintCheck = installerHint{"[r]", "check"}
+	// updateCenterHintSelectShown takes the whole category the filter is showing,
+	// or puts it back once it is all taken: the same row, and the same key, doing
+	// whichever of the two the selection makes it read.
+	updateCenterHintSelectShown = installerHint{"[s]", "select the shown"}
+	updateCenterHintApply       = installerHint{"[a]", "apply"}
+	updateCenterHintClear       = installerHint{"[c]", "clear"}
+	updateCenterHintFilter      = installerHint{"[f]", "filter"}
+	// updateCenterHintStop is the running state's only key.
+	updateCenterHintStop = installerHint{"[i]", "stop"}
+	// The confirmation's two answers. They are letters rather than Enter because
+	// applying is not opening or choosing, and Esc stays the cancel the footer
+	// names beside them.
+	updateCenterHintConfirm = installerHint{"[y]", "apply the plan"}
+	updateCenterHintCancel  = installerHint{"[n]", "go back to the list"}
+)
 
 // ---------------------------------------------------------------------------
 // The keys
@@ -1073,15 +1119,16 @@ var updateCenterHintStop = installerHint{"[c]", "stop the running update"}
 // handleUpdateCenterKeys drives the screen. It only ever moves the cursor, the
 // selection, the filter or the state machine; every command is returned as a
 // tea.Cmd, so a manager that takes a minute to answer cannot block the frame.
+//
+// Every command runs on its own letter, the letter its row carries, and Space
+// does the one thing the list's rows are: it flips the switch under the cursor.
+// Enter is deliberately not a command here: this screen opens nothing and the
+// list holds switches, not details, so Enter has nothing to be.
 func (m Model) handleUpdateCenterKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 	state := &m.UpdateCenter
 
 	switch key {
-	case "c":
-		if state.Applying {
-			return m.stopUpdateCenterRun()
-		}
 	case "r":
 		// The key the shell audit uses for its own re-run: asking again is the
 		// same question whatever is being read.
@@ -1089,6 +1136,52 @@ func (m Model) handleUpdateCenterKeys(key string) (tea.Model, tea.Cmd) {
 			scan := m.startUpdateCenterScan()
 			return m, scan
 		}
+	case "s":
+		// The category row: the whole of what the filter shows, or nothing of it
+		// once it is all taken. It is not offered mid-read, where the count it
+		// would take is a number the read has not finished.
+		if state.Applying || state.Confirming || state.InFlight || len(m.updateCenterSelectableVisible()) < 2 {
+			return m, nil
+		}
+		m.updateCenterToggleVisibleSelection()
+	case "a":
+		// The row is not drawn while a manager is still being read, and the
+		// handler refuses it anyway: a row the screen declines to draw is not a
+		// guarantee, and this is the one action that runs commands.
+		if state.Selected.Count() == 0 || state.Applying || state.Confirming || state.InFlight {
+			return m, nil
+		}
+		m.updateCenterPlanSelection()
+	case "c":
+		if state.Applying || state.Confirming || state.Selected.Count() == 0 {
+			return m, nil
+		}
+		state.Selected.Clear()
+	case "f":
+		if state.Applying || state.Confirming {
+			return m, nil
+		}
+		m.updateCenterCycleFilter()
+		m.Cursor = 0
+	case "i":
+		// The stop is the running state's one action, and only while it runs.
+		if state.Applying {
+			return m.stopUpdateCenterRun()
+		}
+	case "y":
+		if !state.Confirming {
+			return m, nil
+		}
+		apply := m.startUpdateCenterApply()
+		return m, apply
+	case "n":
+		if !state.Confirming {
+			return m, nil
+		}
+		state.Confirming = false
+		state.Plans = nil
+		state.LeftOut = nil
+		m.Cursor = 0
 	case "up", "k":
 		if m.Cursor > 0 {
 			m.Cursor--
@@ -1103,6 +1196,29 @@ func (m Model) handleUpdateCenterKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
+	case " ":
+		// Space is the switch, and only the switch: on a command row, a
+		// separator or the way back it does nothing rather than becoming a
+		// second Enter.
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		if !isUpdateCenterItemRow(selected) {
+			return m, nil
+		}
+		item, ok := m.updateCenterItemForRow(selected)
+		if !ok {
+			return m, nil
+		}
+		if item.Pinned {
+			// A pinned entry is shown, and selecting it would be selecting
+			// something this program will not move. The refusal is the
+			// manager's own hold, said in its own words.
+			state.Notice = fmt.Sprintf("%s is %s.", item.Name, item.PinReason)
+			return m, nil
+		}
+		state.Selected.Toggle(item)
 	case "esc":
 		switch {
 		case state.Confirming:
@@ -1122,64 +1238,18 @@ func (m Model) handleUpdateCenterKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 			state.Notice = ""
 		}
-	case "enter", " ":
-		if m.Cursor < 0 || m.Cursor >= len(options) {
-			return m, nil
-		}
-		selected := options[m.Cursor]
-		switch {
-		case strings.HasPrefix(selected, updateCenterRowUnselected),
-			strings.HasPrefix(selected, updateCenterRowSelected),
-			strings.HasPrefix(selected, updateCenterRowHeld):
-			item, ok := m.updateCenterItemForRow(selected)
-			if !ok {
-				return m, nil
-			}
-			if item.Pinned {
-				// A pinned entry is shown, and selecting it would be selecting
-				// something this program will not move. The refusal is the
-				// manager's own hold, said in its own words.
-				state.Notice = fmt.Sprintf("%s is %s.", item.Name, item.PinReason)
-				return m, nil
-			}
-			state.Selected.Toggle(item)
-		case selected == updateCenterCheckRow:
-			scan := m.startUpdateCenterScan()
-			return m, scan
-		case strings.HasPrefix(selected, updateCenterApplyRowPrefix):
-			// The row is not drawn while a manager is still being read, and the
-			// handler refuses it anyway: a row the screen declines to draw is not a
-			// guarantee, and this is the one action that runs commands.
-			if state.Selected.Count() == 0 || state.Applying || state.InFlight {
-				return m, nil
-			}
-			m.updateCenterPlanSelection()
-		case selected == updateCenterClearRow:
-			state.Selected.Clear()
-		case selected == updateCenterConfirmRow:
-			apply := m.startUpdateCenterApply()
-			return m, apply
-		case selected == updateCenterCancelConfirmRow:
-			state.Confirming = false
-			state.Plans = nil
-			state.LeftOut = nil
-			m.Cursor = 0
-		case selected == updateCenterStopRow:
-			return m.stopUpdateCenterRun()
-		case strings.HasPrefix(selected, updateCenterSelectVisibleRowPrefix),
-			strings.HasPrefix(selected, updateCenterDropVisibleRowPrefix):
-			m.updateCenterToggleVisibleSelection()
-		case strings.HasPrefix(selected, updateCenterFilterRowPrefix):
-			m.updateCenterCycleFilter()
-			m.Cursor = 0
-		case strings.Contains(selected, "Back"):
-			m.Screen = ScreenUtilities
-			m.Cursor = 0
-			state.Notice = ""
-		}
 	}
 
 	return m, nil
+}
+
+// isUpdateCenterItemRow reports whether a row is one of the list's entries: the
+// three markers are the only thing an entry row starts with, and the marker is
+// the switch Space turns.
+func isUpdateCenterItemRow(row string) bool {
+	return strings.HasPrefix(row, updateCenterRowUnselected) ||
+		strings.HasPrefix(row, updateCenterRowSelected) ||
+		strings.HasPrefix(row, updateCenterRowHeld)
 }
 
 // ---------------------------------------------------------------------------

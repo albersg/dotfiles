@@ -3093,7 +3093,7 @@ func (m Model) handlePortStopKeys(key string) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.Screen = ScreenPortManager
 		m.Cursor = 0
-	case "t", "enter":
+	case "t":
 		if m.PortStop.Refusal != "" || m.PortStop.Running || m.portStopForcedOffered() {
 			return m, nil
 		}
@@ -3103,7 +3103,7 @@ func (m Model) handlePortStopKeys(key string) (tea.Model, tea.Cmd) {
 		m.PortStop.Running = true
 		m.PortStop.Forced = false
 		return m, m.portStopCmd(portscan.SignalTerminate)
-	case "k":
+	case "f":
 		if !m.portStopForcedOffered() || m.PortStop.Running {
 			return m, nil
 		}
