@@ -199,7 +199,20 @@ var updateDownloadMaxBytes = int64(64 << 20)
 // both downloads. It is a function so a guard substitutes one whose transport
 // serves from memory, which is how the whole path is exercised without a socket
 // and without ever reaching the network.
+// updateHTTPClient is the client the release check uses: metadata, a short answer,
+// and a deadline short enough that the check never holds the interface open.
 var updateHTTPClient = func() *http.Client { return &http.Client{Timeout: updateCheckTimeout} }
+
+// updateDownloadTimeout bounds a download, and it is not the check's deadline. An
+// asset is megabytes over whatever link the machine has; held to the check's three
+// seconds it can never arrive, and the row answered "could not download" for exactly
+// that reason on a machine whose link took three seconds to the first byte.
+var updateDownloadTimeout = 2 * time.Minute
+
+// updateDownloadHTTPClient is the client the two download paths use. It is a
+// separate factory rather than a field on the check's client so the two deadlines
+// cannot drift back into one.
+var updateDownloadHTTPClient = func() *http.Client { return &http.Client{Timeout: updateDownloadTimeout} }
 
 // updateClock is the clock the record is written and judged with, so a guard
 // pins a time instead of waiting a day for a record to go stale.
@@ -1158,11 +1171,12 @@ func applySelfUpdate(client *http.Client, tag string, target updateTarget) (stri
 	return kept, nil
 }
 
-// downloadReleaseFile fetches url into dest through the same client every other
-// request uses, so the whole path is exercised by a guard without a socket. A
-// non-OK status is an error rather than a body to interpret: a 404 page is not a
-// binary. The body is bounded, so a runaway answer cannot fill the disk before
-// the checksum runs.
+// downloadReleaseFile fetches url into dest through the client it is given, which is
+// the download client rather than the check's: the answer is an asset, not metadata,
+// and the deadline has to fit it. A guard exercises the whole path without a socket.
+// A non-OK status is an error rather than a body to interpret: a 404 page is not a
+// binary. The body is bounded, so a runaway answer cannot fill the disk before the
+// checksum runs.
 func downloadReleaseFile(client *http.Client, url, dest string) error {
 	resp, err := client.Get(url)
 	if err != nil {
@@ -1282,7 +1296,7 @@ func (m Model) updateCheckCmdFor() tea.Cmd {
 // a slow download cannot freeze the interface.
 func updateApplyCmd(tag string, target updateTarget) tea.Cmd {
 	return func() tea.Msg {
-		kept, err := applySelfUpdate(updateHTTPClient(), tag, target)
+		kept, err := applySelfUpdate(updateDownloadHTTPClient(), tag, target)
 		return updateAppliedMsg{kept: kept, err: err}
 	}
 }
@@ -1364,7 +1378,7 @@ func UpdateSelf() (string, error) {
 			state.Latest, releaseSumsAssetName, target.Path, target.Path+updatePreviousSuffix), nil
 	}
 
-	kept, err := applySelfUpdate(updateHTTPClient(), state.Latest, target)
+	kept, err := applySelfUpdate(updateDownloadHTTPClient(), state.Latest, target)
 	if err != nil {
 		return "", err
 	}
