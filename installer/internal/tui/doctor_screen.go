@@ -107,18 +107,35 @@ type doctorState struct {
 // ============================================================================
 
 // The rows that act. They are constants because the key handler matches them,
-// and the screen draws them from the one list doctorList builds.
+// and the screen draws them from the one list doctorList builds. Each one
+// carries the letter that runs it in brackets at the front of the label, so the
+// row and the key that press it are one fact: this screen's rows start a run,
+// retry a check, write a file and toggle the filter, and none of those is what
+// Enter does. Enter is left to the rows that open something, and the only ones
+// here are the findings that offer a fix.
 const (
-	doctorRunAllRow         = "Run every check"
-	doctorRunRetryRow       = "Retry the checks that could not run"
-	doctorWriteReportRow    = "Write the report to a file"
-	doctorFilterProblemsRow = "Show only the problems"
-	doctorFilterAllRow      = "Show every finding"
+	doctorRunAllRow         = "[a] Run every check"
+	doctorRunRetryRow       = "[r] Retry the checks that could not run"
+	doctorWriteReportRow    = "[w] Write the report to a file"
+	doctorFilterProblemsRow = "[t] Show only the problems"
+	doctorFilterAllRow      = "[t] Show every finding"
 	doctorInfoRow           = "No problem was found by the checks that ran"
 )
 
-// doctorRunCategoryPrefix is how a category's own row starts.
-const doctorRunCategoryPrefix = "Run only: "
+// doctorRunCategoryPrefix is how a category's own row starts. The one category
+// row a completed run keeps ("Run only: …") starts the same way: it is the same
+// command, run on the category the cursor is on.
+const doctorRunCategoryPrefix = "[c] Run only: "
+
+// doctorCategoryEllipsisRow is the completed run's pointer back to the category
+// rows. It is a constant because the key handler tells it apart from a row that
+// names a category.
+const doctorCategoryEllipsisRow = doctorRunCategoryPrefix + "…"
+
+// doctorFixApplyMark is the letter in front of the confirmation's one action.
+// It is a constant because the key handler and the row have to spell it the
+// same, the way the list's own rows do.
+const doctorFixApplyMark = "[a] "
 
 // doctorRowAction names what a row does, so the key handler switches on the
 // action and never on the words the row happens to be drawn with.
@@ -191,7 +208,7 @@ func (m Model) doctorList() []doctorListRow {
 	}
 	rows = append(rows,
 		doctorListRow{label: doctorRunAllRow, action: doctorActionRunAll},
-		doctorListRow{label: doctorRunCategoryPrefix + "…", action: doctorActionRunCategory},
+		doctorListRow{label: doctorCategoryEllipsisRow, action: doctorActionRunCategory},
 	)
 	if m.doctorRetryableCount() > 0 {
 		rows = append(rows, doctorListRow{label: doctorRunRetryRow, action: doctorActionRetry})
@@ -615,6 +632,12 @@ func (m Model) doctorFixCmd() tea.Cmd {
 
 // handleDoctorKeys drives the doctor's list.
 //
+// Every row that acts where it stands runs on the letter it carries: a run
+// starts on a, a category run on c, a retry on r, the export on w and the
+// filter on t. Enter is left to the one thing on this screen that opens
+// something else, which is a finding that offers a fix, and Space is not
+// offered at all: the list has no switch.
+//
 // Nothing here looks at the machine: the run is a command, the export is a
 // command and the fix is a command, so a slow disk or a command that hangs
 // cannot stop the update loop. Escape cancels a run in flight rather than
@@ -630,21 +653,48 @@ func (m Model) handleDoctorKeys(key string) (tea.Model, tea.Cmd) {
 		m.doctorMoveCursor(1)
 		return m, nil
 	case "t":
-		if run != nil {
-			m.Doctor.AllFindings = !m.Doctor.AllFindings
-			m.settleDoctorCursor()
+		// The filter row is not drawn while a run is in flight -- the list is the
+		// answers as they arrive -- so the letter is not accepted either, and the
+		// footer names only what the run offers.
+		if run == nil || run.running() {
+			return m, nil
 		}
+		m.Doctor.AllFindings = !m.Doctor.AllFindings
+		m.settleDoctorCursor()
 		return m, nil
 	case "w":
-		if run != nil {
-			return m, m.doctorWriteReportCmd()
+		if run == nil || run.running() {
+			return m, nil
 		}
-		return m, nil
+		return m, m.doctorWriteReportCmd()
 	case "r":
+		if run != nil && run.running() {
+			return m, nil
+		}
 		if checks := m.doctorUnknownChecks(); len(checks) > 0 {
 			return m, m.doctorStartRun(checks, false)
 		}
 		return m, nil
+	case "a":
+		if run != nil && run.running() {
+			return m, nil
+		}
+		// The run row reads every check the catalogue holds, in its order, and
+		// forgets the answers of the run before it.
+		return m, m.doctorStartRun(doctorChecks(), true)
+	case "c":
+		if run != nil && run.running() {
+			return m, nil
+		}
+		// One category, read on the person's own machine: the cursor is on a row
+		// that names a category before a run has happened, and on the "…" row
+		// afterwards, which is a pointer back to that list and starts with the
+		// first category.
+		category := doctorCategories()[0]
+		if row := m.doctorCursorRow(); row != nil && row.action == doctorActionRunCategory && row.label != doctorCategoryEllipsisRow {
+			category = row.category
+		}
+		return m, m.doctorStartRun(doctorChecksForCategory(category), false)
 	case "esc":
 		if run != nil && run.running() {
 			// The checks in flight cannot be interrupted -- a command already
@@ -660,54 +710,17 @@ func (m Model) handleDoctorKeys(key string) (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 		m.Doctor.Notice = ""
 		return m, nil
-	case "enter", " ":
+	case "enter":
+		// Enter opens, and the only row here that opens anything is a finding that
+		// offers a fix: it leads to the confirmation, which states the exact change
+		// before anything is written. On a row that acts where it stands Enter is a
+		// press with no answer on purpose -- the row carries the letter that runs
+		// it -- because a key that both opens and starts would mean two things.
 		row := m.doctorCursorRow()
-		if row == nil {
+		if row == nil || row.finding == nil || row.finding.Fix == nil {
 			return m, nil
 		}
-		switch row.action {
-		case doctorActionRunAll:
-			if run != nil && run.running() {
-				return m, nil
-			}
-			return m, m.doctorStartRun(doctorChecks(), true)
-		case doctorActionRunCategory:
-			if run != nil && run.running() {
-				return m, nil
-			}
-			if row.label == doctorRunCategoryPrefix+"…" {
-				// The single "one category" row opens the same list the first press
-				// did: the categories are the rows above it when no run has happened
-				// yet. With a run done, the row is a pointer back to that list, so it
-				// starts with the first category.
-				return m, m.doctorStartRun(doctorChecksForCategory(doctorCategories()[0]), false)
-			}
-			return m, m.doctorStartRun(doctorChecksForCategory(row.category), false)
-		case doctorActionRetry:
-			if checks := m.doctorUnknownChecks(); len(checks) > 0 {
-				return m, m.doctorStartRun(checks, false)
-			}
-			return m, nil
-		case doctorActionWriteReport:
-			return m, m.doctorWriteReportCmd()
-		case doctorActionFilterProblems:
-			m.Doctor.AllFindings = false
-			m.settleDoctorCursor()
-			return m, nil
-		case doctorActionFilterAll:
-			m.Doctor.AllFindings = true
-			m.settleDoctorCursor()
-			return m, nil
-		case doctorActionBack:
-			m.Screen = ScreenUtilities
-			m.Cursor = 0
-			m.Doctor.Notice = ""
-			return m, nil
-		}
-		if row.finding != nil && row.finding.Fix != nil {
-			return m, m.openDoctorFix(*row.finding)
-		}
-		return m, nil
+		return m, m.openDoctorFix(*row.finding)
 	}
 	return m, nil
 }
@@ -745,8 +758,9 @@ func (m *Model) openDoctorFix(finding doctorFinding) tea.Cmd {
 	return nil
 }
 
-// handleDoctorFixKeys drives the confirmation. The only row that changes
-// anything is the action; Escape and Back leave with nothing written.
+// handleDoctorFixKeys drives the confirmation. Applying the change is a
+// command and runs on its own letter, because it writes to the machine: Enter
+// chooses a row and nothing else, and Escape leaves with nothing written.
 func (m Model) handleDoctorFixKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
@@ -755,7 +769,7 @@ func (m Model) handleDoctorFixKeys(key string) (tea.Model, tea.Cmd) {
 		m.Doctor.FixNotice = ""
 		m.settleDoctorCursor()
 		return m, nil
-	case "enter", " ":
+	case "a":
 		pending := m.Doctor.Pending
 		if pending == nil || pending.Fix == nil {
 			m.Screen = ScreenDoctor
@@ -763,10 +777,9 @@ func (m Model) handleDoctorFixKeys(key string) (tea.Model, tea.Cmd) {
 		}
 		if m.Doctor.PendingPreview.Refusal != "" || m.Doctor.FixNotice != "" {
 			// A refused fix has nothing to press, and a fix that already reported its
-			// outcome is not applied twice by a second press.
-			if m.Doctor.PendingPreview.Refusal != "" {
-				return m, nil
-			}
+			// outcome -- or is still applying -- is not applied twice by a second
+			// press.
+			return m, nil
 		}
 		m.Doctor.FixNotice = "Applying " + pending.Fix.summary() + "…"
 		return m, m.doctorFixCmd()
@@ -785,24 +798,60 @@ func (m Model) renderDoctor() string {
 
 // renderDoctorFix draws the confirmation for one fix.
 func (m Model) renderDoctorFix() string {
-	return m.renderThemeScreen(m.doctorFixDescription(), m.Doctor.FixNotice, []installerHint{hintSelect, hintBack})
+	return m.renderThemeScreen(m.doctorFixDescription(), m.Doctor.FixNotice, m.doctorFixHints())
 }
 
-// doctorHints is the legend, and it tells the truth per row: the fix key appears
-// only when the row under the cursor offers one.
+// doctorFixHints is the confirmation's legend: the letter that applies the fix,
+// and the way back. Enter is not in it, because on this screen Enter chooses a
+// row and applying is a command that writes to the machine.
+func (m Model) doctorFixHints() []installerHint {
+	return []installerHint{doctorHintApply, hintBack}
+}
+
+// The doctor's own hints. Each command of this screen runs on its own letter and
+// carries it on its row, so Enter is left to the one row that opens something --
+// a finding's fix -- and to nothing else. They are declared here rather than
+// spelled inline because the grammar guard reads every one of them.
+var (
+	// doctorHintRunAll and doctorHintCategory are two commands and so two
+	// letters: one reads every check in the catalogue, the other the checks of the
+	// category under the cursor.
+	doctorHintRunAll   = installerHint{"[a]", "run every check"}
+	doctorHintCategory = installerHint{"[c]", "one category"}
+	doctorHintFilter   = installerHint{"[t]", "problems/all"}
+	doctorHintWrite    = installerHint{"[w]", "write the report"}
+	// doctorHintFix is the only thing Enter does on the list, and it is offered
+	// only while the finding under the cursor offers a fix.
+	doctorHintFix = installerHint{"[Enter]", "open the fix"}
+	// doctorHintApply is the confirmation screen's command. Applying writes to the
+	// machine, so it carries a letter like every other write.
+	doctorHintApply = installerHint{"[a]", "apply the fix"}
+)
+
+// doctorHints is the legend, and it tells the truth per row: the fix hint appears
+// only when the row under the cursor offers one, and the letters appear only
+// while the rows that carry them are on the screen.
 func (m Model) doctorHints() []installerHint {
 	run := m.Doctor.Run
 	if run != nil && run.running() {
-		return []installerHint{hintMove, hintCancel}
+		// A run in flight offers one thing beside reading the answers that arrive:
+		// stopping it. The rows that carry the other letters are not drawn while it
+		// runs, so the footer does not name them; a finding that has already answered
+		// still opens its fix, because that row is on the screen.
+		hints := []installerHint{hintMove}
+		if finding := m.doctorCursorFinding(); finding != nil && finding.Fix != nil {
+			hints = append(hints, doctorHintFix)
+		}
+		return append(hints, hintCancel)
 	}
-	hints := []installerHint{hintMove, hintSelect}
+	hints := []installerHint{hintMove, doctorHintRunAll, doctorHintCategory}
 	if finding := m.doctorCursorFinding(); finding != nil && finding.Fix != nil {
-		hints = append(hints, installerHint{"[Enter]", "see the fix"})
+		hints = append(hints, doctorHintFix)
 	}
 	if run != nil {
-		hints = append(hints, installerHint{"[t]", "problems/all"}, installerHint{"[w]", "write the report"})
+		hints = append(hints, doctorHintFilter, doctorHintWrite)
 		if m.doctorRetryableCount() > 0 {
-			hints = append(hints, installerHint{"[r]", "retry unknown"})
+			hints = append(hints, hintRetry)
 		}
 	}
 	return append(hints, hintBack)
@@ -901,20 +950,20 @@ func (m Model) doctorFixDescription() []string {
 		"Backup: "+preview.Backup,
 	)
 	if m.Doctor.FixNotice == "" {
-		paragraphs = append(paragraphs, "Press Enter to apply it, or Escape to leave without changing anything.")
+		paragraphs = append(paragraphs, "Press a to apply it, or Escape to leave without changing anything.")
 	}
 	return paragraphs
 }
 
-// doctorFixRows is the confirmation's list: the one action, and the way out.
-// A refused fix has no action row at all, so the press that would have been
-// refused is never offered.
+// doctorFixRows is the confirmation's list: the one action with the letter that
+// runs it, and the way out. A refused fix has no action row at all, so the press
+// that would have been refused is never offered.
 func (m Model) doctorFixRows() []string {
 	pending := m.Doctor.Pending
 	if pending == nil || pending.Fix == nil || m.Doctor.PendingPreview.Refusal != "" || m.Doctor.FixNotice != "" {
 		return []string{"← Back"}
 	}
-	return []string{pending.Fix.action(), "← Back"}
+	return []string{doctorFixApplyMark + pending.Fix.action(), "← Back"}
 }
 
 // doctorPanelValue is what the main menu's Utilities panel says the doctor's row

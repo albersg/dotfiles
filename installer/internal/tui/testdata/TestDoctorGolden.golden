@@ -9,16 +9,16 @@
     ! Warning: PATH entry 4 of 9: ~/bin                                         
     ? Unknown: git resolves to /usr/bin/git, 2 copies, and no version could b…  
   ────────────────────────────────────────────────────────────────────────────  
-    Run every check                                                             
-    Run only: …                                                                 
-    Retry the checks that could not run                                         
-    Write the report to a file                                                  
-    Show every finding                                                          
+    [a] Run every check                                                         
+    [c] Run only: …                                                             
+    [r] Retry the checks that could not run                                     
+    [w] Write the report to a file                                              
+    [t] Show every finding                                                      
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
                                                                                 
   5 checks: 1 error, 1 warning, 1 unknown, 1 not applicable, 1 ok. Kept at      
   ~/.local/state/dotfiles/doctor-report.txt                                     
   ────────────────────────────────────────────────────────────────────────────  
-  ↑/k ↓/j move • [Enter] select • [t] problems/all • [w] write the report       
-  [r] retry unknown • [Esc] back                                                [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ↑/k ↓/j move • [a] run every check • [c] one category • [t] problems/all      
+  [w] write the report • [r] retry • [Esc] back                                 [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

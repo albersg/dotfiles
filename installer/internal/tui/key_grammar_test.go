@@ -77,12 +77,9 @@ func TestEveryHintObeysTheKeyGrammar(t *testing.T) {
 // violation it names.
 var keyGrammarLegacy = map[string]string{
 	// The install review starts the run with Enter and the welcome screen starts
-	// the wizard with it. U3 fixes the review, U9 the welcome, and the entry goes
-	// when both have.
-	`"[Enter]" "start"`: "U3 + U9",
-	// The doctor offers "see the fix" on Enter; the row is an action, so it
-	// moves onto its own letter and Enter is left to open the fix.
-	`"[Enter]" "see the fix"`: "U6",
+	// the wizard with it. U3 fixed the review; U9 fixes the welcome, and the entry
+	// goes when both have.
+	`"[Enter]" "start"`: "U9",
 	// The port manager's stop confirmation names Enter as the gentle stop and
 	// runs the forced one on k, which is the move-down key.
 	`"[t/Enter]" "stop gently"`: "U5",

@@ -12,13 +12,13 @@
   are needed when this user owns it.                                            
   Backup: The mode it has now (0755) is written into the fix record with the    
   command that puts it back: `chmod 0755 /home/testuser/.ssh`.                  
-  Press Enter to apply it, or Escape to leave without changing anything.        
+  Press a to apply it, or Escape to leave without changing anything.            
                                                                                 
-  ▸ Set the mode to 0700                                                        
+  ▸ [a] Set the mode to 0700                                                    
     ← Back                                                                      
                                                                                 
                                                                                 
                                                                                 
                                                                                 
   ────────────────────────────────────────────────────────────────────────────  
-  [Enter] select • [Esc] back                                                   [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  [a] apply the fix • [Esc] back                                                [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
