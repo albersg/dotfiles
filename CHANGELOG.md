@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.11.1] — 2026-10-19
+
+### Fixed
+
+- **"Update this installer" downloads the release instead of giving up after three seconds.**
+
+  The whole self-update path shared one HTTP client with a three-second deadline: the release check, which answers with metadata and must not hold the interface open, and the download of a 14 MB asset, which cannot arrive in three seconds on an ordinary connection. The first cold attempt to the redirected asset host passed that deadline, and the row answered `could not download`.
+
+  The download has its own two-minute deadline and its own client now, used by the update row and by `dotfiles --self-update`; the check keeps its three seconds. `TestTheUpdateRowOutlivesTheCheckDeadline` drives the row with a check client shorter than the answer and a download client longer than it, and asserts the verified bytes land.
+
 ## [v0.11.0] — 2026-10-19
 
 ### Changed
