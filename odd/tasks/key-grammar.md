@@ -36,7 +36,7 @@ Issue #375, decided with the owner on 2026-10-19. Every list in the installer sa
 | U3 | The first list and the two form screens | install review, admin password, install verify | S1, S3 | `ed288f6` |
 | U4 | The two machine readers | disk cleaner, network diagnosis | S1, S3 | |
 | U5 | The two managers | port manager, update centre | S1, S3, S4 | |
-| U6 | The doctor | doctor, doctor fix | S1, S3 | |
+| U6 | The doctor | doctor, doctor fix | S1, S3 | `64ccb23` |
 | U7 | The SSH screens | manager, host, form, keys, agent, diagnostics, test | S1, S3 | |
 | U8 | The WSL screens | resources, advisor, benchmark, migration | S1, S3 | `0f27bc6` (resources) |
 | U9 | The remaining lists | shell audit, theme refresh, selection, restore confirm, setup wizard | S1, S3 | |
