@@ -41,13 +41,59 @@ func diskCleanPanelValue(st diskCleanState) string {
 	return fmt.Sprintf("%s reclaimable, %s marked", humanBytes(uint64(total)), diskCleanCount(marked))
 }
 
+// The disk cleaner's own hints. Each names the key its row carries, so the row and
+// the footer say the same thing: a command shows its letter in brackets, a switch
+// shows its state and Space, and Escape is the way back or the way to stop what is
+// running. Enter is in none of them: nothing on this screen opens a screen, a
+// row's detail or a value.
+var (
+	diskCleanToggleHint     = installerHint{"[Space]", "select or drop"}
+	diskCleanScanHint       = installerHint{"[" + diskCleanScanKey + "]", "scan"}
+	diskCleanPreviewHint    = installerHint{"[" + diskCleanPreviewKey + "]", "preview"}
+	diskCleanCleanHint      = installerHint{"[" + diskCleanCleanKey + "]", "clean"}
+	diskCleanAddRootHint    = installerHint{"[" + diskCleanAddRootKey + "]", "add the project directory"}
+	diskCleanForgetRootHint = installerHint{"[" + diskCleanForgetRootKey + "]", "forget the project directory"}
+	// Esc means two things on this screen, and the footer says which of them it is
+	// doing: a run or a scan in flight is stopped by it, and otherwise it walks back.
+	diskCleanStopRunHint  = installerHint{"[Esc]", "stop the run"}
+	diskCleanStopScanHint = installerHint{"[Esc]", "stop the scan"}
+)
+
 // renderDiskCleaner draws the screen. It uses the same frame, the same rows and
 // the same hints as the other utilities, so a screen that removes things looks
 // like the screens that only report.
 func (m Model) renderDiskCleaner() string {
-	hints := []installerHint{hintUp, hintDown, hintSelect}
-	if m.DiskClean.Phase == diskCleanPreview {
-		hints = []installerHint{hintSelect, hintBack}
+	st := m.DiskClean
+
+	// The footer names the keys the handler accepts in the state on screen, and
+	// nothing else: Escape is the way back, and while something is running it is
+	// the key that stops it instead.
+	var hints []installerHint
+	switch {
+	case st.Phase == diskCleanRunning:
+		hints = []installerHint{diskCleanStopRunHint}
+	case st.Scanning:
+		hints = []installerHint{diskCleanStopScanHint}
+	case st.Phase == diskCleanPreview:
+		// The preview is walked with the arrows and run with the confirmation's own
+		// key; Escape leaves it without running anything.
+		hints = []installerHint{hintUp, hintDown, diskCleanCleanHint, hintBack}
+	default:
+		hints = []installerHint{hintUp, hintDown}
+		if len(st.Items) > 0 {
+			hints = append(hints, diskCleanToggleHint)
+		}
+		hints = append(hints, diskCleanScanHint)
+		if st.Selection.Count(st.Items) > 0 {
+			hints = append(hints, diskCleanPreviewHint)
+		}
+		if st.Cwd != "" && !diskCleanHasRoot(st.ProjectRoots, st.Cwd) {
+			hints = append(hints, diskCleanAddRootHint)
+		}
+		if len(st.ProjectRoots) > 0 {
+			hints = append(hints, diskCleanForgetRootHint)
+		}
+		hints = append(hints, hintBack)
 	}
 	return m.renderThemeScreen(m.diskCleanerDescription(), m.diskCleanerNotice(), hints)
 }
@@ -90,9 +136,9 @@ func (m Model) diskCleanerDescription() []string {
 	// store the user is deciding about.
 	switch {
 	case !st.Scanned && !st.Scanning:
-		paragraphs = append(paragraphs, fmt.Sprintf("%s measures each store without removing anything: a scan is "+
-			"bounded, it can be stopped with Esc, and the stores it cannot reach are reported rather than guessed "+
-			"at.", diskCleanScanRow))
+		paragraphs = append(paragraphs, "The scan measures each store without removing anything: it is "+
+			"bounded, it can be stopped with Esc, and the stores it cannot reach are reported rather than "+
+			"guessed at.")
 	case st.Scanning:
 		paragraphs = append(paragraphs, "Measuring the stores now. Nothing is removed by a scan, and Esc stops it.")
 	}

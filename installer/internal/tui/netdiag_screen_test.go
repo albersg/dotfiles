@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -72,9 +73,11 @@ func networkDiagnosticsFrameCase(t *testing.T) Model {
 	return m
 }
 
-// networkPressRow puts the cursor on a row by its label and presses Enter. The
-// label is how a user finds the row, so a test that pressed an index would pass
-// while the list was ordered differently than the screen shows it.
+// networkPressRow puts the cursor on a row by its label and presses the key the row
+// itself advertises. The label is how a user finds the row, so a test that pressed an
+// index would pass while the list was ordered differently than the screen shows it;
+// and the key is read off the row rather than assumed, so the claim on the row and
+// the press behind it cannot drift.
 func networkPressRow(t *testing.T, m Model, row string) (Model, tea.Cmd) {
 	t.Helper()
 
@@ -88,8 +91,12 @@ func networkPressRow(t *testing.T, m Model, row string) (Model, tea.Cmd) {
 	if found < 0 {
 		t.Fatalf("the row %q is not offered: %v", row, m.GetCurrentOptions())
 	}
+	key := networkRowKey(row)
+	if key == "" {
+		t.Fatalf("the row %q declares no key, so nothing presses it: %v", row, m.GetCurrentOptions())
+	}
 	m.Cursor = found
-	next, cmd := m.handleNetworkKeys("enter")
+	next, cmd := m.handleNetworkKeys(key)
 	return next.(Model), cmd
 }
 
@@ -156,6 +163,163 @@ func indexOfRow(t *testing.T, m Model, row string) int {
 	}
 	t.Fatalf("the row %q is not offered: %v", row, m.GetCurrentOptions())
 	return 0
+}
+
+// networkGrammarState is everything a press can change on this screen, in one
+// string, so a test can say a key changed nothing without comparing two models that
+// carry command closures.
+func networkGrammarState(m Model) string {
+	return fmt.Sprintf("screen=%v field=%v preview=%v trace=%v anonymize=%v running=%v notice=%q",
+		m.Screen, m.Network.InputActive, m.Network.Preview, m.Network.Trace, m.Network.Anonymize,
+		m.Network.Running, m.Network.Notice)
+}
+
+// networkGrammarView is the screen's text with the escapes removed and every run of
+// whitespace collapsed, so an assertion can name a footer hint the frame happens to
+// wrap across two rows.
+func networkGrammarView(m Model) string {
+	return strings.Join(strings.Fields(ansiEscape.ReplaceAllString(m.View(), "")), " ")
+}
+
+// networkGrammarPress sends one key through the update loop, which is the path a
+// terminal's key really takes: Escape is answered there rather than by the screen's
+// own handler, and a test that called the handler directly would miss that.
+func networkGrammarPress(t *testing.T, m Model, key string) (Model, tea.Cmd) {
+	t.Helper()
+	var msg tea.KeyMsg
+	switch key {
+	case "enter":
+		msg = tea.KeyMsg{Type: tea.KeyEnter}
+	case "esc":
+		msg = tea.KeyMsg{Type: tea.KeyEsc}
+	case " ":
+		msg = tea.KeyMsg{Type: tea.KeySpace}
+	default:
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+	}
+	updated, cmd := m.Update(msg)
+	next, ok := updated.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T, want the model", updated)
+	}
+	return next, cmd
+}
+
+// TestNetworkRowsDeclareTheKeyThatRunsThem pins the key grammar on this screen
+// (odd/tasks/key-grammar.md): every row that acts where it stands carries the key
+// that runs it, the footer names the same key while the row is offered, Enter runs
+// no command, and Space turns nothing but a switch.
+func TestNetworkRowsDeclareTheKeyThatRunsThem(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	// reviewed is the screen with the report on it and the preview open, which is the
+	// state the write's row and the anonymization switch are offered in.
+	reviewed := func(t *testing.T) Model {
+		t.Helper()
+		m := networkDiagnosticsFrameCase(t)
+		m.Width, m.Height = 200, 70
+		m.Network.ReportPath = networkReportPath(m.Network.Report.Started)
+		m.Network.Preview = true
+		m.Network.ReportText = m.networkReportText()
+		return m
+	}
+	idle := func(t *testing.T) Model {
+		t.Helper()
+		m := networkDiagnosticsFrameCase(t)
+		m.Width, m.Height = 200, 70
+		return m
+	}
+
+	cases := []struct {
+		name  string
+		build func(t *testing.T) Model
+		// row is the row under the cursor, by its own label: the two value rows draw
+		// the value they hold, so their labels are read from the model.
+		row    func(Model) string
+		footer string
+	}{
+		{"the run row", idle, func(Model) string { return networkRunRow }, "[r] run"},
+		{"the destination row", idle, func(Model) string { return networkTargetRow }, "[Enter] open"},
+		{"the traceroute row", idle, func(m Model) string { return m.networkTraceRow() }, "[t] traceroute"},
+		{"the report's row", idle, func(Model) string { return networkPreviewRow }, "[Enter] open"},
+		{"the write's row", reviewed, func(Model) string { return networkSaveRow }, "[s] save"},
+		{"the anonymization row", reviewed, func(m Model) string { return m.networkAnonymizeRow() }, "[a] anonymize"},
+		{"the way back", idle, func(Model) string { return networkBackRow }, "[Esc] back"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.build(t)
+			row := tc.row(m)
+			m.Cursor = indexOfRow(t, m, row)
+			key := networkRowKey(row)
+			if key == "" {
+				t.Fatalf("the row %q carries no mark, so nothing on it says what presses it", row)
+			}
+
+			switch key {
+			case "enter":
+				if !strings.HasPrefix(row, networkOpenMark) {
+					t.Errorf("the row %q is opened with Enter but carries no arrow saying so", row)
+				}
+			case "esc":
+				if !strings.HasPrefix(row, networkBackMark) {
+					t.Errorf("the row %q is left with Escape but carries no arrow saying so", row)
+				}
+			case "j", "k", "h", "l":
+				t.Errorf("the row %q runs on %q, which is a movement key", row, key)
+			default:
+				if !strings.HasPrefix(row, "["+key+"] ") {
+					t.Errorf("the row %q declares %q, want the key written on the row", row, key)
+				}
+			}
+
+			before := networkGrammarState(m)
+			// Enter opens a row's own thing and runs nothing: the diagnostic, the write
+			// and the two values are all someone else's key.
+			if key != "enter" {
+				if entered, cmd := networkGrammarPress(t, m, "enter"); cmd != nil || networkGrammarState(entered) != before {
+					t.Errorf("Enter ran the row %q: %s became %s", row, before, networkGrammarState(entered))
+				}
+			}
+			// This screen has no switches, so Space runs nothing on any of its rows --
+			// and the leader key, not this screen, is what it opens. Each press starts
+			// from the same model, so a press that leaves leader mode armed cannot be
+			// read as the next one.
+			if spaced, cmd := networkGrammarPress(t, m, " "); cmd != nil || networkGrammarState(spaced) != before {
+				t.Errorf("Space acted on the row %q, and this screen has no switch: %s became %s",
+					row, before, networkGrammarState(spaced))
+			}
+
+			pressed, cmd := networkGrammarPress(t, m, key)
+			if cmd == nil && networkGrammarState(pressed) == before {
+				t.Errorf("the row %q carries %q and pressing it changed nothing", row, key)
+			}
+
+			// The legend names the same key while the row is offered, so the row and the
+			// footer cannot disagree about what presses it.
+			if view := networkGrammarView(m); !strings.Contains(view, tc.footer) {
+				t.Errorf("the footer does not name the key of %q (%q):\n%s", row, tc.footer, view)
+			}
+		})
+	}
+}
+
+// TestNetworkFooterSaysEscapeStopsTheRun pins the other half of Escape's one meaning
+// on this screen: while a run is in flight the key stops it rather than leaving, and
+// the footer says which of the two it is doing.
+func TestNetworkFooterSaysEscapeStopsTheRun(t *testing.T) {
+	run := &networkRun{events: make(chan tea.Msg, networkEventBuffer)}
+	run.ctx, run.cancel = context.WithCancel(context.Background())
+
+	m := networkDiagnosticsFrameCase(t)
+	m.Width, m.Height = 200, 60
+	m.Network.Running = true
+	m.Network.Run = run
+
+	if view := networkGrammarView(m); !strings.Contains(view, "[Esc] stop the run") {
+		t.Errorf("the footer does not say that Escape stops the run:\n%s", view)
+	}
 }
 
 // TestNetworkScreenValidatesTheDestinationBeforeAnythingIsDialled pins the rule
@@ -342,8 +506,8 @@ func TestNetworkScreenAnonymizesWhatItSaves(t *testing.T) {
 	m.Network.ReportPath = networkReportPath(m.Network.Report.Started)
 
 	// The rows are how a reader does this, and pressing them is also what builds the
-	// text the write uses: the preview first, then the toggle, then the save.
-	for _, row := range []string{networkPreviewRow, networkAnonymizeRow} {
+	// text the write uses: the preview first, then the switch, then the save.
+	for _, row := range []string{networkPreviewRow, m.networkAnonymizeRow()} {
 		next, _ := networkPressRow(t, m, row)
 		m = next
 	}
@@ -378,7 +542,7 @@ func TestNetworkScreenSaysWhatAnonymizationKeeps(t *testing.T) {
 	m := networkDiagnosticsFrameCase(t)
 	m.Network.ReportPath = networkReportPath(m.Network.Report.Started)
 
-	for _, row := range []string{networkPreviewRow, networkAnonymizeRow} {
+	for _, row := range []string{networkPreviewRow, m.networkAnonymizeRow()} {
 		next, _ := networkPressRow(t, m, row)
 		m = next
 	}

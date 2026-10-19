@@ -1,5 +1,5 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                                Showing 1-11 of 17  
+   Utilities                                                Showing 1-10 of 17  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Development caches                                                            
   The apt package cache — downloads — safe to rebuild                           
@@ -7,9 +7,9 @@
   Found because the apt archives directory exists, but apt-get is not on PATH   
   here.                                                                         
   On disk: /var/cache/apt/archives                                              
-  … and 44 more                                                                 
+  … and 45 more                                                                 
                                                                                 
-    Scan again                                                                  
+    [s] Scan again                                                              
   ────────────────────────────────────────────────────────────────────────────  
     apt — 1 finding                                                             
   ▸ [ ] The apt package cache — 120.0 MiB — safe to rebuild                     
@@ -19,6 +19,6 @@
     [ ] The Go build cache — 640.0 MiB — safe to rebuild                        
     npm — 1 finding                                                             
     [x] The npm cache — 900.0 MiB — safe to rebuild                             
-    projects — 1 finding                                                        
   ────────────────────────────────────────────────────────────────────────────  
-  ↑/k up • ↓/j down • [Enter] select                                            [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ↑/k up • ↓/j down • [Space] select or drop • [s] scan • [p] preview           
+  [d] add the project directory • [Esc] back                                    [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
