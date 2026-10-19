@@ -503,15 +503,29 @@ func TestQKeyBehavior(t *testing.T) {
 		}
 	})
 
-	t.Run("q alone does not quit (passes through to screen handler)", func(t *testing.T) {
+	t.Run("q alone quits on the screens whose footer offers it", func(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenMainMenu
+
+		// The main menu's footer names [q] quit (issue #375): leaving is its own key
+		// there, and the Exit row is still chosen with Enter.
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+		newModel := result.(Model)
+
+		if !newModel.Quitting {
+			t.Error("q alone should quit on the main menu, whose footer offers [q] quit")
+		}
+	})
+
+	t.Run("q alone does not quit where the screen does not offer it", func(t *testing.T) {
+		m := NewModel()
+		m.Screen = ScreenInstalling
 
 		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 		newModel := result.(Model)
 
 		if newModel.Quitting {
-			t.Error("q alone should not quit (leader key required)")
+			t.Error("q alone should not quit during installation, which offers no quit")
 		}
 	})
 
