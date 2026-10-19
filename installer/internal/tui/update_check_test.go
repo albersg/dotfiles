@@ -945,6 +945,52 @@ func TestApplySelfUpdateReplacesTheBinaryAndKeepsTheOldOne(t *testing.T) {
 	}
 }
 
+// TestTheUpdateRowOutlivesTheCheckDeadline pins the download's deadline apart from
+// the check's, through the path the update row takes. The check answers with metadata
+// and must not hold the interface open, so its client is short; a release asset is
+// megabytes and needs its own. Held to the check's three seconds, the row answered
+// "could not download" -- the message the owner reported -- on a link that took
+// longer than that to the first byte.
+func TestTheUpdateRowOutlivesTheCheckDeadline(t *testing.T) {
+	if updateDownloadTimeout <= updateCheckTimeout {
+		t.Fatalf("the download deadline %v is not longer than the check's %v, so an asset cannot arrive",
+			updateDownloadTimeout, updateCheckTimeout)
+	}
+
+	f := newUpdateFixture(t, "the version that was published")
+
+	// One answer, delayed past the check's deadline and well inside the download's:
+	// a cold connection, not a broken release.
+	delayed := func(timeout time.Duration) *http.Client {
+		return &http.Client{
+			Timeout: timeout,
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				time.Sleep(60 * time.Millisecond)
+				return f.client.roundTrip(r)
+			}),
+		}
+	}
+	previousCheck, previousDownload := updateHTTPClient, updateDownloadHTTPClient
+	updateHTTPClient = func() *http.Client { return delayed(20 * time.Millisecond) }
+	updateDownloadHTTPClient = func() *http.Client { return delayed(2 * time.Second) }
+	t.Cleanup(func() { updateHTTPClient, updateDownloadHTTPClient = previousCheck, previousDownload })
+
+	msg, ok := updateApplyCmd(f.tag, f.target)().(updateAppliedMsg)
+	if !ok {
+		t.Fatal("the update row did not answer with an applied message")
+	}
+	if msg.err != nil {
+		t.Fatalf("the update row could not take an answer slower than the check's deadline: %v", msg.err)
+	}
+	after, err := os.ReadFile(f.path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if string(after) != f.newBins {
+		t.Errorf("installed binary = %q, want the verified release bytes %q", string(after), f.newBins)
+	}
+}
+
 func TestApplySelfUpdateRefusesAnAssetTheReleaseDoesNotCarry(t *testing.T) {
 	f := newUpdateFixture(t, "unused")
 	f.client.files[dotfilesReleaseURLBase+f.tag+"/"+releaseSumsAssetName] =
