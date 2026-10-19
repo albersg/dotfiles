@@ -73,10 +73,22 @@ type installerHint struct {
 // The installer's hints, one per action, in the canonical order the previous
 // slice fixed: navigation first, then the action, then the way back or out. A
 // screen lists the actions it honours by name instead of retyping a sentence.
+//
+// The grammar these spell is fixed in odd/tasks/key-grammar.md and guarded by
+// TestEveryHintObeysTheKeyGrammar: Enter opens or chooses, Space toggles a row
+// that is a switch, a command runs on its own letter, Esc goes back, and a text
+// field commits with Enter because its letters are its text.
 var (
 	hintUp     = installerHint{"↑/k", "up"}
 	hintDown   = installerHint{"↓/j", "down"}
 	hintSelect = installerHint{"[Enter]", "select"}
+	// hintOpen and hintChoose are the two spellings of Enter's one meaning, and
+	// the pass moves each screen onto the one that names what it does: hintOpen
+	// for a row that leads to a screen, hintChoose for a picker whose rows are
+	// values. hintSelect names neither, and it is what the screens the pass has
+	// not reached yet still say.
+	hintOpen   = installerHint{"[Enter]", "open"}
+	hintChoose = installerHint{"[Enter]", "choose"}
 	hintBack   = installerHint{"[Esc]", "back"}
 	// The password screen's Enter is an attempt rather than a selection, so it names
 	// its own pair instead of borrowing the wizard's: "select" there would say the
