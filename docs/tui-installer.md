@@ -1361,10 +1361,10 @@ as stoppable.
 
 **Stopping is one deliberate action.** `x` opens the **Stop a process** confirmation, which names the
 identity (PID, name, account, executable, start time), the owner, **every port that process holds**
--- not only the selected row -- and what each signal does. The soft signal (`SIGTERM`) is what `t`
-and `Enter` send. The forced signal (`SIGKILL`) is a **separate row with its own wording** that
-appears only after a soft attempt left the process running, so it can never ride along with the first
-press.
+-- not only the selected row -- and what each signal does. The soft signal (`SIGTERM`) runs on
+**`t`**. The forced signal (`SIGKILL`) is a **separate row on `f`** that appears only after a soft
+attempt left the process running, so it can never ride along with the first press. Enter stops
+nothing: it opens a row's detail.
 
 **Nothing is sent until the screen's facts are revalidated, and the outcome is measured.** Before the
 signal, the PID is asked about again, its start time or identity token is compared with the one that

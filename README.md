@@ -498,9 +498,9 @@ plainly that the Windows host's own ports and processes are not visible from her
 stopped from here.
 
 Stopping is one deliberate action. `x` opens a confirmation that names the identity, the owner,
-**every port that process holds** and what each signal does; `SIGTERM` is what `t` and `Enter` send,
-and `SIGKILL` is its own row that appears only after a soft attempt left the process running, so it
-can never ride along with the first press. Before anything is sent, the PID is asked about again, its
+**every port that process holds** and what each signal does; **`t`** sends `SIGTERM`, and **`f`** is
+its own row for `SIGKILL` that appears only after a soft attempt left the process running, so it
+can never ride along with the first press. Enter stops nothing: it opens a row's detail. Before anything is sent, the PID is asked about again, its
 start time or identity token is compared with the one that was on screen, and the ports must still be
 held by that same process; PID 1, the installer's own process and its ancestors, and the operating
 system's init and session daemons are refused with the reason. A signal the kernel refuses is
