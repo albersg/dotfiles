@@ -435,7 +435,7 @@ func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
 	// the capture below passing means the key was not pressed rather than the spy
 	// being on the wrong seam. Since the review screen interposes, the install key is
 	// two presses: the setup screen's action row opens the review, and the review's
-	// own Enter starts the run. Walking both is what keeps the teeth on the real seam.
+	// own [s] starts the run. Walking both is what keeps the teeth on the real seam.
 	start := installerFrameCase(t, "setup")
 	// The first planned step must be one that reaches the executor without asking
 	// for the administrator credential first, or this spy sits behind the
@@ -457,9 +457,9 @@ func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
 		t.Fatalf("Enter on the setup screen's action row landed on %v, want the review screen", review.Screen)
 	}
 
-	next, press := review.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, press := review.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	if press == nil {
-		t.Fatal("Enter on the review screen returned no command, so the install key is not wired")
+		t.Fatal("s on the review screen returned no command, so the install key is not wired")
 	}
 	_, stepCmd := next.(Model).Update(press())
 	if stepCmd == nil {
