@@ -475,7 +475,7 @@ that may be the user's before it replaces it. Choosing it first **detects** the 
 theme files that are not in the generated form (no marker, no block, or a block that no longer
 matches its definition) and opens a **review** that names every file it would touch, why it is out of
 date, and where each file that may be the user's will be preserved first. **Nothing is written until
-the review is confirmed**, and Cancel leaves every file exactly as it is. A file that cannot be
+the review is confirmed** with `[y]`, and `[n]` leaves every file exactly as it is. A file that cannot be
 refreshed (unreadable, not a regular file, or a content that is not a recognizable dotfiles theme
 block) is named in the review and skipped, and the rest of the refresh carries on; one bad file never
 aborts the batch.
@@ -810,9 +810,9 @@ start itself is the user's choice: the interactive start a terminal gives you, t
 clean start with no configuration read at all. Three further settings are on the same line: how many
 runs to take (five by default, at most twenty), whether a warm-up run is thrown away first (none by
 default, at most three), and whether the run compares the configured start with a clean one. `[m]`,
-`[n]`, `[w]` and `[b]` change them, and the screen's first line draws the command the press would
-really run, flags included, so the plan on screen and the measurement cannot promise two different
-things.
+`[n]`, `[w]` and `[b]` change them, **`s`** starts the measurement, and the screen's first line draws
+the command the press would really run, flags included, so the plan on screen and the measurement
+cannot promise two different things.
 
 **The number is a measurement, not a run.** The screen reports the **median** with the **mean** and the
 **range** beside it, the count it covers, the fastest and slowest start, and every completed start in
@@ -1729,10 +1729,12 @@ The backup path is named in the install log.
 | `↑` / `k` | Move up |
 | `↓` / `j` | Move down |
 | `Tab` | Cycle the panels of a screen that offers more than one |
-| `Enter` / `Space` | Select option |
-| `Esc` | Go back (nothing on the main menu: it is the root) |
+| `Enter` | Open a screen, open a row's detail, or choose the value under the cursor |
+| `Space` | Turn the switch under the cursor off or on (only where a screen has switches) |
+| the letter a row shows | Run that row's command. No command runs on `j` or `k`, nor on `h`/`l` where the screen adjusts sideways, and no screen gives one letter two commands |
+| `Esc` | Go back (nothing on the main menu: it is the root), or stop a run in progress where a screen says so |
 | `Backspace` | Go back, the same as `Esc`, except on the trainer's answer line where it deletes the last typed unit |
-| `Space` `q` | Quit (when not installing) |
+| `q` | Quit (when not installing) |
 | `d` | Toggle details (during installation) |
 | `Ctrl+C` | Force quit |
 
