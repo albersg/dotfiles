@@ -1578,15 +1578,12 @@ func TestTheUpdateScreenChecksOneAtATime(t *testing.T) {
 	if options := m.GetCurrentOptions(); len(options) < 2 || options[1] != updateCheckRow {
 		t.Fatalf("the re-check row is not where these guards look for it: %v", options)
 	}
-	m.Cursor = 1
 
-	next, cmd := m.handleUpdateKeys("enter")
+	// The row says [r] and the screen answers r (issue #375): the guard presses
+	// what the row declares rather than a key of its own choosing.
+	started, cmd := pressUpdateCenterRow(t, m, updateCheckRow)
 	if cmd == nil {
 		t.Fatal("pressing the re-check row started nothing")
-	}
-	started, ok := next.(Model)
-	if !ok {
-		t.Fatal("the key handler did not return a model")
 	}
 	if !started.UpdateCheck.InFlight {
 		t.Error("the check was started but the screen does not know it is running")
