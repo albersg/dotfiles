@@ -168,27 +168,32 @@ func TestTurningAUnitOffDoesNotWriteThroughTheSliceItWasGiven(t *testing.T) {
 	}
 }
 
-// TestEnterStartsTheRunFromTheScreen is what keeps the screen from being
-// decorative: Enter records the plan from the choices and starts the run, so the
-// units the user just reviewed are the units the plan holds.
-func TestEnterStartsTheRunFromTheScreen(t *testing.T) {
+// TestTheStartKeyStartsTheRunFromTheScreen is what keeps the screen from being
+// decorative: the start key records the plan from the choices and starts the run,
+// so the units the user just reviewed are the units the plan holds. Enter, which
+// opens and chooses everywhere else, must not start it: a row here is a switch.
+func TestTheStartKeyStartsTheRunFromTheScreen(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenInstallReview
 	m.Choices = UserChoices{OS: "linux", Shell: "zsh", Terminal: "none", WindowMgr: "none"}
 
-	next, cmd := m.handleInstallReviewKeys("enter")
+	if idle, cmd := m.handleInstallReviewKeys("enter"); cmd != nil || idle.(Model).Screen != ScreenInstallReview {
+		t.Error("Enter started the run; the screen's decision carries its own letter")
+	}
+
+	next, cmd := m.handleInstallReviewKeys("s")
 	started, ok := next.(Model)
 	if !ok {
-		t.Fatalf("Enter returned %T, want a Model", next)
+		t.Fatalf("the start key returned %T, want a Model", next)
 	}
 	if started.Screen != ScreenInstalling {
-		t.Errorf("Enter left the screen on %v, want the installing screen", started.Screen)
+		t.Errorf("the start key left the screen on %v, want the installing screen", started.Screen)
 	}
 	if len(started.Steps) == 0 {
 		t.Errorf("the run started with no plan")
 	}
 	if cmd == nil {
-		t.Errorf("Enter did not start the run: no command came back")
+		t.Errorf("the start key did not start the run: no command came back")
 	}
 }
 
@@ -235,7 +240,7 @@ func TestTheBodySaysWhatTheKeysDo(t *testing.T) {
 		}
 	}
 	rendered := m.renderInstallReview()
-	for _, hint := range []installerHint{hintToggle, hintStart, hintBack} {
+	for _, hint := range []installerHint{hintToggle, hintStartInstall, hintBack} {
 		if !strings.Contains(rendered, hint.keys) {
 			t.Errorf("the screen does not show the %s key", hint.keys)
 		}

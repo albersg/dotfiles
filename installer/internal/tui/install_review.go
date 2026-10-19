@@ -357,6 +357,12 @@ func windowRowsFor(total, cursor, size int) (start, end int) {
 	return start, start + size
 }
 
+// hintStartInstall is the review's own start key. The screen is a list of switches,
+// and starting the run is a decision that changes everything that follows: Enter
+// opens and chooses, so the decision takes a letter of its own, and the key that
+// turns a unit off can never also start the run.
+var hintStartInstall = installerHint{"[s]", "start"}
+
 // renderInstallReview draws the screen: the title, what the screen is for, the
 // run's own plan grouped by area with each row saying where it came from and each
 // tool's plugin set indented under it, and how the selection stands. The rows come
@@ -373,7 +379,7 @@ func windowRowsFor(total, cursor, size int) (start, end int) {
 func (m Model) renderInstallReview() string {
 	width := contentWidth(m)
 
-	hints := []installerHint{hintUp, hintDown, hintToggle, hintStart, hintBack}
+	hints := []installerHint{hintUp, hintDown, hintToggle, hintStartInstall, hintBack}
 	footer := footerHints(layoutFor(m).Inner, m.panelHints(m.panelsFor(), hints))
 	budget := installerBodyRows(m.Height, len(footer))
 
@@ -453,7 +459,7 @@ func (m *Model) openInstallReview() {
 	m.snapUnitCursor()
 }
 
-// beginInstallFromReview is the review screen's Enter: it records the plan from the
+// beginInstallFromReview is the review screen's start key: it records the plan from the
 // choices and the selection the user just reviewed, and starts the run. It is the
 // only place a run starts, which is what keeps the screen from being decorative.
 func (m Model) beginInstallFromReview() (tea.Model, tea.Cmd) {
@@ -472,7 +478,8 @@ func (m Model) beginInstallFromReview() (tea.Model, tea.Cmd) {
 }
 
 // handleInstallReviewKeys is the review screen's keyboard. Space is the switch and
-// Enter is the decision, so a key that toggles can never also start the run.
+// s is the decision, so the key that toggles a unit can never also start the run, and
+// Enter is left to the screens that open something.
 func (m Model) handleInstallReviewKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "up", "k":
@@ -481,7 +488,7 @@ func (m Model) handleInstallReviewKeys(key string) (tea.Model, tea.Cmd) {
 		m.moveUnitCursor(1)
 	case " ":
 		m.toggleUnitAtCursor()
-	case "enter":
+	case "s":
 		return m.beginInstallFromReview()
 	case "esc":
 		back := m.PrevScreen

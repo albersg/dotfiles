@@ -175,12 +175,13 @@ func (m Model) renderInstallVerify() string {
 		[]installerHint{hintBack})
 }
 
-// handleInstallVerifyKeys drives the verification screen. It only ever changes
-// the screen: there is nothing to select and nothing to write, so every key
-// either does nothing or steps back to the section that opened it.
+// handleInstallVerifyKeys drives the verification screen. It only ever changes the
+// screen, and the only key that does is the way back its footer names: there is
+// nothing to select and nothing to write, so every other key does nothing. Enter is
+// not a second way back -- it opens, and there is nothing here to open.
 func (m Model) handleInstallVerifyKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "enter", " ":
+	case "esc":
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 	}

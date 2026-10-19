@@ -287,6 +287,18 @@ func TestTheVerificationScreenIsReadOnly(t *testing.T) {
 		t.Error("a key cleared the verdict")
 	}
 
+	// Enter and Space are not second ways back: they open and toggle, and there is
+	// nothing here to open or toggle.
+	for _, key := range []string{"enter", " "} {
+		next, cmd := m.handleInstallVerifyKeys(key)
+		if cmd != nil {
+			t.Errorf("%q armed a command on the read-only screen", key)
+		}
+		if got := next.(Model).Screen; got != ScreenInstallVerify {
+			t.Errorf("%q left the read-only screen on %v; Esc is its only way back", key, got)
+		}
+	}
+
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if got := next.(Model).Screen; got != ScreenUtilities {
 		t.Errorf("Esc went to %v, want ScreenUtilities", got)
