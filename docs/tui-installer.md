@@ -475,7 +475,7 @@ that may be the user's before it replaces it. Choosing it first **detects** the 
 theme files that are not in the generated form (no marker, no block, or a block that no longer
 matches its definition) and opens a **review** that names every file it would touch, why it is out of
 date, and where each file that may be the user's will be preserved first. **Nothing is written until
-the review is confirmed**, and Cancel leaves every file exactly as it is. A file that cannot be
+the review is confirmed** with `[y]`, and `[n]` leaves every file exactly as it is. A file that cannot be
 refreshed (unreadable, not a regular file, or a content that is not a recognizable dotfiles theme
 block) is named in the review and skipped, and the rest of the refresh carries on; one bad file never
 aborts the batch.
@@ -810,9 +810,9 @@ start itself is the user's choice: the interactive start a terminal gives you, t
 clean start with no configuration read at all. Three further settings are on the same line: how many
 runs to take (five by default, at most twenty), whether a warm-up run is thrown away first (none by
 default, at most three), and whether the run compares the configured start with a clean one. `[m]`,
-`[n]`, `[w]` and `[b]` change them, and the screen's first line draws the command the press would
-really run, flags included, so the plan on screen and the measurement cannot promise two different
-things.
+`[n]`, `[w]` and `[b]` change them, **`s`** starts the measurement, and the screen's first line draws
+the command the press would really run, flags included, so the plan on screen and the measurement
+cannot promise two different things.
 
 **The number is a measurement, not a run.** The screen reports the **median** with the **mean** and the
 **range** beside it, the count it covers, the fastest and slowest start, and every completed start in
@@ -1361,10 +1361,10 @@ as stoppable.
 
 **Stopping is one deliberate action.** `x` opens the **Stop a process** confirmation, which names the
 identity (PID, name, account, executable, start time), the owner, **every port that process holds**
--- not only the selected row -- and what each signal does. The soft signal (`SIGTERM`) is what `t`
-and `Enter` send. The forced signal (`SIGKILL`) is a **separate row with its own wording** that
-appears only after a soft attempt left the process running, so it can never ride along with the first
-press.
+-- not only the selected row -- and what each signal does. The soft signal (`SIGTERM`) runs on
+**`t`**. The forced signal (`SIGKILL`) is a **separate row on `f`** that appears only after a soft
+attempt left the process running, so it can never ride along with the first press. Enter stops
+nothing: it opens a row's detail.
 
 **Nothing is sent until the screen's facts are revalidated, and the outcome is measured.** Before the
 signal, the PID is asked about again, its start time or identity token is compared with the one that
@@ -1408,10 +1408,12 @@ many are left, `Esc` cancels a run in flight, and a machine with a hanging comma
 interface. Cancelling is a real state: the checks that never ran are recorded as **unknown** with
 the reason, and the report says how far the run got rather than reading as a clean machine.
 
-The screen's own keys are on its last line: `↑`/`k` and `↓`/`j` move, `Enter` or `Space` acts on the
-row, **`t`** shows the problems or every finding, **`w`** writes the report, **`r`** retries the
-checks that could not answer, and `Esc` cancels a run in flight or leaves the screen. A row is what
-acts: the run rows, the filter, the export, and any finding that offers a repair.
+The screen's own keys are on its last line: `↑`/`k` and `↓`/`j` move, **`a`** runs every check,
+**`c`** runs only the category under the cursor, **`r`** retries the checks that could not
+answer, **`w`** writes the report, **`t`** shows the problems or every finding, and `Esc` cancels a
+run in flight or leaves the screen. `Enter` opens a finding's repair and does nothing on a row that
+acts where it stands; `Space` is not offered, because the list has no switch. A row is what acts:
+the run rows, the filter, the export, and any finding that offers a repair.
 
 **Every finding carries its evidence, its impact and what to do.** A finding is a subject, the
 exact thing that was read (`df -Pk $HOME → 60000000 KB available`, `~/.ssh/id_ed25519 has mode
@@ -1543,7 +1545,7 @@ short: the frame draws a row instead of wrapping it, and the longest set name le
 characters inside the narrowest terminal the frame matrix measures, so the registry's full reason
 would be cut off exactly where a user reads it -- the reason keeps its own guards and its other
 carriers, `--skip`'s refusal and this documentation. `Space` turns the unit under the cursor
-off or back on, `Enter` starts the run, and `Esc` returns to the setup screen the plan was opened
+off or back on, **`s`** starts the run, and `Esc` returns to the setup screen the plan was opened
 from. The cursor rests only on rows it can switch: it steps over the area headings, the plugin-set
 rows and the three fixed units, so no row ever offers a switch for something the run needs. The list
 is drawn as a window sized by the terminal, and the rows that do not fit are counted above and below
@@ -1727,10 +1729,12 @@ The backup path is named in the install log.
 | `↑` / `k` | Move up |
 | `↓` / `j` | Move down |
 | `Tab` | Cycle the panels of a screen that offers more than one |
-| `Enter` / `Space` | Select option |
-| `Esc` | Go back (nothing on the main menu: it is the root) |
+| `Enter` | Open a screen, open a row's detail, or choose the value under the cursor |
+| `Space` | Turn the switch under the cursor off or on (only where a screen has switches) |
+| the letter a row shows | Run that row's command. No command runs on `j` or `k`, nor on `h`/`l` where the screen adjusts sideways, and no screen gives one letter two commands |
+| `Esc` | Go back (nothing on the main menu: it is the root), or stop a run in progress where a screen says so |
 | `Backspace` | Go back, the same as `Esc`, except on the trainer's answer line where it deletes the last typed unit |
-| `Space` `q` | Quit (when not installing) |
+| `q` | Quit (when not installing) |
 | `d` | Toggle details (during installation) |
 | `Ctrl+C` | Force quit |
 

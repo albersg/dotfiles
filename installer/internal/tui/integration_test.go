@@ -36,7 +36,9 @@ func TestFullInstallationFlow(t *testing.T) {
 			t.Fatalf("Expected ScreenWelcome, got %v", m.Screen)
 		}
 
-		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		// The welcome screen opens the menu on the letter its footer names
+		// (issue #375): Enter no longer starts, so the flow presses s.
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 		m = result.(Model)
 		if m.Screen != ScreenMainMenu {
 			t.Fatalf("Expected ScreenMainMenu, got %v", m.Screen)

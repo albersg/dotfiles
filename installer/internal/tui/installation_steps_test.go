@@ -672,7 +672,13 @@ func TestNavigationToEachScreen(t *testing.T) {
 			t.Fatal("Should start at welcome")
 		}
 
-		m, _ = simulateKeyPress(m, "enter")
+		// The welcome's start is a command on its own letter; Enter does nothing.
+		idle, _ := simulateKeyPress(m, "enter")
+		if idle.Screen != ScreenWelcome {
+			t.Errorf("Enter left the welcome screen: got %v", idle.Screen)
+		}
+
+		m, _ = simulateKeyPress(m, "s")
 		if m.Screen != ScreenMainMenu {
 			t.Errorf("Expected MainMenu, got %v", m.Screen)
 		}
@@ -1020,6 +1026,10 @@ func simulateKeyPress(m Model, key string) (Model, interface{}) {
 		msg = tea.KeyMsg{Type: tea.KeyDown}
 	case "esc":
 		msg = tea.KeyMsg{Type: tea.KeyEscape}
+	default:
+		// Anything else is the single key it is written as: the screens the pass
+		// moved onto their own letters are pressed with a rune, not a named key.
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 	}
 
 	result, _ := m.Update(msg)

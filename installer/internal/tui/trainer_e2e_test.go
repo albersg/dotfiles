@@ -165,8 +165,10 @@ func TestTrainerNavigationE2E(t *testing.T) {
 	waitForTrainerOutput(t, tm, "first terminal frame", func(output []byte) bool {
 		return len(output) > 0
 	})
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	waitForTrainerText(t, tm, "main menu to render after Enter", "Start", "Learn")
+	// The welcome screen's footer names [s] start: Enter no longer opens the menu
+	// (issue #375), so the flow presses the key the screen advertises.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	waitForTrainerText(t, tm, "main menu to render after s", "Start", "Learn")
 
 	// Main Menu -> Navigate to Vim Trainer (index 4: Start, Learn, Keymaps, LazyVim, Vim Trainer)
 	for i := 0; i < 4; i++ {

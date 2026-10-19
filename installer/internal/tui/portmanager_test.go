@@ -542,7 +542,7 @@ func TestPortManagerIsOfferedAndOpens(t *testing.T) {
 
 	index := -1
 	for i, option := range m.GetCurrentOptions() {
-		if option == utilitiesPortRow {
+		if option == utilitiesScreenRow(utilitiesPortRow) {
 			index = i
 			break
 		}
@@ -896,5 +896,282 @@ func TestPortManagerCopySendsOnlyRedactedText(t *testing.T) {
 	}
 	if !strings.Contains(got.Ports.Notice, "OSC 52") {
 		t.Errorf("notice = %q, want it to name the copy it made", got.Ports.Notice)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The key grammar
+// ---------------------------------------------------------------------------
+//
+// The manager's rows are the reading, so nothing on it is a switch; its commands
+// already run on their own letters, and Enter is left to the one thing it opens:
+// the selected row's detail. The confirmation's two answers are commands too, so
+// they run on letters of their own -- never on a move key, and never on Enter.
+
+// portCommandLetters counts the letters a footer offers as commands, so the guard
+// can say that no letter carries two of them.
+func portCommandLetters(hints []installerHint) map[string][]string {
+	counts := map[string][]string{}
+	for _, hint := range hints {
+		for _, key := range hintKeyTokens(hint.keys) {
+			if len(key) == 1 && key[0] >= 'a' && key[0] <= 'z' {
+				counts[key] = append(counts[key], hint.verb)
+			}
+		}
+	}
+	return counts
+}
+
+// assertPortCommandsAreDistinct fails when one letter carries two commands, or
+// when a command that is not the cursor's runs on j or k.
+func assertPortCommandsAreDistinct(t *testing.T, hints []installerHint) {
+	t.Helper()
+
+	for letter, verbs := range portCommandLetters(hints) {
+		if len(verbs) > 1 {
+			t.Errorf("%q carries two commands: %v", letter, verbs)
+		}
+		if letter != "j" && letter != "k" {
+			continue
+		}
+		if verbs[0] != "up" && verbs[0] != "down" && verbs[0] != "move" {
+			t.Errorf("the command %q runs on %q, which is a move key", verbs[0], letter)
+		}
+	}
+}
+
+// TestThePortManagerRowsAreDataAndItsCommandsHaveLetters pins the manager's half
+// of the grammar: its rows are the reading rather than switches, Enter opens the
+// selected row's detail and nothing else, and every command the footer names runs
+// on its own letter.
+func TestPortManagerRowsAreDataAndItsCommandsHaveLetters(t *testing.T) {
+	m := portTestModel(t, newPortTestProbe())
+
+	hints := m.portManagerHints()
+	for _, hint := range hints {
+		if strings.Contains(hint.keys, "Space") {
+			t.Errorf("the manager offers Space for %q, and its rows are data rather than switches", hint.verb)
+		}
+		if strings.Contains(hint.keys, "Enter") && hint.verb != "open" {
+			t.Errorf("the manager offers Enter for %q, and Enter opens", hint.verb)
+		}
+	}
+	assertPortCommandsAreDistinct(t, hints)
+
+	// Enter opens the row's detail, which is a read: no command and nothing new
+	// asked of the machine.
+	before := m.Ports.Cursor
+	next, cmd := m.handlePortManagerKeys("enter")
+	got := next.(Model)
+	if cmd != nil {
+		t.Fatal("Enter on a row issued a command")
+	}
+	if !got.Ports.Detail {
+		t.Fatal("Enter did not open the selected row's detail")
+	}
+	if got.Ports.Cursor != before {
+		t.Fatalf("Enter moved the cursor from %d to %d", before, got.Ports.Cursor)
+	}
+
+	// Enter again closes it: the detail is an expansion of the row, not a screen.
+	next, _ = got.handlePortManagerKeys("enter")
+	if next.(Model).Ports.Detail {
+		t.Fatal("Enter opened the detail twice instead of closing it")
+	}
+
+	// Space is not a second key for the detail: it toggles a switch, and this
+	// screen's rows are data.
+	spaced, _ := next.(Model).handlePortManagerKeys(" ")
+	if spaced.(Model).Ports.Detail {
+		t.Fatal("Space opened the detail; only Enter opens it")
+	}
+}
+
+// TestTheStopConfirmationRunsEachActionOnItsLetter pins the confirmation: the one
+// action on offer carries its letter on its row and in the footer, the gentle
+// stop runs on its own letter rather than on Enter, the forced one keeps a letter
+// of its own that is not a move key, and Esc is the way back without sending
+// anything.
+func TestPortStopRunsEachActionOnItsLetter(t *testing.T) {
+	m := portTestModel(t, newPortTestProbe())
+	portTestCursorToPID(t, &m, 1000)
+	next, _ := m.handlePortManagerKeys("x")
+	m = next.(Model)
+	if m.Screen != ScreenPortStop {
+		t.Fatalf("the stop key opened %v, want the confirmation", m.Screen)
+	}
+
+	// The soft stop is on offer, and its row says which letter runs it.
+	rows := strings.Join(m.portStopRows(), "\n")
+	if !strings.Contains(rows, portHintTerminate.keys+" Stop it gently (SIGTERM)") {
+		t.Fatalf("the confirmation's row does not carry the gentle stop's letter:\n%s", rows)
+	}
+	if !strings.Contains(rows, portBackRow) {
+		t.Fatalf("the confirmation draws no way back:\n%s", rows)
+	}
+	assertPortCommandsAreDistinct(t, m.portStopHints())
+	for _, hint := range m.portStopHints() {
+		if strings.Contains(hint.keys, "Enter") {
+			t.Errorf("the confirmation offers Enter for %q, and a stop is not opening", hint.verb)
+		}
+		if strings.Contains(hint.keys, "Space") {
+			t.Errorf("the confirmation offers Space for %q, and it has no switch", hint.verb)
+		}
+	}
+
+	// The gentle letter asks for the soft signal, and asks for nothing else: the
+	// forced attempt is the flag the handler sets, and this one does not set it.
+	next, cmd := m.handlePortStopKeys("t")
+	got := next.(Model)
+	if cmd == nil {
+		t.Fatal("the gentle stop's letter issued no stop")
+	}
+	if !got.PortStop.Running {
+		t.Fatal("the gentle stop's letter did not start an attempt")
+	}
+	if got.PortStop.Forced {
+		t.Fatal("the gentle stop's letter sent the forced signal")
+	}
+
+	// A soft attempt that left the process running turns the forced stop into the
+	// screen's one action, and it keeps a letter of its own: the cursor's j and k
+	// are never a command.
+	stillRunning := portscan.StopResult{
+		Outcome:  portscan.OutcomeStillRunning,
+		Signal:   portscan.SignalTerminate,
+		Message:  "pid 1000 (node) is still running after the soft stop.",
+		Alive:    true,
+		Verified: true,
+	}
+	next, _ = m.Update(portsStopDoneMsg{result: stillRunning})
+	forced := next.(Model)
+	if !forced.portStopForcedOffered() {
+		t.Fatal("the forced stop is not on offer after a soft attempt left the process running")
+	}
+	rows = strings.Join(forced.portStopRows(), "\n")
+	if !strings.Contains(rows, portHintForce.keys+" Force the stop (SIGKILL)") {
+		t.Fatalf("the forced stop's row does not carry its letter:\n%s", rows)
+	}
+	if strings.Contains(rows, "[k]") || strings.Contains(rows, "[j]") {
+		t.Fatalf("a stop runs on a move key:\n%s", rows)
+	}
+	assertPortCommandsAreDistinct(t, forced.portStopHints())
+
+	// The footer names exactly what the rows offer: one action and the way back.
+	offered := map[string]bool{}
+	for _, hint := range forced.portStopHints() {
+		for _, key := range hintKeyTokens(hint.keys) {
+			offered[key] = true
+		}
+	}
+	if !offered["f"] {
+		t.Errorf("the footer does not name the forced stop's letter: %v", forced.portStopHints())
+	}
+	if !offered["Esc"] {
+		t.Errorf("the footer does not name the way back: %v", forced.portStopHints())
+	}
+	if len(offered) != 2 {
+		t.Errorf("the footer names %d keys, and the confirmation offers one action and the way back: %v", len(offered), forced.portStopHints())
+	}
+
+	// Esc is the way back, and it sends nothing.
+	before := len(forced.PortStop.Target.Sockets)
+	next, cmd = forced.handlePortStopKeys("esc")
+	back := next.(Model)
+	if cmd != nil {
+		t.Fatal("leaving the confirmation issued a command")
+	}
+	if back.Screen != ScreenPortManager {
+		t.Fatalf("Esc left the confirmation for %v, want the manager", back.Screen)
+	}
+	if len(back.PortStop.Target.Sockets) != before {
+		t.Fatal("leaving the confirmation changed the target it would have signalled")
+	}
+}
+
+// portStopConfirmation is the confirmation reached the way a user reaches it,
+// optionally after a soft attempt whose account is given.
+func portStopConfirmation(t *testing.T, result *portscan.StopResult) Model {
+	t.Helper()
+
+	m := portTestModel(t, newPortTestProbe())
+	portTestCursorToPID(t, &m, 1000)
+	next, _ := m.handlePortManagerKeys("x")
+	m = next.(Model)
+	if m.Screen != ScreenPortStop {
+		t.Fatalf("the stop key opened %v, want the confirmation", m.Screen)
+	}
+	if result == nil {
+		return m
+	}
+	next, _ = m.Update(portsStopDoneMsg{result: *result})
+	return next.(Model)
+}
+
+// pressPortStopKey sends one key through the real dispatch and checks the screen
+// stayed where it was: a key that sent nothing is still on the confirmation.
+func pressPortStopKey(t *testing.T, m Model, key tea.KeyMsg) (Model, tea.Cmd) {
+	t.Helper()
+
+	next, cmd := m.Update(key)
+	got := next.(Model)
+	if got.Screen != ScreenPortStop {
+		t.Fatalf("%q left the confirmation for %v", key.String(), got.Screen)
+	}
+	return got, cmd
+}
+
+// TestPortStopAnswersOnlyItsOwnTwoLetters presses the rows' letters and the keys
+// this screen used to answer: the gentle stop runs on t and the forced one on f,
+// while Enter -- which opens and chooses, and never stops -- and k -- a move key
+// -- stop nothing, in either state.
+func TestPortStopAnswersOnlyItsOwnTwoLetters(t *testing.T) {
+	stillRunning := portscan.StopResult{
+		Outcome:  portscan.OutcomeStillRunning,
+		Signal:   portscan.SignalTerminate,
+		Message:  "pid 1000 (node) is still running after the soft stop.",
+		Alive:    true,
+		Verified: true,
+	}
+	notAStop := []tea.KeyMsg{
+		{Type: tea.KeyEnter},
+		{Type: tea.KeyRunes, Runes: []rune{'k'}},
+	}
+
+	// The soft stop is on offer: its letter asks for it, and nothing else does.
+	gentle := portStopConfirmation(t, nil)
+	for _, key := range notAStop {
+		next, cmd := pressPortStopKey(t, gentle, key)
+		if cmd != nil || next.PortStop.Running {
+			t.Fatalf("%q started a stop; this screen stops on %q and %q", key.String(),
+				portHintTerminate.keys, portHintForce.keys)
+		}
+	}
+	next, cmd := pressPortStopKey(t, gentle, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if cmd == nil || !next.PortStop.Running {
+		t.Fatalf("%q issued no stop on a screen that offers the soft one", 't')
+	}
+	if next.PortStop.Forced {
+		t.Fatalf("%q sent the forced signal; the forced stop is a separate action", 't')
+	}
+
+	// A soft attempt that left the process running: the forced stop is the one
+	// action on offer, and the keys that are not its letter stop nothing.
+	m := portStopConfirmation(t, &stillRunning)
+	if !m.portStopForcedOffered() {
+		t.Fatal("the forced stop is not on offer after a soft attempt left the process running")
+	}
+	for _, key := range append(notAStop, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}) {
+		next, cmd := pressPortStopKey(t, m, key)
+		if cmd != nil || next.PortStop.Running {
+			t.Fatalf("%q started a stop in the forced state; the forced stop runs on %q", key.String(), 'f')
+		}
+	}
+	next, cmd = pressPortStopKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	if cmd == nil || !next.PortStop.Running {
+		t.Fatalf("%q issued no stop on the screen that offers the forced one", 'f')
+	}
+	if !next.PortStop.Forced {
+		t.Fatalf("%q sent the soft signal, and its row says it forces the stop", 'f')
 	}
 }

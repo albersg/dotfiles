@@ -1127,10 +1127,11 @@ func TestUtilitiesIdleKeyChangesNothing(t *testing.T) {
 	}
 }
 
-// TestUtilitiesSelectingASwitchRunsTheThemeCommand pins the wiring from the row
-// to the command: enter on the dark row returns the command that switches the
-// detected desktop's theme, through the same seam the disk tests drive.
-func TestUtilitiesSelectingASwitchRunsTheThemeCommand(t *testing.T) {
+// TestUtilitiesDarkKeyRunsTheThemeCommand pins the wiring from the row to the
+// command: the row carries [d], pressing d returns the command that switches the
+// detected desktop's theme through the same seam the disk tests drive, and Enter
+// -- which opens screens and nothing else -- leaves it alone.
+func TestUtilitiesDarkKeyRunsTheThemeCommand(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	target, ok := themeSwitchByID("gnome")
 	if !ok {
@@ -1142,10 +1143,13 @@ func TestUtilitiesSelectingASwitchRunsTheThemeCommand(t *testing.T) {
 	)
 
 	m := utilitiesModel(t, true)
-	next, cmd := m.handleUtilitiesKeys("enter")
+	if next, cmd := m.handleUtilitiesKeys("enter"); cmd != nil || next.(Model).Screen != ScreenUtilities {
+		t.Error("Enter on the dark row ran the switch; the row carries the letter that runs it")
+	}
+	next, cmd := m.handleUtilitiesKeys("d")
 	m = next.(Model)
 	if cmd == nil {
-		t.Fatal("selecting the dark row returned no command")
+		t.Fatal("pressing d on the dark row returned no command")
 	}
 
 	next, _ = m.Update(cmd())
@@ -1293,7 +1297,7 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 	next, _ := m.Update(cmd())
 	m = next.(Model)
 
-	if !slices.Contains(m.GetCurrentOptions(), utilitiesThemeRow) {
+	if !slices.Contains(m.GetCurrentOptions(), utilitiesScreenRow(utilitiesThemeRow)) {
 		t.Fatalf("the utilities section shows no %q row without a clone: %v", utilitiesThemeRow, m.GetCurrentOptions())
 	}
 
@@ -1383,7 +1387,7 @@ func TestUtilitiesOffersTheThemeRowFromAnInstalledCopyOutsideTheRepo(t *testing.
 	next, _ := m.Update(cmd())
 	m = next.(Model)
 
-	if !slices.Contains(m.GetCurrentOptions(), utilitiesThemeRow) {
+	if !slices.Contains(m.GetCurrentOptions(), utilitiesScreenRow(utilitiesThemeRow)) {
 		t.Fatalf("the utilities section shows no %q row from an installed copy outside the repository: %v",
 			utilitiesThemeRow, m.GetCurrentOptions())
 	}
@@ -2018,7 +2022,7 @@ func TestAPartialThemeCannotBePreviewed(t *testing.T) {
 // changeThemeRow is the utilities row that opens the theme picker. The list of
 // themes lives one level in, so the section is a list of jobs rather than a list
 // of themes.
-const changeThemeRow = "Change the dotfiles theme"
+const changeThemeRow = utilitiesScreenMark + utilitiesThemeRow
 
 // TestUtilitiesOffersAChangeThemeRowInsteadOfTheThemes pins the new level: the
 // utilities section offers one row that opens the theme list, and it does not
@@ -2238,9 +2242,13 @@ func TestUndoLeavesTheCursorOnASelectableRow(t *testing.T) {
 		t.Fatal("the apply recorded nothing, so there is no undo row to press")
 	}
 
-	// Press the undo row.
+	// Press the undo row. It acts where it stands, so it runs on its own letter;
+	// Enter is left to the rows that open something or choose a value.
 	m.Cursor = themePickerRowIndex(t, m, dotfilesThemeUndoRow)
-	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if idle, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); idle.(Model).themeActivityPending() {
+		t.Fatal("Enter ran the undo row, which acts in place and carries its own letter")
+	}
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
 	m = model.(Model)
 	if cmd == nil {
 		t.Fatal("pressing the undo row returned no command")
@@ -2333,7 +2341,11 @@ func TestThemePickerOffersTheRefreshRow(t *testing.T) {
 func TestThemeRefreshNamesTheFilesBeforeWriting(t *testing.T) {
 	m, dst, old := pickerWithRefreshFixture(t)
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// The refresh row acts where it stands, so Enter must not run it.
+	if idle, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); idle.(Model).ThemeRefreshReview {
+		t.Fatal("Enter opened the refresh review; the row carries its own letter")
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	m = next.(Model)
 	if cmd == nil {
 		t.Fatal("choosing the refresh row returned no detection command")
@@ -2355,9 +2367,12 @@ func TestThemeRefreshNamesTheFilesBeforeWriting(t *testing.T) {
 		t.Errorf("the review does not say where the unowned file is preserved:\n%s", plain)
 	}
 
-	// Confirming writes the file.
-	m.Cursor = 0
-	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// The confirmation writes, so Enter must not confirm it: the row runs on its
+	// own letter and the footer names that letter.
+	if after, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); after.(Model).ThemeRefreshDone {
+		t.Fatal("Enter confirmed the refresh; the write runs on its own letter")
+	}
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	m = next.(Model)
 	if cmd == nil {
 		t.Fatal("confirming the refresh returned no command")
@@ -2377,7 +2392,7 @@ func TestThemeRefreshNamesTheFilesBeforeWriting(t *testing.T) {
 func TestThemeRefreshCancelLeavesTheFilesAlone(t *testing.T) {
 	m, dst, old := pickerWithRefreshFixture(t)
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	m = next.(Model)
 	next, _ = m.Update(cmd())
 	m = next.(Model)
@@ -2385,8 +2400,11 @@ func TestThemeRefreshCancelLeavesTheFilesAlone(t *testing.T) {
 		t.Fatal("detection did not open the review, so there is nothing to cancel")
 	}
 
-	m.Cursor = 1 // Cancel is the second row and the safe default.
-	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// The cancel row carries its own letter, and Enter does not cancel it.
+	if after, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); !after.(Model).ThemeRefreshReview {
+		t.Fatal("Enter cancelled the review; the row runs on its own letter")
+	}
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 	m = next.(Model)
 	if cmd != nil {
 		t.Error("Cancel returned a command, so it is not a no-op")
@@ -2406,7 +2424,7 @@ func TestThemeRefreshCancelLeavesTheFilesAlone(t *testing.T) {
 func TestThemeRefreshEscapeCancelsTheReview(t *testing.T) {
 	m, dst, old := pickerWithRefreshFixture(t)
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	m = next.(Model)
 	next, _ = m.Update(cmd())
 	m = next.(Model)

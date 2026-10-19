@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,7 +62,7 @@ func diskCleanerModel(t *testing.T) (Model, string) {
 func diskCleanerScanned(t *testing.T) (Model, string) {
 	t.Helper()
 	m, home := diskCleanerModel(t)
-	m, cmd := diskCleanerPress(t, m, "enter")
+	m, cmd := diskCleanerPress(t, m, diskCleanScanKey)
 	if cmd == nil {
 		t.Fatal("the scan row started no command")
 	}
@@ -262,6 +263,162 @@ func diskCleanerCursorOn(t *testing.T, m Model, action diskCleanAction) Model {
 	return m
 }
 
+// diskCleanerGrammarState is everything a press can change on this screen, in one
+// string, so a test can say a key changed nothing without comparing two models that
+// carry command closures.
+func diskCleanerGrammarState(m Model) string {
+	return fmt.Sprintf("screen=%v phase=%v scanning=%v scanned=%v selected=%d roots=%v notice=%q",
+		m.Screen, m.DiskClean.Phase, m.DiskClean.Scanning, m.DiskClean.Scanned,
+		m.DiskClean.Selection.Count(m.DiskClean.Items), m.DiskClean.ProjectRoots, m.DiskClean.Notice)
+}
+
+// diskCleanerWithFinding is a scanned screen holding one finding, which is the
+// state that offers the switch rows and, once the finding is marked, the dry run.
+func diskCleanerWithFinding(t *testing.T) Model {
+	t.Helper()
+	m, _ := diskCleanerModel(t)
+	m.Width, m.Height = 200, 80
+	m.DiskClean.Items = []diskclean.Item{
+		diskCleanRemovalItem("store", "The store", filepath.Join(t.TempDir(), "store"), 4096),
+	}
+	m.DiskClean.Scanned = true
+	m.DiskClean.Selection = diskclean.Selection{}
+	return m
+}
+
+// diskCleanerWithSelection is the same screen with the finding marked, which is the
+// state that offers the dry run's own row.
+func diskCleanerWithSelection(t *testing.T) Model {
+	t.Helper()
+	m := diskCleanerWithFinding(t)
+	m.DiskClean.Selection = diskclean.Selection{"store": true}
+	return m
+}
+
+// TestDiskCleanerRowsDeclareTheKeyThatRunsThem pins the key grammar on this screen
+// (odd/tasks/key-grammar.md): every row that acts where it stands carries the key
+// that runs it, the footer names the same key while the row is offered, Enter runs
+// none of them, and Space is only ever a switch's key.
+func TestDiskCleanerRowsDeclareTheKeyThatRunsThem(t *testing.T) {
+	cases := []struct {
+		name   string
+		action diskCleanAction
+		build  func(t *testing.T) Model
+		// footer is the hint the legend has to carry while this row is on screen.
+		footer string
+	}{
+		{"the scan row", diskCleanActionScan, func(t *testing.T) Model {
+			m, _ := diskCleanerModel(t)
+			m.Width, m.Height = 200, 80
+			return m
+		}, "[s] scan"},
+		{"a finding's switch", diskCleanActionItem, diskCleanerWithFinding, "[Space] select or drop"},
+		{"the dry run's row", diskCleanActionPreview, diskCleanerWithSelection, "[p] preview"},
+		{"the confirmation's row", diskCleanActionConfirm, func(t *testing.T) Model {
+			return diskCleanerWithSelection(t).startDiskCleanPreview()
+		}, "[c] clean"},
+		{"the project directory's row", diskCleanActionAddRoot, func(t *testing.T) Model {
+			m := diskCleanerWithSelection(t)
+			m.DiskClean.Cwd = filepath.Join(t.TempDir(), "project")
+			return m
+		}, "[d] add the project directory"},
+		{"the forgetting row", diskCleanActionForgetRoot, func(t *testing.T) Model {
+			m := diskCleanerWithSelection(t)
+			m.DiskClean.ProjectRoots = []string{"/home/probe/apps/app"}
+			return m
+		}, "[f] forget the project directory"},
+		{"the way out of the preview", diskCleanActionCancelPreview, func(t *testing.T) Model {
+			return diskCleanerWithSelection(t).startDiskCleanPreview()
+		}, "[Esc] back"},
+		{"the way to stop the run", diskCleanActionCancelRun, func(t *testing.T) Model {
+			m := diskCleanerWithSelection(t)
+			m.DiskClean.Phase = diskCleanRunning
+			m.DiskClean.Cancel = func() {}
+			return m
+		}, "[Esc] stop the run"},
+		{"the way back", diskCleanActionBack, func(t *testing.T) Model {
+			m, _ := diskCleanerModel(t)
+			m.Width, m.Height = 200, 80
+			return m
+		}, "[Esc] back"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.build(t)
+			m = diskCleanerCursorOn(t, m, tc.action)
+			row := m.diskCleanRows()[m.Cursor]
+			key := diskCleanRowKey(row.label)
+			if key == "" {
+				t.Fatalf("the row %q carries no mark, so nothing on it says what presses it", row.label)
+			}
+
+			switch key {
+			case " ":
+				// A switch shows the state Space turns over.
+				if !strings.HasPrefix(row.label, diskCleanSwitchOffMark) && !strings.HasPrefix(row.label, diskCleanSwitchOnMark) {
+					t.Errorf("the row %q is pressed with Space but does not show the state it holds", row.label)
+				}
+			case "esc":
+				if !strings.HasPrefix(row.label, diskCleanBackMark) {
+					t.Errorf("the row %q is pressed with Escape but carries no arrow saying so", row.label)
+				}
+			case "j", "k", "h", "l":
+				t.Errorf("the row %q runs on %q, which is a movement key", row.label, key)
+			default:
+				if !strings.HasPrefix(row.label, "["+key+"] ") {
+					t.Errorf("the row %q declares %q, want the key written on the row", row.label, key)
+				}
+			}
+
+			before := diskCleanerGrammarState(m)
+			// Enter opens a screen, a row's detail or a value, and this screen has none
+			// of the three: on any row here it runs nothing.
+			entered, cmd := diskCleanerPress(t, m, "enter")
+			if cmd != nil || diskCleanerGrammarState(entered) != before {
+				t.Errorf("Enter ran the row %q: %s became %s", row.label, before, diskCleanerGrammarState(entered))
+			}
+			// Space is a switch's key and nothing else's, so a row that is not a switch
+			// ignores it. Each press starts from the same model.
+			if key != " " {
+				if spaced, cmd := diskCleanerPress(t, m, " "); cmd != nil || diskCleanerGrammarState(spaced) != before {
+					t.Errorf("Space acted on the row %q, which is not a switch: %s became %s",
+						row.label, before, diskCleanerGrammarState(spaced))
+				}
+			}
+
+			pressed, cmd := diskCleanerPress(t, m, key)
+			if cmd == nil && diskCleanerGrammarState(pressed) == before {
+				t.Errorf("the row %q carries %q and pressing it changed nothing", row.label, key)
+			}
+
+			// The legend names the same key while the row is offered, so the row and the
+			// footer cannot disagree about what presses it.
+			if view := diskCleanFlatView(m); !strings.Contains(view, tc.footer) {
+				t.Errorf("the footer does not name the key of %q (%q):\n%s", row.label, tc.footer, view)
+			}
+		})
+	}
+}
+
+// TestDiskCleanerFooterSaysEscapeStopsTheScan pins the other half of Escape's one
+// meaning: while a scan is in flight the key stops it rather than leaving the
+// screen, and the footer says which of the two it is doing.
+func TestDiskCleanerFooterSaysEscapeStopsTheScan(t *testing.T) {
+	m, _ := diskCleanerModel(t)
+	m.Width, m.Height = 200, 60
+	m, cmd := diskCleanerPress(t, m, diskCleanScanKey)
+	if cmd == nil {
+		t.Fatal("the scan row started no command")
+	}
+	if !m.DiskClean.Scanning {
+		t.Fatal("the scan is not in flight, so there is nothing to stop")
+	}
+	if view := diskCleanFlatView(m); !strings.Contains(view, "[Esc] stop the scan") {
+		t.Errorf("the footer does not say that Escape stops the scan:\n%s", view)
+	}
+}
+
 // TestDiskCleanerScanIsACommandAndItsAnswerFillsTheScreen pins the shape of a
 // scan: a press starts a command, the screen says a scan is in flight, and the
 // answer replaces the findings and leaves nothing selected.
@@ -269,7 +426,7 @@ func TestDiskCleanerScanIsACommandAndItsAnswerFillsTheScreen(t *testing.T) {
 	m, home := diskCleanerModel(t)
 	writeTestFile(t, filepath.Join(home, ".npm", "_cacache", "blob.bin"), 8192)
 
-	m, cmd := diskCleanerPress(t, m, "enter")
+	m, cmd := diskCleanerPress(t, m, diskCleanScanKey)
 	if !m.DiskClean.Scanning {
 		t.Error("the screen does not say a scan is in flight")
 	}
@@ -308,11 +465,11 @@ func TestDiskCleanerScanIsACommandAndItsAnswerFillsTheScreen(t *testing.T) {
 // arrived last on screen.
 func TestDiskCleanerStartsNoSecondScanWhileOneRuns(t *testing.T) {
 	m, _ := diskCleanerModel(t)
-	m, cmd := diskCleanerPress(t, m, "enter")
+	m, cmd := diskCleanerPress(t, m, diskCleanScanKey)
 	if cmd == nil {
 		t.Fatal("the first press started no scan")
 	}
-	m, second := diskCleanerPress(t, m, "enter")
+	m, second := diskCleanerPress(t, m, diskCleanScanKey)
 	if second != nil {
 		t.Error("a second scan was started while the first was running")
 	}
@@ -375,7 +532,7 @@ func TestDiskCleanerPreviewComesBeforeAnythingRuns(t *testing.T) {
 	m.DiskClean.Selection = diskclean.Selection{"store": true}
 
 	m = diskCleanerCursorOn(t, m, diskCleanActionPreview)
-	m, cmd := diskCleanerPress(t, m, "enter")
+	m, cmd := diskCleanerPress(t, m, diskCleanPreviewKey)
 	if cmd != nil {
 		t.Error("the preview ran something")
 	}
@@ -419,7 +576,7 @@ func TestDiskCleanerEscapeLeavesThePreviewWithoutRunningIt(t *testing.T) {
 	m.DiskClean.Selection = diskclean.Selection{"store": true}
 
 	m = diskCleanerCursorOn(t, m, diskCleanActionPreview)
-	m, _ = diskCleanerPress(t, m, "enter")
+	m, _ = diskCleanerPress(t, m, diskCleanPreviewKey)
 	m, _ = diskCleanerPress(t, m, "esc")
 
 	if m.DiskClean.Phase != diskCleanList {
@@ -450,9 +607,9 @@ func TestDiskCleanerConfirmationRunsThePlanAndShowsTheResult(t *testing.T) {
 	m.DiskClean.Selection = diskclean.Selection{"store": true}
 
 	m = diskCleanerCursorOn(t, m, diskCleanActionPreview)
-	m, _ = diskCleanerPress(t, m, "enter")
+	m, _ = diskCleanerPress(t, m, diskCleanPreviewKey)
 	m = diskCleanerCursorOn(t, m, diskCleanActionConfirm)
-	m, cmd := diskCleanerPress(t, m, "enter")
+	m, cmd := diskCleanerPress(t, m, diskCleanCleanKey)
 
 	if cmd == nil {
 		t.Fatal("the confirmation started no run")
@@ -501,9 +658,9 @@ func TestDiskCleanerEscapeStopsTheRunInFlight(t *testing.T) {
 	m.DiskClean.Selection = diskclean.Selection{"store": true}
 
 	m = diskCleanerCursorOn(t, m, diskCleanActionPreview)
-	m, _ = diskCleanerPress(t, m, "enter")
+	m, _ = diskCleanerPress(t, m, diskCleanPreviewKey)
 	m = diskCleanerCursorOn(t, m, diskCleanActionConfirm)
-	m, cmd := diskCleanerPress(t, m, "enter")
+	m, cmd := diskCleanerPress(t, m, diskCleanCleanKey)
 	m, _ = diskCleanerPress(t, m, "esc")
 
 	if m.DiskClean.Notice != "Stopping…" {
@@ -525,7 +682,7 @@ func TestDiskCleanerEscapeStopsTheRunInFlight(t *testing.T) {
 // that its answer is marked as the partial thing it is.
 func TestDiskCleanerEscapeStopsAScanInFlight(t *testing.T) {
 	m, _ := diskCleanerModel(t)
-	m, cmd := diskCleanerPress(t, m, "enter")
+	m, cmd := diskCleanerPress(t, m, diskCleanScanKey)
 	m, _ = diskCleanerPress(t, m, "esc")
 
 	msg, ok := diskCleanerRun(t, cmd).(diskCleanScanMsg)
@@ -555,7 +712,7 @@ func TestDiskCleanerAddsAndForgetsTheDirectoryItWasStartedFrom(t *testing.T) {
 	m.DiskClean.Cwd = project
 
 	m = diskCleanerCursorOn(t, m, diskCleanActionAddRoot)
-	m, cmd := diskCleanerPress(t, m, "enter")
+	m, cmd := diskCleanerPress(t, m, diskCleanAddRootKey)
 	if !diskCleanHasRoot(m.DiskClean.ProjectRoots, project) {
 		t.Fatalf("the project scope is %v, want it to hold %s", m.DiskClean.ProjectRoots, project)
 	}
@@ -577,7 +734,7 @@ func TestDiskCleanerAddsAndForgetsTheDirectoryItWasStartedFrom(t *testing.T) {
 	}
 
 	m = diskCleanerCursorOn(t, m, diskCleanActionForgetRoot)
-	m, cmd = diskCleanerPress(t, m, "enter")
+	m, cmd = diskCleanerPress(t, m, diskCleanForgetRootKey)
 	if diskCleanHasRoot(m.DiskClean.ProjectRoots, project) {
 		t.Errorf("the project scope still holds %s", project)
 	}
@@ -605,7 +762,7 @@ func TestDiskCleanerRowCountsTheWorkNotTheSelection(t *testing.T) {
 	m.DiskClean.Selection = diskclean.Selection{"store": true, "apt-archives": true}
 
 	m = diskCleanerCursorOn(t, m, diskCleanActionPreview)
-	m, _ = diskCleanerPress(t, m, "enter")
+	m, _ = diskCleanerPress(t, m, diskCleanPreviewKey)
 
 	rows := m.diskCleanRows()
 	confirm := -1
@@ -685,7 +842,7 @@ func TestUtilitiesSectionOffersTheDevelopmentCacheCleaner(t *testing.T) {
 	rows := m.GetCurrentOptions()
 	found := false
 	for _, row := range rows {
-		if row == utilitiesDiskCleanerRow {
+		if row == utilitiesScreenRow(utilitiesDiskCleanerRow) {
 			found = true
 		}
 	}
@@ -716,7 +873,7 @@ func TestUtilitiesSectionOffersTheDevelopmentCacheCleaner(t *testing.T) {
 	}
 
 	for index, row := range rows {
-		if row == utilitiesDiskCleanerRow {
+		if row == utilitiesScreenRow(utilitiesDiskCleanerRow) {
 			m.Cursor = index
 		}
 	}
@@ -805,7 +962,7 @@ func TestDiskCleanerPreviewRendersEachCommandAndEachRefusal(t *testing.T) {
 	m.DiskClean.Selection = diskclean.Selection{"npm-cache": true, "store": true, "apt-archives": true}
 
 	m = diskCleanerCursorOn(t, m, diskCleanActionPreview)
-	m, _ = diskCleanerPress(t, m, "enter")
+	m, _ = diskCleanerPress(t, m, diskCleanPreviewKey)
 	if m.DiskClean.Phase != diskCleanPreview {
 		t.Fatalf("the preview did not open: %v", m.DiskClean.Phase)
 	}

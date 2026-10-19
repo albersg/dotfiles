@@ -637,3 +637,38 @@ func TestTheForcedPlatformAnswersComeFromOnePlace(t *testing.T) {
 		}
 	})
 }
+
+// TestTheSetupFooterNamesSpaceOnlyOnASwitchRow pins the footer to the handler: Space
+// turns the focused switch off or on, so a switch row offers it and a cycle row does
+// not, and the footer never names a key the row under the cursor would not answer.
+func TestTheSetupFooterNamesSpaceOnlyOnASwitchRow(t *testing.T) {
+	namesSpace := func(m Model) bool {
+		for _, hint := range m.setupHints() {
+			if hint == hintToggle {
+				return true
+			}
+		}
+		return false
+	}
+
+	m := Model{Screen: ScreenSetup, Width: 80, Height: 24}
+
+	m.SetupCursor = setupRowIndexFor(t, m, "Font")
+	if !namesSpace(m) {
+		t.Errorf("the Font switch row does not offer Space: %v", m.setupHints())
+	}
+
+	m.SetupCursor = setupRowIndexFor(t, m, "Platform")
+	if namesSpace(m) {
+		t.Errorf("the Platform cycle row offers Space, and it has no switch: %v", m.setupHints())
+	}
+
+	// The handler answers Space on the row it offers it for.
+	m.SetupCursor = setupRowIndexFor(t, m, "Font")
+	row := m.setupRows()[m.SetupCursor]
+	before := m.setupRowIsOn(row)
+	next, _ := m.handleSetupKeys(" ")
+	if next.(Model).setupRowIsOn(row) == before {
+		t.Error("Space on the Font switch row did not flip it")
+	}
+}

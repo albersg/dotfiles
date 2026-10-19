@@ -81,7 +81,7 @@ func TestUtilitiesSectionOffersTheWSLResourcesOnlyOnWSL(t *testing.T) {
 
 			found := false
 			for _, row := range m.GetCurrentOptions() {
-				if row == utilitiesWSLRow {
+				if row == utilitiesScreenRow(utilitiesWSLRow) {
 					found = true
 				}
 			}
@@ -150,7 +150,7 @@ func TestWSLResourcesAreOfferedFromTheInstalledCopyWithoutACheckout(t *testing.T
 	}
 	found := false
 	for _, row := range m.GetCurrentOptions() {
-		if row == utilitiesWSLRow {
+		if row == utilitiesScreenRow(utilitiesWSLRow) {
 			found = true
 		}
 	}
@@ -693,7 +693,7 @@ func TestWritingTheWSLConfigKeepsTheTableWhileItRereads(t *testing.T) {
 
 	// The press names the file in the notice slot before the write starts, and
 	// the answer lands in that same slot.
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
 	m = next.(Model)
 	next, _ = m.Update(wslResourceWrittenMsg{wrote: true, notice: "wrote the file"})
 	m = next.(Model)
@@ -1211,7 +1211,7 @@ func TestTheUtilitiesSectionOffersTheTerminalReportAndProbesOnlyWhenOpened(t *te
 
 	cursor := -1
 	for i, row := range m.GetCurrentOptions() {
-		if row == utilitiesTerminalRow {
+		if row == utilitiesScreenRow(utilitiesTerminalRow) {
 			cursor = i
 		}
 	}
@@ -1335,7 +1335,7 @@ func TestUtilitiesSectionOffersBothNewUtilitiesAfterTheMerge(t *testing.T) {
 	m.WSLState = wslResourceState{Resolved: true, Available: false, Reason: "no .wslconfig"}
 
 	rows := m.GetCurrentOptions()
-	for _, want := range []string{utilitiesShellAuditRow, utilitiesTerminalRow} {
+	for _, want := range []string{utilitiesScreenRow(utilitiesShellAuditRow), utilitiesScreenRow(utilitiesTerminalRow)} {
 		found := false
 		for _, row := range rows {
 			if row == want {
@@ -1478,7 +1478,7 @@ func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 
 			found := false
 			for _, row := range m.GetCurrentOptions() {
-				if row == utilitiesShellAuditRow {
+				if row == utilitiesScreenRow(utilitiesShellAuditRow) {
 					found = true
 				}
 			}
@@ -1586,11 +1586,11 @@ func TestShellAuditScreenMeasuresOnceAndSaysSo(t *testing.T) {
 	m := installerFrameModel(t, ScreenShellAudit)
 	m.ShellAudit = shellAuditTestState()
 	m.Cursor = 0 // the measure row is the first row.
-	if rows := m.GetCurrentOptions(); rows[0] != utilitiesShellAuditRow {
-		t.Fatalf("the first row is %q, want the measure row %q", rows[0], utilitiesShellAuditRow)
+	if rows := m.GetCurrentOptions(); rows[0] != shellAuditMeasureRow {
+		t.Fatalf("the first row is %q, want the measure row %q", rows[0], shellAuditMeasureRow)
 	}
 
-	next, cmd := m.handleShellAuditKeys("enter")
+	next, cmd := m.handleShellAuditKeys("s")
 	m = next.(Model)
 	if cmd == nil {
 		t.Fatal("the measure row returned no command")
@@ -1602,7 +1602,13 @@ func TestShellAuditScreenMeasuresOnceAndSaysSo(t *testing.T) {
 		t.Errorf("the footer does not say what is running: %q", notice)
 	}
 
-	next, second := m.handleShellAuditKeys("enter")
+	next, viaEnter := m.handleShellAuditKeys("enter")
+	m = next.(Model)
+	if viaEnter != nil {
+		t.Error("Enter started a measurement; the measure row runs on its own letter")
+	}
+
+	next, second := m.handleShellAuditKeys("s")
 	m = next.(Model)
 	if second != nil {
 		t.Error("a second press while a measurement was running started a second one")
@@ -1632,7 +1638,7 @@ func TestUtilitiesSectionOpensTheShellAuditWithoutMeasuring(t *testing.T) {
 	m.ShellAudit = shellAuditTestState()
 	m.Cursor = 0
 	for i, row := range m.GetCurrentOptions() {
-		if row == utilitiesShellAuditRow {
+		if row == utilitiesScreenRow(utilitiesShellAuditRow) {
 			m.Cursor = i
 		}
 	}

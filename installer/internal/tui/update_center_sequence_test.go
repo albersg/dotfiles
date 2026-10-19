@@ -70,7 +70,7 @@ func TestLeavingTheScreenAndReturningStartsNoSecondPass(t *testing.T) {
 		t.Fatalf("Esc left the screen on %v, want the section it was opened from", m.Screen)
 	}
 
-	m, again := pressUpdateCenterRow(t, m, utilitiesUpdatesRow)
+	m, again := pressUpdateCenterRow(t, m, utilitiesScreenRow(utilitiesUpdatesRow))
 	if again != nil {
 		t.Error("returning to the screen started a second reading pass while the first one's read was outstanding")
 	}

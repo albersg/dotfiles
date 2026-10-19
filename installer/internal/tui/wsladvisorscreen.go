@@ -31,8 +31,15 @@ import (
 const utilitiesWSLAdvisorRow = "Diagnose this WSL environment"
 
 // hintReread is the footer's hint for reading the machine again, which is how a stale report is
-// refreshed after the user changes something in /etc/wsl.conf or frees space.
+// refreshed after the user changes something in /etc/wsl.conf or frees space. Reading is not
+// opening: the row carries the letter, under the grammar odd/tasks/key-grammar.md fixes, and Enter
+// is left to the rows that open a screen or a finding's detail.
 var hintReread = installerHint{"[r]", "read it again"}
+
+// wslRereadRow is the report's re-read row. It acts where it stands, so it says so on the row by
+// carrying the letter that runs it, and the footer names the same letter: the row and the key
+// handler cannot disagree about which key re-reads the machine.
+const wslRereadRow = "[r] Read the machine again"
 
 // wslAdvisorState is what the screen draws. The readings are held rather than re-taken: a render
 // path must not probe the machine, and the report has to be the same one the reader is reading while
@@ -196,15 +203,17 @@ func (m Model) wslAdvisorRows() []wslAdvisorRow {
 	if len(rows) > 0 {
 		rows = append(rows, wslAdvisorRow{Kind: wslRowSeparator, Label: m.menuSeparator()})
 	}
-	rows = append(rows, wslAdvisorRow{Kind: wslRowReread, Label: "Read the machine again"})
+	rows = append(rows, wslAdvisorRow{Kind: wslRowReread, Label: wslRereadRow})
 
 	// The two rows that act exist only where their engine can finish: a row that fails when it is
-	// pressed is not offered in this installer, and the body says what it would have needed.
+	// pressed is not offered in this installer, and the body says what it would have needed. Both
+	// open a screen, so both carry the arrow the utilities section's own rows carry, and Enter is
+	// the one key that presses them.
 	if m.wslBenchmarkOffer().Offered {
-		rows = append(rows, wslAdvisorRow{Kind: wslRowBenchmark, Label: wslBenchmarkRowLabel})
+		rows = append(rows, wslAdvisorRow{Kind: wslRowBenchmark, Label: utilitiesScreenRow(wslBenchmarkRowLabel)})
 	}
 	if m.wslMigrationOffer().Offered {
-		rows = append(rows, wslAdvisorRow{Kind: wslRowMigrate, Label: wslMigrationRowLabel})
+		rows = append(rows, wslAdvisorRow{Kind: wslRowMigrate, Label: utilitiesScreenRow(wslMigrationRowLabel)})
 	}
 
 	rows = append(rows, wslAdvisorRow{Kind: wslRowSeparator, Label: m.menuSeparator()})
@@ -256,8 +265,13 @@ func (m Model) selectedFinding() (wslFinding, bool) {
 // description, a list, a notice and the legend -- so it inherits the budget arithmetic that keeps a
 // narrow terminal from pushing the footer off screen.
 func (m Model) renderWSLAdvisor() string {
-	return m.renderThemeScreen(m.wslAdvisorDescription(), m.WSLAdvisor.Notice,
-		[]installerHint{hintUp, hintDown, hintSelect, hintReread, hintBack})
+	return m.renderThemeScreen(m.wslAdvisorDescription(), m.WSLAdvisor.Notice, m.wslAdvisorHints())
+}
+
+// wslAdvisorHints is the report's footer: the two move keys, the Enter that opens a screen or a
+// finding's detail, the letter the re-read row carries, and the Escape that is the way back.
+func (m Model) wslAdvisorHints() []installerHint {
+	return []installerHint{hintUp, hintDown, hintOpen, hintReread, hintBack}
 }
 
 // wslAdvisorDescription is what the screen says: the environment first, then the finding under the
@@ -413,8 +427,12 @@ func wslSignalDetail(runtime system.WSLRuntime, name string) string {
 // ============================================================================
 
 // handleWSLAdvisorKeys drives the report. Nothing here changes the machine: the cursor moves, the
-// machine is read again, and the two rows that act open their own screens. Escape is handled by the
-// shared key switch, which steps back to the utilities section.
+// machine is read again on its own letter, and the two rows that act open their own screens on
+// Enter. Escape is handled by the shared key switch, which steps back to the utilities section.
+//
+// The grammar is the document's: Enter opens a screen or a finding's detail and never runs a
+// command, so the re-read carries `r` on its row and in the footer, and Space -- which this screen
+// has no switch for -- is not offered at all.
 func (m Model) handleWSLAdvisorKeys(key string) (tea.Model, tea.Cmd) {
 	rows := m.wslAdvisorRows()
 
@@ -439,16 +457,15 @@ func (m Model) handleWSLAdvisorKeys(key string) (tea.Model, tea.Cmd) {
 		m.WSLAdvisor.Resolved = false
 		m.WSLAdvisor.Notice = ""
 		return m, m.wslAdvisorCmdIfNeeded()
-	case "enter", " ":
+	case "enter":
+		// Enter opens and nothing else: on the re-read row it is a press with no answer on purpose,
+		// which is what keeps one key from meaning two things. The re-read runs on `r`, the letter
+		// the row carries.
 		row, ok := m.wslAdvisorRowAt(rows)
 		if !ok {
 			break
 		}
 		switch row.Kind {
-		case wslRowReread:
-			m.WSLAdvisor.Resolved = false
-			m.WSLAdvisor.Notice = ""
-			return m, m.wslAdvisorCmdIfNeeded()
 		case wslRowBenchmark:
 			return m.openWSLBenchmark()
 		case wslRowMigrate:

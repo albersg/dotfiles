@@ -11,7 +11,7 @@
     Apply the Nocturne theme                                                    
     Apply the Rosé Pine theme                                                   
   ────────────────────────────────────────────────────────────────────────────  
-    Refresh outdated theme files                                                
+    [r] Refresh outdated theme files                                            
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
   The theme is written to every file it owns. Writing a file is not the same    
@@ -21,4 +21,4 @@
   … and 7 more                                                                  
   Preview (nothing applied) — Catppuccin Latte:                                 
   ────────────────────────────────────────────────────────────────────────────  
-  ↑/k up • ↓/j down • [Enter] select • [Esc] back                               [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ↑/k up • ↓/j down • [Enter] choose • [r] refresh • [Esc] back                 [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

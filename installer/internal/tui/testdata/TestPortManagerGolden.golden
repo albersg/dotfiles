@@ -20,5 +20,5 @@
   real; the process behind them is not shown.                                   
   1 new, 1 gone since the last reading                                          
   ────────────────────────────────────────────────────────────────────────────  
-  ↑/k up • ↓/j down • [Enter] select • [/] filter • [f/o/s] cycle               
-  [r] refresh • [p] auto • [x] stop • [y] copy • [Esc] back                     [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ↑/k up • ↓/j down • [Enter] open • [/] filter • [f/o/s] cycle • [r] refresh   
+  [p] auto • [x] stop • [y] copy • [Esc] back                                   [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

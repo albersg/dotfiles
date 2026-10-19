@@ -450,20 +450,36 @@ func (m Model) portStopForcedOffered() bool {
 	return r != nil && r.Outcome == portscan.OutcomeStillRunning && r.Signal == portscan.SignalTerminate
 }
 
-// portStopRows is the stop screen's action rows. The screen draws them in prose,
-// but a generic reader of a screen's options sees the same actions it may take.
+// portStopRows is the stop screen's action rows. The screen draws them under the
+// account of what the stop would do, and each one carries the letter that runs
+// it: a command says how it is pressed on its own row. Exactly one of the two is
+// offered at a time -- the forced one only after a soft attempt left the process
+// running -- and the way back is the same row every screen in the section draws.
 func (m Model) portStopRows() []string {
 	if m.PortStop.Refusal != "" {
-		return []string{"← Back"}
+		return []string{portBackRow}
 	}
 	rows := []string{}
 	if m.portStopForcedOffered() {
-		rows = append(rows, "Force the stop (SIGKILL)")
+		rows = append(rows, portHintForce.keys+" Force the stop (SIGKILL)")
 	} else if r := m.PortStop.Result; r == nil || r.Outcome == portscan.OutcomeStillRunning {
-		rows = append(rows, "Stop it gently (SIGTERM)")
+		rows = append(rows, portHintTerminate.keys+" Stop it gently (SIGTERM)")
 	}
-	return append(rows, "← Back")
+	return append(rows, portBackRow)
 }
+
+// portBackRow is the way back, spelled the one way the section spells it.
+const portBackRow = "← Back"
+
+// The stop confirmation's two actions and the letters they run on. The gentle
+// stop keeps the t of SIGTERM, and the forced one is the f of "force": j and k
+// belong to the cursor, so no stop may run on either of them. They are declared
+// here rather than beside the other hints because they are this screen's own two
+// answers, and the grammar guard reads them as its own hints.
+var (
+	portHintTerminate = installerHint{"[t]", "stop gently"}
+	portHintForce     = installerHint{"[f]", "force stop"}
+)
 
 // portDiagnosticText is the reproducible account of the selected row, built from
 // redacted data only. The arguments the reading carries are already redacted by
@@ -611,17 +627,20 @@ func portUserLabel(proc portscan.Process) string {
 }
 
 // portManagerHints is the manager's footer. The keys in it are exactly the keys
-// the handler honours.
+// the handler honours: the cursor walks the reading on ↑/k and ↓/j, Enter opens
+// the selected row's detail, and every command the screen has runs on its own
+// letter. The rows are the machine's data and not switches, so Space is not
+// offered here.
 func (m Model) portManagerHints() []installerHint {
 	if m.Ports.Filtering {
 		return []installerHint{hintFilterTyping, hintBack}
 	}
-	return []installerHint{hintUp, hintDown, hintSelect, hintFilter, hintCycle, hintRefresh, hintAuto, hintStop, hintCopy, hintBack}
+	return []installerHint{hintUp, hintDown, hintOpen, hintFilter, hintCycle, hintRefresh, hintAuto, hintStop, hintCopy, hintBack}
 }
 
 // portStopHints is the stop screen's footer. A refusal offers only the way back;
 // a soft stop in progress offers nothing; a completed soft stop that left the
-// process running offers the forced action as its own row.
+// process running offers the forced action as its own row and its own letter.
 func (m Model) portStopHints() []installerHint {
 	if m.PortStop.Refusal != "" {
 		return []installerHint{hintBack}
@@ -631,11 +650,11 @@ func (m Model) portStopHints() []installerHint {
 	}
 	switch {
 	case m.portStopForcedOffered():
-		return []installerHint{hintForce, hintBack}
+		return []installerHint{portHintForce, hintBack}
 	case m.PortStop.Result != nil && m.PortStop.Result.Outcome != portscan.OutcomeStillRunning:
 		return []installerHint{hintBack}
 	default:
-		return []installerHint{hintTerminate, hintBack}
+		return []installerHint{portHintTerminate, hintBack}
 	}
 }
 
@@ -753,16 +772,22 @@ func portEmptyListLine(loaded, loading bool) string {
 // renderPortStop draws the confirmation. Nothing is signalled while it draws: the
 // paragraphs name the identity, the owner, every port the process holds and the
 // consequences, the refusal when there is one, and the outcome once an attempt
-// has landed.
+// has landed -- and the rows under them name the one action on offer and the
+// letter that runs it.
 func (m Model) renderPortStop() string {
 	width := contentWidth(m)
 	hints := m.portStopHints()
 	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
 
 	title := BrandStyle.Render(m.GetScreenTitle())
-	lines := descriptionLines(m.portStopParagraphs(), width, bodyRows-1)
+	rows := m.portStopRows()
+	// The title and the rows keep their place; the prose is what gives way on a
+	// short frame, because the action is what the screen exists to offer.
+	lines := descriptionLines(m.portStopParagraphs(), width, bodyRows-1-len(rows)-1)
 
 	body := append([]string{title}, mutedLines(lines)...)
+	body = append(body, "")
+	body = append(body, rows...)
 	return m.frame(m.headerName(), "", body, hints)
 }
 

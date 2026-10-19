@@ -8,17 +8,17 @@
   Your .wslconfig at /mnt/c/Users/alber/.wslconfig holds memory=4096MB,         
   processors=omitted and swap=1024MB today. A key that is absent is omitted     
   rather than guessed at: WSL's own proportional default applies to it.         
-  The WSL memory guard is not installed on this host: its payload and its unit  
-  … and 14 more                                                                 
+  … and 15 more                                                                 
                                                                                 
-  ▸ Memory: 12288 MB                                                            
-    Processors: 7                                                               
-    Swap: 3072 MB                                                               
+  ▸ Memory: 12288 MB [←/→]                                                      
+    Processors: 7 [←/→]                                                         
+    Swap: 3072 MB [←/→]                                                         
   ────────────────────────────────────────────────────────────────────────────  
-    Write the .wslconfig                                                        
+    [w] Write the .wslconfig                                                    
   ────────────────────────────────────────────────────────────────────────────  
-    Repair the WSL memory guard                                                 
+    [g] Repair the WSL memory guard                                             
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
   ────────────────────────────────────────────────────────────────────────────  
-  ↑/k ↓/j move • [←/→] adjust • [r] recommended • [Enter] select • [Esc] back   [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ↑/k ↓/j move • [←/→] adjust • [r] recommended • [w] write • [g] repair guard  
+  [Esc] back                                                                    [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

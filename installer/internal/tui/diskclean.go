@@ -85,22 +85,80 @@ const (
 	diskCleanResults
 )
 
-// The rows this screen names. One constant per row, because the handler and
-// the label it matches on have to be the same string.
+// The keys this screen's rows run on. Every row that acts where it stands carries
+// its key on the row: a command its letter in brackets, a switch its state in the
+// same brackets, and the way back the arrow Escape is the key for. Enter opens a
+// screen, a row's detail or a value, and this screen has none of the three, so
+// Enter runs nothing here (odd/tasks/key-grammar.md).
 const (
-	diskCleanScanRow   = "Scan for development caches"
-	diskCleanRescanRow = "Scan again"
+	diskCleanScanKey       = "s"
+	diskCleanPreviewKey    = "p"
+	diskCleanCleanKey      = "c"
+	diskCleanAddRootKey    = "d"
+	diskCleanForgetRootKey = "f"
+)
+
+// The marks the rows carry, built from the keys themselves so a key and the mark
+// that advertises it cannot be retyped into disagreement.
+const (
+	diskCleanScanMark       = "[" + diskCleanScanKey + "] "
+	diskCleanPreviewMark    = "[" + diskCleanPreviewKey + "] "
+	diskCleanCleanMark      = "[" + diskCleanCleanKey + "] "
+	diskCleanAddRootMark    = "[" + diskCleanAddRootKey + "] "
+	diskCleanForgetRootMark = "[" + diskCleanForgetRootKey + "] "
+	// The two states a switch row shows: a finding is marked or it is not, and Space
+	// is the key that turns one into the other.
+	diskCleanSwitchOffMark = "[ ]"
+	diskCleanSwitchOnMark  = "[x]"
+	// diskCleanBackMark is the way back: Escape's key, drawn the way the section
+	// above draws it.
+	diskCleanBackMark = "← "
+)
+
+// The rows this screen names. One constant per row, because the label is what the
+// reader sees and what the test presses.
+const (
+	diskCleanScanRow   = diskCleanScanMark + "Scan for development caches"
+	diskCleanRescanRow = diskCleanScanMark + "Scan again"
 	// diskCleanPreviewRowPrefix is the row that opens the dry run. The count is
 	// in the label because the row is a statement about what would be cleaned.
-	diskCleanPreviewRowPrefix = "Preview the "
+	diskCleanPreviewRowPrefix = diskCleanPreviewMark + "Preview the "
 	// diskCleanConfirmRowPrefix is the row that runs it, once the plan is on
 	// screen. It exists only in the preview phase.
-	diskCleanConfirmRowPrefix = "Clean the "
-	diskCleanCancelRow        = "← Cancel and go back"
-	diskCleanCancelRunRow     = "← Stop the run"
-	diskCleanAddRootPrefix    = "Add the project directory "
-	diskCleanForgetRootPrefix = "Forget the project directory "
+	diskCleanConfirmRowPrefix = diskCleanCleanMark + "Clean the "
+	diskCleanCancelRow        = diskCleanBackMark + "Cancel and go back"
+	diskCleanCancelRunRow     = diskCleanBackMark + "Stop the run"
+	diskCleanAddRootPrefix    = diskCleanAddRootMark + "Add the project directory "
+	diskCleanForgetRootPrefix = diskCleanForgetRootMark + "Forget the project directory "
+	diskCleanBackRow          = diskCleanBackMark + "Back"
 )
+
+// diskCleanRowMarks is the table a row's claim is read from: the mark a row
+// carries in front of its label, and the key that keeps the promise it makes. The
+// handler and the grammar's own test both read it, so a mark cannot claim a key
+// the handler does not accept. A row with no mark is a heading, a divider or a
+// report line, and no key runs through it.
+var diskCleanRowMarks = map[string]string{
+	diskCleanScanMark:       diskCleanScanKey,
+	diskCleanPreviewMark:    diskCleanPreviewKey,
+	diskCleanCleanMark:      diskCleanCleanKey,
+	diskCleanAddRootMark:    diskCleanAddRootKey,
+	diskCleanForgetRootMark: diskCleanForgetRootKey,
+	diskCleanSwitchOffMark:  " ",
+	diskCleanSwitchOnMark:   " ",
+	diskCleanBackMark:       "esc",
+}
+
+// diskCleanRowKey is the key a row declares on itself, or "" for a row nothing
+// runs through.
+func diskCleanRowKey(label string) string {
+	for mark, key := range diskCleanRowMarks {
+		if strings.HasPrefix(label, mark) {
+			return key
+		}
+	}
+	return ""
+}
 
 // diskCleanState is everything the screen draws. The environment half is
 // resolved once when the model is built -- a render must not call the system
@@ -346,7 +404,7 @@ func (m Model) diskCleanRows() []diskCleanRow {
 	case diskCleanResults:
 		return []diskCleanRow{
 			{label: diskCleanRescanRow, action: diskCleanActionScan},
-			{label: "← Back", action: diskCleanActionBack},
+			{label: diskCleanBackRow, action: diskCleanActionBack},
 		}
 	}
 
@@ -393,7 +451,7 @@ func (m Model) diskCleanRows() []diskCleanRow {
 			item:   -1,
 		})
 	}
-	rows = append(rows, diskCleanRow{label: "← Back", action: diskCleanActionBack, item: -1})
+	rows = append(rows, diskCleanRow{label: diskCleanBackRow, action: diskCleanActionBack, item: -1})
 	return rows
 }
 
@@ -403,9 +461,9 @@ func (m Model) diskCleanRows() []diskCleanRow {
 // printed a number without saying where it came from would be the first place
 // this utility could mislead.
 func (m Model) diskCleanItemRow(item diskclean.Item) string {
-	box := "[ ]"
+	box := diskCleanSwitchOffMark
 	if m.DiskClean.Selection.Has(item.ID) {
-		box = "[x]"
+		box = diskCleanSwitchOnMark
 	}
 	size := "nothing measured"
 	switch {
@@ -618,6 +676,12 @@ func selectedRunnable(items []diskclean.PlannedItem) []diskclean.PlannedItem {
 // commands and never touches the filesystem itself; the two keys the rest of
 // the installer does not use here are `a`, which selects the items this utility
 // considers safe, and `n`, which clears the selection.
+//
+// Every key that runs a row is the key the row carries: `s` scans, `p` builds the
+// dry run, `c` runs it, `d` and `f` add and forget the project directory, Space
+// marks a finding, and Escape goes back or stops what is running. Enter is not one
+// of them: it opens a screen, a row's detail or a value, and this screen has none
+// of the three, so a press on it on a row that acts here runs nothing.
 func (m Model) handleDiskCleanerKeys(key string) (tea.Model, tea.Cmd) {
 	rows := m.diskCleanRows()
 
@@ -649,18 +713,36 @@ func (m Model) handleDiskCleanerKeys(key string) (tea.Model, tea.Cmd) {
 	case "n":
 		m.DiskClean.Selection = diskclean.Selection{}
 		m.DiskClean.Notice = "Nothing is selected."
-	case "enter":
-		if len(rows) == 0 || m.Cursor < 0 || m.Cursor >= len(rows) {
-			return m, nil
-		}
-		return m.diskCleanerChoose(rows[m.Cursor])
+	case diskCleanScanKey:
+		return m.diskCleanerRunRow(rows, diskCleanActionScan)
+	case diskCleanPreviewKey:
+		return m.diskCleanerRunRow(rows, diskCleanActionPreview)
+	case diskCleanCleanKey:
+		return m.diskCleanerRunRow(rows, diskCleanActionConfirm)
+	case diskCleanAddRootKey:
+		return m.diskCleanerRunRow(rows, diskCleanActionAddRoot)
+	case diskCleanForgetRootKey:
+		return m.diskCleanerRunRow(rows, diskCleanActionForgetRoot)
 	}
 	return m, nil
 }
 
-// diskCleanerSpace is the space key: on an item row it toggles the selection,
-// and anywhere else it does what enter does, which is the convention the rest
-// of the installer uses.
+// diskCleanerRunRow runs the row that carries an action, when the screen is
+// offering it. A key that ran a row nobody can see would be a press with no row
+// behind it, so the row has to be on screen for its key to do anything.
+func (m Model) diskCleanerRunRow(rows []diskCleanRow, action diskCleanAction) (tea.Model, tea.Cmd) {
+	for _, row := range rows {
+		if row.action == action {
+			return m.diskCleanerChoose(row)
+		}
+	}
+	return m, nil
+}
+
+// diskCleanerSpace is a switch's key: on an item row it marks the finding or
+// takes the mark back, and on any other row it does nothing. Space that also ran
+// the row's command would be the one key meaning two things, which is what the
+// grammar fixes.
 func (m Model) diskCleanerSpace(rows []diskCleanRow) (tea.Model, tea.Cmd) {
 	if len(rows) == 0 || m.Cursor < 0 || m.Cursor >= len(rows) {
 		return m, nil
@@ -669,7 +751,7 @@ func (m Model) diskCleanerSpace(rows []diskCleanRow) (tea.Model, tea.Cmd) {
 	if row.action == diskCleanActionItem && m.DiskClean.Phase == diskCleanList {
 		return m.toggleDiskCleanItem(row.item), nil
 	}
-	return m.diskCleanerChoose(row)
+	return m, nil
 }
 
 // toggleDiskCleanItem flips one finding's selection. An item nothing can be
@@ -729,11 +811,13 @@ func (m Model) diskCleanerSelectSafe() Model {
 	return m
 }
 
-// diskCleanerChoose runs the action of the chosen row.
+// diskCleanerChoose runs the action of the chosen row. It is reached from the key
+// the row carries and from nowhere else, so a row's label and the press that runs
+// it are the same promise. The rows that go back, that leave the preview and that
+// stop a run are not here: their key is Escape, and diskCleanerEscape is what
+// answers it, so the way out has one path in this screen instead of two.
 func (m Model) diskCleanerChoose(row diskCleanRow) (tea.Model, tea.Cmd) {
 	switch row.action {
-	case diskCleanActionItem:
-		return m.toggleDiskCleanItem(row.item), nil
 	case diskCleanActionScan:
 		if m.DiskClean.Scanning {
 			// One scan at a time: a second one would measure the same machine
@@ -745,20 +829,6 @@ func (m Model) diskCleanerChoose(row diskCleanRow) (tea.Model, tea.Cmd) {
 		return m.startDiskCleanPreview(), nil
 	case diskCleanActionConfirm:
 		return m.startDiskCleanClean()
-	case diskCleanActionCancelPreview:
-		m.DiskClean.Phase = diskCleanList
-		m.DiskClean.Planned = false
-		m.DiskClean.Plan = diskclean.Plan{}
-		m.DiskClean.Notice = ""
-		m.Cursor = 0
-		return m, nil
-	case diskCleanActionCancelRun:
-		if m.DiskClean.Cancel != nil {
-			m.DiskClean.Cancel()
-			m.DiskClean.Cancel = nil
-		}
-		m.DiskClean.Notice = "Stopping…"
-		return m, nil
 	case diskCleanActionAddRoot:
 		if m.DiskClean.Cwd == "" || diskCleanHasRoot(m.DiskClean.ProjectRoots, m.DiskClean.Cwd) {
 			return m, nil
@@ -781,11 +851,6 @@ func (m Model) diskCleanerChoose(row diskCleanRow) (tea.Model, tea.Cmd) {
 			m.DiskClean.Scanned = false
 			return m.startDiskCleanScan()
 		}
-	case diskCleanActionBack:
-		m.Screen = ScreenUtilities
-		m.Cursor = 0
-		m.DiskClean.Notice = ""
-		return m, nil
 	}
 	return m, nil
 }

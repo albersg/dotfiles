@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,31 +53,40 @@ const (
 	// networkRunRow starts a run and starts another one afterwards. Its label is
 	// deliberately the same before and after the first report: the cursor holds
 	// the row it was on while check rows arrive under it, and a label that changed
-	// with the state would leave the cursor on a row that no longer exists.
-	networkRunRow = "Run the connectivity checks"
+	// with the state would leave the cursor on a row that no longer exists. It is a
+	// command, so it carries the letter that runs it; Enter runs nothing here.
+	networkRunRow = networkRunMark + "Run the connectivity checks"
 
-	// networkTargetRow opens the field a destination is typed into.
-	networkTargetRow = "Check a host, URL or port…"
+	// networkTargetRow opens the field a destination is typed into. It opens, so
+	// Enter is its key and the arrow in front of it is what says that.
+	networkTargetRow = networkOpenMark + "Check a host, URL or port…"
 
-	// networkTraceRow toggles the one check that starts an external program. It is
-	// off by default, it is only ever offered for a destination the user entered,
-	// and the row's own body says what the system's tool needs and why a hop that
-	// answers nothing is not a fault.
-	networkTraceRow = "Include a traceroute (needs the system's own tool)"
+	// networkTraceLabel is the one check that starts an external program. It is off
+	// by default, it is only ever offered for a destination the user entered, and the
+	// row's own body says what the system's tool needs and why a hop that answers
+	// nothing is not a fault. Its row runs on its own letter and says the value it
+	// holds, because nothing on this screen acts on Enter.
+	networkTraceLabel = "Include a traceroute (needs the system's own tool)"
 
-	// networkPreviewRow opens the report as text. The write only ever happens from
-	// the state the preview shows, which is the preview the user has to see before
-	// anything is saved.
-	networkPreviewRow = "Review the report as text"
+	// networkPreviewRow opens the report as text. It opens a detail of this screen,
+	// so Enter keeps it. The write only ever happens from the state the preview
+	// shows, which is the preview the user has to see before anything is saved.
+	networkPreviewRow = networkOpenMark + "Review the report as text"
 
 	// networkSaveRow writes the reviewed report. It is offered only in the
-	// preview, so the file is never written from a state the user has not read.
-	networkSaveRow = "Save the report to the file shown"
+	// preview, so the file is never written from a state the user has not read. It
+	// is a command and carries its own letter.
+	networkSaveRow = networkSaveMark + "Save the report to the file shown"
 
-	// networkAnonymizeRow toggles the anonymization the preview and the write use:
+	// networkAnonymizeLabel is the anonymization the preview and the write use:
 	// every address, the user name, the home directory and the machine name are
-	// replaced, so the file can be sent to somebody else.
-	networkAnonymizeRow = "Anonymize the report before saving (local names and addresses)"
+	// replaced, so the file can be sent to somebody else. Like the traceroute its row
+	// runs on its own letter and says the value it holds.
+	networkAnonymizeLabel = "Anonymize the report before saving (local names and addresses)"
+
+	// networkBackRow is the way back. Escape is its key, and the arrow pointing away
+	// from the screen is what says so.
+	networkBackRow = networkBackMark + "Back"
 
 	// networkReportPrefix names the file inside the installer's own state
 	// directory. It carries no secrets by construction, which is why it may live
@@ -98,6 +108,87 @@ const (
 	// credentials, not of everything -- so it belongs to the user alone.
 	networkReportMode = 0o600
 )
+
+// The keys this screen's rows run on, and the marks that advertise them. Every row
+// that acts where it stands carries its letter in brackets, and the two rows that
+// hold a value say that value at the end of the row. The rows that open something
+// carry the arrow instead, because Enter is their key, and the way back carries the
+// arrow pointing the other way, because Escape is its key (odd/tasks/key-grammar.md).
+const (
+	networkRunKey       = "r"
+	networkSaveKey      = "s"
+	networkTraceKey     = "t"
+	networkAnonymizeKey = "a"
+
+	networkRunMark       = "[" + networkRunKey + "] "
+	networkSaveMark      = "[" + networkSaveKey + "] "
+	networkTraceMark     = "[" + networkTraceKey + "] "
+	networkAnonymizeMark = "[" + networkAnonymizeKey + "] "
+
+	networkOpenMark = "→ "
+	networkBackMark = "← "
+)
+
+// networkRowMarks is the table a row's claim is read from: the mark a row carries
+// in front of its label, and the key that keeps the promise it makes. The handler
+// and the grammar's own test both read it, so a mark cannot claim a key the screen
+// does not honour. A row with no mark is a check row or a divider, and no key
+// changes the screen through it.
+var networkRowMarks = map[string]string{
+	networkRunMark:       networkRunKey,
+	networkSaveMark:      networkSaveKey,
+	networkTraceMark:     networkTraceKey,
+	networkAnonymizeMark: networkAnonymizeKey,
+	networkOpenMark:      "enter",
+	networkBackMark:      "esc",
+}
+
+// networkRowKey is the key a row declares on itself, or "" for a row that only
+// reports what it measured.
+func networkRowKey(label string) string {
+	for mark, key := range networkRowMarks {
+		if strings.HasPrefix(label, mark) {
+			return key
+		}
+	}
+	return ""
+}
+
+// networkValueRow draws a row that holds a value: the letter that turns it over in
+// front, and the value it holds now after the label. The value is written as a word
+// rather than in a switch's brackets, because this screen has no switches: Space
+// belongs to the leader key here, so a row that showed a state in a checkbox would
+// be advertising a press that never arrives.
+func networkValueRow(mark, label string, on bool) string {
+	state := "off"
+	if on {
+		state = "on"
+	}
+	return mark + label + " — " + state
+}
+
+// networkTraceRow and networkAnonymizeRow are the screen's two value rows as they
+// read now: each says the value its own letter would turn over.
+func (m Model) networkTraceRow() string {
+	return networkValueRow(networkTraceMark, networkTraceLabel, m.Network.Trace)
+}
+
+func (m Model) networkAnonymizeRow() string {
+	return networkValueRow(networkAnonymizeMark, networkAnonymizeLabel, m.Network.Anonymize)
+}
+
+// networkIsActionRow reports whether a row acts rather than reporting a check: the
+// rows above the checks, the export rows below them, the way back, and the divider
+// that separates them. It is what tells the cursor's index into the options apart
+// from its index into the checks.
+func (m Model) networkIsActionRow(row string) bool {
+	switch row {
+	case networkRunRow, networkTargetRow, networkPreviewRow, networkSaveRow, networkBackRow,
+		m.networkTraceRow(), m.networkAnonymizeRow():
+		return true
+	}
+	return strings.HasPrefix(row, menuSeparatorPrefix)
+}
 
 // networkState is everything the diagnosis screen draws: the destination field,
 // the run in flight, the checks as they arrive, and the export.
@@ -352,7 +443,7 @@ func (m Model) networkRows() []string {
 	}
 
 	var export []string
-	export = append(export, networkTraceRow)
+	export = append(export, m.networkTraceRow())
 	if m.Network.Report != nil {
 		export = append(export, networkPreviewRow)
 		if m.Network.Preview {
@@ -363,13 +454,13 @@ func (m Model) networkRows() []string {
 			if m.Network.ReportPath != "" {
 				export = append(export, networkSaveRow)
 			}
-			export = append(export, networkAnonymizeRow)
+			export = append(export, m.networkAnonymizeRow())
 		}
 	}
 	rows = append(rows, m.menuSeparator())
 	rows = append(rows, export...)
 
-	return append(rows, m.menuSeparator(), "← Back")
+	return append(rows, m.menuSeparator(), networkBackRow)
 }
 
 // networkCheckRow is one check as a row: its status word, the stage it answers
@@ -406,15 +497,9 @@ func networkStageLabel(stage netdiag.Stage) string {
 // check row, which the caller's bounds check turns into "no check selected".
 func (m Model) networkCheckRowStart() int {
 	options := m.GetCurrentOptions()
-	separator := m.menuSeparator()
 	start := 0
-	for start < len(options) {
-		row := options[start]
-		if row == networkRunRow || row == networkTargetRow || row == separator {
-			start++
-			continue
-		}
-		break
+	for start < len(options) && m.networkIsActionRow(options[start]) {
+		start++
 	}
 	return start
 }
@@ -437,18 +522,49 @@ func (m Model) selectedNetworkCheck() (netdiag.Check, bool) {
 // Drawing
 // ============================================================================
 
+// The diagnosis screen's own hints. Each names the key its row carries: the four
+// commands on their letters, Enter on the rows that open something, and Escape on
+// the way back -- or on stopping the run, which is what Escape does while one is in
+// flight. Space is in none of them: this screen has no switches.
+var (
+	networkRunHint       = installerHint{"[" + networkRunKey + "]", "run"}
+	networkSaveHint      = installerHint{"[" + networkSaveKey + "]", "save"}
+	networkTraceHint     = installerHint{"[" + networkTraceKey + "]", "traceroute"}
+	networkAnonymizeHint = installerHint{"[" + networkAnonymizeKey + "]", "anonymize"}
+	// networkStopRunHint is Escape while a run is going: the key stops the run
+	// rather than leaving the screen, so the footer names that meaning and not the
+	// other one.
+	networkStopRunHint = installerHint{"[Esc]", "stop the run"}
+)
+
 // renderNetworkDiagnostics draws the screen: the field while a destination is
 // being typed, the report as text while the preview is open, the detail of the
 // check under the cursor, or the answer the run gave.
 func (m Model) renderNetworkDiagnostics() string {
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintBack}
+	var hints []installerHint
 	switch {
 	case m.Network.InputActive:
 		// While the field is open its keys are the field's: Enter diagnoses what
 		// is typed and Esc closes it, which is what the legend says.
 		hints = []installerHint{hintValidate, hintCancel}
 	case m.Network.Running:
-		hints = []installerHint{hintUp, hintDown, hintCancel}
+		// A run in flight: Escape stops it rather than leaving the screen, and the
+		// footer says so instead of offering the way back it is not doing.
+		hints = []installerHint{hintUp, hintDown, networkStopRunHint}
+	default:
+		// Enter opens the two rows that lead somewhere, so it is in the legend with
+		// the shared spelling of its one meaning; the letters are this screen's own.
+		hints = []installerHint{hintUp, hintDown, hintOpen, networkRunHint, networkTraceHint}
+		if m.Network.Report != nil && m.Network.Preview {
+			// The write's row and the anonymization exist only in the preview, so their
+			// letters are named only there: a footer entry with no row behind it would
+			// offer a press that does nothing.
+			if m.Network.ReportPath != "" {
+				hints = append(hints, networkSaveHint)
+			}
+			hints = append(hints, networkAnonymizeHint)
+		}
+		hints = append(hints, hintBack)
 	}
 	return m.renderThemeScreen(m.networkDescription(), m.networkNoticeLine(), hints)
 }
@@ -678,8 +794,15 @@ func networkSentence(text string) string {
 // ============================================================================
 
 // handleNetworkKeys drives the diagnosis screen. It changes the screen, the
-// cursor, the toggles and the state of the run, and nothing else: every check
+// cursor, the two values and the state of the run, and nothing else: every check
 // runs behind a command, because a keypress must not wait on a network.
+//
+// Every key is the key its row carries: Enter opens (the destination field and the
+// report text, which are the two rows that lead anywhere), `r` runs the checks, `s`
+// writes the reviewed report, `t` and `a` turn the traceroute and the anonymization
+// over, and Escape goes back or stops the run. A command is never Enter and Enter is
+// never a command (odd/tasks/key-grammar.md). Space runs nothing here: the screen has
+// no switches, and the leader key is what it opens on this screen.
 func (m Model) handleNetworkKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -698,36 +821,52 @@ func (m Model) handleNetworkKeys(key string) (tea.Model, tea.Cmd) {
 				m.Cursor++
 			}
 		}
-	case "enter", " ":
+	case "enter":
+		// Enter opens a row's own thing and nothing else: the field a destination is
+		// typed into, and the report as text. The arrow in front of those two rows is
+		// the mark that says so, and every other row ignores the key.
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
-		switch selected := options[m.Cursor]; selected {
-		case networkRunRow:
-			return m.startNetworkRun()
+		switch options[m.Cursor] {
 		case networkTargetRow:
 			m.Network.InputActive = true
 			m.Network.InputErr = ""
 			m.Network.Notice = ""
-		case networkTraceRow:
-			m.Network.Trace = !m.Network.Trace
-			m.Network.Notice = networkTraceNotice(m.Network.Trace)
 		case networkPreviewRow:
 			m.Network.Preview = true
 			m.Network.ReportText = m.networkReportText()
 			m.Network.Notice = ""
-		case networkAnonymizeRow:
-			m.Network.Anonymize = !m.Network.Anonymize
-			// The text is rebuilt rather than drawn from a flag: what the preview shows
-			// and what the write saves stay one string.
-			m.Network.ReportText = m.networkReportText()
-		case networkSaveRow:
-			m.saveNetworkReport()
-		default:
-			if strings.Contains(selected, "Back") {
-				return m.leaveNetworkScreen()
-			}
 		}
+	case networkRunKey:
+		// The letter runs the row, so it is honoured only while the row is on screen.
+		if !slices.Contains(options, networkRunRow) {
+			return m, nil
+		}
+		return m.startNetworkRun()
+	case networkSaveKey:
+		// The write's row exists only once the report has been read and there is a
+		// file to write, so the letter writes under the same two conditions.
+		if !slices.Contains(options, networkSaveRow) {
+			return m, nil
+		}
+		m.saveNetworkReport()
+	case networkTraceKey:
+		if !slices.Contains(options, m.networkTraceRow()) {
+			return m, nil
+		}
+		m.Network.Trace = !m.Network.Trace
+		m.Network.Notice = networkTraceNotice(m.Network.Trace)
+	case networkAnonymizeKey:
+		// The anonymization belongs to the preview: the row exists only there, so the
+		// letter turns it over only there.
+		if !slices.Contains(options, m.networkAnonymizeRow()) {
+			return m, nil
+		}
+		m.Network.Anonymize = !m.Network.Anonymize
+		// The text is rebuilt rather than drawn from a flag: what the preview shows
+		// and what the write saves stay one string.
+		m.Network.ReportText = m.networkReportText()
 	}
 
 	return m, nil

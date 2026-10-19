@@ -337,10 +337,20 @@ func TestDoctorScreenWritesTheExportItSaysItWrote(t *testing.T) {
 	}
 	m.Cursor = row
 
-	next, cmd := m.handleDoctorKeys("enter")
+	// The row carries its own letter, and that is the key that writes: Enter
+	// opens a row's detail and never a file.
+	letter := doctorRowLetter(t, m.GetCurrentOptions()[m.Cursor])
+	if letter != "w" {
+		t.Fatalf("the export row declares %q, want w", letter)
+	}
+	if _, cmd := m.handleDoctorKeys("enter"); cmd != nil {
+		t.Errorf("Enter on the export row ran the write: %T", cmd())
+	}
+
+	next, cmd := m.handleDoctorKeys(letter)
 	m = next.(Model)
 	if cmd == nil {
-		t.Fatal("pressing the row wrote nothing")
+		t.Fatal("pressing the row's own letter wrote nothing")
 	}
 	written, ok := cmd().(doctorReportWrittenMsg)
 	if !ok {
@@ -439,10 +449,26 @@ func TestDoctorFixScreenAppliesAndReChecksTheFinding(t *testing.T) {
 	finding := doctorFindingWith(t, m.Doctor.Run.Results["git.sshauth"].Findings, "readable by others")
 	m.openDoctorFix(finding)
 
-	next, cmd := m.handleDoctorFixKeys("enter")
+	// Applying writes to the machine, so it is a command: it runs on the letter
+	// its row carries, and Enter -- which chooses a row -- applies nothing.
+	if _, cmd := m.handleDoctorFixKeys("enter"); cmd != nil {
+		t.Errorf("Enter on the confirmation applied the fix: %T", cmd())
+	}
+	if m.Doctor.FixNotice != "" {
+		t.Fatalf("Enter started the fix: %q", m.Doctor.FixNotice)
+	}
+	if len(host.mutations) != 0 {
+		t.Fatalf("Enter changed the machine: %v", host.mutations)
+	}
+
+	letter := doctorRowLetter(t, m.GetCurrentOptions()[0])
+	if letter != "a" {
+		t.Fatalf("the confirmation's action row declares %q, want a", letter)
+	}
+	next, cmd := m.handleDoctorFixKeys(letter)
 	m = next.(Model)
 	if cmd == nil {
-		t.Fatal("pressing the action applied nothing")
+		t.Fatal("pressing the action's own letter applied nothing")
 	}
 	if !strings.Contains(m.Doctor.FixNotice, "Applying") {
 		t.Errorf("the screen does not say it is applying the fix: %q", m.Doctor.FixNotice)
@@ -496,13 +522,13 @@ func TestDoctorFixScreenRefusesASecondPress(t *testing.T) {
 	finding := doctorFindingWith(t, m.Doctor.Run.Results["git.sshauth"].Findings, "readable by others")
 
 	m.openDoctorFix(finding)
-	next, cmd := m.handleDoctorFixKeys("enter")
+	next, cmd := m.handleDoctorFixKeys("a")
 	m = next.(Model)
 	next, _ = m.Update(cmd())
 	m = next.(Model)
 	changes := len(host.mutations)
 
-	next, again := m.handleDoctorFixKeys("enter")
+	next, again := m.handleDoctorFixKeys("a")
 	m = next.(Model)
 	if again != nil {
 		if message, ok := again().(doctorFixDoneMsg); ok && message.Outcome.Applied {
@@ -511,6 +537,14 @@ func TestDoctorFixScreenRefusesASecondPress(t *testing.T) {
 	}
 	if len(host.mutations) != changes {
 		t.Errorf("a second press changed the machine again: %v", host.mutations)
+	}
+
+	// Enter is not a second press either: it chooses a row and never applies.
+	if _, action := m.handleDoctorFixKeys("enter"); action != nil {
+		t.Errorf("Enter applied the fix again: %T", action())
+	}
+	if len(host.mutations) != changes {
+		t.Errorf("Enter changed the machine again: %v", host.mutations)
 	}
 }
 
@@ -614,11 +648,11 @@ func TestTheUtilitiesSectionOpensTheDoctor(t *testing.T) {
 	m.Screen = ScreenUtilities
 	m.Cursor = 0
 	for index, row := range m.GetCurrentOptions() {
-		if row == utilitiesDoctorRow {
+		if row == utilitiesScreenRow(utilitiesDoctorRow) {
 			m.Cursor = index
 		}
 	}
-	if row := m.GetCurrentOptions()[m.Cursor]; row != utilitiesDoctorRow {
+	if row := m.GetCurrentOptions()[m.Cursor]; row != utilitiesScreenRow(utilitiesDoctorRow) {
 		t.Fatalf("the utilities list has no row %q", utilitiesDoctorRow)
 	}
 
@@ -681,4 +715,315 @@ func TestDoctorReportIsWrittenBesideTheInstallersOwnState(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Errorf("the report is not in the installer's state directory: %v", err)
 	}
+}
+
+// ============================================================================
+// The key grammar on the doctor's two screens
+// ============================================================================
+
+// doctorRowLetter reads the letter a row declares on itself: the key spelled
+// between the brackets at the front of its label. A row that declares no letter
+// -- a finding, the way back -- returns "".
+func doctorRowLetter(t *testing.T, row string) string {
+	t.Helper()
+	if !strings.HasPrefix(row, "[") {
+		return ""
+	}
+	end := strings.Index(row, "]")
+	if end < 0 {
+		t.Fatalf("the row %q opens a bracket it never closes", row)
+	}
+	return row[1:end]
+}
+
+// doctorGrammarModel is a finished run with one answer that needs attention and
+// one that could not answer: the frame in which every row of the list -- the
+// finding, both runs, the retry, the export and the filter -- is offered at once.
+func doctorGrammarModel(t *testing.T) Model {
+	t.Helper()
+	host := doctorHealthyHost()
+	m := doctorRunToTheEnd(t, doctorScreenRunModel(t, host, "env.home"))
+	m.Doctor.Run.Results["env.home"] = doctorCheckResult{ID: "env.home", Status: doctorUnknown, Findings: []doctorFinding{{
+		Subject: "The home directory", Status: doctorUnknown, Evidence: "e", Impact: "i", Advice: "a",
+	}}}
+	m.Doctor.Run.Plan = nil
+	m.Doctor.Run.Finished = time.Now()
+	m.Doctor.AllFindings = false
+	m.Cursor = 0
+	m.settleDoctorCursor()
+	return m
+}
+
+// TestDoctorScreenEveryActionRowRunsOnItsOwnLetter pins the key grammar for this
+// screen: every row that acts where it stands carries the letter that runs it,
+// that letter does what the row says, Enter on the row starts nothing, and no
+// letter is a move key or shared with another row.
+func TestDoctorScreenEveryActionRowRunsOnItsOwnLetter(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "1")
+
+	// The rows that act, and the letter each one declares. The list is read from
+	// the list the screen draws, so a row that stops carrying its letter fails
+	// here rather than in a reader's hands.
+	want := map[string]string{
+		"a": doctorRunAllRow,
+		"c": doctorCategoryEllipsisRow,
+		"r": doctorRunRetryRow,
+		"w": doctorWriteReportRow,
+		"t": doctorFilterAllRow,
+	}
+	base := doctorGrammarModel(t)
+	declared := map[string]string{}
+	for _, row := range base.doctorList() {
+		letter := doctorRowLetter(t, row.label)
+		if letter == "" {
+			continue
+		}
+		if letter == "j" || letter == "k" {
+			t.Errorf("the row %q runs on %q, which is a move key", row.label, letter)
+		}
+		if other, taken := declared[letter]; taken {
+			t.Errorf("the rows %q and %q both run on %q", other, row.label, letter)
+		}
+		declared[letter] = row.label
+	}
+	if len(declared) != len(want) {
+		t.Errorf("the list declares %d letters %v, want %d %v", len(declared), declared, len(want), want)
+	}
+	for letter, label := range want {
+		if declared[letter] != label {
+			t.Errorf("the letter %q runs %q, want %q", letter, declared[letter], label)
+		}
+	}
+
+	// The footer names the same letters while the rows are offered, so the row and
+	// the legend cannot disagree about the key that presses it.
+	named := map[string]bool{}
+	for _, hint := range base.doctorHints() {
+		named[hint.keys] = true
+	}
+	for letter := range want {
+		if !named["["+letter+"]"] {
+			t.Errorf("no footer hint names [%s], though a row carries it: %v", letter, named)
+		}
+	}
+
+	// Enter opens and never runs: on every row that acts where it stands it is a
+	// press with no answer, and nothing on the screen changes.
+	for letter, label := range want {
+		m := doctorGrammarModel(t)
+		cursor := doctorRowIndex(t, m, label)
+		m.Cursor = cursor
+		before := m.Doctor.AllFindings
+		beforeRun := m.Doctor.Run
+		beforeID := m.Doctor.Run.ID
+		next, cmd := m.handleDoctorKeys("enter")
+		after := next.(Model)
+		if cmd != nil {
+			t.Errorf("Enter on %q ran something: %T", label, cmd())
+		}
+		if after.Doctor.AllFindings != before || after.Doctor.Run != beforeRun || after.Doctor.Run.ID != beforeID {
+			t.Errorf("Enter on %q changed the screen: all findings %v, run %d", label, after.Doctor.AllFindings, after.Doctor.Run.ID)
+		}
+		if after.Screen != ScreenDoctor {
+			t.Errorf("Enter on %q left the doctor for %v", label, after.Screen)
+		}
+		if letter != doctorRowLetter(t, after.doctorList()[cursor].label) {
+			t.Errorf("Enter on %q moved the row's own letter", label)
+		}
+	}
+
+	// Each letter does what its row says.
+	t.Run("a reads every check", func(t *testing.T) {
+		m := doctorGrammarModel(t)
+		next, cmd := m.handleDoctorKeys("a")
+		m = next.(Model)
+		if cmd == nil || !m.Doctor.Run.running() {
+			t.Fatal("the run row started nothing")
+		}
+		if len(m.Doctor.Run.Plan) != len(doctorChecks()) {
+			t.Errorf("the run covers %d checks, want every one of the %d", len(m.Doctor.Run.Plan), len(doctorChecks()))
+		}
+	})
+
+	t.Run("c reads the category under the cursor", func(t *testing.T) {
+		m := doctorGrammarModel(t)
+		// Before the run the categories are rows of their own, so the letter reads
+		// the one under the cursor rather than always the first.
+		fresh := doctorScreenModel(t)
+		fresh.Cursor = doctorCategoryRowIndex(t, fresh, doctorCategoryTools)
+		next, cmd := fresh.handleDoctorKeys("c")
+		fresh = next.(Model)
+		if cmd == nil {
+			t.Fatal("the category row started nothing")
+		}
+		if len(fresh.Doctor.Run.Plan) == 0 {
+			t.Fatal("the category run covers no checks")
+		}
+		for _, check := range fresh.Doctor.Run.Plan {
+			if check.Category != doctorCategoryTools {
+				t.Errorf("the run read %q from %v, want only the tools", check.ID, check.Category)
+			}
+		}
+
+		// Once a run has happened the row is the pointer back to that list, so the
+		// letter starts the first category.
+		next, cmd = m.handleDoctorKeys("c")
+		m = next.(Model)
+		if cmd == nil {
+			t.Fatal("the one-category row started nothing")
+		}
+		for _, check := range m.Doctor.Run.Plan {
+			if check.Category != doctorCategories()[0] {
+				t.Errorf("the pointer row read %q from %v, want the first category", check.ID, check.Category)
+			}
+		}
+	})
+
+	t.Run("r reads the checks that ended without an answer", func(t *testing.T) {
+		m := doctorGrammarModel(t)
+		next, cmd := m.handleDoctorKeys("r")
+		m = next.(Model)
+		if cmd == nil {
+			t.Fatal("the retry row started nothing")
+		}
+		if len(m.Doctor.Run.Plan) != 1 || m.Doctor.Run.Plan[0].ID != "env.home" {
+			t.Errorf("the retry reads %+v, want only the check that could not answer", m.Doctor.Run.Plan)
+		}
+	})
+
+	t.Run("w writes the report", func(t *testing.T) {
+		m := doctorGrammarModel(t)
+		next, cmd := m.handleDoctorKeys("w")
+		m = next.(Model)
+		if cmd == nil {
+			t.Fatal("the export row wrote nothing")
+		}
+		written, ok := cmd().(doctorReportWrittenMsg)
+		if !ok {
+			t.Fatalf("the export row produced %T, want a written report", cmd())
+		}
+		next, _ = m.Update(written)
+		m = next.(Model)
+		if m.Doctor.Notice == "" {
+			t.Error("the screen said nothing about the export")
+		}
+	})
+
+	t.Run("t shows the answers the filter hides", func(t *testing.T) {
+		m := doctorGrammarModel(t)
+		next, _ := m.handleDoctorKeys("t")
+		m = next.(Model)
+		if !m.Doctor.AllFindings {
+			t.Error("the filter row did not show every finding")
+		}
+		next, _ = m.handleDoctorKeys("t")
+		m = next.(Model)
+		if m.Doctor.AllFindings {
+			t.Error("the filter row did not go back to the problems")
+		}
+	})
+
+	// A run in flight offers one thing beside reading the answers: stopping it.
+	// The letters belong to rows that are not drawn while it runs, so neither the
+	// footer nor the handler offers them.
+	t.Run("the letters wait for the rows", func(t *testing.T) {
+		m := doctorGrammarModel(t)
+		m.Doctor.Run.Finished = time.Time{}
+		hints := m.doctorHints()
+		for _, hint := range hints {
+			if hint.keys != hintMove.keys && hint.keys != hintCancel.keys {
+				t.Errorf("the footer names %q while the run is in flight", hint.keys)
+			}
+		}
+		for _, letter := range []string{"a", "c", "r", "t", "w"} {
+			next, cmd := m.handleDoctorKeys(letter)
+			after := next.(Model)
+			if cmd != nil {
+				t.Errorf("%q started work while the run was in flight: %T", letter, cmd())
+			}
+			if after.Doctor.AllFindings != m.Doctor.AllFindings {
+				t.Errorf("%q changed the filter while the run was in flight", letter)
+			}
+		}
+
+		// A finding that has already answered is a row on the screen, so the footer
+		// names Enter for it: the run does not take away the key of a row it draws.
+		answered := doctorGrammarModel(t)
+		answered.Doctor.Run.Results["env.home"] = doctorCheckResult{ID: "env.home", Status: doctorWarning, Findings: []doctorFinding{{
+			Subject: "The home directory", Status: doctorWarning, Evidence: "e", Impact: "i", Advice: "a",
+			Fix: &doctorFix{Kind: doctorFixMakeDir, Path: "/home/tester/.local/state"},
+		}}}
+		answered.Doctor.Run.Finished = time.Time{}
+		answered.Cursor = 0
+		answered.settleDoctorCursor()
+		opened := false
+		for _, hint := range answered.doctorHints() {
+			if hint.keys == "[Enter]" {
+				opened = true
+			}
+		}
+		if !opened {
+			t.Error("the footer does not name Enter while a finding with a fix is under the cursor")
+		}
+	})
+
+	// The confirmation screen has one command and one way out: the letter its row
+	// carries applies the fix, Enter chooses and applies nothing, and Escape goes
+	// back.
+	t.Run("the confirmation applies on its own letter", func(t *testing.T) {
+		host := doctorHealthyHost()
+		host.addFile("/home/tester/.ssh", 0o755, true, "")
+		m := doctorRunToTheEnd(t, doctorScreenRunModel(t, host, "git.sshauth"))
+		finding := doctorFindingWith(t, m.Doctor.Run.Results["git.sshauth"].Findings, "readable by others")
+		m.openDoctorFix(finding)
+
+		rows := m.GetCurrentOptions()
+		if len(rows) != 2 {
+			t.Fatalf("the confirmation draws %v, want the action and the way back", rows)
+		}
+		if letter := doctorRowLetter(t, rows[0]); letter != "a" {
+			t.Errorf("the action row runs on %q, want a", letter)
+		}
+		if letter := doctorRowLetter(t, rows[1]); letter != "" {
+			t.Errorf("the way back carries the letter %q, and the way back is Escape", letter)
+		}
+		named := map[string]bool{}
+		for _, hint := range m.doctorFixHints() {
+			named[hint.keys] = true
+		}
+		if !named["[a]"] || !named[hintBack.keys] {
+			t.Errorf("the confirmation's footer names %v, want [a] and %s", named, hintBack.keys)
+		}
+		for keys := range named {
+			if strings.Contains(keys, "Enter") {
+				t.Errorf("the confirmation's footer still offers Enter for %q", keys)
+			}
+		}
+	})
+}
+
+// doctorRowIndex is the cursor position of the one row drawn with the label, or
+// a fatal when the list does not draw it at all.
+func doctorRowIndex(t *testing.T, m Model, label string) int {
+	t.Helper()
+	for index, row := range m.doctorList() {
+		if !row.separator && row.label == label {
+			return index
+		}
+	}
+	t.Fatalf("the list does not draw %q", label)
+	return -1
+}
+
+// doctorCategoryRowIndex is the cursor position of one category's own row on the
+// list a run has not touched yet.
+func doctorCategoryRowIndex(t *testing.T, m Model, category doctorCategory) int {
+	t.Helper()
+	for index, row := range m.doctorList() {
+		if !row.separator && row.action == doctorActionRunCategory && row.category == category && row.label != doctorCategoryEllipsisRow {
+			return index
+		}
+	}
+	t.Fatalf("the list does not draw the category %v", category)
+	return -1
 }

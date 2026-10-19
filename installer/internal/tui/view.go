@@ -73,27 +73,52 @@ type installerHint struct {
 // The installer's hints, one per action, in the canonical order the previous
 // slice fixed: navigation first, then the action, then the way back or out. A
 // screen lists the actions it honours by name instead of retyping a sentence.
+//
+// The grammar these spell is fixed in odd/tasks/key-grammar.md and guarded by
+// TestEveryHintObeysTheKeyGrammar: Enter opens or chooses, Space toggles a row
+// that is a switch, a command runs on its own letter, Esc goes back, and a text
+// field commits with Enter because its letters are its text.
 var (
 	hintUp     = installerHint{"↑/k", "up"}
 	hintDown   = installerHint{"↓/j", "down"}
 	hintSelect = installerHint{"[Enter]", "select"}
+	// hintOpen and hintChoose are the two spellings of Enter's one meaning, and
+	// the pass moves each screen onto the one that names what it does: hintOpen
+	// for a row that leads to a screen, hintChoose for a picker whose rows are
+	// values. hintSelect names neither, and it is what the screens the pass has
+	// not reached yet still say.
+	hintOpen   = installerHint{"[Enter]", "open"}
+	hintChoose = installerHint{"[Enter]", "choose"}
 	hintBack   = installerHint{"[Esc]", "back"}
+	// The Utilities section's own commands. The desktop theme switch and the undo
+	// act where they stand, so each runs on its own letter and carries it on its
+	// row; Enter is left to the rows that open a screen.
+	hintDark  = installerHint{"[d]", "dark theme"}
+	hintLight = installerHint{"[l]", "light theme"}
+	hintUndo  = installerHint{"[u]", "undo"}
 	// The password screen's Enter is an attempt rather than a selection, so it names
 	// its own pair instead of borrowing the wizard's: "select" there would say the
 	// opposite of what the key does.
 	hintValidate = installerHint{"[Enter]", "validate"}
 	hintTerminal = installerHint{"[Esc]", "ask in the terminal"}
 	hintCancel   = installerHint{"[Esc]", "cancel"}
-	hintQuit     = installerHint{"[Space q]", "quit"}
-	hintDetails  = installerHint{"[Space d]", "details"}
-	hintPage     = installerHint{"[PgUp/PgDn]", "page"}
-	hintReturn   = installerHint{"[Enter/Space/Esc/q]", "return to menu"}
-	hintRetry    = installerHint{"[r]", "retry"}
-	hintStart    = installerHint{"[Enter]", "start"}
+	// hintQuit quits the whole program and hintExit ends a finished run. Both run
+	// on q, their own letter: Enter opens and chooses, so it cannot also leave.
+	hintQuit    = installerHint{"[q]", "quit"}
+	hintExit    = installerHint{"[q]", "exit"}
+	hintDetails = installerHint{"[d]", "details"}
+	hintPage    = installerHint{"[PgUp/PgDn]", "page"}
+	hintRetry   = installerHint{"[r]", "retry"}
+	// hintUpdateInstall is the update screen's own install key. Installing the
+	// release writes the running binary, so it carries its own letter rather than
+	// Enter; the check beside it runs on hintRefresh.
+	hintUpdateInstall = installerHint{"[i]", "install"}
+	// hintStart is the welcome screen's start key. Starting the wizard carries its
+	// own letter for the same reason the review's does: Enter opens and chooses.
+	hintStart = installerHint{"[s]", "start"}
 	// The review screen's switch. It is its own key rather than Enter, because a key
 	// that turns a unit off and a key that starts the run cannot be the same one.
 	hintToggle = installerHint{"[Space]", "turn it off or on"}
-	hintExit   = installerHint{"[Enter]", "exit"}
 	// hintAdjust and hintRecommended are the WSL resource screen's own keys: the
 	// arrows move the value under the cursor by one step, and `r` puts every row
 	// back on the host's recommendation. hintMove is the same screen's compact
@@ -102,6 +127,11 @@ var (
 	// wrapped and left the way back alone on a line of its own.
 	hintAdjust      = installerHint{"[←/→]", "adjust"}
 	hintRecommended = installerHint{"[r]", "recommended"}
+	// The resource screen's two commands act where they stand -- they write the file
+	// or repair the guard -- so they run on their own letters, and Enter is left to
+	// the rows that open something.
+	hintWriteWSL    = installerHint{"[w]", "write"}
+	hintRepairGuard = installerHint{"[g]", "repair guard"}
 	hintMove        = installerHint{"↑/k ↓/j", "move"}
 	// hintType is the hint for a screen that has a text field: the keyboard writes
 	// into the field, and the arrows move between fields, so no key can be named for
@@ -116,8 +146,7 @@ var (
 	// hintCycle names the three value cycles (transport, owner, sort), hintRefresh
 	// asks for an immediate reading, hintAuto toggles the periodic one, hintStop
 	// opens the confirmation and hintCopy writes the diagnostic. The stop
-	// confirmation spells its own two actions, because the soft stop and the
-	// forced one are deliberately different words.
+	// confirmation declares its own two hints beside its rows, where the rows are.
 	hintFilter       = installerHint{"[/]", "filter"}
 	hintFilterTyping = installerHint{"[Enter/Esc]", "keep filter"}
 	hintRefresh      = installerHint{"[r]", "refresh"}
@@ -125,13 +154,20 @@ var (
 	hintStop         = installerHint{"[x]", "stop"}
 	hintCopy         = installerHint{"[y]", "copy"}
 	hintCycle        = installerHint{"[f/o/s]", "cycle"}
-	hintTerminate    = installerHint{"[t/Enter]", "stop gently"}
-	hintForce        = installerHint{"[k]", "force stop"}
 	// hintWSLTerminalOffer is the installing screen's hint while the interactive
 	// WSL step waits on the Windows Terminal offer. It is one hint rather than two
 	// so it always fits one footer row beside the details hint, and it spells both
 	// answers because the offer writes nothing until one of them is pressed.
 	hintWSLTerminalOffer = installerHint{"[y/n]", "configure Windows Terminal or leave it unchanged"}
+	// hintShellAuditMeasure is the shell startup screen's own measure key. The row
+	// starts the user's shell several times, so it carries a letter of its own and
+	// Enter is left to the rows that open something.
+	hintShellAuditMeasure = installerHint{"[s]", "measure"}
+	// The theme refresh review's two answers. The confirmation writes files and the
+	// cancel leaves every one of them alone, so each names its own letter instead of
+	// Enter, which opens and chooses rather than applying a write.
+	hintThemeRefreshApply  = installerHint{"[y]", "refresh the files"}
+	hintThemeRefreshCancel = installerHint{"[n]", "leave them alone"}
 	// The shell startup screen's own keys. The plan is four settings in one hint:
 	// they are the same kind of decision, they are named together where the plan is
 	// described, and four separate pairs would take the footer row the way back
@@ -1210,7 +1246,7 @@ func (m Model) View() string {
 	// brackets, one separator, one order.
 	content := s.String()
 	if m.LeaderMode {
-		content = replaceLastLine(content, WarningStyle.Render("▶ Leader mode: [q] quit • [d] details"))
+		content = replaceLastLine(content, WarningStyle.Render("▶ Leader mode: [q] quit"))
 	}
 
 	// Apply global padding (top: 1, right: 2, bottom: 0, left: 2), then paint the
@@ -1456,8 +1492,18 @@ const utilitiesNoticeRows = 2
 // what the change touches, the rows the host offers, and the result of the last
 // one. The themes themselves live one level in, on the theme picker.
 func (m Model) renderUtilities() string {
-	return m.renderThemeScreen(m.utilitiesDescription(), m.ThemeNotice,
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	// Enter opens a screen here; the rows that act where they stand run on their
+	// own letter, and the footer names those letters only while their rows are
+	// offered. A footer that named a key with no row behind it would be offering a
+	// press that does nothing.
+	hints := []installerHint{hintUp, hintDown, hintOpen}
+	if m.ThemeSwitchFound {
+		hints = append(hints, hintDark, hintLight)
+	}
+	if m.themeUndoAvailable() {
+		hints = append(hints, hintUndo)
+	}
+	return m.renderThemeScreen(m.utilitiesDescription(), m.ThemeNotice, append(hints, hintBack))
 }
 
 // renderUpdate draws this installer's own release screen: what this build is,
@@ -1465,8 +1511,18 @@ func (m Model) renderUtilities() string {
 // the file an update would replace, and the two rows that act on it. It has no
 // golden of its own and no panel: it is one column of facts and two presses.
 func (m Model) renderUpdate() string {
-	return m.renderThemeScreen(m.updateDescription(), m.UpdateCheck.Notice,
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	// The two rows that act here run on their own letters -- [i] installs the
+	// release, [r] asks again -- and Enter is left to the way back, which is a
+	// screen the row opens. The footer names a letter only while its row is
+	// offered, so a blocked install is never advertised.
+	hints := []installerHint{hintUp, hintDown, hintOpen, hintBack}
+	if m.UpdateInstallable() {
+		hints = append(hints, hintUpdateInstall)
+	}
+	if !m.UpdateCheck.InFlight {
+		hints = append(hints, hintRefresh)
+	}
+	return m.renderThemeScreen(m.updateDescription(), m.UpdateCheck.Notice, hints)
 }
 
 // renderWSLResources draws the WSL resource screen: the host's capacities, the
@@ -1476,7 +1532,7 @@ func (m Model) renderUpdate() string {
 // are in the legend rather than in prose.
 func (m Model) renderWSLResources() string {
 	return m.renderThemeScreen(m.wslResourceDescription(), m.wslNoticeLine(),
-		[]installerHint{hintMove, hintAdjust, hintRecommended, hintSelect, hintBack})
+		[]installerHint{hintMove, hintAdjust, hintRecommended, hintWriteWSL, hintRepairGuard, hintBack})
 }
 
 // wslNoticeLine is the WSL screen's result line: the write's outcome, and while
@@ -1544,15 +1600,34 @@ func (m Model) renderShellAudit() string {
 		back = hintShellAuditStop
 	}
 	return m.renderThemeScreen(m.shellAuditDescription(), m.shellAuditNotice(),
-		[]installerHint{hintUp, hintDown, hintSelect, hintShellAuditPlan, hintShellAuditExtras, back})
+		[]installerHint{hintUp, hintDown, hintShellAuditMeasure, hintShellAuditPlan, hintShellAuditExtras, back})
 }
 
 // renderThemePicker draws the dotfiles theme list: the complete themes, each
 // naming the tools it leaves out, the undo row when there is a change to put
 // back, and the live preview of the theme under the cursor.
 func (m Model) renderThemePicker() string {
-	return m.renderThemeScreen(m.themePickerDescription(), m.ThemeNotice,
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	// The refresh review is a second state of the picker: its confirmation writes
+	// files, so both answers run on their own letters, and Enter is left to the way
+	// back the result state offers. The list itself chooses a theme on Enter and runs
+	// its commands on their letters, named in the footer only while their rows are.
+	if m.ThemeRefreshReview {
+		if m.ThemeRefreshDone {
+			return m.renderThemeScreen(m.themePickerDescription(), m.ThemeNotice,
+				[]installerHint{hintOpen, hintBack})
+		}
+		return m.renderThemeScreen(m.themePickerDescription(), m.ThemeNotice,
+			[]installerHint{hintUp, hintDown, hintThemeRefreshApply, hintThemeRefreshCancel})
+	}
+
+	hints := []installerHint{hintUp, hintDown, hintChoose}
+	if len(m.DotfilesThemes) > 0 {
+		hints = append(hints, hintRefresh)
+	}
+	if m.DotfilesThemeRecord != nil {
+		hints = append(hints, hintUndo)
+	}
+	return m.renderThemeScreen(m.themePickerDescription(), m.ThemeNotice, append(hints, hintBack))
 }
 
 // renderThemeScreen draws a screen whose body is a description, a menu, the live
@@ -1969,20 +2044,22 @@ func (m Model) themePickerDescription() []string {
 
 // dotfilesThemeUndoRow is the row that puts back the blocks the last dotfiles
 // theme change replaced. It is named distinctly from the desktop switch's undo
-// row so the two are not confused on the same screen.
-const dotfilesThemeUndoRow = "Undo the last dotfiles theme change"
+// row so the two are not confused on the same screen, and it runs on its own
+// letter: it acts where it stands rather than opening anything.
+const dotfilesThemeUndoRow = "[u] Undo the last dotfiles theme change"
 
 // themeRefreshRow is the row that detects the installed theme files that are
 // not up to date. It only opens the review; nothing is written until the
-// confirmation on that review is chosen.
-const themeRefreshRow = "Refresh outdated theme files"
+// confirmation on that review is chosen, so the row runs on its own letter and
+// says so.
+const themeRefreshRow = "[r] Refresh outdated theme files"
 
 // themeRefreshCancelRow is the safe default of the review: it leaves every file
-// exactly as it is.
-const themeRefreshCancelRow = "Cancel"
+// exactly as it is. It carries its own letter because the row beside it writes.
+const themeRefreshCancelRow = "[n] Cancel"
 
 // themeRefreshConfirmRow is the review's confirmation, naming how many files it
-// would write.
+// would write. It writes, so it names its own letter rather than Enter.
 func themeRefreshConfirmRow(candidates []themeRefreshCandidate) string {
 	n := 0
 	for _, cand := range candidates {
@@ -1990,7 +2067,7 @@ func themeRefreshConfirmRow(candidates []themeRefreshCandidate) string {
 			n++
 		}
 	}
-	return fmt.Sprintf("Yes, refresh %d file(s)", n)
+	return fmt.Sprintf("[y] Yes, refresh %d file(s)", n)
 }
 
 // settleThemePickerCursor keeps the cursor on a selectable row after an outcome
@@ -2034,6 +2111,29 @@ func (m *Model) resetThemeRefresh() {
 	m.ThemeActivity = nil
 }
 
+// utilitiesScreenMark is the mark in front of a row that opens a screen. It is a
+// constant because the section's handler takes it back off to match the row's
+// label, and the two spellings have to be one.
+const utilitiesScreenMark = "→ "
+
+// utilitiesScreenRow draws a row that opens a screen. The Utilities section is a
+// list of jobs, and most of them open a screen, so the arrow is what says a row
+// does that rather than acting where it stands; the way back carries the same
+// arrow pointing the other way. A row that acts where it stands carries the
+// letter that runs it in brackets instead, and a switch row shows its state, the
+// way the lists inside the section already do.
+func utilitiesScreenRow(label string) string { return utilitiesScreenMark + label }
+
+// The Utilities section's rows that act where they stand. They run on their own
+// letter -- Enter is left to the rows that open a screen -- and the section's
+// footer names the same letters while the rows are offered, so the row and the
+// footer cannot disagree about the key that presses it.
+const (
+	utilitiesDarkRow  = "[d] Switch to the dark theme"
+	utilitiesLightRow = "[l] Switch to the light theme"
+	utilitiesUndoRow  = "[u] Undo the last theme change"
+)
+
 // utilitiesThemeRow is the utilities section's single row for the dotfiles'
 // own theme. The themes themselves live one level in, on the theme picker, so
 // the section reads as a list of jobs rather than a list of themes.
@@ -2075,8 +2175,10 @@ const (
 	wslResourceRowSwap
 )
 
-// wslWriteRow is the one row that touches the file.
-const wslWriteRow = "Write the .wslconfig"
+// wslWriteRow is the one row that touches the file. Its letter is on the row
+// because the write is a command, not an opening: Enter opens and chooses, so the
+// row that writes says which key writes.
+const wslWriteRow = "[w] Write the .wslconfig"
 
 // wslValueLabel renders one value for the screen. Zero is named rather than
 // printed as a zero, which would read as a real limit; the caller says which
@@ -2098,9 +2200,9 @@ func wslValueLabel(value int, unit, zero string) string {
 func (m Model) wslResourceRows() []string {
 	draft := m.WSLState.Draft
 	return []string{
-		"Memory: " + wslValueLabel(draft.MemoryMB, "MB", wslDraftZero),
-		"Processors: " + wslValueLabel(draft.Processors, "", wslDraftZero),
-		"Swap: " + wslValueLabel(draft.SwapMB, "MB", wslDraftZero),
+		"Memory: " + wslValueLabel(draft.MemoryMB, "MB", wslDraftZero) + " [←/→]",
+		"Processors: " + wslValueLabel(draft.Processors, "", wslDraftZero) + " [←/→]",
+		"Swap: " + wslValueLabel(draft.SwapMB, "MB", wslDraftZero) + " [←/→]",
 		m.menuSeparator(),
 		wslWriteRow,
 		m.menuSeparator(),
@@ -2164,9 +2266,9 @@ func (m Model) wslResourceDescription() []string {
 }
 
 // wslGuardRepairRow is the screen's row for the memory guard. It is the one row
-// here that is not about the .wslconfig: pressing it installs the guard's two
-// files, restarts its unit, and then reports what the host holds.
-const wslGuardRepairRow = "Repair the WSL memory guard"
+// here that is not about the .wslconfig: pressing its letter installs the guard's
+// two files, restarts its unit, and then reports what the host holds.
+const wslGuardRepairRow = "[g] Repair the WSL memory guard"
 
 // wslGuardParagraphs is what the screen says about the memory guard. It names
 // what each missing protection costs rather than warning in general terms,
@@ -2340,6 +2442,14 @@ func (m Model) wslResourcesUnavailableReason() string {
 // everywhere else.
 const utilitiesShellAuditRow = "Measure the shell's startup"
 
+// shellAuditMeasureRow is the shell startup screen's own measure row. It is the
+// same work the section's row describes, but here the row runs it where it
+// stands, so it carries its own letter and Enter is left to the row that opens
+// the section. The label is kept apart from utilitiesShellAuditRow because the
+// section row is an opening, named by its own label, and a letter there would
+// name a key the section does not read.
+const shellAuditMeasureRow = "[s] Measure the shell's startup"
+
 // shellAuditAdviceListLimit is how many recommendations the screen's text lists,
 // and shellAuditAdviceOpenKey is the key that opens them.
 const (
@@ -2379,13 +2489,14 @@ func updateChannelRow(channel releaseChannel) string {
 // the screen, because asking again is what a user does when the answer is old,
 // wrong or missing -- and "the check failed" is exactly when the answer is worth
 // asking for again.
-const updateCheckRow = "Check for the latest release again"
+const updateCheckRow = "[r] Check for the latest release again"
 
 // updateInstallRow installs the published release over this binary. It is offered
 // only when there is a newer release to install and the file is this installer's
 // own to replace; a copy a package manager owns gets the reason instead, in the
-// screen's own words, and never a row that would refuse when it was pressed.
-const updateInstallRow = "Download and install the latest release"
+// screen's own words, and never a row that would refuse when it was pressed. It
+// writes the running binary, so it names its own install key rather than Enter.
+const updateInstallRow = "[i] Download and install the latest release"
 
 // updateRows is what the update screen offers, derived from the state rather than
 // typed: installing is there when it can be done, asking again is there whenever
@@ -2520,7 +2631,7 @@ func (m Model) updateDescription() []string {
 // take the sentences away from the numbers they explain. It lives in the text
 // below with keys of its own, and the keys are named where it is described.
 func (m Model) shellAuditRows() []string {
-	rows := []string{utilitiesShellAuditRow}
+	rows := []string{shellAuditMeasureRow}
 	if m.ShellAudit.Measured {
 		rows = append(rows, m.menuSeparator())
 		rows = append(rows, shellAuditSummaryRows(m.ShellAudit)...)
@@ -3177,7 +3288,7 @@ func (m Model) renderMainMenu() string {
 	// the plan panel. The frame takes it only where there is room for it and drops
 	// it below the two-column floor, so the 80x24 rendering of this screen is
 	// unchanged.
-	return m.frame(m.headerName(), "", body, []installerHint{hintUp, hintDown, hintSelect, hintQuit})
+	return m.frame(m.headerName(), "", body, []installerHint{hintUp, hintDown, hintOpen, hintQuit})
 }
 
 // stripStepPrefix removes a leading "Step N: " from a wizard title, so the step
@@ -3200,7 +3311,7 @@ func stripStepPrefix(title string) string {
 func (m Model) renderSetup() string {
 	width := contentWidth(m)
 
-	hints := []installerHint{hintUp, hintDown, hintAdjust, hintSelect, hintBack}
+	hints := m.setupHints()
 	footer := footerHints(layoutFor(m).Inner, m.panelHints(m.panelsFor(), hints))
 	budget := installerBodyRows(m.Height, len(footer))
 
@@ -3275,7 +3386,7 @@ func (m Model) renderSelection() string {
 	if current, total := m.wizardProgress(); total > 0 {
 		vital = meterRendered(current, total, 10)
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintSelect, hintBack})
+	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintChoose, hintBack})
 }
 
 // renderLearnTools draws the hub: one row per page of the in-installer wiki,
@@ -3513,7 +3624,7 @@ func (m Model) renderReferenceTable(table referenceTable, scroll int) string {
 	if len(table.Rows) > rows {
 		vital = scrollVital("Showing", start+1, end, len(table.Rows))
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintReturn})
+	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintOpen, hintBack})
 }
 
 // menuBodyFixed is the part of a menu's body that is not an option row: the
@@ -3528,7 +3639,7 @@ const menuBodyFixed = 3
 // frame has rows scrolls instead of overflowing.
 func (m Model) renderMenu(description string) string {
 	rows := m.menuRows(m.GetCurrentOptions(), m.Cursor)
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintBack}
+	hints := []installerHint{hintUp, hintDown, hintOpen, hintBack}
 
 	visible := installerBodyRows(m.Height, footerRowCount(contentWidth(m), hints)) - menuBodyFixed
 	if visible < 1 {
@@ -3760,7 +3871,7 @@ func (m Model) renderLazyVimTopic() string {
 	if len(allLines) > viewHeight {
 		vital = scrollVital("Lines", start+1, end, len(allLines))
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintPage, hintReturn})
+	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintPage, hintOpen, hintBack})
 }
 
 // Installing screen rows. The bar is the one place the whole run's progress is
@@ -4286,7 +4397,7 @@ const backupConfirmFixed = 6
 
 func (m Model) renderBackupConfirm() string {
 	width := contentWidth(m)
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintBack}
+	hints := []installerHint{hintUp, hintDown, hintChoose, hintBack}
 	options := m.GetCurrentOptions()
 	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
 
@@ -4318,7 +4429,7 @@ const restoreBackupBodyFixed = 5
 
 func (m Model) renderRestoreBackup() string {
 	width := contentWidth(m)
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintBack}
+	hints := []installerHint{hintUp, hintDown, hintOpen, hintBack}
 	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
 
 	// The list is bounded and follows the cursor, so a long history scrolls
@@ -4374,7 +4485,7 @@ func (m Model) renderRestoreConfirm() string {
 
 	backup := m.AvailableBackups[m.SelectedBackup]
 	width := contentWidth(m)
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintCancel}
+	hints := []installerHint{hintUp, hintDown, hintChoose, hintCancel}
 	options := m.GetCurrentOptions()
 	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
 
@@ -4487,6 +4598,10 @@ var (
 	trainerHintResetAll = installerHint{"[R]", "reset all"}
 	trainerHintBack     = installerHint{"[q/Esc]", "back"}
 	trainerHintContinue = installerHint{"[Enter]", "continue"}
+	// trainerHintReturn is the boss result's way back. The trainer's keys are its
+	// lesson (docs/vim-trainer-spec.md), so its return keeps the spelling the rest
+	// of the trainer uses and is not moved onto the installer's new grammar.
+	trainerHintReturn = installerHint{"[Enter/Space/Esc/q]", "return to menu"}
 
 	trainerHintTypeCommand = installerHint{"", "Type command"}
 	trainerHintSubmit      = installerHint{"[Enter]", "submit"}
@@ -5777,7 +5892,7 @@ func (m Model) renderTrainerBossResult() string {
 	// result screen's; the one nearest the legend carries the companion, which
 	// reacts to the victory or the defeat the header names.
 	rows = append(rows, "")
-	footer := footerHints(inner, []installerHint{hintReturn})
+	footer := footerHints(inner, []installerHint{trainerHintReturn})
 	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	rows = append(rows, footer...)
 	return strings.Join(rows, "\n")

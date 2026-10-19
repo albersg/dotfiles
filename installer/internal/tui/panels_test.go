@@ -1045,7 +1045,10 @@ func TestActivePanelIndexClampsAModelBuiltByHand(t *testing.T) {
 // not have.
 func TestPanelIndexResetsWhenTheScreenChanges(t *testing.T) {
 	m := Model{Screen: ScreenWelcome, PanelIndex: 1}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// The welcome screen opens the menu on the letter its footer names (issue #375):
+	// Enter no longer starts, so the guard presses what the screen answers.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	got := next.(Model)
 	if got.Screen != ScreenMainMenu {
 		t.Fatalf("screen after enter = %v, want %v", got.Screen, ScreenMainMenu)

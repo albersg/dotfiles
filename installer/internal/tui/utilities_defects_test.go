@@ -98,7 +98,7 @@ func TestTheSectionHoldsItsCursorWhenABackgroundReadInsertsARow(t *testing.T) {
 			}
 
 			before := m.GetCurrentOptions()
-			aimed := utilitiesVerifyRow
+			aimed := utilitiesScreenRow(utilitiesVerifyRow)
 			index := -1
 			for i, option := range before {
 				if option == aimed {
