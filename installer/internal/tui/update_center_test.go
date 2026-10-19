@@ -613,11 +613,11 @@ func updateCenterRunningModel(t *testing.T, adapter *tuiFakeAdapter, items ...up
 	return m, runner
 }
 
-// TestTheRunningUpdateRefusesToBeLeftAndStopsOnlyWhenAsked pins the two rules of
-// the running state: Escape does not hide the only screen that can say what is
-// happening, and stopping is a request the manager answers through its own
-// interrupt rather than a silent disappearance of the frame.
-func TestTheRunningUpdateRefusesToBeLeftAndStopsOnlyWhenAsked(t *testing.T) {
+// TestTheRunningUpdateStopsOnEscapeAndOnItsRow pins the running state's one
+// action: Escape stops a run in progress, the way it does on the doctor and the
+// shell audit, and the stop row does the same. Leaving would hide the only screen
+// that can say what is happening, so the key that would leave stops it instead.
+func TestTheRunningUpdateStopsOnEscapeAndOnItsRow(t *testing.T) {
 	apt := updateCenterAvailableAdapter(updates.ManagerApt, updates.ScopeSystem)
 	m, _ := updateCenterRunningModel(t, apt, updateCenterFakeItem(apt, "tar", "1.35-1", "1.35-2"))
 
@@ -636,11 +636,19 @@ func TestTheRunningUpdateRefusesToBeLeftAndStopsOnlyWhenAsked(t *testing.T) {
 	if cmd != nil {
 		t.Error("Escape issued a command")
 	}
-	if !strings.Contains(escaped.UpdateCenter.Notice, "running") {
-		t.Errorf("Escape while running said nothing about what to do instead: %q", escaped.UpdateCenter.Notice)
+	if escaped.UpdateCenter.ctx == nil || escaped.UpdateCenter.ctx.Err() == nil {
+		t.Fatal("Escape did not cancel the running command's context")
+	}
+	if !escaped.UpdateCenter.Applying {
+		t.Error("Escape closed the run before the manager answered for it")
+	}
+	if !strings.Contains(escaped.UpdateCenter.Notice, "Stopping") {
+		t.Errorf("stopping said nothing about what is happening: %q", escaped.UpdateCenter.Notice)
 	}
 
-	stopped, _ := pressUpdateCenterRow(t, m, updateCenterStopRow)
+	// The row is the same action, named on the row and in the footer.
+	fromRow, _ := updateCenterRunningModel(t, apt, updateCenterFakeItem(apt, "tar", "1.35-1", "1.35-2"))
+	stopped, _ := pressUpdateCenterRow(t, fromRow, updateCenterStopRow)
 	if stopped.UpdateCenter.ctx == nil || stopped.UpdateCenter.ctx.Err() == nil {
 		t.Fatal("the stop row did not cancel the running command's context")
 	}

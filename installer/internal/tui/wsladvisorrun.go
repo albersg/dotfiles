@@ -62,6 +62,9 @@ type wslBenchmarkState struct {
 	// Running reports a measurement in flight, so the screen says it is measuring rather than
 	// showing the previous result as if it were the current one.
 	Running bool
+	// cancel stops the run in flight: Escape is the key that stops a run, and a
+	// measurement holds the disk while it runs, so the screen must be able to end it.
+	cancel context.CancelFunc
 	// Ran reports that a report is held, including one that measured nothing.
 	Ran bool
 	// Report is the last run, whole: it is what the screen's rows and body are built from.
@@ -126,12 +129,22 @@ type wslBenchmarkDoneMsg struct {
 	report system.BenchReport
 }
 
+// startWSLBenchmarkRun arms the cancellable run and returns the command that
+// measures: the state holds the cancel so Escape can end it mid-flight.
+func (m *Model) startWSLBenchmarkRun() tea.Cmd {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.WSLAdvisor.Benchmark.Running = true
+	m.WSLAdvisor.Benchmark.cancel = cancel
+	m.WSLAdvisor.Benchmark.Notice = "the run is bounded, and it removes what it writes"
+	return runWSLBenchmarkCmd(ctx, m.wslBenchmarkTargets())
+}
+
 // runWSLBenchmarkCmd measures the targets off the update loop. The engine never returns an error: a
 // target it could not measure carries its own reason, so the screen can show what worked beside what
 // did not instead of one failure for the whole run.
-func runWSLBenchmarkCmd(targets []system.BenchTarget) tea.Cmd {
+func runWSLBenchmarkCmd(ctx context.Context, targets []system.BenchTarget) tea.Cmd {
 	return func() tea.Msg {
-		report := system.RunBenchmark(context.Background(), targets, system.BenchOptions{})
+		report := system.RunBenchmark(ctx, targets, system.BenchOptions{})
 		return wslBenchmarkDoneMsg{report: report}
 	}
 }

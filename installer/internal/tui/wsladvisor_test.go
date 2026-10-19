@@ -1487,6 +1487,46 @@ func wslMigrationHelpHints(hints []installerHint) []string {
 	return rendered
 }
 
+// TestTheBenchmarkStopsOnEscapeWhileItRuns pins rule 4 of the key grammar on the
+// measurement screen: Escape stops a run in flight -- a measurement holds the disk
+// while it runs -- and with nothing running it is the way back.
+func TestTheBenchmarkStopsOnEscapeWhileItRuns(t *testing.T) {
+	m := wslAdvisorFrameModel(t, ScreenWSLBenchmark)
+	cancelled := false
+	m.WSLAdvisor.Benchmark = wslBenchmarkState{Running: true, cancel: func() { cancelled = true }}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	stopped := next.(Model)
+	if cmd != nil {
+		t.Error("Escape issued a command")
+	}
+	if !cancelled {
+		t.Fatal("Escape did not cancel the measurement in flight")
+	}
+	if stopped.Screen != ScreenWSLBenchmark {
+		t.Fatalf("Escape stopped the run and left the screen on %v", stopped.Screen)
+	}
+	if !stopped.WSLAdvisor.Benchmark.Running {
+		t.Error("Escape closed the run before its report landed")
+	}
+	if !strings.Contains(stopped.WSLAdvisor.Benchmark.Notice, "Stopping") {
+		t.Errorf("Escape said nothing about stopping: %q", stopped.WSLAdvisor.Benchmark.Notice)
+	}
+
+	// The footer names the stop while the run is in flight.
+	footer := strings.Join(wslMigrationHelpHints(stopped.wslBenchmarkHints()), " ")
+	if !strings.Contains(footer, "[Esc] stop the measurement") {
+		t.Errorf("the footer while measuring does not name the stop: %q", footer)
+	}
+
+	// With nothing running, Escape is the way back.
+	idle := wslAdvisorFrameModel(t, ScreenWSLBenchmark)
+	back, _ := idle.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if got := back.(Model).Screen; got != ScreenWSLAdvisor {
+		t.Errorf("Escape with no run went to %v, want the report", got)
+	}
+}
+
 // TestWSLScreenFootersFitOneRowAtTheFloor pins what the letters cost: each of the four WSL screens'
 // footers still packs into one row at 80 columns, which is the row the list needs on the narrowest
 // terminal the installer supports. A footer that grew to two rows would take a row of the list away

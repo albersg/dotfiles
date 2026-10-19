@@ -1270,6 +1270,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// mixture of two runs; a run that measured nothing says so through the same
 		// fields as a run that measured everything.
 		m.WSLAdvisor.Benchmark.Running = false
+		m.WSLAdvisor.Benchmark.cancel = nil
 		m.WSLAdvisor.Benchmark.Ran = true
 		m.WSLAdvisor.Benchmark.Report = msg.report
 		m.WSLAdvisor.Benchmark.Notice = wslBenchmarkPanelValue(m.WSLAdvisor.Benchmark)
@@ -2192,9 +2193,17 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 		m.WSLAdvisor.Notice = ""
 	case ScreenWSLBenchmark:
-		// The measurement screen is one level further in. A run in flight keeps
-		// running and writes its report onto the model, exactly as the shell audit's
-		// measurement does: stepping back must not lose a number that was paid for.
+		// The measurement screen is one level further in. Escape stops a run in
+		// flight -- a measurement holds the disk while it runs -- and with nothing
+		// running it is the way back. The back row still opens with Enter and leaves
+		// a run to land its report on the model.
+		if m.WSLAdvisor.Benchmark.Running {
+			if m.WSLAdvisor.Benchmark.cancel != nil {
+				m.WSLAdvisor.Benchmark.cancel()
+			}
+			m.WSLAdvisor.Benchmark.Notice = "Stopping the measurement…"
+			return m, nil
+		}
 		m.Screen = ScreenWSLAdvisor
 		m.Cursor = 0
 		m.WSLAdvisor.Benchmark.Notice = ""
@@ -3010,9 +3019,10 @@ func (m Model) handlePortManagerKeys(key string) (tea.Model, tea.Cmd) {
 		if m.Ports.Cursor < len(visible)-1 {
 			m.Ports.Cursor++
 		}
-	case "enter", " ":
-		// The detail block is an expansion of the selected row, so the same key
-		// opens and closes it and nothing is written.
+	case "enter":
+		// The detail block is an expansion of the selected row, so Enter opens and
+		// closes it and nothing is written. Space is not a second way to press it:
+		// Space toggles a switch, and this screen's rows are data.
 		m.Ports.Detail = !m.Ports.Detail
 	case "/":
 		// The filter field starts empty of control and owns the keys until it is

@@ -142,7 +142,16 @@ func (m Model) renderWSLBenchmark() string {
 
 // wslBenchmarkHints is the measurement screen's footer: the two move keys, the Enter that opens the
 // way back, the letter that measures, and the Escape that is the same way back.
+// hintWSLBenchmarkStop is the key that ends a measurement in flight: Escape
+// stops a run, and the footer names it while the run holds the disk.
+var hintWSLBenchmarkStop = installerHint{"[Esc]", "stop the measurement"}
+
 func (m Model) wslBenchmarkHints() []installerHint {
+	if m.WSLAdvisor.Benchmark.Running {
+		// Escape stops the run while it is in flight, and the footer says so
+		// instead of offering the way back: the back row still opens with Enter.
+		return []installerHint{hintUp, hintDown, hintOpen, hintWSLBenchmarkStop}
+	}
 	return []installerHint{hintUp, hintDown, hintOpen, hintWSLMeasure, hintBack}
 }
 
@@ -291,9 +300,7 @@ func (m Model) handleWSLBenchmarkKeys(key string) (tea.Model, tea.Cmd) {
 		if m.WSLAdvisor.Benchmark.Running {
 			break
 		}
-		m.WSLAdvisor.Benchmark.Running = true
-		m.WSLAdvisor.Benchmark.Notice = "the run is bounded, and it removes what it writes"
-		return m, runWSLBenchmarkCmd(m.wslBenchmarkTargets())
+		return m, (&m).startWSLBenchmarkRun()
 	case "enter":
 		row, ok := wslActionRowAt(rows, m.Cursor)
 		if !ok {

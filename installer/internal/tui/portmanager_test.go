@@ -978,6 +978,13 @@ func TestPortManagerRowsAreDataAndItsCommandsHaveLetters(t *testing.T) {
 	if next.(Model).Ports.Detail {
 		t.Fatal("Enter opened the detail twice instead of closing it")
 	}
+
+	// Space is not a second key for the detail: it toggles a switch, and this
+	// screen's rows are data.
+	spaced, _ := next.(Model).handlePortManagerKeys(" ")
+	if spaced.(Model).Ports.Detail {
+		t.Fatal("Space opened the detail; only Enter opens it")
+	}
 }
 
 // TestTheStopConfirmationRunsEachActionOnItsLetter pins the confirmation: the one

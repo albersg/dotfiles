@@ -1103,8 +1103,9 @@ var (
 	updateCenterHintApply       = installerHint{"[a]", "apply"}
 	updateCenterHintClear       = installerHint{"[c]", "clear"}
 	updateCenterHintFilter      = installerHint{"[f]", "filter"}
-	// updateCenterHintStop is the running state's only key.
-	updateCenterHintStop = installerHint{"[i]", "stop"}
+	// updateCenterHintStop is the running state's key. Escape stops the run too,
+	// and the footer names both.
+	updateCenterHintStop = installerHint{"[i/Esc]", "stop"}
 	// The confirmation's two answers. They are letters rather than Enter because
 	// applying is not opening or choosing, and Esc stays the cancel the footer
 	// names beside them.
@@ -1229,10 +1230,10 @@ func (m Model) handleUpdateCenterKeys(key string) (tea.Model, tea.Cmd) {
 			state.LeftOut = nil
 			m.Cursor = 0
 		case state.Applying:
-			// Leaving while a manager is mid-transaction would hide the one
-			// screen that can say what is happening. The refusal says what to do
-			// instead.
-			state.Notice = "An update is running: stop it with the row below, or wait for it to finish."
+			// Escape stops a run in progress, the way it does on the doctor and the
+			// shell audit: leaving would hide the only screen that can say what is
+			// happening, so the key that would leave stops it instead.
+			return m.stopUpdateCenterRun()
 		default:
 			m.Screen = ScreenUtilities
 			m.Cursor = 0
