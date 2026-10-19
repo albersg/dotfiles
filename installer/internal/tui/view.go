@@ -3311,7 +3311,7 @@ func stripStepPrefix(title string) string {
 func (m Model) renderSetup() string {
 	width := contentWidth(m)
 
-	hints := []installerHint{hintUp, hintDown, hintAdjust, hintChoose, hintBack}
+	hints := m.setupHints()
 	footer := footerHints(layoutFor(m).Inner, m.panelHints(m.panelsFor(), hints))
 	budget := installerBodyRows(m.Height, len(footer))
 

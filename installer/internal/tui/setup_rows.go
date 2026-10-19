@@ -524,6 +524,33 @@ func (m *Model) leaveSetup() {
 // toggles the switches, Enter opens the focused row's screen or continues to the
 // plan, and Escape leaves for the main menu. Every value key acts on the row the
 // cursor is on in the same filtered list the renderer drew.
+// setupHints is the setup screen's footer. Space is named only while the row under
+// the cursor is a switch: it turns that row off or on, and a cycle row would not
+// answer it. The footer is the handler's list of keys, so a key the focused row
+// refuses is not offered.
+func (m Model) setupHints() []installerHint {
+	rows := m.setupRows()
+	hints := []installerHint{hintUp, hintDown, hintAdjust}
+	if m.SetupCursor >= 0 && m.SetupCursor < len(rows) && m.setupRowIsSwitch(rows[m.SetupCursor]) {
+		hints = append(hints, hintToggle)
+	}
+	return append(hints, hintChoose, hintBack)
+}
+
+// setupRowIsSwitch reports whether Space turns the row under the cursor off or on.
+// It answers with what toggleSetupRow would do: the two question-backed switches
+// (font, editor), the backup decision, and a plugin set the registry says a run can
+// leave out.
+func (m Model) setupRowIsSwitch(row setupRow) bool {
+	switch row.Kind {
+	case setupRowSwitch:
+		return true
+	case setupRowPluginSet:
+		return pluginSetIsSwitchable(row.SetID)
+	}
+	return false
+}
+
 func (m Model) handleSetupKeys(key string) (tea.Model, tea.Cmd) {
 	rows := m.setupRows()
 
