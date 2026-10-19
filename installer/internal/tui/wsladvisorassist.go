@@ -60,6 +60,47 @@ func wslActionRowLabels(rows []wslActionRow) []string {
 	return labels
 }
 
+// ============================================================================
+// THE KEYS
+// ============================================================================
+
+// The letters the two assistant screens' command rows carry. A run, a confirmation, a cancel, a stop
+// and a restart are commands rather than openings, so each runs on its own letter -- said on its row
+// and named in the footer -- and Enter is left to the one row on these screens that opens something,
+// the way back. No letter here is a move key (there is no j, k, h or l), and no letter carries two
+// commands: the preview's cancel and the copy's stop are deliberately different keys.
+const (
+	wslMeasureKey = "m"
+	wslCopyKey    = "c"
+	wslCancelKey  = "x"
+	wslStopKey    = "s"
+	wslAnotherKey = "a"
+)
+
+// The same letters as the footer spells them. The hint is a literal so the grammar guard in
+// key_grammar_test.go reads it, and the test beside each screen presses the letter its row declares,
+// so the row, the footer and the handler cannot drift apart.
+var (
+	// hintWSLMeasure starts a measurement, and repeats the last one.
+	hintWSLMeasure = installerHint{"[m]", "measure"}
+	// hintWSLCopyNow is the preview's one writing press.
+	hintWSLCopyNow = installerHint{"[c]", "copy"}
+	// hintWSLCancelCopy leaves the preview for the choice of destination.
+	hintWSLCancelCopy = installerHint{"[x]", "cancel"}
+	// hintWSLStopCopy stops a copy in flight. hintWSLStopCopyEscape is the same stop on the key
+	// Escape carries while a copy runs, and the footer offers it in place of the way back so it says
+	// which of the two Escape is doing.
+	hintWSLStopCopy       = installerHint{"[s]", "stop the copy"}
+	hintWSLStopCopyEscape = installerHint{"[Esc]", "stop the copy"}
+	// hintWSLAnotherCopy starts the flow again from its first question.
+	hintWSLAnotherCopy = installerHint{"[a]", "copy another"}
+)
+
+// wslCommandRow draws a row that acts where it stands: the key that runs it, in brackets, in front of
+// the wording. It is the shape the Utilities section's own command rows carry, so a reader who has
+// learnt one list has learnt the other, and the row itself says the press is a letter.
+func wslCommandRow(key, label string) string { return "[" + key + "] " + label }
+
 // wslActionRowAt is the row the cursor is on, with the guard a rule needs.
 func wslActionRowAt(rows []wslActionRow, cursor int) (wslActionRow, bool) {
 	if cursor < 0 || cursor >= len(rows) {
@@ -93,10 +134,16 @@ func wslMoveCursor(rows []wslActionRow, cursor int, delta int) int {
 // THE BENCHMARK
 // ============================================================================
 
-// renderWSLBenchmark draws the measurement screen.
+// renderWSLBenchmark draws the measurement screen. The footer names the letter that measures and the
+// Enter that opens the way back; Space is not offered, because nothing on this screen is a switch.
 func (m Model) renderWSLBenchmark() string {
-	return m.renderThemeScreen(m.wslBenchmarkDescription(), m.wslBenchmarkNotice(),
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	return m.renderThemeScreen(m.wslBenchmarkDescription(), m.wslBenchmarkNotice(), m.wslBenchmarkHints())
+}
+
+// wslBenchmarkHints is the measurement screen's footer: the two move keys, the Enter that opens the
+// way back, the letter that measures, and the Escape that is the same way back.
+func (m Model) wslBenchmarkHints() []installerHint {
+	return []installerHint{hintUp, hintDown, hintOpen, hintWSLMeasure, hintBack}
 }
 
 // wslBenchmarkNotice is the line above the list: the result of the last press, which is where a
@@ -114,13 +161,15 @@ func (m Model) wslBenchmarkNotice() string {
 
 // wslBenchmarkRows are the screen's rows: the one press that measures, and the way back. The
 // measurements themselves are facts, and facts live in the body where they can be read at length.
+// The measuring row acts where it stands, so it carries its letter; the way back opens, so it carries
+// the arrow the utilities section draws on the rows that do.
 func (m Model) wslBenchmarkRows() []wslActionRow {
 	label := "Measure the storage now"
 	if m.WSLAdvisor.Benchmark.Ran {
 		label = "Measure the storage again"
 	}
 	return []wslActionRow{
-		{Kind: wslActionRun, Label: label},
+		{Kind: wslActionRun, Label: wslCommandRow(wslMeasureKey, label)},
 		{Kind: wslActionSeparator, Label: m.menuSeparator()},
 		{Kind: wslActionBack, Label: "← Back to the report"},
 	}
@@ -225,7 +274,10 @@ func wslBenchmarkResultsParagraphs(report system.BenchReport) []string {
 	return paragraphs
 }
 
-// handleWSLBenchmarkKeys drives the measurement screen.
+// handleWSLBenchmarkKeys drives the measurement screen. The measurement runs on its own letter and
+// Enter only opens the way back: a press that writes to the disk is not an opening. Escape is the
+// way back too, handled by the shared key switch, and it leaves the run to finish where it is -- the
+// screen's own body says the report lands here even when the reader has stepped away.
 func (m Model) handleWSLBenchmarkKeys(key string) (tea.Model, tea.Cmd) {
 	rows := m.wslBenchmarkRows()
 	switch key {
@@ -233,20 +285,21 @@ func (m Model) handleWSLBenchmarkKeys(key string) (tea.Model, tea.Cmd) {
 		m.Cursor = wslMoveCursor(rows, m.Cursor, -1)
 	case "down", "j":
 		m.Cursor = wslMoveCursor(rows, m.Cursor, 1)
-	case "enter", " ":
+	case wslMeasureKey:
+		// A run already in flight is not started a second time: the screen says it is measuring
+		// already, and the second press would spend the disk again for a number on its way.
+		if m.WSLAdvisor.Benchmark.Running {
+			break
+		}
+		m.WSLAdvisor.Benchmark.Running = true
+		m.WSLAdvisor.Benchmark.Notice = "the run is bounded, and it removes what it writes"
+		return m, runWSLBenchmarkCmd(m.wslBenchmarkTargets())
+	case "enter":
 		row, ok := wslActionRowAt(rows, m.Cursor)
 		if !ok {
 			break
 		}
-		switch row.Kind {
-		case wslActionRun:
-			if m.WSLAdvisor.Benchmark.Running {
-				break
-			}
-			m.WSLAdvisor.Benchmark.Running = true
-			m.WSLAdvisor.Benchmark.Notice = "the run is bounded, and it removes what it writes"
-			return m, runWSLBenchmarkCmd(m.wslBenchmarkTargets())
-		case wslActionBack:
+		if row.Kind == wslActionBack {
 			m.Screen = ScreenWSLAdvisor
 			m.Cursor = 0
 		}
@@ -258,10 +311,34 @@ func (m Model) handleWSLBenchmarkKeys(key string) (tea.Model, tea.Cmd) {
 // THE ASSISTED COPY
 // ============================================================================
 
-// renderWSLMigration draws whichever question of the copy the screen is on.
+// renderWSLMigration draws whichever question of the copy the screen is on. The footer is built from
+// the phase, because the keys this screen accepts are: while a copy runs, Escape stops it rather than
+// leaving the question, and the footer says so instead of offering the way back it is not taking.
 func (m Model) renderWSLMigration() string {
-	return m.renderThemeScreen(m.wslMigrationDescription(), m.wslMigrationNotice(),
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	return m.renderThemeScreen(m.wslMigrationDescription(), m.wslMigrationNotice(), m.wslMigrationHints())
+}
+
+// wslMigrationHints is the footer for the question on screen. It names the letters the rows of that
+// question carry and nothing else; the pick questions offer Enter as the choose it is, and the three
+// that follow offer it as the opening of the way back.
+func (m Model) wslMigrationHints() []installerHint {
+	state := m.WSLAdvisor.Migration
+	switch state.Phase {
+	case wslMigratePickSource, wslMigratePickDestination:
+		return []installerHint{hintUp, hintDown, hintChoose, hintBack}
+	case wslMigratePreview:
+		if !state.Plan.Runnable() {
+			// A blocked plan offers no row that could start it, so the footer names no way to start
+			// one either.
+			return []installerHint{hintUp, hintDown, hintOpen, hintBack}
+		}
+		return []installerHint{hintUp, hintDown, hintOpen, hintWSLCopyNow, hintWSLCancelCopy, hintBack}
+	case wslMigrateCopying:
+		return []installerHint{hintUp, hintDown, hintOpen, hintWSLStopCopy, hintWSLStopCopyEscape}
+	case wslMigrateDone:
+		return []installerHint{hintUp, hintDown, hintOpen, hintWSLAnotherCopy, hintBack}
+	}
+	return []installerHint{hintUp, hintDown, hintBack}
 }
 
 // wslMigrationNotice is the line above the list: the progress of a copy in flight, or the result of
@@ -327,22 +404,22 @@ func (m Model) wslMigrationRows() []wslActionRow {
 			}
 		}
 		return []wslActionRow{
-			{Kind: wslActionConfirm, Label: "Copy and verify now"},
-			{Kind: wslActionCancel, Label: "Cancel"},
+			{Kind: wslActionConfirm, Label: wslCommandRow(wslCopyKey, "Copy and verify now")},
+			{Kind: wslActionCancel, Label: wslCommandRow(wslCancelKey, "Cancel")},
 			{Kind: wslActionSeparator, Label: m.menuSeparator()},
 			{Kind: wslActionBack, Label: "← Choose another destination"},
 		}
 
 	case wslMigrateCopying:
 		return []wslActionRow{
-			{Kind: wslActionCancel, Label: "Stop the copy"},
+			{Kind: wslActionCancel, Label: wslCommandRow(wslStopKey, "Stop the copy")},
 			{Kind: wslActionSeparator, Label: m.menuSeparator()},
 			{Kind: wslActionBack, Label: "← Back to the report"},
 		}
 
 	case wslMigrateDone:
 		return []wslActionRow{
-			{Kind: wslActionRestart, Label: "Copy another project"},
+			{Kind: wslActionRestart, Label: wslCommandRow(wslAnotherKey, "Copy another project")},
 			{Kind: wslActionSeparator, Label: m.menuSeparator()},
 			{Kind: wslActionBack, Label: "← Back to the report"},
 		}
@@ -528,10 +605,14 @@ func wslMigrationOutcomeParagraphs(state wslMigrationState) []string {
 	return paragraphs
 }
 
-// handleWSLMigrationKeys drives the copy's phases.
+// handleWSLMigrationKeys drives the copy's phases. Each row that acts where it stands runs on the
+// letter it carries, and Enter is left to the two things it may do on this screen: choosing a source
+// or a destination, and opening the way back. Escape is the copy's own key while a copy runs -- it
+// stops the copy rather than leaving the question -- and wslMigrationEscape is where that is decided.
 func (m Model) handleWSLMigrationKeys(key string) (tea.Model, tea.Cmd) {
 	migration := &m.WSLAdvisor.Migration
 	rows := m.wslMigrationRows()
+	row, onRow := wslActionRowAt(rows, m.Cursor)
 
 	switch key {
 	case "up", "k":
@@ -540,30 +621,31 @@ func (m Model) handleWSLMigrationKeys(key string) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.Cursor = wslMoveCursor(rows, m.Cursor, 1)
 		return m, nil
-	}
-
-	if key != "enter" && key != " " {
-		return m, nil
-	}
-	row, ok := wslActionRowAt(rows, m.Cursor)
-	if !ok {
-		return m, nil
-	}
-
-	switch row.Kind {
-	case wslActionPick:
-		return m.wslMigrationPick(row.Index)
-	case wslActionConfirm:
-		return m.startWSLMigrationCopy()
-	case wslActionCancel:
-		if migration.Running {
-			return m.cancelWSLMigration(), nil
+	case wslCopyKey:
+		// The confirmation is the one press here that writes, so it is the one letter behind it.
+		if onRow && row.Kind == wslActionConfirm {
+			return m.startWSLMigrationCopy()
 		}
+		return m, nil
+	case wslCancelKey:
 		// The preview's cancel is the safe default: it puts the choice of destination back.
+		if !onRow || row.Kind != wslActionCancel || migration.Running {
+			return m, nil
+		}
 		migration.Phase = wslMigratePickDestination
 		m.Cursor = migration.Destination
 		return m, nil
-	case wslActionRestart:
+	case wslStopKey:
+		// The copy's stop is its own letter rather than the preview's cancel, so one letter never
+		// carries two commands on one screen.
+		if !onRow || row.Kind != wslActionCancel || !migration.Running {
+			return m, nil
+		}
+		return m.cancelWSLMigration(), nil
+	case wslAnotherKey:
+		if !onRow || row.Kind != wslActionRestart {
+			return m, nil
+		}
 		migration.Phase = wslMigratePickSource
 		migration.Report = system.MigrationReport{}
 		migration.ReportErr = ""
@@ -571,26 +653,36 @@ func (m Model) handleWSLMigrationKeys(key string) (tea.Model, tea.Cmd) {
 		migration.Notice = ""
 		m.Cursor = 0
 		return m, nil
-	case wslActionBack:
-		migration.Notice = ""
-		switch migration.Phase {
-		case wslMigratePickSource, wslMigrateDone:
-			m.Screen = ScreenWSLAdvisor
-			m.Cursor = 0
-		case wslMigratePickDestination, wslMigratePreview:
-			migration.Phase = wslMigratePickSource
-			m.Cursor = migration.Source
-		case wslMigrateReadingSource:
-			migration.Phase = wslMigratePickDestination
-			m.Cursor = migration.Destination
-		case wslMigrateCopying:
-			// Leaving a running copy is not offered as "back": the row says "back to the report", and
-			// the copy keeps running with its answer landing on the model, exactly as a measurement
-			// does. Stopping it is its own row.
-			m.Screen = ScreenWSLAdvisor
-			m.Cursor = 0
+	case "enter":
+		// Enter chooses a row of either list and opens the way back, and it never confirms, cancels,
+		// stops or restarts: those are the letters above.
+		if !onRow {
+			return m, nil
 		}
-		return m, nil
+		switch row.Kind {
+		case wslActionPick:
+			return m.wslMigrationPick(row.Index)
+		case wslActionBack:
+			migration.Notice = ""
+			switch migration.Phase {
+			case wslMigratePickSource, wslMigrateDone:
+				m.Screen = ScreenWSLAdvisor
+				m.Cursor = 0
+			case wslMigratePickDestination, wslMigratePreview:
+				migration.Phase = wslMigratePickSource
+				m.Cursor = migration.Source
+			case wslMigrateReadingSource:
+				migration.Phase = wslMigratePickDestination
+				m.Cursor = migration.Destination
+			case wslMigrateCopying:
+				// Leaving a running copy is not offered as "back": the row says "back to the
+				// report", and the copy keeps running with its answer landing on the model, exactly
+				// as a measurement does. Stopping it is its own row and its own letter.
+				m.Screen = ScreenWSLAdvisor
+				m.Cursor = 0
+			}
+			return m, nil
+		}
 	}
 	return m, nil
 }

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
@@ -1046,4 +1048,499 @@ func TestWSLAdvisorCollectOnThisHost(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("collecting the facts took longer than 20 seconds")
 	}
+}
+
+// ============================================================================
+// THE KEYS: ONE GRAMMAR, PINNED ON THE SCREENS' OWN ROWS
+// ============================================================================
+//
+// odd/tasks/key-grammar.md fixes one meaning per key: Enter opens a screen, a row's detail or the
+// way back, and every command runs on its own letter, said on the row and in the footer. These tests
+// press the key each row declares -- the letter read off the row itself -- and assert the effect, so
+// a row, a footer and a handler cannot drift apart, and Enter can never quietly start, confirm, stop
+// or cancel anything again.
+
+// pressWSLMsg sends one key message through Update and returns the model with the command the press
+// asked for. It goes through the whole dispatch rather than a screen's handler, so the test also
+// proves the key reaches the screen instead of being taken by the leader key or a global meaning.
+// The copy's own commands answer with the model's pointer, which is one of the two shapes Update
+// returns, so both are unwrapped here.
+func pressWSLMsg(t *testing.T, m Model, msg tea.KeyMsg) (Model, tea.Cmd) {
+	t.Helper()
+
+	updated, cmd := m.Update(msg)
+	switch next := updated.(type) {
+	case Model:
+		return next, cmd
+	case *Model:
+		return *next, cmd
+	}
+	t.Fatalf("the update returned %T, want the model", updated)
+	return m, cmd
+}
+
+// wslLetterKey is the key message for one rune, which is how a command letter arrives.
+func wslLetterKey(letter string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(letter)}
+}
+
+// wslEnter and wslEscape are the two named keys these screens share.
+var (
+	wslEnter  = tea.KeyMsg{Type: tea.KeyEnter}
+	wslEscape = tea.KeyMsg{Type: tea.KeyEsc}
+)
+
+// wslRowKey returns the letter a row declares in front of its wording. A row that acts where it
+// stands has to carry one, so a row without it fails here rather than in the test that would have
+// pressed it.
+func wslRowKey(t *testing.T, label string) string {
+	t.Helper()
+
+	if !strings.HasPrefix(label, "[") {
+		t.Fatalf("the row %q carries no letter in brackets, so it does not say it is a command", label)
+	}
+	end := strings.Index(label, "]")
+	if end <= 1 {
+		t.Fatalf("the row %q carries no key between its brackets", label)
+	}
+	return label[1:end]
+}
+
+// wslFooter is the frame's footer: the line that names the way out. It is read from the rendered
+// frame, not from the hint slice, so the test checks what the user actually reads.
+func wslFooter(t *testing.T, m Model) string {
+	t.Helper()
+
+	for _, line := range strings.Split(m.View(), "\n") {
+		if strings.Contains(line, "[Esc]") {
+			return line
+		}
+	}
+	t.Fatalf("the frame drew no footer naming [Esc]:\n%s", m.View())
+	return ""
+}
+
+// TestWSLAdvisorRowsSayWhatEachOneIs pins the report's three kinds of row: the read-again row acts
+// where it stands and carries `r`, the two rows that act one level in carry the arrow the utilities
+// section's own rows carry, and the way back carries it pointing the other way. Pressing `r` reads
+// the machine again; pressing Enter on that same row does nothing, which is the rule the whole pass
+// exists for.
+func TestWSLAdvisorRowsSayWhatEachOneIs(t *testing.T) {
+	m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	// The two rows that act one level in are offered only where their engine can finish, so the
+	// fixture is given the distribution's own storage to copy to: without it the report says in its
+	// body why there is no copy row, and the row really is absent.
+	m.WSLAdvisor.Facts.NativeParents = []wslNativeParent{{
+		Path: "/mnt/disk", Label: "/mnt/disk", SpaceKnown: true, FreeBytes: 41 << 30,
+		Storage: system.ClassifyStorage(m.WSLAdvisor.Facts.Table, "/mnt/disk", "/mnt/disk"),
+	}}
+
+	rows := m.wslAdvisorRows()
+	index := map[wslAdvisorRowKind]int{}
+	for i, row := range rows {
+		if _, seen := index[row.Kind]; !seen {
+			index[row.Kind] = i
+		}
+	}
+
+	// The re-read row says it is a command, and the letter it says is the letter that reads.
+	reread, ok := index[wslRowReread]
+	if !ok {
+		t.Fatalf("the report offers no re-read row: %v", wslAdvisorRowLabels(rows))
+	}
+	if got := wslRowKey(t, rows[reread].Label); got != "r" {
+		t.Errorf("the re-read row declares %q; the footer and the handler say \"r\"", got)
+	}
+
+	onReread := m
+	onReread.Cursor = reread
+	afterEnter, cmd := pressWSLMsg(t, onReread, wslEnter)
+	if cmd != nil {
+		t.Error("Enter asked for a command on the re-read row; Enter opens or chooses and never runs")
+	}
+	if !afterEnter.WSLAdvisor.Resolved {
+		t.Error("Enter started a re-read; the re-read runs on its own letter")
+	}
+
+	afterLetter, cmd := pressWSLMsg(t, onReread, wslLetterKey(wslRowKey(t, rows[reread].Label)))
+	if cmd == nil {
+		t.Error("the letter the re-read row declares asked for nothing")
+	}
+	if afterLetter.WSLAdvisor.Resolved {
+		t.Error("the letter the re-read row declares did not start a re-read")
+	}
+
+	// The two rows that act one level in carry the arrow, and Enter is the key that presses them.
+	for _, kind := range []wslAdvisorRowKind{wslRowBenchmark, wslRowMigrate} {
+		at, ok := index[kind]
+		if !ok {
+			t.Fatalf("the report offers no row of kind %d: %v", kind, wslAdvisorRowLabels(rows))
+		}
+		if !strings.HasPrefix(rows[at].Label, utilitiesScreenMark) {
+			t.Errorf("the row %q opens a screen and carries no %q", rows[at].Label, utilitiesScreenMark)
+		}
+		onRow := m
+		onRow.Cursor = at
+		after, _ := pressWSLMsg(t, onRow, wslEnter)
+		want := ScreenWSLBenchmark
+		if kind == wslRowMigrate {
+			want = ScreenWSLMigration
+		}
+		if after.Screen != want {
+			t.Errorf("Enter on %q went to screen %v, want %v", rows[at].Label, after.Screen, want)
+		}
+	}
+
+	// The way back says so, and Enter opens it.
+	at, ok := index[wslRowBack]
+	if !ok {
+		t.Fatalf("the report offers no way back: %v", wslAdvisorRowLabels(rows))
+	}
+	if got := rows[at].Label; got != "← Back" {
+		t.Errorf("the way back reads %q, want \"← Back\"", got)
+	}
+	onBack := m
+	onBack.Cursor = at
+	if after, _ := pressWSLMsg(t, onBack, wslEnter); after.Screen != ScreenUtilities {
+		t.Errorf("Enter on the way back went to screen %v, want the utilities section", after.Screen)
+	}
+
+	footer := wslFooter(t, m)
+	if !strings.Contains(footer, "[Enter] open") {
+		t.Errorf("the footer does not name Enter as the open it is: %q", footer)
+	}
+	if !strings.Contains(footer, "[r] read it again") {
+		t.Errorf("the footer does not name the letter the re-read row carries: %q", footer)
+	}
+	if strings.Contains(footer, "Space") {
+		t.Errorf("the footer offers Space on a screen with no switch: %q", footer)
+	}
+}
+
+// TestWSLBenchmarkMeasuresOnItsLetterNotOnEnter pins the measurement screen: the measuring row
+// carries `m`, the footer names it, `m` starts the run and Enter on that same row does not. A run in
+// flight is not started twice.
+func TestWSLBenchmarkMeasuresOnItsLetterNotOnEnter(t *testing.T) {
+	m := wslAdvisorFrameModel(t, ScreenWSLBenchmark)
+	m.Cursor = 0
+
+	rows := m.wslBenchmarkRows()
+	letter := wslRowKey(t, rows[0].Label)
+	if letter != wslMeasureKey {
+		t.Errorf("the measuring row declares %q; the footer and the handler use %q", letter, wslMeasureKey)
+	}
+
+	afterEnter, cmd := pressWSLMsg(t, m, wslEnter)
+	if cmd != nil {
+		t.Error("Enter asked for the measurement; measuring is a command and has its own letter")
+	}
+	if afterEnter.WSLAdvisor.Benchmark.Running {
+		t.Error("Enter started the measurement")
+	}
+
+	started, cmd := pressWSLMsg(t, m, wslLetterKey(letter))
+	if cmd == nil {
+		t.Fatalf("the letter the measuring row declares (%q) asked for nothing", letter)
+	}
+	if !started.WSLAdvisor.Benchmark.Running {
+		t.Fatalf("the letter the measuring row declares (%q) did not start the measurement", letter)
+	}
+
+	// A second press while the run is in flight must not spend the disk again.
+	again, cmd := pressWSLMsg(t, started, wslLetterKey(letter))
+	if cmd != nil {
+		t.Error("the letter started a second measurement while one was running")
+	}
+	if !again.WSLAdvisor.Benchmark.Running {
+		t.Error("the second press dropped the run that was in flight")
+	}
+
+	footer := wslFooter(t, m)
+	if !strings.Contains(footer, "[m] measure") {
+		t.Errorf("the footer does not name the letter the measuring row carries: %q", footer)
+	}
+	if strings.Contains(footer, "[Enter] select") || strings.Contains(footer, "Space") {
+		t.Errorf("the footer offers a key this screen does not accept: %q", footer)
+	}
+}
+
+// wslMigrationFrameModel is the copy screen at one phase over the pinned reading, with the rows and
+// the cursor the screen would have reached by walking there.
+func wslMigrationFrameModel(t *testing.T, phase wslMigrationPhase) Model {
+	t.Helper()
+
+	m := wslAdvisorFrameModel(t, ScreenWSLMigration)
+	state := m.WSLAdvisor.Migration
+	state.Phase = phase
+	m.WSLAdvisor.Migration = state
+	m.Cursor = 0
+	if phase == wslMigratePickSource || phase == wslMigrateDone {
+		m.Cursor = 0
+	}
+	return m
+}
+
+// TestWSLMigrationRunsEachActionOnItsOwnLetter pins the copy screen phase by phase: every command
+// row carries a letter, that letter is the key that acts, and Enter on the same row does nothing.
+// The preview's cancel and the copy's stop are different letters, because one letter never carries
+// two commands on one screen.
+func TestWSLMigrationRunsEachActionOnItsOwnLetter(t *testing.T) {
+	t.Run("the preview copies on c and cancels on x", func(t *testing.T) {
+		m := wslMigrationFrameModel(t, wslMigratePreview)
+		rows := m.wslMigrationRows()
+
+		confirm := wslRowKey(t, rows[0].Label)
+		if confirm != wslCopyKey {
+			t.Errorf("the confirming row declares %q; the footer and the handler use %q", confirm, wslCopyKey)
+		}
+		afterEnter, cmd := pressWSLMsg(t, m, wslEnter)
+		if cmd != nil || afterEnter.WSLAdvisor.Migration.Running {
+			t.Error("Enter started the copy; copying is a command and has its own letter")
+		}
+		started, cmd := pressWSLMsg(t, m, wslLetterKey(confirm))
+		if cmd == nil || !started.WSLAdvisor.Migration.Running || started.WSLAdvisor.Migration.Cancel == nil {
+			t.Errorf("the letter the confirming row declares (%q) did not start the copy", confirm)
+		}
+
+		// The cancel row is its own letter, and it puts the choice of destination back.
+		cancelRow := m
+		cancelRow.Cursor = 1
+		if got := wslRowKey(t, rows[1].Label); got != wslCancelKey {
+			t.Errorf("the cancel row declares %q; the footer and the handler use %q", got, wslCancelKey)
+		}
+		afterCancelEnter, _ := pressWSLMsg(t, cancelRow, wslEnter)
+		if afterCancelEnter.WSLAdvisor.Migration.Phase != wslMigratePreview {
+			t.Error("Enter cancelled the preview; cancelling is a command and has its own letter")
+		}
+		afterCancel, _ := pressWSLMsg(t, cancelRow, wslLetterKey(wslCancelKey))
+		if afterCancel.WSLAdvisor.Migration.Phase != wslMigratePickDestination {
+			t.Errorf("the cancel letter left the screen at phase %v, want the destination question",
+				afterCancel.WSLAdvisor.Migration.Phase)
+		}
+
+		footer := wslFooter(t, m)
+		if !strings.Contains(footer, "[c] copy") || !strings.Contains(footer, "[x] cancel") {
+			t.Errorf("the footer does not name the letters the preview's rows carry: %q", footer)
+		}
+	})
+
+	t.Run("a copy in flight stops on s and Escape", func(t *testing.T) {
+		m := wslMigrationFrameModel(t, wslMigrateCopying)
+		cancelled := 0
+		m.WSLAdvisor.Migration.Running = true
+		m.WSLAdvisor.Migration.Cancel = func() { cancelled++ }
+
+		rows := m.wslMigrationRows()
+		stop := wslRowKey(t, rows[0].Label)
+		if stop != wslStopKey {
+			t.Errorf("the stop row declares %q; the footer and the handler use %q", stop, wslStopKey)
+		}
+		afterEnter, _ := pressWSLMsg(t, m, wslEnter)
+		if cancelled != 0 {
+			t.Error("Enter stopped the copy; stopping is a command and has its own letter")
+		}
+		if !afterEnter.WSLAdvisor.Migration.Running {
+			t.Error("Enter ended the copy it did not stop")
+		}
+
+		afterLetter, _ := pressWSLMsg(t, m, wslLetterKey(stop))
+		if cancelled != 1 {
+			t.Errorf("the letter the stop row declares (%q) stopped the copy %d times, want once", stop, cancelled)
+		}
+		if !afterLetter.WSLAdvisor.Migration.Running {
+			// The copy is still running until its own report lands; the press only asked for the
+			// stop. Losing the flag here would make the screen claim an outcome it has not read.
+			t.Error("the stop press dropped the run before its report arrived")
+		}
+
+		// Escape is the same stop here, and the footer says so instead of offering the way back.
+		afterEscape, _ := pressWSLMsg(t, m, wslEscape)
+		if cancelled != 2 {
+			t.Errorf("Escape stopped the copy %d times, want twice", cancelled)
+		}
+		if afterEscape.Screen != ScreenWSLMigration {
+			t.Errorf("Escape left the screen (%v) instead of stopping the copy", afterEscape.Screen)
+		}
+		footer := wslFooter(t, m)
+		if !strings.Contains(footer, "[Esc] stop the copy") {
+			t.Errorf("the footer does not say Escape stops the copy while one runs: %q", footer)
+		}
+		if !strings.Contains(footer, "[s] stop the copy") {
+			t.Errorf("the footer does not name the letter the stop row carries: %q", footer)
+		}
+	})
+
+	t.Run("the outcome starts again on a", func(t *testing.T) {
+		m := wslMigrationFrameModel(t, wslMigrateDone)
+		rows := m.wslMigrationRows()
+
+		if got := wslRowKey(t, rows[0].Label); got != wslAnotherKey {
+			t.Errorf("the restart row declares %q; the footer and the handler use %q", got, wslAnotherKey)
+		}
+		afterEnter, _ := pressWSLMsg(t, m, wslEnter)
+		if afterEnter.WSLAdvisor.Migration.Phase != wslMigrateDone {
+			t.Error("Enter started the flow again; that is a command and has its own letter")
+		}
+		afterLetter, _ := pressWSLMsg(t, m, wslLetterKey(wslAnotherKey))
+		if afterLetter.WSLAdvisor.Migration.Phase != wslMigratePickSource {
+			t.Errorf("the restart letter left the screen at phase %v, want the source question",
+				afterLetter.WSLAdvisor.Migration.Phase)
+		}
+		if !strings.Contains(wslFooter(t, m), "[a] copy another") {
+			t.Errorf("the footer does not name the letter the restart row carries: %q", wslFooter(t, m))
+		}
+	})
+
+	t.Run("the two lists choose on Enter and offer no letter", func(t *testing.T) {
+		m := wslMigrationFrameModel(t, wslMigratePickSource)
+		rows := m.wslMigrationRows()
+		if len(rows) == 0 || rows[0].Kind != wslActionPick {
+			t.Fatalf("the source question drew %v, want a list of projects", wslActionRowLabels(rows))
+		}
+		after, _ := pressWSLMsg(t, m, wslEnter)
+		if after.WSLAdvisor.Migration.Phase != wslMigratePickDestination {
+			t.Errorf("Enter on a project left the screen at phase %v, want the destination question",
+				after.WSLAdvisor.Migration.Phase)
+		}
+		footer := wslFooter(t, m)
+		if !strings.Contains(footer, "[Enter] choose") {
+			t.Errorf("the footer does not name Enter as the choose it is: %q", footer)
+		}
+		if strings.Contains(footer, "Space") {
+			t.Errorf("the footer offers Space on a screen with no switch: %q", footer)
+		}
+	})
+}
+
+// TestWSLAssistantCommandLettersAreUniqueAndNotMoveKeys pins the two rules the letters obey on every
+// phase of both assistant screens: no command runs on j, k, h or l, no letter carries two commands,
+// and each footer hint spells the same letter the row and the handler use.
+func TestWSLAssistantCommandLettersAreUniqueAndNotMoveKeys(t *testing.T) {
+	pairs := []struct {
+		action string
+		letter string
+		hint   installerHint
+	}{
+		{"measure", wslMeasureKey, hintWSLMeasure},
+		{"copy", wslCopyKey, hintWSLCopyNow},
+		{"cancel", wslCancelKey, hintWSLCancelCopy},
+		{"stop the copy", wslStopKey, hintWSLStopCopy},
+		{"copy another project", wslAnotherKey, hintWSLAnotherCopy},
+	}
+
+	seen := map[string]string{}
+	for _, pair := range pairs {
+		if strings.ContainsAny(pair.letter, "jkh l") {
+			t.Errorf("%s runs on %q, which is a move key", pair.action, pair.letter)
+		}
+		if other, taken := seen[pair.letter]; taken {
+			t.Errorf("%q carries two commands on these screens: %s and %s", pair.letter, other, pair.action)
+		}
+		seen[pair.letter] = pair.action
+		if want := "[" + pair.letter + "]"; pair.hint.keys != want {
+			t.Errorf("the footer spells %q for %s while the row and the handler use %q",
+				pair.hint.keys, pair.action, pair.letter)
+		}
+	}
+
+	// Every letter a row of either assistant screen declares is one the same screen's footer names,
+	// so the footer never names a key the handler does not accept and never omits one it does.
+	for _, phase := range []wslMigrationPhase{
+		wslMigratePickSource, wslMigratePickDestination, wslMigratePreview, wslMigrateCopying, wslMigrateDone,
+	} {
+		m := wslMigrationFrameModel(t, phase)
+		if phase == wslMigrateCopying {
+			m.WSLAdvisor.Migration.Running = true
+		}
+		footer := strings.Join(wslMigrationHelpHints(m.wslMigrationHints()), " ")
+		for _, row := range m.wslMigrationRows() {
+			if !strings.HasPrefix(row.Label, "[") {
+				continue
+			}
+			letter := wslRowKey(t, row.Label)
+			if !strings.Contains(footer, "["+letter+"]") {
+				t.Errorf("the row %q carries %q and the footer of phase %d does not name it: %q",
+					row.Label, letter, phase, footer)
+			}
+		}
+	}
+
+	footer := strings.Join(wslMigrationHelpHints(wslAdvisorFrameModel(t, ScreenWSLBenchmark).wslBenchmarkHints()), " ")
+	for _, row := range wslAdvisorFrameModel(t, ScreenWSLBenchmark).wslBenchmarkRows() {
+		if !strings.HasPrefix(row.Label, "[") {
+			continue
+		}
+		letter := wslRowKey(t, row.Label)
+		if !strings.Contains(footer, "["+letter+"]") {
+			t.Errorf("the measuring row carries %q and the footer does not name it: %q", letter, footer)
+		}
+	}
+}
+
+// wslMigrationHelpHints renders the hints of one footer as the words a reader sees, so a test can
+// look for the letter a row declares without depending on the styling the frame applies.
+func wslMigrationHelpHints(hints []installerHint) []string {
+	rendered := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		rendered = append(rendered, hint.keys+" "+hint.verb)
+	}
+	return rendered
+}
+
+// TestWSLScreenFootersFitOneRowAtTheFloor pins what the letters cost: each of the four WSL screens'
+// footers still packs into one row at 80 columns, which is the row the list needs on the narrowest
+// terminal the installer supports. A footer that grew to two rows would take a row of the list away
+// on every one of these screens, and nothing else would say so.
+func TestWSLScreenFootersFitOneRowAtTheFloor(t *testing.T) {
+	type footerCase struct {
+		name  string
+		hints []installerHint
+	}
+
+	report := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	measurement := wslAdvisorFrameModel(t, ScreenWSLBenchmark)
+	cases := []footerCase{
+		{"the report", report.wslAdvisorHints()},
+		{"the measurement", measurement.wslBenchmarkHints()},
+	}
+	for _, phase := range []wslMigrationPhase{
+		wslMigratePickSource, wslMigratePickDestination, wslMigratePreview, wslMigrateCopying, wslMigrateDone,
+	} {
+		m := wslMigrationFrameModel(t, phase)
+		if phase == wslMigrateCopying {
+			m.WSLAdvisor.Migration.Running = true
+		}
+		cases = append(cases, footerCase{"the copy at its " + itoaWSLPhase(phase) + " question", m.wslMigrationHints()})
+	}
+
+	for _, footer := range cases {
+		// The footer is measured on the frame it is drawn in: the width the frame gives a body at 80
+		// columns, which is the narrowest terminal the installer supports.
+		m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+		m.Width, m.Height = 80, 24
+		inner := contentWidth(m)
+		if rows := footerRowCount(inner, footer.hints); rows > 1 {
+			t.Errorf("%s spends %d footer rows at 80 columns, and the list loses the second:\n%s",
+				footer.name, rows, strings.Join(footerHints(inner, footer.hints), "\n"))
+		}
+	}
+}
+
+// itoaWSLPhase names a copy phase for a subtest's own label.
+func itoaWSLPhase(phase wslMigrationPhase) string {
+	switch phase {
+	case wslMigratePickSource:
+		return "source"
+	case wslMigratePickDestination:
+		return "destination"
+	case wslMigrateReadingSource:
+		return "reading"
+	case wslMigratePreview:
+		return "preview"
+	case wslMigrateCopying:
+		return "copying"
+	case wslMigrateDone:
+		return "done"
+	}
+	return "unknown"
 }

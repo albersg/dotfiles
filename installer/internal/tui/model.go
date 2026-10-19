@@ -1325,6 +1325,17 @@ func (m Model) GetCurrentOptions() []string {
 		return m.portStopRows()
 	case ScreenWSLResources:
 		return m.wslResourceRows()
+	case ScreenWSLAdvisor:
+		// The report's rows are its findings and the three rows that act, and they are
+		// read from the one function the screen's key handler dispatches on, so a row
+		// the cursor can reach is a row that is drawn.
+		return wslAdvisorRowLabels(m.wslAdvisorRows())
+	case ScreenWSLBenchmark:
+		// The two assistants draw the rows of the question they are on, from the same
+		// lists their handlers read.
+		return wslActionRowLabels(m.wslBenchmarkRows())
+	case ScreenWSLMigration:
+		return wslActionRowLabels(m.wslMigrationRows())
 	case ScreenThemePicker:
 		// The list of themes lives here, one level in from the utilities section,
 		// and it is derived, never typed: one row per complete definition, in the
