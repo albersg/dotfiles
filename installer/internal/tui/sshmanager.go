@@ -147,22 +147,6 @@ type sshManagerState struct {
 	Working       bool
 }
 
-// sshTypingActive reports whether the screen in front of the user has a field
-// that owns the text keys. The global handlers ask this before they take space
-// for the leader key or backspace for "back": on a form those two keys are text,
-// and taking them would make the field unusable.
-func (m Model) sshTypingActive() bool {
-	switch m.Screen {
-	case ScreenSSHForm:
-		return m.SSH.Plan == nil
-	case ScreenSSHTest:
-		return !m.SSH.Testing
-	case ScreenSSHKeys:
-		return m.SSH.KeysMode == "generate" || m.SSH.KeysMode == "add"
-	}
-	return false
-}
-
 // sshHasForm reports whether the form screen is editing anything at all: it is
 // what the row builders and the handler agree on, so a screen that is open
 // without a form cannot draw rows that do nothing.
@@ -174,8 +158,12 @@ func (m Model) sshHasForm() bool {
 // Rows
 // ---------------------------------------------------------------------------
 
-// The rows of the manager's screens. Each one is a constant the handler matches
-// against, so the row that is drawn and the row that acts are one string.
+// The rows of the manager's screens, in the one grammar every installer list
+// follows (odd/tasks/key-grammar.md): a row that opens a screen or a row's detail
+// carries the arrow and answers Enter; a row that acts where it stands carries
+// the key that runs it in brackets and answers that key; a switch carries its
+// state and answers Space. Each string is the one the handler matches, so the
+// mark on the row and the press behind it are the same fact.
 const (
 	sshAddHostRow  = "Add a host this tool manages"
 	sshKeysRow     = "See the public keys"
@@ -187,33 +175,35 @@ const (
 	sshBackToHostsRow = "← Back to the hosts"
 	sshEditRow        = "Edit this entry"
 	sshDuplicateRow   = "Duplicate this entry"
-	sshDeleteRow      = "Delete this entry"
-	sshTestThisRow    = "Test this connection"
-	sshCopyPubRow     = "Copy the public key"
-	sshShowPubRow     = "Show the public key"
+	// The delete row is named as a change, so it carries its own key rather than
+	// entering on Enter: the first press shows the removal, the second writes it.
+	sshDeleteRow   = "[d] Delete this entry"
+	sshTestThisRow = "Test this connection"
+	sshCopyPubRow  = "[y] Copy the public key"
+	sshShowPubRow  = "Show the public key"
 
-	sshSaveRow    = "Write the entry"
-	sshDiscardRow = "Leave the file alone"
-	sshCancelRow  = "Cancel"
+	sshSaveRow    = "[w] Write the entry"
+	sshDiscardRow = "[d] Leave the file alone"
+	sshCancelRow  = "← Cancel"
 
 	sshGenerateKeyRow = "Generate the key"
 	// The replace switch is two rows rather than one, because the state is what the
 	// user is deciding about: a row that says only "Replace an existing pair" leaves
 	// the current answer invisible at the moment of choosing it.
-	sshReplaceRowPrefix = "Replace an existing pair: "
-	sshReplaceRowOn     = sshReplaceRowPrefix + "on"
-	sshReplaceRowOff    = sshReplaceRowPrefix + "off"
-	sshCopyKeyRow       = "Copy the selected public key"
+	sshReplaceRowPrefix = "Replace an existing pair"
+	sshReplaceRowOn     = "[x] " + sshReplaceRowPrefix
+	sshReplaceRowOff    = "[ ] " + sshReplaceRowPrefix
+	sshCopyKeyRow       = "[y] Copy the selected public key"
 	sshAddKeyRow        = "Add the selected key to the agent"
-	sshRemoveKeyRow     = "Remove the selected key from the agent"
-	sshAddToAgentRow    = "Add it to the agent"
+	sshRemoveKeyRow     = "[x] Remove the selected key from the agent"
+	sshAddToAgentRow    = "[a] Add it to the agent"
 	sshKnownHostsInfo   = "known hosts"
 
-	sshRemoveEveryIdentityRow = "Remove every identity from the agent"
+	sshRemoveEveryIdentityRow = "[r] Remove every identity from the agent"
 	sshRemoveIdentityPrefix   = "Remove the identity "
 
-	sshRunTestRow    = "Run the test"
-	sshCancelTestRow = "Cancel the test"
+	sshRunTestRow    = "[r] Run the test"
+	sshCancelTestRow = "[x] Cancel the test"
 	sshTestTargetRow = "Host or alias"
 
 	// The form's field rows. The value follows the label, so the row reads as
@@ -229,6 +219,44 @@ const (
 	sshCommentField   = "Comment"
 	sshPassField      = "Passphrase"
 	sshPassAgainField = "Passphrase again"
+)
+
+// sshCommandRow draws a row that acts where it stands: the key that runs it in
+// brackets, the way the Utilities section draws its own commands. The letter is
+// the one in the row's own constant, so the row cannot claim a key the handler
+// does not take.
+func sshCommandRow(key, label string) string { return "[" + key + "] " + label }
+
+// sshIsReplaceRow reports whether a row is the generation form's replace switch,
+// which is the one switch any of these screens offers: it is what keeps Space
+// honest, because a screen with no switches must not offer it.
+func sshIsReplaceRow(row string) bool {
+	return row == sshReplaceRowOn || row == sshReplaceRowOff
+}
+
+// The commands these screens run, one hint per letter. Each acts where it stands,
+// so each carries its own letter on its row and in the footer; none of them is a
+// move key, and no screen offers the same letter for two commands. They are
+// declared here rather than inline so the grammar guard reads them, and so the
+// footer a screen draws and the row it draws cannot name different keys.
+var (
+	// sshHintFieldMove is how a screen with a text field moves: the arrows only,
+	// because k and j are letters the field must be able to take.
+	sshHintFieldMove      = installerHint{"↑/↓", "move"}
+	sshHintCopyPublicKey  = installerHint{"[y]", "copy the public key"}
+	sshHintDeleteEntry    = installerHint{"[d]", "delete this entry"}
+	sshHintWrite          = installerHint{"[w]", "write the entry"}
+	sshHintDiscard        = installerHint{"[d]", "leave the file alone"}
+	sshHintDiscardEsc     = installerHint{"[Esc]", "discard the change"}
+	sshHintCopyKey        = installerHint{"[y]", "copy the selected key"}
+	sshHintRemoveKey      = installerHint{"[x]", "remove the key from the agent"}
+	sshHintGenerate       = installerHint{"[g]", "generate the key"}
+	sshHintAddKey         = installerHint{"[a]", "add it to the agent"}
+	sshHintRemoveIdentity = installerHint{"[x]", "remove the identity"}
+	sshHintRemoveAll      = installerHint{"[r]", "remove every identity"}
+	sshHintRunTest        = installerHint{"[r]", "run the test"}
+	sshHintCancelTest     = installerHint{"[x]", "cancel the test"}
+	sshHintStopTest       = installerHint{"[Esc]", "stop the test and go back"}
 )
 
 // sshFieldRow renders one labelled field with its current value. An empty value
@@ -301,36 +329,41 @@ func sshOptionValue(h sshcfg.Host, key string) string {
 }
 
 // sshManagerRows is the section's own screen: one row per host the client would
-// use, then the four jobs, then the way back.
+// use, then the four jobs, then the way back. Every row here opens a screen or a
+// row's detail, so every row carries the arrow and answers Enter.
 func (m Model) sshManagerRows() []string {
 	rows := make([]string, 0, len(m.SSH.Hosts)+7)
 	for _, host := range m.SSH.Hosts {
-		rows = append(rows, sshHostRow(host))
+		rows = append(rows, utilitiesScreenRow(sshHostRow(host)))
 	}
 	if len(rows) > 0 {
 		rows = append(rows, m.menuSeparator())
 	}
-	rows = append(rows, sshAddHostRow, sshKeysRow, sshAgentRow, sshDiagnoseRow, sshTestRow)
+	for _, job := range []string{sshAddHostRow, sshKeysRow, sshAgentRow, sshDiagnoseRow, sshTestRow} {
+		rows = append(rows, utilitiesScreenRow(job))
+	}
 	rows = append(rows, m.menuSeparator(), sshBackRow)
 	return rows
 }
 
 // sshHostRows is one entry's detail screen. The actions are offered only when
 // they can be carried out: an entry that may not be edited has no edit row, and
-// an entry whose identity has no public half has nothing to copy.
+// an entry whose identity has no public half has nothing to copy. The rows that
+// open a screen carry the arrow; the two that act where they stand carry the
+// letter that runs them.
 func (m Model) sshHostRows() []string {
 	var rows []string
 	host, ok := m.sshSelectedHost()
 	if ok {
 		if host.ReadOnly == "" {
-			rows = append(rows, sshEditRow)
+			rows = append(rows, utilitiesScreenRow(sshEditRow))
 		}
-		rows = append(rows, sshDuplicateRow)
+		rows = append(rows, utilitiesScreenRow(sshDuplicateRow))
 		if host.ReadOnly == "" {
 			rows = append(rows, sshDeleteRow)
 		}
 	}
-	rows = append(rows, sshTestThisRow)
+	rows = append(rows, utilitiesScreenRow(sshTestThisRow))
 	if m.sshDetailPublicKey() != "" {
 		rows = append(rows, sshCopyPubRow)
 	}
@@ -381,7 +414,7 @@ func (m Model) sshKeyRows() []string {
 		// unable to say what to do about an existing pair.
 		rows = append(rows, sshReplaceKeygenRow(form.Replace))
 		if m.sshKeygenReady() {
-			rows = append(rows, sshGenerateKeyRow)
+			rows = append(rows, sshCommandRow("g", sshGenerateKeyRow))
 		}
 		return append(rows, sshCancelRow)
 	case "add":
@@ -400,14 +433,14 @@ func (m Model) sshKeyRows() []string {
 	if len(rows) > 0 {
 		rows = append(rows, m.menuSeparator())
 	}
-	rows = append(rows, sshGenerateKeyRow)
+	rows = append(rows, utilitiesScreenRow(sshGenerateKeyRow))
 	if _, ok := m.sshSelectedKey(); ok {
 		rows = append(rows, sshCopyKeyRow)
 		if m.SSH.AgentLoaded && m.SSH.Agent.Reachable {
 			if m.sshSelectedKeyInAgent() {
 				rows = append(rows, sshRemoveKeyRow)
 			} else {
-				rows = append(rows, sshAddKeyRow)
+				rows = append(rows, utilitiesScreenRow(sshAddKeyRow))
 			}
 		}
 	}
@@ -454,19 +487,28 @@ func sshKeyKind(key sshcfg.Key) string {
 // sshAgentRows is the agent screen: one row per identity the agent holds, then
 // the one action that removes everything. Identities are removable one by one
 // because that is the only removal ssh-add offers without a fingerprint lookup.
+// Every row here acts where it stands, so each carries the letter that runs it.
 func (m Model) sshAgentRows() []string {
 	rows := make([]string, 0, len(m.SSH.Agent.Identities)+2)
 	for i, id := range m.SSH.Agent.Identities {
-		rows = append(rows, sshRemoveIdentityPrefix+sshAgentIdentityLabel(i, id))
+		rows = append(rows, sshCommandRow("x", sshRemoveIdentityPrefix+sshAgentIdentityLabel(i, id)))
 	}
-	if len(rows) > 0 {
+	if len(m.SSH.Agent.Identities) > 0 {
 		rows = append(rows, m.menuSeparator())
-		if m.SSH.Agent.CanRemoveAll {
+		if m.sshCanRemoveEveryIdentity() {
 			rows = append(rows, sshRemoveEveryIdentityRow)
 			rows = append(rows, m.menuSeparator())
 		}
 	}
 	return append(rows, sshBackRow)
+}
+
+// sshCanRemoveEveryIdentity reports whether the one destructive row of the agent
+// screen is offered: there is something to remove and this agent supports
+// removing it. The row builder and the handler ask the same question, so the
+// letter the row and the footer name is the letter that is honoured.
+func (m Model) sshCanRemoveEveryIdentity() bool {
+	return len(m.SSH.Agent.Identities) > 0 && m.SSH.Agent.CanRemoveAll
 }
 
 // sshAgentIdentityLabel is one agent identity, in the shape `ssh-add -l` prints
@@ -813,11 +855,11 @@ func (m Model) sshKeyDescription() []string {
 	case "generate":
 		return []string{
 			"That a key is generated with ssh-keygen using the algorithms this client supports. The passphrase is typed here, handed to ssh-keygen over a pipe, and never written down: it is not stored, logged or put in an argument list.",
-			"The private half is written 0600 and its public half 0644, and an existing pair is replaced only when the switch below reads on.",
+			"The private half is written 0600 and its public half 0644, and an existing pair is replaced only when the switch below is on: Space turns it on and off.",
 		}
 	case "add":
 		return []string{
-			fmt.Sprintf("Adding %s to the agent. Type the key's passphrase, or leave it empty when the key has none, and press the row that adds it.", m.sshSelectedKeyName()),
+			fmt.Sprintf("Adding %s to the agent. Type the key's passphrase, or leave it empty when the key has none, then press [a] to add it.", m.sshSelectedKeyName()),
 			"The passphrase is handed to ssh-add over a pipe and is never stored, logged or put in an argument list.",
 		}
 	}
@@ -992,7 +1034,7 @@ func (m Model) sshTestDescription() []string {
 	}
 	alias := strings.TrimSpace(m.SSH.TestAlias)
 	if alias == "" {
-		paragraphs = append(paragraphs, "Type a host or an alias from the list, then press the row that runs the test.")
+		paragraphs = append(paragraphs, "Type a host or an alias from the list, then press [r] on the run row to start the test.")
 	} else {
 		paragraphs = append(paragraphs, fmt.Sprintf(
 			"The test asks ssh to open a session to %s and run `true` there, under a %s bound, with the configuration exactly as the client would use it.",
@@ -1090,47 +1132,112 @@ func sshBoundedLines(text string, rows int) []string {
 // the frame's rows, the companion and the notice slot behave identically here.
 
 func (m Model) renderSSHManager() string {
-	return m.renderThemeScreen(m.sshManagerDescription(), m.SSH.Notice,
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	return m.renderThemeScreen(m.sshManagerDescription(), m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHHost() string {
-	return m.renderThemeScreen(m.sshHostDescription(), m.SSH.Notice,
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	return m.renderThemeScreen(m.sshHostDescription(), m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHForm() string {
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintCancel}
-	if m.SSH.Plan == nil {
-		hints = []installerHint{hintMove, hintType, hintSelect, hintCancel}
-	}
-	return m.renderThemeScreen(m.sshFormDescription(), m.SSH.Notice, hints)
+	return m.renderThemeScreen(m.sshFormDescription(), m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHKeys() string {
-	hints := []installerHint{hintUp, hintDown, hintSelect, hintBack}
-	if m.sshTypingActive() {
-		hints = []installerHint{hintMove, hintType, hintSelect, hintCancel}
-	}
-	return m.renderThemeScreen(m.sshKeyDescription(), m.SSH.Notice, hints)
+	return m.renderThemeScreen(m.sshKeyDescription(), m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHAgent() string {
-	return m.renderThemeScreen(m.sshAgentDescription(), m.SSH.Notice,
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	return m.renderThemeScreen(m.sshAgentDescription(), m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHDiagnostics() string {
-	return m.renderThemeScreen(m.sshDiagnosticDescription(), m.SSH.Notice,
-		[]installerHint{hintUp, hintDown, hintBack})
+	return m.renderThemeScreen(m.sshDiagnosticDescription(), m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHTest() string {
-	hints := []installerHint{hintType, hintSelect, hintBack}
-	if m.SSH.Testing {
-		hints = []installerHint{hintCancel, hintBack}
+	return m.renderThemeScreen(m.sshTestDescription(), m.SSH.Notice, m.sshHints())
+}
+
+// sshHints is the footer of every screen in this file, in one place. It names
+// exactly the keys the handler accepts for the state the screen is in: the arrow
+// Enter opens with, Space only where the replace switch is drawn, and one letter
+// per command that is offered. Keeping it in one function rather than in each
+// renderer is what lets a test read the footer and the rows together and fail
+// when the two name different keys.
+func (m Model) sshHints() []installerHint {
+	switch m.Screen {
+	case ScreenSSHManager:
+		return []installerHint{hintUp, hintDown, hintOpen, hintBack}
+
+	case ScreenSSHHost:
+		hints := []installerHint{hintUp, hintDown, hintOpen}
+		if host, ok := m.sshSelectedHost(); ok && host.ReadOnly == "" {
+			hints = append(hints, sshHintDeleteEntry)
+		}
+		if m.sshDetailPublicKey() != "" {
+			hints = append(hints, sshHintCopyPublicKey)
+		}
+		return append(hints, hintBack)
+
+	case ScreenSSHForm:
+		if m.SSH.Plan != nil {
+			// The confirmation writes on its own letter: Enter is left to the rows
+			// that open a screen, and every write here is a second press.
+			return []installerHint{hintMove, sshHintWrite, sshHintDiscard, sshHintDiscardEsc}
+		}
+		hints := []installerHint{sshHintFieldMove, hintType}
+		if m.sshFormReady() {
+			hints = append(hints, sshHintWrite)
+		}
+		return append(hints, hintCancel)
+
+	case ScreenSSHKeys:
+		switch m.SSH.KeysMode {
+		case "generate":
+			hints := []installerHint{sshHintFieldMove, hintAdjust, hintType, hintToggle}
+			if m.sshKeygenReady() {
+				hints = append(hints, sshHintGenerate)
+			}
+			return append(hints, hintCancel)
+		case "add":
+			return []installerHint{sshHintFieldMove, hintType, sshHintAddKey, hintCancel}
+		}
+		hints := []installerHint{hintUp, hintDown, hintOpen}
+		if _, ok := m.sshSelectedKey(); ok {
+			hints = append(hints, sshHintCopyKey)
+			if m.SSH.AgentLoaded && m.SSH.Agent.Reachable && m.sshSelectedKeyInAgent() {
+				hints = append(hints, sshHintRemoveKey)
+			}
+		}
+		return append(hints, hintBack)
+
+	case ScreenSSHAgent:
+		hints := []installerHint{hintUp, hintDown}
+		if len(m.SSH.Agent.Identities) > 0 {
+			hints = append(hints, sshHintRemoveIdentity)
+		}
+		if m.sshCanRemoveEveryIdentity() {
+			hints = append(hints, sshHintRemoveAll)
+		}
+		return append(hints, hintBack)
+
+	case ScreenSSHDiagnostics:
+		return []installerHint{hintUp, hintDown, hintBack}
+
+	case ScreenSSHTest:
+		if m.SSH.Testing {
+			// Esc stops the run in flight and leaves; the footer says so rather than
+			// claiming the Esc that only goes back.
+			return []installerHint{sshHintFieldMove, sshHintCancelTest, sshHintStopTest}
+		}
+		hints := []installerHint{sshHintFieldMove, hintType}
+		if strings.TrimSpace(m.SSH.TestAlias) != "" && m.sshCanTest() {
+			hints = append(hints, sshHintRunTest)
+		}
+		return append(hints, hintBack)
 	}
-	return m.renderThemeScreen(m.sshTestDescription(), m.SSH.Notice, hints)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1310,6 +1417,11 @@ func (m Model) handleSSHMessage(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.SSH.KeysErr = ""
 		}
 		m.SSH.KnownHostsErr = msg.knownErr
+		if m.SSH.KeyIndex >= len(m.SSH.Keys) {
+			// The key an action was about is gone; the first one is the selection the
+			// action rows are drawn from, so the two stay in step.
+			m.SSH.KeyIndex = 0
+		}
 		if m.Cursor >= len(m.SSH.Keys) && m.SSH.KeysMode == "" {
 			// The cursor was on a key that is gone; the action rows moved up under
 			// it, so the cursor is clamped to the first action rather than left
@@ -1592,13 +1704,15 @@ func (m Model) sshSelectedHost() (sshcfg.Host, bool) {
 	return m.SSH.Hosts[m.SSH.HostIndex], true
 }
 
-// sshSelectedKey is the key an action targets: the row under the cursor in the
-// list, and the key the action was started for in the two sub-states, because
-// neither sub-state draws the list the cursor was on.
+// sshSelectedKey is the key an action targets: the row under the cursor when the
+// cursor is on the list, and the key the cursor last stood on -- KeyIndex -- when
+// it has walked down to the action rows beneath it. The action rows are drawn from
+// the same answer, so they cannot describe one key while acting on another, and
+// the row set cannot change shape under the cursor as it moves.
 func (m Model) sshSelectedKey() (sshcfg.Key, bool) {
-	index := m.Cursor
-	if m.SSH.KeysMode != "" {
-		index = m.SSH.KeyIndex
+	index := m.SSH.KeyIndex
+	if m.SSH.KeysMode == "" && m.Cursor >= 0 && m.Cursor < len(m.SSH.Keys) {
+		index = m.Cursor
 	}
 	if index < 0 || index >= len(m.SSH.Keys) {
 		return sshcfg.Key{}, false
@@ -1837,7 +1951,8 @@ func (m Model) sshKeygenReady() bool {
 // ---------------------------------------------------------------------------
 
 // handleSSHManagerKeys drives the manager's own screen. The cursor walks the
-// host rows and then the jobs; a host row opens that host's detail screen.
+// host rows and then the jobs; a host row opens that host's detail screen. Every
+// row on this screen opens something, so Enter is the only key that runs one.
 func (m Model) handleSSHManagerKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -1851,7 +1966,7 @@ func (m Model) handleSSHManagerKeys(key string) (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 		m.SSH.Notice = ""
 		return m, nil
-	case "enter", " ":
+	case "enter":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
@@ -1868,12 +1983,13 @@ func (m Model) handleSSHManagerKeys(key string) (tea.Model, tea.Cmd) {
 			}
 			return m, sshEffectiveCmd(m.SSH.Manager, m.SSH.DetailAlias)
 		}
-		switch options[m.Cursor] {
+		switch strings.TrimPrefix(options[m.Cursor], utilitiesScreenMark) {
 		case sshAddHostRow:
 			return m.startSSHForm("create", sshHostForm{}), nil
 		case sshKeysRow:
 			m.Screen = ScreenSSHKeys
 			m.Cursor = 0
+			m.SSH.KeyIndex = 0
 			m.SSH.KeysMode = ""
 			m.SSH.Notice = ""
 			if m.SSH.Manager == nil {
@@ -1910,32 +2026,59 @@ func (m Model) handleSSHManagerKeys(key string) (tea.Model, tea.Cmd) {
 
 // moveSSHRow moves the cursor over one of the manager's menus, skipping the
 // separators the same way every other menu in the interface does. It reports
-// whether the key was a move, so a handler can leave the rest alone.
+// whether the key was a move, so a handler can leave the rest alone. It is for the
+// states without a text field: a field owns the letters, so k and j are words
+// there and the field states use sshMoveFieldCursor instead.
 func (m *Model) moveSSHRow(key string, options []string) bool {
 	switch key {
 	case "up", "k":
+		m.sshStepRow(-1, options)
+		return true
+	case "down", "j":
+		m.sshStepRow(1, options)
+		return true
+	}
+	return false
+}
+
+// sshMoveFieldCursor is moveSSHRow for the states that have a field: the arrows
+// move between the fields and nothing else does, because a letter typed into one
+// of them is text. The footer beside these rows names the arrows it takes.
+func (m *Model) sshMoveFieldCursor(key string, options []string) bool {
+	switch key {
+	case "up":
+		m.sshStepRow(-1, options)
+		return true
+	case "down":
+		m.sshStepRow(1, options)
+		return true
+	}
+	return false
+}
+
+// sshStepRow moves the cursor one row up or down, skipping the separators.
+func (m *Model) sshStepRow(delta int, options []string) {
+	if delta < 0 {
 		if m.Cursor > 0 {
 			m.Cursor--
 			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
 				m.Cursor--
 			}
 		}
-		return true
-	case "down", "j":
-		if m.Cursor < len(options)-1 {
-			m.Cursor++
-			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
-				m.Cursor++
-			}
-		}
-		return true
+		return
 	}
-	return false
+	if m.Cursor < len(options)-1 {
+		m.Cursor++
+		if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
+			m.Cursor++
+		}
+	}
 }
 
-// handleSSHHostKeys drives one entry's detail screen: the actions that change it
-// are offered only where they can run, and the test row is always there because
-// asking the client is always safe.
+// handleSSHHostKeys drives one entry's detail screen: the rows that open a
+// screen answer Enter, and the two that act where they stand run on their own
+// letter. The actions are offered only where they can run, and the test row is
+// always there because asking the client is always safe.
 func (m Model) handleSSHHostKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 	if m.moveSSHRow(key, options) {
@@ -1948,25 +2091,34 @@ func (m Model) handleSSHHostKeys(key string) (tea.Model, tea.Cmd) {
 		m.Cursor = m.SSH.HostIndex
 		m.SSH.Notice = ""
 		return m, nil
-	case "enter", " ":
+	case "y":
+		// The copy row acts where it stands: the public key goes to the clipboard
+		// without a screen in between.
+		if pub := m.sshDetailPublicKey(); pub != "" {
+			m.SSH.Notice = "Copying the public key…"
+			return m, sshCopyCmd(pub)
+		}
+		return m, nil
+	case "d":
+		// The delete row runs its own key; the removal it plans is shown first and
+		// written on the confirmation's [w], never here. An entry that may not be
+		// rewritten is refused the same way its row is withheld.
+		if host, ok := m.sshSelectedHost(); ok && host.ReadOnly == "" {
+			return m.startSSHDelete(), nil
+		}
+		return m, nil
+	case "enter":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
-		switch options[m.Cursor] {
+		switch strings.TrimPrefix(options[m.Cursor], utilitiesScreenMark) {
 		case sshEditRow:
 			return m.startSSHForm("edit", sshFormFromHost(m.sshSelectedHostOrZero(), m.SSH.Detail)), nil
 		case sshDuplicateRow:
 			return m.startSSHForm("duplicate", sshFormFromHost(m.sshSelectedHostOrZero(), m.SSH.Detail)), nil
-		case sshDeleteRow:
-			return m.startSSHDelete(), nil
 		case sshTestThisRow:
 			m.SSH.TestAlias = m.SSH.DetailAlias
 			return m.openSSHTest(ScreenSSHHost), nil
-		case sshCopyPubRow:
-			if pub := m.sshDetailPublicKey(); pub != "" {
-				m.SSH.Notice = "Copying the public key…"
-				return m, sshCopyCmd(pub)
-			}
 		case sshBackToHostsRow:
 			m.Screen = ScreenSSHManager
 			m.Cursor = m.SSH.HostIndex
@@ -2042,67 +2194,66 @@ func sshDuplicateAlias(alias string) string {
 
 // handleSSHFormKeys drives the form and the confirmation that follows it. Text
 // keys reach exactly one of the six fields -- the one under the cursor -- and
-// every other key moves, saves or leaves.
+// every other key moves or leaves. Writing is the one command, and it runs on its
+// own letter in both states: the first press shows the change, the second writes
+// it, and Enter never does either.
 func (m Model) handleSSHFormKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
 	if m.SSH.Plan != nil {
-		switch key {
-		case "up", "k", "down", "j":
-			m.moveSSHRow(key, options)
+		if m.moveSSHRow(key, options) {
 			return m, nil
+		}
+		switch key {
 		case "esc":
 			// The plan was a preview of a write, so leaving it says the write did not
 			// happen: a screen that goes back silently leaves the user unsure whether
 			// the file was touched.
-			if m.SSH.Plan != nil {
-				m.SSH.Notice = "Nothing was written: the change was discarded before it reached the file."
-			}
-			// The notice set above is the point of this branch, so it is not cleared
-			// here: the plan is gone and the screen says what that means.
+			m.SSH.Notice = "Nothing was written: the change was discarded before it reached the file."
 			m.SSH.Plan = nil
 			return m, nil
-		case "enter", " ":
-			if m.Cursor < 0 || m.Cursor >= len(options) {
+		case "w":
+			if m.SSH.Manager == nil || m.SSH.Writing {
 				return m, nil
 			}
-			switch options[m.Cursor] {
-			case sshSaveRow:
-				if m.SSH.Manager == nil || m.SSH.Writing {
-					return m, nil
-				}
-				m.SSH.Writing = true
-				m.SSH.Notice = "Writing the entry, after a backup and a validation…"
-				return m, sshApplyCmd(m.SSH.Manager, *m.SSH.Plan, m.sshPlanWhat())
-			case sshDiscardRow:
-				m.SSH.Plan = nil
-				m.SSH.Notice = "Nothing was written."
-			}
+			m.SSH.Writing = true
+			m.SSH.Notice = "Writing the entry, after a backup and a validation…"
+			return m, sshApplyCmd(m.SSH.Manager, *m.SSH.Plan, m.sshPlanWhat())
+		case "d":
+			m.SSH.Plan = nil
+			m.SSH.Notice = "Nothing was written."
 		}
+		return m, nil
+	}
+
+	// The six fields own the letters, so only the arrows move the cursor between
+	// them; on the rows below the list moves the way every list does. That is the
+	// rule that lets a letter be both a command and a character: it runs only on
+	// the row that carries it.
+	if m.Cursor < sshFormFieldCount {
+		if m.sshMoveFieldCursor(key, options) {
+			return m, nil
+		}
+		if key == "esc" {
+			return m.leaveSSHForm(), nil
+		}
+		// Enter commits the field, which is what the screen already holds: the value
+		// is the field's own text and nothing is staged anywhere else.
+		m.typeSSHFormField(key)
 		return m, nil
 	}
 
 	if m.moveSSHRow(key, options) {
 		return m, nil
 	}
-
-	switch key {
-	case "esc":
+	if m.Cursor < 0 || m.Cursor >= len(options) {
+		return m, nil
+	}
+	switch {
+	case key == "esc", key == "enter" && options[m.Cursor] == sshCancelRow:
 		return m.leaveSSHForm(), nil
-	case "enter", " ":
-		if m.Cursor < 0 || m.Cursor >= len(options) {
-			return m, nil
-		}
-		switch options[m.Cursor] {
-		case sshSaveRow:
-			return m.planSSHForm(), nil
-		case sshCancelRow:
-			return m.leaveSSHForm(), nil
-		}
-	default:
-		if m.Cursor < sshFormFieldCount {
-			m.typeSSHFormField(key)
-		}
+	case key == "w" && options[m.Cursor] == sshSaveRow:
+		return m.planSSHForm(), nil
 	}
 	return m, nil
 }
@@ -2337,9 +2488,11 @@ func sshKeygenTypeMatches(want, supported string) bool {
 // rows after them are the replace switch, the separator and the two actions.
 const sshKeygenFieldCount = 5
 
-// handleSSHKeysKeys drives the key screen in its three states. The replace row
-// is a switch rather than a text field, which is why the count of fields and the
-// index of the switch are named constants instead of a bare number.
+// handleSSHKeysKeys drives the key screen in its three states. The inventory's
+// actions run on their own letters or open their own prompt; the generation
+// form's one command runs on its letter and its replace row is a switch, which is
+// why the count of fields and the index of the switch are named constants instead
+// of a bare number.
 func (m Model) handleSSHKeysKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
@@ -2351,8 +2504,10 @@ func (m Model) handleSSHKeysKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	if m.moveSSHRow(key, options) {
+		m.sshSelectKeyUnderCursor()
 		return m, nil
 	}
+	m.sshSelectKeyUnderCursor()
 
 	switch key {
 	case "esc":
@@ -2360,14 +2515,25 @@ func (m Model) handleSSHKeysKeys(key string) (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 		m.SSH.Notice = ""
 		return m, nil
-	case "enter", " ":
+	case "y":
+		if selected, ok := m.sshSelectedKey(); ok && selected.Public != "" {
+			m.SSH.Notice = "Copying the public key…"
+			return m, sshCopyCmd(selected.Public)
+		}
+		return m, nil
+	case "x":
+		if m.SSH.AgentLoaded && m.SSH.Agent.Reachable {
+			return m.removeSelectedKeyFromAgent()
+		}
+		return m, nil
+	case "enter":
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
 		if m.Cursor < len(m.SSH.Keys) {
 			return m, nil
 		}
-		switch options[m.Cursor] {
+		switch strings.TrimPrefix(options[m.Cursor], utilitiesScreenMark) {
 		case sshGenerateKeyRow:
 			m.SSH.KeysMode = "generate"
 			m.SSH.Keygen = sshKeygenForm{
@@ -2379,22 +2545,15 @@ func (m Model) handleSSHKeysKeys(key string) (tea.Model, tea.Cmd) {
 			}
 			m.Cursor = 0
 			m.SSH.Notice = ""
-		case sshCopyKeyRow:
-			if key, ok := m.sshSelectedKey(); ok && key.Public != "" {
-				m.SSH.Notice = "Copying the public key…"
-				return m, sshCopyCmd(key.Public)
-			}
 		case sshAddKeyRow:
-			if key, ok := m.sshSelectedKey(); ok {
-				m.SSH.KeyIndex = m.Cursor
+			// The prompt opens for the selected key: the selection lives in KeyIndex,
+			// not in the cursor, because the row that opens the prompt is not a key.
+			if _, ok := m.sshSelectedKey(); ok {
 				m.SSH.KeysMode = "add"
 				m.SSH.AddPassphrase = ""
 				m.Cursor = 0
 				m.SSH.Notice = ""
-				_ = key
 			}
-		case sshRemoveKeyRow:
-			return m.removeSelectedKeyFromAgent()
 		case sshBackRow:
 			m.Screen = ScreenSSHManager
 			m.Cursor = 0
@@ -2402,6 +2561,16 @@ func (m Model) handleSSHKeysKeys(key string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// sshSelectKeyUnderCursor keeps the action rows' selection on the key the cursor
+// stands on: the rows below the list act on it, and the row set is drawn from it,
+// so a selection read straight from the cursor would make those rows vanish the
+// moment the cursor walked down onto one of them.
+func (m *Model) sshSelectKeyUnderCursor() {
+	if m.SSH.KeysMode == "" && m.Cursor >= 0 && m.Cursor < len(m.SSH.Keys) {
+		m.SSH.KeyIndex = m.Cursor
+	}
 }
 
 // sshCaps is the resolved client capabilities, empty when nothing was resolved
@@ -2434,9 +2603,17 @@ func sshDefaultKeyComment() string {
 
 // handleSSHKeygenKeys drives the generation form. The type row cycles through
 // the types this client supports with the left and right arrows, which is what
-// the footer names; every other field takes text.
+// the footer names; every other field takes text, the replace row is a switch and
+// answers Space, and the one command -- the generation -- runs on its own letter.
 func (m Model) handleSSHKeygenKeys(key string, options []string) (tea.Model, tea.Cmd) {
-	if m.moveSSHRow(key, options) {
+	// The five fields own the letters, so only the arrows move the cursor there;
+	// on the replace switch and the rows below it the list moves as every list
+	// does.
+	if m.Cursor < sshKeygenFieldCount {
+		if m.sshMoveFieldCursor(key, options) {
+			return m, nil
+		}
+	} else if m.moveSSHRow(key, options) {
 		return m, nil
 	}
 
@@ -2447,27 +2624,27 @@ func (m Model) handleSSHKeygenKeys(key string, options []string) (tea.Model, tea
 		}
 	}
 
-	switch key {
-	case "esc":
+	if key == "esc" {
 		m.SSH.KeysMode = ""
 		m.Cursor = 0
 		m.SSH.Notice = ""
 		return m, nil
-	case "enter", " ":
-		if m.Cursor < 0 || m.Cursor >= len(options) {
-			return m, nil
-		}
-		switch options[m.Cursor] {
-		case sshReplaceRowOn, sshReplaceRowOff:
+	}
+	if m.Cursor >= 0 && m.Cursor < len(options) {
+		switch {
+		case key == " " && sshIsReplaceRow(options[m.Cursor]):
+			// Space toggles the switch, and only a switch: the row draws its state,
+			// and Enter is left to the rows that open a screen.
 			m.SSH.Keygen.Replace = !m.SSH.Keygen.Replace
-		case sshGenerateKeyRow:
-			return m, m.generateSSHKey()
-		case sshCancelRow:
+			return m, nil
+		case key == "enter" && options[m.Cursor] == sshCancelRow:
 			m.SSH.KeysMode = ""
 			m.Cursor = 0
 			m.SSH.Notice = ""
+			return m, nil
+		case key == "g" && options[m.Cursor] == sshCommandRow("g", sshGenerateKeyRow):
+			return m, m.generateSSHKey()
 		}
-		return m, nil
 	}
 
 	if m.Cursor < sshKeygenFieldCount {
@@ -2578,42 +2755,51 @@ func (m Model) generateSSHKey() tea.Cmd {
 
 // handleSSHAddKeys drives the passphrase prompt that adding a key to the agent
 // needs. The passphrase is required for an encrypted key and must be omitted for
-// one that is not, so an empty field is a value rather than a missing answer.
+// one that is not, so an empty field is a value rather than a missing answer. The
+// field owns the letters, so the one command waits until the cursor has left it.
 func (m Model) handleSSHAddKeys(key string, options []string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
+	if key == "esc" {
 		m.SSH.KeysMode = ""
 		m.SSH.AddPassphrase = ""
 		m.Cursor = 0
 		m.SSH.Notice = ""
 		return m, nil
-	case "enter", " ":
-		if m.Cursor < 0 || m.Cursor >= len(options) {
+	}
+	// The passphrase field owns the letters, so only the arrows move the cursor
+	// there; below it the list moves as every list does.
+	if m.Cursor == 0 {
+		if m.sshMoveFieldCursor(key, options) {
 			return m, nil
 		}
-		switch options[m.Cursor] {
-		case sshAddToAgentRow:
+	} else if m.moveSSHRow(key, options) {
+		return m, nil
+	}
+	if m.Cursor >= 0 && m.Cursor < len(options) {
+		switch {
+		case key == "a" && options[m.Cursor] == sshAddToAgentRow:
 			return m, m.addSelectedKeyToAgent()
-		case sshCancelRow:
+		case key == "enter" && options[m.Cursor] == sshCancelRow:
 			m.SSH.KeysMode = ""
 			m.SSH.AddPassphrase = ""
 			m.Cursor = 0
 			m.SSH.Notice = ""
+			return m, nil
 		}
+	}
+	// The passphrase field is the only field, and it owns the text keys while the
+	// cursor is on it.
+	if m.Cursor != 0 {
 		return m, nil
-	case "up", "k", "down", "j":
-		m.moveSSHRow(key, options)
-		return m, nil
-	case "backspace":
+	}
+	if key == "backspace" {
 		runes := []rune(m.SSH.AddPassphrase)
 		if len(runes) > 0 {
 			m.SSH.AddPassphrase = string(runes[:len(runes)-1])
 		}
 		return m, nil
-	default:
-		if sshTypingKey(key) {
-			m.SSH.AddPassphrase += key
-		}
+	}
+	if sshTypingKey(key) {
+		m.SSH.AddPassphrase += key
 	}
 	return m, nil
 }
@@ -2666,8 +2852,9 @@ func (m Model) removeSelectedKeyFromAgent() (tea.Model, tea.Cmd) {
 // ---------------------------------------------------------------------------
 
 // handleSSHAgentKeys drives the agent screen. Removing every identity is the one
-// destructive action here, and it takes two presses: the first arms it and says
-// so in the screen's own words, the second runs it.
+// destructive action here, and it takes two presses of its own letter: the first
+// arms it and says so in the screen's own words, the second runs it. Removing one
+// identity runs on the letter its own row carries.
 func (m Model) handleSSHAgentKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 	if m.moveSSHRow(key, options) {
@@ -2682,32 +2869,33 @@ func (m Model) handleSSHAgentKeys(key string) (tea.Model, tea.Cmd) {
 		m.SSH.Notice = ""
 		m.SSH.AgentConfirm = false
 		return m, nil
-	case "enter", " ":
-		if m.Cursor < 0 || m.Cursor >= len(options) {
-			return m, nil
-		}
-		if m.Cursor < len(m.SSH.Agent.Identities) {
+	case "x":
+		if m.Cursor >= 0 && m.Cursor < len(m.SSH.Agent.Identities) {
 			return m.removeAgentIdentity(m.Cursor)
 		}
-		switch options[m.Cursor] {
-		case sshRemoveEveryIdentityRow:
-			if !m.SSH.AgentConfirm {
-				m.SSH.AgentConfirm = true
-				m.SSH.Notice = "Press the same row again to remove every identity from the agent: they are forgotten by the agent, not deleted from disk."
-				return m, nil
-			}
-			m.SSH.AgentConfirm = false
-			manager := m.SSH.Manager
-			if manager == nil {
-				return m, nil
-			}
-			m.SSH.Notice = "Removing every identity from the agent…"
-			return m, sshAgentActionCmd(func() sshcfg.AgentAction {
-				ctx, cancel := context.WithTimeout(context.Background(), sshManagerActionTimeout)
-				defer cancel()
-				return manager.RemoveAllFromAgent(ctx)
-			}, "remove-all")
-		case sshBackRow:
+		return m, nil
+	case "r":
+		if !m.sshCanRemoveEveryIdentity() {
+			return m, nil
+		}
+		if !m.SSH.AgentConfirm {
+			m.SSH.AgentConfirm = true
+			m.SSH.Notice = "Press [r] again to remove every identity from the agent: they are forgotten by the agent, not deleted from disk."
+			return m, nil
+		}
+		m.SSH.AgentConfirm = false
+		manager := m.SSH.Manager
+		if manager == nil {
+			return m, nil
+		}
+		m.SSH.Notice = "Removing every identity from the agent…"
+		return m, sshAgentActionCmd(func() sshcfg.AgentAction {
+			ctx, cancel := context.WithTimeout(context.Background(), sshManagerActionTimeout)
+			defer cancel()
+			return manager.RemoveAllFromAgent(ctx)
+		}, "remove-all")
+	case "enter":
+		if m.Cursor >= 0 && m.Cursor < len(options) && options[m.Cursor] == sshBackRow {
 			m.Screen = ScreenSSHManager
 			m.Cursor = 0
 			m.SSH.Notice = ""
@@ -2747,7 +2935,8 @@ func (m Model) removeAgentIdentity(index int) (tea.Model, tea.Cmd) {
 // ---------------------------------------------------------------------------
 
 // handleSSHDiagnosticsKeys walks the report. Nothing here changes anything: the
-// screen exists to be read, and its only key is the way back.
+// screen exists to be read, its findings have no command, and its only key is the
+// way back.
 func (m Model) handleSSHDiagnosticsKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 	if m.moveSSHRow(key, options) {
@@ -2759,7 +2948,7 @@ func (m Model) handleSSHDiagnosticsKeys(key string) (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 		m.SSH.Notice = ""
 		return m, nil
-	case "enter", " ":
+	case "enter":
 		if m.Cursor >= 0 && m.Cursor < len(options) && options[m.Cursor] == sshBackRow {
 			m.Screen = ScreenSSHManager
 			m.Cursor = 0
@@ -2785,43 +2974,50 @@ func (m Model) openSSHTest(origin Screen) Model {
 }
 
 // handleSSHTestKeys drives the test screen: the alias field takes text, the run
-// row starts the test, and the cancel row stops the one in flight.
+// row starts the test on its own letter, and the cancel row stops the one in
+// flight. The field owns the letters while the cursor is on it, so the run waits
+// until the cursor has left it.
 func (m Model) handleSSHTestKeys(key string) (tea.Model, tea.Cmd) {
 	options := m.GetCurrentOptions()
 
-	if m.moveSSHRow(key, options) {
+	// The alias field owns the letters, so only the arrows move the cursor there;
+	// below it the list moves as every list does.
+	if m.Cursor == 0 {
+		if m.sshMoveFieldCursor(key, options) {
+			return m, nil
+		}
+	} else if m.moveSSHRow(key, options) {
 		return m, nil
 	}
 
-	switch key {
-	case "esc":
+	if key == "esc" {
 		return m.leaveSSHTest(), nil
-	case "enter", " ":
-		if m.Cursor < 0 || m.Cursor >= len(options) {
-			return m, nil
-		}
-		switch options[m.Cursor] {
-		case sshRunTestRow:
+	}
+	if m.Cursor >= 0 && m.Cursor < len(options) {
+		switch {
+		case key == "r" && options[m.Cursor] == sshRunTestRow:
 			return m.startSSHTest()
-		case sshCancelTestRow:
+		case key == "x" && options[m.Cursor] == sshCancelTestRow:
 			m.cancelSSHTest("The test was cancelled; nothing on the host was changed.")
 			return m, nil
-		case sshBackRow:
+		case key == "enter" && options[m.Cursor] == sshBackRow:
 			return m.leaveSSHTest(), nil
 		}
+	}
+	// The alias field is the first row, and it owns the text keys while the test
+	// is not running: a test in flight reads no input from the field.
+	if m.Cursor != 0 || m.SSH.Testing {
 		return m, nil
-	case "backspace":
-		if !m.SSH.Testing {
-			runes := []rune(m.SSH.TestAlias)
-			if len(runes) > 0 {
-				m.SSH.TestAlias = string(runes[:len(runes)-1])
-			}
+	}
+	if key == "backspace" {
+		runes := []rune(m.SSH.TestAlias)
+		if len(runes) > 0 {
+			m.SSH.TestAlias = string(runes[:len(runes)-1])
 		}
 		return m, nil
-	default:
-		if !m.SSH.Testing && sshTypingKey(key) {
-			m.SSH.TestAlias += key
-		}
+	}
+	if sshTypingKey(key) {
+		m.SSH.TestAlias += key
 	}
 	return m, nil
 }
