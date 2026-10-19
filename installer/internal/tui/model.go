@@ -1189,10 +1189,10 @@ func (m Model) GetCurrentOptions() []string {
 		// picker it opens.
 		var switchers []string
 		if m.ThemeSwitchFound {
-			switchers = append(switchers, "Switch to the dark theme", "Switch to the light theme")
+			switchers = append(switchers, utilitiesDarkRow, utilitiesLightRow)
 		}
 		if m.themeUndoAvailable() {
-			switchers = append(switchers, "Undo the last theme change")
+			switchers = append(switchers, utilitiesUndoRow)
 		}
 
 		var utilities []string
@@ -1259,6 +1259,14 @@ func (m Model) GetCurrentOptions() []string {
 		// This installer's own release is not a utility: its row lives on the main
 		// menu, where the screen someone opens first can offer it, so this section
 		// names it in neither its rows nor its own body.
+		//
+		// Every row above is a job that opens a screen, so each is drawn with the
+		// arrow that says so; the switchers above are commands and carry their own
+		// letter instead. The rows are the same strings the handler matches, so a
+		// mark cannot say one thing while the press does another.
+		for i, row := range utilities {
+			utilities[i] = utilitiesScreenRow(row)
+		}
 
 		opts := switchers
 		if len(opts) > 0 && len(utilities) > 0 {

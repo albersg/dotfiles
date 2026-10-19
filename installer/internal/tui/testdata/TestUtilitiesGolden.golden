@@ -8,17 +8,17 @@
   Manage the SSH configuration shows the hosts and keys the client uses.        
   Report the terminal capabilities reads the colour depth and OSC 52.           
   Check the machine against the last install reports the paths that are gone.   
-  ▸ Change the dotfiles theme                                                   
-    Measure the shell's startup                                                 
-    Check the installed tools for updates                                       
-    Check the machine against the last install                                  
-    Manage the SSH configuration                                                
-    Report the terminal capabilities                                            
-    Clean up development caches                                                 
-    Diagnose the network                                                        
-    Find what holds a port                                                      
-    Diagnose the development environment                                        
+  ▸ → Change the dotfiles theme                                                 
+    → Measure the shell's startup                                               
+    → Check the installed tools for updates                                     
+    → Check the machine against the last install                                
+    → Manage the SSH configuration                                              
+    → Report the terminal capabilities                                          
+    → Clean up development caches                                               
+    → Diagnose the network                                                      
+    → Find what holds a port                                                    
+    → Diagnose the development environment                                      
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
   ────────────────────────────────────────────────────────────────────────────  
-  ↑/k up • ↓/j down • [Enter] select • [Esc] back                               [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ↑/k up • ↓/j down • [Enter] open • [Esc] back                                 [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

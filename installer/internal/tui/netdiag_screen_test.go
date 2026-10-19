@@ -424,7 +424,7 @@ func TestNetworkScreenReportsWhenThereIsNowhereToSave(t *testing.T) {
 func TestUtilitiesSectionOpensTheDiagnosisWithoutDialling(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenUtilities
-	m.Cursor = indexOfRow(t, m, utilitiesNetworkRow)
+	m.Cursor = indexOfRow(t, m, utilitiesScreenRow(utilitiesNetworkRow))
 
 	next, cmd := m.handleUtilitiesKeys("enter")
 	m = next.(Model)

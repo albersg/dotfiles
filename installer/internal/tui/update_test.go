@@ -1127,10 +1127,11 @@ func TestUtilitiesIdleKeyChangesNothing(t *testing.T) {
 	}
 }
 
-// TestUtilitiesSelectingASwitchRunsTheThemeCommand pins the wiring from the row
-// to the command: enter on the dark row returns the command that switches the
-// detected desktop's theme, through the same seam the disk tests drive.
-func TestUtilitiesSelectingASwitchRunsTheThemeCommand(t *testing.T) {
+// TestUtilitiesDarkKeyRunsTheThemeCommand pins the wiring from the row to the
+// command: the row carries [d], pressing d returns the command that switches the
+// detected desktop's theme through the same seam the disk tests drive, and Enter
+// -- which opens screens and nothing else -- leaves it alone.
+func TestUtilitiesDarkKeyRunsTheThemeCommand(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	target, ok := themeSwitchByID("gnome")
 	if !ok {
@@ -1142,10 +1143,13 @@ func TestUtilitiesSelectingASwitchRunsTheThemeCommand(t *testing.T) {
 	)
 
 	m := utilitiesModel(t, true)
-	next, cmd := m.handleUtilitiesKeys("enter")
+	if next, cmd := m.handleUtilitiesKeys("enter"); cmd != nil || next.(Model).Screen != ScreenUtilities {
+		t.Error("Enter on the dark row ran the switch; the row carries the letter that runs it")
+	}
+	next, cmd := m.handleUtilitiesKeys("d")
 	m = next.(Model)
 	if cmd == nil {
-		t.Fatal("selecting the dark row returned no command")
+		t.Fatal("pressing d on the dark row returned no command")
 	}
 
 	next, _ = m.Update(cmd())
@@ -1293,7 +1297,7 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 	next, _ := m.Update(cmd())
 	m = next.(Model)
 
-	if !slices.Contains(m.GetCurrentOptions(), utilitiesThemeRow) {
+	if !slices.Contains(m.GetCurrentOptions(), utilitiesScreenRow(utilitiesThemeRow)) {
 		t.Fatalf("the utilities section shows no %q row without a clone: %v", utilitiesThemeRow, m.GetCurrentOptions())
 	}
 
@@ -1383,7 +1387,7 @@ func TestUtilitiesOffersTheThemeRowFromAnInstalledCopyOutsideTheRepo(t *testing.
 	next, _ := m.Update(cmd())
 	m = next.(Model)
 
-	if !slices.Contains(m.GetCurrentOptions(), utilitiesThemeRow) {
+	if !slices.Contains(m.GetCurrentOptions(), utilitiesScreenRow(utilitiesThemeRow)) {
 		t.Fatalf("the utilities section shows no %q row from an installed copy outside the repository: %v",
 			utilitiesThemeRow, m.GetCurrentOptions())
 	}
@@ -2018,7 +2022,7 @@ func TestAPartialThemeCannotBePreviewed(t *testing.T) {
 // changeThemeRow is the utilities row that opens the theme picker. The list of
 // themes lives one level in, so the section is a list of jobs rather than a list
 // of themes.
-const changeThemeRow = "Change the dotfiles theme"
+const changeThemeRow = utilitiesScreenMark + utilitiesThemeRow
 
 // TestUtilitiesOffersAChangeThemeRowInsteadOfTheThemes pins the new level: the
 // utilities section offers one row that opens the theme list, and it does not

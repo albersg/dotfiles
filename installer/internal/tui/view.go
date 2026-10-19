@@ -90,6 +90,12 @@ var (
 	hintOpen   = installerHint{"[Enter]", "open"}
 	hintChoose = installerHint{"[Enter]", "choose"}
 	hintBack   = installerHint{"[Esc]", "back"}
+	// The Utilities section's own commands. The desktop theme switch and the undo
+	// act where they stand, so each runs on its own letter and carries it on its
+	// row; Enter is left to the rows that open a screen.
+	hintDark  = installerHint{"[d]", "dark theme"}
+	hintLight = installerHint{"[l]", "light theme"}
+	hintUndo  = installerHint{"[u]", "undo"}
 	// The password screen's Enter is an attempt rather than a selection, so it names
 	// its own pair instead of borrowing the wizard's: "select" there would say the
 	// opposite of what the key does.
@@ -1468,8 +1474,18 @@ const utilitiesNoticeRows = 2
 // what the change touches, the rows the host offers, and the result of the last
 // one. The themes themselves live one level in, on the theme picker.
 func (m Model) renderUtilities() string {
-	return m.renderThemeScreen(m.utilitiesDescription(), m.ThemeNotice,
-		[]installerHint{hintUp, hintDown, hintSelect, hintBack})
+	// Enter opens a screen here; the rows that act where they stand run on their
+	// own letter, and the footer names those letters only while their rows are
+	// offered. A footer that named a key with no row behind it would be offering a
+	// press that does nothing.
+	hints := []installerHint{hintUp, hintDown, hintOpen}
+	if m.ThemeSwitchFound {
+		hints = append(hints, hintDark, hintLight)
+	}
+	if m.themeUndoAvailable() {
+		hints = append(hints, hintUndo)
+	}
+	return m.renderThemeScreen(m.utilitiesDescription(), m.ThemeNotice, append(hints, hintBack))
 }
 
 // renderUpdate draws this installer's own release screen: what this build is,
@@ -2045,6 +2061,29 @@ func (m *Model) resetThemeRefresh() {
 	m.ThemeRefreshResult = nil
 	m.ThemeActivity = nil
 }
+
+// utilitiesScreenMark is the mark in front of a row that opens a screen. It is a
+// constant because the section's handler takes it back off to match the row's
+// label, and the two spellings have to be one.
+const utilitiesScreenMark = "→ "
+
+// utilitiesScreenRow draws a row that opens a screen. The Utilities section is a
+// list of jobs, and most of them open a screen, so the arrow is what says a row
+// does that rather than acting where it stands; the way back carries the same
+// arrow pointing the other way. A row that acts where it stands carries the
+// letter that runs it in brackets instead, and a switch row shows its state, the
+// way the lists inside the section already do.
+func utilitiesScreenRow(label string) string { return utilitiesScreenMark + label }
+
+// The Utilities section's rows that act where they stand. They run on their own
+// letter -- Enter is left to the rows that open a screen -- and the section's
+// footer names the same letters while the rows are offered, so the row and the
+// footer cannot disagree about the key that presses it.
+const (
+	utilitiesDarkRow  = "[d] Switch to the dark theme"
+	utilitiesLightRow = "[l] Switch to the light theme"
+	utilitiesUndoRow  = "[u] Undo the last theme change"
+)
 
 // utilitiesThemeRow is the utilities section's single row for the dotfiles'
 // own theme. The themes themselves live one level in, on the theme picker, so

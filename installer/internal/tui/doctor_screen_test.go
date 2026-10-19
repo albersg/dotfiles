@@ -614,11 +614,11 @@ func TestTheUtilitiesSectionOpensTheDoctor(t *testing.T) {
 	m.Screen = ScreenUtilities
 	m.Cursor = 0
 	for index, row := range m.GetCurrentOptions() {
-		if row == utilitiesDoctorRow {
+		if row == utilitiesScreenRow(utilitiesDoctorRow) {
 			m.Cursor = index
 		}
 	}
-	if row := m.GetCurrentOptions()[m.Cursor]; row != utilitiesDoctorRow {
+	if row := m.GetCurrentOptions()[m.Cursor]; row != utilitiesScreenRow(utilitiesDoctorRow) {
 		t.Fatalf("the utilities list has no row %q", utilitiesDoctorRow)
 	}
 

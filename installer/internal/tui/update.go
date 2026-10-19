@@ -2613,21 +2613,15 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
 		m.ThemeNotice = ""
-	case "enter", " ":
+	case "enter":
+		// Enter opens a screen and nothing else. A row that acts where it stands
+		// carries its own letter on the row, so Enter on one of them is a press with
+		// no answer on purpose: it is what keeps one key from meaning two things.
 		if m.Cursor < 0 || m.Cursor >= len(options) {
 			return m, nil
 		}
-		selected := options[m.Cursor]
+		selected := strings.TrimPrefix(options[m.Cursor], utilitiesScreenMark)
 		switch {
-		case strings.Contains(selected, "dark theme"):
-			// The line the result will use says the switch has started, so a tool
-			// that takes a moment to write is not a keypress that seemed to do
-			// nothing.
-			m.ThemeNotice = "Switching the desktop's theme to dark…"
-			return m, applyThemeCmd(m.ThemeSwitch, true)
-		case strings.Contains(selected, "light theme"):
-			m.ThemeNotice = "Switching the desktop's theme to light…"
-			return m, applyThemeCmd(m.ThemeSwitch, false)
 		case selected == utilitiesThemeRow:
 			// The theme list is one level in: the section opens the picker rather
 			// than listing the themes itself. A previous refresh review is cleared so
@@ -2740,14 +2734,35 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 			m.Ports.Loading = true
 			m.Ports.LoadErr = ""
 			return m, m.portScanCmd()
-		case strings.Contains(selected, "Undo") && m.themeUndoAvailable():
-			m.ThemeNotice = "Putting the previous desktop theme back…"
-			return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
 		case strings.Contains(selected, "Back"):
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 			m.ThemeNotice = ""
 		}
+	case "d":
+		// The dark row is offered only where a desktop switch was detected, so the
+		// letter is honoured only then: a key that switched a theme through a tool
+		// nobody found would be the section acting without a row to act on.
+		if !m.ThemeSwitchFound {
+			return m, nil
+		}
+		// The line the result will use says the switch has started, so a tool that
+		// takes a moment to write is not a keypress that seemed to do nothing.
+		m.ThemeNotice = "Switching the desktop's theme to dark…"
+		return m, applyThemeCmd(m.ThemeSwitch, true)
+	case "l":
+		if !m.ThemeSwitchFound {
+			return m, nil
+		}
+		m.ThemeNotice = "Switching the desktop's theme to light…"
+		return m, applyThemeCmd(m.ThemeSwitch, false)
+	case "u":
+		// The undo row exists only while the record this installer wrote does.
+		if !m.themeUndoAvailable() {
+			return m, nil
+		}
+		m.ThemeNotice = "Putting the previous desktop theme back…"
+		return m, undoThemeCmd(m.ThemeSwitch, *m.ThemeRecord)
 	}
 
 	return m, nil

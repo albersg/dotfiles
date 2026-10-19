@@ -542,7 +542,7 @@ func TestPortManagerIsOfferedAndOpens(t *testing.T) {
 
 	index := -1
 	for i, option := range m.GetCurrentOptions() {
-		if option == utilitiesPortRow {
+		if option == utilitiesScreenRow(utilitiesPortRow) {
 			index = i
 			break
 		}

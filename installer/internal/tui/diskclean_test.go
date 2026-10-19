@@ -685,7 +685,7 @@ func TestUtilitiesSectionOffersTheDevelopmentCacheCleaner(t *testing.T) {
 	rows := m.GetCurrentOptions()
 	found := false
 	for _, row := range rows {
-		if row == utilitiesDiskCleanerRow {
+		if row == utilitiesScreenRow(utilitiesDiskCleanerRow) {
 			found = true
 		}
 	}
@@ -716,7 +716,7 @@ func TestUtilitiesSectionOffersTheDevelopmentCacheCleaner(t *testing.T) {
 	}
 
 	for index, row := range rows {
-		if row == utilitiesDiskCleanerRow {
+		if row == utilitiesScreenRow(utilitiesDiskCleanerRow) {
 			m.Cursor = index
 		}
 	}

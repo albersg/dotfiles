@@ -81,7 +81,7 @@ func TestUtilitiesSectionOffersTheWSLResourcesOnlyOnWSL(t *testing.T) {
 
 			found := false
 			for _, row := range m.GetCurrentOptions() {
-				if row == utilitiesWSLRow {
+				if row == utilitiesScreenRow(utilitiesWSLRow) {
 					found = true
 				}
 			}
@@ -150,7 +150,7 @@ func TestWSLResourcesAreOfferedFromTheInstalledCopyWithoutACheckout(t *testing.T
 	}
 	found := false
 	for _, row := range m.GetCurrentOptions() {
-		if row == utilitiesWSLRow {
+		if row == utilitiesScreenRow(utilitiesWSLRow) {
 			found = true
 		}
 	}
@@ -1211,7 +1211,7 @@ func TestTheUtilitiesSectionOffersTheTerminalReportAndProbesOnlyWhenOpened(t *te
 
 	cursor := -1
 	for i, row := range m.GetCurrentOptions() {
-		if row == utilitiesTerminalRow {
+		if row == utilitiesScreenRow(utilitiesTerminalRow) {
 			cursor = i
 		}
 	}
@@ -1335,7 +1335,7 @@ func TestUtilitiesSectionOffersBothNewUtilitiesAfterTheMerge(t *testing.T) {
 	m.WSLState = wslResourceState{Resolved: true, Available: false, Reason: "no .wslconfig"}
 
 	rows := m.GetCurrentOptions()
-	for _, want := range []string{utilitiesShellAuditRow, utilitiesTerminalRow} {
+	for _, want := range []string{utilitiesScreenRow(utilitiesShellAuditRow), utilitiesScreenRow(utilitiesTerminalRow)} {
 		found := false
 		for _, row := range rows {
 			if row == want {
@@ -1478,7 +1478,7 @@ func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 
 			found := false
 			for _, row := range m.GetCurrentOptions() {
-				if row == utilitiesShellAuditRow {
+				if row == utilitiesScreenRow(utilitiesShellAuditRow) {
 					found = true
 				}
 			}
@@ -1632,7 +1632,7 @@ func TestUtilitiesSectionOpensTheShellAuditWithoutMeasuring(t *testing.T) {
 	m.ShellAudit = shellAuditTestState()
 	m.Cursor = 0
 	for i, row := range m.GetCurrentOptions() {
-		if row == utilitiesShellAuditRow {
+		if row == utilitiesScreenRow(utilitiesShellAuditRow) {
 			m.Cursor = i
 		}
 	}

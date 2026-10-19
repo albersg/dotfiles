@@ -89,7 +89,7 @@ func TestTheSectionOffersTheInstallVerification(t *testing.T) {
 
 	found := false
 	for _, row := range m.GetCurrentOptions() {
-		if row == utilitiesVerifyRow {
+		if row == utilitiesScreenRow(utilitiesVerifyRow) {
 			found = true
 		}
 	}
@@ -307,7 +307,7 @@ func TestChoosingTheVerificationRowRunsTheCheckOffTheUpdateLoop(t *testing.T) {
 	m.Screen = ScreenUtilities
 	cursor := -1
 	for i, row := range m.GetCurrentOptions() {
-		if row == utilitiesVerifyRow {
+		if row == utilitiesScreenRow(utilitiesVerifyRow) {
 			cursor = i
 		}
 	}

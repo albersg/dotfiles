@@ -884,7 +884,7 @@ func utilitiesFrameCase(t *testing.T) Model {
 	}
 	m.DotfilesThemes = defs
 	for i, option := range m.GetCurrentOptions() {
-		if option == utilitiesThemeRow {
+		if option == utilitiesScreenRow(utilitiesThemeRow) {
 			m.Cursor = i
 			break
 		}

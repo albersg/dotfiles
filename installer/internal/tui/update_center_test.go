@@ -268,7 +268,7 @@ func updateCenterOpened(t *testing.T, m Model) (Model, tea.Cmd) {
 
 	m.Screen = ScreenUtilities
 	m.Cursor = 0
-	next, cmd := pressUpdateCenterRow(t, m, utilitiesUpdatesRow)
+	next, cmd := pressUpdateCenterRow(t, m, utilitiesScreenRow(utilitiesUpdatesRow))
 	if next.Screen != ScreenUpdateCenter {
 		t.Fatalf("the section's row opened %v, want ScreenUpdateCenter", next.Screen)
 	}
