@@ -156,6 +156,13 @@ func TestCleanRemovesWhatTheGuardApprovedAndReportsTheRelease(t *testing.T) {
 // the owner to maintain.
 func TestCleanNeverUnlinksAnEngineOrManagerStore(t *testing.T) {
 	probe := withPrograms(testProbe(t), "docker")
+	// The run removes nothing, so the filesystem cannot have released anything on
+	// its behalf. The free-space reading is pinned to one answer rather than taken
+	// from the machine: the real reading is the whole device's, and another process
+	// writing while the suite runs moves it, which is what made this guard flake
+	// once while the release preflight ran. What it pins is the code's rule -- with
+	// nothing released, no measured release is claimed -- not the runner's disk.
+	probe.FreeSpace = func(string) (int64, error) { return 1 << 30, nil }
 	engineStore := filepath.Join(t.TempDir(), "docker")
 	writeTestFile(t, filepath.Join(engineStore, "image", "layer.bin"), 8192)
 	archives := filepath.Join(t.TempDir(), "archives")
@@ -202,6 +209,12 @@ func TestCleanNeverUnlinksAnEngineOrManagerStore(t *testing.T) {
 	}
 	if report.FreedMeasured && report.FreedBytes > 0 {
 		t.Errorf("the run claims the filesystem released %d bytes while nothing was removed", report.FreedBytes)
+	}
+	if !report.FreedMeasured && report.FreedNote == "" {
+		t.Error("the filesystem delta was not measured and no reason was given")
+	}
+	if !report.FreedMeasured && report.FreedBytes != 0 {
+		t.Errorf("an unmeasured report carries %d bytes", report.FreedBytes)
 	}
 }
 
