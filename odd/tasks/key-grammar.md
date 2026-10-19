@@ -34,7 +34,7 @@ Issue #375, decided with the owner on 2026-10-19. Every list in the installer sa
 | U1 | The vocabulary, in one place | `view.go` (hints), the guard that pins the constants | S1, S3, S4 | `314b68b` |
 | U2 | Utilities drawn like the lists inside it | Utilities section (`model.go`, `update.go`, `panels.go`), the switcher rows | S5, S6 | `d6f8480` |
 | U3 | The first list and the two form screens | install review, admin password, install verify | S1, S3 | `ed288f6` |
-| U4 | The two machine readers | disk cleaner, network diagnosis | S1, S3 | |
+| U4 | The two machine readers | disk cleaner, network diagnosis | S1, S3 | `17f29ed` |
 | U5 | The two managers | port manager, update centre | S1, S3, S4 | |
 | U6 | The doctor | doctor, doctor fix | S1, S3 | `64ccb23` |
 | U7 | The SSH screens | manager, host, form, keys, agent, diagnostics, test | S1, S3 | |
