@@ -5194,3 +5194,30 @@ func TestTheNeovimConfigNamesNoPaletteOfItsOwn(t *testing.T) {
 		t.Error("LazyVim's install fallback does not name the shipped colorscheme")
 	}
 }
+
+// TestTheGhosttyConfigReferencesNoThemeFile pins the premise the ghostty step
+// relies on: dotfiles-ghostty/themes/catppuccin-mocha.conf is the provenance of
+// themes/catppuccin-mocha.toml, not a live theme, so the installed tree leaves it
+// out. A config that started referencing a file under themes/ would make that
+// exclusion break Ghostty at startup.
+func TestTheGhosttyConfigReferencesNoThemeFile(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "dotfiles-ghostty", "config"))
+	if err != nil {
+		t.Fatalf("read the Ghostty config: %v", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "theme") && strings.Contains(trimmed, "themes/") {
+			t.Errorf("the Ghostty config references a file under themes/, which the install leaves out: %s", trimmed)
+		}
+	}
+
+	// The file stays in the checkout, because the definition cites it as its
+	// provenance and a guard reads it there.
+	if _, err := os.Stat(filepath.Join(repoRoot(t), "dotfiles-ghostty", "themes", "catppuccin-mocha.conf")); err != nil {
+		t.Errorf("the provenance file the definition cites is gone: %v", err)
+	}
+}

@@ -5784,6 +5784,15 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to copy Ghostty configuration",
 				err)
 		}
+		// dotfiles-ghostty/themes/catppuccin-mocha.conf is the provenance of
+		// themes/catppuccin-mocha.toml, not a live theme: the config never references
+		// it, and a copy in the user's directory would be a palette no switch keeps
+		// current. It stays in the checkout and out of the installed tree.
+		if err := os.Remove(filepath.Join(homeDir, ".config", "ghostty", "themes", "catppuccin-mocha.conf")); err != nil && !os.IsNotExist(err) {
+			return wrapStepError("terminal", "Install Ghostty",
+				"Failed to leave the stale theme copy out of the Ghostty configuration",
+				err)
+		}
 		SendLog(stepID, "✓ Ghostty configured")
 	}
 
