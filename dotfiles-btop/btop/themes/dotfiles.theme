@@ -1,0 +1,49 @@
+# dotfiles-managed-config: btop
+# btop theme "dotfiles", generated from themes/dotfiles.toml; edit the definition, not this file.
+# btop.conf selects it by this file's name (dotfiles.theme); btop reads the directory
+# ~/.config/btop/themes for it.
+
+# The chrome every box shares.
+theme[main_bg]="#06080f"
+theme[main_fg]="#f3f6f9"
+theme[title]="#7fb4ca"
+theme[hi_fg]="#7fb4ca"
+theme[selected_bg]="#263356"
+theme[selected_fg]="#f3f6f9"
+theme[inactive_fg]="#8a8fa3"
+theme[proc_misc]="#7aa89f"
+theme[cpu_box]="#b7cc85"
+theme[mem_box]="#ffe066"
+theme[net_box]="#7aa89f"
+theme[proc_box]="#7fb4ca"
+theme[div_line]="#8a8fa3"
+
+# The gradients, in btop's own order: green -> yellow -> red as a quantity
+# gets worse, and the same scale the other way round where more is better.
+theme[temp_start]="#b7cc85"
+theme[temp_mid]="#ffe066"
+theme[temp_end]="#cb7c94"
+theme[cpu_start]="#b7cc85"
+theme[cpu_mid]="#ffe066"
+theme[cpu_end]="#cb7c94"
+theme[free_start]="#cb7c94"
+theme[free_mid]="#ffe066"
+theme[free_end]="#b7cc85"
+theme[cached_start]="#7fb4ca"
+theme[cached_mid]="#7aa89f"
+theme[cached_end]="#7aa89f"
+theme[available_start]="#cb7c94"
+theme[available_mid]="#ffe066"
+theme[available_end]="#b7cc85"
+theme[used_start]="#b7cc85"
+theme[used_mid]="#ffe066"
+theme[used_end]="#cb7c94"
+theme[download_start]="#7aa89f"
+theme[download_mid]="#7fb4ca"
+theme[download_end]="#7fb4ca"
+theme[upload_start]="#ffe066"
+theme[upload_mid]="#cb7c94"
+theme[upload_end]="#cb7c94"
+theme[process_start]="#b7cc85"
+theme[process_mid]="#ffe066"
+theme[process_end]="#cb7c94"

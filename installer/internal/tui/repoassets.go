@@ -27,9 +27,16 @@ const (
 	repoAssetZellij      = "dotfiles-zellij/zellij"
 	repoAssetHerdrConfig = "dotfiles-herdr/config.toml"
 	repoAssetLazygit     = "dotfiles-lazygit/lazygit/config.yml"
-	repoAssetNvim        = "dotfiles-nvim/nvim"
-	repoAssetWSLConfig   = "dotfiles-wsl/.wslconfig.tmpl"
-	repoAssetWSLConf     = "dotfiles-wsl/wsl.conf"
+	// btop ships no configuration, so it kept its built-in theme beside every
+	// themed terminal. The config carries the color_theme selection (one generated
+	// line) and the themes directory carries the committed default theme; the rest
+	// of the per-theme .theme files are generated from themes/*.toml at install
+	// time, the way bat's are.
+	repoAssetBtop       = "dotfiles-btop/btop/btop.conf"
+	repoAssetBtopThemes = "dotfiles-btop/btop/themes"
+	repoAssetNvim       = "dotfiles-nvim/nvim"
+	repoAssetWSLConfig  = "dotfiles-wsl/.wslconfig.tmpl"
+	repoAssetWSLConf    = "dotfiles-wsl/wsl.conf"
 	// The memory guard is installed outside the home directory: the WSL step
 	// writes the payload to /usr/local/lib/dotfiles-wsl and the unit to
 	// /etc/systemd/system, which is where systemd reads them from. They are
@@ -67,6 +74,8 @@ var repoAssets = []string{
 	repoAssetZellij,
 	repoAssetHerdrConfig,
 	repoAssetLazygit,
+	repoAssetBtop,
+	repoAssetBtopThemes,
 	repoAssetNvim,
 	repoAssetWSLConfig,
 	repoAssetWSLConf,
