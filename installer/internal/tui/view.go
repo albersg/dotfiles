@@ -1503,7 +1503,49 @@ func (m Model) renderUtilities() string {
 	if m.themeUndoAvailable() {
 		hints = append(hints, hintUndo)
 	}
-	return m.renderThemeScreen(m.utilitiesDescription(), m.ThemeNotice, append(hints, hintBack))
+	return m.renderThemeScreen(m.utilitiesReasons(), m.ThemeNotice, append(hints, hintBack))
+}
+
+// utilitiesReasons is the utilities section's body. A row names itself and says
+// what it opens, so the prose carries only what no row can: the desktop switch this
+// host has none of, the theme list that cannot be read, the WSL screens this host
+// cannot open. One sentence per missing job, in the order the rows would have had.
+func (m Model) utilitiesReasons() []string {
+	var reasons []string
+	if !m.ThemeSwitchFound {
+		reasons = append(reasons,
+			"No desktop theme switch is available here: no GNOME, KDE or macOS session.")
+	} else {
+		// What the switch will do, and through which desktop's own tool: the line the
+		// section cannot lose, because it names the desktop it detected.
+		reasons = append(reasons, fmt.Sprintf(
+			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
+				"the setting it replaces in theme.json so the switch can be undone.", m.ThemeSwitch.Name))
+	}
+	// The theme row is offered when there are definitions or a record to put back,
+	// so a reason is due only when neither exists.
+	if len(m.dotfilesThemeOptions()) == 0 && m.DotfilesThemeRecord == nil {
+		if m.dotfilesThemesPending() {
+			reasons = append(reasons,
+				"Reading the dotfiles' theme definitions from the repository checkout…")
+		} else {
+			reason := m.DotfilesThemesErr
+			if reason == "" {
+				reason = themeDefinitionsNotFoundMessage()
+			}
+			reasons = append(reasons, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
+		}
+	}
+	if reason := m.wslResourcesUnavailableReason(); reason != "" {
+		reasons = append(reasons, reason)
+	}
+	if reason := m.shellAuditUnavailableReason(); reason != "" {
+		reasons = append(reasons, reason)
+	}
+	if !m.wslAdvisorOffered() && m.SystemInfo != nil && m.SystemInfo.IsWSL {
+		reasons = append(reasons, m.wslAdvisorUnavailableReason())
+	}
+	return reasons
 }
 
 // renderUpdate draws this installer's own release screen: what this build is,
@@ -1717,23 +1759,49 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 			descBudget += take
 		}
 	}
-	start, end := listWindow(m.Cursor, menuBudget, len(menu))
+	// The tail of a list is pinned: the way back, always, and on the update center
+	// the rows that act on the selection. They used to sit at the end of the same
+	// list the entries are in, so the first screenful of a large list pushed the
+	// apply, clear and filter rows past the bottom of the frame while the footer
+	// still advertised them. The window covers the entries; the tail is always drawn.
+	pinned := max(0, min(m.pinnedMenuRows(), len(menu)-1))
+	scrollable := len(menu) - pinned
+	itemBudget := menuBudget - pinned
+	if itemBudget < 1 {
+		itemBudget = 1
+	}
+	var start, end int
+	if m.Cursor < scrollable {
+		start, end = listWindow(m.Cursor, itemBudget, scrollable)
+	} else {
+		end = scrollable
+		start = max(0, end-itemBudget)
+	}
+	visible := append(append([]string{}, menu[start:end]...), menu[scrollable:]...)
 
+	// The body opens with the screen's own name. When the frame already carries that
+	// name -- the utilities section draws "Utilities" in the header and used to repeat
+	// it as the first line of the body -- the title is the header's job and the body
+	// starts with what the screen is for.
 	title := BrandStyle.Render(m.GetScreenTitle())
+	duplicateTitle := m.GetScreenTitle() == m.headerName()
 	if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
 		// The preview repaints the screen's own title in the theme's accent, so
 		// the palette is seen and not only read.
 		title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.GetScreenTitle())
 	}
 
-	body := []string{title}
+	var body []string
+	if !duplicateTitle {
+		body = append(body, title)
+	}
 	for _, line := range descriptionLines(paragraphs, width, descBudget) {
 		body = append(body, MutedStyle.Render(line))
 	}
 	for i := 0; i < proseGap; i++ {
 		body = append(body, "")
 	}
-	body = append(body, menu[start:end]...)
+	body = append(body, visible...)
 
 	// The activity is drawn under the list, in the rows the result will land in,
 	// and it is drawn with exactly the lines it has: one line while the switch
@@ -1756,10 +1824,22 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	// screen does. A list that fits has nothing to report and gets no filler, the
 	// same rule the keymap menus and the restore list follow.
 	vital := ""
-	if end-start < len(menu) {
-		vital = scrollVital("Showing", start+1, end, len(menu))
+	if end-start < scrollable {
+		vital = scrollVital("Showing", start+1, end, scrollable)
 	}
 	return m.frame(m.headerName(), vital, body, hints)
+}
+
+// pinnedMenuRows is how many trailing rows of a screen's menu are always drawn.
+// Only the update center pins a tail: its action block is the only way to apply,
+// clear or filter the selection, and it used to disappear under the first
+// screenful of packages. Every other screen keeps its list whole, the way back
+// included, so the range its header reports is the range of its own menu.
+func (m Model) pinnedMenuRows() int {
+	if m.Screen == ScreenUpdateCenter {
+		return len(m.updateCenterPinnedRows())
+	}
+	return 0
 }
 
 // proseRows is the rows a screen's prose takes when it is wrapped to width, with
@@ -2470,6 +2550,16 @@ const utilitiesSSHRow = "Manage the SSH configuration"
 // dotfiles opens, so the row arrives on its own rather than waiting for a visit
 // to a utilities section.
 const updateInstallerRow = "Update this installer"
+
+// updateInstallerLabel is the main menu's button for this installer's own update.
+// The dev channel builds the last commit on main instead of downloading a release,
+// and the row says so: it is a different act, and it needs Go on the machine.
+func updateInstallerLabel(channel releaseChannel) string {
+	if channel == channelDev {
+		return "Rebuild from the latest main commit"
+	}
+	return updateInstallerRow
+}
 
 // updateChannelRowPrefix is the main menu's channel row. The label names the
 // channel the run follows, so the row reads as the state it changes, and the

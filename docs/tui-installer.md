@@ -2710,3 +2710,51 @@ installer/
 │           └── practice.go      # Weighted practice selection
 └── go.mod
 ```
+
+## Capturing the screens
+
+Every screen can be rendered to a text frame for inspection. The harness is opt-in so
+it never writes into a machine during a test run:
+
+```bash
+DOTFILES_CAPTURE_DIR=/tmp/shots go test ./internal/tui -run TestCaptureEveryScreen -count=1
+```
+
+One file per screen lands in that directory, named by the screen's index and constant,
+plus `summary.tsv` with the rows each frame spent, whether it overflowed, whether it
+drew a footer, and any screen that panicked while drawing. The frames are plain text
+with the ANSI stripped, so they can be read, diffed and reviewed like any other file.
+
+## The screen skeleton
+
+Every screen is assembled from the same parts, and the parts decide what a screen may
+spend its rows on:
+
+- **The header comes from the frame.** `m.frame()` draws the screen's name, its vital
+  and the rule under it. A body never draws the screen's own title a second time.
+- **The body explains what is missing, not what is on screen.** A row names itself and
+  says what it opens, so prose is spent on what no row can carry: why a job is absent,
+  what a read is waiting for, what the screen cannot do on this host.
+- **A list longer than the frame is windowed; its tail is pinned.** The way back is
+  always drawn, and a screen whose list ends in a block of actions (the update center)
+  pins that block too, so a first screenful of entries cannot push the only way to act
+  on the selection past the bottom. The header reports the slice on screen
+  (`Showing 1-26`).
+- **The footer is derived from the hints.** It names a key only while the row behind it
+  is offered, and the same list is what the screen's key handler accepts.
+
+`TestTheUpdateCenterKeepsItsActionsOnScreenAtTheFloor` holds the pinned tail at 80x24
+with forty entries, and `TestEveryScreenKeyHandlerIsDispatched` holds the other half of
+the same promise: a screen cannot draw keys its dispatcher never delivers.
+
+## The channels
+
+| Channel | What it follows | How it installs |
+|---|---|---|
+| `stable` | The latest published release | Downloads the release asset and verifies it against `SHA256SUMS` |
+| `dev` | The last commit on the remote `main` | Downloads that commit's tree and builds it here, stamping the commit |
+
+The dev channel needs Go on `PATH`; without it the channel refuses with the reason
+instead of installing anything. A local change that is not on `main` yet is installed
+with `go install ./cmd/dotfiles` from the checkout, which lands in
+`$(go env GOPATH)/bin` -- first on the PATH the installer sets up.

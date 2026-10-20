@@ -645,7 +645,13 @@ func latestPrerelease(client *http.Client, apiURL string) (releaseAnswer, error)
 // answer under the other channel's name.
 func latestReleaseForChannel(client *http.Client, channel releaseChannel) (releaseAnswer, error) {
 	if channel == channelDev {
-		return latestPrerelease(client, dotfilesReleaseListURL)
+		// The dev channel follows main, not a release: it names the commit a build
+		// would come from, and the apply step builds that commit here.
+		commit, err := fetchDevMainCommit(client)
+		if err != nil {
+			return releaseAnswer{}, err
+		}
+		return releaseAnswer{Tag: commit.label(), PublishedAt: commit.Date}, nil
 	}
 	return latestRelease(client, dotfilesReleaseAPIURL)
 }
@@ -880,10 +886,33 @@ func (u updateState) Present() bool {
 // answered reports whether a tag was actually read.
 func (u updateState) answered() bool { return u.Latest != "" }
 
+// devLatestPrefix marks a record whose answer is a commit on main rather than a
+// published tag: the dev channel builds main instead of downloading a release.
+const devLatestPrefix = "main "
+
+// devLatestShort returns the short commit a dev answer names.
+func devLatestShort(latest string) (string, bool) {
+	if !strings.HasPrefix(latest, devLatestPrefix) {
+		return "", false
+	}
+	short := strings.TrimSpace(strings.TrimPrefix(latest, devLatestPrefix))
+	return short, short != ""
+}
+
+// buildIsCommit reports whether this build came from the commit the answer names.
+// A source build carries no commit, so it can never claim to be it.
+func buildIsCommit(short string) bool {
+	return short != "" && BuildCommit != "" && strings.HasPrefix(BuildCommit, short)
+}
+
 // parsedOK reports whether the tag that was read is a version this installer can
-// order against its own build. A tag that cannot be parsed is not an answer about
-// being current: it is unknown, and the reason is the tag itself.
+// order against its own build, or a commit on main, which is ordered by identity.
+// A tag that cannot be parsed is not an answer about being current: it is unknown,
+// and the reason is the tag itself.
 func (u updateState) parsedOK() bool {
+	if _, ok := devLatestShort(u.Latest); ok {
+		return true
+	}
 	_, ok := parseVersion(u.Latest)
 	return ok
 }
@@ -912,6 +941,9 @@ func (u updateState) unknownReason() (string, bool) {
 // update -- and false once this run has already installed the published release,
 // even though the running process is still the old build until it restarts.
 func (u updateState) Newer() bool {
+	if short, ok := devLatestShort(u.Latest); ok {
+		return u.Known() && !u.Installed && !buildIsCommit(short)
+	}
 	return u.Known() && !u.Installed && versionIsNewer(Version, u.Latest)
 }
 
@@ -919,6 +951,9 @@ func (u updateState) Newer() bool {
 // a tag was read, is a version, and is not newer, which is the only case in which
 // "up to date" is a claim about GitHub rather than about this process.
 func (u updateState) UpToDate() bool {
+	if short, ok := devLatestShort(u.Latest); ok {
+		return buildIsCommit(short)
+	}
 	return u.Known() && !versionIsNewer(Version, u.Latest)
 }
 
@@ -949,6 +984,9 @@ func (u updateState) Summary() string {
 
 	switch {
 	case u.InFlight:
+		if u.Channel == channelDev {
+			return source + "Checking the last commit on main…"
+		}
 		return source + "Checking the published release…"
 	case u.Newer():
 		return source + fmt.Sprintf("%s is published; this build is %s%s", u.releaseLabel(), VersionLabel(), age)
@@ -974,7 +1012,7 @@ func (u updateState) Summary() string {
 // with the reason beside it.
 func (u updateState) releaseLabel() string {
 	label := u.Latest
-	if u.Channel == channelDev {
+	if _, ok := devLatestShort(u.Latest); !ok && u.Channel == channelDev {
 		label = "pre-release " + label
 	}
 	if !u.PublishedAt.IsZero() {
@@ -1294,7 +1332,13 @@ func (m Model) updateCheckCmdFor() tea.Cmd {
 
 // updateApplyCmd downloads, verifies and swaps the binary off the update loop, so
 // a slow download cannot freeze the interface.
-func updateApplyCmd(tag string, target updateTarget) tea.Cmd {
+func updateApplyCmd(channel releaseChannel, tag string, target updateTarget) tea.Cmd {
+	if channel == channelDev {
+		return func() tea.Msg {
+			kept, _, err := applyDevSelfUpdate(updateDownloadHTTPClient(), target)
+			return updateAppliedMsg{kept: kept, err: err}
+		}
+	}
 	return func() tea.Msg {
 		kept, err := applySelfUpdate(updateDownloadHTTPClient(), tag, target)
 		return updateAppliedMsg{kept: kept, err: err}
@@ -1378,6 +1422,15 @@ func UpdateSelf() (string, error) {
 			state.Latest, releaseSumsAssetName, target.Path, target.Path+updatePreviousSuffix), nil
 	}
 
+	if channel == channelDev {
+		kept, commit, err := applyDevSelfUpdate(updateDownloadHTTPClient(), target)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(
+			"dotfiles built from main %s and installed over %s; the binary it replaced is kept at %s",
+			commit.short(), target.Path, kept), nil
+	}
 	kept, err := applySelfUpdate(updateDownloadHTTPClient(), state.Latest, target)
 	if err != nil {
 		return "", err

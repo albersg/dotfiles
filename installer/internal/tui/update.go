@@ -1984,6 +1984,19 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenUpdateCenter:
 		return m.handleUpdateCenterKeys(key)
 
+	case ScreenDoctor:
+		// The doctor draws its rows, and every one of them is a press the screen
+		// advertises: a, c, r, t, w, and Enter on a finding that offers a fix. Without
+		// this case the screen rendered and answered nothing, which reads as a freeze
+		// rather than as a screen that refuses every key.
+		return m.handleDoctorKeys(key)
+
+	case ScreenDoctorFix:
+		// The confirmation is one level in from the doctor and owns the same kind of
+		// press: the letter that applies the fix, and Escape, which steps back to the
+		// list it came from.
+		return m.handleDoctorFixKeys(key)
+
 	case ScreenInstallVerify:
 		return m.handleInstallVerifyKeys(key)
 
@@ -2303,6 +2316,16 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// step back from does it leave for the section. Its own handler says which
 		// of those it is, so this case and its footer cannot drift apart.
 		return m.diskCleanerEscape()
+	case ScreenDoctor:
+		// The doctor owns this key for the same reason the disk cleaner does: Escape
+		// stops a run in flight -- the checks already handed to the runtime run to
+		// their own bound, and their answers are recorded as unknown with the reason
+		// -- and with nothing running it is the way back to the section.
+		return m.handleDoctorKeys("esc")
+	case ScreenDoctorFix:
+		// The confirmation is one level in from the doctor, so Escape steps back
+		// there rather than all the way to the section.
+		return m.handleDoctorFixKeys("esc")
 	case ScreenUpdate:
 		// The update screen steps back to the main menu, which is where its row now
 		// lives. Leaving it clears the last update's notice so a later visit does
@@ -2560,7 +2583,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 		case strings.Contains(selected, "Vim Trainer"):
 			return m.startTrainer()
-		case selected == updateInstallerRow:
+		case selected == updateInstallerLabel(m.updateChannel()):
 			// The row is the button when this run may replace its own file:
 			// pressing it runs the same verified swap `--self-update` runs, off the
 			// update loop, and the result appears on this screen in the notice slot
@@ -2578,7 +2601,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			}
 			m.UpdateCheck.InFlight = true
 			m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
-			return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
+			return m, updateApplyCmd(m.updateChannel(), m.UpdateCheck.Latest, m.UpdateTarget)
 		case strings.HasPrefix(selected, updateChannelRowPrefix):
 			// The row is the switch: pressing it changes which stream this run
 			// follows, remembers the choice in the same record the answers live in, and
@@ -3292,7 +3315,7 @@ func (m Model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 		}
 		m.UpdateCheck.InFlight = true
 		m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
-		return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
+		return m, updateApplyCmd(m.updateChannel(), m.UpdateCheck.Latest, m.UpdateTarget)
 	case "r":
 		// Asking again is always allowed: an answer that is stale, wrong or missing
 		// is exactly what a user asks a second time for. One check at a time, so the

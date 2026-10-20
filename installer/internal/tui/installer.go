@@ -3085,14 +3085,35 @@ func renderBtopSelection(def themeDefinition) (string, error) {
 // read was not the palette the rest of the machine wore. The syntax theme is the bat
 // theme the install builds, so a diff highlights with the same .tmTheme the shell
 // selects BAT_THEME from, and the diff's own marks are palette roles.
+//
+// A line's mark is drawn as text, not as a filled line. Delta reads the second
+// colour of a style as the background, so the palette's own green and red in that
+// slot painted every changed line a saturated field; the syntax highlighting of
+// the line stayed underneath and the result was the diff that could not be read.
+// A background needs a dim tone the definitions do not hold, so the mark is the
+// colour of the text instead, and it is the palette's normal green or red or its
+// bright variant -- whichever reads better on the theme's base. Both are values
+// the definition already carries, so the pick adds no colour; it only refuses the
+// weaker of the two.
 func renderDeltaTheme(def themeDefinition) (string, error) {
 	batTheme, err := batSelectionName(def)
 	if err != nil {
 		return "", err
 	}
-	roles := []string{"red", "green", "blue", "yellow", "bright_black"}
-	values := make(map[string]string, len(roles))
-	for _, role := range roles {
+	base, err := themeHex(def, "base")
+	if err != nil {
+		return "", err
+	}
+	plus, err := themeBetterOnBase(def, base, "green", "bright_green")
+	if err != nil {
+		return "", err
+	}
+	minus, err := themeBetterOnBase(def, base, "red", "bright_red")
+	if err != nil {
+		return "", err
+	}
+	values := make(map[string]string, 3)
+	for _, role := range []string{"blue", "yellow", "bright_black"} {
 		value, err := themeHex(def, role)
 		if err != nil {
 			return "", err
@@ -3104,9 +3125,12 @@ func renderDeltaTheme(def themeDefinition) (string, error) {
 	# The syntax highlighting is bat's: delta reads bat's assets, and this is the same
 	# .tmTheme file the shell selects BAT_THEME from.
 	syntax-theme = %s
-	minus-style = "normal %s"
+	# A changed line is marked by the colour of its text, never by a filled line: a
+	# background needs a dim tone these definitions do not hold, and the palette's own
+	# green and red as a background leaves the syntax highlighting fighting it.
+	minus-style = "%s"
 	minus-emph-style = "bold %s"
-	plus-style = "normal %s"
+	plus-style = "%s"
 	plus-emph-style = "bold %s"
 	file-style = "bold %s"
 	file-decoration-style = "ul"
@@ -3118,12 +3142,32 @@ func renderDeltaTheme(def themeDefinition) (string, error) {
 	line-numbers-plus-style = "%s"
 	line-numbers-zero-style = "%s"`,
 		batTheme,
-		values["red"], values["red"],
-		values["green"], values["green"],
+		minus, minus,
+		plus, plus,
 		values["blue"], values["yellow"],
 		values["bright_black"], values["bright_black"],
-		values["red"], values["green"], values["bright_black"],
+		minus, plus, values["bright_black"],
 	), nil
+}
+
+// themeBetterOnBase returns the value of whichever role reads better on base. The
+// candidates are roles the definition holds, so the answer is always a colour the
+// theme already carries.
+func themeBetterOnBase(def themeDefinition, base string, roles ...string) (string, error) {
+	best, bestRatio := "", -1.0
+	for _, role := range roles {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", err
+		}
+		if ratio := themeContrastRatio(value, base); ratio > bestRatio {
+			best, bestRatio = value, ratio
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("theme %q defines none of %v, so its delta block cannot be generated", def.ID, roles)
+	}
+	return best, nil
 }
 
 // renderNushellBatSelection renders the $env.BAT_THEME assignment of

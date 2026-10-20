@@ -46,7 +46,7 @@ func TestTheSelectVisibleRowTakesTheCategoryTheFilterShows(t *testing.T) {
 			groupRow = row
 		}
 	}
-	want := updateCenterSelectVisibleRowPrefix + "2 shown)"
+	want := updateCenterSelectVisibleRowPrefix + "2 shown"
 	if groupRow != want {
 		t.Fatalf("the category row is %q, want %q: its count is what can be selected, holds included in the list they are shown in", groupRow, want)
 	}
@@ -65,7 +65,7 @@ func TestTheSelectVisibleRowTakesTheCategoryTheFilterShows(t *testing.T) {
 	// The same row now reads as the way back, and puts the category down. The check
 	// is updateCenterIndexOfRow: hasRowWithName answers about entry rows, which is a different
 	// question from whether an action row is on screen.
-	dropRow := updateCenterDropVisibleRowPrefix + "2 shown)"
+	dropRow := updateCenterDropVisibleRowPrefix + "2 shown"
 	if updateCenterIndexOfRow(m.GetCurrentOptions(), dropRow) < 0 {
 		t.Fatalf("the category row does not say it would put the category back: %v", m.GetCurrentOptions())
 	}

@@ -739,7 +739,7 @@ func (m Model) mainMenuSelection() (mainMenuChoice, string) {
 		return choiceTrainer, name
 	case strings.Contains(label, "Restore from Backup"):
 		return choiceRestore, name
-	case label == updateInstallerRow:
+	case label == updateInstallerLabel(m.updateChannel()):
 		return choiceUpdate, name
 	case strings.HasPrefix(label, updateChannelRowPrefix):
 		return choiceChannel, name
