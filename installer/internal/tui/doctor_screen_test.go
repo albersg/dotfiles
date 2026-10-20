@@ -757,7 +757,10 @@ func doctorGrammarModel(t *testing.T) Model {
 // TestDoctorScreenEveryActionRowRunsOnItsOwnLetter pins the key grammar for this
 // screen: every row that acts where it stands carries the letter that runs it,
 // that letter does what the row says, Enter on the row starts nothing, and no
-// letter is a move key or shared with another row.
+// letter is a move key or shared with another row. The one-category run is the
+// exception that proves the rule: `c` acts on whichever category the cursor is
+// on, so it is named once in the footer instead of being repeated on every
+// category row.
 func TestDoctorScreenEveryActionRowRunsOnItsOwnLetter(t *testing.T) {
 	t.Setenv("DOTFILES_DRY_RUN", "1")
 
@@ -766,7 +769,6 @@ func TestDoctorScreenEveryActionRowRunsOnItsOwnLetter(t *testing.T) {
 	// here rather than in a reader's hands.
 	want := map[string]string{
 		"a": doctorRunAllRow,
-		"c": doctorCategoryEllipsisRow,
 		"r": doctorRunRetryRow,
 		"w": doctorWriteReportRow,
 		"t": doctorFilterAllRow,
@@ -804,6 +806,14 @@ func TestDoctorScreenEveryActionRowRunsOnItsOwnLetter(t *testing.T) {
 	for letter := range want {
 		if !named["["+letter+"]"] {
 			t.Errorf("no footer hint names [%s], though a row carries it: %v", letter, named)
+		}
+	}
+	if !named["[c]"] {
+		t.Errorf("no footer hint names [c], the category run: %v", named)
+	}
+	for _, row := range base.doctorList() {
+		if strings.Contains(row.label, "[c]") {
+			t.Errorf("the category row %q repeats the [c] key; the key belongs to the footer", row.label)
 		}
 	}
 

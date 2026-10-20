@@ -68,7 +68,7 @@ while it acts; Escape goes back; Enter opens or chooses.
 | T3 | S2 S3 S4.4 | inline | Hubs: `renderMenu` now draws the card + a contextual `About` panel; the Learn hub's two sections are named on the card's border and divider; the panel lists the destination's own content (trainer modules, keymaps per tool and category, terminals/shells/prompts, plugin sets, directives). | 4c3717f |
 | T4 | S4.5 | inline | Vim hub Escape reaches the global dispatch and returns to the main menu. | 4c3717f |
 | T5 | S2 S4.6 | inline | Theme picker: `The palette` panel (swatch + role + hex, applied theme named), the intro wrapped to the left column and rendered in the theme's ink, the list's actions following the list. | 4c3717f |
-| T6 | S4.7 | inline | Light-preview contrast: `subtext1` for the muted role on a light base, the drift tint capped at the point where the muted role would lose contrast, and the guard `TestPreviewMutedRoleStaysLegibleOnTheDrift` over every offered theme. | 4c3717f |
+| T6 | S4.7 | inline | Light-preview contrast: `subtext1` for the muted role on a light base, the drift tint capped at the muted role's floor (4.5:1 where the plain base clears it, 3.0:1 for the deliberately dim themes), and the guard `TestPreviewMutedRoleStaysLegibleOnTheDrift` over every offered theme. The first cap required no loss at all and flattened the background on Nocturne; the floor keeps the motion. | 4c3717f, fix/drift-and-doctor-keys |
 | T7 | S4.8 | inline | Update center: the body title was the empty default; it now returns "Updates". The table's column header row is a follow-up (see Remaining). | 4c3717f |
 | T8 | S1 S5 S6 | inline | VHS captures at 200x55 (`90-vim-hub-card`, `91-learn-hub-card`, `92-utilities-status`, `93-theme-picker-panel`, `02-main-menu`) and at 80x24 (`94-vim-floor`, `95-learn-floor`); the non-golden suite, the goldens and the new guards. | 4c3717f |
 
@@ -113,8 +113,8 @@ header and `headerRowStyle` gives a plain vital the muted tone.
 `inkParagraphs` gives unwrapped prose the theme's ink, which is what made the
 theme picker's intro legible on a light preview (it was drawn in the terminal
 default). `driftTintCap` samples the base-to-accent blend and stops before the
-muted role's contrast dips below its plain-base ratio; the guard measures every
-theme.
+muted role's floor; the guard measures every theme and fails if the cap reaches
+zero, because a zero cap is a background that no longer moves.
 
 L7 (visual evidence, 2026-10-20): `/tmp/review/90-vim-hub-card.png` (card, About
 panel with modules), `91-learn-hub-card.png` (named groups, page list),
@@ -122,6 +122,14 @@ panel with modules), `91-learn-hub-card.png` (named groups, page list),
 `93-theme-picker-panel.png` (palette board, dark intro, actions beside the list),
 `94-vim-floor.png` and `95-learn-floor.png` (80x24). The main menu and the welcome
 keep their shape; the build label and the muted vital are the only changes there.
+
+L8 (regression report, user, 2026-10-20): "me has quitado el fondo dinamico?"
+The no-loss drift cap was too strict: Nocturne's muted role was 7.07:1 and the
+first 0.0063 tint took it to 7.04:1, under the 7.05:1 no-loss threshold, so the
+cap was zero and the gradient was flat. The cap now targets a floor (4.5:1 when
+the plain base clears it, 3.0:1 for the dim themes), and the guard fails if the
+cap is zero. The doctor's category rows also stopped repeating `[c]`: it acts on
+the cursor, so it is named once in the footer.
 
 ## Remaining
 
