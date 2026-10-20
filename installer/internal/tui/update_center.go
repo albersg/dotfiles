@@ -373,13 +373,24 @@ var updateCenterClock = time.Now
 // rows the screen draws and the rows the handler matches are the same function's
 // output.
 func (m Model) updateCenterRows() []string {
-	state := m.UpdateCenter
+	items := m.updateCenterItemRows()
+	pinned := m.updateCenterPinnedRows()
+	if len(items) == 0 {
+		return pinned
+	}
+	rows := append([]string{}, items...)
+	rows = append(rows, m.menuSeparator())
+	return append(rows, pinned...)
+}
 
+// updateCenterItemRows is the part of the list the window scrolls: one row per
+// entry, grouped by the manager that owns it.
+func (m Model) updateCenterItemRows() []string {
+	state := m.UpdateCenter
 	switch {
-	case state.Applying:
-		return []string{updateCenterStopRow}
-	case state.Confirming:
-		return []string{updateCenterConfirmRow, updateCenterCancelConfirmRow}
+	case state.Applying, state.Confirming:
+		// These states replace the list with their own two rows, which are pinned.
+		return nil
 	}
 
 	var rows []string
@@ -393,35 +404,46 @@ func (m Model) updateCenterRows() []string {
 		}
 		rows = append(rows, updateCenterItemRow(item, state.Selected.Has(item)))
 	}
+	return rows
+}
 
-	var actions []string
+// updateCenterPinnedRows is the part of the list that never scrolls: what can be
+// done with the selection, and the way back. They used to live at the end of the
+// same list the entries are in, so the first screenful of a large list pushed the
+// apply, clear and filter rows off the bottom while the footer still advertised
+// them. The window now covers the entries and these rows are always drawn.
+func (m Model) updateCenterPinnedRows() []string {
+	state := m.UpdateCenter
+
+	switch {
+	case state.Applying:
+		return []string{updateCenterStopRow}
+	case state.Confirming:
+		return []string{updateCenterConfirmRow, updateCenterCancelConfirmRow}
+	}
+
+	var rows []string
 	// One row takes the category the filter is showing. It is offered before the
 	// per-entry actions and only on a settled list: taking a manager's worth of
 	// updates one entry at a time is the work a list exists to save, and doing it
 	// while the list is still being read would take a number the read has not
 	// finished.
 	if selectable := m.updateCenterSelectableVisible(); !state.InFlight && len(selectable) > 1 {
-		actions = append(actions, m.updateCenterSelectVisibleRow(selectable))
+		rows = append(rows, m.updateCenterSelectVisibleRow(selectable))
 	}
 	if state.Selected.Count() > 0 {
 		// Confirming is offered only once every manager has answered: the plan is
 		// built from the answers, so a list still being read is not a plan.
 		if !state.InFlight {
-			actions = append(actions, updateCenterApplyRow(state.Selected.Count()))
+			rows = append(rows, updateCenterApplyRow(state.Selected.Count()))
 		}
-		actions = append(actions, updateCenterClearRow)
+		rows = append(rows, updateCenterClearRow)
 	}
 	if !state.InFlight {
-		actions = append(actions, updateCenterCheckRow)
+		rows = append(rows, updateCenterCheckRow)
 	}
 	if filter := m.updateCenterFilterRow(); filter != "" {
-		actions = append(actions, filter)
-	}
-	if len(actions) > 0 {
-		if len(rows) > 0 {
-			rows = append(rows, m.menuSeparator())
-		}
-		rows = append(rows, actions...)
+		rows = append(rows, filter)
 	}
 	if len(rows) > 0 {
 		rows = append(rows, m.menuSeparator())
@@ -484,7 +506,7 @@ func (m Model) updateCenterSelectVisibleRow(selectable []updates.Item) string {
 	if m.updateCenterAllVisibleSelected(selectable) {
 		prefix = updateCenterDropVisibleRowPrefix
 	}
-	return fmt.Sprintf("%s%d shown)", prefix, len(selectable))
+	return fmt.Sprintf("%s%d shown", prefix, len(selectable))
 }
 
 // updateCenterAllVisibleSelected reports whether every selectable entry on screen

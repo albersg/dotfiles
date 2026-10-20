@@ -1717,23 +1717,49 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 			descBudget += take
 		}
 	}
-	start, end := listWindow(m.Cursor, menuBudget, len(menu))
+	// The tail of a list is pinned: the way back, always, and on the update center
+	// the rows that act on the selection. They used to sit at the end of the same
+	// list the entries are in, so the first screenful of a large list pushed the
+	// apply, clear and filter rows past the bottom of the frame while the footer
+	// still advertised them. The window covers the entries; the tail is always drawn.
+	pinned := max(0, min(m.pinnedMenuRows(), len(menu)-1))
+	scrollable := len(menu) - pinned
+	itemBudget := menuBudget - pinned
+	if itemBudget < 1 {
+		itemBudget = 1
+	}
+	var start, end int
+	if m.Cursor < scrollable {
+		start, end = listWindow(m.Cursor, itemBudget, scrollable)
+	} else {
+		end = scrollable
+		start = max(0, end-itemBudget)
+	}
+	visible := append(append([]string{}, menu[start:end]...), menu[scrollable:]...)
 
+	// The body opens with the screen's own name. When the frame already carries that
+	// name -- the utilities section draws "Utilities" in the header and used to repeat
+	// it as the first line of the body -- the title is the header's job and the body
+	// starts with what the screen is for.
 	title := BrandStyle.Render(m.GetScreenTitle())
+	duplicateTitle := m.GetScreenTitle() == m.headerName()
 	if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
 		// The preview repaints the screen's own title in the theme's accent, so
 		// the palette is seen and not only read.
 		title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.GetScreenTitle())
 	}
 
-	body := []string{title}
+	var body []string
+	if !duplicateTitle {
+		body = append(body, title)
+	}
 	for _, line := range descriptionLines(paragraphs, width, descBudget) {
 		body = append(body, MutedStyle.Render(line))
 	}
 	for i := 0; i < proseGap; i++ {
 		body = append(body, "")
 	}
-	body = append(body, menu[start:end]...)
+	body = append(body, visible...)
 
 	// The activity is drawn under the list, in the rows the result will land in,
 	// and it is drawn with exactly the lines it has: one line while the switch
@@ -1756,10 +1782,22 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	// screen does. A list that fits has nothing to report and gets no filler, the
 	// same rule the keymap menus and the restore list follow.
 	vital := ""
-	if end-start < len(menu) {
-		vital = scrollVital("Showing", start+1, end, len(menu))
+	if end-start < scrollable {
+		vital = scrollVital("Showing", start+1, end, scrollable)
 	}
 	return m.frame(m.headerName(), vital, body, hints)
+}
+
+// pinnedMenuRows is how many trailing rows of a screen's menu are always drawn.
+// The way back is one of them everywhere. The update center also pins the block
+// that acts on the selection, because those rows are the only way to apply or
+// clear it and they used to disappear under the first screenful of packages.
+func (m Model) pinnedMenuRows() int {
+	switch m.Screen {
+	case ScreenUpdateCenter:
+		return len(m.updateCenterPinnedRows())
+	}
+	return 1
 }
 
 // proseRows is the rows a screen's prose takes when it is wrapped to width, with
