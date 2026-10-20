@@ -3050,6 +3050,10 @@ set -g fish_color_search_match --background=%s
 set -g fish_color_operator %s
 set -g fish_color_escape %s
 set -g fish_color_autosuggestion %s
+# The matching-bracket colour: the shipped fish_variables pinned it to a zenburn
+# blue no definition holds, and it is not one of the eighteen roles above, so it
+# takes the selection colour here like search_match does.
+set -g fish_color_match %s
 
 # Completion pager colours.
 set -g fish_pager_color_progress %s
@@ -3059,7 +3063,7 @@ set -g fish_pager_color_description %s`,
 		roles["normal"], roles["command"], roles["keyword"], roles["quote"],
 		roles["redirection"], roles["end"], roles["error"], roles["param"],
 		roles["comment"], roles["selection"], roles["search_match"], roles["operator"],
-		roles["escape"], roles["autosuggestion"], roles["pager_progress"], roles["pager_prefix"],
+		roles["escape"], roles["autosuggestion"], roles["search_match"], roles["pager_progress"], roles["pager_prefix"],
 		roles["pager_completion"], roles["pager_description"])
 
 	// fish selects the bat theme too, so `bat` and the fzf previews that call it

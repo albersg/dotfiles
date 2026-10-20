@@ -214,6 +214,10 @@ set -g fish_color_search_match --background=263356
 set -g fish_color_operator b7cc85
 set -g fish_color_escape ff8dd7
 set -g fish_color_autosuggestion 8a8fa3
+# The matching-bracket colour: the shipped fish_variables pinned it to a zenburn
+# blue no definition holds, and it is not one of the eighteen roles above, so it
+# takes the selection colour here like search_match does.
+set -g fish_color_match 263356
 
 # Completion pager colours.
 set -g fish_pager_color_progress 8a8fa3
