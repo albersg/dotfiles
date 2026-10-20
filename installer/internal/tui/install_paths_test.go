@@ -4968,3 +4968,36 @@ func TestTheFishShellPaintsFzfAndBatFromTheTheme(t *testing.T) {
 		t.Error("a universal FZF_DEFAULT_OPTS is shipped, and it shadows the themed global the config sets")
 	}
 }
+
+// TestTheNeovimConfigNamesNoPaletteOfItsOwn pins the two colours the Neovim
+// configuration used to choose for itself: the dashboard emblem took a hex that
+// only the dotfiles theme holds, and LazyVim's install-time fallback named
+// tokyonight. The emblem uses the terminal's ANSI blue, so it follows whichever
+// theme paints the terminal, and the fallback names the colorscheme this
+// repository ships.
+func TestTheNeovimConfigNamesNoPaletteOfItsOwn(t *testing.T) {
+	read := func(rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(data)
+	}
+
+	colorscheme := read("dotfiles-nvim/nvim/lua/plugins/colorscheme.lua")
+	if strings.Contains(colorscheme, "#7fb4ca") {
+		t.Error("the Neovim overrides paint the dotfiles palette's blue under every other theme")
+	}
+	if !strings.Contains(colorscheme, `SnacksDashboardHeader = { fg = "blue" }`) {
+		t.Error("the dashboard emblem does not use the terminal's own blue")
+	}
+
+	lazy := read("dotfiles-nvim/nvim/lua/config/lazy.lua")
+	if strings.Contains(lazy, `"tokyonight"`) {
+		t.Error("LazyVim's install fallback names a colorscheme this repository does not ship")
+	}
+	if !strings.Contains(lazy, `colorscheme = { "dotfiles"`) {
+		t.Error("LazyVim's install fallback does not name the shipped colorscheme")
+	}
+}
