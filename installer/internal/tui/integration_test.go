@@ -210,12 +210,18 @@ func TestLearnScreensNavigation(t *testing.T) {
 
 // TestKeymapsNavigation tests keymaps screen navigation
 func TestKeymapsNavigation(t *testing.T) {
-	t.Run("can access keymaps menu from main menu", func(t *testing.T) {
+	t.Run("can access keymaps menu from the Vim hub", func(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenMainMenu
-		m.Cursor = 2 // Keymaps Reference
+		m.Cursor = mainMenuRowIndex(t, m, "Vim & Neovim")
 
 		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+		if m.Screen != ScreenVimHub {
+			t.Fatalf("the Vim row opened %v, want the Vim hub", m.Screen)
+		}
+		m.Cursor = 1 // Neovim Keymaps
+		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
 
 		if m.Screen != ScreenKeymapsMenu {
@@ -267,12 +273,18 @@ func TestKeymapsNavigation(t *testing.T) {
 
 // TestLazyVimNavigation tests LazyVim guide navigation
 func TestLazyVimNavigation(t *testing.T) {
-	t.Run("can access LazyVim guide from main menu", func(t *testing.T) {
+	t.Run("can access the LazyVim guide from the Vim hub", func(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenMainMenu
-		m.Cursor = 3 // LazyVim Guide
+		m.Cursor = mainMenuRowIndex(t, m, "Vim & Neovim")
 
 		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = result.(Model)
+		if m.Screen != ScreenVimHub {
+			t.Fatalf("the Vim row opened %v, want the Vim hub", m.Screen)
+		}
+		m.Cursor = 2 // LazyVim Guide
+		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = result.(Model)
 
 		if m.Screen != ScreenLearnLazyVim {

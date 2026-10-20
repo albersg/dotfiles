@@ -156,6 +156,13 @@ func TestNoInstallerScreenDrawsAnEmojiBox(t *testing.T) {
 	update := updateFrameCase(t)
 	update.Width, update.Height = trainerFrameWidth, trainerFrameHeight
 	check(updateCaseName, update.Screen, update.View())
+
+	// The Vim hub is carried by the same unreached-state list, so it is rendered
+	// here too: its rows are the same bars and separators, and the guard has to see
+	// them to say so.
+	vim := installerFrameModel(t, ScreenVimHub)
+	vim.Width, vim.Height = trainerFrameWidth, trainerFrameHeight
+	check("vim-hub", vim.Screen, vim.View())
 	missing := 0
 	for i, name := range declared {
 		screen := Screen(i)
@@ -675,6 +682,7 @@ func screensTheInstallerStatesNeverReach(t *testing.T) []screenCase {
 	bossResult.TrainerGameState.StartBoss(trainer.ModuleHorizontal)
 
 	return []screenCase{
+		{"vim-hub", built(ScreenVimHub)},
 		{"trainer-menu", menu},
 		{"trainer-lesson", lesson},
 		{"trainer-practice", practice},

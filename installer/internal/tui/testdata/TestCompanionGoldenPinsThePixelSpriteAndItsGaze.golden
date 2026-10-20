@@ -1,14 +1,14 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
-   Main Menu                                                                                                                                                    
+   Main Menu                                                                                                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Good morning                                                            What will happen · Your trainer · Did you know?                                       
   What would you like to do?                                              ────────────────────────────────────────────────────────────────────────────────────  
   ╭─ dotfiles ─────────────────────────────────────────────────────────╮  Selected        Start Installation                                                    
   │ ▸ Start Installation                                               │  on Linux (detected)                                                                   
-  │   Learn About Tools                                                │  Steps           10                                                                    
-  │   Keymaps Reference                                                │  ▸  1  Prefer IPv4                                                                     
-  │   LazyVim Guide                                                    │        Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into broken    
-  │   Vim Trainer                                                      │        IPv6 routes.                                                                    
+  ├─ Learn ────────────────────────────────────────────────────────────┤  Steps           10                                                                    
+  │   Vim & Neovim                                                     │  ▸  1  Prefer IPv4                                                                     
+  │   Learn About Tools                                                │        Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into broken    
+  ├─ Session ──────────────────────────────────────────────────────────┤        IPv6 routes.                                                                    
   │   Utilities                                                        │                                                                                        
   │   Exit                                                             │                                                                                        
   ╰────────────────────────────────────────────────────────────────────╯                                                                                        

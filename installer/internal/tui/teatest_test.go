@@ -759,6 +759,9 @@ func TestInstallFlowE2E(t *testing.T) {
 // TestKeymapsE2E tests navigating keymaps like a real user
 func TestKeymapsE2E(t *testing.T) {
 	m := NewModel()
+	// An isolated home keeps the runner's own backups out of the menu, so the rows
+	// the test walks are the rows the program ships.
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 
@@ -773,8 +776,10 @@ func TestKeymapsE2E(t *testing.T) {
 		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
-	// Main Menu -> Navigate down to Keymaps (index 2)
+	// Main Menu -> Vim & Neovim -> Neovim keymaps. One down steps over the group
+	// rule onto the Vim row; the hub's second row is the keymaps reference.
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
@@ -812,6 +817,9 @@ func TestKeymapsE2E(t *testing.T) {
 // TestLearnToolsE2E tests learn about tools navigation
 func TestLearnToolsE2E(t *testing.T) {
 	m := NewModel()
+	// An isolated home keeps the runner's own backups out of the menu, so the rows
+	// the test walks are the rows the program ships.
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 
@@ -826,7 +834,9 @@ func TestLearnToolsE2E(t *testing.T) {
 		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
-	// Main Menu -> Navigate to Learn About Tools (index 1)
+	// Main Menu -> Learn About Tools. The first group holds Start Installation, the
+	// second the Vim hub and this row, so the cursor steps over the group rule.
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
@@ -1277,6 +1287,7 @@ func TestResponsiveLayoutE2E(t *testing.T) {
 // TestLazyVimGuideE2E tests LazyVim guide navigation flow
 func TestLazyVimGuideE2E(t *testing.T) {
 	m := NewModel()
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 
@@ -1291,8 +1302,9 @@ func TestLazyVimGuideE2E(t *testing.T) {
 		return bytes.Contains(bts, []byte("Start Installation")) || bytes.Contains(bts, []byte("Main Menu"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 
-	// Main Menu -> Navigate to LazyVim Guide (index 3)
+	// Main Menu -> Vim & Neovim -> LazyVim Guide
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})

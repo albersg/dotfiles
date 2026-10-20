@@ -55,7 +55,7 @@ sizes; trainer snapshots do not move.
 | T1 | S1, S2 | inline | done | 96cb6ce |
 | T2 | S2, S3 | inline | done | recorded in T3 |
 | T3 | S3 | inline | done | recorded in T4 |
-| T4 | S4, S5 | inline | pending | - |
+| T4 | S4, S5 | inline | done | recorded in T5 |
 | T5 | S1–S6 | inline | pending | - |
 
 - **T1 — Stable bands.** Add the band contract (`section_bands.go`), rewrite `renderThemeScreen` to
@@ -150,3 +150,27 @@ header and footer assertions; (b) a path is one token, so the card now prints
 mid-token when the column is narrower than the path, and its guard compares the
 path with the spaces removed, because where the wrap lands is the column's
 business.
+
+**L6 — T4 landed.** The main menu is a masthead (greeting and question) over one
+card with named dividers -- the first group under the card's own `dotfiles`
+title, then `Learn` and `Session` -- and the header's vital carries
+`VersionLabel()` (`dev build` on a source build). The options are three groups in
+`GetCurrentOptions`, separated by the same rules every grouped menu uses, and the
+cursor steps over them.
+
+The three Vim rows are one: `Vim & Neovim` opens a new `ScreenVimHub` whose rows
+are the trainer, the Neovim keymaps, the LazyVim guide and the Neovim page, with
+the way back under one rule. The hub answers the context panel too: Modules,
+Lessons, Bosses, Keymaps and Topics, the counts the three subjects hold.
+
+Keys: `v` was tried as a hub shortcut and removed -- the main menu's `vim`
+easter-egg form owns every `v` prefix, so the key never reached the handler. The
+end-to-end tests isolate `HOME` (so the runner's own backups cannot insert the
+Restore row) and walk the real rows instead.
+
+Guards and tests moved with the contract: the panel test resolves its rows by
+label instead of index, the companion's destructive-row table derives the Restore
+row from the option list, the DD gag is drawn through the same `menuRowAt` the
+grouped card uses (a gag only one renderer honoured would vanish from the screen
+it belongs to), and the main-menu, companion and truecolor goldens were
+regenerated deliberately. `go test ./internal/tui -skip Golden` is green.

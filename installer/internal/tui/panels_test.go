@@ -1776,14 +1776,12 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 	modules, lessons, bosses := trainerCurriculum()
 
 	cases := []struct {
-		cursor int
-		name   string
+		row    string
 		want   []string
 		absent []string
 	}{
 		{
-			cursor: 0,
-			name:   "Start Installation",
+			row: "Start Installation",
 			want: []string{
 				"Selected Start Installation",
 				"Steps 10",
@@ -1795,8 +1793,7 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 			},
 		},
 		{
-			cursor: 1,
-			name:   "Learn About Tools",
+			row: "Learn About Tools",
 			want: []string{
 				"Selected Learn About Tools",
 				fmt.Sprintf("Terminals %d", len(GetTerminalInfo())),
@@ -1806,38 +1803,21 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 			absent: []string{"Steps", "Overwrites", "Newest backup"},
 		},
 		{
-			cursor: 2,
-			name:   "Keymaps Reference",
+			// The one row that stands for three subjects says what is inside it:
+			// the curriculum the trainer grades, the bindings the reference lists
+			// and the topics the guide covers.
+			row: "Vim & Neovim",
 			want: []string{
-				"Selected Keymaps Reference",
-				fmt.Sprintf("Neovim %s", keymapBindingCount(keymapCount(GetNvimKeymaps()))),
-				"Ghostty",
-			},
-			absent: []string{"Steps", "Terminals"},
-		},
-		{
-			cursor: 3,
-			name:   "LazyVim Guide",
-			want: []string{
-				"Selected LazyVim Guide",
-				fmt.Sprintf("Topics %d", len(GetLazyVimTopics())),
-			},
-			absent: []string{"Steps", "Neovim"},
-		},
-		{
-			cursor: 4,
-			name:   "Vim Trainer",
-			want: []string{
-				"Selected Vim Trainer",
+				"Selected Vim & Neovim",
 				fmt.Sprintf("Modules %d", modules),
 				fmt.Sprintf("Lessons %d", lessons),
 				fmt.Sprintf("Bosses %d", bosses),
+				fmt.Sprintf("Topics %d", len(GetLazyVimTopics())),
 			},
-			absent: []string{"Steps", "Overwrites"},
+			absent: []string{"Steps", "Overwrites", "Backups", "Terminals"},
 		},
 		{
-			cursor: 5,
-			name:   "Restore from Backup",
+			row: "Restore from Backup",
 			want: []string{
 				"Selected Restore from Backup",
 				"Backups 2",
@@ -1847,8 +1827,7 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 			absent: []string{"Steps", "Overwrites", "Modules"},
 		},
 		{
-			cursor: 6,
-			name:   "Utilities",
+			row: "Utilities",
 			want: []string{
 				"Selected Utilities",
 				"No desktop theme switch is available here.",
@@ -1856,8 +1835,7 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 			absent: []string{"Steps", "Overwrites", "Newest backup", "Backups", "Modules", "Topics", "Terminals"},
 		},
 		{
-			cursor: 7,
-			name:   "Exit",
+			row: "Exit",
 			want: []string{
 				"Selected Exit",
 				"Nothing on this machine changes.",
@@ -1868,20 +1846,20 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 
 	for _, c := range cases {
 		c := c
-		t.Run(c.name, func(t *testing.T) {
+		t.Run(c.row, func(t *testing.T) {
 			m := contextualMainMenuModel()
-			m.Cursor = c.cursor
+			m.Cursor = mainMenuRowIndex(t, m, c.row)
 			rows := m.mainMenuPanel(l, 200)
 			assertPanelFits(t, rows, l.Right, 200)
 			flat := panelFlat(rows)
 			for _, want := range c.want {
 				if !strings.Contains(flat, want) {
-					t.Errorf("the panel for %q does not show %q:\n%s", c.name, want, panelText(rows))
+					t.Errorf("the panel for %q does not show %q:\n%s", c.row, want, panelText(rows))
 				}
 			}
 			for _, absent := range c.absent {
 				if strings.Contains(flat, absent) {
-					t.Errorf("the panel for %q shows %q, which that option does not hold:\n%s", c.name, absent, panelText(rows))
+					t.Errorf("the panel for %q shows %q, which that option does not hold:\n%s", c.row, absent, panelText(rows))
 				}
 			}
 		})
@@ -1893,6 +1871,21 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 // detection found one, so the panel names it -- and the undo once a record for
 // that same desktop exists -- and says nothing about switches the model does not
 // hold.
+// mainMenuRowIndex is the row of the main menu that carries the given label. The
+// menu is grouped, so a test that pinned an index would follow the group titles
+// and the offered actions instead of the row it means.
+func mainMenuRowIndex(t *testing.T, m Model, label string) int {
+	t.Helper()
+
+	for i, option := range m.GetCurrentOptions() {
+		if option == label {
+			return i
+		}
+	}
+	t.Fatalf("the main menu offers no %q row: %v", label, m.GetCurrentOptions())
+	return -1
+}
+
 func TestMainMenuUtilitiesPanelNamesTheDetectedSwitch(t *testing.T) {
 	l := narrowPanelLayout()
 	target, ok := themeSwitchByID("gnome")
@@ -1901,7 +1894,9 @@ func TestMainMenuUtilitiesPanelNamesTheDetectedSwitch(t *testing.T) {
 	}
 
 	m := contextualMainMenuModel()
-	m.Cursor = 6 // Utilities, above Exit
+	// The cursor is put on the Utilities row by its label: the menu is grouped, so
+	// an index pinned here would follow the groups instead of the row.
+	m.Cursor = mainMenuRowIndex(t, m, "Utilities")
 	m.ThemeSwitch, m.ThemeSwitchFound = target, true
 
 	flat := panelFlat(m.mainMenuPanel(l, 200))
@@ -2028,7 +2023,7 @@ func TestMovingTheCursorChangesOnlyThePanel(t *testing.T) {
 func TestNarrowSummaryFollowsTheSelection(t *testing.T) {
 	m := contextualMainMenuModel()
 	m.Width = 100
-	m.Cursor = 5 // Restore from Backup
+	m.Cursor = mainMenuRowIndex(t, m, "Restore from Backup")
 
 	lines := m.rotatorLines(m.panelsFor(), 96)
 	text := panelText(lines)

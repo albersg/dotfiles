@@ -1903,6 +1903,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenLearnTools:
 		return m.handleLearnHubKeys(key)
 
+	case ScreenVimHub:
+		return m.handleVimHubKeys(key)
+
 	case ScreenLearnTooling:
 		return m.handleReferenceTableKeys(key, len(shellToolingRows()))
 
@@ -2538,16 +2541,25 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.Cursor > 0 {
 			m.Cursor--
+			// The group separators are rows of the same option list the handler
+			// reads, so the cursor steps over them the way it does on every other
+			// grouped menu.
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
+				m.Cursor--
+			}
 		}
 	case "down", "j":
 		if m.Cursor < len(options)-1 {
 			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
 		}
 	case "u":
 		// The shortcut to the section the Utilities row opens. It stays because a
 		// key costs nothing and someone who has learned it should not lose it; the
 		// row is how everyone else finds the section. It is documented beside the
-		// other main-menu keys, like `vim`.
+		// other main-menu keys, like `v`.
 		m.Screen = ScreenUtilities
 		m.Cursor = 0
 		// Not cleared, for the reason the row's own case states: the outcome of a
@@ -2573,16 +2585,13 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenLearnTools
 			m.PrevScreen = ScreenMainMenu
 			m.Cursor = 0
-		case strings.Contains(selected, "Keymaps Reference"):
-			m.Screen = ScreenKeymapsMenu
+		case selected == "Vim & Neovim":
+			// The three subjects the menu used to list separately are one hub now. The
+			// hub is a menu, not a detour into a run, so Enter opens it like any other
+			// row and Escape brings the cursor back to this menu.
+			m.Screen = ScreenVimHub
 			m.PrevScreen = ScreenMainMenu
 			m.Cursor = 0
-		case strings.Contains(selected, "LazyVim Guide"):
-			m.Screen = ScreenLearnLazyVim
-			m.PrevScreen = ScreenMainMenu
-			m.Cursor = 0
-		case strings.Contains(selected, "Vim Trainer"):
-			return m.startTrainer()
 		case selected == updateInstallerLabel(m.updateChannel()):
 			// The row is the button when this run may replace its own file:
 			// pressing it runs the same verified swap `--self-update` runs, off the
@@ -3706,6 +3715,61 @@ func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 		m.ViewingTool = ""
 		m.ReferenceTableScroll = 0
+	}
+
+	return m, nil
+}
+
+// handleVimHubKeys walks the Vim hub. Every row is matched by its label, so the
+// menu the screen draws and the screens the keys open read one list, and Escape
+// is the way back to the main menu. The trainer row goes through startTrainer,
+// the same entry point the main menu's old row used, so a trainer problem is
+// reported the same way wherever it is opened from.
+func (m Model) handleVimHubKeys(key string) (tea.Model, tea.Cmd) {
+	options := m.GetCurrentOptions()
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
+				m.Cursor--
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(options)-1 {
+			m.Cursor++
+			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
+				m.Cursor++
+			}
+		}
+	case "esc":
+		m.Screen = ScreenMainMenu
+		m.Cursor = 0
+	case "enter":
+		if m.Cursor < 0 || m.Cursor >= len(options) {
+			return m, nil
+		}
+		selected := options[m.Cursor]
+		switch {
+		case selected == "Vim Trainer":
+			return m.startTrainer()
+		case selected == "Neovim Keymaps":
+			m.Screen = ScreenKeymapsMenu
+			m.PrevScreen = ScreenVimHub
+			m.Cursor = 0
+		case selected == "LazyVim Guide":
+			m.Screen = ScreenLearnLazyVim
+			m.PrevScreen = ScreenVimHub
+			m.Cursor = 0
+		case selected == "Learn about Neovim":
+			m.Screen = ScreenLearnNvim
+			m.PrevScreen = ScreenVimHub
+			m.Cursor = 0
+		case strings.Contains(selected, "Back"):
+			m.Screen = ScreenMainMenu
+			m.Cursor = 0
+		}
 	}
 
 	return m, nil

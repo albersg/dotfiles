@@ -231,6 +231,12 @@ const (
 	// anything is changed, and its single action row is the only row in the
 	// doctor that writes anything at all.
 	ScreenDoctorFix // One deterministic repair, seen before it is applied
+	// The Vim hub. Appended at the end for the same reason as the screens above.
+	// The main menu's single "Vim & Neovim" row opens it, and it holds the three
+	// subjects that used to be three separate rows -- the trainer, the Neovim
+	// keymaps reference and the LazyVim guide -- plus the Neovim page, so the
+	// main menu is a list of jobs rather than a list of screens.
+	ScreenVimHub // Practice the keys, look them up, and read the guide
 )
 
 // stepOrigin says why a step is on the plan, in the three answers S2 of
@@ -1098,13 +1104,12 @@ func (m Model) GetCurrentOptions() []string {
 		// The rows carry words, never an emoji: a terminal without an emoji font
 		// draws one as a box, which is why the title lost its toolbox glyph. The
 		// rule is the trainer's own, and the emoji guard holds every screen to it.
-		opts := []string{
-			"Start Installation",
-			"Learn About Tools",
-			"Keymaps Reference",
-			"LazyVim Guide",
-			"Vim Trainer",
-		}
+		//
+		// The menu is three groups with a rule between them -- what the run does,
+		// what there is to learn, and the session itself -- and the card draws each
+		// group under its own title. The Vim subjects are one row: the trainer, the
+		// keymaps and the guide are one thing to learn, and they open the Vim hub.
+		install := []string{"Start Installation"}
 		// The update row is offered whenever the check has something to report: a
 		// later release was found, or the check ended with the reason it could not
 		// read one. When the file is the installer's own the row acts; when it is
@@ -1115,25 +1120,37 @@ func (m Model) GetCurrentOptions() []string {
 		// cursor would otherwise hand Enter to whichever option the insertion pushed
 		// under it.
 		if m.UpdateRowOffered() {
-			opts = append(opts, updateInstallerLabel(m.updateChannel()))
+			install = append(install, updateInstallerLabel(m.updateChannel()))
 		}
 		// The channel row is offered once the record names a channel, which every
 		// check writes, success or failure. It sits beside the update row because the
 		// two answer the same question -- which release this run would install -- and
 		// its label names the state it switches.
 		if m.UpdateCheck.Channel != "" {
-			opts = append(opts, updateChannelRow(m.UpdateCheck.Channel))
+			install = append(install, updateChannelRow(m.UpdateCheck.Channel))
 		}
 		// Add restore option if backups exist
 		if len(m.AvailableBackups) > 0 {
-			opts = append(opts, "Restore from Backup")
+			install = append(install, "Restore from Backup")
 		}
+
+		learn := []string{"Vim & Neovim", "Learn About Tools"}
 		// Utilities sits immediately above Exit so Exit stays the last row: the
 		// section is a visible destination like the others, and quitting keeps
 		// the place muscle memory puts it.
-		opts = append(opts, "Utilities")
-		opts = append(opts, "Exit")
-		return opts
+		session := []string{"Utilities", "Exit"}
+
+		opts := append([]string{}, install...)
+		opts = append(opts, m.menuSeparator())
+		opts = append(opts, learn...)
+		opts = append(opts, m.menuSeparator())
+		return append(opts, session...)
+	case ScreenVimHub:
+		// The first three rows were separate main-menu entries; they are one subject
+		// and they live together here. The Neovim page is the fourth: it is what the
+		// wizard's Neovim step links to, and the hub is where someone who wants to
+		// learn the editor looks first.
+		return []string{"Vim Trainer", "Neovim Keymaps", "LazyVim Guide", "Learn about Neovim", m.menuSeparator(), "← Back"}
 	case ScreenKeymapsMenu:
 		// The key handler routes by the label rather than by the row index, so a tool
 		// added here is reachable from its own row without a second place to edit.
@@ -1668,6 +1685,8 @@ func (m Model) GetScreenTitle() string {
 		return "Development environment"
 	case ScreenDoctorFix:
 		return "Confirm the fix"
+	case ScreenVimHub:
+		return "Vim & Neovim"
 	case ScreenUpdate:
 		return "Updates"
 	case ScreenPortManager:
@@ -1744,6 +1763,8 @@ func (m Model) GetScreenDescription() string {
 		// stops there: the rows below carry the report, and repeating a verdict here
 		// would be a second copy of the state the rows already hold.
 		return "Which stage of the connection stopped, with what each step measured"
+	case ScreenVimHub:
+		return "Practice the keys, look them up, or read the guide"
 	default:
 		return ""
 	}

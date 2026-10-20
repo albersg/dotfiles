@@ -615,6 +615,10 @@ func (m Model) headerName() string {
 		return "Keymaps"
 	case ScreenLearnLazyVim, ScreenLazyVimTopic:
 		return "LazyVim"
+	case ScreenVimHub:
+		// The hub is the one place the main menu reaches the trainer, the keymaps and
+		// the guide from, so its header names the subject rather than a section.
+		return "Vim"
 	case ScreenBackupConfirm, ScreenRestoreBackup, ScreenRestoreConfirm:
 		return "Backups"
 	case ScreenUtilities:
@@ -846,6 +850,50 @@ func panelBlock(title string, width int, lines []string) []string {
 	return out
 }
 
+// panelBlockGrouped draws the frame's card with one titled divider between its
+// groups: a menu of jobs reads as sections instead of a flat list of screens.
+// The edge, the padding and the clipping are panelBlock's, so the two cards are
+// the same object drawn with and without dividers, and a divider fits the width
+// by measuring its styled label rather than its byte length.
+func panelBlockGrouped(title string, width int, groups []mainMenuGroup) []string {
+	if width < panelFrame+panelPad*2+2 {
+		width = panelFrame + panelPad*2 + 2
+	}
+	content := width - panelFrame - panelPad*2
+	edge := func(s string) string { return PanelBorderStyle.Render(s) }
+	fill := func(s string) string { return " " + padRight(s, content) + " " }
+	inner := content + panelPad*2
+
+	out := make([]string, 0, len(groups)*2+2)
+	if title == "" {
+		out = append(out, edge("╭"+strings.Repeat("─", inner)+"╮"))
+	} else {
+		label := " " + title + " "
+		dash := content + 1 - lipgloss.Width(label)
+		if dash < 1 {
+			label = " " + lipgloss.NewStyle().MaxWidth(content-2).Render(title) + " "
+			dash = 1
+		}
+		out = append(out, edge("╭─")+label+edge(strings.Repeat("─", dash)+"╮"))
+	}
+	for at, group := range groups {
+		if at > 0 {
+			label := " " + BrandStyle.Render(group.Title) + " "
+			dash := content + 1 - lipgloss.Width(label)
+			if dash < 1 {
+				label = " " + lipgloss.NewStyle().MaxWidth(content-2).Render(group.Title) + " "
+				dash = 1
+			}
+			out = append(out, edge("├─")+label+edge(strings.Repeat("─", dash)+"┤"))
+		}
+		for _, line := range group.Lines {
+			out = append(out, edge("│")+fill(lipgloss.NewStyle().MaxWidth(content).Render(line))+edge("│"))
+		}
+	}
+	out = append(out, edge("╰"+strings.Repeat("─", inner)+"╯"))
+	return out
+}
+
 // rowBar renders one menu row. The selected row is a bar with the ▸ in Accent
 // and the text in Paper on BrandSoft; the unselected row is the same text in Ink
 // at the SAME indent, so state comes from the bar and the weight rather than
@@ -980,32 +1028,40 @@ func offsetWindowMax(rows, total int) int {
 // groups. Each option is a rowBar, so the selected row is a bar across the
 // measure and the unselected rows keep the same indent.
 func (m Model) menuRows(options []string, cursor int) []string {
-	measure := layoutFor(m).RowMeasure
 	rows := make([]string, 0, len(options))
-	for i, opt := range options {
-		if strings.HasPrefix(opt, menuSeparatorPrefix) {
-			rows = append(rows, rule(measure))
-			continue
-		}
-		if m.Screen == ScreenMainMenu && m.MenuGagActive && i == m.MenuGagRow {
-			// The gag occupies the original menu row exactly: its slot and bar
-			// width are unchanged, and its small puff is a pure function of the
-			// model's tick state. With animation gated off, show one composed pose.
-			puff := "////   .  o  ."
-			if m.Animating {
-				poses := [...]string{"////   .  o  .", "////    o  .", "////     ."}
-				pose := m.MenuGagTicks / 2
-				if pose >= len(poses) {
-					pose = len(poses) - 1
-				}
-				puff = poses[pose]
-			}
-			rows = append(rows, m.rowBar(puff, i == cursor, ""))
-			continue
-		}
-		rows = append(rows, m.rowBar(opt, i == cursor, ""))
+	for i := range options {
+		rows = append(rows, m.menuRowAt(options, i, cursor))
 	}
 	return rows
+}
+
+// menuRowAt draws one row of a menu: a separator as a rule, a row struck by the
+// main menu's gag as the gag (in the row's own slot, at the row's own width), and
+// every other row as a bar. It is one function because the grouped main-menu card
+// and the plain menu list both draw the same rows, and a gag that only one of them
+// honoured would be a decoration that disappears from the screen it belongs to.
+func (m Model) menuRowAt(options []string, i, cursor int) string {
+	measure := layoutFor(m).RowMeasure
+	opt := options[i]
+	if strings.HasPrefix(opt, menuSeparatorPrefix) {
+		return rule(measure)
+	}
+	if m.Screen == ScreenMainMenu && m.MenuGagActive && i == m.MenuGagRow {
+		// The gag occupies the original menu row exactly: its slot and bar width
+		// are unchanged, and its small puff is a pure function of the model's tick
+		// state. With animation gated off, show one composed pose.
+		puff := "////   .  o  ."
+		if m.Animating {
+			poses := [...]string{"////   .  o  .", "////    o  .", "////     ."}
+			pose := m.MenuGagTicks / 2
+			if pose >= len(poses) {
+				pose = len(poses) - 1
+			}
+			puff = poses[pose]
+		}
+		return m.rowBar(puff, i == cursor, "")
+	}
+	return m.rowBar(opt, i == cursor, "")
 }
 
 // listRows renders at most rows entries of a list, followed by a note naming the
@@ -1119,6 +1175,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderLearnNvim())
 	case ScreenLearnTools:
 		s.WriteString(m.renderLearnTools())
+	case ScreenVimHub:
+		s.WriteString(m.renderVimHub())
 	case ScreenLearnFont:
 		s.WriteString(m.renderLearnFont())
 	case ScreenLearnPrompts:
@@ -3319,13 +3377,51 @@ func (m Model) renderMainMenu() string {
 	if notice := m.mainMenuUpdateNotice(); notice != "" {
 		body = append(body, notice)
 	}
-	body = append(body, panelBlock(BrandStyle.Render("dotfiles"), layoutFor(m).RowMeasure, m.menuRows(m.GetCurrentOptions(), m.Cursor))...)
+	body = append(body, panelBlockGrouped(BrandStyle.Render("dotfiles"), layoutFor(m).RowMeasure, m.mainMenuGroups())...)
 
+	// The header's vital names the build the run would install from: the one fact
+	// about this screen that is not a choice, and the thing a bug report asks for
+	// first. The frame's header already carries the screen's name, so nothing is
+	// repeated to say it.
+	//
 	// The main menu is the screen that asks what is about to happen, so it offers
 	// the plan panel. The frame takes it only where there is room for it and drops
-	// it below the two-column floor, so the 80x24 rendering of this screen is
-	// unchanged.
-	return m.frame(m.headerName(), "", body, []installerHint{hintUp, hintDown, hintOpen, hintQuit})
+	// it below the two-column floor.
+	return m.frame(m.headerName(), VersionLabel(), body, []installerHint{hintUp, hintDown, hintOpen, hintQuit})
+}
+
+// mainMenuGroup is one titled group inside the main menu's card: the rows it
+// holds, already drawn as bars with the flat cursor index they came from, and
+// the title its divider carries.
+type mainMenuGroup struct {
+	Title string
+	Lines []string
+}
+
+// mainMenuGroups splits the main menu's options into the groups its card draws.
+// The split is the separators in the option list itself, so the rows the card
+// groups, the rows the handler matches and the indices the cursor uses are one
+// list; a row added to the menu lands in the group its separator puts it in.
+func (m Model) mainMenuGroups() []mainMenuGroup {
+	options := m.GetCurrentOptions()
+	// The first group is the card's own title: the card is the product's, and a
+	// second label above the first row would be two names for it.
+	titles := []string{"", "Learn", "Session"}
+	groups := []mainMenuGroup{{Title: titles[0]}}
+	for i, option := range options {
+		if strings.HasPrefix(option, menuSeparatorPrefix) {
+			group := len(groups)
+			title := "More"
+			if group < len(titles) {
+				title = titles[group]
+			}
+			groups = append(groups, mainMenuGroup{Title: title})
+			continue
+		}
+		at := len(groups) - 1
+		groups[at].Lines = append(groups[at].Lines, m.menuRowAt(options, i, m.Cursor))
+	}
+	return groups
 }
 
 // stripStepPrefix removes a leading "Step N: " from a wizard title, so the step
@@ -3430,6 +3526,14 @@ func (m Model) renderSelection() string {
 // built from learnToolRows() so the menu and the key handler read one table.
 func (m Model) renderLearnTools() string {
 	return m.renderMenu("Select what to learn about")
+}
+
+// renderVimHub draws the Vim hub: the trainer, the keymaps reference, the
+// LazyVim guide and the Neovim page, under one description. It is the screen the
+// main menu's single Vim row opens, and it is a menu like the Learn hub, so it
+// draws through the same renderer.
+func (m Model) renderVimHub() string {
+	return m.renderMenu(m.GetScreenDescription())
 }
 
 // renderLearnTooling, renderLearnPlugins and renderLearnToolset draw the three
