@@ -61,15 +61,20 @@ func TestSectionBandsReadNeitherCursorNorSelectionNorNotice(t *testing.T) {
 			hints := sectionBandsInput(m)
 			width := contentWidth(m)
 			options := m.GetCurrentOptions()
-			base := m.sectionBandsFor(width, hints, 5, len(options))
+			base := m.sectionBandsFor(width, hints, 5, len(options), false)
+			paneBase := m.sectionBandsFor(width, hints, 5, len(options), true)
 
 			if options := m.GetCurrentOptions(); len(options) > 0 {
 				for cursor := 0; cursor < len(options); cursor++ {
 					moved := m
 					moved.Cursor = cursor
-					if got := moved.sectionBandsFor(width, hints, 5, len(options)); got != base {
+					if got := moved.sectionBandsFor(width, hints, 5, len(options), false); got != base {
 						t.Fatalf("%s at %dx%d moves its bands when the cursor is on row %d: %+v then %+v",
 							f.name, size[0], size[1], cursor, base, got)
+					}
+					if got := moved.sectionBandsFor(width, hints, 5, len(options), true); got != paneBase {
+						t.Fatalf("%s at %dx%d moves its two-column bands when the cursor is on row %d: %+v then %+v",
+							f.name, size[0], size[1], cursor, paneBase, got)
 					}
 				}
 			}
@@ -80,9 +85,14 @@ func TestSectionBandsReadNeitherCursorNorSelectionNorNotice(t *testing.T) {
 				noticed := m
 				noticed.ThemeNotice, noticed.UpdateCheck.Notice = notice, notice
 				noticed.UpdateCenter.Notice, noticed.DiskClean.Notice = notice, notice
-				if got := noticed.sectionBandsFor(width, hints, 5, len(options)); got != base {
+				if got := noticed.sectionBandsFor(width, hints, 5, len(options), false); got != base {
 					t.Fatalf("%s at %dx%d moves its bands when the notice is %q: %+v then %+v",
 						f.name, size[0], size[1], notice, base, got)
+				}
+				// The same contract holds when the detail is drawn in the right column.
+				if got := noticed.sectionBandsFor(width, hints, 5, len(options), true); got != paneBase {
+					t.Fatalf("%s at %dx%d moves its two-column bands when the notice is %q: %+v then %+v",
+						f.name, size[0], size[1], notice, paneBase, got)
 				}
 			}
 		}

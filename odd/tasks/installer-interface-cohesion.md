@@ -52,8 +52,8 @@ sizes; trainer snapshots do not move.
 
 | ID | Spec | Route | State | Commit |
 |----|------|-------|-------|--------|
-| T1 | S1, S2 | inline | done | 2baee92 |
-| T2 | S2, S3 | inline | pending | - |
+| T1 | S1, S2 | inline | done | 96cb6ce |
+| T2 | S2, S3 | inline | done | recorded in T3 |
 | T3 | S3 | inline | pending | - |
 | T4 | S4, S5 | inline | pending | - |
 | T5 | S1–S6 | inline | pending | - |
@@ -114,3 +114,17 @@ the render path, which the drift guard caught as a one-line change of the card's
 cut count (`TestBackgroundDriftS5`); (b) the picker's bands read the cursor
 through `previewThemeDef`, so the preview row is now reserved on every picker
 state (`TestSectionBandsReadNeitherCursorNorSelectionNorNotice`).
+
+**L4 — T2 landed.** On a frame with room for two columns (`layoutFor` >= 120
+content columns) the screens whose detail is context for a list -- the utilities
+hub, the update center, the disk cleaner, the doctor and its confirmation -- draw
+their prose in a `Details` column (a `Notes` column on the hub, `The change` on
+the confirmation) and give the whole body to the list. Below the floor the same
+prose is the band above the list, unchanged. The report screens keep the
+full-width body because their prose is the report.
+
+The pane is assembled through `panelBody` and `composeColumns`, the same pair the
+main menu's panel uses, so the chip, the rule and the cut marker are shared. The
+guard now checks the band contract in both modes: `sectionBandsFor(..., true)`
+must be cursor-, selection- and notice-independent too. Goldens and all 1738
+frame-fit assertions are green unchanged.

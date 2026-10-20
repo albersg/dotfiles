@@ -77,6 +77,35 @@ func (m Model) usesSectionBands() bool {
 	return false
 }
 
+// sectionDetailPane reports whether a screen's detail is context for a list
+// rather than the screen's content. On a frame with room for two columns those
+// screens draw the detail in the right column and give the whole body to the
+// list; below the two-column floor the same detail is the band above the list.
+//
+// The report screens -- the terminal capabilities and the verification -- answer
+// no: their prose IS the screen, and a narrow column would cut the report to
+// half a page.
+func (m Model) sectionDetailPane() bool {
+	switch m.Screen {
+	case ScreenUtilities, ScreenUpdateCenter, ScreenDiskCleaner, ScreenDoctor, ScreenDoctorFix:
+		return true
+	}
+	return false
+}
+
+// sectionPaneTitle is the chip on the detail column. It names what the column
+// holds, so the two-column screen reads as a body and its notes rather than as
+// two lists side by side.
+func (m Model) sectionPaneTitle() string {
+	switch m.Screen {
+	case ScreenUtilities:
+		return "Notes"
+	case ScreenDoctorFix:
+		return "The change"
+	}
+	return "Details"
+}
+
 // sectionBand is one screen's own reservation. The zero value is the default:
 // as-needed prose, no floor and a two-row notice band. A screen overrides only
 // the field it needs to.
@@ -171,7 +200,7 @@ func (b sectionBands) entryRows(activity int) int {
 // cursor, the selection or the notice. The menu length is a parameter because a
 // menu's rows do not change while the cursor walks them, and giving the list the
 // rows it needs is what keeps a menu whole on a frame with room for it.
-func (m Model) sectionBandsFor(width int, hints []installerHint, detailLines, menuRows int) sectionBands {
+func (m Model) sectionBandsFor(width int, hints []installerHint, detailLines, menuRows int, detailInPanel bool) sectionBands {
 	band := m.sectionBandFor()
 	b := sectionBands{
 		Footer: m.footerReserveRows(width, hints),
@@ -226,6 +255,21 @@ func (m Model) sectionBandsFor(width int, hints []installerHint, detailLines, me
 	available := b.Body - b.Title - notice
 	if available < 1 {
 		available = 1
+	}
+
+	if detailInPanel {
+		// The detail is drawn in the right column, so the body is the list and the
+		// notice alone. The list keeps every row the frame leaves it.
+		b.List = available
+		b.Notice = notice
+		for b.List < minimum && b.Notice > 0 {
+			b.Notice--
+			b.List++
+		}
+		if b.List < 1 {
+			b.List = 1
+		}
+		return b
 	}
 
 	if band.Detail >= 0 {

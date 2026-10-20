@@ -1676,10 +1676,22 @@ func (m Model) renderThemePicker() string {
 // they are. The notice and the hints are parameters rather than fields so a
 // screen's footer says what that screen's keys do.
 func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints []installerHint) string {
-	width := contentWidth(m)
+	// On a frame with room for two columns, the screens whose detail is context for
+	// a list draw it beside the list instead of above it: the list keeps the whole
+	// body, and the detail gets the column the wide frame has going spare.
+	l := layoutFor(m)
+	pane := l.TwoColumn && m.sectionDetailPane()
+	width := l.Inner
+	if pane {
+		width = l.Left
+	}
 	detail := wrapParagraphs(paragraphs, width)
 	options := m.GetCurrentOptions()
-	bands := m.sectionBandsFor(width, hints, len(detail), len(options))
+	detailLines := len(detail)
+	if pane {
+		detailLines = 0
+	}
+	bands := m.sectionBandsFor(width, hints, detailLines, len(options), pane)
 
 	menu := m.menuRows(options, m.Cursor)
 	tail := pinnedTailLen(options)
@@ -1750,6 +1762,13 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	body = append(body, listed...)
 	body = append(body, noticeBand(screenNotice, bands.Notice, width)...)
 	body = padRows(body, bands.Body)
+	if pane {
+		// The detail column is drawn through the same panel assembly the main menu's
+		// panel uses, so the chip, the rule and the cut marker are the ones every
+		// other column already shows.
+		column := panelBody(m.sectionPaneTitle(), wrapParagraphs(paragraphs, l.Right), l.Right, bands.Body)
+		body = composeColumns(body, column, l)
+	}
 
 	// The header's vital names the slice of a windowed list that is on screen, so
 	// a list longer than the frame says so instead of appearing to end where the
