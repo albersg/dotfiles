@@ -329,8 +329,9 @@ which every offered theme sets, so the bar follows the theme like the
 | Rosé Pine | **nothing** |
 | Nocturne | **nothing** |
 
-The thirteen tools are Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line
-editor, the p10k prompt, Herdr, fish, bat, Neovim, tmux and nushell; they are
+The sixteen tools are Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line
+editor, the p10k prompt, Herdr, lazygit, Zellij, fish, bat, Neovim, btop, tmux and
+nushell; they are
 `themeTools` in `installer/internal/tui/installer.go`. Coverage is the generator's
 own answer - fish asks whether it can derive the fish roles at all, bat whether it
 can render the `.tmTheme`, tmux whether it can render its style block, Neovim
