@@ -2818,6 +2818,10 @@ func renderHerdrTheme(def themeDefinition) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	text, err := themeHex(def, "text")
+	if err != nil {
+		return "", err
+	}
 
 	return fmt.Sprintf(`# Token overrides on top of that theme, so the chrome Herdr draws agrees with the
 # terminal palette (Alacritty, Kitty, WezTerm, Ghostty) and with the zsh prompt,
@@ -2830,11 +2834,16 @@ panel_bg = "reset"
 # The value the terminal uses for a text selection, so selecting inside a pane
 # and selecting inside the terminal look like the same operation.
 selection_bg = "%s"
+# The body text. Herdr exposes four custom tokens and this is the fourth
+# (panel_bg, selection_bg, accent and text; herdr config check rejects any
+# other name under [theme.custom]), so the custom layer is complete here and the
+# [theme] name below stays the built-in base it always was.
+text = "%s"
 
 [ui]
 # Herdr's accent for highlights, borders and navigation UI: the palette's blue,
 # the one the zsh prompt already uses for the directory.
-accent = "%s"`, def.ID, selection, blue), nil
+accent = "%s"`, def.ID, selection, text, blue), nil
 }
 
 // renderLazygitTheme renders the gui.theme block of dotfiles-lazygit/lazygit/
