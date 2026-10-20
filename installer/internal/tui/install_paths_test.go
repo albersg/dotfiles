@@ -1193,10 +1193,16 @@ func TestStepInstallNvimPrunesLeftoversAndKeepsUserState(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(nvimSrc, "lua", "plugins"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The step installs the lazygit configuration beside Neovim's, so the synthetic
+	// checkout has to carry it like the real one does.
+	if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(repoAssetLazygit)), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for path, content := range map[string]string{
 		filepath.Join(nvimSrc, "init.lua"):                     "init",
 		filepath.Join(nvimSrc, "lua", "plugins", "editor.lua"): "editor",
 		filepath.Join(nvimSrc, "lazy-lock.json"):               `{"repo":"pinned"}`,
+		filepath.Join(repo, repoAssetLazygit):                  "gui:\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
