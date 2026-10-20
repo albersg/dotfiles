@@ -228,6 +228,15 @@ derived from the measured set by the mapping the same README records). Kagawa wa
 file was a byte-for-byte copy
 of Kanagawa's and no published Kagawa palette exists, so it is no longer a theme.
 
+The picker shows the choice twice: the list names the themes, and **The palette** panel repeats the
+theme under the cursor role by role — a swatch and the hex each role would write — with the applied
+theme named above them. Moving the cursor previews that palette across the whole interface. The
+preview's muted prose uses the theme's own `subtext1` on a light base: `subtext0` on Catppuccin
+Latte's tinted background read at 3.7:1, under the 4.5:1 body floor. The drifting background also
+caps its tint at the point where the muted role would lose contrast against the plain base, so the
+decoration never costs the text its legibility; the cap is derived from the palette in use rather
+than written down, and a guard measures every offered theme.
+
 **Every offered theme paints every tool the switch names**, and that is a guard rather than a
 promise: the seventeen tools are the four terminals, Starship, the zsh line editor, the p10k prompt,
 Herdr, lazygit, Zellij, fish, bat, Neovim, btop, tmux, delta and nushell, and `TestEveryOfferedThemePaintsEveryTool` fails naming
@@ -1802,6 +1811,9 @@ question its own screen asks:
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
+| Hub pages | **About** | What the row under the cursor is and what its page holds: the modules the trainer grades, the bindings each keymap tool ships, the terminals, shells, multiplexers or prompts a Learn page lists — so a page reached from the main menu has the same second column as the row that opened it |
+| Utilities | **At a glance** | The state of every job the section offers, from the same model fields the rows read: the theme count and the undo, the WSL values, the shell's last measurement, the install check, the network, SSH, the terminal report, the caches, the update center, the ports and the doctor |
+| Theme picker | **The palette** | The palette the theme under the cursor would paint, role by role, with a swatch and the hex each role would write, and which theme is applied now |
 
 The welcome screen asks where you are, so its panels are the machine — first what it is, then what
 it is doing right now — and then a tip; the main menu asks what is about to happen, so its panel
@@ -1856,6 +1868,34 @@ data (Neovim, then Tmux, Zellij, Ghostty and Herdr, each in its own declared ord
 trainer's own lessons in module order, with the lessons whose mission does not fit the tip's two
 rows left out so a tip is never cut — so two runs on the same machine show the same sequence. The
 panel advances one tip per ten seconds; with animation off it stays on the first tip.
+
+**The build label is on every frame.** The header's right side carries the screen's own vital — a
+scroll range, a selection count, the wizard's step meter — and the build, joined by the same middle
+dot the panels use. It used to be the main menu's alone; a screenshot of any screen should answer
+which build drew it. A vital the screen has packed itself (the trainer's meter) keeps its own
+styling; a plain one is drawn in the muted tone, so a light theme's preview does not leave it white
+on white.
+
+**A hub is a page, not a bare list.** The Vim hub, the Learn hub and the keymap menus draw the same
+title block, card and panel as the main menu: a bordered card holds the rows, the Learn hub names
+its two sections on the card's top border and the divider between them, and **About** answers for
+the row under the cursor. The panel lists what the destination holds — the trainer's modules, the
+bindings each keymap tool ships, the terminals, shells, multiplexers or prompts a Learn page opens —
+from the same tables the destination draws, so the panel cannot drift from the page. The card is
+the same `panelBlockGrouped` the main menu uses, and a menu taller than its window still scrolls
+with the range named in the header.
+
+**An action block follows the rows it acts on.** The section screens still reserve the action
+block's height in every state, so a selection cannot resize the list; the spare rows now sit below
+the block instead of above it, so a short list keeps its Refresh, Undo and Back rows beside the list
+rather than a screenful away. A long list fills the band and pins the block at the foot exactly as
+before.
+
+**The utilities section's right column is the machine's state.** The section used to repeat its own
+caveats in the column; it now draws **At a glance**, one row per job, from the same model fields the
+rows read. The caveats stay in the body, above the list, under the section's own title, so a missing
+row is still explained where the list is read and the section is not a list of jobs with a second
+copy of its own prose beside it.
 
 **The installer records the theme it changed too.** The Utilities section writes the setting it
 replaced to `$XDG_STATE_HOME/dotfiles/theme.json` — or `~/.local/state/dotfiles/theme.json` — so the

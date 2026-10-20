@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 	"strings"
@@ -72,7 +73,8 @@ func paintDriftBackground(frame string, m Model) string {
 	}
 
 	base := driftThemeColour(Background)
-	tinted := blendColour(base, driftThemeColour(Accent), driftAccentTint)
+	accent := driftThemeColour(Accent)
+	tinted := blendColour(base, accent, driftTintCap(base, accent))
 
 	lines := strings.Split(frame, "\n")
 	var out strings.Builder
@@ -118,6 +120,45 @@ func driftRowColour(base, tinted color.RGBA, row, rows, tick int) color.RGBA {
 	position := (float64(row) + float64(tick)*driftRowsPerTick) / float64(rows)
 	fold := 0.5 - 0.5*math.Cos(2*math.Pi*position)
 	return blendColour(base, tinted, fold)
+}
+
+// driftTintCap is how far the ramp may pull the base toward the accent without
+// making the muted text less legible than it is on the plain base. The drift is
+// decoration, and its contract is that the text reads on it exactly as it reads
+// on the background; the fixed driftAccentTint broke that for the palettes whose
+// muted role sits close to their base. The cap is derived from the palette in
+// use, so a theme change cannot leave a stale constant behind.
+func driftTintCap(base, accent color.RGBA) float64 {
+	return driftTintCapFor(base, accent, hexColour(driftThemeColour(TextMuted)))
+}
+
+// driftTintCapFor is driftTintCap with the ink given explicitly, so a test can
+// measure a theme's own muted role rather than the chrome the process happens to
+// be wearing.
+func driftTintCapFor(base, accent color.RGBA, inkHex string) float64 {
+	plain := themeContrastRatio(inkHex, hexColour(base))
+	if plain <= 0 {
+		return driftAccentTint
+	}
+	// Contrast is not monotone in a blend: a bright accent can carry the tint
+	// past the ink's own luminance, where the contrast dips even though both ends
+	// read well. The cap is the last step before the first dip, sampled rather
+	// than searched, so the whole gradient stays as legible as the plain base.
+	const steps = 32
+	last := 0.0
+	for i := 1; i <= steps; i++ {
+		tint := driftAccentTint * float64(i) / steps
+		if themeContrastRatio(inkHex, hexColour(blendColour(base, accent, tint))) < plain-0.02 {
+			return last
+		}
+		last = tint
+	}
+	return driftAccentTint
+}
+
+// hexColour is a colour as the #rrggbb string the contrast helpers read.
+func hexColour(c color.RGBA) string {
+	return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
 }
 
 // driftThemeColour resolves an adaptive theme colour against the terminal's

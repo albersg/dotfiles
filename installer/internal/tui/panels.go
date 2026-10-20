@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -95,6 +96,23 @@ const (
 	// from which build, and what that run touched. It is on the main menu, and only
 	// when a record exists.
 	panelLastInstall panelID = "last-install"
+
+	// panelHub is the hub pages' panel: what the row under the cursor is and what
+	// its page holds. It is the column the main menu gives the row that opens a
+	// hub, now answered inside the hub instead of only outside it.
+	panelHub panelID = "hub"
+
+	// panelUtilities is the utilities section's panel: the state of every job the
+	// section offers. The section used to spend its right column on the same
+	// caveats the body could print; the board answers "what is this machine's
+	// state" instead, which is the question the section is for.
+	panelUtilities panelID = "utilities"
+
+	// panelTheme is the theme picker's panel: the palette the theme under the
+	// cursor would paint. The picker used to leave the whole right column empty
+	// while the only way to see a colour was the four swatches in a line under the
+	// list; the palette is the screen's subject, so it gets the column.
+	panelTheme panelID = "theme"
 )
 
 // panel is one column a screen can offer. A panel is a value built by a
@@ -151,6 +169,20 @@ func (m Model) panelsFor() []panel {
 		ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect, ScreenGhosttyWarning,
 		ScreenInstallReview:
 		return []panel{planPanel()}
+	case ScreenUtilities:
+		return []panel{utilitiesStatusPanel()}
+	case ScreenThemePicker:
+		return []panel{themePalettePanel()}
+	// The hub pages: the Vim hub, the Learn hub, the learn tool menus, the keymap
+	// menus and the guide. Each row opens a destination, and the panel answers
+	// about the row under the cursor, so the page has a second column the way the
+	// main menu's row for it always had.
+	case ScreenVimHub, ScreenLearnTools,
+		ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim,
+		ScreenKeymaps, ScreenKeymapsMenu, ScreenKeymapsTmux, ScreenKeymapsZellij,
+		ScreenKeymapsGhostty, ScreenKeymapsHerdr, ScreenKeymapsKitty,
+		ScreenLearnLazyVim:
+		return []panel{hubPanel()}
 	}
 	return nil
 }
@@ -228,6 +260,369 @@ func lastInstallPanel() panel {
 		Headline: func(m Model) string { return m.lastInstallHeadline() },
 		Facts:    func(m Model, l layout) []string { return m.lastInstallPanelFacts(l) },
 	}
+}
+
+// utilitiesStatusPanel is the utilities section's right column: the status board
+// the main menu already drew for the section's row, now shown inside the section.
+// It reads the same model fields the rows read, so a job cannot look offered in
+// the list and absent in the board.
+func utilitiesStatusPanel() panel {
+	return panel{
+		ID:       panelUtilities,
+		Title:    "At a glance",
+		Short:    "Status",
+		Headline: func(m Model) string { return "the machine's own settings" },
+		Facts:    func(m Model, l layout) []string { return m.utilitiesPanelFacts(l) },
+	}
+}
+
+// themePalettePanel is the theme picker's right column: the palette of the theme
+// under the cursor, role by role, with the hex each role would write.
+func themePalettePanel() panel {
+	return panel{
+		ID:       panelTheme,
+		Title:    "The palette",
+		Short:    "Palette",
+		Headline: func(m Model) string { return m.themePaletteHeadline() },
+		Facts:    func(m Model, l layout) []string { return m.themePaletteFacts(l) },
+	}
+}
+
+// themeBoardRoles is the order the palette board reads: the two surfaces, then
+// the accents the interface paints with. They are palette roles the definition
+// carries, so the board never shows a swatch for a role that is not there.
+var themeBoardRoles = []string{"base", "text", "blue", "magenta", "red", "green", "yellow", "cyan", "cursor"}
+
+// themePaletteHeadline is the narrow terminal's summary: the theme the board is
+// showing, or the instruction when there is no row under the cursor.
+func (m Model) themePaletteHeadline() string {
+	if def, ok := m.themePaletteDefinition(); ok {
+		return def.Name
+	}
+	return "the palette"
+}
+
+// themePaletteDefinition is the theme the board describes: the one under the
+// cursor while the cursor is on a theme row, and the applied theme when it is
+// not, so the board never goes blank while the screen still has a theme on.
+func (m Model) themePaletteDefinition() (themeDefinition, bool) {
+	if def, ok := m.previewThemeDef(); ok {
+		return def, true
+	}
+	if m.DotfilesThemeRecord != nil && m.DotfilesThemeRecord.Theme != "" && m.DotfilesThemeRecord.Theme != defaultThemeID {
+		return themeByID(m.DotfilesThemes, m.DotfilesThemeRecord.Theme)
+	}
+	return themeDefinition{}, false
+}
+
+// themePaletteFacts renders the board: which theme, which one is applied, and
+// one row per palette role with a swatch, the role's name and its hex.
+func (m Model) themePaletteFacts(l layout) []string {
+	def, ok := m.themePaletteDefinition()
+	if !ok {
+		return []string{InkStyle.Render("Move the cursor onto a theme to see the palette it would paint.")}
+	}
+	rows := panelFact("Theme", def.Name, l.Right)
+	rows = append(rows, panelFact("Applied", m.appliedThemeName(), l.Right)...)
+	for _, role := range themeBoardRoles {
+		hex := def.Palette[role]
+		if !themeHexRE.MatchString(hex) {
+			continue
+		}
+		rows = append(rows, themeSwatchRow(role, hex))
+	}
+	if def.Nvim != "" {
+		rows = append(rows, panelFact("Neovim", def.Nvim, l.Right)...)
+	}
+	return rows
+}
+
+// appliedThemeName is the theme the interface is wearing now, or the honest
+// default when no record names one.
+func (m Model) appliedThemeName() string {
+	if m.DotfilesThemeRecord == nil || m.DotfilesThemeRecord.Theme == "" || m.DotfilesThemeRecord.Theme == defaultThemeID {
+		return "the installer's own"
+	}
+	if def, ok := themeByID(m.DotfilesThemes, m.DotfilesThemeRecord.Theme); ok {
+		return def.Name
+	}
+	return m.DotfilesThemeRecord.Theme
+}
+
+// themeSwatchRow draws one palette role: a block in the role's own colour, the
+// role's name in the muted tone and the hex it would write.
+func themeSwatchRow(role, hex string) string {
+	swatch := lipgloss.NewStyle().Background(lipgloss.Color(hex)).Render("   ")
+	return swatch + " " + MutedStyle.Render(padRight(role, 10)) + InkStyle.Render(hex)
+}
+
+// hubPanel is the hub pages' right column: the Vim hub, the Learn hub, the
+// learn tool menus, the keymap menus and the guide. They used to be bare lists;
+// the main menu's own row for each of them had a full panel, while the page it
+// opened had none. The same contextual grammar now holds inside.
+func hubPanel() panel {
+	return panel{
+		ID:       panelHub,
+		Title:    "About",
+		Short:    "About",
+		Headline: func(m Model) string { return m.hubHeadline() },
+		Facts:    func(m Model, l layout) []string { return m.hubPanelFacts(l) },
+	}
+}
+
+// hubHeadline is the narrow terminal's one-line summary: the row under the
+// cursor, or the way back when the cursor has no row to describe.
+func (m Model) hubHeadline() string {
+	if label := m.hubSelectedLabel(); label != "" {
+		return label
+	}
+	return "the way back"
+}
+
+// hubSelectedLabel is the option under the cursor, or the empty string when the
+// cursor sits on a separator, on the way back, or outside the list. The hub
+// panels answer about the row the user is on, so they read the same option list
+// the menu draws.
+func (m Model) hubSelectedLabel() string {
+	options := m.GetCurrentOptions()
+	if m.Cursor < 0 || m.Cursor >= len(options) {
+		return ""
+	}
+	label := options[m.Cursor]
+	if strings.HasPrefix(label, menuSeparatorPrefix) || strings.Contains(label, "Back") {
+		return ""
+	}
+	return label
+}
+
+// hubPanelFacts is the hub's contextual panel: the selected row's name, then
+// what that row holds. Every value is read from the tables the destination
+// draws, so the panel and the page it opens cannot disagree.
+func (m Model) hubPanelFacts(l layout) []string {
+	label := m.hubSelectedLabel()
+	if label == "" {
+		return []string{InkStyle.Render("The way back to the page that opened this menu.")}
+	}
+	rows := selectedPanelRow(label, l.Right)
+	switch m.Screen {
+	case ScreenVimHub:
+		switch label {
+		case "Vim Trainer":
+			rows = append(rows, trainerCurriculumFacts(l)...)
+			rows = append(rows, panelFact("Grades", "lessons, practice, boss fights", l.Right)...)
+			for _, module := range trainer.GetAllModules() {
+				rows = append(rows, panelFact("", module.Name, l.Right)...)
+			}
+		case "Neovim Keymaps":
+			rows = append(rows, panelFact("Tools", strconv.Itoa(len(keymapSources())+2), l.Right)...)
+			rows = append(rows, panelFact("Bindings", keymapBindingCount(totalKeymapCount()), l.Right)...)
+			rows = append(rows, keymapsPanelFacts(l)...)
+		case "LazyVim Guide":
+			rows = append(rows, lazyVimPanelFacts(l)...)
+			for _, topic := range GetLazyVimTopics() {
+				rows = append(rows, panelFact("", topic.Title, l.Right)...)
+			}
+		case "Learn about Neovim":
+			info := GetNvimInfo()
+			rows = append(rows, panelFact("Reads", info.Description, l.Right)...)
+			if info.Website != "" {
+				rows = append(rows, panelFact("Site", readableSite(info.Website), l.Right)...)
+			}
+		}
+	case ScreenLearnTools:
+		rows = append(rows, m.learnPagePanelFacts(label, l)...)
+	case ScreenLearnTerminals:
+		rows = append(rows, toolPanelFacts(GetTerminalInfo(), label, l)...)
+	case ScreenLearnShells:
+		rows = append(rows, toolPanelFacts(GetShellInfo(), label, l)...)
+	case ScreenLearnWM:
+		rows = append(rows, toolPanelFacts(GetWMInfo(), label, l)...)
+	case ScreenLearnNvim:
+		if info := GetNvimInfo(); info.Description != "" {
+			rows = append(rows, panelFact("Reads", info.Description, l.Right)...)
+		}
+	case ScreenKeymapsMenu:
+		rows = append(rows, keymapToolPanelFacts(label, l)...)
+	case ScreenKeymaps, ScreenKeymapsTmux, ScreenKeymapsZellij,
+		ScreenKeymapsGhostty, ScreenKeymapsHerdr, ScreenKeymapsKitty:
+		rows = append(rows, m.keymapCategoryPanelFacts(label, l)...)
+	case ScreenLearnLazyVim:
+		rows = append(rows, lazyVimTopicPanelFacts(label, l)...)
+	}
+	// A row whose page has nothing more to say still says what Enter does, so the
+	// panel never opens on a name and then stops.
+	if len(rows) == len(selectedPanelRow(label, l.Right)) {
+		rows = append(rows, InkStyle.Render("Enter opens this page."))
+	}
+	return rows
+}
+
+// learnPagePanelFacts names what each Learn hub page holds. The panel lists the
+// page's own entries -- the terminals, the prompts, the plugin sets -- from the
+// same tables the page draws, so the column previews the content instead of
+// counting it.
+func (m Model) learnPagePanelFacts(label string, l layout) []string {
+	var rows []string
+	switch label {
+	case "Terminals":
+		rows = append(rows, toolPagePanelFacts(GetTerminalInfo(), l)...)
+	case "Shells":
+		rows = append(rows, toolPagePanelFacts(GetShellInfo(), l)...)
+	case "Multiplexers":
+		rows = append(rows, toolPagePanelFacts(GetWMInfo(), l)...)
+	case "Prompts":
+		rows = append(rows, toolPagePanelFacts(GetPromptInfo(), l)...)
+	case "Neovim":
+		info := GetNvimInfo()
+		rows = append(rows, panelFact("Reads", info.Description, l.Right)...)
+		if info.Website != "" {
+			rows = append(rows, panelFact("Site", readableSite(info.Website), l.Right)...)
+		}
+	case "Font":
+		info := GetFontInfo()
+		rows = append(rows, panelFact("Installs", info.Name, l.Right)...)
+		if info.Website != "" {
+			rows = append(rows, panelFact("Site", readableSite(info.Website), l.Right)...)
+		}
+	case "Shell tooling":
+		rows = append(rows, referencePagePanelFacts(shellToolingTable(), l)...)
+	case "Plugins":
+		rows = append(rows, referencePagePanelFacts(pluginSetsTable(), l)...)
+	case "Machine toolset":
+		rows = append(rows, referencePagePanelFacts(machineToolsetTable(), l)...)
+	}
+	return rows
+}
+
+// toolPagePanelFacts previews a tool menu: how many pages it holds and their
+// names, sorted so the column is stable from one render to the next.
+func toolPagePanelFacts(tools map[string]ToolInfo, l layout) []string {
+	names := make([]string, 0, len(tools))
+	for _, info := range tools {
+		names = append(names, info.Name)
+	}
+	sort.Strings(names)
+	rows := panelFact("Pages", strconv.Itoa(len(names)), l.Right)
+	for _, name := range names {
+		rows = append(rows, panelFact("", name, l.Right)...)
+	}
+	return rows
+}
+
+// referencePagePanelFacts previews a read-only reference page: the table's own
+// row names, in the table's order.
+func referencePagePanelFacts(table referenceTable, l layout) []string {
+	rows := panelFact("Entries", strconv.Itoa(len(table.Rows)), l.Right)
+	for _, row := range table.Rows {
+		rows = append(rows, panelFact("", row.Name, l.Right)...)
+	}
+	return rows
+}
+
+// readableSite is a website without its scheme, so the panel's value column is
+// spent on the address a reader can type rather than on the scheme.
+func readableSite(site string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(site, "https://"), "http://")
+}
+
+// toolPanelFacts describes the tool under the cursor on a Learn tool menu. The
+// tool is looked up by its label in the same table the page draws.
+func toolPanelFacts(tools map[string]ToolInfo, label string, l layout) []string {
+	info, ok := tools[strings.ToLower(label)]
+	if !ok {
+		return nil
+	}
+	var rows []string
+	if info.Description != "" {
+		rows = append(rows, panelFact("What it is", info.Description, l.Right)...)
+	}
+	if info.Website != "" {
+		rows = append(rows, panelFact("Site", readableSite(info.Website), l.Right)...)
+	}
+	rows = append(rows, panelFact("Reads", "pros and cons", l.Right)...)
+	return rows
+}
+
+// keymapToolPanelFacts counts the selected tool's reference. The binding tools
+// are read from keymapSources; WezTerm and Alacritty have settings tables
+// because their configurations declare no bindings.
+func keymapToolPanelFacts(label string, l layout) []string {
+	for _, src := range keymapSources() {
+		if src.name == label {
+			rows := panelFact("Categories", strconv.Itoa(len(src.cats)), l.Right)
+			rows = append(rows, panelFact("Bindings", keymapBindingCount(keymapCount(src.cats)), l.Right)...)
+			for _, cat := range src.cats {
+				rows = append(rows, panelFact("", cat.Name, l.Right)...)
+			}
+			return rows
+		}
+	}
+	var table referenceTable
+	switch label {
+	case "WezTerm":
+		table = weztermConfigTable()
+	case "Alacritty":
+		table = alacrittyConfigTable()
+	default:
+		return nil
+	}
+	rows := panelFact("Settings", strconv.Itoa(len(table.Rows)), l.Right)
+	if table.Description != "" {
+		rows = append(rows, panelFact("Note", table.Description, l.Right)...)
+	}
+	for _, row := range table.Rows {
+		rows = append(rows, panelFact("", row.Name, l.Right)...)
+	}
+	return rows
+}
+
+// keymapCategoryPanelFacts describes the category under the cursor on a keymap
+// category menu: how many bindings it holds and what it is about.
+func (m Model) keymapCategoryPanelFacts(label string, l layout) []string {
+	for _, cat := range m.keymapCategoriesForScreen() {
+		if cat.Name != label {
+			continue
+		}
+		rows := panelFact("Bindings", keymapBindingCount(len(cat.Keymaps)), l.Right)
+		if cat.Description != "" {
+			rows = append(rows, panelFact("About", cat.Description, l.Right)...)
+		}
+		return rows
+	}
+	return nil
+}
+
+// keymapCategoriesForScreen is the category list the current keymap screen
+// draws. The menus and their panels read one list.
+func (m Model) keymapCategoriesForScreen() []KeymapCategory {
+	switch m.Screen {
+	case ScreenKeymaps:
+		return m.KeymapCategories
+	case ScreenKeymapsTmux:
+		return m.TmuxKeymapCategories
+	case ScreenKeymapsZellij:
+		return m.ZellijKeymapCategories
+	case ScreenKeymapsGhostty:
+		return m.GhosttyKeymapCategories
+	case ScreenKeymapsHerdr:
+		return m.HerdrKeymapCategories
+	case ScreenKeymapsKitty:
+		return m.KittyKeymapCategories
+	}
+	return nil
+}
+
+// lazyVimTopicPanelFacts describes the guide topic under the cursor.
+func lazyVimTopicPanelFacts(label string, l layout) []string {
+	for _, topic := range GetLazyVimTopics() {
+		if topic.Title != label {
+			continue
+		}
+		rows := panelFact("About", topic.Description, l.Right)
+		rows = append(rows, panelFact("Reads", fmt.Sprintf("%d points", len(topic.Content)), l.Right)...)
+		return rows
+	}
+	return nil
 }
 
 // activePanelIndex is the panel the screen is showing: the model's stored index

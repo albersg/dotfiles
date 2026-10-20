@@ -1,6 +1,7 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                                                    
+   Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  The machine's own settings                                                    
   No desktop theme switch is available here: no GNOME, KDE or macOS session.    
   WSL resources are not adjustable here: Linux is not WSL.                      
                                                                                 
@@ -15,7 +16,6 @@
     → Find what holds a port                                                    
     → Diagnose the development environment                                      
     ← Back                                                                      
-                                                                                
                                                                                 
                                                                                 
                                                                                 

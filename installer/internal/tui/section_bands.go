@@ -148,7 +148,11 @@ func (m Model) sectionBandFor() sectionBand {
 		// backup: it is the screen, so it takes what it needs.
 		return sectionBand{Detail: detailAsNeeded, Floor: 4, Notice: sectionNoticeRows}
 	case ScreenThemePicker:
-		return sectionBand{Detail: 2, Floor: 2, Notice: 1}
+		// The intro explains what applying writes and what moving the cursor
+		// previews. It reserved two rows because it wrapped to two at the full
+		// width; the palette column narrows the body and the sentence grows, so it
+		// takes the rows it wraps to, with a floor of two.
+		return sectionBand{Detail: detailAsNeeded, Floor: 2, Notice: 1}
 	case ScreenTerminalCapabilities, ScreenInstallVerify:
 		// These screens report rather than list: their prose IS the screen, so the
 		// notice band is not drawn at all and the list band is the way back.
@@ -325,7 +329,19 @@ func (m Model) sectionBandsFor(width int, hints []installerHint, detailLines, me
 // When the frame's header already carries that name the body starts with what
 // the screen is for, instead of repeating the label one row lower.
 func (m Model) sectionTitleInBody() bool {
-	return m.GetScreenTitle() != m.headerName()
+	return m.sectionBodyTitle() != m.headerName()
+}
+
+// sectionBodyTitle is the name the body opens with. The header already names the
+// section, so most screens have no body title at all. The utilities section is
+// the one place the header's "Utilities" is too generic to say what the page is
+// for: its body opens with what the section holds, the way the main menu's body
+// opens with "dotfiles" instead of repeating "Main Menu".
+func (m Model) sectionBodyTitle() string {
+	if m.Screen == ScreenUtilities {
+		return "The machine's own settings"
+	}
+	return m.GetScreenTitle()
 }
 
 // footerReserveRows is how many rows the footer reserves for a screen. It is the
@@ -449,6 +465,21 @@ func wrapParagraphs(paragraphs []string, width int) []string {
 // clipLines cuts lines to rows the same way every other block in the installer
 // is cut: the rows that fit, with a marker naming what it could not show. A
 // block within its budget is returned unchanged.
+// inkParagraphs gives prose lines the theme's body ink. Wrapped paragraphs are
+// plain strings, so drawn bare they inherit the terminal's default foreground:
+// white on a light theme's background, invisible in the live preview and on an
+// applied light theme. A line that already carries its own styling is left
+// alone, so a report that paints a value green keeps its colour.
+func inkParagraphs(lines []string) []string {
+	for i, line := range lines {
+		if line == "" || strings.Contains(line, "\x1b") {
+			continue
+		}
+		lines[i] = InkStyle.Render(line)
+	}
+	return lines
+}
+
 func clipLines(lines []string, rows, width int) []string {
 	if rows < 1 {
 		return nil

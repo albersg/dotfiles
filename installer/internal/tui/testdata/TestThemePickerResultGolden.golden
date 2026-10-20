@@ -1,5 +1,5 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                                  Showing 1-6 of 7  
+   Utilities                                      Showing 1-6 of 7 · dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Change the dotfiles theme                                                     
   ▸ Apply the Catppuccin Latte theme                                            
@@ -16,9 +16,9 @@
   colours are already on screen.                                                
   → Neovim — a Neovim that is already open keeps the old colorscheme: run       
   … and 5 more                                                                  
-                                                                                
   ────────────────────────────────────────────────────────────────────────────  
     [r] Refresh outdated theme files                                            
     ← Back                                                                      
+                                                                                
   ────────────────────────────────────────────────────────────────────────────  
   ↑/k up • ↓/j down • [Enter] choose • [r] refresh • [Esc] back                 [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
