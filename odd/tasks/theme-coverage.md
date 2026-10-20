@@ -23,11 +23,11 @@ it closed.
 | U4 | fzf in fish: the colours zsh already sets | `dotfiles-fish/fish/config.fish`, `installer.go` | S1, S3–S5 | `219be27` |
 | U5 | delta: `[delta]` colours from the palette | `.gitconfig`, `installer.go` | S1, S3–S5 | |
 | U6 | the docs and the contrast note | `themes/README.md`, `docs/tui-installer.md` | S3, S5 | `08c2e75` |
-| U7 | zellij's layouts, not only its config | `dotfiles-zellij/zellij/layouts/*.kdl`, `installer.go` | S1, S3–S5 | |
-| U8 | tmux: the plugin's own theme name | `dotfiles-tmux/tmux.conf`, `installer.go` | S1, S3–S5 | |
-| U9 | Herdr's built-in theme name | `dotfiles-herdr/config.toml`, `installer.go` | S1, S3–S5 | |
-| U10 | nushell's bat previews and fish's `fish_color_match` | `dotfiles-nushell/config.nu`, `dotfiles-fish/fish/config.fish` | S1, S3–S5 | |
-| U11 | the stale ghostty theme asset that also ships | `dotfiles-ghostty`, `installer.go` | S3, S5 | |
+| U7 | zellij's layouts, not only its config | `dotfiles-zellij/zellij/layouts/work.kdl`, `installer.go` | S1, S3–S5 | `2746de5` |
+| U8 | tmux: the plugin's own theme name | `dotfiles-tmux/tmux.conf` | S1, S3–S5 | `380df3e` |
+| U9 | Herdr's custom tokens, all four Herdr exposes | `dotfiles-herdr/config.toml`, `installer.go` | S1, S3–S5 | `08588eb` |
+| U10 | nushell's bat previews and fish's `fish_color_match` | `dotfiles-nushell/config.nu`, `dotfiles-fish/fish/config.fish` | S1, S3–S5 | `ee448b4`, `7a4c73a` |
+| U11 | the stale ghostty theme asset that also ships | `dotfiles-ghostty`, `installer.go` | S3, S5 | `aa8e220` |
 
 ## Log
 
