@@ -28,10 +28,10 @@ The dotfiles TUI Installer is a modern, interactive terminal application built w
 - **Educational Content**: A **Learn About Tools** hub that reaches a page for every tool a run
 touches: the terminals, shells and multiplexers a run chooses, Neovim, the font, the prompts, the
 shell tooling, the plugin sets and the `Brewfile`'s directives
-- **Keymaps Reference**: Built-in keymap browser organized by category, for every tool whose
-configuration declares bindings; the two that declare none say so and list what they set instead
-- **LazyVim Guide**: Comprehensive guide to LazyVim concepts and usage
-- **Vim Trainer**: RPG-style interactive Vim learning with exercises and progression
+- **Vim & Neovim**: One hub for everything the menu used to list one row at a time: an
+RPG-style **Vim Trainer** with exercises and progression, a built-in **keymaps reference**
+organized by category for every tool whose configuration declares bindings (the two that declare
+none say so and list what they set instead), the **LazyVim guide**, and the Neovim page
 - **Utilities**: The small jobs that are not part of an installation, starting with a
   reversible system light/dark theme switch and the reversible dotfiles-theme switch, in its own
   main-menu row, and the read-only **network diagnosis** that names which stage of a connection
@@ -85,14 +85,16 @@ go build -o dotfiles ./cmd/dotfiles
 
 ### Main Menu
 
-From the main menu you can access:
+The menu is three groups under one card -- what the run does, what there is to learn, and the
+session itself -- and the header carries the build (`dev build` when the binary was not cut from
+a release tag). From the main menu you can access:
 
 - **Start Installation**: Begin the guided setup process
 - **Learn About Tools**: Opens the hub: terminals, shells, multiplexers, Neovim, the font, the
   prompts, the shell tooling, the plugin sets and the machine toolset
-- **Keymaps Reference**: Browse the bindings each tool ships, organized by category
-- **LazyVim Guide**: Learn LazyVim fundamentals
-- **Vim Trainer**: Practice Vim motions with interactive exercises
+- **Vim & Neovim**: Opens the hub: the **Vim Trainer**, the **Neovim keymaps reference**, the
+  **LazyVim guide** and the **Neovim** page. It is one row because the four are one subject;
+  Escape there comes back to the main menu
 - **Update this installer**: Appears whenever the check has something to report: a newer
   release than this build is published, or the check ended with the reason it could not read
   one. When the file is the installer's own to replace, pressing it downloads the release
@@ -1796,7 +1798,7 @@ question its own screen asks:
 | Welcome | **Your machine** | Where am I — the machine this run is about to change: its OS, WSL host and version, architecture, shell, package manager, Xcode command-line tools and `$HOME` |
 | Welcome | **This machine, now** | How is it doing right now — the CPU and memory sparklines and the load, disk free and process count, sampled about once a second; with animation off it says the sampling is off, and on a host that reports nothing it says that |
 | Welcome | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
-| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the bindings each tool ships in the keymap reference; the topic count of the LazyVim guide; the curriculum of the Vim Trainer; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the advisor's own findings by severity inside WSL (or the copy it is running), the shell startup, the terminal capability report, the update center's state: what the last read found, how many entries are selected, or that the question has not been asked yet, the port utility's last reading (how many sockets it found, or that it has not been read yet), what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`), and the doctor's own last line — or one honest line when there is no desktop; one honest line for **Exit** |
+| Main menu | **What will happen** | What the option under the cursor holds — the plan the run would execute, the configurations it would overwrite and the newest backup with when it was taken and how many files it carries for **Start Installation**; the terminal, shell and multiplexer counts the learn screens describe; the curriculum the trainer grades, the Neovim bindings the reference lists and the topics the guide covers for **Vim & Neovim**; the published release and this build -- or the reason the row will not install -- for **Update this installer**; the channel it follows and what pressing the row switches to for **Update channel**; every backup with its date and file count for **Restore from Backup**; one row per utility for **Utilities** — the switch this host offers and whether the undo is available, the theme list or that it has not been checked yet, the WSL recommendation, the advisor's own findings by severity inside WSL (or the copy it is running), the shell startup, the terminal capability report, the update center's state: what the last read found, how many entries are selected, or that the question has not been asked yet, the port utility's last reading (how many sockets it found, or that it has not been read yet), what the last network diagnosis answered (`not run yet` until its screen has run, then the stage that did not answer or `every stage answered`), and the doctor's own last line — or one honest line when there is no desktop; one honest line for **Exit** |
 | Main menu | **Your trainer** | What have I gained — the lessons and mastery of every module you have started, your overall accuracy, your best streak, and the next boss with what it needs |
 | Main menu | **Did you know?** | What can I learn right now — one shortcut at a time, rotating every ten seconds |
 | Main menu | **Last install** | When did I last run this — when the previous run finished, from which build, and which configuration paths it replaced |
@@ -2484,7 +2486,7 @@ for: `eza`, `bat`, `ripgrep`, `fd`, `fzf`, `fnm`, `direnv`, `jq`, `gh`, `git-del
 
 ## Keymaps Reference
 
-**Keymaps Reference** is its own main-menu row. It offers one row per tool, each tool's tables are
+**Keymaps Reference** is one level in from the main menu's **Vim & Neovim** hub. It offers one row per tool, each tool's tables are
 grouped by category, `↑`/`↓` (or `k`/`j`) scroll a table and `Esc` goes back one level.
 
 | Tool | What its tables hold |

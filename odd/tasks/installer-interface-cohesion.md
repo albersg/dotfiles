@@ -54,9 +54,9 @@ sizes; trainer snapshots do not move.
 |----|------|-------|-------|--------|
 | T1 | S1, S2 | inline | done | 96cb6ce |
 | T2 | S2, S3 | inline | done | recorded in T3 |
-| T3 | S3 | inline | done | recorded in T4 |
-| T4 | S4, S5 | inline | done | recorded in T5 |
-| T5 | S1–S6 | inline | pending | - |
+| T3 | S3 | inline | done | 3e10e64 |
+| T4 | S4, S5 | inline | done | d821755 |
+| T5 | S1–S6 | inline | done | this commit |
 
 - **T1 — Stable bands.** Add the band contract (`section_bands.go`), rewrite `renderThemeScreen` to
   draw fixed bands, reserve footer rows from the screen's full hint set, anchor the action tail to
@@ -174,3 +174,17 @@ row from the option list, the DD gag is drawn through the same `menuRowAt` the
 grouped card uses (a gag only one renderer honoured would vanish from the screen
 it belongs to), and the main-menu, companion and truecolor goldens were
 regenerated deliberately. `go test ./internal/tui -skip Golden` is green.
+
+**L7 — T5 landed.** The docs say what the menu is now: three groups under one
+card with the build in the header, one `Vim & Neovim` row opening a hub, and the
+keymaps reference one level in from it. The panel table names the hub's facts.
+`make preflight` passed 7/7 (gofmt, vet, build + `--help`, `go test ./...`,
+shellcheck, branding, gitleaks), so the full suite including every golden is
+green.
+
+**Remaining.** Nothing open. The branch is `feat/installer-interface-cohesion`;
+the merge is the maintainer's decision. Two things this front deliberately did
+not do: the `v` shortcut for the hub (unreachable behind the `vim` easter-egg
+prefix) and a repo-wide sweep of the remaining section screens that keep a
+full-width body (the report screens, the SSH screens) -- their bands are stable,
+but they have no detail column because their prose is the screen.
