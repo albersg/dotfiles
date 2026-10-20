@@ -507,7 +507,18 @@ func (m *Model) doctorFinishRun(reason string) {
 		run.ReportErr = writeErr.Error()
 	}
 	counts := report.counts()
-	run.Message = fmt.Sprintf("%s: %s", doctorCounted(len(run.Order), "check", "checks"), counts.summary())
+	// The counts are findings, not checks: one check can produce several, so a
+	// colon after the check count read as a breakdown that did not add up (27
+	// checks against 67 findings). Name the checks and the findings separately.
+	findings := counts.total()
+	if findings == 0 {
+		run.Message = fmt.Sprintf("%s ran; no findings.", doctorCounted(len(run.Order), "check", "checks"))
+	} else {
+		run.Message = fmt.Sprintf("%s ran; %s: %s",
+			doctorCounted(len(run.Order), "check", "checks"),
+			doctorCounted(findings, "finding", "findings"),
+			counts.summary())
+	}
 	if run.ReportErr != "" {
 		run.Message += ". The report could not be written (" + run.ReportErr + ")"
 	} else if run.ReportPath != "" {

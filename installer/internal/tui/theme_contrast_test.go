@@ -46,6 +46,14 @@ func TestPreviewMutedRoleStaysLegibleOnTheDrift(t *testing.T) {
 				path, muted, base, baseRatio, bodyFloor)
 		}
 
+		// The footer's key tokens take the Key role; they are body-sized text on
+		// the base, so they get the same floor.
+		key := colors.Key.Dark
+		if ratio := themeContrastRatio(key, base); ratio < bodyFloor {
+			t.Errorf("%s: the key tone %s on base %s is %.2f:1, want at least %.1f:1",
+				path, key, base, ratio, bodyFloor)
+		}
+
 		accent := def.Palette["cursor"]
 		if !themeHexRE.MatchString(accent) {
 			continue

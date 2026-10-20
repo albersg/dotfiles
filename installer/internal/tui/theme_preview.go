@@ -189,8 +189,23 @@ func themePreviewColors(def themeDefinition) (uiColors, error) {
 	keywordDark := def.Syntax["keyword_dark"]
 	stringDark := def.Syntax["string_dark"]
 
+	// The key tokens take the accent when it clears the body floor on the base,
+	// and the primary otherwise. Catppuccin Latte's cursor is a soft rose at
+	// 2.2:1 on its base; the same role is right for the bar and wrong for a key
+	// label, so the key tone is chosen here once instead of in the footer.
+	key := semantic["accent"]
+	if themeContrastRatio(key, semantic["background"]) < 4.5 {
+		key = semantic["primary"]
+	}
+	if themeContrastRatio(key, semantic["background"]) < 4.5 {
+		// A theme whose accent and primary both sit near its base still has a body
+		// ink; a key label is never allowed to be the one illegible colour.
+		key = semantic["text"]
+	}
+
 	colors := uiColors{
 		Background:    themePreviewColor(semantic["background"]),
+		Key:           themePreviewColor(key),
 		Text:          themePreviewColor(semantic["text"]),
 		TextMuted:     themePreviewColor(semantic["text_muted"]),
 		Primary:       themePreviewColor(semantic["primary"]),

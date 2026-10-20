@@ -123,6 +123,25 @@ panel with modules), `91-learn-hub-card.png` (named groups, page list),
 `94-vim-floor.png` and `95-learn-floor.png` (80x24). The main menu and the welcome
 keep their shape; the build label and the muted vital are the only changes there.
 
+L9 (verification, 2026-10-20): the VHS session and the learn verify subagent found:
+the doctor's closing line mixed checks and findings ("27 checks: 22 warnings, ...,
+36 ok" — 67 findings, not 27); the light preview's footer keys were the palette's
+accent (Latte's cursor rose at 2.2:1 on its base); the learn terminal panel sorted
+its names while the menu kept its order; the LazyVim topic footer offered
+`[Enter] open` on a page with no rows; the trainer offered `[PgUp/PgDn] scroll`
+over a one-line code window; the keymap/topic panel repeated "About" as a fact
+under a panel titled "About"; ports truncate their rows with the wide terminal
+half unused; the trainer menu truncates `Registers & Indentat…`, draws zero
+meters as a full-width hatch and mixes header separators; the wizard's values are
+right-aligned/ragged (`None` vs `Not chosen`); the LazyVim topic page's margin
+and prose tone differ from the other pages; the WSL/updates captures were
+mid-load and the disk/network tapes pressed Enter on rows that run on their own
+letters (verification artefacts, not product defects). The subagent's "working
+tree mutated" blocker was the parent's concurrent fixes, not another session.
+The doctor, key tone, panel order, dead hints and "Covers" label are fixed in
+the follow-up commit; ports, the trainer layout, the wizard value column and the
+LazyVim topic page are recorded as remaining.
+
 L8 (regression report, user, 2026-10-20): "me has quitado el fondo dinamico?"
 The no-loss drift cap was too strict: Nocturne's muted role was 7.07:1 and the
 first 0.0063 tint took it to 7.04:1, under the 7.05:1 no-loss threshold, so the

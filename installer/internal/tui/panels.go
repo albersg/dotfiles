@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -465,13 +464,13 @@ func (m Model) learnPagePanelFacts(label string, l layout) []string {
 	var rows []string
 	switch label {
 	case "Terminals":
-		rows = append(rows, toolPagePanelFacts(GetTerminalInfo(), l)...)
+		rows = append(rows, m.toolPagePanelFacts(GetTerminalInfo(), l)...)
 	case "Shells":
-		rows = append(rows, toolPagePanelFacts(GetShellInfo(), l)...)
+		rows = append(rows, m.toolPagePanelFacts(GetShellInfo(), l)...)
 	case "Multiplexers":
-		rows = append(rows, toolPagePanelFacts(GetWMInfo(), l)...)
+		rows = append(rows, m.toolPagePanelFacts(GetWMInfo(), l)...)
 	case "Prompts":
-		rows = append(rows, toolPagePanelFacts(GetPromptInfo(), l)...)
+		rows = append(rows, m.toolPagePanelFacts(GetPromptInfo(), l)...)
 	case "Neovim":
 		info := GetNvimInfo()
 		rows = append(rows, panelFact("Reads", info.Description, l.Right)...)
@@ -495,13 +494,19 @@ func (m Model) learnPagePanelFacts(label string, l layout) []string {
 }
 
 // toolPagePanelFacts previews a tool menu: how many pages it holds and their
-// names, sorted so the column is stable from one render to the next.
-func toolPagePanelFacts(tools map[string]ToolInfo, l layout) []string {
+// names in the menu's own order. It used to sort them, which made the panel and
+// the list disagree on the same screen (Alacritty, Ghostty, Kitty, WezTerm in
+// the panel against Alacritty, WezTerm, Kitty, Ghostty in the menu).
+func (m Model) toolPagePanelFacts(tools map[string]ToolInfo, l layout) []string {
 	names := make([]string, 0, len(tools))
-	for _, info := range tools {
-		names = append(names, info.Name)
+	for _, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, menuSeparatorPrefix) || strings.Contains(option, "Back") {
+			continue
+		}
+		if info, ok := tools[strings.ToLower(option)]; ok {
+			names = append(names, info.Name)
+		}
 	}
-	sort.Strings(names)
 	rows := panelFact("Pages", strconv.Itoa(len(names)), l.Right)
 	for _, name := range names {
 		rows = append(rows, panelFact("", name, l.Right)...)
@@ -585,7 +590,7 @@ func (m Model) keymapCategoryPanelFacts(label string, l layout) []string {
 		}
 		rows := panelFact("Bindings", keymapBindingCount(len(cat.Keymaps)), l.Right)
 		if cat.Description != "" {
-			rows = append(rows, panelFact("About", cat.Description, l.Right)...)
+			rows = append(rows, panelFact("Covers", cat.Description, l.Right)...)
 		}
 		return rows
 	}
@@ -618,7 +623,7 @@ func lazyVimTopicPanelFacts(label string, l layout) []string {
 		if topic.Title != label {
 			continue
 		}
-		rows := panelFact("About", topic.Description, l.Right)
+		rows := panelFact("Covers", topic.Description, l.Right)
 		rows = append(rows, panelFact("Reads", fmt.Sprintf("%d points", len(topic.Content)), l.Right)...)
 		return rows
 	}
