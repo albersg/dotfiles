@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.12.0] — 2026-10-20
+
+### Changed
+
+- **The seven themes paint seventeen tools, not thirteen, and no generated file invents a colour.**
+
+  `lazygit` renders its `gui.theme` block from the definition; `zellij` generates its `themes {}` block in `config.kdl` and its one status-bar layout, `work.kdl`, which `default_layout` names; `fish` writes `BAT_THEME` and paints fzf from ANSI roles; `btop` gets a forty-key `.theme` and a generated `color_theme`; `.gitconfig` gains a generated `[delta]` whose syntax theme is the bat selection; `nushell` reads `$env.BAT_THEME` for its previews; `nvim` takes its dashboard header from the ANSI blue and falls back to `dotfiles` when the bundled theme is missing; and Herdr's custom layer covers all four tokens it exposes (`panel_bg`, `selection_bg`, `accent`, `text`), established by probing `herdr config check`, which names every unknown key.
+
+### Fixed
+
+- **Colours that had been copy-pasted until they lied are gone with the files that held them.**
+
+  `#C65C5B`, Kanagawa's red, sat in all five zellij layouts, and the Sakura one labelled it "Kanagawa red"; `work_everforest.kdl` used Dracula's `#f1fa8c`. The four per-theme layouts disappeared with them. Ghostty no longer installs `themes/catppuccin-mocha.conf`, a provenance file that was being shipped as a live theme; `fish_color_match`, which still answered to zenburn's blue, and the `fish_variables` universal that shadowed `BAT_THEME`, are gone.
+
+### Notes
+
+- The tmux plugin `Nybkox/tmux-kanagawa` keeps its own palette for the git, CPU and RAM segments it owns, and the generated block keeps the bar. The decision is written at the plugin line in `dotfiles-tmux/tmux.conf`.
+- `btop` rewrites `btop.conf` when it exits, which drops the generated markers; the theme switch reports the file as not ours after btop has run.
+
 ## [v0.11.1] — 2026-10-19
 
 ### Fixed
