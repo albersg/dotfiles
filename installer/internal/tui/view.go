@@ -1503,7 +1503,49 @@ func (m Model) renderUtilities() string {
 	if m.themeUndoAvailable() {
 		hints = append(hints, hintUndo)
 	}
-	return m.renderThemeScreen(m.utilitiesDescription(), m.ThemeNotice, append(hints, hintBack))
+	return m.renderThemeScreen(m.utilitiesReasons(), m.ThemeNotice, append(hints, hintBack))
+}
+
+// utilitiesReasons is the utilities section's body. A row names itself and says
+// what it opens, so the prose carries only what no row can: the desktop switch this
+// host has none of, the theme list that cannot be read, the WSL screens this host
+// cannot open. One sentence per missing job, in the order the rows would have had.
+func (m Model) utilitiesReasons() []string {
+	var reasons []string
+	if !m.ThemeSwitchFound {
+		reasons = append(reasons,
+			"No desktop theme switch is available here: no GNOME, KDE or macOS session.")
+	} else {
+		// What the switch will do, and through which desktop's own tool: the line the
+		// section cannot lose, because it names the desktop it detected.
+		reasons = append(reasons, fmt.Sprintf(
+			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
+				"the setting it replaces in theme.json so the switch can be undone.", m.ThemeSwitch.Name))
+	}
+	// The theme row is offered when there are definitions or a record to put back,
+	// so a reason is due only when neither exists.
+	if len(m.dotfilesThemeOptions()) == 0 && m.DotfilesThemeRecord == nil {
+		if m.dotfilesThemesPending() {
+			reasons = append(reasons,
+				"Reading the dotfiles' theme definitions from the repository checkout…")
+		} else {
+			reason := m.DotfilesThemesErr
+			if reason == "" {
+				reason = themeDefinitionsNotFoundMessage()
+			}
+			reasons = append(reasons, fmt.Sprintf("The dotfiles' own theme is not switchable here: %s.", reason))
+		}
+	}
+	if reason := m.wslResourcesUnavailableReason(); reason != "" {
+		reasons = append(reasons, reason)
+	}
+	if reason := m.shellAuditUnavailableReason(); reason != "" {
+		reasons = append(reasons, reason)
+	}
+	if !m.wslAdvisorOffered() && m.SystemInfo != nil && m.SystemInfo.IsWSL {
+		reasons = append(reasons, m.wslAdvisorUnavailableReason())
+	}
+	return reasons
 }
 
 // renderUpdate draws this installer's own release screen: what this build is,

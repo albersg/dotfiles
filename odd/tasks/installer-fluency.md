@@ -25,7 +25,7 @@ S9. "Puedes ir haciendo capturas de la interfaz o algo asi, para ver visualemtne
 | ID | Task | Specs | Route | Commit |
 |----|------|-------|-------|--------|
 | F1 | Reproduce and fix the doctor hang | S1, S6 | inline | `pending` |
-| F2 | One screen skeleton: header, sections, footer | S2, S3, S5 | | |
+| F2 | One screen skeleton: header, sections, footer | S2, S3, S5 | inline | `pending` |
 | F3 | Utilities: the system dependencies screen, pinned actions and paged entries | S4 | inline | `pending` |
 | F4 | lazygit diff colours legible on all seven themes | S7, S8 | | |
 | F5 | Screenshot harness: every screen, every theme, to inspect | S9 | | |
@@ -53,3 +53,5 @@ L3 (evidence, F4). The screenshot is delta's, not lazygit's: it carries two line
 L4 (evidence, F3). The update center put its actions at the end of the same list the packages are in, so the first screenful of a real machine (66 entries across brew and apt) pushed `[s]`, `[r]` and `[f]` past the bottom while the footer still advertised them. Measured in the running TUI under tmux, not only in a golden: after the split the block stays pinned and the header reports `Showing 1-26`. The shared renderer now pins a menu's tail -- the way back everywhere, the action block on the update center -- and windows only the entries, so the same fix reaches every screen with trailing actions. The section also repeated its own name as the body's first line; the body no longer draws a title the header already carries.
 
 The utilities body is still the block of one sentence per row it was; replacing it with the reasons a row is absent is the remaining piece of F2, and the floor guard (`TestUtilitiesBodyCarriesEveryJobAtTheFloor`) is the test that describes the current rule and must move with it.
+
+L5 (evidence, F2). The utilities section's body was one sentence per row -- seven lines at the floor for seven jobs -- and the first line repeated the screen's own name, which the header already carries. The body is now the reasons a job is missing: the desktop switch this host has none of, the theme list being read, the WSL screens this host cannot open, and one line naming the switch when there is one. A row that is on screen names itself and says what it opens, so the prose no longer narrates it. Verified by capture: three reason lines instead of seven, no duplicated title, and the list keeps its rows.
