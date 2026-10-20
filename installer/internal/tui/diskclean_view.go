@@ -315,44 +315,13 @@ func diskCleanSelectionParagraph(st diskCleanState) string {
 // it, the paths or engine objects it covers, and what removing it would cost -- so
 // the frame the request treats as the floor reserves these rows for it and windows
 // the list instead of letting the list take every row it asks for.
-const diskCleanCardFloor = 6
+const diskCleanCardFloor = 7
 
 // diskCleanPreviewHeadFloor is what the preview's own headline costs above that
 // card: the sentence that says nothing has run yet and what the confirmation
-// would run. The card is not pushed off the floor by it.
-const diskCleanPreviewHeadFloor = 2
-
-// proseIsRequired reports whether the screen's prose is content the guards hold the
-// frame to, rather than orientation its budget may cut. Only the utilities section
-// says yes: its body is where a job's own line and the reason a row is absent are
-// read, and TestUtilitiesBodyCarriesEveryJobAtTheFloor fails the section on the cut
-// marker a shorter budget produces. The development-caches screen does not answer yes
-// here because it reserves its evidence with its own floor (proseFloor) instead.
-func (m Model) proseIsRequired() bool {
-	return m.Screen == ScreenUtilities
-}
-
-// proseFloor is the rows this screen reserves for prose that is evidence rather
-// than orientation, and zero for a screen that reserves none. It is zero here
-// unless a finding under the cursor has a card to draw, so the reservation costs
-// nothing on a screen with no card in front of the user.
-//
-// The utilities section reserves nothing: its budget at the floor is seven rows
-// (TestUtilitiesBodyCarriesEveryJobAtTheFloor), and the rows it holds there were
-// paid for by shortening the section's prose rather than by taking a row from its
-// own list -- the list ends with the way back, which no floor may window away.
-func (m Model) proseFloor() int {
-	if m.Screen != ScreenDiskCleaner {
-		return 0
-	}
-	if _, _, ok := m.diskCleanFocusedFinding(); !ok {
-		return 0
-	}
-	if m.DiskClean.Phase == diskCleanPreview {
-		return diskCleanCardFloor + diskCleanPreviewHeadFloor
-	}
-	return diskCleanCardFloor
-}
+// would run. The card is not pushed off the floor by it, and the card is one row
+// taller here because the preview inserts the exact action line under its title.
+const diskCleanPreviewHeadFloor = 3
 
 // diskCleanFocusedFinding is the finding the cursor is on, and in the preview the
 // exact thing the confirmation would do to it. It is how one screen can show
@@ -447,7 +416,11 @@ func diskCleanItemCard(item diskclean.Item, action string) []string {
 	// place on the screen.
 	if strings.TrimSpace(action) == "" {
 		if len(item.Paths) > 0 {
-			lines = append(lines, "On disk: "+strings.Join(item.Paths, ", "))
+			// The label and the paths are separate lines: a path is one token, and a
+			// token that does not fit is broken mid-name by the shared wrap. On its
+			// own line a path either fits or is cut with the marker, and the reader
+			// never sees a directory name split in two.
+			lines = append(lines, "On disk:", "  "+strings.Join(item.Paths, ", "))
 		}
 		if len(item.VolatileObjects) > 0 && item.Size.Source != diskclean.SourceTool {
 			lines = append(lines, "Inside the engine: "+strings.Join(item.VolatileObjects, ", "))

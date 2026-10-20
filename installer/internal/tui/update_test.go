@@ -269,9 +269,9 @@ func TestHandleMainMenuWithRestore(t *testing.T) {
 		m.AvailableBackups = []system.BackupInfo{
 			{Path: "/test/backup1"},
 		}
-		// Options: Start, Learn, Keymaps, LazyVim, Vim Trainer, Restore, Utilities, Exit
-		// Restore is at index 5
-		m.Cursor = 5
+		// The row is found by its label: the main menu's groups put the row at an
+		// index the group titles and the offered actions decide.
+		m.Cursor = mainMenuRowIndex(t, m, "Restore from Backup")
 
 		result, _ := m.handleMainMenuKeys("enter")
 		newModel := result.(Model)
@@ -285,9 +285,7 @@ func TestHandleMainMenuWithRestore(t *testing.T) {
 		m := NewModel()
 		m.Screen = ScreenMainMenu
 		m.AvailableBackups = []system.BackupInfo{} // No backups
-		// Options without restore: Start, Learn, Keymaps, LazyVim, Vim Trainer, Utilities, Exit
-		// Exit is at index 6
-		m.Cursor = 6
+		m.Cursor = mainMenuRowIndex(t, m, "Exit")
 
 		_, cmd := m.handleMainMenuKeys("enter")
 
@@ -2070,7 +2068,9 @@ func TestThemePickerListsTheDerivedThemesAndUndo(t *testing.T) {
 
 	got := m.GetCurrentOptions()
 	want := append([]string{}, m.dotfilesThemeOptions()...)
-	want = append(want, m.menuSeparator(), themeRefreshRow, dotfilesThemeUndoRow, m.menuSeparator(), "← Back")
+	// One separator opens the action block and the way back is its last row: the
+	// frame pins the whole block, so a second rule inside it would only cost a row.
+	want = append(want, m.menuSeparator(), themeRefreshRow, dotfilesThemeUndoRow, "← Back")
 	if !slices.Equal(got, want) {
 		t.Errorf("the picker lists %v, want the derived themes, the refresh, the undo and the way back %v", got, want)
 	}

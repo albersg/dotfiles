@@ -2,10 +2,8 @@
   [48;2;137;179;250m [0m[1;38;2;30;30;46;48;2;137;179;250mUtilities[0m[48;2;137;179;250m [0m                                                                   
   [38;2;137;179;250m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m  
   [1;38;2;137;179;250mChange the dotfiles theme[0m                                                     
-  [38;2;166;173;200mThe dotfiles' own theme is defined once in themes/. Choosing a theme applies[0m  
-  [38;2;166;173;200mit to every tool it can paint and names the tools it leaves out. Moving the[0m   
-  [38;2;166;173;200mcursor previews a theme without applying anything; the switch records what[0m    
-  [38;2;166;173;200mit replaces, so it can be undone.[0m                                             
+  The dotfiles' own theme is defined once in themes/. Choosing a theme applies  
+  [38;2;166;173;200m… and 3 more[0m                                                                  
                                                                                 
   [38;2;205;214;243m  Apply the Catppuccin Latte theme                                          [0m  
   [38;2;205;214;243m  Apply the Catppuccin Mocha theme                                          [0m  
@@ -14,11 +12,13 @@
   [38;2;205;214;243m  Apply the Kanagawa theme                                                  [0m  
   [38;2;205;214;243m  Apply the Nocturne theme                                                  [0m  
   [38;2;205;214;243m  Apply the Rosé Pine theme                                                 [0m  
+                                                                                
+                                                                                
   [38;2;166;173;200m────────────────────────────────────────────────────────────────────────────[0m  
   [38;2;205;214;243m  [r] Refresh outdated theme files                                          [0m  
   [38;2;205;214;243m  [u] Undo the last dotfiles theme change                                   [0m  
-  [38;2;166;173;200m────────────────────────────────────────────────────────────────────────────[0m  
   [1;38;2;245;224;220;48;2;137;179;250m▸ [0m[1;38;2;30;30;46;48;2;137;179;250m← Back                                                                    [0m  
+                                                                                
                                                                                 
   [38;2;166;173;200m────────────────────────────────────────────────────────────────────────────[0m  
   [1;38;2;245;224;220m↑/k[0m [38;2;166;173;200mup[0m[38;2;166;173;200m • [0m[1;38;2;245;224;220m↓/j[0m [38;2;166;173;200mdown[0m[38;2;166;173;200m • [0m[1;38;2;245;224;220m[Enter][0m [38;2;166;173;200mchoose[0m[38;2;166;173;200m • [0m[1;38;2;245;224;220m[r][0m [38;2;166;173;200mrefresh[0m[38;2;166;173;200m • [0m[1;38;2;245;224;220m[u][0m [38;2;166;173;200mundo[0m[38;2;166;173;200m • [0m[1;38;2;245;224;220m[Esc][0m [38;2;166;173;200mback[0m      

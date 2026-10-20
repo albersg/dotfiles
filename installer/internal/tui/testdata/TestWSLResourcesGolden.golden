@@ -5,10 +5,7 @@
   Windows reports 16384 MiB of RAM and 8 logical processors; both numbers come  
   from the same host detector the installation step reads them through.         
   Recommended for this host: memory 12288 MB, processors 7 and swap 3072 MB.    
-  Your .wslconfig at /mnt/c/Users/alber/.wslconfig holds memory=4096MB,         
-  processors=omitted and swap=1024MB today. A key that is absent is omitted     
-  rather than guessed at: WSL's own proportional default applies to it.         
-  … and 15 more                                                                 
+  … and 18 more                                                                 
                                                                                 
   ▸ Memory: 12288 MB [←/→]                                                      
     Processors: 7 [←/→]                                                         
@@ -19,6 +16,9 @@
     [g] Repair the WSL memory guard                                             
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
+                                                                                
+                                                                                
+                                                                                
   ────────────────────────────────────────────────────────────────────────────  
   ↑/k ↓/j move • [←/→] adjust • [r] recommended • [w] write • [g] repair guard  
   [Esc] back                                                                    [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

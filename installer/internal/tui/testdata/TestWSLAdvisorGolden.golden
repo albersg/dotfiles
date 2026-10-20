@@ -6,10 +6,7 @@
   This instance has 8 processors, 8.0 GiB of memory with 37% in use, swap 0 B   
   of 2.0 GiB in use. WSL gives the distribution the limit it was configured     
   with, not the Windows host's total.                                           
-  The distribution's own storage is ext4 at /, holding 50.0 GiB free of 100.0   
-  GiB.                                                                          
-  The Windows drives are mounted under /windir (set in /etc/wsl.conf).          
-  … and 27 more                                                                 
+  … and 30 more                                                                 
                                                                                 
   ▸ Notice · DNS goes through the Windows host                                  
     Info · The working directory is on the distribution's disk                  
@@ -20,5 +17,8 @@
     → Measure the storage this project is on                                    
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
+                                                                                
+                                                                                
+                                                                                
   ────────────────────────────────────────────────────────────────────────────  
   ↑/k up • ↓/j down • [Enter] open • [r] read it again • [Esc] back             [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

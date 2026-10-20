@@ -153,6 +153,9 @@ func TestTrainerBossGolden(t *testing.T) {
 // TestTrainerNavigationE2E tests navigating from main menu to trainer
 func TestTrainerNavigationE2E(t *testing.T) {
 	m := NewModel()
+	// An isolated home keeps the runner's own backups out of the menu, so the rows
+	// the test walks are the rows the program ships.
+	isolateGoldenTest(t, &m)
 	m.Width = 80
 	m.Height = 24
 
@@ -170,10 +173,10 @@ func TestTrainerNavigationE2E(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	waitForTrainerText(t, tm, "main menu to render after s", "Start", "Learn")
 
-	// Main Menu -> Navigate to Vim Trainer (index 4: Start, Learn, Keymaps, LazyVim, Vim Trainer)
-	for i := 0; i < 4; i++ {
-		tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-	}
+	// Main Menu -> Vim & Neovim -> Vim Trainer. The hub is one row down (the menu
+	// groups put it after Start Installation) and the trainer is its first row.
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
 	// Should be at Trainer Menu now - verify we see modules

@@ -632,12 +632,18 @@ func TestNavigationKeys(t *testing.T) {
 		t.Run(k.name, func(t *testing.T) {
 			m := NewModel()
 			m.Screen = ScreenMainMenu
-			m.Cursor = 2 // Middle position
+			m.Cursor = mainMenuRowIndex(t, m, "Learn About Tools")
 
 			result, _ := m.Update(k.key)
 			newModel := result.(Model)
 
-			expected := 2 + k.delta
+			// The menu is grouped, so one step lands on the next selectable row and
+			// steps over the rule between the groups.
+			options := m.GetCurrentOptions()
+			expected := m.Cursor + k.delta
+			for expected > 0 && expected < len(options) && strings.HasPrefix(options[expected], menuSeparatorPrefix) {
+				expected += k.delta
+			}
 			if newModel.Cursor != expected {
 				t.Errorf("Expected cursor %d, got %d", expected, newModel.Cursor)
 			}
@@ -765,7 +771,7 @@ func TestMainMenuToStartInstallation(t *testing.T) {
 func TestMainMenuToLearnTools(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenMainMenu
-	m.Cursor = 1 // Learn About Tools
+	m.Cursor = mainMenuRowIndex(t, m, "Learn About Tools")
 
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	newModel := result.(Model)
@@ -792,23 +798,40 @@ func TestMainMenuToLearnTools(t *testing.T) {
 func TestMainMenuToKeymaps(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenMainMenu
-	m.Cursor = 2 // Keymaps Reference
+	m.Cursor = mainMenuRowIndex(t, m, "Vim & Neovim")
 
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	newModel := result.(Model)
+	hub := result.(Model)
+	if hub.Screen != ScreenVimHub {
+		t.Fatalf("the Vim row opened %v, want the Vim hub", hub.Screen)
+	}
+	hub.Cursor = 1 // Neovim Keymaps
+
+	opened, _ := hub.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	newModel := opened.(Model)
 
 	if newModel.Screen != ScreenKeymapsMenu {
 		t.Errorf("Expected ScreenKeymapsMenu, got %v", newModel.Screen)
+	}
+	if newModel.PrevScreen != ScreenVimHub {
+		t.Errorf("the keymaps reference comes back to the hub, PrevScreen = %v", newModel.PrevScreen)
 	}
 }
 
 func TestMainMenuToLazyVim(t *testing.T) {
 	m := NewModel()
 	m.Screen = ScreenMainMenu
-	m.Cursor = 3 // LazyVim Guide
+	m.Cursor = mainMenuRowIndex(t, m, "Vim & Neovim")
 
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	newModel := result.(Model)
+	hub := result.(Model)
+	if hub.Screen != ScreenVimHub {
+		t.Fatalf("the Vim row opened %v, want the Vim hub", hub.Screen)
+	}
+	hub.Cursor = 2 // LazyVim Guide
+
+	opened, _ := hub.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	newModel := opened.(Model)
 
 	if newModel.Screen != ScreenLearnLazyVim {
 		t.Errorf("Expected ScreenLearnLazyVim, got %v", newModel.Screen)
@@ -821,7 +844,7 @@ func TestMainMenuToRestore(t *testing.T) {
 	m.AvailableBackups = []system.BackupInfo{
 		{Path: "/test", Timestamp: time.Now(), Files: []string{"test"}},
 	}
-	m.Cursor = 5 // Restore from Backup (after Vim Trainer)
+	m.Cursor = mainMenuRowIndex(t, m, "Restore from Backup")
 
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	newModel := result.(Model)
@@ -1661,6 +1684,7 @@ func TestInitReturnsCommands(t *testing.T) {
 // an entry here.
 var screenNames = map[Screen]string{
 	ScreenWelcome:              "Welcome",
+	ScreenVimHub:               "VimHub",
 	ScreenMainMenu:             "MainMenu",
 	ScreenOSSelect:             "OSSelect",
 	ScreenTerminalSelect:       "TerminalSelect",

@@ -1,21 +1,21 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Main Menu                                                                    
+   Main Menu                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-                                                                                
-                                                                                
-                                                                                
   Good morning                                                                  
   What would you like to do?                                                    
   ╭─ dotfiles ───────────────────────────────────────────────────────────────╮  
   │ ▸ Start Installation                                                     │  
-  │   Learn About Tools                                                      │  
-  │   Keymaps Reference                                                      │  
-  │   LazyVim Guide                                                          │  
-  │   Vim Trainer                                                            │  
   │   Update this installer                                                  │  
+  ├─ Learn ──────────────────────────────────────────────────────────────────┤  
+  │   Vim & Neovim                                                           │  
+  │   Learn About Tools                                                      │  
+  ├─ Session ────────────────────────────────────────────────────────────────┤  
   │   Utilities                                                              │  
   │   Exit                                                                   │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+                                                                                
+                                                                                
                                                                                 
                                                                                 
                                                                                 

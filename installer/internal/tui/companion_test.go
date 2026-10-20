@@ -133,7 +133,10 @@ func TestMainMenuEasterEggPrefixesDoNotSwallowOtherInput(t *testing.T) {
 			t.Fatalf("buffer = %q, want d", m.MenuKeyBuffer)
 		}
 		m, _ = menuKey(t, m, tea.KeyMsg{Type: tea.KeyDown})
-		if m.Cursor != 1 || m.MenuKeyBuffer != "" || m.MenuGagActive {
+		// The cursor lands on the next selectable row, which the grouped menu may
+		// put one rule further down; what matters is that the key navigated at all
+		// and left no prefix behind.
+		if m.Cursor == 0 || m.MenuKeyBuffer != "" || m.MenuGagActive {
 			t.Fatalf("navigation was consumed or gag queued: cursor=%d buffer=%q gag=%v", m.Cursor, m.MenuKeyBuffer, m.MenuGagActive)
 		}
 	})
@@ -200,7 +203,7 @@ func TestMainMenuDDEasterEggRestoresExactRowAndStaysWithinFrame(t *testing.T) {
 	m.Screen = ScreenMainMenu
 	m.Width, m.Height = 80, 24
 	m.Animating = true
-	m.Cursor = 2
+	m.Cursor = mainMenuRowIndex(t, m, "Vim & Neovim")
 	before := m.View()
 	m, _ = menuRuneKey(t, m, 'd')
 	m, _ = menuRuneKey(t, m, 'd')
@@ -229,7 +232,7 @@ func TestMainMenuDDEasterEggRestoresExactRowAndStaysWithinFrame(t *testing.T) {
 func TestMainMenuDDEasterEggIsDeterministicAndAnimationGateFreezesPose(t *testing.T) {
 	base := NewModel()
 	base.Screen = ScreenMainMenu
-	base.Cursor = 1
+	base.Cursor = mainMenuRowIndex(t, base, "Vim & Neovim")
 	base.Animating = true
 	base.CreatedAt = time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	left, right := base, base
@@ -1688,9 +1691,18 @@ func TestCompanionIsAlertOnTheRowsThatThrowSomethingAway(t *testing.T) {
 
 		// The destructive rows the installer offers today, by screen and cursor.
 		// A row added later that discards something fails here instead of shipping
-		// quietly.
+		// quietly. The main menu's is the Restore row, found by its label: the
+		// menu's groups decide the index, and a pinned one would follow them.
+		menu := build(t)
+		menu.Screen = ScreenMainMenu
+		mainMenuRows := map[int]bool{}
+		for i, option := range menu.GetCurrentOptions() {
+			if strings.Contains(option, "Restore from Backup") {
+				mainMenuRows[i] = true
+			}
+		}
 		want := map[Screen]map[int]bool{
-			ScreenMainMenu:       {5: true}, // "Restore from Backup"
+			ScreenMainMenu:       mainMenuRows,
 			ScreenBackupConfirm:  {1: true}, // "Install without Backup"
 			ScreenRestoreBackup:  {},
 			ScreenRestoreConfirm: {0: true, 1: true}, // restore this backup, delete this backup

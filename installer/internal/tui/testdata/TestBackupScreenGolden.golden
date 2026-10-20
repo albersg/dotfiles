@@ -1,9 +1,6 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
    Backups                                                                      
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-                                                                                
-                                                                                
-                                                                                
   Existing Configs Detected                                                     
   The following configs will be overwritten:                                    
                                                                                 
@@ -16,6 +13,9 @@
   ▸ Install with Backup (recommended)                                           
     Install without Backup                                                      
     Cancel                                                                      
+                                                                                
+                                                                                
+                                                                                
                                                                                 
                                                                                 
                                                                                 

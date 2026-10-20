@@ -433,14 +433,16 @@ func (m Model) diskCleanRows() []diskCleanRow {
 	}
 
 	selected := st.Selection.Count(st.Items)
-	if selected > 0 {
-		rows = append(rows,
-			diskCleanRow{label: m.menuSeparator(), action: diskCleanActionNone, item: -1},
-			diskCleanRow{label: diskCleanPreviewRowPrefix + diskCleanCount(selected) + " selected", action: diskCleanActionPreview, item: -1},
-		)
-	}
 
+	// The actions live in one block under the findings, and the block is pinned: it
+	// is where an action appears or disappears as the selection changes, and a
+	// pinned block is what keeps a selection from moving the entries above it. The
+	// preview row is part of the block for that reason -- it used to sit above the
+	// separator, so marking the first finding grew the scrolling list by two rows.
 	rows = append(rows, diskCleanRow{label: m.menuSeparator(), action: diskCleanActionNone, item: -1})
+	if selected > 0 {
+		rows = append(rows, diskCleanRow{label: diskCleanPreviewRowPrefix + diskCleanCount(selected) + " selected", action: diskCleanActionPreview, item: -1})
+	}
 	if st.Cwd != "" && !diskCleanHasRoot(st.ProjectRoots, st.Cwd) {
 		rows = append(rows, diskCleanRow{label: diskCleanAddRootPrefix + st.Cwd, action: diskCleanActionAddRoot, item: -1})
 	}

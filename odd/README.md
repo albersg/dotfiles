@@ -47,6 +47,7 @@ repository's memory of why something is the way it is.
 | [developer-disk-cleaner.md](tasks/developer-disk-cleaner.md) | The developer disk cleaner in the Utilities section |
 | [install-update-release.md](tasks/install-update-release.md) | The installer's own release: checking it, updating from it, shipping it |
 | [installer-companion.md](tasks/installer-companion.md) | The companion in the installer |
+| [installer-interface-cohesion.md](tasks/installer-interface-cohesion.md) | One stable, consistent interface across the installer |
 | [installer-ux.md](tasks/installer-ux.md) | Installer user experience |
 | [installer-visual-identity.md](tasks/installer-visual-identity.md) | The installer's visual identity |
 | [menu-easter-eggs.md](tasks/menu-easter-eggs.md) | The main menu's easter eggs |

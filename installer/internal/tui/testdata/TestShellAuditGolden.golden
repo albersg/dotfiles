@@ -6,10 +6,7 @@
   bounded by 10 s -- so the number describes the start you wait through when    
   you open a terminal. The plan runs 5 such starts, and the median is the       
   middle one: not an average, and not a single run.                             
-  What the press will measure: the interactive start, 5 runs, no warm-up        
-  first, and no clean comparison is measured. [m] changes the start, [n] the    
-  number of runs, [w] the warm-up, and [b] the clean comparison. That           
-  … and 47 more                                                                 
+  … and 50 more                                                                 
                                                                                 
   ▸ [s] Measure the shell's startup                                             
   ────────────────────────────────────────────────────────────────────────────  
@@ -19,6 +16,9 @@
     Heaviest entry: compdump (725 ms self, 1 call(s))                           
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
+                                                                                
+                                                                                
+                                                                                
   ────────────────────────────────────────────────────────────────────────────  
   ↑/k up • ↓/j down • [s] measure • [m/n/w/b] what to measure                   
   [h/r] history / recommendations • [Esc] back                                  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

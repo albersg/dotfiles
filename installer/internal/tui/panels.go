@@ -707,6 +707,7 @@ const (
 	choiceKeymaps
 	choiceLazyVim
 	choiceTrainer
+	choiceVim
 	choiceRestore
 	choiceUpdate
 	choiceChannel
@@ -731,6 +732,8 @@ func (m Model) mainMenuSelection() (mainMenuChoice, string) {
 		return choiceStartInstallation, name
 	case strings.Contains(label, "Learn About Tools"):
 		return choiceLearnTools, name
+	case strings.Contains(label, "Vim & Neovim"):
+		return choiceVim, name
 	case strings.Contains(label, "Keymaps Reference"):
 		return choiceKeymaps, name
 	case strings.Contains(label, "LazyVim Guide"):
@@ -767,6 +770,8 @@ func (m Model) mainMenuPanelFacts(l layout) []string {
 		rows = append(rows, lazyVimPanelFacts(l)...)
 	case choiceTrainer:
 		rows = append(rows, trainerCurriculumFacts(l)...)
+	case choiceVim:
+		rows = append(rows, vimPanelFacts(l)...)
 	case choiceRestore:
 		rows = append(rows, m.backupPanelFacts(l)...)
 	case choiceUpdate:
@@ -786,6 +791,19 @@ func (m Model) mainMenuPanelFacts(l layout) []string {
 // selectedPanelRow names the option the panel is describing. It is the one row
 // every contextual panel shares, so the reader always knows which selection the
 // facts belong to, and it is left out when there is no name to give.
+// vimPanelFacts is what the Vim hub holds: the curriculum the trainer grades,
+// the bindings the reference lists, and the topics the guide covers. It is the
+// one row that stands for three subjects, so the panel is where the menu says
+// what is inside it instead of spending three rows to do it.
+func vimPanelFacts(l layout) []string {
+	rows := trainerCurriculumFacts(l)
+	if n := keymapCount(GetNvimKeymaps()); n > 0 {
+		rows = append(rows, panelFact("Keymaps", keymapBindingCount(n), l.Right)...)
+	}
+	rows = append(rows, lazyVimPanelFacts(l)...)
+	return rows
+}
+
 func selectedPanelRow(name string, width int) []string {
 	if name == "" {
 		return nil
