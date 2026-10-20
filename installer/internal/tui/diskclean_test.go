@@ -12,6 +12,7 @@ import (
 	"github.com/albersg/dotfiles/installer/internal/diskclean"
 	"github.com/albersg/dotfiles/installer/internal/system"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ============================================================================
@@ -394,7 +395,7 @@ func TestDiskCleanerRowsDeclareTheKeyThatRunsThem(t *testing.T) {
 
 			// The legend names the same key while the row is offered, so the row and the
 			// footer cannot disagree about what presses it.
-			if view := diskCleanFlatView(m); !strings.Contains(view, tc.footer) {
+			if view := diskCleanWholeView(m); !strings.Contains(view, tc.footer) {
 				t.Errorf("the footer does not name the key of %q (%q):\n%s", row.label, tc.footer, view)
 			}
 		})
@@ -414,7 +415,7 @@ func TestDiskCleanerFooterSaysEscapeStopsTheScan(t *testing.T) {
 	if !m.DiskClean.Scanning {
 		t.Fatal("the scan is not in flight, so there is nothing to stop")
 	}
-	if view := diskCleanFlatView(m); !strings.Contains(view, "[Esc] stop the scan") {
+	if view := diskCleanWholeView(m); !strings.Contains(view, "[Esc] stop the scan") {
 		t.Errorf("the footer does not say that Escape stops the scan:\n%s", view)
 	}
 }
@@ -818,10 +819,46 @@ func TestDiskCleanerCannotSelectWhatNothingCanBeDoneAbout(t *testing.T) {
 
 // diskCleanFlatView is the screen's text with the escapes removed and every run
 // of whitespace collapsed to one space, so an assertion can name a phrase that
-// the frame happens to wrap across two lines.
+// the frame happens to wrap across two lines. On a frame wide enough for two
+// columns the card is drawn in the right column beside the list, so the helper
+// reads that column alone: a phrase the card wraps would otherwise be split by a
+// row of the list on the same line.
 func diskCleanFlatView(m Model) string {
 	plain := ansiEscape.ReplaceAllString(m.View(), "")
-	return strings.Join(strings.Fields(plain), " ")
+	l := layoutFor(m)
+	text := plain
+	if l.TwoColumn && m.sectionDetailPane() {
+		start := viewPaddingCols + l.Leading + l.Left + layoutGutter
+		var detail []string
+		for _, line := range strings.Split(plain, "\n") {
+			detail = append(detail, string(cellsFrom(line, start)))
+		}
+		text = strings.Join(detail, "\n")
+	}
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// diskCleanWholeView is the whole frame flattened the old way: the header, the
+// footer and both columns. It is what a footer or header assertion reads, because
+// those rows are outside the detail column.
+func diskCleanWholeView(m Model) string {
+	return strings.Join(strings.Fields(ansiEscape.ReplaceAllString(m.View(), "")), " ")
+}
+
+// cellsFrom is the part of a rendered line that starts at the given cell column,
+// measured the way the terminal measures it: a wide rune is two columns, an SGR
+// escape is none. The helper reads a column of a composed frame, and a rune
+// count would drift on the arrows and dashes the card carries.
+func cellsFrom(line string, start int) []rune {
+	runes := []rune(line)
+	column := 0
+	for i, r := range runes {
+		if column >= start {
+			return runes[i:]
+		}
+		column += lipgloss.Width(string(r))
+	}
+	return nil
 }
 
 // TestUtilitiesSectionOffersTheDevelopmentCacheCleaner pins the way in: the
@@ -1058,12 +1095,19 @@ func TestDiskCleanerShowsWhyEachFindingWasFoundAndWhereItIs(t *testing.T) {
 		"The npm cache — regenerable cache — safe to rebuild",
 		"Holds 4.0 MiB on disk, 6.0 MiB in contents, 12 files (walked).",
 		"Found because npm is on PATH and its cache directory exists.",
-		"On disk: " + filepath.Join(home, ".npm", "_cacache"),
 		"the packages npm downloaded and unpacked",
 	} {
 		if !strings.Contains(card, want) {
 			t.Errorf("the card of the npm cache does not say %q:\n%s", want, card)
 		}
+	}
+	// A path is one token and this one is longer than the column, so the card
+	// wraps it. The words are what the reader needs; where the wrap lands is the
+	// column's business. Comparing the text without its spaces checks the path
+	// itself rather than the width it happened to be drawn in.
+	path := filepath.Join(home, ".npm", "_cacache")
+	if !strings.Contains(strings.ReplaceAll(card, " ", ""), strings.ReplaceAll("On disk: "+path, " ", "")) {
+		t.Errorf("the card of the npm cache does not say where it is (%q):\n%s", path, card)
 	}
 	if strings.Contains(card, "Inside the engine: volumes") {
 		t.Errorf("the npm cache card carries the container objects of another finding:\n%s", card)

@@ -6,7 +6,8 @@
   Holds 120.0 MiB on disk (walked).                                             
   Found because the apt archives directory exists, but apt-get is not on PATH   
   here.                                                                         
-  On disk: /var/cache/apt/archives                                              
+  On disk:                                                                      
+  /var/cache/apt/archives                                                       
   … and 45 more                                                                 
                                                                                 
     apt — 1 finding                                                             
@@ -16,7 +17,6 @@
     [p] Preview the 2 items selected                                            
     [d] Add the project directory /home/testuser/projects                       
     ← Back                                                                      
-                                                                                
                                                                                 
                                                                                 
   ────────────────────────────────────────────────────────────────────────────  

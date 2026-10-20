@@ -8,6 +8,7 @@ import (
 
 	"github.com/albersg/dotfiles/installer/internal/updates"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ============================================================================
@@ -363,6 +364,64 @@ func (m Model) stopUpdateCenterRun() (tea.Model, tea.Cmd) {
 // variable so a guard pins a time instead of depending on when it ran.
 var updateCenterClock = time.Now
 
+// updateCenterFocusedItem is the entry the cursor is on, and false when it is on
+// an action row or a group heading.
+func (m Model) updateCenterFocusedItem() (updates.Item, bool) {
+	options := m.GetCurrentOptions()
+	if m.Cursor < 0 || m.Cursor >= len(options) {
+		return updates.Item{}, false
+	}
+	row := options[m.Cursor]
+	if !isUpdateCenterItemRow(row) {
+		return updates.Item{}, false
+	}
+	return m.updateCenterItemForRow(row)
+}
+
+// updateCenterItemFacts is one entry's complete record, one labelled fact per
+// line: what it is, who owns it, both versions in full, why it is held and what
+// the manager said about it. The row is a table cell and cuts; this is where the
+// values are read.
+func (m Model) updateCenterItemFacts(item updates.Item) []string {
+	fact := func(label, value string) string {
+		if value == "" {
+			return ""
+		}
+		return fmt.Sprintf("%-11s %s", label, value)
+	}
+	installed := item.Current
+	if installed == "" {
+		installed = "not reported"
+	}
+	facts := []string{
+		fact("Name", item.Name),
+		fact("Manager", item.Origin()),
+		fact("Installed", installed),
+		fact("Available", item.Available),
+	}
+	if item.Pinned {
+		reason := item.PinReason
+		if reason == "" {
+			reason = "held by the manager"
+		}
+		facts = append(facts, fact("Held", reason))
+	}
+	facts = append(facts, fact("Note", item.Note))
+	facts = append(facts, fact("Read with", m.updateCenterCommandFor(item.Manager)))
+	return facts
+}
+
+// updateCenterCommandFor is the command the owning manager's answer was read
+// with, as the manager reported it.
+func (m Model) updateCenterCommandFor(manager updates.ManagerID) string {
+	for _, result := range m.UpdateCenter.Results {
+		if result.Manager == manager {
+			return result.Command
+		}
+	}
+	return ""
+}
+
 // ---------------------------------------------------------------------------
 // The rows
 // ---------------------------------------------------------------------------
@@ -402,7 +461,7 @@ func (m Model) updateCenterItemRows() []string {
 			}
 			manager = item.Manager
 		}
-		rows = append(rows, updateCenterItemRow(item, state.Selected.Has(item)))
+		rows = append(rows, updateCenterItemRow(item, state.Selected.Has(item), m.updateCenterRowMeasure()))
 	}
 	return rows
 }
@@ -461,13 +520,22 @@ func (m Model) updateCenterPinnedRows() []string {
 	return append(rows, "← Back")
 }
 
-// updateCenterItemRow renders one entry: its selection, its name, the version it
-// is on and the version available, and where it belongs. The manager and the
-// scope are in the row rather than only in a group header, because a row that
+// updateCenterRowMeasure is the columns one entry row draws in: the list's row
+// measure minus the two the cursor marker spends before the label.
+func (m Model) updateCenterRowMeasure() int {
+	return max(1, layoutFor(m).RowMeasure-2)
+}
+
+// updateCenterItemRow renders one entry as a table row: its state, its name, the
+// version it is on and the version available, and where it belongs. The name and
+// the versions are columns of their own, cut with the shared marker inside their
+// column, so a long Debian version cannot push the owner off the row and the
+// eye can compare installed against available down the list. The manager and the
+// scope stay in the row rather than only in the group heading, because a row that
 // does not say who owns it is a row that cannot be acted on with confidence --
 // and because two managers that both carry a "git" are two entries this screen
 // must never present as one.
-func updateCenterItemRow(item updates.Item, selected bool) string {
+func updateCenterItemRow(item updates.Item, selected bool, measure int) string {
 	mark := updateCenterRowUnselected
 	switch {
 	case item.Pinned:
@@ -483,13 +551,37 @@ func updateCenterItemRow(item updates.Item, selected bool) string {
 	if item.Available != "" {
 		versions += " → " + item.Available
 	}
-	row := fmt.Sprintf("%s%s  %s  %s", mark, item.Name, versions, item.Origin())
+	tag := item.Origin()
+
+	// The columns share what the marker and the owner leave. The name gets the
+	// smaller share: a version string is the thing being compared, and the name is
+	// still readable when it is cut. A frame too narrow for three columns falls
+	// back to the two that matter -- the name and the versions.
+	const gap = 2
+	room := measure - lipgloss.Width(mark) - lipgloss.Width(tag) - gap*2
+	row := ""
+	if room >= 24 {
+		nameWidth := min(max(room*45/100, 12), 32)
+		versionWidth := room - nameWidth
+		row = mark +
+			padRight(truncate(item.Name, nameWidth), nameWidth) + strings.Repeat(" ", gap) +
+			padRight(truncate(versions, versionWidth), versionWidth) + strings.Repeat(" ", gap) +
+			tag
+	} else {
+		room = measure - lipgloss.Width(mark) - gap
+		nameWidth := min(max(room*40/100, 10), room-8)
+		versionWidth := max(8, room-nameWidth)
+		row = mark +
+			padRight(truncate(item.Name, nameWidth), nameWidth) + strings.Repeat(" ", gap) +
+			truncate(versions, versionWidth)
+	}
 
 	// What the manager said about this one entry that is neither a version nor a
 	// hold -- a version it does not report, a cask the vendor maintains itself --
-	// belongs on the row the reader decides about. The row is truncated to the
-	// list's own measure like every other row, so a narrow terminal cuts the note
-	// rather than wrapping the list out of the frame.
+	// belongs on the row the reader decides about. It follows the table columns
+	// and is cut to the list's own measure like every other row, so a narrow
+	// terminal cuts the note rather than wrapping the list out of the frame; the
+	// entry's detail carries it in full.
 	if item.Note != "" {
 		row += "  — " + item.Note
 	}
@@ -654,7 +746,7 @@ func (m Model) updateCenterChannel(manager updates.ManagerID) (updates.Channel, 
 // space, and two managers' entries of the same name are all told apart by it.
 func (m Model) updateCenterItemForRow(row string) (updates.Item, bool) {
 	for _, item := range m.updateCenterVisibleItems() {
-		if updateCenterItemRow(item, m.UpdateCenter.Selected.Has(item)) == row {
+		if updateCenterItemRow(item, m.UpdateCenter.Selected.Has(item), m.updateCenterRowMeasure()) == row {
 			return item, true
 		}
 	}
@@ -739,9 +831,8 @@ func (m Model) updateCenterNothingToApplyReason() string {
 func (m Model) updateCenterDescription() []string {
 	state := m.UpdateCenter
 	paragraphs := []string{
-		"This reads what the package managers and toolchain managers installed on this machine say is out of " +
-			"date, and moves only what you select, through the manager that owns each entry. Nothing is " +
-			"installed, removed or changed until a selection is confirmed, and nothing is updated on its own.",
+		"Reads what this machine's managers say is out of date and moves only what you select; nothing changes " +
+			"until a selection is confirmed.",
 	}
 
 	switch {
@@ -759,6 +850,13 @@ func (m Model) updateCenterDescription() []string {
 
 	if len(state.Channels) == 0 {
 		return append(paragraphs, "No package manager or toolchain manager this build knows could be detected here.")
+	}
+
+	// The entry under the cursor comes before the list's own state: it is the one
+	// thing the reader is deciding about, and its versions, hold and read command
+	// are the facts that decision needs.
+	if item, ok := m.updateCenterFocusedItem(); ok {
+		paragraphs = append(paragraphs, m.updateCenterItemFacts(item)...)
 	}
 
 	for _, channel := range state.Channels {

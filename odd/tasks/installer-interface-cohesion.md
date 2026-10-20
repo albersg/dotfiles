@@ -54,7 +54,7 @@ sizes; trainer snapshots do not move.
 |----|------|-------|-------|--------|
 | T1 | S1, S2 | inline | done | 96cb6ce |
 | T2 | S2, S3 | inline | done | recorded in T3 |
-| T3 | S3 | inline | pending | - |
+| T3 | S3 | inline | done | recorded in T4 |
 | T4 | S4, S5 | inline | pending | - |
 | T5 | S1–S6 | inline | pending | - |
 
@@ -128,3 +128,25 @@ main menu's panel uses, so the chip, the rule and the cut marker are shared. The
 guard now checks the band contract in both modes: `sectionBandsFor(..., true)`
 must be cursor-, selection- and notice-independent too. Goldens and all 1738
 frame-fit assertions are green unchanged.
+
+**L5 — T3 landed.** The update center's entries are a table: `[x] name` in a
+name column, `installed → available` in a version column, then the owner, each
+cut inside its own column with the shared marker, so a long Debian version can
+no longer push the owner off the row. The row is built to the list's measure
+minus the two cursor columns, and the resolver that maps a row back to an entry
+uses the same measure, so the drawn rows and the pressable rows are one list.
+
+The prose now opens with the entry under the cursor: Name, Manager, Installed,
+Available, Held, Note and the command the manager's answer was read with, in
+full. The standing explanation shrank to two lines. The header vital carries the
+selection (`Showing 1-2 of 2 · 1 selected`).
+
+Two consequences found by the suite, both fixed at the right level: (a) the
+disk-cleaner tests read a phrase from the whole frame, and with the detail in the
+right column the phrase was interleaved with the list -- the helper now reads the
+detail column on a two-column frame and a second helper reads the whole frame for
+header and footer assertions; (b) a path is one token, so the card now prints
+`On disk:` and the paths on the next line instead of breaking a directory name
+mid-token when the column is narrower than the path, and its guard compares the
+path with the spaces removed, because where the wrap lands is the column's
+business.

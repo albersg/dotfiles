@@ -1778,7 +1778,27 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	if end-start < scrollable {
 		vital = scrollVital("Showing", start+1, end, scrollable)
 	}
+	if suffix := m.sectionVitalSuffix(); suffix != "" {
+		if vital == "" {
+			vital = suffix
+		} else {
+			vital += " · " + suffix
+		}
+	}
 	return m.frame(m.headerName(), vital, body, hints)
+}
+
+// sectionVitalSuffix is what a section screen's header says beside the range of
+// the list: the selection the actions would move, measured from the same state
+// the rows are drawn from.
+func (m Model) sectionVitalSuffix() string {
+	if m.Screen != ScreenUpdateCenter {
+		return ""
+	}
+	if count := m.UpdateCenter.Selected.Count(); count > 0 {
+		return fmt.Sprintf("%d selected", count)
+	}
+	return ""
 }
 
 // descriptionLines is a screen's prose wrapped to the width it will be drawn at
