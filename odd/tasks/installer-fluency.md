@@ -29,8 +29,8 @@ S9. "Puedes ir haciendo capturas de la interfaz o algo asi, para ver visualemtne
 | F3 | Utilities: the system dependencies screen, pinned actions and paged entries | S4 | inline | `pending` |
 | F4 | lazygit diff colours legible on all seven themes | S7, S8 | | |
 | F5 | Screenshot harness: every screen, every theme, to inspect | S9 | | |
-| F6 | Sweep the remaining screens against the skeleton | S2, S5, S6 | | |
-| F7 | Docs and guards | S2, S7 | | |
+| F6 | Sweep the remaining screens against the skeleton | S2, S5, S6 | inline | `pending` |
+| F7 | Docs and guards | S2, S7 | inline | `pending` |
 
 ## Log
 
@@ -55,3 +55,7 @@ L4 (evidence, F3). The update center put its actions at the end of the same list
 The utilities body is still the block of one sentence per row it was; replacing it with the reasons a row is absent is the remaining piece of F2, and the floor guard (`TestUtilitiesBodyCarriesEveryJobAtTheFloor`) is the test that describes the current rule and must move with it.
 
 L5 (evidence, F2). The utilities section's body was one sentence per row -- seven lines at the floor for seven jobs -- and the first line repeated the screen's own name, which the header already carries. The body is now the reasons a job is missing: the desktop switch this host has none of, the theme list being read, the WSL screens this host cannot open, and one line naming the switch when there is one. A row that is on screen names itself and says what it opens, so the prose no longer narrates it. Verified by capture: three reason lines instead of seven, no duplicated title, and the list keeps its rows.
+
+L6 (evidence, F6). All 75 screens were rendered at 120x36 by `TestCaptureEveryScreen`: none panics, none overflows its frame, and after the header rule no screen repeats its own title in the body. The screens whose body is long are the reports -- development caches 18 lines, Learn tooling 16, the WezTerm table 14, network diagnostics 11, the shell's startup 9 -- and their prose is the content being read, windowed and paginated, not decoration under a list: they stay as they are, and a later pass that shortens them is a content change, not a layout one. The captures of the trainer lesson, practice and boss screens are empty states (no exercise loaded), not defects.
+
+L7 (guards, F7). `TestTheUpdateCenterKeepsItsActionsOnScreenAtTheFloor` renders the real screen at 80x24 with forty packages and reads the frame back; with the tail unpinned it fails naming `[s]` and `[r]`, and with the tail pinned it passes. `TestEveryScreenKeyHandlerIsDispatched` walks the package's AST for `handle…Keys` and fails when a screen has no dispatch case. `docs/tui-installer.md` now states the skeleton: the header from the frame, the body for what is missing, the pinned tail, the windowed entries and the footer from the hints.

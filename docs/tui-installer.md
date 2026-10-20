@@ -2724,3 +2724,25 @@ One file per screen lands in that directory, named by the screen's index and con
 plus `summary.tsv` with the rows each frame spent, whether it overflowed, whether it
 drew a footer, and any screen that panicked while drawing. The frames are plain text
 with the ANSI stripped, so they can be read, diffed and reviewed like any other file.
+
+## The screen skeleton
+
+Every screen is assembled from the same parts, and the parts decide what a screen may
+spend its rows on:
+
+- **The header comes from the frame.** `m.frame()` draws the screen's name, its vital
+  and the rule under it. A body never draws the screen's own title a second time.
+- **The body explains what is missing, not what is on screen.** A row names itself and
+  says what it opens, so prose is spent on what no row can carry: why a job is absent,
+  what a read is waiting for, what the screen cannot do on this host.
+- **A list longer than the frame is windowed; its tail is pinned.** The way back is
+  always drawn, and a screen whose list ends in a block of actions (the update center)
+  pins that block too, so a first screenful of entries cannot push the only way to act
+  on the selection past the bottom. The header reports the slice on screen
+  (`Showing 1-26`).
+- **The footer is derived from the hints.** It names a key only while the row behind it
+  is offered, and the same list is what the screen's key handler accepts.
+
+`TestTheUpdateCenterKeepsItsActionsOnScreenAtTheFloor` holds the pinned tail at 80x24
+with forty entries, and `TestEveryScreenKeyHandlerIsDispatched` holds the other half of
+the same promise: a screen cannot draw keys its dispatcher never delivers.
