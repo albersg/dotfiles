@@ -4926,3 +4926,39 @@ func TestTheLazygitConfigPutsTheThemeUnderGui(t *testing.T) {
 		t.Error("the shipped config carries no generated theme block")
 	}
 }
+
+// TestTheFishShellPaintsFzfAndBatFromTheTheme pins the two colours the fish config
+// left behind: bat's preview theme is no longer a hex name written into an alias,
+// and fzf's colours are the terminal's ANSI roles, so the picker follows the theme
+// in both light and dark. The universal FZF_DEFAULT_OPTS the repository used to
+// ship is gone: a universal variable shadows the global the config sets, so the
+// picker kept one height and no colours.
+func TestTheFishShellPaintsFzfAndBatFromTheTheme(t *testing.T) {
+	read := func(rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(data)
+	}
+
+	fish := read("dotfiles-fish/fish/config.fish")
+	if strings.Contains(fish, "gruvbox") {
+		t.Error("the fish config hardcodes bat's preview theme instead of reading $BAT_THEME")
+	}
+	if !strings.Contains(fish, "--theme=$BAT_THEME") {
+		t.Error("the fzf previews do not name the bat theme the block selects")
+	}
+	if !strings.Contains(fish, "set -gx BAT_THEME") {
+		t.Error("the fish block selects no bat theme, so bat keeps its own colours")
+	}
+	if !strings.Contains(fish, "set -gx FZF_DEFAULT_OPTS") || !strings.Contains(fish, "--color=") {
+		t.Error("the fish config paints no fzf colour")
+	}
+
+	variables := read("dotfiles-fish/fish/fish_variables")
+	if strings.Contains(variables, "FZF_DEFAULT_OPTS") {
+		t.Error("a universal FZF_DEFAULT_OPTS is shipped, and it shadows the themed global the config sets")
+	}
+}

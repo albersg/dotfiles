@@ -53,6 +53,12 @@ zoxide init fish | source
 atuin init fish | source
 fzf --fish | source
 
+# fzf, painted from the terminal's own ANSI roles rather than from a hex list: the
+# indices below are the ones the terminal palette maps, so the picker follows the
+# theme in both light and dark without the switch rewriting this file. The zsh
+# block colours fzf from the palette's hex values for the same reason.
+set -gx FZF_DEFAULT_OPTS "--height 40% --color=fg:7,bg:0,hl:3,fg+:0,bg+:7,hl+:3,info:4,border:8,prompt:5,pointer:1,marker:2,spinner:6,header:5"
+
 # Carapace completions
 set -Ux CARAPACE_BRIDGES 'zsh,fish,bash,inshellisense'
 
@@ -114,8 +120,8 @@ end
 # Icons need a space to breathe next to the name, exactly as they have in .zshrc.
 set -gx EZA_ICON_SPACING 2
 
-alias fzfbat='fzf --preview="bat --theme=gruvbox-dark --color=always {}"'
-alias fzfnvim='nvim (fzf --preview="bat --theme=gruvbox-dark --color=always {}")'
+alias fzfbat='fzf --preview="bat --theme=$BAT_THEME --color=always {}"'
+alias fzfnvim='nvim (fzf --preview="bat --theme=$BAT_THEME --color=always {}")'
 
 # dotfiles-managed-config: fish
 # >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
@@ -214,6 +220,10 @@ set -g fish_pager_color_progress 8a8fa3
 set -g fish_pager_color_prefix b7cc85
 set -g fish_pager_color_completion f3f6f9
 set -g fish_pager_color_description 8a8fa3
+
+# The bat theme this shell selects: the same file the zsh block names, so bat and
+# the fzf previews that call it follow the theme in this shell too.
+set -gx BAT_THEME "dotfiles"
 # <<< dotfiles-theme <<<
 
 ## functions

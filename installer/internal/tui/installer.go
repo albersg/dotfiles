@@ -3062,6 +3062,20 @@ set -g fish_pager_color_description %s`,
 		roles["escape"], roles["autosuggestion"], roles["pager_progress"], roles["pager_prefix"],
 		roles["pager_completion"], roles["pager_description"])
 
+	// fish selects the bat theme too, so `bat` and the fzf previews that call it
+	// follow the theme in this shell the way the zsh block already makes them
+	// follow it. It is the same file the zsh selection names, read through
+	// batSelectionName so the two shells cannot select two different names.
+	batSelected, err := batSelectionName(def)
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(&b, `
+
+# The bat theme this shell selects: the same file the zsh block names, so bat and
+# the fzf previews that call it follow the theme in this shell too.
+set -gx BAT_THEME "%s"`, batSelected)
+
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
