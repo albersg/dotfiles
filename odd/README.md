@@ -70,6 +70,7 @@ repository's memory of why something is the way it is.
 | [windows-terminal-scheme-theme.md](tasks/windows-terminal-scheme-theme.md) | The Windows Terminal scheme and the theme that is applied |
 | [wsl-offer-as-a-change-table.md](tasks/wsl-offer-as-a-change-table.md) | The Windows Terminal offer, read as a table of what changes |
 | [vim-trainer-improvements.md](tasks/vim-trainer-improvements.md) | Improvements to the trainer |
+| [visual-capture.md](tasks/visual-capture.md) | Visual capture of the installer's screens with VHS |
 | [visual-dashboard.md](tasks/visual-dashboard.md) | The visual dashboard |
 | [wsl-host-derived-config.md](tasks/wsl-host-derived-config.md) | WSL configuration derived from the host |
 | [wsl-memory-guard.md](tasks/wsl-memory-guard.md) | The WSL memory guard and the policy that stops the distribution from dying |
