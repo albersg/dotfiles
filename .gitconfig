@@ -25,18 +25,21 @@
 	# The syntax highlighting is bat's: delta reads bat's assets, and this is the same
 	# .tmTheme file the shell selects BAT_THEME from.
 	syntax-theme = dotfiles
-	minus-style = "normal #cb7c94"
-	minus-emph-style = "bold #cb7c94"
-	plus-style = "normal #b7cc85"
-	plus-emph-style = "bold #b7cc85"
+	# A changed line is marked by the colour of its text, never by a filled line: a
+	# background needs a dim tone these definitions do not hold, and the palette's own
+	# green and red as a background leaves the syntax highlighting fighting it.
+	minus-style = "#de8fa8"
+	minus-emph-style = "bold #de8fa8"
+	plus-style = "#d1e8a9"
+	plus-emph-style = "bold #d1e8a9"
 	file-style = "bold #7fb4ca"
 	file-decoration-style = "ul"
 	hunk-header-style = "file line-number #ffe066"
 	hunk-header-decoration-style = "box"
 	line-numbers-left-style = "#8a8fa3"
 	line-numbers-right-style = "#8a8fa3"
-	line-numbers-minus-style = "#cb7c94"
-	line-numbers-plus-style = "#b7cc85"
+	line-numbers-minus-style = "#de8fa8"
+	line-numbers-plus-style = "#d1e8a9"
 	line-numbers-zero-style = "#8a8fa3"
 # <<< dotfiles-theme <<<
 	navigate = true

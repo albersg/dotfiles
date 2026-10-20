@@ -341,6 +341,21 @@ leave a tool out for something it is missing, and
 `TestEveryOfferedThemePaintsEveryTool` fails with the theme's own name and the
 tool it stopped painting when one loses it.
 
+## Diff marks
+
+A changed line in `git diff` is marked by the colour of its text, never by a filled
+line. Delta reads the second colour of a style as the background, so the palette's
+own green and red in that slot painted every changed line a saturated field, with the
+syntax highlighting of the line left fighting it; the diff could not be read. The
+mark is now the palette's normal green or red, or its bright variant, whichever reads
+better on the theme's base — both are values the definition already carries.
+
+Measured on base: dotfiles 15.08 (bright green) and 8.20 (bright red), mocha 11.03 and
+7.08, nocturne 11.69 and 9.00, kanagawa 7.52 and 3.66, everforest 6.23 and 4.55,
+rose-pine 3.38 and 6.07, latte 2.96 and 4.80. Where a palette's own two variants are
+identical, that value is what it gets: the diff does not invent a colour to reach a
+floor the palette itself does not.
+
 ## Contrast, measured
 
 The palettes were measured, not eyeballed: WCAG 2.x contrast for every role that can be painted as text on `base`, and for the selection and cursor pairs.
