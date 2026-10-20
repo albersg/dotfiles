@@ -1083,6 +1083,14 @@ var themeTools = []themeTool{
 	{ID: "zsh", Name: "the zsh line editor", Needs: themePaletteRoles},
 	{ID: "p10k", Name: "the p10k prompt", Needs: themePaletteRoles},
 	{ID: "herdr", Name: "Herdr", Needs: []string{"selection", "blue"}},
+	// lazygit is the git UI the Neovim configuration opens. Its colours live in its
+	// own config.yml, generated from the definition like the rest, and the render is
+	// what decides whether a theme can paint it: a definition missing a role the
+	// block names is reported here rather than on the row that applies it.
+	{ID: "lazygit", Name: "lazygit", Available: func(d themeDefinition) bool {
+		_, err := renderLazygitTheme(d)
+		return err == nil
+	}},
 	// fish, bat, Neovim and tmux are driven by a file or a theme name rather than
 	// by the canonical palette alone: fish and bat read a generated file, Neovim
 	// names a colorscheme, and tmux gets this repository's palette applied to its
@@ -1276,6 +1284,7 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "wezterm", Path: ".wezterm.lua", Comment: "--", AdoptEnd: "WINDOWS (WSL)", Render: renderWeztermTheme},
 	{Tool: "ghostty", Path: "dotfiles-ghostty/config", Comment: "#", Render: renderGhosttyTheme},
 	{Tool: "herdr", Path: "dotfiles-herdr/config.toml", Comment: "#", AdoptStart: "# Token overrides on top of that theme", NotBoxed: true, AdoptEnd: "accent =", Render: renderHerdrTheme},
+	{Tool: "lazygit", Path: "dotfiles-lazygit/lazygit/config.yml", Comment: "#", AdoptStart: "  theme:", NotBoxed: true, AdoptEnd: "    defaultFgColor:", AdoptEndKeep: true, Render: renderLazygitTheme},
 	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palette", AdoptStart: `palette = "dotfiles"`, NotBoxed: true, AdoptEnd: `palette = "dotfiles"`, Render: renderStarshipPaletteLine},
 	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palettes", AdoptStart: "[palettes.catppuccin_mocha]", NotBoxed: true, AdoptEnd: `crust = "#06080f"`, Render: renderStarshipPaletteTable},
 	{Tool: "zsh", Path: "dotfiles-zsh/.zshrc", Comment: "#", AdoptStart: "# ─── Palette", NotBoxed: true, AdoptEnd: `Gd=${PALETTE_YELLOW_SGR}"`, Render: renderZshTheme},
@@ -1719,6 +1728,8 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".config/ghostty/config")
 	case "herdr":
 		return filepath.Join(homeDir, ".config/herdr/config.toml")
+	case "lazygit":
+		return filepath.Join(homeDir, ".config/lazygit/config.yml")
 	case "starship":
 		return filepath.Join(homeDir, ".config/starship.toml")
 	case "zsh", "bat":
@@ -2291,6 +2302,9 @@ func reloadThemeToolFor(art themeArtifact, path, homeDir string) themeReloadTool
 	case "nvim":
 		return themeReloadTool{Tool: "Neovim", Done: false,
 			Note: "a Neovim that is already open keeps the old colorscheme: run `:colorscheme <name>` in it. A new one reads the selection."}
+	case "lazygit":
+		return themeReloadTool{Tool: "lazygit", Done: false,
+			Note: "lazygit reads its configuration when it starts: reopen it so the new palette is the one drawn."}
 	case "fish":
 		return themeReloadTool{Tool: "fish", Done: false,
 			Note: "a fish shell that is already open keeps the old palette: open a new shell, or run `exec fish`."}
@@ -2774,6 +2788,48 @@ selection_bg = "%s"
 # Herdr's accent for highlights, borders and navigation UI: the palette's blue,
 # the one the zsh prompt already uses for the directory.
 accent = "%s"`, def.ID, selection, blue), nil
+}
+
+// renderLazygitTheme renders the gui.theme block of dotfiles-lazygit/lazygit/
+// config.yml. lazygit ships no palette that follows the terminal, so the git UI
+// kept its own colours beside every themed terminal. Every role below is one the
+// definition holds, and the switch that paints the terminals paints this too.
+func renderLazygitTheme(def themeDefinition) (string, error) {
+	roles := []string{"blue", "bright_black", "selection_text", "selection", "green", "red", "text"}
+	values := make(map[string]string, len(roles))
+	for _, role := range roles {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", err
+		}
+		values[role] = value
+	}
+
+	return fmt.Sprintf(`  theme:
+    activeBorderColor:
+      - "%s"
+      - bold
+    inactiveBorderColor:
+      - "%s"
+    optionsTextColor:
+      - "%s"
+    selectedLineFgColor:
+      - "%s"
+    selectedLineBgColor:
+      - "%s"
+    cherryPickedCommitFgColor:
+      - "%s"
+    cherryPickedCommitBgColor:
+      - "%s"
+    unstagedChangesColor:
+      - "%s"
+    defaultFgColor:
+      - "%s"
+`,
+		values["blue"], values["bright_black"], values["blue"],
+		values["selection_text"], values["selection"],
+		values["green"], values["selection"], values["red"], values["text"],
+	), nil
 }
 
 // renderFishTheme renders a whole fish theme file. The fish roles are not the
@@ -7982,6 +8038,23 @@ func stepInstallNvim(m *Model) error {
 	if err := installConfigDir(stepID, srcNvim, nvimDir, nvimUserOwnedEntries...); err != nil {
 		return wrapStepError("nvim", "Install Neovim",
 			"Failed to copy Neovim configuration",
+			err)
+	}
+
+	// lazygit is the git UI the Neovim configuration opens, and lazygit ships no
+	// palette that follows the terminal. Its config.yml is copied here so the theme
+	// switch has the file to write, and so a machine that never applies a theme
+	// still starts on the same palette as everything else.
+	SendLog(stepID, "Copying lazygit configuration...")
+	lazygitDir := filepath.Join(homeDir, ".config/lazygit")
+	if err := system.EnsureDir(lazygitDir); err != nil {
+		return wrapStepError("nvim", "Install Neovim",
+			"Failed to create the lazygit configuration directory",
+			err)
+	}
+	if err := system.CopyFile(filepath.Join(repoDir, repoAssetLazygit), filepath.Join(lazygitDir, "config.yml")); err != nil {
+		return wrapStepError("nvim", "Install Neovim",
+			"Failed to copy the lazygit configuration",
 			err)
 	}
 

@@ -1,0 +1,35 @@
+# The lazygit configuration this repository owns.
+#
+# lazygit ships no theme that follows the terminal palette, so the git UI kept its
+# own colours beside every themed terminal. The block below is generated from
+# themes/<id>.toml by the same switch that paints the terminals, the prompt and
+# Neovim, so the git UI cannot drift from the rest. Everything the block does not
+# name is lazygit's own default.
+
+os:
+  editPreset: nvim
+
+gui:
+# dotfiles-managed-config: lazygit
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
+  theme:
+    activeBorderColor:
+      - "#7fb4ca"
+      - bold
+    inactiveBorderColor:
+      - "#8a8fa3"
+    optionsTextColor:
+      - "#7fb4ca"
+    selectedLineFgColor:
+      - "#f3f6f9"
+    selectedLineBgColor:
+      - "#263356"
+    cherryPickedCommitFgColor:
+      - "#b7cc85"
+    cherryPickedCommitBgColor:
+      - "#263356"
+    unstagedChangesColor:
+      - "#cb7c94"
+    defaultFgColor:
+      - "#f3f6f9"
+# <<< dotfiles-theme <<<

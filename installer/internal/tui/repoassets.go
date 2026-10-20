@@ -26,6 +26,7 @@ const (
 	repoAssetTmuxConf    = "dotfiles-tmux/tmux.conf"
 	repoAssetZellij      = "dotfiles-zellij/zellij"
 	repoAssetHerdrConfig = "dotfiles-herdr/config.toml"
+	repoAssetLazygit     = "dotfiles-lazygit/lazygit/config.yml"
 	repoAssetNvim        = "dotfiles-nvim/nvim"
 	repoAssetWSLConfig   = "dotfiles-wsl/.wslconfig.tmpl"
 	repoAssetWSLConf     = "dotfiles-wsl/wsl.conf"
@@ -65,6 +66,7 @@ var repoAssets = []string{
 	repoAssetTmuxConf,
 	repoAssetZellij,
 	repoAssetHerdrConfig,
+	repoAssetLazygit,
 	repoAssetNvim,
 	repoAssetWSLConfig,
 	repoAssetWSLConf,

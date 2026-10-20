@@ -4883,3 +4883,46 @@ func TestTheGeneratedP10kPaletteAppliesOnAReload(t *testing.T) {
 		}
 	}
 }
+
+// TestTheLazygitConfigPutsTheThemeUnderGui pins the shape lazygit reads: the
+// generated block sits inside gui:, the nine theme keys the block names are at
+// their depth, and the shipped file carries the markers. lazygit's own parser is
+// not a dependency of a unit test, so the shape is what is pinned: a key moved out
+// from under gui: is a config lazygit ignores without failing.
+func TestTheLazygitConfigPutsTheThemeUnderGui(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "dotfiles-lazygit/lazygit/config.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	lines := strings.Split(string(data), "\n")
+	indentOf := func(text string) int {
+		for _, line := range lines {
+			if strings.TrimSpace(line) != text {
+				continue
+			}
+			return len(line) - len(strings.TrimLeft(line, " "))
+		}
+		return -1
+	}
+
+	if got := indentOf("gui:"); got != 0 {
+		t.Fatalf("gui: is indented %d spaces, want 0", got)
+	}
+	if got := indentOf("theme:"); got != 2 {
+		t.Fatalf("gui.theme is indented %d spaces, want 2, so lazygit reads it under gui:", got)
+	}
+	for _, key := range []string{
+		"activeBorderColor:", "inactiveBorderColor:", "optionsTextColor:",
+		"selectedLineFgColor:", "selectedLineBgColor:",
+		"cherryPickedCommitFgColor:", "cherryPickedCommitBgColor:",
+		"unstagedChangesColor:", "defaultFgColor:",
+	} {
+		if got := indentOf(key); got != 4 {
+			t.Errorf("%s is indented %d spaces, want 4 under gui.theme", key, got)
+		}
+	}
+	if !strings.Contains(string(data), ">>> dotfiles-theme: ") || !strings.Contains(string(data), "<<< dotfiles-theme <<<") {
+		t.Error("the shipped config carries no generated theme block")
+	}
+}
