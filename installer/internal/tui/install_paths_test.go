@@ -5160,6 +5160,17 @@ func TestTheFishShellPaintsFzfAndBatFromTheTheme(t *testing.T) {
 	if strings.Contains(variables, "FZF_DEFAULT_OPTS") {
 		t.Error("a universal FZF_DEFAULT_OPTS is shipped, and it shadows the themed global the config sets")
 	}
+
+	nu := read("dotfiles-nushell/config.nu")
+	if strings.Contains(nu, "gruvbox") {
+		t.Error("the nushell config hardcodes bat's preview theme instead of reading $env.BAT_THEME")
+	}
+	if !strings.Contains(nu, "$env.BAT_THEME =") {
+		t.Error("the nushell config selects no bat theme, so bat keeps its own colours")
+	}
+	if !strings.Contains(nu, "--theme=$BAT_THEME") {
+		t.Error("the nushell fzf previews do not name the bat theme the block selects")
+	}
 }
 
 // TestTheNeovimConfigNamesNoPaletteOfItsOwn pins the two colours the Neovim

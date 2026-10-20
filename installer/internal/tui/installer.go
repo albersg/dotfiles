@@ -1309,6 +1309,7 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "lazygit", Path: "dotfiles-lazygit/lazygit/config.yml", Comment: "#", AdoptStart: "  theme:", NotBoxed: true, AdoptEnd: "    defaultFgColor:", AdoptEndKeep: true, Render: renderLazygitTheme},
 	{Tool: "zellij", Path: "dotfiles-zellij/zellij/config.kdl", Comment: "//", NotBoxed: true, AdoptStart: "themes {", AdoptEnd: `theme "kanagawa_wave"`, Render: renderZellijTheme},
 	{Tool: "delta", Path: ".gitconfig", Comment: "#", NotBoxed: true, AdoptStart: "[delta]", AdoptEnd: "\tnavigate = true", AdoptEndKeep: true, Render: renderDeltaTheme},
+	{Tool: "nushell-bat", Path: "dotfiles-nushell/config.nu", Comment: "#", Block: "bat", NotBoxed: true, AdoptStart: "$env.BAT_THEME = ", AdoptEnd: "$env.BAT_THEME = ", Render: renderNushellBatSelection},
 	// btop reads color_theme from btop.conf and the palette from the .theme file it
 	// names. The file is the one line this repository owns, and its own ".theme"
 	// suffix is btop's, not the key's: btop appends it, which is why the committed
@@ -1763,6 +1764,8 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".config/zellij/config.kdl")
 	case "delta":
 		return filepath.Join(homeDir, ".gitconfig")
+	case "nushell-bat":
+		return filepath.Join(homeDir, ".config/nushell/config.nu")
 	case "btop":
 		return filepath.Join(homeDir, ".config/btop/btop.conf")
 	case "starship":
@@ -3109,6 +3112,19 @@ func renderDeltaTheme(def themeDefinition) (string, error) {
 		values["bright_black"], values["bright_black"],
 		values["red"], values["green"], values["bright_black"],
 	), nil
+}
+
+// renderNushellBatSelection renders the $env.BAT_THEME assignment of
+// dotfiles-nushell/config.nu. It is a second block rather than a line of the theme
+// record because the record's closing brace sits outside its markers; the shell
+// selects the same bat theme the zsh and fish blocks select, so the fzf previews
+// that call bat follow the theme here too.
+func renderNushellBatSelection(def themeDefinition) (string, error) {
+	selected, err := batSelectionName(def)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("$env.BAT_THEME = %q", selected), nil
 }
 
 // renderFishTheme renders a whole fish theme file. The fish roles are not the
