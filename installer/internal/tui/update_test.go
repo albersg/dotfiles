@@ -2070,7 +2070,9 @@ func TestThemePickerListsTheDerivedThemesAndUndo(t *testing.T) {
 
 	got := m.GetCurrentOptions()
 	want := append([]string{}, m.dotfilesThemeOptions()...)
-	want = append(want, m.menuSeparator(), themeRefreshRow, dotfilesThemeUndoRow, m.menuSeparator(), "← Back")
+	// One separator opens the action block and the way back is its last row: the
+	// frame pins the whole block, so a second rule inside it would only cost a row.
+	want = append(want, m.menuSeparator(), themeRefreshRow, dotfilesThemeUndoRow, "← Back")
 	if !slices.Equal(got, want) {
 		t.Errorf("the picker lists %v, want the derived themes, the refresh, the undo and the way back %v", got, want)
 	}

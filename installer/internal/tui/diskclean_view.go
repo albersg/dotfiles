@@ -322,38 +322,6 @@ const diskCleanCardFloor = 6
 // would run. The card is not pushed off the floor by it.
 const diskCleanPreviewHeadFloor = 2
 
-// proseIsRequired reports whether the screen's prose is content the guards hold the
-// frame to, rather than orientation its budget may cut. Only the utilities section
-// says yes: its body is where a job's own line and the reason a row is absent are
-// read, and TestUtilitiesBodyCarriesEveryJobAtTheFloor fails the section on the cut
-// marker a shorter budget produces. The development-caches screen does not answer yes
-// here because it reserves its evidence with its own floor (proseFloor) instead.
-func (m Model) proseIsRequired() bool {
-	return m.Screen == ScreenUtilities
-}
-
-// proseFloor is the rows this screen reserves for prose that is evidence rather
-// than orientation, and zero for a screen that reserves none. It is zero here
-// unless a finding under the cursor has a card to draw, so the reservation costs
-// nothing on a screen with no card in front of the user.
-//
-// The utilities section reserves nothing: its budget at the floor is seven rows
-// (TestUtilitiesBodyCarriesEveryJobAtTheFloor), and the rows it holds there were
-// paid for by shortening the section's prose rather than by taking a row from its
-// own list -- the list ends with the way back, which no floor may window away.
-func (m Model) proseFloor() int {
-	if m.Screen != ScreenDiskCleaner {
-		return 0
-	}
-	if _, _, ok := m.diskCleanFocusedFinding(); !ok {
-		return 0
-	}
-	if m.DiskClean.Phase == diskCleanPreview {
-		return diskCleanCardFloor + diskCleanPreviewHeadFloor
-	}
-	return diskCleanCardFloor
-}
-
 // diskCleanFocusedFinding is the finding the cursor is on, and in the preview the
 // exact thing the confirmation would do to it. It is how one screen can show
 // every finding's evidence without printing a list as long as the scan.

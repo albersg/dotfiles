@@ -1,19 +1,19 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                                                    
+   Utilities                                                  Showing 1-5 of 9  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Development environment                                                       
   5 checks ran, 5 answers finished. The list is the problems and the unknown    
-  … and 7 more                                                                  
+  answers only; press t for all of them.                                        
+  Error — ~/.ssh has mode 0755                                                  
+  Evidence: the directory has mode 0755, and OpenSSH wants 0700                 
+  Impact: OpenSSH refuses a private key inside a directory others can read, so  
+  … and 3 more                                                                  
                                                                                 
   ▸ ✗ Error: ~/.ssh has mode 0755                                               
     ! Warning: PATH entry 4 of 9: ~/bin                                         
     ? Unknown: git resolves to /usr/bin/git, 2 copies, and no version could b…  
   ────────────────────────────────────────────────────────────────────────────  
     [a] Run every check                                                         
-    [c] Run only: …                                                             
-    [r] Retry the checks that could not run                                     
-    [w] Write the report to a file                                              
-    [t] Show every finding                                                      
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
                                                                                 

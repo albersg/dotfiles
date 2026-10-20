@@ -456,7 +456,12 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	inner := l.Inner
 	hints = m.panelHints(panels, hints)
 	footer := footerHints(inner, hints)
-	rows := installerBodyRows(m.Height, len(footer))
+	// The body is measured against the footer's RESERVED rows, not the rows it
+	// draws: an action that appears with a selection must not take its row from
+	// the body, because taking a row from the body is what moved the list. The
+	// reservation is drawn last, so the frame's last row is still the legend.
+	footerRows := m.footerReserveRows(inner, hints)
+	rows := installerBodyRows(m.Height, footerRows)
 
 	// The panel summary of a narrow terminal and the companion both live in the
 	// rows the body did not need, and they are placed together so neither can
@@ -539,28 +544,25 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	}
 	b.WriteString(rule(inner))
 	b.WriteString("\n")
+	// The rows the footer reserved but did not need are left between the rule and
+	// the legend, so the rule, the body above it and the legend's last row all
+	// keep the place the reservation gave them.
+	for i := len(footer); i < footerRows; i++ {
+		b.WriteString("\n")
+	}
 	b.WriteString(strings.Join(footer, "\n"))
 	return b.String()
 }
 
 // bodyAnchorsToTheRule reports whether a screen's body starts on the first row
-// the frame leaves, rather than being centred in them. The utilities section and
-// the screens one level in from it all carry a title as their first body row, and
-// that title is the screen's name: centring a shorter body drops its name below
-// the names of its siblings, so the same section reads at two heights. Every
-// other screen keeps the centred body the frame has always drawn.
+// the frame leaves, rather than being centred in them. Every content screen does:
+// a body that floats to the middle of the frame moves as soon as its own height
+// changes, which is what made the interface jump while a list was walked. The
+// welcome lockup is the one exception -- it is a centred mark, not a list, and its
+// emblem, wordmark and lines have always sat as one block in the middle -- and the
+// trainer composes its own frame outside this one.
 func (m Model) bodyAnchorsToTheRule() bool {
-	switch m.Screen {
-	case ScreenUtilities, ScreenWSLResources, ScreenTerminalCapabilities,
-		ScreenShellAudit, ScreenThemePicker, ScreenUpdate, ScreenUpdateCenter,
-		ScreenInstallVerify, ScreenNetworkDiagnostics, ScreenWSLAdvisor,
-		ScreenWSLBenchmark, ScreenWSLMigration, ScreenSSHManager, ScreenSSHHost,
-		ScreenSSHForm, ScreenSSHKeys, ScreenSSHAgent, ScreenSSHDiagnostics,
-		ScreenSSHTest, ScreenPortManager, ScreenPortStop,
-		ScreenDoctor, ScreenDoctorFix:
-		return true
-	}
-	return false
+	return m.Screen != ScreenWelcome
 }
 
 // anchorBodyToTheRule moves the blank rows the frame left above a short body to
@@ -1483,11 +1485,6 @@ func (m Model) mainMenuUpdateNotice() string {
 	return InfoStyle.Render(rows[0])
 }
 
-// utilitiesNoticeRows is the most rows the utilities section's result line may
-// spend. Two is enough for one sentence at the 60-column end of the supported
-// range; more than that is a cut, and the cut is marked.
-const utilitiesNoticeRows = 2
-
 // renderUtilities draws the utilities section: what it can change on this host,
 // what the change touches, the rows the host offers, and the result of the last
 // one. The themes themselves live one level in, on the theme picker.
@@ -1673,151 +1670,86 @@ func (m Model) renderThemePicker() string {
 }
 
 // renderThemeScreen draws a screen whose body is a description, a menu, the live
-// preview and the last notice, sized to the frame. The utilities section, the
-// theme picker and the WSL resource screen are the same shape, so the budget
-// arithmetic - the one that keeps a narrow terminal from pushing the footer off
-// screen - lives in one place. The notice and the hints are parameters rather
-// than fields so a screen's footer says what that screen's keys do.
+// preview and the last notice, sized to the frame. Every band is measured from
+// the frame and the screen's own reservation (section_bands.go), never from the
+// row under the cursor: moving the cursor changes what the rows say, never where
+// they are. The notice and the hints are parameters rather than fields so a
+// screen's footer says what that screen's keys do.
 func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints []installerHint) string {
 	width := contentWidth(m)
-	menu := m.menuRows(m.GetCurrentOptions(), m.Cursor)
+	detail := wrapParagraphs(paragraphs, width)
+	options := m.GetCurrentOptions()
+	bands := m.sectionBandsFor(width, hints, len(detail), len(options))
 
-	var notice []string
-	if screenNotice != "" {
-		notice = append(notice, "")
-		lines := wrapText(screenNotice, width, 0)
-		if len(lines) > utilitiesNoticeRows {
-			hidden := len(lines) - utilitiesNoticeRows + 1
-			lines = lines[:utilitiesNoticeRows-1]
-			lines = append(lines, fmt.Sprintf("… and %d more", hidden))
-		}
-		notice = append(notice, lines...)
-	}
+	menu := m.menuRows(options, m.Cursor)
+	tail := pinnedTailLen(options)
+	pinned := menu[len(menu)-tail:]
+	entries := menu[:len(menu)-tail]
 
-	// The live preview: while the cursor is on a theme row, the screen shows
-	// that theme's real palette. It writes nothing; the values come from the same
-	// definition the apply would write.
-	preview := m.themePreviewLines(width)
+	// The live preview: while the cursor is on a theme row, the screen shows that
+	// theme's real palette. It writes nothing; the values come from the same
+	// definition the apply would write. It sits under the entries, in the list
+	// band's slack, so it cannot move a row above it.
+	preview := clipLines(m.themePreviewLines(width), bands.Preview, width)
 
-	// The rows the title, the blank above the menu, the preview and the notice
-	// spend are fixed; the menu, the activity slot and the description share what
-	// is left, in that order of priority: the list is the data the user is moving
-	// through, the slot is what says a press is doing something, and the prose is
-	// the only one of the three whose cut costs nothing. When the list is longer
-	// than the frame leaves it, it is windowed around the cursor instead of being
-	// allowed to run off the bottom. That is what keeps the number of themes from
-	// being bounded by the frame -- the list scrolls, the frame stays the frame.
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
-	available := bodyRows - (2 + len(preview) + len(notice))
-	if available < 1 {
-		available = 1
+	// The activity slot's rows come from the band arithmetic (section_bands.go),
+	// which allocates them from the frame and the list alone: the window the cursor
+	// is in is identical from the press to the result.
+	activityRows := bands.Activity
+	activity := clipLines(activityLines(m.pickerActivity(), width, activityRows), activityRows, width)
+	// The preview and the activity under the entries must not eat the window, so a
+	// band with no room for both keeps the window and drops the decoration.
+	if bands.List-bands.Pinned-len(activity) < 1 {
+		preview = nil
 	}
-	// The activity slot is carved out after the list has taken its own size, and
-	// it sits under the list, where the result it is waiting for will land. The
-	// order matters: taking the slot's rows out first would squash the list, which
-	// is the screen the user is still reading and moving through, and putting the
-	// slot above the list would draw the wait where the list belongs.
-	//
-	// The slot's height is measured from the frame and the list alone -- never from
-	// which of the two states it is drawing -- so the list's window, the slot's
-	// rows and the rows the cursor is on are identical from the press to the
-	// result: the frame can neither grow nor shrink, and the cursor row cannot move
-	// when the outcome lands. The floor keeps a place for the outcome on a frame
-	// too short to hold the list whole.
-	menuBudget, descBudget := available, 0
-	activityRows := 0
-	proseGap := 1
-	if m.pickerActivity() != nil {
-		menuBudget = min(len(menu), max(1, available-themeActivitySlotFloor))
-		activityRows = available - menuBudget
-	} else if len(menu) <= available {
-		menuBudget = len(menu)
-		descBudget = available - len(menu)
-		// The blank row between the prose and the list is spacing, and on the utilities
-		// section the spacing yields before a line of the prose does: that screen's body
-		// is where a job's own reason is read, and TestUtilitiesBodyCarriesEveryJobAtTheFloor
-		// fails the section on the cut marker a shorter budget produces. The row comes
-		// from the gap rather than from the list, because the list ends with the way back
-		// and no screen may window that away. Every other screen keeps the gap: their
-		// prose is orientation, and the section's guard is the one that makes this prose
-		// evidence (m.proseIsRequired).
-		if m.proseIsRequired() && proseRows(paragraphs, width) > descBudget {
-			descBudget++
-			proseGap = 0
-		}
-	}
-	// A screen whose prose is evidence rather than orientation reserves a floor of
-	// rows for it, and the list is windowed instead of being handed every row it
-	// asks for. Only the development-caches screen declares one, and only while a
-	// finding under the cursor has a card to draw: that card carries the reason the
-	// store was found, the paths it covers and what removing it would cost, and the
-	// frame the request treats as the floor must not cut it. Screens that declare no
-	// floor are budgeted exactly as before.
-	if floor := m.proseFloor(); floor > 0 && descBudget < floor {
-		if take := min(floor-descBudget, menuBudget-1); take > 0 {
-			menuBudget -= take
-			descBudget += take
-		}
-	}
-	// The tail of a list is pinned: the way back, always, and on the update center
-	// the rows that act on the selection. They used to sit at the end of the same
-	// list the entries are in, so the first screenful of a large list pushed the
-	// apply, clear and filter rows past the bottom of the frame while the footer
-	// still advertised them. The window covers the entries; the tail is always drawn.
-	pinned := max(0, min(m.pinnedMenuRows(), len(menu)-1))
-	scrollable := len(menu) - pinned
-	itemBudget := menuBudget - pinned
-	if itemBudget < 1 {
-		itemBudget = 1
-	}
-	var start, end int
-	if m.Cursor < scrollable {
-		start, end = listWindow(m.Cursor, itemBudget, scrollable)
-	} else {
-		end = scrollable
-		start = max(0, end-itemBudget)
-	}
-	visible := append(append([]string{}, menu[start:end]...), menu[scrollable:]...)
-
-	// The body opens with the screen's own name. When the frame already carries that
-	// name -- the utilities section draws "Utilities" in the header and used to repeat
-	// it as the first line of the body -- the title is the header's job and the body
-	// starts with what the screen is for.
-	title := BrandStyle.Render(m.GetScreenTitle())
-	duplicateTitle := m.GetScreenTitle() == m.headerName()
-	if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
-		// The preview repaints the screen's own title in the theme's accent, so
-		// the palette is seen and not only read.
-		title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.GetScreenTitle())
-	}
+	entryWindow := bands.entryRows(len(activity))
 
 	var body []string
-	if !duplicateTitle {
+	if bands.Title > 0 {
+		title := BrandStyle.Render(m.GetScreenTitle())
+		if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
+			// The preview repaints the screen's own title in the theme's accent, so
+			// the palette is seen and not only read.
+			title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.GetScreenTitle())
+		}
 		body = append(body, title)
 	}
-	for _, line := range descriptionLines(paragraphs, width, descBudget) {
-		body = append(body, MutedStyle.Render(line))
-	}
-	for i := 0; i < proseGap; i++ {
+	body = append(body, clipLines(detail, bands.Detail, width)...)
+	body = padRows(body, bands.Title+bands.Detail)
+	for i := 0; i < bands.Gap; i++ {
 		body = append(body, "")
 	}
-	body = append(body, visible...)
 
-	// The activity is drawn under the list, in the rows the result will land in,
-	// and it is drawn with exactly the lines it has: one line while the switch
-	// runs, and the outcome's own lines once it lands. The rows it did not use are
-	// left at the FOOT of the body rather than between the slot and the preview, so
-	// a wait reads as one line under the list and the space it is holding open is a
-	// margin under the screen's content instead of a hole in the middle of it. The
-	// body still measures the same rows either way, which is what keeps the frame
-	// and the rows below the cursor from moving when the outcome arrives.
-	activity := activityLines(m.pickerActivity(), width, activityRows)
-	body = append(body, activity...)
-	body = append(body, preview...)
-	body = append(body, notice...)
-	for i := len(activity); i < activityRows; i++ {
-		body = append(body, "")
+	// The entries are the part of the list the frame windows; the tail is always
+	// drawn, at the foot of the band, so the way back and the actions never move.
+	scrollable := len(entries)
+	var start, end int
+	if m.Cursor < scrollable {
+		start, end = listWindow(m.Cursor, entryWindow, scrollable)
+	} else {
+		end = scrollable
+		start = max(0, end-entryWindow)
 	}
+	visible := entries[start:end]
+
+	listed := append([]string{}, visible...)
+	listed = append(listed, preview...)
+	listed = append(listed, activity...)
+	// The slack between the entries and the tail is what an action appearing in
+	// the tail spends: the tail's last row stays on the band's last row whether the
+	// tail is four rows or eight. The slack is measured from the tail's RESERVED
+	// height, so an action that appears with a selection cannot resize the window.
+	listed = append(listed, padRows(nil, bands.List-len(pinned)-len(listed))...)
+	listed = append(listed, pinned...)
+	if len(listed) > bands.List {
+		// A tail taller than its reservation keeps the rows that end the screen --
+		// the way back is the last of them -- and gives up the top of the block.
+		listed = listed[len(listed)-bands.List:]
+	}
+	listed = padRows(listed, bands.List)
+	body = append(body, listed...)
+	body = append(body, noticeBand(screenNotice, bands.Notice, width)...)
+	body = padRows(body, bands.Body)
 
 	// The header's vital names the slice of a windowed list that is on screen, so
 	// a list longer than the frame says so instead of appearing to end where the
@@ -1828,30 +1760,6 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 		vital = scrollVital("Showing", start+1, end, scrollable)
 	}
 	return m.frame(m.headerName(), vital, body, hints)
-}
-
-// pinnedMenuRows is how many trailing rows of a screen's menu are always drawn.
-// Only the update center pins a tail: its action block is the only way to apply,
-// clear or filter the selection, and it used to disappear under the first
-// screenful of packages. Every other screen keeps its list whole, the way back
-// included, so the range its header reports is the range of its own menu.
-func (m Model) pinnedMenuRows() int {
-	if m.Screen == ScreenUpdateCenter {
-		return len(m.updateCenterPinnedRows())
-	}
-	return 0
-}
-
-// proseRows is the rows a screen's prose takes when it is wrapped to width, with
-// no budget cutting it. renderThemeScreen asks it before it decides where the
-// rows above the list come from, so a screen can spend its gap between the prose
-// and the list on a line that would otherwise be cut.
-func proseRows(paragraphs []string, width int) int {
-	rows := 0
-	for _, paragraph := range paragraphs {
-		rows += len(wrapText(paragraph, width, 0))
-	}
-	return rows
 }
 
 // descriptionLines is a screen's prose wrapped to the width it will be drawn at

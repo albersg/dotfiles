@@ -1273,9 +1273,9 @@ func (m Model) GetCurrentOptions() []string {
 			opts = append(opts, m.menuSeparator())
 		}
 		opts = append(opts, utilities...)
-		if len(opts) > 0 {
-			opts = append(opts, m.menuSeparator())
-		}
+		// The action block sits under one rule, with the way back as its last row:
+		// one opener means the frame can pin the whole block, and the block's height
+		// is what the screen's band reserves.
 		return append(opts, "← Back")
 	case ScreenUpdate:
 		return m.updateRows()
@@ -1361,9 +1361,9 @@ func (m Model) GetCurrentOptions() []string {
 			}
 			opts = append(opts, actions...)
 		}
-		if len(opts) > 0 {
-			opts = append(opts, m.menuSeparator())
-		}
+		// The action block sits under one rule, with the way back as its last row:
+		// one opener means the frame can pin the whole block, and the block's height
+		// is what the screen's band reserves.
 		return append(opts, "← Back")
 	case ScreenBackupConfirm:
 		// The answers come from the one list the setup screen's backup row reads, so

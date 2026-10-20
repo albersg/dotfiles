@@ -2,8 +2,6 @@
    Utilities                                                                    
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Network diagnostics                                                           
-  … and 10 more                                                                 
-                                                                                
   ▸ [r] Run the connectivity checks                                             
     → Check a host, URL or port…                                                
   ────────────────────────────────────────────────────────────────────────────  
@@ -16,9 +14,11 @@
   ────────────────────────────────────────────────────────────────────────────  
     [t] Include a traceroute (needs the system's own tool) — off                
     → Review the report as text                                                 
+                                                                                
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
                                                                                 
   The run finished. Move the cursor onto a step to read what it measured.       
+                                                                                
   ────────────────────────────────────────────────────────────────────────────  
   ↑/k up • ↓/j down • [Enter] open • [r] run • [t] traceroute • [Esc] back      [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

@@ -2,7 +2,6 @@
    Utilities                                                                    
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Change the dotfiles theme                                                     
-                                                                                
   ▸ Apply the Catppuccin Latte theme                                            
     Apply the Catppuccin Mocha theme                                            
     Apply the dotfiles theme                                                    
@@ -10,15 +9,16 @@
     Apply the Kanagawa theme                                                    
     Apply the Nocturne theme                                                    
     Apply the Rosé Pine theme                                                   
+  Preview (nothing applied) — Catppuccin Latte:                                 
+  Applying the Nocturne theme…                                                  
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
   ────────────────────────────────────────────────────────────────────────────  
     [r] Refresh outdated theme files                                            
-  ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
-  Applying the Nocturne theme…                                                  
-  Preview (nothing applied) — Catppuccin Latte:                                 
-                                                                                
-                                                                                
-                                                                                
-                                                                                
   ────────────────────────────────────────────────────────────────────────────  
   ↑/k up • ↓/j down • [Enter] choose • [r] refresh • [Esc] back                 [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

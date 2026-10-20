@@ -407,6 +407,14 @@ func (m Model) updateCenterItemRows() []string {
 	return rows
 }
 
+// updateCenterPinnedReserve is the tallest the action block gets in the list
+// state: the select-the-shown row, apply and clear (which appear once something
+// is selected), check, filter, the separator that opens the block, and the way
+// back. The list band reserves it in every state so an action that appears with
+// a selection spends the slack held above the tail instead of shrinking the
+// window the entries scroll in.
+const updateCenterPinnedReserve = 7
+
 // updateCenterPinnedRows is the part of the list that never scrolls: what can be
 // done with the selection, and the way back. They used to live at the end of the
 // same list the entries are in, so the first screenful of a large list pushed the
@@ -445,9 +453,11 @@ func (m Model) updateCenterPinnedRows() []string {
 	if filter := m.updateCenterFilterRow(); filter != "" {
 		rows = append(rows, filter)
 	}
-	if len(rows) > 0 {
-		rows = append(rows, m.menuSeparator())
-	}
+	// The action block ends with the way back and no second rule: the separator
+	// that opens the block is the only one, so the block is exactly the rows after
+	// the last separator in the option list. That is what lets the frame pin it --
+	// and pinning it is what keeps an action appearing with a selection from
+	// resizing the window the entries scroll in.
 	return append(rows, "← Back")
 }
 

@@ -1503,7 +1503,10 @@ func TestThemePickerScrollsToEveryRowAtTheSmallTerminals(t *testing.T) {
 						t.Fatalf("%s: the first screen shows %d theme rows, want fewer than the %d built: the guard is not exercising a windowed list",
 							size.name, visible, themeCount)
 					}
-					if !strings.Contains(plain, fmt.Sprintf("of %d", len(options))) {
+					// The pinned action block is always on screen, so the count of the
+					// rows the window scrolls is the options minus that block.
+					scrollable := len(options) - pinnedTailLen(options)
+					if !strings.Contains(plain, fmt.Sprintf("of %d", scrollable)) {
 						t.Errorf("%s: the windowed list draws no visible-range count in the header: %q", size.name, plain)
 					}
 				}
