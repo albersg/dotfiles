@@ -1028,9 +1028,17 @@ func TestDiskCleanerPreviewRendersEachCommandAndEachRefusal(t *testing.T) {
 			t.Fatalf("the preview carries an item the test does not know: %s", item.ID)
 		}
 		for _, phrase := range want {
-			if !strings.Contains(view, phrase) {
-				t.Errorf("the card for %s does not say %q:\n%s", item.ID, phrase, view)
+			if strings.Contains(view, phrase) {
+				continue
 			}
+			// A path is one token and can be longer than the detail column: macOS
+			// temp directories are, and the card wraps the token where it must. The
+			// words are what the reader needs; where the wrap lands is the column's
+			// business, so the assertion compares the text without its spaces.
+			if strings.Contains(strings.ReplaceAll(view, " ", ""), strings.ReplaceAll(phrase, " ", "")) {
+				continue
+			}
+			t.Errorf("the card for %s does not say %q:\n%s", item.ID, phrase, view)
 		}
 		checked[item.ID] = true
 	}
