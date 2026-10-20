@@ -1098,6 +1098,13 @@ var themeTools = []themeTool{
 		_, err := renderZellijTheme(d)
 		return err == nil
 	}},
+	// delta is the git pager the configuration selects. Its syntax theme is bat's,
+	// so the diff and the shell highlight with the same file, and every colour the
+	// section names is a palette role.
+	{ID: "delta", Name: "delta", Available: func(d themeDefinition) bool {
+		_, err := renderDeltaTheme(d)
+		return err == nil
+	}},
 	// btop ships no configuration at all, so it drew its built-in palette beside
 	// every themed terminal. Its colours come from a .theme file this repository
 	// generates and from the color_theme line in btop.conf that selects it, so a
@@ -1301,6 +1308,7 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "herdr", Path: "dotfiles-herdr/config.toml", Comment: "#", AdoptStart: "# Token overrides on top of that theme", NotBoxed: true, AdoptEnd: "accent =", Render: renderHerdrTheme},
 	{Tool: "lazygit", Path: "dotfiles-lazygit/lazygit/config.yml", Comment: "#", AdoptStart: "  theme:", NotBoxed: true, AdoptEnd: "    defaultFgColor:", AdoptEndKeep: true, Render: renderLazygitTheme},
 	{Tool: "zellij", Path: "dotfiles-zellij/zellij/config.kdl", Comment: "//", NotBoxed: true, AdoptStart: "themes {", AdoptEnd: `theme "kanagawa_wave"`, Render: renderZellijTheme},
+	{Tool: "delta", Path: ".gitconfig", Comment: "#", NotBoxed: true, AdoptStart: "[delta]", AdoptEnd: "\tnavigate = true", AdoptEndKeep: true, Render: renderDeltaTheme},
 	// btop reads color_theme from btop.conf and the palette from the .theme file it
 	// names. The file is the one line this repository owns, and its own ".theme"
 	// suffix is btop's, not the key's: btop appends it, which is why the committed
@@ -1753,6 +1761,8 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".config/lazygit/config.yml")
 	case "zellij":
 		return filepath.Join(homeDir, ".config/zellij/config.kdl")
+	case "delta":
+		return filepath.Join(homeDir, ".gitconfig")
 	case "btop":
 		return filepath.Join(homeDir, ".config/btop/btop.conf")
 	case "starship":
@@ -2333,6 +2343,9 @@ func reloadThemeToolFor(art themeArtifact, path, homeDir string) themeReloadTool
 	case "zellij":
 		return themeReloadTool{Tool: "zellij", Done: false,
 			Note: "zellij reads its configuration when a session starts: a session that is already open keeps the old theme until it is restarted."}
+	case "delta":
+		return themeReloadTool{Tool: "delta", Done: true,
+			Note: "nothing has to be restarted: git runs delta on the next diff, and that run reads the new colours."}
 	case "btop":
 		return themeReloadTool{Tool: "btop", Done: false,
 			Note: "btop reads its configuration when it starts: reopen it so the new palette is the one drawn."}
@@ -3050,6 +3063,52 @@ func renderBtopSelection(def themeDefinition) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("color_theme = \"%s\"\n", def.ID), nil
+}
+
+// renderDeltaTheme renders the [delta] section of .gitconfig. delta is the git pager
+// the configuration selects, and it used to keep its own defaults: the diff a user
+// read was not the palette the rest of the machine wore. The syntax theme is the bat
+// theme the install builds, so a diff highlights with the same .tmTheme the shell
+// selects BAT_THEME from, and the diff's own marks are palette roles.
+func renderDeltaTheme(def themeDefinition) (string, error) {
+	batTheme, err := batSelectionName(def)
+	if err != nil {
+		return "", err
+	}
+	roles := []string{"red", "green", "blue", "yellow", "bright_black"}
+	values := make(map[string]string, len(roles))
+	for _, role := range roles {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", err
+		}
+		values[role] = value
+	}
+
+	return fmt.Sprintf(`[delta]
+	# The syntax highlighting is bat's: delta reads bat's assets, and this is the same
+	# .tmTheme file the shell selects BAT_THEME from.
+	syntax-theme = %s
+	minus-style = "normal %s"
+	minus-emph-style = "bold %s"
+	plus-style = "normal %s"
+	plus-emph-style = "bold %s"
+	file-style = "bold %s"
+	file-decoration-style = "ul"
+	hunk-header-style = "file line-number %s"
+	hunk-header-decoration-style = "box"
+	line-numbers-left-style = "%s"
+	line-numbers-right-style = "%s"
+	line-numbers-minus-style = "%s"
+	line-numbers-plus-style = "%s"
+	line-numbers-zero-style = "%s"`,
+		batTheme,
+		values["red"], values["red"],
+		values["green"], values["green"],
+		values["blue"], values["yellow"],
+		values["bright_black"], values["bright_black"],
+		values["red"], values["green"], values["bright_black"],
+	), nil
 }
 
 // renderFishTheme renders a whole fish theme file. The fish roles are not the

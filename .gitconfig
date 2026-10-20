@@ -19,7 +19,26 @@
 	pager = delta
 [interactive]
 	diffFilter = delta --color-only
+# dotfiles-managed-config: delta
+# >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 [delta]
+	# The syntax highlighting is bat's: delta reads bat's assets, and this is the same
+	# .tmTheme file the shell selects BAT_THEME from.
+	syntax-theme = dotfiles
+	minus-style = "normal #cb7c94"
+	minus-emph-style = "bold #cb7c94"
+	plus-style = "normal #b7cc85"
+	plus-emph-style = "bold #b7cc85"
+	file-style = "bold #7fb4ca"
+	file-decoration-style = "ul"
+	hunk-header-style = "file line-number #ffe066"
+	hunk-header-decoration-style = "box"
+	line-numbers-left-style = "#8a8fa3"
+	line-numbers-right-style = "#8a8fa3"
+	line-numbers-minus-style = "#cb7c94"
+	line-numbers-plus-style = "#b7cc85"
+	line-numbers-zero-style = "#8a8fa3"
+# <<< dotfiles-theme <<<
 	navigate = true
 [merge]
 	# diff3 rather than zdiff3 on purpose. zdiff3 needs git 2.35 or newer, and an

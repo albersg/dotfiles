@@ -227,8 +227,8 @@ file was a byte-for-byte copy
 of Kanagawa's and no published Kagawa palette exists, so it is no longer a theme.
 
 **Every offered theme paints every tool the switch names**, and that is a guard rather than a
-promise: the sixteen tools are the four terminals, Starship, the zsh line editor, the p10k prompt,
-Herdr, lazygit, Zellij, fish, bat, Neovim, btop, tmux and nushell, and `TestEveryOfferedThemePaintsEveryTool` fails naming
+promise: the seventeen tools are the four terminals, Starship, the zsh line editor, the p10k prompt,
+Herdr, lazygit, Zellij, fish, bat, Neovim, btop, tmux, delta and nushell, and `TestEveryOfferedThemePaintsEveryTool` fails naming
 the theme and the tool the moment a definition loses what a tool needs. A row still names the tools a
 theme cannot paint — a row reads `Apply the <name> theme (not <tools>)` where there is something to
 name — but for all seven themes that list is empty. Where a tool reads roles the canonical palette
