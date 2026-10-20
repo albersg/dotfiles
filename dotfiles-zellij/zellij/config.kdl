@@ -439,93 +439,26 @@ load_plugins {
 // Default: default
 // 
 
+// dotfiles-managed-config: zellij
+// >>> dotfiles-theme: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
 themes {
-    kanagawa_dragon {
-        fg "#dcdccc"
-        bg "#282828"
-        red "#C34043"
-        green "#728F66"
-        yellow "#9D8F6F"
-        blue "#8BA4B0"
-        magenta "#8BA4B0"
-        cyan "#8be9fd"
-        orange "#ffb86c"
-        black "#1a1a1a"
-        white "#8D909D"
-    } 
-
-    kanagawa_wave {
-        fg "#DCD7BA"
-        bg "#1F1F28"
-        red "#C34043"
-        green "#76946A"
-        yellow "#C0A36E"
-        blue "#7E9CD8"
-        magenta "#957FB8"
-        cyan "#6A9589"
-        orange "#FFA066"
-        black "#1F1F28"
-        white "#DCD7BA"
-    }
-
-    everforest {
-        fg "#d3c6aa"
-        bg "#282828"
-        red "#e67e80"
-        green "#a7c080"
-        yellow "#dbbc7f"
-        blue "#7fbbb3"
-        magenta "#d699b6"
-        cyan "#83c092"
-        orange "#e69875"
-        black "#1a1a1a"
-        white "#8D908D"
-    }
-
-    rose_pine_moon {
-        fg "#e0def4"        // light text
-        bg "#191724"        // dark background
-        red "#eb6f92"       // refined pink
-        green "#31748f"     // soft teal
-        yellow "#f6c177"    // soft yellow
-        blue "#9ccfd8"      // sky blue
-        magenta "#c4a7e7"   // soft purple
-        cyan "#9ccfd8"      // same as sky blue for consistency
-        orange "#f6c177"    // same as soft yellow
-        black "#191724"     // darker background (almost black)
-        white "#e0def4"     // same as light text
-    }
-
-    sakura {
-      fg "#c5a3a9"        // na: main text
-      bg "#1c1a1c"        // bl: dark background
-      red "#2B1720"       // ia: pink
-      green "#878fb9"     // va: blue
-      yellow "#9e97d0"    // ca: purple (replaces yellow)
-      blue "#878fb9"      // va: blue
-      magenta "#9e97d0"   // ca: purple
-      cyan "#878fb9"      // va: blue
-      orange "#9e97d0"    // ca: purple
-      black "#1c1a1c"     // bl: background
-      white "#c5a3a9"     // na: light text
-    }
-
-    oldWorld {
-      fg "#C9C7CD"        // na: main text (light gray)
-      bg "#000000"        // bl: dark background (almost black)
-      red "#EA83A5"       // ia: intense pink
-      green "#90B99F"     // va: soft green
-      yellow "#E6B99D"    // ca: beige (replaces yellow)
-      blue "#85B5BA"      // va: blue-green
-      magenta "#92A2D5"   // ca: lavender blue
-      cyan "#85B5BA"      // va: blue-green
-      orange "#F5A191"    // ca: light peach
-      black "#000000"     // bl: dark background (almost black)
-      white "#C9C7CD"     // na: light text (light gray)
+    dotfiles {
+        fg "#f3f6f9"
+        bg "#06080f"
+        black "#06080f"
+        red "#cb7c94"
+        green "#b7cc85"
+        yellow "#ffe066"
+        blue "#7fb4ca"
+        magenta "#ff8dd7"
+        cyan "#7aa89f"
+        white "#f3f6f9"
+        orange "#fff7b1"
     }
 }
 
-theme "kanagawa_wave"
+theme "dotfiles"
+// <<< dotfiles-theme <<<
 
 // Choose the base input mode of zellij.
 // Default: normal

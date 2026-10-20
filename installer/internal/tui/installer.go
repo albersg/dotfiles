@@ -1091,6 +1091,13 @@ var themeTools = []themeTool{
 		_, err := renderLazygitTheme(d)
 		return err == nil
 	}},
+	// zellij paints its panes from a named theme in its own config.kdl. The block is
+	// generated like the rest, so a machine that switches theme does not leave the
+	// multiplexer on whatever palette the file happened to be written with.
+	{ID: "zellij", Name: "Zellij", Available: func(d themeDefinition) bool {
+		_, err := renderZellijTheme(d)
+		return err == nil
+	}},
 	// fish, bat, Neovim and tmux are driven by a file or a theme name rather than
 	// by the canonical palette alone: fish and bat read a generated file, Neovim
 	// names a colorscheme, and tmux gets this repository's palette applied to its
@@ -1285,6 +1292,7 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "ghostty", Path: "dotfiles-ghostty/config", Comment: "#", Render: renderGhosttyTheme},
 	{Tool: "herdr", Path: "dotfiles-herdr/config.toml", Comment: "#", AdoptStart: "# Token overrides on top of that theme", NotBoxed: true, AdoptEnd: "accent =", Render: renderHerdrTheme},
 	{Tool: "lazygit", Path: "dotfiles-lazygit/lazygit/config.yml", Comment: "#", AdoptStart: "  theme:", NotBoxed: true, AdoptEnd: "    defaultFgColor:", AdoptEndKeep: true, Render: renderLazygitTheme},
+	{Tool: "zellij", Path: "dotfiles-zellij/zellij/config.kdl", Comment: "//", NotBoxed: true, AdoptStart: "themes {", AdoptEnd: `theme "kanagawa_wave"`, Render: renderZellijTheme},
 	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palette", AdoptStart: `palette = "dotfiles"`, NotBoxed: true, AdoptEnd: `palette = "dotfiles"`, Render: renderStarshipPaletteLine},
 	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palettes", AdoptStart: "[palettes.catppuccin_mocha]", NotBoxed: true, AdoptEnd: `crust = "#06080f"`, Render: renderStarshipPaletteTable},
 	{Tool: "zsh", Path: "dotfiles-zsh/.zshrc", Comment: "#", AdoptStart: "# ─── Palette", NotBoxed: true, AdoptEnd: `Gd=${PALETTE_YELLOW_SGR}"`, Render: renderZshTheme},
@@ -1730,6 +1738,8 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".config/herdr/config.toml")
 	case "lazygit":
 		return filepath.Join(homeDir, ".config/lazygit/config.yml")
+	case "zellij":
+		return filepath.Join(homeDir, ".config/zellij/config.kdl")
 	case "starship":
 		return filepath.Join(homeDir, ".config/starship.toml")
 	case "zsh", "bat":
@@ -2305,6 +2315,9 @@ func reloadThemeToolFor(art themeArtifact, path, homeDir string) themeReloadTool
 	case "lazygit":
 		return themeReloadTool{Tool: "lazygit", Done: false,
 			Note: "lazygit reads its configuration when it starts: reopen it so the new palette is the one drawn."}
+	case "zellij":
+		return themeReloadTool{Tool: "zellij", Done: false,
+			Note: "zellij reads its configuration when a session starts: a session that is already open keeps the old theme until it is restarted."}
 	case "fish":
 		return themeReloadTool{Tool: "fish", Done: false,
 			Note: "a fish shell that is already open keeps the old palette: open a new shell, or run `exec fish`."}
@@ -2829,6 +2842,51 @@ func renderLazygitTheme(def themeDefinition) (string, error) {
 		values["blue"], values["bright_black"], values["blue"],
 		values["selection_text"], values["selection"],
 		values["green"], values["selection"], values["red"], values["text"],
+	), nil
+}
+
+// renderZellijTheme renders the themes block of dotfiles-zellij/zellij/config.kdl.
+// Zellij paints its own chrome from a named theme, and the file used to carry five
+// hand-written palettes with `theme "kanagawa_wave"` selected by hand: the
+// multiplexer stayed on Kanagawa whatever the rest of the machine wore. The block
+// below builds one theme from the definition under its own name and selects it, so
+// the switch that paints the terminals paints the panes too.
+func renderZellijTheme(def themeDefinition) (string, error) {
+	roles := []string{"text", "base", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_yellow"}
+	values := make(map[string]string, len(roles))
+	for _, role := range roles {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", err
+		}
+		values[role] = value
+	}
+	// A KDL identifier may not carry the hyphen the theme ids use, so the name is
+	// the id with its underscores; the selected name and the block agree because
+	// both come from this one string.
+	name := strings.ReplaceAll(def.ID, "-", "_")
+
+	return fmt.Sprintf(`themes {
+    %s {
+        fg "%s"
+        bg "%s"
+        black "%s"
+        red "%s"
+        green "%s"
+        yellow "%s"
+        blue "%s"
+        magenta "%s"
+        cyan "%s"
+        white "%s"
+        orange "%s"
+    }
+}
+
+theme "%s"
+`, name,
+		values["text"], values["base"], values["black"], values["red"],
+		values["green"], values["yellow"], values["blue"], values["magenta"],
+		values["cyan"], values["white"], values["bright_yellow"], name,
 	), nil
 }
 
