@@ -124,8 +124,11 @@ const (
 
 // doctorRunCategoryPrefix is how a category's own row starts. The one category
 // row a completed run keeps ("Run only: …") starts the same way: it is the same
-// command, run on the category the cursor is on.
-const doctorRunCategoryPrefix = "[c] Run only: "
+// command, run on the category the cursor is on. The key is named once in the
+// footer, not on every row: it acts on whichever category the cursor is on, so a
+// [c] repeated down the list read as nine different commands that all did the
+// same thing.
+const doctorRunCategoryPrefix = "Run only: "
 
 // doctorCategoryEllipsisRow is the completed run's pointer back to the category
 // rows. It is a constant because the key handler tells it apart from a row that
@@ -817,7 +820,7 @@ var (
 	// letters: one reads every check in the catalogue, the other the checks of the
 	// category under the cursor.
 	doctorHintRunAll   = installerHint{"[a]", "run every check"}
-	doctorHintCategory = installerHint{"[c]", "one category"}
+	doctorHintCategory = installerHint{"[c]", "the category under the cursor"}
 	doctorHintFilter   = installerHint{"[t]", "problems/all"}
 	doctorHintWrite    = installerHint{"[w]", "write the report"}
 	// doctorHintFix is the only thing Enter does on the list, and it is offered

@@ -233,9 +233,11 @@ theme under the cursor role by role — a swatch and the hex each role would wri
 theme named above them. Moving the cursor previews that palette across the whole interface. The
 preview's muted prose uses the theme's own `subtext1` on a light base: `subtext0` on Catppuccin
 Latte's tinted background read at 3.7:1, under the 4.5:1 body floor. The drifting background also
-caps its tint at the point where the muted role would lose contrast against the plain base, so the
-decoration never costs the text its legibility; the cap is derived from the palette in use rather
-than written down, and a guard measures every offered theme.
+caps its tint at the muted role's floor — 4.5:1 where the plain base already clears the body floor,
+3.0:1 for the themes that draw the muted role dimmer — so the gradient keeps moving without taking
+the text below what the theme already accepts; the cap is derived from the palette in use rather
+than written down, and a guard measures every offered theme. A no-loss cap was tried first and
+flattened the background completely on Nocturne, whose muted role sits far above the floor.
 
 **Every offered theme paints every tool the switch names**, and that is a guard rather than a
 promise: the seventeen tools are the four terminals, Starship, the zsh line editor, the p10k prompt,

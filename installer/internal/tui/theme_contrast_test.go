@@ -50,12 +50,24 @@ func TestPreviewMutedRoleStaysLegibleOnTheDrift(t *testing.T) {
 		if !themeHexRE.MatchString(accent) {
 			continue
 		}
+		// The drift's floor: 4.5:1 when the plain base already clears it, 3.0:1
+		// for the themes whose muted role is deliberately dimmer.
+		floor := bodyFloor
+		if baseRatio < bodyFloor {
+			floor = 3.0
+		}
+		if floor > baseRatio {
+			floor = baseRatio
+		}
 		cap := driftTintCapFor(parseHexColour(base), parseHexColour(accent), muted)
+		if cap <= 0 {
+			t.Errorf("%s: the drift tint is zero, so the background no longer moves", path)
+		}
 		drift := hexColour(blendColour(parseHexColour(base), parseHexColour(accent), cap))
 		driftRatio := themeContrastRatio(muted, drift)
-		if driftRatio < baseRatio-0.05 {
-			t.Errorf("%s: the drift takes muted %s from %.2f:1 on %s to %.2f:1 on %s",
-				path, muted, baseRatio, base, driftRatio, drift)
+		if driftRatio < floor-0.02 {
+			t.Errorf("%s: the drift takes muted %s to %.2f:1 on %s, under its %.1f:1 floor",
+				path, muted, driftRatio, drift, floor)
 		}
 		if themeBaseIsLight(def) && driftRatio < bodyFloor {
 			t.Errorf("%s: light theme's muted %s on the drift end %s is %.2f:1, want at least %.1f:1",

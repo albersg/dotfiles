@@ -140,15 +140,29 @@ func driftTintCapFor(base, accent color.RGBA, inkHex string) float64 {
 	if plain <= 0 {
 		return driftAccentTint
 	}
+	// The drift may not take the muted role below the floor its palette is held
+	// to: 4.5:1 when the plain background already clears the body floor, and
+	// 3.0:1 for the themes that draw the role dimmer by design. The first version
+	// required no loss at all, which flattened the gradient completely on a
+	// palette whose muted role sat just under the threshold (Nocturne's 7.07:1
+	// lost 0.03 with the first step, so the cap was zero). A floor keeps the
+	// motion and the legibility at once.
+	floor := 4.5
+	if plain < 4.5 {
+		floor = 3.0
+	}
+	if floor > plain {
+		floor = plain
+	}
 	// Contrast is not monotone in a blend: a bright accent can carry the tint
 	// past the ink's own luminance, where the contrast dips even though both ends
 	// read well. The cap is the last step before the first dip, sampled rather
-	// than searched, so the whole gradient stays as legible as the plain base.
+	// than searched, so the whole gradient stays above the floor.
 	const steps = 32
 	last := 0.0
 	for i := 1; i <= steps; i++ {
 		tint := driftAccentTint * float64(i) / steps
-		if themeContrastRatio(inkHex, hexColour(blendColour(base, accent, tint))) < plain-0.02 {
+		if themeContrastRatio(inkHex, hexColour(blendColour(base, accent, tint))) < floor {
 			return last
 		}
 		last = tint
