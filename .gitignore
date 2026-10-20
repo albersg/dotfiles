@@ -17,3 +17,6 @@ CODEX.md
 .codegraph/
 **/.pi-lens/
 installer/dotfiles
+
+# VHS screen captures (make screens)
+captures/

@@ -3,11 +3,15 @@
 # is fast enough to run after every edit. `make preflight` is the full gate: the
 # CI checks that can run on this machine, in CI's order, run once before pushing.
 # Both live in scripts/preflight.sh; run `make check` often and `make preflight`
-# once.
-.PHONY: check preflight
+# once. `make screens` is opt-in: it records the real screens with VHS into
+# captures/, which is ignored by git, and is not part of either check.
+.PHONY: check preflight screens
 
 check:
 	bash scripts/preflight.sh --check
 
 preflight:
 	bash scripts/preflight.sh
+
+screens:
+	bash scripts/screens.sh
