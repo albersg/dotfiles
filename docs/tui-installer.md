@@ -2710,3 +2710,17 @@ installer/
 │           └── practice.go      # Weighted practice selection
 └── go.mod
 ```
+
+## Capturing the screens
+
+Every screen can be rendered to a text frame for inspection. The harness is opt-in so
+it never writes into a machine during a test run:
+
+```bash
+DOTFILES_CAPTURE_DIR=/tmp/shots go test ./internal/tui -run TestCaptureEveryScreen -count=1
+```
+
+One file per screen lands in that directory, named by the screen's index and constant,
+plus `summary.tsv` with the rows each frame spent, whether it overflowed, whether it
+drew a footer, and any screen that panicked while drawing. The frames are plain text
+with the ANSI stripped, so they can be read, diffed and reviewed like any other file.
