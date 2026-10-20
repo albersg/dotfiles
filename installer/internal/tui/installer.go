@@ -1083,6 +1083,36 @@ var themeTools = []themeTool{
 	{ID: "zsh", Name: "the zsh line editor", Needs: themePaletteRoles},
 	{ID: "p10k", Name: "the p10k prompt", Needs: themePaletteRoles},
 	{ID: "herdr", Name: "Herdr", Needs: []string{"selection", "blue"}},
+	// lazygit is the git UI the Neovim configuration opens. Its colours live in its
+	// own config.yml, generated from the definition like the rest, and the render is
+	// what decides whether a theme can paint it: a definition missing a role the
+	// block names is reported here rather than on the row that applies it.
+	{ID: "lazygit", Name: "lazygit", Available: func(d themeDefinition) bool {
+		_, err := renderLazygitTheme(d)
+		return err == nil
+	}},
+	// zellij paints its panes from a named theme in its own config.kdl. The block is
+	// generated like the rest, so a machine that switches theme does not leave the
+	// multiplexer on whatever palette the file happened to be written with.
+	{ID: "zellij", Name: "Zellij", Available: func(d themeDefinition) bool {
+		_, err := renderZellijTheme(d)
+		return err == nil
+	}},
+	// delta is the git pager the configuration selects. Its syntax theme is bat's,
+	// so the diff and the shell highlight with the same file, and every colour the
+	// section names is a palette role.
+	{ID: "delta", Name: "delta", Available: func(d themeDefinition) bool {
+		_, err := renderDeltaTheme(d)
+		return err == nil
+	}},
+	// btop ships no configuration at all, so it drew its built-in palette beside
+	// every themed terminal. Its colours come from a .theme file this repository
+	// generates and from the color_theme line in btop.conf that selects it, so a
+	// theme can paint it only when the renderer can fill every key the file names.
+	{ID: "btop", Name: "btop", Available: func(d themeDefinition) bool {
+		_, err := renderBtopTheme(d)
+		return err == nil
+	}},
 	// fish, bat, Neovim and tmux are driven by a file or a theme name rather than
 	// by the canonical palette alone: fish and bat read a generated file, Neovim
 	// names a colorscheme, and tmux gets this repository's palette applied to its
@@ -1276,6 +1306,16 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "wezterm", Path: ".wezterm.lua", Comment: "--", AdoptEnd: "WINDOWS (WSL)", Render: renderWeztermTheme},
 	{Tool: "ghostty", Path: "dotfiles-ghostty/config", Comment: "#", Render: renderGhosttyTheme},
 	{Tool: "herdr", Path: "dotfiles-herdr/config.toml", Comment: "#", AdoptStart: "# Token overrides on top of that theme", NotBoxed: true, AdoptEnd: "accent =", Render: renderHerdrTheme},
+	{Tool: "lazygit", Path: "dotfiles-lazygit/lazygit/config.yml", Comment: "#", AdoptStart: "  theme:", NotBoxed: true, AdoptEnd: "    defaultFgColor:", AdoptEndKeep: true, Render: renderLazygitTheme},
+	{Tool: "zellij", Path: "dotfiles-zellij/zellij/config.kdl", Comment: "//", NotBoxed: true, AdoptStart: "themes {", AdoptEnd: `theme "kanagawa_wave"`, Render: renderZellijTheme},
+	{Tool: "delta", Path: ".gitconfig", Comment: "#", NotBoxed: true, AdoptStart: "[delta]", AdoptEnd: "\tnavigate = true", AdoptEndKeep: true, Render: renderDeltaTheme},
+	{Tool: "zellij-layout", Path: "dotfiles-zellij/zellij/layouts/work.kdl", Comment: "//", Render: renderZellijLayout},
+	{Tool: "nushell-bat", Path: "dotfiles-nushell/config.nu", Comment: "#", Block: "bat", NotBoxed: true, AdoptStart: "$env.BAT_THEME = ", AdoptEnd: "$env.BAT_THEME = ", Render: renderNushellBatSelection},
+	// btop reads color_theme from btop.conf and the palette from the .theme file it
+	// names. The file is the one line this repository owns, and its own ".theme"
+	// suffix is btop's, not the key's: btop appends it, which is why the committed
+	// theme file is named after the theme id.
+	{Tool: "btop", Path: "dotfiles-btop/btop/btop.conf", Comment: "#", NotBoxed: true, AdoptStart: "color_theme =", AdoptEnd: "color_theme =", Render: renderBtopSelection},
 	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palette", AdoptStart: `palette = "dotfiles"`, NotBoxed: true, AdoptEnd: `palette = "dotfiles"`, Render: renderStarshipPaletteLine},
 	{Tool: "starship", Path: "starship.toml", Comment: "#", Block: "palettes", AdoptStart: "[palettes.catppuccin_mocha]", NotBoxed: true, AdoptEnd: `crust = "#06080f"`, Render: renderStarshipPaletteTable},
 	{Tool: "zsh", Path: "dotfiles-zsh/.zshrc", Comment: "#", AdoptStart: "# ─── Palette", NotBoxed: true, AdoptEnd: `Gd=${PALETTE_YELLOW_SGR}"`, Render: renderZshTheme},
@@ -1719,6 +1759,18 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".config/ghostty/config")
 	case "herdr":
 		return filepath.Join(homeDir, ".config/herdr/config.toml")
+	case "lazygit":
+		return filepath.Join(homeDir, ".config/lazygit/config.yml")
+	case "zellij":
+		return filepath.Join(homeDir, ".config/zellij/config.kdl")
+	case "delta":
+		return filepath.Join(homeDir, ".gitconfig")
+	case "nushell-bat":
+		return filepath.Join(homeDir, ".config/nushell/config.nu")
+	case "zellij-layout":
+		return filepath.Join(homeDir, ".config/zellij/layouts/work.kdl")
+	case "btop":
+		return filepath.Join(homeDir, ".config/btop/btop.conf")
 	case "starship":
 		return filepath.Join(homeDir, ".config/starship.toml")
 	case "zsh", "bat":
@@ -2291,6 +2343,18 @@ func reloadThemeToolFor(art themeArtifact, path, homeDir string) themeReloadTool
 	case "nvim":
 		return themeReloadTool{Tool: "Neovim", Done: false,
 			Note: "a Neovim that is already open keeps the old colorscheme: run `:colorscheme <name>` in it. A new one reads the selection."}
+	case "lazygit":
+		return themeReloadTool{Tool: "lazygit", Done: false,
+			Note: "lazygit reads its configuration when it starts: reopen it so the new palette is the one drawn."}
+	case "zellij":
+		return themeReloadTool{Tool: "zellij", Done: false,
+			Note: "zellij reads its configuration when a session starts: a session that is already open keeps the old theme until it is restarted."}
+	case "delta":
+		return themeReloadTool{Tool: "delta", Done: true,
+			Note: "nothing has to be restarted: git runs delta on the next diff, and that run reads the new colours."}
+	case "btop":
+		return themeReloadTool{Tool: "btop", Done: false,
+			Note: "btop reads its configuration when it starts: reopen it so the new palette is the one drawn."}
 	case "fish":
 		return themeReloadTool{Tool: "fish", Done: false,
 			Note: "a fish shell that is already open keeps the old palette: open a new shell, or run `exec fish`."}
@@ -2757,6 +2821,10 @@ func renderHerdrTheme(def themeDefinition) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	text, err := themeHex(def, "text")
+	if err != nil {
+		return "", err
+	}
 
 	return fmt.Sprintf(`# Token overrides on top of that theme, so the chrome Herdr draws agrees with the
 # terminal palette (Alacritty, Kitty, WezTerm, Ghostty) and with the zsh prompt,
@@ -2769,11 +2837,369 @@ panel_bg = "reset"
 # The value the terminal uses for a text selection, so selecting inside a pane
 # and selecting inside the terminal look like the same operation.
 selection_bg = "%s"
+# The body text. Herdr exposes four custom tokens and this is the fourth
+# (panel_bg, selection_bg, accent and text; herdr config check rejects any
+# other name under [theme.custom]), so the custom layer is complete here and the
+# [theme] name below stays the built-in base it always was.
+text = "%s"
 
 [ui]
 # Herdr's accent for highlights, borders and navigation UI: the palette's blue,
 # the one the zsh prompt already uses for the directory.
-accent = "%s"`, def.ID, selection, blue), nil
+accent = "%s"`, def.ID, selection, text, blue), nil
+}
+
+// renderLazygitTheme renders the gui.theme block of dotfiles-lazygit/lazygit/
+// config.yml. lazygit ships no palette that follows the terminal, so the git UI
+// kept its own colours beside every themed terminal. Every role below is one the
+// definition holds, and the switch that paints the terminals paints this too.
+func renderLazygitTheme(def themeDefinition) (string, error) {
+	roles := []string{"blue", "bright_black", "selection_text", "selection", "green", "red", "text"}
+	values := make(map[string]string, len(roles))
+	for _, role := range roles {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", err
+		}
+		values[role] = value
+	}
+
+	return fmt.Sprintf(`  theme:
+    activeBorderColor:
+      - "%s"
+      - bold
+    inactiveBorderColor:
+      - "%s"
+    optionsTextColor:
+      - "%s"
+    selectedLineFgColor:
+      - "%s"
+    selectedLineBgColor:
+      - "%s"
+    cherryPickedCommitFgColor:
+      - "%s"
+    cherryPickedCommitBgColor:
+      - "%s"
+    unstagedChangesColor:
+      - "%s"
+    defaultFgColor:
+      - "%s"
+`,
+		values["blue"], values["bright_black"], values["blue"],
+		values["selection_text"], values["selection"],
+		values["green"], values["selection"], values["red"], values["text"],
+	), nil
+}
+
+// renderZellijTheme renders the themes block of dotfiles-zellij/zellij/config.kdl.
+// Zellij paints its own chrome from a named theme, and the file used to carry five
+// hand-written palettes with `theme "kanagawa_wave"` selected by hand: the
+// multiplexer stayed on Kanagawa whatever the rest of the machine wore. The block
+// below builds one theme from the definition under its own name and selects it, so
+// the switch that paints the terminals paints the panes too.
+func renderZellijTheme(def themeDefinition) (string, error) {
+	roles := []string{"text", "base", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_yellow"}
+	values := make(map[string]string, len(roles))
+	for _, role := range roles {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", err
+		}
+		values[role] = value
+	}
+	// A KDL identifier may not carry the hyphen the theme ids use, so the name is
+	// the id with its underscores; the selected name and the block agree because
+	// both come from this one string.
+	name := strings.ReplaceAll(def.ID, "-", "_")
+
+	return fmt.Sprintf(`themes {
+    %s {
+        fg "%s"
+        bg "%s"
+        black "%s"
+        red "%s"
+        green "%s"
+        yellow "%s"
+        blue "%s"
+        magenta "%s"
+        cyan "%s"
+        white "%s"
+        orange "%s"
+    }
+}
+
+theme "%s"
+`, name,
+		values["text"], values["base"], values["black"], values["red"],
+		values["green"], values["yellow"], values["blue"], values["magenta"],
+		values["cyan"], values["white"], values["bright_yellow"], name,
+	), nil
+}
+
+// themeBtopChrome maps btop's per-surface theme[...] keys onto palette roles, in
+// the order btop's own bundled .theme files write them. btop reads a palette from
+// a theme file rather than from the terminal, and its keys are not the canonical
+// roles: the mapping is data here for the same reason bat's is, because a key name
+// does not say which role it takes.
+//
+//	key            role            what it paints
+//	main_bg        base            the background of every box
+//	main_fg        text            the body text
+//	title          blue            box titles
+//	hi_fg          blue            the highlight on a keyboard shortcut
+//	selected_bg    selection       the selected row's background
+//	selected_fg    selection_text  the selected row's text
+//	inactive_fg    bright_black    disabled and inactive text
+//	div_line       bright_black    the divider and small-box lines
+//	proc_misc      cyan            the processes box's mini graphs and status text
+//	cpu_box        green           the CPU box outline
+//	mem_box        yellow          the memory/disks box outline
+//	net_box        cyan            the network box outline
+//	proc_box       blue            the processes box outline
+//
+// The gradient keys below are the five accent roles read as a scale: a quantity
+// that is worse as it grows (cpu load, temperature, used memory, running
+// processes) ramps green -> yellow -> red, a quantity that is better as it grows
+// (free and available memory) ramps the same scale the other way round, and the
+// neutral gauges take one end of it (cached cold in blue/cyan, upload warm in
+// yellow/red). No value is chosen here: every one of them is a role the
+// definition holds, which is what TestGeneratedThemeBlocksInventNoColour reads.
+var themeBtopChrome = []struct{ Key, Role string }{
+	{"main_bg", "base"},
+	{"main_fg", "text"},
+	{"title", "blue"},
+	{"hi_fg", "blue"},
+	{"selected_bg", "selection"},
+	{"selected_fg", "selection_text"},
+	{"inactive_fg", "bright_black"},
+	{"proc_misc", "cyan"},
+	{"cpu_box", "green"},
+	{"mem_box", "yellow"},
+	{"net_box", "cyan"},
+	{"proc_box", "blue"},
+	{"div_line", "bright_black"},
+}
+
+// themeBtopGradients are the keys btop ramps between two extremes, read from the
+// same five accent roles. They are a separate table because they are a separate
+// statement: the chrome above is one value per surface, and each line here is a
+// scale.
+var themeBtopGradients = []struct{ Key, Role string }{
+	{"temp_start", "green"},
+	{"temp_mid", "yellow"},
+	{"temp_end", "red"},
+	{"cpu_start", "green"},
+	{"cpu_mid", "yellow"},
+	{"cpu_end", "red"},
+	{"free_start", "red"},
+	{"free_mid", "yellow"},
+	{"free_end", "green"},
+	{"cached_start", "blue"},
+	{"cached_mid", "cyan"},
+	{"cached_end", "cyan"},
+	{"available_start", "red"},
+	{"available_mid", "yellow"},
+	{"available_end", "green"},
+	{"used_start", "green"},
+	{"used_mid", "yellow"},
+	{"used_end", "red"},
+	{"download_start", "cyan"},
+	{"download_mid", "blue"},
+	{"download_end", "blue"},
+	{"upload_start", "yellow"},
+	{"upload_mid", "red"},
+	{"upload_end", "red"},
+	{"process_start", "green"},
+	{"process_mid", "yellow"},
+	{"process_end", "red"},
+}
+
+// btopThemeFile is the name btop reads a theme from, which is the theme id with
+// btop's own ".theme" suffix: color_theme names the file, not a path, and btop
+// appends the suffix itself. The id comes from a file in themes/, so it is
+// checked before it is used to build a path rather than trusted.
+func btopThemeFile(id string) (string, error) {
+	name := id + ".theme"
+	if id == "" || filepath.Base(name) != name {
+		return "", fmt.Errorf("theme %q is not a plain theme id, so btop's theme file cannot be named", id)
+	}
+	return name, nil
+}
+
+// renderBtopTheme renders a btop .theme file from the definition. Every colour is
+// a role the definition holds, and a definition missing one is refused rather
+// than emitted with a hole. btop resolves color_theme against its own themes
+// directory, so this file's name is what the selection in btop.conf names.
+func renderBtopTheme(def themeDefinition) (string, error) {
+	file, err := btopThemeFile(def.ID)
+	if err != nil {
+		return "", err
+	}
+
+	values := make(map[string]string, len(themeBtopChrome)+len(themeBtopGradients))
+	for _, table := range [][]struct{ Key, Role string }{themeBtopChrome, themeBtopGradients} {
+		for _, entry := range table {
+			value, err := themeHex(def, entry.Role)
+			if err != nil {
+				return "", err
+			}
+			values[entry.Key] = value
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("# dotfiles-managed-config: btop\n")
+	fmt.Fprintf(&b, "# btop theme %q, generated from themes/%s.toml; edit the definition, not this file.\n", def.ID, def.ID)
+	fmt.Fprintf(&b, "# btop.conf selects it by this file's name (%s); btop reads the directory\n", file)
+	b.WriteString("# ~/.config/btop/themes for it.\n")
+	b.WriteString("\n# The chrome every box shares.\n")
+	for _, entry := range themeBtopChrome {
+		fmt.Fprintf(&b, "theme[%s]=\"%s\"\n", entry.Key, values[entry.Key])
+	}
+	b.WriteString("\n# The gradients, in btop's own order: green -> yellow -> red as a quantity\n")
+	b.WriteString("# gets worse, and the same scale the other way round where more is better.\n")
+	for _, entry := range themeBtopGradients {
+		fmt.Fprintf(&b, "theme[%s]=\"%s\"\n", entry.Key, values[entry.Key])
+	}
+	return b.String(), nil
+}
+
+// renderBtopSelection renders the color_theme line of
+// dotfiles-btop/btop/btop.conf. btop ships no configuration, so this is the only
+// setting the repository owns in that file: everything else btop ships a default
+// for, and a key written here would be a second copy of a btop default that no
+// theme reads. The line is refused when the theme's file cannot be generated, so
+// the selection never names a theme btop has no .theme for.
+func renderBtopSelection(def themeDefinition) (string, error) {
+	if _, err := btopThemeFile(def.ID); err != nil {
+		return "", err
+	}
+	if _, err := renderBtopTheme(def); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("color_theme = \"%s\"\n", def.ID), nil
+}
+
+// renderDeltaTheme renders the [delta] section of .gitconfig. delta is the git pager
+// the configuration selects, and it used to keep its own defaults: the diff a user
+// read was not the palette the rest of the machine wore. The syntax theme is the bat
+// theme the install builds, so a diff highlights with the same .tmTheme the shell
+// selects BAT_THEME from, and the diff's own marks are palette roles.
+func renderDeltaTheme(def themeDefinition) (string, error) {
+	batTheme, err := batSelectionName(def)
+	if err != nil {
+		return "", err
+	}
+	roles := []string{"red", "green", "blue", "yellow", "bright_black"}
+	values := make(map[string]string, len(roles))
+	for _, role := range roles {
+		value, err := themeHex(def, role)
+		if err != nil {
+			return "", err
+		}
+		values[role] = value
+	}
+
+	return fmt.Sprintf(`[delta]
+	# The syntax highlighting is bat's: delta reads bat's assets, and this is the same
+	# .tmTheme file the shell selects BAT_THEME from.
+	syntax-theme = %s
+	minus-style = "normal %s"
+	minus-emph-style = "bold %s"
+	plus-style = "normal %s"
+	plus-emph-style = "bold %s"
+	file-style = "bold %s"
+	file-decoration-style = "ul"
+	hunk-header-style = "file line-number %s"
+	hunk-header-decoration-style = "box"
+	line-numbers-left-style = "%s"
+	line-numbers-right-style = "%s"
+	line-numbers-minus-style = "%s"
+	line-numbers-plus-style = "%s"
+	line-numbers-zero-style = "%s"`,
+		batTheme,
+		values["red"], values["red"],
+		values["green"], values["green"],
+		values["blue"], values["yellow"],
+		values["bright_black"], values["bright_black"],
+		values["red"], values["green"], values["bright_black"],
+	), nil
+}
+
+// renderNushellBatSelection renders the $env.BAT_THEME assignment of
+// dotfiles-nushell/config.nu. It is a second block rather than a line of the theme
+// record because the record's closing brace sits outside its markers; the shell
+// selects the same bat theme the zsh and fish blocks select, so the fzf previews
+// that call bat follow the theme here too.
+func renderNushellBatSelection(def themeDefinition) (string, error) {
+	selected, err := batSelectionName(def)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("$env.BAT_THEME = %q", selected), nil
+}
+
+// renderZellijLayout renders dotfiles-zellij/zellij/layouts/work.kdl, the one
+// layout the configuration loads. The zjstatus bar is the part of Zellij that is not
+// the config's `theme`: its segments are painted by inline hex in the layout, so the
+// five per-theme layouts each carried their own palette and the default one was
+// selected by hand in `default_layout`. This one is generated from the definition,
+// and every colour in it is a role the definition holds.
+func renderZellijLayout(def themeDefinition) (string, error) {
+	hex := func(role string) (string, error) { return themeHex(def, role) }
+	values := map[string]string{}
+	for _, role := range []string{"text", "bright_black", "blue", "magenta", "yellow", "green"} {
+		value, err := hex(role)
+		if err != nil {
+			return "", err
+		}
+		values[role] = value
+	}
+
+	return fmt.Sprintf(`layout {
+    tab name="base" focus=true {
+        pane
+    }
+
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="file:~/.config/zellij/plugins/zjstatus.wasm" {
+              format_left   "{mode} #[fg=%s,bold]{tabs}"
+              format_center "#[fg=%s,bold]{session}"
+              format_right  "{command_git_branch} {datetime}"
+              format_space  ""
+
+              border_enabled  "false"
+              border_char     "─"
+              border_format   "#[fg=%s]{char}"
+              border_position "top"
+
+              mode_normal  "#[bg=%s] "
+              mode_tmux    "#[bg=%s] "
+
+              tab_normal   "#[fg=%s]{index}:{name} "
+              tab_active   "#[fg=%s,bold,italic]{index}:{name} "
+
+              command_git_branch_command     "git rev-parse --abbrev-ref HEAD"
+              command_git_branch_format      "#[fg=%s] {stdout} "
+              command_git_branch_interval    "10"
+              command_git_branch_rendermode  "static"
+
+              datetime        "#[fg=%s,bold] {format} "
+              datetime_format "%%A, %%d %%b %%Y %%H:%%M"
+              datetime_timezone "Europe/Berlin"
+            }
+        }
+        children
+        pane size=1 borderless=true  {
+          plugin location="zellij:status-bar"
+        }
+    }
+}`,
+		values["text"], values["text"], values["bright_black"],
+		values["blue"], values["magenta"],
+		values["bright_black"], values["yellow"], values["green"], values["bright_black"],
+	), nil
 }
 
 // renderFishTheme renders a whole fish theme file. The fish roles are not the
@@ -2936,6 +3362,10 @@ set -g fish_color_search_match --background=%s
 set -g fish_color_operator %s
 set -g fish_color_escape %s
 set -g fish_color_autosuggestion %s
+# The matching-bracket colour: the shipped fish_variables pinned it to a zenburn
+# blue no definition holds, and it is not one of the eighteen roles above, so it
+# takes the selection colour here like search_match does.
+set -g fish_color_match %s
 
 # Completion pager colours.
 set -g fish_pager_color_progress %s
@@ -2945,8 +3375,22 @@ set -g fish_pager_color_description %s`,
 		roles["normal"], roles["command"], roles["keyword"], roles["quote"],
 		roles["redirection"], roles["end"], roles["error"], roles["param"],
 		roles["comment"], roles["selection"], roles["search_match"], roles["operator"],
-		roles["escape"], roles["autosuggestion"], roles["pager_progress"], roles["pager_prefix"],
+		roles["escape"], roles["autosuggestion"], roles["search_match"], roles["pager_progress"], roles["pager_prefix"],
 		roles["pager_completion"], roles["pager_description"])
+
+	// fish selects the bat theme too, so `bat` and the fzf previews that call it
+	// follow the theme in this shell the way the zsh block already makes them
+	// follow it. It is the same file the zsh selection names, read through
+	// batSelectionName so the two shells cannot select two different names.
+	batSelected, err := batSelectionName(def)
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(&b, `
+
+# The bat theme this shell selects: the same file the zsh block names, so bat and
+# the fzf previews that call it follow the theme in this shell too.
+set -gx BAT_THEME "%s"`, batSelected)
 
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -3249,6 +3693,10 @@ var themeThemeFiles = []themeThemeFile{
 	{Tool: "bat", Theme: "dotfiles", Path: "dotfiles-bat/themes/dotfiles.tmTheme", Render: renderBatTheme},
 	{Tool: "bat", Theme: "catppuccin-mocha", Path: "dotfiles-bat/themes/catppuccin-mocha.tmTheme", Render: renderBatTheme},
 	{Tool: "bat", Theme: "nocturne", Path: "dotfiles-bat/themes/nocturne.tmTheme", Render: renderBatTheme},
+	// btop's committed theme is the default one; the other themes' .theme files are
+	// written at install time (generateBtopThemesFromDefinitions) into btop's own
+	// themes directory, which is where color_theme resolves a name.
+	{Tool: "btop", Theme: "dotfiles", Path: "dotfiles-btop/btop/themes/dotfiles.theme", Render: renderBtopTheme},
 	{Tool: "nvim", Theme: "dotfiles", Path: "dotfiles-nvim/nvim/colors/dotfiles.lua", Render: renderNvimTheme},
 	{Tool: "nvim", Theme: "catppuccin-latte", Path: "dotfiles-nvim/nvim/colors/catppuccin-latte.lua", Render: renderNvimTheme},
 	{Tool: "nvim", Theme: "everforest", Path: "dotfiles-nvim/nvim/colors/everforest.lua", Render: renderNvimTheme},
@@ -5486,6 +5934,15 @@ func stepInstallTerminal(m *Model) error {
 				"Failed to copy Ghostty configuration",
 				err)
 		}
+		// dotfiles-ghostty/themes/catppuccin-mocha.conf is the provenance of
+		// themes/catppuccin-mocha.toml, not a live theme: the config never references
+		// it, and a copy in the user's directory would be a palette no switch keeps
+		// current. It stays in the checkout and out of the installed tree.
+		if err := os.Remove(filepath.Join(homeDir, ".config", "ghostty", "themes", "catppuccin-mocha.conf")); err != nil && !os.IsNotExist(err) {
+			return wrapStepError("terminal", "Install Ghostty",
+				"Failed to leave the stale theme copy out of the Ghostty configuration",
+				err)
+		}
 		SendLog(stepID, "✓ Ghostty configured")
 	}
 
@@ -6913,6 +7370,41 @@ func generateBatThemesFromDefinitions(repoDir, dir string) (int, error) {
 	return generated, nil
 }
 
+// generateBtopThemesFromDefinitions writes a btop .theme file for every theme
+// that can be rendered into dir, so a theme whose file the checkout does not ship
+// still paints btop: btop reads the file from its own themes directory and selects
+// it by the name color_theme holds, and the definition is the same one the switch
+// reads, so the generated file and the selected name cannot disagree. Only the
+// default theme's file is under version control; the rest exist because this runs,
+// which is what makes a switch to any offered theme land on a file btop has. A
+// checkout with no themes/ directory - one that predates the theme library - has
+// no definitions to generate and returns zero.
+func generateBtopThemesFromDefinitions(repoDir, dir string) (int, error) {
+	defs, err := loadThemeDefinitions(repoDir)
+	if err != nil {
+		return 0, nil
+	}
+
+	generated := 0
+	for _, def := range defs {
+		file, err := btopThemeFile(def.ID)
+		if err != nil {
+			return generated, err
+		}
+		content, err := renderBtopTheme(def)
+		if err != nil {
+			// A partial theme has no palette to paint btop with, and the row reports
+			// that; it is not a failure of the install.
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
+			return generated, err
+		}
+		generated++
+	}
+	return generated, nil
+}
+
 func stepInstallShell(m *Model) error {
 	homeDir := os.Getenv("HOME")
 	shell := m.Choices.Shell
@@ -7983,6 +8475,52 @@ func stepInstallNvim(m *Model) error {
 		return wrapStepError("nvim", "Install Neovim",
 			"Failed to copy Neovim configuration",
 			err)
+	}
+
+	// lazygit is the git UI the Neovim configuration opens, and lazygit ships no
+	// palette that follows the terminal. Its config.yml is copied here so the theme
+	// switch has the file to write, and so a machine that never applies a theme
+	// still starts on the same palette as everything else.
+	SendLog(stepID, "Copying lazygit configuration...")
+	lazygitDir := filepath.Join(homeDir, ".config/lazygit")
+	if err := system.EnsureDir(lazygitDir); err != nil {
+		return wrapStepError("nvim", "Install Neovim",
+			"Failed to create the lazygit configuration directory",
+			err)
+	}
+	if err := system.CopyFile(filepath.Join(repoDir, repoAssetLazygit), filepath.Join(lazygitDir, "config.yml")); err != nil {
+		return wrapStepError("nvim", "Install Neovim",
+			"Failed to copy the lazygit configuration",
+			err)
+	}
+
+	// btop ships no configuration, so it drew its own built-in palette beside every
+	// themed terminal. Its config carries the color_theme selection and nothing else
+	// btop does not already default, and the themes directory beside it gets a
+	// .theme file for every theme that can paint btop - generated from the same
+	// definitions the switch reads, so a switch to any offered theme lands on a file
+	// btop has. Without the generated files color_theme would name a theme btop does
+	// not have and btop would fall back to its built-in one.
+	SendLog(stepID, "Copying btop configuration...")
+	btopDir := filepath.Join(homeDir, ".config/btop")
+	btopThemesDir := filepath.Join(btopDir, "themes")
+	if err := system.EnsureDir(btopThemesDir); err != nil {
+		return wrapStepError("nvim", "Install Neovim",
+			"Failed to create the btop configuration directory",
+			err)
+	}
+	if err := system.CopyFile(filepath.Join(repoDir, repoAssetBtop), filepath.Join(btopDir, "btop.conf")); err != nil {
+		return wrapStepError("nvim", "Install Neovim",
+			"Failed to copy the btop configuration",
+			err)
+	}
+	if generated, err := generateBtopThemesFromDefinitions(repoDir, btopThemesDir); err != nil {
+		// Best effort, like bat's generated themes: the copied config is installed and
+		// the default theme is selectable, so a theme that could not be generated is
+		// named in the log rather than aborting the whole step.
+		SendLog(stepID, fmt.Sprintf("Warning: a btop theme could not be generated from the theme definitions: %v", err))
+	} else if generated > 0 {
+		SendLog(stepID, fmt.Sprintf("Generated %d btop theme(s) from themes/*.toml", generated))
 	}
 
 	// Install Claude Code CLI (optional, don't fail on error)

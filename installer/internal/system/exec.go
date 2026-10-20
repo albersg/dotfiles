@@ -631,6 +631,8 @@ var configPathSubdirs = map[string]string{
 	"tmux":      ".tmux.conf",
 	"zellij":    ".config/zellij",
 	"herdr":     ".config/herdr",
+	"lazygit":   ".config/lazygit",
+	"btop":      ".config/btop",
 	"alacritty": ".config/alacritty",
 	// WezTerm is installed into the XDG directory, so that is the file the
 	// terminal step replaces and the one this key has to name; the loose

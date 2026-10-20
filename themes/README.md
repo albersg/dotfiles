@@ -329,8 +329,9 @@ which every offered theme sets, so the bar follows the theme like the
 | Rosé Pine | **nothing** |
 | Nocturne | **nothing** |
 
-The thirteen tools are Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line
-editor, the p10k prompt, Herdr, fish, bat, Neovim, tmux and nushell; they are
+The seventeen tools are Alacritty, Kitty, WezTerm, Ghostty, Starship, the zsh line
+editor, the p10k prompt, Herdr, lazygit, Zellij, fish, bat, Neovim, btop, tmux, delta
+and nushell; they are
 `themeTools` in `installer/internal/tui/installer.go`. Coverage is the generator's
 own answer - fish asks whether it can derive the fish roles at all, bat whether it
 can render the `.tmTheme`, tmux whether it can render its style block, Neovim
@@ -339,6 +340,16 @@ record and the `LS_COLORS` table read from the definition - so a theme can only
 leave a tool out for something it is missing, and
 `TestEveryOfferedThemePaintsEveryTool` fails with the theme's own name and the
 tool it stopped painting when one loses it.
+
+## Contrast, measured
+
+The palettes were measured, not eyeballed: WCAG 2.x contrast for every role that can be painted as text on `base`, and for the selection and cursor pairs.
+
+**Body text clears AAA in every theme.** `text` on `base` is 18.45:1 in dotfiles, 13.39 in Rosé Pine, 11.34 in Catppuccin Mocha, 11.26 in Kanagawa, 10.15 in Nocturne, 7.38 in Everforest and 7.06 in Catppuccin Latte. Every selection pair clears AA (lowest: Everforest 4.75:1).
+
+**The accent roles below AA are the published palettes' own values.** Catppuccin Latte's pastel accents on its light base are the lowest of the library: green 2.96:1, yellow 2.31:1, blue 4.34:1, magenta 2.34:1, cyan 3.31:1 (their bright halves the same). Kanagawa's red is 3.22:1, Rosé Pine's green 3.38:1, Everforest's `bright_black` 3.21:1. None of them was chosen here — each is the value the palette publishes — and the answer is not to invent a different one: a theme that needs a text-safe accent gets a role for it in its own definition, or the caller uses `text` instead.
+
+**The `[syntax]` pair follows the chrome, not the theme's base.** A dark chrome paints `keyword_dark`/`string_dark`, a light one the `_light` members; a theme with no light member falls back to its dark value. That is why Catppuccin Latte's `keyword_dark` (1.80:1 on its own light base) is not a defect: the light chrome never paints it.
 
 Which roles are **declared** in the definition and which are **derived** by the
 mappings above:

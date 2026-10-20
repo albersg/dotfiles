@@ -236,7 +236,7 @@ cover every tool the switch paints — and each theme's palette is defined once 
 one adds a row to the theme list, which the Utilities section's **Change the dotfiles theme** row
 opens. The switch applies a complete theme (a definition with every canonical role and the `[syntax]`
 members the preview reads: **dotfiles**, **Catppuccin Mocha**, **Catppuccin Latte**, **Kanagawa**,
-**Everforest**, **Rosé Pine** and **Nocturne**) to the configs this repository owns for all thirteen tools, records
+**Everforest**, **Rosé Pine** and **Nocturne**) to the configs this repository owns for all seventeen tools, records
 the exact bytes it replaced in the same `theme.json`, and can put them back with a dedicated undo
 row. Writing a file is not the same as the running tool showing it, so after the switch it brings the
 theme forward where it safely can — rebuilding bat's theme cache, sourcing tmux's config into a

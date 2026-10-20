@@ -1193,12 +1193,30 @@ func TestStepInstallNvimPrunesLeftoversAndKeepsUserState(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(nvimSrc, "lua", "plugins"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The step installs the lazygit configuration beside Neovim's, so the synthetic
+	// checkout has to carry it like the real one does.
+	if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(repoAssetLazygit)), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for path, content := range map[string]string{
 		filepath.Join(nvimSrc, "init.lua"):                     "init",
 		filepath.Join(nvimSrc, "lua", "plugins", "editor.lua"): "editor",
 		filepath.Join(nvimSrc, "lazy-lock.json"):               `{"repo":"pinned"}`,
+		filepath.Join(repo, repoAssetLazygit):                  "gui:\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The step also copies the two configurations this repository owns for tools
+	// that ship none (lazygit's git UI and btop's theme selection), so the fixture
+	// checkout has to hold them the way a real clone does.
+	for _, asset := range []string{repoAssetLazygit, repoAssetBtop} {
+		path := filepath.Join(repo, asset)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("# fixture\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -2941,6 +2959,22 @@ func TestThemeGeneratorRefusesAMissingRole(t *testing.T) {
 // used to scan generated output for invented colours.
 var themeHexTokenRE = regexp.MustCompile(`(?i)\b[0-9a-f]{6}\b`)
 
+// themeDefinitionOwnsColour reports whether a hex token is a colour the definition
+// already holds, in its [palette], [fish] or [prompt] table. It is the rule a
+// generated block and a generated file both answer to: a colour a renderer emits
+// has to be one the theme was given, never one it chose.
+func themeDefinitionOwnsColour(def themeDefinition, token string) bool {
+	value := strings.ToLower(strings.TrimPrefix(token, "#"))
+	for _, table := range []map[string]string{def.Palette, def.Fish, def.Prompt} {
+		for _, hex := range table {
+			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // TestGeneratedThemeBlocksInventNoColour covers the provenance rule at the
 // renderer: every colour a generated block emits must be one the definition
 // already holds, either as a canonical palette role or as one of its fish roles.
@@ -2952,25 +2986,7 @@ func TestGeneratedThemeBlocksInventNoColour(t *testing.T) {
 		t.Fatalf("load the theme definitions: %v", err)
 	}
 
-	owned := func(def themeDefinition, token string) bool {
-		value := strings.ToLower(strings.TrimPrefix(token, "#"))
-		for _, hex := range def.Palette {
-			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
-				return true
-			}
-		}
-		for _, hex := range def.Fish {
-			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
-				return true
-			}
-		}
-		for _, hex := range def.Prompt {
-			if strings.TrimPrefix(strings.ToLower(hex), "#") == value {
-				return true
-			}
-		}
-		return false
-	}
+	owned := themeDefinitionOwnsColour
 
 	tools := map[string]bool{}
 	checked := 0
@@ -4881,5 +4897,338 @@ func TestTheGeneratedP10kPaletteAppliesOnAReload(t *testing.T) {
 			t.Errorf("after re-sourcing the block %s = %q, want %s's %q (the previous theme's is %q)",
 				name, got[name], appliedID, want, previous.Palette[role.Role])
 		}
+	}
+}
+
+// TestTheLazygitConfigPutsTheThemeUnderGui pins the shape lazygit reads: the
+// generated block sits inside gui:, the nine theme keys the block names are at
+// their depth, and the shipped file carries the markers. lazygit's own parser is
+// not a dependency of a unit test, so the shape is what is pinned: a key moved out
+// from under gui: is a config lazygit ignores without failing.
+func TestTheLazygitConfigPutsTheThemeUnderGui(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "dotfiles-lazygit/lazygit/config.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	lines := strings.Split(string(data), "\n")
+	indentOf := func(text string) int {
+		for _, line := range lines {
+			if strings.TrimSpace(line) != text {
+				continue
+			}
+			return len(line) - len(strings.TrimLeft(line, " "))
+		}
+		return -1
+	}
+
+	if got := indentOf("gui:"); got != 0 {
+		t.Fatalf("gui: is indented %d spaces, want 0", got)
+	}
+	if got := indentOf("theme:"); got != 2 {
+		t.Fatalf("gui.theme is indented %d spaces, want 2, so lazygit reads it under gui:", got)
+	}
+	for _, key := range []string{
+		"activeBorderColor:", "inactiveBorderColor:", "optionsTextColor:",
+		"selectedLineFgColor:", "selectedLineBgColor:",
+		"cherryPickedCommitFgColor:", "cherryPickedCommitBgColor:",
+		"unstagedChangesColor:", "defaultFgColor:",
+	} {
+		if got := indentOf(key); got != 4 {
+			t.Errorf("%s is indented %d spaces, want 4 under gui.theme", key, got)
+		}
+	}
+	if !strings.Contains(string(data), ">>> dotfiles-theme: ") || !strings.Contains(string(data), "<<< dotfiles-theme <<<") {
+		t.Error("the shipped config carries no generated theme block")
+	}
+}
+
+// TestBtopIsPaintedByTheThemeSwitch is the btop half of the coverage work. btop
+// ships no configuration at all, so it kept its built-in palette beside every
+// themed terminal and no row could repaint it: the switch wrote thirteen other
+// tools' files and btop was not one of them. It is painted from a generated
+// .theme file plus the one line of btop.conf that selects it, and this guard pins
+// the three things that make that reach:
+//
+//  1. btop is one of the tools the switch names, so the coverage row counts it;
+//  2. the shipped btop.conf selects the theme inside a generated block and carries
+//     nothing else: every non-comment line it holds is inside that block, because
+//     btop ships a default for every other setting and a key written here would be
+//     a second copy of a btop default that no theme reads;
+//  3. the installed themes directory gets one file per offered theme, named by the
+//     color_theme line that selects it, and the committed .theme carries only
+//     colours the definition already holds.
+//
+// Its teeth are the renderer and the table: a theme that cannot fill a key is
+// reported by the coverage guard with its own name, and a colour chosen by eye in
+// the renderer fails here.
+func TestBtopIsPaintedByTheThemeSwitch(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	inModel := false
+	for _, tool := range themeTools {
+		if tool.ID == "btop" {
+			inModel = true
+		}
+	}
+	if !inModel {
+		t.Fatal("btop is not one of the tools the switch names, so nothing repaints it and no row can say it was left behind")
+	}
+
+	// 2. The shipped btop.conf: the selection sits inside the marked block, and the
+	// file holds nothing btop does not already default.
+	shipped, err := os.ReadFile(filepath.Join(repoRoot(t), repoAssetBtop))
+	if err != nil {
+		t.Fatalf("read %s: %v", repoAssetBtop, err)
+	}
+	conf := string(shipped)
+	if !strings.Contains(conf, themeOwnershipMarker) {
+		t.Errorf("%s ships no ownership marker, so the switch may not rewrite it", repoAssetBtop)
+	}
+	begin := strings.Index(conf, themeBeginTag(""))
+	end := strings.Index(conf, themeEndTag(""))
+	if begin < 0 || end < begin {
+		t.Fatalf("%s carries no generated block, so no switch can rewrite its selection", repoAssetBtop)
+	}
+	holdsSelection := false
+	inBlock := false
+	for _, line := range strings.Split(conf, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.Contains(trimmed, themeBeginTag("")):
+			inBlock = true
+			continue
+		case strings.Contains(trimmed, themeEndTag("")):
+			inBlock = false
+			continue
+		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
+			continue
+		}
+		if !inBlock {
+			t.Errorf("%s holds the line %q outside its generated block: btop ships a default for every setting, and the only one this repository owns is the theme selection", repoAssetBtop, trimmed)
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "color_theme = \"") {
+			t.Errorf("%s holds the line %q inside its generated block, and the block's only setting is color_theme", repoAssetBtop, trimmed)
+			continue
+		}
+		selected := strings.TrimSuffix(strings.TrimPrefix(trimmed, "color_theme = \""), "\"")
+		fileName, err := btopThemeFile(selected)
+		if err != nil {
+			t.Errorf("%s selects %q: %v", repoAssetBtop, selected, err)
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(repoRoot(t), filepath.Dir(repoAssetBtop), "themes", fileName)); err != nil {
+			t.Errorf("%s selects %q, which no committed .theme file answers: %v", repoAssetBtop, selected, err)
+		}
+		holdsSelection = true
+	}
+	if !holdsSelection {
+		t.Fatalf("%s selects no theme inside its generated block, so btop keeps its built-in palette", repoAssetBtop)
+	}
+
+	// 3. Every offered theme, generated into btop's own themes directory: the
+	// switch rewrites color_theme to the theme's id, so a theme with no file is a
+	// selection btop cannot resolve.
+	dir := t.TempDir()
+	generated, err := generateBtopThemesFromDefinitions(repoRoot(t), dir)
+	if err != nil {
+		t.Fatalf("generate the btop themes: %v", err)
+	}
+	offered := offeredThemeIDs(defs)
+	if len(offered) == 0 {
+		t.Fatal("no theme is offered, so this guard proves nothing")
+	}
+	for _, id := range offered {
+		def, _ := themeByID(defs, id)
+		fileName, err := btopThemeFile(id)
+		if err != nil {
+			t.Errorf("theme %q cannot be named as a btop theme: %v", id, err)
+			continue
+		}
+		got, err := os.ReadFile(filepath.Join(dir, fileName))
+		if err != nil {
+			t.Errorf("theme %q is offered but the installer generated no %s: %v", id, fileName, err)
+			continue
+		}
+		want, err := renderBtopTheme(def)
+		if err != nil {
+			t.Errorf("render the %s btop theme: %v", id, err)
+			continue
+		}
+		if string(got) != want {
+			t.Errorf("the generated %s is not what themes/%s.toml produces", fileName, id)
+		}
+		selection, err := renderBtopSelection(def)
+		if err != nil {
+			t.Errorf("render the btop selection for %q: %v", id, err)
+			continue
+		}
+		if !strings.Contains(selection, "color_theme = \""+id+"\"") {
+			t.Errorf("the btop selection for %q does not name the theme: %q", id, selection)
+		}
+		// The file the selection names is the file this theme was written to.
+		if !strings.HasSuffix(fileName, ".theme") || strings.TrimSuffix(fileName, ".theme") != id {
+			t.Errorf("theme %q is written to %s, which color_theme=%q does not name", id, fileName, id)
+		}
+	}
+	if generated != len(offered) {
+		t.Errorf("the installer generated %d btop theme(s) for the %d offered theme(s)", generated, len(offered))
+	}
+
+	// The committed .theme is a whole file, so its colours are checked here line by
+	// line: an emitted colour has to be one the definition holds.
+	checked, committed := 0, 0
+	for _, file := range themeThemeFiles {
+		if file.Tool != "btop" {
+			continue
+		}
+		def, ok := themeByID(defs, file.Theme)
+		if !ok {
+			t.Errorf("themeThemeFiles names %q, which no definition defines", file.Theme)
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), file.Path))
+		if err != nil {
+			t.Errorf("read %s: %v", file.Path, err)
+			continue
+		}
+		committed++
+		colours := 0
+		for _, line := range strings.Split(string(data), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			if !strings.HasPrefix(trimmed, "theme[") {
+				t.Errorf("%s holds the line %q, which is not a theme[...] key", file.Path, trimmed)
+				continue
+			}
+			for _, token := range themeHexTokenRE.FindAllString(line, -1) {
+				if !themeDefinitionOwnsColour(def, token) {
+					t.Errorf("%s emits %s, which themes/%s.toml does not hold: a generated theme may not invent a colour",
+						file.Path, token, file.Theme)
+				}
+				checked++
+				colours++
+			}
+		}
+		if colours == 0 {
+			t.Errorf("%s carries no colour, so it paints nothing", file.Path)
+		}
+	}
+	if committed == 0 {
+		t.Fatal("no committed btop theme was checked, so this guard proves nothing about one")
+	}
+	t.Logf("%d offered theme(s) generated into btop's themes directory; %d colour(s) checked in the committed file", len(offered), checked)
+}
+
+// TestTheFishShellPaintsFzfAndBatFromTheTheme pins the two colours the fish config
+// left behind: bat's preview theme is no longer a hex name written into an alias,
+// and fzf's colours are the terminal's ANSI roles, so the picker follows the theme
+// in both light and dark. The universal FZF_DEFAULT_OPTS the repository used to
+// ship is gone: a universal variable shadows the global the config sets, so the
+// picker kept one height and no colours.
+func TestTheFishShellPaintsFzfAndBatFromTheTheme(t *testing.T) {
+	read := func(rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(data)
+	}
+
+	fish := read("dotfiles-fish/fish/config.fish")
+	if strings.Contains(fish, "gruvbox") {
+		t.Error("the fish config hardcodes bat's preview theme instead of reading $BAT_THEME")
+	}
+	if !strings.Contains(fish, "--theme=$BAT_THEME") {
+		t.Error("the fzf previews do not name the bat theme the block selects")
+	}
+	if !strings.Contains(fish, "set -gx BAT_THEME") {
+		t.Error("the fish block selects no bat theme, so bat keeps its own colours")
+	}
+	if !strings.Contains(fish, "set -gx FZF_DEFAULT_OPTS") || !strings.Contains(fish, "--color=") {
+		t.Error("the fish config paints no fzf colour")
+	}
+
+	variables := read("dotfiles-fish/fish/fish_variables")
+	if strings.Contains(variables, "FZF_DEFAULT_OPTS") {
+		t.Error("a universal FZF_DEFAULT_OPTS is shipped, and it shadows the themed global the config sets")
+	}
+
+	nu := read("dotfiles-nushell/config.nu")
+	if strings.Contains(nu, "gruvbox") {
+		t.Error("the nushell config hardcodes bat's preview theme instead of reading $env.BAT_THEME")
+	}
+	if !strings.Contains(nu, "$env.BAT_THEME =") {
+		t.Error("the nushell config selects no bat theme, so bat keeps its own colours")
+	}
+	if !strings.Contains(nu, "--theme=$BAT_THEME") {
+		t.Error("the nushell fzf previews do not name the bat theme the block selects")
+	}
+}
+
+// TestTheNeovimConfigNamesNoPaletteOfItsOwn pins the two colours the Neovim
+// configuration used to choose for itself: the dashboard emblem took a hex that
+// only the dotfiles theme holds, and LazyVim's install-time fallback named
+// tokyonight. The emblem uses the terminal's ANSI blue, so it follows whichever
+// theme paints the terminal, and the fallback names the colorscheme this
+// repository ships.
+func TestTheNeovimConfigNamesNoPaletteOfItsOwn(t *testing.T) {
+	read := func(rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(data)
+	}
+
+	colorscheme := read("dotfiles-nvim/nvim/lua/plugins/colorscheme.lua")
+	if strings.Contains(colorscheme, "#7fb4ca") {
+		t.Error("the Neovim overrides paint the dotfiles palette's blue under every other theme")
+	}
+	if !strings.Contains(colorscheme, `SnacksDashboardHeader = { fg = "blue" }`) {
+		t.Error("the dashboard emblem does not use the terminal's own blue")
+	}
+
+	lazy := read("dotfiles-nvim/nvim/lua/config/lazy.lua")
+	if strings.Contains(lazy, `"tokyonight"`) {
+		t.Error("LazyVim's install fallback names a colorscheme this repository does not ship")
+	}
+	if !strings.Contains(lazy, `colorscheme = { "dotfiles"`) {
+		t.Error("LazyVim's install fallback does not name the shipped colorscheme")
+	}
+}
+
+// TestTheGhosttyConfigReferencesNoThemeFile pins the premise the ghostty step
+// relies on: dotfiles-ghostty/themes/catppuccin-mocha.conf is the provenance of
+// themes/catppuccin-mocha.toml, not a live theme, so the installed tree leaves it
+// out. A config that started referencing a file under themes/ would make that
+// exclusion break Ghostty at startup.
+func TestTheGhosttyConfigReferencesNoThemeFile(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "dotfiles-ghostty", "config"))
+	if err != nil {
+		t.Fatalf("read the Ghostty config: %v", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "theme") && strings.Contains(trimmed, "themes/") {
+			t.Errorf("the Ghostty config references a file under themes/, which the install leaves out: %s", trimmed)
+		}
+	}
+
+	// The file stays in the checkout, because the definition cites it as its
+	// provenance and a guard reads it there.
+	if _, err := os.Stat(filepath.Join(repoRoot(t), "dotfiles-ghostty", "themes", "catppuccin-mocha.conf")); err != nil {
+		t.Errorf("the provenance file the definition cites is gone: %v", err)
 	}
 }

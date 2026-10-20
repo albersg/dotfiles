@@ -915,12 +915,17 @@ $env.config = {
     ]
 }
 
+# dotfiles-managed-config: nushell-bat
+# >>> dotfiles-theme-bat: dotfiles (generated from themes/dotfiles.toml; edit the definition, not this block) >>>
+$env.BAT_THEME = "dotfiles"
+# <<< dotfiles-theme-bat <<<
+
 def fzfbat [] {
-  fzf --preview "bat --theme=gruvbox-dark --color=always {}" 
+  fzf --preview "bat --theme=$BAT_THEME --color=always {}" 
 }
 
 def fzfnvim [] {
-  nvim (fzf --preview "bat --theme=gruvbox-dark --color=always {}")
+  nvim (fzf --preview "bat --theme=$BAT_THEME --color=always {}")
 }
 
  source ~/.zoxide.nu
