@@ -388,3 +388,29 @@ Not pre-flight, but the release is not finished without them.
 - `.github/workflows/release.yml` - the source of every claim above.
 - `CHANGELOG.md` - the curated notes, and the text the published release carries.
 - `docs/contributing.md` - the process around a change, including what a release claims to close.
+
+## The dev channel: the installer as main has it
+
+`dev` is not a release cadence: nothing is published per commit. The channel resolves
+the last commit on `main` from the repository's API, downloads that commit's tree and
+**builds it here**, with the commit stamped into the binary (`main.Commit`, and
+`Version=dev-<short>`). It needs Go on `PATH`; when the toolchain is missing the
+channel says so and installs nothing rather than pretending it installed a build.
+
+- The check names `main <short>` and the day the commit was made.
+- "Newer" means "this build is not that commit", so a source build always offers it.
+- On that channel the main menu's row reads **Rebuild from the latest main commit**;
+  on stable it reads **Update this installer** and downloads a published asset,
+  verified against the release's `SHA256SUMS`.
+
+```bash
+dotfiles --channel dev --check-update   # main abcdef1 (published 2026-10-20)
+dotfiles --channel dev --self-update    # builds that commit and installs it
+dotfiles --channel stable --self-update # back to the published release
+```
+
+A change that is not on `main` yet is a different act, and it does not go through the
+channel at all: `go install ./cmd/dotfiles` from the checkout puts the working tree in
+`$(go env GOPATH)/bin`, which the installer's own PATH setup puts first. That build
+carries a commit only when the tree is committed, so the dev channel will offer to
+rebuild it.

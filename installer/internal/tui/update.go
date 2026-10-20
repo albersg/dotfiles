@@ -2583,7 +2583,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.Cursor = 0
 		case strings.Contains(selected, "Vim Trainer"):
 			return m.startTrainer()
-		case selected == updateInstallerRow:
+		case selected == updateInstallerLabel(m.updateChannel()):
 			// The row is the button when this run may replace its own file:
 			// pressing it runs the same verified swap `--self-update` runs, off the
 			// update loop, and the result appears on this screen in the notice slot
@@ -2601,7 +2601,7 @@ func (m Model) handleMainMenuKeys(key string) (tea.Model, tea.Cmd) {
 			}
 			m.UpdateCheck.InFlight = true
 			m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
-			return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
+			return m, updateApplyCmd(m.updateChannel(), m.UpdateCheck.Latest, m.UpdateTarget)
 		case strings.HasPrefix(selected, updateChannelRowPrefix):
 			// The row is the switch: pressing it changes which stream this run
 			// follows, remembers the choice in the same record the answers live in, and
@@ -3315,7 +3315,7 @@ func (m Model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 		}
 		m.UpdateCheck.InFlight = true
 		m.UpdateCheck.Notice = "Downloading " + m.UpdateCheck.Latest + "…"
-		return m, updateApplyCmd(m.UpdateCheck.Latest, m.UpdateTarget)
+		return m, updateApplyCmd(m.updateChannel(), m.UpdateCheck.Latest, m.UpdateTarget)
 	case "r":
 		// Asking again is always allowed: an answer that is stale, wrong or missing
 		// is exactly what a user asks a second time for. One check at a time, so the

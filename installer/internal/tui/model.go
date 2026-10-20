@@ -1115,7 +1115,7 @@ func (m Model) GetCurrentOptions() []string {
 		// cursor would otherwise hand Enter to whichever option the insertion pushed
 		// under it.
 		if m.UpdateRowOffered() {
-			opts = append(opts, updateInstallerRow)
+			opts = append(opts, updateInstallerLabel(m.updateChannel()))
 		}
 		// The channel row is offered once the record names a channel, which every
 		// check writes, success or failure. It sits beside the update row because the

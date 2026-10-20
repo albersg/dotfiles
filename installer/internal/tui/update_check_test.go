@@ -975,7 +975,7 @@ func TestTheUpdateRowOutlivesTheCheckDeadline(t *testing.T) {
 	updateDownloadHTTPClient = func() *http.Client { return delayed(2 * time.Second) }
 	t.Cleanup(func() { updateHTTPClient, updateDownloadHTTPClient = previousCheck, previousDownload })
 
-	msg, ok := updateApplyCmd(f.tag, f.target)().(updateAppliedMsg)
+	msg, ok := updateApplyCmd(channelStable, f.tag, f.target)().(updateAppliedMsg)
 	if !ok {
 		t.Fatal("the update row did not answer with an applied message")
 	}
@@ -1223,7 +1223,7 @@ func TestMainMenuOffersTheUpdateRowWheneverTheCheckHasSomethingToReport(t *testi
 func cursorOnUpdateRow(t *testing.T, m *Model) {
 	t.Helper()
 	for i, option := range m.GetCurrentOptions() {
-		if option == updateInstallerRow {
+		if option == updateInstallerLabel(m.updateChannel()) {
 			m.Cursor = i
 			return
 		}
@@ -1327,7 +1327,7 @@ func TestANewerReleaseStillShowsTheRowWhenTheTargetCouldNotBeResolved(t *testing
 func TestTheMenuShowsTheReasonWhenTheDevCheckFindsNoPreRelease(t *testing.T) {
 	isolateUpdateState(t)
 
-	reason := "GET https://api.github.com/repos/albersg/dotfiles/releases: no pre-release is published"
+	reason := "could not read the last commit on main: 404 Not Found"
 
 	m := NewModel()
 	m.Width, m.Height = 160, 40
@@ -1352,7 +1352,7 @@ func TestTheMenuShowsTheReasonWhenTheDevCheckFindsNoPreRelease(t *testing.T) {
 
 	cursorOnUpdateRow(t, &m)
 	view := flatView(m)
-	if !strings.Contains(view, "no pre-release is published") {
+	if !strings.Contains(view, "could not read the last commit on main") {
 		t.Errorf("the dev check failed but the menu does not name why:\n%s", view)
 	}
 }
@@ -1756,62 +1756,59 @@ func TestParseReleaseChannelNamesTheTwoChannels(t *testing.T) {
 	}
 }
 
-func TestDevChannelReadsTheNewestPreReleaseNotTheStableRelease(t *testing.T) {
+func TestTheDevChannelResolvesTheLastCommitOnMain(t *testing.T) {
+	const sha = "abcdef1234567890abcdef1234567890abcdef12"
 	c := newUpdateTestClient(map[string]string{
-		dotfilesReleaseAPIURL: releaseLatestBody("v1.0.0"),
-		dotfilesReleaseListURL: `[
-			{"tag_name":"v1.1.0","prerelease":false,"draft":false},
-			{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false}
-		]`,
+		devMainCommitURL: `{"sha":"` + sha + `","commit":{"committer":{"date":"2026-10-04T12:00:00Z"}}}`,
 	})
 
 	answer, err := latestReleaseForChannel(c.client(), channelDev)
 	if err != nil {
 		t.Fatalf("the dev channel could not be read: %v", err)
 	}
-	if answer.Tag != "v1.2.0-dev.1" {
-		t.Errorf("dev tag = %q, want the highest-versioned pre-release v1.2.0-dev.1: a dev channel that answers with the stable release is the stable channel", answer.Tag)
+	if answer.Tag != "main abcdef1" {
+		t.Errorf("dev answer = %q, want main abcdef1: the channel serves the last commit on main, not a release", answer.Tag)
 	}
-	if len(c.requests) != 1 || c.requests[0] != dotfilesReleaseListURL {
-		t.Errorf("dev requests = %v, want exactly [%s]: the dev channel reads the release list, not /releases/latest", c.requests, dotfilesReleaseListURL)
+	if answer.PublishedAt.IsZero() {
+		t.Error("the dev answer carries no date, so the screen cannot say how old it is")
 	}
-}
-
-func TestDevChannelSkipsDraftsAndReleasedEntries(t *testing.T) {
-	c := newUpdateTestClient(map[string]string{
-		dotfilesReleaseListURL: `[
-			{"tag_name":"v2.0.0-draft","prerelease":true,"draft":true},
-			{"tag_name":"v1.9.0","prerelease":true,"draft":false}
-		]`,
-	})
-
-	answer, err := latestReleaseForChannel(c.client(), channelDev)
-	if err != nil {
-		t.Fatalf("latestReleaseForChannel(dev): %v", err)
-	}
-	if answer.Tag != "v1.9.0" {
-		t.Errorf("dev tag = %q, want v1.9.0: a draft is not published, so it is not an artifact this channel can serve", answer.Tag)
+	if len(c.requests) != 1 || c.requests[0] != devMainCommitURL {
+		t.Errorf("dev requests = %v, want exactly [%s]: the channel reads the commit, not the release list", c.requests, devMainCommitURL)
 	}
 }
 
-func TestDevChannelSaysUnknownWhenNoPreReleaseIsPublished(t *testing.T) {
+func TestTheDevChannelNeverReadsTheReleaseList(t *testing.T) {
 	c := newUpdateTestClient(map[string]string{
-		dotfilesReleaseListURL: `[{"tag_name":"v1.0.0","prerelease":false,"draft":false}]`,
+		devMainCommitURL:       `{"sha":"abcdef1234567890abcdef1234567890abcdef12"}`,
+		dotfilesReleaseListURL: `[{"tag_name":"v9.9.9","prerelease":true,"draft":false}]`,
 	})
+	if _, err := latestReleaseForChannel(c.client(), channelDev); err != nil {
+		t.Fatalf("the dev channel could not be read: %v", err)
+	}
+	for _, request := range c.requests {
+		if request != devMainCommitURL {
+			t.Errorf("the dev channel requested %s: it builds main, so no release list takes part", request)
+		}
+	}
+}
+
+func TestTheDevChannelSaysUnknownWhenMainCannotBeRead(t *testing.T) {
+	c := newUpdateTestClient(map[string]string{})
+	c.status[devMainCommitURL] = 404
 
 	_, err := latestReleaseForChannel(c.client(), channelDev)
 	if err == nil {
-		t.Fatal("a release list with no pre-release answered with a tag: dev would serve the stable release under a dev name")
+		t.Fatal("an unreadable main answered with a commit: the dev channel would build nothing under a green light")
 	}
-	if !strings.Contains(err.Error(), "no pre-release is published") {
-		t.Errorf("error = %q, want it to say no pre-release is published, so the dev channel's unknown has a reason", err.Error())
+	if !strings.Contains(err.Error(), "could not read the last commit on main") {
+		t.Errorf("error = %q, want it to name the commit it could not read, so the unknown has its reason", err)
 	}
 }
 
 func TestTheRecordNamesTheChannelTheAnswerCameFrom(t *testing.T) {
 	isolateUpdateState(t)
 	c := newUpdateTestClient(map[string]string{
-		dotfilesReleaseListURL: `[{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false}]`,
+		devMainCommitURL: `{"sha":"abcdef1234567890abcdef1234567890abcdef12","commit":{"committer":{"date":"2026-10-04T12:00:00Z"}}}`,
 	})
 	now := time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC)
 
@@ -1820,8 +1817,8 @@ func TestTheRecordNamesTheChannelTheAnswerCameFrom(t *testing.T) {
 	if rec.Channel != string(channelDev) {
 		t.Errorf("record channel = %q, want dev", rec.Channel)
 	}
-	if rec.Latest != "v1.2.0-dev.1" {
-		t.Errorf("record latest = %q, want the dev tag", rec.Latest)
+	if rec.Latest != "main abcdef1" {
+		t.Errorf("record latest = %q, want the commit on main", rec.Latest)
 	}
 	back, ok := readUpdateRecord()
 	if !ok {
@@ -1848,7 +1845,7 @@ func TestAChannelChoiceIsRememberedWithoutAnAnswer(t *testing.T) {
 }
 
 func TestTheStateNamesTheDevChannel(t *testing.T) {
-	state := stateFromRecord(updateRecord{Channel: "dev", CheckedAt: time.Now(), Latest: "v1.2.0-dev.1"})
+	state := stateFromRecord(updateRecord{Channel: "dev", CheckedAt: time.Now(), Latest: "main abcdef1"})
 
 	if state.Channel != channelDev {
 		t.Fatalf("state.Channel = %q, want dev", state.Channel)
@@ -1873,17 +1870,21 @@ func TestTheStateNamesTheDevChannel(t *testing.T) {
 // pre-release, say that it is a pre-release, and say the day it was published.
 // It reads the answer from the API body through the record and the state, so the
 // published date has to survive the whole path to count.
-func TestDevAnswerNamesThePreReleaseAndWhenItWasPublished(t *testing.T) {
+// TestTheDevAnswerNamesTheCommitAndWhenItWasMade is the guard for the dev channel's
+// whole point: an answer that reads like a stable one is how a user installs
+// something they did not choose. The dev answer names the branch and the commit it
+// would build, and the day that commit was made.
+func TestTheDevAnswerNamesTheCommitAndWhenItWasMade(t *testing.T) {
 	isolateUpdateState(t)
 	c := newUpdateTestClient(map[string]string{
-		dotfilesReleaseListURL: `[{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false,"published_at":"2026-10-03T09:30:00Z"}]`,
+		devMainCommitURL: `{"sha":"abcdef1234567890abcdef1234567890abcdef12","commit":{"committer":{"date":"2026-10-03T12:00:00Z"}}}`,
 	})
 
 	rec := refreshUpdateRecord(c.client(), channelDev, time.Now())
 	state := stateFromRecord(rec)
 
 	summary := state.Summary()
-	for _, want := range []string{"pre-release", "v1.2.0-dev.1", "2026-10-03"} {
+	for _, want := range []string{"main abcdef1", "2026-10-03"} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("Summary() = %q, want it to carry %q", summary, want)
 		}
@@ -1895,7 +1896,7 @@ func TestDevAnswerNamesThePreReleaseAndWhenItWasPublished(t *testing.T) {
 			published = row.Value
 		}
 	}
-	for _, want := range []string{"pre-release", "v1.2.0-dev.1", "2026-10-03"} {
+	for _, want := range []string{"main abcdef1", "2026-10-03"} {
 		if !strings.Contains(published, want) {
 			t.Errorf("displayRows() Published = %q, want it to carry %q", published, want)
 		}
@@ -1978,8 +1979,8 @@ func TestCheckForUpdateUsesTheChosenChannel(t *testing.T) {
 	updateChannelFlag = ""
 
 	c := newUpdateTestClient(map[string]string{
-		dotfilesReleaseAPIURL:  releaseLatestBody("v1.0.0"),
-		dotfilesReleaseListURL: `[{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false}]`,
+		dotfilesReleaseAPIURL: releaseLatestBody("v1.0.0"),
+		devMainCommitURL:      `{"sha":"abcdef1234567890abcdef1234567890abcdef12","commit":{"committer":{"date":"2026-10-04T12:00:00Z"}}}`,
 	})
 	swapUpdateTransport(t, c)
 	if err := SetUpdateChannel("dev"); err != nil {
@@ -1994,8 +1995,8 @@ func TestCheckForUpdateUsesTheChosenChannel(t *testing.T) {
 	if !report.Known || !report.Newer {
 		t.Fatalf("report = %+v, want a known newer pre-release", report)
 	}
-	if !strings.Contains(report.Summary, "v1.2.0-dev.1") {
-		t.Errorf("summary = %q, want the dev tag in it", report.Summary)
+	if !strings.Contains(report.Summary, "main abcdef1") {
+		t.Errorf("summary = %q, want the commit on main in it", report.Summary)
 	}
 	for _, req := range c.requests {
 		if req == dotfilesReleaseAPIURL {
@@ -2096,7 +2097,7 @@ func TestTheAutomaticCheckReadsTheChannelTheRunFollows(t *testing.T) {
 	updateChannelFlag = ""
 
 	c := newUpdateTestClient(map[string]string{
-		dotfilesReleaseListURL: `[{"tag_name":"v1.2.0-dev.1","prerelease":true,"draft":false}]`,
+		devMainCommitURL: `{"sha":"abcdef1234567890abcdef1234567890abcdef12","commit":{"committer":{"date":"2026-10-04T12:00:00Z"}}}`,
 	})
 	swapUpdateTransport(t, c)
 
@@ -2114,11 +2115,11 @@ func TestTheAutomaticCheckReadsTheChannelTheRunFollows(t *testing.T) {
 	if msg.channel != channelDev {
 		t.Errorf("the check was made on channel %q, want dev: the automatic check must read the channel the run follows", msg.channel)
 	}
-	if msg.record.Latest != "v1.2.0-dev.1" {
-		t.Errorf("record latest = %q, want the dev tag", msg.record.Latest)
+	if msg.record.Latest != "main abcdef1" {
+		t.Errorf("record latest = %q, want the commit on main", msg.record.Latest)
 	}
-	if !strings.Contains(c.requests[0], "/releases?") {
-		t.Errorf("the automatic dev check read %s, want the release list", c.requests[0])
+	if c.requests[0] != devMainCommitURL {
+		t.Errorf("the automatic dev check read %s, want the last commit on main", c.requests[0])
 	}
 }
 

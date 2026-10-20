@@ -1831,15 +1831,15 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 }
 
 // pinnedMenuRows is how many trailing rows of a screen's menu are always drawn.
-// The way back is one of them everywhere. The update center also pins the block
-// that acts on the selection, because those rows are the only way to apply or
-// clear it and they used to disappear under the first screenful of packages.
+// Only the update center pins a tail: its action block is the only way to apply,
+// clear or filter the selection, and it used to disappear under the first
+// screenful of packages. Every other screen keeps its list whole, the way back
+// included, so the range its header reports is the range of its own menu.
 func (m Model) pinnedMenuRows() int {
-	switch m.Screen {
-	case ScreenUpdateCenter:
+	if m.Screen == ScreenUpdateCenter {
 		return len(m.updateCenterPinnedRows())
 	}
-	return 1
+	return 0
 }
 
 // proseRows is the rows a screen's prose takes when it is wrapped to width, with
@@ -2550,6 +2550,16 @@ const utilitiesSSHRow = "Manage the SSH configuration"
 // dotfiles opens, so the row arrives on its own rather than waiting for a visit
 // to a utilities section.
 const updateInstallerRow = "Update this installer"
+
+// updateInstallerLabel is the main menu's button for this installer's own update.
+// The dev channel builds the last commit on main instead of downloading a release,
+// and the row says so: it is a different act, and it needs Go on the machine.
+func updateInstallerLabel(channel releaseChannel) string {
+	if channel == channelDev {
+		return "Rebuild from the latest main commit"
+	}
+	return updateInstallerRow
+}
 
 // updateChannelRowPrefix is the main menu's channel row. The label names the
 // channel the run follows, so the row reads as the state it changes, and the

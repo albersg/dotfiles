@@ -2746,3 +2746,15 @@ spend its rows on:
 `TestTheUpdateCenterKeepsItsActionsOnScreenAtTheFloor` holds the pinned tail at 80x24
 with forty entries, and `TestEveryScreenKeyHandlerIsDispatched` holds the other half of
 the same promise: a screen cannot draw keys its dispatcher never delivers.
+
+## The channels
+
+| Channel | What it follows | How it installs |
+|---|---|---|
+| `stable` | The latest published release | Downloads the release asset and verifies it against `SHA256SUMS` |
+| `dev` | The last commit on the remote `main` | Downloads that commit's tree and builds it here, stamping the commit |
+
+The dev channel needs Go on `PATH`; without it the channel refuses with the reason
+instead of installing anything. A local change that is not on `main` yet is installed
+with `go install ./cmd/dotfiles` from the checkout, which lands in
+`$(go env GOPATH)/bin` -- first on the PATH the installer sets up.
