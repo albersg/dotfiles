@@ -1309,6 +1309,7 @@ var themeActiveArtifacts = []themeArtifact{
 	{Tool: "lazygit", Path: "dotfiles-lazygit/lazygit/config.yml", Comment: "#", AdoptStart: "  theme:", NotBoxed: true, AdoptEnd: "    defaultFgColor:", AdoptEndKeep: true, Render: renderLazygitTheme},
 	{Tool: "zellij", Path: "dotfiles-zellij/zellij/config.kdl", Comment: "//", NotBoxed: true, AdoptStart: "themes {", AdoptEnd: `theme "kanagawa_wave"`, Render: renderZellijTheme},
 	{Tool: "delta", Path: ".gitconfig", Comment: "#", NotBoxed: true, AdoptStart: "[delta]", AdoptEnd: "\tnavigate = true", AdoptEndKeep: true, Render: renderDeltaTheme},
+	{Tool: "zellij-layout", Path: "dotfiles-zellij/zellij/layouts/work.kdl", Comment: "//", Render: renderZellijLayout},
 	{Tool: "nushell-bat", Path: "dotfiles-nushell/config.nu", Comment: "#", Block: "bat", NotBoxed: true, AdoptStart: "$env.BAT_THEME = ", AdoptEnd: "$env.BAT_THEME = ", Render: renderNushellBatSelection},
 	// btop reads color_theme from btop.conf and the palette from the .theme file it
 	// names. The file is the one line this repository owns, and its own ".theme"
@@ -1766,6 +1767,8 @@ func themeInstalledPath(art themeArtifact, homeDir string) string {
 		return filepath.Join(homeDir, ".gitconfig")
 	case "nushell-bat":
 		return filepath.Join(homeDir, ".config/nushell/config.nu")
+	case "zellij-layout":
+		return filepath.Join(homeDir, ".config/zellij/layouts/work.kdl")
 	case "btop":
 		return filepath.Join(homeDir, ".config/btop/btop.conf")
 	case "starship":
@@ -3134,6 +3137,69 @@ func renderNushellBatSelection(def themeDefinition) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("$env.BAT_THEME = %q", selected), nil
+}
+
+// renderZellijLayout renders dotfiles-zellij/zellij/layouts/work.kdl, the one
+// layout the configuration loads. The zjstatus bar is the part of Zellij that is not
+// the config's `theme`: its segments are painted by inline hex in the layout, so the
+// five per-theme layouts each carried their own palette and the default one was
+// selected by hand in `default_layout`. This one is generated from the definition,
+// and every colour in it is a role the definition holds.
+func renderZellijLayout(def themeDefinition) (string, error) {
+	hex := func(role string) (string, error) { return themeHex(def, role) }
+	values := map[string]string{}
+	for _, role := range []string{"text", "bright_black", "blue", "magenta", "yellow", "green"} {
+		value, err := hex(role)
+		if err != nil {
+			return "", err
+		}
+		values[role] = value
+	}
+
+	return fmt.Sprintf(`layout {
+    tab name="base" focus=true {
+        pane
+    }
+
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="file:~/.config/zellij/plugins/zjstatus.wasm" {
+              format_left   "{mode} #[fg=%s,bold]{tabs}"
+              format_center "#[fg=%s,bold]{session}"
+              format_right  "{command_git_branch} {datetime}"
+              format_space  ""
+
+              border_enabled  "false"
+              border_char     "─"
+              border_format   "#[fg=%s]{char}"
+              border_position "top"
+
+              mode_normal  "#[bg=%s] "
+              mode_tmux    "#[bg=%s] "
+
+              tab_normal   "#[fg=%s]{index}:{name} "
+              tab_active   "#[fg=%s,bold,italic]{index}:{name} "
+
+              command_git_branch_command     "git rev-parse --abbrev-ref HEAD"
+              command_git_branch_format      "#[fg=%s] {stdout} "
+              command_git_branch_interval    "10"
+              command_git_branch_rendermode  "static"
+
+              datetime        "#[fg=%s,bold] {format} "
+              datetime_format "%%A, %%d %%b %%Y %%H:%%M"
+              datetime_timezone "Europe/Berlin"
+            }
+        }
+        children
+        pane size=1 borderless=true  {
+          plugin location="zellij:status-bar"
+        }
+    }
+}`,
+		values["text"], values["text"], values["bright_black"],
+		values["blue"], values["magenta"],
+		values["bright_black"], values["yellow"], values["green"], values["bright_black"],
+	), nil
 }
 
 // renderFishTheme renders a whole fish theme file. The fish roles are not the
