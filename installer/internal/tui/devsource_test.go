@@ -133,3 +133,53 @@ func TestTheDevBuildRefusesWithoutGo(t *testing.T) {
 		t.Errorf("error = %q, want it to say the dev channel needs Go", err)
 	}
 }
+
+// GitHub's codeload archives open with a PAX global header named
+// "pax_global_header" before the tree. It is not a directory in the archive, and
+// reading its name as the root made every real update fail with "the downloaded tree
+// carries two roots".
+func TestTheDevSourceIgnoresThePaxGlobalHeader(t *testing.T) {
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+
+	global := &tar.Header{
+		Typeflag:   tar.TypeXGlobalHeader,
+		Name:       "pax_global_header",
+		Format:     tar.FormatPAX,
+		PAXRecords: map[string]string{"comment": "github archive"},
+	}
+	if err := tarWriter.WriteHeader(global); err != nil {
+		t.Fatalf("could not write the global header: %v", err)
+	}
+	for name, body := range map[string]string{
+		"dotfiles-abc1234/installer/go.mod": "module example\n",
+		"dotfiles-abc1234/README.md":        "hello\n",
+	} {
+		header := &tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatalf("could not write %s: %v", name, err)
+		}
+		if _, err := tarWriter.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(t.TempDir(), "main.tar.gz")
+	if err := os.WriteFile(archive, buffer.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := extractDevSource(archive, t.TempDir())
+	if err != nil {
+		t.Fatalf("extractDevSource read the pax header as a second root: %v", err)
+	}
+	if filepath.Base(root) != "dotfiles-abc1234" {
+		t.Fatalf("root = %q, want the tree's own directory", root)
+	}
+}

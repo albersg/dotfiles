@@ -144,6 +144,13 @@ func extractDevSource(archive, dir string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("the downloaded tree cannot be read: %w", err)
 		}
+		// GitHub's archives open with a PAX global header before the tree: Typeflag
+		// 'g', named "pax_global_header", carrying no content. It is bookkeeping for
+		// the reader, not a directory in the archive, and taking its name as the root
+		// made the real tree look like a second one.
+		if header.Typeflag == tar.TypeXGlobalHeader || header.Typeflag == tar.TypeXHeader {
+			continue
+		}
 		name := filepath.Clean(header.Name)
 		if name == "." {
 			continue
