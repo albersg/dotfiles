@@ -873,9 +873,9 @@ func twoPanelFacts() []string {
 
 // TestPanelsForListsWhatEachScreenOffers pins the registry: the welcome screen
 // offers the machine panel, the main menu and the wizard's own questions offer
-// the plan, and every other screen offers nothing, exactly as before the panels
-// existed. A screen may not advertise a panel it does not list, and the default
-// is the one listed first.
+// the plan, the hub pages offer the contextual panel, and every other screen
+// offers nothing. A screen may not advertise a panel it does not list, and the
+// default is the one listed first.
 func TestPanelsForListsWhatEachScreenOffers(t *testing.T) {
 	cases := []struct {
 		screen Screen
@@ -896,8 +896,12 @@ func TestPanelsForListsWhatEachScreenOffers(t *testing.T) {
 		{ScreenSetup, nil},
 		{ScreenGhosttyWarning, []panelID{panelPlan}},
 		{ScreenInstallReview, []panelID{panelPlan}},
-		{ScreenLearnTerminals, nil},
-		{ScreenKeymaps, nil},
+		{ScreenLearnTerminals, []panelID{panelHub}},
+		{ScreenLearnTools, []panelID{panelHub}},
+		{ScreenVimHub, []panelID{panelHub}},
+		{ScreenKeymaps, []panelID{panelHub}},
+		{ScreenKeymapsMenu, []panelID{panelHub}},
+		{ScreenLearnLazyVim, []panelID{panelHub}},
 		{ScreenInstalling, nil},
 		{ScreenComplete, nil},
 		{ScreenError, nil},

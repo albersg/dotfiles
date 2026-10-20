@@ -1689,6 +1689,11 @@ func (m Model) GetScreenTitle() string {
 		return "Vim & Neovim"
 	case ScreenUpdate:
 		return "Updates"
+	case ScreenUpdateCenter:
+		// The section header names the section; the body names the job. This screen
+		// had no title at all -- the empty default was drawn as a blank body row --
+		// while every other section screen opened with its own name.
+		return "Updates"
 	case ScreenPortManager:
 		return portManagerTitle
 	case ScreenPortStop:

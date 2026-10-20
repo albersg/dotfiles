@@ -1,9 +1,11 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                                                    
+   Utilities                                      Showing 1-6 of 7 · dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Change the dotfiles theme                                                     
   The dotfiles' own theme is defined once in themes/. Choosing a theme applies  
-  … and 3 more                                                                  
+  it to every tool it can paint and names the tools it leaves out. Moving the   
+  cursor previews a theme without applying anything; the switch records what    
+  it replaces, so it can be undone.                                             
                                                                                 
   ▸ Apply the Catppuccin Latte theme                                            
     Apply the Catppuccin Mocha theme                                            
@@ -11,13 +13,11 @@
     Apply the Everforest theme                                                  
     Apply the Kanagawa theme                                                    
     Apply the Nocturne theme                                                    
-    Apply the Rosé Pine theme                                                   
   Preview (nothing applied) — Catppuccin Latte:                                 
-                                                                                
-                                                                                
   ────────────────────────────────────────────────────────────────────────────  
     [r] Refresh outdated theme files                                            
     ← Back                                                                      
+                                                                                
                                                                                 
                                                                                 
   ────────────────────────────────────────────────────────────────────────────  

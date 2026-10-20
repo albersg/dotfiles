@@ -1,5 +1,5 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                                                    
+   Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Network diagnostics                                                           
   ▸ [r] Run the connectivity checks                                             
@@ -14,9 +14,9 @@
   ────────────────────────────────────────────────────────────────────────────  
     [t] Include a traceroute (needs the system's own tool) — off                
     → Review the report as text                                                 
-                                                                                
   ────────────────────────────────────────────────────────────────────────────  
     ← Back                                                                      
+                                                                                
                                                                                 
   The run finished. Move the cursor onto a step to read what it measured.       
                                                                                 

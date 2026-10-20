@@ -148,7 +148,9 @@ func themePreviewColors(def themeDefinition) (uiColors, error) {
 	//
 	//   Background    base          the terminal's own background
 	//   Text          text          body text
-	//   TextMuted     prompt subtext0, else bright_black   metadata
+	//   TextMuted     prompt subtext1 on a light base, else subtext0 or
+	//                 bright_black   metadata (subtext1 because the drift
+	//                 tints the light base and subtext0 lost the body floor)
 	//   Primary       blue          chrome and accent
 	//   Secondary     prompt mauve, else bright_blue       subtitles
 	//   Accent        cursor        key tokens and markers
@@ -159,10 +161,21 @@ func themePreviewColors(def themeDefinition) (uiColors, error) {
 	//   BorderActive  blue
 	//   SyntaxKeyword [syntax] keyword   the theme's own code-display tints
 	//   SyntaxString  [syntax] string
+	// A light theme's subtext0 sits close to its base, and the drift pulls the
+	// base toward the accent: the pairing that reads on the plain background drops
+	// under the 4.5:1 body floor on the tinted one. subtext1 is the palette's next
+	// step away from the base, so the muted role stays legible on both. The role
+	// is the theme's own, not a colour invented here.
+	muted := prompt("subtext0", "bright_black")
+	if themeBaseIsLight(def) {
+		if subtext1 := def.Prompt["subtext1"]; themeHexRE.MatchString(subtext1) {
+			muted = subtext1
+		}
+	}
 	semantic := map[string]string{
 		"background":    role("base"),
 		"text":          role("text"),
-		"text_muted":    prompt("subtext0", "bright_black"),
+		"text_muted":    muted,
 		"primary":       role("blue"),
 		"secondary":     prompt("mauve", "bright_blue"),
 		"accent":        role("cursor"),

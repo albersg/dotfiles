@@ -297,6 +297,14 @@ func headerRowStyle(chipStyle lipgloss.Style, name, vital string, inner int) str
 	if vital == "" {
 		return left
 	}
+	// The vital is plain text unless the screen packed its own styled meter into
+	// it. A plain vital takes the muted tone: rendered bare it inherits the
+	// terminal's default ink, which is white on a light theme's background and
+	// disappears in the preview. The style goes on before the width math, which
+	// measures ANSI by its visible width anyway.
+	if !strings.Contains(vital, "\x1b") {
+		vital = MutedStyle.Render(vital)
+	}
 
 	nameWidth := lipgloss.Width(left)
 	available := inner - nameWidth - 1
@@ -525,6 +533,11 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 		placed = anchorBodyToTheRule(placed)
 	}
 	placed = m.placeCompanion(placed, summary, inner)
+
+	// The build label rides every frame's vital sign. It used to be the main menu's
+	// alone; a report asks for it first, and one helper puts it on every page
+	// without a screen having to remember it.
+	vital = frameVital(vital)
 
 	var b strings.Builder
 	chipStyle, ruleStyle := HeaderChipStyle, HeaderRuleStyle
@@ -1738,12 +1751,17 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	// a list draw it beside the list instead of above it: the list keeps the whole
 	// body, and the detail gets the column the wide frame has going spare.
 	l := layoutFor(m)
-	pane := l.TwoColumn && m.sectionDetailPane()
+	panels := m.panelsFor()
+	// A section screen whose right column comes from the panel registry lets the
+	// frame compose it; only the screens with no registered panel draw their detail
+	// through the section's own pane. The utilities board is registered, so its body
+	// is the reason prose plus the list and its panel is the machine's state.
+	pane := l.TwoColumn && m.sectionDetailPane() && len(panels) == 0
 	width := l.Inner
-	if pane {
+	if l.TwoColumn && (pane || len(panels) > 0) {
 		width = l.Left
 	}
-	detail := wrapParagraphs(paragraphs, width)
+	detail := inkParagraphs(wrapParagraphs(paragraphs, width))
 	options := m.GetCurrentOptions()
 	detailLines := len(detail)
 	if pane {
@@ -1776,11 +1794,11 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 
 	var body []string
 	if bands.Title > 0 {
-		title := BrandStyle.Render(m.GetScreenTitle())
+		title := BrandStyle.Render(m.sectionBodyTitle())
 		if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
 			// The preview repaints the screen's own title in the theme's accent, so
 			// the palette is seen and not only read.
-			title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.GetScreenTitle())
+			title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.sectionBodyTitle())
 		}
 		body = append(body, title)
 	}
@@ -1805,12 +1823,13 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	listed := append([]string{}, visible...)
 	listed = append(listed, preview...)
 	listed = append(listed, activity...)
-	// The slack between the entries and the tail is what an action appearing in
-	// the tail spends: the tail's last row stays on the band's last row whether the
-	// tail is four rows or eight. The slack is measured from the tail's RESERVED
-	// height, so an action that appears with a selection cannot resize the window.
-	listed = append(listed, padRows(nil, bands.List-len(pinned)-len(listed))...)
+	// The action tail follows the entries it acts on. The band still reserves the
+	// tail's height and the entries' window, so the tail cannot move when an action
+	// appears with a selection; what moves is only the spare rows, and they go
+	// below the tail instead of above it. Pinning the tail to the band's foot left
+	// a short list with its actions a screenful away from it.
 	listed = append(listed, pinned...)
+	listed = append(listed, padRows(nil, bands.List-len(listed))...)
 	if len(listed) > bands.List {
 		// A tail taller than its reservation keeps the rows that end the screen --
 		// the way back is the last of them -- and gives up the top of the block.
@@ -1824,7 +1843,7 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 		// The detail column is drawn through the same panel assembly the main menu's
 		// panel uses, so the chip, the rule and the cut marker are the ones every
 		// other column already shows.
-		column := panelBody(m.sectionPaneTitle(), wrapParagraphs(paragraphs, l.Right), l.Right, bands.Body)
+		column := panelBody(m.sectionPaneTitle(), inkParagraphs(wrapParagraphs(paragraphs, l.Right)), l.Right, bands.Body)
 		body = composeColumns(body, column, l)
 	}
 
@@ -3768,47 +3787,101 @@ func (m Model) renderReferenceTable(table referenceTable, scroll int) string {
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintOpen, hintBack})
 }
 
-// menuBodyFixed is the part of a menu's body that is not an option row: the
-// title, the description and the blank under it. The scroll range moved into the
-// header, so the body no longer spends a held scroll row on it.
-const menuBodyFixed = 3
+// frameVital appends the build label to the screen's own vital sign. The build
+// is the one fact every page shares, and it used to be on the main menu alone: a
+// report asks for it first, and a screenshot of any screen should answer it. A
+// screen that already names it keeps its own string, so the main menu does not
+// read it twice.
+func frameVital(vital string) string {
+	label := VersionLabel()
+	if vital == "" {
+		return label
+	}
+	if strings.Contains(vital, label) {
+		return vital
+	}
+	return vital + panelTabSeparator + label
+}
 
 // renderMenu renders the menus of the keymaps and learn sections. They differ
-// only in their description, so the title, the list and the legend are shared:
-// six copies of the same menu used to spell the legend three different ways. The
-// list is windowed around the cursor, so a section with more categories than the
-// frame has rows scrolls instead of overflowing.
+// only in their description, so the title, the card, the panel and the legend are
+// shared: six copies of the same menu used to spell the legend three different
+// ways, and the hubs had no card or panel at all. The list is windowed around the
+// cursor, so a section with more categories than the frame has rows scrolls
+// instead of overflowing.
 func (m Model) renderMenu(description string) string {
-	rows := m.menuRows(m.GetCurrentOptions(), m.Cursor)
-	hints := []installerHint{hintUp, hintDown, hintOpen, hintBack}
+	l := layoutFor(m)
+	panels := m.panelsFor()
+	width := contentWidth(m)
+	if l.TwoColumn && len(panels) > 0 {
+		width = l.Left
+	}
 
-	visible := installerBodyRows(m.Height, footerRowCount(contentWidth(m), hints)) - menuBodyFixed
+	hints := m.panelHints(panels, []installerHint{hintUp, hintDown, hintOpen, hintBack})
+	rowsBudget := installerBodyRows(m.Height, m.footerReserveRows(contentWidth(m), hints))
+
+	// The title block: the page's name, then its description. The description
+	// used to be cut to one row; it now wraps to the page's own column, so the
+	// sentence that explains a hub is read rather than clipped.
+	desc := wrapText(description, width, 2)
+	head := []string{BrandStyle.Render(m.GetScreenTitle())}
+	for _, line := range desc {
+		head = append(head, MutedStyle.Render(line))
+	}
+	head = append(head, "")
+
+	// The card's chrome: its two borders and the divider each extra group costs.
+	// A hub has at most two separators, so three groups is the tallest shape.
+	const cardChrome = 2 + 2
+	visible := rowsBudget - len(head) - cardChrome
 	if visible < 1 {
 		visible = 1
 	}
-	start, end := listWindow(m.Cursor, visible, len(rows))
+	options := m.GetCurrentOptions()
+	start, end := listWindow(m.Cursor, visible, len(options))
 
-	// The description is one row of the menu's fixed body. A description wider
-	// than the frame -- the Herdr one is 65 columns -- makes lipgloss widen the
-	// whole block and the terminal clips the whole screen, not just the
-	// description, so it is cut to the inner width like every other single-row
-	// line. It is truncated rather than wrapped because menuBodyFixed counts one
-	// description row; a wrapped description would spend rows the menu's window
-	// and its visible-count arithmetic have already given to the list.
-	body := []string{
-		BrandStyle.Render(m.GetScreenTitle()),
-		MutedStyle.Render(truncate(description, contentWidth(m))),
-		"",
+	// The Learn hub's first section names the card itself: a group title only
+	// draws on the divider before the group, and the first group has no divider
+	// above it. Naming it on the top border is what makes "What the run chooses"
+	// label the rows under it instead of the section after them.
+	cardTitle := ""
+	if m.Screen == ScreenLearnTools && start == 0 {
+		cardTitle = "What the run chooses"
 	}
-	body = append(body, rows[start:end]...)
+	body := append(head, panelBlockGrouped(cardTitle, width, m.menuCardGroups(options, start, end))...)
 
 	// The scroll range is the menu's vital sign in the header. A menu whose list
 	// fits has nothing to report and gets no filler.
 	vital := ""
-	if len(rows) > visible {
-		vital = scrollVital("Showing", start+1, end, len(rows))
+	if end-start < len(options) {
+		vital = scrollVital("Showing", start+1, end, len(options))
 	}
 	return m.frame(m.headerName(), vital, body, hints)
+}
+
+// menuCardGroups renders the visible option rows as the groups the card draws:
+// a separator becomes the divider between two groups, never a row of its own.
+// The Learn hub is the one menu whose sections are named, because its two
+// sections answer different questions -- what the run chooses and what it then
+// installs -- and a bare rule between them did not say which was which.
+func (m Model) menuCardGroups(options []string, start, end int) []mainMenuGroup {
+	groups := []mainMenuGroup{{}}
+	for i := start; i < end; i++ {
+		if strings.HasPrefix(options[i], menuSeparatorPrefix) {
+			groups = append(groups, mainMenuGroup{})
+			continue
+		}
+		at := len(groups) - 1
+		groups[at].Lines = append(groups[at].Lines, m.menuRowAt(options, i, m.Cursor))
+	}
+	if m.Screen == ScreenLearnTools && start == 0 {
+		for i := range groups {
+			if i == 1 {
+				groups[i].Title = "What the run installs"
+			}
+		}
+	}
+	return groups
 }
 
 func (m Model) renderKeymapsMenu() string {

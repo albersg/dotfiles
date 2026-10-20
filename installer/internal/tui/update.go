@@ -2140,6 +2140,13 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 	case ScreenLazyVimTopic:
 		m.Screen = ScreenLearnLazyVim
 		m.LazyVimScroll = 0
+	case ScreenVimHub:
+		// The hub is one level in from the main menu. Its own handler has the same
+		// case, but the global Escape dispatch reads the key first and had no case
+		// for this screen, so the hub advertised `[Esc] back` and the key did
+		// nothing. The two now agree.
+		m.Screen = ScreenMainMenu
+		m.Cursor = 0
 	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
