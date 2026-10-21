@@ -7,7 +7,7 @@
 # (managers, backups) and are captured from the deterministic frame fixtures
 # instead -- see vhs/README.md.
 Set Shell bash
-Set FontFamily "DejaVu Sans Mono"
+Set FontFamily "MesloLGM Nerd Font Mono"
 Set FontSize 14
 Set Columns 80
 Set Rows 24
@@ -19,7 +19,7 @@ Env COLORTERM "truecolor"
 
 Type "./installer/dotfiles"
 Enter
-Wait+Screen /Your terminal environment/
+Wait+Screen /Your personal development environment/
 Sleep 700ms
 Screenshot "captures/80x24/01-welcome.png"
 

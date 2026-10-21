@@ -7,7 +7,7 @@
 # (managers, backups) and are captured from the deterministic frame fixtures
 # instead -- see vhs/README.md.
 Set Shell bash
-Set FontFamily "DejaVu Sans Mono"
+Set FontFamily "MesloLGM Nerd Font Mono"
 Set FontSize 18
 Set Columns 200
 Set Rows 55
