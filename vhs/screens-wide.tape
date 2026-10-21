@@ -37,6 +37,6 @@ Escape
 Wait+Screen /Start Installation/
 
 Type "u"
-Wait+Screen /Clean up development caches/
+Wait+Screen /Clean Dev Caches/
 Sleep 700ms
 Screenshot "captures/200x55/04-utilities.png"

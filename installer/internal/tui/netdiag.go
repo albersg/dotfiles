@@ -48,7 +48,7 @@ const (
 	// the row the section's handler matches. It is always offered: the report is
 	// read-only, and there is always a machine whose connectivity is worth
 	// describing.
-	utilitiesNetworkRow = "Diagnose the network"
+	utilitiesNetworkRow = "Network Diagnostics"
 
 	// networkRunRow starts a run and starts another one afterwards. Its label is
 	// deliberately the same before and after the first report: the cursor holds

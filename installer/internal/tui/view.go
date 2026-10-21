@@ -1713,9 +1713,11 @@ func (m Model) mainMenuUpdateNotice() string {
 	return InfoStyle.Render(rows[0])
 }
 
-// renderUtilities draws the utilities section: what it can change on this host,
-// what the change touches, the rows the host offers, and the result of the last
-// one. The themes themselves live one level in, on the theme picker.
+// renderUtilities draws the utilities section: the mockup's card of jobs -- the
+// job's icon, its name and its one-line description, the row under the cursor
+// filled across the card -- beside the System Overview panel, with the reasons a
+// job is missing above the card and the last result under it. The themes
+// themselves live one level in, on the theme picker.
 func (m Model) renderUtilities() string {
 	// Enter opens a screen here; the rows that act where they stand run on their
 	// own letter, and the footer names those letters only while their rows are
@@ -1728,7 +1730,39 @@ func (m Model) renderUtilities() string {
 	if m.themeUndoAvailable() {
 		hints = append(hints, hintUndo)
 	}
-	return m.renderThemeScreen(m.utilitiesReasons(), m.ThemeNotice, append(hints, hintBack))
+	hints = append(hints, hintBack)
+
+	l := layoutFor(m)
+	panels := m.panelsFor()
+	frameHints := m.panelHints(panels, hints)
+	// The footer's RESERVATION, not the rows it draws: the three theme keys appear
+	// with the desktop they switch, and an action that appears once must not take
+	// its row from the body -- taking it from the body is what moved the list.
+	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, frameHints))
+
+	// The shape is decided once from the frame's rows and the width, and the body is
+	// composed against it: the mockup's two-line rows where they fit, the same rows
+	// on one line where they would not, and the card around them wherever there is
+	// width for it.
+	shape := m.utilitiesShapeFor(budget, l)
+	body, start, end := m.utilitiesBodyLines(shape, budget)
+
+	// A two-column frame draws the overview beside the body; a one-column frame has
+	// no column for it, so the panel's summary rides the card's top border (the
+	// shape built it) and the body is centred in the composition like every other
+	// page.
+	if !(l.TwoColumn && len(panels) > 0) {
+		body = centeredBody(body, l)
+	}
+
+	// The header's vital names the slice of a windowed list that is on screen, so a
+	// list longer than the frame says so instead of appearing to end where the
+	// screen does. A list that fits has nothing to report and gets no filler.
+	vital := ""
+	if end-start < len(shape.Heights) {
+		vital = scrollVital("Showing", start+1, end, len(shape.Heights))
+	}
+	return m.frame(m.headerName(), vital, body, hints)
 }
 
 // utilitiesReasons is the utilities section's body. A row names itself and says
@@ -2421,7 +2455,7 @@ const utilitiesTerminalRow = "Report the terminal capabilities"
 // It is offered everywhere: a machine a development tool is installed on always
 // keeps something, and where the user-level stores cannot be located the
 // screen's own body names the reason rather than the row going missing.
-const utilitiesDiskCleanerRow = "Clean up development caches"
+const utilitiesDiskCleanerRow = "Clean Dev Caches"
 
 // utilitiesVerifyRow is the section's row for the record of the last install,
 // checked against this machine. It is offered everywhere -- there is always a
@@ -2432,7 +2466,7 @@ const utilitiesVerifyRow = "Check the machine against the last install"
 // utilitiesPortRow is the section's row for the port and process manager. It is
 // offered everywhere: reading what holds a port is always safe, and a platform
 // with no reader says so in the screen's own body rather than the row vanishing.
-const utilitiesPortRow = "Find what holds a port"
+const utilitiesPortRow = "Find Available Port"
 
 // The rows the arrow keys act on. The indices are part of the screen's contract:
 // the key handler adjusts the value under the cursor by its index, and the frame
@@ -2708,7 +2742,7 @@ func (m Model) wslResourcesUnavailableReason() string {
 // the handler matches the row the screen drew. It is offered wherever the shell
 // and a terminal were resolved, and the section's body names the reason
 // everywhere else.
-const utilitiesShellAuditRow = "Measure the shell's startup"
+const utilitiesShellAuditRow = "Shell Startup"
 
 // shellAuditMeasureRow is the shell startup screen's own measure row. It is the
 // same work the section's row describes, but here the row runs it where it
@@ -2729,7 +2763,7 @@ const (
 // every host because the manager's own screen says what it cannot do -- a host
 // with no ssh client still has a configuration file worth reading -- and the
 // gap is declared on that screen rather than by a missing row.
-const utilitiesSSHRow = "Manage the SSH configuration"
+const utilitiesSSHRow = "SSH Configuration"
 
 // updateInstallerRow is the main menu's button for this installer's own release.
 // It is offered only when a later release is published and the running file is

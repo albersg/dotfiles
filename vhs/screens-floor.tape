@@ -37,6 +37,6 @@ Escape
 Wait+Screen /What would you like to do/
 
 Type "u"
-Wait+Screen /Clean up development caches/
+Wait+Screen /Clean Dev Caches/
 Sleep 700ms
 Screenshot "captures/80x24/04-utilities.png"

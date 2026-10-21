@@ -1103,6 +1103,34 @@ func TestUtilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
 }
 
+// TestUtilitiesWideGolden pins the section at the size the mockup draws it: the
+// card of two-line rows beside the System Overview panel, with the panel's facts
+// on the right and the diagnosis' verdict under them. The host is the fixture's,
+// every row the section can offer is offered, and the run is the doctor's clean
+// one, so the snapshot is the screen and not the machine that rendered it.
+func TestUtilitiesWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 160, 50
+	m.Screen = ScreenUtilities
+	m.Animating = true
+	m.Metrics = pinnedMetrics(4)
+	m.ThemeSwitch, m.ThemeSwitchFound = themeSwitch{}, false
+	m.ShellAudit = shellAuditTestState()
+	m.TerminalCapabilities = terminalCapabilitiesFrameCase(t).TerminalCapabilities
+	m.UpdateCheck = updateState{}
+	m.WSLState = wslResourceState{Resolved: true, Available: false, Reason: "no .wslconfig"}
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m.DotfilesThemes = defs
+	m.Doctor.Run = utilitiesCleanDoctorRun()
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Utilities"))
+}
+
 // TestWSLAdvisorGolden pins the performance advisor's report at the 80x24 floor: the environment it
 // read, the findings ordered by severity with the one under the cursor opened out beside them, the
 // two rows that act and the way back. The reading is the advisor's own fixture -- a WSL instance whose

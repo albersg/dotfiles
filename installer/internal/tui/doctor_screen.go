@@ -1005,7 +1005,7 @@ func doctorPanelValue(state doctorState) string {
 
 // doctorRow is the utilities section's row for this screen, and it is offered
 // everywhere: there is always a machine to diagnose.
-const utilitiesDoctorRow = "Diagnose the development environment"
+const utilitiesDoctorRow = "Diagnostics"
 
 // doctorPlatformLine names the machine this doctor reads: the model's own
 // platform detection, so the section can say what it is about to look at

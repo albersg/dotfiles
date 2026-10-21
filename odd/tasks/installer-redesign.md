@@ -82,7 +82,7 @@ The user's words, verbatim:
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (in the tree, uncommitted — the dashboard, the cards and the named greeting) |
 | T5 | S6 | The setup table and its right panel | (in the tree, uncommitted — the table, its detail panel and two goldens) |
-| T6 | S8 | The utilities screen | (pending) |
+| T6 | S8 | The utilities screen | (in the tree, uncommitted — the card of two-line rows, the System Overview panel and two goldens) |
 | T7 | S9 | The theme selector grid | (pending) |
 | T8 | S7 | The installing checklist, the log panel and the progress bar | (pending) |
 | T9 | S10 | The remaining pages | (pending) |
@@ -335,3 +335,91 @@ pinned by the two goldens instead; adding a setup step to the tapes is a harness
 change outside this slice); the footer still says `choose` where the mockup says
 `Next`, which is the key grammar's call and not this screen's; and the pet sits
 under the band rather than beside it.
+
+L13. T6 landed in the tree (uncommitted): the utilities section, its System
+Overview panel and two goldens. What was copied from the image (panel 5,
+"Utilidades (diagnósticos mejorados)"), in the mockup's order:
+
+- **The card of two-line rows.** The job's Nerd Font icon in the gutter, its name
+  on the first line and its one-line description under it, the row under the
+  cursor filled across the card with the cursor's own marker in the icon's place
+  (`RowBarMarkerStyle`/`RowBarStyle`, the same pair the setup table uses), and the
+  rounded box, one blank column inside each border, around the whole list. The
+  subtitles are the mockup's: `Measure startup time`, `Check latest versions`,
+  `Manage SSH keys`, `Check connectivity`, `Find an open port`, `Remove temporary
+  files`, `Check common issues`. The rows this installer has that the mockup does
+  not show (the theme switch, the WSL resources, the terminal capabilities, the
+  verification) carry a description in the same voice. The names are the
+  mockup's too: `Shell Startup`, `Installed Tools`, `SSH Configuration`,
+  `Network Diagnostics`, `Find Available Port`, `Clean Dev Caches`, `Diagnostics`,
+  `Diagnose WSL`, `Back`.
+- **The shape yields, the rows never do.** The two-line row is drawn only where
+  every name and every description fits the card's content whole; a description
+  cut mid-word would be worse than a list without one, which is why the width
+  decides and not the height. At the 80x24 floor the same rows are drawn on one
+  line in the same card, so all eleven jobs are on screen at once; a list too tall
+  for any shape is windowed around the cursor and says `↑ N more above` /
+  `↓ N more below`, and the header's vital names the slice (`Showing 3-9 of 11`).
+- **The right panel, `System Overview`.** The machine's own facts with the panel's
+  fixed label measure -- `OS`, `Host`, `Arch`, `Shell`, `Packages`, `Home` -- then
+  `Resources` with a meter and its number for `CPU`, `Memory` and `Disk`, then the
+  doctor's verdict `✓ Everything looks good!` in the success role. `Resources` is
+  the mockup's card: its heading on the top border and the meters inside, one card
+  rather than a rounded box per meter, which is two rows instead of six and is
+  what keeps the block and the verdict on screen together. A resource appears only
+  where its own flag says the sample reported it, and the whole block is absent
+  while the sampler is gated off: a stale reading drawn as a current one is the
+  lie the gate exists to prevent.
+- **The floor keeps the panel's summary.** Below the two-column floor there is no
+  column for the panel, so its summary rides the card's top border
+  (`╭─ System Overview · Linux · x86_64 · zsh · apt-get ─╮`) exactly as the frame
+  collapses a panel everywhere else, and the body is centred in the composition.
+- **The actions and their key grammar are untouched.** Every row is an entry of
+  `GetCurrentOptions`, so the cursor index, the handler's match and the drawn row
+  are one list; the reasons a job is missing stay above the card, the theme
+  switch's result stays under it, and the footer names the three theme keys only
+  while their rows are offered.
+
+Two things the mockup draws are deliberately not row for row:
+
+- **Its first row, `System Overview / Check environment status`.** That row exists
+  in the mockup because the mockup's right column is the *selected row's* detail;
+  here the panel is contextual -- it states the same machine whatever the cursor
+  is on -- so a row whose only job would be to show it would be a row no key can
+  act on. The overview is the panel's title (and the floor's card summary)
+  instead, and `TestUtilitiesCardDrawsOnlyTheRowsTheHandlerMatches` fails if the
+  card ever grows a row the handler does not match.
+- **Its `Kernel` and `Uptime` rows.** Nothing in this installer reads either
+  (detection reads the kernel's own string once to recognise WSL and keeps none of
+  it; nothing reads `/proc/uptime`), and a row reading `unknown` would be the panel
+  guessing rather than reporting. The panel's own guard fails if either ever
+  appears without a reader behind it.
+
+The floor and the guards. At 80x24 the body spends two rows on the reasons, the
+card's eleven rows and its two borders, and the summary keeps its row on the
+border; the golden is unchanged by this slice's polish, which is the point. At
+160x50 the two-line card, the whole panel, the Resources card and the verdict all
+fit. New guards: `TestUtilitiesRowsDrawTheMockupsNamesAndDescriptions`,
+`TestUtilitiesCardDrawsOnlyTheRowsTheHandlerMatches`,
+`TestUtilitiesRowGlyphsAreOneCell`,
+`TestUtilitiesTwoLineRowsAreTheMockupsAndCostWhatTheyMeasure`,
+`TestUtilitiesEveryJobStaysReachable` (every row, every measured terminal),
+`TestUtilitiesWindowNamesWhatItHid`,
+`TestUtilitiesOverviewStatesTheFactsTheModelHolds`,
+`TestUtilitiesResourcesFollowTheSamples` (including the Resources card),
+`TestUtilitiesOverviewSaysEverythingLooksGoodOnlyWhenTheDiagnosisSaysSo` and
+`TestUtilitiesFloorKeepsTheCardAndTheFacts`. New golden:
+`TestUtilitiesWideGolden` (160x50, the mockup's layout);
+`TestUtilitiesGolden` (80x24) was regenerated for the mockup's row names.
+
+Follow-ups this slice found and did not take: the rows are drawn in the option
+list's own order (the model's: the theme and WSL rows first, the doctor last)
+rather than the mockup's, because reordering the list would move every cursor and
+handler index -- that is a key-grammar call and belongs to whoever takes it; the
+mockup's monitor row and its per-meter boxes are the two deviations above; the pet
+sits under the card rather than beside the panel, as the frame places it
+everywhere; `sectionPaneTitle`'s `Notes` and the utilities entry of
+`usesSectionBands` are now unreachable, because the section composes its own body
+-- removing them is a `section_bands.go` cleanup outside this slice; and the VHS
+tapes still capture the utilities screen with the old row names until `make
+screens` runs.

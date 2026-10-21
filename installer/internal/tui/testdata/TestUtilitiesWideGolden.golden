@@ -1,0 +1,50 @@
+[?25l[?2004h                                                                                                                                                                
+   Utilities                                                                                                                                         dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  No desktop theme switch is available here: no GNOME, KDE or macOS       System Overview                                                                       
+  session.                                                                ────────────────────────────────────────────────────────────────────────────────────  
+  WSL resources are not adjustable here: Linux is not WSL.                OS              Linux                                                                 
+  ╭────────────────────────────────────────────────────────────────────╮  Arch            x86_64                                                                
+  │ ▸ Change the dotfiles theme                                        │  Shell           zsh                                                                   
+  │   Recolour the installer and the system                            │  Packages        apt-get                                                               
+  │  Shell Startup                                                    │  Home            /home/testuser                                                        
+  │   Measure startup time                                             │                                                                                        
+  │  Installed Tools                                                  │  ╭─ Resources ──────────────────────────────────────────────────────────────────────╮  
+  │   Check latest versions                                            │  │ CPU             ▓▓▓▓▓░░░░░  45%                                                  │  
+  │  Check the machine against the last install                       │  │ Memory          ▓▓▓░░░░░░░ 4.2 GiB / 16.0 GiB                                    │  
+  │   Compare the machine with the record                              │  │ Disk            ▓▓▓▓░░░░░░ 180.8 GiB / 500.0 GiB                                 │  
+  │  SSH Configuration                                                │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  │   Manage SSH keys                                                  │                                                                                        
+  │  Report the terminal capabilities                                 │   Everything looks good!                                                              
+  │   What this terminal can do                                        │                                                                                        
+  │  Clean Dev Caches                                                 │                                                                                        
+  │   Remove temporary files                                           │                                                                                        
+  │  Network Diagnostics                                              │                                                                                        
+  │   Check connectivity                                               │                                                                                        
+  │  Find Available Port                                              │                                                                                        
+  │   Find an open port                                                │                                                                                        
+  │  Diagnostics                                                      │                                                                                        
+  │   Check common issues                                              │                                                                                        
+  │  Back                                                             │                                                                                        
+  ╰────────────────────────────────────────────────────────────────────╯                                                                                        
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+   /\______/\                                                                                                                                                   
+  (          )                                                                                                                                                  
+  (  o    o  )                                                                                                                                                  
+  (     ^    )                                                                                                                                                  
+   >  <  >  <                                                                                                                                                   
+  ● Ready ─────────────────────────────────────────────────────────────────────────────�]2;dotfiles Installer��──────────────────────────────────────────────────────────────────────  
+                                                                                                                 ↑/k up • ↓/j down • [Enter] open • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
