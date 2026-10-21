@@ -79,3 +79,4 @@ repository's memory of why something is the way it is.
 
 Add a file to this index in the same change that adds it: an index that lags is an index nobody
 trusts, and the task file is the only place the front's reasoning exists.
+- [installer-redesign](tasks/installer-redesign.md): the mockup's design language for the whole installer.

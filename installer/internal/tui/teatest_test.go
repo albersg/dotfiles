@@ -38,6 +38,7 @@ func goldenSystemInfo() *system.SystemInfo {
 	return &system.SystemInfo{
 		OS:        system.OSLinux,
 		OSName:    "Linux",
+		Arch:      "x86_64",
 		IsWSL:     false,
 		IsTermux:  false,
 		HasBrew:   false,
@@ -110,6 +111,7 @@ func isolateGoldenTest(t *testing.T, m *Model) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	m.SystemInfo = goldenSystemInfo()
 	m.CreatedAt = goldenGreetingTime
+	m.UserName = goldenUserName
 }
 
 // pinAvailableUpdate puts a newer release and an installable target on a golden
@@ -134,6 +136,12 @@ func pinAvailableUpdate(m *Model) {
 // every host. 09:00 is the morning word; the other parts of the day are pinned
 // by TestGreetingForEachPartOfTheDay rather than by a second snapshot.
 var goldenGreetingTime = time.Date(2026, time.January, 1, 9, 0, 0, 0, time.UTC)
+
+// goldenUserName is the login name the golden models greet by. The dashboard
+// greets with the account's name, which is the one fact on the screen that the
+// machine running the test would otherwise supply, so an unpinned model would
+// snapshot the CI runner's user. It matches goldenSystemInfo's home directory.
+const goldenUserName = "testuser"
 
 // Helper to read all bytes from io.Reader
 func readAll(t *testing.T, r io.Reader) []byte {
@@ -277,6 +285,27 @@ func TestWelcomeScreenGolden(t *testing.T) {
 	m.PanelIndex = 0
 	m.Metrics = pinnedMetrics(24)
 	m.Animating = false
+
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestDashboardWideGolden pins the dashboard at the size the mockup draws it:
+// the full lockup with its wordmark, the tagline, the four machine cards, the
+// greeting by name, the environment sentence and the call to action in the left
+// column, the machine panel beside them and the creature in the rows nobody
+// needed. TestWelcomeScreenGolden is the same screen at the 80x24 floor, where
+// the lockup is compact and the cards have to share the body with the panel's
+// summary row.
+func TestDashboardWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 160, 40
+	m.Screen = ScreenWelcome
+	m.PanelIndex = 0
+	m.Metrics = pinnedMetrics(24)
+	m.Animating = true
+	m.AnimTick = 0
 
 	golden.RequireEqual(t, []byte(m.View()))
 }
@@ -2279,9 +2308,12 @@ func TestInstallerScreensFitWideTerminals(t *testing.T) {
 			// Every composed line is the inner width, the leading margin included,
 			// so the body covers the columns the frame's rules cover and the
 			// margins on either side of the composition are the ones it computed.
+			// Any row of the composition carries both columns, so the panel's tab row
+			// is as good a probe as the greeting line this used to read: the two-line
+			// card has no "What would you like to do?" row of its own.
 			composed := ""
 			for _, line := range strings.Split(view, "\n") {
-				if strings.Contains(line, "What would you like to do?") {
+				if strings.Contains(line, mainMenuPanelLabel) {
 					composed = line
 				}
 			}
@@ -2880,7 +2912,7 @@ func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
 			m := Model{Width: c.width, Height: c.height, Screen: ScreenMainMenu}
-			rows := installerBodyRows(c.height, footerRowCount(layoutFor(m).Inner, hints))
+			rows := installerBodyRows(c.height, m.footerRowCount(layoutFor(m).Inner, hints))
 			placed := placeBody(body, rows)
 
 			first, last := -1, -1

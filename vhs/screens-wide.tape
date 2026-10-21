@@ -6,9 +6,8 @@
 # opens the menu, `u` opens the Utilities section. Deeper screens need host state
 # (managers, backups) and are captured from the deterministic frame fixtures
 # instead -- see vhs/README.md.
-Output "captures/200x55/session.gif"
 Set Shell bash
-Set FontFamily "DejaVu Sans Mono"
+Set FontFamily "MesloLGM Nerd Font Mono"
 Set FontSize 18
 Set Columns 200
 Set Rows 55
@@ -20,12 +19,12 @@ Env COLORTERM "truecolor"
 
 Type "./installer/dotfiles"
 Enter
-Wait+Screen /Your terminal environment/
+Wait+Screen /Your personal development environment/
 Sleep 700ms
 Screenshot "captures/200x55/01-welcome.png"
 
 Type "s"
-Wait+Screen /What would you like to do/
+Wait+Screen /Start Installation/
 Sleep 700ms
 Screenshot "captures/200x55/02-main-menu.png"
 

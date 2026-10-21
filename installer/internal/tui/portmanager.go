@@ -665,7 +665,7 @@ func (m Model) portStopHints() []installerHint {
 func (m Model) renderPortManager() string {
 	width := contentWidth(m)
 	hints := m.portManagerHints()
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	title := BrandStyle.Render(m.GetScreenTitle())
 
@@ -777,7 +777,7 @@ func portEmptyListLine(loaded, loading bool) string {
 func (m Model) renderPortStop() string {
 	width := contentWidth(m)
 	hints := m.portStopHints()
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	title := BrandStyle.Render(m.GetScreenTitle())
 	rows := m.portStopRows()

@@ -1,24 +1,24 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                                    
    Main Menu                                                                             dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  Good morning                                                                                      
-  What would you like to do?                                                                        
-  ╭─ dotfiles ───────────────────────────────────────────────────────────────────╮                  
-  │ ▸ Start Installation                                                         │                  
+  ╭──────────────────────────────────────────────────────────────────────────────╮                  
+  │ ▸  Start Installation                                                       │                  
+  │     Install or update your dotfiles                                          │                  
   ├─ Learn ──────────────────────────────────────────────────────────────────────┤                  
-  │   Vim & Neovim                                                               │                  
-  │   Learn About Tools                                                          │                  
+  │    Vim & Neovim                                                             │                  
+  │     Vim & Neovim, tools, tips...                                             │                  
+  │    Learn About Tools                                                        │                  
+  │     The tools this run would install                                         │                  
   ├─ Session ────────────────────────────────────────────────────────────────────┤                  
-  │   Utilities                                                                  │                  
-  │   Exit                                                                       │                  
+  │    Utilities                                                                │                  
+  │     Utilities and advanced tools                                             │                  
+  │    Exit                                                                     │                  
+  │     Goodbye!                                                                 │                  
   ╰──────────────────────────────────────────────────────────────────────────────╯                  
-                                                                                                    
-                                                                                                    
-                                                                                                    
                                                                                                     
   Plan  10 steps on Linux (detected)                                                                
      /\_____/\                                                                                      
   (   o   o )                                                                                       
     >  ^  <                                                                                         
-  ────────────────────────────────────────────────────────────────────────────────────────────────  
-  ↑/k up • ↓/j down • [Enter] open • [q] quit • [Tab] panel                                         [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────  
+                                         ↑/k up • ↓/j down • [Enter] open • [q] quit • [Tab] panel  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

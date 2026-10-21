@@ -1265,6 +1265,13 @@ func (m Model) mainMenuPanelFacts(l layout) []string {
 	default:
 		rows = append(rows, m.planPanelFacts(l)...)
 	}
+	// The mockup's panel ends on the call to action: the row's facts say what the
+	// selection is, and the button says what the selection does. The one-column
+	// summary is a handful of rows the body did not need; the button there would
+	// take a row from the plan's own facts, so it belongs to the panel.
+	if l.TwoColumn {
+		rows = append(rows, "", ButtonStyle.Render("Press Enter to continue"))
+	}
 	return rows
 }
 

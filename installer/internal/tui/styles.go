@@ -190,6 +190,7 @@ var (
 	CompanionStyle         lipgloss.Style
 	RowBarStyle            lipgloss.Style
 	RowBarMarkerStyle      lipgloss.Style
+	ButtonStyle            lipgloss.Style
 )
 
 // currentUIColors is the palette the vars currently hold, so a caller can save
@@ -388,6 +389,14 @@ func applyUIColors(c uiColors) {
 		Foreground(Paper).
 		Background(BrandSoft).
 		Bold(true)
+
+	// ButtonStyle is the mockup's call to action: a filled block the width of its
+	// label, drawn on the brand fill with the on-fill ink.
+	ButtonStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(BrandSoft).
+		Bold(true).
+		Padding(0, 1)
 
 	RowBarMarkerStyle = lipgloss.NewStyle().
 		Foreground(Accent).

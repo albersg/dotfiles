@@ -514,6 +514,12 @@ type Model struct {
 	// clock: a render that called time.Now could not be tested or snapshotted, and
 	// the greeting would change when nothing else on the screen did.
 	CreatedAt time.Time
+	// UserName is the name the dashboard greets by: the login name the installer
+	// read once, on the startup path (see currentUserName), because a render must
+	// not ask the environment or the account database anything. A model built
+	// without one -- or a host where neither answers -- greets by the time of day
+	// alone rather than inventing a name.
+	UserName string
 	// Now is the time of the latest tick, copied from the tick's own timestamp. The
 	// installing screen derives its elapsed time from this and InstallStartedAt
 	// rather than reading the clock while rendering, for the same reason: the
@@ -837,6 +843,7 @@ func NewModel() Model {
 		CompanionRandom:         0x6d2b79f5,
 		CompanionRoamTarget:     -1,
 		CreatedAt:               time.Now(),
+		UserName:                currentUserName(),
 		ShowDetails:             false,
 		LogLines:                []string{},
 		KeymapCategories:        GetNvimKeymaps(),
