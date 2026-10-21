@@ -80,7 +80,7 @@ The user's words, verbatim:
 | T1 | S1 | The theme pass: every new surface uses the applied theme's roles; the theme switch still recolours the installer and the system together; VHS captures under the default and one alternate theme prove it; no hardcoded palette | (pending) |
 | T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (in the tree, uncommitted) |
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
-| T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (pending) |
+| T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (in the tree, uncommitted — the dashboard, the cards and the named greeting) |
 | T5 | S6 | The setup table and its right panel | (pending) |
 | T6 | S8 | The utilities screen | (pending) |
 | T7 | S9 | The theme selector grid | (pending) |
@@ -147,6 +147,66 @@ L6. T2 + T3 landed together in the tree (uncommitted, still the current palette)
   screen with no chrome (T9 should route the dead ends through the frame), and the
   status dot's tone per state (Ready/Done green, Installing brand, Preview accent,
   Failed error) is a role choice T1 may want to re-read against the new surfaces.
+
+L7. T4 landed in the tree (uncommitted, still the current palette): the dashboard,
+which is the welcome screen under the lockup. What was copied from the image
+(panel 1, "Dashboard (inicio mejorado)"), in the mockup's order:
+
+- **The lockup and its tagline.** The emblem and the wordmark stay the installer's
+own art; the line under them is the mockup's `Your personal development
+environment.`, replacing "Your terminal environment, configured in minutes."
+- **The four machine cards.** `OS`, `Shell`, `Arch`, `Packages`, each with its Nerd
+  Font icon and the value the model holds: `OSName`, `UserShell`, `archName(info)`
+  and the same `packageManager()` the dependency step dispatches through. One card
+  shape, three rows: the icon and label ride the top border (the frame's own card
+  grammar, `panelBlock`'s title) and the value sits inside, because the mockup's
+  fourth row is the one that does not fit the 80x24 floor with the panel summary
+  still showing. The cards are equal width and exactly as wide as the body; below
+  the width where a card can hold its own value they collapse to the four facts in
+  one wrapped row (60 columns), which loses no fact.
+- **The greeting by name.** `Good morning, <user>!` from the mockup, read from the
+  model's own clock (`greetingFor`) and from the login name the installer read once
+  at startup (`currentUserName`: `USER`, `LOGNAME`, `USERNAME`, then
+  `user.Current()`), carried on the model as `UserName` so no render probes. A host
+  that cannot name its user gets `Good morning!`; the mockup's waving-hand emoji is
+  dropped (no emoji on any screen, S3's glyph rule).
+- **The environment sentence** stays the installer's own fact sentence, in the
+  mockup's slot: `Running on ... under WSL, with Homebrew already installed
+  (dev build)`.
+- **The call to action** `Let's make this machine yours.` in the mockup's italic.
+- **The pet** keeps the frame's existing placement: the rows the body did not need,
+  at the left, under the content -- which is where the mockup puts it. It appears
+  where the frame allows (the body leaves whole rows) and is dropped where it does
+  not; nothing is taken from a body to draw it.
+- **The vertical anchor.** The welcome screen used to centre its body and was the
+  one exception to `anchorBodyToTheRule`. The dashboard's height changes with the
+  machine it describes, so a centred body moved the lockup between two hosts and
+  spent the rows above that the creature below could not use. Every screen now
+  anchors to the rule, which is what puts the lockup under the header and the pet
+  at the bottom, as the mockup draws them.
+
+The floor and the guards. At 80x24 the compact lockup is kept, the body spends 18
+of its 19 rows with the golden host and the frame's panel summary keeps its row;
+the lockup's blank row is the first row given back when the frame is tighter
+(60x20 spends all 15 and keeps its footer). `TestEveryScreenFitsEveryTerminalSize`
+was red at 140x44 and 60x20 until the card width arithmetic (`need` counted the
+title's spaces wrong) and that blank row were fixed. `goldenSystemInfo` now names
+`Arch: "x86_64"`, because detection always fills it and a golden host without it
+pinned a three-card dashboard; `isolateGoldenTest` pins `goldenUserName` for the
+same reason. New guards: `TestDashboardCardsAreTheMachinesOwnFacts`,
+`TestDashboardCardValuesAreNotInvented`,
+`TestDashboardGreetingUsesTheModelClockAndTheUsersName`,
+`TestDashboardGreetsByTheLoginNameTheInstallerCanRead`,
+`TestDashboardFitsTheFloorAndKeepsItsParts`,
+`TestDashboardCardsCollapseToFactsWhenTheyCannotFit`,
+`TestDashboardCardBandIsExactlyTheBodysWidth`. New golden:
+`TestDashboardWideGolden` (160x40, the mockup's layout); `TestWelcomeScreenGolden`
+and `TestWelcomeLivePanelGolden` were regenerated.
+
+Follow-ups this slice found and did not take: the mockup's pet sits beside the
+greeting (ours sits under the call to action, because the creature is the frame's
+and not the body's); the palette is still the current one (T1); the greeting's
+name is the login name only, with no display-name lookup (`GECOS`).
 
 L7. User's redesign guidance (verbatim directives, latest): "No reinicies el
 trabajo ni replantees todo el diseño." "Cada pantalla debe tener una jerarquía

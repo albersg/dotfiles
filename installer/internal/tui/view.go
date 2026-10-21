@@ -673,16 +673,12 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 			placed = placeBodyAboveCompanion(body, rows, reserve)
 		}
 	}
-	// The section's inspector screens hold their title to the rule instead of
-	// centring it. They share one shape -- title, prose, list -- and the title is
-	// the screen's name, so it has to start where its siblings' titles start. A
-	// short report (the capability screen) centred one row lower was the only
-	// screen in the section whose name sat below the others. Only the blank rows
-	// above the body move; the rows below it are untouched, so the creature's
-	// block keeps the rows it had.
-	if m.bodyAnchorsToTheRule() {
-		placed = anchorBodyToTheRule(placed)
-	}
+	// Every screen's body starts on the first row the frame leaves, so no body
+	// floats to the middle of its frame: a body that does moves as soon as its own
+	// height changes, which is what made the interface jump while a list was
+	// walked. The rows the body does not need are left under it, where the creature
+	// and the panel summary take them.
+	placed = anchorBodyToTheRule(placed)
 	placed = m.placeCompanion(placed, summary, inner)
 
 	// The build label rides every frame's vital sign. It used to be the main menu's
@@ -721,21 +717,20 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	return b.String()
 }
 
-// bodyAnchorsToTheRule reports whether a screen's body starts on the first row
-// the frame leaves, rather than being centred in them. Every content screen does:
-// a body that floats to the middle of the frame moves as soon as its own height
-// changes, which is what made the interface jump while a list was walked. The
-// welcome lockup is the one exception -- it is a centred mark, not a list, and its
-// emblem, wordmark and lines have always sat as one block in the middle -- and the
-// trainer composes its own frame outside this one.
-func (m Model) bodyAnchorsToTheRule() bool {
-	return m.Screen != ScreenWelcome
-}
-
 // anchorBodyToTheRule moves the blank rows the frame left above a short body to
 // the bottom, so the body starts on the first row. It changes no non-blank row
 // and leaves the same number -- or more -- spare under the body, which is what
 // keeps the creature's block where placeCompanion expects it.
+//
+// Every screen takes it, the welcome screen included. The welcome used to be the
+// exception -- the splash was one centred mark, and a mark floats -- but the
+// dashboard under the lockup is a body whose height changes with the machine it
+// describes: a card the host cannot fill, an environment sentence that wraps, a
+// greeting for a host that could not name its user. A body that floats to the
+// middle moves its own lockup between two machines, and it spends rows above
+// that the creature below cannot use; the mockup puts the lockup under the
+// header and the pet under the content, which is what anchoring leaves. The
+// trainer composes its own frame outside this one.
 func anchorBodyToTheRule(rows []string) []string {
 	lead := 0
 	for lead < len(rows) && rows[lead] == "" {
@@ -1642,55 +1637,39 @@ func (m Model) renderWelcome() string {
 	// dropped rather than the emblem, and the two-column floor below stays exactly
 	// as the layout tests pin it, because raising that floor would re-lay every
 	// screen at 124-150 columns instead of this one splash.
-	var body []string
+	var emblem, wordmark []string
 	if m.Height >= welcomeFullLockupHeight && bodyWidth >= wordmarkWidth() {
-		body = append(body, renderEmblem(logo)...)
-		body = append(body, "")
-		body = append(body, renderWordmark(dotfilesText)...)
+		emblem = renderEmblem(logo)
+		wordmark = renderWordmark(dotfilesText)
 	} else {
-		body = append(body, renderEmblem(compactLogo)...)
+		emblem = renderEmblem(compactLogo)
+		wordmark = []string{BrandStyle.Render("dotfiles")}
+	}
+
+	// Under the lockup the screen is the mockup's dashboard: the tagline, the
+	// machine's own four cards, the greeting by name, the environment sentence and
+	// the call to action. Every one of those rows is measured against the columns
+	// the body actually occupies -- the left column when a panel takes the right
+	// one -- so a fact the wide screen states whole cannot wrap in the narrow
+	// column, and dashboard.go's own guard says what each row is.
+	dashboard := m.dashboardBody(bodyWidth)
+
+	// The blank row between the emblem and its name is the lockup's own spacing,
+	// and it is the first row the dashboard gives back when the frame is too tight
+	// for the whole block: the name says what the emblem says, so the gap goes and
+	// every fact stays. Without it the 60x20 frame loses its footer to a blank line.
+	body := append([]string{}, emblem...)
+	if m.welcomeBodyRows()-len(emblem)-len(wordmark)-len(dashboard) >= 1 {
 		body = append(body, "")
-		body = append(body, BrandStyle.Render("dotfiles"))
 	}
+	body = append(body, wordmark...)
+	body = append(body, dashboard...)
 
-	// A greeting by time of day. It is an added dim line: no copy above or below
-	// it is replaced, and the model's own creation time is what it reads.
-	if g := m.greeting(); g != "" {
-		body = append(body, MutedStyle.Render(g))
-	}
-
-	// The version and the detected environment are one dim fact under the
-	// wordmark now, instead of a sentence above the help: a machine fact belongs
-	// with the lockup, not between the pitch and its keys. The platform leads
-	// because it is the fact that changes how the installer behaves.
-	//
-	// It wraps rather than truncates. The panel beside the welcome body narrows it
-	// to the left column, and cutting the sentence to fit that column turned a
-	// fact the same screen states in full in one column -- "with Homebrew already
-	// installed (dev build)" -- into "already installe…": a layout that looked
-	// tidier and said less. The information is the point, so the sentence grows
-	// instead of losing anything, and the frame's row budget and the fit guard
-	// absorb the extra row.
-	env := "Running on " + m.SystemInfo.OSName
-	if m.SystemInfo.IsWSL && m.SystemInfo.OSName != "WSL" {
-		env += " under WSL"
-	}
-	if m.SystemInfo.HasBrew {
-		env += ", with Homebrew already installed"
-	}
-	env += " (" + VersionLabel() + ")"
-	for _, line := range wrapText(env, bodyWidth, 0) {
-		body = append(body, MeterStyle.Render(line))
-	}
-
-	body = append(body, "")
-	body = append(body, SubtitleStyle.Render("Your terminal environment, configured in minutes."))
-
-	// Center the splash horizontally within the columns it has; the frame centres
-	// every body vertically in the rows it leaves, so the last row of a full-height
-	// screen still lands on the terminal's last row instead of one past it. The
-	// vertical shift is capped too, so a tall terminal leaves the lockup under the
-	// frame's rule rather than floating it halfway down the screen.
+	// Center each row horizontally within the columns the body has. The frame
+	// anchors the block to the rule and leaves the rows it does not need under it,
+	// so the lockup sits under the header and the creature at the bottom, as the
+	// mockup draws them; a full-height body still lands on the terminal's last row
+	// instead of one past it.
 	centered := make([]string, len(body))
 	for i, line := range body {
 		centered[i] = CenterHorizontally(line, bodyWidth)

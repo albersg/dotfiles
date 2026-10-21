@@ -6,7 +6,6 @@
 # opens the menu, `u` opens the Utilities section. Deeper screens need host state
 # (managers, backups) and are captured from the deterministic frame fixtures
 # instead -- see vhs/README.md.
-Output "captures/80x24/session.gif"
 Set Shell bash
 Set FontFamily "DejaVu Sans Mono"
 Set FontSize 14
