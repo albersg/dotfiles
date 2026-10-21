@@ -1098,6 +1098,24 @@ func (m Model) backupOptions() []string {
 	return []string{"Install with Backup (recommended)", "Install without Backup"}
 }
 
+// learnToolMenuOptions is the menu of one Learn tool page: the tools it lists,
+// in the order it lists them. The page's menu and the Learn hub's preview panel
+// both read it, so the panel cannot show a different order -- or a different
+// set -- than the page it describes.
+func (m Model) learnToolMenuOptions(screen Screen) []string {
+	switch screen {
+	case ScreenLearnTerminals:
+		return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", m.menuSeparator(), "← Back"}
+	case ScreenLearnShells:
+		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "← Back"}
+	case ScreenLearnWM:
+		return []string{"Tmux", "Zellij", "Herdr", m.menuSeparator(), "← Back"}
+	case ScreenLearnPrompts:
+		return []string{"Starship", "Powerlevel10k", m.menuSeparator(), "← Back"}
+	}
+	return nil
+}
+
 func (m Model) GetCurrentOptions() []string {
 	switch m.Screen {
 	case ScreenMainMenu:
@@ -1408,14 +1426,8 @@ func (m Model) GetCurrentOptions() []string {
 			"Choose a different terminal",
 			"Cancel installation",
 		}
-	case ScreenLearnTerminals:
-		return []string{"Alacritty", "WezTerm", "Kitty", "Ghostty", m.menuSeparator(), "← Back"}
-	case ScreenLearnShells:
-		return []string{"Fish", "Zsh", "Nushell", m.menuSeparator(), "← Back"}
-	case ScreenLearnWM:
-		return []string{"Tmux", "Zellij", "Herdr", m.menuSeparator(), "← Back"}
-	case ScreenLearnPrompts:
-		return []string{"Starship", "Powerlevel10k", m.menuSeparator(), "← Back"}
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnPrompts:
+		return m.learnToolMenuOptions(m.Screen)
 	case ScreenLearnNvim:
 		return []string{"View Features", "View Keymaps", "LazyVim Guide", m.menuSeparator(), "← Back"}
 	case ScreenKeymaps:

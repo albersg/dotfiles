@@ -62,8 +62,8 @@ func deadEnd(message, action string) string {
 // installer screen.
 
 // installerHint is one footer entry: the keys that trigger an action and the
-// verb that names it. The frame draws the keys in Accent and the verb in InkDim,
-// so the eye finds the keys without reading the sentence. It is how every
+// verb that names it. The frame draws the keys in the palette's key tone and the
+// verb in InkDim, so the eye finds the keys without reading the sentence. It is how every
 // footer, the trainer's included, spells one hint.
 type installerHint struct {
 	keys string
@@ -193,8 +193,9 @@ func hintPlainWidth(h installerHint) int {
 	return lipgloss.Width(h.keys) + 1 + lipgloss.Width(h.verb)
 }
 
-// renderHint draws one hint: keys in Accent, verb in InkDim. A hint with no keys
-// renders as its verb alone, with no leading space for the key that is not there.
+// renderHint draws one hint: keys in the palette's key tone, verb in InkDim. A
+// hint with no keys renders as its verb alone, with no leading space for the key
+// that is not there.
 func renderHint(h installerHint) string {
 	if h.keys == "" {
 		return HelpVerbStyle.Render(h.verb)
@@ -4085,7 +4086,9 @@ func (m Model) renderLazyVimTopic() string {
 	if len(allLines) > viewHeight {
 		vital = scrollVital("Lines", start+1, end, len(allLines))
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintPage, hintOpen, hintBack})
+	// The topic is prose, not a menu: Enter opens nothing here, so the footer
+	// names only the scroll keys and the way back.
+	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintPage, hintBack})
 }
 
 // Installing screen rows. The bar is the one place the whole run's progress is
@@ -5316,7 +5319,11 @@ const trainerRightColumnChrome = 5
 // need. The mission is capped at what the right column can hold, which is the
 // existing cut marker's job at an extreme height, not a normal case.
 func (m Model) trainerWideTextBudget(exercise *trainer.Exercise, l layout) (missionRows []string, codeRows int) {
-	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints()))
+	// The budget reserves the full hint set, including the scroll key, so the
+	// body arithmetic cannot change when the drawn footer drops it on an exercise
+	// whose code fits. The screen may spend one row less than the budget in that
+	// case; it never spends more than the terminal.
+	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints(true)))
 	if m.Height > trainerFloorHeight {
 		bodyRows -= m.companionHeightNow()
 	}
@@ -5583,11 +5590,14 @@ func (m Model) trainerExerciseVital() string {
 // and the two-column row budget agree on how many rows the legend spends, and
 // the hint key is listed because the screen honours it (see
 // handleTrainerExerciseKeys).
-func (m Model) trainerExerciseHints() []installerHint {
-	return []installerHint{
-		trainerHintTypeCommand, trainerHintSubmit, trainerHintHint, trainerHintScroll,
-		trainerHintDelete, trainerHintEscToken, trainerHintBlockVisual, trainerHintQuit,
+func (m Model) trainerExerciseHints(scrolls bool) []installerHint {
+	hints := []installerHint{trainerHintTypeCommand, trainerHintSubmit, trainerHintHint}
+	if scrolls {
+		// The key is named only while the code window has rows off screen; an
+		// exercise whose code fits does not advertise a scroll that cannot move.
+		hints = append(hints, trainerHintScroll)
 	}
+	return append(hints, trainerHintDelete, trainerHintEscToken, trainerHintBlockVisual, trainerHintQuit)
 }
 
 // renderTrainerExercise renders a lesson or practice exercise. The mission, the
@@ -5612,7 +5622,6 @@ func (m Model) renderTrainerExercise(mode string) string {
 
 	l := layoutFor(m)
 	inner := l.Inner
-	hints := m.trainerExerciseHints()
 
 	rows := []string{
 		headerRow(fmt.Sprintf("🎮 %s · %s", mode, string(m.TrainerGameState.CurrentModule)), m.trainerExerciseVital(), inner),
@@ -5620,6 +5629,8 @@ func (m Model) renderTrainerExercise(mode string) string {
 	}
 
 	if m.trainerTwoColumnLayout(l) {
+		_, codeRows := m.trainerWideTextBudget(exercise, l)
+		hints := m.trainerExerciseHints(codeRows < len(exercise.Code))
 		rows = append(rows, m.trainerExerciseColumns(exercise, l)...)
 		footer := footerHints(inner, hints)
 		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
@@ -5652,6 +5663,7 @@ func (m Model) renderTrainerExercise(mode string) string {
 	// Help, packed by the shared footer component. It stays two rows at the
 	// 80-column floor, so the screen's height is still countable: see
 	// trainerFrameRows.
+	hints := m.trainerExerciseHints(viewport.rows < len(exercise.Code))
 	footer := footerHints(inner, hints)
 	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	rows = append(rows, footer...)
@@ -5697,7 +5709,11 @@ func (m Model) trainerTwoColumnLayout(l layout) bool {
 	if !l.TwoColumn || (m.Screen != ScreenTrainerLesson && m.Screen != ScreenTrainerPractice) {
 		return false
 	}
-	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints()))
+	// The budget reserves the full hint set, including the scroll key, so the
+	// body arithmetic cannot change when the drawn footer drops it on an exercise
+	// whose code fits. The screen may spend one row less than the budget in that
+	// case; it never spends more than the terminal.
+	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints(true)))
 	return bodyRows >= trainerRightColumnChrome+1
 }
 

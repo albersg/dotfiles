@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -465,13 +464,13 @@ func (m Model) learnPagePanelFacts(label string, l layout) []string {
 	var rows []string
 	switch label {
 	case "Terminals":
-		rows = append(rows, toolPagePanelFacts(GetTerminalInfo(), l)...)
+		rows = append(rows, toolPagePanelFacts(GetTerminalInfo(), m.learnToolMenuOptions(ScreenLearnTerminals), l)...)
 	case "Shells":
-		rows = append(rows, toolPagePanelFacts(GetShellInfo(), l)...)
+		rows = append(rows, toolPagePanelFacts(GetShellInfo(), m.learnToolMenuOptions(ScreenLearnShells), l)...)
 	case "Multiplexers":
-		rows = append(rows, toolPagePanelFacts(GetWMInfo(), l)...)
+		rows = append(rows, toolPagePanelFacts(GetWMInfo(), m.learnToolMenuOptions(ScreenLearnWM), l)...)
 	case "Prompts":
-		rows = append(rows, toolPagePanelFacts(GetPromptInfo(), l)...)
+		rows = append(rows, toolPagePanelFacts(GetPromptInfo(), m.learnToolMenuOptions(ScreenLearnPrompts), l)...)
 	case "Neovim":
 		info := GetNvimInfo()
 		rows = append(rows, panelFact("Reads", info.Description, l.Right)...)
@@ -495,13 +494,22 @@ func (m Model) learnPagePanelFacts(label string, l layout) []string {
 }
 
 // toolPagePanelFacts previews a tool menu: how many pages it holds and their
-// names, sorted so the column is stable from one render to the next.
-func toolPagePanelFacts(tools map[string]ToolInfo, l layout) []string {
-	names := make([]string, 0, len(tools))
-	for _, info := range tools {
-		names = append(names, info.Name)
+// names in the menu's own order. The order comes from the destination page's
+// menu, which is not the hub's option list -- the hub lists the pages, not the
+// tools inside them -- so the caller passes the labels it wants previewed. It
+// used to sort the names, which made the panel and the page disagree
+// (Alacritty, Ghostty, Kitty, WezTerm against Alacritty, WezTerm, Kitty,
+// Ghostty).
+func toolPagePanelFacts(tools map[string]ToolInfo, labels []string, l layout) []string {
+	names := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if strings.HasPrefix(label, menuSeparatorPrefix) || strings.Contains(label, "Back") {
+			continue
+		}
+		if info, ok := tools[strings.ToLower(label)]; ok {
+			names = append(names, info.Name)
+		}
 	}
-	sort.Strings(names)
 	rows := panelFact("Pages", strconv.Itoa(len(names)), l.Right)
 	for _, name := range names {
 		rows = append(rows, panelFact("", name, l.Right)...)
@@ -585,7 +593,7 @@ func (m Model) keymapCategoryPanelFacts(label string, l layout) []string {
 		}
 		rows := panelFact("Bindings", keymapBindingCount(len(cat.Keymaps)), l.Right)
 		if cat.Description != "" {
-			rows = append(rows, panelFact("About", cat.Description, l.Right)...)
+			rows = append(rows, panelFact("Covers", cat.Description, l.Right)...)
 		}
 		return rows
 	}
@@ -618,7 +626,7 @@ func lazyVimTopicPanelFacts(label string, l layout) []string {
 		if topic.Title != label {
 			continue
 		}
-		rows := panelFact("About", topic.Description, l.Right)
+		rows := panelFact("Covers", topic.Description, l.Right)
 		rows = append(rows, panelFact("Reads", fmt.Sprintf("%d points", len(topic.Content)), l.Right)...)
 		return rows
 	}

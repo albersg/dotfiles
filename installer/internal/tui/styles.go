@@ -32,12 +32,17 @@ import "github.com/charmbracelet/lipgloss"
 // preview can put a plain colour in the same slot while the defaults stay
 // adaptive.
 type uiColors struct {
-	Background    lipgloss.AdaptiveColor
-	Text          lipgloss.AdaptiveColor
-	TextMuted     lipgloss.AdaptiveColor
-	Primary       lipgloss.AdaptiveColor
-	Secondary     lipgloss.AdaptiveColor
-	Accent        lipgloss.AdaptiveColor
+	Background lipgloss.AdaptiveColor
+	Text       lipgloss.AdaptiveColor
+	TextMuted  lipgloss.AdaptiveColor
+	Primary    lipgloss.AdaptiveColor
+	Secondary  lipgloss.AdaptiveColor
+	Accent     lipgloss.AdaptiveColor
+	// Key is the tone the footer's key tokens are drawn in. It is the accent when
+	// that colour clears the body floor on the base, and the primary otherwise: a
+	// light theme's accent is often the cursor's soft rose, which is a fine cursor
+	// and an illegible key label.
+	Key           lipgloss.AdaptiveColor
 	Error         lipgloss.AdaptiveColor
 	Warning       lipgloss.AdaptiveColor
 	Success       lipgloss.AdaptiveColor
@@ -97,6 +102,7 @@ func defaultUIColors() uiColors {
 	// dark base is the ink that reads on the pastel fills. An applied theme may
 	// choose otherwise when its own base cannot label a fill.
 	c.OnFill = c.Background
+	c.Key = c.Accent
 	return c
 }
 
@@ -115,12 +121,17 @@ func defaultUIColors() uiColors {
 // through is already that slate, so naming a second dim tone here would have
 // invented a distinction no reader could see.
 var (
-	Background    lipgloss.AdaptiveColor
-	Text          lipgloss.AdaptiveColor
-	TextMuted     lipgloss.AdaptiveColor
-	Primary       lipgloss.AdaptiveColor
-	Secondary     lipgloss.AdaptiveColor
-	Accent        lipgloss.AdaptiveColor
+	Background lipgloss.AdaptiveColor
+	Text       lipgloss.AdaptiveColor
+	TextMuted  lipgloss.AdaptiveColor
+	Primary    lipgloss.AdaptiveColor
+	Secondary  lipgloss.AdaptiveColor
+	Accent     lipgloss.AdaptiveColor
+	// Key is the tone the footer's key tokens are drawn in. It is the accent when
+	// that colour clears the body floor on the base, and the primary otherwise: a
+	// light theme's accent is often the cursor's soft rose, which is a fine cursor
+	// and an illegible key label.
+	Key           lipgloss.AdaptiveColor
 	Error         lipgloss.AdaptiveColor
 	Warning       lipgloss.AdaptiveColor
 	Success       lipgloss.AdaptiveColor
@@ -349,7 +360,7 @@ func applyUIColors(c uiColors) {
 		Foreground(Ink)
 
 	AccentKeyStyle = lipgloss.NewStyle().
-		Foreground(Accent).
+		Foreground(c.Key).
 		Bold(true)
 
 	HelpVerbStyle = lipgloss.NewStyle().

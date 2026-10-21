@@ -136,3 +136,80 @@ func vimHubRow(t *testing.T, label string) int {
 	t.Fatalf("the Vim hub has no row %q", label)
 	return 0
 }
+
+// TestLearnHubPanelListsTheDestinationInMenuOrder guards the preview panel of
+// the Learn hub: it must list the tools of the page the row opens, in the order
+// the page lists them. Reading the hub's own options instead produced "Pages 0":
+// the hub lists pages, not the tools inside them.
+func TestLearnHubPanelListsTheDestinationInMenuOrder(t *testing.T) {
+	l := layoutFor(Model{Width: 160, Height: 48})
+
+	for _, label := range []string{"Terminals", "Shells", "Multiplexers", "Prompts"} {
+		m := Model{Screen: ScreenLearnTools, Width: 160, Height: 48, Cursor: learnHubRow(t, label)}
+		facts := strings.Join(m.hubPanelFacts(l), "\n")
+		if strings.Contains(facts, "Pages 0") {
+			t.Errorf("the %q panel previews no page: %s", label, facts)
+		}
+	}
+
+	m := Model{Screen: ScreenLearnTools, Width: 160, Height: 48, Cursor: learnHubRow(t, "Terminals")}
+	facts := strings.Join(m.hubPanelFacts(l), "\n")
+	last := -1
+	for _, name := range []string{"Alacritty", "WezTerm", "Kitty", "Ghostty"} {
+		at := strings.Index(facts, name)
+		if at < 0 {
+			t.Fatalf("the Terminals panel does not list %q:\n%s", name, facts)
+		}
+		if at <= last {
+			t.Errorf("the Terminals panel lists %q out of the menu's order:\n%s", name, facts)
+		}
+		last = at
+	}
+}
+
+// learnHubRow is the index of a Learn hub option by its label.
+func learnHubRow(t *testing.T, label string) int {
+	t.Helper()
+	m := Model{Screen: ScreenLearnTools}
+	for i, option := range m.GetCurrentOptions() {
+		if option == label {
+			return i
+		}
+	}
+	t.Fatalf("the Learn hub has no row %q", label)
+	return 0
+}
+
+// TestLazyVimTopicFooterNamesOnlyLiveKeys pins the topic page's footer: it is
+// prose, so Enter opens nothing and must not be advertised.
+func TestLazyVimTopicFooterNamesOnlyLiveKeys(t *testing.T) {
+	m := Model{Screen: ScreenLazyVimTopic, Width: 120, Height: 40, LazyVimTopics: GetLazyVimTopics(), SelectedLazyVimTopic: 0}
+	view := m.renderLazyVimTopic()
+	if strings.Contains(view, "[Enter] open") {
+		t.Errorf("the topic footer advertises Enter on a page with no rows:\n%s", view)
+	}
+	if !strings.Contains(view, "[Esc] back") {
+		t.Errorf("the topic footer does not name the way back:\n%s", view)
+	}
+}
+
+// TestTrainerScrollHintOnlyWhenTheCodeScrolls pins the trainer's scroll hint:
+// the code window is one line in a short exercise, and a scroll key that cannot
+// move is not advertised.
+func TestTrainerScrollHintOnlyWhenTheCodeScrolls(t *testing.T) {
+	hasScroll := func(hints []installerHint) bool {
+		for _, hint := range hints {
+			if hint == trainerHintScroll {
+				return true
+			}
+		}
+		return false
+	}
+	m := Model{}
+	if hasScroll(m.trainerExerciseHints(false)) {
+		t.Error("a code window that fits still advertises the scroll key")
+	}
+	if !hasScroll(m.trainerExerciseHints(true)) {
+		t.Error("a scrolling code window does not advertise the scroll key")
+	}
+}

@@ -237,7 +237,10 @@ caps its tint at the muted role's floor — 4.5:1 where the plain base already c
 3.0:1 for the themes that draw the muted role dimmer — so the gradient keeps moving without taking
 the text below what the theme already accepts; the cap is derived from the palette in use rather
 than written down, and a guard measures every offered theme. A no-loss cap was tried first and
-flattened the background completely on Nocturne, whose muted role sits far above the floor.
+flattened the background completely on Nocturne, whose muted role sits far above the floor. The
+footer's key tokens take the palette's **key tone**: the accent when it clears the body floor on the
+base, the primary otherwise, with the body ink as the last resort. Catppuccin Latte's cursor is a
+soft rose at 2.2:1 on its base — right for the cursor, illegible for a key label.
 
 **Every offered theme paints every tool the switch names**, and that is a guard rather than a
 promise: the seventeen tools are the four terminals, Starship, the zsh line editor, the p10k prompt,
@@ -1427,6 +1430,12 @@ answer, **`w`** writes the report, **`t`** shows the problems or every finding, 
 run in flight or leaves the screen. `Enter` opens a finding's repair and does nothing on a row that
 acts where it stands; `Space` is not offered, because the list has no switch. A row is what acts:
 the run rows, the filter, the export, and any finding that offers a repair.
+
+**The closing line separates the checks from the findings.** One check can answer with several
+findings, so a run of 27 checks can produce 67 findings; the line says `27 checks ran; 67 findings:
+22 warnings, 9 not applicable, 36 ok` instead of putting the findings after a colon that read as a
+breakdown of the checks. The `c` command is named once in the footer — it runs whichever category
+the cursor is on — and the category rows carry only the category, not a repeated `[c]`.
 
 **Every finding carries its evidence, its impact and what to do.** A finding is a subject, the
 exact thing that was read (`df -Pk $HOME → 60000000 KB available`, `~/.ssh/id_ed25519 has mode

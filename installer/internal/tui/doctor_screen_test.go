@@ -169,6 +169,12 @@ func TestDoctorScreenSaysHowManyChecksAreDoneOutOfHowMany(t *testing.T) {
 	if !strings.Contains(m.Doctor.Run.Message, "2 checks") {
 		t.Errorf("the closing line does not count the checks: %q", m.Doctor.Run.Message)
 	}
+	if !strings.Contains(m.Doctor.Run.Message, "findings") {
+		t.Errorf("the closing line does not name the findings it counts: %q", m.Doctor.Run.Message)
+	}
+	if strings.Contains(m.Doctor.Run.Message, "checks:") {
+		t.Errorf("the closing line puts the findings after a colon that reads as a check breakdown: %q", m.Doctor.Run.Message)
+	}
 	if !strings.Contains(m.Doctor.Run.Message, "ok") {
 		t.Errorf("the closing line does not summarize what was found: %q", m.Doctor.Run.Message)
 	}
