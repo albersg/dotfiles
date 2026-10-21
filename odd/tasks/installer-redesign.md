@@ -76,8 +76,8 @@ The user's words, verbatim:
 | ID | Specs | Route | Commit |
 |----|-------|-------|--------|
 | T1 | S1 | The palette adaptation: the new surfaces (bars, cards, table, grid) draw from each existing theme's roles; no new theme; the theme grid's Default card is the current default theme | (pending) |
-| T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (pending) |
-| T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (this slice, current palette) |
+| T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (in the tree, uncommitted) |
+| T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (pending) |
 | T5 | S6 | The setup table and its right panel | (pending) |
 | T6 | S8 | The utilities screen | (pending) |
@@ -113,3 +113,35 @@ uncommitted on `feat/installer-redesign`: the main menu's two-line rows, icons,
 subtitles and detail-panel button are in; `TestMainMenuPlanPanelLeavesRoomForTheCompanion`
 is red (the wide/floor plan+companion arithmetic), and the T2 chrome is next.
 Anyone working on this front must read the mockup image first.
+L6. T2 + T3 landed together in the tree (uncommitted, still the current palette):
+
+- **The two-line row is conditional on the frame's other tenants.** A row costs
+  two rows, so `mainMenuTwoLine` takes the mockup's shape only where the rows the
+  body does not need can still hold the active panel's summary *and* the
+  creature at the terminal's rung. That is what `TestMainMenuPlanPanelLeavesRoomForTheCompanion`
+  was red about: at 60x20 the two-line card spent the summary's row, so the plan
+  stopped answering. At 80x24 (no update rows) the two-line card, the plan
+  summary and the pet all fit; with an extra menu row the floor falls back to the
+  one-line card. The guard logs `rows=one-line|two-line` so the shape is
+  re-derivable, and the `impossible` records keep their arithmetic.
+- **The greeting stays on the floor shape only.** The mockup's main menu has no
+  greeting and no card title; the one-line card keeps both, because there the
+  card is the compact list and the greeting is the screen's only prose. The three
+  greeting guard tests now read the shape from the model instead of restating a
+  screen name.
+- **The status bar rides the footer rule, not the legend's row.** Sharing the
+  legend's last row cost six screens a second footer row at 80 columns
+  (install-review, wsl-migration, ssh-host-read-only, theme-picker/activity/
+  refresh, network-diagnostics), and on the review screen that row is the
+  documented "Way back" marker: a floor regression. The rule above the legend is
+  a row with nothing else to say, so the state block leads it and the rule runs on
+  -- zero rows, zero columns, and the keys keep their full measure and their
+  right-aligned edge. The trainer composes its own frame with no footer rule, so
+  there the block shares the legend's last row (`footerBar`), and its budget uses
+  `footerBarRows`. State words are exactly the mockup's five.
+- **The panel's button** is the two-column panel's last row; the one-column
+  summary is one row and cannot spend it.
+- Follow-ups this slice found and did not take: `deadEnd` still renders a two-line
+  screen with no chrome (T9 should route the dead ends through the frame), and the
+  status dot's tone per state (Ready/Done green, Installing brand, Preview accent,
+  Failed error) is a role choice T1 may want to re-read against the new surfaces.

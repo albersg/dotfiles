@@ -2279,9 +2279,12 @@ func TestInstallerScreensFitWideTerminals(t *testing.T) {
 			// Every composed line is the inner width, the leading margin included,
 			// so the body covers the columns the frame's rules cover and the
 			// margins on either side of the composition are the ones it computed.
+			// Any row of the composition carries both columns, so the panel's tab row
+			// is as good a probe as the greeting line this used to read: the two-line
+			// card has no "What would you like to do?" row of its own.
 			composed := ""
 			for _, line := range strings.Split(view, "\n") {
-				if strings.Contains(line, "What would you like to do?") {
+				if strings.Contains(line, mainMenuPanelLabel) {
 					composed = line
 				}
 			}
@@ -2880,7 +2883,7 @@ func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
 			m := Model{Width: c.width, Height: c.height, Screen: ScreenMainMenu}
-			rows := installerBodyRows(c.height, footerRowCount(layoutFor(m).Inner, hints))
+			rows := installerBodyRows(c.height, m.footerRowCount(layoutFor(m).Inner, hints))
 			placed := placeBody(body, rows)
 
 			first, last := -1, -1

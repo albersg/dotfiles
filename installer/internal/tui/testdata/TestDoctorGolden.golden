@@ -19,6 +19,6 @@
                                                                                 
   5 checks: 1 error, 1 warning, 1 unknown, 1 not applicable, 1 ok. Kept at      
   ~/.local/state/dotfiles/doctor-report.txt                                     
-  ────────────────────────────────────────────────────────────────────────────  
-  ↑/k ↓/j move • [a] run every check • [c] the category under the cursor        
-  [t] problems/all • [w] write the report • [r] retry • [Esc] back              [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
+  ● Ready ────────────────────────────────────────────────────────────────────  
+        ↑/k ↓/j move • [a] run every check • [c] the category under the cursor  
+              [t] problems/all • [w] write the report • [r] retry • [Esc] back  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

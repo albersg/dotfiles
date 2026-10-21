@@ -96,6 +96,13 @@ func TestMainMenuAtTheOneColumnFloorKeepsEverything(t *testing.T) {
 		t.Errorf("the main menu at 123 columns shows the %q panel:\n%s", mainMenuPanelLabel, view)
 	}
 	for _, option := range m.GetCurrentOptions() {
+		// A separator is the menu's structural marker, not a row the card draws: the
+		// card renders it as the titled divider between its groups, which is the
+		// thing to look for, and the full-width run it used to match against the
+		// frame's rule is now the frame's status row.
+		if strings.HasPrefix(option, menuSeparatorPrefix) {
+			continue
+		}
 		if !strings.Contains(view, option) {
 			t.Errorf("the main menu at 123 columns dropped the option %q:\n%s", option, view)
 		}

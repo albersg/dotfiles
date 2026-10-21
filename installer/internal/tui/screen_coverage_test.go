@@ -1560,6 +1560,13 @@ func TestThemePickerScrollsToEveryRowAtTheSmallTerminals(t *testing.T) {
 // are recorded with their numbers rather than silently dropped, so a size that
 // cannot hold both is a measured finding and a size that can is held to the
 // assertion.
+//
+// The mockup's two-line row is the third thing the rows compete for: it spends a
+// row per option. The main menu takes that shape only where the frame still has
+// the summary and the rung left over (mainMenuTwoLine), so a size that logs
+// two=true is held to the same pair as the one-line ones: the plan answers and
+// the creature draws at its rung. The shape itself is logged, so the numbers a
+// review quotes can be re-derived instead of trusted.
 func TestMainMenuPlanPanelLeavesRoomForTheCompanion(t *testing.T) {
 	// The sizes where the body, the selected rung and the panel summary genuinely
 	// cannot fit together, with the numbers that say so. A size enters this list
@@ -1569,11 +1576,12 @@ func TestMainMenuPlanPanelLeavesRoomForTheCompanion(t *testing.T) {
 		body, rung, summary, budget int
 	}
 	impossible := map[string]impossibleCase{
-		// Both variants now spend four chrome rows (the title, the greeting, the
-		// question and the blank under it) plus their options, and the Utilities
-		// row is one of them. In a 14-row frame the summary keeps its row (a fact
-		// beats a decoration) and there is no room left for the creature: 11 + 3 +
-		// 1 = 15 for the plain menu, 12 + 3 + 1 = 16 with the restore row.
+		// At the floor the menu keeps the one-line row, the greeting, the question
+		// and the card's title row, and the Utilities row is one of the options. In
+		// a 14-row frame the summary keeps its row (a fact beats a decoration) and
+		// there is no room left for the creature: 11 + 3 + 1 = 15 for the plain
+		// menu, 12 + 3 + 1 = 16 with the restore row. The two-line shape is not
+		// taken here at all: it would spend the summary's row as well.
 		"main-menu/60x20":         {body: 11, rung: 3, summary: 1, budget: 14},
 		"main-menu-restore/60x20": {body: 12, rung: 3, summary: 1, budget: 14},
 	}
@@ -1593,15 +1601,22 @@ func TestMainMenuPlanPanelLeavesRoomForTheCompanion(t *testing.T) {
 						rows, size.name, m.Height)
 				}
 				l := layoutFor(m)
-				budget := installerBodyRows(m.Height, footerRowCount(l.Inner, m.panelHints(m.panelsFor(), mainMenuHints())))
+				budget := installerBodyRows(m.Height, m.footerRowCount(l.Inner, m.panelHints(m.panelsFor(), mainMenuHints())))
 				panelRows := len(m.panelColumn(m.panelsFor(), l, budget))
 				if !l.TwoColumn {
 					panelRows = len(m.rotatorLines(m.panelsFor(), l.Inner))
 				}
 				rung := m.companionHeightNow()
 				_, drawn := trainerViewCompanionArt(view)
-				t.Logf("%-18s %-7s two=%-5v budget=%2d panel=%2d rung=%2d drawn=%2d",
-					name, size.name, l.TwoColumn, budget, panelRows, rung, drawn)
+				// The shape the renderer will take, not a second copy of the
+				// decision: mainMenuUsesTwoLineRows measures the frame the same way
+				// renderMainMenu does.
+				shape := "one-line"
+				if m.mainMenuUsesTwoLineRows() {
+					shape = "two-line"
+				}
+				t.Logf("%-18s %-7s two=%-5v rows=%-8s budget=%2d panel=%2d rung=%2d drawn=%2d",
+					name, size.name, l.TwoColumn, shape, budget, panelRows, rung, drawn)
 
 				if !planPanelAnswers(m, view) {
 					t.Errorf("the panel no longer answers what will happen at %s: the plan's step count is not on screen", size.name)

@@ -349,7 +349,7 @@ func (m Model) sectionBodyTitle() string {
 // offers now: an action that appears once something is selected must not take a
 // row from the body, because taking it from the body is what moved the list.
 func (m Model) footerReserveRows(width int, hints []installerHint) int {
-	return footerRowCount(width, dedupeHints(append(append([]installerHint{}, hints...), m.selectionHintReserve()...)))
+	return m.footerRowCount(width, dedupeHints(append(append([]installerHint{}, hints...), m.selectionHintReserve()...)))
 }
 
 // selectionHintReserve is the hints a screen's footer can gain while the user

@@ -1555,13 +1555,16 @@ func TestWSLScreenFootersFitOneRowAtTheFloor(t *testing.T) {
 
 	for _, footer := range cases {
 		// The footer is measured on the frame it is drawn in: the width the frame gives a body at 80
-		// columns, which is the narrowest terminal the installer supports.
+		// columns, which is the narrowest terminal the installer supports. The status bar rides the
+		// rule above the legend rather than the legend's own row, so the hints are packed against the
+		// whole width here; a block that took columns from them would wrap these footers and take the
+		// list's row with them.
 		m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
 		m.Width, m.Height = 80, 24
 		inner := contentWidth(m)
-		if rows := footerRowCount(inner, footer.hints); rows > 1 {
+		if rows := m.footerRowCount(inner, footer.hints); rows > 1 {
 			t.Errorf("%s spends %d footer rows at 80 columns, and the list loses the second:\n%s",
-				footer.name, rows, strings.Join(footerHints(inner, footer.hints), "\n"))
+				footer.name, rows, strings.Join(m.footerHints(inner, footer.hints), "\n"))
 		}
 	}
 }

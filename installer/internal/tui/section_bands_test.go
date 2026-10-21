@@ -146,8 +146,10 @@ func TestSectionScreenAnchorsDoNotMove(t *testing.T) {
 				rows := strings.Split(ansiEscape.ReplaceAllString(model.View(), ""), "\n")
 				back, closing = -1, -1
 				for i, row := range rows {
-					trimmed := strings.TrimSpace(row)
-					if len([]rune(trimmed)) > 10 && strings.Trim(trimmed, "─") == "" {
+					// The frame's closing rule is the last rule row. It also carries
+					// the status bar now, so the check is the shared one that sets the
+					// state block aside before reading the glyphs.
+					if isRuleRow(row) {
 						closing = i
 					}
 					if strings.Contains(row, "← Back") {

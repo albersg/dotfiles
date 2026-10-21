@@ -924,7 +924,7 @@ func TestMainMenuUtilitiesRowFitsTheMeasuredFloor(t *testing.T) {
 			// panels, so [Tab] packs the footer to two rows at 60 columns and the
 			// body budget is the frame's 14, not the 15 a shorter footer suggests.
 			frameHints := m.panelHints(m.panelsFor(), hints)
-			budget := installerBodyRows(m.Height, footerRowCount(contentWidth(m), frameHints))
+			budget := installerBodyRows(m.Height, m.footerRowCount(contentWidth(m), frameHints))
 			options := len(m.GetCurrentOptions())
 			bodyRows := 3 + options // the title, the question and the blank under it
 			if m.greeting() != "" {

@@ -1235,7 +1235,7 @@ func TestTwoPanelScreensRenderTheTabRowAndTheSummary(t *testing.T) {
 
 	t.Run("a body that fills the frame gets no summary", func(t *testing.T) {
 		m := Model{Width: 100, Height: 24}
-		rows := installerBodyRows(m.Height, footerRowCount(layoutFor(m).Inner, m.panelHints(panels, hints)))
+		rows := installerBodyRows(m.Height, m.footerRowCount(layoutFor(m).Inner, m.panelHints(panels, hints)))
 		body := make([]string, rows)
 		for i := range body {
 			body[i] = fmt.Sprintf("body row %d", i+1)
@@ -1643,14 +1643,29 @@ func TestGreetingForEachPartOfTheDay(t *testing.T) {
 // same bytes, and a model with no creation time shows no greeting line. A
 // renderer that called time.Now could not be snapshotted and would change the
 // bytes when nothing else did.
+//
+// The main menu is measured at a size that draws the one-line floor shape: the
+// mockup's two-line card has no greeting line, so the screen the greeting still
+// belongs to is the narrow one, and the two sizes below are the two shapes.
 func TestGreetingComesFromTheModelNotTheClock(t *testing.T) {
-	for _, screen := range []Screen{ScreenWelcome, ScreenMainMenu} {
-		screen := screen
-		t.Run(fmt.Sprintf("screen %d", screen), func(t *testing.T) {
+	for _, c := range []struct {
+		screen        Screen
+		name          string
+		width, height int
+	}{
+		{ScreenWelcome, "the welcome screen", 80, 24},
+		{ScreenMainMenu, "the main menu's one-line floor", 80, 20},
+	} {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
 			m := NewModel()
 			isolateGoldenTest(t, &m)
-			m.Screen = screen
-			m.Width, m.Height = 80, 24
+			m.Screen = c.screen
+			m.Width, m.Height = c.width, c.height
+			if c.screen == ScreenMainMenu && m.mainMenuUsesTwoLineRows() {
+				t.Fatalf("the main menu at %dx%d draws the mockup's two-line card, which carries no greeting",
+					c.width, c.height)
+			}
 
 			greeting := greetingFor(m.CreatedAt)
 			if greeting == "" {
@@ -1674,27 +1689,36 @@ func TestGreetingComesFromTheModelNotTheClock(t *testing.T) {
 }
 
 // TestGreetingIsOnlyOnTheWelcomeAndTheMenu pins that the added line reaches the
-// two screens the design places it on and nowhere else, so no other snapshot may
-// move for it.
+// screens the design places it on and nowhere else, so no other snapshot may move
+// for it. The main menu's mockup shape is the card of two-line rows and has no
+// greeting; the one-line floor shape keeps it, because there the card is the
+// compact list and the greeting is the screen's only line of prose. The two are
+// read from the model rather than restated, so the guard follows the shape.
 func TestGreetingIsOnlyOnTheWelcomeAndTheMenu(t *testing.T) {
 	greeting := greetingFor(goldenGreetingTime)
 	if greeting == "" {
 		t.Fatal("the golden greeting time produced no greeting")
 	}
 	for _, name := range installerFrameScreenNames {
-		view := ansiEscape.ReplaceAllString(installerFrameCase(t, name).View(), "")
-		want := name == "welcome" || name == "main-menu" || name == "main-menu-restore"
+		m := installerFrameCase(t, name)
+		view := ansiEscape.ReplaceAllString(m.View(), "")
+		want := name == "welcome"
+		if name == "main-menu" || name == "main-menu-restore" {
+			want = !m.mainMenuUsesTwoLineRows()
+		}
 		if got := strings.Contains(view, greeting); got != want {
-			t.Errorf("screen %q shows the greeting = %v, want %v", name, got, want)
+			t.Errorf("screen %q shows the greeting = %v, want %v (two-line rows: %v)",
+				name, got, want, m.mainMenuUsesTwoLineRows())
 		}
 	}
 }
 
 // TestGreetingIsAnAddedLineThatMovesNothingElse pins the snapshot move the
 // greeting causes. In one column -- the 80-column floor, where the menu has no
-// panel -- the rendered lines are the lines without the greeting with exactly one
-// line inserted. In two columns the panel is a pure read of the model, so it is
-// byte-identical with and without the greeting; only the body gains the row.
+// panel and draws its one-line shape -- the rendered lines are the lines without
+// the greeting with exactly one line inserted. In two columns the panel is a pure
+// read of the model, so it is byte-identical with and without the greeting; only
+// the body gains the row.
 func TestGreetingIsAnAddedLineThatMovesNothingElse(t *testing.T) {
 	bare := func(screen Screen, width, height int) Model {
 		m := NewModel()
@@ -1705,7 +1729,10 @@ func TestGreetingIsAnAddedLineThatMovesNothingElse(t *testing.T) {
 	}
 
 	t.Run("one column gains exactly the one line", func(t *testing.T) {
-		with := bare(ScreenMainMenu, 80, 24)
+		with := bare(ScreenMainMenu, 80, 20)
+		if with.mainMenuUsesTwoLineRows() {
+			t.Fatal("the main menu at 80x20 draws the two-line card, so this measures the wrong shape")
+		}
 		without := with
 		without.CreatedAt = time.Time{}
 
@@ -1736,7 +1763,7 @@ func TestGreetingIsAnAddedLineThatMovesNothingElse(t *testing.T) {
 
 		l := layoutFor(with)
 		hints := with.panelHints(with.panelsFor(), []installerHint{hintUp, hintDown, hintSelect, hintQuit})
-		budget := installerBodyRows(with.Height, footerRowCount(l.Inner, hints))
+		budget := installerBodyRows(with.Height, with.footerRowCount(l.Inner, hints))
 
 		withPanel := with.panelColumn(with.panelsFor(), l, budget)
 		withoutPanel := without.panelColumn(without.panelsFor(), l, budget)

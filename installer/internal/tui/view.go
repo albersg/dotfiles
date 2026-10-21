@@ -209,11 +209,98 @@ func renderHint(h installerHint) string {
 // two drew one row past the frame.
 const footerMaxRows = 2
 
+// The frame's status bar. The mockup's last row begins with a filled dot and the
+// state the screen is in, and the same row carries the keys: the state is what
+// the frame is doing, the keys are what the reader can do about it.
+//
+// The words are the mockup's five, and they are words rather than glyphs, so a
+// terminal with no colour and no Nerd Font still reads the state. The dot is the
+// decoration.
+const (
+	statusReady      = "Ready"
+	statusInstalling = "Installing…"
+	statusPreview    = "Preview mode"
+	statusDone       = "Done"
+	statusFailed     = "Failed"
+
+	// statusDotGlyph is the dot the status bar leads with. It is one cell, so the
+	// bar cannot push the hints off the row on a terminal whose font draws it wide.
+	statusDotGlyph = "●"
+
+	// statusBarGap is the columns between the state block and the key hints, so the
+	// two read as the row's two ends rather than as one run of text. It is the
+	// minimum: a row with room to spare spreads the two ends apart.
+	statusBarGap = 1
+)
+
+// statusBar is the frame's state: the word for what the screen is doing and the
+// style its dot is drawn in. A screen states the state it is in and nothing else:
+// the failed run says Failed, the completed one Done, the theme picker is the
+// frame's only preview, and every other page is Ready.
+func (m Model) statusBar() (string, lipgloss.Style) {
+	switch m.Screen {
+	case ScreenInstalling:
+		return statusInstalling, BrandStyle
+	case ScreenThemePicker:
+		return statusPreview, HighlightStyle
+	case ScreenComplete:
+		return statusDone, SuccessStyle
+	case ScreenError:
+		return statusFailed, ErrorStyle
+	}
+	return statusReady, SuccessStyle
+}
+
+// statusBarBlock draws the state block itself: the dot in the state's tone and
+// the word in body ink, so the word keeps the 4.5:1 floor the tone may not.
+func statusBarBlock(word string, dot lipgloss.Style) string {
+	return dot.Render(statusDotGlyph) + " " + InkStyle.Render(word)
+}
+
+// footerStatusRow is the installer frame's status bar: the state block at the
+// left of the rule that closes the body, with the rule carrying on after it.
+//
+// The state rides the rule rather than the legend's own row because the legend is
+// where the frame is tightest: at 80 columns six screens' footers already fill a
+// row, and a block sharing it wrapped them onto a second and took a body row --
+// the review screen's "Way back" marker among them, which is the row the floor
+// exists to keep. The rule has the whole width and nothing else to say, so the
+// state costs the frame nothing here, and the keys keep their row and their full
+// measure.
+func (m Model) footerStatusRow(inner int) string {
+	word, dot := m.statusBar()
+	block := statusBarBlock(word, dot)
+	room := inner - lipgloss.Width(block) - 1
+	if room < 1 {
+		return block
+	}
+	return block + " " + rule(room)
+}
+
+// statusBarReserve is the columns this frame's status block takes when it shares
+// a row with the key hints, as the trainer's frame does: the dot, its gap, the
+// state word, and the gap that separates the block from the hints. It is measured
+// from the model because the rows a footer spends are also the rows a screen's
+// body budget was computed from: a budget derived from a width the footer then
+// exceeded would draw one row past the frame.
+func (m Model) statusBarReserve() int {
+	word, _ := m.statusBar()
+	return 1 + 1 + lipgloss.Width(word) + statusBarGap
+}
+
 // footerHints packs hints into at most footerMaxRows rows within inner columns,
 // the rows the frame's footer may spend. The previous slice's budget is one row
 // when it fits and two at 80 columns, and it never reaches three: a screen that
 // would need a third has too many hints, not a taller footer.
-func footerHints(inner int, hints []installerHint) []string {
+//
+// The packing width is the whole row. The installer's status bar rides the rule
+// above the footer rather than the legend's own row (see footerStatusRow), so it
+// costs the hints no columns and the body no rows; a footer that wrapped because
+// the chrome had taken its width would lose the list row the floor is for.
+func (m Model) footerHints(inner int, hints []installerHint) []string {
+	if inner < 1 {
+		inner = 1
+	}
 	var rows []string
 	var row []installerHint
 	width := 0
@@ -251,8 +338,50 @@ func footerHints(inner int, hints []installerHint) []string {
 // footerRowCount is how many rows the footer spends for a screen. It is the
 // same packing footerHints draws, so a screen's body budget and the rows the
 // footer actually takes cannot disagree.
-func footerRowCount(inner int, hints []installerHint) int {
-	return len(footerHints(inner, hints))
+func (m Model) footerRowCount(inner int, hints []installerHint) int {
+	// The status bar is on every frame, so a screen with no hints still spends the
+	// one row that carries it.
+	return max(1, len(m.footerHints(inner, hints)))
+}
+
+// legendRows packs a screen's hints into the rows the frame's footer may spend
+// and moves each row to the right edge, so the keys sit under the status rule's
+// end instead of starting wherever the packing happened to stop.
+func (m Model) legendRows(inner int, hints []installerHint) []string {
+	rows := m.footerHints(inner, hints)
+	for i, row := range rows {
+		if pad := inner - lipgloss.Width(row); pad > 0 {
+			rows[i] = strings.Repeat(" ", pad) + row
+		}
+	}
+	return rows
+}
+
+// footerBarRows is how many rows a footerBar spends. It is the count a screen
+// that shares its legend row with the status block measures its body against.
+func (m Model) footerBarRows(inner int, hints []installerHint) int {
+	return max(1, len(m.footerHints(inner-m.statusBarReserve(), hints)))
+}
+
+// footerBar composes a footer whose last row shares its space with the status
+// block: the block at the left, the key hints right-aligned in the rows the
+// packing gave them. The trainer's frame composes its own rows and has no rule
+// above its legend to carry the state, so it takes this shape; the installer's
+// frame puts the state on that rule (footerStatusRow) and gives the whole width
+// to the keys.
+//
+// A screen with no hints at all still gets its status bar, because the bar says
+// what the frame is doing and not what can be pressed.
+func (m Model) footerBar(inner int, hints []installerHint) []string {
+	word, dot := m.statusBar()
+	block := statusBarBlock(word, dot)
+	width := max(1, inner-m.statusBarReserve())
+	out := m.legendRows(width, hints)
+	if len(out) == 0 {
+		return []string{block}
+	}
+	out[len(out)-1] = block + strings.Repeat(" ", statusBarGap) + out[len(out)-1]
+	return out
 }
 
 // installerBodyRows is the rows a screen may draw between the header rule and
@@ -485,7 +614,7 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	l := layoutFor(m)
 	inner := l.Inner
 	hints = m.panelHints(panels, hints)
-	footer := footerHints(inner, hints)
+	footer := m.legendRows(inner, hints)
 	// The body is measured against the footer's RESERVED rows, not the rows it
 	// draws: an action that appears with a selection must not take its row from
 	// the body, because taking a row from the body is what moved the list. The
@@ -577,7 +706,10 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	b.WriteString(rule(inner))
+	// The rule above the legend is the frame's status bar: the state at its left,
+	// the rule carrying on to the edge. It draws the row the rule always drew, so
+	// the chrome costs the body nothing.
+	b.WriteString(m.footerStatusRow(inner))
 	b.WriteString("\n")
 	// The rows the footer reserved but did not need are left between the rule and
 	// the legend, so the rule, the body above it and the legend's last row all
@@ -922,7 +1054,11 @@ func panelBlockGrouped(title string, width int, groups []mainMenuGroup) []string
 			out = append(out, edge("├─")+label+edge(strings.Repeat("─", dash)+"┤"))
 		}
 		for _, line := range group.Lines {
-			out = append(out, edge("│")+fill(lipgloss.NewStyle().MaxWidth(content).Render(line))+edge("│"))
+			// A two-line row is one logical row but two physical ones; the card
+			// borders each, so the subtitle cannot escape the box.
+			for _, physical := range strings.Split(line, "\n") {
+				out = append(out, edge("│")+fill(lipgloss.NewStyle().MaxWidth(content).Render(physical))+edge("│"))
+			}
 		}
 	}
 	out = append(out, edge("╰"+strings.Repeat("─", inner)+"╯"))
@@ -3425,27 +3561,39 @@ func (m Model) dotfilesThemeOptions() []string {
 }
 
 func (m Model) renderMainMenu() string {
-	// The title block names the screen and asks its question; the options sit in a
-	// card beneath it, so the first screen reads as a designed panel instead of
-	// rows floating between two rules. The greeting stays a line of its own above
-	// the card -- the same one-line move it always was -- and the card's top border
-	// carries the brand the emoji-free title row used to. The width is the row
-	// measure, so a wide terminal draws the card as a column rather than across the
-	// whole screen.
+	// The mockup's main menu is the card of two-line rows beside the selected
+	// row's detail panel: no greeting and no card title above the list. The
+	// greeting belongs to the dashboard, and the header already names the screen.
+	hints := m.mainMenuHints()
+
+	// A two-line row costs two rows, so the shape is taken only where the frame can
+	// still hold the rows it spends on everything else. A floor that cannot keeps
+	// the one-line row, so 80x24 still shows the whole menu; the wide screen takes
+	// the mockup's two-line shape.
+	twoLine := m.mainMenuUsesTwoLineRows()
+
 	body := []string{}
-	// A greeting by time of day, an added dim line read from the model's own
-	// creation time rather than from the clock at render time.
-	if g := m.greeting(); g != "" {
-		body = append(body, MutedStyle.Render(g))
+	// The mockup's wide main menu is the card beside the detail panel: no greeting
+	// and no card title above it. The floor keeps the one-line shape and its
+	// greeting, because there the greeting is the only line that says what the
+	// screen is asking and the card's title is its only brand mark.
+	if !twoLine {
+		if g := m.greeting(); g != "" {
+			body = append(body, MutedStyle.Render(g))
+		}
+		body = append(body, MutedStyle.Render("What would you like to do?"))
 	}
-	body = append(body, MutedStyle.Render("What would you like to do?"))
 	if notice := m.mainMenuTrainerNotice(); notice != "" {
 		body = append(body, notice)
 	}
 	if notice := m.mainMenuUpdateNotice(); notice != "" {
 		body = append(body, notice)
 	}
-	body = append(body, panelBlockGrouped(BrandStyle.Render("dotfiles"), layoutFor(m).RowMeasure, m.mainMenuGroups())...)
+	cardTitle := ""
+	if !twoLine {
+		cardTitle = BrandStyle.Render("dotfiles")
+	}
+	body = append(body, panelBlockGrouped(cardTitle, layoutFor(m).RowMeasure, m.mainMenuGroups(twoLine))...)
 
 	// The header's vital names the build the run would install from: the one fact
 	// about this screen that is not a choice, and the thing a bug report asks for
@@ -3455,7 +3603,65 @@ func (m Model) renderMainMenu() string {
 	// The main menu is the screen that asks what is about to happen, so it offers
 	// the plan panel. The frame takes it only where there is room for it and drops
 	// it below the two-column floor.
-	return m.frame(m.headerName(), VersionLabel(), body, []installerHint{hintUp, hintDown, hintOpen, hintQuit})
+	return m.frame(m.headerName(), VersionLabel(), body, hints)
+}
+
+// mainMenuRowsNeeded is the card's own height for one of its two row shapes: the
+// two borders, the group divider before each group after the first, and one or
+// two rows per option. It is what makes the two-line row conditional on the
+// floor instead of on a height the thresholds would have to repeat.
+func (m Model) mainMenuRowsNeeded(twoLine bool) int {
+	rows := 2 // the card's top and bottom borders
+	for _, option := range m.GetCurrentOptions() {
+		if strings.HasPrefix(option, menuSeparatorPrefix) {
+			rows++ // the divider between two groups
+			continue
+		}
+		if twoLine {
+			rows += 2
+		} else {
+			rows++
+		}
+	}
+	return rows
+}
+
+// mainMenuHints is the footer the main menu hands the frame.
+func (m Model) mainMenuHints() []installerHint {
+	return []installerHint{hintUp, hintDown, hintOpen, hintQuit}
+}
+
+// mainMenuRowsBudget is the rows the main menu's body may spend, measured the way
+// the renderer measures it: the frame minus its chrome and the footer it reserves.
+func (m Model) mainMenuRowsBudget() int {
+	panels := m.panelsFor()
+	return installerBodyRows(m.Height, m.footerReserveRows(contentWidth(m), m.panelHints(panels, m.mainMenuHints())))
+}
+
+// mainMenuUsesTwoLineRows reports whether this terminal draws the mockup's
+// two-line rows. It is the one place the shape is decided, so a guard can ask
+// which shape a size gets without repeating the arithmetic.
+func (m Model) mainMenuUsesTwoLineRows() bool {
+	return m.mainMenuTwoLine(m.mainMenuRowsBudget())
+}
+
+// mainMenuTwoLine reports whether the mockup's two-line rows fit the frame the
+// menu was given. The card is not the only thing the rows have to leave room for:
+// on a one-column terminal the frame draws the active panel's summary and the
+// creature in the rows the body did not need, and both are facts the screen owes
+// the reader -- the summary is the plan's own answer, and the creature is the
+// frame's. A two-line row that spends those rows is the mockup's shape winning
+// over the mockup's own evidence, so the one-line row keeps the floor instead.
+//
+// The two-column frame spends its panel beside the body rather than under it, so
+// there only the creature's reserved block competes with the card.
+func (m Model) mainMenuTwoLine(rowsBudget int) bool {
+	l := layoutFor(m)
+	spare := m.companionHeightNow()
+	if !l.TwoColumn {
+		spare += len(m.rotatorLines(m.panelsFor(), l.Inner))
+	}
+	return rowsBudget >= m.mainMenuRowsNeeded(true)+spare
 }
 
 // mainMenuGroup is one titled group inside the main menu's card: the rows it
@@ -3470,7 +3676,7 @@ type mainMenuGroup struct {
 // The split is the separators in the option list itself, so the rows the card
 // groups, the rows the handler matches and the indices the cursor uses are one
 // list; a row added to the menu lands in the group its separator puts it in.
-func (m Model) mainMenuGroups() []mainMenuGroup {
+func (m Model) mainMenuGroups(twoLine bool) []mainMenuGroup {
 	options := m.GetCurrentOptions()
 	// The first group is the card's own title: the card is the product's, and a
 	// second label above the first row would be two names for it.
@@ -3487,9 +3693,90 @@ func (m Model) mainMenuGroups() []mainMenuGroup {
 			continue
 		}
 		at := len(groups) - 1
-		groups[at].Lines = append(groups[at].Lines, m.menuRowAt(options, i, m.Cursor))
+		// The DD gag owns its row in both shapes: it replaces the option's own
+		// content, so the two-line renderer must not draw the row it struck.
+		line := m.menuRowAt(options, i, m.Cursor)
+		if twoLine && !(m.MenuGagActive && i == m.MenuGagRow) {
+			line = m.mainMenuRowLine(options[i], i == m.Cursor, true)
+		}
+		groups[at].Lines = append(groups[at].Lines, line)
 	}
 	return groups
+}
+
+// mainMenuRowParts is the main menu's icon and one-line description for a row.
+// The icon is decoration: a terminal without the Nerd Font still draws the label,
+// and the glyph is never the row's name. The subtitle is the mockup's copy.
+func mainMenuRowParts(label string) (icon, subtitle string) {
+	switch {
+	case label == "Start Installation":
+		return "\uf135", "Install or update your dotfiles"
+	case strings.HasPrefix(label, "Update channel:"):
+		return "\uf021", "Switch between dev / stable"
+	case strings.HasPrefix(label, "Update this installer"), strings.HasPrefix(label, "Update to "):
+		return "\uf019", "Install the release this run found"
+	case label == "Restore from Backup":
+		return "\uf1da", "Rollback to a previous setup"
+	case label == "Vim & Neovim":
+		return "\uf02d", "Vim & Neovim, tools, tips..."
+	case label == "Learn About Tools":
+		return "\uf0ad", "The tools this run would install"
+	case label == "Utilities":
+		return "\uf120", "Utilities and advanced tools"
+	case label == "Exit":
+		return "\uf08b", "Goodbye!"
+	}
+	return "", ""
+}
+
+// mainMenuRowLine draws one main-menu row. The one-line shape is the floor's and
+// the generic menu's; the two-line shape is the mockup's: the icon and the title
+// on the row, the muted description under it. The filled bar covers the title
+// line only, so the subtitle is read, not echoed.
+//
+// The bar keeps the selected marker the one-line row draws, as the mockup's filled
+// row keeps its arrow: a bar that differs from its neighbours by colour alone is
+// invisible on a terminal without colour, and the marker is what says where the
+// cursor is there.
+func (m Model) mainMenuRowLine(label string, selected, twoLine bool) string {
+	if !twoLine {
+		return m.rowBar(label, selected, "")
+	}
+	icon, subtitle := mainMenuRowParts(label)
+	measure := m.rowMeasure()
+	// The marker costs the same two columns rowBar's own marker does, so the two
+	// shapes put their text on the same column.
+	const markerWidth = 2
+	textWidth := measure - markerWidth
+	if textWidth < 1 {
+		textWidth = 1
+	}
+	title := label
+	if icon != "" {
+		title = icon + " " + label
+	}
+	title = truncate(title, textWidth)
+	pad := textWidth - lipgloss.Width(title)
+	var line string
+	switch {
+	case selected:
+		line = RowBarMarkerStyle.Render("▸ ") + RowBarStyle.Render(title+strings.Repeat(" ", pad))
+	case icon != "":
+		line = "  " + AccentKeyStyle.Render(icon) + " " + InkStyle.Render(truncate(label, textWidth-lipgloss.Width(icon)-1)+strings.Repeat(" ", pad))
+	default:
+		line = InkStyle.Render("  " + title + strings.Repeat(" ", pad))
+	}
+	if subtitle == "" {
+		return line
+	}
+	// The description is indented under the title's own text, not under the icon:
+	// the mockup's second line starts where the row's name starts, so the icon and
+	// the marker read as the row's gutter.
+	indent := strings.Repeat(" ", markerWidth)
+	if icon != "" {
+		indent += "  "
+	}
+	return line + "\n" + indent + MutedStyle.Render(subtitle)
 }
 
 // stripStepPrefix removes a leading "Step N: " from a wizard title, so the step
@@ -3514,8 +3801,8 @@ func (m Model) renderSetup() string {
 	width := l.Composition
 
 	hints := m.setupHints()
-	footer := footerHints(layoutFor(m).Inner, m.panelHints(m.panelsFor(), hints))
-	budget := installerBodyRows(m.Height, len(footer))
+	frameHints := m.panelHints(m.panelsFor(), hints)
+	budget := installerBodyRows(m.Height, m.footerRowCount(l.Inner, frameHints))
 
 	var description []string
 	for _, line := range strings.Split(m.GetScreenDescription(), "\n") {
@@ -3713,7 +4000,7 @@ const toolInfoFixedRows = 5
 func (m Model) renderSingleToolInfo(info ToolInfo) string {
 	width := contentWidth(m)
 	hints := []installerHint{hintBack, hintQuit}
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	desc := wrapText(info.Description, width, 2)
 	// Fixed rows: title, description, website, blank, pros chip, blank, cons chip.
@@ -4477,7 +4764,7 @@ func (m Model) renderInstalling() string {
 	if m.WSLTerminalOffer != nil {
 		hints = []installerHint{hintWSLTerminalOffer, hintDetails}
 	}
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	// Progress bar. It is sized to the frame and labeled with the percentage, so
 	// the longest thing a user watches says how far along it is. The screen's
@@ -4680,7 +4967,7 @@ func (m Model) completionChoiceLabel(screen Screen, value string) string {
 func (m Model) renderError() string {
 	width := contentWidth(m)
 	hints := []installerHint{hintRetry, hintQuit}
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	// The screen's name is the frame's header now, so the body opens on the failure
 	// block instead of repeating it as a second label row.
@@ -4731,7 +5018,7 @@ func (m Model) renderBackupConfirm() string {
 	width := l.Composition
 	hints := []installerHint{hintUp, hintDown, hintChoose, hintBack}
 	options := m.GetCurrentOptions()
-	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, hints))
+	bodyRows := installerBodyRows(m.Height, m.footerRowCount(l.Inner, hints))
 
 	// The config list is bounded to the frame: a machine with all sixteen config
 	// paths present used to push the options off the bottom of the screen.
@@ -4762,7 +5049,7 @@ const restoreBackupBodyFixed = 5
 func (m Model) renderRestoreBackup() string {
 	width := contentWidth(m)
 	hints := []installerHint{hintUp, hintDown, hintOpen, hintBack}
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	// The list is bounded and follows the cursor, so a long history scrolls
 	// instead of pushing the Back row off the frame.
@@ -4820,7 +5107,7 @@ func (m Model) renderRestoreConfirm() string {
 	width := l.Composition
 	hints := []installerHint{hintUp, hintDown, hintChoose, hintCancel}
 	options := m.GetCurrentOptions()
-	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, hints))
+	bodyRows := installerBodyRows(m.Height, m.footerRowCount(l.Inner, hints))
 
 	// List files in backup, bounded to the frame so a backup with a long file
 	// list cannot push the options off the bottom of the screen.
@@ -5380,7 +5667,7 @@ func (m Model) renderTrainerMenu() string {
 	// the verbs as verbs, the same way every installer screen's footer does. The
 	// menu's eight hints pack to two rows at the 80-column floor, the height the
 	// rows above already reserve.
-	footer := footerHints(inner, []installerHint{
+	footer := m.footerBar(inner, []installerHint{
 		hintUp, hintDown,
 		trainerHintLesson, trainerHintPractice, trainerHintBoss,
 		trainerHintReset, trainerHintResetAll, trainerHintBack,
@@ -5447,7 +5734,7 @@ func (m Model) trainerWideTextBudget(exercise *trainer.Exercise, l layout) (miss
 	// body arithmetic cannot change when the drawn footer drops it on an exercise
 	// whose code fits. The screen may spend one row less than the budget in that
 	// case; it never spends more than the terminal.
-	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints(true)))
+	bodyRows := installerBodyRows(m.Height, m.footerBarRows(l.Inner, m.trainerExerciseHints(true)))
 	if m.Height > trainerFloorHeight {
 		bodyRows -= m.companionHeightNow()
 	}
@@ -5758,7 +6045,7 @@ func (m Model) renderTrainerExercise(mode string) string {
 		_, codeRows := m.trainerWideTextBudget(exercise, l)
 		hints := m.trainerExerciseHints(codeRows < len(exercise.Code))
 		rows = append(rows, m.trainerExerciseColumns(exercise, l)...)
-		footer := footerHints(inner, hints)
+		footer := m.footerBar(inner, hints)
 		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 		rows = append(rows, footer...)
 		return strings.Join(rows, "\n")
@@ -5790,7 +6077,7 @@ func (m Model) renderTrainerExercise(mode string) string {
 	// 80-column floor, so the screen's height is still countable: see
 	// trainerFrameRows.
 	hints := m.trainerExerciseHints(viewport.rows < len(exercise.Code))
-	footer := footerHints(inner, hints)
+	footer := m.footerBar(inner, hints)
 	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	rows = append(rows, footer...)
 
@@ -5839,7 +6126,7 @@ func (m Model) trainerTwoColumnLayout(l layout) bool {
 	// body arithmetic cannot change when the drawn footer drops it on an exercise
 	// whose code fits. The screen may spend one row less than the budget in that
 	// case; it never spends more than the terminal.
-	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.trainerExerciseHints(true)))
+	bodyRows := installerBodyRows(m.Height, m.footerBarRows(l.Inner, m.trainerExerciseHints(true)))
 	return bodyRows >= trainerRightColumnChrome+1
 }
 
@@ -6029,7 +6316,7 @@ func (m Model) renderTrainerBoss() string {
 			trainerHintTypeCommand, trainerHintSubmit, trainerHintEscToken,
 			trainerHintScroll, trainerHintForfeit, trainerHintBlockVisual,
 		}
-		footer := footerHints(inner, hints)
+		footer := m.footerBar(inner, hints)
 		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 		rows = append(rows, footer...)
 		return strings.Join(rows, "\n")
@@ -6054,7 +6341,7 @@ func (m Model) renderTrainerBoss() string {
 		trainerHintTypeCommand, trainerHintSubmit, trainerHintHint,
 		trainerHintScroll, trainerHintForfeit, trainerHintEscToken, trainerHintBlockVisual,
 	}
-	footer := footerHints(inner, hints)
+	footer := m.footerBar(inner, hints)
 	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	rows = append(rows, footer...)
 
@@ -6147,7 +6434,7 @@ func (m Model) renderTrainerResult() string {
 	// creature drawn here reacts to the verdict in the header above it without
 	// costing the screen a row, so the frame it was measured in is unchanged.
 	rows = append(rows, "")
-	footer := footerHints(inner, []installerHint{trainerHintContinue, hintBack})
+	footer := m.footerBar(inner, []installerHint{trainerHintContinue, hintBack})
 	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	rows = append(rows, footer...)
 	return strings.Join(rows, "\n")
@@ -6248,7 +6535,7 @@ func (m Model) renderTrainerBossResult() string {
 	// result screen's; the one nearest the legend carries the companion, which
 	// reacts to the victory or the defeat the header names.
 	rows = append(rows, "")
-	footer := footerHints(inner, []installerHint{trainerHintReturn})
+	footer := m.footerBar(inner, []installerHint{trainerHintReturn})
 	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	rows = append(rows, footer...)
 	return strings.Join(rows, "\n")

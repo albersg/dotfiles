@@ -388,8 +388,7 @@ func (m Model) renderInstallReview() string {
 	}
 
 	hints := []installerHint{hintUp, hintDown, hintToggle, hintStartInstall, hintBack}
-	footer := footerHints(l.Inner, m.panelHints(m.panelsFor(), hints))
-	budget := installerBodyRows(m.Height, len(footer))
+	budget := installerBodyRows(m.Height, m.footerRowCount(l.Inner, m.panelHints(m.panelsFor(), hints)))
 
 	description := wrapText(m.GetScreenDescription(), width, 0)
 	kept, off := m.installReviewCounts()

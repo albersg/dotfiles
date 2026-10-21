@@ -395,6 +395,20 @@ func isRuleRow(row string) bool {
 	if plain == "" {
 		return false
 	}
+	// The rule above the footer is also the frame's status bar: its first cells
+	// carry the state block and the rule runs on after it. The row is the frame's
+	// rule once that block is set aside, so the guards that locate the rule by its
+	// glyphs keep working.
+	plain = strings.TrimSpace(strings.TrimPrefix(plain, statusDotGlyph))
+	for _, word := range statusWords {
+		if strings.HasPrefix(plain, word) {
+			plain = strings.TrimSpace(strings.TrimPrefix(plain, word))
+			break
+		}
+	}
+	if plain == "" {
+		return false
+	}
 	for _, r := range plain {
 		if r != '─' {
 			return false
@@ -402,6 +416,11 @@ func isRuleRow(row string) bool {
 	}
 	return true
 }
+
+// statusWords is the frame's state vocabulary, in the order the mockup names it.
+// The guards that read a rendered frame need it to tell a status rule from a
+// plain one.
+var statusWords = []string{statusReady, statusInstalling, statusPreview, statusDone, statusFailed}
 
 // companionScreenFixture is one screen to render at one size. The framed flag
 // says whether the screen draws inside the installer's frame, whose body ends
@@ -1465,7 +1484,7 @@ func TestCompanionTakesTheSpareRowAboveTheFooterRule(t *testing.T) {
 			spare, want := c.spare, c.want
 			m := Model{Width: 100, Height: 24, Animating: true}
 			l := layoutFor(m)
-			rows := installerBodyRows(m.Height, footerRowCount(l.Inner, m.panelHints(panels, hints)))
+			rows := installerBodyRows(m.Height, m.footerRowCount(l.Inner, m.panelHints(panels, hints)))
 			// placeBody centres a short body, so a body of rows-2*spare leaves
 			// exactly `spare` blank rows at the bottom: the rows the decorations
 			// share.
