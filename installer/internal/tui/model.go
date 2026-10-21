@@ -1558,8 +1558,9 @@ func (m Model) GetScreenTitle() string {
 		return "Choose What Gets Installed"
 	case ScreenSetup:
 		// The meter counts this screen and the plan, so it is the first of the two
-		// steps the header shows.
-		return "Step 1: Set Up the Installation"
+		// steps the header shows; the title itself is the mockup's own name for the
+		// table rather than the step's number said twice.
+		return setupTableTitle
 	case ScreenBackupConfirm:
 		return "Existing configurations"
 	case ScreenRestoreBackup:
@@ -1774,10 +1775,11 @@ func (m Model) GetScreenDescription() string {
 	case ScreenNvimSelect:
 		return "Includes LSP, TreeSitter, and dotfiles config"
 	case ScreenSetup:
-		// It says what the screen is and what the two keys do, and it stops there:
-		// the values are the rows' own, and repeating them here would be a second
-		// copy of the state the rows already carry.
-		return "Every choice this run needs, on one screen. Enter opens a row's detailed screen; Space turns a switch on or off."
+		// The mockup's own subtitle for the table. It says what the screen is and
+		// what the one key that is not navigation does, and it stops there: the
+		// values are the rows' own, and the description of the row under the cursor
+		// is the panel under the table.
+		return "Each option is configured on this screen. Press Space to toggle."
 	case ScreenGhosttyWarning:
 		return "Ghostty installation may fail on Ubuntu/Debian.\nThe installer script only supports certain versions."
 	case ScreenInstallVerify:

@@ -120,14 +120,16 @@ func (m Model) pluginSetForRow(row setupRow) (pluginSet, bool) {
 	return pluginSet{}, false
 }
 
-// rowLabel is the label as the list draws it. A set's row is indented under the tool
-// that installs it, because the set is that tool's work and not a decision of its own;
-// the option list keeps the plain label, which names decisions.
-func (r setupRow) rowLabel() string {
-	if r.Kind == setupRowPluginSet {
-		return "  " + r.Label
+// setupSelectedRow is the row the keys act on, or false when the cursor is
+// outside the list (a model built by hand). The renderer, the detail panel and
+// the keys all read it, so what is drawn under the cursor is what Space and the
+// arrows change.
+func (m Model) setupSelectedRow() (setupRow, bool) {
+	rows := m.setupRows()
+	if m.SetupCursor < 0 || m.SetupCursor >= len(rows) {
+		return setupRow{}, false
 	}
-	return r.Label
+	return rows[m.SetupCursor], true
 }
 
 // setupRowLabels is the row list without the values, which is what

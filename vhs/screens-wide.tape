@@ -28,7 +28,15 @@ Wait+Screen /Start Installation/
 Sleep 700ms
 Screenshot "captures/200x55/02-main-menu.png"
 
+Enter
+Wait+Screen /Configure your environment/
+Sleep 700ms
+Screenshot "captures/200x55/03-setup.png"
+
+Escape
+Wait+Screen /Start Installation/
+
 Type "u"
 Wait+Screen /Clean up development caches/
 Sleep 700ms
-Screenshot "captures/200x55/03-utilities.png"
+Screenshot "captures/200x55/04-utilities.png"

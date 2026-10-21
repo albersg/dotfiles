@@ -81,7 +81,7 @@ The user's words, verbatim:
 | T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (in the tree, uncommitted) |
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (in the tree, uncommitted — the dashboard, the cards and the named greeting) |
-| T5 | S6 | The setup table and its right panel | (pending) |
+| T5 | S6 | The setup table and its right panel | (in the tree, uncommitted — the table, its detail panel and two goldens) |
 | T6 | S8 | The utilities screen | (pending) |
 | T7 | S9 | The theme selector grid | (pending) |
 | T8 | S7 | The installing checklist, the log panel and the progress bar | (pending) |
@@ -261,3 +261,77 @@ tests, the affected goldens and the VHS captures; the full suite and
 and the matrix reduction are a separate, later decision taken after the redesign
 settles, so the safety net is not thinned while the layout is still moving.
 
+
+L12. T5 landed in the tree (uncommitted): the setup table, its detail panel and
+two goldens. What was copied from the image (panel 3, "Setup (configuración
+interactiva)"), in the mockup's order:
+
+- **The table's own title and subtitle.** `Configure your environment` centred
+  over the table with `Each option is configured on this screen. Press Space to
+  toggle.` under it, both from the mockup. The subtitle is the screen's
+  description in the model (`GetScreenDescription`), so there is one copy of the
+  sentence, and the screen's title is the same word pair the body draws
+  (`setupTableTitle`) instead of the step number said twice.
+- **The row.** The gutter holds the row's Nerd Font icon -- or, on the row under
+  the cursor, the cursor's own marker in the icon's place, as the mockup draws it,
+  so the name never moves -- then the name at the left, the value at the right and
+  the chevron in the last column. The values are the rows' own
+  (`setupRowValue`), unchanged: `[x] install`, `[ ] skip`, the chosen option,
+  `[x] back up`, `[x] always installed`, `[ ] leave it out`.
+- **The chevron is the rows Enter opens**, and only those: a plugin set has no
+  screen of its own (Space toggles it where it stands), so the two set rows carry
+  none -- which is exactly how the mockup draws its Oh My Zsh and Multiplexer
+  rows. The glyph is the Nerd Font's angle-right (U+F105) rather than the
+  dingbat the spec named (U+276F): the dingbat sits in the block the emoji-box
+  guard covers, and that guard is older than this slice.
+- **The selected row** is one bar across the table's width with the accent
+  marker, the name bold and the value on the fill -- the same pair of tones
+  `rowBar` has always used (`RowBarMarkedStyle`/`RowBarStyle`), so a palette
+  change reaches it without touching the layout.
+- **The table itself.** Where the frame can hold it: the mockup's rounded box, a
+  rule between every pair of rows, one blank column inside each border, and the
+  values at a shared column three fifths of the way across. Where it cannot: the
+  same rows without the box, with each row ending its value at its own right edge.
+  The shape is the first candidate -- box+panel, box+summary, list+panel,
+  list+summary, list alone -- whose lines fit the frame, so the richest shape the
+  frame can hold is the one drawn and a shape that would hide a row is never
+  chosen over one that would not.
+- **A row that cannot share its line** puts the value on the row's second line,
+  under its name. At 80x24 the fish's plugin set is the one that needs it: its
+  name is the longest (53) and its value the widest (20), and the sum does not fit
+  -- the previous renderer cut three columns off that row at the floor, silently,
+  which the new no-cut guard would fail on. At 60x20 the two-line shape carries
+  the rows the window shows.
+- **The band under the table** is a `panel`: the selected row's name as its chip,
+  the rule under it, and the description as its facts, wrapped at 64 columns and
+  placed in the right half where the mockup puts it. Where the panel body would
+  cost the list a row, the machinery's own one-line summary is drawn instead
+  (`Platform  Select your operating system.`), and where the frame has room for
+  neither, nothing. The reservation is the widest row's, not the selected row's,
+  so the band cannot change height as the cursor moves. The panel states no value:
+  a guard fails if a description ever repeats the value of the row beside it.
+- **The pet** is still the frame's, and it lands under the band -- the mockup
+  draws it beside the description, which would mean the body placing a sprite the
+  frame owns. At 160x40 both fit; at 80x24 the list and the summary take the rows
+  and the creature is dropped, exactly as the frame drops it everywhere else.
+
+The floor and the guards. At 80x24 the shape is the plain list with the summary:
+11 rows of the worst case (fish's, the multiplexer's and the editor's sets and a
+backup row) spend 11 of the 13 lines the frame leaves, the summary keeps its row,
+and the creature takes the three that are left. At 160x40 the box, its row rules,
+the panel body and the pet all fit. New guards: `TestSetupTableDrawsEveryRowWhole
+AtEveryMeasuredSize` (no cut marker at any of the twelve measured terminals, the
+cursor's row always drawn, the hidden rows counted),
+`TestSetupTableTakesTheMockupsShapeWhereItFits`,
+`TestSetupRowsCarryTheChevronOnlyWhereEnterOpensSomething`,
+`TestSetupRowGlyphsAreOneCell`, `TestSetupEveryRowCarriesItsDescriptionAndNoValue`,
+`TestSetupScreenDoesNotMoveWhenTheCursorMoves` and
+`TestSetupRowWindowKeepsTheCursorRowAndCountsWhatItHides`. New goldens:
+`TestSetupScreenGolden` (80x24) and `TestSetupWideGolden` (160x40).
+
+Follow-ups this slice found and did not take: the VHS tapes capture the welcome,
+the main menu and the utilities, so the setup screen has no capture (its shape is
+pinned by the two goldens instead; adding a setup step to the tapes is a harness
+change outside this slice); the footer still says `choose` where the mockup says
+`Next`, which is the key grammar's call and not this screen's; and the pet sits
+under the band rather than beside it.

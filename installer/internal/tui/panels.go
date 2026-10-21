@@ -112,6 +112,13 @@ const (
 	// while the only way to see a colour was the four swatches in a line under the
 	// list; the palette is the screen's subject, so it gets the column.
 	panelTheme panelID = "theme"
+
+	// panelSetupDetail is the setup screen's panel: the row under the cursor and
+	// what it is for. It is not in panelsFor -- the mockup puts it under the table
+	// rather than beside the body, and the shell's and the editor's plugin-set rows
+	// need the whole width -- so the screen draws it with the panel machinery's own
+	// renderer (setup_view.go) instead of the frame's column.
+	panelSetupDetail panelID = "setup-detail"
 )
 
 // panel is one column a screen can offer. A panel is a value built by a
