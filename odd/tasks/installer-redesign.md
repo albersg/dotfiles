@@ -254,3 +254,10 @@ no merge and no command that needs the human's approval. A slice blocked by a
 design decision, a failing guard the design cannot resolve, or a missing tool
 stops the loop with a concrete blocker report; it is never pushed and never
 worked around silently.
+
+L11. User approved the test-loop change: during a slice run only the focused
+tests, the affected goldens and the VHS captures; the full suite and
+`make preflight` run once before the PR (and in CI). The truecolor-golden removal
+and the matrix reduction are a separate, later decision taken after the redesign
+settles, so the safety net is not thinned while the layout is still moving.
+
