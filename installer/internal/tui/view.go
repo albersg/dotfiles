@@ -3661,7 +3661,21 @@ func (m Model) mainMenuTwoLine(rowsBudget int) bool {
 	if !l.TwoColumn {
 		spare += len(m.rotatorLines(m.panelsFor(), l.Inner))
 	}
-	return rowsBudget >= m.mainMenuRowsNeeded(true)+spare
+	// The notices above the card spend body rows too. At the first height the
+	// card fits, a notice arriving had no slack and could push the footer off.
+	return rowsBudget-m.mainMenuNoticeRows() >= m.mainMenuRowsNeeded(true)+spare
+}
+
+// mainMenuNoticeRows is the rows the notices above the card take from the body.
+func (m Model) mainMenuNoticeRows() int {
+	rows := 0
+	if m.mainMenuTrainerNotice() != "" {
+		rows++
+	}
+	if m.mainMenuUpdateNotice() != "" {
+		rows++
+	}
+	return rows
 }
 
 // mainMenuGroup is one titled group inside the main menu's card: the rows it
