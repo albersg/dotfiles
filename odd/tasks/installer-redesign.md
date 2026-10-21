@@ -82,10 +82,10 @@ The user's words, verbatim:
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (in the tree, uncommitted — the dashboard, the cards and the named greeting) |
 | T5 | S6 | The setup table and its right panel | (in the tree, uncommitted — the table, its detail panel and two goldens) |
-| T6 | S8 | The utilities screen | (pending) |
-| T7 | S9 | The theme selector grid | (pending) |
-| T8 | S7 | The installing checklist, the log panel and the progress bar | (pending) |
-| T9 | S10 | The remaining pages | (pending) |
+| T6 | S8 | The utilities screen | (in the tree, uncommitted — the card of two-line rows, the System Overview panel and two goldens) |
+| T7 | S9 | The theme selector grid | (in the tree, uncommitted — the heading, the subtitle, the card grid, the floor list, the tip and the goldens) |
+| T8 | S7 | The installing checklist, the log panel and the progress bar | (in the tree, uncommitted — the mockup's stack, the checklist beside the log card, the bar under both and the `[q] Cancel` footer) |
+| T9 | S10 | The remaining pages | (in the tree, uncommitted — the pickers' card, the framed dead ends, the completion fact rows, the backup cards and the two-line learn tables; the doctor, the update center and the remaining utility pages are follow-ups, see L16) |
 | T10 | S11 | The floor/stability/contrast guards and the goldens | (with each task) |
 
 T3 now ships in the current palette so the layout and the vocabulary can be
@@ -335,3 +335,374 @@ pinned by the two goldens instead; adding a setup step to the tapes is a harness
 change outside this slice); the footer still says `choose` where the mockup says
 `Next`, which is the key grammar's call and not this screen's; and the pet sits
 under the band rather than beside it.
+
+L13. T6 landed in the tree (uncommitted): the utilities section, its System
+Overview panel and two goldens. What was copied from the image (panel 5,
+"Utilidades (diagnósticos mejorados)"), in the mockup's order:
+
+- **The card of two-line rows.** The job's Nerd Font icon in the gutter, its name
+  on the first line and its one-line description under it, the row under the
+  cursor filled across the card with the cursor's own marker in the icon's place
+  (`RowBarMarkerStyle`/`RowBarStyle`, the same pair the setup table uses), and the
+  rounded box, one blank column inside each border, around the whole list. The
+  subtitles are the mockup's: `Measure startup time`, `Check latest versions`,
+  `Manage SSH keys`, `Check connectivity`, `Find an open port`, `Remove temporary
+  files`, `Check common issues`. The rows this installer has that the mockup does
+  not show (the theme switch, the WSL resources, the terminal capabilities, the
+  verification) carry a description in the same voice. The names are the
+  mockup's too: `Shell Startup`, `Installed Tools`, `SSH Configuration`,
+  `Network Diagnostics`, `Find Available Port`, `Clean Dev Caches`, `Diagnostics`,
+  `Diagnose WSL`, `Back`.
+- **The shape yields, the rows never do.** The two-line row is drawn only where
+  every name and every description fits the card's content whole; a description
+  cut mid-word would be worse than a list without one, which is why the width
+  decides and not the height. At the 80x24 floor the same rows are drawn on one
+  line in the same card, so all eleven jobs are on screen at once; a list too tall
+  for any shape is windowed around the cursor and says `↑ N more above` /
+  `↓ N more below`, and the header's vital names the slice (`Showing 3-9 of 11`).
+- **The right panel, `System Overview`.** The machine's own facts with the panel's
+  fixed label measure -- `OS`, `Host`, `Arch`, `Shell`, `Packages`, `Home` -- then
+  `Resources` with a meter and its number for `CPU`, `Memory` and `Disk`, then the
+  doctor's verdict `✓ Everything looks good!` in the success role. `Resources` is
+  the mockup's card: its heading on the top border and the meters inside, one card
+  rather than a rounded box per meter, which is two rows instead of six and is
+  what keeps the block and the verdict on screen together. A resource appears only
+  where its own flag says the sample reported it, and the whole block is absent
+  while the sampler is gated off: a stale reading drawn as a current one is the
+  lie the gate exists to prevent.
+- **The floor keeps the panel's summary.** Below the two-column floor there is no
+  column for the panel, so its summary rides the card's top border
+  (`╭─ System Overview · Linux · x86_64 · zsh · apt-get ─╮`) exactly as the frame
+  collapses a panel everywhere else, and the body is centred in the composition.
+- **The actions and their key grammar are untouched.** Every row is an entry of
+  `GetCurrentOptions`, so the cursor index, the handler's match and the drawn row
+  are one list; the reasons a job is missing stay above the card, the theme
+  switch's result stays under it, and the footer names the three theme keys only
+  while their rows are offered.
+
+Two things the mockup draws are deliberately not row for row:
+
+- **Its first row, `System Overview / Check environment status`.** That row exists
+  in the mockup because the mockup's right column is the *selected row's* detail;
+  here the panel is contextual -- it states the same machine whatever the cursor
+  is on -- so a row whose only job would be to show it would be a row no key can
+  act on. The overview is the panel's title (and the floor's card summary)
+  instead, and `TestUtilitiesCardDrawsOnlyTheRowsTheHandlerMatches` fails if the
+  card ever grows a row the handler does not match.
+- **Its `Kernel` and `Uptime` rows.** Nothing in this installer reads either
+  (detection reads the kernel's own string once to recognise WSL and keeps none of
+  it; nothing reads `/proc/uptime`), and a row reading `unknown` would be the panel
+  guessing rather than reporting. The panel's own guard fails if either ever
+  appears without a reader behind it.
+
+The floor and the guards. At 80x24 the body spends two rows on the reasons, the
+card's eleven rows and its two borders, and the summary keeps its row on the
+border; the golden is unchanged by this slice's polish, which is the point. At
+160x50 the two-line card, the whole panel, the Resources card and the verdict all
+fit. New guards: `TestUtilitiesRowsDrawTheMockupsNamesAndDescriptions`,
+`TestUtilitiesCardDrawsOnlyTheRowsTheHandlerMatches`,
+`TestUtilitiesRowGlyphsAreOneCell`,
+`TestUtilitiesTwoLineRowsAreTheMockupsAndCostWhatTheyMeasure`,
+`TestUtilitiesEveryJobStaysReachable` (every row, every measured terminal),
+`TestUtilitiesWindowNamesWhatItHid`,
+`TestUtilitiesOverviewStatesTheFactsTheModelHolds`,
+`TestUtilitiesResourcesFollowTheSamples` (including the Resources card),
+`TestUtilitiesOverviewSaysEverythingLooksGoodOnlyWhenTheDiagnosisSaysSo` and
+`TestUtilitiesFloorKeepsTheCardAndTheFacts`. New golden:
+`TestUtilitiesWideGolden` (160x50, the mockup's layout);
+`TestUtilitiesGolden` (80x24) was regenerated for the mockup's row names.
+
+Follow-ups this slice found and did not take: the rows are drawn in the option
+list's own order (the model's: the theme and WSL rows first, the doctor last)
+rather than the mockup's, because reordering the list would move every cursor and
+handler index -- that is a key-grammar call and belongs to whoever takes it; the
+mockup's monitor row and its per-meter boxes are the two deviations above; the pet
+sits under the card rather than beside the panel, as the frame places it
+everywhere; `sectionPaneTitle`'s `Notes` and the utilities entry of
+`usesSectionBands` are now unreachable, because the section composes its own body
+-- removing them is a `section_bands.go` cleanup outside this slice; and the VHS
+tapes still capture the utilities screen with the old row names until `make
+screens` runs.
+
+L14. T7 landed in the tree (uncommitted): the theme selector, its card grid, its
+floor list and four goldens. What was copied from the image (panel 6, "Theme
+Selector (extra)"), in the mockup's order:
+
+- **The heading and the subtitle.** `Choose a theme for your installer` centred
+  in the brand tone and `This will change the colors and style of the interface.`
+  under it in the muted one -- the mockup's words, verbatim, and the words the
+  screen now says instead of the long account of what applying writes. That
+  account is not lost where it matters: when the list cannot be read, the screen's
+  own reason takes the subtitle's place (a failure the user cannot read is the one
+  thing this screen may not drop), and the undo row, the cards' exclusion notes
+  and the tip carry what the paragraph used to explain.
+- **The grid of cards.** Two cards to a row at the wide frame, each a rounded box
+  holding a miniature of a screen painted in that theme's own colours -- its base
+  as the fill, its accent as the title chip, its selection as the filled row, its
+  text as the body line and its palette as a strip of swatches -- and under each
+  box the mockup's mark: `●` on the card the cursor is on, `○` on the others, with
+  the theme's name beside it and, where a theme leaves tools out, the same
+  exclusion note the option row carries. The miniature is drawn from the
+  definition the switch would write, so it cannot show a colour the apply would
+  not; the palette is not a second palette.
+- **The tip.** `Tip — You can change the theme later from the utilities menu.`,
+  the mockup's lightbulb glyph in the warning tone, under the grid.
+- **The status.** `Preview mode`, which the frame's status bar already carried:
+  this slice adds no state and changes no word.
+- **The floor's single list.** At 80x24 the same themes are one row each: the
+  mark, the name, the exclusion note and the palette strip the card carries, with
+  the theme's row filled in the row-bar tone the whole frame uses and the strip
+  after it in the theme's own colours. Seven themes, the tip, the refresh row and
+  the way back all fit at 80x24; a longer list is windowed around the cursor and
+  the header says `Showing N-M of T`, and below 60 columns the strip drops whole
+  swatches rather than splitting one.
+
+The shapes are a ladder, not a switch: two columns of cards, then one column of
+cards, then the list, each tried with the tallest miniature it can carry (four
+rows, then three) and with the tip if there are rows for it. The richest shape the
+frame can hold is the one drawn, and a grid that would hide a theme behind a note
+is never chosen over the list that would not. The action block (the rule, the
+refresh row, the undo row and the way back) keeps its rows and its letters: the
+refresh and the undo still run on their own keys, and every row the handler
+matches is still reachable by the cursor and drawn.
+
+The floor and the guards. At 80x24 the body spends the heading, the subtitle, the
+seven rows, the tip, the reserved action block and the reserved notice band, with
+the palette board absent (one column) and the cursor's mark on the first card. At
+160x50 the two columns of cards fit beside the palette board, which the picker has
+always offered; the mockup's theme selector has no board, so the grid is drawn in
+the left column and the board keeps the right one. A press keeps every theme on
+screen -- the result of a press takes the rows the tip and the notice were holding,
+never one of the list's -- so the pending line and the result land in the same
+rows and the cursor does not move. The prose is the one thing that is cut when the
+frame cannot hold it, and it is cut with the frame's own marker.
+
+New guards: `TestThemePickerDrawsTheMockupsGridWhereTheFrameHoldsIt` (two boxes to
+the first grid row and the tip at 160x50; no box at all at 80x24; every theme
+named whole at both), `TestThemePickerSaysTheReasonWhenThereIsNothingToChoose`
+(the empty state states why at every measured terminal and fits it),
+`TestThemeCardMiniaturePaintsTheDefinitionsOwnPalette` (every fill the miniature
+paints is one of the definition's colours, within lipgloss's one-step rounding,
+and the base, the accent and the selection are painted). Two existing guards were
+re-pointed at the new grammar rather than weakened: the two that walked the list
+now assert the row under the cursor carries the mark and names the theme the
+option selects (`themePickerMarkedRow`, `themePickerDrawnLabel`), and the one that
+watches a press no longer requires the option text to be drawn on the card.
+New golden: `TestThemePickerWideGolden` (160x50, the mockup's grid);
+`TestThemePickerGolden`, `TestThemePickerActivityGolden`,
+`TestThemePickerResultGolden` (80x24) and `TestAppliedThemeGolden` were
+regenerated.
+
+Follow-ups this slice found and did not take: the frame's header chip still says
+`Utilities` where the mockup's says `Theme Selector` (the chip is the chrome's, and
+every utility screen shares it -- changing it is a chrome decision, not this
+screen's); the refresh review and its result still render through the section
+renderer, so the screen's heading changes to `Change the dotfiles theme` in those
+two states; the palette strip sits at the right edge of the floor's row rather than
+beside the name, which is a reading-width call; the cursor still walks the grid in
+reading order one row at a time (a two-column grid could move by two with `j`/`k`,
+but that is the key grammar's decision and belongs with it); and the VHS tapes
+still capture the picker with the old list until `make screens` runs.
+
+L15. T8 landed in the tree (uncommitted): the installing screen, its checklist, its
+log card, its bar and the footer's own way out. What was copied from the image
+(panel 4, "Instalación (progreso detallado)"), in the mockup's order:
+
+- **The stack over the two columns.** `Running installation...` centred in the
+  brand tone, and under it `Step 3 of 16 - Install Dependencies` -- the mockup's
+  dash, not the `·` the wizard's counters use -- then the run's own clock
+  (`Elapsed 42s · ~3m 46s left`, or the sentence saying it is still estimating).
+  The three rows are a fixed count: a run whose plan is not built yet keeps its
+  step row blank, so the columns under it never move. The header chip is the
+  mockup's word (`Installing`, where it said `Installing dotfiles`) and the frame's
+  status rule still carries `Installing…`.
+- **The checklist.** One row per step: the state glyph, the name, and the step's
+  own progress as the trailing meter the row has always used. The step the run is
+  on is one filled bar across the column with its glyph riding it, which is how the
+  mockup draws the running row; every other row is plain. The five states are the
+  existing five (`✓` done, `●` running, `✗` failed, `⊘` skipped, `○` pending) and
+  the glyph, not the tone, is what carries them. The checklist is drawn bare -- the
+  mockup draws no box around it -- and windowed around the running step, so the
+  header's `3/16` is the only place the count is said.
+- **The log card.** The mockup's rounded box at the right, every line led by its
+  `> ` prompt, the freshest lines kept and one dim row naming the earlier ones the
+  card could not show (the existing `logTailCount` arithmetic). A run that has
+  logged nothing yet says it is waiting instead of drawing an empty box, so the
+  card the frame reserved is never mistaken for one that failed to draw.
+- **The bar.** Under both columns, filling the composition, with the percentage at
+  the frame's right edge as the mockup puts it. It is `installProgress`'s fraction
+  and nothing else: done and skipped count fully, the running step counts what it
+  reported, pending counts zero.
+- **The footer.** `● Installing… ───...` on the rule and `[d] details • [q] Cancel`
+  on the legend, which is the mockup's one way out beside the toggle that
+  collapses the log card.
+
+Two things the mockup draws are deliberately not row for row:
+
+- **Its per-step times (`2.3s`, `18.7s`).** Nothing in this installer records a
+  per-step duration: the run holds one start timestamp and the latest tick, and a
+  step holds its status and the fraction it reported. A row that showed `2.3s`
+  would be the screen inventing a clock, so the trailing column is the meter the
+  step really has -- and the run's own elapsed time and estimate, which the model
+  does hold, stay on the screen as the third row of the stack. A guard fails if a
+  checklist row ever states a duration.
+- **Its `[q] Cancel` needed a key.** The footer's promise is honest only if q acts,
+  so q now stops the run through the path ctrl+c has always taken: the program
+  quits, the running step stops where it is, and no record is written because
+  nothing failed. That is one flow with two keys, not a second cancel beside it;
+  the install flow, the operations and the backup/restore/overwrite policies are
+  untouched, and `TestAnAbortedRunLeavesNoRecord` still holds for the new key's
+  path. The guard that pinned "q does not quit during installation" now reads
+  `ScreenOSSelect` instead, because the installing footer is no longer the case it
+  describes.
+
+The floor and the stability. At 80x24 the body spends the three stack rows, a
+fifteen-row band (the checklist's fifteen rows beside a thirteen-row card) and the
+bar, with the machine's pulse in the rows above the bar when the sampler has
+landed. At 60x20 the band is eleven rows and the log card is still drawn: its
+columns are 30 and 24, and the checklist drops its trailing meter entirely rather
+than cutting a step name -- a name is a fact, the meter is a decoration, and the
+run's bar still carries the progress. The band's height comes from the frame and
+never from the log's length, so the bar cannot move while the run writes, and
+`TestInstallingLayoutDoesNotMoveAsStepsAdvance` pins it across a step boundary.
+
+New guards: `TestInstallingScreenCopiesTheMocksShape` (the stack, the band, the
+card's borders, the bar's percentage and the footer, at 80x24 and 160x50),
+`TestInstallingChecklistStatesEveryStepTheRunKnows` (all five glyphs and the meter
+each state earns), `TestInstallingDoesNotInventStepTimes` (no row states a
+duration; the run's own clock is shown), `TestInstallingListRowsSayWhatTheyMeasure`,
+`TestInstallingFloorKeepsTheCurrentStepAndTheLog`,
+`TestInstallingColumnsSplitTheFrame` (the two columns fill the composition with one
+gap at every measured terminal), `TestInstallingLayoutDoesNotMoveAsStepsAdvance`,
+`TestInstallingBarIsTheRunsOwnProgress` (including the no-plan run reading 100%),
+`TestInstallingFooterStopsTheRunOnQ` (and the same stop from ctrl+c, and while the
+WSL offer waits), `TestInstallingLogKeepsTheMockupsPrompt`,
+`TestInstallingChecklistNeverCutsAStepName` (the meter ladder),
+`TestInstallingEveryMeasuredFrameDrawsTheWholePlan`, `TestInstallingHeadAlwaysCostsTheSameRows`
+and `TestInstallingStepCounterStaysInsideThePlan`. New goldens:
+`TestInstallingScreenGolden` (80x24, the two columns) and `TestInstallingWideGolden`
+(160x50, the mockup's layout); `TestInstallingLiveGolden` and
+`TestInstallingTruecolorGolden` were regenerated.
+
+The run now opens with the log card on (`beginInstallFromReview`), because the
+mockup draws it and the lines are what the step being watched is writing; `d` still
+collapses it, and the checklist then takes the whole composition while the bar
+keeps its row. Nothing about the details key changed except its default.
+
+Follow-ups this slice found and did not take: the mockup's per-step times would
+need a per-step clock on the model, which is a run-state change and not a render
+one; `styles.BoxStyle` lost its last caller (the old installing log box) and is now
+unused -- removing an exported theme style belongs with T1's palette pass; the VHS
+tapes do not capture the installing screen at all, so its shape is pinned by the
+goldens rather than by a `make screens` frame; and the checklist's window still
+says nothing about the rows it hides, where the setup table and the utilities card
+both name theirs (`↑ N more above` / `↓ N more below`) -- the header's `3/16` is
+the count, and adding the notes would spend two of the band's rows.
+
+L16. T9 landed in the tree (uncommitted): the pages the mockup does not draw,
+brought onto the grammar the mockup established, one screen family at a time.
+Five things were unified, each with a guard and its goldens:
+
+- **The wizard's own questions draw the menu's card.** The six pickers and the
+  terminal warning are menus -- a title, a description and a list of answers --
+  and they drew a bare list where every hub one screen later drew the frame's
+  card. `renderMenu` and `renderSelection` now share one body builder
+  (`menuCardBody`), so a question and a hub cannot be two shapes: the page's title
+  in the brand tone, the model's own description under it in the muted one, the
+  answers in the card with a divider where `menuOptions` has a separator, and the
+  cursor's row as the bar. The answers, their order, the keys, Choosing's Enter,
+  the panels and the wizard's step counter are untouched. The description is now
+  capped by the frame instead of by a constant: `menuCardBody` builds the head,
+  measures what the body is over its budget and takes the rows back from the
+  description (with the frame's cut marker), because the answers are facts and the
+  prose is not -- which is what fixed `terminal-select-wsl` and `ghostty-warning`
+  drawing one row past the frame once the card's two borders arrived. The body
+  builder also wraps a description that holds its own line breaks:
+  `wrapText` measured the `\n` as a column and the renderer drew it as a row, so
+  every `description + "\n" + sentence` note had been spending a row nobody
+  counted.
+- **The dead ends wear the frame.** `deadEnd` drew two bare lines -- no header
+  chip, no state, no legend -- which was the one screen shape in the program that
+  was not the frame, and the follow-up L6 left. `deadEndScreen` draws the missing
+  fact in the error tone and the way out under it, and the legend carries
+  `[Esc] back`: the key is named once, so the sentence keeps only where it goes
+  (`deadEndWayOut` drops the `Press [Esc] to ` prefix and capitalises; a guard
+  pins every sentence the screen says). The trainer's frame is composed row by row
+  (`trainerDeadEnd`), so its two unreachable dead ends get the trainer's chrome and
+  not the installer's.
+- **The completion summary draws the frame's fact rows.** `OS: macOS` was the one
+  fact block in the program that spelled each row as a sentence; the summary is
+  now `panelFact`'s label column and value, the same pair the utilities panel and
+  the review draw, so a reader compares values down a column. `fontSummaryLine`
+  became `fontSummaryValue` (the label moved into the label column) and its guard
+  reads the value.
+- **The backup screens draw their answers in the card.** The three screens put the
+  rows a person presses in the frame's card -- the restore history with its `←
+  Back` row behind the shared divider, the confirmation's contents in a card titled
+  on its border, the answers in a card under it -- and the fixed-row reservations
+  and two new guards follow (`backupConfirmFixed` 6→8, `restoreBackupBodyFixed`
+  5→7, `restoreConfirmBodyFixed` 7→10, each counting the borders it now spends).
+  Copy, order, defaults and the backup/restore/overwrite policies are unchanged.
+- **The learn tables draw their entries whole, in two lines.** The three
+  read-only tables held three fixed columns at every width, so at the 80-column
+  floor the Kind column was three letters and a cut marker (`File li…`) while
+  every description lost its tail -- both facts unreadable at once, beside 19
+  empty columns of a quarter-width name column. A learn page now draws each entry
+  as the frame's two-line row: the name at the table's shared name column, its
+  kind beside it in the muted tone, and the sentence under both, wrapped to the
+  page and never cut. The shape is the table's own (`referenceTable.TwoLine`), so
+  the keymap tables keep their three columns, where the columns are the page. The
+  window moved with it: `referenceWindow`, `referenceEntryCost` and
+  `referenceMaxScroll` are one set of helpers the renderer and the key handler both
+  read, so a page of two-row entries is scrolled by the rows it draws and the last
+  entry is reachable (`handleReferenceTableKeys` now takes the table instead of a
+  count). The vitals read `Showing 1-7 of 16` where a page now shows fewer entries
+  than it holds. The pros and cons of a tool page wrap the same way
+  (`wrappedListRows`): an entry is drawn whole or counted in the `… and N more`
+  note, and the rows the pros did not need go to the cons instead of being left
+  blank under a note.
+
+The floor and the guards. At 80x24 every page still fits the frame at all twelve
+measured terminals (`TestEveryScreenFitsEveryTerminalSize`,
+`TestInstallerScreensFitTheFrame`), and the wizard's step counter, the restore
+history's window and the learn pages' scroll range all keep their last row
+reachable. New guards: `TestPickerQuestionsDrawTheFramesCard`,
+`TestPickerQuestionsKeepTheirKeysAndTheirWays`, `TestDeadEndsWearTheFrame`,
+`TestDeadEndWayOutKeepsTheDestination`,
+`TestCompletionSummaryDrawsTheFramesFactRows`,
+`TestBackupAndRestoreDrawTheirAnswersInTheCard`,
+`TestLearnTablesDrawEveryEntryWhole`, `TestLearnTablesWindowInTheRowsTheyDraw`
+and `TestToolInfoWrapsItsReasonsInsteadOfCuttingThem`. Two existing guards were
+re-pointed rather than weakened: `TestFontSummaryValueNamesWhatTheRunFound` (the
+value without its label prefix) and the dry-run completion's multiplexer check
+(the label and its value instead of `Multiplexer:`). Five goldens were
+regenerated: `TestOSSelectGolden`, `TestBackupScreenGolden`,
+`TestCompleteScreenGolden`, `TestCompleteTruecolorGolden` and
+`TestCompleteCelebrationGolden`. A new opt-in capture
+(`TestCaptureEveryRedesignedPage`, `DOTFILES_CAPTURE_DIR`, the existing harness'
+convention) writes the pages this slice touched at 80x24 and 160x50 so the next
+slice can read them.
+
+Follow-ups this slice found and did not take:
+
+- **The doctor and the update center** draw through `renderThemeScreen` and
+  `section_bands.go`, the shared section renderer that the ports, the network
+  diagnosis, the SSH screens, the WSL screens, the shell audit, the disk cleaner
+  and the install verification also draw through. Their bodies are already the
+  frame's title/detail/list/tail grammar, but their rows are one-line bars and
+  their actions are rows inside the list rather than in the card. Changing that is
+  one decision for ten screens, not a page's: it belongs to whoever owns the
+  section renderer, and it is why this slice left those two where they were.
+- **The wizard's pickers still draw their answers on one line**, where the main
+  menu's card draws two. The subtitles exist for four of the seven questions (the
+  terminal, the shell, the multiplexer and the editor have a one-line description
+  in the tool tables this installer already ships) and not for the other three
+  (the operating system, the font and the warning), so a two-line picker would be
+  a row shape that appears for some questions and not others. Tying the pickers to
+  those tables and deciding what the other three rows say is a copy decision.
+- The completion screen has no body title of its own -- its header chip says
+  `Installation complete` and the body opens on the summary card -- because the
+  mockup's title line would repeat the chip or invent a sentence.
+- `TestCaptureEveryRedesignedPage` lives in `zz_dump_test.go`, a name from the
+  inspection harness the slice used; it wants renaming to `capture_redesign_test.go`
+  when the slice is committed.

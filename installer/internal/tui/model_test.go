@@ -245,27 +245,27 @@ func TestFontScreenDescriptionStatesWhatTheCheckFound(t *testing.T) {
 	}
 }
 
-// TestFontSummaryLineNamesWhatTheRunFound pins the completion row's optional
+// TestFontSummaryValueNamesWhatTheRunFound pins the completion row's optional
 // provenance: when the pre-run check measured this machine, the row says whether
 // the font was already there or was installed by this run. A host the step did
 // not check -- and a run that chose the Termux branch on a host the check did not
 // measure -- keeps the label alone.
-func TestFontSummaryLineNamesWhatTheRunFound(t *testing.T) {
+func TestFontSummaryValueNamesWhatTheRunFound(t *testing.T) {
 	cases := []struct {
 		name     string
 		choices  UserChoices
 		presence fontPresence
 		want     string
 	}{
-		{"already installed", UserChoices{OS: "linux", InstallFont: true}, fontPresence{Measured: true, Installed: true}, "Font: Meslo Nerd Font (already installed)"},
-		{"installed now", UserChoices{OS: "linux", InstallFont: true}, fontPresence{Measured: true}, "Font: Meslo Nerd Font (installed now)"},
-		{"nothing measured", UserChoices{OS: "linux", InstallFont: true}, fontPresence{}, "Font: Meslo Nerd Font"},
-		{"termux chosen on another host", UserChoices{OS: "termux", InstallFont: true}, fontPresence{Measured: true, Installed: true}, "Font: Meslo Nerd Font"},
+		{"already installed", UserChoices{OS: "linux", InstallFont: true}, fontPresence{Measured: true, Installed: true}, "Meslo Nerd Font (already installed)"},
+		{"installed now", UserChoices{OS: "linux", InstallFont: true}, fontPresence{Measured: true}, "Meslo Nerd Font (installed now)"},
+		{"nothing measured", UserChoices{OS: "linux", InstallFont: true}, fontPresence{}, "Meslo Nerd Font"},
+		{"termux chosen on another host", UserChoices{OS: "termux", InstallFont: true}, fontPresence{Measured: true, Installed: true}, "Meslo Nerd Font"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := Model{Screen: ScreenComplete, Choices: tc.choices, FontPresence: tc.presence, SystemInfo: &system.SystemInfo{OS: system.OSLinux}}
-			if got := m.fontSummaryLine(); got != tc.want {
+			if got := m.fontSummaryValue(); got != tc.want {
 				t.Fatalf("font summary = %q, want %q", got, tc.want)
 			}
 		})

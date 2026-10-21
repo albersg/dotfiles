@@ -1,24 +1,24 @@
                                                                                 
-   Installing dotfiles                             ▓▓░░░░░░░░ 3/16 · dev build  
+   Installing                                      ▓▓░░░░░░░░ 3/16 · dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  ▒██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  16%     
-                                                                                
-  Step 3 of 16 · Install Dependencies                                           
-  Elapsed 42s · ~3m 46s left                                                    
+                            Running installation...                             
+                      Step 3 of 16 - Install Dependencies                       
+                           Elapsed 42s · ~3m 46s left                           
+  ✓ Backup Existing Configs                                         ▓▓▓▓▓▓▓▓▓▓  
+  ✓ Prefer IPv4                                                     ▓▓▓▓▓▓▓▓▓▓  
+  ● Install Dependencies                                            ▓▓▓▓▓░░░░░  
+  ○ Clone Repository                                                ░░░░░░░░░░  
+  ○ Install Homebrew                                                ░░░░░░░░░░  
+  ○ Install alacritty                                               ░░░░░░░░░░  
+  ○ Install Meslo Nerd Font                                         ░░░░░░░░░░  
+  ○ Install fish                                                    ░░░░░░░░░░  
+  ○ Install tmux                                                    ░░░░░░░░░░  
+  ○ Install Neovim                                                  ░░░░░░░░░░  
+  ○ Install Toolset                                                 ░░░░░░░░░░  
+  ○ Install Pi Agent Skills                                         ░░░░░░░░░░  
+  ○ Install OfficeCLI                                               ░░░░░░░░░░  
   cpu ▅▆▄▆▄▅▃▅▆ 75%  mem ▃▃▃▃▃▃▃▃▃ 34%  load 1.40  disk 314.2 GiB free          
   run ▃▃▃▄▄▄▅▅▅▅▆▆▆▇▇▇▇█                                                        
-  ╭─ Steps ──────────────────────────────────────────────────────────────────╮  
-  │ ✓ Backup Existing Configs                                     ▓▓▓▓▓▓▓▓▓▓ │  
-  │ ✓ Prefer IPv4                                                 ▓▓▓▓▓▓▓▓▓▓ │  
-  │ ● Install Dependencies                                        ▓▓▓▓▓░░░░░ │  
-  │    Installs base packages with your distribution's package manager.      │  
-  │ ○ Clone Repository                                            ░░░░░░░░░░ │  
-  │ ○ Install Homebrew                                            ░░░░░░░░░░ │  
-  │ ○ Install alacritty                                           ░░░░░░░░░░ │  
-  │ ○ Install Meslo Nerd Font                                     ░░░░░░░░░░ │  
-  │ ○ Install fish                                                ░░░░░░░░░░ │  
-  │ ○ Install tmux                                                ░░░░░░░░░░ │  
-  │ ○ Install Neovim                                              ░░░░░░░░░░ │  
-  ╰──────────────────────────────────────────────────────────────────────────╯  
+  ▒██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  16%  
   ● Installing… ──────────────────────────────────────────────────────────────  
-                                                                   [d] details  
+                                                      [d] details • [q] Cancel  

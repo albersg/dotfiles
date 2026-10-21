@@ -1,21 +1,21 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
    Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  The machine's own settings                                                    
   No desktop theme switch is available here: no GNOME, KDE or macOS session.    
   WSL resources are not adjustable here: Linux is not WSL.                      
-                                                                                
-  ▸ → Change the dotfiles theme                                                 
-    → Measure the shell's startup                                               
-    → Check the installed tools for updates                                     
-    → Check the machine against the last install                                
-    → Manage the SSH configuration                                              
-    → Report the terminal capabilities                                          
-    → Clean up development caches                                               
-    → Diagnose the network                                                      
-    → Find what holds a port                                                    
-    → Diagnose the development environment                                      
-    ← Back                                                                      
+  ╭─ System Overview  · Linux · x86_64 · zsh · apt-get ──────────────────────╮  
+  │ ▸ Change the dotfiles theme                                              │  
+  │  Shell Startup                                                          │  
+  │  Installed Tools                                                        │  
+  │  Check the machine against the last install                             │  
+  │  SSH Configuration                                                      │  
+  │  Report the terminal capabilities                                       │  
+  │  Clean Dev Caches                                                       │  
+  │  Network Diagnostics                                                    │  
+  │  Find Available Port                                                    │  
+  │  Diagnostics                                                            │  
+  │  Back                                                                   │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
                                                                                 
                                                                                 
                                                                                 

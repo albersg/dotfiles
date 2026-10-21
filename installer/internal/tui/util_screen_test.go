@@ -1802,11 +1802,11 @@ func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 
 	// The frame before the press. The frame's own height is part of the property
 	// across all three states; the cursor row is not, and the reason is stated
-	// rather than hidden: the description is the prose that gives way to the wait,
-	// so the rows above the list change at the press and the list moves up with
-	// them. That was already true before this was fixed -- the old body spent the
-	// same rows on the activity block -- and what the press may NOT do is cut the
-	// list itself, which is asserted below and is the complaint that was reported.
+	// rather than hidden: the tip and the notice are the prose that gives way to the
+	// wait, so the rows under the list change at the press. That was already true
+	// before this was fixed -- the old body spent the same rows on the activity
+	// block -- and what the press may NOT do is cut the list itself, which is
+	// asserted below and is the complaint that was reported.
 	before := pickerFrameLines(m)
 
 	// The press. The frame it leaves on screen already says what is happening.
@@ -1819,9 +1819,9 @@ func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 		t.Fatal("the press left no pending line, so the wait is silent")
 	}
 	pressed := pickerFrameLines(m)
-	pressedCursor := markerRow(pressed, "▸")
+	pressedCursor := markerRow(pressed, themeCardMarked)
 	if pressedCursor < 0 {
-		t.Fatalf("the pressed frame draws no cursor marker:\n%s", strings.Join(pressed, "\n"))
+		t.Fatalf("the pressed frame draws no cursor mark:\n%s", strings.Join(pressed, "\n"))
 	}
 	if len(pressed) != len(before) {
 		t.Errorf("the frame is %d rows before the press and %d rows after it, want the same height",
@@ -1832,10 +1832,13 @@ func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 	// every row the list did not need and the list kept five, so most of the
 	// themes left the screen the moment a row was pressed.
 	pressedFlat := strings.Join(pressed, "\n")
-	for _, option := range listBefore {
-		if !strings.Contains(pressedFlat, option) {
-			t.Errorf("the press cut the theme row %q off the screen, so the wait squashed the list:\n%s",
-				option, pressedFlat)
+	for _, def := range m.DotfilesThemes {
+		if !def.Complete() {
+			continue
+		}
+		if !strings.Contains(pressedFlat, def.Name) {
+			t.Errorf("the press cut the theme card %q off the screen, so the wait squashed the list:\n%s",
+				def.Name, pressedFlat)
 		}
 	}
 	slotRow := markerRow(pressed, "Applying the ")
@@ -1855,7 +1858,7 @@ func TestChoosingAThemeIsOneChangeNotTwo(t *testing.T) {
 	if got := renderedRowCount(m.View()); got != m.Height {
 		t.Errorf("the result frame renders %d rows, want exactly %d", got, m.Height)
 	}
-	if got := markerRow(landed, "▸"); got != pressedCursor {
+	if got := markerRow(landed, themeCardMarked); got != pressedCursor {
 		t.Errorf("the cursor row moved from line %d to line %d when the result landed:\n%s",
 			pressedCursor, got, strings.Join(landed, "\n"))
 	}

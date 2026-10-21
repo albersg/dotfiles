@@ -472,6 +472,11 @@ func (m *Model) openInstallReview() {
 func (m Model) beginInstallFromReview() (tea.Model, tea.Cmd) {
 	m.SetupInstallSteps()
 	m.Screen = ScreenInstalling
+	// The run opens with the log card beside the checklist, as the mockup draws it:
+	// the step a person watches is the one writing those lines, so they are screen
+	// rather than a box nobody opened. d still collapses the card where a reader
+	// wants the checklist at the frame's full width.
+	m.ShowDetails = true
 	m.CurrentStep = 0
 	m.Cursor = 0
 	// A baseline belongs to the run that took it. A retry after a failure starts a

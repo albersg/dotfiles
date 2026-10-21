@@ -39,7 +39,7 @@ const (
 	// utilitiesUpdatesRow is the section's row for this screen. It names what the
 	// screen does rather than the feature, in the same voice as the section's
 	// other rows.
-	utilitiesUpdatesRow = "Check the installed tools for updates"
+	utilitiesUpdatesRow = "Installed Tools"
 
 	// The rows of the screen itself, by prefix where the label carries a count or
 	// a value: a row's label changes when the state changes, and a whole-string

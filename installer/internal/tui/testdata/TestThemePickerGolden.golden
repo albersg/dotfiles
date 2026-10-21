@@ -1,22 +1,22 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                      Showing 1-6 of 7 · dev build  
+   Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  Change the dotfiles theme                                                     
-  The dotfiles' own theme is defined once in themes/. Choosing a theme applies  
-  it to every tool it can paint and names the tools it leaves out. Moving the   
-  cursor previews a theme without applying anything; the switch records what    
-  it replaces, so it can be undone.                                             
+                       Choose a theme for your installer                        
+            This will change the colors and style of the interface.             
                                                                                 
-  ▸ Apply the Catppuccin Latte theme                                            
-    Apply the Catppuccin Mocha theme                                            
-    Apply the dotfiles theme                                                    
-    Apply the Everforest theme                                                  
-    Apply the Kanagawa theme                                                    
-    Apply the Nocturne theme                                                    
-  Preview (nothing applied) — Catppuccin Latte:                                 
+  ● Catppuccin Latte                                        ██████████████████  
+  ○ Catppuccin Mocha                                        ██████████████████  
+  ○ dotfiles                                                ██████████████████  
+  ○ Everforest                                              ██████████████████  
+  ○ Kanagawa                                                ██████████████████  
+  ○ Nocturne                                                ██████████████████  
+  ○ Rosé Pine                                               ██████████████████  
+                                                                                
+   Tip — You can change the theme later from the utilities menu.               
   ────────────────────────────────────────────────────────────────────────────  
     [r] Refresh outdated theme files                                            
     ← Back                                                                      
+                                                                                
                                                                                 
                                                                                 
                                                                                 

@@ -28,7 +28,7 @@ import (
 // utilitiesWSLAdvisorRow is the utilities section's row for this utility. It is a constant here
 // rather than in view.go beside the other rows because the section, the panel and this screen are
 // the three places that must agree on one label, and only one of them owns it.
-const utilitiesWSLAdvisorRow = "Diagnose this WSL environment"
+const utilitiesWSLAdvisorRow = "Diagnose WSL"
 
 // hintReread is the footer's hint for reading the machine again, which is how a stale report is
 // refreshed after the user changes something in /etc/wsl.conf or frees space. Reading is not

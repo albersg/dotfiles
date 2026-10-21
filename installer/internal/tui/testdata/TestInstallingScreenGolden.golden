@@ -1,0 +1,24 @@
+                                                                                
+   Installing                                      ▓▓░░░░░░░░ 3/16 · dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                            Running installation...                             
+                      Step 3 of 16 - Install Dependencies                       
+                         Estimating the time remaining…                         
+  ✓ Backup Existing Configs         ▓▓▓▓▓▓▓▓▓▓  ╭────────────────────────────╮  
+  ✓ Prefer IPv4                     ▓▓▓▓▓▓▓▓▓▓  │ > log line 1               │  
+  ● Install Dependencies            ▓▓▓▓▓░░░░░  │ > log line 2               │  
+  ○ Clone Repository                ░░░░░░░░░░  │ > log line 3               │  
+  ○ Install Homebrew                ░░░░░░░░░░  │ > log line 4               │  
+  ○ Install alacritty               ░░░░░░░░░░  │ > log line 5               │  
+  ○ Install Meslo Nerd Font         ░░░░░░░░░░  │ > log line 6               │  
+  ○ Install fish                    ░░░░░░░░░░  │ > log line 7               │  
+  ○ Install tmux                    ░░░░░░░░░░  │ > log line 8               │  
+  ○ Install Neovim                  ░░░░░░░░░░  │ > log line 9               │  
+  ○ Install Toolset                 ░░░░░░░░░░  │ > log line 10              │  
+  ○ Install Pi Agent Skills         ░░░░░░░░░░  │ > log line 11              │  
+  ○ Install OfficeCLI               ░░░░░░░░░░  │ > log line 12              │  
+  ○ Restore the Applied Theme       ░░░░░░░░░░  │                            │  
+  ○ Set Default Shell               ░░░░░░░░░░  ╰────────────────────────────╯  
+  ███████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  16%  
+  ● Installing… ──────────────────────────────────────────────────────────────  
+                                                      [d] details • [q] Cancel  

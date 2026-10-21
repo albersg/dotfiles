@@ -1912,13 +1912,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleVimHubKeys(key)
 
 	case ScreenLearnTooling:
-		return m.handleReferenceTableKeys(key, len(shellToolingRows()))
+		return m.handleReferenceTableKeys(key, shellToolingTable())
 
 	case ScreenLearnPlugins:
-		return m.handleReferenceTableKeys(key, len(pluginSetRows()))
+		return m.handleReferenceTableKeys(key, pluginSetsTable())
 
 	case ScreenLearnToolset:
-		return m.handleReferenceTableKeys(key, len(toolsetDirectives()))
+		return m.handleReferenceTableKeys(key, machineToolsetTable())
 
 	case ScreenKeymaps:
 		return m.handleKeymapsMenuKeys(key)
@@ -1960,10 +1960,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleKittyKeymapCategoryKeys(key)
 
 	case ScreenKeymapsWezTerm:
-		return m.handleReferenceTableKeys(key, len(weztermConfigTable().Rows))
+		return m.handleReferenceTableKeys(key, weztermConfigTable())
 
 	case ScreenKeymapsAlacritty:
-		return m.handleReferenceTableKeys(key, len(alacrittyConfigTable().Rows))
+		return m.handleReferenceTableKeys(key, alacrittyConfigTable())
 
 	case ScreenLearnLazyVim:
 		return m.handleLazyVimMenuKeys(key)
@@ -2076,6 +2076,18 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTrainerBossResultKeys(key)
 
 	case ScreenComplete:
+		switch key {
+		case "q":
+			m.Quitting = true
+			return m, tea.Quit
+		}
+
+	case ScreenInstalling:
+		// The installing screen's own key: q stops the run, which is what the footer's
+		// "[q] Cancel" promises. It stops the way ctrl+c always has -- the program
+		// quits, the running step stops where it is, and no record is written because
+		// nothing failed -- so the way out is one flow with two keys rather than a
+		// second flow beside it.
 		switch key {
 		case "q":
 			m.Quitting = true
@@ -3680,10 +3692,12 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 // pages share one scroll value because only one of them is on screen at a time,
 // and the value is reset when the page is opened and when it is left, so a page
 // never opens part-way down a table the reader has not seen. The window and its
-// clamp come from the same helper the renderer windows with, so the last row is
-// reachable.
-func (m Model) handleReferenceTableKeys(key string, rows int) (tea.Model, tea.Cmd) {
-	maxScroll := offsetWindowMax(keymapTableRows(m.Height), rows)
+// clamp come from the same helpers the renderer windows with (referenceMaxScroll),
+// so the keys scroll the rows the page really draws and the last entry is
+// reachable -- a page of two-line entries costs two rows an entry, which a count
+// of entries cannot say.
+func (m Model) handleReferenceTableKeys(key string, table referenceTable) (tea.Model, tea.Cmd) {
+	maxScroll := referenceMaxScroll(table, contentWidth(m), m.referenceRowBudget(table))
 
 	switch key {
 	case "up", "k":

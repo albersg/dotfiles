@@ -270,7 +270,7 @@ func TestCompletionDryRunSaysNothingWasWritten(t *testing.T) {
 	if strings.Contains(view, "Next Step") {
 		t.Errorf("the dry-run completion offers a next step it did not set up:\n%s", view)
 	}
-	if !strings.Contains(view, "Multiplexer:") {
+	if !strings.Contains(view, "Multiplexer") || strings.Contains(view, "Window Manager") {
 		t.Errorf("the completion summary still calls the multiplexer a window manager:\n%s", view)
 	}
 }

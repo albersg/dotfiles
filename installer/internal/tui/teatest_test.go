@@ -979,11 +979,33 @@ func TestWelcomeLivePanelGolden(t *testing.T) {
 
 // TestInstallingLiveGolden pins the installing screen with the machine's pulse
 // and the run's own progress chart on it, at the 80x24 floor, so the block that
-// shares the frame with the rail is checked at the size where the room is
+// shares the frame with the checklist is checked at the size where the room is
 // tightest.
 func TestInstallingLiveGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := installerFrameCase(t, "installing-live")
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestInstallingScreenGolden pins the mockup's installing screen at the 80x24
+// floor: the run's sentence over the screen, the step with the run's own clock
+// under it, the checklist of the plan beside the log card, and the progress bar
+// under both. The checklist is windowed around the step in progress and the card
+// keeps the freshest lines, which is the shape the mockup draws where the rows
+// allow it; the state of every row is the run's, never the renderer's guess.
+func TestInstallingScreenGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := installerFrameCase(t, "installing-details")
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestInstallingWideGolden pins the mockup's layout at 160x50, where the two
+// columns and the whole checklist fit together and the log card is deep enough
+// to hold its own tail without naming an earlier line.
+func TestInstallingWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := installerFrameCase(t, "installing-details-many")
+	m.Width, m.Height = 160, 50
 	golden.RequireEqual(t, []byte(m.View()))
 }
 
@@ -1000,9 +1022,11 @@ func TestInstallingLiveGolden(t *testing.T) {
 // can, and a golden is how this repository looks at a frame. These five snapshots
 // are that look, at the 80x24 floor, which is where the room is tightest.
 
-// pickerGoldenMarker is the picker's own title: the wait's contract is the screen
-// the snapshot is about, and the title is the row that says which screen it is.
-const pickerGoldenMarker = "Change the dotfiles theme"
+// pickerGoldenMarker is the picker's own heading: the wait's contract is the
+// screen the snapshot is about, and the heading is the row that says which screen
+// it is. It is the mockup's, read from the constant the screen draws it with, so a
+// heading that changes and a snapshot that does not cannot pass.
+const pickerGoldenMarker = themePickerHeading
 
 // pickerGoldenModel is the picker with the shipped theme definitions on it, at
 // the 80x24 floor. The definitions are read from the repository, the way the
@@ -1010,10 +1034,17 @@ const pickerGoldenMarker = "Change the dotfiles theme"
 // builds rather than a fixture that could outlive it.
 func pickerGoldenModel(t *testing.T) Model {
 	t.Helper()
+	return pickerGoldenModelAt(t, 80, 24)
+}
+
+// pickerGoldenModelAt is pickerGoldenModel at one terminal size, so the mockup's
+// wide layout can be pinned beside the floor's list.
+func pickerGoldenModelAt(t *testing.T, width, height int) Model {
+	t.Helper()
 
 	m := NewModel()
 	isolateGoldenTest(t, &m)
-	m.Width, m.Height = 80, 24
+	m.Width, m.Height = width, height
 	m.Screen = ScreenThemePicker
 	// The frame below the cursor is a pure function of the model, and the gate is
 	// off so no tick can arrive between the frame and the quit: a snapshot may not
@@ -1028,13 +1059,26 @@ func pickerGoldenModel(t *testing.T) Model {
 	return m
 }
 
-// TestThemePickerGolden pins the picker with nothing running: the description,
-// the whole list of themes, the refresh row, the way back and the live preview.
+// TestThemePickerGolden pins the picker with nothing running: the mockup's
+// heading and subtitle, the whole list of themes with their palette strips, the
+// tip, the refresh row and the way back.
 func TestThemePickerGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := pickerGoldenModel(t)
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, pickerGoldenMarker))
+}
+
+// TestThemePickerWideGolden pins the mockup's layout: two columns of theme cards,
+// each with its miniature painted from the theme's own palette, the selected card
+// marked, the tip under the grid and the palette board beside it. It is the frame
+// T7 is a copy of, and the floor's golden above is what the same screen looks like
+// where the rows only allow one line per theme.
+func TestThemePickerWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := pickerGoldenModelAt(t, 160, 50)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, pickerGoldenMarker))
 }
 
 // TestThemePickerActivityGolden pins the state the user reported as ugly: a
@@ -1101,6 +1145,34 @@ func TestUtilitiesGolden(t *testing.T) {
 	m.DotfilesThemes = defs
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
+}
+
+// TestUtilitiesWideGolden pins the section at the size the mockup draws it: the
+// card of two-line rows beside the System Overview panel, with the panel's facts
+// on the right and the diagnosis' verdict under them. The host is the fixture's,
+// every row the section can offer is offered, and the run is the doctor's clean
+// one, so the snapshot is the screen and not the machine that rendered it.
+func TestUtilitiesWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width, m.Height = 160, 50
+	m.Screen = ScreenUtilities
+	m.Animating = true
+	m.Metrics = pinnedMetrics(4)
+	m.ThemeSwitch, m.ThemeSwitchFound = themeSwitch{}, false
+	m.ShellAudit = shellAuditTestState()
+	m.TerminalCapabilities = terminalCapabilitiesFrameCase(t).TerminalCapabilities
+	m.UpdateCheck = updateState{}
+	m.WSLState = wslResourceState{Resolved: true, Available: false, Reason: "no .wslconfig"}
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+	m.DotfilesThemes = defs
+	m.Doctor.Run = utilitiesCleanDoctorRun()
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Utilities"))
 }
 
 // TestWSLAdvisorGolden pins the performance advisor's report at the 80x24 floor: the environment it

@@ -101,10 +101,11 @@ const (
 	// hub, now answered inside the hub instead of only outside it.
 	panelHub panelID = "hub"
 
-	// panelUtilities is the utilities section's panel: the state of every job the
-	// section offers. The section used to spend its right column on the same
-	// caveats the body could print; the board answers "what is this machine's
-	// state" instead, which is the question the section is for.
+	// panelUtilities is the utilities section's panel: the mockup's System
+	// Overview. The section used to spend its right column on a status board that
+	// restated the rows beside it; the panel answers "what machine am I on"
+	// instead -- the facts detection holds, the resources the samples report and
+	// the diagnosis' verdict -- which is the question the section is for.
 	panelUtilities panelID = "utilities"
 
 	// panelTheme is the theme picker's panel: the palette the theme under the
@@ -176,7 +177,7 @@ func (m Model) panelsFor() []panel {
 		ScreenInstallReview:
 		return []panel{planPanel()}
 	case ScreenUtilities:
-		return []panel{utilitiesStatusPanel()}
+		return []panel{utilitiesOverviewPanel()}
 	case ScreenThemePicker:
 		return []panel{themePalettePanel()}
 	// The hub pages: the Vim hub, the Learn hub, the learn tool menus, the keymap
@@ -265,20 +266,6 @@ func lastInstallPanel() panel {
 		Short:    "Last install",
 		Headline: func(m Model) string { return m.lastInstallHeadline() },
 		Facts:    func(m Model, l layout) []string { return m.lastInstallPanelFacts(l) },
-	}
-}
-
-// utilitiesStatusPanel is the utilities section's right column: the status board
-// the main menu already drew for the section's row, now shown inside the section.
-// It reads the same model fields the rows read, so a job cannot look offered in
-// the list and absent in the board.
-func utilitiesStatusPanel() panel {
-	return panel{
-		ID:       panelUtilities,
-		Title:    "At a glance",
-		Short:    "Status",
-		Headline: func(m Model) string { return "the machine's own settings" },
-		Facts:    func(m Model, l layout) []string { return m.utilitiesPanelFacts(l) },
 	}
 }
 
