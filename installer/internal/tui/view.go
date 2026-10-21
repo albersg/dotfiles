@@ -921,7 +921,28 @@ func panelBlockGrouped(title string, width int, groups []mainMenuGroup) []string
 // trailing meter sits at the right edge of that measure. At the 80x24 floor the
 // measure is the content width, so the rows are byte-for-byte what they were.
 func (m Model) rowBar(label string, selected bool, meterPlain string) string {
-	measure := layoutFor(m).RowMeasure
+	return m.rowBarWidth(label, selected, meterPlain, m.rowMeasure())
+}
+
+// rowMeasure is the columns a row may use on this screen. A screen with a right
+// column (a panel or the section's detail pane) gives its rows the left column;
+// a screen with neither gives them the whole composition. The fixed row measure
+// used to be the left column for every two-column layout, which truncated the
+// ports table at half the frame while the other half stayed empty.
+func (m Model) rowMeasure() int {
+	l := layoutFor(m)
+	if !l.TwoColumn {
+		return l.RowMeasure
+	}
+	if len(m.panelsFor()) > 0 || m.sectionDetailPane() {
+		return l.Left
+	}
+	return l.Composition
+}
+
+// rowBarWidth is rowBar with the measure given explicitly, for the screens whose
+// rows are not the installer's lists (the trainer's menu draws its own frame).
+func (m Model) rowBarWidth(label string, selected bool, meterPlain string, measure int) string {
 	const markerWidth = 2
 	meterWidth := 0
 	if meterPlain != "" {
@@ -1055,10 +1076,9 @@ func (m Model) menuRows(options []string, cursor int) []string {
 // and the plain menu list both draw the same rows, and a gag that only one of them
 // honoured would be a decoration that disappears from the screen it belongs to.
 func (m Model) menuRowAt(options []string, i, cursor int) string {
-	measure := layoutFor(m).RowMeasure
 	opt := options[i]
 	if strings.HasPrefix(opt, menuSeparatorPrefix) {
-		return rule(measure)
+		return rule(m.rowMeasure())
 	}
 	if m.Screen == ScreenMainMenu && m.MenuGagActive && i == m.MenuGagRow {
 		// The gag occupies the original menu row exactly: its slot and bar width
@@ -3495,7 +3515,15 @@ func (m Model) renderSetup() string {
 	}
 	for i := start; i < end; i++ {
 		row := rows[i]
-		body = append(body, m.rowBar(row.rowLabel(), i == m.SetupCursor, m.setupRowValue(row)))
+		// The value column is a column, not a meter pinned to the right edge: the
+		// reader compares values, and values that start at different columns (right
+		// aligned) are harder to compare than the names they belong to.
+		label := row.rowLabel()
+		if value := m.setupRowValue(row); value != "" {
+			const setupValueColumn = 44
+			label = padRight(truncate(label, setupValueColumn), setupValueColumn) + "  " + value
+		}
+		body = append(body, m.rowBar(label, i == m.SetupCursor, ""))
 	}
 	if end < len(rows) {
 		body = append(body, MutedStyle.Render("↓ "+strconv.Itoa(len(rows)-end)+" more below"))
@@ -4046,7 +4074,10 @@ func (m Model) renderLazyVimTopic() string {
 	}
 
 	topic := m.LazyVimTopics[m.SelectedLazyVimTopic]
-	width := contentWidth(m)
+	l := layoutFor(m)
+	// The topic is prose and belongs on the same centred composition as every
+	// other page, not against the frame's left edge with 227-column lines.
+	width := l.Composition
 
 	allLines := m.lazyVimTopicLines(topic)
 	viewHeight := lazyVimTopicRows(m.Height)
@@ -4071,17 +4102,24 @@ func (m Model) renderLazyVimTopic() string {
 		case strings.HasPrefix(line, "Example:"), strings.HasPrefix(line, "Tips:"):
 			body = append(body, chip(line))
 		case strings.HasPrefix(line, "  •"):
-			body = append(body, InfoStyle.Render(line))
+			body = append(body, InkStyle.Render(line))
 		case strings.HasPrefix(line, "•"):
 			body = append(body, MutedStyle.Render(line))
 		default:
-			body = append(body, InfoStyle.Render(line))
+			// Prose is body text, not a status colour: the old InfoStyle made the
+			// guide dimmer than every other page on the same palette.
+			body = append(body, InkStyle.Render(line))
 		}
 	}
 
 	// The scroll range is the topic's vital sign in the header, so the body does
 	// not need a held scroll row; the scroll reachability tests read the range
 	// back out of the header.
+	indent := strings.Repeat(" ", l.Leading)
+	for i := range body {
+		body[i] = indent + truncate(body[i], width)
+	}
+
 	vital := ""
 	if len(allLines) > viewHeight {
 		vital = scrollVital("Lines", start+1, end, len(allLines))
@@ -4827,6 +4865,7 @@ var (
 	trainerHintDelete      = installerHint{"[Backspace]", "delete"}
 	trainerHintEscToken    = installerHint{"[Ctrl-e]", "type " + trainer.EscToken}
 	trainerHintBlockVisual = installerHint{"[Ctrl-v]", "block"}
+	trainerHintBackToMenu  = installerHint{"[Esc]", "back"}
 	trainerHintQuit        = installerHint{"[Esc]", "quit"}
 	trainerHintForfeit     = installerHint{"[Esc]", "forfeit"}
 )
@@ -5176,7 +5215,7 @@ func (m Model) trainerMenuVital() string {
 	total := len(trainer.GetAllModules())
 	bosses := len(m.TrainerStats.BossesDefeated)
 	return meterRendered(bosses, total, trainerHeaderMeterCells) +
-		MeterStyle.Render(fmt.Sprintf("  Score: %d · Streak: %d · Bosses: %d/%d",
+		MeterStyle.Render(fmt.Sprintf(" · Score %d · Streak %d · Bosses %d/%d",
 			m.TrainerStats.TotalScore, m.TrainerStats.CurrentStreak, bosses, total))
 }
 
@@ -5222,7 +5261,7 @@ func (m Model) renderTrainerMenu() string {
 			meter = trainerModuleMeterText(progress, practice)
 		}
 
-		rows = append(rows, m.rowBar(label, i == m.TrainerCursor, meter))
+		rows = append(rows, m.rowBarWidth(label, i == m.TrainerCursor, meter, inner))
 
 		// The selected module's detail block: its commands, the accuracy the row
 		// no longer carries, and the exercises it misses most. All three are
@@ -5575,7 +5614,7 @@ func (m Model) trainerExerciseVital() string {
 	if state.IsLessonMode {
 		parts = append(parts, meterRendered(state.ExerciseIndex+1, len(state.Exercises), trainerHeaderMeterCells))
 	}
-	parts = append(parts, MeterStyle.Render(fmt.Sprintf("Score: %d · Streak: %d", state.SessionScore, state.CurrentStreak)))
+	parts = append(parts, MeterStyle.Render(fmt.Sprintf("Score %d · Streak %d", state.SessionScore, state.CurrentStreak)))
 	if combo := trainerComboText(state.ComboMultiplier); combo != "" {
 		parts = append(parts, MeterStyle.Render(combo))
 	}
@@ -5597,7 +5636,9 @@ func (m Model) trainerExerciseHints(scrolls bool) []installerHint {
 		// exercise whose code fits does not advertise a scroll that cannot move.
 		hints = append(hints, trainerHintScroll)
 	}
-	return append(hints, trainerHintDelete, trainerHintEscToken, trainerHintBlockVisual, trainerHintQuit)
+	// Esc saves the exercise and returns to the trainer menu; it does not quit the
+	// program. The footer says what the key does.
+	return append(hints, trainerHintDelete, trainerHintEscToken, trainerHintBlockVisual, trainerHintBackToMenu)
 }
 
 // renderTrainerExercise renders a lesson or practice exercise. The mission, the
