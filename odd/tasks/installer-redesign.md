@@ -83,7 +83,7 @@ The user's words, verbatim:
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (in the tree, uncommitted — the dashboard, the cards and the named greeting) |
 | T5 | S6 | The setup table and its right panel | (in the tree, uncommitted — the table, its detail panel and two goldens) |
 | T6 | S8 | The utilities screen | (in the tree, uncommitted — the card of two-line rows, the System Overview panel and two goldens) |
-| T7 | S9 | The theme selector grid | (pending) |
+| T7 | S9 | The theme selector grid | (in the tree, uncommitted — the heading, the subtitle, the card grid, the floor list, the tip and the goldens) |
 | T8 | S7 | The installing checklist, the log panel and the progress bar | (pending) |
 | T9 | S10 | The remaining pages | (pending) |
 | T10 | S11 | The floor/stability/contrast guards and the goldens | (with each task) |
@@ -423,3 +423,83 @@ everywhere; `sectionPaneTitle`'s `Notes` and the utilities entry of
 -- removing them is a `section_bands.go` cleanup outside this slice; and the VHS
 tapes still capture the utilities screen with the old row names until `make
 screens` runs.
+
+L14. T7 landed in the tree (uncommitted): the theme selector, its card grid, its
+floor list and four goldens. What was copied from the image (panel 6, "Theme
+Selector (extra)"), in the mockup's order:
+
+- **The heading and the subtitle.** `Choose a theme for your installer` centred
+  in the brand tone and `This will change the colors and style of the interface.`
+  under it in the muted one -- the mockup's words, verbatim, and the words the
+  screen now says instead of the long account of what applying writes. That
+  account is not lost where it matters: when the list cannot be read, the screen's
+  own reason takes the subtitle's place (a failure the user cannot read is the one
+  thing this screen may not drop), and the undo row, the cards' exclusion notes
+  and the tip carry what the paragraph used to explain.
+- **The grid of cards.** Two cards to a row at the wide frame, each a rounded box
+  holding a miniature of a screen painted in that theme's own colours -- its base
+  as the fill, its accent as the title chip, its selection as the filled row, its
+  text as the body line and its palette as a strip of swatches -- and under each
+  box the mockup's mark: `●` on the card the cursor is on, `○` on the others, with
+  the theme's name beside it and, where a theme leaves tools out, the same
+  exclusion note the option row carries. The miniature is drawn from the
+  definition the switch would write, so it cannot show a colour the apply would
+  not; the palette is not a second palette.
+- **The tip.** `Tip — You can change the theme later from the utilities menu.`,
+  the mockup's lightbulb glyph in the warning tone, under the grid.
+- **The status.** `Preview mode`, which the frame's status bar already carried:
+  this slice adds no state and changes no word.
+- **The floor's single list.** At 80x24 the same themes are one row each: the
+  mark, the name, the exclusion note and the palette strip the card carries, with
+  the theme's row filled in the row-bar tone the whole frame uses and the strip
+  after it in the theme's own colours. Seven themes, the tip, the refresh row and
+  the way back all fit at 80x24; a longer list is windowed around the cursor and
+  the header says `Showing N-M of T`, and below 60 columns the strip drops whole
+  swatches rather than splitting one.
+
+The shapes are a ladder, not a switch: two columns of cards, then one column of
+cards, then the list, each tried with the tallest miniature it can carry (four
+rows, then three) and with the tip if there are rows for it. The richest shape the
+frame can hold is the one drawn, and a grid that would hide a theme behind a note
+is never chosen over the list that would not. The action block (the rule, the
+refresh row, the undo row and the way back) keeps its rows and its letters: the
+refresh and the undo still run on their own keys, and every row the handler
+matches is still reachable by the cursor and drawn.
+
+The floor and the guards. At 80x24 the body spends the heading, the subtitle, the
+seven rows, the tip, the reserved action block and the reserved notice band, with
+the palette board absent (one column) and the cursor's mark on the first card. At
+160x50 the two columns of cards fit beside the palette board, which the picker has
+always offered; the mockup's theme selector has no board, so the grid is drawn in
+the left column and the board keeps the right one. A press keeps every theme on
+screen -- the result of a press takes the rows the tip and the notice were holding,
+never one of the list's -- so the pending line and the result land in the same
+rows and the cursor does not move. The prose is the one thing that is cut when the
+frame cannot hold it, and it is cut with the frame's own marker.
+
+New guards: `TestThemePickerDrawsTheMockupsGridWhereTheFrameHoldsIt` (two boxes to
+the first grid row and the tip at 160x50; no box at all at 80x24; every theme
+named whole at both), `TestThemePickerSaysTheReasonWhenThereIsNothingToChoose`
+(the empty state states why at every measured terminal and fits it),
+`TestThemeCardMiniaturePaintsTheDefinitionsOwnPalette` (every fill the miniature
+paints is one of the definition's colours, within lipgloss's one-step rounding,
+and the base, the accent and the selection are painted). Two existing guards were
+re-pointed at the new grammar rather than weakened: the two that walked the list
+now assert the row under the cursor carries the mark and names the theme the
+option selects (`themePickerMarkedRow`, `themePickerDrawnLabel`), and the one that
+watches a press no longer requires the option text to be drawn on the card.
+New golden: `TestThemePickerWideGolden` (160x50, the mockup's grid);
+`TestThemePickerGolden`, `TestThemePickerActivityGolden`,
+`TestThemePickerResultGolden` (80x24) and `TestAppliedThemeGolden` were
+regenerated.
+
+Follow-ups this slice found and did not take: the frame's header chip still says
+`Utilities` where the mockup's says `Theme Selector` (the chip is the chrome's, and
+every utility screen shares it -- changing it is a chrome decision, not this
+screen's); the refresh review and its result still render through the section
+renderer, so the screen's heading changes to `Change the dotfiles theme` in those
+two states; the palette strip sits at the right edge of the floor's row rather than
+beside the name, which is a reading-width call; the cursor still walks the grid in
+reading order one row at a time (a two-column grid could move by two with `j`/`k`,
+but that is the key grammar's decision and belongs with it); and the VHS tapes
+still capture the picker with the old list until `make screens` runs.

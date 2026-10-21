@@ -1,21 +1,21 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                      Showing 1-6 of 7 · dev build  
+   Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  Change the dotfiles theme                                                     
-  ▸ Apply the Catppuccin Latte theme                                            
-    Apply the Catppuccin Mocha theme                                            
-    Apply the dotfiles theme                                                    
-    Apply the Everforest theme                                                  
-    Apply the Kanagawa theme                                                    
-    Apply the Nocturne theme                                                    
-  Preview (nothing applied) — Catppuccin Latte:                                 
+                       Choose a theme for your installer                        
+            This will change the colors and style of the interface.             
+                                                                                
+  ● Catppuccin Latte                                        ██████████████████  
+  ○ Catppuccin Mocha                                        ██████████████████  
+  ○ dotfiles                                                ██████████████████  
+  ○ Everforest                                              ██████████████████  
+  ○ Kanagawa                                                ██████████████████  
+  ○ Nocturne                                                ██████████████████  
+  ○ Rosé Pine                                               ██████████████████  
   The theme is written to every file it owns. Writing a file is not the same    
   as the tool showing it, so here is each tool the switch painted, what the     
   installer did for it, and what is left:                                       
   ✓ Alacritty — Alacritty watches its config and reloads it live, so the new    
-  colours are already on screen.                                                
-  → Neovim — a Neovim that is already open keeps the old colorscheme: run       
-  … and 5 more                                                                  
+  … and 7 more                                                                  
   ────────────────────────────────────────────────────────────────────────────  
     [r] Refresh outdated theme files                                            
     ← Back                                                                      

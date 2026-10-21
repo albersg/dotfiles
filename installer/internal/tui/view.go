@@ -1904,9 +1904,10 @@ func (m Model) renderShellAudit() string {
 		[]installerHint{hintUp, hintDown, hintShellAuditMeasure, hintShellAuditPlan, hintShellAuditExtras, back})
 }
 
-// renderThemePicker draws the dotfiles theme list: the complete themes, each
-// naming the tools it leaves out, the undo row when there is a change to put
-// back, and the live preview of the theme under the cursor.
+// renderThemePicker draws the dotfiles theme list: the mockup's grid of theme
+// cards, each carrying a miniature of the palette it would paint and naming the
+// tools it leaves out, the undo row when there is a change to put back, and the
+// live preview of the theme under the cursor.
 func (m Model) renderThemePicker() string {
 	// The refresh review is a second state of the picker: its confirmation writes
 	// files, so both answers run on their own letters, and Enter is left to the way
@@ -1921,14 +1922,7 @@ func (m Model) renderThemePicker() string {
 			[]installerHint{hintUp, hintDown, hintThemeRefreshApply, hintThemeRefreshCancel})
 	}
 
-	hints := []installerHint{hintUp, hintDown, hintChoose}
-	if len(m.DotfilesThemes) > 0 {
-		hints = append(hints, hintRefresh)
-	}
-	if m.DotfilesThemeRecord != nil {
-		hints = append(hints, hintUndo)
-	}
-	return m.renderThemeScreen(m.themePickerDescription(), m.ThemeNotice, append(hints, hintBack))
+	return m.renderThemePickerList()
 }
 
 // renderThemeScreen draws a screen whose body is a description, a menu, the live
@@ -3544,11 +3538,22 @@ func truncateRunes(s string, width int) string {
 // cannot paint, so the exclusion list is drawn where the choice is made rather
 // than only in the guard's log.
 func dotfilesThemeRow(def themeDefinition) string {
+	if note := themeExclusionNote(def); note != "" {
+		return "Apply the " + def.Name + " theme (" + note + ")"
+	}
+	return "Apply the " + def.Name + " theme"
+}
+
+// themeExclusionNote is the tools a theme cannot paint, said the way the option
+// row says them, and empty when it paints them all. The row and the card both
+// read it here, so the list the key handler matches and the card the screen draws
+// cannot disagree about what a theme leaves out.
+func themeExclusionNote(def themeDefinition) string {
 	_, uncovered := themeCoverage(def)
 	if len(uncovered) == 0 {
-		return "Apply the " + def.Name + " theme"
+		return ""
 	}
-	return "Apply the " + def.Name + " theme (not " + strings.Join(uncovered, ", ") + ")"
+	return "not " + strings.Join(uncovered, ", ")
 }
 
 // dotfilesThemeForRow finds the theme a row names, so the handler switches on the

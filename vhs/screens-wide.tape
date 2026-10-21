@@ -40,3 +40,11 @@ Type "u"
 Wait+Screen /Clean Dev Caches/
 Sleep 700ms
 Screenshot "captures/200x55/04-utilities.png"
+
+Enter
+Wait+Screen /Choose a theme for your installer/
+Sleep 700ms
+Screenshot "captures/200x55/05-theme.png"
+
+Escape
+Wait+Screen /Clean Dev Caches/

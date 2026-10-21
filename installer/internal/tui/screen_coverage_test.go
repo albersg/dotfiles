@@ -1358,16 +1358,10 @@ func TestThemePickerFrameFitIsMeasuredAtEverySize(t *testing.T) {
 			}
 			m.Cursor = i
 			plain := ansiEscape.ReplaceAllString(m.View(), "")
-			label := truncate(option, layoutFor(m).RowMeasure-2)
-			selected := ""
-			for _, line := range strings.Split(plain, "\n") {
-				if strings.Contains(line, "▸") {
-					selected = line
-					break
-				}
-			}
+			label := themePickerDrawnLabel(m, options, i)
+			selected := themePickerMarkedRow(plain)
 			if selected == "" {
-				t.Fatalf("the theme picker at %s: no row carries the cursor marker (cursor %d of %d)", size.name, i, len(options)-1)
+				t.Fatalf("the theme picker at %s: no row carries the cursor mark (cursor %d of %d)", size.name, i, len(options)-1)
 			}
 			if !strings.Contains(selected, label) {
 				t.Errorf("the theme picker at %s: the row under the cursor is not %q (cursor %d): %q", size.name, label, i, selected)
@@ -1383,6 +1377,52 @@ func TestThemePickerFrameFitIsMeasuredAtEverySize(t *testing.T) {
 			}
 		}
 	}
+}
+
+// themePickerMarkedRow is the first body row a screen drew the cursor on: the
+// selected card's label (the mockup's filled circle) on a theme row, or the bar's
+// marker on the action rows, which keep the row grammar every other list uses.
+// Both sit above the footer, so the first row carrying either mark is the body's
+// -- the status bar's dot is the same circle and comes last.
+func themePickerMarkedRow(plain string) string {
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.Contains(line, themeCardMarked) || strings.Contains(line, "▸") {
+			return line
+		}
+	}
+	return ""
+}
+
+// themePickerVisibleCards is how many theme rows the frame drew: every card or
+// list row carries the empty mark, and the selected one carries the filled mark
+// instead.
+func themePickerVisibleCards(plain string) int {
+	count := 0
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.Contains(line, themeCardUnmarked) {
+			count++
+			continue
+		}
+		if strings.Contains(line, themeCardMarked) && !strings.Contains(line, statusPreview) {
+			count++
+		}
+	}
+	return count
+}
+
+// themePickerDrawnLabel is the text a guard may look for on the row the cursor is
+// on: a theme's own name, which the card and the list both draw whole, or an
+// action row's own label. The note naming the tools a theme cannot paint is cut on
+// a narrow card, and its source is guarded by
+// TestThemePickerRowsAreDerivedAndNameExclusions, so it is not asserted here.
+func themePickerDrawnLabel(m Model, options []string, i int) string {
+	if i < 0 || i >= len(options) {
+		return ""
+	}
+	if def, ok := m.dotfilesThemeForRow(options[i]); ok {
+		return def.Name
+	}
+	return options[i]
 }
 
 // themePickerScrollModel builds the picker with count complete themes and a
@@ -1473,18 +1513,12 @@ func TestThemePickerScrollsToEveryRowAtTheSmallTerminals(t *testing.T) {
 					t.Errorf("%s at step %d draws %d columns, want exactly %d", size.name, step, widest, size.width)
 				}
 
-				// The row under the cursor is the one carrying the marker, so a
-				// scrolled window can never hide the selection.
-				label := truncate(options[m.Cursor], layoutFor(m).RowMeasure-2)
-				selected := ""
-				for _, line := range strings.Split(plain, "\n") {
-					if strings.Contains(line, "▸") {
-						selected = line
-						break
-					}
-				}
+				// The row under the cursor is the one carrying the mark, so a scrolled
+				// window can never hide the selection.
+				label := themePickerDrawnLabel(m, options, m.Cursor)
+				selected := themePickerMarkedRow(plain)
 				if selected == "" {
-					t.Fatalf("%s at step %d: no row carries the cursor marker, so the highlighted row is off screen (cursor %d of %d)",
+					t.Fatalf("%s at step %d: no row carries the cursor mark, so the highlighted row is off screen (cursor %d of %d)",
 						size.name, step, m.Cursor, len(options)-1)
 				}
 				if !strings.Contains(selected, label) {
@@ -1493,28 +1527,28 @@ func TestThemePickerScrollsToEveryRowAtTheSmallTerminals(t *testing.T) {
 				}
 				visited[m.Cursor] = true
 
-				// The preview follows the cursor onto every theme row, including the
-				// ones the first screen cannot show.
+				// The preview follows the cursor onto every theme row, including the ones
+				// the first screen cannot show: the frame says it is a preview and the
+				// row under the cursor names the theme the whole frame is painted in.
 				if strings.HasPrefix(options[m.Cursor], "Apply the ") {
-					if !strings.Contains(plain, "Preview (nothing applied)") {
-						t.Errorf("%s at step %d: the cursor is on the theme row %q but no preview row is drawn",
-							size.name, step, options[m.Cursor])
+					if !strings.Contains(plain, statusPreview) {
+						t.Errorf("%s at step %d: the cursor is on the theme row %q but the frame does not say %q",
+							size.name, step, options[m.Cursor], statusPreview)
 					}
 				}
 
 				if step == 0 {
 					// The guard is not vacuous: the list really is longer than the
 					// first screen, and it says so with a visible-range count.
-					visible := strings.Count(plain, "Apply the ")
+					visible := themePickerVisibleCards(plain)
 					t.Logf("%s: windowed first screen shows %d theme rows; %d menu entries total", size.name, visible, len(options))
 					if visible >= themeCount {
 						t.Fatalf("%s: the first screen shows %d theme rows, want fewer than the %d built: the guard is not exercising a windowed list",
 							size.name, visible, themeCount)
 					}
 					// The pinned action block is always on screen, so the count of the
-					// rows the window scrolls is the options minus that block.
-					scrollable := len(options) - pinnedTailLen(options)
-					if !strings.Contains(plain, fmt.Sprintf("of %d", scrollable)) {
+					// rows the window scrolls is the themes the grid holds.
+					if !strings.Contains(plain, fmt.Sprintf("of %d", len(m.themePickerCards()))) {
 						t.Errorf("%s: the windowed list draws no visible-range count in the header: %q", size.name, plain)
 					}
 				}

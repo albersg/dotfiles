@@ -1,20 +1,20 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
    Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  Change the dotfiles theme                                                     
-  ▸ Apply the Catppuccin Latte theme                                            
-    Apply the Catppuccin Mocha theme                                            
-    Apply the dotfiles theme                                                    
-    Apply the Everforest theme                                                  
-    Apply the Kanagawa theme                                                    
-    Apply the Nocturne theme                                                    
-    Apply the Rosé Pine theme                                                   
-  Preview (nothing applied) — Catppuccin Latte:                                 
+                       Choose a theme for your installer                        
+            This will change the colors and style of the interface.             
+                                                                                
+  ● Catppuccin Latte                                        ██████████████████  
+  ○ Catppuccin Mocha                                        ██████████████████  
+  ○ dotfiles                                                ██████████████████  
+  ○ Everforest                                              ██████████████████  
+  ○ Kanagawa                                                ██████████████████  
+  ○ Nocturne                                                ██████████████████  
+  ○ Rosé Pine                                               ██████████████████  
   Applying the Nocturne theme…                                                  
   ────────────────────────────────────────────────────────────────────────────  
     [r] Refresh outdated theme files                                            
     ← Back                                                                      
-                                                                                
                                                                                 
                                                                                 
                                                                                 

@@ -1332,18 +1332,27 @@ func TestUtilitiesSeesThemesWithoutACloneWhenRunFromTheRepo(t *testing.T) {
 		t.Fatalf("the picker shows no theme row without a clone: %v", opts)
 	}
 
-	// Render the picker and look for each row, and for the exclusion list of any
-	// theme that has one, in the capture. Nothing here is pinned to a theme that
-	// leaves a tool out: when every theme covers every tool - the requirement this
-	// library is held to - this asserts the rows are drawn and that no stale
-	// exclusion list is, and when a theme does leave a tool out the capture has to
-	// show it. A guard that demanded an exclusion list would keep the fix from
-	// being able to remove the last one.
+	// Render the picker and look for each card, and for the exclusion list of any
+	// theme that has one, in the capture. The card names the theme and, where the
+	// theme leaves a tool out, the tools it leaves out; the option row the key
+	// handler matches carries the same note, so the fact is asserted on the text the
+	// screen draws. Nothing here is pinned to a theme that leaves a tool out: when
+	// every theme covers every tool - the requirement this library is held to - this
+	// asserts the cards are drawn and that no stale exclusion list is, and when a
+	// theme does leave a tool out the capture has to show it. A guard that demanded
+	// an exclusion list would keep the fix from being able to remove the last one.
 	m.Width, m.Height = 200, 60
 	plain := ansiEscape.ReplaceAllString(m.View(), "")
 	for _, opt := range opts {
-		if strings.HasPrefix(opt, "Apply the ") && !strings.Contains(plain, opt) {
-			t.Errorf("the rendered picker does not show the theme row %q", opt)
+		if !strings.HasPrefix(opt, "Apply the ") {
+			continue
+		}
+		def, ok := m.dotfilesThemeForRow(opt)
+		if !ok {
+			continue
+		}
+		if !strings.Contains(plain, themeCardText(def)) {
+			t.Errorf("the rendered picker does not show the theme card %q", themeCardText(def))
 		}
 	}
 	if naming > 0 && !strings.Contains(plain, "(not ") {
