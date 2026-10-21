@@ -1631,28 +1631,26 @@ func replaceLastLine(s, line string) string {
 // line sits.
 const welcomeFullLockupHeight = 32
 
-// emblemRampStyles is the vertical ramp the splash emblem is drawn in: brand
-// blue at the top, the softer secondary through the middle and the accent gold
-// at the tip. Every stop is an existing palette entry, so the ramp is a use of
-// the palette rather than a change to it.
-var emblemRampStyles = []lipgloss.Style{
-	lipgloss.NewStyle().Foreground(Primary).Bold(true),
-	lipgloss.NewStyle().Foreground(Secondary).Bold(true),
-	lipgloss.NewStyle().Foreground(Accent).Bold(true),
-}
-
 // renderEmblem draws the emblem one row at a time with a vertical ramp through
 // the palette, so it is no longer one flat colour, and returns one string per
-// row so the frame can count and center it.
+// row so the frame can count and center it. The ramp is a rebuilt style rather
+// than a build of its own: the emblem is the first thing a themed run shows, so
+// it has to wear the palette applyUIColors last put on the chrome.
 func renderEmblem(art string) []string {
 	rows := strings.Split(strings.Trim(art, "\n"), "\n")
 	out := make([]string, len(rows))
 	for i, row := range rows {
-		idx := i * len(emblemRampStyles) / len(rows)
-		if idx >= len(emblemRampStyles) {
-			idx = len(emblemRampStyles) - 1
+		if len(EmblemRampStyles) == 0 {
+			// A chrome with no ramp built yet draws the lockup plain rather than
+			// indexing a stop that is not there.
+			out[i] = row
+			continue
 		}
-		out[i] = emblemRampStyles[idx].Render(row)
+		idx := i * len(EmblemRampStyles) / len(rows)
+		if idx >= len(EmblemRampStyles) {
+			idx = len(EmblemRampStyles) - 1
+		}
+		out[i] = EmblemRampStyles[idx].Render(row)
 	}
 	return out
 }
@@ -2083,13 +2081,12 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 
 	var body []string
 	if bands.Title > 0 {
-		title := BrandStyle.Render(m.sectionBodyTitle())
-		if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
-			// The preview repaints the screen's own title in the theme's accent, so
-			// the palette is seen and not only read.
-			title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.sectionBodyTitle())
-		}
-		body = append(body, title)
+		// The title is the brand role and nothing else. While a preview is active the
+		// chrome has already been repainted in the theme under the cursor -- including
+		// this role, which maps to the definition's blue -- so a title built from the
+		// definition here would be the same colour drawn through a second path, and
+		// the one path that could disagree with the chrome around it.
+		body = append(body, BrandStyle.Render(m.sectionBodyTitle()))
 	}
 	body = append(body, clipLines(detail, bands.Detail, width)...)
 	body = padRows(body, bands.Title+bands.Detail)

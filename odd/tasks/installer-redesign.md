@@ -77,7 +77,7 @@ The user's words, verbatim:
 
 | ID | Specs | Route | Commit |
 |----|-------|-------|--------|
-| T1 | S1 | The theme pass: every new surface uses the applied theme's roles; the theme switch still recolours the installer and the system together; VHS captures under the default and one alternate theme prove it; no hardcoded palette | (pending) |
+| T1 | S1 | The theme pass: every new surface uses the applied theme's roles; the theme switch still recolours the installer and the system together; the guards measure the switch, the builder and the contrast; no hardcoded palette | (in the tree, uncommitted — the role sweep, the marker-palette guard, the filled-style contrast guards and the emblem's rebuilt ramp) |
 | T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (in the tree, uncommitted) |
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (in the tree, uncommitted — the dashboard, the cards and the named greeting) |
@@ -705,4 +705,109 @@ Follow-ups this slice found and did not take:
   mockup's title line would repeat the chip or invent a sentence.
 - `TestCaptureEveryRedesignedPage` lives in `zz_dump_test.go`, a name from the
   inspection harness the slice used; it wants renaming to `capture_redesign_test.go`
-  when the slice is committed.
+  when the slice is committed. (Done in the tree: the file is
+  `capture_redesign_test.go`.)
+
+L17. T1 landed in the tree (uncommitted): the theme pass. It changed no layout and
+no colour value; it made the palette the only source of colour on the surfaces the
+redesign added, proved it with guards, and removed what the redesign orphaned.
+
+**The audit is measured, not read.** Every surface is rendered on a true-colour
+terminal under the default chrome and under an applied theme, and every colour the
+frame emits is checked against the palette it is wearing (`38;2;r;g;b` /
+`48;2;r;g;b` read off the escapes, both members of every adaptive pair accepted).
+The selector is the one surface allowed the definitions' own colours, because its
+cards, its palette board and the preview swatches are pictures of other themes;
+the exemption is written into the guard rather than assumed.
+
+| surface | roles it draws through | guard |
+|---------|------------------------|-------|
+| header bar (chip and rule), status bar (dot, state word, key hints) | Brand, Success for the crown, OnFill on the chip, Rule, AccentKey/HelpVerb for the keys, Ink for the word | the role sweep on all 27 surfaces; the existing status-bar guards |
+| two-line rows, group titles, the main menu's panel and its button | RowBar/RowBarMarker, Ink, Muted, Brand, Button (OnFill on BrandSoft) | the role sweep; the filled-style floor |
+| the setup table and its band | PanelBorder, AccentKey for the icon, Ink, RowBar/RowBarMarker, Brand | the role sweep; the filled-style floor |
+| the utilities card, the System Overview panel, the Resources card, the verdict | PanelBorder, AccentKey, Ink, Muted, Meter/MeterFilled, Success for the verdict | the role sweep |
+| the theme grid, the card label, the floor's list and its strip | Brand, Muted, Ink, RowBar/RowBarMarker, Warning for the tip; the definitions' palettes for the pictures | the role sweep (with the definitions allowed); the miniature guard |
+| the installing stack, checklist, log card and bar | Brand, Success, Error, Warning, Muted, RowBar, MeterOnBar, ProgressBarFilled/Empty | the role sweep; the filled-style floor |
+| the completion, backup, restore and dead-end cards | Success/Error, PanelBorder, Ink, Muted, Brand, AccentKey | the role sweep |
+| the remaining pages (pickers, learn tables, keymaps, doctor, update center) | Brand, Muted, Ink, PanelBorder, Success/Warning/Error, Code | the role sweep |
+
+**Two things were actually wrong.**
+
+- **The emblem's ramp was built once, at package init.** `var emblemRampStyles
+  = []lipgloss.Style{...Primary, Secondary, Accent}` was initialised before
+  `init()` ran `applyUIColors`, so all three stops held the zero value and the
+  dashboard's lockup had no ramp in any theme -- not the default one either. It is
+  `EmblemRampStyles` now, rebuilt with everything else in `applyUIColors`, and
+  `renderEmblem` draws the lockup plain rather than indexing a stop that is not
+  there. This is the case the builder guard was written for: a style that is not
+  rebuilt cannot paint the palette it was given.
+- **The section screens built their body title a second time.** While a preview was
+  active they painted it from `def.Palette["blue"]` directly, where the preview
+  had already repainted the brand role to that same blue: two paths to one colour,
+  and the one path that could disagree with the chrome around it (a definition that
+  cannot be previewed painted a blue nothing else wore). The title is `BrandStyle`
+  and nothing else.
+
+**What was removed.** `BoxStyle` (the old installing log box was its last caller,
+T8) and `HelpStyle` (deadEnd's one-line way out; T9 routed the dead ends through
+the frame, which left its own doc comment saying it was still used). Two styles are
+unreferenced on this branch *and on main* -- `TitleStyle` and `DangerStyle` -- and
+they are deliberately not this slice's: nothing the redesign dropped stopped using
+them, so removing them is a separate cleanup rather than a piece of the redesign.
+
+**The guards** (new, in `theme_audit_test.go`):
+
+- `TestEveryRedesignedSurfacePaintsOnlyTheThemesRoles` -- the no-literal rule, 27
+  surfaces at 80x24 and 160x50, under the default chrome and under an applied theme.
+- `TestTheThemeSwitchRecoloursEveryRedesignedSurface` -- the switch reaches every
+  surface (the theme's blue appears, the plain frame has none of it), and the paint
+  is a render: clearing the record draws the bytes the model drew before, and the
+  package palette is the one `View` started with.
+- `TestApplyUIColorsRebuildsEveryStyleTheSurfacesDrawWith` -- with a palette whose
+  every field is a distinct marker colour, every style var renders a marker and
+  nothing else. A style built anywhere but the builder keeps the default palette
+  and fails here.
+- `TestTheSplashLockupWearsTheThemesRamp` -- the dashboard's emblem paints exactly
+  the three ramp stops, under the default chrome and under an applied theme.
+- `TestTheFilledStylesClearTheOnFillFloorInEveryTheme` and
+  `TestTheRedesignKeepsTheBodyFloorOnEveryRoleItDrawsIn` -- the contrast the new
+  surfaces draw with: every style that fills a block is measured ink-on-fill at the
+  3:1 a bold run needs (for every shipped theme and for the default chrome), and the
+  body ink, the key tone and the muted role are held to the 4.5:1 / 3:1 ladder the
+  drift guard already uses.
+
+**The contrast read.** The filled pairs pass in every theme: the on-fill ink is
+chosen by `themeOnFillInk` and the guard measures the styles, not just the fields.
+The body ink clears 4.5:1 in every theme; the key tone does too. The muted role
+sits at 3.24:1 on the shipped default on purpose (it is metadata, and darker slate
+would stop reading as metadata), which is why its floor is the 3:1 ladder and not
+the body floor. **The one pair that does not clear a text floor is the marker's
+ink**: `RowBarMarkerStyle` draws the accent on the brand fill -- 1.29:1 on the
+shipped default, 1.3-1.9:1 across the seven themes -- and it is left as it is,
+because it paints glyphs and never a word (the cursor's `▸`, the setup table's
+chevron, the checklist's state glyph, the picker's `●`), and every word drawn on a
+bar goes through `RowBarStyle`, which clears the floor. If the marker is ever meant
+to carry text, the fix is a palette decision the mockup already answers (its bar
+labels are all on-fill ink) and not something this pass could settle by itself.
+
+**L6's status-dot follow-up, re-read and kept.** `Ready` and `Done` take the
+success role, `Installing` the brand, `Preview mode` the accent, `Failed` the error
+-- four roles for five states, every one of them measured by the sweep -- and the
+word beside each dot is body ink, so the tone is decoration and the 4.5:1 floor is
+carried by text.
+
+**What did not move.** No golden and no layout: the ramp is colour-only and the
+goldens that carry escapes do not draw the dashboard, the removed title branch
+emitted the same bytes `BrandStyle` now does, and the two removed styles were
+referenced by nothing outside `styles.go`. The twelve-terminal fit matrix is
+unchanged.
+
+**Pending.** The VHS captures were not re-recorded in this slice (the short loop is
+the focused tests and the goldens; `make screens` runs with the PR). The
+companion's possession ink is the one literal colour left in the package --
+`companionEmberColour`/`companionHornColour` in `companion.go` and the one-row
+art's `CompanionEmberStyle` (`#ff2d2d`) -- and it is outside both the style builder
+and the redesign's surfaces: the possession is drawn as a sprite the theme has no
+opinion about, which is what that code's own comment says, and a palette for it is
+a creature-art decision rather than a theme one. `TitleStyle` and `DangerStyle` are
+still unreferenced (above).
