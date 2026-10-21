@@ -504,7 +504,7 @@ func TestGoldenCaptureNeverRunsAnInstallationStep(t *testing.T) {
 	m.Animating = false
 	// The transcript is not compared here: this guard is about what the capture did,
 	// not about the bytes it drew.
-	_ = goldenTranscript(t, m, 80, 24, "Set Up the Installation")
+	_ = goldenTranscript(t, m, 80, 24, "Configure your environment")
 
 	if len(ran) != 0 {
 		t.Fatalf("the capture ran installation steps %v: a golden snapshots a screen and must not install", ran)
@@ -706,6 +706,37 @@ func TestCompanionGoldenPinsTheCompactSpriteAndItsGaze(t *testing.T) {
 	requireGoldenCapture(t, seen.Bytes())
 }
 
+// TestSetupScreenGolden pins the setup table at the 80x24 floor: the mockup's
+// title and subtitle over the rows, one line per decision with its value at the
+// right, the chevron on the rows Enter opens, the row under the cursor filled
+// across the width, and the selected row's summary under the table. The table is
+// not boxed here -- the box and the rule between every pair of rows cost rows the
+// floor needs for the list -- and no row is cut: the fish's plugin set spends the
+// one line it has exactly.
+func TestSetupScreenGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := installerFrameCase(t, "setup")
+	m.Width, m.Height = 80, 24
+	m.Animating, m.PixelSprite = true, false
+	m.AnimTick = 0
+
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestSetupWideGolden pins the mockup's own shape: the boxed table with a rule
+// between every pair of rows, the values at the table's column, and the selected
+// row's description -- the panel machinery's own body -- in the right half under
+// the table, with the creature in the rows the body did not need.
+func TestSetupWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := installerFrameCase(t, "setup")
+	m.Width, m.Height = 160, 40
+	m.Animating, m.PixelSprite = true, false
+	m.AnimTick = 0
+
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
 // TestOSSelectGolden tests OS selection screen against golden file
 func TestOSSelectGolden(t *testing.T) {
 	skipIfTermux(t)
@@ -769,7 +800,7 @@ func TestInstallFlowE2E(t *testing.T) {
 
 	// The setup screen lists every decision as a row.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return bytes.Contains(bts, []byte("Set Up the Installation")) ||
+		return bytes.Contains(bts, []byte("Configure your environment")) ||
 			bytes.Contains(bts, []byte("Platform"))
 	}, teatest.WithCheckInterval(50*time.Millisecond), teatest.WithDuration(2*time.Second))
 

@@ -28,7 +28,15 @@ Wait+Screen /What would you like to do/
 Sleep 700ms
 Screenshot "captures/80x24/02-main-menu.png"
 
+Enter
+Wait+Screen /Configure your environment/
+Sleep 700ms
+Screenshot "captures/80x24/03-setup.png"
+
+Escape
+Wait+Screen /What would you like to do/
+
 Type "u"
 Wait+Screen /Clean up development caches/
 Sleep 700ms
-Screenshot "captures/80x24/03-utilities.png"
+Screenshot "captures/80x24/04-utilities.png"
