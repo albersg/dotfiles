@@ -2500,10 +2500,10 @@ func TestTrainerResetAllConfirmingClearsProfile(t *testing.T) {
 
 	// The menu must reflect the wipe from the same model, without a restart.
 	view := m.View()
-	if strings.Contains(view, "Bosses: 1/9") {
+	if strings.Contains(view, "Bosses 1/9") {
 		t.Errorf("menu still shows the erased boss count after confirming:\n%s", view)
 	}
-	if !strings.Contains(view, "Bosses: 0/9") {
+	if !strings.Contains(view, "Bosses 0/9") {
 		t.Errorf("menu does not show the cleared boss count after confirming:\n%s", view)
 	}
 }
