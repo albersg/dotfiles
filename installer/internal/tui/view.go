@@ -107,6 +107,11 @@ var (
 	hintQuit    = installerHint{"[q]", "quit"}
 	hintExit    = installerHint{"[q]", "exit"}
 	hintDetails = installerHint{"[d]", "details"}
+	// hintStopRun is the installing screen's way out of a run in flight. The mockup
+	// names it Cancel, and it reaches the path ctrl+c has always taken: the program
+	// quits, the step stops where it is, and no record is written, because nothing
+	// failed. The flow is the same one; this is the key the footer spells for it.
+	hintStopRun = installerHint{"[q]", "Cancel"}
 	hintPage    = installerHint{"[PgUp/PgDn]", "page"}
 	hintRetry   = installerHint{"[r]", "retry"}
 	// hintUpdateInstall is the update screen's own install key. Installing the
@@ -760,7 +765,10 @@ func (m Model) headerName() string {
 		ScreenInstallReview, ScreenSetup:
 		return "Setup"
 	case ScreenInstalling:
-		return "Installing dotfiles"
+		// The mockup's word for the screen, and the same word the status bar under it
+		// uses, so the header says what the frame is doing instead of repeating the
+		// product name.
+		return "Installing"
 	case ScreenAdminPassword:
 		return "Administrator access"
 	case ScreenComplete:
@@ -4448,29 +4456,78 @@ func (m Model) renderLazyVimTopic() string {
 	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintPage, hintBack})
 }
 
-// Installing screen rows. The bar is the one place the whole run's progress is
-// visible at a glance, the status rows say which step the run is on and how long
-// it has taken, and the step rail is windowed so a run with fifteen steps cannot
-// push its bottom off a 24-row terminal.
+// Installing screen rows. The mockup's shape is a stack: the run's title, the step
+// it is on with the run's own clock, the checklist of the plan beside the log
+// card, and the progress bar under both. The checklist is windowed around the
+// step in progress, so a run with twenty steps cannot push the bar off a 24-row
+// terminal, and the band's height comes from the frame rather than from the log's
+// length, so the bar cannot move while the run writes.
 const (
-	// installingBodyFixed is the part of the installing body that is not the step
-	// rail and not the log box: the progress bar, the blank under it and the two
-	// status rows that name the current step and the run's own clock. The title
-	// moved into the frame's header, and the legend into its footer.
-	installingBodyFixed = 4
-	// installingDetailsFrameRows is the height the log box spends around its own
-	// lines: the box's border (two rows) and its padding (two more). The blank rows
-	// that used to surround it are gone -- the panel around the rail now separates
-	// the two blocks -- so the frame is four rows and the box follows the terminal
-	// instead of a fixed three lines.
-	installingDetailsFrameRows = 4
-	// installingMinLogLines is the smallest useful box: one log line and the dim note
-	// naming the earlier lines it could not show. Below that the box is dropped and
-	// the rail keeps the rows rather than drawing an empty box.
-	installingMinLogLines = 2
-	// installingMinStepRows keeps the rail useful when the log box has taken its
-	// room.
-	installingMinStepRows = 3
+	// installingRunningTitle is the mockup's line over the whole screen. It is the
+	// screen's one sentence: the header chip names the screen and this says what it
+	// is doing.
+	installingRunningTitle = "Running installation..."
+
+	// installingHeadRows is what the body spends above its two columns: the title,
+	// the step line and the run's clock. The count is fixed so the columns below it
+	// never move between two renders of the same frame.
+	installingHeadRows = 3
+
+	// installingBarRows is the progress bar's row, the last thing the body draws.
+	installingBarRows = 1
+
+	// installingColumnGap is the blank columns between the checklist and the log
+	// card, so the two read as two objects rather than as one run of text.
+	installingColumnGap = 2
+
+	// installingLogShare is the log card's share of the body's columns, before the
+	// floors below clamp it. The mockup draws the two columns at roughly the same
+	// width; the log's rows are the longer of the two, so it takes the larger share
+	// of what the checklist's names leave.
+	installingLogShare = 40
+
+	// installingLogMinWidth and installingRailMinWidth are the narrowest either
+	// column may be. A log column too narrow to read a line in is worse than a
+	// checklist with the whole frame, so the card is dropped whole instead.
+	installingLogMinWidth  = 24
+	installingRailMinWidth = 28
+
+	// installingBandMaxRows caps the two columns' height on a tall frame. The height
+	// is the frame's, never the log's, so the bar under the band cannot move as the
+	// run writes; the cap keeps a 50-row terminal from drawing a sixteen-row
+	// checklist over twenty blank rows, and gives the rows it saves to the creature
+	// the frame places below the body.
+	installingBandMaxRows = 22
+
+	// installingMinBandRows is the shortest band still worth a log column: its two
+	// borders and one line of log.
+	installingMinBandRows = 3
+
+	// installingRailMeterCells is the trailing meter's width, and the narrow rungs
+	// are what a column too small for it keeps: five cells where the meter still fits
+	// beside the longest step name, and none at all below that. The meter is the
+	// step's own progress, so it may narrow -- but a name is a fact and may not be
+	// cut to make room for a decoration, which is why the widest name decides which
+	// rung a column takes.
+	installingRailMeterCells       = 10
+	installingRailMeterCellsNarrow = 5
+	installingRailWideWidth        = 2 + installingRailLongestName + installingColumnGap + installingRailMeterCells
+	installingRailNarrowWidth      = 2 + installingRailLongestName + installingColumnGap + installingRailMeterCellsNarrow
+
+	// installingRailLongestName is the longest step name the plan builder can
+	// produce ("Restore the Applied Theme"), so the rungs above are measured against
+	// the worst the checklist can hold rather than against the golden host's plan.
+	installingRailLongestName = 25
+
+	// installingLogPrompt leads every log line, as the mockup draws it: the mark
+	// says the row is output rather than a step, and the glyph is plain ASCII so a
+	// terminal with no Nerd Font still shows it.
+	installingLogPrompt = "> "
+
+	// installingStepSeparator is the mockup's ` - ` between the step's counter and
+	// its name, so the two read as one sentence rather than as two facts sharing a
+	// row.
+	installingStepSeparator = " - "
 )
 
 // installProgress is the fraction of the run the bar fills: completed and
@@ -4554,28 +4611,47 @@ func stepGlyph(step InstallStep) (string, lipgloss.Style) {
 	}
 }
 
-// installingRowBudget is how the installing body's rows are split between the
-// step rail and the log box. The box is given everything the rail's floor does
-// not need and never more than the log it holds, so the number of lines the log
-// shows follows the frame instead of a constant; a frame too short for even the
-// smallest useful box shows no box and gives the rail the rows.
-func (m Model) installingRowBudget(bodyRows int) (railRows, boxLines int) {
-	available := bodyRows - installingBodyFixed - m.installingLiveRowCount()
-	if available < installingMinStepRows {
-		available = installingMinStepRows
+// installingBand is the two columns' geometry: how wide the checklist is, and how
+// wide and how tall the log card beside it is. It is measured from the frame and
+// never from the log's length, so the bar under the band cannot move while the run
+// writes.
+type installingBand struct {
+	// RailWidth is the checklist's columns. The checklist is drawn bare -- the
+	// mockup draws no box around it -- so its width is the whole column.
+	RailWidth int
+	// LogWidth is the log card's columns, its two borders included.
+	LogWidth int
+	// LogRows is the rows inside the card's border: the height of the band less the
+	// two rows the border spends.
+	LogRows int
+	// ShowLog says whether the band has a second column at all.
+	ShowLog bool
+}
+
+// installingBandFor measures the band: the checklist takes the whole composition
+// when the log has no column, and otherwise the two split it, the log by share and
+// the checklist by what is left. A log column narrower than its floor is dropped
+// whole, because a card too narrow to read a line in is worse than a checklist
+// with the room -- the same trade the frame makes everywhere it can hold no
+// second column.
+func (m Model) installingBandFor(composition, rows int) installingBand {
+	band := installingBand{RailWidth: composition}
+	if !m.ShowDetails || rows < installingMinBandRows {
+		return band
 	}
-	if !m.ShowDetails || len(m.LogLines) == 0 {
-		return available, 0
+	logWidth := composition * installingLogShare / 100
+	if logWidth < installingLogMinWidth {
+		logWidth = installingLogMinWidth
 	}
-	room := available - installingDetailsFrameRows - installingMinStepRows
-	if room < installingMinLogLines {
-		return available, 0
+	railWidth := composition - installingColumnGap - logWidth
+	if railWidth < installingRailMinWidth {
+		return band
 	}
-	boxLines = len(m.LogLines)
-	if boxLines > room {
-		boxLines = room
-	}
-	return available - boxLines - installingDetailsFrameRows, boxLines
+	band.RailWidth = railWidth
+	band.LogWidth = logWidth
+	band.LogRows = rows - panelFrame
+	band.ShowLog = true
+	return band
 }
 
 // logTailCount is how many of a log's freshest lines fit in a box of rows, and
@@ -4667,7 +4743,9 @@ func (m Model) installingStepText() string {
 	}
 	text := fmt.Sprintf("Step %d of %d", current, total)
 	if name := m.Steps[current-1].Name; name != "" {
-		text += panelTabSeparator + name
+		// The mockup spells the step's name after a dash, so the counter and the
+		// name read as one sentence rather than as two facts sharing a row.
+		text += installingStepSeparator + name
 	}
 	return text
 }
@@ -4689,16 +4767,199 @@ func (m Model) installingTimeText() string {
 	return text
 }
 
-// installingStatusRows is the two rows under the bar: the step the run is on,
-// and the run's own clock. Both are pure reads of the model -- the renderer
-// never reads the wall clock -- which is why a snapshot is stable and why the
-// estimate cannot change when nothing else did. Nothing the installer does not
-// count is added here: the run holds no file counter, so the screen shows none.
-func (m Model) installingStatusRows() []string {
-	return []string{
-		BrandStyle.Render(m.installingStepText()),
-		MutedStyle.Render(m.installingTimeText()),
+// installingHeadRows is the mockup's stack above the two columns: what the run is
+// doing, the step it is on, and the run's own clock. Every row is centred in the
+// composition, as the mockup centres them, and every row is cut to a whole word
+// boundary of plain text before it is styled, so a long step name cannot widen the
+// frame. The count is fixed -- a run with no plan yet keeps the step row blank -- so
+// the columns below never move. Both texts are pure reads of the model, which is why
+// a snapshot is stable and why the estimate cannot change when nothing else did.
+func (m Model) installingHeadRows(composition int) []string {
+	rows := []string{
+		centredLine(BrandStyle.Render(truncate(installingRunningTitle, composition)), composition),
 	}
+	if step := m.installingStepText(); step != "" {
+		rows = append(rows, centredLine(InkStyle.Render(truncate(step, composition)), composition))
+	} else {
+		rows = append(rows, "")
+	}
+	return append(rows, centredLine(MutedStyle.Render(truncate(m.installingTimeText(), composition)), composition))
+}
+
+// centredLine indents one already-styled line so it is centred in the composition.
+// The caller cuts the text to the width first: a cut taken after styling would land
+// inside an escape sequence, and a cut taken on the plain text is the whole reason
+// this helper pads and does not measure the line against the frame.
+func centredLine(line string, composition int) string {
+	if line == "" || composition < 1 {
+		return line
+	}
+	if pad := composition - lipgloss.Width(line); pad > 1 {
+		return strings.Repeat(" ", pad/2) + line
+	}
+	return line
+}
+
+// installingColumns draws the mockup's two columns side by side: the checklist of
+// the plan at the left and the log card at the right, both measured against the
+// same rows. Every row is padded to the composition, so the card's right border
+// lands on the frame's edge instead of wherever its content happened to stop.
+// Where the frame has no column for the log, the checklist takes the whole width --
+// the shape yields, the steps never do.
+func (m Model) installingColumns(composition, rows int) []string {
+	band := m.installingBandFor(composition, rows)
+	rail := m.installingRailRows(band.RailWidth, rows)
+	if !band.ShowLog {
+		// The band is the frame's height with or without a second column, so the bar
+		// under it keeps its row when the log is collapsed.
+		out := append(make([]string, 0, rows), rail...)
+		for len(out) < rows {
+			out = append(out, "")
+		}
+		return out
+	}
+
+	// The card's content is padded to its height, so the bottom border is drawn
+	// even while the run has fewer lines to show than the frame has rows for them.
+	lines := m.installingLogRows(band.LogWidth-panelFrame-panelPad*2, band.LogRows)
+	for len(lines) < band.LogRows {
+		lines = append(lines, "")
+	}
+	card := panelBlock("", band.LogWidth, lines)
+
+	out := make([]string, 0, rows)
+	for i := 0; i < rows; i++ {
+		left, right := "", ""
+		if i < len(rail) {
+			left = rail[i]
+		}
+		if i < len(card) {
+			right = card[i]
+		}
+		out = append(out, padRight(left, band.RailWidth)+strings.Repeat(" ", installingColumnGap)+padRight(right, band.LogWidth))
+	}
+	return out
+}
+
+// installingRailRows draws the checklist: one row per step, windowed around the
+// step the run is on so a long plan keeps the step in progress on screen. The
+// window follows the running step rather than a cursor -- the reader is not moving
+// anything here -- and the header's vital says which step of how many, so a window
+// that hides a row still says how many rows there are.
+func (m Model) installingRailRows(width, rows int) []string {
+	if width < 1 || rows < 1 || len(m.Steps) == 0 {
+		return nil
+	}
+	cells := installingRailCells(width)
+	running := 0
+	lines := make([]string, len(m.Steps))
+	for i, step := range m.Steps {
+		if i == m.CurrentStep {
+			running = i
+		}
+		lines[i] = installingRailRow(step, width, cells, i == m.CurrentStep)
+	}
+	start, end := listWindow(running, rows, len(lines))
+	return lines[start:end]
+}
+
+// installingRailCells is the meter's width for a checklist column: the full meter
+// where the longest step name still fits beside it, five cells where only that fits,
+// and none at all below it. A column with no room for both keeps the name: a cut
+// name is a lost fact, and the run's own bar still carries the progress.
+func installingRailCells(width int) int {
+	switch {
+	case width >= installingRailWideWidth:
+		return installingRailMeterCells
+	case width >= installingRailNarrowWidth:
+		return installingRailMeterCellsNarrow
+	default:
+		return 0
+	}
+}
+
+// installingRailRow draws one step of the checklist: its state glyph, its name and
+// the meter of the progress it reported, at the right edge. The step the run is on
+// is one filled bar across the column, as the mockup draws it, with its glyph riding
+// the bar; the other rows are plain. Every state is said by the glyph as well as by
+// the tone, so a terminal with no colour still reads which step is done, running,
+// skipped or failed. Nothing else is added to the row: the installer keeps no
+// per-step duration, so no row shows one -- the meter is the fraction the step's own
+// status and Progress really hold.
+func installingRailRow(step InstallStep, width, cells int, running bool) string {
+	glyph, style := stepGlyph(step)
+	// The glyph and the blank after it, then the gap and the meter where the column
+	// has room for one.
+	room := width - 2
+	tail := ""
+	if cells > 0 {
+		room -= installingColumnGap + cells
+	}
+	if room < 1 {
+		room = 1
+	}
+	name := padRight(truncate(step.Name, room), room)
+	fraction := stepFraction(step)
+	if cells > 0 {
+		tail = strings.Repeat(" ", installingColumnGap) + meterCellsPlain(fraction, cells)
+	}
+	if running {
+		return RowBarMarkerStyle.Render(glyph) + RowBarStyle.Render(" "+name) + MeterOnBarStyle.Render(tail)
+	}
+	if cells == 0 {
+		return style.Render(glyph) + InkStyle.Render(" "+name)
+	}
+	return style.Render(glyph) + InkStyle.Render(" "+name) + strings.Repeat(" ", installingColumnGap) + meterBar(fraction, cells)
+}
+
+// installingLogRows draws the log card's content: the freshest lines the card's
+// rows can hold, each led by the mockup's `> ` prompt, and one dim row naming the
+// earlier lines the card could not show rather than dropping them in silence. A run
+// that has logged nothing yet says so instead of drawing an empty box, so the card
+// the frame reserved is never mistaken for a card that failed to draw.
+func (m Model) installingLogRows(content, rows int) []string {
+	if content <= lipgloss.Width(installingLogPrompt) || rows < 1 {
+		return nil
+	}
+	if len(m.LogLines) == 0 {
+		return []string{MutedStyle.Render(truncate("Waiting for the first line…", content))}
+	}
+	shown, hidden := logTailCount(len(m.LogLines), rows)
+	out := make([]string, 0, shown+1)
+	for _, line := range m.LogLines[len(m.LogLines)-shown:] {
+		out = append(out, MutedStyle.Render(installingLogPrompt)+
+			InfoStyle.Render(truncate(line, content-lipgloss.Width(installingLogPrompt))))
+	}
+	if hidden > 0 {
+		out = append(out, MutedStyle.Render(truncate(fmt.Sprintf("… %d earlier lines", hidden), content)))
+	}
+	return out
+}
+
+// installingProgressRow is the run's bar: the whole run's progress filled in brand
+// chrome with its percentage at the frame's right edge, as the mockup draws it. The
+// fraction is installProgress's, so the bar counts every step the run has finished,
+// skipped or is part-way through, and nothing else.
+func (m Model) installingProgressRow(composition int) string {
+	// The percentage is ` %3.0f%%`: a space and four columns, so the bar ends where
+	// the number begins and the number ends at the frame's edge.
+	barWidth := composition - 5
+	if barWidth < 10 {
+		barWidth = 10
+	}
+	progress := m.installProgress()
+	// The traveller is the lighter cell that walks the filled part of the bar during
+	// a long step. It only draws while a run is actually in flight and the bar is not
+	// already full, so a screen with no run behind it is byte-for-byte the screen it
+	// was. Its position comes from the model's own frame tick, never from the
+	// renderer's clock.
+	highlight := -1
+	if m.Animating && len(m.Steps) > 0 && progress < 1 {
+		if filled := int(math.Round(progress * float64(barWidth))); filled > 0 {
+			highlight = m.AnimTick % filled
+		}
+	}
+	return renderProgressBar(barWidth, progress, highlight) + " " + BrandStyle.Render(fmt.Sprintf("%3.0f%%", progress*100))
 }
 
 // installingVital is the installing screen's header vital sign: which step of
@@ -4730,108 +4991,66 @@ func stepFraction(step InstallStep) float64 {
 	}
 }
 
-// railRow draws one step-rail row with the trailing meter the row's own
-// progress earns: the glyph and name on the left, the filled meter on the right.
-// It is the row-level use of the same meter the header uses for the run.
-func railRow(name string, style lipgloss.Style, fraction float64, cells, inner int) string {
-	bar := meterBar(fraction, cells)
-	textWidth := inner - cells - 2
-	if textWidth < 1 {
-		textWidth = 1
-	}
-	name = truncate(name, textWidth)
-	pad := textWidth - lipgloss.Width(name)
-	return style.Render(name+strings.Repeat(" ", pad)) + "  " + bar
-}
-
+// renderInstalling draws the run in the mockup's shape: the sentence over the
+// screen, the step it is on with the run's own clock, the checklist of the plan
+// beside the log card, and the progress bar under both. Nothing on it is guessed:
+// the checklist's glyphs and trailing meters are each step's own status and the
+// fraction it reported, the bar is installProgress, and the clock is the model's
+// start time against its latest tick. The installer keeps no per-step duration, so
+// no row shows one -- the mockup's trailing time column is the meter a step really
+// has, which is the same meter the header uses for the run.
 func (m Model) renderInstalling() string {
 	width := contentWidth(m)
-	hints := []installerHint{hintDetails}
+	composition := layoutFor(m).Composition
+	hints := []installerHint{hintDetails, hintStopRun}
 	// The offer's own hint leads while the run is paused on it: it is the action
-	// the step is waiting for, and the details hint stays so the keys already on
-	// the screen do not vanish with the question.
+	// the step is waiting for, and the other two stay so the keys already on the
+	// screen do not vanish with the question.
 	if m.WSLTerminalOffer != nil {
-		hints = []installerHint{hintWSLTerminalOffer, hintDetails}
+		hints = []installerHint{hintWSLTerminalOffer, hintDetails, hintStopRun}
 	}
 	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
-	// Progress bar. It is sized to the frame and labeled with the percentage, so
-	// the longest thing a user watches says how far along it is. The screen's
-	// title moved into the frame's header, and the details legend into its footer.
-	barWidth := width - 8
-	if barWidth < 10 {
-		barWidth = 10
-	}
-	progress := m.installProgress()
-	// The traveller is the lighter cell that walks the filled part of the bar
-	// during a long step. It only draws while a run is actually in flight and the
-	// bar is not already full, so a screen with no run behind it is byte-for-byte
-	// the screen it was. Its position comes from the model's own frame tick, never
-	// from the renderer's clock.
-	highlight := -1
-	if m.Animating && len(m.Steps) > 0 && progress < 1 {
-		filled := int(math.Round(progress * float64(barWidth)))
-		if filled > 0 {
-			highlight = m.AnimTick % filled
+	head := m.installingHeadRows(composition)
+	// A frame too short for the stack and the bar has no room for a column or for the
+	// machine's pulse. The stack is what the screen is for, so the rest yields rather
+	// than the body drawing past the frame.
+	if bodyRows <= len(head)+installingBarRows {
+		if keep := max(1, bodyRows-installingBarRows); keep < len(head) {
+			head = head[:keep]
 		}
-	}
-	body := []string{
-		renderProgressBar(barWidth, progress, highlight) + BrandStyle.Render(fmt.Sprintf(" %3.0f%%", progress*100)),
-		"",
-	}
-	// What the run knows: the step it is on and its own clock. Both come from
-	// model state, so the render stays pure.
-	body = append(body, m.installingStatusRows()...)
-	// The machine's pulse, and the run's own progress over time, beside the bar.
-	// The live block appears only once a sample lands and only in the rows the row
-	// budget left it, so it cannot push the rail or the log off the frame. A model
-	// the gate never sampled draws the installing screen exactly as it was.
-	body = append(body, m.installingLiveRows(width)...)
-
-	// The interactive WSL step's offer is a question the run is blocked on, so it
-	// takes the rows the rail and the log would use while it waits. It is drawn
-	// whether or not the details panel is on: a question asked inside a box the
-	// user had not opened is a question nobody read, and this is the screen that
-	// stands between the run and a write to settings.json.
-	if m.WSLTerminalOffer != nil {
-		body = append(body, m.wslTerminalOfferRows(width, bodyRows-len(body))...)
+		body := append(append([]string(nil), head...), m.installingProgressRow(composition))
 		return m.frame(m.headerName(), m.installingVital(), body, hints)
 	}
 
-	// Step rail. Each step is one row and the running step's description is one
-	// more, and the whole rail is windowed around the running step so a long run
-	// keeps the step in progress on screen. Each row carries its own trailing
-	// meter, so a step's progress is visible on the row rather than only in the
-	// run's single bar. The rail is a card, so the plan reads as one object, and
-	// the rail is measured to the panel's inner width so its meters stop at the
-	// border.
-	const railMeterCells = 10
-	railWidth := width - panelFrame - panelPad*2
-	rows := make([]string, 0, len(m.Steps)+1)
-	runningIdx := 0
-	for i, step := range m.Steps {
-		icon, style := stepGlyph(step)
-		if i == m.CurrentStep {
-			runningIdx = len(rows)
-		}
-		rows = append(rows, railRow(fmt.Sprintf("%s %s", icon, step.Name), style, stepFraction(step), railMeterCells, railWidth))
-		if i == m.CurrentStep && step.Status == StatusRunning && step.Description != "" {
-			rows = append(rows, MutedStyle.Render("   "+truncate(step.Description, railWidth-3)))
-		}
+	// The machine's pulse, and the run's own progress over time, sit directly over
+	// the bar. The block appears only once a sample lands and only in the rows the
+	// frame left it, so it can never push the two columns off the frame, and a model
+	// the gate never sampled draws the screen exactly as it was.
+	live := m.installingLiveRows(composition)
+	bandRows := bodyRows - len(head) - installingBarRows - len(live)
+	if bandRows < 1 {
+		// The two columns are what the screen is for, so the pulse is what yields when
+		// the frame cannot hold both.
+		live, bandRows = nil, 1
+	}
+	if bandRows > installingBandMaxRows {
+		bandRows = installingBandMaxRows
 	}
 
-	// The rail and the log box share the rows the frame leaves. The panel around the
-	// rail spends two rows of its own, so the budget is measured against the rows
-	// left after them; a body that overflows its frame still fails the frame guard
-	// rather than being clipped.
-	railRows, boxLines := m.installingRowBudget(bodyRows - panelFrame)
-	start, end := listWindow(runningIdx, railRows, len(rows))
-	body = append(body, panelBlock(BrandStyle.Render("Steps"), width, rows[start:end])...)
-
-	if boxLines > 0 {
-		lines := logTail(m.LogLines, boxLines, width-4, InfoStyle)
-		body = append(body, strings.Split(BoxStyle.Render(strings.Join(lines, "\n")), "\n")...)
+	body := append([]string(nil), head...)
+	if m.WSLTerminalOffer != nil {
+		// The interactive WSL step's offer is a question the run is blocked on, so it
+		// takes the rows the checklist and the log would use while it waits. It is
+		// drawn whether or not the details panel is on: a question asked inside a box
+		// the user had not opened is a question nobody read, and this is the screen
+		// that stands between the run and a write to settings.json.
+		body = append(body, m.wslTerminalOfferRows(composition, bandRows)...)
+	} else {
+		body = append(body, m.installingColumns(composition, bandRows)...)
 	}
+	body = append(body, live...)
+	body = append(body, m.installingProgressRow(composition))
 
 	return m.frame(m.headerName(), m.installingVital(), body, hints)
 }

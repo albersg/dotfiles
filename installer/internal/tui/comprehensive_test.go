@@ -518,14 +518,17 @@ func TestQKeyBehavior(t *testing.T) {
 	})
 
 	t.Run("q alone does not quit where the screen does not offer it", func(t *testing.T) {
+		// A question of the wizard names Enter and Esc in its footer and offers no way
+		// out of the program, so q is not one there. The installing screen is not this
+		// case any more: its footer names [q] Cancel (TestInstallingFooterStopsTheRunOnQ).
 		m := NewModel()
-		m.Screen = ScreenInstalling
+		m.Screen = ScreenOSSelect
 
 		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 		newModel := result.(Model)
 
 		if newModel.Quitting {
-			t.Error("q alone should not quit during installation, which offers no quit")
+			t.Error("q alone should not quit on a question screen, which offers no quit")
 		}
 	})
 

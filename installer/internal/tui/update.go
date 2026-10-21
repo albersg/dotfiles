@@ -2082,6 +2082,18 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+	case ScreenInstalling:
+		// The installing screen's own key: q stops the run, which is what the footer's
+		// "[q] Cancel" promises. It stops the way ctrl+c always has -- the program
+		// quits, the running step stops where it is, and no record is written because
+		// nothing failed -- so the way out is one flow with two keys rather than a
+		// second flow beside it.
+		switch key {
+		case "q":
+			m.Quitting = true
+			return m, tea.Quit
+		}
+
 	case ScreenError:
 		switch key {
 		case "q":

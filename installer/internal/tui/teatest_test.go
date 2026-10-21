@@ -979,11 +979,33 @@ func TestWelcomeLivePanelGolden(t *testing.T) {
 
 // TestInstallingLiveGolden pins the installing screen with the machine's pulse
 // and the run's own progress chart on it, at the 80x24 floor, so the block that
-// shares the frame with the rail is checked at the size where the room is
+// shares the frame with the checklist is checked at the size where the room is
 // tightest.
 func TestInstallingLiveGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := installerFrameCase(t, "installing-live")
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestInstallingScreenGolden pins the mockup's installing screen at the 80x24
+// floor: the run's sentence over the screen, the step with the run's own clock
+// under it, the checklist of the plan beside the log card, and the progress bar
+// under both. The checklist is windowed around the step in progress and the card
+// keeps the freshest lines, which is the shape the mockup draws where the rows
+// allow it; the state of every row is the run's, never the renderer's guess.
+func TestInstallingScreenGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := installerFrameCase(t, "installing-details")
+	golden.RequireEqual(t, []byte(m.View()))
+}
+
+// TestInstallingWideGolden pins the mockup's layout at 160x50, where the two
+// columns and the whole checklist fit together and the log card is deep enough
+// to hold its own tail without naming an earlier line.
+func TestInstallingWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := installerFrameCase(t, "installing-details-many")
+	m.Width, m.Height = 160, 50
 	golden.RequireEqual(t, []byte(m.View()))
 }
 

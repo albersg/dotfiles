@@ -1,0 +1,50 @@
+                                                                                                                                                                
+   Installing                                                                                                                      ▓▓░░░░░░░░ 3/16 · dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                    Running installation...                                                                     
+                                                              Step 3 of 16 - Install Dependencies                                                               
+                                                                 Estimating the time remaining…                                                                 
+  ✓ Backup Existing Configs                                                         ▓▓▓▓▓▓▓▓▓▓  ╭────────────────────────────────────────────────────────────╮  
+  ✓ Prefer IPv4                                                                     ▓▓▓▓▓▓▓▓▓▓  │ > log line 22                                              │  
+  ● Install Dependencies                                                            ▓▓▓▓▓░░░░░  │ > log line 23                                              │  
+  ○ Clone Repository                                                                ░░░░░░░░░░  │ > log line 24                                              │  
+  ○ Install Homebrew                                                                ░░░░░░░░░░  │ > log line 25                                              │  
+  ○ Install alacritty                                                               ░░░░░░░░░░  │ > log line 26                                              │  
+  ○ Install Meslo Nerd Font                                                         ░░░░░░░░░░  │ > log line 27                                              │  
+  ○ Install fish                                                                    ░░░░░░░░░░  │ > log line 28                                              │  
+  ○ Install tmux                                                                    ░░░░░░░░░░  │ > log line 29                                              │  
+  ○ Install Neovim                                                                  ░░░░░░░░░░  │ > log line 30                                              │  
+  ○ Install Toolset                                                                 ░░░░░░░░░░  │ > log line 31                                              │  
+  ○ Install Pi Agent Skills                                                         ░░░░░░░░░░  │ > log line 32                                              │  
+  ○ Install OfficeCLI                                                               ░░░░░░░░░░  │ > log line 33                                              │  
+  ○ Restore the Applied Theme                                                       ░░░░░░░░░░  │ > log line 34                                              │  
+  ○ Set Default Shell                                                               ░░░░░░░░░░  │ > log line 35                                              │  
+  ○ Cleanup                                                                         ░░░░░░░░░░  │ > log line 36                                              │  
+                                                                                                │ > log line 37                                              │  
+                                                                                                │ > log line 38                                              │  
+                                                                                                │ > log line 39                                              │  
+                                                                                                │ > log line 40                                              │  
+                                                                                                │ … 21 earlier lines                                         │  
+                                                                                                ╰────────────────────────────────────────────────────────────╯  
+  ████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  16%  
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ● Installing… ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                                                      [d] details • [q] Cancel  

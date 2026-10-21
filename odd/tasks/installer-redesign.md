@@ -84,7 +84,7 @@ The user's words, verbatim:
 | T5 | S6 | The setup table and its right panel | (in the tree, uncommitted — the table, its detail panel and two goldens) |
 | T6 | S8 | The utilities screen | (in the tree, uncommitted — the card of two-line rows, the System Overview panel and two goldens) |
 | T7 | S9 | The theme selector grid | (in the tree, uncommitted — the heading, the subtitle, the card grid, the floor list, the tip and the goldens) |
-| T8 | S7 | The installing checklist, the log panel and the progress bar | (pending) |
+| T8 | S7 | The installing checklist, the log panel and the progress bar | (in the tree, uncommitted — the mockup's stack, the checklist beside the log card, the bar under both and the `[q] Cancel` footer) |
 | T9 | S10 | The remaining pages | (pending) |
 | T10 | S11 | The floor/stability/contrast guards and the goldens | (with each task) |
 
@@ -503,3 +503,98 @@ beside the name, which is a reading-width call; the cursor still walks the grid 
 reading order one row at a time (a two-column grid could move by two with `j`/`k`,
 but that is the key grammar's decision and belongs with it); and the VHS tapes
 still capture the picker with the old list until `make screens` runs.
+
+L15. T8 landed in the tree (uncommitted): the installing screen, its checklist, its
+log card, its bar and the footer's own way out. What was copied from the image
+(panel 4, "Instalación (progreso detallado)"), in the mockup's order:
+
+- **The stack over the two columns.** `Running installation...` centred in the
+  brand tone, and under it `Step 3 of 16 - Install Dependencies` -- the mockup's
+  dash, not the `·` the wizard's counters use -- then the run's own clock
+  (`Elapsed 42s · ~3m 46s left`, or the sentence saying it is still estimating).
+  The three rows are a fixed count: a run whose plan is not built yet keeps its
+  step row blank, so the columns under it never move. The header chip is the
+  mockup's word (`Installing`, where it said `Installing dotfiles`) and the frame's
+  status rule still carries `Installing…`.
+- **The checklist.** One row per step: the state glyph, the name, and the step's
+  own progress as the trailing meter the row has always used. The step the run is
+  on is one filled bar across the column with its glyph riding it, which is how the
+  mockup draws the running row; every other row is plain. The five states are the
+  existing five (`✓` done, `●` running, `✗` failed, `⊘` skipped, `○` pending) and
+  the glyph, not the tone, is what carries them. The checklist is drawn bare -- the
+  mockup draws no box around it -- and windowed around the running step, so the
+  header's `3/16` is the only place the count is said.
+- **The log card.** The mockup's rounded box at the right, every line led by its
+  `> ` prompt, the freshest lines kept and one dim row naming the earlier ones the
+  card could not show (the existing `logTailCount` arithmetic). A run that has
+  logged nothing yet says it is waiting instead of drawing an empty box, so the
+  card the frame reserved is never mistaken for one that failed to draw.
+- **The bar.** Under both columns, filling the composition, with the percentage at
+  the frame's right edge as the mockup puts it. It is `installProgress`'s fraction
+  and nothing else: done and skipped count fully, the running step counts what it
+  reported, pending counts zero.
+- **The footer.** `● Installing… ───...` on the rule and `[d] details • [q] Cancel`
+  on the legend, which is the mockup's one way out beside the toggle that
+  collapses the log card.
+
+Two things the mockup draws are deliberately not row for row:
+
+- **Its per-step times (`2.3s`, `18.7s`).** Nothing in this installer records a
+  per-step duration: the run holds one start timestamp and the latest tick, and a
+  step holds its status and the fraction it reported. A row that showed `2.3s`
+  would be the screen inventing a clock, so the trailing column is the meter the
+  step really has -- and the run's own elapsed time and estimate, which the model
+  does hold, stay on the screen as the third row of the stack. A guard fails if a
+  checklist row ever states a duration.
+- **Its `[q] Cancel` needed a key.** The footer's promise is honest only if q acts,
+  so q now stops the run through the path ctrl+c has always taken: the program
+  quits, the running step stops where it is, and no record is written because
+  nothing failed. That is one flow with two keys, not a second cancel beside it;
+  the install flow, the operations and the backup/restore/overwrite policies are
+  untouched, and `TestAnAbortedRunLeavesNoRecord` still holds for the new key's
+  path. The guard that pinned "q does not quit during installation" now reads
+  `ScreenOSSelect` instead, because the installing footer is no longer the case it
+  describes.
+
+The floor and the stability. At 80x24 the body spends the three stack rows, a
+fifteen-row band (the checklist's fifteen rows beside a thirteen-row card) and the
+bar, with the machine's pulse in the rows above the bar when the sampler has
+landed. At 60x20 the band is eleven rows and the log card is still drawn: its
+columns are 30 and 24, and the checklist drops its trailing meter entirely rather
+than cutting a step name -- a name is a fact, the meter is a decoration, and the
+run's bar still carries the progress. The band's height comes from the frame and
+never from the log's length, so the bar cannot move while the run writes, and
+`TestInstallingLayoutDoesNotMoveAsStepsAdvance` pins it across a step boundary.
+
+New guards: `TestInstallingScreenCopiesTheMocksShape` (the stack, the band, the
+card's borders, the bar's percentage and the footer, at 80x24 and 160x50),
+`TestInstallingChecklistStatesEveryStepTheRunKnows` (all five glyphs and the meter
+each state earns), `TestInstallingDoesNotInventStepTimes` (no row states a
+duration; the run's own clock is shown), `TestInstallingListRowsSayWhatTheyMeasure`,
+`TestInstallingFloorKeepsTheCurrentStepAndTheLog`,
+`TestInstallingColumnsSplitTheFrame` (the two columns fill the composition with one
+gap at every measured terminal), `TestInstallingLayoutDoesNotMoveAsStepsAdvance`,
+`TestInstallingBarIsTheRunsOwnProgress` (including the no-plan run reading 100%),
+`TestInstallingFooterStopsTheRunOnQ` (and the same stop from ctrl+c, and while the
+WSL offer waits), `TestInstallingLogKeepsTheMockupsPrompt`,
+`TestInstallingChecklistNeverCutsAStepName` (the meter ladder),
+`TestInstallingEveryMeasuredFrameDrawsTheWholePlan`, `TestInstallingHeadAlwaysCostsTheSameRows`
+and `TestInstallingStepCounterStaysInsideThePlan`. New goldens:
+`TestInstallingScreenGolden` (80x24, the two columns) and `TestInstallingWideGolden`
+(160x50, the mockup's layout); `TestInstallingLiveGolden` and
+`TestInstallingTruecolorGolden` were regenerated.
+
+The run now opens with the log card on (`beginInstallFromReview`), because the
+mockup draws it and the lines are what the step being watched is writing; `d` still
+collapses it, and the checklist then takes the whole composition while the bar
+keeps its row. Nothing about the details key changed except its default.
+
+Follow-ups this slice found and did not take: the mockup's per-step times would
+need a per-step clock on the model, which is a run-state change and not a render
+one; `styles.BoxStyle` lost its last caller (the old installing log box) and is now
+unused -- removing an exported theme style belongs with T1's palette pass; the VHS
+tapes do not capture the installing screen at all, so its shape is pinned by the
+goldens rather than by a `make screens` frame; and the checklist's window still
+says nothing about the rows it hides, where the setup table and the utilities card
+both name theirs (`↑ N more above` / `↓ N more below`) -- the header's `3/16` is
+the count, and adding the notes would spend two of the band's rows.
