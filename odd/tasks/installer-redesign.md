@@ -181,3 +181,16 @@ drives the installer and the system, exactly as before. The mockup's violet is
 illustration only. Every slice is captured with the existing VHS harness
 (`make screens`, 200x55 and 80x24) and the captures are reviewed before the slice
 is called done.
+
+L10. User: "planificalo para que en cuanto vuelva el subagente, iteres de forma
+autonoma, sin lanzar ningun push ni nada (hasta que no vuelva yo, para que el chat
+no se quede bloqueado por falta de aprobacion del comando)". Decision: the
+autonomous loop between worker completions is (1) review the diff against the
+image and the task, (2) run the focused tests, the golden update and the full
+suite, (3) run `make screens` and review the 200x55 and 80x24 captures, (4)
+commit locally in a work unit, (5) launch the next slice (T5, T6, T7, T8, T9 and
+T1 last), repeating. While the user is away there is no `git push`, no PR update,
+no merge and no command that needs the human's approval. A slice blocked by a
+design decision, a failing guard the design cannot resolve, or a missing tool
+stops the loop with a concrete blocker report; it is never pushed and never
+worked around silently.
