@@ -19,12 +19,12 @@ Env COLORTERM "truecolor"
 
 Type "./installer/dotfiles"
 Enter
-Wait+Screen /Your terminal environment/
+Wait+Screen /Your personal development environment/
 Sleep 700ms
 Screenshot "captures/200x55/01-welcome.png"
 
 Type "s"
-Wait+Screen /What would you like to do/
+Wait+Screen /Start Installation/
 Sleep 700ms
 Screenshot "captures/200x55/02-main-menu.png"
 
