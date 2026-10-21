@@ -1541,7 +1541,7 @@ func (m Model) GetScreenTitle() string {
 	case ScreenShellSelect:
 		return "Step 4: Choose Your Shell"
 	case ScreenWMSelect:
-		return "Step 5: Choose Window Manager"
+		return "Step 5: Choose Multiplexer"
 	case ScreenNvimSelect:
 		return "Step 6: Neovim Configuration"
 	case ScreenInstallReview:
@@ -1554,7 +1554,7 @@ func (m Model) GetScreenTitle() string {
 		// steps the header shows.
 		return "Step 1: Set Up the Installation"
 	case ScreenBackupConfirm:
-		return "Existing Configs Detected"
+		return "Existing configurations"
 	case ScreenRestoreBackup:
 		return "Restore from Backup"
 	case ScreenRestoreConfirm:
@@ -1574,7 +1574,7 @@ func (m Model) GetScreenTitle() string {
 	case ScreenLearnShells:
 		return "Learn: Shells"
 	case ScreenLearnWM:
-		return "Learn: Window Managers"
+		return "Learn: Multiplexers"
 	case ScreenLearnNvim:
 		return "Learn: Neovim"
 	case ScreenKeymaps:

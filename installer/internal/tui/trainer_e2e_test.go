@@ -2067,14 +2067,14 @@ func TestTrainerBossScreenShowsTheStepCountdown(t *testing.T) {
 	limit := m.TrainerGameState.CurrentBoss.Steps[m.TrainerGameState.BossStep].TimeLimit
 
 	view := m.renderTrainerBoss()
-	if want := fmt.Sprintf("⏳ Time left: %ds", limit); !strings.Contains(view, want) {
+	if want := fmt.Sprintf("Time left: %ds", limit); !strings.Contains(view, want) {
 		t.Errorf("the boss screen does not show %q:\n%s", want, view)
 	}
 
 	// The countdown reads the injected clock, so it drops as time passes.
 	*now = now.Add(2 * time.Second)
 	view = m.renderTrainerBoss()
-	if want := fmt.Sprintf("⏳ Time left: %ds", limit-2); !strings.Contains(view, want) {
+	if want := fmt.Sprintf("Time left: %ds", limit-2); !strings.Contains(view, want) {
 		t.Errorf("the boss countdown did not follow the clock, want %q:\n%s", want, view)
 	}
 }
@@ -2147,7 +2147,7 @@ func TestTrainerMenuShowsModuleProgress(t *testing.T) {
 
 	lessons := trainer.GetLessons(trainer.ModuleHorizontal)
 	want := []string{
-		"Lessons",
+		"Done",
 		"7/15",
 		"Mastered",
 		fmt.Sprintf("2/%d", len(lessons)),
@@ -2271,7 +2271,7 @@ func TestTrainerMenuShowsUnopenedModuleLessonTotal(t *testing.T) {
 	if len(lessons) == 0 {
 		t.Fatal("no vertical lessons available")
 	}
-	want := fmt.Sprintf("Lessons ░░░ 0/%d", len(lessons))
+	want := fmt.Sprintf("Done ░░░ 0/%d", len(lessons))
 	if !strings.Contains(view, want) {
 		t.Errorf("unopened module does not show %q:\n%s", want, view)
 	}

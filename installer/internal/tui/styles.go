@@ -373,7 +373,9 @@ func applyUIColors(c uiColors) {
 		Foreground(InkDim)
 
 	MeterOnBarStyle = lipgloss.NewStyle().
-		Foreground(InkDim).
+		// The selected row's ink, not the dim one: on the brand fill the dim meter
+		// nearly disappears while the label beside it stays readable.
+		Foreground(Paper).
 		Background(BrandSoft)
 
 	// The companion's one tone: the brand role, because the creature is frame

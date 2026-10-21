@@ -861,7 +861,7 @@ func TestBackupScreenGolden(t *testing.T) {
 	m.Screen = ScreenBackupConfirm
 	m.ExistingConfigs = []string{".config/nvim", ".zshrc", ".tmux.conf"}
 
-	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Existing Configs Detected"))
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Existing configurations"))
 }
 
 // TestErrorScreenGolden tests the error screen render

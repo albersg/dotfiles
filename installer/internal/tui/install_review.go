@@ -377,10 +377,18 @@ var hintStartInstall = installerHint{"[s]", "start"}
 // 24-row terminal, and nine rows fit at 80x24 and overflow the twenty-row terminal
 // the matrix also measures.
 func (m Model) renderInstallReview() string {
-	width := contentWidth(m)
+	// The plan panel is composed beside the body on a wide frame, and the body is
+	// then cut to the left column. Wrapping the description to the whole frame and
+	// letting that cut finish the sentence is what put the "…" in the middle of
+	// "Every unit this run can install": wrap to the column the text is drawn in.
+	l := layoutFor(m)
+	width := l.Inner
+	if l.TwoColumn && len(m.panelsFor()) > 0 {
+		width = l.Left
+	}
 
 	hints := []installerHint{hintUp, hintDown, hintToggle, hintStartInstall, hintBack}
-	footer := footerHints(layoutFor(m).Inner, m.panelHints(m.panelsFor(), hints))
+	footer := footerHints(l.Inner, m.panelHints(m.panelsFor(), hints))
 	budget := installerBodyRows(m.Height, len(footer))
 
 	description := wrapText(m.GetScreenDescription(), width, 0)

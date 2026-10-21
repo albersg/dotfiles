@@ -1805,6 +1805,11 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// finding, and marking a finding for cleanup is the whole point of the
 			// row. Passing it to the leader key would leave every checkbox on the
 			// screen advertised and unreachable.
+		case m.Screen == ScreenInstallReview:
+			// The install review owns space: it is the switch on every unit the run
+			// can leave out. Leaving it to the leader key made the footer's
+			// "[Space] turn it off or on" a lie and armed the leader, so the next key
+			// was swallowed and no unit could be turned off from the keyboard.
 		case m.Screen == ScreenUpdateCenter:
 			// The update center owns space for the same reason the setup screen's
 			// switches do: on that list space selects or drops the entry the cursor is
@@ -3500,6 +3505,14 @@ func (m Model) handleSelectionKeys(key string) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "up", "k":
+		// A question whose answer was not recorded opens with no row highlighted,
+		// so the screen does not present a guess as the installer's answer. The
+		// first arrow press has to pick a row anyway: leaving Up dead on the very
+		// screen whose footer asks for a choice was the defect.
+		if m.Cursor < 0 {
+			m.Cursor = 0
+			break
+		}
 		if m.Cursor > 0 {
 			m.Cursor--
 			// Skip separator lines
@@ -3511,6 +3524,10 @@ func (m Model) handleSelectionKeys(key string) (tea.Model, tea.Cmd) {
 		}
 
 	case "down", "j":
+		if m.Cursor < 0 {
+			m.Cursor = 0
+			break
+		}
 		if m.Cursor < len(options)-1 {
 			m.Cursor++
 			// Skip separator lines

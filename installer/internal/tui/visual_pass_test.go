@@ -213,3 +213,100 @@ func TestTrainerScrollHintOnlyWhenTheCodeScrolls(t *testing.T) {
 		t.Error("a scrolling code window does not advertise the scroll key")
 	}
 }
+
+// TestInstallReviewSpaceTogglesWithoutLeaderMode pins the review's one switch:
+// Space must reach the review's handler. The screen used to fall through to the
+// global leader key, so the footer's "[Space] turn it off or on" armed the leader
+// and swallowed the next key; no unit could be turned off from the keyboard.
+func TestInstallReviewSpaceTogglesWithoutLeaderMode(t *testing.T) {
+	m := Model{Screen: ScreenInstallReview}
+	m.snapUnitCursor()
+	rows := m.planReviewRows()
+	if m.UnitCursor < 0 || m.UnitCursor >= len(rows) || rows[m.UnitCursor].StepID == "" {
+		t.Fatal("the review did not start on a unit")
+	}
+	id := rows[m.UnitCursor].StepID
+	before := m.unitIsDisabled(id)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	got := updated.(Model)
+	if got.LeaderMode {
+		t.Fatal("Space armed leader mode on the install review")
+	}
+	if got.unitIsDisabled(id) == before {
+		t.Errorf("Space did not toggle the unit %q", id)
+	}
+}
+
+// TestInstallReviewPanelFollowsTheCursor pins the review's right column: it
+// answers for the unit the cursor is on, not for the wizard's last choice.
+func TestInstallReviewPanelFollowsTheCursor(t *testing.T) {
+	m := Model{Screen: ScreenInstallReview, Width: 160, Height: 48}
+	m.snapUnitCursor()
+	l := layoutFor(m)
+	first := strings.Join(m.installReviewPanelFacts(l), "\n")
+	rows := m.planReviewRows()
+	m.UnitCursor = len(rows) - 1
+	last := strings.Join(m.installReviewPanelFacts(l), "\n")
+	if first == last {
+		t.Errorf("the review panel did not change with the cursor:\n%s", first)
+	}
+	if !strings.Contains(first, "Selected") {
+		t.Errorf("the review panel has no selected row:\n%s", first)
+	}
+}
+
+// TestCompletionDryRunSaysNothingWasWritten pins the dry run's completion: it
+// must not claim the machine was configured or send the reader to a shell the
+// rehearsal never set up.
+func TestCompletionDryRunSaysNothingWasWritten(t *testing.T) {
+	t.Setenv("DOTFILES_DRY_RUN", "1")
+	m := NewModel()
+	m.Screen = ScreenComplete
+	view := m.renderComplete()
+	if !strings.Contains(view, "Dry run") {
+		t.Errorf("the dry-run completion does not say it was a rehearsal:\n%s", view)
+	}
+	if strings.Contains(view, "Next Step") {
+		t.Errorf("the dry-run completion offers a next step it did not set up:\n%s", view)
+	}
+	if !strings.Contains(view, "Multiplexer:") {
+		t.Errorf("the completion summary still calls the multiplexer a window manager:\n%s", view)
+	}
+}
+
+// TestWMDetourStartsOnNoRowAndTheFirstArrowPicksOne pins the no-answer state: a
+// question whose answer was not recorded must not present a guess, but the first
+// arrow press has to pick a row instead of being dead (and the footer must not
+// offer Enter until there is a row to choose).
+func TestWMDetourStartsOnNoRowAndTheFirstArrowPicksOne(t *testing.T) {
+	m := NewModel()
+	m.Screen = ScreenSetup
+	rows := m.setupRows()
+	at := -1
+	for i, row := range rows {
+		if row.Screen == ScreenWMSelect {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatal("the setup has no multiplexer row")
+	}
+	m.SetupCursor = at
+	m.openSetupRow()
+	if m.Screen != ScreenWMSelect {
+		t.Fatalf("opening the multiplexer row went to %v, not the question", m.Screen)
+	}
+	if m.Cursor != -1 {
+		t.Errorf("the multiplexer question highlights row %d although no answer is recorded", m.Cursor)
+	}
+	if strings.Contains(m.View(), "[Enter] choose") {
+		t.Error("the no-answer question advertises Enter choose")
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	got := updated.(Model)
+	if got.Cursor != 0 {
+		t.Errorf("Up left the no-answer question on row %d, want the first", got.Cursor)
+	}
+}
