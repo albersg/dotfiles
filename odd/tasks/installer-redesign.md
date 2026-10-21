@@ -7,13 +7,13 @@ and is not committed; the specs below record what it shows and the exact strings
 
 ## Specs
 
-S1. **The design language.** A dark violet base, a violet accent, near-white ink,
-    a lavender muted role, a green ready dot, a filled violet selection bar, thin
-    bordered chrome, two-line rows with Nerd Font icons, and a call-to-action
-    button. Every colour clears the existing contrast floors (body 4.5:1, the
-    muted role on the drift, the key tone). The palette is a new **Default**
-    theme; the historical **dotfiles** theme (the terminal's own palette) stays
-    selectable and remains the committed files' theme.
+S1. **The design language.** The mockup's layout is the target: bordered chrome,
+    two-line rows with Nerd Font icons, a filled selection bar, cards, the setup
+    table, the theme grid and the progress screen. The palette is **not** copied
+    literally: every surface draws its roles from the active theme (the themes the
+    installer already ships), so the violet is the mockup's illustration and not a
+    new required theme. Every colour still clears the existing contrast floors
+    (body 4.5:1, the muted role on the drift, the key tone).
 S2. **The chrome.** Every screen carries a header bar (the screen name in a
     filled chip at the left, the build label at the right) and a status bar (a
     coloured dot and a state word at the left, the key hints at the right). The
@@ -75,7 +75,7 @@ The user's words, verbatim:
 
 | ID | Specs | Route | Commit |
 |----|-------|-------|--------|
-| T1 | S1 | The new **Default** theme: `themes/default.toml`, the default selection, the `defaultUIColors` mapping, the contrast/coverage tests, the docs | (pending) |
+| T1 | S1 | The palette adaptation: the new surfaces (bars, cards, table, grid) draw from each existing theme's roles; no new theme; the theme grid's Default card is the current default theme | (pending) |
 | T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (pending) |
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (this slice, current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (pending) |
@@ -99,5 +99,17 @@ visual que estas pantallas, para dejarlo todo perfectamente
 L2. User: "continua con la remodelizacion de la interfaz".
 L3. Decision: the current fix branch (#393) lands first; this front starts on
 main. T3 is the first slice, in the current palette, with the existing IA (the
-update and tools rows stay); the six-row Learn/Session hub consolidation and the
-new Default palette follow as T1/T3b.
+update and tools rows stay); the six-row Learn/Session hub consolidation follows
+as T3b.
+L4. User: "pues continua, no pares hasta que tengas todo solventado. si lo
+necesitas, tienes el resto de sesiones herdr dotfiles para apoyarte por si
+necesitas paralelizar algo. Si van a hacer algo, tienen que leer si o si la
+imagen que hablamos. La paleta de colores no hace falta que la copies
+exactamente, adaptala a los theme que tenemos, pero el diseño de la UI si me
+gustaria que la copiases en la medida de lo posible".
+L5. Decision: the design is copied as closely as the themes allow; the palette
+adapts to the existing themes (no new violet theme). T3's first pass is
+uncommitted on `feat/installer-redesign`: the main menu's two-line rows, icons,
+subtitles and detail-panel button are in; `TestMainMenuPlanPanelLeavesRoomForTheCompanion`
+is red (the wide/floor plan+companion arithmetic), and the T2 chrome is next.
+Anyone working on this front must read the mockup image first.
