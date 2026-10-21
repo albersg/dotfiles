@@ -441,6 +441,27 @@ func composeColumns(body, panel []string, l layout) []string {
 	return out
 }
 
+// centeredBody indents a one-column body to the layout's leading margin and cuts
+// it to the composition. The two-column pages are composed with the same margin
+// by composeColumns; without this a single-column page hugged the frame's left
+// edge while the pages beside it were centred, so the same terminal had two left
+// edges (ports and setup at column 2, LazyVim at column 20).
+func centeredBody(lines []string, l layout) []string {
+	if l.Leading <= 0 {
+		return lines
+	}
+	indent := strings.Repeat(" ", l.Leading)
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		if line == "" {
+			out[i] = ""
+			continue
+		}
+		out[i] = indent + truncate(line, l.Composition)
+	}
+	return out
+}
+
 // frame wraps a screen body in the persistent frame, asking the registry what
 // panels the screen offers. The header stays on the top row and the footer on the
 // bottom one, and the body is centred in the rows between them: a short screen
@@ -1782,6 +1803,11 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	if l.TwoColumn && (pane || len(panels) > 0) {
 		width = l.Left
 	}
+	if !pane && len(panels) == 0 && l.TwoColumn {
+		// A one-column page shares the centred composition, not the full inner
+		// width: prose and rows have one measure on every page.
+		width = l.Composition
+	}
 	detail := inkParagraphs(wrapParagraphs(paragraphs, width))
 	options := m.GetCurrentOptions()
 	detailLines := len(detail)
@@ -1866,6 +1892,8 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 		// other column already shows.
 		column := panelBody(m.sectionPaneTitle(), inkParagraphs(wrapParagraphs(paragraphs, l.Right)), l.Right, bands.Body)
 		body = composeColumns(body, column, l)
+	} else if len(panels) == 0 {
+		body = centeredBody(body, l)
 	}
 
 	// The header's vital names the slice of a windowed list that is on screen, so
@@ -3482,7 +3510,8 @@ func stripStepPrefix(title string) string {
 // from setup_rows.go, so a decision cannot lose its row by being left out of a
 // renderer written a second time.
 func (m Model) renderSetup() string {
-	width := contentWidth(m)
+	l := layoutFor(m)
+	width := l.Composition
 
 	hints := m.setupHints()
 	footer := footerHints(layoutFor(m).Inner, m.panelHints(m.panelsFor(), hints))
@@ -3494,6 +3523,15 @@ func (m Model) renderSetup() string {
 	}
 
 	rows := m.setupRows()
+	// The value column starts after the longest row label, not at a fixed 44: the
+	// shell's plugin-set row is 53 characters, and the fixed column cut it with an
+	// ellipsis on a 200-column terminal while the rest of the row was empty. The
+	// cap keeps the column inside the 80-column floor the frame matrix measures.
+	valueColumn := 0
+	for _, row := range rows {
+		valueColumn = max(valueColumn, lipgloss.Width(row.rowLabel()))
+	}
+	valueColumn = min(valueColumn, 56)
 	// The rows that are not the list: the title, the description, the blank under it,
 	// and the two rows the "more above" and "more below" lines may take. The window is
 	// sized from the terminal because the row list grew with the plugin sets and then
@@ -3520,8 +3558,7 @@ func (m Model) renderSetup() string {
 		// aligned) are harder to compare than the names they belong to.
 		label := row.rowLabel()
 		if value := m.setupRowValue(row); value != "" {
-			const setupValueColumn = 44
-			label = padRight(truncate(label, setupValueColumn), setupValueColumn) + "  " + value
+			label = padRight(truncate(label, valueColumn), valueColumn) + "  " + value
 		}
 		body = append(body, m.rowBar(label, i == m.SetupCursor, ""))
 	}
@@ -3536,7 +3573,7 @@ func (m Model) renderSetup() string {
 	if current, total := m.wizardProgress(); total > 0 {
 		vital = meterRendered(current, total, 10)
 	}
-	return m.frame(m.headerName(), vital, body, hints)
+	return m.frame(m.headerName(), vital, centeredBody(body, l), hints)
 }
 
 func (m Model) renderSelection() string {
@@ -3567,7 +3604,13 @@ func (m Model) renderSelection() string {
 	if current, total := m.wizardProgress(); total > 0 {
 		vital = meterRendered(current, total, 10)
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintChoose, hintBack})
+	hints := []installerHint{hintUp, hintDown}
+	if m.Cursor >= 0 {
+		// With no recorded answer nothing is highlighted; naming Enter there would
+		// advertise a press that chooses nothing. The arrows are the way to pick.
+		hints = append(hints, hintChoose)
+	}
+	return m.frame(m.headerName(), vital, body, append(hints, hintBack))
 }
 
 // renderLearnTools draws the hub: one row per page of the in-installer wiki,
@@ -4563,11 +4606,15 @@ func (m Model) renderComplete() string {
 	// place the completion screen says "done" in the palette without spending a
 	// row, and the companion and the celebration are both measured against the
 	// rows this screen leaves.
+	// The summary reads the labels the wizard showed, not the internal values:
+	// "linux" beside "Zsh" was a different vocabulary from the questions that
+	// produced it. The multiplexer is a multiplexer (tmux, Zellij, Herdr), not a
+	// window manager, and a question left unanswered says so.
 	items := []string{
-		fmt.Sprintf("OS: %s", m.Choices.OS),
-		fmt.Sprintf("Terminal: %s", m.Choices.Terminal),
-		fmt.Sprintf("Shell: %s", m.Choices.Shell),
-		fmt.Sprintf("Window Manager: %s", m.Choices.WindowMgr),
+		fmt.Sprintf("OS: %s", m.completionChoiceLabel(ScreenOSSelect, m.Choices.OS)),
+		fmt.Sprintf("Terminal: %s", m.completionChoiceLabel(ScreenTerminalSelect, m.Choices.Terminal)),
+		fmt.Sprintf("Shell: %s", m.completionChoiceLabel(ScreenShellSelect, m.Choices.Shell)),
+		fmt.Sprintf("Multiplexer: %s", m.completionChoiceLabel(ScreenWMSelect, m.Choices.WindowMgr)),
 	}
 	if m.Choices.InstallFont {
 		items = append(items, m.fontSummaryLine())
@@ -4591,14 +4638,43 @@ func (m Model) renderComplete() string {
 	// completion screen a body that reads as designed space instead of a gutter
 	// under a chip, and the summary's title keeps the success check that says the
 	// run finished while the edges wear the frame's border role.
-	body := panelBlock(SuccessStyle.Render("✓")+" "+BrandStyle.Render("Summary"), width, rendered)
+	// A dry run changes nothing, so "Installation complete" and "exec zsh" are
+	// true only in the loosest sense. Say what happened and do not send the reader
+	// to a shell that was never configured.
+	dry := dryRun()
+	body := []string{}
+	if dry {
+		body = append(body, WarningStyle.Render("Dry run: no file, package or setting was changed."), "")
+	}
+	body = append(body, panelBlock(SuccessStyle.Render("✓")+" "+BrandStyle.Render("Summary"), width, rendered)...)
 	body = append(body, "")
-	body = append(body, panelBlock(BrandStyle.Render("Next Step"), width, []string{
-		InfoStyle.Render("To use your new shell now, run:"),
-		HighlightStyle.Render(fmt.Sprintf("exec %s", shellCmd)),
-	})...)
+	if dry {
+		body = append(body, panelBlock(BrandStyle.Render("Nothing changed"), width, []string{
+			InfoStyle.Render("This was a rehearsal. Run the installer without DOTFILES_DRY_RUN to apply it."),
+		})...)
+	} else {
+		body = append(body, panelBlock(BrandStyle.Render("Next Step"), width, []string{
+			InfoStyle.Render("To use your new shell now, run:"),
+			HighlightStyle.Render(fmt.Sprintf("exec %s", shellCmd)),
+		})...)
+	}
 
 	return m.frame(m.headerName(), "", body, []installerHint{hintExit})
+}
+
+// completionChoiceLabel is the label the wizard showed for a recorded answer, so
+// the completion summary speaks the questions' vocabulary instead of the internal
+// choice keys. An unanswered question says so.
+func (m Model) completionChoiceLabel(screen Screen, value string) string {
+	if value == "" {
+		return "Not chosen"
+	}
+	for _, option := range m.questionValueOptions(screen) {
+		if questionAnswerKey(screen, option) == value {
+			return plainOptionName(option)
+		}
+	}
+	return value
 }
 
 func (m Model) renderError() string {
@@ -4651,10 +4727,11 @@ func (m Model) renderError() string {
 const backupConfirmFixed = 6
 
 func (m Model) renderBackupConfirm() string {
-	width := contentWidth(m)
+	l := layoutFor(m)
+	width := l.Composition
 	hints := []installerHint{hintUp, hintDown, hintChoose, hintBack}
 	options := m.GetCurrentOptions()
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, hints))
 
 	// The config list is bounded to the frame: a machine with all sixteen config
 	// paths present used to push the options off the bottom of the screen.
@@ -4674,7 +4751,7 @@ func (m Model) renderBackupConfirm() string {
 	body = append(body, "")
 	body = append(body, m.menuRows(options, m.Cursor)...)
 
-	return m.frame(m.headerName(), "", body, hints)
+	return m.frame(m.headerName(), "", centeredBody(body, l), hints)
 }
 
 // restoreBackupBodyFixed is the part of the restore list's body that is not a
@@ -4739,10 +4816,11 @@ func (m Model) renderRestoreConfirm() string {
 	}
 
 	backup := m.AvailableBackups[m.SelectedBackup]
-	width := contentWidth(m)
+	l := layoutFor(m)
+	width := l.Composition
 	hints := []installerHint{hintUp, hintDown, hintChoose, hintCancel}
 	options := m.GetCurrentOptions()
-	bodyRows := installerBodyRows(m.Height, footerRowCount(width, hints))
+	bodyRows := installerBodyRows(m.Height, footerRowCount(l.Inner, hints))
 
 	// List files in backup, bounded to the frame so a backup with a long file
 	// list cannot push the options off the bottom of the screen.
@@ -4763,7 +4841,7 @@ func (m Model) renderRestoreConfirm() string {
 	body = append(body, "")
 	body = append(body, m.menuRows(options, m.Cursor)...)
 
-	return m.frame(m.headerName(), "", body, hints)
+	return m.frame(m.headerName(), "", centeredBody(body, l), hints)
 }
 
 // ============================================================================
@@ -5140,7 +5218,7 @@ func trainerModuleMeterText(progress *trainer.ModuleProgress, practice trainer.P
 		masteryFraction = float64(practice.MasteredCount) / float64(practice.TotalExercises)
 	}
 
-	return fmt.Sprintf("Lessons %s %d/%d Mastered %s %d/%d",
+	return fmt.Sprintf("Done %s %d/%d Mastered %s %d/%d",
 		meterCellsPlain(lessonsFraction, trainerRowMeterCells), lessonsCompleted, lessonsTotal,
 		meterCellsPlain(masteryFraction, trainerRowMeterCells), practice.MasteredCount, practice.TotalExercises)
 }
@@ -5231,8 +5309,12 @@ func (m Model) renderTrainerMenu() string {
 	inner := trainerInnerWidth(m)
 
 	rows := []string{
-		headerRow("🎮 Vim Mastery Trainer", m.trainerMenuVital(), inner),
+		headerRow("Vim Mastery Trainer", m.trainerMenuVital(), inner),
 		headerRule(inner),
+		// The selected row's bar and the brand rule are near-identical tones; without
+		// a blank row between them the top of the list and the header merge into one
+		// lavender band exactly where the separator is needed.
+		"",
 	}
 
 	for i, module := range m.TrainerModules {
@@ -5245,7 +5327,10 @@ func (m Model) renderTrainerMenu() string {
 		// no emoji font lose nothing. It is padded so every module name starts on
 		// the same column whatever state the module is in.
 		status := padRight(trainerModuleStatus(isUnlocked, isBossDefeated, isBossReady, isPracticeReady), trainerModuleStatusWidth)
-		label := fmt.Sprintf("%s %s %s", status, module.Icon, module.Name)
+		// The module icon was an emoji: on a terminal without an emoji font it drew
+		// a blank cell, and the status word already says the state. The name is the
+		// row.
+		label := fmt.Sprintf("%s %s", status, module.Name)
 
 		// Progress is display-only text attached to the existing entry. The
 		// unlock/ready predicates above and this direct map read both look the
@@ -5619,7 +5704,7 @@ func (m Model) trainerExerciseVital() string {
 		parts = append(parts, MeterStyle.Render(combo))
 	}
 	if remaining := state.RemainingSeconds(); remaining > 0 {
-		parts = append(parts, WarningStyle.Render(fmt.Sprintf("⏳ Hint in %ds", int(math.Ceil(remaining)))))
+		parts = append(parts, WarningStyle.Render(fmt.Sprintf("Hint in %ds", int(math.Ceil(remaining)))))
 	}
 	return strings.Join(parts, "  ")
 }
@@ -5665,7 +5750,7 @@ func (m Model) renderTrainerExercise(mode string) string {
 	inner := l.Inner
 
 	rows := []string{
-		headerRow(fmt.Sprintf("🎮 %s · %s", mode, string(m.TrainerGameState.CurrentModule)), m.trainerExerciseVital(), inner),
+		headerRow(fmt.Sprintf("%s · %s", mode, string(m.TrainerGameState.CurrentModule)), m.trainerExerciseVital(), inner),
 		headerRule(inner),
 	}
 
@@ -5910,7 +5995,7 @@ func (m Model) trainerBossVital() string {
 		parts = append(parts, chip(combo))
 	}
 	if remaining := state.BossStepSecondsLeft(); remaining > 0 {
-		parts = append(parts, chip(fmt.Sprintf("⏳ Time left: %ds", int(math.Ceil(remaining)))))
+		parts = append(parts, chip(fmt.Sprintf("Time left: %ds", int(math.Ceil(remaining)))))
 	}
 	return strings.Join(parts, "  ")
 }

@@ -611,7 +611,7 @@ func TestBackupScreenTitles(t *testing.T) {
 		screen   Screen
 		expected string
 	}{
-		{ScreenBackupConfirm, "Existing Configs Detected"},
+		{ScreenBackupConfirm, "Existing configurations"},
 		{ScreenRestoreBackup, "Restore from Backup"},
 		{ScreenRestoreConfirm, "Confirm Restore"},
 	}

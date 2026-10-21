@@ -1,7 +1,7 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
    Backups                                                           dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  Existing Configs Detected                                                     
+  Existing configurations                                                       
   The following configs will be overwritten:                                    
                                                                                 
     ! .config/nvim                                                              

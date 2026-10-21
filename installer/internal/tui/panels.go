@@ -1018,10 +1018,84 @@ func (m Model) mainMenuPanel(l layout, budget int) []string {
 // menu describes the option under its cursor. It is the one entry the panel
 // registry calls, so a screen cannot draw a different plan through a second path.
 func (m Model) contextPanelFacts(l layout) []string {
+	if m.Screen == ScreenInstallReview {
+		// The review's choice is the unit under its own cursor, not the wizard's
+		// last question; the plan preview belongs to the questions that built it.
+		return m.installReviewPanelFacts(l)
+	}
 	if isWizardChoiceScreen(m.Screen) {
 		return m.wizardChoicePanelFacts(l)
 	}
 	return m.mainMenuPanelFacts(l)
+}
+
+// installReviewRow is the row the review screen has focused, or false when the
+// cursor is outside the list (a hand-built model).
+func (m Model) installReviewRow() (planReviewRow, bool) {
+	rows := m.planReviewRows()
+	if m.UnitCursor < 0 || m.UnitCursor >= len(rows) {
+		return planReviewRow{}, false
+	}
+	return rows[m.UnitCursor], true
+}
+
+// installReviewHeadline names the focused row for the narrow terminal's summary.
+func (m Model) installReviewHeadline() string {
+	row, ok := m.installReviewRow()
+	if !ok {
+		return ""
+	}
+	return m.installReviewRowLabel(row)
+}
+
+// installReviewRowLabel is the row's own name: the unit's label, or the heading or
+// set text when the row is not a unit.
+func (m Model) installReviewRowLabel(row planReviewRow) string {
+	if row.StepID != "" {
+		return installReviewLabel(row.StepID)
+	}
+	return row.Text
+}
+
+// installReviewPanelFacts is the review's right column: what the unit under the
+// cursor is, what it does, whether this run takes it, and whether the run can
+// leave it out. The plan panel used to keep describing the wizard's last choice
+// ("Selected Preparation") and the first step's IPv4 note while the cursor moved
+// down the units.
+func (m Model) installReviewPanelFacts(l layout) []string {
+	row, ok := m.installReviewRow()
+	if !ok {
+		return nil
+	}
+	facts := selectedPanelRow(m.installReviewRowLabel(row), l.Right)
+	switch row.Kind {
+	case planRowHeading:
+		facts = append(facts, InkStyle.Render("The area the units under it belong to."))
+	case planRowSet:
+		facts = append(facts, InkStyle.Render("The plugin set the unit above it installs."))
+	case planRowStep:
+		for _, step := range planFor(m.planOptions()) {
+			if step.ID != row.StepID {
+				continue
+			}
+			if step.Description != "" {
+				facts = append(facts, panelFact("What it does", step.Description, l.Right)...)
+			}
+			state := "on"
+			if m.unitIsDisabled(step.ID) {
+				state = "off"
+			}
+			facts = append(facts, panelFact("This run", state, l.Right)...)
+			if installUnitIsFixed(step.ID) {
+				facts = append(facts, panelFact("Required", "the run cannot leave it out", l.Right)...)
+			}
+			if step.Area != "" {
+				facts = append(facts, panelFact("Area", step.Area, l.Right)...)
+			}
+			break
+		}
+	}
+	return facts
 }
 
 // isWizardChoiceScreen reports whether a screen draws the plan beside the choice
@@ -1044,6 +1118,9 @@ func isWizardChoiceScreen(screen Screen) bool {
 // line. A selection with nothing to say -- a plan the model cannot build, a
 // restore panel with no backups -- gets no line rather than an invented one.
 func (m Model) contextHeadline() string {
+	if m.Screen == ScreenInstallReview {
+		return m.installReviewHeadline()
+	}
 	if isWizardChoiceScreen(m.Screen) {
 		// An unanswered question has no line: the summary answers "what would
 		// this choice do", and there is no choice yet.

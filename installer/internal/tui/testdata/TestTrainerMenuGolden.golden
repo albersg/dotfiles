@@ -1,18 +1,19 @@
 ]2;dotfiles Installer                                                                                
-   🎮 Vim Mastery Trainer         ▓░░░░░ 1/9 · Score 0 · Streak 0 · Bosses 1/9  
+   Vim Mastery Trainer            ▓░░░░░ 1/9 · Score 0 · Streak 0 · Bosses 1/9  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  ▸ ✓ cleared  🏃 Horizontal Motions        Lessons ▓░░ 7/15 Mastered ░░░ 2/19  
+                                                                                
+  ▸ ✓ cleared  Horizontal Motions              Done ▓░░ 7/15 Mastered ░░░ 2/19  
   │ w, W, e, E, b, B, f, F, t, T, ;, ,, 0, $, ^                                 
   │ Practice accuracy: 60%                                                      
   │ ⚠️ Weakest: horizontal_003 (3✗) · horizontal_004 (1✗)                       
-    ○ lessons  📐 Vertical Motions          Lessons ░░░ 0/22 Mastered ░░░ 0/22  
-    ✗ locked   🎯 Text Objects              Lessons ░░░ 0/21 Mastered ░░░ 0/21  
-    ✗ locked   🔁 Change & Repeat           Lessons ░░░ 0/24 Mastered ░░░ 0/24  
-    ✗ locked   🔄 Substitution              Lessons ░░░ 0/22 Mastered ░░░ 0/22  
-    ✗ locked   🔍 Regex & Vimgrep           Lessons ░░░ 0/24 Mastered ░░░ 0/24  
-    ✗ locked   🎪 Macros                    Lessons ░░░ 0/24 Mastered ░░░ 0/24  
-    ✗ locked   📝 Editing & Undo            Lessons ░░░ 0/23 Mastered ░░░ 0/23  
-    ✗ locked   📋 Registers & Indentation   Lessons ░░░ 0/20 Mastered ░░░ 0/20  
+    ○ lessons  Vertical Motions                Done ░░░ 0/22 Mastered ░░░ 0/22  
+    ✗ locked   Text Objects                    Done ░░░ 0/21 Mastered ░░░ 0/21  
+    ✗ locked   Change & Repeat                 Done ░░░ 0/24 Mastered ░░░ 0/24  
+    ✗ locked   Substitution                    Done ░░░ 0/22 Mastered ░░░ 0/22  
+    ✗ locked   Regex & Vimgrep                 Done ░░░ 0/24 Mastered ░░░ 0/24  
+    ✗ locked   Macros                          Done ░░░ 0/24 Mastered ░░░ 0/24  
+    ✗ locked   Editing & Undo                  Done ░░░ 0/23 Mastered ░░░ 0/23  
+    ✗ locked   Registers & Indentation         Done ░░░ 0/20 Mastered ░░░ 0/20  
                                                                                 
                                                                                 
   ↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss                

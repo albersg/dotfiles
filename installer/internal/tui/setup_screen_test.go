@@ -455,7 +455,7 @@ func TestTheBackupRowOpensTheScreenThatListsTheConfigurations(t *testing.T) {
 	// is not truncated, so the assertion is about the data and not about the frame.
 	m.Width, m.Height = 120, 40
 	plain := ansiEscape.ReplaceAllString(m.View(), "")
-	if !strings.Contains(plain, "Existing Configs Detected") {
+	if !strings.Contains(plain, "Existing configurations") {
 		t.Errorf("the screen the backup row opens is not the one that lists the configurations: %q", plain)
 	}
 	if !strings.Contains(plain, config) {
