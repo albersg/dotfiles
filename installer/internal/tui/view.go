@@ -3784,67 +3784,24 @@ func stripStepPrefix(title string) string {
 	return title
 }
 
-// renderSetup draws the one screen the wizard's questions moved to: every
-// decision of the flow as a row, each carrying the value the choices hold, with
-// the cursor on the row the value keys act on. The rows and their values come
-// from setup_rows.go, so a decision cannot lose its row by being left out of a
+// renderSetup draws the one screen the wizard's questions moved to: the mockup's
+// table of decisions, each row carrying the value the choices hold, with the
+// cursor on the row the value keys act on and the row's description under the
+// table. The rows and their values come from setup_rows.go and the drawing from
+// setup_view.go, so a decision cannot lose its row by being left out of a
 // renderer written a second time.
 func (m Model) renderSetup() string {
 	l := layoutFor(m)
-	width := l.Composition
 
 	hints := m.setupHints()
 	frameHints := m.panelHints(m.panelsFor(), hints)
 	budget := installerBodyRows(m.Height, m.footerRowCount(l.Inner, frameHints))
 
-	var description []string
-	for _, line := range strings.Split(m.GetScreenDescription(), "\n") {
-		description = append(description, wrapText(line, width, 0)...)
-	}
-
-	rows := m.setupRows()
-	// The value column starts after the longest row label, not at a fixed 44: the
-	// shell's plugin-set row is 53 characters, and the fixed column cut it with an
-	// ellipsis on a 200-column terminal while the rest of the row was empty. The
-	// cap keeps the column inside the 80-column floor the frame matrix measures.
-	valueColumn := 0
-	for _, row := range rows {
-		valueColumn = max(valueColumn, lipgloss.Width(row.rowLabel()))
-	}
-	valueColumn = min(valueColumn, 56)
-	// The rows that are not the list: the title, the description, the blank under it,
-	// and the two rows the "more above" and "more below" lines may take. The window is
-	// sized from the terminal because the row list grew with the plugin sets and then
-	// did not fit the twenty-row terminal the frame matrix measures: the guard reported
-	// this screen drawing 21 rows where 20 fit. The arithmetic is the plan's, which
-	// solved the same problem for a longer list.
-	chrome := 1 + len(description) + 1 + 2
-	size := listWindowSize(budget, chrome, len(rows))
-	start, end := windowRowsFor(len(rows), m.SetupCursor, size)
-
-	body := []string{BrandStyle.Render(stripStepPrefix(m.GetScreenTitle()))}
-	for _, line := range description {
-		body = append(body, MutedStyle.Render(line))
-	}
-	body = append(body, "")
-
-	if start > 0 {
-		body = append(body, MutedStyle.Render("↑ "+strconv.Itoa(start)+" more above"))
-	}
-	for i := start; i < end; i++ {
-		row := rows[i]
-		// The value column is a column, not a meter pinned to the right edge: the
-		// reader compares values, and values that start at different columns (right
-		// aligned) are harder to compare than the names they belong to.
-		label := row.rowLabel()
-		if value := m.setupRowValue(row); value != "" {
-			label = padRight(truncate(label, valueColumn), valueColumn) + "  " + value
-		}
-		body = append(body, m.rowBar(label, i == m.SetupCursor, ""))
-	}
-	if end < len(rows) {
-		body = append(body, MutedStyle.Render("↓ "+strconv.Itoa(len(rows)-end)+" more below"))
-	}
+	// The shape is decided once from the frame's rows and the width, and the body
+	// is composed against it: the mockup's boxed table where it fits, the same rows
+	// without the box where it would hide one, and the band under it in whichever
+	// form the frame has room for.
+	body := m.setupBodyLines(m.setupShapeFor(budget, l), budget, l)
 
 	// The step counter is the wizard's vital sign: the setup screen is the first
 	// of the two mandatory screens, and the detours of this screen inherit the
