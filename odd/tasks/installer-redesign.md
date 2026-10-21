@@ -85,7 +85,7 @@ The user's words, verbatim:
 | T6 | S8 | The utilities screen | (in the tree, uncommitted — the card of two-line rows, the System Overview panel and two goldens) |
 | T7 | S9 | The theme selector grid | (in the tree, uncommitted — the heading, the subtitle, the card grid, the floor list, the tip and the goldens) |
 | T8 | S7 | The installing checklist, the log panel and the progress bar | (in the tree, uncommitted — the mockup's stack, the checklist beside the log card, the bar under both and the `[q] Cancel` footer) |
-| T9 | S10 | The remaining pages | (pending) |
+| T9 | S10 | The remaining pages | (in the tree, uncommitted — the pickers' card, the framed dead ends, the completion fact rows, the backup cards and the two-line learn tables; the doctor, the update center and the remaining utility pages are follow-ups, see L16) |
 | T10 | S11 | The floor/stability/contrast guards and the goldens | (with each task) |
 
 T3 now ships in the current palette so the layout and the vocabulary can be
@@ -598,3 +598,111 @@ goldens rather than by a `make screens` frame; and the checklist's window still
 says nothing about the rows it hides, where the setup table and the utilities card
 both name theirs (`↑ N more above` / `↓ N more below`) -- the header's `3/16` is
 the count, and adding the notes would spend two of the band's rows.
+
+L16. T9 landed in the tree (uncommitted): the pages the mockup does not draw,
+brought onto the grammar the mockup established, one screen family at a time.
+Five things were unified, each with a guard and its goldens:
+
+- **The wizard's own questions draw the menu's card.** The six pickers and the
+  terminal warning are menus -- a title, a description and a list of answers --
+  and they drew a bare list where every hub one screen later drew the frame's
+  card. `renderMenu` and `renderSelection` now share one body builder
+  (`menuCardBody`), so a question and a hub cannot be two shapes: the page's title
+  in the brand tone, the model's own description under it in the muted one, the
+  answers in the card with a divider where `menuOptions` has a separator, and the
+  cursor's row as the bar. The answers, their order, the keys, Choosing's Enter,
+  the panels and the wizard's step counter are untouched. The description is now
+  capped by the frame instead of by a constant: `menuCardBody` builds the head,
+  measures what the body is over its budget and takes the rows back from the
+  description (with the frame's cut marker), because the answers are facts and the
+  prose is not -- which is what fixed `terminal-select-wsl` and `ghostty-warning`
+  drawing one row past the frame once the card's two borders arrived. The body
+  builder also wraps a description that holds its own line breaks:
+  `wrapText` measured the `\n` as a column and the renderer drew it as a row, so
+  every `description + "\n" + sentence` note had been spending a row nobody
+  counted.
+- **The dead ends wear the frame.** `deadEnd` drew two bare lines -- no header
+  chip, no state, no legend -- which was the one screen shape in the program that
+  was not the frame, and the follow-up L6 left. `deadEndScreen` draws the missing
+  fact in the error tone and the way out under it, and the legend carries
+  `[Esc] back`: the key is named once, so the sentence keeps only where it goes
+  (`deadEndWayOut` drops the `Press [Esc] to ` prefix and capitalises; a guard
+  pins every sentence the screen says). The trainer's frame is composed row by row
+  (`trainerDeadEnd`), so its two unreachable dead ends get the trainer's chrome and
+  not the installer's.
+- **The completion summary draws the frame's fact rows.** `OS: macOS` was the one
+  fact block in the program that spelled each row as a sentence; the summary is
+  now `panelFact`'s label column and value, the same pair the utilities panel and
+  the review draw, so a reader compares values down a column. `fontSummaryLine`
+  became `fontSummaryValue` (the label moved into the label column) and its guard
+  reads the value.
+- **The backup screens draw their answers in the card.** The three screens put the
+  rows a person presses in the frame's card -- the restore history with its `←
+  Back` row behind the shared divider, the confirmation's contents in a card titled
+  on its border, the answers in a card under it -- and the fixed-row reservations
+  and two new guards follow (`backupConfirmFixed` 6→8, `restoreBackupBodyFixed`
+  5→7, `restoreConfirmBodyFixed` 7→10, each counting the borders it now spends).
+  Copy, order, defaults and the backup/restore/overwrite policies are unchanged.
+- **The learn tables draw their entries whole, in two lines.** The three
+  read-only tables held three fixed columns at every width, so at the 80-column
+  floor the Kind column was three letters and a cut marker (`File li…`) while
+  every description lost its tail -- both facts unreadable at once, beside 19
+  empty columns of a quarter-width name column. A learn page now draws each entry
+  as the frame's two-line row: the name at the table's shared name column, its
+  kind beside it in the muted tone, and the sentence under both, wrapped to the
+  page and never cut. The shape is the table's own (`referenceTable.TwoLine`), so
+  the keymap tables keep their three columns, where the columns are the page. The
+  window moved with it: `referenceWindow`, `referenceEntryCost` and
+  `referenceMaxScroll` are one set of helpers the renderer and the key handler both
+  read, so a page of two-row entries is scrolled by the rows it draws and the last
+  entry is reachable (`handleReferenceTableKeys` now takes the table instead of a
+  count). The vitals read `Showing 1-7 of 16` where a page now shows fewer entries
+  than it holds. The pros and cons of a tool page wrap the same way
+  (`wrappedListRows`): an entry is drawn whole or counted in the `… and N more`
+  note, and the rows the pros did not need go to the cons instead of being left
+  blank under a note.
+
+The floor and the guards. At 80x24 every page still fits the frame at all twelve
+measured terminals (`TestEveryScreenFitsEveryTerminalSize`,
+`TestInstallerScreensFitTheFrame`), and the wizard's step counter, the restore
+history's window and the learn pages' scroll range all keep their last row
+reachable. New guards: `TestPickerQuestionsDrawTheFramesCard`,
+`TestPickerQuestionsKeepTheirKeysAndTheirWays`, `TestDeadEndsWearTheFrame`,
+`TestDeadEndWayOutKeepsTheDestination`,
+`TestCompletionSummaryDrawsTheFramesFactRows`,
+`TestBackupAndRestoreDrawTheirAnswersInTheCard`,
+`TestLearnTablesDrawEveryEntryWhole`, `TestLearnTablesWindowInTheRowsTheyDraw`
+and `TestToolInfoWrapsItsReasonsInsteadOfCuttingThem`. Two existing guards were
+re-pointed rather than weakened: `TestFontSummaryValueNamesWhatTheRunFound` (the
+value without its label prefix) and the dry-run completion's multiplexer check
+(the label and its value instead of `Multiplexer:`). Five goldens were
+regenerated: `TestOSSelectGolden`, `TestBackupScreenGolden`,
+`TestCompleteScreenGolden`, `TestCompleteTruecolorGolden` and
+`TestCompleteCelebrationGolden`. A new opt-in capture
+(`TestCaptureEveryRedesignedPage`, `DOTFILES_CAPTURE_DIR`, the existing harness'
+convention) writes the pages this slice touched at 80x24 and 160x50 so the next
+slice can read them.
+
+Follow-ups this slice found and did not take:
+
+- **The doctor and the update center** draw through `renderThemeScreen` and
+  `section_bands.go`, the shared section renderer that the ports, the network
+  diagnosis, the SSH screens, the WSL screens, the shell audit, the disk cleaner
+  and the install verification also draw through. Their bodies are already the
+  frame's title/detail/list/tail grammar, but their rows are one-line bars and
+  their actions are rows inside the list rather than in the card. Changing that is
+  one decision for ten screens, not a page's: it belongs to whoever owns the
+  section renderer, and it is why this slice left those two where they were.
+- **The wizard's pickers still draw their answers on one line**, where the main
+  menu's card draws two. The subtitles exist for four of the seven questions (the
+  terminal, the shell, the multiplexer and the editor have a one-line description
+  in the tool tables this installer already ships) and not for the other three
+  (the operating system, the font and the warning), so a two-line picker would be
+  a row shape that appears for some questions and not others. Tying the pickers to
+  those tables and deciding what the other three rows say is a copy decision.
+- The completion screen has no body title of its own -- its header chip says
+  `Installation complete` and the body opens on the summary card -- because the
+  mockup's title line would repeat the chip or invent a sentence.
+- `TestCaptureEveryRedesignedPage` lives in `zz_dump_test.go`, a name from the
+  inspection harness the slice used; it wants renaming to `capture_redesign_test.go`
+  when the slice is committed.

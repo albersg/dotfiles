@@ -1041,21 +1041,21 @@ func (m Model) fontPresenceApplies() bool {
 	return !(m.Choices.OS == "termux" && (m.SystemInfo == nil || !m.SystemInfo.IsTermux))
 }
 
-// fontSummaryLine is the completion screen's font row. It names the font the run
+// fontSummaryValue is the completion screen's Font value: the font the run
 // installed and, when the pre-run check measured this machine, what it found: the
 // step either found the family already resolvable or installed it, so the only
 // question left is which. A host nothing measured -- or a run whose step used a
 // check the model did not make -- keeps the label alone rather than claiming a
 // state.
-func (m Model) fontSummaryLine() string {
-	line := "Font: " + m.installedFontLabel()
+func (m Model) fontSummaryValue() string {
+	value := m.installedFontLabel()
 	if !m.FontPresence.Measured || !m.fontPresenceApplies() {
-		return line
+		return value
 	}
 	if m.FontPresence.Installed {
-		return line + " (already installed)"
+		return value + " (already installed)"
 	}
-	return line + " (installed now)"
+	return value + " (installed now)"
 }
 
 // The question screens' value options. Each helper returns only the choices that

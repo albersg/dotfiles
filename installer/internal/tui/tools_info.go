@@ -302,11 +302,19 @@ type referenceRow struct {
 }
 
 // referenceTable is one read-only table page of the learn section.
+//
+// TwoLine is the shape the page draws its entries in. A learn page lists a name,
+// the kind of thing it is and a sentence about it, and the sentence is the fact
+// the reader came for: it gets the whole width, under the name, on as many rows as
+// it needs. The keymap tables keep the three-column shape, because there the
+// columns are a binding, a mode and a one-line description and the columns are the
+// page.
 type referenceTable struct {
 	Name        string
 	Description string
 	Headers     [3]string
 	Rows        []referenceRow
+	TwoLine     bool
 }
 
 // shellToolingRows is what the shell step installs beside the shell the reader
@@ -340,6 +348,7 @@ func shellToolingTable() referenceTable {
 		Description: "What the shell step installs beside the shell the run chose",
 		Headers:     [3]string{"Tool", "Kind", "Used for"},
 		Rows:        shellToolingRows(),
+		TwoLine:     true,
 	}
 }
 
@@ -361,6 +370,7 @@ func pluginSetsTable() referenceTable {
 		Description: "The plugin set the run provisions, and what manages it",
 		Headers:     [3]string{"Tool", "Manager", "What the run does"},
 		Rows:        pluginSetRows(),
+		TwoLine:     true,
 	}
 }
 
@@ -409,6 +419,7 @@ func machineToolsetTable() referenceTable {
 		Description: "The directives the Brewfile declares, and what the toolset step does with each",
 		Headers:     [3]string{"Directive", "What it installs", "This run"},
 		Rows:        rows,
+		TwoLine:     true,
 	}
 }
 

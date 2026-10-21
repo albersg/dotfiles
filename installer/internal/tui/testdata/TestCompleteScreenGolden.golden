@@ -2,11 +2,11 @@
    Installation complete                                             dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   ╭─ ✓ Summary ──────────────────────────────────────────────────────────────╮  
-  │ OS: macOS                                                                │  
-  │ Terminal: Ghostty                                                        │  
-  │ Shell: Fish                                                              │  
-  │ Multiplexer: Tmux                                                        │  
-  │ Editor: Neovim with dotfiles config                                      │  
+  │ OS              macOS                                                    │  
+  │ Terminal        Ghostty                                                  │  
+  │ Shell           Fish                                                     │  
+  │ Multiplexer     Tmux                                                     │  
+  │ Editor          Neovim with dotfiles config                              │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
                                                                                 
   ╭─ Next Step ──────────────────────────────────────────────────────────────╮  
