@@ -9,12 +9,13 @@ and is not committed; the specs below record what it shows and the exact strings
 
 S1. **The design language.** The mockup's layout is the target: bordered chrome,
     two-line rows with Nerd Font icons, a filled selection bar, cards, the setup
-    table, the theme grid and the progress screen. The palette is coherent around
-    a **violet primary** (the mockup's identity), implemented as the new "Default"
-    theme adapted into the existing theme definitions and not as a literal copy;
-    every surface still draws its roles through the theme system, and the existing
-    themes stay selectable. Every colour clears the existing contrast floors (body
-    4.5:1, the muted role on the drift, the key tone).
+    table, the theme grid and the progress screen. The **theme system stays the
+    one source of colour**: every surface draws its roles from the theme applied
+    through the installer, the same theme the installer writes to the terminal and
+    the system; no palette is hardcoded and no new theme is added. The mockup's
+    violet is its illustration, not a required palette. Every colour still clears
+    the existing contrast floors (body 4.5:1, the muted role on the drift, the key
+    tone).
 S2. **The chrome.** Every screen carries a header bar (the screen name in a
     filled chip at the left, the build label at the right) and a status bar (a
     coloured dot and a state word at the left, the key hints at the right). The
@@ -76,7 +77,7 @@ The user's words, verbatim:
 
 | ID | Specs | Route | Commit |
 |----|-------|-------|--------|
-| T1 | S1 | The **Default** theme: a coherent violet-primary palette adapted into `themes/`, made the installer's default, with the existing themes kept; the surfaces keep drawing through the roles, so the recolour reaches every screen | (pending) |
+| T1 | S1 | The theme pass: every new surface uses the applied theme's roles; the theme switch still recolours the installer and the system together; VHS captures under the default and one alternate theme prove it; no hardcoded palette | (pending) |
 | T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (in the tree, uncommitted) |
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (pending) |
@@ -167,10 +168,16 @@ valor, especialmente para navegación, cambios de estado y cálculos de layout."
 "Revisa primero los cambios que ya están en curso... Continúa la implementación
 por pantallas... Valida cada pantalla... Evita cambios ajenos al rediseño."
 
-L8. Decision: the violet primary overrides L4's "no new theme" — it becomes the
-new **Default** theme (adapted, not an exact copy) while the existing themes stay
-selectable. The dashboard/menu/chrome already draw through the theme roles, so T1
-recolours them without reworking their layout. Every remaining task follows L7:
-the shared frame/header/status/panel/list grammar, no invented facts or
-percentages, the existing install policies, the 80x24 floor and the resize
+L8. Decision: the dashboard/menu/chrome draw through the theme roles, so a
+palette change reaches them without reworking their layout. Every remaining task
+follows L7: the shared frame/header/status/panel/list grammar, no invented facts
+or percentages, the existing install policies, the 80x24 floor and the resize
 matrix, and no unrelated changes.
+L9. User: "Sobre los colores, manten la logica que tenemos de themes, que todo el
+installer (y todo el sistema) se ajuste al theme aplicado mediante el instalador,
+y recuerda ir visualizando cada una de las pantallas con VHS". Decision: no new
+theme and no hardcoded palette; the applied theme (the installer's own switch)
+drives the installer and the system, exactly as before. The mockup's violet is
+illustration only. Every slice is captured with the existing VHS harness
+(`make screens`, 200x55 and 80x24) and the captures are reviewed before the slice
+is called done.
