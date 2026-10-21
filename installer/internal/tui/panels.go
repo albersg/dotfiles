@@ -464,13 +464,13 @@ func (m Model) learnPagePanelFacts(label string, l layout) []string {
 	var rows []string
 	switch label {
 	case "Terminals":
-		rows = append(rows, m.toolPagePanelFacts(GetTerminalInfo(), l)...)
+		rows = append(rows, toolPagePanelFacts(GetTerminalInfo(), m.learnToolMenuOptions(ScreenLearnTerminals), l)...)
 	case "Shells":
-		rows = append(rows, m.toolPagePanelFacts(GetShellInfo(), l)...)
+		rows = append(rows, toolPagePanelFacts(GetShellInfo(), m.learnToolMenuOptions(ScreenLearnShells), l)...)
 	case "Multiplexers":
-		rows = append(rows, m.toolPagePanelFacts(GetWMInfo(), l)...)
+		rows = append(rows, toolPagePanelFacts(GetWMInfo(), m.learnToolMenuOptions(ScreenLearnWM), l)...)
 	case "Prompts":
-		rows = append(rows, m.toolPagePanelFacts(GetPromptInfo(), l)...)
+		rows = append(rows, toolPagePanelFacts(GetPromptInfo(), m.learnToolMenuOptions(ScreenLearnPrompts), l)...)
 	case "Neovim":
 		info := GetNvimInfo()
 		rows = append(rows, panelFact("Reads", info.Description, l.Right)...)
@@ -494,16 +494,19 @@ func (m Model) learnPagePanelFacts(label string, l layout) []string {
 }
 
 // toolPagePanelFacts previews a tool menu: how many pages it holds and their
-// names in the menu's own order. It used to sort them, which made the panel and
-// the list disagree on the same screen (Alacritty, Ghostty, Kitty, WezTerm in
-// the panel against Alacritty, WezTerm, Kitty, Ghostty in the menu).
-func (m Model) toolPagePanelFacts(tools map[string]ToolInfo, l layout) []string {
-	names := make([]string, 0, len(tools))
-	for _, option := range m.GetCurrentOptions() {
-		if strings.HasPrefix(option, menuSeparatorPrefix) || strings.Contains(option, "Back") {
+// names in the menu's own order. The order comes from the destination page's
+// menu, which is not the hub's option list -- the hub lists the pages, not the
+// tools inside them -- so the caller passes the labels it wants previewed. It
+// used to sort the names, which made the panel and the page disagree
+// (Alacritty, Ghostty, Kitty, WezTerm against Alacritty, WezTerm, Kitty,
+// Ghostty).
+func toolPagePanelFacts(tools map[string]ToolInfo, labels []string, l layout) []string {
+	names := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if strings.HasPrefix(label, menuSeparatorPrefix) || strings.Contains(label, "Back") {
 			continue
 		}
-		if info, ok := tools[strings.ToLower(option)]; ok {
+		if info, ok := tools[strings.ToLower(label)]; ok {
 			names = append(names, info.Name)
 		}
 	}
