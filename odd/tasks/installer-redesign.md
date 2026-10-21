@@ -9,11 +9,12 @@ and is not committed; the specs below record what it shows and the exact strings
 
 S1. **The design language.** The mockup's layout is the target: bordered chrome,
     two-line rows with Nerd Font icons, a filled selection bar, cards, the setup
-    table, the theme grid and the progress screen. The palette is **not** copied
-    literally: every surface draws its roles from the active theme (the themes the
-    installer already ships), so the violet is the mockup's illustration and not a
-    new required theme. Every colour still clears the existing contrast floors
-    (body 4.5:1, the muted role on the drift, the key tone).
+    table, the theme grid and the progress screen. The palette is coherent around
+    a **violet primary** (the mockup's identity), implemented as the new "Default"
+    theme adapted into the existing theme definitions and not as a literal copy;
+    every surface still draws its roles through the theme system, and the existing
+    themes stay selectable. Every colour clears the existing contrast floors (body
+    4.5:1, the muted role on the drift, the key tone).
 S2. **The chrome.** Every screen carries a header bar (the screen name in a
     filled chip at the left, the build label at the right) and a status bar (a
     coloured dot and a state word at the left, the key hints at the right). The
@@ -75,7 +76,7 @@ The user's words, verbatim:
 
 | ID | Specs | Route | Commit |
 |----|-------|-------|--------|
-| T1 | S1 | The palette adaptation: the new surfaces (bars, cards, table, grid) draw from each existing theme's roles; no new theme; the theme grid's Default card is the current default theme | (pending) |
+| T1 | S1 | The **Default** theme: a coherent violet-primary palette adapted into `themes/`, made the installer's default, with the existing themes kept; the surfaces keep drawing through the roles, so the recolour reaches every screen | (pending) |
 | T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (in the tree, uncommitted) |
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (pending) |
@@ -145,3 +146,31 @@ L6. T2 + T3 landed together in the tree (uncommitted, still the current palette)
   screen with no chrome (T9 should route the dead ends through the frame), and the
   status dot's tone per state (Ready/Done green, Installing brand, Preview accent,
   Failed error) is a role choice T1 may want to re-read against the new surfaces.
+
+L7. User's redesign guidance (verbatim directives, latest): "No reinicies el
+trabajo ni replantees todo el diseño." "Cada pantalla debe tener una jerarquía
+visual clara: título, contenido principal, información secundaria y acciones."
+"Evita llenar la interfaz de bordes, cajas e iconos innecesarios." "Conserva la
+identidad retro, el pixel art y la mascota." "Utiliza una paleta coherente, con
+el violeta como color principal." "Los colores deben transmitir significado:
+selección, éxito, advertencia, error e información." "No dependas de dimensiones
+fijas... Evita desbordamientos horizontales y textos cortados incorrectamente."
+"Reutiliza los componentes existentes... Centraliza estilos, colores, tamaños y
+espaciados." "Mantén separada la lógica de instalación de la presentación."
+"Soporta las teclas ya existentes (j/k, flechas, Enter, Esc, Tab, Space)."
+"Muestra solamente los atajos relevantes para la pantalla actual." "Mantén el
+estado de selección al volver de una pantalla secundaria." "Nunca bloquees la
+interfaz esperando una operación larga." "No muestres porcentajes de progreso
+ficticios." "Conserva y respeta las políticas existentes de backup, restauración
+y sobrescritura." "Evita animaciones constantes." "Añade pruebas donde aporten
+valor, especialmente para navegación, cambios de estado y cálculos de layout."
+"Revisa primero los cambios que ya están en curso... Continúa la implementación
+por pantallas... Valida cada pantalla... Evita cambios ajenos al rediseño."
+
+L8. Decision: the violet primary overrides L4's "no new theme" — it becomes the
+new **Default** theme (adapted, not an exact copy) while the existing themes stay
+selectable. The dashboard/menu/chrome already draw through the theme roles, so T1
+recolours them without reworking their layout. Every remaining task follows L7:
+the shared frame/header/status/panel/list grammar, no invented facts or
+percentages, the existing install policies, the 80x24 floor and the resize
+matrix, and no unrelated changes.
