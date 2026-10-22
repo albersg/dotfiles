@@ -322,7 +322,10 @@ func TestTheThemeSwitchRecoloursEveryRedesignedSurface(t *testing.T) {
 		m.Width, m.Height = trainerFrameWidth, trainerFrameHeight
 
 		plain := m.View()
-		if strings.Contains(plain, blue) {
+		// The theme picker draws the shipped definitions' swatches on purpose, so the
+		// applied blue legitimately appears there before any record is set; the
+		// definitions' surfaces opt out of the plain-frame absence rule.
+		if !surface.definitions && strings.Contains(plain, blue) {
 			t.Errorf("%s paints %s before any theme is applied, so the guard cannot tell what the switch did",
 				surface.name, applied.Palette["blue"])
 		}
