@@ -767,6 +767,40 @@ func TestOSSelectWideGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Select Your Operating System"))
 }
 
+// TestTerminalSelectGolden pins the terminal question in the reference grammar: the
+// screen's own title as the card's chip, its description as the caption, the rule
+// under the pair and every answer as an icon/title/subtitle/chevron row, with the
+// shortcut row behind the card's own divider. The answers, their order and the
+// footer's keys are the screen's, unchanged.
+func TestTerminalSelectGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTerminalSelect
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Choose Terminal Emulator"))
+}
+
+// TestTerminalSelectWideGolden pins the same question at the two-column frame: the
+// card with its chip and caption, the two-line answers and the divider before the
+// shortcut row, and the plan panel beside it. The left column is narrower than the
+// 80-column body, so the caption that rides the border at the floor is kept inside
+// the card here rather than dropped.
+func TestTerminalSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenTerminalSelect
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Choose Terminal Emulator"))
+}
+
 // TestNavigationFlowE2E tests navigating from welcome through menu like Playwright would
 func TestNavigationFlowE2E(t *testing.T) {
 	m := NewModel()

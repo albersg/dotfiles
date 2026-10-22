@@ -78,10 +78,8 @@ func card(title, caption string, width int, body []string) []string {
 // pair and the edges are drawn once -- so a menu that groups its rows and a card
 // that does not are one card shape with and without dividers.
 func cardGroups(title, caption string, width int, groups []cardGroup) []string {
-	if width < panelFrame+2*grammarCardPad+2 {
-		width = panelFrame + 2*grammarCardPad + 2
-	}
-	inner := width - panelFrame
+	width = cardWidth(width)
+	inner := cardInner(width)
 	edge := func(s string) string { return PanelBorderStyle.Render(s) }
 
 	var top string
@@ -153,6 +151,113 @@ func cardGroups(title, caption string, width int, groups []cardGroup) []string {
 	}
 	out = append(out, edge("╰"+strings.Repeat("─", inner)+"╯"))
 	return out
+}
+
+// cardWidth is the width a card is really drawn in: the caller's, raised to the
+// narrowest box that can hold a border, one blank column on each side and two
+// columns of body. It is the one place that clamp lives, so the caption test below
+// and the drawing above cannot measure two different cards.
+func cardWidth(width int) int {
+	return max(width, panelFrame+2*grammarCardPad+2)
+}
+
+// cardInner is the columns a card's border encloses: everything but its two edges.
+func cardInner(width int) int {
+	return cardWidth(width) - panelFrame
+}
+
+// cardBorderCarriesCaption reports whether the card's top border has room for the
+// chip, at least one column of rule, the caption and the closing corner on one row.
+// It is the same arithmetic card uses to decide whether to give the caption back,
+// asked before the card is drawn so a caller can keep the words instead of losing
+// them. A caption that holds its own line break never rides the border: the border
+// is one row.
+func cardBorderCarriesCaption(title, caption string, width int) bool {
+	if caption == "" || strings.Contains(caption, "\n") {
+		return false
+	}
+	label := lipgloss.Width(CardChipStyle.Render(title))
+	return cardInner(width)-label >= 1+lipgloss.Width(caption)+3+1
+}
+
+// questionCard draws a wizard question in the reference grammar: the screen's own
+// title as the chip on the card's top border, its own description as the caption at
+// the right of the same row, the rule under the pair and the groups of answers.
+//
+// A caption the border row has no room for is moved inside the card rather than
+// given back. The card gives its caption up first (card, above) because the chip
+// names the card; on a question the description is often the only fact the screen
+// states -- the host was not detected, the run will skip terminal setup -- so the
+// words move under the chip's rule instead of disappearing.
+func questionCard(title, caption string, width int, groups []cardGroup) []string {
+	if caption == "" || cardBorderCarriesCaption(title, caption, width) {
+		return cardGroups(title, caption, width, groups)
+	}
+	head := mutedLines(wrapText(caption, cardContentWidth(cardWidth(width)), 0))
+	return cardGroups(title, "", width, cardGroupsWithHead(head, groups))
+}
+
+// cardGroupsWithHead puts the headline rows above the first group's own, so a
+// caption that moved inside the card still opens the card.
+func cardGroupsWithHead(head []string, groups []cardGroup) []cardGroup {
+	if len(groups) == 0 {
+		return []cardGroup{{Lines: head}}
+	}
+	out := append([]cardGroup(nil), groups...)
+	out[0].Lines = append(append([]string(nil), head...), out[0].Lines...)
+	return out
+}
+
+// questionCardGroups builds a question's card body from the option list the key
+// handler reads: one grammar row per answer, the row under the cursor filled and
+// marked, and -- where the option list carries one -- the separator drawn as the
+// divider between two groups rather than as a row. parts supplies each answer's
+// icon and muted subtitle, so a screen adds its copy and never a second renderer.
+func questionCardGroups(options []string, cursor, content int, parts func(label string) (string, string)) []cardGroup {
+	groups := []cardGroup{{}}
+	for i, label := range options {
+		if strings.HasPrefix(label, menuSeparatorPrefix) {
+			groups = append(groups, cardGroup{})
+			continue
+		}
+		icon, subtitle := parts(label)
+		at := len(groups) - 1
+		groups[at].Lines = append(groups[at].Lines, cardRowLines(cardRow{
+			Icon:     icon,
+			Title:    label,
+			Subtitle: subtitle,
+			Chevron:  true,
+		}, content, i == cursor)...)
+	}
+	return groups
+}
+
+// questionCardWidth is the width a question's card is drawn in and the columns its
+// rows may use: the left column when the frame holds a panel beside it, the whole
+// composition otherwise. It reports false when the rows would not be readable in
+// that width, which is the caller's signal to draw the compact list instead.
+func (m Model) questionCardWidth(minContent int) (width, content int, ok bool) {
+	l := layoutFor(m)
+	width = l.Composition
+	if l.TwoColumn {
+		width = l.Left
+	}
+	content = cardContentWidth(width)
+	return width, content, content >= minContent
+}
+
+// questionCardBody draws the card and reports whether the frame can hold it. The
+// gate is the frame and nothing else -- a content width its rows are readable in and
+// a row budget that holds the composed card at once -- so the shape cannot change
+// while the cursor walks the answers. The card is measured as it is drawn, borders,
+// dividers and any caption that moved inside it included, so a question that grew a
+// row cannot be drawn one row past the frame.
+func (m Model) questionCardBody(title, caption string, width int, groups []cardGroup, hints []installerHint) ([]string, bool) {
+	lines := questionCard(title, caption, width, groups)
+	if installerBodyRows(m.Height, m.footerReserveRows(layoutFor(m).Inner, hints)) < len(lines) {
+		return nil, false
+	}
+	return lines, true
 }
 
 // cardRow is one row of the grammar's list: the icon in the gutter, the title,

@@ -941,3 +941,52 @@ marker, on the cursor's row), `TestOSSelectLeavesEnterUnnamedWithNoRowUnderTheCu
 `TestOSSelectFallsBackToTheCompactListWhenTheCardCannotFit` and
 `TestOSSelectKeepsTheDescriptionWhenTheBorderCannotHoldIt`. Goldens:
 `TestOSSelectGolden` regenerated, `TestOSSelectWideGolden` new.
+
+L21. The terminal question moved onto the grammar, and the card it draws is now
+one shared piece rather than the OS screen's own.
+
+- **The card and the gate are shared** (`components.go`): `questionCard` (the
+  chip, the caption, the rule, the groups of rows, and the caption moved inside
+  when the border row has no room for it), `questionCardGroups` (one grammar row
+  per answer in the option list's own order, the option list's separator drawn as
+  the card's divider, the cursor's row filled and marked), `questionCardWidth`
+  (the width the card is drawn in and the content measure its rows get) and
+  `questionCardBody` (the gate: a readable content width and a row budget that
+  holds the composed card). `cardWidth`/`cardInner`/`cardBorderCarriesCaption`
+  are the one arithmetic `card` and the caption test both read, so the drawing and
+  the decision cannot disagree. The OS screen keeps its own glyphs, subtitles and
+  minimum width and calls the same four functions; its output is unchanged.
+- **The terminal question draws the same card** (`terminal_select_view.go`): the
+  screen's own title minus its `Step N:` prefix as the chip, its own
+  description as the caption, every answer as an icon/title/subtitle/chevron row,
+  and `Learn about terminals` in the group the option list's separator divides
+  off. The subtitles are short phrases from the tool pages the installer already
+  ships (`tools_info.go`) for the four terminals, `Install no terminal` for
+  `None` (the run really does skip the terminal step) and `Each terminal's pros
+  and cons` for the shortcut row; every one is under the 50 columns the left
+  column leaves a row at the 124-column floor, so the row is never cut.
+- **Unchanged, deliberately:** the recorded answer (`Choices.Terminal`), the
+  option labels and their order (the macOS list still adds Kitty, WSL still shows
+  the skip note), the separator, Enter/Esc and the arrows, the plan panel, the
+  `1/2` meter, the Ghostty warning detour, the compact fallback and every other
+  picker.
+- **The note keeps its words.** The terminal question is the one whose
+  description is two sentences (the WSL skip, the Alacritty build cost), and the
+  card's border row cannot hold either beside the chip; the shared card moves the
+  note inside itself, wrapped, instead of giving it back.
+- **The floor still falls back.** The card is drawn when the frame can hold it
+  (content ≥ 32 columns and the rows to spare); 36 columns wide or 80x12 draws
+  the compact list, which is the same answers in one line each.
+
+Guards: `TestTerminalSelectDrawsTheReferenceGrammar` (the chip, the caption, the
+rows with their subtitles and chevrons, the legend and the state at 80x24 and
+160x50), `TestTerminalSelectRowsAreTheModelsAnswersInOrder` (the answers in order,
+the separator as the card's divider and not a row, one marker on the cursor's row),
+`TestTerminalSelectRowTableCoversEveryAnswer` (a one-cell glyph and a subtitle
+inside the row's measure for every answer the screen can offer),
+`TestTerminalSelectLeavesEnterUnnamedWithNoRowUnderTheCursor`,
+`TestTerminalSelectKeepsItsShapeWhileTheCursorMoves`,
+`TestTerminalSelectFallsBackToTheCompactListWhenTheCardCannotFit` and
+`TestTerminalSelectKeepsTheNoteWhenTheBorderCannotHoldIt`. Goldens:
+`TestTerminalSelectGolden` and `TestTerminalSelectWideGolden` are new. The OS
+guards and both OS goldens pass unchanged.

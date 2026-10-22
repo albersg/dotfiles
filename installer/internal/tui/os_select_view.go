@@ -1,7 +1,5 @@
 package tui
 
-import "strings"
-
 // ============================================================================
 // THE OS SELECT SCREEN — the wizard's first question in the reference grammar
 // ============================================================================
@@ -11,9 +9,11 @@ import "strings"
 // page AS the card: the title is a filled chip set into the card's top border,
 // its caption sits at the right of that same row, a rule closes the pair, and
 // every answer is a row of icon, title, muted subtitle and chevron with the row
-// under the cursor filled across the card. This file is that shape for the OS
-// step, and for it alone: the other questions keep the compact list until their
-// own rows have subtitles (odd/tasks/installer-redesign.md, L16).
+// under the cursor filled across the card. The card, the rows and the gate are the
+// shared ones (components.go); this file is the OS question's own title, glyphs and
+// subtitles. The terminal question draws the same shape (terminal_select_view.go),
+// and the remaining questions keep the compact list until their own rows have
+// subtitles (odd/tasks/installer-redesign.md, L16).
 //
 // Nothing here decides anything the screen did not already decide. The answers
 // are m.GetCurrentOptions() in the order the key handler reads them; the title is
@@ -55,65 +55,24 @@ func osSelectRowParts(label string) (icon, subtitle string) {
 	return "", ""
 }
 
-// osSelectRowLines draws every answer as one of the grammar's rows, in the order
-// the key handler reads them, with the cursor's row filled and marked. A row the
-// cursor is not on keeps its own icon in the gutter, so the two states differ by
-// a bar and a marker rather than by an indent.
-func (m Model) osSelectRowLines(content int) []string {
-	options := m.GetCurrentOptions()
-	lines := make([]string, 0, len(options)*2)
-	for i, label := range options {
-		icon, subtitle := osSelectRowParts(label)
-		lines = append(lines, cardRowLines(cardRow{
-			Icon:     icon,
-			Title:    label,
-			Subtitle: subtitle,
-			Chevron:  true,
-		}, content, i == m.Cursor)...)
-	}
-	return lines
-}
-
-// osSelectCard wraps the rows in the reference's card: the screen's own title as
-// the chip, its own description as the caption, the rule under the pair and the
-// rows.
-//
-// A caption the border row has no room for moves inside the card rather than
-// being dropped. On a host where detection found nothing, the description is the
-// sentence that says so and that the step is the user's to answer; the card gives
-// its caption back first (card, components.go), so the caller is what has to keep
-// the fact.
-func (m Model) osSelectCard(width int, rows []string) []string {
-	title := stripStepPrefix(m.GetScreenTitle())
-	caption := m.GetScreenDescription()
-	lines := card(title, caption, width, rows)
-	if caption == "" || strings.Contains(lines[0], caption) {
-		return lines
-	}
-	body := append(mutedLines(wrapText(caption, cardContentWidth(width), 0)), rows...)
-	return card(title, "", width, body)
+// osSelectGroups is the card's body: one group, because the OS question has no
+// separator in its option list. The rows come from the shared builder, so this
+// screen and the terminal question cannot draw two different row shapes.
+func (m Model) osSelectGroups(content int) []cardGroup {
+	return questionCardGroups(m.GetCurrentOptions(), m.Cursor, content, osSelectRowParts)
 }
 
 // osSelectCardBody draws the screen's body in the reference grammar, or reports
 // that the frame cannot hold the card. The gate is the frame and nothing else --
 // a width its rows are readable in and a row budget that holds every answer at
-// once -- so the shape cannot change while the cursor walks the answers.
-//
-// The gate measures the rows against the whole list rather than windowing it: the
-// OS question offers three answers, and a card that hid one behind its own bottom
-// border would be a row the cursor can reach and the reader cannot.
+// once -- so the shape cannot change while the cursor walks the answers. The gate
+// and the card are the shared ones (questionCard, components.go); what this file
+// adds is the OS question's own title, answers and glyphs.
 func (m Model) osSelectCardBody(hints []installerHint) ([]string, bool) {
-	l := layoutFor(m)
-	width := l.Composition
-	if l.TwoColumn {
-		width = l.Left
-	}
-	if width-panelFrame-2*grammarCardPad < osSelectCardMinContent {
+	width, content, ok := m.questionCardWidth(osSelectCardMinContent)
+	if !ok {
 		return nil, false
 	}
-	rows := m.osSelectRowLines(cardContentWidth(width))
-	if installerBodyRows(m.Height, m.footerReserveRows(l.Inner, hints)) < cardChromeRows+len(rows) {
-		return nil, false
-	}
-	return m.osSelectCard(width, rows), true
+	return m.questionCardBody(stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription(),
+		width, m.osSelectGroups(content), hints)
 }
