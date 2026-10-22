@@ -1028,3 +1028,52 @@ a subtitle inside the row's measure for every answer the screen can offer),
 `TestShellSelectKeepsTheNoteWhenTheBorderCannotHoldIt`. Goldens:
 `TestShellSelectGolden` and `TestShellSelectWideGolden` are new. The OS and
 terminal guards and their goldens pass unchanged.
+
+L23. The font question moved onto the same shared card, and the slice is the fourth
+picker the grammar draws.
+
+- **The font question draws the shared card** (`font_select_view.go`): the screen's
+  own title minus its `Step N:` prefix as the chip, its own description as the
+  caption -- kept inside the card at both goldens, because the note is the step's
+  measurement of this machine and is longer than the border row can hold beside the
+  chip -- and both answers as icon/title/subtitle/chevron rows with the cursor's row
+  filled and marked. It calls `questionCard`, `questionCardGroups`,
+  `questionCardWidth` and `questionCardBody` (`components.go`); no gate or row shape
+  is copied, and the card the OS, terminal and shell questions draw is the one this
+  question draws.
+- **The subtitles claim only what the run does.** The install row names the face the
+  step puts on the machine (the Nerd Font patch of Meslo, the family the pinned
+  archive declares) and wears the setup table's own font glyph; the skip row says
+  the run leaves the fonts already on the machine alone, which is true whether the
+  family is installed or not. Both are under the 50 columns the left column leaves a
+  row at the 124-column floor, so the row is never cut.
+- **The row table follows the model's labels**, because the install label carries the
+  family's name and the step owns it: `fontSelectRowParts` is keyed by
+  `m.fontOptions()` rather than by literals, so a face rename cannot leave the row
+  decorated with another answer's sentence, and a Termux host (whose family is
+  `MesloLGS Nerd Font`) draws the same row.
+- **The note's paragraph break becomes a space**, and only there: the step writes its
+  measurement and its consequence on two lines, and the shared card wraps a caption
+  as one block, so a kept line break made the wrap land mid-sentence. The words are
+  the model's own; the break is the frame's line breaks doing the work.
+- **Unchanged, deliberately:** the recorded answer (`Choices.InstallFont`), the
+  option labels and their order (`Install <family>` then `Skip it`), there being no
+  separator row and so no card divider, Enter/Esc and the arrows, the plan panel, the
+  `1/2` meter, the compact fallback and every other picker.
+- **The floor still falls back.** The card is drawn when the frame can hold it
+  (content ≥ 32 columns and the rows to spare); 36 columns wide or 80x12 draws the
+  compact list, which is the same answers in one line each.
+
+Guards: `TestFontSelectDrawsTheReferenceGrammar` (the chip, the description on the
+border or kept inside the card, the rows with their subtitles and chevrons, the
+legend and the state at 80x24 and 160x50),
+`TestFontSelectRowsAreTheModelsAnswersInOrder` (the two answers in order, no divider
+the question has no groups for, one marker on the cursor's row),
+`TestFontSelectRowTableCoversEveryAnswer` (a one-cell glyph and a subtitle inside the
+row's measure for every answer, on a host nothing measured, a Linux, a Termux and a
+macOS host), `TestFontSelectLeavesEnterUnnamedWithNoRowUnderTheCursor`,
+`TestFontSelectKeepsItsShapeWhileTheCursorMoves`,
+`TestFontSelectFallsBackToTheCompactListWhenTheCardCannotFit` and
+`TestFontSelectKeepsTheNoteWhenTheBorderCannotHoldIt`. Goldens:
+`TestFontSelectGolden` and `TestFontSelectWideGolden` are new. The OS, terminal and
+shell guards and their goldens pass unchanged.

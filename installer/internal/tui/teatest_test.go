@@ -801,6 +801,45 @@ func TestTerminalSelectWideGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Choose Terminal Emulator"))
 }
 
+// TestFontSelectGolden pins the font question in the reference grammar: the
+// screen's own title as the card's chip, its description kept inside the card (the
+// note is the measurement of what this machine already has and is longer than the
+// border row can hold beside the chip), the rule under the pair and both answers as
+// icon/title/subtitle/chevron rows with the cursor's row filled. The answers, their
+// order and the footer's keys are the screen's, unchanged. The cursor is where the
+// screen really opens: the answer the run recorded, the install row.
+func TestFontSelectGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.InstallFont = true
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenFontSelect
+	m.Cursor = m.questionValueIndex(ScreenFontSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Nerd Font Installation"))
+}
+
+// TestFontSelectWideGolden pins the same question at the two-column frame: the card
+// with its chip and the note inside it, the two two-line answers, and the plan panel
+// beside it. The face the install row names is the per-host label the step owns, so
+// the snapshot is where the run's own name for the font is read.
+func TestFontSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.InstallFont = true
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenFontSelect
+	m.Cursor = m.questionValueIndex(ScreenFontSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Nerd Font Installation"))
+}
+
 // TestShellSelectGolden pins the shell question in the reference grammar: the
 // screen's own title as the card's chip, its description kept inside the card
 // (the note names the detected shell and is longer than the border row can hold),
