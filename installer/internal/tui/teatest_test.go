@@ -801,6 +801,45 @@ func TestTerminalSelectWideGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Choose Terminal Emulator"))
 }
 
+// TestShellSelectGolden pins the shell question in the reference grammar: the
+// screen's own title as the card's chip, its description kept inside the card
+// (the note names the detected shell and is longer than the border row can hold),
+// the rule under the pair and every answer as an icon/title/subtitle/chevron row,
+// with the shortcut row behind the card's own divider. The answers, their order and
+// the footer's keys are the screen's, unchanged. The cursor is where the screen
+// really opens: the answer the run recorded for the detected shell, which is what
+// the note beside it states.
+func TestShellSelectGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.Shell = "zsh"
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenShellSelect
+	m.Cursor = m.questionValueIndex(ScreenShellSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Choose Your Shell"))
+}
+
+// TestShellSelectWideGolden pins the same question at the two-column frame: the
+// card with its chip and the note inside it, the two-line answers and the divider
+// before the shortcut row, and the plan panel beside it.
+func TestShellSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.Shell = "zsh"
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenShellSelect
+	m.Cursor = m.questionValueIndex(ScreenShellSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Choose Your Shell"))
+}
+
 // TestNavigationFlowE2E tests navigating from welcome through menu like Playwright would
 func TestNavigationFlowE2E(t *testing.T) {
 	m := NewModel()

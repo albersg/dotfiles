@@ -4091,11 +4091,12 @@ func (m Model) renderSetup() string {
 // are answering the run should be the one they already know. The answers, their
 // order, the keys, the panels and the wizard's step counter are unchanged.
 //
-// The OS and terminal questions are drawn in the reference grammar instead
-// (os_select_view.go, terminal_select_view.go): the page is the card, its title a
-// chip on the border and its description the caption beside it, with the answers as
-// two-line rows. They keep this renderer's frame, hints and step counter, and they
-// fall back to the compact body below when the frame cannot hold the card.
+// The OS, terminal and shell questions are drawn in the reference grammar instead
+// (os_select_view.go, terminal_select_view.go, shell_select_view.go): the page is
+// the card, its title a chip on the border and its description the caption beside
+// it, with the answers as two-line rows. They keep this renderer's frame, hints and
+// step counter, and they fall back to the compact body below when the frame cannot
+// hold the card.
 func (m Model) renderSelection() string {
 	hints := []installerHint{hintUp, hintDown}
 	if m.Cursor >= 0 {
@@ -4121,7 +4122,7 @@ func (m Model) renderSelection() string {
 
 // selectionQuestionCard draws a question in the reference grammar's card, or
 // reports that this screen does not draw one -- or that this frame cannot hold it.
-// The screens that draw a card are the two whose answers have a subtitle to put
+// The screens that draw a card are the three whose answers have a subtitle to put
 // under the title; the rest keep the compact list.
 func (m Model) selectionQuestionCard(hints []installerHint) ([]string, bool) {
 	switch m.Screen {
@@ -4129,6 +4130,8 @@ func (m Model) selectionQuestionCard(hints []installerHint) ([]string, bool) {
 		return m.osSelectCardBody(hints)
 	case ScreenTerminalSelect:
 		return m.terminalSelectCardBody(hints)
+	case ScreenShellSelect:
+		return m.shellSelectCardBody(hints)
 	}
 	return nil, false
 }

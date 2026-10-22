@@ -990,3 +990,41 @@ inside the row's measure for every answer the screen can offer),
 `TestTerminalSelectKeepsTheNoteWhenTheBorderCannotHoldIt`. Goldens:
 `TestTerminalSelectGolden` and `TestTerminalSelectWideGolden` are new. The OS
 guards and both OS goldens pass unchanged.
+
+L22. The shell question moved onto the same shared card, and the slice is the third
+picker the grammar draws.
+
+- **The shell question draws the shared card** (`shell_select_view.go`): the
+  screen's own title minus its `Step N:` prefix as the chip, its own description as
+  the caption -- kept inside the card at both goldens, because the note names the
+  detected shell and is longer than the border row can hold beside the chip -- every
+  answer as an icon/title/subtitle/chevron row, and `Learn about shells` in the
+  group the option list's separator divides off. It calls `questionCard`,
+  `questionCardGroups`, `questionCardWidth` and `questionCardBody`
+  (`components.go`); no gate or row shape is copied, and the card the OS and
+  terminal questions draw is the one this question draws.
+- **The subtitles claim only what the run does.** Fish carries the Fisher bootstrap
+  the shipped `config.fish` performs, zsh the Oh My Zsh, Powerlevel10k and plugin
+  packages the `.zshrc` sources, nushell the `config.nu`/`env.nu` this installer
+  writes, and the shortcut row says it opens each shell's pros and cons; every one
+  is under the 50 columns the left column leaves a row at the 124-column floor, so
+  the row is never cut.
+- **Unchanged, deliberately:** the recorded answer (`Choices.Shell`), the option
+  labels and their order, the separator, Enter/Esc and the arrows, the plan panel,
+  the `1/2` meter, the compact fallback and every other picker.
+- **The floor still falls back.** The card is drawn when the frame can hold it
+  (content ≥ 32 columns and the rows to spare); 36 columns wide or 80x12 draws the
+  compact list, which is the same answers in one line each.
+
+Guards: `TestShellSelectDrawsTheReferenceGrammar` (the chip, the caption kept
+inside the card, the rows with their subtitles and chevrons, the legend and the
+state at 80x24 and 160x50), `TestShellSelectRowsAreTheModelsAnswersInOrder` (the
+answers in order, the separator as the card's divider and not a row, one marker on
+the cursor's row), `TestShellSelectRowTableCoversEveryAnswer` (a one-cell glyph and
+a subtitle inside the row's measure for every answer the screen can offer),
+`TestShellSelectLeavesEnterUnnamedWithNoRowUnderTheCursor`,
+`TestShellSelectKeepsItsShapeWhileTheCursorMoves`,
+`TestShellSelectFallsBackToTheCompactListWhenTheCardCannotFit` and
+`TestShellSelectKeepsTheNoteWhenTheBorderCannotHoldIt`. Goldens:
+`TestShellSelectGolden` and `TestShellSelectWideGolden` are new. The OS and
+terminal guards and their goldens pass unchanged.
