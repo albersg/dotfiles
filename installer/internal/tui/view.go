@@ -2014,24 +2014,19 @@ func (m Model) terminalCapabilitiesDescription() []string {
 		return []string{"Reading what this terminal can do and what it means for the themes and the interface…"}
 	}
 
-	paragraphs := []string{
-		"Read-only: nothing here is changed and nothing is written, and every answer names where it came from.",
-	}
+	paragraphs := []string{capabilityReadOnlyPromise}
 	for _, row := range m.TerminalCapabilities.rows() {
 		// The answer is its own row and the explanation is the row after it, so the
 		// three facts of a capability read as three units instead of one paragraph
 		// and the value is the first thing seen. The source and the consequence are
 		// joined by a dash rather than a full stop: the consequence is a lower-case
 		// clause, and a period before it read like a typo in the sentence above.
+		//
+		// The sentence under the answer is terminalCapabilityDetail's, which the
+		// wide frame's row draws as its muted second line (report_cards.go), so the
+		// two shapes explain one answer in the same words.
 		paragraphs = append(paragraphs, fmt.Sprintf("%s: %s", row.Name, row.Answer.Value))
-		detail := fmt.Sprintf("Source: %s — %s.", row.Answer.Source, row.Implication)
-		if row.Answer.State == capabilityUnknown && row.Answer.Reason != "" {
-			detail += " Why unknown: " + row.Answer.Reason + "."
-			if row.Answer.Manual != "" {
-				detail += " Check: " + row.Answer.Manual + "."
-			}
-		}
-		paragraphs = append(paragraphs, detail)
+		paragraphs = append(paragraphs, terminalCapabilityDetail(row))
 	}
 	return paragraphs
 }

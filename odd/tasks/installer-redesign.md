@@ -1358,3 +1358,90 @@ installer's **own** theme picker, which works under WSL and everywhere else, so 
   interior row, moved to the composition's spare row by centring; the creature, the
   menu's rows and every other card sit where they sat. Verified the other way round
   too: with the three touched sources taken from HEAD, all four pass.
+
+L27. The ports and the section's two reports moved onto the shared grammar. The
+slice was scoped to five screens -- ports, SSH, WSL, terminal capabilities and
+install verify -- and it converted the three that had a body the grammar had no
+word for yet; the SSH and the WSL screens already draw the reference's cards
+(section_wide.go, landed with the doctor and the network diagnosis) and their
+remaining gap is recorded below as what this slice did not take.
+
+- **The ports draw two cards** (`port_cards.go`). The manager is the reading in a
+  card at the left and the reading's own facts in the card beside it
+  (`portFactsChip`, the section's own word for a detail column): every socket is a
+  `cardRowLines` row -- the port, protocol, state and address as the title, the
+  owner and the bind's reach on the muted line under it, the chevron because Enter
+  opens the socket's facts -- windowed with `utilitiesRowWindow` and the notes that
+  name what the window hid, the reading's notice under the card's own rule, and in
+  the right card the scope sentence, the filter/sort/refresh state and, once Enter
+  has opened the row, `iconFactLines` of the selected listener's fields. The
+  confirmation is one card: the account as prose under the chip and the answers it
+  offers under the card's rule, each row still carrying its own letter.
+- **Nothing the reading holds was dropped.** The facts are the listener's own
+  fields -- port, family, state, source, owner and PID and account, executable,
+  redacted arguments, start time, the identity caveat, and the reading's declared
+  limitations -- plus the notice, the scope and the filter state. The redaction is
+  the reading's, so the card prints the same text the copy sends.
+- **The two reports draw rows** (`report_cards.go`). A capability is one row: its
+  name as the title, the answer at the row's right edge (`cardRow.Trailing`), the
+  source and consequence on the muted line under both, the state's mark in the
+  gutter (`✓`/`✗`/`?`, the section's own three), and -- for an answer the probe
+  could not determine -- the reason and the way to check by hand, wrapped whole by
+  `wrappedCardRowLines` rather than cut. A verification finding is one row: the
+  machine's verdict in the gutter, the path as the title, the configuration's own
+  name at the right edge, and what happened to it (or the digest comparison) under
+  both, grouped under the `missing` and `changed` dividers with the record's own
+  sentence and the "still what the run left" count around them.
+- **One source per sentence.** `terminalCapabilityDetail` and
+  `installVerifyOutcome` are the sentence and the word both shapes use, so the
+  compact report the floor draws and the card the wide frame draws cannot explain
+  one answer two ways; `capabilityReadOnlyPromise` and
+  `installVerifyReadOnlyPromise` moved into `report_cards.go` beside the rows they
+  introduce.
+- **The card's composition stayed where it was.** `sectionWideReportCard` keeps the
+  chip, the rule, the way back and the notice and asks `sectionReportGroups` for the
+  body only, so the two report screens changed shape and no other section screen
+  did. `clipCardGroups` cuts a report's own rows first -- the way back is charged
+  for before them -- and a group that gives way says how many rows it could not show.
+- **A wrong fact came out with it.** The report screens printed
+  `Showing 1-0 of 1` in the header: `renderSectionWide` measured a window over the
+  rows a report does not have. A report now reports no range at all.
+- **The floor keeps the compact renderer.** Both port cards and both report cards
+  are gated on the frame -- two columns and a row budget, never the cursor, the
+  filter or the notice -- so 80x24 draws exactly the body it drew before
+  (`TestPortManagerGolden`, `TestPortStopGolden`, `TestTerminalCapabilitiesGolden`
+  and `TestInstallVerifyGolden` are unchanged).
+
+Guards. `port_cards_test.go`: both port screens draw the shared card at 160x50 and
+no card at the floor, the manager's card states every socket with its owner and
+reach, the scope, the filter state, the selected socket's facts and the notice, the
+confirmation's card states the identity, every port it releases, the outcome and
+the verification, the card's top border is the same at every cursor position, the
+footer still names every key the handler answers to, and both screens fit all
+twelve measured terminals. `report_cards_test.go`: the capability card draws one
+row per capability with the model's own answer, source and consequence (and the
+reason and manual check for an unknown one), the verification card draws every
+finding with its path, name, outcome and comparison, both read the model rather
+than a second copy (a changed answer and a no-record verdict are drawn as the model
+holds them), the floor draws no card, and neither report advertises a window.
+Goldens: `TestPortManagerWideGolden`, `TestPortStopWideGolden` and
+`TestInstallVerifyWideGolden` are new; `TestTerminalCapabilitiesWideGolden` was
+regenerated (its answers are rows now and its header no longer claims a range).
+
+Not taken, and why:
+
+- **The SSH screens and the WSL screens** already draw the reference's cards on a
+  two-column frame: their rows are `cardRowLines` and their prose is the card beside
+  them (`section_wide.go`, and `TestSectionWideDrawsTheGrammarsCard` holds the WSL
+  resource screen in that list). What they do not have is the reports' row grammar
+  for their *detail*: `sshHostDescription`, `sshManagerDescription`,
+  `wslAdvisorDescription` and the resource screen's numbers are prose composed by
+  their own description functions, and turning them into `iconFactLines` means
+  rewriting each screen's description into facts and deriving the prose from those
+  facts -- the way `terminalCapabilityDetail` does for the capability report -- so
+  the compact floor and the card cannot drift. That is eleven screens' worth of
+  content refactoring with a guard each, not a page's, and it is the next slice.
+- **The action rows** of the section screens (the SSH and WSL screens included) are
+  still rows inside the list rather than the grammar's presses in the card. That is
+  the same ten-screen decision the previous entry records: it belongs to whoever
+  owns the section renderer.

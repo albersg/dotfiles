@@ -1711,6 +1711,20 @@ func TestPortManagerGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Ports in use"))
 }
 
+// TestPortManagerWideGolden pins the manager in the reference grammar: the
+// reading in a card with two-line rows and the row under the cursor filled, and
+// the reading's own scope, state and (once the detail is open) the selected
+// socket's facts in the card beside it. The 80x24 floor is pinned by
+// TestPortManagerGolden and is unchanged.
+func TestPortManagerWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := portManagerFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Ports in use"))
+}
+
 // TestPortStopGolden pins the stop confirmation: the process identity, its
 // owner, every port it holds, the soft-stop consequences and the verified
 // outcome. Nothing is signalled while it draws; the result is a fixture.
@@ -1721,6 +1735,19 @@ func TestPortStopGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Stop a process"))
+}
+
+// TestPortStopWideGolden pins the confirmation in the reference grammar: the
+// same account in one card, the port it releases and the outcome it observed
+// named under it, and the answers it offers under the card's own rule. The
+// 80x24 floor is pinned by TestPortStopGolden and is unchanged.
+func TestPortStopWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := portStopFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Stop a process"))
 }
 
 // TestCompleteCelebrationGolden pins the end-of-run burst: the particles and the

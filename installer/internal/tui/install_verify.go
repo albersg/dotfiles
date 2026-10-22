@@ -69,11 +69,7 @@ func (m Model) installVerifyCmdIfNeeded() tea.Cmd {
 // installer touches, so the list is longer than any frame, and the prose that gives
 // way to it would be cut on exactly the machines a user most wants an answer on.
 func (m Model) installVerifyDescription() []string {
-	paragraphs := []string{
-		"Read-only, and it writes nothing. Every path and backup the record names is here or gone, and every file " +
-			"the run changed is compared against the digest it held when the run finished: still holding it, changed " +
-			"since, or unreadable. Where the record carries no digest, being here is all this can say.",
-	}
+	paragraphs := []string{installVerifyReadOnlyPromise}
 
 	if !m.InstallVerify.Resolved {
 		return append(paragraphs, "Reading the record of the last install and checking this machine against it…")

@@ -402,3 +402,20 @@ func TestInstallVerifyGolden(t *testing.T) {
 
 	golden.RequireEqual(t, []byte(m.View()))
 }
+
+// TestInstallVerifyWideGolden pins the verification in the reference grammar: the
+// read-only promise under the chip, the run the record names, one row per finding
+// with the machine's verdict in its gutter and the path as its title, and the
+// count of what is still as the run left it -- with the way back under the card's
+// own rule. The 80x24 floor is pinned by TestInstallVerifyGolden and is unchanged.
+func TestInstallVerifyWideGolden(t *testing.T) {
+	skipIfTermux(t)
+
+	m := installerFrameModel(t, ScreenInstallVerify)
+	m.Width, m.Height = 160, 50
+	m.Screen = ScreenInstallVerify
+	m.Animating = false
+	m.InstallVerify = installVerifyState{Resolved: true, Verdict: installVerifyTestVerdict()}
+
+	golden.RequireEqual(t, []byte(m.View()))
+}

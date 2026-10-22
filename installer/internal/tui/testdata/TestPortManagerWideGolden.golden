@@ -1,0 +1,50 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
+   Utilities                                                                                                                                         dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  ╭─ Ports in use ─────────────────────────────────────────────────────╮  ╭─ Details ────────────────────────────────────────────────────────────────────────╮  
+  │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
+  │ ▸ :3000  tcp  LISTEN  127.0.0.1                                  › │  │ Scope: this machine. Every row is a socket this kernel holds.                    │  
+  │   node (pid 4242, alber)  loopback only                            │  │ Filter none  Transport all  Owner all  Sort port  Auto off  read at 03:04:05     │  
+  │   :5353  udp  UNCONN  127.0.0.1                                  › │  ├─ Selected ───────────────────────────────────────────────────────────────────────┤  
+  │   owner not readable  loopback only                                │  │   Port               :3000 tcp LISTEN 127.0.0.1                                  │  
+  │   :8080  tcp  LISTEN  0.0.0.0                                    › │  │   Family             IPv4                                                        │  
+  │   python3 (pid 900, alber)  all interfaces                         │  │   State              LISTEN                                                      │  
+  ├────────────────────────────────────────────────────────────────────┤  │   Source             /proc/net/tcp                                               │  
+  │ 1 new, 1 gone since the last reading                               │  │   Owner              node (pid 4242, user alber)                                 │  
+  ╰────────────────────────────────────────────────────────────────────╯  │   Executable         /usr/bin/node                                               │  
+                                                                          │   Arguments          (redacted) node server.js --token ****                      │  
+                                                                          │   Identity           cannot be revalidated on this platform; a stop checks       │  
+                                                                          │                      liveness only.                                              │  
+                                                                          │   Limitation         some sockets have no readable owner here: reading another   │  
+                                                                          │                      user's file descriptors needs privileges this run does not  │  
+                                                                          │                      have. The ports are real; the process behind them is not    │  
+                                                                          │                      shown.                                                      │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                     ↑/k up • ↓/j down • [Enter] open • [/] filter • [f/o/s] cycle • [r] refresh • [p] auto • [x] stop • [y] copy • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

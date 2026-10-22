@@ -663,8 +663,19 @@ func (m Model) portStopHints() []installerHint {
 // open, and the notice. It reads the model and nothing else: no clock, no
 // environment and no file.
 func (m Model) renderPortManager() string {
-	width := contentWidth(m)
 	hints := m.portManagerHints()
+	// On a frame that holds two columns of cards the reading is drawn in the
+	// reference's grammar (port_cards.go): the list in the card at the left and the
+	// facts in the card beside it. The gate reads the frame and nothing else, so the
+	// shape cannot change while the user walks the reading or types a filter; the
+	// 80x24 floor keeps the compact body below.
+	l := layoutFor(m)
+	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, hints))
+	if m.portManagerWide(l, budget) {
+		return m.renderPortManagerWide(l, hints, budget)
+	}
+
+	width := contentWidth(m)
 	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	title := BrandStyle.Render(m.GetScreenTitle())
@@ -775,8 +786,14 @@ func portEmptyListLine(loaded, loading bool) string {
 // has landed -- and the rows under them name the one action on offer and the
 // letter that runs it.
 func (m Model) renderPortStop() string {
-	width := contentWidth(m)
 	hints := m.portStopHints()
+	l := layoutFor(m)
+	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, hints))
+	if m.portStopWide(l, budget) {
+		return m.renderPortStopWide(l, hints, budget)
+	}
+
+	width := contentWidth(m)
 	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	title := BrandStyle.Render(m.GetScreenTitle())

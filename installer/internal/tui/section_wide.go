@@ -132,9 +132,11 @@ func (m Model) renderSectionWide(l layout, paragraphs []string, screenNotice str
 
 	// The header's vital names the slice of a windowed list that is on screen, so a
 	// list longer than the frame says so instead of appearing to end where the
-	// screen does -- the same rule the compact shape follows.
+	// screen does -- the same rule the compact shape follows. A report has no list
+	// to window -- the only row it offers is the way back -- so it reports nothing
+	// rather than a range of a list it is not drawing.
 	vital := ""
-	if end-start < entryTotal {
+	if listRows > 0 && end-start < entryTotal {
 		vital = scrollVital("Showing", start+1, end, entryTotal)
 	}
 	if suffix := m.sectionVitalSuffix(); suffix != "" {
@@ -270,6 +272,15 @@ func (m Model) sectionWideDetailCard(paragraphs []string, screenNotice string, w
 // -- as one card across the composition, with the way back under its rule.
 func (m Model) sectionWideReportCard(paragraphs []string, screenNotice string, tail []string, cursor, width, budget int) []string {
 	content := cardContentWidth(width)
+
+	// The two report screens -- the capability reading and the verification -- draw
+	// their facts as the grammar's rows (report_cards.go): a row per capability with
+	// its answer at the row's right edge, and a row per finding with the machine's
+	// verdict in its gutter. The card itself is this one, so only the body changes
+	// shape and the way back stays where it was.
+	if groups, ok := m.sectionReportGroups(content); ok {
+		return m.sectionWideGroupsCard(groups, screenNotice, tail, cursor, width, budget)
+	}
 
 	var notice []string
 	if strings.TrimSpace(screenNotice) != "" {
