@@ -903,3 +903,41 @@ capabilities, network, ports, SSH, disk cleaner, install verify), the wizard's
 pickers, the Learn/keymap tables, the trainer and the backup/restore screens:
 they keep the existing card/list grammar. Their rows and keys are unchanged; they
 are the next slices, not regressions of this one.
+
+L20. The first wizard picker moved onto the grammar: the OS question is drawn as
+the reference's card (`os_select_view.go`), and nothing else about the screen
+changed.
+
+- **The page is the card.** The screen's own title — minus the `Step N:` prefix the
+  header's meter owns — is the chip set into the card's top border, and the
+  screen's own description (`Detected: Linux`, or the undetected sentence) is the
+  caption at the right of the same row. There is no title line above the card any
+  more: it was the same words twice once the chip carried them, which is how the
+  section screens already draw (`sectionWideTitle`).
+- **The answers are grammar rows.** `m.GetCurrentOptions()` in the order the key
+  handler reads them, each as icon, title, muted subtitle and chevron, with the
+  cursor's row filled and marked (`cardRowLines`). The subtitles name the package
+  manager each platform is installed through — Homebrew and the Apple toolchain,
+  the distribution's own manager, `pkg` on Termux — because that is the only thing
+  the choice changes about the run; no fact about the host is invented.
+- **The caption cannot be lost.** `card` gives its caption back when the border
+  row has no room for it, and on an undetected host that sentence is the screen's
+  only fact, so the card moves it inside the body instead of dropping it (80 wide,
+  the undetected sentence, is the case).
+- **The floor keeps a fallback.** The card is drawn when the frame can hold it —
+  a content width of 32 columns and a row budget that holds the chrome plus every
+  answer — and the compact list is drawn below that (36 columns, or 80x12), which
+  is the same answers in one line each. The gate reads the frame only, never the
+  cursor, so the shape cannot change while the user walks the answers.
+- Unchanged, deliberately: the recorded answer (`Choices.OS`), the option labels
+  and their order, Enter/Esc and the arrows, the plan panel beside the card, the
+  wizard's `1/2` meter, and every other picker, which keeps the compact list until
+  its own rows have subtitles.
+
+Guards: `TestOSSelectDrawsTheReferenceGrammar` (the chip, the caption, the closing
+border, the rows, the legend at 80x24 and 160x50),
+`TestOSSelectRowsAreTheModelsAnswersInOrder` (the model's answers in order, one
+marker, on the cursor's row), `TestOSSelectLeavesEnterUnnamedWithNoRowUnderTheCursor`,
+`TestOSSelectFallsBackToTheCompactListWhenTheCardCannotFit` and
+`TestOSSelectKeepsTheDescriptionWhenTheBorderCannotHoldIt`. Goldens:
+`TestOSSelectGolden` regenerated, `TestOSSelectWideGolden` new.

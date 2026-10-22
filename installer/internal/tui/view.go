@@ -4090,6 +4090,12 @@ func (m Model) renderSetup() string {
 // from every other list in the program -- and the shape a person sees while they
 // are answering the run should be the one they already know. The answers, their
 // order, the keys, the panels and the wizard's step counter are unchanged.
+//
+// The OS question is drawn in the reference grammar instead (os_select_view.go):
+// the page is the card, its title a chip on the border and its description the
+// caption beside it, with the answers as two-line rows. It keeps this renderer's
+// frame, hints and step counter, and it falls back to the compact body below when
+// the frame cannot hold the card.
 func (m Model) renderSelection() string {
 	hints := []installerHint{hintUp, hintDown}
 	if m.Cursor >= 0 {
@@ -4104,15 +4110,26 @@ func (m Model) renderSelection() string {
 	// window is measured from what the head left, so a long note shortens the list
 	// rather than pushing it off the frame.
 	panels := m.panelsFor()
-	body, _, _, _ := m.menuCardBody(stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription(), 0, m.panelHints(panels, hints))
-
-	// The step counter is the wizard's vital sign, and it lives in the header
-	// now instead of costing the body a chip row above the title.
-	vital := ""
-	if current, total := m.wizardProgress(); total > 0 {
-		vital = meterRendered(current, total, 10)
+	bodyHints := m.panelHints(panels, hints)
+	if m.Screen == ScreenOSSelect {
+		if card, ok := m.osSelectCardBody(bodyHints); ok {
+			return m.frame(m.headerName(), m.selectionVital(), card, hints)
+		}
 	}
-	return m.frame(m.headerName(), vital, body, hints)
+	body, _, _, _ := m.menuCardBody(stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription(), 0, bodyHints)
+
+	return m.frame(m.headerName(), m.selectionVital(), body, hints)
+}
+
+// selectionVital is the wizard's step counter in the header: the pickers are
+// detours of the setup screen and inherit its meter rather than claiming a step
+// of their own. It lives beside renderSelection because both of that screen's
+// shapes carry it, so the two cannot disagree about the count.
+func (m Model) selectionVital() string {
+	if current, total := m.wizardProgress(); total > 0 {
+		return meterRendered(current, total, 10)
+	}
+	return ""
 }
 
 // renderLearnTools draws the hub: one row per page of the in-installer wiki,

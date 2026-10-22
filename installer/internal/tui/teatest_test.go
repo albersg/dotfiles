@@ -750,6 +750,23 @@ func TestOSSelectGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Select Your Operating System"))
 }
 
+// TestOSSelectWideGolden pins the same question at the two-column frame: the
+// reference's card with the screen's title as the chip and its own description as
+// the caption, the two-line answers inside it with the cursor's row filled, and
+// the plan panel beside it. It is the shape the card grammar gives every screen;
+// this is the first wizard question drawn in it.
+func TestOSSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenOSSelect
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Select Your Operating System"))
+}
+
 // TestNavigationFlowE2E tests navigating from welcome through menu like Playwright would
 func TestNavigationFlowE2E(t *testing.T) {
 	m := NewModel()
